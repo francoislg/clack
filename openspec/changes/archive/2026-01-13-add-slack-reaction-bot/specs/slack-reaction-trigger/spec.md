@@ -25,10 +25,15 @@ The system SHALL post initial responses as ephemeral messages visible only to th
 - **AND** only the user who added the trigger reaction can see the message
 - **AND** the message includes Accept, Reject, Refine, and Update action buttons
 
-#### Scenario: Generation in progress indicator
-- **WHEN** answer generation is initiated
-- **THEN** the system posts an ephemeral "thinking" indicator to the user
-- **AND** replaces it with the actual response when ready
+#### Scenario: Silent generation
+- **WHEN** answer generation is initiated from a reaction trigger
+- **THEN** the system generates the answer without posting a progress indicator
+- **AND** posts the ephemeral response only when the answer is ready
+
+#### Scenario: Progress indicator on Refine/Update
+- **WHEN** user clicks Refine (after modal submission) or Update
+- **THEN** the system posts an ephemeral "thinking" indicator
+- **AND** replaces it with the new response when ready
 
 ### Requirement: Accept Action
 The system SHALL make the answer visible to all channel members when the user clicks Accept.

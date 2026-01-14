@@ -9,10 +9,11 @@ A Slack bot that answers codebase questions using Claude Code. React to any mess
 1. **React** — Add the configured emoji (e.g., 🤖) to any Slack message
 2. **Review** — Clack sends you an ephemeral answer (only you can see it)
 3. **Decide** — Click one of:
-   - **Accept** — Share the answer with everyone in the thread
-   - **Reject** — Dismiss the answer
-   - **Refine** — Add instructions and get a better answer
-   - **Update** — Re-read the thread and regenerate
+   - **✅ Accept** — Share the answer with everyone in the thread
+   - **✏️ Edit & Accept** — Edit the answer before sharing
+   - **🔄 Refine** — Add instructions and get a better answer
+   - **🔃 Update** — Re-read the thread and regenerate
+   - **❌ Reject** — Dismiss the answer
 
 ## Features
 
@@ -21,6 +22,7 @@ A Slack bot that answers codebase questions using Claude Code. React to any mess
 - **Thread-aware** — Understands conversation context from Slack threads
 - **Session memory** — Refinements build on previous answers (15-min timeout)
 - **Ephemeral first** — Review before sharing with your team
+- **Thinking feedback** — Show an emoji reaction or message while processing
 
 ## Setup
 
@@ -47,6 +49,10 @@ A Slack bot that answers codebase questions using Claude Code. React to any mess
        "signingSecret": "..."
      },
      "triggerReaction": "robot_face",
+     "thinkingFeedback": {
+       "type": "emoji",
+       "emoji": "thinking_face"
+     },
      "repositories": [
        {
          "name": "my-app",
@@ -54,7 +60,10 @@ A Slack bot that answers codebase questions using Claude Code. React to any mess
          "description": "Main application codebase",
          "branch": "main"
        }
-     ]
+     ],
+     "claudeCode": {
+       "model": "sonnet"
+     }
    }
    ```
 
@@ -71,6 +80,7 @@ A Slack bot that answers codebase questions using Claude Code. React to any mess
 3. Generate an **App-Level Token** with `connections:write` scope
 4. Add the following **Bot Token Scopes** under OAuth & Permissions:
    - `reactions:read` — Detect trigger reactions
+   - `reactions:write` — Add thinking emoji feedback
    - `channels:history` — Read messages in public channels
    - `groups:history` — Read messages in private channels
    - `chat:write` — Post responses
@@ -111,6 +121,8 @@ For private repositories, configure SSH access:
 | `slack.appToken` | Slack app token (xapp-...) | Required |
 | `slack.signingSecret` | Slack signing secret | Required |
 | `triggerReaction` | Emoji name that triggers the bot | `robot_face` |
+| `thinkingFeedback.type` | Feedback type: `message` or `emoji` | `message` |
+| `thinkingFeedback.emoji` | Emoji to show while thinking (if type is `emoji`) | — |
 | `repositories[].name` | Local folder name for the repo | Required |
 | `repositories[].url` | Git clone URL (SSH) | Required |
 | `repositories[].description` | Description for Claude context | Required |
@@ -121,7 +133,6 @@ For private repositories, configure SSH access:
 | `git.cloneDepth` | Depth for shallow clone | `1` |
 | `sessions.timeoutMinutes` | Session inactivity timeout | `15` |
 | `sessions.cleanupIntervalMinutes` | How often to clean expired sessions | `5` |
-| `claudeCode.path` | Path to Claude CLI | `claude` |
 | `claudeCode.model` | Claude model to use | `sonnet` |
 
 ## Development
@@ -141,8 +152,13 @@ src/
 ├── config.ts       # Configuration loading and validation
 ├── repositories.ts # Git clone/pull operations
 ├── sessions.ts     # Session lifecycle management
-├── claude.ts       # Claude Code CLI integration
-└── slack.ts        # Slack Bolt app and handlers
+├── claude.ts       # Claude Agent SDK integration
+└── slack/
+    ├── app.ts         # Slack Bolt app setup
+    ├── blocks.ts      # Slack block builders
+    ├── state.ts       # Session info state
+    ├── messagesApi.ts # Slack messages API helpers
+    └── handlers/      # Action and event handlers
 
 data/
 ├── config.json         # Your configuration (gitignored)

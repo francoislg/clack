@@ -1,0 +1,32 @@
+{
+  "slack": {
+    "botToken": "xoxb-your-bot-token",
+    "appToken": "xapp-your-app-token",
+    "signingSecret": "your-signing-secret"
+  },
+  "triggerReaction": "robot_face",
+  "thinkingFeedback": {
+    "type": "message"
+  },
+  "repositories": [
+    {
+      "name": "my-app",
+      "url": "git@github.com:your-org/your-repo.git",
+      "description": "Main application codebase - contains backend API and frontend",
+      "branch": "main"
+    }
+  ],
+  "git": {
+    "sshKeyPath": "~/.ssh/id_rsa",
+    "pullIntervalMinutes": 60,
+    "shallowClone": true,
+    "cloneDepth": 1
+  },
+  "sessions": {
+    "timeoutMinutes": 15,
+    "cleanupIntervalMinutes": 5
+  },
+  "claudeCode": {
+    "model": "sonnet"
+  }
+}
