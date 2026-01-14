@@ -1,0 +1,109 @@
+import { convertMarkdownToSlack, truncateForSlack } from "../claude.js";
+
+export function getResponseBlocks(answer: string, sessionId: string) {
+  return [
+    {
+      type: "section" as const,
+      text: {
+        type: "mrkdwn" as const,
+        text: truncateForSlack(convertMarkdownToSlack(answer)),
+      },
+    },
+    {
+      type: "divider" as const,
+    },
+    {
+      type: "actions" as const,
+      elements: [
+        {
+          type: "button" as const,
+          text: {
+            type: "plain_text" as const,
+            text: "✅ Accept",
+            emoji: true,
+          },
+          style: "primary" as const,
+          action_id: "clack_accept",
+          value: sessionId,
+        },
+        {
+          type: "button" as const,
+          text: {
+            type: "plain_text" as const,
+            text: "✏️ Edit & Accept",
+            emoji: true,
+          },
+          action_id: "clack_edit",
+          value: sessionId,
+        },
+        {
+          type: "button" as const,
+          text: {
+            type: "plain_text" as const,
+            text: "🔄 Refine",
+            emoji: true,
+          },
+          action_id: "clack_refine",
+          value: sessionId,
+        },
+        {
+          type: "button" as const,
+          text: {
+            type: "plain_text" as const,
+            text: "🔃 Update",
+            emoji: true,
+          },
+          action_id: "clack_update",
+          value: sessionId,
+        },
+        {
+          type: "button" as const,
+          text: {
+            type: "plain_text" as const,
+            text: "❌ Reject",
+            emoji: true,
+          },
+          style: "danger" as const,
+          action_id: "clack_reject",
+          value: sessionId,
+        },
+      ],
+    },
+  ];
+}
+
+export function getAcceptedBlocks(answer: string) {
+  return [
+    {
+      type: "section" as const,
+      text: {
+        type: "mrkdwn" as const,
+        text: truncateForSlack(convertMarkdownToSlack(answer)),
+      },
+    },
+  ];
+}
+
+export function getThinkingBlocks() {
+  return [
+    {
+      type: "section" as const,
+      text: {
+        type: "mrkdwn" as const,
+        text: ":thinking_face: _Analyzing the codebase..._",
+      },
+    },
+  ];
+}
+
+export function getErrorBlocks(message: string) {
+  return [
+    {
+      type: "section" as const,
+      text: {
+        type: "mrkdwn" as const,
+        text: `:x: ${message}`,
+      },
+    },
+  ];
+}
