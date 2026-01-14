@@ -1,6 +1,22 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync, readdirSync } from "node:fs";
+import { mkdir, readFile, writeFile, rm, readdir, access } from "node:fs/promises";
 import { resolve } from "node:path";
+
+async function exists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
 import { getConfig, getSessionsDir } from "./config.js";
+
+export interface ThreadMessage {
+  text: string;
+  userId: string;
+  isBot: boolean;
+  ts: string;
+}
 
 export interface SessionContext {
   sessionId: string;
@@ -9,7 +25,7 @@ export interface SessionContext {
   threadTs: string;
   userId: string;
   originalQuestion: string;
-  threadContext: string[];
+  threadContext: ThreadMessage[];
   refinements: string[];
   lastAnswer?: string;
   lastActivity: number;
@@ -58,26 +74,26 @@ function getContextPath(sessionId: string): string {
   return resolve(getSessionPath(sessionId), "context.json");
 }
 
-export function createSession(
+export async function createSession(
   channelId: string,
   messageTs: string,
   threadTs: string,
   userId: string,
   originalQuestion: string,
-  threadContext: string[] = []
-): SessionContext {
+  threadContext: ThreadMessage[] = []
+): Promise<SessionContext> {
   const sessionsDir = getSessionsDir();
 
   // Ensure sessions directory exists
-  if (!existsSync(sessionsDir)) {
-    mkdirSync(sessionsDir, { recursive: true });
+  if (!(await exists(sessionsDir))) {
+    await mkdir(sessionsDir, { recursive: true });
   }
 
   const sessionId = generateSessionId(channelId, messageTs, userId);
   const sessionPath = getSessionPath(sessionId);
 
   // Create session directory
-  mkdirSync(sessionPath, { recursive: true });
+  await mkdir(sessionPath, { recursive: true });
 
   const now = Date.now();
   const context: SessionContext = {
@@ -94,21 +110,21 @@ export function createSession(
   };
 
   // Write context file
-  writeFileSync(getContextPath(sessionId), JSON.stringify(context, null, 2));
+  await writeFile(getContextPath(sessionId), JSON.stringify(context, null, 2));
 
   console.log(`Created session ${sessionId}`);
   return context;
 }
 
-export function getSession(sessionId: string): SessionContext | null {
+export async function getSession(sessionId: string): Promise<SessionContext | null> {
   const contextPath = getContextPath(sessionId);
 
-  if (!existsSync(contextPath)) {
+  if (!(await exists(contextPath))) {
     return null;
   }
 
   try {
-    const content = readFileSync(contextPath, "utf-8");
+    const content = await readFile(contextPath, "utf-8");
     return JSON.parse(content) as SessionContext;
   } catch (error) {
     console.error(`Failed to read session ${sessionId}:`, error);
@@ -116,21 +132,21 @@ export function getSession(sessionId: string): SessionContext | null {
   }
 }
 
-export function findSessionByMessage(
+export async function findSessionByMessage(
   channelId: string,
   messageTs: string,
   userId: string
-): SessionContext | null {
+): Promise<SessionContext | null> {
   const sessionsDir = getSessionsDir();
 
-  if (!existsSync(sessionsDir)) {
+  if (!(await exists(sessionsDir))) {
     return null;
   }
 
-  const sessionDirs = readdirSync(sessionsDir);
+  const sessionDirs = await readdir(sessionsDir);
 
   for (const dir of sessionDirs) {
-    const session = getSession(dir);
+    const session = await getSession(dir);
     if (
       session &&
       session.channelId === channelId &&
@@ -144,8 +160,34 @@ export function findSessionByMessage(
   return null;
 }
 
-export function updateSession(sessionId: string, updates: Partial<SessionContext>): SessionContext | null {
-  const session = getSession(sessionId);
+export async function findSessionByThread(
+  channelId: string,
+  threadTs: string
+): Promise<SessionContext | null> {
+  const sessionsDir = getSessionsDir();
+
+  if (!(await exists(sessionsDir))) {
+    return null;
+  }
+
+  const sessionDirs = await readdir(sessionsDir);
+
+  for (const dir of sessionDirs) {
+    const session = await getSession(dir);
+    if (
+      session &&
+      session.channelId === channelId &&
+      session.threadTs === threadTs
+    ) {
+      return session;
+    }
+  }
+
+  return null;
+}
+
+export async function updateSession(sessionId: string, updates: Partial<SessionContext>): Promise<SessionContext | null> {
+  const session = await getSession(sessionId);
 
   if (!session) {
     return null;
@@ -157,12 +199,12 @@ export function updateSession(sessionId: string, updates: Partial<SessionContext
     lastActivity: Date.now(),
   };
 
-  writeFileSync(getContextPath(sessionId), JSON.stringify(updated, null, 2));
+  await writeFile(getContextPath(sessionId), JSON.stringify(updated, null, 2));
   return updated;
 }
 
-export function addRefinement(sessionId: string, refinement: string): SessionContext | null {
-  const session = getSession(sessionId);
+export async function addRefinement(sessionId: string, refinement: string): Promise<SessionContext | null> {
+  const session = await getSession(sessionId);
 
   if (!session) {
     return null;
@@ -173,15 +215,15 @@ export function addRefinement(sessionId: string, refinement: string): SessionCon
   });
 }
 
-export function updateThreadContext(sessionId: string, threadContext: string[]): SessionContext | null {
+export async function updateThreadContext(sessionId: string, threadContext: ThreadMessage[]): Promise<SessionContext | null> {
   return updateSession(sessionId, { threadContext });
 }
 
-export function setLastAnswer(sessionId: string, answer: string): SessionContext | null {
+export async function setLastAnswer(sessionId: string, answer: string): Promise<SessionContext | null> {
   return updateSession(sessionId, { lastAnswer: answer });
 }
 
-export function touchSession(sessionId: string): SessionContext | null {
+export async function touchSession(sessionId: string): Promise<SessionContext | null> {
   return updateSession(sessionId, {});
 }
 
@@ -193,29 +235,29 @@ export function isSessionExpired(session: SessionContext): boolean {
   return now - session.lastActivity > timeoutMs;
 }
 
-export function deleteSession(sessionId: string): void {
+export async function deleteSession(sessionId: string): Promise<void> {
   const sessionPath = getSessionPath(sessionId);
 
-  if (existsSync(sessionPath)) {
-    rmSync(sessionPath, { recursive: true });
+  if (await exists(sessionPath)) {
+    await rm(sessionPath, { recursive: true });
     console.log(`Deleted session ${sessionId}`);
   }
 }
 
-export function cleanupExpiredSessions(): void {
+export async function cleanupExpiredSessions(): Promise<void> {
   const sessionsDir = getSessionsDir();
 
-  if (!existsSync(sessionsDir)) {
+  if (!(await exists(sessionsDir))) {
     return;
   }
 
-  const sessionDirs = readdirSync(sessionsDir);
+  const sessionDirs = await readdir(sessionsDir);
   let cleaned = 0;
 
   for (const dir of sessionDirs) {
-    const session = getSession(dir);
+    const session = await getSession(dir);
     if (session && isSessionExpired(session)) {
-      deleteSession(dir);
+      await deleteSession(dir);
       cleaned++;
     }
   }

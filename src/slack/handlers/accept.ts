@@ -32,8 +32,8 @@ export function registerAcceptHandler(app: App): void {
     await ack();
 
     const sessionId = (body.actions[0] as { value: string }).value;
-    const sessionInfo = restoreSessionInfo(sessionId);
-    const session = getSession(sessionId);
+    const sessionInfo = await restoreSessionInfo(sessionId);
+    const session = await getSession(sessionId);
 
     // Try to get answer from session, or extract from message blocks (for expired sessions)
     const answer = session?.lastAnswer || extractAnswerFromMessage(body);
@@ -54,7 +54,7 @@ export function registerAcceptHandler(app: App): void {
 
       deleteSessionInfo(sessionId);
       if (session) {
-        touchSession(sessionId);
+        await touchSession(sessionId);
       }
       console.log(`Accepted answer for session ${sessionId}`);
     } else {

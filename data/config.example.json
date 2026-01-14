@@ -4,9 +4,23 @@
     "appToken": "xapp-your-app-token",
     "signingSecret": "your-signing-secret"
   },
-  "triggerReaction": "robot_face",
-  "thinkingFeedback": {
-    "type": "message"
+  "reactions": {
+    "trigger": "robot_face",
+    "thinking": {
+      "type": "message"
+    }
+  },
+  "directMessages": {
+    "enabled": false,
+    "thinking": {
+      "type": "message"
+    }
+  },
+  "mentions": {
+    "enabled": false,
+    "thinking": {
+      "type": "message"
+    }
   },
   "repositories": [
     {

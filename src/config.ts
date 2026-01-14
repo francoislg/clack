@@ -35,10 +35,26 @@ export interface ThinkingFeedbackConfig {
   emoji?: string;
 }
 
+export interface ReactionsConfig {
+  trigger: string;
+  thinking?: ThinkingFeedbackConfig;
+}
+
+export interface DirectMessagesConfig {
+  enabled: boolean;
+  thinking?: ThinkingFeedbackConfig;
+}
+
+export interface MentionsConfig {
+  enabled: boolean;
+  thinking?: ThinkingFeedbackConfig;
+}
+
 export interface Config {
   slack: SlackConfig;
-  triggerReaction: string;
-  thinkingFeedback?: ThinkingFeedbackConfig;
+  reactions: ReactionsConfig;
+  directMessages: DirectMessagesConfig;
+  mentions: MentionsConfig;
   repositories: RepositoryConfig[];
   git: GitConfig;
   sessions: SessionsConfig;
@@ -46,9 +62,23 @@ export interface Config {
 }
 
 const DEFAULTS: Partial<Config> = {
-  triggerReaction: "robot_face",
-  thinkingFeedback: {
-    type: "message",
+  reactions: {
+    trigger: "robot_face",
+    thinking: {
+      type: "message",
+    },
+  },
+  directMessages: {
+    enabled: false,
+    thinking: {
+      type: "message",
+    },
+  },
+  mentions: {
+    enabled: false,
+    thinking: {
+      type: "message",
+    },
   },
   git: {
     pullIntervalMinutes: 60,
@@ -113,13 +143,37 @@ function validateConfig(config: unknown): Config {
       appToken: slack.appToken as string,
       signingSecret: slack.signingSecret as string,
     },
-    triggerReaction: (c.triggerReaction as string) || DEFAULTS.triggerReaction!,
-    thinkingFeedback: c.thinkingFeedback
-      ? {
-          type: (c.thinkingFeedback as Record<string, unknown>).type as "message" | "emoji",
-          emoji: (c.thinkingFeedback as Record<string, unknown>).emoji as string | undefined,
-        }
-      : DEFAULTS.thinkingFeedback,
+    reactions: {
+      trigger: (c.reactions as Record<string, unknown>)?.trigger as string || DEFAULTS.reactions!.trigger,
+      thinking: (c.reactions as Record<string, unknown>)?.thinking
+        ? {
+            type: ((c.reactions as Record<string, unknown>).thinking as Record<string, unknown>).type as "message" | "emoji",
+            emoji: ((c.reactions as Record<string, unknown>).thinking as Record<string, unknown>).emoji as string | undefined,
+          }
+        : DEFAULTS.reactions!.thinking,
+    },
+    directMessages: {
+      enabled:
+        ((c.directMessages as Record<string, unknown>)?.enabled as boolean) ??
+        DEFAULTS.directMessages!.enabled,
+      thinking: (c.directMessages as Record<string, unknown>)?.thinking
+        ? {
+            type: ((c.directMessages as Record<string, unknown>).thinking as Record<string, unknown>).type as "message" | "emoji",
+            emoji: ((c.directMessages as Record<string, unknown>).thinking as Record<string, unknown>).emoji as string | undefined,
+          }
+        : DEFAULTS.directMessages!.thinking,
+    },
+    mentions: {
+      enabled:
+        ((c.mentions as Record<string, unknown>)?.enabled as boolean) ??
+        DEFAULTS.mentions!.enabled,
+      thinking: (c.mentions as Record<string, unknown>)?.thinking
+        ? {
+            type: ((c.mentions as Record<string, unknown>).thinking as Record<string, unknown>).type as "message" | "emoji",
+            emoji: ((c.mentions as Record<string, unknown>).thinking as Record<string, unknown>).emoji as string | undefined,
+          }
+        : DEFAULTS.mentions!.thinking,
+    },
     repositories: c.repositories.map((r: Record<string, unknown>) => ({
       name: r.name as string,
       url: r.url as string,

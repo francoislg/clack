@@ -63,8 +63,8 @@ export function registerRefineHandler(app: App): void {
     const sessionId = view.private_metadata;
     const refinement = view.state.values.refinement_block.refinement_input.value || "";
 
-    let session = getSession(sessionId);
-    const sessionInfo = restoreSessionInfo(sessionId);
+    let session = await getSession(sessionId);
+    const sessionInfo = await restoreSessionInfo(sessionId);
 
     if (!sessionInfo) {
       console.error("Could not restore session info for refinement");
@@ -82,7 +82,7 @@ export function registerRefineHandler(app: App): void {
       }
 
       // Fetch original message and thread context from Slack
-      const messageText = await fetchMessage(client, parsed.channelId, parsed.messageTs);
+      const messageText = await fetchMessage(client, parsed.channelId, parsed.messageTs, sessionInfo.threadTs);
       if (!messageText) {
         console.error("Could not fetch original message for session recreation");
         await client.chat.postEphemeral({
@@ -95,10 +95,12 @@ export function registerRefineHandler(app: App): void {
         return;
       }
 
-      const threadContext = await fetchThreadContext(client, parsed.channelId, sessionInfo.threadTs);
+      // Get bot user ID for thread context attribution
+      const botUserId = (await client.auth.test()).user_id || "";
+      const threadContext = await fetchThreadContext(client, parsed.channelId, sessionInfo.threadTs, botUserId);
 
       // Create new session (note: this creates a NEW sessionId, but we continue using the old one for this request)
-      session = createSession(
+      session = await createSession(
         parsed.channelId,
         parsed.messageTs,
         sessionInfo.threadTs,
@@ -118,13 +120,13 @@ export function registerRefineHandler(app: App): void {
     }
 
     // Add refinement and regenerate
-    addRefinement(session.sessionId, refinement);
-    const updatedSession = getSession(session.sessionId)!;
+    await addRefinement(session.sessionId, refinement);
+    const updatedSession = (await getSession(session.sessionId))!;
 
     const response = await askClaude(updatedSession);
 
     if (response.success) {
-      setLastAnswer(session.sessionId, response.answer);
+      await setLastAnswer(session.sessionId, response.answer);
 
       await client.chat.postEphemeral({
         channel: sessionInfo.channelId,

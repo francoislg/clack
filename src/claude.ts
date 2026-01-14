@@ -28,13 +28,26 @@ IMPORTANT INSTRUCTIONS:
 ## Step 2: Craft the Response (as a Support Agent)
 - Give the answer directly. No preamble like "Based on my exploration of the codebase..." or "Answer:" headers.
 - Keep it short and to-the-point. Only add structure (bullets, sections) if the question is complex.
-- Use plain, non-technical language suitable for non-developers. Avoid jargon.
-- Focus on what the code DOES, not implementation details.
+- **Use broad, non-technical explanations by default**—explain like you're talking to a teammate who doesn't code.
+- **Never include**: file paths, line numbers, function names, table/field names, or code snippets—unless the user explicitly asks for technical details.
+- Focus on WHAT is happening and WHY, not HOW it's implemented.
+- If the user asks for "more details", "technical info", or "specifics", then you may include code references.
 
 ## Critical: Information Only
 - Never suggest code changes, fixes, or solutions that would require modifying the codebase.
 - Your role is to explain how things currently work, not to recommend what should change.
 - If asked "how do I fix X?", explain what X does and why it behaves that way—do not propose code modifications.`;
+}
+
+function formatThreadContext(messages: SessionContext["threadContext"]): string {
+  if (messages.length === 0) return "";
+
+  const formatted = messages.map((msg) => {
+    const speaker = msg.isBot ? "[Clack Bot]" : "[User]";
+    return `${speaker}: ${msg.text}`;
+  });
+
+  return formatted.join("\n\n");
 }
 
 function buildPrompt(session: SessionContext): string {
@@ -45,7 +58,11 @@ function buildPrompt(session: SessionContext): string {
 
   // Thread context if any
   if (session.threadContext.length > 0) {
-    parts.push(`\nTHREAD CONTEXT (previous messages in the conversation):\n${session.threadContext.join("\n")}`);
+    const contextIntro = `\nTHREAD CONTEXT (previous messages in the Slack thread, in chronological order):
+Messages marked [User] are from team members asking questions.
+Messages marked [Clack Bot] are previous answers from you (this bot).
+Use this context to understand the conversation flow and provide relevant answers.\n`;
+    parts.push(contextIntro + formatThreadContext(session.threadContext));
   }
 
   // Previous answer if refining

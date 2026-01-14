@@ -9,7 +9,7 @@ export function registerEditHandler(app: App): void {
     await ack();
 
     const sessionId = (body.actions[0] as { value: string }).value;
-    const session = getSession(sessionId);
+    const session = await getSession(sessionId);
 
     if (!session?.lastAnswer) {
       console.error("No answer found for editing");
@@ -64,7 +64,7 @@ export function registerEditHandler(app: App): void {
     const sessionId = view.private_metadata;
     const editedAnswer = view.state.values.edit_block.edit_input.value || "";
 
-    const sessionInfo = restoreSessionInfo(sessionId);
+    const sessionInfo = await restoreSessionInfo(sessionId);
 
     if (!sessionInfo) {
       console.error("Session info not found for edit");
@@ -82,7 +82,7 @@ export function registerEditHandler(app: App): void {
     });
 
     deleteSessionInfo(sessionId);
-    touchSession(sessionId);
+    await touchSession(sessionId);
     console.log(`Posted edited answer for session ${sessionId}`);
   });
 }

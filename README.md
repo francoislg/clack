@@ -48,10 +48,12 @@ A Slack bot that answers codebase questions using Claude Code. React to any mess
        "appToken": "xapp-...",
        "signingSecret": "..."
      },
-     "triggerReaction": "robot_face",
-     "thinkingFeedback": {
-       "type": "emoji",
-       "emoji": "thinking_face"
+     "reactions": {
+       "trigger": "robot_face",
+       "thinking": {
+         "type": "emoji",
+         "emoji": "thinking_face"
+       }
      },
      "repositories": [
        {
@@ -120,9 +122,9 @@ For private repositories, configure SSH access:
 | `slack.botToken` | Slack bot token (xoxb-...) | Required |
 | `slack.appToken` | Slack app token (xapp-...) | Required |
 | `slack.signingSecret` | Slack signing secret | Required |
-| `triggerReaction` | Emoji name that triggers the bot | `robot_face` |
-| `thinkingFeedback.type` | Feedback type: `message` or `emoji` | `message` |
-| `thinkingFeedback.emoji` | Emoji to show while thinking (if type is `emoji`) | — |
+| `reactions.trigger` | Emoji name that triggers the bot | `robot_face` |
+| `reactions.thinking.type` | Feedback type: `message` or `emoji` | `message` |
+| `reactions.thinking.emoji` | Emoji to show while thinking (if type is `emoji`) | — |
 | `repositories[].name` | Local folder name for the repo | Required |
 | `repositories[].url` | Git clone URL (SSH) | Required |
 | `repositories[].description` | Description for Claude context | Required |
