@@ -17,14 +17,15 @@ async function handleReaction(
   userId: string,
   channelId: string,
   messageTs: string,
-  threadTs?: string
+  threadTs?: string,
+  preloadedMessageText?: string
 ): Promise<void> {
   const effectiveThreadTs = threadTs || messageTs;
 
   console.log(`Reaction detected from user ${userId} in channel ${channelId}`);
 
-  // Fetch the original message
-  const messageText = await fetchMessage(client, channelId, messageTs);
+  // Use preloaded text if available, otherwise fetch
+  const messageText = preloadedMessageText || await fetchMessage(client, channelId, messageTs, threadTs);
   if (!messageText) {
     console.error("Could not fetch message text");
     await client.chat.postEphemeral({
@@ -37,17 +38,20 @@ async function handleReaction(
     return;
   }
 
+  // Get bot user ID for thread context attribution
+  const botUserId = (await client.auth.test()).user_id || "";
+
   // Fetch thread context
-  const threadContext = await fetchThreadContext(client, channelId, effectiveThreadTs);
+  const threadContext = await fetchThreadContext(client, channelId, effectiveThreadTs, botUserId);
 
   // Check for existing session or create new one
-  let session = findSessionByMessage(channelId, messageTs, userId);
+  let session = await findSessionByMessage(channelId, messageTs, userId);
 
   if (!session) {
-    session = createSession(channelId, messageTs, effectiveThreadTs, userId, messageText, threadContext);
+    session = await createSession(channelId, messageTs, effectiveThreadTs, userId, messageText, threadContext);
   } else {
-    updateThreadContext(session.sessionId, threadContext);
-    session = getSession(session.sessionId)!;
+    await updateThreadContext(session.sessionId, threadContext);
+    session = (await getSession(session.sessionId))!;
   }
 
   // Store session info for later responses
@@ -58,7 +62,7 @@ async function handleReaction(
   });
 
   const config = getConfig();
-  const thinkingFeedback = config.thinkingFeedback;
+  const thinkingFeedback = config.reactions.thinking;
 
   // Send thinking feedback (only on first query, not refine/update)
   if (thinkingFeedback?.type === "emoji" && thinkingFeedback.emoji) {
@@ -100,7 +104,7 @@ async function handleReaction(
   if (response.success) {
     console.log("Got response from Claude, posting ephemeral response...");
 
-    setLastAnswer(session.sessionId, response.answer);
+    await setLastAnswer(session.sessionId, response.answer);
 
     // Post ephemeral response with buttons (only visible to requester)
     await client.chat.postEphemeral({
@@ -130,8 +134,8 @@ export function registerNewQueryHandler(app: App): void {
   app.event("reaction_added", async ({ event, client }) => {
     console.log(`Reaction event: ${event.reaction} from ${event.user}`);
 
-    if (event.reaction !== config.triggerReaction) {
-      console.log(`Ignoring reaction ${event.reaction}, waiting for ${config.triggerReaction}`);
+    if (event.reaction !== config.reactions.trigger) {
+      console.log(`Ignoring reaction ${event.reaction}, waiting for ${config.reactions.trigger}`);
       return;
     }
 
@@ -143,22 +147,80 @@ export function registerNewQueryHandler(app: App): void {
     const { channel, ts } = event.item;
     const userId = event.user;
 
-    // Get thread_ts if it exists
+    // Detect thread context and fetch the actual message
+    // Note: reaction_added doesn't include thread_ts, so we need to figure it out
     let threadTs: string | undefined;
+    let actualMessageText: string | undefined;
+
     try {
-      const msgResult = await client.conversations.history({
+      // Step 1: Try conversations.replies first - this works if ts is a parent message
+      const repliesResult = await client.conversations.replies({
         channel,
-        latest: ts,
+        ts: ts,
         inclusive: true,
         limit: 1,
       });
-      if (msgResult.messages && msgResult.messages.length > 0) {
-        threadTs = msgResult.messages[0].thread_ts;
+
+      if (repliesResult.messages && repliesResult.messages.length > 0) {
+        const msg = repliesResult.messages[0];
+        if (msg.ts === ts) {
+          // ts is a parent message - we found it directly
+          threadTs = msg.thread_ts || ts;
+          actualMessageText = msg.text;
+          console.log(`Found message via conversations.replies (parent message)`);
+        }
       }
     } catch (error) {
-      console.error("Error fetching thread context:", error);
+      // conversations.replies failed - ts might be a reply, not a parent
+      // Or it's a channel-level message with no thread
+      console.log("conversations.replies failed, trying history approach:", error);
     }
 
-    await handleReaction(client, userId, channel, ts, threadTs);
+    if (!actualMessageText) {
+      // Step 2: Fallback - try conversations.history for channel-level messages
+      try {
+        const histResult = await client.conversations.history({
+          channel,
+          latest: ts,
+          inclusive: true,
+          limit: 1,
+        });
+
+        if (histResult.messages && histResult.messages.length > 0) {
+          const msg = histResult.messages[0];
+          if (msg.ts === ts) {
+            // Found the exact message in channel history
+            threadTs = msg.thread_ts;
+            actualMessageText = msg.text;
+            console.log(`Found message via conversations.history (channel message)`);
+          } else if (msg.thread_ts) {
+            // Didn't find exact match - ts might be a thread reply
+            // The returned message's thread_ts points to the parent thread
+            // We need to search in that thread
+            console.log(`Message not in channel history, searching in thread ${msg.thread_ts}`);
+            threadTs = msg.thread_ts;
+
+            // Fetch from the thread to find our actual message
+            const threadResult = await client.conversations.replies({
+              channel,
+              ts: threadTs,
+              limit: 100,
+            });
+
+            if (threadResult.messages) {
+              const targetMsg = threadResult.messages.find((m) => m.ts === ts);
+              if (targetMsg) {
+                actualMessageText = targetMsg.text;
+                console.log(`Found message in thread replies`);
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching message:", error);
+      }
+    }
+
+    await handleReaction(client, userId, channel, ts, threadTs, actualMessageText);
   });
 }

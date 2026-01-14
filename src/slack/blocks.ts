@@ -107,3 +107,27 @@ export function getErrorBlocks(message: string) {
     },
   ];
 }
+
+export function getInvestigatingBlocks() {
+  return [
+    {
+      type: "section" as const,
+      text: {
+        type: "mrkdwn" as const,
+        text: ":mag: _Investigating..._",
+      },
+    },
+  ];
+}
+
+export function getMessageBlocks(answer: string) {
+  return [
+    {
+      type: "section" as const,
+      text: {
+        type: "mrkdwn" as const,
+        text: truncateForSlack(convertMarkdownToSlack(answer)),
+      },
+    },
+  ];
+}

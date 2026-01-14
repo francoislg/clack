@@ -33,16 +33,16 @@ The system SHALL enforce read-only access to repositories and write access to se
 - **AND** Claude Code cannot write outside the session directory
 
 ### Requirement: Non-Technical Response Style
-The system SHALL instruct Claude Code to provide answers in non-technical language suitable for non-developers.
+The system SHALL instruct Claude Code to provide answers in broad, non-technical language suitable for non-developers by default.
 
-#### Scenario: System prompt enforces style
+#### Scenario: System prompt enforces non-technical style
 - **WHEN** Claude Code subprocess is spawned
-- **THEN** the system prompt instructs Claude to explain in plain language
-- **AND** avoid jargon unless necessary
-- **AND** provide context that helps non-technical users understand
+- **THEN** the system prompt instructs Claude to explain like talking to a teammate who doesn't code
+- **AND** never include file paths, line numbers, function names, table/field names, or code snippets
+- **AND** focus on WHAT is happening and WHY, not HOW it's implemented
 
-#### Scenario: Technical details available on request
-- **WHEN** a user's refinement requests technical details
+#### Scenario: Technical details available only on explicit request
+- **WHEN** a user explicitly asks for "more details", "technical info", or "specifics"
 - **THEN** Claude Code may include code references and technical explanations
 - **AND** still prioritizes clarity over exhaustive technical accuracy
 

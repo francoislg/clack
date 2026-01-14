@@ -25,7 +25,7 @@ export function deleteSessionInfo(sessionId: string): void {
  * If not on disk, attempts to parse sessionId to reconstruct minimal info.
  * Returns the SessionInfo if found or reconstructed, undefined if parsing fails.
  */
-export function restoreSessionInfo(sessionId: string): SessionInfo | undefined {
+export async function restoreSessionInfo(sessionId: string): Promise<SessionInfo | undefined> {
   // Check memory first
   const inMemory = activeSessions.get(sessionId);
   if (inMemory) {
@@ -33,7 +33,7 @@ export function restoreSessionInfo(sessionId: string): SessionInfo | undefined {
   }
 
   // Try to load from disk
-  const session = getSession(sessionId);
+  const session = await getSession(sessionId);
   if (session) {
     // Handle backward compatibility: older sessions might not have threadTs
     const threadTs = session.threadTs || session.messageTs;

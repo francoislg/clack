@@ -6,6 +6,9 @@ import { registerRejectHandler } from "./handlers/reject.js";
 import { registerRefineHandler } from "./handlers/refine.js";
 import { registerUpdateHandler } from "./handlers/update.js";
 import { registerEditHandler } from "./handlers/edit.js";
+import { registerDirectMessageHandler } from "./handlers/directMessage.js";
+import { registerThreadReplyHandler } from "./handlers/threadReply.js";
+import { registerMentionHandler } from "./handlers/mention.js";
 
 let app: App | null = null;
 
@@ -19,12 +22,26 @@ export function createSlackApp(): App {
     socketMode: true,
   });
 
+  // Reaction mode handlers (always enabled)
   registerNewQueryHandler(app);
   registerAcceptHandler(app);
   registerRejectHandler(app);
   registerRefineHandler(app);
   registerUpdateHandler(app);
   registerEditHandler(app);
+
+  // Direct message handlers (only when enabled)
+  if (config.directMessages.enabled) {
+    console.log("Direct message mode enabled");
+    registerDirectMessageHandler(app);
+    registerThreadReplyHandler(app);
+  }
+
+  // Mention handlers (only when enabled)
+  if (config.mentions.enabled) {
+    console.log("Mention mode enabled");
+    registerMentionHandler(app);
+  }
 
   return app;
 }
