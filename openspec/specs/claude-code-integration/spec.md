@@ -4,33 +4,29 @@
 TBD - created by archiving change add-slack-reaction-bot. Update Purpose after archive.
 ## Requirements
 ### Requirement: Claude Code Subprocess Invocation
-The system SHALL spawn a Claude Code CLI subprocess for each answer generation request.
+The system SHALL use the Claude Agent SDK for answer generation requests.
 
-#### Scenario: Spawn subprocess with prompt
+#### Scenario: Query via Agent SDK
 - **WHEN** answer generation is requested
-- **THEN** the system spawns `claude` CLI as a child process
-- **AND** passes the question and context via command-line arguments or stdin
-- **AND** captures the output for delivery to Slack
+- **THEN** the system calls the Agent SDK `query()` function
+- **AND** passes the question and context as the prompt
+- **AND** configures `cwd` to point to the repositories directory
+- **AND** captures the response for delivery to Slack
 
-#### Scenario: CLI path configurable
+#### Scenario: Model configurable
 - **WHEN** the system starts
-- **THEN** it reads the Claude Code CLI path from configuration
-- **AND** uses this path for all subprocess invocations
+- **THEN** it reads the model name from configuration
+- **AND** passes it to the SDK for all queries
 
 ### Requirement: Filesystem Permission Enforcement
-The system SHALL enforce read-only access to repositories and write access to session directories when invoking Claude Code.
+The system SHALL enforce read-only access to repositories by restricting allowed tools.
 
 #### Scenario: Read-only repository access
-- **WHEN** Claude Code subprocess is spawned
-- **THEN** the `--allow-read` flag includes `data/repositories/*`
-- **AND** Claude Code can read files in cloned repositories
-- **AND** Claude Code cannot write to repository directories
-
-#### Scenario: Write access to session directory
-- **WHEN** Claude Code subprocess is spawned for a session
-- **THEN** the `--allow-write` flag includes `data/sessions/{session-id}/*`
-- **AND** Claude Code can create and modify files in that session's directory
-- **AND** Claude Code cannot write outside the session directory
+- **WHEN** the Agent SDK query is invoked
+- **THEN** the `allowedTools` option includes only `Read`, `Glob`, and `Grep`
+- **AND** excludes `Write`, `Edit`, and `Bash`
+- **AND** Claude can read files in cloned repositories
+- **AND** Claude cannot modify any files
 
 ### Requirement: Non-Technical Response Style
 The system SHALL instruct Claude Code to provide answers in broad, non-technical language suitable for non-developers by default.

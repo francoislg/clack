@@ -27,7 +27,7 @@
 
 ## 5. Testing
 
-- [ ] 5.1 Manual test: verify query returns answer from codebase
-- [ ] 5.2 Manual test: verify response latency is improved
-- [ ] 5.3 Manual test: verify refinements work correctly
-- [ ] 5.4 Manual test: verify multi-repo questions work
+- [x] 5.1 Manual test: verify query returns answer from codebase
+- [x] 5.2 Manual test: verify response latency is improved
+- [x] 5.3 Manual test: verify refinements work correctly
+- [x] 5.4 Manual test: verify multi-repo questions work
