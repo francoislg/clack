@@ -16,6 +16,6 @@
 ## Verification
 
 - [x] Verify TypeScript builds
-- [ ] Test: DM the bot → should respond with visible message
-- [ ] Test: @mention bot in channel → should respond in thread
-- [ ] Test: Reply in thread → bot should auto-respond
+- [x] Test: DM the bot → should respond with visible message
+- [x] Test: @mention bot in channel → should respond in thread
+- [x] Test: Reply in thread → bot should auto-respond
