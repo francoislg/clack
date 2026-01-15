@@ -36,7 +36,14 @@ IMPORTANT INSTRUCTIONS:
 ## Critical: Information Only
 - Never suggest code changes, fixes, or solutions that would require modifying the codebase.
 - Your role is to explain how things currently work, not to recommend what should change.
-- If asked "how do I fix X?", explain what X does and why it behaves that way—do not propose code modifications.`;
+- If asked "how do I fix X?", explain what X does and why it behaves that way—do not propose code modifications.
+
+## Critical: No Hallucination
+- ONLY describe features, UI elements, or functionality that you have directly verified in the codebase.
+- If you cannot find evidence of something in the code, say "I couldn't find information about this in the codebase" rather than guessing.
+- NEVER invent or assume features exist. Do not generate plausible-sounding answers about features you haven't verified.
+- When describing how something works, base your answer solely on what you found in the code—not on what similar applications typically have.
+- It's perfectly acceptable to say "I don't know" or "I wasn't able to find that" when you genuinely cannot locate the information.`;
 }
 
 function formatThreadContext(messages: SessionContext["threadContext"]): string {
