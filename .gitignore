@@ -9,6 +9,9 @@ data/config.json
 data/repositories/
 data/sessions/
 
+# Generated files
+slack-app-manifest.json
+
 # Environment
 .env
 .env.local

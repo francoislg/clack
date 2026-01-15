@@ -69,15 +69,20 @@ A Slack bot that answers codebase questions using Claude Code. React to any mess
    }
    ```
 
-3. Install and run:
+3. Generate the Slack app manifest:
    ```bash
    npm install
+   npm run manifest
+   ```
+
+4. Run the bot:
+   ```bash
    npm start
    ```
 
 ### Slack App Setup
 
-1. Create a new Slack app at https://api.slack.com/apps
+1. Create a new Slack app at https://api.slack.com/apps using the generated `slack-app-manifest.json`
 2. Enable **Socket Mode** in the app settings
 3. Generate an **App-Level Token** with `connections:write` scope
 4. Add the following **Bot Token Scopes** under OAuth & Permissions:
@@ -122,6 +127,9 @@ For private repositories, configure SSH access:
 | `slack.botToken` | Slack bot token (xoxb-...) | Required |
 | `slack.appToken` | Slack app token (xapp-...) | Required |
 | `slack.signingSecret` | Slack signing secret | Required |
+| `slackApp.name` | App display name in Slack | `Clack` |
+| `slackApp.description` | App description in Slack | `Ask questions about your codebase using reactions` |
+| `slackApp.backgroundColor` | Hovercard background color (hex) | `#4A154B` |
 | `reactions.trigger` | Emoji name that triggers the bot | `robot_face` |
 | `reactions.thinking.type` | Feedback type: `message` or `emoji` | `message` |
 | `reactions.thinking.emoji` | Emoji to show while thinking (if type is `emoji`) | — |
@@ -140,10 +148,11 @@ For private repositories, configure SSH access:
 ## Development
 
 ```bash
-npm install    # Install dependencies
-npm run build  # Compile TypeScript
-npm start      # Run the bot
-npm run dev    # Watch mode (rebuild on changes)
+npm install       # Install dependencies
+npm run build     # Compile TypeScript
+npm run manifest  # Generate Slack app manifest
+npm start         # Run the bot
+npm run dev       # Watch mode (rebuild on changes)
 ```
 
 ## Architecture

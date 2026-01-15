@@ -30,6 +30,12 @@ export interface ClaudeCodeConfig {
   model?: string;
 }
 
+export interface SlackAppConfig {
+  name?: string;
+  description?: string;
+  backgroundColor?: string;
+}
+
 export interface ThinkingFeedbackConfig {
   type: "message" | "emoji";
   emoji?: string;
@@ -52,6 +58,7 @@ export interface MentionsConfig {
 
 export interface Config {
   slack: SlackConfig;
+  slackApp?: SlackAppConfig;
   reactions: ReactionsConfig;
   directMessages: DirectMessagesConfig;
   mentions: MentionsConfig;
@@ -62,6 +69,11 @@ export interface Config {
 }
 
 const DEFAULTS: Partial<Config> = {
+  slackApp: {
+    name: "Clack",
+    description: "Ask questions about your codebase using reactions",
+    backgroundColor: "#4A154B",
+  },
   reactions: {
     trigger: "robot_face",
     thinking: {
@@ -136,12 +148,31 @@ function validateConfig(config: unknown): Config {
     }
   }
 
+  // Validate slackApp if provided
+  const slackApp = c.slackApp as Record<string, unknown> | undefined;
+  if (slackApp) {
+    if (slackApp.name !== undefined && (typeof slackApp.name !== "string" || slackApp.name.length === 0)) {
+      throw new Error("Config 'slackApp.name' must be a non-empty string");
+    }
+    if (slackApp.backgroundColor !== undefined) {
+      const bgColor = slackApp.backgroundColor as string;
+      if (typeof bgColor !== "string" || !/^#[0-9A-Fa-f]{6}$/.test(bgColor)) {
+        throw new Error("Config 'slackApp.backgroundColor' must be a hex color (e.g., #4A154B)");
+      }
+    }
+  }
+
   // Merge with defaults
   const merged: Config = {
     slack: {
       botToken: slack.botToken as string,
       appToken: slack.appToken as string,
       signingSecret: slack.signingSecret as string,
+    },
+    slackApp: {
+      name: (slackApp?.name as string) ?? DEFAULTS.slackApp!.name,
+      description: (slackApp?.description as string) ?? DEFAULTS.slackApp!.description,
+      backgroundColor: (slackApp?.backgroundColor as string) ?? DEFAULTS.slackApp!.backgroundColor,
     },
     reactions: {
       trigger: (c.reactions as Record<string, unknown>)?.trigger as string || DEFAULTS.reactions!.trigger,

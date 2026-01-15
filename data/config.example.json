@@ -4,6 +4,11 @@
     "appToken": "xapp-your-app-token",
     "signingSecret": "your-signing-secret"
   },
+  "slackApp": {
+    "name": "Clack",
+    "description": "Ask questions about your codebase using reactions",
+    "backgroundColor": "#4A154B"
+  },
   "reactions": {
     "trigger": "robot_face",
     "thinking": {
