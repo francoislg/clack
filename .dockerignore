@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+
+# Build output (rebuilt in container)
+dist/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Sensitive data (mounted as volumes, not baked into image)
+data/config.json
+data/auth/
+data/repositories/
+data/sessions/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Test coverage
+coverage/
+
+# OpenSpec (development only)
+openspec/
+
+# Development files
+*.md
+!data/config.example.json
+!data/auth/slack.example.json
+
+# Generated files
+slack-app-manifest.json

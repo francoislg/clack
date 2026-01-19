@@ -1,6 +1,12 @@
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 
+export interface SlackAuthConfig {
+  botToken: string;
+  appToken: string;
+  signingSecret: string;
+}
+
 export interface SlackConfig {
   botToken: string;
   appToken: string;
@@ -106,27 +112,54 @@ const DEFAULTS: Partial<Config> = {
   },
 };
 
-function validateConfig(config: unknown): Config {
+function loadSlackAuth(): SlackAuthConfig {
+  const authPath = resolve(process.cwd(), "data", "auth", "slack.json");
+
+  if (!existsSync(authPath)) {
+    throw new Error(
+      `Slack auth file not found at ${authPath}.\n` +
+      `Run 'npm run docker-setup' or create data/auth/slack.json manually.\n` +
+      `See data/auth/slack.example.json for the expected format.`
+    );
+  }
+
+  const content = readFileSync(authPath, "utf-8");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    throw new Error(`Slack auth file is not valid JSON: ${authPath}`);
+  }
+
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error("Slack auth file must be an object");
+  }
+
+  const auth = parsed as Record<string, unknown>;
+
+  if (typeof auth.botToken !== "string" || !auth.botToken.startsWith("xoxb-")) {
+    throw new Error("Slack auth 'botToken' must be a valid bot token (starts with xoxb-)");
+  }
+  if (typeof auth.appToken !== "string" || !auth.appToken.startsWith("xapp-")) {
+    throw new Error("Slack auth 'appToken' must be a valid app token (starts with xapp-)");
+  }
+  if (typeof auth.signingSecret !== "string" || auth.signingSecret.length === 0) {
+    throw new Error("Slack auth 'signingSecret' is required");
+  }
+
+  return {
+    botToken: auth.botToken as string,
+    appToken: auth.appToken as string,
+    signingSecret: auth.signingSecret as string,
+  };
+}
+
+function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Config {
   if (!config || typeof config !== "object") {
     throw new Error("Config must be an object");
   }
 
   const c = config as Record<string, unknown>;
-
-  // Validate slack
-  if (!c.slack || typeof c.slack !== "object") {
-    throw new Error("Config missing 'slack' section");
-  }
-  const slack = c.slack as Record<string, unknown>;
-  if (typeof slack.botToken !== "string" || !slack.botToken.startsWith("xoxb-")) {
-    throw new Error("Config 'slack.botToken' must be a valid bot token (starts with xoxb-)");
-  }
-  if (typeof slack.appToken !== "string" || !slack.appToken.startsWith("xapp-")) {
-    throw new Error("Config 'slack.appToken' must be a valid app token (starts with xapp-)");
-  }
-  if (typeof slack.signingSecret !== "string" || slack.signingSecret.length === 0) {
-    throw new Error("Config 'slack.signingSecret' is required");
-  }
 
   // Validate repositories
   if (!Array.isArray(c.repositories) || c.repositories.length === 0) {
@@ -165,9 +198,9 @@ function validateConfig(config: unknown): Config {
   // Merge with defaults
   const merged: Config = {
     slack: {
-      botToken: slack.botToken as string,
-      appToken: slack.appToken as string,
-      signingSecret: slack.signingSecret as string,
+      botToken: slackAuth.botToken,
+      appToken: slackAuth.appToken,
+      signingSecret: slackAuth.signingSecret,
     },
     slackApp: {
       name: (slackApp?.name as string) ?? DEFAULTS.slackApp!.name,
@@ -264,7 +297,10 @@ export function loadConfig(configPath?: string): Config {
     throw new Error(`Config file is not valid JSON: ${path}`);
   }
 
-  cachedConfig = validateConfig(parsed);
+  // Load Slack auth from separate file
+  const slackAuth = loadSlackAuth();
+
+  cachedConfig = validateConfig(parsed, slackAuth);
   return cachedConfig;
 }
 
