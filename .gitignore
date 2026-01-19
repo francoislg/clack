@@ -8,6 +8,11 @@ dist/
 data/config.json
 data/repositories/
 data/sessions/
+data/auth/*
+!data/auth/.gitkeep
+!data/auth/ssh/.gitkeep
+!data/auth/slack.example.json
+!data/auth/.env.example
 
 # Generated files
 slack-app-manifest.json

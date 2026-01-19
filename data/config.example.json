@@ -1,9 +1,4 @@
 {
-  "slack": {
-    "botToken": "xoxb-your-bot-token",
-    "appToken": "xapp-your-app-token",
-    "signingSecret": "your-signing-secret"
-  },
   "slackApp": {
     "name": "Clack",
     "description": "Ask questions about your codebase using reactions",
@@ -36,7 +31,7 @@
     }
   ],
   "git": {
-    "sshKeyPath": "~/.ssh/id_rsa",
+    "sshKeyPath": "data/auth/ssh/id_rsa",
     "pullIntervalMinutes": 60,
     "shallowClone": true,
     "cloneDepth": 1
