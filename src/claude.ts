@@ -2,6 +2,7 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 import { getConfig, getRepositoriesDir } from "./config.js";
 import { logger } from "./logger.js";
 import type { SessionContext } from "./sessions.js";
+import { formatUserIdentity } from "./slack/userCache.js";
 
 export interface ClaudeResponse {
   success: boolean;
@@ -51,7 +52,11 @@ function formatThreadContext(messages: SessionContext["threadContext"]): string 
   if (messages.length === 0) return "";
 
   const formatted = messages.map((msg) => {
-    const speaker = msg.isBot ? "[Clack Bot]" : "[User]";
+    const speaker = formatUserIdentity(msg.userId, {
+      userId: msg.userId,
+      username: msg.username,
+      displayName: msg.displayName,
+    });
     return `${speaker}: ${msg.text}`;
   });
 
@@ -67,7 +72,7 @@ function buildPrompt(session: SessionContext): string {
   // Thread context if any
   if (session.threadContext.length > 0) {
     const contextIntro = `\nTHREAD CONTEXT (previous messages in the Slack thread, in chronological order):
-Messages marked [User] are from team members asking questions.
+Messages may be attributed to specific users by name (e.g., [John Doe]) or as [User] if names are not available.
 Messages marked [Clack Bot] are previous answers from you (this bot).
 Use this context to understand the conversation flow and provide relevant answers.\n`;
     parts.push(contextIntro + formatThreadContext(session.threadContext));

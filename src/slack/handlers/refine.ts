@@ -1,10 +1,12 @@
 import type { App, BlockAction, ViewSubmitAction } from "@slack/bolt";
+import { getConfig } from "../../config.js";
 import { logger } from "../../logger.js";
 import { getSession, addRefinement, setLastAnswer, createSession, parseSessionId } from "../../sessions.js";
 import { askClaude } from "../../claude.js";
 import { getResponseBlocks, getErrorBlocks } from "../blocks.js";
 import { restoreSessionInfo, setSessionInfo } from "../state.js";
 import { fetchMessage, fetchThreadContext } from "../messagesApi.js";
+import { transformUserMentions } from "../userCache.js";
 
 export function registerRefineHandler(app: App): void {
   // Handle Refine button - open modal
@@ -98,7 +100,15 @@ export function registerRefineHandler(app: App): void {
 
       // Get bot user ID for thread context attribution
       const botUserId = (await client.auth.test()).user_id || "";
-      const threadContext = await fetchThreadContext(client, parsed.channelId, sessionInfo.threadTs, botUserId);
+      const config = getConfig();
+      const threadContext = await fetchThreadContext(client, parsed.channelId, sessionInfo.threadTs, botUserId, {
+        fetchUserNames: config.slack.fetchAndStoreUsername,
+      });
+
+      // Transform user mentions in message text if enabled
+      const processedMessageText = config.slack.fetchAndStoreUsername
+        ? await transformUserMentions(client, messageText)
+        : messageText;
 
       // Create new session (note: this creates a NEW sessionId, but we continue using the old one for this request)
       session = await createSession(
@@ -106,7 +116,7 @@ export function registerRefineHandler(app: App): void {
         parsed.messageTs,
         sessionInfo.threadTs,
         parsed.userId,
-        messageText,
+        processedMessageText,
         threadContext
       );
 

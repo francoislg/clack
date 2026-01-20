@@ -12,6 +12,7 @@ import { askClaude } from "../../claude.js";
 import { getMessageBlocks, getInvestigatingBlocks, getErrorBlocks } from "../blocks.js";
 import { setSessionInfo } from "../state.js";
 import { fetchThreadContext } from "../messagesApi.js";
+import { transformUserMentions } from "../userCache.js";
 
 async function handleMention(
   client: App["client"],
@@ -28,10 +29,19 @@ async function handleMention(
   // Get bot user ID for thread context attribution
   const botUserId = (await client.auth.test()).user_id || "";
 
+  const config = getConfig();
+
   // Fetch thread context if in a thread
   const threadContext = threadTs
-    ? await fetchThreadContext(client, channelId, threadTs, botUserId)
+    ? await fetchThreadContext(client, channelId, threadTs, botUserId, {
+        fetchUserNames: config.slack.fetchAndStoreUsername,
+      })
     : [];
+
+  // Transform user mentions in message text if enabled
+  const processedMessageText = config.slack.fetchAndStoreUsername
+    ? await transformUserMentions(client, messageText)
+    : messageText;
 
   // Check for existing session or create new one
   let session = threadTs
@@ -39,7 +49,7 @@ async function handleMention(
     : null;
 
   if (!session) {
-    session = await createSession(channelId, messageTs, effectiveThreadTs, userId, messageText, threadContext);
+    session = await createSession(channelId, messageTs, effectiveThreadTs, userId, processedMessageText, threadContext);
   } else {
     await updateThreadContext(session.sessionId, threadContext);
     session = (await getSession(session.sessionId))!;
@@ -52,7 +62,6 @@ async function handleMention(
     userId,
   });
 
-  const config = getConfig();
   const thinkingFeedback = config.mentions.thinking;
 
   // Send thinking feedback

@@ -17,6 +17,8 @@ export interface ThreadMessage {
   userId: string;
   isBot: boolean;
   ts: string;
+  username?: string;
+  displayName?: string;
 }
 
 export interface SessionContext {
@@ -25,6 +27,8 @@ export interface SessionContext {
   messageTs: string;
   threadTs: string;
   userId: string;
+  username?: string;
+  displayName?: string;
   originalQuestion: string;
   threadContext: ThreadMessage[];
   refinements: string[];
