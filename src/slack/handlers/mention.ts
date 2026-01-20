@@ -7,6 +7,7 @@ import {
   setLastAnswer,
 } from "../../sessions.js";
 import { getConfig } from "../../config.js";
+import { logger } from "../../logger.js";
 import { askClaude } from "../../claude.js";
 import { getMessageBlocks, getInvestigatingBlocks, getErrorBlocks } from "../blocks.js";
 import { setSessionInfo } from "../state.js";
@@ -22,7 +23,7 @@ async function handleMention(
 ): Promise<void> {
   const effectiveThreadTs = threadTs || messageTs;
 
-  console.log(`Mention from user ${userId} in channel ${channelId}`);
+  logger.debug(`Mention from user ${userId} in channel ${channelId}`);
 
   // Get bot user ID for thread context attribution
   const botUserId = (await client.auth.test()).user_id || "";
@@ -64,7 +65,7 @@ async function handleMention(
         name: thinkingFeedback.emoji,
       });
     } catch (error) {
-      console.error("Failed to add thinking reaction:", error);
+      logger.error("Failed to add thinking reaction:", error);
     }
   } else {
     // Post visible "Investigating..." message in a thread
@@ -78,7 +79,7 @@ async function handleMention(
   }
 
   // Ask Claude
-  console.log("Calling Claude Code...");
+  logger.info("Calling Claude Code...");
   const response = await askClaude(session);
 
   // Remove thinking emoji if used
@@ -90,12 +91,12 @@ async function handleMention(
         name: thinkingFeedback.emoji,
       });
     } catch (error) {
-      console.error("Failed to remove thinking reaction:", error);
+      logger.error("Failed to remove thinking reaction:", error);
     }
   }
 
   if (response.success) {
-    console.log("Got response from Claude, posting response...");
+    logger.debug("Got response from Claude, posting response...");
 
     await setLastAnswer(session.sessionId, response.answer);
 
@@ -117,7 +118,7 @@ async function handleMention(
       });
     }
   } else {
-    console.error("Claude Code failed:", response.error);
+    logger.error("Claude Code failed:", response.error);
 
     const errorText = `Sorry, I couldn't generate an answer: ${response.error || "Unknown error"}`;
 
@@ -148,7 +149,7 @@ export function registerMentionHandler(app: App): void {
       return;
     }
 
-    console.log(`App mention from ${event.user} in ${event.channel}`);
+    logger.debug(`App mention from ${event.user} in ${event.channel}`);
 
     // Remove the bot mention from the text
     const botId = (await client.auth.test()).user_id;

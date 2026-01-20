@@ -1,5 +1,6 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { getConfig, getRepositoriesDir } from "./config.js";
+import { logger } from "./logger.js";
 import type { SessionContext } from "./sessions.js";
 
 export interface ClaudeResponse {
@@ -92,7 +93,7 @@ export async function askClaude(session: SessionContext): Promise<ClaudeResponse
   const systemPrompt = buildSystemPrompt();
   const userPrompt = buildPrompt(session);
 
-  console.log(`Querying Claude via Agent SDK for session ${session.sessionId}...`);
+  logger.debug(`Querying Claude via Agent SDK for session ${session.sessionId}...`);
 
   try {
     let answer = "";
@@ -144,7 +145,7 @@ export async function askClaude(session: SessionContext): Promise<ClaudeResponse
       error: "No response received from Claude",
     };
   } catch (error) {
-    console.error("Claude Agent SDK error:", error);
+    logger.error("Claude Agent SDK error:", error);
     return {
       success: false,
       answer: "",

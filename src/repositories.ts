@@ -2,6 +2,7 @@ import { simpleGit, SimpleGit, SimpleGitOptions } from "simple-git";
 import { existsSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { getConfig, getRepositoriesDir, type RepositoryConfig } from "./config.js";
+import { logger } from "./logger.js";
 
 function getGitInstance(sshKeyPath?: string, baseDir?: string): SimpleGit {
   const options: Partial<SimpleGitOptions> = {};
@@ -31,11 +32,11 @@ export async function cloneRepository(repo: RepositoryConfig): Promise<void> {
 
   // Skip if already cloned
   if (existsSync(repoPath)) {
-    console.log(`Repository ${repo.name} already exists at ${repoPath}`);
+    logger.debug(`Repository ${repo.name} already exists at ${repoPath}`);
     return;
   }
 
-  console.log(`Cloning ${repo.name} from ${repo.url}...`);
+  logger.debug(`Cloning ${repo.name} from ${repo.url}...`);
 
   const git = getGitInstance(config.git.sshKeyPath);
   const cloneOptions: string[] = [];
@@ -49,7 +50,7 @@ export async function cloneRepository(repo: RepositoryConfig): Promise<void> {
   }
 
   await git.clone(repo.url, repoPath, cloneOptions);
-  console.log(`Successfully cloned ${repo.name}`);
+  logger.debug(`Successfully cloned ${repo.name}`);
 }
 
 export async function pullRepository(repo: RepositoryConfig): Promise<void> {
@@ -57,38 +58,38 @@ export async function pullRepository(repo: RepositoryConfig): Promise<void> {
   const repoPath = resolve(getRepositoriesDir(), repo.name);
 
   if (!existsSync(repoPath)) {
-    console.log(`Repository ${repo.name} not found, cloning instead...`);
+    logger.debug(`Repository ${repo.name} not found, cloning instead...`);
     await cloneRepository(repo);
     return;
   }
 
-  console.log(`Pulling latest changes for ${repo.name}...`);
+  logger.debug(`Pulling latest changes for ${repo.name}...`);
 
   const repoGit = getGitInstance(config.git.sshKeyPath, repoPath);
 
   try {
     await repoGit.pull();
-    console.log(`Successfully pulled ${repo.name}`);
+    logger.debug(`Successfully pulled ${repo.name}`);
   } catch (error) {
-    console.error(`Failed to pull ${repo.name}:`, error);
+    logger.error(`Failed to pull ${repo.name}:`, error);
     // Continue with existing local copy
   }
 }
 
 export async function syncAllRepositories(): Promise<void> {
   const config = getConfig();
-  console.log(`Syncing ${config.repositories.length} repositories...`);
+  logger.debug(`Syncing ${config.repositories.length} repositories...`);
 
   for (const repo of config.repositories) {
     try {
       await pullRepository(repo);
     } catch (error) {
-      console.error(`Failed to sync ${repo.name}:`, error);
+      logger.error(`Failed to sync ${repo.name}:`, error);
       // Continue with other repositories
     }
   }
 
-  console.log("Repository sync complete");
+  logger.info(`Successfully synced ${config.repositories.length} repositories`);
 }
 
 export async function initializeRepositories(): Promise<void> {
@@ -100,18 +101,18 @@ export async function initializeRepositories(): Promise<void> {
     mkdirSync(reposDir, { recursive: true });
   }
 
-  console.log(`Initializing ${config.repositories.length} repositories...`);
+  logger.debug(`Initializing ${config.repositories.length} repositories...`);
 
   for (const repo of config.repositories) {
     try {
       await cloneRepository(repo);
     } catch (error) {
-      console.error(`Failed to clone ${repo.name}:`, error);
+      logger.error(`Failed to clone ${repo.name}:`, error);
       // Continue with other repositories
     }
   }
 
-  console.log("Repository initialization complete");
+  logger.info(`Successfully initialized ${config.repositories.length} repositories`);
 }
 
 let syncInterval: NodeJS.Timeout | null = null;
@@ -120,11 +121,11 @@ export function startSyncScheduler(): void {
   const config = getConfig();
   const intervalMs = config.git.pullIntervalMinutes * 60 * 1000;
 
-  console.log(`Starting repository sync scheduler (every ${config.git.pullIntervalMinutes} minutes)`);
+  logger.debug(`Starting repository sync scheduler (every ${config.git.pullIntervalMinutes} minutes)`);
 
   syncInterval = setInterval(() => {
     syncAllRepositories().catch((error) => {
-      console.error("Scheduled sync failed:", error);
+      logger.error("Scheduled sync failed:", error);
     });
   }, intervalMs);
 }
@@ -133,6 +134,6 @@ export function stopSyncScheduler(): void {
   if (syncInterval) {
     clearInterval(syncInterval);
     syncInterval = null;
-    console.log("Repository sync scheduler stopped");
+    logger.debug("Repository sync scheduler stopped");
   }
 }

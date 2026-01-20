@@ -1,4 +1,5 @@
 import type { App } from "@slack/bolt";
+import { logger } from "../logger.js";
 import type { ThreadMessage } from "../sessions.js";
 
 export async function fetchThreadContext(
@@ -27,7 +28,7 @@ export async function fetchThreadContext(
         ts: msg.ts as string,
       }));
   } catch (error) {
-    console.error("Failed to fetch thread context:", error);
+    logger.error("Failed to fetch thread context:", error);
     return [];
   }
 }
@@ -69,7 +70,7 @@ export async function fetchMessage(
     }
     return "";
   } catch (error) {
-    console.error("Failed to fetch message:", error);
+    logger.error("Failed to fetch message:", error);
     return "";
   }
 }

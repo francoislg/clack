@@ -10,6 +10,7 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 import { getConfig, getSessionsDir } from "./config.js";
+import { logger } from "./logger.js";
 
 export interface ThreadMessage {
   text: string;
@@ -56,7 +57,7 @@ export function parseSessionId(sessionId: string): ParsedSessionId | null {
   const match = sessionId.match(/^([CG][A-Z0-9]+)-(\d+)-(\d+)-([U][A-Z0-9]+)-\d+$/);
 
   if (!match) {
-    console.error(`Failed to parse sessionId: ${sessionId}`);
+    logger.error(`Failed to parse sessionId: ${sessionId}`);
     return null;
   }
 
@@ -112,7 +113,7 @@ export async function createSession(
   // Write context file
   await writeFile(getContextPath(sessionId), JSON.stringify(context, null, 2));
 
-  console.log(`Created session ${sessionId}`);
+  logger.debug(`Created session ${sessionId}`);
   return context;
 }
 
@@ -127,7 +128,7 @@ export async function getSession(sessionId: string): Promise<SessionContext | nu
     const content = await readFile(contextPath, "utf-8");
     return JSON.parse(content) as SessionContext;
   } catch (error) {
-    console.error(`Failed to read session ${sessionId}:`, error);
+    logger.error(`Failed to read session ${sessionId}:`, error);
     return null;
   }
 }
@@ -240,7 +241,7 @@ export async function deleteSession(sessionId: string): Promise<void> {
 
   if (await exists(sessionPath)) {
     await rm(sessionPath, { recursive: true });
-    console.log(`Deleted session ${sessionId}`);
+    logger.debug(`Deleted session ${sessionId}`);
   }
 }
 
@@ -263,7 +264,7 @@ export async function cleanupExpiredSessions(): Promise<void> {
   }
 
   if (cleaned > 0) {
-    console.log(`Cleaned up ${cleaned} expired sessions`);
+    logger.info(`Cleaned up ${cleaned} expired sessions`);
   }
 }
 
@@ -273,7 +274,7 @@ export function startCleanupScheduler(): void {
   const config = getConfig();
   const intervalMs = config.sessions.cleanupIntervalMinutes * 60 * 1000;
 
-  console.log(`Starting session cleanup scheduler (every ${config.sessions.cleanupIntervalMinutes} minutes)`);
+  logger.debug(`Starting session cleanup scheduler (every ${config.sessions.cleanupIntervalMinutes} minutes)`);
 
   cleanupInterval = setInterval(() => {
     cleanupExpiredSessions();
@@ -284,6 +285,6 @@ export function stopCleanupScheduler(): void {
   if (cleanupInterval) {
     clearInterval(cleanupInterval);
     cleanupInterval = null;
-    console.log("Session cleanup scheduler stopped");
+    logger.debug("Session cleanup scheduler stopped");
   }
 }

@@ -1,4 +1,5 @@
 import type { App, BlockAction, ViewSubmitAction } from "@slack/bolt";
+import { logger } from "../../logger.js";
 import { getSession, touchSession } from "../../sessions.js";
 import { getAcceptedBlocks } from "../blocks.js";
 import { restoreSessionInfo, deleteSessionInfo } from "../state.js";
@@ -12,7 +13,7 @@ export function registerEditHandler(app: App): void {
     const session = await getSession(sessionId);
 
     if (!session?.lastAnswer) {
-      console.error("No answer found for editing");
+      logger.error("No answer found for editing");
       return;
     }
 
@@ -67,7 +68,7 @@ export function registerEditHandler(app: App): void {
     const sessionInfo = await restoreSessionInfo(sessionId);
 
     if (!sessionInfo) {
-      console.error("Session info not found for edit");
+      logger.error("Session info not found for edit");
       return;
     }
 
@@ -83,6 +84,6 @@ export function registerEditHandler(app: App): void {
 
     deleteSessionInfo(sessionId);
     await touchSession(sessionId);
-    console.log(`Posted edited answer for session ${sessionId}`);
+    logger.debug(`Posted edited answer for session ${sessionId}`);
   });
 }

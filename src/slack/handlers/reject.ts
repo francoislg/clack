@@ -1,4 +1,5 @@
 import type { App, BlockAction } from "@slack/bolt";
+import { logger } from "../../logger.js";
 import { deleteSessionInfo } from "../state.js";
 
 export function registerRejectHandler(app: App): void {
@@ -11,6 +12,6 @@ export function registerRejectHandler(app: App): void {
     await respond({ delete_original: true });
 
     deleteSessionInfo(sessionId);
-    console.log(`Rejected answer for session ${sessionId}`);
+    logger.debug(`Rejected answer for session ${sessionId}`);
   });
 }
