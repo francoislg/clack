@@ -6,6 +6,7 @@ dist/
 
 # Data directories (contain sensitive/local data)
 data/config.json
+data/mcp.json
 data/repositories/
 data/sessions/
 data/auth/*

@@ -32,6 +32,7 @@ COPY --from=builder /app/dist ./dist
 
 # Copy example configs for reference
 COPY data/config.example.json ./data/
+COPY data/mcp.example.json ./data/
 COPY data/auth/slack.example.json ./data/auth/
 
 # Create data directories
