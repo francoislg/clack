@@ -13,11 +13,13 @@
   "oauth_config": {
     "scopes": {
       "bot": [
+        "app_mentions:read",
         "channels:history",
+        "chat:write",
         "groups:history",
         "im:history",
+        "im:write",
         "mpim:history",
-        "chat:write",
         "reactions:read",
         "reactions:write",
         "users:read"
@@ -27,6 +29,8 @@
   "settings": {
     "event_subscriptions": {
       "bot_events": [
+        "app_mention",
+        "message.im",
         "reaction_added"
       ]
     },

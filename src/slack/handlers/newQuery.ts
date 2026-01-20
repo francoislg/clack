@@ -11,7 +11,7 @@ import {
 import { askClaude } from "../../claude.js";
 import { getResponseBlocks, getErrorBlocks } from "../blocks.js";
 import { setSessionInfo } from "../state.js";
-import { fetchThreadContext, fetchMessage } from "../messagesApi.js";
+import { fetchThreadContext, fetchMessage, hasThreadReplies, sendDirectMessage } from "../messagesApi.js";
 import { transformUserMentions } from "../userCache.js";
 
 async function handleReaction(
@@ -124,6 +124,30 @@ async function handleReaction(
       blocks: getResponseBlocks(response.answer, session.sessionId),
       text: response.answer,
     });
+
+    // Send DM notification if thread is hidden (no replies yet)
+    if (config.slack.notifyHiddenThread) {
+      const threadHasReplies = await hasThreadReplies(client, channelId, effectiveThreadTs);
+      if (!threadHasReplies) {
+        try {
+          const permalink = await client.chat.getPermalink({
+            channel: channelId,
+            message_ts: effectiveThreadTs,
+          });
+          if (permalink.permalink) {
+            // Append thread_ts to open directly in thread view
+            const threadLink = `${permalink.permalink}?thread_ts=${effectiveThreadTs}&cid=${channelId}`;
+            await sendDirectMessage(
+              client,
+              userId,
+              `Clack answered your question, but the thread isn't visible yet. Click here to see it: ${threadLink}`
+            );
+          }
+        } catch (error) {
+          logger.error("Failed to send hidden thread notification:", error);
+        }
+      }
+    }
   } else {
     logger.error("Claude Code failed:", response.error);
 

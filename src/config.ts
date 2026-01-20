@@ -12,6 +12,7 @@ export interface SlackConfig {
   appToken: string;
   signingSecret: string;
   fetchAndStoreUsername: boolean;
+  notifyHiddenThread: boolean;
 }
 
 export interface RepositoryConfig {
@@ -203,6 +204,7 @@ function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Config {
       appToken: slackAuth.appToken,
       signingSecret: slackAuth.signingSecret,
       fetchAndStoreUsername: ((c.slack as Record<string, unknown>)?.fetchAndStoreUsername as boolean) ?? false,
+      notifyHiddenThread: ((c.slack as Record<string, unknown>)?.notifyHiddenThread as boolean) ?? true,
     },
     slackApp: {
       name: (slackApp?.name as string) ?? DEFAULTS.slackApp!.name,

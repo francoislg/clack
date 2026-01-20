@@ -2,7 +2,8 @@
 /**
  * Generate Slack app manifest from config.json
  *
- * Reads branding from config.json and merges with static defaults for scopes, events, and settings.
+ * Reads config and generates manifest with only the scopes and events
+ * needed for the enabled features.
  * Output is written to slack-app-manifest.json.
  */
 
@@ -10,14 +11,34 @@ import { writeFileSync, readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Manifest } from "@slack/web-api/dist/types/request/manifest.js";
 
+// Extract types from Manifest
+type BotScope = NonNullable<NonNullable<Manifest["oauth_config"]>["scopes"]>["bot"] extends (infer T)[] ? T : never;
+type ManifestEvent = NonNullable<NonNullable<Manifest["settings"]>["event_subscriptions"]>["bot_events"] extends (infer T)[] ? T : never;
+
 interface SlackAppConfig {
   name?: string;
   description?: string;
   backgroundColor?: string;
 }
 
+interface SlackConfig {
+  fetchAndStoreUsername?: boolean;
+  notifyHiddenThread?: boolean;
+}
+
+interface DirectMessagesConfig {
+  enabled?: boolean;
+}
+
+interface MentionsConfig {
+  enabled?: boolean;
+}
+
 interface PartialConfig {
   slackApp?: SlackAppConfig;
+  slack?: SlackConfig;
+  directMessages?: DirectMessagesConfig;
+  mentions?: MentionsConfig;
 }
 
 const DEFAULTS: Required<SlackAppConfig> = {
@@ -26,21 +47,19 @@ const DEFAULTS: Required<SlackAppConfig> = {
   backgroundColor: "#4A154B",
 };
 
-// Static manifest settings - not configurable
-const BOT_SCOPES = [
+// Core scopes - always needed for basic reaction functionality
+const CORE_SCOPES: BotScope[] = [
   "channels:history",
   "groups:history",
-  "im:history",
-  "mpim:history",
   "chat:write",
   "reactions:read",
   "reactions:write",
-  "users:read",
-] as const;
+];
 
-const BOT_EVENTS = ["reaction_added"] as const;
+// Core events - always needed
+const CORE_EVENTS: ManifestEvent[] = ["reaction_added"];
 
-function loadConfigForManifest(): SlackAppConfig {
+function loadConfigForManifest(): PartialConfig {
   const configPath = resolve(process.cwd(), "data", "config.json");
 
   if (!existsSync(configPath)) {
@@ -56,7 +75,7 @@ function loadConfigForManifest(): SlackAppConfig {
     throw new Error(`Config file is not valid JSON: ${configPath}`);
   }
 
-  return parsed.slackApp ?? {};
+  return parsed;
 }
 
 function validateSlackAppConfig(config: SlackAppConfig): void {
@@ -71,10 +90,67 @@ function validateSlackAppConfig(config: SlackAppConfig): void {
   }
 }
 
-function generateManifest(config: SlackAppConfig): Manifest {
-  const name = config.name ?? DEFAULTS.name;
-  const description = config.description ?? DEFAULTS.description;
-  const backgroundColor = config.backgroundColor ?? DEFAULTS.backgroundColor;
+interface ConfigFeatures {
+  directMessages: boolean;
+  mentions: boolean;
+  notifyHiddenThread: boolean;
+  fetchUsernames: boolean;
+}
+
+function getEnabledFeatures(config: PartialConfig): ConfigFeatures {
+  return {
+    directMessages: config.directMessages?.enabled ?? false,
+    mentions: config.mentions?.enabled ?? false,
+    notifyHiddenThread: config.slack?.notifyHiddenThread ?? true,
+    fetchUsernames: config.slack?.fetchAndStoreUsername ?? false,
+  };
+}
+
+function buildScopes(features: ConfigFeatures): BotScope[] {
+  const scopes: BotScope[] = [...CORE_SCOPES];
+
+  if (features.directMessages) {
+    scopes.push("im:history", "mpim:history");
+  }
+
+  if (features.mentions) {
+    scopes.push("app_mentions:read");
+  }
+
+  if (features.notifyHiddenThread) {
+    scopes.push("im:write");
+  }
+
+  if (features.fetchUsernames) {
+    scopes.push("users:read");
+  }
+
+  return scopes.sort();
+}
+
+function buildEvents(features: ConfigFeatures): ManifestEvent[] {
+  const events: ManifestEvent[] = [...CORE_EVENTS];
+
+  if (features.directMessages) {
+    events.push("message.im");
+  }
+
+  if (features.mentions) {
+    events.push("app_mention");
+  }
+
+  return events.sort();
+}
+
+function generateManifest(config: PartialConfig): Manifest {
+  const slackApp = config.slackApp ?? {};
+  const name = slackApp.name ?? DEFAULTS.name;
+  const description = slackApp.description ?? DEFAULTS.description;
+  const backgroundColor = slackApp.backgroundColor ?? DEFAULTS.backgroundColor;
+
+  const features = getEnabledFeatures(config);
+  const scopes = buildScopes(features);
+  const events = buildEvents(features);
 
   const manifest: Manifest = {
     display_information: {
@@ -90,12 +166,12 @@ function generateManifest(config: SlackAppConfig): Manifest {
     },
     oauth_config: {
       scopes: {
-        bot: [...BOT_SCOPES],
+        bot: scopes,
       },
     },
     settings: {
       event_subscriptions: {
-        bot_events: [...BOT_EVENTS],
+        bot_events: events,
       },
       interactivity: {
         is_enabled: true,
@@ -113,8 +189,9 @@ function main(): void {
   console.log("Generating Slack app manifest...");
 
   const config = loadConfigForManifest();
-  validateSlackAppConfig(config);
+  validateSlackAppConfig(config.slackApp ?? {});
 
+  const features = getEnabledFeatures(config);
   const manifest = generateManifest(config);
 
   const outputPath = resolve(process.cwd(), "slack-app-manifest.json");
@@ -123,6 +200,13 @@ function main(): void {
   console.log(`Manifest written to ${outputPath}`);
   console.log(`  Name: ${manifest.display_information.name}`);
   console.log(`  Description: ${manifest.display_information.description}`);
+  console.log(`  Features enabled:`);
+  console.log(`    - Direct messages: ${features.directMessages}`);
+  console.log(`    - Mentions: ${features.mentions}`);
+  console.log(`    - Notify hidden thread: ${features.notifyHiddenThread}`);
+  console.log(`    - Fetch usernames: ${features.fetchUsernames}`);
+  console.log(`  Scopes: ${(manifest.oauth_config?.scopes?.bot as string[]).join(", ")}`);
+  console.log(`  Events: ${(manifest.settings?.event_subscriptions?.bot_events as string[]).join(", ")}`);
 }
 
 main();
