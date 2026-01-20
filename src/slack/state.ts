@@ -1,3 +1,4 @@
+import { logger } from "../logger.js";
 import { getSession, parseSessionId } from "../sessions.js";
 
 export interface SessionInfo {
@@ -46,13 +47,13 @@ export async function restoreSessionInfo(sessionId: string): Promise<SessionInfo
 
     // Cache in memory for future use
     activeSessions.set(sessionId, info);
-    console.log(`Restored session ${sessionId} from disk`);
+    logger.debug(`Restored session ${sessionId} from disk`);
 
     return info;
   }
 
   // Session not on disk - try to parse sessionId to reconstruct minimal info
-  console.log(`Session ${sessionId} not found on disk, attempting to parse sessionId`);
+  logger.debug(`Session ${sessionId} not found on disk, attempting to parse sessionId`);
   const parsed = parseSessionId(sessionId);
   if (!parsed) {
     return undefined;
@@ -67,7 +68,7 @@ export async function restoreSessionInfo(sessionId: string): Promise<SessionInfo
 
   // Cache in memory
   activeSessions.set(sessionId, info);
-  console.log(`Reconstructed session info for ${sessionId} from parsed sessionId`);
+  logger.debug(`Reconstructed session info for ${sessionId} from parsed sessionId`);
 
   return info;
 }

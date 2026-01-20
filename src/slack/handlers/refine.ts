@@ -1,4 +1,5 @@
 import type { App, BlockAction, ViewSubmitAction } from "@slack/bolt";
+import { logger } from "../../logger.js";
 import { getSession, addRefinement, setLastAnswer, createSession, parseSessionId } from "../../sessions.js";
 import { askClaude } from "../../claude.js";
 import { getResponseBlocks, getErrorBlocks } from "../blocks.js";
@@ -67,24 +68,24 @@ export function registerRefineHandler(app: App): void {
     const sessionInfo = await restoreSessionInfo(sessionId);
 
     if (!sessionInfo) {
-      console.error("Could not restore session info for refinement");
+      logger.error("Could not restore session info for refinement");
       return;
     }
 
     // If session doesn't exist on disk, recreate it from Slack context
     if (!session) {
-      console.log(`Session ${sessionId} expired, recreating from Slack context`);
+      logger.debug(`Session ${sessionId} expired, recreating from Slack context`);
 
       const parsed = parseSessionId(sessionId);
       if (!parsed) {
-        console.error("Failed to parse sessionId for recreation");
+        logger.error("Failed to parse sessionId for recreation");
         return;
       }
 
       // Fetch original message and thread context from Slack
       const messageText = await fetchMessage(client, parsed.channelId, parsed.messageTs, sessionInfo.threadTs);
       if (!messageText) {
-        console.error("Could not fetch original message for session recreation");
+        logger.error("Could not fetch original message for session recreation");
         await client.chat.postEphemeral({
           channel: sessionInfo.channelId,
           user: sessionInfo.userId,
@@ -116,7 +117,7 @@ export function registerRefineHandler(app: App): void {
         userId: session.userId,
       });
 
-      console.log(`Recreated session as ${session.sessionId}`);
+      logger.debug(`Recreated session as ${session.sessionId}`);
     }
 
     // Add refinement and regenerate

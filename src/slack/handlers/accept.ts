@@ -1,4 +1,5 @@
 import type { App, BlockAction } from "@slack/bolt";
+import { logger } from "../../logger.js";
 import { getSession, touchSession } from "../../sessions.js";
 import { getAcceptedBlocks } from "../blocks.js";
 import { restoreSessionInfo, deleteSessionInfo } from "../state.js";
@@ -56,9 +57,9 @@ export function registerAcceptHandler(app: App): void {
       if (session) {
         await touchSession(sessionId);
       }
-      console.log(`Accepted answer for session ${sessionId}`);
+      logger.debug(`Accepted answer for session ${sessionId}`);
     } else {
-      console.error(`Cannot accept: sessionInfo=${!!sessionInfo}, answer=${!!answer}`);
+      logger.error(`Cannot accept: sessionInfo=${!!sessionInfo}, answer=${!!answer}`);
     }
   });
 }

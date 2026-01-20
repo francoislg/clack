@@ -1,5 +1,6 @@
 import { App } from "@slack/bolt";
 import { getConfig } from "../config.js";
+import { logger } from "../logger.js";
 import { registerNewQueryHandler } from "./handlers/newQuery.js";
 import { registerAcceptHandler } from "./handlers/accept.js";
 import { registerRejectHandler } from "./handlers/reject.js";
@@ -32,14 +33,14 @@ export function createSlackApp(): App {
 
   // Direct message handlers (only when enabled)
   if (config.directMessages.enabled) {
-    console.log("Direct message mode enabled");
+    logger.debug("Direct message mode enabled");
     registerDirectMessageHandler(app);
     registerThreadReplyHandler(app);
   }
 
   // Mention handlers (only when enabled)
   if (config.mentions.enabled) {
-    console.log("Mention mode enabled");
+    logger.debug("Mention mode enabled");
     registerMentionHandler(app);
   }
 
@@ -52,12 +53,12 @@ export async function startSlackApp(): Promise<void> {
   }
 
   await app.start();
-  console.log("Slack app is running!");
+  logger.info("Slack app is running!");
 }
 
 export async function stopSlackApp(): Promise<void> {
   if (app) {
     await app.stop();
-    console.log("Slack app stopped");
+    logger.debug("Slack app stopped");
   }
 }

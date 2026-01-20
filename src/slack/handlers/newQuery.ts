@@ -1,5 +1,6 @@
 import type { App } from "@slack/bolt";
 import { getConfig } from "../../config.js";
+import { logger } from "../../logger.js";
 import {
   createSession,
   findSessionByMessage,
@@ -22,12 +23,12 @@ async function handleReaction(
 ): Promise<void> {
   const effectiveThreadTs = threadTs || messageTs;
 
-  console.log(`Reaction detected from user ${userId} in channel ${channelId}`);
+  logger.debug(`Reaction detected from user ${userId} in channel ${channelId}`);
 
   // Use preloaded text if available, otherwise fetch
   const messageText = preloadedMessageText || await fetchMessage(client, channelId, messageTs, threadTs);
   if (!messageText) {
-    console.error("Could not fetch message text");
+    logger.error("Could not fetch message text");
     await client.chat.postEphemeral({
       channel: channelId,
       user: userId,
@@ -73,7 +74,7 @@ async function handleReaction(
         name: thinkingFeedback.emoji,
       });
     } catch (error) {
-      console.error("Failed to add thinking reaction:", error);
+      logger.error("Failed to add thinking reaction:", error);
     }
   } else {
     await client.chat.postEphemeral({
@@ -85,7 +86,7 @@ async function handleReaction(
   }
 
   // Ask Claude
-  console.log("Calling Claude Code...");
+  logger.info("Calling Claude Code...");
   const response = await askClaude(session);
 
   // Remove thinking emoji if used
@@ -97,12 +98,12 @@ async function handleReaction(
         name: thinkingFeedback.emoji,
       });
     } catch (error) {
-      console.error("Failed to remove thinking reaction:", error);
+      logger.error("Failed to remove thinking reaction:", error);
     }
   }
 
   if (response.success) {
-    console.log("Got response from Claude, posting ephemeral response...");
+    logger.debug("Got response from Claude, posting ephemeral response...");
 
     await setLastAnswer(session.sessionId, response.answer);
 
@@ -115,7 +116,7 @@ async function handleReaction(
       text: response.answer,
     });
   } else {
-    console.error("Claude Code failed:", response.error);
+    logger.error("Claude Code failed:", response.error);
 
     // Post ephemeral error message
     await client.chat.postEphemeral({
@@ -132,15 +133,15 @@ export function registerNewQueryHandler(app: App): void {
   const config = getConfig();
 
   app.event("reaction_added", async ({ event, client }) => {
-    console.log(`Reaction event: ${event.reaction} from ${event.user}`);
+    logger.debug(`Reaction event: ${event.reaction} from ${event.user}`);
 
     if (event.reaction !== config.reactions.trigger) {
-      console.log(`Ignoring reaction ${event.reaction}, waiting for ${config.reactions.trigger}`);
+      logger.debug(`Ignoring reaction ${event.reaction}, waiting for ${config.reactions.trigger}`);
       return;
     }
 
     if (event.item.type !== "message") {
-      console.log("Ignoring non-message reaction");
+      logger.debug("Ignoring non-message reaction");
       return;
     }
 
@@ -167,13 +168,13 @@ export function registerNewQueryHandler(app: App): void {
           // ts is a parent message - we found it directly
           threadTs = msg.thread_ts || ts;
           actualMessageText = msg.text;
-          console.log(`Found message via conversations.replies (parent message)`);
+          logger.debug(`Found message via conversations.replies (parent message)`);
         }
       }
     } catch (error) {
       // conversations.replies failed - ts might be a reply, not a parent
       // Or it's a channel-level message with no thread
-      console.log("conversations.replies failed, trying history approach:", error);
+      logger.debug("conversations.replies failed, trying history approach:", error);
     }
 
     if (!actualMessageText) {
@@ -192,12 +193,12 @@ export function registerNewQueryHandler(app: App): void {
             // Found the exact message in channel history
             threadTs = msg.thread_ts;
             actualMessageText = msg.text;
-            console.log(`Found message via conversations.history (channel message)`);
+            logger.debug(`Found message via conversations.history (channel message)`);
           } else if (msg.thread_ts) {
             // Didn't find exact match - ts might be a thread reply
             // The returned message's thread_ts points to the parent thread
             // We need to search in that thread
-            console.log(`Message not in channel history, searching in thread ${msg.thread_ts}`);
+            logger.debug(`Message not in channel history, searching in thread ${msg.thread_ts}`);
             threadTs = msg.thread_ts;
 
             // Fetch from the thread to find our actual message
@@ -211,13 +212,13 @@ export function registerNewQueryHandler(app: App): void {
               const targetMsg = threadResult.messages.find((m) => m.ts === ts);
               if (targetMsg) {
                 actualMessageText = targetMsg.text;
-                console.log(`Found message in thread replies`);
+                logger.debug(`Found message in thread replies`);
               }
             }
           }
         }
       } catch (error) {
-        console.error("Error fetching message:", error);
+        logger.error("Error fetching message:", error);
       }
     }
 

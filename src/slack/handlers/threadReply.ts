@@ -7,6 +7,7 @@ import {
   setLastAnswer,
 } from "../../sessions.js";
 import { getConfig } from "../../config.js";
+import { logger } from "../../logger.js";
 import { askClaude } from "../../claude.js";
 import { getMessageBlocks, getInvestigatingBlocks, getErrorBlocks } from "../blocks.js";
 import { setSessionInfo } from "../state.js";
@@ -46,7 +47,7 @@ export function registerThreadReplyHandler(app: App): void {
       return;
     }
 
-    console.log(`Thread reply in ${msg.channel} thread ${msg.thread_ts} from ${msg.user}`);
+    logger.debug(`Thread reply in ${msg.channel} thread ${msg.thread_ts} from ${msg.user}`);
 
     // Find existing session or create from thread context
     let session = await findSessionByThread(msg.channel, msg.thread_ts);
@@ -75,7 +76,7 @@ export function registerThreadReplyHandler(app: App): void {
         threadRoot?.text || "",
         threadContext
       );
-      console.log(`Created session ${session.sessionId} from thread context`);
+      logger.debug(`Created session ${session.sessionId} from thread context`);
     } else {
       // Update existing session with latest context
       await updateThreadContext(session.sessionId, threadContext);
@@ -103,7 +104,7 @@ export function registerThreadReplyHandler(app: App): void {
           name: thinkingFeedback.emoji,
         });
       } catch (error) {
-        console.error("Failed to add thinking reaction:", error);
+        logger.error("Failed to add thinking reaction:", error);
       }
     } else {
       // Post visible "Investigating..." message in the thread
@@ -117,7 +118,7 @@ export function registerThreadReplyHandler(app: App): void {
     }
 
     // Ask Claude
-    console.log("Calling Claude Code for thread reply...");
+    logger.info("Calling Claude Code for thread reply...");
     const response = await askClaude(session);
 
     // Remove thinking emoji if used
@@ -129,12 +130,12 @@ export function registerThreadReplyHandler(app: App): void {
           name: thinkingFeedback.emoji,
         });
       } catch (error) {
-        console.error("Failed to remove thinking reaction:", error);
+        logger.error("Failed to remove thinking reaction:", error);
       }
     }
 
     if (response.success) {
-      console.log("Got response from Claude, posting response...");
+      logger.debug("Got response from Claude, posting response...");
 
       await setLastAnswer(session.sessionId, response.answer);
 
@@ -156,7 +157,7 @@ export function registerThreadReplyHandler(app: App): void {
         });
       }
     } else {
-      console.error("Claude Code failed:", response.error);
+      logger.error("Claude Code failed:", response.error);
 
       const errorText = `Sorry, I couldn't generate an answer: ${response.error || "Unknown error"}`;
 
