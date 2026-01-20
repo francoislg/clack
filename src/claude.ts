@@ -1,6 +1,7 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { getConfig, getRepositoriesDir } from "./config.js";
 import { logger } from "./logger.js";
+import { loadMcpServers, getConfiguredMcpServerNames } from "./mcp.js";
 import type { SessionContext } from "./sessions.js";
 import { formatUserIdentity } from "./slack/userCache.js";
 
@@ -10,13 +11,30 @@ export interface ClaudeResponse {
   error?: string;
 }
 
+export interface McpServerInfo {
+  name: string;
+  status: string;
+}
+
+export interface McpTestResult {
+  success: boolean;
+  configuredServers: string[];
+  connectedServers: McpServerInfo[];
+  failedServers: McpServerInfo[];
+  tools: string[];
+  mcpTools: string[];
+  error?: string;
+}
+
 function buildSystemPrompt(): string {
   const config = getConfig();
   const repoList = config.repositories
     .map((r) => `- **${r.name}**: ${r.description}`)
     .join("\n");
 
-  return `You are a helpful assistant that answers questions about codebases. You have access to the following repositories:
+  return `You are a **product expert**, not a developer. You understand how the product works from a user's perspective. When you investigate code, you translate technical implementation into plain-English explanations that anyone on the team can understand.
+
+You have access to the following repositories:
 
 ${repoList}
 
@@ -27,13 +45,16 @@ IMPORTANT INSTRUCTIONS:
 - Explore the code to understand how it works before answering.
 - Only go deeper if the question specifically requires investigation.
 
-## Step 2: Craft the Response (as a Support Agent)
+## Step 2: Craft the Response (Translate Technical → Plain Language)
 - Give the answer directly. No preamble like "Based on my exploration of the codebase..." or "Answer:" headers.
 - Keep it short and to-the-point. Only add structure (bullets, sections) if the question is complex.
-- **Use broad, non-technical explanations by default**—explain like you're talking to a teammate who doesn't code.
-- **Never include**: file paths, line numbers, function names, table/field names, or code snippets—unless the user explicitly asks for technical details.
+- **CRITICAL: Translate all technical findings into plain language.**
+  - BAD: "In reducer.js (lines 70-79), the retirementDefaultMsg object combines the customized message with the fallback..."
+  - GOOD: "The system combines your custom retirement message with a default fallback if needed..."
+- Think of yourself as a translator: you READ code, but you SPEAK business.
+- The user should not be able to tell you looked at code—just that you know the answer.
 - Focus on WHAT is happening and WHY, not HOW it's implemented.
-- If the user asks for "more details", "technical info", or "specifics", then you may include code references.
+- Only include file names, function names, or code details if the user explicitly asks for "technical details", "code references", or "specifics".
 
 ## Critical: Information Only
 - Never suggest code changes, fixes, or solutions that would require modifying the codebase.
@@ -94,6 +115,7 @@ Use this context to understand the conversation flow and provide relevant answer
 export async function askClaude(session: SessionContext): Promise<ClaudeResponse> {
   const config = getConfig();
   const reposDir = getRepositoriesDir();
+  const mcpServers = loadMcpServers();
 
   const systemPrompt = buildSystemPrompt();
   const userPrompt = buildPrompt(session);
@@ -104,14 +126,16 @@ export async function askClaude(session: SessionContext): Promise<ClaudeResponse
     let answer = "";
 
     // Use the Agent SDK query function
+    // Disallow write operations - this bot is read-only
     for await (const message of query({
       prompt: userPrompt,
       options: {
         cwd: reposDir,
         systemPrompt,
         model: config.claudeCode.model,
-        allowedTools: ["Read", "Glob", "Grep"],
         permissionMode: "bypassPermissions",
+        disallowedTools: ["Write", "Edit", "NotebookEdit", "Bash", "Task"],
+        mcpServers,
       },
     })) {
       // Collect text from assistant messages
@@ -192,4 +216,94 @@ export function truncateForSlack(text: string, maxLength = 3000): string {
 
   const truncated = text.substring(0, maxLength - 50);
   return `${truncated}\n\n_(Response truncated due to length)_`;
+}
+
+/**
+ * Tests MCP server connections and returns available tools.
+ * Starts a minimal Claude query to get the init message with MCP status.
+ */
+export async function testMCP(): Promise<McpTestResult> {
+  const mcpServers = loadMcpServers();
+  const configuredServers = getConfiguredMcpServerNames();
+
+  if (!mcpServers || configuredServers.length === 0) {
+    return {
+      success: true,
+      configuredServers: [],
+      connectedServers: [],
+      failedServers: [],
+      tools: [],
+      mcpTools: [],
+    };
+  }
+
+  const abortController = new AbortController();
+
+  try {
+    let tools: string[] = [];
+    let mcpServerStatus: McpServerInfo[] = [];
+
+    // Start a minimal query just to get the init message
+    for await (const message of query({
+      prompt: "test",
+      options: {
+        cwd: process.cwd(),
+        model: "haiku", // Use cheapest model for test
+        permissionMode: "bypassPermissions",
+        mcpServers,
+        abortController,
+        maxTurns: 1,
+      },
+    })) {
+      // Capture the init message which contains tools and MCP status
+      if (message.type === "system" && message.subtype === "init") {
+        tools = message.tools || [];
+        mcpServerStatus = (message.mcp_servers || []).map((s: { name: string; status: string }) => ({
+          name: s.name,
+          status: s.status,
+        }));
+        // Abort after getting init info - we don't need the actual response
+        abortController.abort();
+        break;
+      }
+    }
+
+    // Separate connected and failed servers
+    const connectedServers = mcpServerStatus.filter((s) => s.status === "connected");
+    const failedServers = mcpServerStatus.filter((s) => s.status !== "connected");
+
+    // Filter MCP tools (they start with "mcp__")
+    const mcpTools = tools.filter((t) => t.startsWith("mcp__"));
+
+    return {
+      success: true,
+      configuredServers,
+      connectedServers,
+      failedServers,
+      tools,
+      mcpTools,
+    };
+  } catch (error) {
+    // AbortError is expected - we abort after getting init
+    if (error instanceof Error && error.name === "AbortError") {
+      return {
+        success: true,
+        configuredServers,
+        connectedServers: [],
+        failedServers: [],
+        tools: [],
+        mcpTools: [],
+      };
+    }
+
+    return {
+      success: false,
+      configuredServers,
+      connectedServers: [],
+      failedServers: [],
+      tools: [],
+      mcpTools: [],
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
 }

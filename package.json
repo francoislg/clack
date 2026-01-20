@@ -10,6 +10,7 @@
     "start:logfile": "mkdir -p logs && node dist/index.js 2>&1 | tee \"logs/clack-$(date +%Y%m%d-%H%M%S).log\"",
     "dev": "tsc --watch & node --watch dist/index.js",
     "test": "node --test",
+    "ask": "npx tsx scripts/askClaude.ts",
     "manifest": "npx tsx scripts/generate-manifest.ts",
     "docker-setup": "bash scripts/docker-setup.sh",
     "deploy:gce": "bash scripts/gce-deploy.sh"
@@ -20,6 +21,7 @@
     "@anthropic-ai/claude-agent-sdk": "^0.2.7",
     "@slack/bolt": "^4.1.0",
     "@slack/web-api": "^7.7.0",
+    "dotenv": "^17.2.3",
     "simple-git": "^3.27.0"
   },
   "devDependencies": {
