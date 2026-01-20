@@ -42,5 +42,8 @@
   },
   "claudeCode": {
     "model": "sonnet"
+  },
+  "slack": {
+    "fetchAndStoreUsername": false
   }
 }

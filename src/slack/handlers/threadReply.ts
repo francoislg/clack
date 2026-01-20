@@ -12,6 +12,7 @@ import { askClaude } from "../../claude.js";
 import { getMessageBlocks, getInvestigatingBlocks, getErrorBlocks } from "../blocks.js";
 import { setSessionInfo } from "../state.js";
 import { fetchThreadContext } from "../messagesApi.js";
+import { transformUserMentions } from "../userCache.js";
 
 export function registerThreadReplyHandler(app: App): void {
   app.event("message", async ({ event, client }) => {
@@ -55,8 +56,12 @@ export function registerThreadReplyHandler(app: App): void {
     // Get bot user ID for thread context attribution
     const botUserId = (await client.auth.test()).user_id || "";
 
+    const config = getConfig();
+
     // Fetch thread context with proper attribution
-    const threadContext = await fetchThreadContext(client, msg.channel, msg.thread_ts, botUserId);
+    const threadContext = await fetchThreadContext(client, msg.channel, msg.thread_ts, botUserId, {
+      fetchUserNames: config.slack.fetchAndStoreUsername,
+    });
 
     // We still need thread messages for root message info
     const threadMessages = await client.conversations.replies({
@@ -68,12 +73,19 @@ export function registerThreadReplyHandler(app: App): void {
     if (!session) {
       // Create session from thread context
       const threadRoot = threadMessages.messages?.[0];
+      const rootText = threadRoot?.text || "";
+
+      // Transform user mentions in root message text if enabled
+      const processedRootText = config.slack.fetchAndStoreUsername
+        ? await transformUserMentions(client, rootText)
+        : rootText;
+
       session = await createSession(
         msg.channel,
         msg.thread_ts,
         msg.thread_ts,
         threadRoot?.user || msg.user,
-        threadRoot?.text || "",
+        processedRootText,
         threadContext
       );
       logger.debug(`Created session ${session.sessionId} from thread context`);
@@ -90,7 +102,6 @@ export function registerThreadReplyHandler(app: App): void {
       userId: msg.user,
     });
 
-    const config = getConfig();
     const thinkingFeedback = config.directMessages.thinking;
 
     // Send thinking feedback

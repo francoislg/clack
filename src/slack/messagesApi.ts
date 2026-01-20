@@ -1,12 +1,18 @@
 import type { App } from "@slack/bolt";
 import { logger } from "../logger.js";
 import type { ThreadMessage } from "../sessions.js";
+import { resolveUsers, transformUserMentions } from "./userCache.js";
+
+export interface FetchThreadContextOptions {
+  fetchUserNames?: boolean;
+}
 
 export async function fetchThreadContext(
   client: App["client"],
   channelId: string,
   threadTs: string,
-  botUserId: string
+  botUserId: string,
+  options: FetchThreadContextOptions = {}
 ): Promise<ThreadMessage[]> {
   try {
     const result = await client.conversations.replies({
@@ -19,7 +25,7 @@ export async function fetchThreadContext(
       return [];
     }
 
-    return result.messages
+    const messages: ThreadMessage[] = result.messages
       .filter((msg) => msg.text && msg.user && msg.ts)
       .map((msg) => ({
         text: msg.text as string,
@@ -27,6 +33,24 @@ export async function fetchThreadContext(
         isBot: msg.user === botUserId || msg.bot_id !== undefined,
         ts: msg.ts as string,
       }));
+
+    // Resolve usernames and transform mentions if enabled
+    if (options.fetchUserNames) {
+      const userIds = messages.map((m) => m.userId);
+      const userInfoMap = await resolveUsers(client, userIds);
+
+      for (const msg of messages) {
+        const userInfo = userInfoMap.get(msg.userId);
+        if (userInfo) {
+          msg.username = userInfo.username;
+          msg.displayName = userInfo.displayName;
+        }
+        // Transform <@USERID> mentions in message text
+        msg.text = await transformUserMentions(client, msg.text);
+      }
+    }
+
+    return messages;
   } catch (error) {
     logger.error("Failed to fetch thread context:", error);
     return [];

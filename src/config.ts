@@ -11,6 +11,7 @@ export interface SlackConfig {
   botToken: string;
   appToken: string;
   signingSecret: string;
+  fetchAndStoreUsername: boolean;
 }
 
 export interface RepositoryConfig {
@@ -201,6 +202,7 @@ function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Config {
       botToken: slackAuth.botToken,
       appToken: slackAuth.appToken,
       signingSecret: slackAuth.signingSecret,
+      fetchAndStoreUsername: ((c.slack as Record<string, unknown>)?.fetchAndStoreUsername as boolean) ?? false,
     },
     slackApp: {
       name: (slackApp?.name as string) ?? DEFAULTS.slackApp!.name,
