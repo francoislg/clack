@@ -98,3 +98,40 @@ export async function fetchMessage(
     return "";
   }
 }
+
+export async function hasThreadReplies(
+  client: App["client"],
+  channelId: string,
+  threadTs: string
+): Promise<boolean> {
+  try {
+    const result = await client.conversations.replies({
+      channel: channelId,
+      ts: threadTs,
+      limit: 2,
+    });
+    // First message is the parent, any additional messages are replies
+    return (result.messages?.length ?? 1) > 1;
+  } catch (error) {
+    logger.error("Failed to check thread replies:", error);
+    return false;
+  }
+}
+
+export async function sendDirectMessage(
+  client: App["client"],
+  userId: string,
+  text: string
+): Promise<void> {
+  try {
+    const conversation = await client.conversations.open({ users: userId });
+    if (conversation.channel?.id) {
+      await client.chat.postMessage({
+        channel: conversation.channel.id,
+        text,
+      });
+    }
+  } catch (error) {
+    logger.error("Failed to send direct message:", error);
+  }
+}

@@ -1,7 +1,8 @@
 # manifest-generation Specification
 
 ## Purpose
-TBD - created by archiving change add-manifest-generator. Update Purpose after archive.
+Generate a Slack app manifest file from configuration, with scopes and events conditionally included based on enabled features.
+
 ## Requirements
 ### Requirement: Slack App Configuration
 
@@ -22,7 +23,7 @@ The config file SHALL support Slack app branding configuration with optional `sl
 
 ### Requirement: Manifest Generation Script
 
-The system SHALL provide a script that generates the Slack app manifest file from configuration, merging branding with static defaults for scopes and events.
+The system SHALL provide a script that generates the Slack app manifest file from configuration, merging branding with core scopes/events and conditionally adding feature-specific scopes/events based on config.
 
 #### Scenario: Generate manifest with custom branding
 - Given config with `slackApp.name` = "MyBot" and `slackApp.description` = "Custom description"
@@ -31,13 +32,35 @@ The system SHALL provide a script that generates the Slack app manifest file fro
 - And `display_information.name` equals "MyBot"
 - And `display_information.description` equals "Custom description"
 
-#### Scenario: Manifest includes required defaults
+#### Scenario: Manifest includes core defaults
 - Given any valid config
 - When the manifest is generated
-- Then `oauth_config.scopes.bot` contains required scopes: `channels:history`, `groups:history`, `im:history`, `mpim:history`, `chat:write`, `reactions:read`, `reactions:write`, `users:read`
+- Then `oauth_config.scopes.bot` contains core scopes: `channels:history`, `groups:history`, `chat:write`, `reactions:read`, `reactions:write`
 - And `settings.event_subscriptions.bot_events` contains `reaction_added`
 - And `settings.socket_mode_enabled` is `true`
 - And `settings.interactivity.is_enabled` is `true`
+
+#### Scenario: Direct messages feature adds DM scopes
+- Given config with `directMessages.enabled` = true
+- When the manifest is generated
+- Then scopes include `im:history`, `mpim:history`
+- And events include `message.im`
+
+#### Scenario: Mentions feature adds mention scope and event
+- Given config with `mentions.enabled` = true
+- When the manifest is generated
+- Then scopes include `app_mentions:read`
+- And events include `app_mention`
+
+#### Scenario: Hidden thread notification adds DM write scope
+- Given config with `slack.notifyHiddenThread` = true (default)
+- When the manifest is generated
+- Then scopes include `im:write`
+
+#### Scenario: Username fetching adds users scope
+- Given config with `slack.fetchAndStoreUsername` = true
+- When the manifest is generated
+- Then scopes include `users:read`
 
 #### Scenario: Manifest validation
 - Given the generated manifest

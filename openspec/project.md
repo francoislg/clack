@@ -41,7 +41,7 @@
 
 ## Important Constraints
 - Claude Agent SDK requires Claude Code CLI to be installed and authenticated
-- Bot needs appropriate Slack OAuth scopes (`reactions:read`, `reactions:write`, `chat:write`, `channels:history`, etc.)
+- Bot needs appropriate Slack OAuth scopes (`reactions:read`, `reactions:write`, `chat:write`, `im:write`, `channels:history`, etc.)
 - SSH key access required for private Git repositories
 - Read-only access to repositories (Claude tools restricted to Read, Glob, Grep)
 
