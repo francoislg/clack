@@ -95,7 +95,7 @@ async function handleReaction(
   }
 
   // Ask Claude
-  logger.info("Calling Claude Code...");
+  logger.info(`Calling Claude Code (session: ${session.sessionId})...`);
   const response = await askClaude(session);
 
   // Remove thinking emoji if used
