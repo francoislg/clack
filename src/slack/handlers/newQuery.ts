@@ -7,11 +7,12 @@ import {
   getSession,
   updateThreadContext,
   setLastAnswer,
+  addError,
 } from "../../sessions.js";
-import { askClaude } from "../../claude.js";
-import { getResponseBlocks, getErrorBlocks } from "../blocks.js";
+import { askClaude, analyzeError } from "../../claude.js";
+import { getResponseBlocks, getErrorBlocks, getErrorBlocksWithRetry } from "../blocks.js";
 import { setSessionInfo } from "../state.js";
-import { fetchThreadContext, fetchMessage, hasThreadReplies, sendDirectMessage } from "../messagesApi.js";
+import { fetchThreadContext, fetchMessage, hasThreadReplies, sendDirectMessage, sendErrorReport } from "../messagesApi.js";
 import { transformUserMentions } from "../userCache.js";
 
 async function handleReaction(
@@ -151,14 +152,35 @@ async function handleReaction(
   } else {
     logger.error("Claude Code failed:", response.error);
 
-    // Post ephemeral error message
+    const errorMessage = response.error || "Unknown error";
+    const conversationTrace = response.conversationTrace || [];
+
+    // Store the error in the session
+    await addError(session.sessionId, errorMessage, conversationTrace);
+
+    // Post user-friendly error message with retry button
     await client.chat.postEphemeral({
       channel: channelId,
       user: userId,
       thread_ts: effectiveThreadTs,
-      text: `Sorry, I couldn't generate an answer: ${response.error || "Unknown error"}`,
-      blocks: getErrorBlocks(`Sorry, I couldn't generate an answer: ${response.error || "Unknown error"}`),
+      text: `Claude seems to have crashed (session: ${session.sessionId}), maybe try again?`,
+      blocks: getErrorBlocksWithRetry(session.sessionId),
     });
+
+    // Send detailed error report via DM if enabled
+    if (config.slack.sendErrorsAsDM) {
+      try {
+        const analysis = await analyzeError(errorMessage, conversationTrace);
+        await sendErrorReport(client, userId, {
+          sessionId: session.sessionId,
+          errorMessage,
+          conversationTrace,
+          analysis,
+        });
+      } catch (dmError) {
+        logger.error("Failed to send error report DM:", dmError);
+      }
+    }
   }
 }
 

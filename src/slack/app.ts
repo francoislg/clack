@@ -7,6 +7,7 @@ import { registerRejectHandler } from "./handlers/reject.js";
 import { registerRefineHandler } from "./handlers/refine.js";
 import { registerUpdateHandler } from "./handlers/update.js";
 import { registerEditHandler } from "./handlers/edit.js";
+import { registerRetryHandler } from "./handlers/retry.js";
 import { registerDirectMessageHandler } from "./handlers/directMessage.js";
 import { registerThreadReplyHandler } from "./handlers/threadReply.js";
 import { registerMentionHandler } from "./handlers/mention.js";
@@ -30,6 +31,7 @@ export function createSlackApp(): App {
   registerRefineHandler(app);
   registerUpdateHandler(app);
   registerEditHandler(app);
+  registerRetryHandler(app);
 
   // Direct message handlers (only when enabled)
   if (config.directMessages.enabled) {

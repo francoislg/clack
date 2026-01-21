@@ -5,13 +5,14 @@ import {
   getSession,
   updateThreadContext,
   setLastAnswer,
+  addError,
 } from "../../sessions.js";
 import { getConfig } from "../../config.js";
 import { logger } from "../../logger.js";
-import { askClaude } from "../../claude.js";
-import { getMessageBlocks, getInvestigatingBlocks, getErrorBlocks } from "../blocks.js";
+import { askClaude, analyzeError } from "../../claude.js";
+import { getMessageBlocks, getInvestigatingBlocks, getErrorBlocksWithRetry } from "../blocks.js";
 import { setSessionInfo } from "../state.js";
-import { fetchThreadContext } from "../messagesApi.js";
+import { fetchThreadContext, sendErrorReport } from "../messagesApi.js";
 import { transformUserMentions } from "../userCache.js";
 
 export function registerThreadReplyHandler(app: App): void {
@@ -170,14 +171,20 @@ export function registerThreadReplyHandler(app: App): void {
     } else {
       logger.error("Claude Code failed:", response.error);
 
-      const errorText = `Sorry, I couldn't generate an answer: ${response.error || "Unknown error"}`;
+      const errorMessage = response.error || "Unknown error";
+      const conversationTrace = response.conversationTrace || [];
+
+      // Store the error in the session
+      await addError(session.sessionId, errorMessage, conversationTrace);
+
+      const errorText = `Claude seems to have crashed (session: ${session.sessionId}), maybe try again?`;
 
       if (thinkingMessageTs) {
         // Update the existing message with the error
         await client.chat.update({
           channel: msg.channel,
           ts: thinkingMessageTs,
-          blocks: getErrorBlocks(errorText),
+          blocks: getErrorBlocksWithRetry(session.sessionId),
           text: errorText,
         });
       } else {
@@ -185,9 +192,24 @@ export function registerThreadReplyHandler(app: App): void {
         await client.chat.postMessage({
           channel: msg.channel,
           thread_ts: msg.thread_ts,
-          blocks: getErrorBlocks(errorText),
+          blocks: getErrorBlocksWithRetry(session.sessionId),
           text: errorText,
         });
+      }
+
+      // Send detailed error report via DM if enabled
+      if (config.slack.sendErrorsAsDM && msg.user) {
+        try {
+          const analysis = await analyzeError(errorMessage, conversationTrace);
+          await sendErrorReport(client, msg.user, {
+            sessionId: session.sessionId,
+            errorMessage,
+            conversationTrace,
+            analysis,
+          });
+        } catch (dmError) {
+          logger.error("Failed to send error report DM:", dmError);
+        }
       }
     }
   });

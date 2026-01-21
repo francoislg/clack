@@ -1,6 +1,7 @@
 import type { App } from "@slack/bolt";
 import { logger } from "../logger.js";
 import type { ThreadMessage } from "../sessions.js";
+import type { ConversationMessage } from "../claude.js";
 import { resolveUsers, transformUserMentions } from "./userCache.js";
 
 export interface FetchThreadContextOptions {
@@ -133,5 +134,96 @@ export async function sendDirectMessage(
     }
   } catch (error) {
     logger.error("Failed to send direct message:", error);
+  }
+}
+
+export interface ErrorReportOptions {
+  sessionId: string;
+  errorMessage: string;
+  conversationTrace: ConversationMessage[];
+  analysis: string;
+}
+
+export async function sendErrorReport(
+  client: App["client"],
+  userId: string,
+  options: ErrorReportOptions
+): Promise<void> {
+  const { sessionId, errorMessage, conversationTrace, analysis } = options;
+
+  // Format the last 5-10 messages from the trace
+  const recentTrace = conversationTrace.slice(-10);
+  const traceSummary = recentTrace
+    .map((m) => {
+      const typeLabel = m.subtype ? `${m.type}:${m.subtype}` : m.type;
+      const content = m.content.length > 200 ? m.content.substring(0, 200) + "..." : m.content;
+      return `• [${typeLabel}] ${content}`;
+    })
+    .join("\n");
+
+  const blocks = [
+    {
+      type: "header" as const,
+      text: {
+        type: "plain_text" as const,
+        text: "⚠️ Error Report",
+        emoji: true,
+      },
+    },
+    {
+      type: "section" as const,
+      text: {
+        type: "mrkdwn" as const,
+        text: `An error occurred while processing your request.`,
+      },
+    },
+    {
+      type: "section" as const,
+      fields: [
+        {
+          type: "mrkdwn" as const,
+          text: `*Session ID:*\n\`${sessionId}\``,
+        },
+        {
+          type: "mrkdwn" as const,
+          text: `*Error:*\n${errorMessage}`,
+        },
+      ],
+    },
+    {
+      type: "divider" as const,
+    },
+    {
+      type: "section" as const,
+      text: {
+        type: "mrkdwn" as const,
+        text: `*Analysis:*\n${analysis}`,
+      },
+    },
+    {
+      type: "divider" as const,
+    },
+    {
+      type: "section" as const,
+      text: {
+        type: "mrkdwn" as const,
+        text: `*Conversation Trace (last ${recentTrace.length} messages):*\n\`\`\`${traceSummary}\`\`\``,
+      },
+    },
+  ];
+
+  try {
+    const conversation = await client.conversations.open({ users: userId });
+    if (conversation.channel?.id) {
+      await client.chat.postMessage({
+        channel: conversation.channel.id,
+        text: "Error Report - An error occurred while processing your request.",
+        blocks,
+      });
+      logger.debug(`Sent error report DM to user ${userId}`);
+    }
+  } catch (error) {
+    logger.error("Failed to send error report DM:", error);
+    // Don't throw - error DM failure shouldn't block the response
   }
 }

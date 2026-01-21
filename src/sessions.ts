@@ -11,6 +11,7 @@ async function exists(path: string): Promise<boolean> {
 }
 import { getConfig, getSessionsDir } from "./config.js";
 import { logger } from "./logger.js";
+import type { ErrorRecord, ConversationMessage } from "./claude.js";
 
 export interface ThreadMessage {
   text: string;
@@ -33,6 +34,7 @@ export interface SessionContext {
   threadContext: ThreadMessage[];
   refinements: string[];
   lastAnswer?: string;
+  errors: ErrorRecord[];
   lastActivity: number;
   createdAt: number;
 }
@@ -110,6 +112,7 @@ export async function createSession(
     originalQuestion,
     threadContext,
     refinements: [],
+    errors: [],
     lastActivity: now,
     createdAt: now,
   };
@@ -130,7 +133,12 @@ export async function getSession(sessionId: string): Promise<SessionContext | nu
 
   try {
     const content = await readFile(contextPath, "utf-8");
-    return JSON.parse(content) as SessionContext;
+    const session = JSON.parse(content) as SessionContext;
+    // Ensure backward compatibility: older sessions may not have errors array
+    if (!session.errors) {
+      session.errors = [];
+    }
+    return session;
   } catch (error) {
     logger.error(`Failed to read session ${sessionId}:`, error);
     return null;
@@ -228,6 +236,32 @@ export async function setLastAnswer(sessionId: string, answer: string): Promise<
   return updateSession(sessionId, { lastAnswer: answer });
 }
 
+export async function addError(
+  sessionId: string,
+  errorMessage: string,
+  conversationTrace: ConversationMessage[]
+): Promise<SessionContext | null> {
+  const session = await getSession(sessionId);
+
+  if (!session) {
+    return null;
+  }
+
+  const errorRecord: ErrorRecord = {
+    timestamp: Date.now(),
+    errorMessage,
+    conversationTrace,
+  };
+
+  return updateSession(sessionId, {
+    errors: [...session.errors, errorRecord],
+  });
+}
+
+export function hasErrors(session: SessionContext): boolean {
+  return session.errors && session.errors.length > 0;
+}
+
 export async function touchSession(sessionId: string): Promise<SessionContext | null> {
   return updateSession(sessionId, {});
 }
@@ -258,10 +292,16 @@ export async function cleanupExpiredSessions(): Promise<void> {
 
   const sessionDirs = await readdir(sessionsDir);
   let cleaned = 0;
+  let preserved = 0;
 
   for (const dir of sessionDirs) {
     const session = await getSession(dir);
     if (session && isSessionExpired(session)) {
+      // Skip cleanup of sessions with errors for debugging purposes
+      if (hasErrors(session)) {
+        preserved++;
+        continue;
+      }
       await deleteSession(dir);
       cleaned++;
     }
@@ -269,6 +309,9 @@ export async function cleanupExpiredSessions(): Promise<void> {
 
   if (cleaned > 0) {
     logger.info(`Cleaned up ${cleaned} expired sessions`);
+  }
+  if (preserved > 0) {
+    logger.debug(`Preserved ${preserved} expired sessions with errors for debugging`);
   }
 }
 

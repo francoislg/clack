@@ -1,11 +1,11 @@
 import type { App, BlockAction, ViewSubmitAction } from "@slack/bolt";
 import { getConfig } from "../../config.js";
 import { logger } from "../../logger.js";
-import { getSession, addRefinement, setLastAnswer, createSession, parseSessionId } from "../../sessions.js";
-import { askClaude } from "../../claude.js";
-import { getResponseBlocks, getErrorBlocks } from "../blocks.js";
+import { getSession, addRefinement, setLastAnswer, createSession, parseSessionId, addError } from "../../sessions.js";
+import { askClaude, analyzeError } from "../../claude.js";
+import { getResponseBlocks, getErrorBlocks, getErrorBlocksWithRetry } from "../blocks.js";
 import { restoreSessionInfo, setSessionInfo } from "../state.js";
-import { fetchMessage, fetchThreadContext } from "../messagesApi.js";
+import { fetchMessage, fetchThreadContext, sendErrorReport } from "../messagesApi.js";
 import { transformUserMentions } from "../userCache.js";
 
 export function registerRefineHandler(app: App): void {
@@ -147,13 +147,36 @@ export function registerRefineHandler(app: App): void {
         text: response.answer,
       });
     } else {
+      const config = getConfig();
+      const errorMessage = response.error || "Unknown error";
+      const conversationTrace = response.conversationTrace || [];
+
+      // Store the error in the session
+      await addError(session.sessionId, errorMessage, conversationTrace);
+
+      // Show user-friendly error with retry button
       await client.chat.postEphemeral({
         channel: sessionInfo.channelId,
         user: sessionInfo.userId,
         thread_ts: sessionInfo.threadTs,
-        text: `Sorry, I couldn't refine the answer: ${response.error || "Unknown error"}`,
-        blocks: getErrorBlocks(`Sorry, I couldn't refine the answer: ${response.error || "Unknown error"}`),
+        text: "Claude seems to have crashed, maybe try again?",
+        blocks: getErrorBlocksWithRetry(session.sessionId),
       });
+
+      // Send detailed error report via DM if enabled
+      if (config.slack.sendErrorsAsDM) {
+        try {
+          const analysis = await analyzeError(errorMessage, conversationTrace);
+          await sendErrorReport(client, sessionInfo.userId, {
+            sessionId: session.sessionId,
+            errorMessage,
+            conversationTrace,
+            analysis,
+          });
+        } catch (dmError) {
+          logger.error("Failed to send error report DM:", dmError);
+        }
+      }
     }
   });
 }

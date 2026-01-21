@@ -5,10 +5,24 @@ import { loadMcpServers, getConfiguredMcpServerNames } from "./mcp.js";
 import type { SessionContext } from "./sessions.js";
 import { formatUserIdentity } from "./slack/userCache.js";
 
+export interface ConversationMessage {
+  type: string;
+  subtype?: string;
+  content: string;
+  timestamp: number;
+}
+
+export interface ErrorRecord {
+  timestamp: number;
+  errorMessage: string;
+  conversationTrace: ConversationMessage[];
+}
+
 export interface ClaudeResponse {
   success: boolean;
   answer: string;
   error?: string;
+  conversationTrace?: ConversationMessage[];
 }
 
 export interface McpServerInfo {
@@ -125,6 +139,37 @@ Use this context to understand the conversation flow and provide relevant answer
   return parts.join("\n");
 }
 
+function summarizeMessageContent(message: unknown): string {
+  // Safely extract a content summary from various message types
+  const msg = message as Record<string, unknown>;
+
+  if (msg.message && typeof msg.message === "object") {
+    const innerMsg = msg.message as Record<string, unknown>;
+    if (Array.isArray(innerMsg.content)) {
+      const textParts: string[] = [];
+      for (const block of innerMsg.content) {
+        if (block && typeof block === "object" && "text" in block && typeof block.text === "string") {
+          textParts.push(block.text.substring(0, 500)); // Truncate long text
+        }
+        if (block && typeof block === "object" && "type" in block) {
+          textParts.push(`[${block.type}]`);
+        }
+      }
+      return textParts.join(" ").substring(0, 1000);
+    }
+  }
+
+  if (msg.result && typeof msg.result === "string") {
+    return msg.result.substring(0, 1000);
+  }
+
+  if (msg.errors && Array.isArray(msg.errors)) {
+    return `Errors: ${msg.errors.join(", ")}`;
+  }
+
+  return JSON.stringify(msg).substring(0, 500);
+}
+
 export async function askClaude(session: SessionContext): Promise<ClaudeResponse> {
   const config = getConfig();
   const reposDir = getRepositoriesDir();
@@ -134,6 +179,9 @@ export async function askClaude(session: SessionContext): Promise<ClaudeResponse
   const userPrompt = buildPrompt(session);
 
   logger.debug(`Querying Claude via Agent SDK for session ${session.sessionId}...`);
+
+  // Collect conversation trace for debugging
+  const conversationTrace: ConversationMessage[] = [];
 
   try {
     let answer = "";
@@ -152,6 +200,14 @@ export async function askClaude(session: SessionContext): Promise<ClaudeResponse
         mcpServers,
       },
     })) {
+      // Record all messages in the conversation trace
+      conversationTrace.push({
+        type: message.type,
+        subtype: "subtype" in message ? (message.subtype as string) : undefined,
+        content: summarizeMessageContent(message),
+        timestamp: Date.now(),
+      });
+
       // Track only the LAST assistant message (the final answer, not intermediate thinking)
       if (message.type === "assistant" && message.message?.content) {
         lastAssistantText = "";
@@ -172,6 +228,7 @@ export async function askClaude(session: SessionContext): Promise<ClaudeResponse
             success: false,
             answer: "",
             error: `Claude query failed: ${errorMessage}`,
+            conversationTrace,
           };
         }
       }
@@ -189,6 +246,7 @@ export async function askClaude(session: SessionContext): Promise<ClaudeResponse
       return {
         success: true,
         answer: answer.trim(),
+        conversationTrace,
       };
     }
 
@@ -196,6 +254,7 @@ export async function askClaude(session: SessionContext): Promise<ClaudeResponse
       success: false,
       answer: "",
       error: "No response received from Claude",
+      conversationTrace,
     };
   } catch (error) {
     logger.error("Claude Agent SDK error:", error);
@@ -203,6 +262,7 @@ export async function askClaude(session: SessionContext): Promise<ClaudeResponse
       success: false,
       answer: "",
       error: `Claude Agent SDK error: ${error instanceof Error ? error.message : String(error)}`,
+      conversationTrace,
     };
   }
 }
@@ -329,5 +389,64 @@ export async function testMCP(): Promise<McpTestResult> {
       mcpTools: [],
       error: error instanceof Error ? error.message : String(error),
     };
+  }
+}
+
+/**
+ * Analyzes an error trace using Claude to get a brief explanation of what went wrong.
+ * Uses a lightweight model for quick analysis.
+ */
+export async function analyzeError(
+  errorMessage: string,
+  conversationTrace: ConversationMessage[]
+): Promise<string> {
+  const config = getConfig();
+
+  // Format trace for analysis (last 10 messages)
+  const recentTrace = conversationTrace.slice(-10);
+  const traceText = recentTrace
+    .map((m) => `[${m.type}${m.subtype ? `:${m.subtype}` : ""}] ${m.content}`)
+    .join("\n");
+
+  const prompt = `Analyze this error from a Claude Agent SDK session and provide a brief (2-3 sentence) explanation of what likely went wrong.
+
+Error: ${errorMessage}
+
+Conversation trace (last ${recentTrace.length} messages):
+${traceText}
+
+Provide a concise, non-technical explanation suitable for a user who encountered this error.`;
+
+  try {
+    let analysis = "";
+    let lastAssistantText = "";
+
+    for await (const message of query({
+      prompt,
+      options: {
+        cwd: process.cwd(),
+        model: "haiku", // Use fast, cheap model for analysis
+        permissionMode: "bypassPermissions",
+        disallowedTools: ["Write", "Edit", "NotebookEdit", "Bash", "Task", "Read", "Glob", "Grep"],
+        maxTurns: 1,
+      },
+    })) {
+      if (message.type === "assistant" && message.message?.content) {
+        lastAssistantText = "";
+        for (const block of message.message.content) {
+          if ("text" in block && typeof block.text === "string") {
+            lastAssistantText += block.text;
+          }
+        }
+      }
+      if (message.type === "result" && message.subtype === "success") {
+        analysis = message.result || lastAssistantText;
+      }
+    }
+
+    return analysis.trim() || "Unable to analyze the error.";
+  } catch (error) {
+    logger.error("Error analyzing error trace:", error);
+    return "Error analysis unavailable.";
   }
 }
