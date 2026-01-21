@@ -9,6 +9,7 @@ data/config.json
 data/mcp.json
 data/repositories/
 data/sessions/
+data/state/
 data/auth/*
 !data/auth/.gitkeep
 !data/auth/ssh/.gitkeep

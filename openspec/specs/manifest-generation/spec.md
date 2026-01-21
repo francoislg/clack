@@ -2,7 +2,6 @@
 
 ## Purpose
 Generate a Slack app manifest file from configuration, with scopes and events conditionally included based on enabled features.
-
 ## Requirements
 ### Requirement: Slack App Configuration
 
@@ -23,51 +22,20 @@ The config file SHALL support Slack app branding configuration with optional `sl
 
 ### Requirement: Manifest Generation Script
 
-The system SHALL provide a script that generates the Slack app manifest file from configuration, merging branding with core scopes/events and conditionally adding feature-specific scopes/events based on config.
+The system SHALL include Home tab scopes and events in the generated manifest.
 
-#### Scenario: Generate manifest with custom branding
-- Given config with `slackApp.name` = "MyBot" and `slackApp.description` = "Custom description"
-- When `npm run manifest` is executed
-- Then `slack-app-manifest.json` is created
-- And `display_information.name` equals "MyBot"
-- And `display_information.description` equals "Custom description"
+#### Scenario: Home tab adds required scopes and events
+- **GIVEN** any valid config (Home tab is always enabled for role management)
+- **WHEN** the manifest is generated
+- **THEN** scopes include `users:read` (for user info and disabled check)
+- **AND** events include `app_home_opened`
 
-#### Scenario: Manifest includes core defaults
-- Given any valid config
-- When the manifest is generated
-- Then `oauth_config.scopes.bot` contains core scopes: `channels:history`, `groups:history`, `chat:write`, `reactions:read`, `reactions:write`
-- And `settings.event_subscriptions.bot_events` contains `reaction_added`
-- And `settings.socket_mode_enabled` is `true`
-- And `settings.interactivity.is_enabled` is `true`
-
-#### Scenario: Direct messages feature adds DM scopes
-- Given config with `directMessages.enabled` = true
-- When the manifest is generated
-- Then scopes include `im:history`, `mpim:history`
-- And events include `message.im`
-
-#### Scenario: Mentions feature adds mention scope and event
-- Given config with `mentions.enabled` = true
-- When the manifest is generated
-- Then scopes include `app_mentions:read`
-- And events include `app_mention`
-
-#### Scenario: Hidden thread notification adds DM write scope
-- Given config with `slack.notifyHiddenThread` = true (default)
-- When the manifest is generated
-- Then scopes include `im:write`
-
-#### Scenario: Username fetching adds users scope
-- Given config with `slack.fetchAndStoreUsername` = true
-- When the manifest is generated
-- Then scopes include `users:read`
-
-#### Scenario: Manifest validation
-- Given the generated manifest
-- When validated against @slack/web-api types
-- Then no type errors occur
-
----
+#### Scenario: Home tab enables app home feature
+- **GIVEN** any valid config
+- **WHEN** the manifest is generated
+- **THEN** `features.app_home.home_tab_enabled` is `true`
+- **AND** `features.app_home.messages_tab_enabled` is `false`
+- **AND** `features.app_home.messages_tab_read_only_enabled` is `false`
 
 ### Requirement: Manifest File Management
 
