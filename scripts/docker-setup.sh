@@ -187,35 +187,92 @@ EOF
 fi
 
 # ============================================
-# Step 4: Anthropic API Key
+# Step 4: Claude Authentication
 # ============================================
 echo ""
-echo -e "${YELLOW}Step 4: Setting up Anthropic API key...${NC}"
+echo -e "${YELLOW}Step 4: Setting up Claude authentication...${NC}"
 
-if [ -f "$AUTH_DIR/.env" ] && grep -q "ANTHROPIC_API_KEY" "$AUTH_DIR/.env" 2>/dev/null; then
-    echo -e "${GREEN}✓ ANTHROPIC_API_KEY already configured${NC}"
-else
-    echo "Anthropic API key not found."
-    echo ""
-    echo "Get your API key from: https://console.anthropic.com/settings/keys"
-    echo ""
+# Check if already configured
+has_api_key=false
+has_oauth_token=false
 
-    read -p "Enter your Anthropic API Key (sk-ant-...): " api_key
+if [ -f "$AUTH_DIR/.env" ]; then
+    grep -q "ANTHROPIC_API_KEY" "$AUTH_DIR/.env" 2>/dev/null && has_api_key=true
+    grep -q "CLAUDE_CODE_OAUTH_TOKEN" "$AUTH_DIR/.env" 2>/dev/null && has_oauth_token=true
+fi
 
-    # Validate format
-    if [[ ! $api_key == sk-ant-* ]]; then
-        echo -e "${YELLOW}Warning: API key doesn't match expected format (sk-ant-...)${NC}"
-        read -p "Continue anyway? (y/n) " -n 1 -r
-        echo ""
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            exit 1
-        fi
+if $has_api_key || $has_oauth_token; then
+    if $has_oauth_token; then
+        echo -e "${GREEN}✓ CLAUDE_CODE_OAUTH_TOKEN already configured (uses Claude Max subscription)${NC}"
+    else
+        echo -e "${GREEN}✓ ANTHROPIC_API_KEY already configured (uses API pay-as-you-go)${NC}"
     fi
+else
+    echo "Claude authentication not found."
+    echo ""
+    echo "Choose authentication method:"
+    echo "  1) OAuth Token - Use your Claude Max/Pro subscription (no API charges)"
+    echo "  2) API Key - Pay-as-you-go API usage"
+    echo ""
+    read -p "Choose an option (1/2): " -n 1 -r
+    echo ""
 
-    echo "ANTHROPIC_API_KEY=$api_key" > "$AUTH_DIR/.env"
-    chmod 600 "$AUTH_DIR/.env"
+    if [[ $REPLY == "1" ]]; then
+        # OAuth Token setup
+        echo ""
+        echo -e "${BLUE}To generate an OAuth token:${NC}"
+        echo "  1. Install Claude Code CLI: npm install -g @anthropic-ai/claude-code"
+        echo "  2. Run: claude setup-token"
+        echo "  3. Copy the token (starts with sk-ant-oat01-...)"
+        echo ""
+        echo -e "${YELLOW}Note: You must have a Claude Max or Pro subscription.${NC}"
+        echo ""
 
-    echo -e "${GREEN}✓ Created .env with API key${NC}"
+        read -p "Enter your OAuth Token (sk-ant-oat01-...): " oauth_token
+
+        # Validate format
+        if [[ ! $oauth_token == sk-ant-oat01-* ]]; then
+            echo -e "${YELLOW}Warning: OAuth token doesn't match expected format (sk-ant-oat01-...)${NC}"
+            read -p "Continue anyway? (y/n) " -n 1 -r
+            echo ""
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                exit 1
+            fi
+        fi
+
+        echo "CLAUDE_CODE_OAUTH_TOKEN=$oauth_token" > "$AUTH_DIR/.env"
+        chmod 600 "$AUTH_DIR/.env"
+
+        echo -e "${GREEN}✓ Created .env with OAuth token${NC}"
+        echo -e "${YELLOW}Note: Using OAuth token means no API charges - uses your Claude subscription.${NC}"
+
+    elif [[ $REPLY == "2" ]]; then
+        # API Key setup
+        echo ""
+        echo "Get your API key from: https://console.anthropic.com/settings/keys"
+        echo ""
+
+        read -p "Enter your Anthropic API Key (sk-ant-api...): " api_key
+
+        # Validate format
+        if [[ ! $api_key == sk-ant-* ]]; then
+            echo -e "${YELLOW}Warning: API key doesn't match expected format (sk-ant-...)${NC}"
+            read -p "Continue anyway? (y/n) " -n 1 -r
+            echo ""
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                exit 1
+            fi
+        fi
+
+        echo "ANTHROPIC_API_KEY=$api_key" > "$AUTH_DIR/.env"
+        chmod 600 "$AUTH_DIR/.env"
+
+        echo -e "${GREEN}✓ Created .env with API key${NC}"
+        echo -e "${YELLOW}Note: Using API key means pay-as-you-go charges.${NC}"
+    else
+        echo -e "${RED}✗ Invalid option${NC}"
+        exit 1
+    fi
 fi
 
 # ============================================
@@ -260,11 +317,18 @@ else
     errors=$((errors + 1))
 fi
 
-# Check .env
-if [ -f "$AUTH_DIR/.env" ] && grep -q "ANTHROPIC_API_KEY=" "$AUTH_DIR/.env" 2>/dev/null; then
-    echo -e "${GREEN}✓ Anthropic API key configured${NC}"
+# Check .env for authentication
+if [ -f "$AUTH_DIR/.env" ]; then
+    if grep -q "CLAUDE_CODE_OAUTH_TOKEN=" "$AUTH_DIR/.env" 2>/dev/null; then
+        echo -e "${GREEN}✓ Claude OAuth token configured (uses subscription)${NC}"
+    elif grep -q "ANTHROPIC_API_KEY=" "$AUTH_DIR/.env" 2>/dev/null; then
+        echo -e "${GREEN}✓ Anthropic API key configured (pay-as-you-go)${NC}"
+    else
+        echo -e "${RED}✗ Claude authentication not configured${NC}"
+        errors=$((errors + 1))
+    fi
 else
-    echo -e "${RED}✗ Anthropic API key not configured${NC}"
+    echo -e "${RED}✗ Claude authentication not configured${NC}"
     errors=$((errors + 1))
 fi
 

@@ -29,9 +29,46 @@ A Slack bot that answers codebase questions using Claude Code. React to any mess
 ### Prerequisites
 
 - Node.js 18+
-- [Claude Code CLI](https://claude.ai/code) installed and authenticated
+- [Claude Code CLI](https://claude.ai/code) installed
 - SSH key with access to your repositories
 - Slack app with Bot Token and App Token
+
+### Claude Authentication
+
+Clack supports two authentication methods:
+
+#### Option 1: OAuth Token (Recommended for Claude Max/Pro subscribers)
+
+Use your existing Claude Max or Pro subscription with no additional API charges:
+
+1. Install Claude Code CLI: `npm install -g @anthropic-ai/claude-code`
+2. Generate a long-lived token: `claude setup-token`
+3. Set the environment variable:
+   ```bash
+   export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-...
+   ```
+
+For Docker, add to `data/auth/.env`:
+```
+CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-your-token-here
+```
+
+#### Option 2: API Key (Pay-as-you-go)
+
+Use the Anthropic API with pay-per-use billing:
+
+1. Get your API key from [console.anthropic.com](https://console.anthropic.com/settings/keys)
+2. Set the environment variable:
+   ```bash
+   export ANTHROPIC_API_KEY=sk-ant-api...
+   ```
+
+For Docker, add to `data/auth/.env`:
+```
+ANTHROPIC_API_KEY=sk-ant-api-your-key-here
+```
+
+**Note:** Do not set both variables. If `ANTHROPIC_API_KEY` is set, it takes priority and you'll be charged API rates.
 
 ### Configuration
 
