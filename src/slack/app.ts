@@ -8,6 +8,7 @@ import { registerRefineHandler } from "./handlers/refine.js";
 import { registerUpdateHandler } from "./handlers/update.js";
 import { registerEditHandler } from "./handlers/edit.js";
 import { registerRetryHandler } from "./handlers/retry.js";
+import { registerHomeTabHandler } from "./handlers/homeTab.js";
 import { registerDirectMessageHandler } from "./handlers/directMessage.js";
 import { registerThreadReplyHandler } from "./handlers/threadReply.js";
 import { registerMentionHandler } from "./handlers/mention.js";
@@ -23,6 +24,9 @@ export function createSlackApp(): App {
     signingSecret: config.slack.signingSecret,
     socketMode: true,
   });
+
+  // Home tab handler (always enabled for role management)
+  registerHomeTabHandler(app);
 
   // Reaction mode handlers (always enabled)
   registerNewQueryHandler(app);

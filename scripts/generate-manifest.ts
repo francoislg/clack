@@ -11,9 +11,10 @@ import { writeFileSync, readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Manifest } from "@slack/web-api/dist/types/request/manifest.js";
 
-// Extract types from Manifest
-type BotScope = NonNullable<NonNullable<Manifest["oauth_config"]>["scopes"]>["bot"] extends (infer T)[] ? T : never;
-type ManifestEvent = NonNullable<NonNullable<Manifest["settings"]>["event_subscriptions"]>["bot_events"] extends (infer T)[] ? T : never;
+// Extract BotScope and ManifestEvent types from Manifest (they're not exported directly)
+type ArrayElement<T> = T extends readonly (infer U)[] ? U : T extends (infer U)[] ? U : never;
+type BotScope = ArrayElement<NonNullable<NonNullable<NonNullable<Manifest["oauth_config"]>["scopes"]>["bot"]>>;
+type ManifestEvent = ArrayElement<NonNullable<NonNullable<Manifest["settings"]>["event_subscriptions"]>["bot_events"]>;
 
 interface SlackAppConfig {
   name?: string;
@@ -47,17 +48,18 @@ const DEFAULTS: Required<SlackAppConfig> = {
   backgroundColor: "#4A154B",
 };
 
-// Core scopes - always needed for basic reaction functionality
+// Core scopes - always needed for basic reaction functionality and role management
 const CORE_SCOPES: BotScope[] = [
   "channels:history",
   "groups:history",
   "chat:write",
   "reactions:read",
   "reactions:write",
+  "users:read", // Needed for role management (disabled user detection)
 ];
 
-// Core events - always needed
-const CORE_EVENTS: ManifestEvent[] = ["reaction_added"];
+// Core events - always needed (including app_home_opened for role management Home tab)
+const CORE_EVENTS: ManifestEvent[] = ["app_home_opened", "reaction_added"];
 
 function loadConfigForManifest(): PartialConfig {
   const configPath = resolve(process.cwd(), "data", "config.json");
@@ -121,9 +123,8 @@ function buildScopes(features: ConfigFeatures): BotScope[] {
     scopes.push("im:write");
   }
 
-  if (features.fetchUsernames) {
-    scopes.push("users:read");
-  }
+  // users:read is now in CORE_SCOPES (needed for role management)
+  // fetchUsernames feature doesn't need additional scopes
 
   return scopes.sort();
 }
@@ -159,6 +160,11 @@ function generateManifest(config: PartialConfig): Manifest {
       background_color: backgroundColor,
     },
     features: {
+      app_home: {
+        home_tab_enabled: true,
+        messages_tab_enabled: false,
+        messages_tab_read_only_enabled: false,
+      },
       bot_user: {
         display_name: name,
         always_online: true,
@@ -205,8 +211,8 @@ function main(): void {
   console.log(`    - Mentions: ${features.mentions}`);
   console.log(`    - Notify hidden thread: ${features.notifyHiddenThread}`);
   console.log(`    - Fetch usernames: ${features.fetchUsernames}`);
-  console.log(`  Scopes: ${(manifest.oauth_config?.scopes?.bot as string[]).join(", ")}`);
-  console.log(`  Events: ${(manifest.settings?.event_subscriptions?.bot_events as string[]).join(", ")}`);
+  console.log(`  Scopes: ${manifest.oauth_config?.scopes?.bot?.join(", ")}`);
+  console.log(`  Events: ${manifest.settings?.event_subscriptions?.bot_events?.join(", ")}`);
 }
 
 main();
