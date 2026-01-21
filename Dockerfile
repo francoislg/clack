@@ -34,6 +34,7 @@ COPY --from=builder /app/dist ./dist
 COPY data/config.example.json ./data/
 COPY data/mcp.example.json ./data/
 COPY data/auth/slack.example.json ./data/auth/
+COPY data/auth/.env.example ./data/auth/
 
 # Create data directories
 RUN mkdir -p data/repositories data/sessions data/auth/ssh
