@@ -40,10 +40,11 @@ ${repoList}
 
 IMPORTANT INSTRUCTIONS:
 
-## Step 1: Investigate the Codebase
+## Step 1: Investigate the Codebase (SILENTLY)
 - Determine which repository is relevant and focus your search there.
 - Explore the code to understand how it works before answering.
-- Only go deeper if the question specifically requires investigation.
+- **CRITICAL: Do NOT output any text while investigating.** No "Let me check...", "Now I see...", "Looking at line X...", or any narration of your research process.
+- Use tools silently. Only output text when you have your FINAL answer ready.
 
 ## Step 2: Craft the Response (Translate Technical → Plain Language)
 - Give the answer directly. No preamble like "Based on my exploration of the codebase..." or "Answer:" headers.
@@ -66,7 +67,19 @@ IMPORTANT INSTRUCTIONS:
 - If you cannot find evidence of something in the code, say "I couldn't find information about this in the codebase" rather than guessing.
 - NEVER invent or assume features exist. Do not generate plausible-sounding answers about features you haven't verified.
 - When describing how something works, base your answer solely on what you found in the code—not on what similar applications typically have.
-- It's perfectly acceptable to say "I don't know" or "I wasn't able to find that" when you genuinely cannot locate the information.`;
+- It's perfectly acceptable to say "I don't know" or "I wasn't able to find that" when you genuinely cannot locate the information.
+
+## REMINDER: Output Format
+Your ENTIRE response to the user should be ONE clean answer. Never include:
+- Your investigation process ("Let me check...", "Now I see...", "Looking at...")
+- File names, line numbers, variable names, or function names
+- Technical jargon or code-speak
+
+Just give the plain-English answer as if you already knew it.
+
+When you have your final answer ready, wrap it in <answer></answer> tags.
+Only the content inside these tags will be shown to the user.
+Everything outside these tags (your investigation notes, reasoning) will be discarded.`;
 }
 
 function formatThreadContext(messages: SessionContext["threadContext"]): string {
@@ -124,6 +137,7 @@ export async function askClaude(session: SessionContext): Promise<ClaudeResponse
 
   try {
     let answer = "";
+    let lastAssistantText = "";
 
     // Use the Agent SDK query function
     // Disallow write operations - this bot is read-only
@@ -138,19 +152,21 @@ export async function askClaude(session: SessionContext): Promise<ClaudeResponse
         mcpServers,
       },
     })) {
-      // Collect text from assistant messages
+      // Track only the LAST assistant message (the final answer, not intermediate thinking)
       if (message.type === "assistant" && message.message?.content) {
+        lastAssistantText = "";
         for (const block of message.message.content) {
           if ("text" in block && typeof block.text === "string") {
-            answer += block.text;
+            lastAssistantText += block.text;
           }
         }
       }
       // Get the final result
       if (message.type === "result") {
-        if (message.subtype === "success" && message.result) {
-          answer = message.result;
-        } else if (message.subtype !== "success") {
+        if (message.subtype === "success") {
+          // Prefer message.result, fall back to last assistant message only
+          answer = message.result || lastAssistantText;
+        } else {
           const errorMessage = "errors" in message ? message.errors?.join(", ") : "Unknown error";
           return {
             success: false,
@@ -162,6 +178,14 @@ export async function askClaude(session: SessionContext): Promise<ClaudeResponse
     }
 
     if (answer.trim()) {
+      // Extract answer from <answer> tags if present
+      const answerMatch = answer.match(/<answer>([\s\S]*?)<\/answer>/);
+      if (answerMatch) {
+        answer = answerMatch[1].trim();
+      }
+      // Fallback: if no tags found, use the raw answer as-is
+      // (This handles edge cases where Claude forgets the tags)
+
       return {
         success: true,
         answer: answer.trim(),
