@@ -108,6 +108,33 @@ export function getErrorBlocks(message: string) {
   ];
 }
 
+export function getErrorBlocksWithRetry(sessionId: string) {
+  return [
+    {
+      type: "section" as const,
+      text: {
+        type: "mrkdwn" as const,
+        text: ":warning: Claude seems to have crashed, maybe try again?",
+      },
+    },
+    {
+      type: "actions" as const,
+      elements: [
+        {
+          type: "button" as const,
+          text: {
+            type: "plain_text" as const,
+            text: "🔄 Try Again",
+            emoji: true,
+          },
+          action_id: "clack_retry",
+          value: sessionId,
+        },
+      ],
+    },
+  ];
+}
+
 export function getInvestigatingBlocks() {
   return [
     {
