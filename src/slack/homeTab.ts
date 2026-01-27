@@ -6,8 +6,10 @@ import {
   getRole,
   hasOwner,
   isAdmin,
+  isDev,
   type UserRole,
 } from "../roles.js";
+import { getActiveWorkers } from "../changes/session.js";
 
 interface HomeViewOptions {
   userId: string;
@@ -18,6 +20,7 @@ export async function buildHomeView(options: HomeViewOptions): Promise<View> {
   const { userId, ownerDisabled } = options;
   const role = await getRole(userId);
   const userIsAdmin = await isAdmin(userId);
+  const userIsDev = await isDev(userId);
   const hasAnOwner = await hasOwner();
 
   const blocks: (KnownBlock | Block)[] = [];
@@ -37,6 +40,11 @@ export async function buildHomeView(options: HomeViewOptions): Promise<View> {
   // Role management section (only for admins/owner)
   if (userIsAdmin) {
     blocks.push(...(await buildRoleManagementSection(userId, role)));
+  }
+
+  // Active workers section (only for devs and higher)
+  if (userIsDev) {
+    blocks.push(...buildActiveWorkersSection());
   }
 
   // Status section (visible to all)
@@ -291,6 +299,65 @@ export function buildStatusSection(): KnownBlock[] {
       text: `:zap: *Trigger Methods:* ${methods.join(", ")}`,
     },
   });
+
+  blocks.push({ type: "divider" });
+
+  return blocks;
+}
+
+export function buildActiveWorkersSection(): KnownBlock[] {
+  const workers = getActiveWorkers();
+  const blocks: KnownBlock[] = [];
+
+  blocks.push({
+    type: "header",
+    text: {
+      type: "plain_text",
+      text: "Active Workers",
+      emoji: true,
+    },
+  });
+
+  if (workers.length === 0) {
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: "_No active change requests_",
+      },
+    });
+  } else {
+    // Status emoji mapping
+    const statusEmoji: Record<string, string> = {
+      planning: ":thinking_face:",
+      executing: ":hammer_and_wrench:",
+      reviewing: ":eyes:",
+      merging: ":rocket:",
+    };
+
+    for (const worker of workers) {
+      const emoji = statusEmoji[worker.status] || ":hourglass:";
+      const statusLabel = worker.status.charAt(0).toUpperCase() + worker.status.slice(1);
+
+      let text = `${emoji} *${worker.description}*\n`;
+      text += `• Status: ${statusLabel}\n`;
+      text += `• Branch: \`${worker.branch}\`\n`;
+      text += `• Repo: ${worker.repo}\n`;
+      text += `• By: <@${worker.userId}>`;
+
+      if (worker.prUrl) {
+        text += `\n• PR: <${worker.prUrl}|View PR>`;
+      }
+
+      blocks.push({
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text,
+        },
+      });
+    }
+  }
 
   blocks.push({ type: "divider" });
 
