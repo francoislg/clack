@@ -1,197 +1,127 @@
 import type { App } from "@slack/bolt";
 import { getConfig } from "../../config.js";
 import { logger } from "../../logger.js";
-import {
-  createSession,
-  findSessionByMessage,
-  getSession,
-  updateThreadContext,
-  setLastAnswer,
-  addError,
-} from "../../sessions.js";
-import { askClaude, analyzeError } from "../../claude.js";
-import { getResponseBlocks, getErrorBlocks, getErrorBlocksWithRetry } from "../blocks.js";
-import { setSessionInfo } from "../state.js";
-import { fetchThreadContext, fetchMessage, hasThreadReplies, sendDirectMessage, sendErrorReport } from "../messagesApi.js";
-import { transformUserMentions } from "../userCache.js";
+import { getErrorBlocks } from "../blocks.js";
+import { isDev } from "../../roles.js";
+import type { ChangeRequest } from "../../changes/types.js";
+import { getChangeEnabledRepos } from "../../changes/detection.js";
+import { generateChangePlan } from "../../changes/execution.js";
+import { startChangeWorkflow } from "../../changes/workflow.js";
+import { processMessage } from "./core.js";
 
-async function handleReaction(
+async function handleChangeReaction(
   client: App["client"],
   userId: string,
   channelId: string,
   messageTs: string,
-  threadTs?: string,
-  preloadedMessageText?: string
+  threadTs: string | undefined,
+  messageText: string
 ): Promise<void> {
   const effectiveThreadTs = threadTs || messageTs;
+  const config = getConfig();
 
-  logger.debug(`Reaction detected from user ${userId} in channel ${channelId}`);
+  logger.debug(`Change reaction from user ${userId} in channel ${channelId}`);
 
-  // Use preloaded text if available, otherwise fetch
-  const messageText = preloadedMessageText || await fetchMessage(client, channelId, messageTs, threadTs);
-  if (!messageText) {
-    logger.error("Could not fetch message text");
+  // Check if user has dev role
+  const userIsDev = await isDev(userId);
+  if (!userIsDev) {
     await client.chat.postEphemeral({
       channel: channelId,
       user: userId,
       thread_ts: effectiveThreadTs,
-      text: "Sorry, I couldn't read the message. Make sure I'm invited to this channel.",
-      blocks: getErrorBlocks("Sorry, I couldn't read the message. Make sure I'm invited to this channel."),
+      text: "Change requests require dev permissions.",
     });
     return;
   }
 
-  // Get bot user ID for thread context attribution
-  const botUserId = (await client.auth.test()).user_id || "";
-
-  const config = getConfig();
-
-  // Fetch thread context
-  const threadContext = await fetchThreadContext(client, channelId, effectiveThreadTs, botUserId, {
-    fetchUserNames: config.slack.fetchAndStoreUsername,
-  });
-
-  // Transform user mentions in message text if enabled
-  const processedMessageText = config.slack.fetchAndStoreUsername
-    ? await transformUserMentions(client, messageText)
-    : messageText;
-
-  // Check for existing session or create new one
-  let session = await findSessionByMessage(channelId, messageTs, userId);
-
-  if (!session) {
-    session = await createSession(channelId, messageTs, effectiveThreadTs, userId, processedMessageText, threadContext);
-  } else {
-    await updateThreadContext(session.sessionId, threadContext);
-    session = (await getSession(session.sessionId))!;
+  // Get available repositories
+  const availableRepos = getChangeEnabledRepos(config);
+  if (availableRepos.length === 0) {
+    await client.chat.postEphemeral({
+      channel: channelId,
+      user: userId,
+      thread_ts: effectiveThreadTs,
+      text: "No repositories have changes enabled. Configure supportsChanges in config.",
+    });
+    return;
   }
 
-  // Store session info for later responses
-  setSessionInfo(session.sessionId, {
-    channelId,
-    threadTs: effectiveThreadTs,
+  // Post acknowledgment message in thread
+  const ackMessage = await client.chat.postMessage({
+    channel: channelId,
+    thread_ts: effectiveThreadTs,
+    text: "Analyzing change request...",
+  });
+
+  // Generate the plan using Claude
+  const planResult = await generateChangePlan(messageText, availableRepos);
+  if (!planResult.success || !planResult.plan) {
+    await client.chat.update({
+      channel: channelId,
+      ts: ackMessage.ts!,
+      text: `❌ Failed to create plan: ${planResult.error}`,
+    });
+    return;
+  }
+
+  const request: ChangeRequest = {
     userId,
-  });
+    message: messageText,
+    triggerType: "reactions",
+    channel: channelId,
+    messageTs,
+    threadTs,
+  };
 
-  const thinkingFeedback = config.reactions.thinking;
-
-  // Send thinking feedback (only on first query, not refine/update)
-  if (thinkingFeedback?.type === "emoji" && thinkingFeedback.emoji) {
-    try {
-      await client.reactions.add({
-        channel: channelId,
-        timestamp: messageTs,
-        name: thinkingFeedback.emoji,
-      });
-    } catch (error) {
-      logger.error("Failed to add thinking reaction:", error);
-    }
-  } else {
-    await client.chat.postEphemeral({
-      channel: channelId,
-      user: userId,
-      thread_ts: effectiveThreadTs,
-      text: "Acknowledged, sending to Claude...",
-    });
-  }
-
-  // Ask Claude
-  logger.info(`Calling Claude Code (session: ${session.sessionId})...`);
-  const response = await askClaude(session);
-
-  // Remove thinking emoji if used
-  if (thinkingFeedback?.type === "emoji" && thinkingFeedback.emoji) {
-    try {
-      await client.reactions.remove({
-        channel: channelId,
-        timestamp: messageTs,
-        name: thinkingFeedback.emoji,
-      });
-    } catch (error) {
-      logger.error("Failed to remove thinking reaction:", error);
-    }
-  }
-
-  if (response.success) {
-    logger.debug("Got response from Claude, posting ephemeral response...");
-
-    await setLastAnswer(session.sessionId, response.answer);
-
-    // Post ephemeral response with buttons (only visible to requester)
-    await client.chat.postEphemeral({
-      channel: channelId,
-      user: userId,
-      thread_ts: effectiveThreadTs,
-      blocks: getResponseBlocks(response.answer, session.sessionId),
-      text: response.answer,
-    });
-
-    // Send DM notification if thread is hidden (no replies yet)
-    if (config.slack.notifyHiddenThread) {
-      const threadHasReplies = await hasThreadReplies(client, channelId, effectiveThreadTs);
-      if (!threadHasReplies) {
-        try {
-          const permalink = await client.chat.getPermalink({
-            channel: channelId,
-            message_ts: effectiveThreadTs,
-          });
-          if (permalink.permalink) {
-            // Append thread_ts to open directly in thread view
-            const threadLink = `${permalink.permalink}?thread_ts=${effectiveThreadTs}&cid=${channelId}`;
-            await sendDirectMessage(
-              client,
-              userId,
-              `Clack answered your question, but the thread isn't visible yet. Click here to see it: ${threadLink}`
-            );
-          }
-        } catch (error) {
-          logger.error("Failed to send hidden thread notification:", error);
-        }
-      }
-    }
-  } else {
-    logger.error("Claude Code failed:", response.error);
-
-    const errorMessage = response.error || "Unknown error";
-    const conversationTrace = response.conversationTrace || [];
-
-    // Store the error in the session
-    await addError(session.sessionId, errorMessage, conversationTrace);
-
-    // Post user-friendly error message with retry button
-    await client.chat.postEphemeral({
-      channel: channelId,
-      user: userId,
-      thread_ts: effectiveThreadTs,
-      text: `Claude seems to have crashed (session: ${session.sessionId}), maybe try again?`,
-      blocks: getErrorBlocksWithRetry(session.sessionId),
-    });
-
-    // Send detailed error report via DM if enabled
-    if (config.slack.sendErrorsAsDM) {
+  const result = await startChangeWorkflow(
+    request,
+    planResult.plan,
+    effectiveThreadTs,
+    async (progressMessage: string) => {
       try {
-        const analysis = await analyzeError(errorMessage, conversationTrace);
-        await sendErrorReport(client, userId, {
-          sessionId: session.sessionId,
-          errorMessage,
-          conversationTrace,
-          analysis,
+        await client.chat.update({
+          channel: channelId,
+          ts: ackMessage.ts!,
+          text: progressMessage,
         });
-      } catch (dmError) {
-        logger.error("Failed to send error report DM:", dmError);
+      } catch (error) {
+        logger.warn("Failed to update progress message:", error);
       }
     }
+  );
+
+  if (result.success) {
+    await client.chat.update({
+      channel: channelId,
+      ts: ackMessage.ts!,
+      text: `✅ PR created: ${result.prUrl}\n\n${result.summary || ""}`.trim(),
+    });
+  } else {
+    await client.chat.update({
+      channel: channelId,
+      ts: ackMessage.ts!,
+      text: `❌ Change request failed: ${result.error}`,
+    });
   }
 }
 
 export function registerNewQueryHandler(app: App): void {
   const config = getConfig();
 
+  // Get the change trigger emoji if configured
+  const changeTrigger = config.reactions.changesWorkflow?.enabled
+    ? config.reactions.changesWorkflow.trigger
+    : null;
+
   app.event("reaction_added", async ({ event, client }) => {
     logger.debug(`Reaction event: ${event.reaction} from ${event.user}`);
 
-    if (event.reaction !== config.reactions.trigger) {
-      logger.debug(`Ignoring reaction ${event.reaction}, waiting for ${config.reactions.trigger}`);
+    // Check if this is the change trigger emoji
+    const isChangeTrigger = changeTrigger && event.reaction === changeTrigger;
+    const isQueryTrigger = event.reaction === config.reactions.trigger;
+
+    if (!isChangeTrigger && !isQueryTrigger) {
+      logger.debug(`Ignoring reaction ${event.reaction}, waiting for ${config.reactions.trigger}${changeTrigger ? ` or ${changeTrigger}` : ""}`);
       return;
     }
 
@@ -277,6 +207,41 @@ export function registerNewQueryHandler(app: App): void {
       }
     }
 
-    await handleReaction(client, userId, channel, ts, threadTs, actualMessageText);
+    // Route to the appropriate handler based on trigger type
+    if (isChangeTrigger) {
+      if (!actualMessageText) {
+        await client.chat.postEphemeral({
+          channel,
+          user: userId,
+          thread_ts: threadTs || ts,
+          text: "Sorry, I couldn't read the message for the change request.",
+        });
+        return;
+      }
+      await handleChangeReaction(client, userId, channel, ts, threadTs, actualMessageText);
+    } else {
+      // Use unified flow for Q&A reactions
+      if (!actualMessageText) {
+        await client.chat.postEphemeral({
+          channel,
+          user: userId,
+          thread_ts: threadTs || ts,
+          text: "Sorry, I couldn't read the message. Make sure I'm invited to this channel.",
+          blocks: getErrorBlocks("Sorry, I couldn't read the message. Make sure I'm invited to this channel."),
+        });
+        return;
+      }
+
+      await processMessage({
+        client,
+        userId,
+        channelId: channel,
+        messageTs: ts,
+        messageText: actualMessageText,
+        threadTs,
+        triggerType: "reactions",
+        responseStyle: "ephemeral",
+      });
+    }
   });
 }

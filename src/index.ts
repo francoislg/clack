@@ -1,11 +1,12 @@
 import { config as dotenvConfig } from "dotenv";
 import { join } from "path";
 import { testMCP } from "./claude.js";
-import { loadConfig } from "./config.js";
+import { loadConfig, getConfig } from "./config.js";
 import { logger } from "./logger.js";
 import { initializeRepositories, startSyncScheduler, stopSyncScheduler } from "./repositories.js";
 import { startCleanupScheduler, stopCleanupScheduler } from "./sessions.js";
-import { createSlackApp, startSlackApp, stopSlackApp } from "./slack/index.js";
+import { createSlackApp, startSlackApp, stopSlackApp } from "./slack/app.js";
+import { initializeWorktrees } from "./worktrees.js";
 
 // Load environment variables from .env files (later files don't override earlier ones)
 dotenvConfig({ path: join(process.cwd(), ".env") });
@@ -51,6 +52,19 @@ async function main(): Promise<void> {
   } catch (error) {
     logger.error("Failed to initialize repositories:", error);
     // Continue anyway - some repos might work
+  }
+
+  // Step 3.5: Initialize worktrees (cleanup stale ones)
+  const config = getConfig();
+  if (config.changesWorkflow?.enabled) {
+    logger.debug("Initializing worktrees...");
+    try {
+      await initializeWorktrees();
+      logger.info("Worktrees initialized");
+    } catch (error) {
+      logger.warn("Failed to initialize worktrees:", error);
+      // Continue anyway - worktree cleanup is not critical
+    }
   }
 
   // Step 4: Start schedulers
