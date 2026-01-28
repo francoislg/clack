@@ -18,11 +18,39 @@ export interface ErrorRecord {
   conversationTrace: ConversationMessage[];
 }
 
+export interface ChangeRequestInfo {
+  branch: string;
+  description: string;
+  repo: string;
+}
+
+export interface ResumeRequestInfo {
+  branchName: string;
+  repo: string;
+}
+
 export interface ClaudeResponse {
   success: boolean;
   answer: string;
   error?: string;
   conversationTrace?: ConversationMessage[];
+  isChangeRequest?: boolean;
+  changeRequestInfo?: ChangeRequestInfo;
+  isResumeRequest?: boolean;
+  resumeRequestInfo?: ResumeRequestInfo;
+}
+
+export interface ResumableSessionInfo {
+  branchName: string;
+  repo: string;
+  description: string;
+  phase: string;
+}
+
+export interface AskClaudeOptions {
+  enableChangeDetection?: boolean;
+  availableRepos?: Array<{ name: string; description: string }>;
+  resumableSessions?: ResumableSessionInfo[];
 }
 
 export interface McpServerInfo {
@@ -40,13 +68,13 @@ export interface McpTestResult {
   error?: string;
 }
 
-function buildSystemPrompt(): string {
+function buildSystemPrompt(options?: AskClaudeOptions): string {
   const config = getConfig();
   const repoList = config.repositories
     .map((r) => `- **${r.name}**: ${r.description}`)
     .join("\n");
 
-  return `You are a **product expert**, not a developer. You understand how the product works from a user's perspective. When you investigate code, you translate technical implementation into plain-English explanations that anyone on the team can understand.
+  let prompt = `You are a **product expert**, not a developer. You understand how the product works from a user's perspective. When you investigate code, you translate technical implementation into plain-English explanations that anyone on the team can understand.
 
 You have access to the following repositories:
 
@@ -71,17 +99,94 @@ IMPORTANT INSTRUCTIONS:
 - Focus on WHAT is happening and WHY, not HOW it's implemented.
 - Only include file names, function names, or code details if the user explicitly asks for "technical details", "code references", or "specifics".
 
-## Critical: Information Only
-- Never suggest code changes, fixes, or solutions that would require modifying the codebase.
-- Your role is to explain how things currently work, not to recommend what should change.
-- If asked "how do I fix X?", explain what X does and why it behaves that way—do not propose code modifications.
-
 ## Critical: No Hallucination
 - ONLY describe features, UI elements, or functionality that you have directly verified in the codebase.
 - If you cannot find evidence of something in the code, say "I couldn't find information about this in the codebase" rather than guessing.
 - NEVER invent or assume features exist. Do not generate plausible-sounding answers about features you haven't verified.
 - When describing how something works, base your answer solely on what you found in the code—not on what similar applications typically have.
-- It's perfectly acceptable to say "I don't know" or "I wasn't able to find that" when you genuinely cannot locate the information.
+- It's perfectly acceptable to say "I don't know" or "I wasn't able to find that" when you genuinely cannot locate the information.`;
+
+  // Add change detection instructions if enabled
+  if (options?.enableChangeDetection && options.availableRepos && options.availableRepos.length > 0) {
+    const changeRepoList = options.availableRepos
+      .map((r) => `- ${r.name}: ${r.description}`)
+      .join("\n");
+
+    prompt += `
+
+## Change Request Detection
+
+The user has developer permissions and may request code changes. Analyze their message to determine intent:
+
+**This is a CHANGE REQUEST if the user:**
+- Explicitly asks you to fix, implement, add, update, or modify code
+- Describes a bug and asks you to resolve it
+- Requests a new feature or enhancement
+- Says things like "can you fix...", "please implement...", "add support for..."
+
+**This is a QUESTION if the user:**
+- Asks how something works
+- Asks why code behaves a certain way
+- Asks for explanations or documentation
+- Says things like "how does...", "why is...", "what is...", "how do I..."
+
+**If this is a CHANGE REQUEST**, output:
+<change-request>
+  <branch>clack/{type}/{short-description}</branch>
+  <description>Clear description of what will be changed</description>
+  <repo>{target-repository-name}</repo>
+</change-request>
+
+Where:
+- type: fix, feat, refactor, docs, or chore
+- short-description: kebab-case, max 30 chars
+- repo: exact repository name from available list below
+
+Available repositories that support changes:
+${changeRepoList}
+
+**If this is a QUESTION**, provide your answer using the standard format.
+
+When uncertain, default to treating it as a question.`;
+
+    // Add resume detection if there are resumable sessions
+    if (options.resumableSessions && options.resumableSessions.length > 0) {
+      const sessionList = options.resumableSessions
+        .map((s) => `- Branch: ${s.branchName} | Repo: ${s.repo} | Status: ${s.phase} | Task: ${s.description}`)
+        .join("\n");
+
+      prompt += `
+
+## Resume Previous Session
+
+There are existing change sessions that can be resumed:
+
+${sessionList}
+
+**This is a RESUME REQUEST if the user:**
+- Asks to continue, resume, or retry a previous task
+- References a branch name or task description from the list above
+- Says things like "continue working on...", "resume the fix...", "retry the task..."
+
+**If this is a RESUME REQUEST**, output:
+<resume-request>
+  <branch>{exact-branch-name-from-list}</branch>
+  <repo>{exact-repo-name}</repo>
+</resume-request>
+
+Only output resume-request if the user's request clearly matches one of the sessions listed above.`;
+    }
+  } else {
+    // Standard Q&A mode - no changes allowed
+    prompt += `
+
+## Critical: Information Only
+- Never suggest code changes, fixes, or solutions that would require modifying the codebase.
+- Your role is to explain how things currently work, not to recommend what should change.
+- If asked "how do I fix X?", explain what X does and why it behaves that way—do not propose code modifications.`;
+  }
+
+  prompt += `
 
 ## REMINDER: Output Format
 Your ENTIRE response to the user should be ONE clean answer. Never include:
@@ -94,6 +199,8 @@ Just give the plain-English answer as if you already knew it.
 When you have your final answer ready, wrap it in <answer></answer> tags.
 Only the content inside these tags will be shown to the user.
 Everything outside these tags (your investigation notes, reasoning) will be discarded.`;
+
+  return prompt;
 }
 
 function formatThreadContext(messages: SessionContext["threadContext"]): string {
@@ -170,12 +277,59 @@ function summarizeMessageContent(message: unknown): string {
   return JSON.stringify(msg).substring(0, 500);
 }
 
-export async function askClaude(session: SessionContext): Promise<ClaudeResponse> {
+/**
+ * Parse change request tags from Claude's response
+ */
+function parseChangeRequest(answer: string): ChangeRequestInfo | null {
+  const changeMatch = answer.match(/<change-request>([\s\S]*?)<\/change-request>/);
+  if (!changeMatch) return null;
+
+  const content = changeMatch[1];
+  const branchMatch = content.match(/<branch>([\s\S]*?)<\/branch>/);
+  const descriptionMatch = content.match(/<description>([\s\S]*?)<\/description>/);
+  const repoMatch = content.match(/<repo>([\s\S]*?)<\/repo>/);
+
+  if (!branchMatch || !descriptionMatch || !repoMatch) {
+    return null;
+  }
+
+  return {
+    branch: branchMatch[1].trim(),
+    description: descriptionMatch[1].trim(),
+    repo: repoMatch[1].trim(),
+  };
+}
+
+/**
+ * Parse resume request tags from Claude's response
+ */
+function parseResumeRequest(answer: string): ResumeRequestInfo | null {
+  const resumeMatch = answer.match(/<resume-request>([\s\S]*?)<\/resume-request>/);
+  if (!resumeMatch) return null;
+
+  const content = resumeMatch[1];
+  const branchMatch = content.match(/<branch>([\s\S]*?)<\/branch>/);
+  const repoMatch = content.match(/<repo>([\s\S]*?)<\/repo>/);
+
+  if (!branchMatch || !repoMatch) {
+    return null;
+  }
+
+  return {
+    branchName: branchMatch[1].trim(),
+    repo: repoMatch[1].trim(),
+  };
+}
+
+export async function askClaude(
+  session: SessionContext,
+  options?: AskClaudeOptions
+): Promise<ClaudeResponse> {
   const config = getConfig();
   const reposDir = getRepositoriesDir();
   const mcpServers = loadMcpServers();
 
-  const systemPrompt = buildSystemPrompt();
+  const systemPrompt = buildSystemPrompt(options);
   const userPrompt = buildPrompt(session);
 
   logger.debug(`Querying Claude via Agent SDK for session ${session.sessionId}...`);
@@ -235,6 +389,32 @@ export async function askClaude(session: SessionContext): Promise<ClaudeResponse
     }
 
     if (answer.trim()) {
+      // Check for change request tags first (only if change detection was enabled)
+      if (options?.enableChangeDetection) {
+        const changeRequestInfo = parseChangeRequest(answer);
+        if (changeRequestInfo) {
+          return {
+            success: true,
+            answer: "", // No answer text for change requests
+            conversationTrace,
+            isChangeRequest: true,
+            changeRequestInfo,
+          };
+        }
+
+        // Check for resume request tags
+        const resumeRequestInfo = parseResumeRequest(answer);
+        if (resumeRequestInfo) {
+          return {
+            success: true,
+            answer: "", // No answer text for resume requests
+            conversationTrace,
+            isResumeRequest: true,
+            resumeRequestInfo,
+          };
+        }
+      }
+
       // Extract answer from <answer> tags if present
       const answerMatch = answer.match(/<answer>([\s\S]*?)<\/answer>/);
       if (answerMatch) {

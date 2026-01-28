@@ -162,7 +162,7 @@ function generateManifest(config: PartialConfig): Manifest {
     features: {
       app_home: {
         home_tab_enabled: true,
-        messages_tab_enabled: false,
+        messages_tab_enabled: features.directMessages || features.notifyHiddenThread,
         messages_tab_read_only_enabled: false,
       },
       bot_user: {

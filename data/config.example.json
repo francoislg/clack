@@ -8,18 +8,28 @@
     "trigger": "robot_face",
     "thinking": {
       "type": "message"
+    },
+    "changesWorkflow": {
+      "enabled": false,
+      "trigger": "clack-work"
     }
   },
   "directMessages": {
     "enabled": false,
     "thinking": {
       "type": "message"
+    },
+    "changesWorkflow": {
+      "enabled": false
     }
   },
   "mentions": {
     "enabled": false,
     "thinking": {
       "type": "message"
+    },
+    "changesWorkflow": {
+      "enabled": false
     }
   },
   "repositories": [
@@ -27,7 +37,10 @@
       "name": "my-app",
       "url": "git@github.com:your-org/your-repo.git",
       "description": "Main application codebase - contains backend API and frontend",
-      "branch": "main"
+      "branch": "main",
+      "supportsChanges": false,
+      "pullRequestInstructions": ".claude/skills/create-pr.md",
+      "mergeStrategy": "squash"
     }
   ],
   "git": {
@@ -46,5 +59,12 @@
   "slack": {
     "fetchAndStoreUsername": false,
     "notifyHiddenThread": true
+  },
+  "changesWorkflow": {
+    "enabled": false,
+    "prInstructions": "Always include test coverage if applicable.",
+    "timeoutMinutes": 10,
+    "maxConcurrent": 3,
+    "sessionExpiryHours": 24
   }
 }

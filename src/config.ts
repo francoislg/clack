@@ -21,6 +21,11 @@ export interface RepositoryConfig {
   url: string;
   description: string;
   branch?: string;
+  // Change workflow settings
+  supportsChanges?: boolean;
+  worktreeBasePath?: string;
+  pullRequestInstructions?: string;
+  mergeStrategy?: "squash" | "merge" | "rebase";
 }
 
 export interface GitConfig {
@@ -50,19 +55,42 @@ export interface ThinkingFeedbackConfig {
   emoji?: string;
 }
 
+// Changes Workflow configuration
+export interface ChangesWorkflowConfig {
+  enabled: boolean;
+  prInstructions?: string;
+  timeoutMinutes?: number;
+  maxConcurrent?: number;
+  additionalAllowedTools?: string[];
+  sessionExpiryHours?: number;
+}
+
+// Per-trigger changes workflow config
+export interface TriggerChangesWorkflowConfig {
+  enabled: boolean;
+}
+
+// Reactions-specific changes workflow config (can have different trigger emoji)
+export interface ReactionsChangesWorkflowConfig extends TriggerChangesWorkflowConfig {
+  trigger?: string;
+}
+
 export interface ReactionsConfig {
   trigger: string;
   thinking?: ThinkingFeedbackConfig;
+  changesWorkflow?: ReactionsChangesWorkflowConfig;
 }
 
 export interface DirectMessagesConfig {
   enabled: boolean;
   thinking?: ThinkingFeedbackConfig;
+  changesWorkflow?: TriggerChangesWorkflowConfig;
 }
 
 export interface MentionsConfig {
   enabled: boolean;
   thinking?: ThinkingFeedbackConfig;
+  changesWorkflow?: TriggerChangesWorkflowConfig;
 }
 
 export interface Config {
@@ -75,6 +103,7 @@ export interface Config {
   git: GitConfig;
   sessions: SessionsConfig;
   claudeCode: ClaudeCodeConfig;
+  changesWorkflow?: ChangesWorkflowConfig;
 }
 
 const DEFAULTS: Partial<Config> = {
@@ -221,6 +250,12 @@ function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Config {
             emoji: ((c.reactions as Record<string, unknown>).thinking as Record<string, unknown>).emoji as string | undefined,
           }
         : DEFAULTS.reactions!.thinking,
+      changesWorkflow: (c.reactions as Record<string, unknown>)?.changesWorkflow
+        ? {
+            enabled: ((c.reactions as Record<string, unknown>).changesWorkflow as Record<string, unknown>).enabled as boolean,
+            trigger: ((c.reactions as Record<string, unknown>).changesWorkflow as Record<string, unknown>).trigger as string | undefined,
+          }
+        : undefined,
     },
     directMessages: {
       enabled:
@@ -232,6 +267,11 @@ function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Config {
             emoji: ((c.directMessages as Record<string, unknown>).thinking as Record<string, unknown>).emoji as string | undefined,
           }
         : DEFAULTS.directMessages!.thinking,
+      changesWorkflow: (c.directMessages as Record<string, unknown>)?.changesWorkflow
+        ? {
+            enabled: ((c.directMessages as Record<string, unknown>).changesWorkflow as Record<string, unknown>).enabled as boolean,
+          }
+        : undefined,
     },
     mentions: {
       enabled:
@@ -243,12 +283,21 @@ function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Config {
             emoji: ((c.mentions as Record<string, unknown>).thinking as Record<string, unknown>).emoji as string | undefined,
           }
         : DEFAULTS.mentions!.thinking,
+      changesWorkflow: (c.mentions as Record<string, unknown>)?.changesWorkflow
+        ? {
+            enabled: ((c.mentions as Record<string, unknown>).changesWorkflow as Record<string, unknown>).enabled as boolean,
+          }
+        : undefined,
     },
     repositories: c.repositories.map((r: Record<string, unknown>) => ({
       name: r.name as string,
       url: r.url as string,
       description: r.description as string,
       branch: (r.branch as string) || "main",
+      supportsChanges: r.supportsChanges as boolean | undefined,
+      worktreeBasePath: r.worktreeBasePath as string | undefined,
+      pullRequestInstructions: r.pullRequestInstructions as string | undefined,
+      mergeStrategy: r.mergeStrategy as "squash" | "merge" | "rebase" | undefined,
     })),
     git: {
       sshKeyPath: (c.git as Record<string, unknown>)?.sshKeyPath as string | undefined,
@@ -275,6 +324,16 @@ function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Config {
         ((c.claudeCode as Record<string, unknown>)?.model as string) ??
         DEFAULTS.claudeCode!.model,
     },
+    changesWorkflow: c.changesWorkflow
+      ? {
+          enabled: (c.changesWorkflow as Record<string, unknown>).enabled as boolean,
+          prInstructions: (c.changesWorkflow as Record<string, unknown>).prInstructions as string | undefined,
+          timeoutMinutes: (c.changesWorkflow as Record<string, unknown>).timeoutMinutes as number | undefined,
+          maxConcurrent: (c.changesWorkflow as Record<string, unknown>).maxConcurrent as number | undefined,
+          additionalAllowedTools: (c.changesWorkflow as Record<string, unknown>).additionalAllowedTools as string[] | undefined,
+          sessionExpiryHours: (c.changesWorkflow as Record<string, unknown>).sessionExpiryHours as number | undefined,
+        }
+      : undefined,
   };
 
   return merged;
@@ -327,4 +386,16 @@ export function getRepositoriesDir(): string {
 
 export function getSessionsDir(): string {
   return resolve(getDataDir(), "sessions");
+}
+
+export function getWorktreesDir(): string {
+  return resolve(getDataDir(), "worktrees");
+}
+
+export function getTemplatesDir(): string {
+  return resolve(getDataDir(), "templates");
+}
+
+export function getWorktreeSessionsDir(): string {
+  return resolve(getDataDir(), "worktree-sessions");
 }
