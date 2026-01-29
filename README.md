@@ -178,7 +178,7 @@ For private repositories, configure SSH access:
 | `git.pullIntervalMinutes` | How often to pull updates | `60` |
 | `git.shallowClone` | Use shallow clone | `true` |
 | `git.cloneDepth` | Depth for shallow clone | `1` |
-| `sessions.timeoutMinutes` | Session inactivity timeout | `15` |
+| `sessions.timeoutMinutes` | Session inactivity timeout | `1440` (24h) |
 | `sessions.cleanupIntervalMinutes` | How often to clean expired sessions | `5` |
 | `claudeCode.model` | Claude model to use | `sonnet` |
 

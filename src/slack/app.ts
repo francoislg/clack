@@ -68,3 +68,10 @@ export async function stopSlackApp(): Promise<void> {
     logger.debug("Slack app stopped");
   }
 }
+
+/**
+ * Get the Slack app client for sending messages
+ */
+export function getSlackClient(): App["client"] | null {
+  return app?.client ?? null;
+}
