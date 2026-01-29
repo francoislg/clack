@@ -1,8 +1,41 @@
+import { execSync } from "node:child_process";
 import { getConfig } from "../config.js";
 import type { WorktreeInfo } from "../worktrees.js";
 import type { ChangePlan, ChangeSession } from "./types.js";
 import { runClaude, resolvePRTemplate, resolvePRInstructions } from "./execution.js";
 import { findRepoByName } from "./detection.js";
+import { logger } from "../logger.js";
+
+// ============================================================================
+// PR Status
+// ============================================================================
+
+export type PRState = "OPEN" | "MERGED" | "CLOSED";
+
+/**
+ * Get the current status of a PR using gh CLI
+ * Returns null on error (network failure, invalid URL, etc.)
+ */
+export function getPRStatus(prUrl: string): { state: PRState } | null {
+  try {
+    const result = execSync(`gh pr view "${prUrl}" --json state`, {
+      encoding: "utf-8",
+      timeout: 30000,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    const parsed = JSON.parse(result.trim());
+    if (parsed.state && ["OPEN", "MERGED", "CLOSED"].includes(parsed.state)) {
+      return { state: parsed.state as PRState };
+    }
+
+    logger.warn(`Unexpected PR state from gh: ${parsed.state}`);
+    return null;
+  } catch (error) {
+    logger.debug(`Failed to get PR status for ${prUrl}: ${error}`);
+    return null;
+  }
+}
 
 // ============================================================================
 // PR Operations

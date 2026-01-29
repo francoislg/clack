@@ -63,6 +63,7 @@ export interface ChangesWorkflowConfig {
   maxConcurrent?: number;
   additionalAllowedTools?: string[];
   sessionExpiryHours?: number;
+  monitoringIntervalMinutes?: number;
 }
 
 // Per-trigger changes workflow config
@@ -136,7 +137,7 @@ const DEFAULTS: Partial<Config> = {
     cloneDepth: 1,
   },
   sessions: {
-    timeoutMinutes: 15,
+    timeoutMinutes: 1440, // 24 hours
     cleanupIntervalMinutes: 5,
   },
   claudeCode: {
@@ -332,6 +333,7 @@ function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Config {
           maxConcurrent: (c.changesWorkflow as Record<string, unknown>).maxConcurrent as number | undefined,
           additionalAllowedTools: (c.changesWorkflow as Record<string, unknown>).additionalAllowedTools as string[] | undefined,
           sessionExpiryHours: (c.changesWorkflow as Record<string, unknown>).sessionExpiryHours as number | undefined,
+          monitoringIntervalMinutes: (c.changesWorkflow as Record<string, unknown>).monitoringIntervalMinutes as number | undefined,
         }
       : undefined,
   };

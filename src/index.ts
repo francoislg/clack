@@ -7,6 +7,7 @@ import { initializeRepositories, startSyncScheduler, stopSyncScheduler } from ".
 import { startCleanupScheduler, stopCleanupScheduler } from "./sessions.js";
 import { createSlackApp, startSlackApp, stopSlackApp } from "./slack/app.js";
 import { initializeWorktrees } from "./worktrees.js";
+import { startCompletionMonitor, stopCompletionMonitor } from "./changes/monitor.js";
 
 // Load environment variables from .env files (later files don't override earlier ones)
 dotenvConfig({ path: join(process.cwd(), ".env") });
@@ -81,12 +82,16 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  // Step 6: Start completion monitor (after Slack app is ready for notifications)
+  startCompletionMonitor();
+
   logger.startup("Clack is ready!");
 
   // Graceful shutdown handling
   const shutdown = async (signal: string): Promise<void> => {
     logger.startup(`Received ${signal}, shutting down gracefully...`);
 
+    stopCompletionMonitor();
     stopSyncScheduler();
     stopCleanupScheduler();
     await stopSlackApp();

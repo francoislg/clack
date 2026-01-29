@@ -50,7 +50,7 @@
     "cloneDepth": 1
   },
   "sessions": {
-    "timeoutMinutes": 15,
+    "timeoutMinutes": 1440,
     "cleanupIntervalMinutes": 5
   },
   "claudeCode": {
@@ -65,6 +65,7 @@
     "prInstructions": "Always include test coverage if applicable.",
     "timeoutMinutes": 10,
     "maxConcurrent": 3,
-    "sessionExpiryHours": 24
+    "sessionExpiryHours": 24,
+    "monitoringIntervalMinutes": 15
   }
 }

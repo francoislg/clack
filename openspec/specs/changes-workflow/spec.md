@@ -10,7 +10,7 @@ The system SHALL support a top-level configuration section for the change reques
 #### Scenario: Top-level workflow configuration
 - **WHEN** `changesWorkflow` is configured at the root config level
 - **THEN** it defines the global workflow behavior
-- **AND** includes: `enabled`, `prInstructions`, `timeoutMinutes`, `maxConcurrent`, `additionalAllowedTools`
+- **AND** includes: `enabled`, `prInstructions`, `timeoutMinutes`, `maxConcurrent`, `additionalAllowedTools`, `sessionExpiryHours`, `monitoringIntervalMinutes`
 
 #### Scenario: Disable workflow globally (default)
 - **WHEN** `changesWorkflow` is not configured or `enabled` is `false`
@@ -67,6 +67,17 @@ The system SHALL support a top-level configuration section for the change reques
 - **WHEN** `changesWorkflow.additionalAllowedTools` is configured as an array
 - **THEN** those tools are added to the default allowed tools for change execution
 - **AND** allows enabling tools like `WebFetch`, `WebSearch` for changes
+
+#### Scenario: Session expiry configuration
+- **WHEN** `changesWorkflow.sessionExpiryHours` is configured
+- **THEN** idle sessions are cleaned up after that period
+- **AND** defaults to 24 hours if not specified
+
+#### Scenario: Monitoring interval configuration
+- **WHEN** `changesWorkflow.monitoringIntervalMinutes` is configured
+- **THEN** the completion monitor runs at that interval
+- **AND** defaults to 15 minutes if not specified
+- **AND** set to 0 to disable monitoring
 
 ### Requirement: Change Request Detection
 
