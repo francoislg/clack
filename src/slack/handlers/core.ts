@@ -1,4 +1,5 @@
 import type { App } from "@slack/bolt";
+import { ErrorCode, type WebAPIPlatformError } from "@slack/web-api";
 import type { SessionContext } from "../../sessions.js";
 import type { ClaudeResponse, ConversationMessage } from "../../claude.js";
 import {
@@ -218,6 +219,17 @@ async function showThinkingFeedback(ctx: ProcessingContext): Promise<ThinkingSta
   return { messageTs: thinkingMessage.ts, usedEmoji: false };
 }
 
+function isSlackPlatformError(
+  error: unknown,
+  code: string
+): error is WebAPIPlatformError {
+  return (
+    error instanceof Error &&
+    (error as WebAPIPlatformError).code === ErrorCode.PlatformError &&
+    (error as WebAPIPlatformError).data?.error === code
+  );
+}
+
 async function removeThinkingEmoji(
   client: App["client"],
   channelId: string,
@@ -233,7 +245,9 @@ async function removeThinkingEmoji(
       name: thinking.emoji,
     });
   } catch (error) {
-    logger.error("Failed to remove thinking reaction:", error);
+    if (!isSlackPlatformError(error, "no_reaction")) {
+      logger.error("Failed to remove thinking reaction:", error);
+    }
   }
 }
 
@@ -487,9 +501,7 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
   const thinking = await showThinkingFeedback(ctx);
 
   // 4. Call Claude
-  const changeOptions = !threadTs
-    ? await getChangeDetectionOptions(userId, triggerType)
-    : undefined;
+  const changeOptions = await getChangeDetectionOptions(userId, triggerType);
 
   logger.info(
     `Calling Claude (session: ${session.sessionId}, changeDetection: ${changeOptions?.enableChangeDetection ?? false})`
