@@ -31,9 +31,9 @@ export function registerResendHandler(app: App): void {
         text: session.lastAnswer,
       });
 
-      await respond({
-        text: "The answer has been resent to the thread.",
-        replace_original: true,
+      await client.chat.postMessage({
+        channel: body.channel!.id,
+        text: "The message was sent again.",
       });
     }
   );
