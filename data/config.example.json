@@ -54,7 +54,8 @@
     "cleanupIntervalMinutes": 5
   },
   "claudeCode": {
-    "model": "sonnet"
+    "model": "sonnet",
+    "systemPromptFile": "templates/default_instructions.md"
   },
   "slack": {
     "fetchAndStoreUsername": false,
