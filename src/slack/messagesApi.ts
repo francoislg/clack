@@ -122,7 +122,8 @@ export async function hasThreadReplies(
 export async function sendDirectMessage(
   client: App["client"],
   userId: string,
-  text: string
+  text: string,
+  blocks?: object[]
 ): Promise<void> {
   try {
     const conversation = await client.conversations.open({ users: userId });
@@ -130,6 +131,7 @@ export async function sendDirectMessage(
       await client.chat.postMessage({
         channel: conversation.channel.id,
         text,
+        ...(blocks && { blocks }),
       });
     }
   } catch (error) {
