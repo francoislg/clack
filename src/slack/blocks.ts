@@ -147,6 +147,33 @@ export function getInvestigatingBlocks() {
   ];
 }
 
+export function getHiddenThreadNotificationBlocks(text: string, sessionId: string) {
+  return [
+    {
+      type: "section" as const,
+      text: {
+        type: "mrkdwn" as const,
+        text,
+      },
+    },
+    {
+      type: "actions" as const,
+      elements: [
+        {
+          type: "button" as const,
+          text: {
+            type: "plain_text" as const,
+            text: "Send the message again",
+            emoji: true,
+          },
+          action_id: "clack_resend",
+          value: sessionId,
+        },
+      ],
+    },
+  ];
+}
+
 export function getMessageBlocks(answer: string) {
   return [
     {

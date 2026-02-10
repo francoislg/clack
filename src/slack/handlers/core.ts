@@ -18,6 +18,7 @@ import {
   getResponseBlocks,
   getInvestigatingBlocks,
   getErrorBlocksWithRetry,
+  getHiddenThreadNotificationBlocks,
 } from "../blocks.js";
 import { setSessionInfo } from "../state.js";
 import {
@@ -301,11 +302,11 @@ async function postEphemeralResponse(
   });
 
   if (config.slack.notifyHiddenThread) {
-    await notifyHiddenThread(ctx);
+    await notifyHiddenThread(ctx, session.sessionId);
   }
 }
 
-async function notifyHiddenThread(ctx: ProcessingContext): Promise<void> {
+async function notifyHiddenThread(ctx: ProcessingContext, sessionId: string): Promise<void> {
   const { client, userId, channelId, effectiveThreadTs } = ctx;
 
   const threadHasReplies = await hasThreadReplies(client, channelId, effectiveThreadTs);
@@ -318,11 +319,9 @@ async function notifyHiddenThread(ctx: ProcessingContext): Promise<void> {
     });
     if (permalink.permalink) {
       const threadLink = `${permalink.permalink}?thread_ts=${effectiveThreadTs}&cid=${channelId}`;
-      await sendDirectMessage(
-        client,
-        userId,
-        `Clack answered your question, but the thread isn't visible yet. Click here to see it: ${threadLink}`
-      );
+      const text = `Clack answered your question, but the thread isn't visible yet. Click here to see it: ${threadLink}`;
+      const blocks = getHiddenThreadNotificationBlocks(text, sessionId);
+      await sendDirectMessage(client, userId, text, blocks);
     }
   } catch (error) {
     logger.error("Failed to send hidden thread notification:", error);
