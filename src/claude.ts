@@ -223,17 +223,17 @@ function formatThreadContext(messages: SessionContext["threadContext"]): string 
 function buildPrompt(session: SessionContext): string {
   const parts: string[] = [];
 
-  // Original question
-  parts.push(`QUESTION: ${session.originalQuestion}`);
-
-  // Thread context if any
+  // Thread context first so Claude reads the conversation before the question
   if (session.threadContext.length > 0) {
-    const contextIntro = `\nTHREAD CONTEXT (previous messages in the Slack thread, in chronological order):
+    const contextIntro = `THREAD CONTEXT (previous messages in the Slack thread, in chronological order):
 Messages may be attributed to specific users by name (e.g., [John Doe]) or as [User] if names are not available.
 Messages marked [Clack Bot] are previous answers from you (this bot).
 Use this context to understand the conversation flow and provide relevant answers.\n`;
     parts.push(contextIntro + formatThreadContext(session.threadContext));
   }
+
+  // Original question
+  parts.push(`QUESTION: ${session.originalQuestion}`);
 
   // Previous answer if refining
   if (session.lastAnswer && session.refinements.length > 0) {
