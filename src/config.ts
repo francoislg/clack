@@ -42,6 +42,7 @@ export interface SessionsConfig {
 
 export interface ClaudeCodeConfig {
   model?: string;
+  systemPromptFile?: string;
 }
 
 export interface SlackAppConfig {
@@ -142,6 +143,7 @@ const DEFAULTS: Partial<Config> = {
   },
   claudeCode: {
     model: "sonnet",
+    systemPromptFile: "templates/default_instructions.md",
   },
 };
 
@@ -324,6 +326,9 @@ function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Config {
       model:
         ((c.claudeCode as Record<string, unknown>)?.model as string) ??
         DEFAULTS.claudeCode!.model,
+      systemPromptFile:
+        ((c.claudeCode as Record<string, unknown>)?.systemPromptFile as string) ??
+        DEFAULTS.claudeCode!.systemPromptFile,
     },
     changesWorkflow: c.changesWorkflow
       ? {
