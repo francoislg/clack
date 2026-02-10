@@ -23,6 +23,11 @@ export async function getUserInfo(
     return cached;
   }
 
+  // Bot IDs start with "B" — use bots.info instead of users.info
+  if (userId.startsWith("B")) {
+    return getBotInfo(client, userId);
+  }
+
   try {
     const result = await client.users.info({ user: userId });
 
@@ -44,6 +49,34 @@ export async function getUserInfo(
     return userInfo;
   } catch (error) {
     logger.error(`Error fetching user info for ${userId}:`, error);
+    return undefined;
+  }
+}
+
+async function getBotInfo(
+  client: App["client"],
+  botId: string
+): Promise<UserInfo | undefined> {
+  try {
+    const result = await client.bots.info({ bot: botId });
+
+    if (!result.ok || !result.bot) {
+      logger.debug(`Failed to fetch bot info for ${botId}: ${result.error}`);
+      return undefined;
+    }
+
+    const userInfo: UserInfo = {
+      userId: botId,
+      username: result.bot.name,
+      displayName: result.bot.name,
+    };
+
+    userCache.set(botId, userInfo);
+    logger.debug(`Cached bot info for ${botId}: ${userInfo.displayName}`);
+
+    return userInfo;
+  } catch (error) {
+    logger.error(`Error fetching bot info for ${botId}:`, error);
     return undefined;
   }
 }
