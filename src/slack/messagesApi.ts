@@ -27,10 +27,10 @@ export async function fetchThreadContext(
     }
 
     const messages: ThreadMessage[] = result.messages
-      .filter((msg) => msg.text && msg.user && msg.ts)
+      .filter((msg) => (msg.text || msg.attachments?.length) && (msg.user || msg.bot_id) && msg.ts)
       .map((msg) => ({
-        text: msg.text as string,
-        userId: msg.user as string,
+        text: msg.text || msg.attachments?.map(a => a.text || a.fallback).filter(Boolean).join("\n") || "[attachment]",
+        userId: (msg.user || msg.bot_id) as string,
         isBot: msg.user === botUserId || msg.bot_id !== undefined,
         ts: msg.ts as string,
       }));
