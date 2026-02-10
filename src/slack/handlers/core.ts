@@ -6,6 +6,7 @@ import {
   findSessionByThread,
   createSession,
   getSession,
+  updateSession,
   updateThreadContext,
   setLastAnswer,
   addError,
@@ -167,6 +168,7 @@ async function setupSession(ctx: ProcessingContext): Promise<SessionContext> {
     logger.debug(`Created session ${session.sessionId}`);
   } else {
     await updateThreadContext(session.sessionId, threadContext);
+    await updateSession(session.sessionId, { originalQuestion: processedMessageText });
     session = (await getSession(session.sessionId))!;
   }
 
