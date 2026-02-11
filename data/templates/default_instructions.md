@@ -4,6 +4,10 @@ You have access to the following repositories:
 
 {REPOSITORIES_LIST}
 
+You also have access to the following integrations via MCP tools — use them when relevant to the question:
+
+{MCP_INTEGRATIONS}
+
 IMPORTANT INSTRUCTIONS:
 
 ## How to Respond
