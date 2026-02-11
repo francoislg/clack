@@ -13,15 +13,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 DATA_DIR="$PROJECT_DIR/data"
 AUTH_DIR="$DATA_DIR/auth"
-SSH_DIR="$AUTH_DIR/ssh"
 
 echo -e "${BLUE}=================================${NC}"
 echo -e "${BLUE}   Clack Docker Setup Script${NC}"
 echo -e "${BLUE}=================================${NC}"
 echo ""
 
-# Create auth directories
-mkdir -p "$SSH_DIR"
+# Create auth directory
+mkdir -p "$AUTH_DIR"
 
 # ============================================
 # Step 1: Config file check
@@ -61,78 +60,61 @@ else
 fi
 
 # ============================================
-# Step 2: SSH Key Setup
+# Step 2: GitHub App Credentials
 # ============================================
 echo ""
-echo -e "${YELLOW}Step 2: Setting up SSH key for Git access...${NC}"
+echo -e "${YELLOW}Step 2: Setting up GitHub App credentials...${NC}"
 
-if [ -f "$SSH_DIR/id_rsa" ]; then
-    echo -e "${GREEN}✓ SSH key already exists at $SSH_DIR/id_rsa${NC}"
+if [ -f "$AUTH_DIR/github.json" ]; then
+    echo -e "${GREEN}✓ github.json already exists${NC}"
 else
-    echo "No SSH key found. Options:"
-    echo "  1) Generate a new SSH key"
-    echo "  2) Import an existing SSH key"
-    read -p "Choose an option (1/2): " -n 1 -r
+    echo ""
+    echo -e "${BLUE}You need a GitHub App to authenticate with GitHub.${NC}"
+    echo ""
+    echo "To create one:"
+    echo "  1. Go to your org: Settings → Developer settings → GitHub Apps → New GitHub App"
+    echo "  2. Set permissions:"
+    echo "     - Repository permissions → Contents: Read & write"
+    echo "     - Repository permissions → Pull requests: Read & write"
+    echo "     - Repository permissions → Metadata: Read-only"
+    echo "  3. Install the app on your org and select the repositories"
+    echo "  4. Note the App ID (on the app's General page)"
+    echo "  5. Note the Installation ID (from the URL when viewing the installation)"
+    echo "  6. Generate a private key (on the app's General page → Private keys)"
     echo ""
 
-    if [[ $REPLY == "1" ]]; then
-        # Generate new key
-        read -p "Enter email for SSH key (or press Enter for none): " ssh_email
-        if [ -n "$ssh_email" ]; then
-            ssh-keygen -t ed25519 -C "$ssh_email" -f "$SSH_DIR/id_rsa" -N ""
-        else
-            ssh-keygen -t ed25519 -f "$SSH_DIR/id_rsa" -N ""
-        fi
-        echo -e "${GREEN}✓ Generated new SSH key${NC}"
-    elif [[ $REPLY == "2" ]]; then
-        # Import existing key
-        read -p "Enter path to existing private key (e.g., ~/.ssh/id_rsa): " key_path
-        key_path="${key_path/#\~/$HOME}"  # Expand ~
+    read -p "Enter GitHub App ID: " app_id
+    read -p "Enter Installation ID: " installation_id
 
-        if [ ! -f "$key_path" ]; then
-            echo -e "${RED}✗ Key not found at $key_path${NC}"
-            exit 1
-        fi
-
-        cp "$key_path" "$SSH_DIR/id_rsa"
-        if [ -f "${key_path}.pub" ]; then
-            cp "${key_path}.pub" "$SSH_DIR/id_rsa.pub"
-        else
-            # Generate public key from private key
-            ssh-keygen -y -f "$SSH_DIR/id_rsa" > "$SSH_DIR/id_rsa.pub"
-        fi
-        echo -e "${GREEN}✓ Imported SSH key${NC}"
-    else
-        echo -e "${RED}✗ Invalid option${NC}"
+    if [ -z "$app_id" ] || [ -z "$installation_id" ]; then
+        echo -e "${RED}✗ App ID and Installation ID are required${NC}"
         exit 1
     fi
-fi
 
-# Set correct permissions
-chmod 600 "$SSH_DIR/id_rsa"
-if [ -f "$SSH_DIR/id_rsa.pub" ]; then
-    chmod 644 "$SSH_DIR/id_rsa.pub"
-fi
+    # Private key setup
+    echo ""
+    read -p "Enter path to GitHub App private key (.pem file): " pem_path
+    pem_path="${pem_path/#\~/$HOME}"  # Expand ~
 
-# Display GitHub instructions
-echo ""
-echo -e "${BLUE}=================================${NC}"
-echo -e "${BLUE}   GitHub Deploy Key Setup${NC}"
-echo -e "${BLUE}=================================${NC}"
-echo ""
-echo "Add this public key as a Deploy Key to your GitHub repository:"
-echo ""
-echo -e "${GREEN}$(cat "$SSH_DIR/id_rsa.pub")${NC}"
-echo ""
-echo "Steps:"
-echo "  1. Go to your repository on GitHub"
-echo "  2. Navigate to Settings → Deploy keys"
-echo "  3. Click 'Add deploy key'"
-echo "  4. Paste the key above and save"
-echo ""
-echo "Or visit: https://github.com/YOUR-ORG/YOUR-REPO/settings/keys"
-echo ""
-read -p "Press Enter when you've added the key to GitHub..."
+    if [ ! -f "$pem_path" ]; then
+        echo -e "${RED}✗ Private key not found at $pem_path${NC}"
+        exit 1
+    fi
+
+    cp "$pem_path" "$AUTH_DIR/github-app.pem"
+    chmod 600 "$AUTH_DIR/github-app.pem"
+
+    # Write github.json
+    cat > "$AUTH_DIR/github.json" << EOF
+{
+  "appId": "$app_id",
+  "installationId": "$installation_id",
+  "privateKeyPath": "data/auth/github-app.pem"
+}
+EOF
+
+    echo -e "${GREEN}✓ Created github.json and copied private key${NC}"
+fi
 
 # ============================================
 # Step 3: Slack Credentials
@@ -283,18 +265,23 @@ echo -e "${YELLOW}Step 5: Validating setup...${NC}"
 
 errors=0
 
-# Check SSH key permissions
-if [ -f "$SSH_DIR/id_rsa" ]; then
-    perms=$(stat -f "%OLp" "$SSH_DIR/id_rsa" 2>/dev/null || stat -c "%a" "$SSH_DIR/id_rsa" 2>/dev/null)
-    if [ "$perms" = "600" ]; then
-        echo -e "${GREEN}✓ SSH key permissions correct (600)${NC}"
-    else
-        echo -e "${RED}✗ SSH key permissions incorrect: $perms (should be 600)${NC}"
-        chmod 600 "$SSH_DIR/id_rsa"
-        echo -e "${GREEN}  Fixed permissions${NC}"
+# Check GitHub App credentials
+if [ -f "$AUTH_DIR/github.json" ]; then
+    echo -e "${GREEN}✓ GitHub App credentials configured${NC}"
+
+    # Check private key
+    pem_path=$(grep -o '"privateKeyPath":[[:space:]]*"[^"]*"' "$AUTH_DIR/github.json" 2>/dev/null | sed 's/.*"privateKeyPath":[[:space:]]*"\(.*\)"/\1/')
+    if [ -n "$pem_path" ]; then
+        full_pem_path="$PROJECT_DIR/$pem_path"
+        if [ -f "$full_pem_path" ]; then
+            echo -e "${GREEN}✓ GitHub App private key found${NC}"
+        else
+            echo -e "${RED}✗ GitHub App private key not found at $full_pem_path${NC}"
+            errors=$((errors + 1))
+        fi
     fi
 else
-    echo -e "${RED}✗ SSH key not found${NC}"
+    echo -e "${RED}✗ GitHub App credentials not configured${NC}"
     errors=$((errors + 1))
 fi
 

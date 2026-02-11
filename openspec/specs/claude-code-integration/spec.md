@@ -163,16 +163,17 @@ The system SHALL resolve PR templates from multiple sources in priority order.
 
 The system SHALL create PRs using the GitHub CLI after successful change execution.
 
-#### Scenario: Create PR via gh CLI
+#### Scenario: Create PR via Octokit
 - **GIVEN** a successful change execution with commits
 - **WHEN** the PR creation step runs
-- **THEN** the system invokes `gh pr create` in the worktree
+- **THEN** the system pushes using token-authenticated HTTPS remote
+- **AND** creates the PR via Octokit `pulls.create()` API
 - **AND** uses the resolved template for the PR body
 - **AND** sets the title based on the change summary
 - **AND** targets the repository's default branch
 
 #### Scenario: PR creation failure handling
-- **WHEN** `gh pr create` fails
+- **WHEN** PR creation fails
 - **THEN** the system captures the error message
 - **AND** reports the failure to the user
 - **AND** preserves the worktree for manual recovery
@@ -184,8 +185,8 @@ The system SHALL support reviewing PR comments and implementing requested change
 #### Scenario: Fetch PR comments
 - **GIVEN** a PR was created and user requests "review"
 - **WHEN** the review flow starts
-- **THEN** the system fetches PR comments via `gh pr view --comments --json`
-- **AND** fetches review comments via `gh api` for inline comments
+- **THEN** the system fetches PR review comments via Octokit `pulls.listReviewComments()`
+- **AND** fetches PR reviews via Octokit `pulls.listReviews()`
 - **AND** passes comments to Claude for analysis
 
 #### Scenario: Implement review feedback
@@ -206,10 +207,10 @@ The system SHALL support reviewing PR comments and implementing requested change
 
 The system SHALL support merging PRs when requested by authorized users.
 
-#### Scenario: Merge PR via gh CLI
+#### Scenario: Merge PR via Octokit
 - **GIVEN** a PR exists and user requests "merge"
 - **WHEN** the merge flow starts
-- **THEN** the system invokes `gh pr merge` with the configured strategy
+- **THEN** the system calls Octokit `pulls.merge()` with the configured strategy
 - **AND** uses the repository's configured merge strategy (squash/merge/rebase)
 - **AND** defaults to squash merge if not configured
 
@@ -219,7 +220,7 @@ The system SHALL support merging PRs when requested by authorized users.
 - **AND** valid values are: `squash`, `merge`, `rebase`
 
 #### Scenario: Merge failure handling
-- **WHEN** `gh pr merge` fails
+- **WHEN** the Octokit merge call fails
 - **THEN** the system captures the error message
 - **AND** reports the failure reason to the user (conflicts, CI failed, etc.)
 - **AND** suggests next steps (resolve conflicts, wait for CI, etc.)

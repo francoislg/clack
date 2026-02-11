@@ -1,8 +1,5 @@
-# changes-workflow Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change add-dev-change-requests. Update Purpose after archive.
-## Requirements
 ### Requirement: Changes Workflow Configuration
 
 The system SHALL support a top-level configuration section for the change request workflow.
@@ -79,100 +76,6 @@ The system SHALL support a top-level configuration section for the change reques
 - **AND** defaults to 15 minutes if not specified
 - **AND** set to 0 to disable monitoring
 
-### Requirement: Change Request Detection
-
-The system SHALL use Claude's semantic understanding to detect change requests.
-
-#### Scenario: Claude-driven detection for DM
-- **GIVEN** `changesWorkflow.enabled` is `true` AND `directMessages.changesWorkflow.enabled` is `true`
-- **AND** the user has dev role
-- **WHEN** a user sends a new DM (not a thread reply)
-- **THEN** the system adds change detection instructions to Claude's prompt
-- **AND** Claude analyzes message intent semantically
-
-#### Scenario: Claude-driven detection for mention
-- **GIVEN** `changesWorkflow.enabled` is `true` AND `mentions.changesWorkflow.enabled` is `true`
-- **AND** the user has dev role
-- **WHEN** a user mentions the bot
-- **THEN** the system adds change detection instructions to Claude's prompt
-- **AND** Claude analyzes message intent semantically
-
-#### Scenario: Explicit change request via reaction
-- **GIVEN** `changesWorkflow.enabled` is `true` AND `reactions.changesWorkflow.enabled` is `true`
-- **WHEN** a user reacts with the `reactions.changesWorkflow.trigger` emoji
-- **THEN** the system treats the reacted message as a change request
-- **AND** proceeds with role verification and execution
-
-#### Scenario: Claude identifies change request
-- **GIVEN** change detection is enabled for the trigger type
-- **WHEN** Claude determines the message is requesting code changes
-- **THEN** Claude returns `<change-request>` tags with branch, description, and target repo
-- **AND** the system routes to the change workflow
-
-#### Scenario: Claude identifies question
-- **GIVEN** change detection is enabled for the trigger type
-- **WHEN** Claude determines the message is asking a question (not requesting changes)
-- **THEN** Claude returns `<answer>` tags with the response
-- **AND** the system displays the answer normally (Q&A flow)
-
-#### Scenario: Semantic disambiguation
-- **GIVEN** a message like "how do I fix this?" vs "fix the login bug"
-- **WHEN** Claude analyzes the intent
-- **THEN** questions about fixing are treated as Q&A
-- **AND** explicit fix requests are treated as change requests
-- **AND** Claude defaults to Q&A when uncertain
-
-### Requirement: Change Request Feedback
-
-The system SHALL provide feedback throughout the change request lifecycle.
-
-#### Scenario: Acknowledge change request
-- **WHEN** a change request is detected and authorized
-- **THEN** the system immediately replies with a status message
-- **AND** the message indicates the request is being processed
-
-#### Scenario: Progress update during execution
-- **WHEN** Claude is executing a change
-- **THEN** the system sends periodic updates (every 30 seconds)
-- **AND** updates include current status and Claude's last activity
-
-#### Scenario: Success notification
-- **GIVEN** change execution and PR creation succeeded
-- **WHEN** the workflow completes
-- **THEN** the system replies in the thread with:
-  - PR URL
-  - Brief summary of changes
-  - Commit count
-
-#### Scenario: Failure notification
-- **GIVEN** change execution or PR creation failed
-- **WHEN** the workflow fails
-- **THEN** the system replies in the thread with:
-  - Error message
-  - Suggestion for what to try next
-  - Note that the worktree is preserved for manual recovery (if applicable)
-
-### Requirement: Change Request State Management
-
-The system SHALL track active change requests to prevent conflicts.
-
-#### Scenario: Track active changes per user
-- **WHEN** a change request starts execution
-- **THEN** the system records: user ID, repository, branch, start time, PR URL, thread ID
-- **AND** the record is removed when the PR is merged or closed
-
-#### Scenario: Prevent duplicate requests
-- **GIVEN** a user has an active change request
-- **WHEN** they send another change request (outside the existing thread)
-- **THEN** the system responds that they have a pending request
-- **AND** provides a link to the existing thread
-
-#### Scenario: System-wide concurrency limit
-- **GIVEN** the system has reached `maxConcurrent` active changes
-- **WHEN** a new change request arrives
-- **THEN** the system responds that capacity is reached
-- **AND** suggests trying again later
-
 ### Requirement: Thread Follow-up Commands
 
 The system SHALL support follow-up commands in the Slack thread after PR creation.
@@ -221,6 +124,36 @@ The system SHALL support follow-up commands in the Slack thread after PR creatio
 - **THEN** the worktree is cleaned up
 - **AND** new messages in the thread are treated as new requests (if Claude detects a change request)
 
+### Requirement: Change Request Feedback
+
+The system SHALL provide feedback throughout the change request lifecycle.
+
+#### Scenario: Acknowledge change request
+- **WHEN** a change request is detected and authorized
+- **THEN** the system immediately replies with a status message
+- **AND** the message indicates the request is being processed
+
+#### Scenario: Progress update during execution
+- **WHEN** Claude is executing a change
+- **THEN** the system sends periodic updates (every 30 seconds)
+- **AND** updates include current status and Claude's last activity
+
+#### Scenario: Success notification
+- **GIVEN** change execution and PR creation succeeded
+- **WHEN** the workflow completes
+- **THEN** the system replies in the thread with:
+  - PR URL
+  - Brief summary of changes
+  - Commit count
+
+#### Scenario: Failure notification
+- **GIVEN** change execution or PR creation failed
+- **WHEN** the workflow fails
+- **THEN** the system replies in the thread with:
+  - Error message
+  - Suggestion for what to try next
+  - Note that the worktree is preserved for manual recovery (if applicable)
+
 ### Requirement: PR Operations via GitHub API
 
 The system SHALL perform all PR operations through the GitHub API using Octokit.
@@ -266,48 +199,3 @@ The system SHALL perform all PR operations through the GitHub API using Octokit.
 - **WHEN** a push operation is needed
 - **THEN** the system configures the remote URL with a fresh installation token
 - **AND** uses `simple-git` to push over HTTPS
-
-### Requirement: Worker Visibility
-
-The system SHALL provide real-time visibility into change execution progress.
-
-#### Scenario: Session state persistence
-- **WHEN** a change session is created
-- **THEN** the system creates `data/worktree-sessions/{branch-name}/state.json`
-- **AND** the state includes: sessionId, status, phase, branch, repo, userId, description, prUrl, startedAt, lastActivityAt, lastMessage
-
-#### Scenario: State updates during execution
-- **WHEN** the session status changes (planning → executing → pr_created → etc.)
-- **THEN** the system updates `state.json` with new status and phase
-- **AND** updates `lastActivityAt` timestamp
-
-#### Scenario: Execution logging
-- **WHEN** Claude produces output during change execution
-- **THEN** the system appends to `data/worktree-sessions/{branch-name}/execution.log`
-- **AND** each log entry includes a timestamp in ISO format
-
-#### Scenario: Real-time Slack progress updates
-- **GIVEN** a change execution is in progress
-- **WHEN** 30 seconds have elapsed since the last update
-- **THEN** the system updates the Slack message with Claude's current activity
-- **AND** the format is "Implementing changes...\n_Currently: {activity}_"
-- **AND** long activity messages are truncated to fit Slack limits
-
-#### Scenario: Session folder cleanup on success
-- **GIVEN** a change session completes successfully (merged or closed)
-- **WHEN** the session is removed
-- **THEN** the session folder is deleted from `data/worktree-sessions/`
-
-#### Scenario: Session folder preserved on failure
-- **GIVEN** a change session fails
-- **WHEN** cleanup runs
-- **THEN** the session folder is NOT deleted
-- **AND** the folder is preserved indefinitely for debugging
-- **AND** manual deletion is required to remove it
-
-#### Scenario: Active workers display
-- **GIVEN** a user with dev role views the Home tab
-- **WHEN** there are active change sessions
-- **THEN** the Home tab shows a "Active Workers" section
-- **AND** each worker shows: status, description, branch, repo, user, and PR link (if available)
-

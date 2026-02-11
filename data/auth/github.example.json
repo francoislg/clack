@@ -1,0 +1,5 @@
+{
+  "appId": "123456",
+  "installationId": "78901234",
+  "privateKeyPath": "data/auth/github-app.pem"
+}

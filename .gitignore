@@ -15,8 +15,8 @@ data/worktree-sessions/
 data/state/
 data/auth/*
 !data/auth/.gitkeep
-!data/auth/ssh/.gitkeep
 !data/auth/slack.example.json
+!data/auth/github.example.json
 !data/auth/.env.example
 
 # Generated files

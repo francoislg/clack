@@ -17,8 +17,8 @@ FROM node:18-alpine
 
 WORKDIR /app
 
-# Install git and SSH client for repository operations
-RUN apk add --no-cache git openssh-client curl bash
+# Install git for repository operations
+RUN apk add --no-cache git curl bash
 
 # Install Claude Code CLI (required by @anthropic-ai/claude-agent-sdk)
 RUN curl -fsSL https://claude.ai/install.sh | bash
@@ -35,9 +35,10 @@ COPY data/config.example.json ./data/
 COPY data/mcp.example.json ./data/
 COPY data/auth/slack.example.json ./data/auth/
 COPY data/auth/.env.example ./data/auth/
+COPY data/auth/github.example.json ./data/auth/
 
 # Create data directories
-RUN mkdir -p data/repositories data/sessions data/auth/ssh
+RUN mkdir -p data/repositories data/sessions data/auth
 
 # Create non-root user and set permissions
 RUN addgroup -g 1001 -S nodejs && \
@@ -47,11 +48,8 @@ RUN addgroup -g 1001 -S nodejs && \
 # Switch to non-root user
 USER clack
 
-# Set HOME for SSH and Claude Code
+# Set HOME for Claude Code
 ENV HOME=/home/clack
-
-# Create SSH directory for user
-RUN mkdir -p /home/clack/.ssh && chmod 700 /home/clack/.ssh
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \

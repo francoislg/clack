@@ -2,23 +2,36 @@ import { simpleGit, SimpleGit, SimpleGitOptions } from "simple-git";
 import { existsSync, mkdirSync, rmSync, readdirSync, statSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { getConfig, getRepositoriesDir, getWorktreesDir, getWorktreeSessionsDir, type RepositoryConfig } from "./config.js";
+import { getAuthenticatedCloneUrl } from "./github.js";
 import { logger } from "./logger.js";
 import { cleanupStaleSessionFolders } from "./changes/persistence.js";
 import { getActiveSessions } from "./changes/session.js";
 
-function getGitInstance(sshKeyPath?: string, baseDir?: string): SimpleGit {
+function getGitInstance(baseDir?: string): SimpleGit {
   const options: Partial<SimpleGitOptions> = {};
 
   if (baseDir) {
     options.baseDir = baseDir;
   }
 
-  if (sshKeyPath) {
-    const expandedPath = sshKeyPath.replace(/^~/, process.env.HOME || "");
-    options.config = [`core.sshCommand=ssh -i ${expandedPath} -o StrictHostKeyChecking=no`];
-  }
-
   return simpleGit(options);
+}
+
+/**
+ * Set the remote URL to an authenticated HTTPS URL with a fresh token.
+ */
+async function setAuthenticatedRemote(repoPath: string, repoUrl: string): Promise<void> {
+  const git = getGitInstance(repoPath);
+  const authenticatedUrl = await getAuthenticatedCloneUrl(repoUrl);
+  await git.remote(["set-url", "origin", authenticatedUrl]);
+}
+
+/**
+ * Find the repository config by name to get its URL for token auth.
+ */
+function findRepoConfig(repoName: string): RepositoryConfig | undefined {
+  const config = getConfig();
+  return config.repositories.find((r) => r.name === repoName);
 }
 
 export interface WorktreeInfo {
@@ -63,7 +76,6 @@ export async function createWorktree(
   repo: RepositoryConfig,
   branchName: string
 ): Promise<WorktreeInfo> {
-  const config = getConfig();
   const reposDir = getRepositoriesDir();
   const worktreesDir = getWorktreesDir();
   const mainRepoPath = resolve(reposDir, repo.name);
@@ -88,7 +100,9 @@ export async function createWorktree(
 
   logger.debug(`Creating worktree for ${repo.name} at ${worktreePath}...`);
 
-  const git = getGitInstance(config.git.sshKeyPath, mainRepoPath);
+  // Refresh remote URL with fresh token before fetching
+  await setAuthenticatedRemote(mainRepoPath, repo.url);
+  const git = getGitInstance(mainRepoPath);
 
   // Fetch latest changes first
   try {
@@ -123,6 +137,9 @@ export async function createWorktree(
     `origin/${defaultBranch}`,
   ]);
 
+  // Set authenticated remote in the worktree as well (for push)
+  await setAuthenticatedRemote(worktreePath, repo.url);
+
   logger.debug(`Successfully created worktree at ${worktreePath}`);
 
   return {
@@ -140,7 +157,6 @@ export async function removeWorktree(
   repoName: string,
   worktreePath: string
 ): Promise<void> {
-  const config = getConfig();
   const mainRepoPath = resolve(getRepositoriesDir(), repoName);
 
   if (!existsSync(mainRepoPath)) {
@@ -154,7 +170,7 @@ export async function removeWorktree(
 
   logger.debug(`Removing worktree at ${worktreePath}...`);
 
-  const git = getGitInstance(config.git.sshKeyPath, mainRepoPath);
+  const git = getGitInstance(mainRepoPath);
 
   try {
     // Force remove the worktree
@@ -180,7 +196,6 @@ export async function deleteBranch(
   branchName: string,
   deleteRemote: boolean = false
 ): Promise<void> {
-  const config = getConfig();
   const mainRepoPath = resolve(getRepositoriesDir(), repoName);
 
   if (!existsSync(mainRepoPath)) {
@@ -188,7 +203,7 @@ export async function deleteBranch(
     return;
   }
 
-  const git = getGitInstance(config.git.sshKeyPath, mainRepoPath);
+  const git = getGitInstance(mainRepoPath);
 
   try {
     // Delete local branch
@@ -199,6 +214,11 @@ export async function deleteBranch(
   }
 
   if (deleteRemote) {
+    // Refresh remote URL with fresh token before pushing
+    const repo = findRepoConfig(repoName);
+    if (repo) {
+      await setAuthenticatedRemote(mainRepoPath, repo.url);
+    }
     try {
       await git.raw(["push", "origin", "--delete", branchName]);
       logger.debug(`Deleted remote branch ${branchName}`);
@@ -280,7 +300,7 @@ export async function cleanupStaleWorktrees(retentionHours: number = 24): Promis
   for (const repo of config.repositories) {
     const mainRepoPath = resolve(getRepositoriesDir(), repo.name);
     if (existsSync(mainRepoPath)) {
-      const git = getGitInstance(config.git.sshKeyPath, mainRepoPath);
+      const git = getGitInstance(mainRepoPath);
       try {
         await git.raw(["worktree", "prune"]);
       } catch (error) {

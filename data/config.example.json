@@ -35,7 +35,7 @@
   "repositories": [
     {
       "name": "my-app",
-      "url": "git@github.com:your-org/your-repo.git",
+      "url": "your-org/your-repo",
       "description": "Main application codebase - contains backend API and frontend",
       "branch": "main",
       "supportsChanges": false,
@@ -44,7 +44,6 @@
     }
   ],
   "git": {
-    "sshKeyPath": "data/auth/ssh/id_rsa",
     "pullIntervalMinutes": 60,
     "shallowClone": true,
     "cloneDepth": 1

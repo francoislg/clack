@@ -1,5 +1,6 @@
-import { execSync } from "node:child_process";
+import { simpleGit } from "simple-git";
 import { getConfig } from "../config.js";
+import { getOctokit, parseRepoUrl, getAuthenticatedCloneUrl } from "../github.js";
 import type { WorktreeInfo } from "../worktrees.js";
 import type { ChangePlan, ChangeSession } from "./types.js";
 import { runClaude, resolvePRTemplate, resolvePRInstructions } from "./execution.js";
@@ -13,24 +14,33 @@ import { logger } from "../logger.js";
 export type PRState = "OPEN" | "MERGED" | "CLOSED";
 
 /**
- * Get the current status of a PR using gh CLI
- * Returns null on error (network failure, invalid URL, etc.)
+ * Extract owner, repo, and pull number from a GitHub PR URL.
  */
-export function getPRStatus(prUrl: string): { state: PRState } | null {
+function parsePRUrl(prUrl: string): { owner: string; repo: string; pull_number: number } {
+  const match = prUrl.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
+  if (!match) {
+    throw new Error(`Invalid PR URL: ${prUrl}`);
+  }
+  return { owner: match[1], repo: match[2], pull_number: parseInt(match[3], 10) };
+}
+
+/**
+ * Get the current status of a PR using the GitHub API.
+ * Returns null on error.
+ */
+export async function getPRStatus(prUrl: string): Promise<{ state: PRState } | null> {
   try {
-    const result = execSync(`gh pr view "${prUrl}" --json state`, {
-      encoding: "utf-8",
-      timeout: 30000,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
+    const { owner, repo, pull_number } = parsePRUrl(prUrl);
+    const octokit = await getOctokit();
+    const { data } = await octokit.pulls.get({ owner, repo, pull_number });
 
-    const parsed = JSON.parse(result.trim());
-    if (parsed.state && ["OPEN", "MERGED", "CLOSED"].includes(parsed.state)) {
-      return { state: parsed.state as PRState };
+    if (data.merged) {
+      return { state: "MERGED" };
     }
-
-    logger.warn(`Unexpected PR state from gh: ${parsed.state}`);
-    return null;
+    if (data.state === "closed") {
+      return { state: "CLOSED" };
+    }
+    return { state: "OPEN" };
   } catch (error) {
     logger.debug(`Failed to get PR status for ${prUrl}: ${error}`);
     return null;
@@ -42,7 +52,7 @@ export function getPRStatus(prUrl: string): { state: PRState } | null {
 // ============================================================================
 
 /**
- * Create a PR using gh CLI
+ * Create a PR using the GitHub API.
  */
 export async function createPR(
   worktree: WorktreeInfo,
@@ -55,154 +65,167 @@ export async function createPR(
     return { success: false, error: `Repository ${plan.targetRepo} not found` };
   }
 
-  // First push the branch
-  const pushResult = await runClaude({
-    prompt: `Run this command to push the branch:
-git push -u origin ${plan.branchName}
+  // Set authenticated remote and push the branch
+  const authenticatedUrl = await getAuthenticatedCloneUrl(repo.url);
+  const git = simpleGit({ baseDir: worktree.worktreePath });
+  await git.remote(["set-url", "origin", authenticatedUrl]);
 
-Output only "PUSH_SUCCESS" if successful, or the error message if it fails.`,
-    cwd: worktree.worktreePath,
-    allowedTools: ["Bash"],
-    disallowedTools: ["Read", "Write", "Edit", "Glob", "Grep", "Task"],
-    timeout: 2,
-  });
-
-  if (!pushResult.success || !pushResult.text.includes("PUSH_SUCCESS")) {
+  try {
+    await git.push(["-u", "origin", plan.branchName]);
+  } catch (pushError) {
     return {
       success: false,
-      error: `Failed to push branch: ${pushResult.error ?? pushResult.text}`,
+      error: `Failed to push branch: ${pushError}`,
     };
   }
 
-  // Get PR template
+  // Get PR template and instructions for Claude to generate the PR body
   const template = resolvePRTemplate(worktree.worktreePath);
   const prInstructions = resolvePRInstructions(worktree.worktreePath, repo, config);
 
-  // Create PR using gh CLI
-  const prPrompt = `Create a pull request with:
-- Title: ${plan.description.substring(0, 72)}
-- Body based on this template:
+  // Use Claude to generate a good PR body from the template
+  const prBodyResult = await runClaude({
+    prompt: `Generate a pull request body based on this template:
 ${template}
 
-Fill in the template with:
+Fill it in with:
 - Summary: ${summary}
 - Description of what was changed
 
-Use this command:
-gh pr create --title "..." --body "..."
-
-Output only the PR URL on a line starting with "PR_URL:" if successful.`;
-
-  const prResult = await runClaude({
-    prompt: prPrompt,
+Output ONLY the filled-in PR body (markdown), nothing else.`,
     cwd: worktree.worktreePath,
     systemPrompt: prInstructions ? `PR Guidelines:\n${prInstructions}` : undefined,
-    allowedTools: ["Bash"],
-    disallowedTools: ["Read", "Write", "Edit", "Glob", "Grep", "Task"],
+    allowedTools: ["Read", "Glob", "Grep"],
+    disallowedTools: ["Write", "Edit", "Bash", "Task"],
     timeout: 2,
   });
 
-  const prUrlMatch = prResult.text.match(/PR_URL:\s*(https:\/\/\S+)/i);
-  if (prUrlMatch) {
-    return { success: true, prUrl: prUrlMatch[1] };
-  }
+  const prBody = prBodyResult.success && prBodyResult.text
+    ? prBodyResult.text
+    : summary;
 
-  // Try to extract URL from gh output
-  const ghUrlMatch = prResult.text.match(/(https:\/\/github\.com\/[^\s]+\/pull\/\d+)/);
-  if (ghUrlMatch) {
-    return { success: true, prUrl: ghUrlMatch[1] };
-  }
+  // Create PR via Octokit
+  try {
+    const { owner, repo: repoName } = parseRepoUrl(repo.url);
+    const octokit = await getOctokit();
+    const defaultBranch = repo.branch || "main";
 
-  return {
-    success: false,
-    error: `Failed to create PR: ${prResult.error ?? "Could not find PR URL in output"}`,
-  };
+    const { data: pr } = await octokit.pulls.create({
+      owner,
+      repo: repoName,
+      title: plan.description.substring(0, 72),
+      body: prBody,
+      head: plan.branchName,
+      base: defaultBranch,
+    });
+
+    return { success: true, prUrl: pr.html_url };
+  } catch (createError) {
+    return {
+      success: false,
+      error: `Failed to create PR: ${createError}`,
+    };
+  }
 }
 
 /**
- * Merge a PR using gh CLI - Claude decides about cleanup
+ * Merge a PR using the GitHub API.
  */
 export async function mergePR(
   prUrl: string,
-  worktreePath: string,
+  _worktreePath: string,
   mergeStrategy: "squash" | "merge" | "rebase" = "squash"
 ): Promise<{ success: boolean; cleanupSummary?: string; error?: string }> {
-  const strategyFlag = `--${mergeStrategy}`;
+  try {
+    const { owner, repo, pull_number } = parsePRUrl(prUrl);
+    const octokit = await getOctokit();
 
-  const result = await runClaude({
-    prompt: `Merge this PR: ${prUrl}
+    // Get the PR to find the branch name
+    const { data: pr } = await octokit.pulls.get({ owner, repo, pull_number });
+    const branchName = pr.head.ref;
 
-1. Merge the PR using: gh pr merge "${prUrl}" ${strategyFlag}
+    // Merge the PR
+    await octokit.pulls.merge({
+      owner,
+      repo,
+      pull_number,
+      merge_method: mergeStrategy,
+    });
 
-2. After merging, decide whether to delete the remote branch:
-   - If this was a typical feature/fix, delete the branch: git push origin --delete <branch-name>
-   - If there's reason to keep it (ongoing work, reference needed), leave it
+    // Delete the remote branch
+    let cleanupAction = "Merged successfully";
+    try {
+      await octokit.git.deleteRef({
+        owner,
+        repo,
+        ref: `heads/${branchName}`,
+      });
+      cleanupAction = `Merged and deleted remote branch ${branchName}`;
+    } catch (deleteError) {
+      logger.warn(`Failed to delete remote branch ${branchName}: ${deleteError}`);
+      cleanupAction = `Merged (branch ${branchName} kept — could not delete)`;
+    }
 
-3. Output your decision and result in this format:
-   MERGE_SUCCESS
-   CLEANUP_ACTION: <what you did with the branch - deleted or kept and why>`,
-    cwd: worktreePath,
-    allowedTools: ["Bash"],
-    disallowedTools: ["Read", "Write", "Edit", "Glob", "Grep", "Task"],
-    timeout: 3,
-  });
-
-  if (result.text.includes("MERGE_SUCCESS")) {
-    const cleanupMatch = result.text.match(/CLEANUP_ACTION:\s*(.+?)(?:\n|$)/i);
+    return { success: true, cleanupSummary: cleanupAction };
+  } catch (error) {
     return {
-      success: true,
-      cleanupSummary: cleanupMatch?.[1] ?? "Merged successfully",
+      success: false,
+      error: `Merge failed: ${error}`,
     };
   }
-
-  return {
-    success: false,
-    error: result.error ?? "Merge failed",
-  };
 }
 
 /**
- * Close a PR without merging - Claude asks about cleanup
+ * Close a PR without merging using the GitHub API.
  */
 export async function closePR(
   prUrl: string,
-  worktreePath: string,
+  _worktreePath: string,
   deleteRemoteBranch: boolean = false
 ): Promise<{ success: boolean; cleanupSummary?: string; error?: string }> {
-  const result = await runClaude({
-    prompt: `Close this PR without merging: ${prUrl}
+  try {
+    const { owner, repo, pull_number } = parsePRUrl(prUrl);
+    const octokit = await getOctokit();
 
-1. Close the PR: gh pr close "${prUrl}"
+    // Get the PR to find the branch name
+    const { data: pr } = await octokit.pulls.get({ owner, repo, pull_number });
+    const branchName = pr.head.ref;
 
-2. ${deleteRemoteBranch
-      ? `Delete the remote branch since user requested it: git push origin --delete <branch-name>`
-      : `Keep the remote branch for now - user can delete it later if needed`}
+    // Close the PR
+    await octokit.pulls.update({
+      owner,
+      repo,
+      pull_number,
+      state: "closed",
+    });
 
-3. Output your result:
-   CLOSE_SUCCESS
-   CLEANUP_ACTION: <what you did with the branch>`,
-    cwd: worktreePath,
-    allowedTools: ["Bash"],
-    disallowedTools: ["Read", "Write", "Edit", "Glob", "Grep", "Task"],
-    timeout: 2,
-  });
+    let cleanupAction = "PR closed";
 
-  if (result.text.includes("CLOSE_SUCCESS")) {
-    const cleanupMatch = result.text.match(/CLEANUP_ACTION:\s*(.+?)(?:\n|$)/i);
+    if (deleteRemoteBranch) {
+      try {
+        await octokit.git.deleteRef({
+          owner,
+          repo,
+          ref: `heads/${branchName}`,
+        });
+        cleanupAction = `PR closed and remote branch ${branchName} deleted`;
+      } catch (deleteError) {
+        logger.warn(`Failed to delete remote branch ${branchName}: ${deleteError}`);
+        cleanupAction = `PR closed (branch ${branchName} kept — could not delete)`;
+      }
+    }
+
+    return { success: true, cleanupSummary: cleanupAction };
+  } catch (error) {
     return {
-      success: true,
-      cleanupSummary: cleanupMatch?.[1] ?? "PR closed",
+      success: false,
+      error: `Close failed: ${error}`,
     };
   }
-
-  return {
-    success: false,
-    error: result.error ?? "Close failed",
-  };
 }
 
 /**
- * Fetch and address PR review comments
+ * Fetch and address PR review comments using the GitHub API.
  */
 export async function reviewPR(
   session: ChangeSession
@@ -211,15 +234,57 @@ export async function reviewPR(
     return { success: false, error: "No PR URL in session" };
   }
 
-  const reviewPrompt = `Review and address feedback on this PR: ${session.prUrl}
+  // Fetch PR comments and reviews via Octokit
+  let reviewContext = "";
+  try {
+    const { owner, repo, pull_number } = parsePRUrl(session.prUrl);
+    const octokit = await getOctokit();
 
-1. First, fetch the PR comments:
-   gh pr view "${session.prUrl}" --comments --json comments,reviews
+    const [{ data: comments }, { data: reviews }] = await Promise.all([
+      octokit.pulls.listReviewComments({ owner, repo, pull_number }),
+      octokit.pulls.listReviews({ owner, repo, pull_number }),
+    ]);
 
-2. Read and understand each review comment
-3. Implement the requested changes
-4. Commit with a message like "Address review feedback"
-5. Push the changes
+    if (reviews.length > 0) {
+      reviewContext += "PR Reviews:\n";
+      for (const review of reviews) {
+        if (review.body) {
+          reviewContext += `- ${review.user?.login ?? "unknown"} (${review.state}): ${review.body}\n`;
+        }
+      }
+    }
+
+    if (comments.length > 0) {
+      reviewContext += "\nInline Comments:\n";
+      for (const comment of comments) {
+        reviewContext += `- ${comment.user?.login ?? "unknown"} on ${comment.path}:${comment.line ?? "?"}: ${comment.body}\n`;
+      }
+    }
+
+    if (!reviewContext) {
+      reviewContext = "No review comments or feedback found.";
+    }
+  } catch (error) {
+    return { success: false, error: `Failed to fetch PR reviews: ${error}` };
+  }
+
+  // Refresh remote auth for push
+  const config = getConfig();
+  const repo = findRepoByName(session.plan.targetRepo, config);
+  if (repo) {
+    const authenticatedUrl = await getAuthenticatedCloneUrl(repo.url);
+    const git = simpleGit({ baseDir: session.worktree.worktreePath });
+    await git.remote(["set-url", "origin", authenticatedUrl]);
+  }
+
+  const reviewPrompt = `Address the feedback on this PR: ${session.prUrl}
+
+${reviewContext}
+
+1. Read and understand each review comment
+2. Implement the requested changes
+3. Commit with a message like "Address review feedback"
+4. Push the changes
 
 Output "COMMENTS_ADDRESSED: N" where N is the number of comments you addressed.`;
 
