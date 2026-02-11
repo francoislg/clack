@@ -7,6 +7,7 @@ import type { ChangeRequest } from "../../changes/types.js";
 import { getChangeEnabledRepos } from "../../changes/detection.js";
 import { generateChangePlan } from "../../changes/execution.js";
 import { startChangeWorkflow } from "../../changes/workflow.js";
+import { extractMessageText } from "../messagesApi.js";
 import { processMessage } from "./core.js";
 
 async function handleChangeReaction(
@@ -152,7 +153,7 @@ export function registerNewQueryHandler(app: App): void {
         if (msg.ts === ts) {
           // ts is a parent message - we found it directly
           threadTs = msg.thread_ts || ts;
-          actualMessageText = msg.text;
+          actualMessageText = extractMessageText(msg);
           logger.debug(`Found message via conversations.replies (parent message)`);
         }
       }
@@ -177,7 +178,7 @@ export function registerNewQueryHandler(app: App): void {
           if (msg.ts === ts) {
             // Found the exact message in channel history
             threadTs = msg.thread_ts;
-            actualMessageText = msg.text;
+            actualMessageText = extractMessageText(msg);
             logger.debug(`Found message via conversations.history (channel message)`);
           } else if (msg.thread_ts) {
             // Didn't find exact match - ts might be a thread reply
@@ -196,7 +197,7 @@ export function registerNewQueryHandler(app: App): void {
             if (threadResult.messages) {
               const targetMsg = threadResult.messages.find((m) => m.ts === ts);
               if (targetMsg) {
-                actualMessageText = targetMsg.text;
+                actualMessageText = extractMessageText(targetMsg);
                 logger.debug(`Found message in thread replies`);
               }
             }
