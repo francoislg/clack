@@ -470,13 +470,40 @@ export function convertMarkdownToSlack(markdown: string): string {
   return result;
 }
 
-export function truncateForSlack(text: string, maxLength = 3000): string {
+/**
+ * Split text into chunks that fit within Slack's section block limit.
+ * Splits on paragraph boundaries (double newlines) to keep formatting clean.
+ */
+export function splitForSlack(text: string, maxLength = 3000): string[] {
   if (text.length <= maxLength) {
-    return text;
+    return [text];
   }
 
-  const truncated = text.substring(0, maxLength - 50);
-  return `${truncated}\n\n_(Response truncated due to length)_`;
+  const chunks: string[] = [];
+  let remaining = text;
+
+  while (remaining.length > 0) {
+    if (remaining.length <= maxLength) {
+      chunks.push(remaining);
+      break;
+    }
+
+    // Find the last paragraph break within the limit
+    let splitIndex = remaining.lastIndexOf("\n\n", maxLength);
+    if (splitIndex <= 0) {
+      // Fall back to last single newline
+      splitIndex = remaining.lastIndexOf("\n", maxLength);
+    }
+    if (splitIndex <= 0) {
+      // Fall back to hard cut at limit
+      splitIndex = maxLength;
+    }
+
+    chunks.push(remaining.substring(0, splitIndex));
+    remaining = remaining.substring(splitIndex).replace(/^\n+/, "");
+  }
+
+  return chunks;
 }
 
 /**

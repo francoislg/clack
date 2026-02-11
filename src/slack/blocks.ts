@@ -1,14 +1,15 @@
-import { convertMarkdownToSlack, truncateForSlack } from "../claude.js";
+import { convertMarkdownToSlack, splitForSlack } from "../claude.js";
+
+function answerSections(answer: string) {
+  return splitForSlack(convertMarkdownToSlack(answer)).map((chunk) => ({
+    type: "section" as const,
+    text: { type: "mrkdwn" as const, text: chunk },
+  }));
+}
 
 export function getResponseBlocks(answer: string, sessionId: string) {
   return [
-    {
-      type: "section" as const,
-      text: {
-        type: "mrkdwn" as const,
-        text: truncateForSlack(convertMarkdownToSlack(answer)),
-      },
-    },
+    ...answerSections(answer),
     {
       type: "divider" as const,
     },
@@ -73,15 +74,7 @@ export function getResponseBlocks(answer: string, sessionId: string) {
 }
 
 export function getAcceptedBlocks(answer: string) {
-  return [
-    {
-      type: "section" as const,
-      text: {
-        type: "mrkdwn" as const,
-        text: truncateForSlack(convertMarkdownToSlack(answer)),
-      },
-    },
-  ];
+  return answerSections(answer);
 }
 
 export function getThinkingBlocks() {
@@ -175,13 +168,5 @@ export function getHiddenThreadNotificationBlocks(text: string, sessionId: strin
 }
 
 export function getMessageBlocks(answer: string) {
-  return [
-    {
-      type: "section" as const,
-      text: {
-        type: "mrkdwn" as const,
-        text: truncateForSlack(convertMarkdownToSlack(answer)),
-      },
-    },
-  ];
+  return answerSections(answer);
 }
