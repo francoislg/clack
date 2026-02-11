@@ -90,11 +90,18 @@ function buildSystemPrompt(options?: AskClaudeOptions): string {
     .map((r) => `- **${r.name}**: ${r.description}`)
     .join("\n");
 
+  // Build MCP integrations list
+  const mcpServerNames = getConfiguredMcpServerNames();
+  const mcpList = mcpServerNames.length > 0
+    ? mcpServerNames.map((name) => `- **${name}**`).join("\n")
+    : "None configured";
+
   // Load and interpolate the instructions template
   const template = loadInstructionsTemplate();
   const variables: Record<string, string> = {
     REPOSITORIES_LIST: repoList,
     BOT_NAME: config.slackApp?.name || "Clack",
+    MCP_INTEGRATIONS: mcpList,
   };
   let prompt = template.replace(/\{(\w+)\}/g, (match, key) => variables[key] ?? match);
 
