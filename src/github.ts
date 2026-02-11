@@ -157,11 +157,19 @@ export async function getAuthenticatedCloneUrl(repoUrl: string): Promise<string>
  * and fetching the installation info.
  */
 export async function validateGitHubApp(): Promise<void> {
-  const octokit = await getOctokit();
-
-  // Verify we can access the installation
   const creds = getCredentials();
-  const { data: installation } = await octokit.apps.getInstallation({
+  const privateKey = getPrivateKey();
+
+  // Use app-level JWT auth (not installation token) for the /app/installations endpoint
+  const appOctokit = new Octokit({
+    authStrategy: createAppAuth,
+    auth: {
+      appId: creds.appId,
+      privateKey,
+    },
+  });
+
+  const { data: installation } = await appOctokit.apps.getInstallation({
     installation_id: Number(creds.installationId),
   });
 
