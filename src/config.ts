@@ -29,7 +29,6 @@ export interface RepositoryConfig {
 }
 
 export interface GitConfig {
-  sshKeyPath?: string;
   pullIntervalMinutes: number;
   shallowClone: boolean;
   cloneDepth: number;
@@ -303,7 +302,6 @@ function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Config {
       mergeStrategy: r.mergeStrategy as "squash" | "merge" | "rebase" | undefined,
     })),
     git: {
-      sshKeyPath: (c.git as Record<string, unknown>)?.sshKeyPath as string | undefined,
       pullIntervalMinutes:
         ((c.git as Record<string, unknown>)?.pullIntervalMinutes as number) ??
         DEFAULTS.git!.pullIntervalMinutes,

@@ -30,8 +30,45 @@ A Slack bot that answers codebase questions using Claude Code. React to any mess
 
 - Node.js 18+
 - [Claude Code CLI](https://claude.ai/code) installed
-- SSH key with access to your repositories
+- A GitHub App installed on your org (see below)
 - Slack app with Bot Token and App Token
+
+### GitHub App Setup
+
+Clack authenticates with GitHub using a GitHub App. Each self-hosted deployment needs its own app.
+
+1. Go to your **Organization Settings** → **Developer settings** → **GitHub Apps** → **New GitHub App**
+2. Fill in the app name (e.g., "Clack")
+3. Set **Repository permissions**:
+   - **Contents**: Read & write (clone repos, push branches)
+   - **Pull requests**: Read & write (create/merge/close PRs)
+   - **Metadata**: Read-only
+4. Click **Create GitHub App**
+5. On the app's General page, note the **App ID**
+6. Scroll to **Private keys** and click **Generate a private key** — save the `.pem` file
+7. Click **Install App** in the sidebar, install it on your org, and select the repositories Clack should access
+8. Note the **Installation ID** from the URL (`https://github.com/settings/installations/{ID}`)
+
+Now configure the credentials:
+
+```bash
+# Create the auth config
+cp data/auth/github.example.json data/auth/github.json
+```
+
+Edit `data/auth/github.json`:
+```json
+{
+  "appId": "123456",
+  "installationId": "78901234",
+  "privateKeyPath": "data/auth/github-app.pem"
+}
+```
+
+Copy your `.pem` file:
+```bash
+cp ~/Downloads/your-app-name.private-key.pem data/auth/github-app.pem
+```
 
 ### Claude Authentication
 
@@ -80,11 +117,6 @@ ANTHROPIC_API_KEY=sk-ant-api-your-key-here
 2. Edit `data/config.json`:
    ```json
    {
-     "slack": {
-       "botToken": "xoxb-...",
-       "appToken": "xapp-...",
-       "signingSecret": "..."
-     },
      "reactions": {
        "trigger": "robot_face",
        "thinking": {
@@ -95,7 +127,7 @@ ANTHROPIC_API_KEY=sk-ant-api-your-key-here
      "repositories": [
        {
          "name": "my-app",
-         "url": "git@github.com:org/my-app.git",
+         "url": "your-org/your-repo",
          "description": "Main application codebase",
          "branch": "main"
        }
@@ -132,28 +164,12 @@ ANTHROPIC_API_KEY=sk-ant-api-your-key-here
 5. Subscribe to these **Events** under Event Subscriptions:
    - `reaction_added`
 6. Install the app to your workspace
-7. Copy the tokens to your `data/config.json`:
-   - Bot Token (`xoxb-...`) → `slack.botToken`
-   - App Token (`xapp-...`) → `slack.appToken`
-   - Signing Secret → `slack.signingSecret`
-
-### SSH Key Setup
-
-For private repositories, configure SSH access:
-
-1. Generate a deploy key (recommended) or use an existing SSH key:
-   ```bash
-   ssh-keygen -t ed25519 -f ~/.ssh/clack_deploy -N ""
-   ```
-
-2. Add the public key to your repository as a deploy key (read-only is sufficient)
-
-3. Set the path in your config:
+7. Save credentials to `data/auth/slack.json`:
    ```json
    {
-     "git": {
-       "sshKeyPath": "~/.ssh/clack_deploy"
-     }
+     "botToken": "xoxb-...",
+     "appToken": "xapp-...",
+     "signingSecret": "..."
    }
    ```
 
@@ -161,9 +177,6 @@ For private repositories, configure SSH access:
 
 | Key | Description | Default |
 |-----|-------------|---------|
-| `slack.botToken` | Slack bot token (xoxb-...) | Required |
-| `slack.appToken` | Slack app token (xapp-...) | Required |
-| `slack.signingSecret` | Slack signing secret | Required |
 | `slackApp.name` | App display name in Slack | `Clack` |
 | `slackApp.description` | App description in Slack | `Ask questions about your codebase using reactions` |
 | `slackApp.backgroundColor` | Hovercard background color (hex) | `#4A154B` |
@@ -171,10 +184,9 @@ For private repositories, configure SSH access:
 | `reactions.thinking.type` | Feedback type: `message` or `emoji` | `message` |
 | `reactions.thinking.emoji` | Emoji to show while thinking (if type is `emoji`) | — |
 | `repositories[].name` | Local folder name for the repo | Required |
-| `repositories[].url` | Git clone URL (SSH) | Required |
+| `repositories[].url` | Repository (`owner/repo` or HTTPS URL) | Required |
 | `repositories[].description` | Description for Claude context | Required |
 | `repositories[].branch` | Branch to clone | `main` |
-| `git.sshKeyPath` | Path to SSH key | System default |
 | `git.pullIntervalMinutes` | How often to pull updates | `60` |
 | `git.shallowClone` | Use shallow clone | `true` |
 | `git.cloneDepth` | Depth for shallow clone | `1` |
@@ -198,6 +210,7 @@ npm run dev       # Watch mode (rebuild on changes)
 src/
 ├── index.ts        # Entry point, startup sequence
 ├── config.ts       # Configuration loading and validation
+├── github.ts       # GitHub App auth, Octokit client, token management
 ├── repositories.ts # Git clone/pull operations
 ├── sessions.ts     # Session lifecycle management
 ├── claude.ts       # Claude Agent SDK integration
@@ -209,10 +222,15 @@ src/
     └── handlers/      # Action and event handlers
 
 data/
-├── config.json         # Your configuration (gitignored)
-├── config.example.json # Example configuration
-├── repositories/       # Cloned repos (gitignored)
-└── sessions/           # Session state (gitignored)
+├── config.json              # Your configuration (gitignored)
+├── config.example.json      # Example configuration
+├── auth/
+│   ├── github.json          # GitHub App credentials (gitignored)
+│   ├── github-app.pem       # GitHub App private key (gitignored)
+│   ├── slack.json           # Slack tokens (gitignored)
+│   └── .env                 # Claude auth token (gitignored)
+├── repositories/            # Cloned repos (gitignored)
+└── sessions/                # Session state (gitignored)
 ```
 
 ## License

@@ -2,22 +2,27 @@ import { simpleGit, SimpleGit, SimpleGitOptions } from "simple-git";
 import { existsSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { getConfig, getRepositoriesDir, type RepositoryConfig } from "./config.js";
+import { getAuthenticatedCloneUrl } from "./github.js";
 import { logger } from "./logger.js";
 
-function getGitInstance(sshKeyPath?: string, baseDir?: string): SimpleGit {
+function getGitInstance(baseDir?: string): SimpleGit {
   const options: Partial<SimpleGitOptions> = {};
 
   if (baseDir) {
     options.baseDir = baseDir;
   }
 
-  if (sshKeyPath) {
-    // Expand ~ to home directory
-    const expandedPath = sshKeyPath.replace(/^~/, process.env.HOME || "");
-    options.config = [`core.sshCommand=ssh -i ${expandedPath} -o StrictHostKeyChecking=no`];
-  }
-
   return simpleGit(options);
+}
+
+/**
+ * Set the remote URL to an authenticated HTTPS URL with a fresh token.
+ * Called before fetch/pull/push to ensure the token is current.
+ */
+async function setAuthenticatedRemote(repoPath: string, repoUrl: string): Promise<void> {
+  const git = getGitInstance(repoPath);
+  const authenticatedUrl = await getAuthenticatedCloneUrl(repoUrl);
+  await git.remote(["set-url", "origin", authenticatedUrl]);
 }
 
 export async function cloneRepository(repo: RepositoryConfig): Promise<void> {
@@ -38,7 +43,7 @@ export async function cloneRepository(repo: RepositoryConfig): Promise<void> {
 
   logger.debug(`Cloning ${repo.name} from ${repo.url}...`);
 
-  const git = getGitInstance(config.git.sshKeyPath);
+  const git = getGitInstance();
   const cloneOptions: string[] = [];
 
   if (config.git.shallowClone) {
@@ -49,12 +54,12 @@ export async function cloneRepository(repo: RepositoryConfig): Promise<void> {
     cloneOptions.push("--branch", repo.branch);
   }
 
-  await git.clone(repo.url, repoPath, cloneOptions);
+  const authenticatedUrl = await getAuthenticatedCloneUrl(repo.url);
+  await git.clone(authenticatedUrl, repoPath, cloneOptions);
   logger.debug(`Successfully cloned ${repo.name}`);
 }
 
 export async function pullRepository(repo: RepositoryConfig): Promise<void> {
-  const config = getConfig();
   const repoPath = resolve(getRepositoriesDir(), repo.name);
 
   if (!existsSync(repoPath)) {
@@ -65,7 +70,9 @@ export async function pullRepository(repo: RepositoryConfig): Promise<void> {
 
   logger.debug(`Pulling latest changes for ${repo.name}...`);
 
-  const repoGit = getGitInstance(config.git.sshKeyPath, repoPath);
+  // Refresh the remote URL with a fresh token before pulling
+  await setAuthenticatedRemote(repoPath, repo.url);
+  const repoGit = getGitInstance(repoPath);
 
   try {
     await repoGit.pull();

@@ -1,8 +1,5 @@
-# docker-deployment Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change add-docker-setup. Update Purpose after archive.
-## Requirements
 ### Requirement: Docker Setup Script
 The system SHALL provide an interactive setup script that configures credentials required for Docker deployment.
 
@@ -15,11 +12,11 @@ The system SHALL provide an interactive setup script that configures credentials
 - **THEN** the script offers to copy from `data/config.example.json`
 - **AND** opens the file in `$EDITOR` for customization
 
-#### Scenario: GitHub App credentials configuration
+#### Scenario: GitHub App credential setup
 - **WHEN** no `data/auth/github.json` exists
-- **THEN** the script prompts for GitHub App ID, Installation ID, and private key path
-- **AND** copies the private key to `data/auth/github-app.pem`
-- **AND** sets correct permissions (600 for private key)
+- **THEN** the script prompts for the App ID and Installation ID
+- **AND** prompts for the path to the private key PEM file
+- **AND** copies the PEM file to `data/auth/github-app.pem`
 - **AND** saves credentials to `data/auth/github.json`
 
 #### Scenario: GitHub App instructions displayed
@@ -42,9 +39,9 @@ The system SHALL provide an interactive setup script that configures credentials
 
 #### Scenario: Credential validation
 - **WHEN** setup completes
-- **THEN** the script validates GitHub App credentials exist and private key is present
+- **THEN** the script validates the GitHub App PEM file exists and is readable
 - **AND** validates Slack tokens match expected formats
-- **AND** validates Claude authentication is configured
+- **AND** validates API key matches expected format (sk-ant-*)
 - **AND** validates `data/config.json` exists and is readable
 
 #### Scenario: Docker command output
@@ -80,12 +77,12 @@ The system SHALL use a dedicated auth directory for all credentials.
 #### Scenario: Auth directory gitignored
 - **WHEN** credentials are stored in `data/auth/`
 - **THEN** the contents are excluded from git via `.gitignore`
-- **AND** example files are preserved for reference
+- **AND** the directory structure is preserved via `.gitkeep`
 
 #### Scenario: GitHub App credentials location
 - **WHEN** Docker container runs
 - **THEN** GitHub App config is loaded from `data/auth/github.json`
-- **AND** the private key is loaded from the path specified in the config
+- **AND** GitHub App private key is loaded from the path specified in `github.json`
 
 #### Scenario: Slack credentials location
 - **WHEN** Docker container runs
@@ -93,8 +90,7 @@ The system SHALL use a dedicated auth directory for all credentials.
 
 #### Scenario: Environment file location
 - **WHEN** Docker container runs
-- **THEN** Claude authentication is loaded from `data/auth/.env`
-- **AND** supports either `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`
+- **THEN** `ANTHROPIC_API_KEY` is loaded from `data/auth/.env`
 
 ### Requirement: Slack Credential Separation
 The system SHALL load Slack credentials from a separate auth file.
@@ -159,11 +155,11 @@ The system SHALL provide setup instructions for enabling the change request work
 - **AND** explains that this allows devs to create PRs through Slack
 - **AND** warns about the additional permissions required
 
-#### Scenario: GitHub App write permissions for changes
+#### Scenario: GitHub App permissions for changes
 - **GIVEN** the user enables change workflow
 - **WHEN** the setup script runs
-- **THEN** it explains that the GitHub App needs Contents: Read & write permission
-- **AND** explains that the GitHub App needs Pull requests: Read & write permission
+- **THEN** it verifies the GitHub App has `contents: write` and `pull_requests: write` permissions
+- **AND** explains that the App must be installed with write access on target repositories
 
 ### Requirement: Worktree Volume Mount
 
@@ -180,17 +176,32 @@ The system SHALL support volume mounting for worktrees in Docker.
 - **THEN** the `clack` user has write permissions to `data/worktrees/`
 - **AND** can create and delete directories
 
-### Requirement: GitHub API Access via Octokit
+## REMOVED Requirements
 
-The system SHALL use the Octokit library with GitHub App authentication for all GitHub API operations.
+### Requirement: SSH key location
+**Reason**: Replaced by GitHub App authentication. SSH keys are no longer needed.
+**Migration**: Remove SSH keys from `data/auth/ssh/`. Configure GitHub App credentials in `data/auth/github.json` instead.
 
-#### Scenario: Octokit client initialization
-- **WHEN** the application starts
-- **THEN** it validates GitHub App credentials (App ID, Installation ID, private key)
-- **AND** generates a test installation token to verify access
+### Requirement: SSH key generation
+**Reason**: Replaced by GitHub App private key. No SSH key generation needed.
+**Migration**: Download the private key from the GitHub App settings page instead.
 
-#### Scenario: PR operations via Octokit
-- **WHEN** change workflow is enabled
-- **THEN** PR creation, merge, close, and review operations use Octokit API calls
-- **AND** no external CLI tools are required for GitHub operations
+### Requirement: SSH key import
+**Reason**: Replaced by GitHub App private key file.
+**Migration**: Place the GitHub App `.pem` file at `data/auth/github-app.pem`.
 
+### Requirement: GitHub instructions displayed
+**Reason**: Replaced by GitHub App setup instructions.
+**Migration**: Setup script now shows GitHub App creation instructions instead of deploy key instructions.
+
+### Requirement: GitHub CLI authentication for changes
+**Reason**: `gh` CLI is no longer used. All GitHub operations use Octokit with GitHub App tokens.
+**Migration**: Remove `gh` CLI. PR operations are handled via Octokit API.
+
+### Requirement: SSH key write access warning
+**Reason**: SSH keys are no longer used. GitHub App permissions are configured at install time.
+**Migration**: GitHub App must be installed with write access on repositories that support changes.
+
+### Requirement: GitHub CLI in Docker Image
+**Reason**: `gh` CLI is no longer needed. All GitHub operations use Octokit.
+**Migration**: Remove `gh` CLI from Dockerfile. No replacement needed.

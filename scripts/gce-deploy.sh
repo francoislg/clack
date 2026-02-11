@@ -117,15 +117,19 @@ echo -e "${YELLOW}Copying configuration files...${NC}"
 
 # Create a temporary directory with the config files
 TEMP_DIR=$(mktemp -d)
-mkdir -p "$TEMP_DIR/data/auth/ssh"
+mkdir -p "$TEMP_DIR/data/auth"
 cp "$DATA_DIR/config.json" "$TEMP_DIR/data/"
 cp "$AUTH_DIR/slack.json" "$TEMP_DIR/data/auth/"
 cp "$AUTH_DIR/.env" "$TEMP_DIR/data/auth/"
+cp "$AUTH_DIR/github.json" "$TEMP_DIR/data/auth/"
 
-# Copy SSH key if it exists
-if [ -f "$AUTH_DIR/ssh/id_rsa" ]; then
-    cp "$AUTH_DIR/ssh/id_rsa" "$TEMP_DIR/data/auth/ssh/"
-    cp "$AUTH_DIR/ssh/id_rsa.pub" "$TEMP_DIR/data/auth/ssh/" 2>/dev/null || true
+# Copy GitHub App private key
+pem_path=$(grep -o '"privateKeyPath":[[:space:]]*"[^"]*"' "$AUTH_DIR/github.json" 2>/dev/null | sed 's/.*"privateKeyPath":[[:space:]]*"\(.*\)"/\1/')
+if [ -n "$pem_path" ]; then
+    full_pem_path="$PROJECT_DIR/$pem_path"
+    if [ -f "$full_pem_path" ]; then
+        cp "$full_pem_path" "$TEMP_DIR/data/auth/"
+    fi
 fi
 
 # Copy files to instance
@@ -155,9 +159,6 @@ gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet --command="
 
     # Pull latest image
     docker pull $IMAGE_NAME
-
-    # Fix SSH key permissions
-    chmod 600 ~/data/auth/ssh/id_rsa 2>/dev/null || true
 
     # Run container
     docker run -d \\

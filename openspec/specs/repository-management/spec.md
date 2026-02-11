@@ -9,7 +9,7 @@ The system SHALL clone configured repositories to the local filesystem on startu
 #### Scenario: Clone repositories on first run
 - **WHEN** the system starts and a configured repository is not present locally
 - **THEN** the system clones the repository to `data/repositories/{repo-name}/`
-- **AND** uses SSH authentication with the configured SSH key
+- **AND** uses HTTPS authentication with a GitHub App installation token
 - **AND** clones the configured branch
 
 #### Scenario: Shallow clone for efficiency
@@ -29,6 +29,7 @@ The system SHALL periodically pull latest changes from configured repositories.
 #### Scenario: Pull on configured interval
 - **WHEN** the configured pull interval has elapsed since last sync
 - **THEN** the system performs `git pull` on each cloned repository
+- **AND** uses a fresh GitHub App installation token for authentication
 - **AND** updates the local copy with remote changes
 
 #### Scenario: Pull interval configurable
@@ -42,18 +43,20 @@ The system SHALL periodically pull latest changes from configured repositories.
 - **AND** continues using the existing local copy
 - **AND** retries on the next interval
 
-### Requirement: SSH Authentication
-The system SHALL use SSH key authentication for all git operations.
+### Requirement: GitHub App Authentication
+The system SHALL use GitHub App installation tokens for all git operations.
 
-#### Scenario: Custom SSH key path
-- **WHEN** `sshKeyPath` is specified in configuration
-- **THEN** the system uses that key for git SSH operations
-- **AND** sets the appropriate SSH environment variables
+#### Scenario: Token-based HTTPS authentication
+- **WHEN** a git operation requires authentication
+- **THEN** the system generates an installation token via the GitHub App
+- **AND** constructs an HTTPS URL with the token: `https://x-access-token:{token}@github.com/owner/repo.git`
+- **AND** refreshes the token before each network operation
 
-#### Scenario: Default SSH key
-- **WHEN** `sshKeyPath` is not specified
-- **THEN** the system uses the default SSH key resolution
-- **AND** relies on the SSH agent or default key locations
+#### Scenario: Token caching
+- **WHEN** an installation token is generated
+- **THEN** the system caches it in memory
+- **AND** reuses the cached token until 5 minutes before expiry
+- **AND** generates a new token when the cache expires
 
 ### Requirement: Repository Configuration
 The system SHALL support multiple repository configurations with metadata.
@@ -67,6 +70,11 @@ The system SHALL support multiple repository configurations with metadata.
 - **WHEN** a repository configuration specifies a branch
 - **THEN** the system clones and pulls that specific branch
 - **AND** defaults to `main` if not specified
+
+#### Scenario: Repository URL formats
+- **WHEN** a repository URL is configured
+- **THEN** the system accepts `owner/repo` shorthand or full HTTPS URL (`https://github.com/owner/repo.git`)
+- **AND** constructs authenticated HTTPS URLs using GitHub App installation tokens
 
 ### Requirement: Repository Storage Location
 The system SHALL store all cloned repositories under `data/repositories/`.

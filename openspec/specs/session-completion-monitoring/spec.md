@@ -23,7 +23,7 @@ The system SHALL run a background monitor that detects when change session PRs a
 - **GIVEN** sessions exist with status `pr_created` and a valid `prUrl`
 - **WHEN** the monitor runs
 - **THEN** it queries GitHub for each PR's current state
-- **AND** uses `gh pr view <url> --json state` for structured output
+- **AND** uses Octokit `pulls.get()` for structured PR state
 
 #### Scenario: Detect externally merged PR
 - **GIVEN** a session has status `pr_created`

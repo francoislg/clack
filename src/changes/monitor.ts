@@ -25,13 +25,13 @@ interface CompletionCheckResult {
 /**
  * Check if a session's PR has been completed externally
  */
-export function checkSessionCompletion(session: ChangeSession): CompletionCheckResult {
+export async function checkSessionCompletion(session: ChangeSession): Promise<CompletionCheckResult> {
   // Only check sessions that have PRs created
   if (session.status !== "pr_created" || !session.prUrl) {
     return { action: "none" };
   }
 
-  const status = getPRStatus(session.prUrl);
+  const status = await getPRStatus(session.prUrl);
   if (!status) {
     // Error getting status - don't take action
     return { action: "none" };
@@ -129,7 +129,7 @@ export async function runCompletionCheck(): Promise<void> {
     }
 
     checked++;
-    const result = checkSessionCompletion(session);
+    const result = await checkSessionCompletion(session);
 
     if (result.action === "none") {
       continue;

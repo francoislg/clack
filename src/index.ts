@@ -2,6 +2,7 @@ import { config as dotenvConfig } from "dotenv";
 import { join } from "path";
 import { testMCP } from "./claude.js";
 import { loadConfig, getConfig } from "./config.js";
+import { loadGitHubCredentials, validateGitHubApp } from "./github.js";
 import { logger } from "./logger.js";
 import { initializeRepositories, startSyncScheduler, stopSyncScheduler } from "./repositories.js";
 import { startCleanupScheduler, stopCleanupScheduler } from "./sessions.js";
@@ -23,6 +24,16 @@ async function main(): Promise<void> {
     logger.info("Configuration loaded");
   } catch (error) {
     logger.error("Failed to load configuration:", error);
+    process.exit(1);
+  }
+
+  // Step 1.5: Load and validate GitHub App credentials
+  logger.debug("Validating GitHub App credentials...");
+  try {
+    loadGitHubCredentials();
+    await validateGitHubApp();
+  } catch (error) {
+    logger.error("Failed to validate GitHub App credentials:", error);
     process.exit(1);
   }
 
