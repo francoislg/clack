@@ -5,14 +5,23 @@ import { logger } from "./logger.js";
 
 const MCP_CONFIG_PATH = join(process.cwd(), "data", "mcp.json");
 
-interface McpConfig {
-  mcpServers?: Record<string, McpStdioConfig>;
-}
-
 interface McpStdioConfig {
+  type?: "stdio";
   command: string;
   args?: string[];
   env?: Record<string, string>;
+}
+
+interface McpRemoteConfig {
+  type: "sse" | "http";
+  url: string;
+  headers?: Record<string, string>;
+}
+
+type McpServerEntry = McpStdioConfig | McpRemoteConfig;
+
+interface McpConfig {
+  mcpServers?: Record<string, McpServerEntry>;
 }
 
 // Cache the loaded config
@@ -21,8 +30,10 @@ let configLoaded = false;
 
 /**
  * Loads MCP server configurations from data/mcp.json
- * Supports environment variable substitution in env values using ${VAR_NAME} syntax
- * Caches the result so config is only loaded once
+ * Supports stdio, sse, and http transport types.
+ * Supports environment variable substitution using ${VAR_NAME} syntax
+ * in env values (stdio) and header values (sse/http).
+ * Caches the result so config is only loaded once.
  */
 export function loadMcpServers(): Record<string, McpServerConfig> | undefined {
   // Return cached config if already loaded
@@ -48,12 +59,22 @@ export function loadMcpServers(): Record<string, McpServerConfig> | undefined {
 
     const result: Record<string, McpServerConfig> = {};
     for (const [name, server] of Object.entries(config.mcpServers)) {
-      result[name] = {
-        type: "stdio",
-        command: server.command,
-        args: server.args,
-        env: substituteEnvVars(server.env),
-      };
+      if (server.type === "sse" || server.type === "http") {
+        result[name] = {
+          type: server.type,
+          url: server.url,
+          headers: substituteEnvVars(server.headers),
+        };
+      } else {
+        // stdio (default)
+        const stdioServer = server as McpStdioConfig;
+        result[name] = {
+          type: "stdio",
+          command: stdioServer.command,
+          args: stdioServer.args,
+          env: substituteEnvVars(stdioServer.env),
+        };
+      }
     }
 
     cachedMcpServers = result;
