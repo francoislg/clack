@@ -4,6 +4,10 @@ import type { ThreadMessage } from "../sessions.js";
 import type { ConversationMessage } from "../claude.js";
 import { resolveUsers, transformUserMentions } from "./userCache.js";
 
+export function extractMessageText(msg: { text?: string; attachments?: { text?: string; fallback?: string }[] }): string {
+  return msg.text || msg.attachments?.map(a => a.text || a.fallback).filter(Boolean).join("\n") || "";
+}
+
 export interface FetchThreadContextOptions {
   fetchUserNames?: boolean;
 }
@@ -29,7 +33,7 @@ export async function fetchThreadContext(
     const messages: ThreadMessage[] = result.messages
       .filter((msg) => (msg.text || msg.attachments?.length) && (msg.user || msg.bot_id) && msg.ts)
       .map((msg) => ({
-        text: msg.text || msg.attachments?.map(a => a.text || a.fallback).filter(Boolean).join("\n") || "[attachment]",
+        text: extractMessageText(msg) || "[attachment]",
         userId: (msg.user || msg.bot_id) as string,
         isBot: msg.user === botUserId || msg.bot_id !== undefined,
         ts: msg.ts as string,
@@ -76,7 +80,7 @@ export async function fetchMessage(
       if (result.messages) {
         const message = result.messages.find((msg) => msg.ts === messageTs);
         if (message) {
-          return message.text || "";
+          return extractMessageText(message);
         }
       }
       return "";
@@ -91,7 +95,7 @@ export async function fetchMessage(
     });
 
     if (result.messages && result.messages.length > 0) {
-      return result.messages[0].text || "";
+      return extractMessageText(result.messages[0]);
     }
     return "";
   } catch (error) {
