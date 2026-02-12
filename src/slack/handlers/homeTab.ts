@@ -18,7 +18,12 @@ import {
   buildHomeView,
   buildUserSelectModal,
   buildRemoveUserModal,
+  buildEditFileModal,
 } from "../homeTab.js";
+import {
+  readInstructionFile,
+  writeInstructionFile,
+} from "../../configurationFiles.js";
 
 async function publishHomeView(
   client: App["client"],
@@ -386,6 +391,87 @@ export function registerHomeTabHandler(app: App): void {
     }
 
     await ack();
+    await publishHomeView(client, currentUserId);
+  });
+
+  // Handle Edit/Customize config file button
+  app.action<BlockAction>("edit_config_file", async ({ ack, body, client }) => {
+    await ack();
+
+    const userId = body.user.id;
+
+    try {
+      // Verify admin role
+      const userIsAdmin = await isAdmin(userId);
+      if (!userIsAdmin) {
+        logger.warn(`Non-admin user ${userId} attempted to edit config file`);
+        return;
+      }
+
+      const action = body.actions[0];
+      const filename = "value" in action ? (action.value as string) : undefined;
+      if (!filename) return;
+
+      const content = readInstructionFile(filename);
+      if (content === null) {
+        logger.warn(`Config file not found: ${filename}`);
+        return;
+      }
+
+      await client.views.open({
+        trigger_id: body.trigger_id,
+        view: buildEditFileModal(filename, content),
+      });
+    } catch (error) {
+      logger.error("Failed to open edit config file modal:", error);
+    }
+  });
+
+  // Handle edit config file modal submission
+  app.view<ViewSubmitAction>("edit_config_file_modal", async ({ ack, view, body, client }) => {
+    const currentUserId = body.user.id;
+    const filename = view.private_metadata;
+
+    // Verify admin role
+    const userIsAdmin = await isAdmin(currentUserId);
+    if (!userIsAdmin) {
+      await ack({
+        response_action: "errors",
+        errors: {
+          file_content_block: "You don't have permission to edit configuration files",
+        },
+      });
+      return;
+    }
+
+    const content = view.state.values.file_content_block.file_content.value;
+    if (content === null || content === undefined) {
+      await ack({
+        response_action: "errors",
+        errors: {
+          file_content_block: "Content cannot be empty",
+        },
+      });
+      return;
+    }
+
+    try {
+      writeInstructionFile(filename, content);
+      logger.info(`User ${currentUserId} edited config file: ${filename}`);
+    } catch (error) {
+      logger.error(`Failed to write config file ${filename}:`, error);
+      await ack({
+        response_action: "errors",
+        errors: {
+          file_content_block: "Failed to save file. Check server logs.",
+        },
+      });
+      return;
+    }
+
+    await ack();
+
+    // Refresh the Home Tab
     await publishHomeView(client, currentUserId);
   });
 }

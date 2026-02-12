@@ -41,7 +41,6 @@ export interface SessionsConfig {
 
 export interface ClaudeCodeConfig {
   model?: string;
-  systemPromptFile?: string;
 }
 
 export interface SlackAppConfig {
@@ -142,7 +141,6 @@ const DEFAULTS: Partial<Config> = {
   },
   claudeCode: {
     model: "sonnet",
-    systemPromptFile: "templates/default_instructions.md",
   },
 };
 
@@ -324,9 +322,6 @@ function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Config {
       model:
         ((c.claudeCode as Record<string, unknown>)?.model as string) ??
         DEFAULTS.claudeCode!.model,
-      systemPromptFile:
-        ((c.claudeCode as Record<string, unknown>)?.systemPromptFile as string) ??
-        DEFAULTS.claudeCode!.systemPromptFile,
     },
     changesWorkflow: c.changesWorkflow
       ? {
@@ -397,8 +392,12 @@ export function getWorktreesDir(): string {
   return resolve(getDataDir(), "worktrees");
 }
 
-export function getTemplatesDir(): string {
-  return resolve(getDataDir(), "templates");
+export function getConfigurationDir(): string {
+  return resolve(getDataDir(), "configuration");
+}
+
+export function getDefaultConfigurationDir(): string {
+  return resolve(getDataDir(), "default_configuration");
 }
 
 export function getWorktreeSessionsDir(): string {

@@ -33,7 +33,7 @@ import { getSessionByThread } from "../../changes/session.js";
 import { detectFollowUpCommand } from "../../changes/detection.js";
 import { handleFollowUp } from "../../changes/workflow.js";
 import {
-  getChangeDetectionOptions,
+  getClaudeOptions,
   handleChangeRequest,
   handleResumeRequest,
 } from "./changeWorkflowHelper.js";
@@ -502,12 +502,12 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
   const thinking = await showThinkingFeedback(ctx);
 
   // 4. Call Claude
-  const changeOptions = await getChangeDetectionOptions(userId, triggerType);
+  const claudeOptions = await getClaudeOptions(userId, triggerType);
 
   logger.info(
-    `Calling Claude (session: ${session.sessionId}, changeDetection: ${changeOptions?.enableChangeDetection ?? false})`
+    `Calling Claude (session: ${session.sessionId}, role: ${claudeOptions.role ?? "member"}, changesWorkflow: ${claudeOptions.changesWorkflowEnabled ?? false})`
   );
-  const response = await askClaude(session, changeOptions);
+  const response = await askClaude(session, claudeOptions);
 
   // 5. Remove thinking emoji if used
   await removeThinkingEmoji(client, channelId, messageTs, thinking);

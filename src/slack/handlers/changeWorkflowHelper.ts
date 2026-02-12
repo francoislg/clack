@@ -1,40 +1,33 @@
 import type { App } from "@slack/bolt";
 import { getConfig } from "../../config.js";
 import { logger } from "../../logger.js";
-import { isDev } from "../../roles.js";
-import type { ChangeRequestInfo, ResumeRequestInfo, ResumableSessionInfo } from "../../claude.js";
+import { getRole } from "../../roles.js";
+import type { AskClaudeOptions, ChangeRequestInfo, ResumeRequestInfo } from "../../claude.js";
 import type { ChangeRequest, ChangePlan, TriggerType } from "../../changes/types.js";
 import { isChangesEnabledForTrigger, getChangeEnabledRepos } from "../../changes/detection.js";
 import { getResumableSessions, readSessionState } from "../../changes/persistence.js";
 import { startChangeWorkflow } from "../../changes/workflow.js";
 
-export interface ChangeDetectionOptions {
-  enableChangeDetection: boolean;
-  availableRepos: Array<{ name: string; description: string }>;
-  resumableSessions?: ResumableSessionInfo[];
-}
-
 /**
- * Get change detection options for a user and trigger type
+ * Get Claude options for a user and trigger type
  */
-export async function getChangeDetectionOptions(
+export async function getClaudeOptions(
   userId: string,
   triggerType: TriggerType
-): Promise<ChangeDetectionOptions> {
+): Promise<AskClaudeOptions> {
   const config = getConfig();
+  const role = await getRole(userId);
 
-  if (!isChangesEnabledForTrigger(triggerType, config)) {
-    return { enableChangeDetection: false, availableRepos: [] };
-  }
+  const changesEnabled = isChangesEnabledForTrigger(triggerType, config);
+  const isChangeCapable = changesEnabled && (role === "dev" || role === "admin" || role === "owner");
 
-  const userIsDev = await isDev(userId);
-  if (!userIsDev) {
-    return { enableChangeDetection: false, availableRepos: [] };
+  if (!isChangeCapable) {
+    return { role, changesWorkflowEnabled: false };
   }
 
   const availableRepos = getChangeEnabledRepos(config);
   if (availableRepos.length === 0) {
-    return { enableChangeDetection: false, availableRepos: [] };
+    return { role, changesWorkflowEnabled: false };
   }
 
   // Get resumable sessions
@@ -46,7 +39,8 @@ export async function getChangeDetectionOptions(
   }));
 
   return {
-    enableChangeDetection: true,
+    role,
+    changesWorkflowEnabled: true,
     availableRepos,
     resumableSessions: resumableSessions.length > 0 ? resumableSessions : undefined,
   };

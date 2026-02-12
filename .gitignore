@@ -41,5 +41,8 @@ logs/
 *.log
 npm-debug.log*
 
+# User-editable configuration overrides
+data/configuration/
+
 # Test coverage
 coverage/

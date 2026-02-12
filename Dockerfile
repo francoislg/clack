@@ -37,8 +37,11 @@ COPY data/auth/slack.example.json ./data/auth/
 COPY data/auth/.env.example ./data/auth/
 COPY data/auth/github.example.json ./data/auth/
 
+# Copy default configuration (instruction templates)
+COPY data/default_configuration/ ./data/default_configuration/
+
 # Create data directories
-RUN mkdir -p data/repositories data/sessions data/auth
+RUN mkdir -p data/repositories data/sessions data/auth data/configuration
 
 # Create non-root user and set permissions
 RUN addgroup -g 1001 -S nodejs && \
