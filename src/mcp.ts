@@ -1,9 +1,12 @@
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
+import { execSync } from "child_process";
 import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
+import { getInstallationToken } from "./github.js";
 import { logger } from "./logger.js";
 
 const MCP_CONFIG_PATH = join(process.cwd(), "data", "mcp.json");
+const GITHUB_AUTH_PATH = join(process.cwd(), "data", "auth", "github.json");
 
 interface McpStdioConfig {
   type?: "stdio";
@@ -24,24 +27,34 @@ interface McpConfig {
   mcpServers?: Record<string, McpServerEntry>;
 }
 
-// Cache the loaded config
-let cachedMcpServers: Record<string, McpServerConfig> | undefined;
-let configLoaded = false;
+/**
+ * Maps GitHub App installation token permission keys to github-mcp-server toolset names.
+ */
+const PERMISSION_TO_TOOLSET: Record<string, string> = {
+  pull_requests: "pull_requests",
+  issues: "issues",
+  contents: "repos",
+  actions: "actions",
+  security_events: "code_security",
+};
+
+// Cache the static MCP config from mcp.json (parsed once)
+let cachedStaticServers: Record<string, McpServerConfig> | undefined;
+let staticConfigLoaded = false;
+
+// Cache whether the github-mcp-server binary is available
+let binaryAvailable: boolean | null = null;
 
 /**
- * Loads MCP server configurations from data/mcp.json
- * Supports stdio, sse, and http transport types.
- * Supports environment variable substitution using ${VAR_NAME} syntax
- * in env values (stdio) and header values (sse/http).
- * Caches the result so config is only loaded once.
+ * Load and cache the static MCP server config from data/mcp.json.
+ * This is parsed once and reused.
  */
-export function loadMcpServers(): Record<string, McpServerConfig> | undefined {
-  // Return cached config if already loaded
-  if (configLoaded) {
-    return cachedMcpServers;
+function loadStaticMcpConfig(): Record<string, McpServerConfig> | undefined {
+  if (staticConfigLoaded) {
+    return cachedStaticServers;
   }
 
-  configLoaded = true;
+  staticConfigLoaded = true;
 
   if (!existsSync(MCP_CONFIG_PATH)) {
     logger.debug("No MCP configuration found at data/mcp.json");
@@ -77,7 +90,7 @@ export function loadMcpServers(): Record<string, McpServerConfig> | undefined {
       }
     }
 
-    cachedMcpServers = result;
+    cachedStaticServers = result;
     logger.debug(`Loaded MCP config: ${Object.keys(result).join(", ")}`);
     return result;
   } catch (error) {
@@ -87,11 +100,104 @@ export function loadMcpServers(): Record<string, McpServerConfig> | undefined {
 }
 
 /**
- * Returns the names of configured MCP servers (without loading/connecting)
+ * Check if the github-mcp-server binary is available on PATH.
+ * Result is cached after first check.
+ */
+function isGitHubMcpServerAvailable(): boolean {
+  if (binaryAvailable !== null) {
+    return binaryAvailable;
+  }
+
+  try {
+    execSync("github-mcp-server --help", { stdio: "ignore" });
+    binaryAvailable = true;
+  } catch {
+    binaryAvailable = false;
+  }
+
+  return binaryAvailable;
+}
+
+/**
+ * Convert GitHub App token permissions to a GITHUB_TOOLSETS string.
+ */
+export function mapPermissionsToToolsets(permissions: Record<string, string>): string {
+  const toolsets: string[] = [];
+  for (const [permKey, toolset] of Object.entries(PERMISSION_TO_TOOLSET)) {
+    if (permKey in permissions) {
+      toolsets.push(toolset);
+    }
+  }
+  return toolsets.join(",");
+}
+
+/**
+ * Loads MCP server configurations from data/mcp.json and optionally
+ * auto-injects a GitHub MCP server from GitHub App credentials.
+ *
+ * Static config from mcp.json is cached. The GitHub MCP entry is rebuilt
+ * per call to ensure a fresh token.
+ */
+export async function loadMcpServers(): Promise<Record<string, McpServerConfig> | undefined> {
+  const staticServers = loadStaticMcpConfig();
+
+  // Check if we should auto-inject GitHub MCP
+  const hasManualGitHub = staticServers && "github" in staticServers;
+  const hasGitHubCredentials = existsSync(GITHUB_AUTH_PATH);
+
+  if (hasManualGitHub || !hasGitHubCredentials) {
+    return staticServers;
+  }
+
+  // Check if the binary is available
+  if (!isGitHubMcpServerAvailable()) {
+    logger.warn("github-mcp-server binary not found — skipping GitHub MCP auto-configuration");
+    return staticServers;
+  }
+
+  // Generate token and derive toolsets
+  try {
+    const { token, permissions } = await getInstallationToken();
+    const toolsets = mapPermissionsToToolsets(permissions);
+
+    if (!toolsets) {
+      logger.warn("GitHub App token has no permissions that map to MCP toolsets — skipping GitHub MCP auto-configuration");
+      return staticServers;
+    }
+
+    const githubMcpEntry: McpServerConfig = {
+      type: "stdio",
+      command: "github-mcp-server",
+      args: ["stdio"],
+      env: {
+        GITHUB_PERSONAL_ACCESS_TOKEN: token,
+        GITHUB_TOOLSETS: toolsets,
+      },
+    };
+
+    const result = { ...(staticServers ?? {}), github: githubMcpEntry };
+    logger.debug(`Auto-configured GitHub MCP server (toolsets: ${toolsets})`);
+    return result;
+  } catch (error) {
+    logger.warn("Failed to auto-configure GitHub MCP server:", error);
+    return staticServers;
+  }
+}
+
+/**
+ * Returns the names of configured MCP servers (without loading/connecting).
+ * Uses only the cached static config (synchronous).
  */
 export function getConfiguredMcpServerNames(): string[] {
-  const servers = loadMcpServers();
-  return servers ? Object.keys(servers) : [];
+  const servers = loadStaticMcpConfig();
+  const names = servers ? Object.keys(servers) : [];
+
+  // Include "github" if auto-config conditions are met
+  if (!names.includes("github") && existsSync(GITHUB_AUTH_PATH) && isGitHubMcpServerAvailable()) {
+    names.push("github");
+  }
+
+  return names;
 }
 
 /**

@@ -23,6 +23,11 @@ RUN apk add --no-cache git curl bash
 # Install Claude Code CLI (required by @anthropic-ai/claude-agent-sdk)
 RUN curl -fsSL https://claude.ai/install.sh | bash
 
+# Install github-mcp-server for GitHub API access via MCP
+ARG GITHUB_MCP_SERVER_VERSION=0.30.3
+RUN wget -qO- "https://github.com/github/github-mcp-server/releases/download/v${GITHUB_MCP_SERVER_VERSION}/github-mcp-server_Linux_x86_64.tar.gz" \
+    | tar -xz -C /usr/local/bin github-mcp-server
+
 # Copy package files and install production dependencies only
 COPY package*.json ./
 RUN npm ci --omit=dev

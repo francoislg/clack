@@ -1,4 +1,5 @@
 {
+  "_comment_github": "GitHub MCP is auto-configured when data/auth/github.json exists. To override, add a 'github' key here.",
   "mcpServers": {
     "linear": {
       "type": "http",
@@ -12,13 +13,6 @@
       "args": ["-y", "@sentry/mcp-server"],
       "env": {
         "SENTRY_ACCESS_TOKEN": "${SENTRY_ACCESS_TOKEN}"
-      }
-    },
-    "github": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-github"],
-      "env": {
-        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}"
       }
     },
     "filesystem": {
