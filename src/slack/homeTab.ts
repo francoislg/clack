@@ -59,6 +59,15 @@ export async function buildHomeView(options: HomeViewOptions): Promise<View> {
   // Help section (visible to all)
   blocks.push(...buildHelpSection());
 
+  // Spacer to prevent Slack client from cutting off the last block
+  blocks.push(
+    { type: "divider" },
+    {
+      type: "context",
+      elements: [{ type: "mrkdwn", text: " " }],
+    }
+  );
+
   return {
     type: "home",
     blocks,
