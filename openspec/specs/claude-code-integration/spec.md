@@ -143,7 +143,7 @@ The system SHALL resolve PR templates from multiple sources in priority order.
 #### Scenario: Template from Clack data directory
 - **GIVEN** no template found in the repository
 - **WHEN** preparing to create a PR
-- **THEN** the system checks for `data/templates/pr-template.md`
+- **THEN** the system checks for `data/default_configuration/pr-template.md`
 - **AND** uses it if present
 
 #### Scenario: Built-in default template

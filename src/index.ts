@@ -9,6 +9,7 @@ import { startCleanupScheduler, stopCleanupScheduler } from "./sessions.js";
 import { createSlackApp, startSlackApp, stopSlackApp } from "./slack/app.js";
 import { initializeWorktrees } from "./worktrees.js";
 import { startCompletionMonitor, stopCompletionMonitor } from "./changes/monitor.js";
+import { validateInstructionFiles } from "./instructions.js";
 
 // Load environment variables from .env files (later files don't override earlier ones)
 dotenvConfig({ path: join(process.cwd(), ".env") });
@@ -34,6 +35,14 @@ async function main(): Promise<void> {
     await validateGitHubApp();
   } catch (error) {
     logger.error("Failed to validate GitHub App credentials:", error);
+    process.exit(1);
+  }
+
+  // Step 1.6: Validate instruction files
+  try {
+    validateInstructionFiles();
+  } catch (error) {
+    logger.error("Instruction file validation failed:", error);
     process.exit(1);
   }
 

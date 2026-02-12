@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { getConfig, getTemplatesDir, type Config, type RepositoryConfig } from "../config.js";
+import { getConfig, getDefaultConfigurationDir, type Config, type RepositoryConfig } from "../config.js";
 import { logger } from "../logger.js";
 import type { WorktreeInfo } from "../worktrees.js";
 import type { ChangePlan, ChangeRequest, ExecutionResult, PlanGenerationResult } from "./types.js";
@@ -495,7 +495,7 @@ export function resolvePRTemplate(worktreePath: string): string {
   }
 
   // Check Clack templates directory
-  const clackTemplatePath = join(getTemplatesDir(), "pr-template.md");
+  const clackTemplatePath = join(getDefaultConfigurationDir(), "pr-template.md");
   if (existsSync(clackTemplatePath)) {
     try {
       return readFileSync(clackTemplatePath, "utf-8");

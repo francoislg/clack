@@ -10,6 +10,7 @@ import {
   type UserRole,
 } from "../roles.js";
 import { getActiveWorkers } from "../changes/session.js";
+import { listInstructionFiles } from "../configurationFiles.js";
 
 interface HomeViewOptions {
   userId: string;
@@ -40,6 +41,11 @@ export async function buildHomeView(options: HomeViewOptions): Promise<View> {
   // Role management section (only for admins/owner)
   if (userIsAdmin) {
     blocks.push(...(await buildRoleManagementSection(userId, role)));
+  }
+
+  // Configuration section (only for admins/owner)
+  if (userIsAdmin) {
+    blocks.push(...buildConfigurationSection());
   }
 
   // Active workers section (only for devs and higher)
@@ -242,6 +248,113 @@ export async function buildRoleManagementSection(
   blocks.push({ type: "divider" });
 
   return blocks;
+}
+
+export function buildConfigurationSection(): KnownBlock[] {
+  const files = listInstructionFiles();
+  const blocks: KnownBlock[] = [];
+
+  blocks.push({
+    type: "header",
+    text: {
+      type: "plain_text",
+      text: "Configuration",
+      emoji: true,
+    },
+  });
+
+  for (const file of files) {
+    if (!file.hasOverride && !file.hasDefault) continue;
+
+    const isCustomized = file.hasOverride;
+    const statusLabel = isCustomized ? "Customized" : "Default";
+    const buttonLabel = isCustomized ? "Edit" : "Customize";
+
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `:page_facing_up: \`${file.filename}\` — _${statusLabel}_`,
+      },
+      accessory: {
+        type: "button",
+        text: {
+          type: "plain_text",
+          text: buttonLabel,
+          emoji: true,
+        },
+        action_id: "edit_config_file",
+        value: file.filename,
+      },
+    });
+  }
+
+  blocks.push({ type: "divider" });
+
+  return blocks;
+}
+
+// Modal builders for configuration editing
+
+const MAX_MODAL_TEXT_LENGTH = 3000;
+
+export function buildEditFileModal(filename: string, content: string): View {
+  if (content.length > MAX_MODAL_TEXT_LENGTH) {
+    return {
+      type: "modal",
+      title: {
+        type: "plain_text",
+        text: filename,
+      },
+      close: {
+        type: "plain_text",
+        text: "Close",
+      },
+      blocks: [
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: `:warning: This file is ${content.length} characters, which exceeds Slack's ${MAX_MODAL_TEXT_LENGTH} character limit for text inputs.\n\nPlease edit this file directly on the server at \`data/configuration/${filename}\`.`,
+          },
+        },
+      ],
+    };
+  }
+
+  return {
+    type: "modal",
+    callback_id: "edit_config_file_modal",
+    private_metadata: filename,
+    title: {
+      type: "plain_text",
+      text: filename,
+    },
+    submit: {
+      type: "plain_text",
+      text: "Save",
+    },
+    close: {
+      type: "plain_text",
+      text: "Cancel",
+    },
+    blocks: [
+      {
+        type: "input",
+        block_id: "file_content_block",
+        element: {
+          type: "plain_text_input",
+          action_id: "file_content",
+          multiline: true,
+          initial_value: content,
+        },
+        label: {
+          type: "plain_text",
+          text: "File Content",
+        },
+      },
+    ],
+  };
 }
 
 export function buildStatusSection(): KnownBlock[] {

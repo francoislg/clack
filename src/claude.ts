@@ -1,9 +1,10 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import { getConfig, getDataDir, getRepositoriesDir } from "./config.js";
+import { getConfig, getRepositoriesDir } from "./config.js";
+import { loadInstructions } from "./instructions.js";
+import { variableRegistry, buildAvailableVariablesTable } from "./instructionVariables.js";
 import { logger } from "./logger.js";
 import { loadMcpServers, getConfiguredMcpServerNames } from "./mcp.js";
+import type { UserRole } from "./roles.js";
 import type { SessionContext } from "./sessions.js";
 import { formatUserIdentity } from "./slack/userCache.js";
 
@@ -50,7 +51,8 @@ export interface ResumableSessionInfo {
 }
 
 export interface AskClaudeOptions {
-  enableChangeDetection?: boolean;
+  role?: UserRole;
+  changesWorkflowEnabled?: boolean;
   availableRepos?: Array<{ name: string; description: string }>;
   resumableSessions?: ResumableSessionInfo[];
 }
@@ -70,50 +72,37 @@ export interface McpTestResult {
   error?: string;
 }
 
-function loadInstructionsTemplate(): string {
-  const config = getConfig();
-  const filePath = resolve(getDataDir(), config.claudeCode.systemPromptFile!);
-
-  try {
-    return readFileSync(filePath, "utf-8");
-  } catch (error) {
-    throw new Error(
-      `Failed to load system prompt instructions from ${filePath}: ${error instanceof Error ? error.message : String(error)}\n` +
-      `Check that 'claudeCode.systemPromptFile' in config.json points to a valid file relative to the data/ directory.`
-    );
-  }
-}
-
 function buildSystemPrompt(options?: AskClaudeOptions): string {
+  const role: UserRole = options?.role ?? "member";
+  const changesWorkflowEnabled = options?.changesWorkflowEnabled ?? false;
   const config = getConfig();
+
+  // Build standard variables
   const repoList = config.repositories
     .map((r) => `- **${r.name}**: ${r.description}`)
     .join("\n");
 
-  // Build MCP integrations list
   const mcpServerNames = getConfiguredMcpServerNames();
   const mcpList = mcpServerNames.length > 0
     ? mcpServerNames.map((name) => `- **${name}**`).join("\n")
     : "None configured";
 
-  // Load and interpolate the instructions template
-  const template = loadInstructionsTemplate();
   const variables: Record<string, string> = {
     REPOSITORIES_LIST: repoList,
     BOT_NAME: config.slackApp?.name || "Clack",
     MCP_INTEGRATIONS: mcpList,
+    CHANGE_REQUEST_BLOCK: "",
+    RESUMABLE_SESSIONS: "",
+    AVAILABLE_VARIABLES: buildAvailableVariablesTable(),
   };
-  let prompt = template.replace(/\{(\w+)\}/g, (match, key) => variables[key] ?? match);
 
-  // Add change detection instructions if enabled
-  if (options?.enableChangeDetection && options.availableRepos && options.availableRepos.length > 0) {
+  // Build change-specific variables when applicable
+  if (changesWorkflowEnabled && options?.availableRepos && options.availableRepos.length > 0) {
     const changeRepoList = options.availableRepos
       .map((r) => `- ${r.name}: ${r.description}`)
       .join("\n");
 
-    prompt += `
-
-## Change Request Detection
+    variables.CHANGE_REQUEST_BLOCK = `## Change Request Detection
 
 The user has developer permissions and may request code changes. Analyze their message to determine intent:
 
@@ -148,15 +137,12 @@ ${changeRepoList}
 
 When uncertain, default to treating it as a question.`;
 
-    // Add resume detection if there are resumable sessions
-    if (options.resumableSessions && options.resumableSessions.length > 0) {
+    if (options?.resumableSessions && options.resumableSessions.length > 0) {
       const sessionList = options.resumableSessions
         .map((s) => `- Branch: ${s.branchName} | Repo: ${s.repo} | Status: ${s.phase} | Task: ${s.description}`)
         .join("\n");
 
-      prompt += `
-
-## Resume Previous Session
+      variables.RESUMABLE_SESSIONS = `## Resume Previous Session
 
 There are existing change sessions that can be resumed:
 
@@ -175,29 +161,19 @@ ${sessionList}
 
 Only output resume-request if the user's request clearly matches one of the sessions listed above.`;
     }
-  } else {
-    // Standard Q&A mode - no changes allowed
-    prompt += `
-
-## Critical: Information Only
-- Never suggest code changes, fixes, or solutions that would require modifying the codebase.
-- Your role is to explain how things currently work, not to recommend what should change.
-- If asked "how do I fix X?", explain what X does and why it behaves that way—do not propose code modifications.`;
   }
 
-  prompt += `
+  // Validate that every registry-defined variable has a value
+  for (const def of variableRegistry) {
+    if (!(def.name in variables)) {
+      logger.warn(`Instruction variable '${def.name}' defined in registry but missing from variables record`);
+    }
+  }
 
-## Investigate the Codebase SILENTLY
-- Explore the code to understand how it works before answering.
-- **CRITICAL: Do NOT output any text while investigating.** No "Let me check...", "Now I see...", "Looking at line X...", or any narration of your research process.
-- Use tools silently. Only output text when you have your FINAL answer ready.
-
-## Output Format
-When you have your final answer ready, wrap it in <answer></answer> tags.
-Only the content inside these tags will be shown to the user.
-Everything outside these tags (your investigation notes, reasoning) will be discarded.`;
-
-  return prompt;
+  return loadInstructions(role, {
+    changesWorkflowEnabled,
+    variables,
+  });
 }
 
 function formatThreadContext(messages: SessionContext["threadContext"]): string {
@@ -387,7 +363,7 @@ export async function askClaude(
 
     if (answer.trim()) {
       // Check for change request tags first (only if change detection was enabled)
-      if (options?.enableChangeDetection) {
+      if (options?.changesWorkflowEnabled) {
         const changeRequestInfo = parseChangeRequest(answer);
         if (changeRequestInfo) {
           return {
