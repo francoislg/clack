@@ -10,8 +10,15 @@ export interface GitHubAppCredentials {
   privateKeyPath: string;
 }
 
+export interface InstallationTokenResult {
+  token: string;
+  permissions: Record<string, string>;
+  expiresAt: Date;
+}
+
 interface CachedToken {
   token: string;
+  permissions: Record<string, string>;
   expiresAt: Date;
 }
 
@@ -82,12 +89,12 @@ function getPrivateKey(): string {
   return readFileSync(creds.privateKeyPath, "utf-8");
 }
 
-export async function getInstallationToken(): Promise<string> {
+export async function getInstallationToken(): Promise<InstallationTokenResult> {
   // Return cached token if still valid (with 5-minute buffer)
   if (cachedToken) {
     const bufferMs = 5 * 60 * 1000;
     if (cachedToken.expiresAt.getTime() - Date.now() > bufferMs) {
-      return cachedToken.token;
+      return cachedToken;
     }
     logger.debug("GitHub App installation token approaching expiry, refreshing...");
   }
@@ -102,18 +109,20 @@ export async function getInstallationToken(): Promise<string> {
   });
 
   const result = await auth({ type: "installation" });
+  const permissions = (result as Record<string, unknown>).permissions as Record<string, string> ?? {};
 
   cachedToken = {
     token: result.token,
+    permissions,
     expiresAt: new Date(result.expiresAt!),
   };
 
   logger.debug("Generated new GitHub App installation token");
-  return cachedToken.token;
+  return cachedToken;
 }
 
 export async function getOctokit(): Promise<Octokit> {
-  const token = await getInstallationToken();
+  const { token } = await getInstallationToken();
 
   // Recreate Octokit with fresh token each time to avoid stale auth
   octokitInstance = new Octokit({ auth: token });
@@ -148,7 +157,7 @@ export function parseRepoUrl(url: string): { owner: string; repo: string } {
  */
 export async function getAuthenticatedCloneUrl(repoUrl: string): Promise<string> {
   const { owner, repo } = parseRepoUrl(repoUrl);
-  const token = await getInstallationToken();
+  const { token } = await getInstallationToken();
   return `https://x-access-token:${token}@github.com/${owner}/${repo}.git`;
 }
 

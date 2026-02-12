@@ -300,7 +300,7 @@ export async function askClaude(
 ): Promise<ClaudeResponse> {
   const config = getConfig();
   const reposDir = getRepositoriesDir();
-  const mcpServers = loadMcpServers();
+  const mcpServers = await loadMcpServers();
 
   const systemPrompt = buildSystemPrompt(options);
   const userPrompt = buildPrompt(session);
@@ -487,7 +487,7 @@ export function splitForSlack(text: string, maxLength = 3000): string[] {
  * Starts a minimal Claude query to get the init message with MCP status.
  */
 export async function testMCP(): Promise<McpTestResult> {
-  const mcpServers = loadMcpServers();
+  const mcpServers = await loadMcpServers();
   const configuredServers = getConfiguredMcpServerNames();
 
   if (!mcpServers || configuredServers.length === 0) {
