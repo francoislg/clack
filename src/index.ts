@@ -4,7 +4,7 @@ import { testMCP } from "./claude.js";
 import { loadConfig, getConfig } from "./config.js";
 import { loadGitHubCredentials, validateGitHubApp } from "./github.js";
 import { logger } from "./logger.js";
-import { initializeRepositories, startSyncScheduler, stopSyncScheduler } from "./repositories.js";
+import { initializeRepositories, syncAllRepositories, startSyncScheduler, stopSyncScheduler } from "./repositories.js";
 import { startCleanupScheduler, stopCleanupScheduler } from "./sessions.js";
 import { createSlackApp, startSlackApp, stopSlackApp } from "./slack/app.js";
 import { initializeWorktrees } from "./worktrees.js";
@@ -66,10 +66,11 @@ async function main(): Promise<void> {
     // Continue anyway - MCP is optional
   }
 
-  // Step 3: Initialize repositories
+  // Step 3: Initialize and sync repositories
   logger.debug("Initializing repositories...");
   try {
     await initializeRepositories();
+    await syncAllRepositories();
   } catch (error) {
     logger.error("Failed to initialize repositories:", error);
     // Continue anyway - some repos might work
