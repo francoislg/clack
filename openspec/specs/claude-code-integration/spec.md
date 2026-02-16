@@ -11,6 +11,7 @@ The system SHALL use the Claude Agent SDK for answer generation requests.
 - **THEN** the system calls the Agent SDK `query()` function
 - **AND** passes the question and context as the prompt
 - **AND** configures `cwd` to point to the repositories directory
+- **AND** loads MCP servers asynchronously (awaiting token generation if needed)
 - **AND** captures the response for delivery to Slack
 
 #### Scenario: Model configurable
@@ -81,6 +82,34 @@ The system SHALL capture Claude Code output and format it appropriately for Slac
 - **WHEN** Claude Code output exceeds Slack's message size limit
 - **THEN** the system truncates the response
 - **AND** appends a notice that the full response was truncated
+
+### Requirement: Structured Response Parsing
+
+The system SHALL parse structured XML tags from Claude's response to route to specialized handlers.
+
+#### Scenario: Parse change request
+- **WHEN** Claude's response contains `<change-request>` tags
+- **THEN** the system extracts branch, description, and repo
+- **AND** routes to the change workflow
+
+#### Scenario: Parse resume request
+- **WHEN** Claude's response contains `<resume-request>` tags
+- **THEN** the system extracts branch name and repo
+- **AND** routes to the resume workflow
+
+#### Scenario: Parse config update
+- **WHEN** Claude's response contains `<config-update>` tags
+- **THEN** the system extracts file and content
+- **AND** routes to the config update confirmation flow
+
+#### Scenario: Parsing priority order
+- **WHEN** Claude's response contains multiple tag types
+- **THEN** the system checks in order: change-request, resume-request, config-update
+- **AND** the first match wins
+
+#### Scenario: No structured tags found
+- **WHEN** Claude's response contains no recognized XML tags
+- **THEN** the system treats the response as a regular answer
 
 ### Requirement: Autonomous Change Execution
 

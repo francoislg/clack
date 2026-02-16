@@ -39,6 +39,11 @@ export const variableRegistry: VariableDefinition[] = [
     availability: "dev-admin",
   },
   {
+    name: "CONFIG_UPDATE_BLOCK",
+    description: "Config update instructions and available files (admin only)",
+    availability: "dev-admin",
+  },
+  {
     name: "AVAILABLE_VARIABLES",
     description: "Auto-generated reference table of all available variables",
     availability: "dev-admin",

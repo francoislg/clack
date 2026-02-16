@@ -37,6 +37,8 @@ import {
   handleChangeRequest,
   handleResumeRequest,
 } from "./changeWorkflowHelper.js";
+import type { ConfigUpdateInfo } from "../../claude.js";
+import { listInstructionFiles, writeInstructionFile } from "../../configurationFiles.js";
 
 export type TriggerType = "directMessages" | "mentions" | "reactions";
 export type ResponseStyle = "regular" | "ephemeral";
@@ -404,6 +406,48 @@ async function sendErrorDM(
 // CHANGE/RESUME REQUEST ROUTING
 // ============================================================
 
+async function handleConfigUpdate(
+  ctx: ProcessingContext,
+  info: ConfigUpdateInfo,
+  thinkingMessageTs?: string
+): Promise<void> {
+  const { client, channelId, effectiveThreadTs } = ctx;
+
+  // Validate filename against known instruction files
+  const knownFiles = listInstructionFiles();
+  const isKnown = knownFiles.some((f) => f.filename === info.file);
+
+  if (!isKnown) {
+    const errorText = `Cannot update \`${info.file}\` — not a recognized configuration file.`;
+    if (thinkingMessageTs) {
+      await client.chat.update({ channel: channelId, ts: thinkingMessageTs, text: errorText });
+    } else {
+      await client.chat.postMessage({ channel: channelId, thread_ts: effectiveThreadTs, text: errorText });
+    }
+    return;
+  }
+
+  try {
+    writeInstructionFile(info.file, info.content);
+    logger.info(`User ${ctx.userId} updated config file ${info.file} via chat`);
+
+    const confirmText = `Updated \`${info.file}\` successfully.`;
+    if (thinkingMessageTs) {
+      await client.chat.update({ channel: channelId, ts: thinkingMessageTs, text: confirmText });
+    } else {
+      await client.chat.postMessage({ channel: channelId, thread_ts: effectiveThreadTs, text: confirmText });
+    }
+  } catch (error) {
+    logger.error(`Failed to write config file ${info.file}:`, error);
+    const errorText = `Failed to update \`${info.file}\`. Check server logs.`;
+    if (thinkingMessageTs) {
+      await client.chat.update({ channel: channelId, ts: thinkingMessageTs, text: errorText });
+    } else {
+      await client.chat.postMessage({ channel: channelId, thread_ts: effectiveThreadTs, text: errorText });
+    }
+  }
+}
+
 async function handleSpecialResponses(
   ctx: ProcessingContext,
   response: ClaudeResponse,
@@ -452,6 +496,12 @@ async function handleSpecialResponses(
       triggerType,
       threadTs
     );
+    return true;
+  }
+
+  if (response.isConfigUpdate && response.configUpdateInfo) {
+    logger.debug(`Claude detected config update for file ${response.configUpdateInfo.file}`);
+    await handleConfigUpdate(ctx, response.configUpdateInfo, thinkingMessageTs);
     return true;
   }
 
