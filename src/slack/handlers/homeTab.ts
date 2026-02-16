@@ -12,8 +12,8 @@ import {
   claimOwnershipFromDisabled,
   transferOwnership,
   hasOwner,
-  isAdmin,
 } from "../../roles.js";
+import { userCanEditConfig, userCanManageRoles } from "../../permissions.js";
 import {
   buildHomeView,
   buildUserSelectModal,
@@ -172,8 +172,7 @@ export function registerHomeTabHandler(app: App): void {
     }
 
     // Verify current user is admin
-    const userIsAdmin = await isAdmin(currentUserId);
-    if (!userIsAdmin) {
+    if (!(await userCanManageRoles(currentUserId))) {
       await ack({
         response_action: "errors",
         errors: {
@@ -239,8 +238,7 @@ export function registerHomeTabHandler(app: App): void {
     }
 
     // Verify current user is admin
-    const userIsAdmin = await isAdmin(currentUserId);
-    if (!userIsAdmin) {
+    if (!(await userCanManageRoles(currentUserId))) {
       await ack({
         response_action: "errors",
         errors: {
@@ -300,8 +298,7 @@ export function registerHomeTabHandler(app: App): void {
     }
 
     // Verify current user is admin
-    const userIsAdmin = await isAdmin(currentUserId);
-    if (!userIsAdmin) {
+    if (!(await userCanManageRoles(currentUserId))) {
       await ack({
         response_action: "errors",
         errors: {
@@ -367,8 +364,7 @@ export function registerHomeTabHandler(app: App): void {
     }
 
     // Verify current user is admin
-    const userIsAdmin = await isAdmin(currentUserId);
-    if (!userIsAdmin) {
+    if (!(await userCanManageRoles(currentUserId))) {
       await ack({
         response_action: "errors",
         errors: {
@@ -401,9 +397,8 @@ export function registerHomeTabHandler(app: App): void {
     const userId = body.user.id;
 
     try {
-      // Verify admin role
-      const userIsAdmin = await isAdmin(userId);
-      if (!userIsAdmin) {
+      // Verify edit permission
+      if (!(await userCanEditConfig(userId))) {
         logger.warn(`Non-admin user ${userId} attempted to edit config file`);
         return;
       }
@@ -432,9 +427,8 @@ export function registerHomeTabHandler(app: App): void {
     const currentUserId = body.user.id;
     const filename = view.private_metadata;
 
-    // Verify admin role
-    const userIsAdmin = await isAdmin(currentUserId);
-    if (!userIsAdmin) {
+    // Verify edit permission
+    if (!(await userCanEditConfig(currentUserId))) {
       await ack({
         response_action: "errors",
         errors: {

@@ -2,6 +2,7 @@ import type { App } from "@slack/bolt";
 import { getConfig } from "../../config.js";
 import { logger } from "../../logger.js";
 import { getRole } from "../../roles.js";
+import { canRequestChanges } from "../../permissions.js";
 import type { AskClaudeOptions, ChangeRequestInfo, ResumeRequestInfo } from "../../claude.js";
 import type { ChangeRequest, ChangePlan, TriggerType } from "../../changes/types.js";
 import { isChangesEnabledForTrigger, getChangeEnabledRepos } from "../../changes/detection.js";
@@ -19,7 +20,7 @@ export async function getClaudeOptions(
   const role = await getRole(userId);
 
   const changesEnabled = isChangesEnabledForTrigger(triggerType, config);
-  const isChangeCapable = changesEnabled && (role === "dev" || role === "admin" || role === "owner");
+  const isChangeCapable = changesEnabled && canRequestChanges(role);
 
   if (!isChangeCapable) {
     return { role, changesWorkflowEnabled: false };

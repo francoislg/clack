@@ -5,10 +5,9 @@ import {
   loadRoles,
   getRole,
   hasOwner,
-  isAdmin,
-  isDev,
   type UserRole,
 } from "../roles.js";
+import { canEditConfig, canManageRoles, canRequestChanges } from "../permissions.js";
 import { getActiveWorkers } from "../changes/session.js";
 import { listInstructionFiles } from "../configurationFiles.js";
 
@@ -20,8 +19,9 @@ interface HomeViewOptions {
 export async function buildHomeView(options: HomeViewOptions): Promise<View> {
   const { userId, ownerDisabled } = options;
   const role = await getRole(userId);
-  const userIsAdmin = await isAdmin(userId);
-  const userIsDev = await isDev(userId);
+  const userIsAdmin = canManageRoles(role);
+  const userCanEdit = canEditConfig(role);
+  const userIsDev = canRequestChanges(role);
   const hasAnOwner = await hasOwner();
 
   const blocks: (KnownBlock | Block)[] = [];
@@ -44,7 +44,7 @@ export async function buildHomeView(options: HomeViewOptions): Promise<View> {
   }
 
   // Configuration section (only for admins/owner)
-  if (userIsAdmin) {
+  if (userCanEdit) {
     blocks.push(...buildConfigurationSection());
   }
 
