@@ -1,9 +1,11 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { getConfig, getRepositoriesDir } from "./config.js";
+import { listInstructionFiles } from "./configurationFiles.js";
 import { loadInstructions } from "./instructions.js";
 import { variableRegistry, buildAvailableVariablesTable } from "./instructionVariables.js";
 import { logger } from "./logger.js";
 import { loadMcpServers, getConfiguredMcpServerNames } from "./mcp.js";
+import { canEditConfig } from "./permissions.js";
 import type { UserRole } from "./roles.js";
 import type { SessionContext } from "./sessions.js";
 import { formatUserIdentity } from "./slack/userCache.js";
@@ -32,6 +34,11 @@ export interface ResumeRequestInfo {
   repo: string;
 }
 
+export interface ConfigUpdateInfo {
+  file: string;
+  content: string;
+}
+
 export interface ClaudeResponse {
   success: boolean;
   answer: string;
@@ -41,6 +48,8 @@ export interface ClaudeResponse {
   changeRequestInfo?: ChangeRequestInfo;
   isResumeRequest?: boolean;
   resumeRequestInfo?: ResumeRequestInfo;
+  isConfigUpdate?: boolean;
+  configUpdateInfo?: ConfigUpdateInfo;
 }
 
 export interface ResumableSessionInfo {
@@ -93,6 +102,7 @@ function buildSystemPrompt(options?: AskClaudeOptions): string {
     MCP_INTEGRATIONS: mcpList,
     CHANGE_REQUEST_BLOCK: "",
     RESUMABLE_SESSIONS: "",
+    CONFIG_UPDATE_BLOCK: "",
     AVAILABLE_VARIABLES: buildAvailableVariablesTable(),
   };
 
@@ -161,6 +171,35 @@ ${sessionList}
 
 Only output resume-request if the user's request clearly matches one of the sessions listed above.`;
     }
+  }
+
+  // Build config update block for admin/owner users
+  if (canEditConfig(role)) {
+    const files = listInstructionFiles();
+    const fileList = files
+      .map((f) => {
+        const status = f.hasOverride ? "customized" : f.hasDefault ? "default" : "not created";
+        return `- \`${f.filename}\` (${status})`;
+      })
+      .join("\n");
+
+    variables.CONFIG_UPDATE_BLOCK = `## Configuration File Updates
+
+You can update configuration/instruction files when an admin asks. Available files:
+
+${fileList}
+
+To read current content, use the Read tool on:
+- \`../configuration/{filename}\` (override, if it exists)
+- \`../default_configuration/{filename}\` (shipped default)
+
+When the admin confirms the update, output exactly:
+<config-update>
+  <file>{filename}</file>
+  <content>{full file content}</content>
+</config-update>
+
+Always read the current file first, show the proposed changes, and only output the tag when the admin confirms.`;
   }
 
   // Validate that every registry-defined variable has a value
@@ -294,6 +333,27 @@ function parseResumeRequest(answer: string): ResumeRequestInfo | null {
   };
 }
 
+/**
+ * Parse config update tags from Claude's response
+ */
+function parseConfigUpdate(answer: string): ConfigUpdateInfo | null {
+  const match = answer.match(/<config-update>([\s\S]*?)<\/config-update>/);
+  if (!match) return null;
+
+  const content = match[1];
+  const fileMatch = content.match(/<file>([\s\S]*?)<\/file>/);
+  const contentMatch = content.match(/<content>([\s\S]*?)<\/content>/);
+
+  if (!fileMatch || !contentMatch) {
+    return null;
+  }
+
+  return {
+    file: fileMatch[1].trim(),
+    content: contentMatch[1].trim(),
+  };
+}
+
 export async function askClaude(
   session: SessionContext,
   options?: AskClaudeOptions
@@ -384,6 +444,20 @@ export async function askClaude(
             conversationTrace,
             isResumeRequest: true,
             resumeRequestInfo,
+          };
+        }
+      }
+
+      // Check for config update tags (gated on admin/owner role)
+      if (options?.role && canEditConfig(options.role)) {
+        const configUpdateInfo = parseConfigUpdate(answer);
+        if (configUpdateInfo) {
+          return {
+            success: true,
+            answer: "", // No answer text for config updates
+            conversationTrace,
+            isConfigUpdate: true,
+            configUpdateInfo,
           };
         }
       }
