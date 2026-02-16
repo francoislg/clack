@@ -154,11 +154,6 @@ The system SHALL resolve PR templates from multiple sources in priority order.
   - Changes section
   - Test plan section
 
-#### Scenario: PR instructions from config
-- **WHEN** `changesWorkflow.prInstructions` is configured
-- **THEN** the instructions are appended to Claude's system prompt
-- **AND** Claude follows them when writing the PR description
-
 ### Requirement: Autonomous PR Creation
 
 The system SHALL create PRs using the GitHub CLI after successful change execution.

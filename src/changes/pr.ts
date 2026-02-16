@@ -3,7 +3,7 @@ import { getConfig } from "../config.js";
 import { getOctokit, parseRepoUrl, getAuthenticatedCloneUrl } from "../github.js";
 import type { WorktreeInfo } from "../worktrees.js";
 import type { ChangePlan, ChangeSession } from "./types.js";
-import { runClaude, resolvePRTemplate, resolvePRInstructions } from "./execution.js";
+import { runClaude, resolvePRTemplate, resolveChangesInstructions } from "./execution.js";
 import { findRepoByName } from "./detection.js";
 import { logger } from "../logger.js";
 
@@ -81,7 +81,7 @@ export async function createPR(
 
   // Get PR template and instructions for Claude to generate the PR body
   const template = resolvePRTemplate(worktree.worktreePath);
-  const prInstructions = resolvePRInstructions(worktree.worktreePath, repo, config);
+  const changesInstructions = resolveChangesInstructions(repo.name);
 
   // Use Claude to generate a good PR body from the template
   const prBodyResult = await runClaude({
@@ -94,7 +94,7 @@ Fill it in with:
 
 Output ONLY the filled-in PR body (markdown), nothing else.`,
     cwd: worktree.worktreePath,
-    systemPrompt: prInstructions ? `PR Guidelines:\n${prInstructions}` : undefined,
+    systemPrompt: changesInstructions ? `Repository-Specific Instructions:\n${changesInstructions}` : undefined,
     allowedTools: ["Read", "Glob", "Grep"],
     disallowedTools: ["Write", "Edit", "Bash", "Task"],
     timeout: 2,
@@ -288,9 +288,12 @@ ${reviewContext}
 
 Output "COMMENTS_ADDRESSED: N" where N is the number of comments you addressed.`;
 
+  const changesInstructions = resolveChangesInstructions(session.plan.targetRepo);
+
   const result = await runClaude({
     prompt: reviewPrompt,
     cwd: session.worktree.worktreePath,
+    systemPrompt: changesInstructions ? `Repository-Specific Instructions:\n${changesInstructions}` : undefined,
     allowedTools: ["Read", "Glob", "Grep", "Write", "Edit", "Bash"],
     disallowedTools: ["Task"],
     branchName: session.plan.branchName,

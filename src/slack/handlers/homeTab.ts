@@ -407,11 +407,9 @@ export function registerHomeTabHandler(app: App): void {
       const filename = "value" in action ? (action.value as string) : undefined;
       if (!filename) return;
 
-      const content = readInstructionFile(filename);
-      if (content === null) {
-        logger.warn(`Config file not found: ${filename}`);
-        return;
-      }
+      // readInstructionFile returns null if file doesn't exist in either tier —
+      // that's fine for repo instruction files that haven't been created yet
+      const content = readInstructionFile(filename) ?? "";
 
       await client.views.open({
         trigger_id: body.trigger_id,

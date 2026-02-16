@@ -35,6 +35,12 @@ The system SHALL use convention-based filenames for instruction files.
 - **WHEN** building the system prompt
 - **THEN** the system uses only the base instructions without a role overlay
 
+#### Scenario: Repository-scoped instruction files
+- **GIVEN** a repository named `{repo-name}` is configured in `config.repositories`
+- **WHEN** the system enumerates known instruction files
+- **THEN** it includes `{repo-name}/changes_instructions.md` and `{repo-name}/worktree_setup_instructions.md`
+- **AND** these files follow the same two-tier resolution chain
+
 ### Requirement: Two-Tier Resolution Chain
 
 The system SHALL resolve instruction files through a two-tier lookup.

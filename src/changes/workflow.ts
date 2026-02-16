@@ -17,7 +17,7 @@ import {
 } from "./session.js";
 import { writeSessionState, appendExecutionLog, readSessionState } from "./persistence.js";
 import { findRepoByName } from "./detection.js";
-import { executeChange, resolvePRInstructions, runClaude } from "./execution.js";
+import { executeChange, runClaude, runWorktreeSetup } from "./execution.js";
 import { createPR, mergePR, closePR, reviewPR } from "./pr.js";
 
 // ============================================================================
@@ -88,6 +88,9 @@ export async function startChangeWorkflow(
   } else {
     try {
       worktree = await createWorktree(repo, plan.branchName);
+      // Run worktree setup for fresh worktrees only
+      await onProgress("Setting up workspace environment...");
+      await runWorktreeSetup(repo.name, worktree.worktreePath, plan.branchName);
     } catch (err) {
       return {
         success: false,
@@ -101,7 +104,6 @@ export async function startChangeWorkflow(
 
   // Phase 2: Execution
   await onProgress("Implementing changes...");
-  const prInstructions = resolvePRInstructions(worktree.worktreePath, repo, config);
 
   // Track last update time to throttle Slack updates
   let lastUpdateTime = 0;
@@ -113,7 +115,6 @@ export async function startChangeWorkflow(
       plan,
       worktree,
       request,
-      prInstructions,
       async (progressMsg) => {
         const now = Date.now();
         if (now - lastUpdateTime >= UPDATE_INTERVAL_MS) {
@@ -262,10 +263,6 @@ export async function handleFollowUp(
       await onProgress?.("Implementing additional changes...");
       updateSessionStatus(session.id, "executing");
 
-      const prInstructions = repo
-        ? resolvePRInstructions(session.worktree.worktreePath, repo, config)
-        : "";
-
       // Track last update time to throttle Slack updates
       let lastUpdateTime = 0;
       const UPDATE_INTERVAL_MS = 30000; // 30 seconds
@@ -274,7 +271,6 @@ export async function handleFollowUp(
         { ...session.plan, description: additionalInstructions ?? session.plan.description },
         session.worktree,
         { ...session.request, message: additionalInstructions ?? session.request.message },
-        prInstructions,
         async (progressMsg) => {
           const now = Date.now();
           if (now - lastUpdateTime >= UPDATE_INTERVAL_MS) {

@@ -273,11 +273,19 @@ export function buildConfigurationSection(): KnownBlock[] {
   });
 
   for (const file of files) {
-    if (!file.hasOverride && !file.hasDefault) continue;
+    let statusLabel: string;
+    let buttonLabel: string;
 
-    const isCustomized = file.hasOverride;
-    const statusLabel = isCustomized ? "Customized" : "Default";
-    const buttonLabel = isCustomized ? "Edit" : "Customize";
+    if (file.hasOverride) {
+      statusLabel = "Customized";
+      buttonLabel = "Edit";
+    } else if (file.hasDefault) {
+      statusLabel = "Default";
+      buttonLabel = "Customize";
+    } else {
+      statusLabel = "Not created";
+      buttonLabel = "Create";
+    }
 
     blocks.push({
       type: "section",
@@ -306,14 +314,22 @@ export function buildConfigurationSection(): KnownBlock[] {
 // Modal builders for configuration editing
 
 const MAX_MODAL_TEXT_LENGTH = 3000;
+const MAX_MODAL_TITLE_LENGTH = 24;
+
+function truncateTitle(text: string): string {
+  if (text.length <= MAX_MODAL_TITLE_LENGTH) return text;
+  return text.slice(0, MAX_MODAL_TITLE_LENGTH - 1) + "…";
+}
 
 export function buildEditFileModal(filename: string, content: string): View {
+  const title = truncateTitle(filename);
+
   if (content.length > MAX_MODAL_TEXT_LENGTH) {
     return {
       type: "modal",
       title: {
         type: "plain_text",
-        text: filename,
+        text: title,
       },
       close: {
         type: "plain_text",
@@ -337,7 +353,7 @@ export function buildEditFileModal(filename: string, content: string): View {
     private_metadata: filename,
     title: {
       type: "plain_text",
-      text: filename,
+      text: title,
     },
     submit: {
       type: "plain_text",

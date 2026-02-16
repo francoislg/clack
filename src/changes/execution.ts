@@ -1,7 +1,8 @@
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { getConfig, getDefaultConfigurationDir, type Config, type RepositoryConfig } from "../config.js";
+import { getConfig, getDefaultConfigurationDir } from "../config.js";
+import { resolveInstructionFile } from "../instructions.js";
 import { logger } from "../logger.js";
 import type { WorktreeInfo } from "../worktrees.js";
 import type { ChangePlan, ChangeRequest, ExecutionResult, PlanGenerationResult } from "./types.js";
@@ -62,9 +63,19 @@ export async function runClaude(options: {
       appendExecutionLog(options.branchName, `Timeout: ${timeoutMs / 60000} minutes`);
     }
 
+    // Set git author to the bot name so commits are attributed to Clack, not the host user
+    const botName = config.slackApp?.name ?? "Clack";
+    const botEmail = `${botName.toLowerCase().replace(/\s+/g, "-")}[bot]@users.noreply.github.com`;
+
     const proc = spawn("claude", args, {
       cwd: options.cwd,
-      env: { ...process.env },
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: botName,
+        GIT_AUTHOR_EMAIL: botEmail,
+        GIT_COMMITTER_NAME: botName,
+        GIT_COMMITTER_EMAIL: botEmail,
+      },
       stdio: ["pipe", "pipe", "pipe"], // stdin enabled - prompt passed via stdin
     });
 
@@ -269,7 +280,6 @@ export async function executeChange(
   plan: ChangePlan,
   worktree: WorktreeInfo,
   request: ChangeRequest,
-  prInstructions: string,
   onProgress?: (message: string) => void,
   resumeContext?: string
 ): Promise<ExecutionResult> {
@@ -284,8 +294,18 @@ export async function executeChange(
   const disallowedTools = ["Task"];
 
   let systemPrompt = EXECUTION_SYSTEM_PROMPT;
-  if (prInstructions) {
-    systemPrompt += `\n\nPR Guidelines:\n${prInstructions}`;
+
+  // Append repo-specific changes instructions if available
+  const changesInstructionsFile = resolveInstructionFile(`${worktree.repoName}/changes_instructions.md`);
+  if (changesInstructionsFile) {
+    try {
+      const changesInstructions = readFileSync(changesInstructionsFile, "utf-8");
+      if (changesInstructions.trim()) {
+        systemPrompt += `\n\nRepository-Specific Instructions:\n${changesInstructions}`;
+      }
+    } catch {
+      logger.warn(`Failed to read changes instructions at ${changesInstructionsFile}`);
+    }
   }
 
   let prompt = `Implement this change:
@@ -508,25 +528,76 @@ export function resolvePRTemplate(worktreePath: string): string {
 }
 
 /**
- * Resolve PR instructions from repo config or global config
+ * Resolve repo-specific changes instructions via the two-tier instruction file chain.
+ * Returns the content or empty string if not found.
  */
-export function resolvePRInstructions(
-  worktreePath: string,
-  repoConfig: RepositoryConfig,
-  config: Config
-): string {
-  // Check repo-specific instructions file
-  if (repoConfig.pullRequestInstructions) {
-    const instructionsPath = join(worktreePath, repoConfig.pullRequestInstructions);
-    if (existsSync(instructionsPath)) {
-      try {
-        return readFileSync(instructionsPath, "utf-8");
-      } catch {
-        logger.warn(`Failed to read PR instructions at ${instructionsPath}`);
-      }
+export function resolveChangesInstructions(repoName: string): string {
+  const path = resolveInstructionFile(`${repoName}/changes_instructions.md`);
+  if (path) {
+    try {
+      return readFileSync(path, "utf-8");
+    } catch {
+      logger.warn(`Failed to read changes instructions at ${path}`);
     }
   }
+  return "";
+}
 
-  // Fall back to global config
-  return config.changesWorkflow?.prInstructions ?? "";
+/**
+ * Run worktree setup instructions after creating a fresh worktree.
+ * Resolves `{repoName}/worktree_setup_instructions.md` via the two-tier chain
+ * and runs a short Claude invocation to execute the setup steps.
+ * Non-fatal: logs a warning on failure and continues.
+ */
+export async function runWorktreeSetup(
+  repoName: string,
+  worktreePath: string,
+  branchName?: string,
+): Promise<void> {
+  const setupPath = resolveInstructionFile(`${repoName}/worktree_setup_instructions.md`);
+  if (!setupPath) {
+    return;
+  }
+
+  let setupInstructions: string;
+  try {
+    setupInstructions = readFileSync(setupPath, "utf-8");
+  } catch {
+    logger.warn(`Failed to read worktree setup instructions at ${setupPath}`);
+    return;
+  }
+
+  if (!setupInstructions.trim()) {
+    return;
+  }
+
+  const config = getConfig();
+  const timeoutMinutes = config.changesWorkflow?.worktreeSetupTimeoutMinutes ?? 2;
+
+  logger.info(`Running worktree setup for ${repoName}...`);
+  if (branchName) {
+    appendExecutionLog(branchName, `Running worktree setup instructions from ${setupPath}`);
+  }
+
+  const result = await runClaude({
+    prompt: setupInstructions,
+    cwd: worktreePath,
+    systemPrompt: "You are setting up a development workspace. Follow the instructions exactly. Do not ask questions — just execute the steps.",
+    allowedTools: ["Bash", "Write", "Edit", "Read"],
+    disallowedTools: ["Task", "Glob", "Grep"],
+    timeout: timeoutMinutes,
+    branchName,
+  });
+
+  if (!result.success) {
+    logger.warn(`Worktree setup failed for ${repoName}: ${result.error}`);
+    if (branchName) {
+      appendExecutionLog(branchName, `Worktree setup failed: ${result.error}`);
+    }
+  } else {
+    logger.info(`Worktree setup completed for ${repoName}`);
+    if (branchName) {
+      appendExecutionLog(branchName, "Worktree setup completed successfully");
+    }
+  }
 }
