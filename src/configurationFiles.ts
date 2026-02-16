@@ -1,10 +1,10 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { getConfigurationDir, getDefaultConfigurationDir } from "./config.js";
+import { getConfig, getConfigurationDir, getDefaultConfigurationDir } from "./config.js";
 import { logger } from "./logger.js";
 
-/** Convention-based instruction filenames */
-const INSTRUCTION_FILES = [
+/** Static role-based instruction filenames */
+const ROLE_INSTRUCTION_FILES = [
   "instructions.md",
   "dev_instructions.md",
   "admin_instructions.md",
@@ -18,13 +18,34 @@ export interface InstructionFileInfo {
 }
 
 /**
+ * Generate repo-scoped instruction filenames from configured repositories.
+ */
+function getRepoInstructionFiles(): string[] {
+  try {
+    const config = getConfig();
+    const files: string[] = [];
+    for (const repo of config.repositories) {
+      files.push(`${repo.name}/changes_instructions.md`);
+      files.push(`${repo.name}/worktree_setup_instructions.md`);
+    }
+    return files;
+  } catch {
+    // Config may not be loaded yet (e.g., during startup validation)
+    return [];
+  }
+}
+
+/**
  * List all convention-based instruction files with their override status.
+ * Includes static role files and dynamically generated repo-specific files.
  */
 export function listInstructionFiles(): InstructionFileInfo[] {
   const configDir = getConfigurationDir();
   const defaultDir = getDefaultConfigurationDir();
 
-  return INSTRUCTION_FILES.map((filename) => ({
+  const allFiles = [...ROLE_INSTRUCTION_FILES, ...getRepoInstructionFiles()];
+
+  return allFiles.map((filename) => ({
     filename,
     hasOverride: existsSync(resolve(configDir, filename)),
     hasDefault: existsSync(resolve(defaultDir, filename)),
@@ -33,7 +54,7 @@ export function listInstructionFiles(): InstructionFileInfo[] {
 
 /**
  * Read an instruction file. Returns the override if it exists,
- * otherwise falls back to the default.
+ * otherwise falls back to the default. Returns null if neither exists.
  */
 export function readInstructionFile(filename: string): string | null {
   const configDir = getConfigurationDir();
@@ -68,9 +89,10 @@ export function writeInstructionFile(filename: string, content: string): void {
     throw new Error("Invalid filename: path traversal not allowed");
   }
 
-  // Create configuration directory if it doesn't exist
-  if (!existsSync(configDir)) {
-    mkdirSync(configDir, { recursive: true });
+  // Create parent directories if they don't exist
+  const parentDir = resolve(targetPath, "..");
+  if (!existsSync(parentDir)) {
+    mkdirSync(parentDir, { recursive: true });
   }
 
   writeFileSync(targetPath, content, "utf-8");

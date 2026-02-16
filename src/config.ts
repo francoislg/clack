@@ -24,7 +24,6 @@ export interface RepositoryConfig {
   // Change workflow settings
   supportsChanges?: boolean;
   worktreeBasePath?: string;
-  pullRequestInstructions?: string;
   mergeStrategy?: "squash" | "merge" | "rebase";
 }
 
@@ -57,8 +56,8 @@ export interface ThinkingFeedbackConfig {
 // Changes Workflow configuration
 export interface ChangesWorkflowConfig {
   enabled: boolean;
-  prInstructions?: string;
   timeoutMinutes?: number;
+  worktreeSetupTimeoutMinutes?: number;
   maxConcurrent?: number;
   additionalAllowedTools?: string[];
   sessionExpiryHours?: number;
@@ -296,7 +295,6 @@ function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Config {
       branch: (r.branch as string) || "main",
       supportsChanges: r.supportsChanges as boolean | undefined,
       worktreeBasePath: r.worktreeBasePath as string | undefined,
-      pullRequestInstructions: r.pullRequestInstructions as string | undefined,
       mergeStrategy: r.mergeStrategy as "squash" | "merge" | "rebase" | undefined,
     })),
     git: {
@@ -326,8 +324,8 @@ function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Config {
     changesWorkflow: c.changesWorkflow
       ? {
           enabled: (c.changesWorkflow as Record<string, unknown>).enabled as boolean,
-          prInstructions: (c.changesWorkflow as Record<string, unknown>).prInstructions as string | undefined,
           timeoutMinutes: (c.changesWorkflow as Record<string, unknown>).timeoutMinutes as number | undefined,
+          worktreeSetupTimeoutMinutes: (c.changesWorkflow as Record<string, unknown>).worktreeSetupTimeoutMinutes as number | undefined,
           maxConcurrent: (c.changesWorkflow as Record<string, unknown>).maxConcurrent as number | undefined,
           additionalAllowedTools: (c.changesWorkflow as Record<string, unknown>).additionalAllowedTools as string[] | undefined,
           sessionExpiryHours: (c.changesWorkflow as Record<string, unknown>).sessionExpiryHours as number | undefined,

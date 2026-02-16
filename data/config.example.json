@@ -39,7 +39,6 @@
       "description": "Main application codebase - contains backend API and frontend",
       "branch": "main",
       "supportsChanges": false,
-      "pullRequestInstructions": ".claude/skills/create-pr.md",
       "mergeStrategy": "squash"
     }
   ],
@@ -61,8 +60,8 @@
   },
   "changesWorkflow": {
     "enabled": false,
-    "prInstructions": "Always include test coverage if applicable.",
     "timeoutMinutes": 10,
+    "worktreeSetupTimeoutMinutes": 2,
     "maxConcurrent": 3,
     "sessionExpiryHours": 24,
     "monitoringIntervalMinutes": 15

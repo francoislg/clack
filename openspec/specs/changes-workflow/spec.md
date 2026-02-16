@@ -10,7 +10,7 @@ The system SHALL support a top-level configuration section for the change reques
 #### Scenario: Top-level workflow configuration
 - **WHEN** `changesWorkflow` is configured at the root config level
 - **THEN** it defines the global workflow behavior
-- **AND** includes: `enabled`, `prInstructions`, `timeoutMinutes`, `maxConcurrent`, `additionalAllowedTools`, `sessionExpiryHours`, `monitoringIntervalMinutes`
+- **AND** includes: `enabled`, `timeoutMinutes`, `maxConcurrent`, `additionalAllowedTools`, `sessionExpiryHours`, `monitoringIntervalMinutes`
 
 #### Scenario: Disable workflow globally (default)
 - **WHEN** `changesWorkflow` is not configured or `enabled` is `false`
@@ -47,11 +47,6 @@ The system SHALL support a top-level configuration section for the change reques
 - **WHEN** a user sends a DM
 - **THEN** all messages are treated as Q&A queries for that trigger type
 
-#### Scenario: PR instructions in config
-- **WHEN** `changesWorkflow.prInstructions` is configured
-- **THEN** the instructions are included in Claude's prompt for PR creation
-- **AND** Claude follows them when writing commit messages and PR descriptions
-
 #### Scenario: Execution timeout configuration
 - **WHEN** `changesWorkflow.timeoutMinutes` is configured
 - **THEN** the system uses that value as the maximum execution time
@@ -78,6 +73,12 @@ The system SHALL support a top-level configuration section for the change reques
 - **THEN** the completion monitor runs at that interval
 - **AND** defaults to 15 minutes if not specified
 - **AND** set to 0 to disable monitoring
+
+## REMOVED Requirements
+
+### Requirement: PR instructions in config
+**Reason**: Replaced by `{repo-name}/changes_instructions.md` convention-based files which follow the two-tier resolution chain and are editable via admin UI.
+**Migration**: Move content from `pullRequestInstructions` (repo config field) or `changesWorkflow.prInstructions` (global config) into `data/default_configuration/{repo-name}_changes_instructions.md` or `data/configuration/{repo-name}_changes_instructions.md`.
 
 ### Requirement: Change Request Detection
 
