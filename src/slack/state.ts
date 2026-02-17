@@ -5,6 +5,10 @@ export interface SessionInfo {
   channelId: string;
   threadTs: string;
   userId: string;
+  /** Whether responses should be ephemeral (reactions) or regular (DMs, mentions). Defaults to true. */
+  isEphemeral?: boolean;
+  /** Original trigger type, used to build proper Claude options on button clicks. */
+  triggerType?: "directMessages" | "mentions" | "reactions";
 }
 
 const activeSessions = new Map<string, SessionInfo>();

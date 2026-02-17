@@ -1,22 +1,32 @@
 import type { App, BlockAction, ViewSubmitAction } from "@slack/bolt";
 import { getConfig } from "../../config.js";
 import { logger } from "../../logger.js";
-import { getSession, addRefinement, setLastAnswer, createSession, parseSessionId, addError } from "../../sessions.js";
-import { askClaude, analyzeError } from "../../claude.js";
-import { getResponseBlocks, getErrorBlocks, getErrorBlocksWithRetry } from "../blocks.js";
+import { getSession, addRefinement, createSession, parseSessionId } from "../../sessions.js";
+import { askClaude } from "../../claude.js";
+import { getErrorBlocks, decodeActionValue } from "../blocks.js";
 import { restoreSessionInfo, setSessionInfo } from "../state.js";
-import { fetchMessage, fetchThreadContext, sendErrorReport } from "../messagesApi.js";
+import { fetchMessage, fetchThreadContext } from "../messagesApi.js";
 import { transformUserMentions } from "../userCache.js";
+import {
+  dismissOriginal,
+  postResponse,
+  postSuccessResponseWithRetry,
+  postErrorResponse,
+  getHandlerClaudeOptions,
+} from "./handlerResponse.js";
 
 export function registerRefineHandler(app: App): void {
   // Handle Refine button - open modal
   app.action<BlockAction>("clack_refine", async ({ ack, body, client, respond }) => {
     await ack();
 
-    const sessionId = (body.actions[0] as { value: string }).value;
+    const rawValue = (body.actions[0] as { value: string }).value;
+    const decoded = decodeActionValue(rawValue);
+    const sessionId = decoded.sessionId;
+    const hint = decoded.hint;
 
-    // Delete the ephemeral message
-    await respond({ delete_original: true });
+    const sessionInfo = await restoreSessionInfo(sessionId);
+    await dismissOriginal(respond, sessionInfo ?? { isEphemeral: true } as any);
 
     await client.views.open({
       trigger_id: body.trigger_id,
@@ -46,7 +56,7 @@ export function registerRefineHandler(app: App): void {
               multiline: true,
               placeholder: {
                 type: "plain_text",
-                text: "Add specific instructions to improve the answer...",
+                text: hint || "Add specific instructions to improve the answer...",
               },
             },
             label: {
@@ -88,12 +98,9 @@ export function registerRefineHandler(app: App): void {
       const messageText = await fetchMessage(client, parsed.channelId, parsed.messageTs, sessionInfo.threadTs);
       if (!messageText) {
         logger.error("Could not fetch original message for session recreation");
-        await client.chat.postEphemeral({
-          channel: sessionInfo.channelId,
-          user: sessionInfo.userId,
-          thread_ts: sessionInfo.threadTs,
+        await postResponse(client, sessionInfo, {
+          blocks: getErrorBlocks("Sorry, the session expired and I couldn't fetch the original message.") as unknown[],
           text: "Sorry, the session expired and I couldn't fetch the original message.",
-          blocks: getErrorBlocks("Sorry, the session expired and I couldn't fetch the original message."),
         });
         return;
       }
@@ -110,7 +117,7 @@ export function registerRefineHandler(app: App): void {
         ? await transformUserMentions(client, messageText)
         : messageText;
 
-      // Create new session (note: this creates a NEW sessionId, but we continue using the old one for this request)
+      // Create new session
       session = await createSession(
         parsed.channelId,
         parsed.messageTs,
@@ -125,6 +132,8 @@ export function registerRefineHandler(app: App): void {
         channelId: session.channelId,
         threadTs: session.threadTs,
         userId: session.userId,
+        isEphemeral: sessionInfo.isEphemeral,
+        triggerType: sessionInfo.triggerType,
       });
 
       logger.debug(`Recreated session as ${session.sessionId}`);
@@ -134,49 +143,13 @@ export function registerRefineHandler(app: App): void {
     await addRefinement(session.sessionId, refinement);
     const updatedSession = (await getSession(session.sessionId))!;
 
-    const response = await askClaude(updatedSession);
+    const claudeOptions = await getHandlerClaudeOptions(sessionInfo);
+    const response = await askClaude(updatedSession, claudeOptions);
 
     if (response.success) {
-      await setLastAnswer(session.sessionId, response.answer);
-
-      await client.chat.postEphemeral({
-        channel: sessionInfo.channelId,
-        user: sessionInfo.userId,
-        thread_ts: sessionInfo.threadTs,
-        blocks: getResponseBlocks(response.answer, session.sessionId),
-        text: response.answer,
-      });
+      await postSuccessResponseWithRetry(client, sessionInfo, session.sessionId, response);
     } else {
-      const config = getConfig();
-      const errorMessage = response.error || "Unknown error";
-      const conversationTrace = response.conversationTrace || [];
-
-      // Store the error in the session
-      await addError(session.sessionId, errorMessage, conversationTrace);
-
-      // Show user-friendly error with retry button
-      await client.chat.postEphemeral({
-        channel: sessionInfo.channelId,
-        user: sessionInfo.userId,
-        thread_ts: sessionInfo.threadTs,
-        text: "Claude seems to have crashed, maybe try again?",
-        blocks: getErrorBlocksWithRetry(session.sessionId),
-      });
-
-      // Send detailed error report via DM if enabled
-      if (config.slack.sendErrorsAsDM) {
-        try {
-          const analysis = await analyzeError(errorMessage, conversationTrace);
-          await sendErrorReport(client, sessionInfo.userId, {
-            sessionId: session.sessionId,
-            errorMessage,
-            conversationTrace,
-            analysis,
-          });
-        } catch (dmError) {
-          logger.error("Failed to send error report DM:", dmError);
-        }
-      }
+      await postErrorResponse(client, sessionInfo, session.sessionId, response);
     }
   });
 }

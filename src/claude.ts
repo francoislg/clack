@@ -1,20 +1,23 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { getConfig, getRepositoriesDir } from "./config.js";
-import { listInstructionFiles } from "./configurationFiles.js";
 import { loadInstructions } from "./instructions.js";
-import { variableRegistry, buildAvailableVariablesTable } from "./instructionVariables.js";
 import { logger } from "./logger.js";
 import { loadMcpServers, getConfiguredMcpServerNames } from "./mcp.js";
-import { canEditConfig } from "./permissions.js";
 import type { UserRole } from "./roles.js";
 import type { SessionContext } from "./sessions.js";
 import { formatUserIdentity } from "./slack/userCache.js";
+import type { ChangeSession } from "./changes/types.js";
+import type { SubmitResponsePayload, ToolCallRecord, StagedIntent } from "./tools/types.js";
+import { buildToolContext } from "./tools/context.js";
+import { buildClackTools } from "./tools/server.js";
 
 export interface ConversationMessage {
   type: string;
   subtype?: string;
   content: string;
   timestamp: number;
+  /** Typed tool call record (for clack tool calls) */
+  toolCall?: { tool: string; args: Record<string, unknown>; result: Record<string, unknown> };
 }
 
 export interface ErrorRecord {
@@ -23,47 +26,26 @@ export interface ErrorRecord {
   conversationTrace: ConversationMessage[];
 }
 
-export interface ChangeRequestInfo {
-  branch: string;
-  description: string;
-  repo: string;
-}
-
-export interface ResumeRequestInfo {
-  branchName: string;
-  repo: string;
-}
-
-export interface ConfigUpdateInfo {
-  file: string;
-  content: string;
-}
-
 export interface ClaudeResponse {
   success: boolean;
   answer: string;
   error?: string;
   conversationTrace?: ConversationMessage[];
-  isChangeRequest?: boolean;
-  changeRequestInfo?: ChangeRequestInfo;
-  isResumeRequest?: boolean;
-  resumeRequestInfo?: ResumeRequestInfo;
-  isConfigUpdate?: boolean;
-  configUpdateInfo?: ConfigUpdateInfo;
-}
-
-export interface ResumableSessionInfo {
-  branchName: string;
-  repo: string;
-  description: string;
-  phase: string;
+  /** Structured response from submit_response tool */
+  response?: SubmitResponsePayload;
+  /** Pre-rendered and validated Slack blocks from submit_response */
+  renderedBlocks?: Record<string, unknown>[];
+  /** Staged intents from action tools (serializable for session persistence) */
+  stagedIntents?: Record<string, StagedIntent>;
+  /** Tool call history from this query */
+  toolCallHistory?: ToolCallRecord[];
 }
 
 export interface AskClaudeOptions {
   role?: UserRole;
   changesWorkflowEnabled?: boolean;
-  availableRepos?: Array<{ name: string; description: string }>;
-  resumableSessions?: ResumableSessionInfo[];
+  /** Active change session in the current thread (for follow-up tools) */
+  changeSession?: ChangeSession;
 }
 
 export interface McpServerInfo {
@@ -78,6 +60,7 @@ export interface McpTestResult {
   failedServers: McpServerInfo[];
   tools: string[];
   mcpTools: string[];
+  clackTools: string[];
   error?: string;
 }
 
@@ -86,128 +69,9 @@ function buildSystemPrompt(options?: AskClaudeOptions): string {
   const changesWorkflowEnabled = options?.changesWorkflowEnabled ?? false;
   const config = getConfig();
 
-  // Build standard variables
-  const repoList = config.repositories
-    .map((r) => `- **${r.name}**: ${r.description}`)
-    .join("\n");
-
-  const mcpServerNames = getConfiguredMcpServerNames();
-  const mcpList = mcpServerNames.length > 0
-    ? mcpServerNames.map((name) => `- **${name}**`).join("\n")
-    : "None configured";
-
   const variables: Record<string, string> = {
-    REPOSITORIES_LIST: repoList,
     BOT_NAME: config.slackApp?.name || "Clack",
-    MCP_INTEGRATIONS: mcpList,
-    CHANGE_REQUEST_BLOCK: "",
-    RESUMABLE_SESSIONS: "",
-    CONFIG_UPDATE_BLOCK: "",
-    AVAILABLE_VARIABLES: buildAvailableVariablesTable(),
   };
-
-  // Build change-specific variables when applicable
-  if (changesWorkflowEnabled && options?.availableRepos && options.availableRepos.length > 0) {
-    const changeRepoList = options.availableRepos
-      .map((r) => `- ${r.name}: ${r.description}`)
-      .join("\n");
-
-    variables.CHANGE_REQUEST_BLOCK = `## Change Request Detection
-
-The user has developer permissions and may request code changes. Analyze their message to determine intent:
-
-**This is a CHANGE REQUEST if the user:**
-- Explicitly asks you to fix, implement, add, update, or modify code
-- Describes a bug and asks you to resolve it
-- Requests a new feature or enhancement
-- Says things like "can you fix...", "please implement...", "add support for..."
-
-**This is a QUESTION if the user:**
-- Asks how something works
-- Asks why code behaves a certain way
-- Asks for explanations or documentation
-- Says things like "how does...", "why is...", "what is...", "how do I..."
-
-**If this is a CHANGE REQUEST**, output:
-<change-request>
-  <branch>clack/{type}/{short-description}</branch>
-  <description>Clear description of what will be changed</description>
-  <repo>{target-repository-name}</repo>
-</change-request>
-
-Where:
-- type: fix, feat, refactor, docs, or chore
-- short-description: kebab-case, max 30 chars
-- repo: exact repository name from available list below
-
-Available repositories that support changes:
-${changeRepoList}
-
-**If this is a QUESTION**, provide your answer using the standard format.
-
-When uncertain, default to treating it as a question.`;
-
-    if (options?.resumableSessions && options.resumableSessions.length > 0) {
-      const sessionList = options.resumableSessions
-        .map((s) => `- Branch: ${s.branchName} | Repo: ${s.repo} | Status: ${s.phase} | Task: ${s.description}`)
-        .join("\n");
-
-      variables.RESUMABLE_SESSIONS = `## Resume Previous Session
-
-There are existing change sessions that can be resumed:
-
-${sessionList}
-
-**This is a RESUME REQUEST if the user:**
-- Asks to continue, resume, or retry a previous task
-- References a branch name or task description from the list above
-- Says things like "continue working on...", "resume the fix...", "retry the task..."
-
-**If this is a RESUME REQUEST**, output:
-<resume-request>
-  <branch>{exact-branch-name-from-list}</branch>
-  <repo>{exact-repo-name}</repo>
-</resume-request>
-
-Only output resume-request if the user's request clearly matches one of the sessions listed above.`;
-    }
-  }
-
-  // Build config update block for admin/owner users
-  if (canEditConfig(role)) {
-    const files = listInstructionFiles();
-    const fileList = files
-      .map((f) => {
-        const status = f.hasOverride ? "customized" : f.hasDefault ? "default" : "not created";
-        return `- \`${f.filename}\` (${status})`;
-      })
-      .join("\n");
-
-    variables.CONFIG_UPDATE_BLOCK = `## Configuration File Updates
-
-You can update configuration/instruction files when an admin asks. Available files:
-
-${fileList}
-
-To read current content, use the Read tool on:
-- \`../configuration/{filename}\` (override, if it exists)
-- \`../default_configuration/{filename}\` (shipped default)
-
-When the admin confirms the update, output exactly:
-<config-update>
-  <file>{filename}</file>
-  <content>{full file content}</content>
-</config-update>
-
-Always read the current file first, show the proposed changes, and only output the tag when the admin confirms.`;
-  }
-
-  // Validate that every registry-defined variable has a value
-  for (const def of variableRegistry) {
-    if (!(def.name in variables)) {
-      logger.warn(`Instruction variable '${def.name}' defined in registry but missing from variables record`);
-    }
-  }
 
   return loadInstructions(role, {
     changesWorkflowEnabled,
@@ -289,83 +153,35 @@ function summarizeMessageContent(message: unknown): string {
   return JSON.stringify(msg).substring(0, 500);
 }
 
-/**
- * Parse change request tags from Claude's response
- */
-function parseChangeRequest(answer: string): ChangeRequestInfo | null {
-  const changeMatch = answer.match(/<change-request>([\s\S]*?)<\/change-request>/);
-  if (!changeMatch) return null;
-
-  const content = changeMatch[1];
-  const branchMatch = content.match(/<branch>([\s\S]*?)<\/branch>/);
-  const descriptionMatch = content.match(/<description>([\s\S]*?)<\/description>/);
-  const repoMatch = content.match(/<repo>([\s\S]*?)<\/repo>/);
-
-  if (!branchMatch || !descriptionMatch || !repoMatch) {
-    return null;
-  }
-
-  return {
-    branch: branchMatch[1].trim(),
-    description: descriptionMatch[1].trim(),
-    repo: repoMatch[1].trim(),
-  };
-}
-
-/**
- * Parse resume request tags from Claude's response
- */
-function parseResumeRequest(answer: string): ResumeRequestInfo | null {
-  const resumeMatch = answer.match(/<resume-request>([\s\S]*?)<\/resume-request>/);
-  if (!resumeMatch) return null;
-
-  const content = resumeMatch[1];
-  const branchMatch = content.match(/<branch>([\s\S]*?)<\/branch>/);
-  const repoMatch = content.match(/<repo>([\s\S]*?)<\/repo>/);
-
-  if (!branchMatch || !repoMatch) {
-    return null;
-  }
-
-  return {
-    branchName: branchMatch[1].trim(),
-    repo: repoMatch[1].trim(),
-  };
-}
-
-/**
- * Parse config update tags from Claude's response
- */
-function parseConfigUpdate(answer: string): ConfigUpdateInfo | null {
-  const match = answer.match(/<config-update>([\s\S]*?)<\/config-update>/);
-  if (!match) return null;
-
-  const content = match[1];
-  const fileMatch = content.match(/<file>([\s\S]*?)<\/file>/);
-  const contentMatch = content.match(/<content>([\s\S]*?)<\/content>/);
-
-  if (!fileMatch || !contentMatch) {
-    return null;
-  }
-
-  return {
-    file: fileMatch[1].trim(),
-    content: contentMatch[1].trim(),
-  };
-}
-
 export async function askClaude(
   session: SessionContext,
   options?: AskClaudeOptions
 ): Promise<ClaudeResponse> {
   const config = getConfig();
   const reposDir = getRepositoriesDir();
-  const mcpServers = await loadMcpServers();
+  const externalMcpServers = await loadMcpServers();
 
   const systemPrompt = buildSystemPrompt(options);
   const userPrompt = buildPrompt(session);
 
   logger.debug(`Querying Claude via Agent SDK for session ${session.sessionId}...`);
+
+  // Build clack tool server for this query
+  const toolCtx = buildToolContext({
+    userId: session.userId,
+    role: options?.role ?? "member",
+    session,
+    config,
+    changesWorkflowEnabled: options?.changesWorkflowEnabled ?? false,
+    changeSession: options?.changeSession,
+  });
+  const clackTools = buildClackTools(toolCtx);
+
+  // Merge external MCP servers with the clack tool server
+  const mcpServers: Record<string, unknown> = {
+    ...(externalMcpServers ?? {}),
+    clack: clackTools.mcpServer,
+  };
 
   // Collect conversation trace for debugging
   const conversationTrace: ConversationMessage[] = [];
@@ -384,16 +200,37 @@ export async function askClaude(
         model: config.claudeCode.model,
         permissionMode: "bypassPermissions",
         disallowedTools: ["Write", "Edit", "NotebookEdit", "Bash", "Task"],
-        mcpServers,
+        mcpServers: mcpServers as Record<string, import("@anthropic-ai/claude-agent-sdk").McpServerConfig>,
       },
     })) {
       // Record all messages in the conversation trace
-      conversationTrace.push({
+      const traceEntry: ConversationMessage = {
         type: message.type,
         subtype: "subtype" in message ? (message.subtype as string) : undefined,
         content: summarizeMessageContent(message),
         timestamp: Date.now(),
-      });
+      };
+
+      // Extract tool call details from assistant messages
+      const msg = message as Record<string, unknown>;
+      if (msg.message && typeof msg.message === "object") {
+        const innerMsg = msg.message as Record<string, unknown>;
+        if (Array.isArray(innerMsg.content)) {
+          for (const block of innerMsg.content) {
+            if (block && typeof block === "object" && "type" in block && block.type === "tool_use") {
+              const tb = block as Record<string, unknown>;
+              traceEntry.toolCall = {
+                tool: String(tb.name || "unknown"),
+                args: (typeof tb.input === "object" && tb.input !== null) ? tb.input as Record<string, unknown> : {},
+                result: {},
+              };
+              break;
+            }
+          }
+        }
+      }
+
+      conversationTrace.push(traceEntry);
 
       // Track only the LAST assistant message (the final answer, not intermediate thinking)
       if (message.type === "assistant" && message.message?.content) {
@@ -421,59 +258,42 @@ export async function askClaude(
       }
     }
 
+    // Capture tool server results
+    const structuredResponse = clackTools.getResult();
+    const renderedBlocks = clackTools.getRenderedBlocks();
+    const stagedIntentsMap = clackTools.getStagedIntents();
+    const toolCallHistory = clackTools.getToolCallHistory();
+
+    // Convert Map to plain object for serialization
+    const stagedIntents: Record<string, StagedIntent> = {};
+    for (const [ref, intent] of stagedIntentsMap) {
+      stagedIntents[ref] = intent;
+    }
+
+    // If submit_response was called, use the structured response
+    if (structuredResponse) {
+      const answerText = structuredResponse.sections
+        .map((s) => (s.title ? `**${s.title}**\n${s.body}` : s.body))
+        .join("\n\n");
+
+      return {
+        success: true,
+        answer: answerText,
+        conversationTrace,
+        response: structuredResponse,
+        renderedBlocks: renderedBlocks ?? undefined,
+        stagedIntents: Object.keys(stagedIntents).length > 0 ? stagedIntents : undefined,
+        toolCallHistory: toolCallHistory.length > 0 ? toolCallHistory : undefined,
+      };
+    }
+
+    // No submit_response called — return raw text
     if (answer.trim()) {
-      // Check for change request tags first (only if change detection was enabled)
-      if (options?.changesWorkflowEnabled) {
-        const changeRequestInfo = parseChangeRequest(answer);
-        if (changeRequestInfo) {
-          return {
-            success: true,
-            answer: "", // No answer text for change requests
-            conversationTrace,
-            isChangeRequest: true,
-            changeRequestInfo,
-          };
-        }
-
-        // Check for resume request tags
-        const resumeRequestInfo = parseResumeRequest(answer);
-        if (resumeRequestInfo) {
-          return {
-            success: true,
-            answer: "", // No answer text for resume requests
-            conversationTrace,
-            isResumeRequest: true,
-            resumeRequestInfo,
-          };
-        }
-      }
-
-      // Check for config update tags (gated on admin/owner role)
-      if (options?.role && canEditConfig(options.role)) {
-        const configUpdateInfo = parseConfigUpdate(answer);
-        if (configUpdateInfo) {
-          return {
-            success: true,
-            answer: "", // No answer text for config updates
-            conversationTrace,
-            isConfigUpdate: true,
-            configUpdateInfo,
-          };
-        }
-      }
-
-      // Extract answer from <answer> tags if present
-      const answerMatch = answer.match(/<answer>([\s\S]*?)<\/answer>/);
-      if (answerMatch) {
-        answer = answerMatch[1].trim();
-      }
-      // Fallback: if no tags found, use the raw answer as-is
-      // (This handles edge cases where Claude forgets the tags)
-
       return {
         success: true,
         answer: answer.trim(),
         conversationTrace,
+        toolCallHistory: toolCallHistory.length > 0 ? toolCallHistory : undefined,
       };
     }
 
@@ -482,6 +302,7 @@ export async function askClaude(
       answer: "",
       error: "No response received from Claude",
       conversationTrace,
+      toolCallHistory: toolCallHistory.length > 0 ? toolCallHistory : undefined,
     };
   } catch (error) {
     logger.error("Claude Agent SDK error:", error);
@@ -559,23 +380,73 @@ export function splitForSlack(text: string, maxLength = 3000): string[] {
 /**
  * Tests MCP server connections and returns available tools.
  * Starts a minimal Claude query to get the init message with MCP status.
+ * Also verifies that clack (in-process) tools build successfully.
  */
 export async function testMCP(): Promise<McpTestResult> {
-  const mcpServers = await loadMcpServers();
+  const config = getConfig();
+  const externalMcpServers = await loadMcpServers();
   const configuredServers = getConfiguredMcpServerNames();
 
-  if (!mcpServers || configuredServers.length === 0) {
+  // Build clack tool server with owner role to verify all tools register
+  const dummySession: SessionContext = {
+    sessionId: "test",
+    channelId: "test",
+    messageTs: "test",
+    threadTs: "test",
+    userId: "test",
+    originalQuestion: "test",
+    threadContext: [],
+    refinements: [],
+    errors: [],
+    lastActivity: Date.now(),
+    createdAt: Date.now(),
+  };
+
+  let clackToolNames: string[] = [];
+  let clackMcpServer: unknown;
+  try {
+    const toolCtx = buildToolContext({
+      userId: "test",
+      role: "owner",
+      session: dummySession,
+      config,
+      changesWorkflowEnabled: true,
+    });
+    const clackTools = buildClackTools(toolCtx);
+    clackToolNames = clackTools.toolNames;
+    clackMcpServer = clackTools.mcpServer;
+  } catch (error) {
+    return {
+      success: false,
+      configuredServers,
+      connectedServers: [],
+      failedServers: [],
+      tools: [],
+      mcpTools: [],
+      clackTools: [],
+      error: `Clack tool server failed to build: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+
+  if (!externalMcpServers || configuredServers.length === 0) {
     return {
       success: true,
       configuredServers: [],
       connectedServers: [],
       failedServers: [],
-      tools: [],
+      tools: clackToolNames,
       mcpTools: [],
+      clackTools: clackToolNames,
     };
   }
 
   const abortController = new AbortController();
+
+  // Merge clack tools with external MCP servers for the test query
+  const mcpServers = {
+    ...externalMcpServers,
+    clack: clackMcpServer,
+  } as Record<string, unknown>;
 
   try {
     let tools: string[] = [];
@@ -588,7 +459,7 @@ export async function testMCP(): Promise<McpTestResult> {
         cwd: process.cwd(),
         model: "haiku", // Use cheapest model for test
         permissionMode: "bypassPermissions",
-        mcpServers,
+        mcpServers: mcpServers as Record<string, import("@anthropic-ai/claude-agent-sdk").McpServerConfig>,
         abortController,
         maxTurns: 1,
       },
@@ -611,7 +482,8 @@ export async function testMCP(): Promise<McpTestResult> {
     const failedServers = mcpServerStatus.filter((s) => s.status !== "connected");
 
     // Filter MCP tools (they start with "mcp__")
-    const mcpTools = tools.filter((t) => t.startsWith("mcp__"));
+    const mcpTools = tools.filter((t) => t.startsWith("mcp__") && !t.startsWith("mcp__clack__"));
+    const clackTools = tools.filter((t) => t.startsWith("mcp__clack__"));
 
     return {
       success: true,
@@ -620,6 +492,7 @@ export async function testMCP(): Promise<McpTestResult> {
       failedServers,
       tools,
       mcpTools,
+      clackTools,
     };
   } catch (error) {
     // AbortError is expected - we abort after getting init
@@ -631,6 +504,7 @@ export async function testMCP(): Promise<McpTestResult> {
         failedServers: [],
         tools: [],
         mcpTools: [],
+        clackTools: clackToolNames,
       };
     }
 
@@ -641,6 +515,7 @@ export async function testMCP(): Promise<McpTestResult> {
       failedServers: [],
       tools: [],
       mcpTools: [],
+      clackTools: clackToolNames,
       error: error instanceof Error ? error.message : String(error),
     };
   }
@@ -654,12 +529,19 @@ export async function analyzeError(
   errorMessage: string,
   conversationTrace: ConversationMessage[]
 ): Promise<string> {
-  const config = getConfig();
-
   // Format trace for analysis (last 10 messages)
   const recentTrace = conversationTrace.slice(-10);
   const traceText = recentTrace
-    .map((m) => `[${m.type}${m.subtype ? `:${m.subtype}` : ""}] ${m.content}`)
+    .map((m) => {
+      let line = `[${m.type}${m.subtype ? `:${m.subtype}` : ""}] ${m.content}`;
+      if (m.toolCall) {
+        line += `\n  Tool: ${m.toolCall.tool}(${JSON.stringify(m.toolCall.args).substring(0, 200)})`;
+        if (Object.keys(m.toolCall.result).length > 0) {
+          line += `\n  Result: ${JSON.stringify(m.toolCall.result).substring(0, 200)}`;
+        }
+      }
+      return line;
+    })
     .join("\n");
 
   const prompt = `Analyze this error from a Claude Agent SDK session and provide a brief (2-3 sentence) explanation of what likely went wrong.

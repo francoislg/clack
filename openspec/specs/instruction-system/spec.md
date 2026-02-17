@@ -69,25 +69,13 @@ The system SHALL interpolate variables in all instruction files.
 
 #### Scenario: Standard variables
 - **WHEN** instruction files are loaded
-- **THEN** the system replaces `{REPOSITORIES_LIST}` with the formatted repository list
-- **AND** replaces `{BOT_NAME}` with the configured app name
-- **AND** replaces `{MCP_INTEGRATIONS}` with the formatted MCP server list
-
-#### Scenario: Change-specific variables
-- **GIVEN** changesWorkflow is enabled and the user has change capabilities
-- **WHEN** the dev/admin instructions file is loaded
-- **THEN** the system replaces `{CHANGE_REQUEST_BLOCK}` with the full change detection section
-- **AND** replaces `{RESUMABLE_SESSIONS}` with the user's active resumable sessions
-
-#### Scenario: Admin meta-variable
-- **GIVEN** the admin instructions file contains `{AVAILABLE_VARIABLES}`
-- **WHEN** interpolation runs
-- **THEN** the system replaces `{AVAILABLE_VARIABLES}` with an auto-generated variable reference table sourced from the instruction variables registry
+- **THEN** the system replaces `{BOT_NAME}` with the configured app name
 
 #### Scenario: Unavailable variables resolve to empty
 - **GIVEN** a variable is referenced in an instruction file but has no value in context
 - **WHEN** interpolation runs
 - **THEN** the variable placeholder is replaced with an empty string
+- **AND** a warning is logged identifying the unknown variable
 
 ### Requirement: Default Configuration Directory
 
@@ -112,3 +100,9 @@ The system SHALL compose the final system prompt by concatenating base and role 
 - **THEN** the system concatenates: base instructions + role instructions
 - **AND** interpolates variables after concatenation
 - **AND** the role section is separated by a newline from the base
+
+#### Scenario: Instruction files contain behavioral guidance only
+- **WHEN** instruction files are authored or customized
+- **THEN** they contain tone, style, and behavioral rules
+- **AND** they do NOT contain XML format documentation or state dump placeholders
+- **AND** dynamic state (repositories, sessions, config files) is available to Claude via query tools instead

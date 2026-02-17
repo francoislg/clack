@@ -163,7 +163,11 @@ export async function sendErrorReport(
     .map((m) => {
       const typeLabel = m.subtype ? `${m.type}:${m.subtype}` : m.type;
       const content = m.content.length > 200 ? m.content.substring(0, 200) + "..." : m.content;
-      return `• [${typeLabel}] ${content}`;
+      let line = `• [${typeLabel}] ${content}`;
+      if (m.toolCall) {
+        line += `\n  _Tool: ${m.toolCall.tool}_`;
+      }
+      return line;
     })
     .join("\n");
 

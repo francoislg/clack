@@ -21,7 +21,10 @@ WORKDIR /app
 RUN apk add --no-cache git curl bash
 
 # Install Claude Code CLI (required by @anthropic-ai/claude-agent-sdk)
-RUN curl -fsSL https://claude.ai/install.sh | bash
+# Installer puts it in /root/.local; copy to /usr/local/bin so it's accessible to non-root user
+RUN curl -fsSL https://claude.ai/install.sh | bash \
+    && cp "$(readlink -f /root/.local/bin/claude)" /usr/local/bin/claude \
+    && rm -rf /root/.local/share/claude /root/.local/bin/claude
 
 # Install github-mcp-server for GitHub API access via MCP
 ARG GITHUB_MCP_SERVER_VERSION=0.30.3
@@ -58,6 +61,11 @@ USER clack
 
 # Set HOME for Claude Code
 ENV HOME=/home/clack
+
+# Configure git for the clack user (needed by Claude Code for push operations)
+RUN git config --global user.name "Clack" && \
+    git config --global user.email "clack[bot]@users.noreply.github.com" && \
+    git config --global safe.directory '*'
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \

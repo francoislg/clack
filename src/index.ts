@@ -46,10 +46,13 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // Step 2: Test MCP connections
+  // Step 2: Test MCP connections and clack tools
   logger.debug("Testing MCP connections...");
   try {
     const mcpResult = await testMCP();
+    if (mcpResult.clackTools.length > 0) {
+      logger.info(`Clack tools registered: ${mcpResult.clackTools.join(", ")}`);
+    }
     if (mcpResult.configuredServers.length > 0) {
       if (mcpResult.connectedServers.length > 0) {
         const serverNames = mcpResult.connectedServers.map((s) => s.name).join(", ");
@@ -60,6 +63,9 @@ async function main(): Promise<void> {
           logger.warn(`MCP server failed: ${server.name} (${server.status})`);
         }
       }
+    }
+    if (!mcpResult.success) {
+      logger.warn(`MCP test issue: ${mcpResult.error}`);
     }
   } catch (error) {
     logger.warn("Failed to test MCP connections:", error);

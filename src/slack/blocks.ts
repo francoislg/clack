@@ -1,4 +1,5 @@
 import { convertMarkdownToSlack, splitForSlack } from "../claude.js";
+import type { SubmitResponsePayload, Action, ResponseSection } from "../tools/types.js";
 
 function answerSections(answer: string) {
   return splitForSlack(convertMarkdownToSlack(answer)).map((chunk) => ({
@@ -7,70 +8,186 @@ function answerSections(answer: string) {
   }));
 }
 
-export function getResponseBlocks(answer: string, sessionId: string) {
+// ============================================================================
+// Structured Response Rendering (new path — from submit_response tool)
+// ============================================================================
+
+/** Default button labels for each action type */
+const DEFAULT_LABELS: Record<string, string> = {
+  accept: "✅ Accept",
+  reject: "❌ Reject",
+  edit: "✏️ Edit & Accept",
+  refine: "🔄 Refine",
+  choice: "Select",
+  followup: "Continue",
+  change: "Start Change",
+  config_update: "Apply Update",
+  review: "Review",
+  merge: "Merge",
+  update: "Update",
+  close: "Close PR",
+};
+
+/** Button styles for action types */
+const ACTION_STYLES: Record<string, "primary" | "danger" | undefined> = {
+  accept: "primary",
+  reject: "danger",
+  change: "primary",
+  merge: "primary",
+  close: "danger",
+};
+
+/** Map action type to Slack action_id */
+function getActionId(action: Action): string {
+  // Avoid collision with existing clack_update (Q&A context refresh)
+  if (action.type === "update") return "clack_update_change";
+  return `clack_${action.type}`;
+}
+
+/** Encode button value with session ID and action-specific data */
+function encodeActionValue(sessionId: string, action: Action): string {
+  switch (action.type) {
+    // Backward-compat: plain sessionId for existing handlers
+    case "accept":
+    case "reject":
+    case "edit":
+      return sessionId;
+    // JSON-encoded for new/extended handlers
+    case "refine":
+      return action.hint
+        ? JSON.stringify({ s: sessionId, h: action.hint })
+        : sessionId;
+    case "choice":
+      return JSON.stringify({ s: sessionId, v: action.value });
+    case "followup":
+      return JSON.stringify({ s: sessionId, p: action.prompt });
+    case "change":
+    case "config_update":
+    case "review":
+    case "merge":
+    case "update":
+    case "close":
+      return JSON.stringify({ s: sessionId, r: action.ref });
+  }
+}
+
+/** Decode a button value to extract sessionId */
+export function decodeActionValue(value: string): { sessionId: string; ref?: string; choiceValue?: string; prompt?: string; hint?: string } {
+  // Try JSON first
+  try {
+    const parsed = JSON.parse(value);
+    if (typeof parsed === "object" && parsed.s) {
+      return {
+        sessionId: parsed.s,
+        ref: parsed.r,
+        choiceValue: parsed.v,
+        prompt: parsed.p,
+        hint: parsed.h,
+      };
+    }
+  } catch {
+    // Not JSON — plain sessionId (backward compat)
+  }
+  return { sessionId: value };
+}
+
+/** Render sections from SubmitResponsePayload into Slack blocks */
+function renderSections(sections: ResponseSection[]) {
+  const blocks: Record<string, unknown>[] = [];
+  for (const section of sections) {
+    const text = section.title
+      ? `*${section.title}*\n${section.body}`
+      : section.body;
+    // Split long sections to fit Slack limits
+    const chunks = splitForSlack(convertMarkdownToSlack(text));
+    for (const chunk of chunks) {
+      blocks.push({
+        type: "section" as const,
+        text: { type: "mrkdwn" as const, text: chunk },
+      });
+    }
+  }
+  return blocks;
+}
+
+/** Map an Action to a Slack button element */
+function actionToButton(action: Action, sessionId: string) {
+  const label = ("label" in action && action.label) || DEFAULT_LABELS[action.type] || action.type;
+  const style = ACTION_STYLES[action.type];
+
+  const button: Record<string, unknown> = {
+    type: "button" as const,
+    text: {
+      type: "plain_text" as const,
+      text: label,
+      emoji: true,
+    },
+    action_id: getActionId(action),
+    value: encodeActionValue(sessionId, action),
+  };
+
+  if (style) {
+    button.style = style;
+  }
+
+  return button;
+}
+
+/**
+ * Build Slack blocks from a structured SubmitResponsePayload.
+ * This is the new rendering path — Claude controls sections and actions.
+ */
+export function getStructuredResponseBlocks(payload: SubmitResponsePayload, sessionId: string) {
+  const sectionBlocks = renderSections(payload.sections);
+
+  // Slack allows max 5 buttons per actions block — split if needed
+  const actionChunks: Action[][] = [];
+  for (let i = 0; i < payload.actions.length; i += 5) {
+    actionChunks.push(payload.actions.slice(i, i + 5));
+  }
+
+  const actionBlocks = actionChunks.map((chunk) => ({
+    type: "actions" as const,
+    elements: chunk.map((action) => actionToButton(action, sessionId)),
+  }));
+
   return [
-    ...answerSections(answer),
-    {
-      type: "divider" as const,
-    },
-    {
-      type: "actions" as const,
-      elements: [
-        {
-          type: "button" as const,
-          text: {
-            type: "plain_text" as const,
-            text: "✅ Accept",
-            emoji: true,
-          },
-          style: "primary" as const,
-          action_id: "clack_accept",
-          value: sessionId,
-        },
-        {
-          type: "button" as const,
-          text: {
-            type: "plain_text" as const,
-            text: "✏️ Edit & Accept",
-            emoji: true,
-          },
-          action_id: "clack_edit",
-          value: sessionId,
-        },
-        {
-          type: "button" as const,
-          text: {
-            type: "plain_text" as const,
-            text: "🔄 Refine",
-            emoji: true,
-          },
-          action_id: "clack_refine",
-          value: sessionId,
-        },
-        {
-          type: "button" as const,
-          text: {
-            type: "plain_text" as const,
-            text: "🔃 Update",
-            emoji: true,
-          },
-          action_id: "clack_update",
-          value: sessionId,
-        },
-        {
-          type: "button" as const,
-          text: {
-            type: "plain_text" as const,
-            text: "❌ Reject",
-            emoji: true,
-          },
-          style: "danger" as const,
-          action_id: "clack_reject",
-          value: sessionId,
-        },
-      ],
-    },
+    ...sectionBlocks,
+    { type: "divider" as const },
+    ...actionBlocks,
   ];
+}
+
+/** Actions that must always be present in ephemeral responses. */
+const REQUIRED_EPHEMERAL_ACTIONS: Action["type"][] = ["accept", "reject", "refine"];
+
+/**
+ * Ensure a SubmitResponsePayload includes the mandatory ephemeral actions
+ * (accept, reject, refine). Missing ones are appended with default labels.
+ */
+export function ensureEphemeralActions(payload: SubmitResponsePayload): SubmitResponsePayload {
+  const existingTypes = new Set(payload.actions.map((a) => a.type));
+  const missing: Action[] = [];
+
+  for (const type of REQUIRED_EPHEMERAL_ACTIONS) {
+    if (!existingTypes.has(type)) {
+      missing.push({ type } as Action);
+    }
+  }
+
+  if (missing.length === 0) return payload;
+
+  return {
+    ...payload,
+    actions: [...payload.actions, ...missing],
+  };
+}
+
+/**
+ * Build Slack blocks for the accepted (public) response from structured sections.
+ */
+export function getStructuredAcceptedBlocks(sections: ResponseSection[]) {
+  return renderSections(sections);
 }
 
 export function getAcceptedBlocks(answer: string) {
@@ -169,4 +286,76 @@ export function getHiddenThreadNotificationBlocks(text: string, sessionId: strin
 
 export function getMessageBlocks(answer: string) {
   return answerSections(answer);
+}
+
+// ============================================================================
+// Block Validation
+// ============================================================================
+
+const SLACK_SECTION_TEXT_LIMIT = 3000;
+const SLACK_BUTTON_LABEL_LIMIT = 75;
+const SLACK_MAX_BLOCKS = 50;
+
+export interface BlockValidationError {
+  field: string;
+  message: string;
+  currentLength: number;
+  limit: number;
+}
+
+/**
+ * Validate rendered Slack blocks against known Block Kit constraints.
+ * Returns an empty array if valid, or an array of errors describing each violation.
+ */
+export function validateSlackBlocks(blocks: Record<string, unknown>[]): BlockValidationError[] {
+  const errors: BlockValidationError[] = [];
+
+  // Check total block count
+  if (blocks.length > SLACK_MAX_BLOCKS) {
+    errors.push({
+      field: "blocks",
+      message: `Total block count (${blocks.length}) exceeds the ${SLACK_MAX_BLOCKS}-block limit. Reduce the number of sections.`,
+      currentLength: blocks.length,
+      limit: SLACK_MAX_BLOCKS,
+    });
+  }
+
+  let sectionIndex = 0;
+  let actionsBlockIndex = 0;
+
+  for (const block of blocks) {
+    if (block.type === "section") {
+      const textObj = block.text as { text?: string } | undefined;
+      const text = textObj?.text ?? "";
+      if (text.length > SLACK_SECTION_TEXT_LIMIT) {
+        errors.push({
+          field: `section[${sectionIndex}]`,
+          message: `Section text (${text.length} chars) exceeds the ${SLACK_SECTION_TEXT_LIMIT}-char limit. Shorten the content.`,
+          currentLength: text.length,
+          limit: SLACK_SECTION_TEXT_LIMIT,
+        });
+      }
+      sectionIndex++;
+    } else if (block.type === "actions") {
+      const elements = (block.elements ?? []) as Record<string, unknown>[];
+      for (let i = 0; i < elements.length; i++) {
+        const el = elements[i];
+        if (el.type === "button") {
+          const textObj = el.text as { text?: string } | undefined;
+          const label = textObj?.text ?? "";
+          if (label.length > SLACK_BUTTON_LABEL_LIMIT) {
+            errors.push({
+              field: `actions[${actionsBlockIndex}].button[${i}]`,
+              message: `Button label "${label}" (${label.length} chars) exceeds the ${SLACK_BUTTON_LABEL_LIMIT}-char limit.`,
+              currentLength: label.length,
+              limit: SLACK_BUTTON_LABEL_LIMIT,
+            });
+          }
+        }
+      }
+      actionsBlockIndex++;
+    }
+  }
+
+  return errors;
 }

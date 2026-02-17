@@ -1,79 +1,60 @@
 # Config Update Via Chat Specification
 
 ## Purpose
-Allow admins to update configuration files through Slack chat, with Claude proposing changes and a confirmation flow before applying them.
+Allow admins to update configuration files through Slack chat, with Claude proposing changes via MCP tools and a confirmation flow before applying them.
 
 ## Requirements
 ### Requirement: Config Update Detection
 
-The system SHALL detect when Claude's response contains a `<config-update>` tag and route it to the config update handler.
+The system SHALL detect config update intent via the `propose_config_update` MCP tool call.
 
-#### Scenario: Parse config update from response
+#### Scenario: Config update via tool call
 - **GIVEN** an admin or owner user asked Claude to update a configuration file
-- **WHEN** Claude's response contains `<config-update><file>{filename}</file><content>{content}</content></config-update>`
-- **THEN** the system parses the filename and content
-- **AND** returns a `ClaudeResponse` with `isConfigUpdate: true` and the parsed info
+- **WHEN** Claude calls `propose_config_update` with file and content
+- **THEN** the tool validates the filename and content
+- **AND** stages the intent with a ref ID
+- **AND** Claude includes a `config_update` action referencing the ref in `submit_response`
 
-#### Scenario: Config update takes lower priority than change request
-- **GIVEN** Claude's response contains both `<config-update>` and `<change-request>` tags
-- **WHEN** the response is parsed
-- **THEN** the change request is handled and the config update is ignored
+#### Scenario: Validation error handled by Claude
+- **GIVEN** Claude calls `propose_config_update` with an invalid filename
+- **WHEN** the tool returns an error
+- **THEN** Claude receives the error message
+- **AND** Claude can retry with a corrected filename or explain the issue to the user
 
-#### Scenario: Non-admin user response with config update tags
-- **GIVEN** a non-admin user's response contains `<config-update>` tags
-- **WHEN** the response is parsed
-- **THEN** the config update is ignored (changes workflow detection is admin-gated)
+#### Scenario: Non-admin user cannot access tool
+- **GIVEN** a non-admin user
+- **WHEN** the tool server is built
+- **THEN** `propose_config_update` is NOT registered
+- **AND** Claude cannot call it regardless of prompt instructions
 
 ### Requirement: Config Update Confirmation Flow
 
 The system SHALL show a preview and require explicit confirmation before writing config files.
 
 #### Scenario: Show preview with action buttons
-- **GIVEN** a config update was parsed from Claude's response
-- **WHEN** the handler processes the response
-- **THEN** it posts a message in the thread showing the filename and content preview
-- **AND** includes "Apply" and "Dismiss" buttons
-- **AND** stores the pending update content in an in-memory store keyed by a UUID
+- **GIVEN** Claude called `propose_config_update` and included a `config_update` action in `submit_response`
+- **WHEN** the response is rendered
+- **THEN** the sections from `submit_response` show the preview (Claude controls the diff/preview content)
+- **AND** the `config_update` action renders as an "Apply Update" button
+- **AND** a `reject` action renders as a dismiss button
 
 #### Scenario: Apply config update
-- **GIVEN** a pending config update exists
-- **WHEN** an admin clicks the "Apply" button
-- **THEN** the system verifies the user is an admin
+- **GIVEN** a pending config update staged via tool
+- **WHEN** an admin clicks the "Apply Update" button
+- **THEN** the system resolves the staged intent by ref ID
+- **AND** verifies the user is an admin
 - **AND** validates the filename is in the known instruction files list
 - **AND** writes the content via `writeInstructionFile()`
 - **AND** replies confirming the update was applied
 
 #### Scenario: Dismiss config update
-- **GIVEN** a pending config update exists
-- **WHEN** a user clicks the "Dismiss" button
-- **THEN** the pending update is removed from the store
-- **AND** the preview message is updated to show it was dismissed
+- **GIVEN** a pending config update staged via tool
+- **WHEN** a user clicks the dismiss/reject button
+- **THEN** the ephemeral message is deleted
+- **AND** no file is written
 
-#### Scenario: Pending update expiry
-- **GIVEN** a pending config update was stored
-- **WHEN** 5 minutes have elapsed without action
-- **THEN** the pending update is removed from the store
-
-#### Scenario: Invalid filename rejected
-- **GIVEN** a config update was parsed with a filename not in `listInstructionFiles()`
-- **WHEN** the handler validates the update
-- **THEN** the update is rejected with an error message in the thread
-
-### Requirement: Config Update System Prompt
-
-The system SHALL include config update instructions in the system prompt for admin/owner users.
-
-#### Scenario: Admin sees config update instructions
-- **GIVEN** the user has admin or owner role
-- **WHEN** the system prompt is built
-- **THEN** it includes a `{CONFIG_UPDATE_BLOCK}` section listing available config files, their read paths, and the output format
-
-#### Scenario: Non-admin does not see config update instructions
-- **GIVEN** the user has dev or member role
-- **WHEN** the system prompt is built
-- **THEN** the `{CONFIG_UPDATE_BLOCK}` is empty
-
-#### Scenario: File paths for reading
-- **GIVEN** the config update block is included
-- **WHEN** Claude needs to read current file content
-- **THEN** the instructions direct Claude to read from `../configuration/{filename}` (override) or `../default_configuration/{filename}` (default) relative to the working directory
+#### Scenario: Invalid filename rejected at tool level
+- **GIVEN** Claude calls `propose_config_update` with a filename not in `listInstructionFiles()`
+- **WHEN** the tool validates the input
+- **THEN** the tool returns an error to Claude
+- **AND** Claude can retry or inform the user

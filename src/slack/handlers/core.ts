@@ -1,7 +1,7 @@
 import type { App } from "@slack/bolt";
 import { ErrorCode, type WebAPIPlatformError } from "@slack/web-api";
 import type { SessionContext } from "../../sessions.js";
-import type { ClaudeResponse, ConversationMessage } from "../../claude.js";
+import type { ClaudeResponse, ConversationMessage, AskClaudeOptions } from "../../claude.js";
 import {
   findSessionByThread,
   createSession,
@@ -10,13 +10,15 @@ import {
   updateThreadContext,
   setLastAnswer,
   addError,
+  addRefinement,
 } from "../../sessions.js";
 import { getConfig, type Config } from "../../config.js";
 import { logger } from "../../logger.js";
 import { askClaude, analyzeError } from "../../claude.js";
 import {
   getMessageBlocks,
-  getResponseBlocks,
+  getStructuredResponseBlocks,
+  ensureEphemeralActions,
   getInvestigatingBlocks,
   getErrorBlocksWithRetry,
   getHiddenThreadNotificationBlocks,
@@ -30,15 +32,7 @@ import {
 } from "../messagesApi.js";
 import { transformUserMentions } from "../userCache.js";
 import { getSessionByThread } from "../../changes/session.js";
-import { detectFollowUpCommand } from "../../changes/detection.js";
-import { handleFollowUp } from "../../changes/workflow.js";
-import {
-  getClaudeOptions,
-  handleChangeRequest,
-  handleResumeRequest,
-} from "./changeWorkflowHelper.js";
-import type { ConfigUpdateInfo } from "../../claude.js";
-import { listInstructionFiles, writeInstructionFile } from "../../configurationFiles.js";
+import { getClaudeOptions } from "./changeWorkflowHelper.js";
 
 export type TriggerType = "directMessages" | "mentions" | "reactions";
 export type ResponseStyle = "regular" | "ephemeral";
@@ -71,68 +65,6 @@ interface ThinkingState {
   messageTs?: string;
   usedEmoji: boolean;
   emoji?: string;
-}
-
-// ============================================================
-// CHANGE SESSION FOLLOW-UP HANDLING
-// ============================================================
-
-async function tryHandleChangeSessionFollowUp(ctx: ProcessingContext): Promise<boolean> {
-  const { client, channelId, messageText, threadTs } = ctx;
-
-  if (!threadTs) return false;
-
-  const changeSession = getSessionByThread(channelId, threadTs);
-  if (!changeSession) return false;
-
-  const detection = await detectFollowUpCommand(
-    messageText,
-    changeSession.worktree.worktreePath
-  );
-
-  if (!detection.isCommand || !detection.info) return false;
-
-  const { command, additionalInstructions } = detection.info;
-  logger.debug(`Detected follow-up command "${command}" in change thread ${threadTs}`);
-
-  const ackMessage = await client.chat.postMessage({
-    channel: channelId,
-    thread_ts: threadTs,
-    text: `Processing ${command} command...`,
-  });
-
-  const result = await handleFollowUp(
-    changeSession,
-    command,
-    additionalInstructions,
-    async (progressMessage: string) => {
-      try {
-        await client.chat.update({
-          channel: channelId,
-          ts: ackMessage.ts!,
-          text: progressMessage,
-        });
-      } catch (error) {
-        logger.warn("Failed to update progress message:", error);
-      }
-    }
-  );
-
-  if (result.success) {
-    await client.chat.update({
-      channel: channelId,
-      ts: ackMessage.ts!,
-      text: `✅ ${result.summary || "Done!"}${result.prUrl ? `\n${result.prUrl}` : ""}`,
-    });
-  } else {
-    await client.chat.update({
-      channel: channelId,
-      ts: ackMessage.ts!,
-      text: `❌ ${result.error || "Command failed"}`,
-    });
-  }
-
-  return true;
 }
 
 // ============================================================
@@ -178,6 +110,8 @@ async function setupSession(ctx: ProcessingContext): Promise<SessionContext> {
     channelId,
     threadTs: effectiveThreadTs,
     userId,
+    isEphemeral: ctx.isEphemeral,
+    triggerType: ctx.triggerType,
   });
 
   return session;
@@ -263,47 +197,86 @@ async function removeThinkingEmoji(
 async function postSuccessResponse(
   ctx: ProcessingContext,
   session: SessionContext,
-  answer: string,
+  response: ClaudeResponse,
   thinkingMessageTs?: string
 ): Promise<void> {
-  const { client, config, userId, channelId, effectiveThreadTs, isEphemeral } = ctx;
+  const { client, channelId, effectiveThreadTs, isEphemeral } = ctx;
 
   logger.debug("Posting Claude response...");
-  await setLastAnswer(session.sessionId, answer);
+  await setLastAnswer(session.sessionId, response.answer);
+
+  // Persist tool-related state for button handlers and session reconstruction
+  const sessionUpdates: Record<string, unknown> = {};
+  if (response.response) {
+    sessionUpdates.lastResponse = response.response;
+  }
+  if (response.stagedIntents && Object.keys(response.stagedIntents).length > 0) {
+    sessionUpdates.stagedIntents = response.stagedIntents;
+  }
+  if (response.toolCallHistory && response.toolCallHistory.length > 0) {
+    sessionUpdates.toolCallHistory = response.toolCallHistory;
+  }
+  if (Object.keys(sessionUpdates).length > 0) {
+    await updateSession(session.sessionId, sessionUpdates as any);
+  }
 
   if (isEphemeral) {
-    await postEphemeralResponse(ctx, session, answer);
-  } else if (thinkingMessageTs) {
-    await client.chat.update({
-      channel: channelId,
-      ts: thinkingMessageTs,
-      blocks: getMessageBlocks(answer),
-      text: answer,
-    });
+    await postEphemeralResponse(ctx, session, response);
   } else {
-    await client.chat.postMessage({
-      channel: channelId,
-      thread_ts: effectiveThreadTs,
-      blocks: getMessageBlocks(answer),
-      text: answer,
-    });
+    // Use pre-rendered blocks from submit_response when available (already validated)
+    const blocks = response.renderedBlocks
+      ?? (response.response
+        ? getStructuredResponseBlocks(response.response, session.sessionId)
+        : getMessageBlocks(response.answer));
+
+    if (thinkingMessageTs) {
+      await client.chat.update({
+        channel: channelId,
+        ts: thinkingMessageTs,
+        blocks: blocks as any[],
+        text: response.answer,
+      });
+    } else {
+      await client.chat.postMessage({
+        channel: channelId,
+        thread_ts: effectiveThreadTs,
+        blocks: blocks as any[],
+        text: response.answer,
+      });
+    }
   }
 }
 
 async function postEphemeralResponse(
   ctx: ProcessingContext,
   session: SessionContext,
-  answer: string
+  response: ClaudeResponse
 ): Promise<void> {
   const { client, config, userId, channelId, effectiveThreadTs } = ctx;
 
-  await client.chat.postEphemeral({
-    channel: channelId,
-    user: userId,
-    thread_ts: effectiveThreadTs,
-    blocks: getResponseBlocks(answer, session.sessionId),
-    text: answer,
-  });
+  if (response.response) {
+    // Ensure accept/reject/refine are always present for ephemeral
+    const enforced = ensureEphemeralActions(response.response);
+    // Re-render if actions were added, otherwise use pre-rendered blocks
+    const blocks = (enforced !== response.response)
+      ? getStructuredResponseBlocks(enforced, session.sessionId)
+      : (response.renderedBlocks ?? getStructuredResponseBlocks(enforced, session.sessionId));
+    await client.chat.postEphemeral({
+      channel: channelId,
+      user: userId,
+      thread_ts: effectiveThreadTs,
+      blocks: blocks as any[],
+      text: response.answer,
+    });
+  } else {
+    // No structured response — render text only
+    await client.chat.postEphemeral({
+      channel: channelId,
+      user: userId,
+      thread_ts: effectiveThreadTs,
+      text: response.answer,
+    });
+  }
 
   if (config.slack.notifyHiddenThread) {
     await notifyHiddenThread(ctx, session.sessionId);
@@ -403,109 +376,71 @@ async function sendErrorDM(
 }
 
 // ============================================================
-// CHANGE/RESUME REQUEST ROUTING
+// BLOCK VALIDATION RETRY
 // ============================================================
 
-async function handleConfigUpdate(
+async function retryWithBlockError(
   ctx: ProcessingContext,
-  info: ConfigUpdateInfo,
-  thinkingMessageTs?: string
-): Promise<void> {
-  const { client, channelId, effectiveThreadTs } = ctx;
+  session: SessionContext,
+  claudeOptions: AskClaudeOptions,
+  changeSession: import("../../changes/types.js").ChangeSession | undefined,
+  postError: unknown
+): Promise<ClaudeResponse | null> {
+  const errorDetail = (postError as WebAPIPlatformError).data?.response_metadata?.messages?.join("; ")
+    || "Slack rejected the blocks as invalid.";
 
-  // Validate filename against known instruction files
-  const knownFiles = listInstructionFiles();
-  const isKnown = knownFiles.some((f) => f.filename === info.file);
+  await addRefinement(
+    session.sessionId,
+    `SYSTEM: Your previous submit_response produced Slack blocks that were rejected with invalid_blocks. Error: ${errorDetail}. Please simplify your sections (shorter text, fewer sections) and call submit_response again.`
+  );
 
-  if (!isKnown) {
-    const errorText = `Cannot update \`${info.file}\` — not a recognized configuration file.`;
-    if (thinkingMessageTs) {
-      await client.chat.update({ channel: channelId, ts: thinkingMessageTs, text: errorText });
-    } else {
-      await client.chat.postMessage({ channel: channelId, thread_ts: effectiveThreadTs, text: errorText });
-    }
-    return;
+  const updatedSession = await getSession(session.sessionId);
+  if (!updatedSession) {
+    logger.error("Could not reload session for block validation retry");
+    return null;
   }
 
-  try {
-    writeInstructionFile(info.file, info.content);
-    logger.info(`User ${ctx.userId} updated config file ${info.file} via chat`);
+  logger.info(`Retrying Claude for block validation (session: ${session.sessionId})...`);
+  const retryResponse = await askClaude(updatedSession, {
+    ...claudeOptions,
+    changeSession: changeSession || undefined,
+  });
 
-    const confirmText = `Updated \`${info.file}\` successfully.`;
-    if (thinkingMessageTs) {
-      await client.chat.update({ channel: channelId, ts: thinkingMessageTs, text: confirmText });
-    } else {
-      await client.chat.postMessage({ channel: channelId, thread_ts: effectiveThreadTs, text: confirmText });
-    }
-  } catch (error) {
-    logger.error(`Failed to write config file ${info.file}:`, error);
-    const errorText = `Failed to update \`${info.file}\`. Check server logs.`;
-    if (thinkingMessageTs) {
-      await client.chat.update({ channel: channelId, ts: thinkingMessageTs, text: errorText });
-    } else {
-      await client.chat.postMessage({ channel: channelId, thread_ts: effectiveThreadTs, text: errorText });
-    }
+  if (!retryResponse.success) {
+    await handleErrorResponse(ctx, session, retryResponse);
+    return null;
   }
+
+  return retryResponse;
 }
 
-async function handleSpecialResponses(
+async function postPlainTextFallback(
   ctx: ProcessingContext,
   response: ClaudeResponse,
   thinkingMessageTs?: string
-): Promise<boolean> {
-  const { client, userId, channelId, messageTs, messageText, threadTs, triggerType } = ctx;
+): Promise<void> {
+  const { client, userId, channelId, effectiveThreadTs, isEphemeral } = ctx;
 
-  if (response.isChangeRequest && response.changeRequestInfo) {
-    logger.debug("Claude detected change request, routing to change workflow...");
-    if (thinkingMessageTs) {
-      await client.chat.update({
-        channel: channelId,
-        ts: thinkingMessageTs,
-        text: "Starting change request...",
-      });
-    }
-    await handleChangeRequest(
-      client,
-      userId,
-      channelId,
-      messageTs,
-      messageText,
-      response.changeRequestInfo,
-      triggerType,
-      threadTs
-    );
-    return true;
+  if (isEphemeral) {
+    await client.chat.postEphemeral({
+      channel: channelId,
+      user: userId,
+      thread_ts: effectiveThreadTs,
+      text: response.answer,
+    });
+  } else if (thinkingMessageTs) {
+    await client.chat.update({
+      channel: channelId,
+      ts: thinkingMessageTs,
+      text: response.answer,
+    });
+  } else {
+    await client.chat.postMessage({
+      channel: channelId,
+      thread_ts: effectiveThreadTs,
+      text: response.answer,
+    });
   }
-
-  if (response.isResumeRequest && response.resumeRequestInfo) {
-    logger.debug(`Claude detected resume request for branch ${response.resumeRequestInfo.branchName}...`);
-    if (thinkingMessageTs) {
-      await client.chat.update({
-        channel: channelId,
-        ts: thinkingMessageTs,
-        text: "Resuming previous session...",
-      });
-    }
-    await handleResumeRequest(
-      client,
-      userId,
-      channelId,
-      messageTs,
-      messageText,
-      response.resumeRequestInfo,
-      triggerType,
-      threadTs
-    );
-    return true;
-  }
-
-  if (response.isConfigUpdate && response.configUpdateInfo) {
-    logger.debug(`Claude detected config update for file ${response.configUpdateInfo.file}`);
-    await handleConfigUpdate(ctx, response.configUpdateInfo, thinkingMessageTs);
-    return true;
-  }
-
-  return false;
 }
 
 // ============================================================
@@ -540,10 +475,8 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
 
   logger.debug(`Processing message from ${userId} in ${channelId} (trigger: ${triggerType})`);
 
-  // 1. Check for active change session follow-up
-  if (await tryHandleChangeSessionFollowUp(ctx)) {
-    return;
-  }
+  // 1. Check for active change session in thread (for tool context)
+  const changeSession = threadTs ? getSessionByThread(channelId, threadTs) : undefined;
 
   // 2. Set up or retrieve session
   const session = await setupSession(ctx);
@@ -551,25 +484,41 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
   // 3. Show thinking feedback
   const thinking = await showThinkingFeedback(ctx);
 
-  // 4. Call Claude
+  // 4. Call Claude with change session context for follow-up tools
   const claudeOptions = await getClaudeOptions(userId, triggerType);
 
   logger.info(
     `Calling Claude (session: ${session.sessionId}, role: ${claudeOptions.role ?? "member"}, changesWorkflow: ${claudeOptions.changesWorkflowEnabled ?? false})`
   );
-  const response = await askClaude(session, claudeOptions);
+  const response = await askClaude(session, {
+    ...claudeOptions,
+    changeSession: changeSession || undefined,
+  });
 
   // 5. Remove thinking emoji if used
   await removeThinkingEmoji(client, channelId, messageTs, thinking);
 
-  // 6. Handle response
+  // 6. Handle response (with retry on invalid_blocks)
   if (response.success) {
-    // Check for change/resume requests first
-    if (await handleSpecialResponses(ctx, response, thinking.messageTs)) {
-      return;
+    try {
+      await postSuccessResponse(ctx, session, response, thinking.messageTs);
+    } catch (postError) {
+      if (isSlackPlatformError(postError, "invalid_blocks")) {
+        logger.warn(`invalid_blocks error posting response for session ${session.sessionId}, retrying via Claude...`);
+        const retryResponse = await retryWithBlockError(ctx, session, claudeOptions, changeSession, postError);
+        if (retryResponse) {
+          try {
+            await postSuccessResponse(ctx, session, retryResponse, thinking.messageTs);
+          } catch (retryPostError) {
+            // Exhausted retries — fall back to plain text
+            logger.warn("Retry also produced invalid blocks, falling back to plain text");
+            await postPlainTextFallback(ctx, retryResponse, thinking.messageTs);
+          }
+        }
+      } else {
+        throw postError;
+      }
     }
-    // Regular Q&A response
-    await postSuccessResponse(ctx, session, response.answer, thinking.messageTs);
   } else {
     await handleErrorResponse(ctx, session, response, thinking.messageTs);
   }

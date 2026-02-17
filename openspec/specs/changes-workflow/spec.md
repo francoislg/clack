@@ -82,55 +82,54 @@ The system SHALL support a top-level configuration section for the change reques
 
 ### Requirement: Change Request Detection
 
-The system SHALL use Claude's semantic understanding to detect change requests.
+The system SHALL detect change request intent via the `propose_change` MCP tool call.
 
-#### Scenario: Claude-driven detection for DM
-- **GIVEN** `changesWorkflow.enabled` is `true` AND `directMessages.changesWorkflow.enabled` is `true`
-- **AND** the user has dev role
-- **WHEN** a user sends a new DM (not a thread reply)
-- **THEN** the system adds change detection instructions to Claude's prompt
-- **AND** Claude analyzes message intent semantically
+#### Scenario: Claude-driven detection via tool
+- **GIVEN** `changesWorkflow.enabled` is `true` AND the trigger's changes workflow is enabled
+- **AND** the user has dev role (or higher)
+- **WHEN** Claude determines the message is requesting code changes
+- **THEN** Claude calls `propose_change` with branch, description, and repo
+- **AND** the tool validates the input and returns a ref ID
+- **AND** Claude includes a `change` action in `submit_response` referencing the ref
 
-#### Scenario: Claude-driven detection for mention
-- **GIVEN** `changesWorkflow.enabled` is `true` AND `mentions.changesWorkflow.enabled` is `true`
-- **AND** the user has dev role
-- **WHEN** a user mentions the bot
-- **THEN** the system adds change detection instructions to Claude's prompt
-- **AND** Claude analyzes message intent semantically
+#### Scenario: Claude identifies question (no tool call)
+- **GIVEN** change tools are available
+- **WHEN** Claude determines the message is asking a question
+- **THEN** Claude does NOT call `propose_change`
+- **AND** Claude calls `submit_response` with an answer and standard Q&A actions
+
+#### Scenario: Branch validation in tool
+- **WHEN** Claude calls `propose_change` with a branch name
+- **THEN** the tool validates the branch follows `clack/{type}/{name}` convention
+- **AND** validates `type` is one of: fix, feat, refactor, docs, chore
+- **AND** returns an error if validation fails, allowing Claude to retry
+
+#### Scenario: Repository validation in tool
+- **WHEN** Claude calls `propose_change` with a repo name
+- **THEN** the tool validates the repo exists in configuration and supports changes
+- **AND** returns an error with the list of available repos if validation fails
+
+#### Scenario: Existing worktree detection
+- **GIVEN** a worktree already exists for the specified branch and repo
+- **WHEN** Claude calls `propose_change`
+- **THEN** the tool returns success with the ref ID plus existing worktree metadata (status, last activity)
+- **AND** Claude can present a `choice` to the user: resume the existing session or start fresh
 
 #### Scenario: Explicit change request via reaction
 - **GIVEN** `changesWorkflow.enabled` is `true` AND `reactions.changesWorkflow.enabled` is `true`
 - **WHEN** a user reacts with the `reactions.changesWorkflow.trigger` emoji
 - **THEN** the system treats the reacted message as a change request
-- **AND** proceeds with role verification and execution
-
-#### Scenario: Claude identifies change request
-- **GIVEN** change detection is enabled for the trigger type
-- **WHEN** Claude determines the message is requesting code changes
-- **THEN** Claude returns `<change-request>` tags with branch, description, and target repo
-- **AND** the system routes to the change workflow
-
-#### Scenario: Claude identifies question
-- **GIVEN** change detection is enabled for the trigger type
-- **WHEN** Claude determines the message is asking a question (not requesting changes)
-- **THEN** Claude returns `<answer>` tags with the response
-- **AND** the system displays the answer normally (Q&A flow)
-
-#### Scenario: Semantic disambiguation
-- **GIVEN** a message like "how do I fix this?" vs "fix the login bug"
-- **WHEN** Claude analyzes the intent
-- **THEN** questions about fixing are treated as Q&A
-- **AND** explicit fix requests are treated as change requests
-- **AND** Claude defaults to Q&A when uncertain
+- **AND** proceeds with role verification and the tool-based flow
 
 ### Requirement: Change Request Feedback
 
 The system SHALL provide feedback throughout the change request lifecycle.
 
 #### Scenario: Acknowledge change request
-- **WHEN** a change request is detected and authorized
+- **WHEN** a change action is approved by the user (button click)
 - **THEN** the system immediately replies with a status message
-- **AND** the message indicates the request is being processed
+- **AND** resolves the staged intent to get branch, description, and repo
+- **AND** starts the change workflow
 
 #### Scenario: Progress update during execution
 - **WHEN** Claude is executing a change
@@ -176,51 +175,54 @@ The system SHALL track active change requests to prevent conflicts.
 
 ### Requirement: Thread Follow-up Commands
 
-The system SHALL support follow-up commands in the Slack thread after PR creation.
+The system SHALL support follow-up commands in change threads via MCP tools.
 
-#### Scenario: Detect follow-up in change thread
+#### Scenario: Detect follow-up via tools
 - **GIVEN** a Slack thread has an active change session (PR created)
 - **WHEN** a user replies in that thread
-- **THEN** Claude analyzes the message to detect follow-up command intent
-- **AND** Claude returns `<follow-up-command>` tags with command type and instructions
-- **AND** routes to the appropriate handler (review, merge, update, close)
-- **OR** treats as a question if no command is detected
+- **THEN** the tool server includes `request_review`, `request_merge`, `request_update`, `request_close` tools
+- **AND** Claude calls the appropriate tool based on user intent
+- **AND** Claude includes the corresponding action in `submit_response` for user approval
 
-#### Scenario: Review command
+#### Scenario: Review command via tool
 - **GIVEN** an active change thread with a PR
-- **WHEN** user sends "review", "check comments", or "address feedback"
-- **THEN** the system fetches PR comments and review feedback via the GitHub API (Octokit)
-- **AND** Claude implements requested changes
-- **AND** pushes updates to the PR
+- **WHEN** Claude calls `request_review`
+- **THEN** the tool validates the PR exists
+- **AND** stages a review intent
+- **AND** user approval triggers: fetch PR comments, run Claude to address feedback, push updates
 
-#### Scenario: Merge command
+#### Scenario: Merge command via tool
 - **GIVEN** an active change thread with a PR
-- **WHEN** user sends "merge", "merge it", or "ship it"
-- **THEN** the system merges the PR via the GitHub API (Octokit)
-- **AND** uses the configured merge strategy (squash, merge, or rebase)
-- **AND** optionally deletes the remote branch after merge
-- **AND** cleans up the worktree
-- **AND** reports success or failure in the thread with cleanup summary
+- **WHEN** Claude calls `request_merge`
+- **THEN** the tool validates the PR exists and is open
+- **AND** stages a merge intent
+- **AND** user approval triggers: merge PR, cleanup worktree, report success
 
-#### Scenario: Update command
+#### Scenario: Update command via tool
 - **GIVEN** an active change thread with a PR
-- **WHEN** user sends additional instructions like "also fix X" or "add Y"
-- **THEN** Claude implements the additional changes in the worktree
-- **AND** commits and pushes to update the PR
+- **WHEN** Claude calls `request_update` with additional instructions
+- **THEN** the tool validates the worktree exists
+- **AND** stages an update intent with the instructions
+- **AND** user approval triggers: run Claude with new instructions, push updates
 
-#### Scenario: Close command
+#### Scenario: Close command via tool
 - **GIVEN** an active change thread with a PR
-- **WHEN** user sends "close", "abandon", or "cancel"
-- **THEN** the system closes the PR without merging via the GitHub API (Octokit)
-- **AND** Claude asks the user if the branch should be deleted or kept for later
-- **AND** Claude cleans up the worktree based on user preference
-- **AND** confirms closure in the thread with cleanup summary
+- **WHEN** Claude calls `request_close`
+- **THEN** the tool validates the PR exists and is open
+- **AND** stages a close intent
+- **AND** user approval triggers: close PR, optionally delete branch, cleanup worktree
+
+#### Scenario: Follow-up as question
+- **GIVEN** a change thread context
+- **WHEN** Claude determines the message is a question (not a follow-up command)
+- **THEN** Claude does NOT call any follow-up tools
+- **AND** responds with a standard Q&A answer via `submit_response`
 
 #### Scenario: Thread session expiry
 - **GIVEN** a change thread has been idle for the configured period (default 24h)
 - **WHEN** the session expires
 - **THEN** the worktree is cleaned up
-- **AND** new messages in the thread are treated as new requests (if Claude detects a change request)
+- **AND** new messages in the thread are treated as new requests
 
 ### Requirement: PR Operations via GitHub API
 
