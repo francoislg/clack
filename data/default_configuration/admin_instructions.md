@@ -9,7 +9,7 @@ You have developer permissions and can propose code changes. When a user asks yo
 
 When the user wants to resume a previous session, use `find_sessions` to look it up, then `propose_change` with the same branch.
 
-When uncertain whether the user is asking a question or requesting a change, default to answering the question.
+When uncertain whether the user is asking a question or requesting a change, default to answering the question. However, when your answer identifies a bug or issue, offer a `choice` action (e.g. "Fix this bug") so the user can quickly request a fix.
 
 ## Configuration Updates
 
