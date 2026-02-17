@@ -4,9 +4,11 @@ import { join } from "node:path";
 import { getConfig, getDefaultConfigurationDir } from "../config.js";
 import { resolveInstructionFile } from "../instructions.js";
 import { logger } from "../logger.js";
+import { setAuthenticatedRemote } from "../worktrees.js";
 import type { WorktreeInfo } from "../worktrees.js";
 import type { ChangePlan, ChangeRequest, ExecutionResult, PlanGenerationResult } from "./types.js";
 import { appendExecutionLog } from "./persistence.js";
+import { findRepoByName } from "./detection.js";
 
 /**
  * Run Claude CLI with the given prompt and options
@@ -251,6 +253,22 @@ export async function runClaude(options: {
   });
 }
 
+/**
+ * Run Claude CLI in a worktree context with automatic git auth refresh.
+ * All Claude invocations targeting a worktree MUST use this instead of runClaude() directly.
+ */
+export async function runClaudeInWorktree(
+  repoName: string,
+  options: Parameters<typeof runClaude>[0]
+): Promise<Awaited<ReturnType<typeof runClaude>>> {
+  const config = getConfig();
+  const repo = findRepoByName(repoName, config);
+  if (repo) {
+    await setAuthenticatedRemote(options.cwd, repo.url);
+  }
+  return runClaude(options);
+}
+
 // ============================================================================
 // Execution Phase
 // ============================================================================
@@ -332,7 +350,7 @@ Remember to:
 3. Commit with a descriptive message
 4. Output COMMIT_HASH: and SUMMARY: at the end`;
 
-  const result = await runClaude({
+  const result = await runClaudeInWorktree(worktree.repoName, {
     prompt,
     cwd: worktree.worktreePath,
     systemPrompt,
@@ -579,7 +597,7 @@ export async function runWorktreeSetup(
     appendExecutionLog(branchName, `Running worktree setup instructions from ${setupPath}`);
   }
 
-  const result = await runClaude({
+  const result = await runClaudeInWorktree(repoName, {
     prompt: setupInstructions,
     cwd: worktreePath,
     systemPrompt: "You are setting up a development workspace. Follow the instructions exactly. Do not ask questions — just execute the steps.",

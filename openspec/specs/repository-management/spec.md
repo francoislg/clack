@@ -58,6 +58,12 @@ The system SHALL use GitHub App installation tokens for all git operations.
 - **AND** reuses the cached token until 5 minutes before expiry
 - **AND** generates a new token when the cache expires
 
+#### Scenario: Structural token refresh for Claude-mediated operations
+- **WHEN** a Claude invocation targets a worktree
+- **THEN** token refresh is enforced by the worktree-aware invocation wrapper
+- **AND** individual workflow functions (review, update, execution) SHALL NOT manage token refresh themselves
+- **AND** only non-Claude git operations (direct `simple-git` calls) manage their own token refresh
+
 ### Requirement: Repository Configuration
 The system SHALL support multiple repository configurations with metadata.
 
