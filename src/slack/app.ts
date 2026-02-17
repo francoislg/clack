@@ -13,6 +13,11 @@ import { registerHomeTabHandler } from "./handlers/homeTab.js";
 import { registerDirectMessageHandler } from "./handlers/directMessage.js";
 import { registerThreadReplyHandler } from "./handlers/threadReply.js";
 import { registerMentionHandler } from "./handlers/mention.js";
+import { registerChoiceHandler } from "./handlers/choice.js";
+import { registerFollowupHandler } from "./handlers/followup.js";
+import { registerChangeActionHandler } from "./handlers/changeAction.js";
+import { registerConfigUpdateActionHandler } from "./handlers/configUpdateAction.js";
+import { registerChangeThreadActionHandlers } from "./handlers/changeThreadActions.js";
 
 let app: App | null = null;
 
@@ -38,6 +43,13 @@ export function createSlackApp(): App {
   registerEditHandler(app);
   registerRetryHandler(app);
   registerResendHandler(app);
+
+  // Clack tool action handlers
+  registerChoiceHandler(app);
+  registerFollowupHandler(app);
+  registerChangeActionHandler(app);
+  registerConfigUpdateActionHandler(app);
+  registerChangeThreadActionHandlers(app);
 
   // Direct message handlers (only when enabled)
   if (config.directMessages.enabled) {

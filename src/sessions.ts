@@ -12,6 +12,7 @@ async function exists(path: string): Promise<boolean> {
 import { getConfig, getSessionsDir } from "./config.js";
 import { logger } from "./logger.js";
 import type { ErrorRecord, ConversationMessage } from "./claude.js";
+import type { SubmitResponsePayload, ToolCallRecord, ContinuationRecord } from "./tools/types.js";
 
 export interface ThreadMessage {
   text: string;
@@ -37,6 +38,14 @@ export interface SessionContext {
   errors: ErrorRecord[];
   lastActivity: number;
   createdAt: number;
+  /** Structured response from submit_response tool */
+  lastResponse?: SubmitResponsePayload;
+  /** Tool call history from the latest query */
+  toolCallHistory?: ToolCallRecord[];
+  /** Staged intents from action tools, keyed by ref ID */
+  stagedIntents?: Record<string, unknown>;
+  /** History of user continuations (choice, followup, refine) */
+  continuationHistory?: ContinuationRecord[];
 }
 
 function generateSessionId(channelId: string, messageTs: string, userId: string): string {

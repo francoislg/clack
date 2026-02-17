@@ -11,8 +11,10 @@ The system SHALL use the Claude Agent SDK for answer generation requests.
 - **THEN** the system calls the Agent SDK `query()` function
 - **AND** passes the question and context as the prompt
 - **AND** configures `cwd` to point to the repositories directory
-- **AND** loads MCP servers asynchronously (awaiting token generation if needed)
-- **AND** captures the response for delivery to Slack
+- **AND** loads external MCP servers asynchronously (awaiting token generation if needed)
+- **AND** builds the in-process `clack` MCP server with query context
+- **AND** passes both external and clack MCP servers in `mcpServers`
+- **AND** captures the `submit_response` tool call output as the structured response
 
 #### Scenario: Model configurable
 - **WHEN** the system starts
@@ -71,45 +73,30 @@ The system SHALL pass previous conversation context to Claude Code for follow-up
 - **AND** Claude Code considers the full conversation history
 
 ### Requirement: Output Capture and Formatting
-The system SHALL capture Claude Code output and format it appropriately for Slack.
+The system SHALL capture Claude's `submit_response` tool output and format it for Slack.
+
+#### Scenario: Structured response from submit_response
+
+- **WHEN** Claude calls `submit_response` during a query
+- **THEN** the system captures the structured payload (sections and actions)
+- **AND** uses the payload to render Slack blocks via the response renderer
+
+#### Scenario: Fallback to raw text
+
+- **WHEN** a query completes without Claude calling `submit_response`
+- **THEN** the system falls back to the last assistant text output
+- **AND** renders it as a plain section block with generic retry/reject actions
 
 #### Scenario: Markdown to Slack formatting
-- **WHEN** Claude Code produces markdown output
-- **THEN** the system converts it to Slack-compatible mrkdwn format
+- **WHEN** response sections contain markdown
+- **THEN** the system converts markdown to Slack-compatible mrkdwn format
 - **AND** preserves code blocks, lists, and emphasis
 
-#### Scenario: Long responses truncated with notice
-- **WHEN** Claude Code output exceeds Slack's message size limit
-- **THEN** the system truncates the response
-- **AND** appends a notice that the full response was truncated
+#### Scenario: Long responses split for Slack
+- **WHEN** a section body exceeds Slack's 3000-character section block limit
+- **THEN** the system splits the text at paragraph boundaries
+- **AND** creates multiple section blocks
 
-### Requirement: Structured Response Parsing
-
-The system SHALL parse structured XML tags from Claude's response to route to specialized handlers.
-
-#### Scenario: Parse change request
-- **WHEN** Claude's response contains `<change-request>` tags
-- **THEN** the system extracts branch, description, and repo
-- **AND** routes to the change workflow
-
-#### Scenario: Parse resume request
-- **WHEN** Claude's response contains `<resume-request>` tags
-- **THEN** the system extracts branch name and repo
-- **AND** routes to the resume workflow
-
-#### Scenario: Parse config update
-- **WHEN** Claude's response contains `<config-update>` tags
-- **THEN** the system extracts file and content
-- **AND** routes to the config update confirmation flow
-
-#### Scenario: Parsing priority order
-- **WHEN** Claude's response contains multiple tag types
-- **THEN** the system checks in order: change-request, resume-request, config-update
-- **AND** the first match wins
-
-#### Scenario: No structured tags found
-- **WHEN** Claude's response contains no recognized XML tags
-- **THEN** the system treats the response as a regular answer
 
 ### Requirement: Autonomous Change Execution
 

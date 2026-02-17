@@ -8,32 +8,18 @@ Centralized registry of instruction template variables with metadata (name, desc
 The system SHALL maintain a centralized registry of all instruction template variables in `src/instructionVariables.ts`.
 
 Each variable definition SHALL include:
-- `name`: The variable key (e.g. `REPOSITORIES_LIST`)
+- `name`: The variable key (e.g. `BOT_NAME`)
 - `description`: Human-readable description of what the variable contains
-- `availability`: Either `"always"` (available in all instruction files) or `"dev-admin"` (only meaningful in dev/admin instruction files)
 
 #### Scenario: Registry contains all defined variables
 - **WHEN** the registry is loaded
 - **THEN** it contains a definition for every variable that `buildSystemPrompt()` produces
-- **AND** each definition has a non-empty `name`, `description`, and `availability`
+- **AND** each definition has a non-empty `name` and `description`
 
 #### Scenario: Registry is exported for external use
 - **WHEN** another module imports from `instructionVariables.ts`
 - **THEN** it can access the full list of variable definitions
 - **AND** it can access the `VariableDefinition` type
-
-### Requirement: Available Variables Meta-Variable
-The system SHALL generate an `{AVAILABLE_VARIABLES}` meta-variable from the registry that renders a markdown reference table.
-
-#### Scenario: Meta-variable renders variable table
-- **WHEN** the `AVAILABLE_VARIABLES` variable is built
-- **THEN** it produces a markdown table with columns: Variable, Description, Available
-- **AND** each row corresponds to a registry entry (excluding `AVAILABLE_VARIABLES` itself)
-
-#### Scenario: Meta-variable used in admin instructions
-- **WHEN** admin instructions contain `{AVAILABLE_VARIABLES}`
-- **THEN** the placeholder is replaced with the auto-generated variable reference table
-- **AND** the table reflects the current registry contents
 
 ### Requirement: Variable Key Validation
 The system SHALL validate that the variables record in `buildSystemPrompt()` matches the registry definitions.
@@ -45,21 +31,3 @@ The system SHALL validate that the variables record in `buildSystemPrompt()` mat
 #### Scenario: Missing variable detected
 - **WHEN** a registry-defined variable is missing from the variables record
 - **THEN** the system logs a warning identifying the missing variable
-
-### Requirement: Config Update Block Variable
-
-The system SHALL provide a `CONFIG_UPDATE_BLOCK` instruction variable for admin/owner system prompts.
-
-#### Scenario: Variable registered in registry
-- **WHEN** the instruction variables registry is loaded
-- **THEN** it includes `CONFIG_UPDATE_BLOCK` with description and admin-only scope
-
-#### Scenario: Variable populated for admin users
-- **GIVEN** the user has admin or owner role
-- **WHEN** the system prompt variables are built
-- **THEN** `CONFIG_UPDATE_BLOCK` contains the list of config files, read paths, and output format instructions
-
-#### Scenario: Variable empty for non-admin users
-- **GIVEN** the user has dev or member role
-- **WHEN** the system prompt variables are built
-- **THEN** `CONFIG_UPDATE_BLOCK` is an empty string

@@ -38,6 +38,8 @@ openspec/
 *.md
 !data/config.example.json
 !data/auth/slack.example.json
+!data/auth/.env.example
+!data/auth/github.example.json
 
 # Generated files
 slack-app-manifest.json

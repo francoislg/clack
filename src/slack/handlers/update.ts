@@ -4,16 +4,21 @@ import { logger } from "../../logger.js";
 import {
   getSession,
   updateThreadContext,
-  setLastAnswer,
   createSession,
   parseSessionId,
-  addError,
 } from "../../sessions.js";
-import { askClaude, analyzeError } from "../../claude.js";
-import { getResponseBlocks, getErrorBlocks, getErrorBlocksWithRetry } from "../blocks.js";
+import { askClaude } from "../../claude.js";
+import { getErrorBlocks } from "../blocks.js";
 import { restoreSessionInfo, setSessionInfo } from "../state.js";
-import { fetchMessage, fetchThreadContext, sendErrorReport } from "../messagesApi.js";
+import { fetchMessage, fetchThreadContext } from "../messagesApi.js";
 import { transformUserMentions } from "../userCache.js";
+import {
+  dismissOriginal,
+  postResponse,
+  postSuccessResponseWithRetry,
+  postErrorResponse,
+  getHandlerClaudeOptions,
+} from "./handlerResponse.js";
 
 export function registerUpdateHandler(app: App): void {
   app.action<BlockAction>(
@@ -30,12 +35,10 @@ export function registerUpdateHandler(app: App): void {
         return;
       }
 
-      // Delete the ephemeral message
-      await respond({ delete_original: true });
+      await dismissOriginal(respond, sessionInfo);
 
       // Get bot user ID for thread context attribution
       const botUserId = (await client.auth.test()).user_id || "";
-
       const config = getConfig();
 
       // Re-fetch thread context
@@ -72,14 +75,11 @@ export function registerUpdateHandler(app: App): void {
           logger.error(
             "Could not fetch original message for session recreation"
           );
-          await client.chat.postEphemeral({
-            channel: sessionInfo.channelId,
-            user: sessionInfo.userId,
-            thread_ts: sessionInfo.threadTs,
-            text: "Sorry, the session expired and I couldn't fetch the original message.",
+          await postResponse(client, sessionInfo, {
             blocks: getErrorBlocks(
               "Sorry, the session expired and I couldn't fetch the original message."
-            ),
+            ) as unknown[],
+            text: "Sorry, the session expired and I couldn't fetch the original message.",
           });
           return;
         }
@@ -104,6 +104,8 @@ export function registerUpdateHandler(app: App): void {
           channelId: session.channelId,
           threadTs: session.threadTs,
           userId: session.userId,
+          isEphemeral: sessionInfo.isEphemeral,
+          triggerType: sessionInfo.triggerType,
         });
 
         logger.debug(`Recreated session as ${session.sessionId}`);
@@ -113,48 +115,13 @@ export function registerUpdateHandler(app: App): void {
         session = (await getSession(session.sessionId))!;
       }
 
-      const response = await askClaude(session);
+      const claudeOptions = await getHandlerClaudeOptions(sessionInfo);
+      const response = await askClaude(session, claudeOptions);
 
       if (response.success) {
-        await setLastAnswer(session.sessionId, response.answer);
-
-        await client.chat.postEphemeral({
-          channel: sessionInfo.channelId,
-          user: sessionInfo.userId,
-          thread_ts: sessionInfo.threadTs,
-          blocks: getResponseBlocks(response.answer, session.sessionId),
-          text: response.answer,
-        });
+        await postSuccessResponseWithRetry(client, sessionInfo, session.sessionId, response);
       } else {
-        const errorMessage = response.error || "Unknown error";
-        const conversationTrace = response.conversationTrace || [];
-
-        // Store the error in the session
-        await addError(session.sessionId, errorMessage, conversationTrace);
-
-        // Show user-friendly error with retry button
-        await client.chat.postEphemeral({
-          channel: sessionInfo.channelId,
-          user: sessionInfo.userId,
-          thread_ts: sessionInfo.threadTs,
-          text: "Claude seems to have crashed, maybe try again?",
-          blocks: getErrorBlocksWithRetry(session.sessionId),
-        });
-
-        // Send detailed error report via DM if enabled
-        if (config.slack.sendErrorsAsDM) {
-          try {
-            const analysis = await analyzeError(errorMessage, conversationTrace);
-            await sendErrorReport(client, sessionInfo.userId, {
-              sessionId: session.sessionId,
-              errorMessage,
-              conversationTrace,
-              analysis,
-            });
-          } catch (dmError) {
-            logger.error("Failed to send error report DM:", dmError);
-          }
-        }
+        await postErrorResponse(client, sessionInfo, session.sessionId, response);
       }
     }
   );
