@@ -144,6 +144,19 @@ The system SHALL support an autonomous change execution mode for implementing co
 - **AND** captures any error messages if execution failed
 - **AND** passes the result to the PR creation flow
 
+#### Scenario: Worktree-aware Claude invocation
+- **WHEN** any Claude invocation targets a worktree directory
+- **THEN** the system SHALL use the worktree-aware invocation wrapper
+- **AND** the wrapper refreshes the git remote authentication token before spawning Claude
+- **AND** the wrapper requires `repoName` and `worktreePath` as mandatory parameters
+- **AND** direct `runClaude()` calls in worktree contexts are not permitted
+
+#### Scenario: Auth refresh covers all worktree operations
+- **GIVEN** the worktree-aware wrapper is used
+- **WHEN** Claude is spawned for any worktree operation (execution, review, update, setup, intent detection)
+- **THEN** the remote URL is updated with a fresh installation token
+- **AND** this occurs regardless of whether the specific operation involves git push
+
 ### Requirement: PR Template Resolution
 
 The system SHALL resolve PR templates from multiple sources in priority order.

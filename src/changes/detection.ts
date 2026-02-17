@@ -1,6 +1,6 @@
 import { getConfig, type Config, type RepositoryConfig } from "../config.js";
 import type { TriggerType, FollowUpInfo, FollowUpCommand } from "./types.js";
-import { runClaude } from "./execution.js";
+import { runClaudeInWorktree } from "./execution.js";
 
 // ============================================================================
 // Change Request Detection
@@ -110,9 +110,10 @@ When uncertain, default to treating it as a question.`;
  */
 export async function detectFollowUpCommand(
   message: string,
-  worktreePath: string
+  worktreePath: string,
+  repoName: string
 ): Promise<{ isCommand: boolean; info?: FollowUpInfo }> {
-  const result = await runClaude({
+  const result = await runClaudeInWorktree(repoName, {
     prompt: `Analyze this message in a change thread and determine the user's intent:\n\n"${message}"`,
     cwd: worktreePath,
     systemPrompt: FOLLOW_UP_DETECTION_PROMPT,

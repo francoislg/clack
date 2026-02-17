@@ -17,7 +17,7 @@ import {
 } from "./session.js";
 import { writeSessionState, appendExecutionLog, readSessionState } from "./persistence.js";
 import { findRepoByName } from "./detection.js";
-import { executeChange, runClaude, runWorktreeSetup } from "./execution.js";
+import { executeChange, runClaudeInWorktree, runWorktreeSetup } from "./execution.js";
 import { createPR, mergePR, closePR, reviewPR } from "./pr.js";
 
 // ============================================================================
@@ -287,7 +287,7 @@ export async function handleFollowUp(
       }
 
       // Push updates
-      await runClaude({
+      await runClaudeInWorktree(session.plan.targetRepo, {
         prompt: "Push the new commits: git push\nOutput PUSH_SUCCESS if successful.",
         cwd: session.worktree.worktreePath,
         allowedTools: ["Bash"],

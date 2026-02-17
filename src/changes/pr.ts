@@ -3,7 +3,7 @@ import { getConfig } from "../config.js";
 import { getOctokit, parseRepoUrl, getAuthenticatedCloneUrl } from "../github.js";
 import type { WorktreeInfo } from "../worktrees.js";
 import type { ChangePlan, ChangeSession } from "./types.js";
-import { runClaude, resolvePRTemplate, resolveChangesInstructions } from "./execution.js";
+import { runClaudeInWorktree, resolvePRTemplate, resolveChangesInstructions } from "./execution.js";
 import { findRepoByName } from "./detection.js";
 import { logger } from "../logger.js";
 
@@ -84,7 +84,7 @@ export async function createPR(
   const changesInstructions = resolveChangesInstructions(repo.name);
 
   // Use Claude to generate a good PR body from the template
-  const prBodyResult = await runClaude({
+  const prBodyResult = await runClaudeInWorktree(plan.targetRepo, {
     prompt: `Generate a pull request body based on this template:
 ${template}
 
@@ -268,15 +268,6 @@ export async function reviewPR(
     return { success: false, error: `Failed to fetch PR reviews: ${error}` };
   }
 
-  // Refresh remote auth for push
-  const config = getConfig();
-  const repo = findRepoByName(session.plan.targetRepo, config);
-  if (repo) {
-    const authenticatedUrl = await getAuthenticatedCloneUrl(repo.url);
-    const git = simpleGit({ baseDir: session.worktree.worktreePath });
-    await git.remote(["set-url", "origin", authenticatedUrl]);
-  }
-
   const reviewPrompt = `Address the feedback on this PR: ${session.prUrl}
 
 ${reviewContext}
@@ -290,7 +281,7 @@ Output "COMMENTS_ADDRESSED: N" where N is the number of comments you addressed.`
 
   const changesInstructions = resolveChangesInstructions(session.plan.targetRepo);
 
-  const result = await runClaude({
+  const result = await runClaudeInWorktree(session.plan.targetRepo, {
     prompt: reviewPrompt,
     cwd: session.worktree.worktreePath,
     systemPrompt: changesInstructions ? `Repository-Specific Instructions:\n${changesInstructions}` : undefined,
