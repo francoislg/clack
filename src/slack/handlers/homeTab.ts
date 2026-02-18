@@ -19,11 +19,13 @@ import {
   buildUserSelectModal,
   buildRemoveUserModal,
   buildEditFileModal,
+  buildSettingsModal,
 } from "../homeTab.js";
 import {
   readInstructionFile,
   writeInstructionFile,
 } from "../../configurationFiles.js";
+import { setUserPreference } from "../../userPreferences.js";
 
 async function publishHomeView(
   client: App["client"],
@@ -418,6 +420,42 @@ export function registerHomeTabHandler(app: App): void {
     } catch (error) {
       logger.error("Failed to open edit config file modal:", error);
     }
+  });
+
+  // Handle Settings button
+  app.action<BlockAction>("open_settings", async ({ ack, body, client }) => {
+    await ack();
+
+    const userId = body.user.id;
+
+    try {
+      const view = await buildSettingsModal(userId);
+      await client.views.open({
+        trigger_id: body.trigger_id,
+        view,
+      });
+    } catch (error) {
+      logger.error("Failed to open settings modal:", error);
+    }
+  });
+
+  // Handle Settings modal submission
+  app.view<ViewSubmitAction>("settings_modal", async ({ ack, view, body, client }) => {
+    const userId = body.user.id;
+
+    // Extract the selected response delivery option
+    const deliveryValue = view.state.values.response_delivery_block?.response_delivery?.selected_option?.value;
+
+    if (deliveryValue) {
+      const dmOptOut = deliveryValue === "ephemeral";
+      await setUserPreference(userId, "dmOptOut", dmOptOut);
+      logger.info(`User ${userId} set dmOptOut=${dmOptOut}`);
+    }
+
+    await ack();
+
+    // Refresh the Home Tab
+    await publishHomeView(client, userId);
   });
 
   // Handle edit config file modal submission

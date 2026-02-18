@@ -10,6 +10,7 @@ import {
 import { canEditConfig, canManageRoles, canRequestChanges } from "../permissions.js";
 import { getActiveWorkers } from "../changes/session.js";
 import { listInstructionFiles } from "../configurationFiles.js";
+import { getUserPreference } from "../userPreferences.js";
 
 interface HomeViewOptions {
   userId: string;
@@ -52,6 +53,9 @@ export async function buildHomeView(options: HomeViewOptions): Promise<View> {
   if (userIsDev) {
     blocks.push(...buildActiveWorkersSection());
   }
+
+  // Settings section (visible to all, conditionally has content)
+  blocks.push(...(await buildSettingsSection(userId)));
 
   // Status section (visible to all)
   blocks.push(...buildStatusSection());
@@ -556,6 +560,125 @@ export function buildHelpSection(): KnownBlock[] {
       ],
     },
   ];
+}
+
+// Settings section and modal
+
+async function buildSettingsSection(userId: string): Promise<KnownBlock[]> {
+  const config = getConfig();
+
+  // Only show settings button if there are configurable options
+  if (config.reactions.responseType !== "directMessage") {
+    return [];
+  }
+
+  return [
+    {
+      type: "header",
+      text: {
+        type: "plain_text",
+        text: "Settings",
+        emoji: true,
+      },
+    },
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: ":gear: Manage your personal preferences.",
+      },
+      accessory: {
+        type: "button",
+        text: {
+          type: "plain_text",
+          text: "Settings",
+          emoji: true,
+        },
+        action_id: "open_settings",
+      },
+    },
+    { type: "divider" },
+  ];
+}
+
+export async function buildSettingsModal(userId: string): Promise<View> {
+  const config = getConfig();
+  const dmOptOut = await getUserPreference(userId, "dmOptOut");
+
+  const blocks: (KnownBlock | Block)[] = [];
+
+  if (config.reactions.responseType === "directMessage") {
+    blocks.push(
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: "*Response delivery*\nHow would you like to receive answers when you react with the trigger emoji?",
+        },
+      },
+      {
+        type: "actions",
+        block_id: "response_delivery_block",
+        elements: [
+          {
+            type: "radio_buttons",
+            action_id: "response_delivery",
+            initial_option: dmOptOut
+              ? {
+                  text: { type: "plain_text", text: "Ephemeral messages" },
+                  description: { type: "plain_text", text: "Answers appear inline, visible only to you." },
+                  value: "ephemeral",
+                }
+              : {
+                  text: { type: "plain_text", text: "Direct Message (recommended)" },
+                  description: { type: "plain_text", text: "Get a private DM thread to refine before sharing." },
+                  value: "directMessage",
+                },
+            options: [
+              {
+                text: { type: "plain_text", text: "Direct Message (recommended)" },
+                description: { type: "plain_text", text: "Get a private DM thread to refine before sharing." },
+                value: "directMessage",
+              },
+              {
+                text: { type: "plain_text", text: "Ephemeral messages" },
+                description: { type: "plain_text", text: "Answers appear inline, visible only to you." },
+                value: "ephemeral",
+              },
+            ],
+          },
+        ],
+      }
+    );
+  } else {
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: "_No configurable settings available._",
+      },
+    });
+  }
+
+  return {
+    type: "modal",
+    callback_id: "settings_modal",
+    title: {
+      type: "plain_text",
+      text: "Settings",
+    },
+    ...(config.reactions.responseType === "directMessage" && {
+      submit: {
+        type: "plain_text",
+        text: "Save",
+      },
+    }),
+    close: {
+      type: "plain_text",
+      text: config.reactions.responseType === "directMessage" ? "Cancel" : "Close",
+    },
+    blocks,
+  };
 }
 
 // Modal builders for user selection

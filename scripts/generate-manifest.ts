@@ -35,9 +35,14 @@ interface MentionsConfig {
   enabled?: boolean;
 }
 
+interface ReactionsConfig {
+  responseType?: "ephemeral" | "directMessage";
+}
+
 interface PartialConfig {
   slackApp?: SlackAppConfig;
   slack?: SlackConfig;
+  reactions?: ReactionsConfig;
   directMessages?: DirectMessagesConfig;
   mentions?: MentionsConfig;
 }
@@ -97,6 +102,7 @@ interface ConfigFeatures {
   mentions: boolean;
   notifyHiddenThread: boolean;
   fetchUsernames: boolean;
+  dmFirstReactions: boolean;
 }
 
 function getEnabledFeatures(config: PartialConfig): ConfigFeatures {
@@ -105,6 +111,7 @@ function getEnabledFeatures(config: PartialConfig): ConfigFeatures {
     mentions: config.mentions?.enabled ?? false,
     notifyHiddenThread: config.slack?.notifyHiddenThread ?? true,
     fetchUsernames: config.slack?.fetchAndStoreUsername ?? false,
+    dmFirstReactions: config.reactions?.responseType === "directMessage",
   };
 }
 
@@ -119,7 +126,7 @@ function buildScopes(features: ConfigFeatures): BotScope[] {
     scopes.push("app_mentions:read");
   }
 
-  if (features.notifyHiddenThread) {
+  if (features.notifyHiddenThread || features.dmFirstReactions) {
     scopes.push("im:write");
   }
 
@@ -162,7 +169,7 @@ function generateManifest(config: PartialConfig): Manifest {
     features: {
       app_home: {
         home_tab_enabled: true,
-        messages_tab_enabled: features.directMessages || features.notifyHiddenThread,
+        messages_tab_enabled: features.directMessages || features.notifyHiddenThread || features.dmFirstReactions,
         messages_tab_read_only_enabled: false,
       },
       bot_user: {
@@ -211,6 +218,7 @@ function main(): void {
   console.log(`    - Mentions: ${features.mentions}`);
   console.log(`    - Notify hidden thread: ${features.notifyHiddenThread}`);
   console.log(`    - Fetch usernames: ${features.fetchUsernames}`);
+  console.log(`    - DM-first reactions: ${features.dmFirstReactions}`);
   console.log(`  Scopes: ${manifest.oauth_config?.scopes?.bot?.join(", ")}`);
   console.log(`  Events: ${manifest.settings?.event_subscriptions?.bot_events?.join(", ")}`);
 }

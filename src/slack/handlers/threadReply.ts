@@ -1,6 +1,8 @@
 import type { App } from "@slack/bolt";
 import { logger } from "../../logger.js";
+import { findSessionByDmThread } from "../../sessions.js";
 import { processMessage } from "./core.js";
+import { processDmRefinement } from "./dmActions.js";
 
 export function registerThreadReplyHandler(app: App): void {
   app.event("message", async ({ event, client }) => {
@@ -33,6 +35,14 @@ export function registerThreadReplyHandler(app: App): void {
 
     // Skip if no user
     if (!msg.user) {
+      return;
+    }
+
+    // Check if this is a DM thread linked to a reaction-originated session (DM-first)
+    const dmSession = await findSessionByDmThread(msg.channel, msg.thread_ts);
+    if (dmSession && dmSession.originChannel) {
+      logger.debug(`DM-first refinement in ${msg.channel} from ${msg.user} (session: ${dmSession.sessionId})`);
+      await processDmRefinement(client, dmSession, msg.text || "");
       return;
     }
 

@@ -33,6 +33,12 @@ import {
 import { transformUserMentions } from "../userCache.js";
 import { getSessionByThread } from "../../changes/session.js";
 import { getClaudeOptions } from "./changeWorkflowHelper.js";
+import { getEffectiveResponseType } from "../../userPreferences.js";
+import {
+  postDmInvestigationNotice,
+  postDmThreadReply,
+  storeDmCoordinates,
+} from "../dmResponse.js";
 
 export type TriggerType = "directMessages" | "mentions" | "reactions";
 export type ResponseStyle = "regular" | "ephemeral";
@@ -59,6 +65,12 @@ interface ProcessingContext {
   effectiveThreadTs: string;
   triggerType: TriggerType;
   isEphemeral: boolean;
+  /** DM-first delivery mode for reactions */
+  isDmFirst: boolean;
+  /** DM channel ID (set during DM-first flow) */
+  dmChannel?: string;
+  /** DM thread ts (set during DM-first flow) */
+  dmThreadTs?: string;
 }
 
 interface ThinkingState {
@@ -220,6 +232,11 @@ async function postSuccessResponse(
     await updateSession(session.sessionId, sessionUpdates as any);
   }
 
+  if (ctx.isDmFirst && ctx.dmChannel && ctx.dmThreadTs) {
+    await postDmThreadReply(client, ctx.dmChannel, ctx.dmThreadTs, session, response);
+    return;
+  }
+
   if (isEphemeral) {
     await postEphemeralResponse(ctx, session, response);
   } else {
@@ -278,7 +295,7 @@ async function postEphemeralResponse(
     });
   }
 
-  if (config.slack.notifyHiddenThread) {
+  if (config.slack.notifyHiddenThread && !ctx.isDmFirst) {
     await notifyHiddenThread(ctx, session.sessionId);
   }
 }
@@ -460,6 +477,14 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
   } = params;
 
   const config = getConfig();
+
+  // Resolve DM-first for reaction triggers
+  let isDmFirst = false;
+  if (triggerType === "reactions" && responseStyle === "ephemeral") {
+    const effectiveType = await getEffectiveResponseType(userId);
+    isDmFirst = effectiveType === "directMessage";
+  }
+
   const ctx: ProcessingContext = {
     client,
     config,
@@ -470,10 +495,11 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
     threadTs,
     effectiveThreadTs: threadTs || messageTs,
     triggerType,
-    isEphemeral: responseStyle === "ephemeral",
+    isEphemeral: isDmFirst ? false : responseStyle === "ephemeral",
+    isDmFirst,
   };
 
-  logger.debug(`Processing message from ${userId} in ${channelId} (trigger: ${triggerType})`);
+  logger.debug(`Processing message from ${userId} in ${channelId} (trigger: ${triggerType}, dmFirst: ${isDmFirst})`);
 
   // 1. Check for active change session in thread (for tool context)
   const changeSession = threadTs ? getSessionByThread(channelId, threadTs) : undefined;
@@ -481,8 +507,40 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
   // 2. Set up or retrieve session
   const session = await setupSession(ctx);
 
-  // 3. Show thinking feedback
-  const thinking = await showThinkingFeedback(ctx);
+  // 3. For DM-first: post investigation notice in DM (replaces thinking feedback)
+  //    For others: show regular thinking feedback
+  let thinking: ThinkingState;
+  if (isDmFirst) {
+    const dmResult = await postDmInvestigationNotice(
+      client,
+      userId,
+      channelId,
+      ctx.effectiveThreadTs,
+      session.sessionId
+    );
+
+    if (dmResult) {
+      ctx.dmChannel = dmResult.dmChannel;
+      ctx.dmThreadTs = dmResult.dmThreadTs;
+
+      // Store DM coordinates in session
+      await storeDmCoordinates(
+        session.sessionId,
+        dmResult.dmChannel,
+        dmResult.dmThreadTs,
+        channelId,
+        ctx.effectiveThreadTs
+      );
+    } else {
+      // DM failed — fall back to ephemeral
+      logger.warn("DM-first delivery failed, falling back to ephemeral");
+      ctx.isDmFirst = false;
+      ctx.isEphemeral = true;
+    }
+    thinking = { usedEmoji: false };
+  } else {
+    thinking = await showThinkingFeedback(ctx);
+  }
 
   // 4. Call Claude with change session context for follow-up tools
   const claudeOptions = await getClaudeOptions(userId, triggerType);

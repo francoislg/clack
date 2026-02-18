@@ -74,8 +74,11 @@ export interface ReactionsChangesWorkflowConfig extends TriggerChangesWorkflowCo
   trigger?: string;
 }
 
+export type ReactionsResponseType = "ephemeral" | "directMessage";
+
 export interface ReactionsConfig {
   trigger: string;
+  responseType: ReactionsResponseType;
   thinking?: ThinkingFeedbackConfig;
   changesWorkflow?: ReactionsChangesWorkflowConfig;
 }
@@ -113,6 +116,7 @@ const DEFAULTS: Partial<Config> = {
   },
   reactions: {
     trigger: "robot_face",
+    responseType: "ephemeral",
     thinking: {
       type: "message",
     },
@@ -226,6 +230,15 @@ function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Config {
     }
   }
 
+  // Validate reactions.responseType if provided
+  const reactionsObj = c.reactions as Record<string, unknown> | undefined;
+  if (reactionsObj?.responseType !== undefined) {
+    const rt = reactionsObj.responseType;
+    if (rt !== "ephemeral" && rt !== "directMessage") {
+      throw new Error("Config 'reactions.responseType' must be 'ephemeral' or 'directMessage'");
+    }
+  }
+
   // Merge with defaults
   const merged: Config = {
     slack: {
@@ -243,6 +256,7 @@ function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Config {
     },
     reactions: {
       trigger: (c.reactions as Record<string, unknown>)?.trigger as string || DEFAULTS.reactions!.trigger,
+      responseType: ((c.reactions as Record<string, unknown>)?.responseType as ReactionsResponseType) || DEFAULTS.reactions!.responseType,
       thinking: (c.reactions as Record<string, unknown>)?.thinking
         ? {
             type: ((c.reactions as Record<string, unknown>).thinking as Record<string, unknown>).type as "message" | "emoji",

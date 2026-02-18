@@ -46,6 +46,16 @@ export interface SessionContext {
   stagedIntents?: Record<string, unknown>;
   /** History of user continuations (choice, followup, refine) */
   continuationHistory?: ContinuationRecord[];
+  /** DM-first delivery: the DM channel ID */
+  dmChannel?: string;
+  /** DM-first delivery: the root DM message timestamp (thread anchor) */
+  dmThreadTs?: string;
+  /** DM-first delivery: the original channel where the reaction was added */
+  originChannel?: string;
+  /** DM-first delivery: the original thread timestamp in the channel */
+  originThreadTs?: string;
+  /** DM-first delivery: timestamp of the message posted to the original channel */
+  channelPostTs?: string;
 }
 
 function generateSessionId(channelId: string, messageTs: string, userId: string): string {
@@ -200,6 +210,32 @@ export async function findSessionByThread(
       session &&
       session.channelId === channelId &&
       session.threadTs === threadTs
+    ) {
+      return session;
+    }
+  }
+
+  return null;
+}
+
+export async function findSessionByDmThread(
+  dmChannel: string,
+  dmThreadTs: string
+): Promise<SessionContext | null> {
+  const sessionsDir = getSessionsDir();
+
+  if (!(await exists(sessionsDir))) {
+    return null;
+  }
+
+  const sessionDirs = await readdir(sessionsDir);
+
+  for (const dir of sessionDirs) {
+    const session = await getSession(dir);
+    if (
+      session &&
+      session.dmChannel === dmChannel &&
+      session.dmThreadTs === dmThreadTs
     ) {
       return session;
     }
