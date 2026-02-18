@@ -21,11 +21,17 @@ export async function runBlockingMigrations(): Promise<void> {
 
   logger.info(`Running ${blocking.length} blocking migration(s)...`);
 
+  let touchedConfig = false;
+
   for (const migration of blocking) {
     try {
       await executeMigration(migration);
       await writeVersion(migration.version);
       logger.info(`Migration "${migration.name}" (v${migration.version}) complete`);
+
+      if (migration.files.some((f) => f.includes("config.json"))) {
+        touchedConfig = true;
+      }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error(`Blocking migration "${migration.name}" failed:`, error);
@@ -36,6 +42,12 @@ export async function runBlockingMigrations(): Promise<void> {
       // Blocking migration failure is fatal
       process.exit(1);
     }
+  }
+
+  // Reload config so the rest of boot uses the migrated version
+  if (touchedConfig) {
+    loadConfig(undefined, true);
+    logger.info("Config reloaded after blocking migrations");
   }
 }
 

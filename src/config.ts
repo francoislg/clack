@@ -219,12 +219,7 @@ function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Config {
     if (typeof r.description !== "string") {
       throw new Error("Repository 'description' is required");
     }
-    if ("supportsChanges" in r) {
-      throw new Error(
-        `Repository '${r.name}' uses deprecated 'supportsChanges'. ` +
-        `Migrate to 'access: { "write": "dev" }' instead.`
-      );
-    }
+    // supportsChanges is handled by migration v1 — just ignore it during validation
     const validRoles: UserRole[] = ["member", "dev", "admin", "owner"];
     if (r.access !== undefined) {
       if (typeof r.access !== "object" || r.access === null) {
