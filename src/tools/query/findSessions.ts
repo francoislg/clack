@@ -2,8 +2,9 @@ import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { ToolContext } from "../types.js";
 import { getResumableSessions } from "../../changes/persistence.js";
+import { getVisibleRepos } from "../../repoAccess.js";
 
-export function createFindSessionsTool(_ctx: ToolContext) {
+export function createFindSessionsTool(ctx: ToolContext) {
   return tool(
     "find_sessions",
     "Find resumable change sessions. These are worktrees with previous work that can be continued. Use this to check if there's an existing session before proposing a new change.",
@@ -12,7 +13,10 @@ export function createFindSessionsTool(_ctx: ToolContext) {
       branch: z.string().optional().describe("Filter by branch name (partial match)"),
     },
     async (args) => {
-      let sessions = getResumableSessions();
+      const visibleRepoNames = new Set(
+        getVisibleRepos(ctx.role, ctx.config.repositories).map((r) => r.name)
+      );
+      let sessions = getResumableSessions().filter((s) => visibleRepoNames.has(s.repo));
 
       if (args.repo) {
         sessions = sessions.filter((s) => s.repo === args.repo);

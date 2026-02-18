@@ -22,7 +22,7 @@ The config file SHALL support Slack app branding configuration with optional `sl
 
 ### Requirement: Manifest Generation Script
 
-The system SHALL include Home tab scopes and events in the generated manifest.
+The system SHALL include Home tab scopes and events in the generated manifest, and conditionally include DM write scope for DM-first reactions.
 
 #### Scenario: Home tab adds required scopes and events
 - **GIVEN** any valid config (Home tab is always enabled for role management)
@@ -37,6 +37,11 @@ The system SHALL include Home tab scopes and events in the generated manifest.
 - **AND** `features.app_home.messages_tab_enabled` is `false`
 - **AND** `features.app_home.messages_tab_read_only_enabled` is `false`
 
+#### Scenario: DM-first reactions adds im:write scope
+- **GIVEN** `reactions.responseType` is `"directMessage"`
+- **WHEN** the manifest is generated
+- **THEN** scopes include `im:write`
+
 ### Requirement: Manifest File Management
 
 The manifest file SHALL be generated locally and MUST NOT be tracked in git.
@@ -50,4 +55,3 @@ The manifest file SHALL be generated locally and MUST NOT be tracked in git.
 - Given a fresh clone of the repository
 - When following setup instructions
 - Then the user must run `npm run manifest` before using the Slack app config
-

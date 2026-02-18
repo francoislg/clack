@@ -1,5 +1,6 @@
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
+import type { UserRole } from "./roles.js";
 
 export interface SlackAuthConfig {
   botToken: string;
@@ -16,13 +17,17 @@ export interface SlackConfig {
   sendErrorsAsDM: boolean;
 }
 
+export interface RepoAccess {
+  read?: UserRole;
+  write?: UserRole;
+}
+
 export interface RepositoryConfig {
   name: string;
   url: string;
   description: string;
   branch?: string;
-  // Change workflow settings
-  supportsChanges?: boolean;
+  access?: RepoAccess;
   worktreeBasePath?: string;
   mergeStrategy?: "squash" | "merge" | "rebase";
 }
@@ -214,6 +219,25 @@ function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Config {
     if (typeof r.description !== "string") {
       throw new Error("Repository 'description' is required");
     }
+    if ("supportsChanges" in r) {
+      throw new Error(
+        `Repository '${r.name}' uses deprecated 'supportsChanges'. ` +
+        `Migrate to 'access: { "write": "dev" }' instead.`
+      );
+    }
+    const validRoles: UserRole[] = ["member", "dev", "admin", "owner"];
+    if (r.access !== undefined) {
+      if (typeof r.access !== "object" || r.access === null) {
+        throw new Error(`Repository '${r.name}' access must be an object`);
+      }
+      const acc = r.access as Record<string, unknown>;
+      if (acc.read !== undefined && !validRoles.includes(acc.read as UserRole)) {
+        throw new Error(`Repository '${r.name}' access.read must be one of: ${validRoles.join(", ")}`);
+      }
+      if (acc.write !== undefined && !validRoles.includes(acc.write as UserRole)) {
+        throw new Error(`Repository '${r.name}' access.write must be one of: ${validRoles.join(", ")}`);
+      }
+    }
   }
 
   // Validate slackApp if provided
@@ -302,15 +326,23 @@ function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Config {
           }
         : undefined,
     },
-    repositories: c.repositories.map((r: Record<string, unknown>) => ({
-      name: r.name as string,
-      url: r.url as string,
-      description: r.description as string,
-      branch: (r.branch as string) || "main",
-      supportsChanges: r.supportsChanges as boolean | undefined,
-      worktreeBasePath: r.worktreeBasePath as string | undefined,
-      mergeStrategy: r.mergeStrategy as "squash" | "merge" | "rebase" | undefined,
-    })),
+    repositories: c.repositories.map((r: Record<string, unknown>) => {
+      const access = r.access as Record<string, unknown> | undefined;
+      return {
+        name: r.name as string,
+        url: r.url as string,
+        description: r.description as string,
+        branch: (r.branch as string) || "main",
+        access: access
+          ? {
+              read: access.read as UserRole | undefined,
+              write: access.write as UserRole | undefined,
+            }
+          : undefined,
+        worktreeBasePath: r.worktreeBasePath as string | undefined,
+        mergeStrategy: r.mergeStrategy as "squash" | "merge" | "rebase" | undefined,
+      };
+    }),
     git: {
       pullIntervalMinutes:
         ((c.git as Record<string, unknown>)?.pullIntervalMinutes as number) ??

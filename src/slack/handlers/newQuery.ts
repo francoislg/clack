@@ -2,7 +2,7 @@ import type { App } from "@slack/bolt";
 import { getConfig } from "../../config.js";
 import { logger } from "../../logger.js";
 import { getErrorBlocks } from "../blocks.js";
-import { isDev } from "../../roles.js";
+import { isDev, getRole } from "../../roles.js";
 import type { ChangeRequest } from "../../changes/types.js";
 import { getChangeEnabledRepos } from "../../changes/detection.js";
 import { generateChangePlan } from "../../changes/execution.js";
@@ -35,14 +35,15 @@ async function handleChangeReaction(
     return;
   }
 
-  // Get available repositories
-  const availableRepos = getChangeEnabledRepos(config);
+  // Get available repositories for this user's role
+  const role = await getRole(userId);
+  const availableRepos = getChangeEnabledRepos(config, role);
   if (availableRepos.length === 0) {
     await client.chat.postEphemeral({
       channel: channelId,
       user: userId,
       thread_ts: effectiveThreadTs,
-      text: "No repositories have changes enabled. Configure supportsChanges in config.",
+      text: "No repositories have changes enabled for your role.",
     });
     return;
   }

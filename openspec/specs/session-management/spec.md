@@ -18,7 +18,7 @@ The system SHALL create a unique session for each triggered reaction.
 - **AND** ensures uniqueness across concurrent requests
 
 ### Requirement: Session State Persistence
-The system SHALL persist session state to the filesystem for Claude Code access, including structured tool interaction data.
+The system SHALL persist session state to the filesystem for Claude Code access, including structured tool interaction data and DM delivery coordinates.
 
 #### Scenario: Context file structure
 - **WHEN** a session is created or updated
@@ -47,6 +47,13 @@ The system SHALL persist session state to the filesystem for Claude Code access,
 - **WHEN** a user interacts with a continuation action (choice, followup, refine)
 - **THEN** the session records: the action type, the user's input (choice value, followup prompt, or refinement text), and timestamp
 - **AND** the continuation history is available for context reconstruction in subsequent queries
+
+#### Scenario: DM delivery coordinates persisted
+- **WHEN** a session is created with DM-first delivery
+- **THEN** the session stores `dmChannel` (DM channel ID) and `dmThreadTs` (DM root message timestamp)
+- **AND** the session stores `originChannel` and `originThreadTs` for the original channel message
+- **AND** these coordinates are persisted in `context.json`
+- **AND** are available for session restoration after app restart
 
 ### Requirement: Session Timeout
 The system SHALL expire sessions after a configurable period of inactivity.
@@ -161,3 +168,14 @@ The system SHALL store thread messages with optional user identity fields.
 - **THEN** `ThreadMessage` does not include `username` or `displayName` fields
 - **AND** existing behavior is preserved
 
+### Requirement: Channel Post Tracking
+The system SHALL track the message timestamp of answers posted to the original channel thread.
+
+#### Scenario: Channel post timestamp stored
+- **WHEN** a synthesized answer is accepted and posted to the original channel thread
+- **THEN** the session stores the channel message timestamp as `channelPostTs`
+- **AND** this enables future "Update original post" actions via `chat.update`
+
+#### Scenario: Channel post timestamp updated on re-post
+- **WHEN** a user posts a new reply to the channel after a post-accept refinement
+- **THEN** the session updates `channelPostTs` to the new message timestamp

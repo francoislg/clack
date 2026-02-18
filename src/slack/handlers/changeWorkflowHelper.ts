@@ -23,7 +23,7 @@ export async function getClaudeOptions(
     return { role, changesWorkflowEnabled: false };
   }
 
-  const availableRepos = getChangeEnabledRepos(config);
+  const availableRepos = getChangeEnabledRepos(config, role);
   if (availableRepos.length === 0) {
     return { role, changesWorkflowEnabled: false };
   }
