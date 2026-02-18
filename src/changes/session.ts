@@ -167,7 +167,7 @@ export function removeSession(sessionId: string, cleanupSessionFolder: boolean =
  * Check if a change session is actively in progress (not yet completed or failed)
  */
 export function isSessionInProgress(session: ChangeSession): boolean {
-  const inProgressStatuses: ChangeStatus[] = ["planning", "executing", "reviewing", "merging"];
+  const inProgressStatuses: ChangeStatus[] = ["planning", "executing", "reviewing", "merging", "pr_created"];
   return inProgressStatuses.includes(session.status);
 }
 
