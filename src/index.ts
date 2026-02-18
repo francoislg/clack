@@ -10,6 +10,7 @@ import { createSlackApp, startSlackApp, stopSlackApp } from "./slack/app.js";
 import { initializeWorktrees } from "./worktrees.js";
 import { startCompletionMonitor, stopCompletionMonitor } from "./changes/monitor.js";
 import { validateInstructionFiles } from "./instructions.js";
+import { runBlockingMigrations, runEnhancementMigrations } from "./migrations/boot.js";
 
 // Load environment variables from .env files (later files don't override earlier ones)
 dotenvConfig({ path: join(process.cwd(), ".env") });
@@ -28,7 +29,15 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // Step 1.5: Load and validate GitHub App credentials
+  // Step 1.5: Run blocking migrations (must complete before boot continues)
+  try {
+    await runBlockingMigrations();
+  } catch (error) {
+    logger.error("Blocking migration failed:", error);
+    process.exit(1);
+  }
+
+  // Step 1.6: Load and validate GitHub App credentials
   logger.debug("Validating GitHub App credentials...");
   try {
     loadGitHubCredentials();
@@ -113,6 +122,11 @@ async function main(): Promise<void> {
   startCompletionMonitor();
 
   logger.startup("Clack is ready!");
+
+  // Step 7: Run enhancement migrations in background (non-blocking)
+  runEnhancementMigrations().catch((error) => {
+    logger.error("Enhancement migration error:", error);
+  });
 
   // Graceful shutdown handling
   const shutdown = async (signal: string): Promise<void> => {
