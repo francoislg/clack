@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { query } from "@anthropic-ai/claude-agent-sdk";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getConfig, getDefaultConfigurationDir } from "../config.js";
@@ -11,7 +11,7 @@ import { appendExecutionLog } from "./persistence.js";
 import { findRepoByName } from "./detection.js";
 
 /**
- * Run Claude CLI with the given prompt and options
+ * Run Claude via the Agent SDK with the given prompt and options
  */
 export async function runClaude(options: {
   prompt: string;
@@ -35,226 +35,153 @@ export async function runClaude(options: {
   const config = getConfig();
   const timeoutMs = (options.timeout ?? config.changesWorkflow?.timeoutMinutes ?? 10) * 60 * 1000;
 
-  return new Promise((resolve) => {
-    const args = ["--print", "--verbose", "--dangerously-skip-permissions", "--output-format", "stream-json"];
+  // Set git author to the bot name so commits are attributed to Clack, not the host user
+  const botName = config.slackApp?.name ?? "Clack";
+  const botEmail = `${botName.toLowerCase().replace(/\s+/g, "-")}[bot]@users.noreply.github.com`;
 
-    if (options.systemPrompt) {
-      args.push("--system-prompt", options.systemPrompt);
-    }
+  logger.debug(`Running Claude in ${options.cwd}`);
+  if (options.branchName) {
+    appendExecutionLog(options.branchName, `Running Claude via Agent SDK`);
+    appendExecutionLog(options.branchName, `Working directory: ${options.cwd}`);
+    appendExecutionLog(options.branchName, `Prompt length: ${options.prompt.length} chars`);
+    appendExecutionLog(options.branchName, `Timeout: ${timeoutMs / 60000} minutes`);
+  }
 
-    if (options.allowedTools?.length) {
-      args.push("--allowedTools", options.allowedTools.join(","));
-    }
+  // Timeout via AbortController
+  const abortController = new AbortController();
+  const timeoutId = setTimeout(() => abortController.abort(), timeoutMs);
 
-    if (options.disallowedTools?.length) {
-      args.push("--disallowedTools", options.disallowedTools.join(","));
-    }
-
-    // Note: prompt is passed via stdin, not as a positional argument
-    // This avoids argument parsing issues when systemPrompt contains newlines
-
-    // Log the full command (truncated prompt for readability)
-    const truncatedPrompt = options.prompt.length > 100 ? options.prompt.substring(0, 100) + "..." : options.prompt;
-    logger.debug(`Running Claude in ${options.cwd}`);
-    logger.debug(`Args: ${args.join(" ")} (prompt via stdin)`);
-
+  // Heartbeat logging
+  let lastOutputTime = Date.now();
+  let outputReceived = false;
+  const heartbeatInterval = setInterval(() => {
     if (options.branchName) {
-      appendExecutionLog(options.branchName, `Command: claude ${args.join(" ")} [prompt via stdin]`);
-      appendExecutionLog(options.branchName, `Working directory: ${options.cwd}`);
-      appendExecutionLog(options.branchName, `Prompt length: ${options.prompt.length} chars`);
-      appendExecutionLog(options.branchName, `Timeout: ${timeoutMs / 60000} minutes`);
-    }
-
-    // Set git author to the bot name so commits are attributed to Clack, not the host user
-    const botName = config.slackApp?.name ?? "Clack";
-    const botEmail = `${botName.toLowerCase().replace(/\s+/g, "-")}[bot]@users.noreply.github.com`;
-
-    const proc = spawn("claude", args, {
-      cwd: options.cwd,
-      env: {
-        ...process.env,
-        GIT_AUTHOR_NAME: botName,
-        GIT_AUTHOR_EMAIL: botEmail,
-        GIT_COMMITTER_NAME: botName,
-        GIT_COMMITTER_EMAIL: botEmail,
-      },
-      stdio: ["pipe", "pipe", "pipe"], // stdin enabled - prompt passed via stdin
-    });
-
-    // Write prompt to stdin and close it
-    // This is more robust than positional arguments when systemPrompt contains newlines
-    proc.stdin.write(options.prompt);
-    proc.stdin.end();
-
-    // Log that process started
-    if (options.branchName) {
-      appendExecutionLog(options.branchName, `Claude process spawned (PID: ${proc.pid})`);
-      appendExecutionLog(options.branchName, `Prompt written to stdin, waiting for output...`);
-    }
-
-    let stdout = "";
-    let stderr = "";
-    let lastProgressMessage = "";
-    let lastOutputTime = Date.now();
-    let outputReceived = false;
-
-    // Track parsed stream-json data (parse once, use directly)
-    let finalText = "";
-    let resultSuccess = false;
-    let resultError: string | undefined;
-
-    // Heartbeat to show process is still running
-    const heartbeatInterval = setInterval(() => {
-      if (options.branchName) {
-        const elapsed = Math.round((Date.now() - lastOutputTime) / 1000);
-        if (!outputReceived) {
-          appendExecutionLog(options.branchName, `Still waiting for first output... (${elapsed}s since spawn)`);
-        } else {
-          appendExecutionLog(options.branchName, `Process still running... (${elapsed}s since last output, stdout: ${stdout.length} bytes, stderr: ${stderr.length} bytes)`);
-        }
+      const elapsed = Math.round((Date.now() - lastOutputTime) / 1000);
+      if (!outputReceived) {
+        appendExecutionLog(options.branchName, `Still waiting for first output... (${elapsed}s since start)`);
+      } else {
+        appendExecutionLog(options.branchName, `Query still running... (${elapsed}s since last event)`);
       }
-    }, 30000); // Every 30 seconds
+    }
+  }, 30000);
 
-    proc.stdout.on("data", (data) => {
-      const chunk = data.toString();
-      stdout += chunk;
+  let finalText = "";
+  let lastAssistantText = "";
+  let lastProgressMessage = "";
+  let resultSuccess = false;
+  let resultError: string | undefined;
+
+  try {
+    for await (const message of query({
+      prompt: options.prompt,
+      options: {
+        cwd: options.cwd,
+        systemPrompt: options.systemPrompt,
+        allowedTools: options.allowedTools,
+        disallowedTools: options.disallowedTools,
+        permissionMode: "bypassPermissions",
+        allowDangerouslySkipPermissions: true,
+        persistSession: false,
+        abortController,
+        env: {
+          ...process.env,
+          GIT_AUTHOR_NAME: botName,
+          GIT_AUTHOR_EMAIL: botEmail,
+          GIT_COMMITTER_NAME: botName,
+          GIT_COMMITTER_EMAIL: botEmail,
+        },
+      },
+    })) {
       lastOutputTime = Date.now();
       outputReceived = true;
 
-      // Parse stream-json events - extract data AND log in single pass
-      const lines = chunk.split("\n").filter((l: string) => l.trim());
-      for (const line of lines) {
-        try {
-          const event = JSON.parse(line);
-
-          // Extract text from assistant messages
-          if (event.type === "assistant" && event.message?.content) {
-            for (const block of event.message.content) {
-              if (block.type === "tool_use") {
-                lastProgressMessage = `Using ${block.name}`;
-                options.onProgress?.(lastProgressMessage);
-                if (options.branchName) {
-                  appendExecutionLog(options.branchName, `Event: tool_use (${block.name})`);
-                }
-              } else if (block.type === "text" && block.text) {
-                finalText += block.text + "\n";
-                if (options.branchName) {
-                  const preview = block.text.substring(0, 200).replace(/\n/g, " ");
-                  appendExecutionLog(options.branchName, `Event: assistant text: ${preview}...`);
-                }
-              }
-            }
-          }
-          // Track the final result
-          else if (event.type === "result") {
-            if (event.subtype === "success") {
-              resultSuccess = true;
-              // The result may contain the final text directly
-              if (event.result) {
-                finalText = event.result;
-              }
-            } else if (event.subtype === "error") {
-              resultError = event.error || "Unknown error";
-            }
+      if (message.type === "assistant" && message.message?.content) {
+        lastAssistantText = "";
+        for (const block of message.message.content) {
+          if (block.type === "tool_use") {
+            lastProgressMessage = `Using ${block.name}`;
+            options.onProgress?.(lastProgressMessage);
             if (options.branchName) {
-              appendExecutionLog(options.branchName, `Event: result (subtype: ${event.subtype})`);
+              appendExecutionLog(options.branchName, `Event: tool_use (${block.name})`);
+            }
+          } else if ("text" in block && typeof block.text === "string" && block.text) {
+            lastAssistantText += block.text;
+            finalText += block.text + "\n";
+            if (options.branchName) {
+              const preview = block.text.substring(0, 200).replace(/\n/g, " ");
+              appendExecutionLog(options.branchName, `Event: assistant text: ${preview}...`);
             }
           }
-          // Log other events
-          else if (options.branchName) {
-            if (event.type === "system" && event.subtype === "init") {
-              appendExecutionLog(options.branchName, `Event: init (session: ${event.session_id?.substring(0, 8)}...)`);
-            } else if (event.type === "user" && event.message?.content) {
-              for (const block of event.message.content) {
-                if (block.type === "tool_result") {
-                  const resultPreview = typeof block.content === "string"
-                    ? block.content.substring(0, 100)
-                    : "[complex result]";
-                  appendExecutionLog(options.branchName, `Event: tool_result: ${resultPreview}...`);
-                }
-              }
-            } else {
-              appendExecutionLog(options.branchName, `Event: ${event.type}${event.subtype ? ":" + event.subtype : ""}`);
-            }
-          }
-        } catch {
-          // Not JSON, log as raw
-          if (options.branchName) {
-            appendExecutionLog(options.branchName, `stdout: ${line.substring(0, 500)}`);
-          }
         }
-      }
-    });
-
-    proc.stderr.on("data", (data) => {
-      const chunk = data.toString();
-      stderr += chunk;
-      lastOutputTime = Date.now();
-
-      // Also log stderr to execution.log - this often has useful info
-      if (options.branchName) {
-        const lines = chunk.split("\n").filter((l: string) => l.trim());
-        for (const line of lines) {
-          appendExecutionLog(options.branchName, `stderr: ${line.substring(0, 500)}`);
+      } else if (message.type === "result") {
+        if (message.subtype === "success") {
+          resultSuccess = true;
+          if (message.result) {
+            finalText = message.result;
+          }
+        } else {
+          resultError = "errors" in message
+            ? (message.errors as string[])?.join(", ") ?? "Unknown error"
+            : "Unknown error";
         }
+        if (options.branchName) {
+          appendExecutionLog(options.branchName, `Event: result (subtype: ${message.subtype})`);
+        }
+      } else if (message.type === "system" && "subtype" in message && message.subtype === "init") {
+        if (options.branchName) {
+          const sessionId = "session_id" in message ? String(message.session_id).substring(0, 8) : "unknown";
+          appendExecutionLog(options.branchName, `Event: init (session: ${sessionId}...)`);
+        }
+      } else if (options.branchName) {
+        const subtype = "subtype" in message ? message.subtype : undefined;
+        appendExecutionLog(options.branchName, `Event: ${message.type}${subtype ? ":" + subtype : ""}`);
       }
-    });
+    }
+  } catch (error) {
+    clearTimeout(timeoutId);
+    clearInterval(heartbeatInterval);
 
-    const timeoutId = setTimeout(() => {
-      clearInterval(heartbeatInterval);
-      proc.kill("SIGTERM");
+    // AbortError means timeout
+    if (error instanceof Error && error.name === "AbortError") {
       if (options.branchName) {
         appendExecutionLog(options.branchName, `Timeout: Execution timed out after ${timeoutMs / 60000} minutes`);
-        appendExecutionLog(options.branchName, `Final stdout length: ${stdout.length} bytes`);
-        appendExecutionLog(options.branchName, `Final stderr length: ${stderr.length} bytes`);
       }
-      resolve({
+      return {
         success: false,
         text: finalText.trim(),
         error: `Execution timed out after ${timeoutMs / 60000} minutes`,
         lastMessage: lastProgressMessage,
-      });
-    }, timeoutMs);
+      };
+    }
 
-    proc.on("close", (code) => {
-      clearTimeout(timeoutId);
-      clearInterval(heartbeatInterval);
-      if (options.branchName) {
-        appendExecutionLog(options.branchName, `Process exited with code ${code}`);
-        appendExecutionLog(options.branchName, `Final stdout length: ${stdout.length} bytes`);
-        appendExecutionLog(options.branchName, `Final stderr length: ${stderr.length} bytes`);
-        appendExecutionLog(options.branchName, `Parsed final text (${finalText.trim().length} chars)`);
-        if (stderr && code !== 0) {
-          appendExecutionLog(options.branchName, `Full stderr: ${stderr.substring(0, 2000)}`);
-        }
-      }
-      resolve({
-        success: resultSuccess,  // From result event, not exit code
-        text: finalText.trim(),  // Already parsed
-        error: resultError ?? (code !== 0 ? stderr || `Process exited with code ${code}` : undefined),
-        lastMessage: lastProgressMessage,
-      });
-    });
+    if (options.branchName) {
+      appendExecutionLog(options.branchName, `SDK error: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    return {
+      success: false,
+      text: finalText.trim(),
+      error: `Agent SDK error: ${error instanceof Error ? error.message : String(error)}`,
+      lastMessage: lastProgressMessage,
+    };
+  }
 
-    proc.on("error", (err) => {
-      clearTimeout(timeoutId);
-      clearInterval(heartbeatInterval);
-      // Log spawn error to execution.log
-      if (options.branchName) {
-        appendExecutionLog(options.branchName, `Spawn error: ${err.message}`);
-      }
-      resolve({
-        success: false,
-        text: finalText.trim(),
-        error: `Failed to start claude process: ${err.message}`,
-        lastMessage: lastProgressMessage,
-      });
-    });
-  });
+  clearTimeout(timeoutId);
+  clearInterval(heartbeatInterval);
+
+  if (options.branchName) {
+    appendExecutionLog(options.branchName, `Query completed (success: ${resultSuccess}, text: ${finalText.trim().length} chars)`);
+  }
+
+  return {
+    success: resultSuccess,
+    text: finalText.trim(),
+    error: resultError,
+    lastMessage: lastProgressMessage,
+  };
 }
 
 /**
- * Run Claude CLI in a worktree context with automatic git auth refresh.
+ * Run Claude in a worktree context with automatic git auth refresh.
  * All Claude invocations targeting a worktree MUST use this instead of runClaude() directly.
  */
 export async function runClaudeInWorktree(
