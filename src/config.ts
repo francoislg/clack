@@ -385,8 +385,8 @@ function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Config {
 
 let cachedConfig: Config | null = null;
 
-export function loadConfig(configPath?: string): Config {
-  if (cachedConfig) {
+export function loadConfig(configPath?: string, forceReload?: boolean): Config {
+  if (cachedConfig && !forceReload) {
     return cachedConfig;
   }
 

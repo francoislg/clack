@@ -12,6 +12,7 @@ import { getActiveWorkers } from "../changes/session.js";
 import { listInstructionFiles } from "../configurationFiles.js";
 import { getUserPreference } from "../userPreferences.js";
 import { getVisibleRepos, canWriteRepo } from "../repoAccess.js";
+import { getMigrationErrors } from "../migrations/admin.js";
 
 interface HomeViewOptions {
   userId: string;
@@ -27,6 +28,12 @@ export async function buildHomeView(options: HomeViewOptions): Promise<View> {
   const hasAnOwner = await hasOwner();
 
   const blocks: (KnownBlock | Block)[] = [];
+
+  // Migration error banner (shown to all, extra guidance for admins)
+  const migrationErrors = getMigrationErrors();
+  if (migrationErrors.length > 0) {
+    blocks.push(...buildMigrationBanner(migrationErrors, userIsAdmin));
+  }
 
   // Role badge (only for assigned users)
   if (role !== "member") {
@@ -77,6 +84,32 @@ export async function buildHomeView(options: HomeViewOptions): Promise<View> {
     type: "home",
     blocks,
   };
+}
+
+function buildMigrationBanner(
+  errors: import("../migrations/types.js").MigrationError[],
+  isAdmin: boolean
+): KnownBlock[] {
+  const errorList = errors
+    .map((e) => `• *${e.migrationName}* (v${e.version}): ${e.error}`)
+    .join("\n");
+
+  let text = `:warning: *Migration Error*\n\n${errorList}`;
+
+  if (isAdmin) {
+    text += `\n\n_Check the logs for details and restart Clack after resolving the issue._`;
+  }
+
+  return [
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text,
+      },
+    },
+    { type: "divider" },
+  ];
 }
 
 function buildRoleBadge(role: UserRole): KnownBlock[] {
