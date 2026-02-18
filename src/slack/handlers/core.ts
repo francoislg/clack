@@ -32,6 +32,9 @@ import {
 } from "../messagesApi.js";
 import { transformUserMentions } from "../userCache.js";
 import { getSessionByThread } from "../../changes/session.js";
+import { triggerChangeWorkflow } from "./changeAction.js";
+import { triggerFollowUp } from "./changeThreadActions.js";
+import type { StagedChangeIntent, StagedIntent, Action } from "../../tools/types.js";
 import { getClaudeOptions } from "./changeWorkflowHelper.js";
 import { getEffectiveResponseType } from "../../userPreferences.js";
 import {
@@ -461,6 +464,98 @@ async function postPlainTextFallback(
 }
 
 // ============================================================
+// AUTO-EXECUTE
+// ============================================================
+
+/**
+ * Check for auto-flagged actions in the response and trigger them immediately.
+ * Runs after the response is posted to Slack. Errors are caught and posted
+ * to the thread without affecting the already-posted response.
+ */
+async function handleAutoExecuteActions(
+  ctx: ProcessingContext,
+  response: ClaudeResponse,
+  changeSession: ReturnType<typeof getSessionByThread>
+): Promise<void> {
+  if (!response.response?.actions || !response.stagedIntents) return;
+
+  const autoActions = response.response.actions.filter(
+    (a: Action) => "auto" in a && (a as { auto?: boolean }).auto === true && "ref" in a
+  );
+  if (autoActions.length === 0) return;
+
+  const { client, channelId, effectiveThreadTs, userId } = ctx;
+
+  for (const action of autoActions) {
+    const ref = (action as { ref: string }).ref;
+    const intent = response.stagedIntents[ref] as StagedIntent | undefined;
+    if (!intent) {
+      logger.warn(`Auto-execute: could not resolve intent for ref ${ref}`);
+      continue;
+    }
+
+    try {
+      if (action.type === "change" && intent.type === "change") {
+        logger.info(`Auto-executing change action: ${(intent as StagedChangeIntent).description}`);
+        // Fire and forget — triggerChangeWorkflow manages its own progress messages
+        triggerChangeWorkflow(
+          intent as StagedChangeIntent,
+          channelId,
+          effectiveThreadTs,
+          userId,
+          client
+        ).catch((err) => {
+          logger.error("Auto-execute change workflow error:", err);
+          client.chat.postMessage({
+            channel: channelId,
+            thread_ts: effectiveThreadTs,
+            text: `Auto-execute failed: ${err instanceof Error ? err.message : String(err)}`,
+          }).catch(() => {});
+        });
+      } else if (
+        (action.type === "update" || action.type === "review" || action.type === "merge" || action.type === "close") &&
+        changeSession
+      ) {
+        const additionalInstructions = action.type === "update" && "instructions" in intent
+          ? (intent as { instructions: string }).instructions
+          : undefined;
+
+        logger.info(`Auto-executing ${action.type} follow-up action`);
+        // Fire and forget — triggerFollowUp manages its own progress messages
+        triggerFollowUp(
+          changeSession,
+          action.type,
+          additionalInstructions,
+          channelId,
+          effectiveThreadTs,
+          client
+        ).catch((err) => {
+          logger.error(`Auto-execute ${action.type} follow-up error:`, err);
+          client.chat.postMessage({
+            channel: channelId,
+            thread_ts: effectiveThreadTs,
+            text: `Auto-execute failed: ${err instanceof Error ? err.message : String(err)}`,
+          }).catch(() => {});
+        });
+      } else {
+        logger.warn(`Auto-execute: unsupported action type ${action.type} or missing change session`);
+      }
+    } catch (error) {
+      logger.error(`Auto-execute error for action type ${action.type}:`, error);
+      try {
+        await client.chat.postMessage({
+          channel: channelId,
+          thread_ts: effectiveThreadTs,
+          text: `Auto-execute failed: ${error instanceof Error ? error.message : String(error)}`,
+        });
+      } catch {
+        // Best effort — don't let error reporting crash the flow
+      }
+    }
+  }
+}
+
+// ============================================================
 // MAIN ENTRY POINT
 // ============================================================
 
@@ -557,9 +652,11 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
   await removeThinkingEmoji(client, channelId, messageTs, thinking);
 
   // 6. Handle response (with retry on invalid_blocks)
+  let postedResponse: ClaudeResponse | undefined;
   if (response.success) {
     try {
       await postSuccessResponse(ctx, session, response, thinking.messageTs);
+      postedResponse = response;
     } catch (postError) {
       if (isSlackPlatformError(postError, "invalid_blocks")) {
         logger.warn(`invalid_blocks error posting response for session ${session.sessionId}, retrying via Claude...`);
@@ -567,6 +664,7 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
         if (retryResponse) {
           try {
             await postSuccessResponse(ctx, session, retryResponse, thinking.messageTs);
+            postedResponse = retryResponse;
           } catch (retryPostError) {
             // Exhausted retries — fall back to plain text
             logger.warn("Retry also produced invalid blocks, falling back to plain text");
@@ -579,5 +677,10 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
     }
   } else {
     await handleErrorResponse(ctx, session, response, thinking.messageTs);
+  }
+
+  // 7. Auto-execute any actions flagged with auto: true
+  if (postedResponse) {
+    await handleAutoExecuteActions(ctx, postedResponse, changeSession);
   }
 }

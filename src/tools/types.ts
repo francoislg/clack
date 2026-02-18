@@ -133,6 +133,7 @@ export interface ChangeAction {
   type: "change";
   ref: string;
   label?: string;
+  auto?: boolean;
 }
 
 export interface ConfigUpdateAction {
@@ -145,24 +146,28 @@ export interface ReviewAction {
   type: "review";
   ref: string;
   label?: string;
+  auto?: boolean;
 }
 
 export interface MergeAction {
   type: "merge";
   ref: string;
   label?: string;
+  auto?: boolean;
 }
 
 export interface UpdateAction {
   type: "update";
   ref: string;
   label?: string;
+  auto?: boolean;
 }
 
 export interface CloseAction {
   type: "close";
   ref: string;
   label?: string;
+  auto?: boolean;
 }
 
 export type Action =

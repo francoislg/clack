@@ -25,6 +25,71 @@ async function resolveStagedIntent(sessionId: string, ref: string): Promise<Stag
   return intent;
 }
 
+/**
+ * Shared logic for triggering a change workflow from a resolved intent.
+ * Used by both the button click handler and auto-execute.
+ */
+export async function triggerChangeWorkflow(
+  intent: StagedChangeIntent,
+  channelId: string,
+  threadTs: string,
+  userId: string,
+  client: App["client"]
+): Promise<void> {
+  // Post acknowledgment
+  const ackMessage = await client.chat.postMessage({
+    channel: channelId,
+    thread_ts: threadTs,
+    text: `Starting change: ${intent.description}`,
+  });
+
+  // Build change request and plan
+  const request: ChangeRequest = {
+    userId,
+    message: intent.description,
+    triggerType: "reactions",
+    channel: channelId,
+    messageTs: threadTs,
+  };
+
+  const plan: ChangePlan = {
+    branchName: intent.branch,
+    description: intent.description,
+    targetRepo: intent.repo,
+  };
+
+  const result = await startChangeWorkflow(
+    request,
+    plan,
+    threadTs,
+    async (progressMessage: string) => {
+      try {
+        await client.chat.update({
+          channel: channelId,
+          ts: ackMessage.ts!,
+          text: progressMessage,
+        });
+      } catch (error) {
+        logger.warn("Failed to update progress message:", error);
+      }
+    }
+  );
+
+  if (result.success) {
+    await client.chat.update({
+      channel: channelId,
+      ts: ackMessage.ts!,
+      text: `PR created: ${result.prUrl}\n\n${result.summary || ""}`.trim(),
+    });
+  } else {
+    await client.chat.update({
+      channel: channelId,
+      ts: ackMessage.ts!,
+      text: `Change request failed: ${result.error}`,
+    });
+  }
+}
+
 export function registerChangeActionHandler(app: App): void {
   app.action<BlockAction>("clack_change", async ({ ack, body, client, respond }) => {
     await ack();
@@ -60,57 +125,6 @@ export function registerChangeActionHandler(app: App): void {
       return;
     }
 
-    // Post acknowledgment
-    const ackMessage = await client.chat.postMessage({
-      channel: sessionInfo.channelId,
-      thread_ts: sessionInfo.threadTs,
-      text: `Starting change: ${intent.description}`,
-    });
-
-    // Build change request and plan
-    const request: ChangeRequest = {
-      userId,
-      message: intent.description,
-      triggerType: "reactions",
-      channel: sessionInfo.channelId,
-      messageTs: sessionInfo.threadTs,
-    };
-
-    const plan: ChangePlan = {
-      branchName: intent.branch,
-      description: intent.description,
-      targetRepo: intent.repo,
-    };
-
-    const result = await startChangeWorkflow(
-      request,
-      plan,
-      sessionInfo.threadTs,
-      async (progressMessage: string) => {
-        try {
-          await client.chat.update({
-            channel: sessionInfo.channelId,
-            ts: ackMessage.ts!,
-            text: progressMessage,
-          });
-        } catch (error) {
-          logger.warn("Failed to update progress message:", error);
-        }
-      }
-    );
-
-    if (result.success) {
-      await client.chat.update({
-        channel: sessionInfo.channelId,
-        ts: ackMessage.ts!,
-        text: `PR created: ${result.prUrl}\n\n${result.summary || ""}`.trim(),
-      });
-    } else {
-      await client.chat.update({
-        channel: sessionInfo.channelId,
-        ts: ackMessage.ts!,
-        text: `Change request failed: ${result.error}`,
-      });
-    }
+    await triggerChangeWorkflow(intent, sessionInfo.channelId, sessionInfo.threadTs, userId, client);
   });
 }

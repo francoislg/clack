@@ -140,10 +140,19 @@ function actionToButton(action: Action, sessionId: string) {
 export function getStructuredResponseBlocks(payload: SubmitResponsePayload, sessionId: string) {
   const sectionBlocks = renderSections(payload.sections);
 
+  // Filter out auto-executed actions — they fire immediately, no button needed
+  const buttonActions = payload.actions.filter(
+    (a) => !("auto" in a && (a as { auto?: boolean }).auto === true)
+  );
+
+  if (buttonActions.length === 0) {
+    return sectionBlocks;
+  }
+
   // Slack allows max 5 buttons per actions block — split if needed
   const actionChunks: Action[][] = [];
-  for (let i = 0; i < payload.actions.length; i += 5) {
-    actionChunks.push(payload.actions.slice(i, i + 5));
+  for (let i = 0; i < buttonActions.length; i += 5) {
+    actionChunks.push(buttonActions.slice(i, i + 5));
   }
 
   const actionBlocks = actionChunks.map((chunk) => ({

@@ -40,9 +40,15 @@ export function getSessionByThread(
   return sessionId ? activeSessions.get(sessionId) : undefined;
 }
 
+/**
+ * Find an actively-executing session for a user.
+ * Only returns sessions that are consuming compute (executing, reviewing, merging).
+ * Sessions in pr_created state are idle and do NOT block new changes.
+ */
 export function getActiveSessionForUser(userId: string): ChangeSession | undefined {
+  const activelyExecutingStatuses: ChangeStatus[] = ["executing", "reviewing", "merging"];
   for (const session of activeSessions.values()) {
-    if (session.userId === userId && session.status !== "completed" && session.status !== "failed") {
+    if (session.userId === userId && activelyExecutingStatuses.includes(session.status)) {
       return session;
     }
   }
