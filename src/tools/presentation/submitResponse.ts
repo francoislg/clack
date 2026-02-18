@@ -118,8 +118,7 @@ export function createSubmitResponseTool(
         .describe("Response sections shown to the user"),
       actions: z
         .array(actionSchema)
-        .min(1)
-        .describe("Interactive buttons for the user to click"),
+        .describe("Interactive buttons for the user to click. Use an empty array for casual/conversational responses that don't need actions."),
     },
     async (args) => {
       // Validate that all ref-based actions reference valid staged intents
