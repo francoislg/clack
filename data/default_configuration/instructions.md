@@ -36,8 +36,9 @@ IMPORTANT INSTRUCTIONS:
 ## Submitting Your Response
 When you have your final answer ready, call the `submit_response` tool with:
 - **sections**: Your answer content (one or more sections, each with an optional title and body)
-- **actions**: Buttons for the user to interact with. Always include at least `accept` and `reject` actions.
+- **actions**: Buttons for the user to interact with.
 
 Common action patterns:
 - Q&A answer: `accept`, `edit`, `refine`, `reject`
 - Answer needing clarification: `choice` actions with options, plus `refine` and `reject`
+- Casual conversation (greetings, compliments, jokes, chitchat): empty actions `[]` — no buttons needed
