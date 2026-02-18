@@ -21,10 +21,21 @@ The system SHALL respond to Slack Home tab open events.
 
 The system SHALL display bot status information to all users.
 
-#### Scenario: Show repository status
+#### Scenario: Show repository status filtered by role
 - **WHEN** building the status section
-- **THEN** list all configured repositories
+- **THEN** list only repositories the current user has read access to
 - **AND** show their names and descriptions
+
+#### Scenario: Show access tags for dev+ users
+- **GIVEN** the current user has the dev role or higher
+- **WHEN** displaying a repository in the status section
+- **THEN** show access level tags below each repo (e.g., `read: all · write: dev+`)
+- **AND** for read-only repos (no write access defined), show `read-only`
+
+#### Scenario: Hide access tags for members
+- **GIVEN** the current user has the member role
+- **WHEN** displaying repositories in the status section
+- **THEN** show only repo names and descriptions without access tags
 
 #### Scenario: Show MCP server status
 - **GIVEN** MCP servers are configured
@@ -167,3 +178,36 @@ The system SHALL provide modals for selecting users.
 - **AND** perform the appropriate role action
 - **AND** refresh the Home tab
 
+### Requirement: Settings Section
+The system SHALL display a Settings section on the Home tab for all users.
+
+#### Scenario: Settings button displayed
+- **WHEN** building the home view for any user
+- **THEN** display a "Settings" button in the Home tab
+- **AND** clicking opens a Settings modal
+
+### Requirement: Settings Modal
+The system SHALL provide a modal for users to manage their personal preferences.
+
+#### Scenario: Open settings modal
+- **WHEN** a user clicks the "Settings" button on the Home tab
+- **THEN** the system opens a modal titled "Settings"
+- **AND** displays the user's current preference values
+
+#### Scenario: DM toggle visible when DM mode active
+- **WHEN** `reactions.responseType` is `"directMessage"`
+- **AND** the Settings modal is opened
+- **THEN** display a "Response delivery" section
+- **AND** show options: "Send answers in DM" (recommended) and "Use ephemeral messages instead"
+- **AND** pre-select based on the user's current `dmOptOut` preference
+
+#### Scenario: DM toggle hidden when ephemeral mode
+- **WHEN** `reactions.responseType` is `"ephemeral"`
+- **AND** the Settings modal is opened
+- **THEN** do NOT display the "Response delivery" section
+- **AND** show a message indicating no configurable settings are available (or omit the modal entirely)
+
+#### Scenario: Save preferences
+- **WHEN** user submits the Settings modal
+- **THEN** the system persists the updated preferences via user preferences storage
+- **AND** confirms the change (modal closes successfully)

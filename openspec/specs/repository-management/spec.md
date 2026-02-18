@@ -65,6 +65,7 @@ The system SHALL use GitHub App installation tokens for all git operations.
 - **AND** only non-Claude git operations (direct `simple-git` calls) manage their own token refresh
 
 ### Requirement: Repository Configuration
+
 The system SHALL support multiple repository configurations with metadata.
 
 #### Scenario: Repository with description
@@ -97,35 +98,24 @@ The system SHALL store all cloned repositories under `data/repositories/`.
 
 ### Requirement: Repository Change Support Configuration
 
-The system SHALL support per-repository configuration for change requests.
+The system SHALL derive change support from the `access.write` property.
 
-#### Scenario: Enable changes for repository
-- **WHEN** a repository config includes `supportsChanges: true`
-- **THEN** change requests can target that repository
+#### Scenario: Enable changes for repository via access.write
+- **GIVEN** a repository config has `access.write` set to a valid role
+- **WHEN** the system evaluates change support
+- **THEN** change requests can target that repository for users meeting the write threshold
 - **AND** worktrees will be created for changes
 
-#### Scenario: Disabled changes for repository
-- **WHEN** a repository config has `supportsChanges: false` or omits the field
-- **THEN** change requests targeting that repository are rejected
+#### Scenario: Read-only repository
+- **GIVEN** a repository config omits `access.write`
+- **WHEN** a change request targets that repository
+- **THEN** the request is rejected
 - **AND** a message explains that changes are not enabled for this repo
 
 #### Scenario: Custom worktree base path
 - **WHEN** a repository config includes `worktreeBasePath`
 - **THEN** worktrees are created under that path instead of the default
 - **AND** the path is relative to the data directory
-
-#### Scenario: Per-repository PR instructions
-- **WHEN** a repository config includes `pullRequestInstructions`
-- **THEN** the system reads the specified file path from the repository
-- **AND** includes those instructions in Claude's prompt when creating PRs
-- **AND** the path is relative to the repository root
-
-#### Scenario: PR instructions file resolution
-- **GIVEN** a repository config has `pullRequestInstructions: ".claude/skills/create-pr.md"`
-- **WHEN** preparing to create a PR
-- **THEN** the system reads that file from the worktree
-- **AND** passes its contents as PR creation guidelines to Claude
-- **AND** falls back to global `prInstructions` if the file is not found
 
 #### Scenario: Merge strategy configuration
 - **WHEN** a repository config includes `mergeStrategy`
@@ -134,12 +124,12 @@ The system SHALL support per-repository configuration for change requests.
 - **AND** defaults to `squash` if not specified
 
 #### Scenario: Single change-enabled repository
-- **GIVEN** only one repository has `supportsChanges: true`
+- **GIVEN** only one repository has `access.write` defined
 - **WHEN** a change request is detected
 - **THEN** the system targets that repository automatically
 
 #### Scenario: Multiple change-enabled repositories
-- **GIVEN** multiple repositories have `supportsChanges: true`
+- **GIVEN** multiple repositories have `access.write` defined
 - **WHEN** a change request is detected
 - **THEN** Claude analyzes the request to determine the relevant repository
 - **AND** uses repository descriptions to match intent

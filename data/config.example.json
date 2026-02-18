@@ -38,7 +38,7 @@
       "url": "your-org/your-repo",
       "description": "Main application codebase - contains backend API and frontend",
       "branch": "main",
-      "supportsChanges": false,
+      "access": { "read": "member", "write": "dev" },
       "mergeStrategy": "squash"
     }
   ],

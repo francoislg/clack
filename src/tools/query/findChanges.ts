@@ -2,8 +2,9 @@ import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { ToolContext } from "../types.js";
 import { getActiveWorkers } from "../../changes/session.js";
+import { getVisibleRepos } from "../../repoAccess.js";
 
-export function createFindChangesTool(_ctx: ToolContext) {
+export function createFindChangesTool(ctx: ToolContext) {
   return tool(
     "find_changes",
     "Find active change sessions (currently in-progress). These are changes being executed, reviewed, or merged right now.",
@@ -15,7 +16,10 @@ export function createFindChangesTool(_ctx: ToolContext) {
         .describe("Filter by status"),
     },
     async (args) => {
-      let workers = getActiveWorkers();
+      const visibleRepoNames = new Set(
+        getVisibleRepos(ctx.role, ctx.config.repositories).map((r) => r.name)
+      );
+      let workers = getActiveWorkers().filter((w) => visibleRepoNames.has(w.repo));
 
       if (args.repo) {
         workers = workers.filter((w) => w.repo === args.repo);

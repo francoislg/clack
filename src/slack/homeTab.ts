@@ -11,6 +11,7 @@ import { canEditConfig, canManageRoles, canRequestChanges } from "../permissions
 import { getActiveWorkers } from "../changes/session.js";
 import { listInstructionFiles } from "../configurationFiles.js";
 import { getUserPreference } from "../userPreferences.js";
+import { getVisibleRepos, canWriteRepo } from "../repoAccess.js";
 
 interface HomeViewOptions {
   userId: string;
@@ -58,7 +59,7 @@ export async function buildHomeView(options: HomeViewOptions): Promise<View> {
   blocks.push(...(await buildSettingsSection(userId)));
 
   // Status section (visible to all)
-  blocks.push(...buildStatusSection());
+  blocks.push(...buildStatusSection(role));
 
   // Help section (visible to all)
   blocks.push(...buildHelpSection());
@@ -386,9 +387,14 @@ export function buildEditFileModal(filename: string, content: string): View {
   };
 }
 
-export function buildStatusSection(): KnownBlock[] {
+function formatAccessTag(role: UserRole): string {
+  return role === "member" ? "all" : `${role}+`;
+}
+
+export function buildStatusSection(role: UserRole): KnownBlock[] {
   const config = getConfig();
   const mcpServers = getConfiguredMcpServerNames();
+  const showAccessTags = canRequestChanges(role); // dev+
 
   const blocks: KnownBlock[] = [
     {
@@ -401,9 +407,22 @@ export function buildStatusSection(): KnownBlock[] {
     },
   ];
 
-  // Repositories
-  const repoList = config.repositories
-    .map((r) => `• *${r.name}*: ${r.description}`)
+  // Repositories (filtered by role)
+  const visibleRepos = getVisibleRepos(role, config.repositories);
+  const repoList = visibleRepos
+    .map((r) => {
+      let line = `• *${r.name}*: ${r.description}`;
+      if (showAccessTags) {
+        const readTag = formatAccessTag(r.access?.read ?? "member");
+        if (canWriteRepo(role, r)) {
+          const writeTag = formatAccessTag(r.access!.write!);
+          line += `\n   _read: ${readTag} · write: ${writeTag}_`;
+        } else {
+          line += `\n   _read: ${readTag} · read-only_`;
+        }
+      }
+      return line;
+    })
     .join("\n");
 
   blocks.push({

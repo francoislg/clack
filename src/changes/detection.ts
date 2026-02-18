@@ -1,6 +1,8 @@
 import { getConfig, type Config, type RepositoryConfig } from "../config.js";
 import type { TriggerType, FollowUpInfo, FollowUpCommand } from "./types.js";
 import { runClaudeInWorktree } from "./execution.js";
+import { getWritableRepos } from "../repoAccess.js";
+import type { UserRole } from "../roles.js";
 
 // ============================================================================
 // Change Request Detection
@@ -24,22 +26,22 @@ export function isChangesEnabledForTrigger(
 }
 
 /**
- * Get repositories that support changes
+ * Get repositories that the given role can write to
  */
 export function getChangeEnabledRepos(
-  config: Config
+  config: Config,
+  role: UserRole = "dev"
 ): Array<{ name: string; description: string }> {
-  return config.repositories
-    .filter((r) => r.supportsChanges === true)
+  return getWritableRepos(role, config.repositories)
     .map((r) => ({ name: r.name, description: r.description }));
 }
 
 /**
- * Find the repository that supports changes.
- * If multiple repos support changes, returns null (Claude will need to determine).
+ * Find the repository the given role can write to.
+ * If multiple repos are writable, returns null (Claude will need to determine).
  */
-export function findChangeEnabledRepo(config: Config): RepositoryConfig | null {
-  const enabledRepos = config.repositories.filter((r) => r.supportsChanges === true);
+export function findChangeEnabledRepo(config: Config, role: UserRole = "dev"): RepositoryConfig | null {
+  const enabledRepos = getWritableRepos(role, config.repositories);
 
   if (enabledRepos.length === 1) {
     return enabledRepos[0];

@@ -4,6 +4,7 @@ import type { ToolContext } from "../types.js";
 import type { IntentStore, ToolCallRecorder } from "../server.js";
 import { getExistingWorktree } from "../../worktrees.js";
 import { readSessionState } from "../../changes/persistence.js";
+import { canWriteRepo, getWritableRepos } from "../../repoAccess.js";
 
 const BRANCH_PATTERN = /^clack\/(fix|feat|refactor|docs|chore)\/.+$/;
 const BRANCH_TYPES = ["fix", "feat", "refactor", "docs", "chore"];
@@ -40,7 +41,7 @@ export function createProposeChangeTool(
         };
       }
 
-      // Validate repo exists and supports changes
+      // Validate repo exists and user has write access
       const repo = ctx.config.repositories.find((r) => r.name === args.repo);
       if (!repo) {
         const availableRepos = ctx.config.repositories.map((r) => r.name);
@@ -54,12 +55,10 @@ export function createProposeChangeTool(
         };
       }
 
-      if (!repo.supportsChanges) {
-        const changeRepos = ctx.config.repositories
-          .filter((r) => r.supportsChanges)
-          .map((r) => r.name);
+      if (!canWriteRepo(ctx.role, repo)) {
+        const writableRepos = getWritableRepos(ctx.role, ctx.config.repositories).map((r) => r.name);
         const errorResult = {
-          error: `Repository "${args.repo}" does not support changes.${changeRepos.length > 0 ? ` Repos with change support: ${changeRepos.join(", ")}` : " No repos have change support enabled."}`,
+          error: `You do not have write access to "${args.repo}".${writableRepos.length > 0 ? ` Repos you can change: ${writableRepos.join(", ")}` : " No repos have change support for your role."}`,
         };
         recorder.record("propose_change", args as Record<string, unknown>, errorResult);
         return {

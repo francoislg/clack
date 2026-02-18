@@ -1,11 +1,12 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { ToolContext } from "../types.js";
+import { getVisibleRepos, canWriteRepo } from "../../repoAccess.js";
 
 export function createListRepositoriesTool(ctx: ToolContext) {
   return tool(
     "list_repositories",
-    "List all configured repositories with their descriptions and whether they support code changes.",
+    "List repositories you have access to, with their descriptions and whether you can propose code changes.",
     {
       includeChangeSupport: z
         .boolean()
@@ -13,10 +14,11 @@ export function createListRepositoriesTool(ctx: ToolContext) {
         .describe("Include whether each repo supports the changes workflow (default: true)"),
     },
     async (args) => {
-      const repos = ctx.config.repositories.map((r) => ({
+      const visible = getVisibleRepos(ctx.role, ctx.config.repositories);
+      const repos = visible.map((r) => ({
         name: r.name,
         description: r.description,
-        ...(args.includeChangeSupport !== false && { supportsChanges: r.supportsChanges ?? false }),
+        ...(args.includeChangeSupport !== false && { canChange: canWriteRepo(ctx.role, r) }),
       }));
 
       return {
