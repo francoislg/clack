@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
-import { resolve } from "node:path";
+import { resolve, sep } from "node:path";
 import { getConfig, getConfigurationDir, getDefaultConfigurationDir } from "./config.js";
 import { logger } from "./logger.js";
 
@@ -84,7 +84,7 @@ export function writeInstructionFile(filename: string, content: string): void {
   const targetPath = resolve(configDir, filename);
 
   // Path safety: ensure resolved path is inside configuration directory
-  if (!targetPath.startsWith(configDir + "/") && targetPath !== configDir) {
+  if (!targetPath.startsWith(configDir + sep) && targetPath !== configDir) {
     logger.warn(`Path traversal attempt blocked: ${filename}`);
     throw new Error("Invalid filename: path traversal not allowed");
   }
