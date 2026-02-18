@@ -42,6 +42,7 @@ const changeActionSchema = z.object({
   type: z.literal("change"),
   ref: z.string().describe("Ref ID from propose_change"),
   label: z.string().optional().describe("Custom button label (default: 'Start Change')"),
+  auto: z.boolean().optional().describe("If true, execute immediately without waiting for button click"),
 });
 
 const configUpdateActionSchema = z.object({
@@ -54,24 +55,28 @@ const reviewActionSchema = z.object({
   type: z.literal("review"),
   ref: z.string().describe("Ref ID from request_review"),
   label: z.string().optional().describe("Custom button label (default: 'Review')"),
+  auto: z.boolean().optional().describe("If true, execute immediately without waiting for button click"),
 });
 
 const mergeActionSchema = z.object({
   type: z.literal("merge"),
   ref: z.string().describe("Ref ID from request_merge"),
   label: z.string().optional().describe("Custom button label (default: 'Merge')"),
+  auto: z.boolean().optional().describe("If true, execute immediately without waiting for button click"),
 });
 
 const updateActionSchema = z.object({
   type: z.literal("update"),
   ref: z.string().describe("Ref ID from request_update"),
   label: z.string().optional().describe("Custom button label (default: 'Update')"),
+  auto: z.boolean().optional().describe("If true, execute immediately without waiting for button click"),
 });
 
 const closeActionSchema = z.object({
   type: z.literal("close"),
   ref: z.string().describe("Ref ID from request_close"),
   label: z.string().optional().describe("Custom button label (default: 'Close PR')"),
+  auto: z.boolean().optional().describe("If true, execute immediately without waiting for button click"),
 });
 
 const actionSchema = z.discriminatedUnion("type", [

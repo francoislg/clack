@@ -6,7 +6,7 @@ import { restoreSessionInfo } from "../state.js";
 import type { StagedIntent } from "../../tools/types.js";
 import { handleFollowUp } from "../../changes/workflow.js";
 import { getSessionByThread } from "../../changes/session.js";
-import type { FollowUpCommand } from "../../changes/types.js";
+import type { ChangeSession, FollowUpCommand } from "../../changes/types.js";
 
 async function resolveStagedIntentFromSession(sessionId: string, ref: string): Promise<StagedIntent | null> {
   const session = await getSession(sessionId);
@@ -16,6 +16,58 @@ async function resolveStagedIntentFromSession(sessionId: string, ref: string): P
   if (!intents || !intents[ref]) return null;
 
   return intents[ref] as StagedIntent;
+}
+
+/**
+ * Shared logic for triggering a follow-up action on an existing change session.
+ * Used by both button click handlers and auto-execute.
+ * Posts one ack message and updates it in-place with progress.
+ */
+export async function triggerFollowUp(
+  changeSession: ChangeSession,
+  command: FollowUpCommand,
+  additionalInstructions: string | undefined,
+  channelId: string,
+  threadTs: string,
+  client: App["client"]
+): Promise<void> {
+  // Post one acknowledgment message that we'll update with progress
+  const ackMessage = await client.chat.postMessage({
+    channel: channelId,
+    thread_ts: threadTs,
+    text: `Starting ${command}...`,
+  });
+
+  const result = await handleFollowUp(
+    changeSession,
+    command,
+    additionalInstructions,
+    async (message: string) => {
+      try {
+        await client.chat.update({
+          channel: channelId,
+          ts: ackMessage.ts!,
+          text: message,
+        });
+      } catch (error) {
+        logger.warn("Failed to update follow-up progress message:", error);
+      }
+    }
+  );
+
+  if (result.success) {
+    await client.chat.update({
+      channel: channelId,
+      ts: ackMessage.ts!,
+      text: result.summary || `${command} completed successfully.`,
+    });
+  } else {
+    await client.chat.update({
+      channel: channelId,
+      ts: ackMessage.ts!,
+      text: `${command} failed: ${result.error}`,
+    });
+  }
 }
 
 function registerFollowUpActionHandler(
@@ -73,37 +125,7 @@ function registerFollowUpActionHandler(
       ? (intent as { instructions: string }).instructions
       : undefined;
 
-    // Execute the follow-up via the existing workflow
-    const result = await handleFollowUp(
-      changeSession,
-      command,
-      additionalInstructions,
-      async (message: string) => {
-        try {
-          await client.chat.postMessage({
-            channel: sessionInfo.channelId,
-            thread_ts: sessionInfo.threadTs,
-            text: message,
-          });
-        } catch (error) {
-          logger.warn("Failed to post follow-up message:", error);
-        }
-      }
-    );
-
-    if (result.success) {
-      await client.chat.postMessage({
-        channel: sessionInfo.channelId,
-        thread_ts: sessionInfo.threadTs,
-        text: result.summary || `${command} completed successfully.`,
-      });
-    } else {
-      await client.chat.postMessage({
-        channel: sessionInfo.channelId,
-        thread_ts: sessionInfo.threadTs,
-        text: `${command} failed: ${result.error}`,
-      });
-    }
+    await triggerFollowUp(changeSession, command, additionalInstructions, sessionInfo.channelId, sessionInfo.threadTs, client);
   });
 }
 

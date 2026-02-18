@@ -67,6 +67,13 @@ The system SHALL register tools based on the user's role and current context.
 - **WHEN** the tool server is built
 - **THEN** it additionally registers `propose_config_update`
 
+#### Scenario: Dev instructions include auto-execute guidance
+
+- **GIVEN** the user has the dev role (or higher)
+- **WHEN** Claude receives dev instructions
+- **THEN** the instructions include guidance on when to use `auto: true` on ref-based actions
+- **AND** Claude uses `auto: true` for clear directives and omits it for ambiguous intent
+
 ### Requirement: Query Tools
 
 The system SHALL provide read-only query tools for discovering system state.
