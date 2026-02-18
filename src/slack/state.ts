@@ -9,6 +9,16 @@ export interface SessionInfo {
   isEphemeral?: boolean;
   /** Original trigger type, used to build proper Claude options on button clicks. */
   triggerType?: "directMessages" | "mentions" | "reactions";
+  /** DM-first: the DM channel ID where the answer was delivered */
+  dmChannel?: string;
+  /** DM-first: the root DM message timestamp (thread anchor) */
+  dmThreadTs?: string;
+  /** DM-first: the original channel where the reaction was added */
+  originChannel?: string;
+  /** DM-first: the original thread timestamp in the channel */
+  originThreadTs?: string;
+  /** DM-first: timestamp of the accepted message posted to the channel */
+  channelPostTs?: string;
 }
 
 const activeSessions = new Map<string, SessionInfo>();
@@ -47,6 +57,12 @@ export async function restoreSessionInfo(sessionId: string): Promise<SessionInfo
       channelId: session.channelId,
       threadTs,
       userId: session.userId,
+      // Restore DM-first delivery coordinates if present
+      ...(session.dmChannel && { dmChannel: session.dmChannel }),
+      ...(session.dmThreadTs && { dmThreadTs: session.dmThreadTs }),
+      ...(session.originChannel && { originChannel: session.originChannel }),
+      ...(session.originThreadTs && { originThreadTs: session.originThreadTs }),
+      ...(session.channelPostTs && { channelPostTs: session.channelPostTs }),
     };
 
     // Cache in memory for future use

@@ -18,6 +18,7 @@ import { registerFollowupHandler } from "./handlers/followup.js";
 import { registerChangeActionHandler } from "./handlers/changeAction.js";
 import { registerConfigUpdateActionHandler } from "./handlers/configUpdateAction.js";
 import { registerChangeThreadActionHandlers } from "./handlers/changeThreadActions.js";
+import { registerDmActionHandlers } from "./handlers/dmActions.js";
 
 let app: App | null = null;
 
@@ -51,11 +52,23 @@ export function createSlackApp(): App {
   registerConfigUpdateActionHandler(app);
   registerChangeThreadActionHandlers(app);
 
+  // DM-first reaction handlers (when reactions.responseType is "directMessage")
+  if (config.reactions.responseType === "directMessage") {
+    logger.debug("DM-first reactions mode enabled");
+    registerDmActionHandlers(app);
+    // Thread reply handler is needed for DM-first refinement
+    // (also registered below if directMessages.enabled, but registerThreadReplyHandler is idempotent by event handler dedup)
+    registerThreadReplyHandler(app);
+  }
+
   // Direct message handlers (only when enabled)
   if (config.directMessages.enabled) {
     logger.debug("Direct message mode enabled");
     registerDirectMessageHandler(app);
-    registerThreadReplyHandler(app);
+    if (config.reactions.responseType !== "directMessage") {
+      // Only register if not already registered above
+      registerThreadReplyHandler(app);
+    }
   }
 
   // Mention handlers (only when enabled)
