@@ -18,7 +18,7 @@ import {
 import { writeSessionState, appendExecutionLog, readSessionState } from "./persistence.js";
 import { findRepoByName } from "./detection.js";
 import { executeChange, runClaudeInWorktree, runWorktreeSetup } from "./execution.js";
-import { createPR, mergePR, closePR, reviewPR } from "./pr.js";
+import { ensurePR, mergePR, closePR, reviewPR } from "./pr.js";
 
 // ============================================================================
 // Main Workflow Orchestration
@@ -145,7 +145,7 @@ export async function startChangeWorkflow(
 
   // Create PR
   await onProgress("Creating pull request...");
-  const prResult = await createPR(worktree, plan, execResult.summary ?? "");
+  const prResult = await ensurePR(worktree, plan, execResult.summary ?? "");
 
   if (!prResult.success || !prResult.prUrl) {
     updateSessionStatus(session.id, "failed");
