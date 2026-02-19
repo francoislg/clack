@@ -9,6 +9,7 @@ import { generateChangePlan } from "../../changes/execution.js";
 import { startChangeWorkflow } from "../../changes/workflow.js";
 import { extractMessageText } from "../messagesApi.js";
 import { processMessage } from "./core.js";
+import { safeChatUpdate } from "./safeChatUpdate.js";
 
 async function handleChangeReaction(
   client: App["client"],
@@ -93,17 +94,19 @@ async function handleChangeReaction(
   );
 
   if (result.success) {
-    await client.chat.update({
-      channel: channelId,
-      ts: ackMessage.ts!,
-      text: `✅ PR created: ${result.prUrl}\n\n${result.summary || ""}`.trim(),
-    });
+    await safeChatUpdate(
+      client,
+      channelId,
+      ackMessage.ts!,
+      `✅ PR created: ${result.prUrl}\n\n${result.summary || ""}`.trim(),
+    );
   } else {
-    await client.chat.update({
-      channel: channelId,
-      ts: ackMessage.ts!,
-      text: `❌ Change request failed: ${result.error}`,
-    });
+    await safeChatUpdate(
+      client,
+      channelId,
+      ackMessage.ts!,
+      `❌ Change request failed: ${result.error}`,
+    );
   }
 }
 

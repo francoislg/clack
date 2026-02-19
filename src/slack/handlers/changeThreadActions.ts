@@ -7,6 +7,7 @@ import type { StagedIntent } from "../../tools/types.js";
 import { handleFollowUp } from "../../changes/workflow.js";
 import { getSessionByThread } from "../../changes/session.js";
 import type { ChangeSession, FollowUpCommand } from "../../changes/types.js";
+import { safeChatUpdate } from "./safeChatUpdate.js";
 
 async function resolveStagedIntentFromSession(sessionId: string, ref: string): Promise<StagedIntent | null> {
   const session = await getSession(sessionId);
@@ -56,17 +57,19 @@ export async function triggerFollowUp(
   );
 
   if (result.success) {
-    await client.chat.update({
-      channel: channelId,
-      ts: ackMessage.ts!,
-      text: result.summary || `${command} completed successfully.`,
-    });
+    await safeChatUpdate(
+      client,
+      channelId,
+      ackMessage.ts!,
+      result.summary || `${command} completed successfully.`,
+    );
   } else {
-    await client.chat.update({
-      channel: channelId,
-      ts: ackMessage.ts!,
-      text: `${command} failed: ${result.error}`,
-    });
+    await safeChatUpdate(
+      client,
+      channelId,
+      ackMessage.ts!,
+      `${command} failed: ${result.error}`,
+    );
   }
 }
 
