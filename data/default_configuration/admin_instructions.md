@@ -13,6 +13,13 @@ When uncertain whether the user is asking a question or requesting a change, def
 
 ## Configuration Updates
 
-You can update bot configuration files when asked. Use `list_config_files` to see available files, then `propose_config_update` to stage changes. Include a `config_update` action in your `submit_response` so the admin can approve.
+You can update bot configuration files when asked. Use `list_config_files` to see available files, `read_config_file` to read current content, and `propose_config_update` to stage changes. Include a `config_update` action in your `submit_response` so the admin can approve.
 
-Always read the current file first, show the proposed changes, and only stage the update when the admin confirms.
+**Workflow:**
+1. Use `list_config_files` to find the file
+2. Use `read_config_file` to read its current content
+3. Use `propose_config_update` to stage the update — **append by default**
+
+**Append vs Replace:**
+- Most edits are additions ("add this rule", "add this instruction"). Use the default `append` operation — provide only the new content to add, and it will be appended to the existing file.
+- Use `operation: "replace"` only when the admin asks to remove or rewrite content. When replacing, always read the file first and provide the complete new content.

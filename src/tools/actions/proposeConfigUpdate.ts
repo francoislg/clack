@@ -11,10 +11,11 @@ export function createProposeConfigUpdateTool(
 ) {
   return tool(
     "propose_config_update",
-    "Propose an update to an instruction/configuration file. Validates the filename and stages the intent. Returns a ref ID to use in submit_response.",
+    "Propose an update to an instruction/configuration file. Validates the filename and stages the intent. Returns a ref ID to use in submit_response. Default operation is 'append' which adds content to the end of the existing file. Use 'replace' only when rewriting or removing content.",
     {
       file: z.string().describe("The instruction filename to update (e.g., 'instructions.md')"),
-      content: z.string().describe("The new content for the file. When overriding a default file for the first time, the default content is automatically preserved — you only need to provide additions or changes."),
+      content: z.string().describe("The content to append (default) or the full replacement content (when operation is 'replace')."),
+      operation: z.enum(["append", "replace"]).default("append").describe("'append' (default) adds content to the end of the existing file. 'replace' overwrites the entire file with the provided content."),
     },
     async (args) => {
       // Validate filename against known instruction files
@@ -33,13 +34,17 @@ export function createProposeConfigUpdateTool(
         };
       }
 
-      // When creating a new override (no custom file yet), seed with the
-      // default content so additions don't wipe out the base instructions.
-      let finalContent = args.content;
-      if (!match.hasOverride && match.hasDefault) {
-        const defaultContent = readInstructionFile(args.file);
-        if (defaultContent && !args.content.startsWith(defaultContent.trimEnd())) {
-          finalContent = defaultContent.trimEnd() + "\n\n" + args.content;
+      let finalContent: string;
+      if (args.operation === "replace") {
+        // Replace: use the provided content as-is
+        finalContent = args.content;
+      } else {
+        // Append: read current content and append
+        const currentContent = readInstructionFile(args.file);
+        if (currentContent) {
+          finalContent = currentContent.trimEnd() + "\n\n" + args.content;
+        } else {
+          finalContent = args.content;
         }
       }
 

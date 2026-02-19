@@ -18,6 +18,7 @@ import { createFindSessionsTool } from "./query/findSessions.js";
 import { createFindChangesTool } from "./query/findChanges.js";
 import { createFindPullRequestsTool } from "./query/findPullRequests.js";
 import { createListConfigFilesTool } from "./query/listConfigFiles.js";
+import { createReadConfigFileTool } from "./query/readConfigFile.js";
 
 // Action tools
 import { createProposeChangeTool } from "./actions/proposeChange.js";
@@ -147,6 +148,7 @@ function buildQueryTools(ctx: QueryToolContext): ClackToolsResult {
 
   if (ctx.role === "admin" || ctx.role === "owner") {
     tools.push(createListConfigFilesTool(ctx));
+    tools.push(createReadConfigFileTool(ctx));
   }
 
   // --- Action tools ---
