@@ -14,6 +14,7 @@ import { canRequestChanges } from "../permissions.js";
 import { createListRepositoriesTool } from "./query/listRepositories.js";
 import { createFindSessionsTool } from "./query/findSessions.js";
 import { createFindChangesTool } from "./query/findChanges.js";
+import { createFindPullRequestsTool } from "./query/findPullRequests.js";
 import { createListConfigFilesTool } from "./query/listConfigFiles.js";
 
 // Action tools
@@ -145,6 +146,7 @@ export function buildClackTools(ctx: ToolContext): ClackToolsResult {
   if (canRequestChanges(ctx.role)) {
     tools.push(createFindSessionsTool(ctx));
     tools.push(createFindChangesTool(ctx));
+    tools.push(createFindPullRequestsTool(ctx));
   }
 
   // list_config_files available to admin/owner

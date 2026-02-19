@@ -52,9 +52,9 @@ export async function getPRStatus(prUrl: string): Promise<{ state: PRState } | n
 // ============================================================================
 
 /**
- * Create a PR using the GitHub API.
+ * Ensure a PR exists for the branch (idempotent: returns existing PR if one is open).
  */
-export async function createPR(
+export async function ensurePR(
   worktree: WorktreeInfo,
   plan: ChangePlan,
   summary: string
@@ -109,6 +109,19 @@ Output ONLY the filled-in PR body (markdown), nothing else.`,
     const { owner, repo: repoName } = parseRepoUrl(repo.url);
     const octokit = await getOctokit();
     const defaultBranch = repo.branch || "main";
+
+    // Check if a PR already exists for this branch
+    const { data: existingPRs } = await octokit.pulls.list({
+      owner,
+      repo: repoName,
+      head: `${owner}:${plan.branchName}`,
+      state: "open",
+    });
+
+    if (existingPRs.length > 0) {
+      logger.debug(`PR already exists for branch ${plan.branchName}: ${existingPRs[0].html_url}`);
+      return { success: true, prUrl: existingPRs[0].html_url };
+    }
 
     const { data: pr } = await octokit.pulls.create({
       owner,

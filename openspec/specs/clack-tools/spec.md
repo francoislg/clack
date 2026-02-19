@@ -55,6 +55,11 @@ The system SHALL register tools based on the user's role and current context.
 - **WHEN** the user has the dev role (or higher)
 - **THEN** the tool server registers all query tools, `propose_change`, and `submit_response`
 
+#### Scenario: Dev user query tools include find_pull_requests
+
+- **WHEN** the user has the dev role (or higher)
+- **THEN** the tool server registers `find_pull_requests` alongside `find_sessions` and `find_changes`
+
 #### Scenario: Dev user in change thread
 
 - **GIVEN** the current thread has an active change session with a PR
@@ -94,9 +99,41 @@ The system SHALL provide read-only query tools for discovering system state.
 - **THEN** the tool returns active change requests only for repositories the user can read
 - **AND** changes for invisible repositories are omitted
 
+#### Scenario: find_pull_requests tool
+- **WHEN** Claude calls `find_pull_requests` with required `repo` and optional `branch` filter
+- **THEN** the tool queries GitHub for open PRs on that repository
+- **AND** returns PR summaries only for repositories the user can read
+- **AND** PRs for invisible repositories are not queryable
+
 #### Scenario: list_config_files tool
 - **WHEN** Claude calls `list_config_files`
 - **THEN** the tool returns the list of known instruction files with filename and status (customized, default, or not created)
+
+### Requirement: find_pull_requests Query Tool
+
+The system SHALL provide a `find_pull_requests` query tool that queries GitHub for open pull requests on a repository.
+
+#### Scenario: Query open PRs for a repository
+
+- **WHEN** Claude calls `find_pull_requests` with a required `repo` parameter
+- **THEN** the tool queries the GitHub API for open pull requests on that repository
+- **AND** returns an array of PR summaries (url, title, branch, state, updatedAt)
+- **AND** only queries repositories the user has read access to
+
+#### Scenario: Filter PRs by branch name
+
+- **WHEN** Claude calls `find_pull_requests` with an optional `branch` parameter
+- **THEN** the tool filters results to PRs whose head branch contains the given string (partial match)
+
+#### Scenario: Repository not found
+
+- **WHEN** Claude calls `find_pull_requests` with a repo name not in configuration
+- **THEN** the tool returns an error listing available repositories
+
+#### Scenario: Repository not visible to user
+
+- **WHEN** Claude calls `find_pull_requests` targeting a repo the user cannot read
+- **THEN** the tool returns an error indicating the repo is not accessible
 
 ### Requirement: Action Tools
 

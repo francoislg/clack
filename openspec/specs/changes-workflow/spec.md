@@ -241,10 +241,12 @@ The system SHALL support follow-up commands in change threads via MCP tools.
 
 The system SHALL perform all PR operations through the GitHub API using Octokit.
 
-#### Scenario: Create PR via API
+#### Scenario: Ensure PR via API (idempotent create)
 - **GIVEN** changes have been committed and pushed to a branch
 - **WHEN** a PR needs to be created
-- **THEN** the system uses Octokit to create the PR (`POST /repos/{owner}/{repo}/pulls`)
+- **THEN** the system first checks for an existing open PR on the branch using `GET /repos/{owner}/{repo}/pulls?head={owner}:{branch}&state=open`
+- **AND** if an open PR exists, returns the existing PR URL without creating a duplicate
+- **AND** if no open PR exists, creates a new PR using `POST /repos/{owner}/{repo}/pulls`
 - **AND** sets the title, body, base branch, and head branch
 - **AND** returns the PR URL on success
 
