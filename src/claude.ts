@@ -522,6 +522,55 @@ export async function testMCP(): Promise<McpTestResult> {
 }
 
 /**
+ * Summarize text that was too long for Slack using a quick Claude call.
+ * Returns a condensed version, or a hard-truncated fallback if the call fails.
+ */
+export async function summarizeForSlack(text: string): Promise<string> {
+  const maxChars = 39000; // Slack message limit is ~40k; leave headroom
+
+  const prompt = `The following text needs to be posted to Slack but is too long. Condense it to fit within ${maxChars} characters while preserving the most important information. Keep the same general structure and tone. Output ONLY the condensed text, nothing else.
+
+Text to condense:
+${text}`;
+
+  try {
+    let summary = "";
+    let lastAssistantText = "";
+
+    for await (const message of query({
+      prompt,
+      options: {
+        cwd: process.cwd(),
+        model: "haiku",
+        permissionMode: "bypassPermissions",
+        disallowedTools: ["Write", "Edit", "NotebookEdit", "Bash", "Task", "Read", "Glob", "Grep"],
+        maxTurns: 1,
+      },
+    })) {
+      if (message.type === "assistant" && message.message?.content) {
+        lastAssistantText = "";
+        for (const block of message.message.content) {
+          if ("text" in block && typeof block.text === "string") {
+            lastAssistantText += block.text;
+          }
+        }
+      }
+      if (message.type === "result" && message.subtype === "success") {
+        summary = message.result || lastAssistantText;
+      }
+    }
+
+    const result = summary.trim();
+    if (result) return result;
+  } catch (error) {
+    logger.error("Error summarizing text for Slack:", error);
+  }
+
+  // Fallback: hard truncate
+  return text.substring(0, maxChars) + "\n\n(truncated — full output was too long for Slack)";
+}
+
+/**
  * Analyzes an error trace using Claude to get a brief explanation of what went wrong.
  * Uses a lightweight model for quick analysis.
  */

@@ -6,6 +6,7 @@ import { restoreSessionInfo } from "../state.js";
 import type { StagedChangeIntent } from "../../tools/types.js";
 import type { ChangeRequest, ChangePlan } from "../../changes/types.js";
 import { startChangeWorkflow } from "../../changes/workflow.js";
+import { safeChatUpdate } from "./safeChatUpdate.js";
 
 /**
  * Resolve staged intents from session storage.
@@ -76,17 +77,19 @@ export async function triggerChangeWorkflow(
   );
 
   if (result.success) {
-    await client.chat.update({
-      channel: channelId,
-      ts: ackMessage.ts!,
-      text: `PR created: ${result.prUrl}\n\n${result.summary || ""}`.trim(),
-    });
+    await safeChatUpdate(
+      client,
+      channelId,
+      ackMessage.ts!,
+      `PR created: ${result.prUrl}\n\n${result.summary || ""}`.trim(),
+    );
   } else {
-    await client.chat.update({
-      channel: channelId,
-      ts: ackMessage.ts!,
-      text: `Change request failed: ${result.error}`,
-    });
+    await safeChatUpdate(
+      client,
+      channelId,
+      ackMessage.ts!,
+      `Change request failed: ${result.error}`,
+    );
   }
 }
 
