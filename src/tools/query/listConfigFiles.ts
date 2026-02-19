@@ -1,9 +1,9 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
-import type { ToolContext } from "../types.js";
+import type { QueryToolContext } from "../types.js";
 import { listInstructionFiles } from "../../configurationFiles.js";
 
-export function createListConfigFilesTool(_ctx: ToolContext) {
+export function createListConfigFilesTool(_ctx: QueryToolContext) {
   return tool(
     "list_config_files",
     "List all instruction/configuration files that can be edited. Shows which files have custom overrides and which use defaults.",

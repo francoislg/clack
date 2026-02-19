@@ -1,11 +1,11 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
-import type { ToolContext } from "../types.js";
+import type { QueryToolContext } from "../types.js";
 import { getVisibleRepos } from "../../repoAccess.js";
 import { getOctokit, parseRepoUrl } from "../../github.js";
 import { logger } from "../../logger.js";
 
-export function createFindPullRequestsTool(ctx: ToolContext) {
+export function createFindPullRequestsTool(ctx: QueryToolContext) {
   return tool(
     "find_pull_requests",
     "Find open pull requests on a repository via GitHub. Use this to check if a PR already exists for a branch before proposing changes.",

@@ -109,7 +109,10 @@ function isGitHubMcpServerAvailable(): boolean {
   }
 
   try {
-    execSync("github-mcp-server --help", { stdio: "ignore" });
+    // Use 'where' on Windows, 'which' elsewhere — just checks PATH presence
+    // without executing the binary (whose --help may exit non-zero).
+    const cmd = process.platform === "win32" ? "where github-mcp-server" : "which github-mcp-server";
+    execSync(cmd, { stdio: "ignore" });
     binaryAvailable = true;
   } catch {
     binaryAvailable = false;

@@ -9,6 +9,8 @@ import type { WorktreeInfo } from "../worktrees.js";
 import type { ChangePlan, ChangeRequest, ExecutionResult, PlanGenerationResult } from "./types.js";
 import { appendExecutionLog } from "./persistence.js";
 import { findRepoByName } from "./detection.js";
+import { buildWorkerContext } from "../tools/context.js";
+import { buildClackTools } from "../tools/server.js";
 
 /**
  * Run Claude via the Agent SDK with the given prompt and options
@@ -19,6 +21,7 @@ export async function runClaude(options: {
   systemPrompt?: string;
   allowedTools?: string[];
   disallowedTools?: string[];
+  mcpServers?: Record<string, unknown>;
   timeout?: number;
   branchName?: string;
   onProgress?: (message: string) => void;
@@ -82,6 +85,7 @@ export async function runClaude(options: {
         permissionMode: "bypassPermissions",
         allowDangerouslySkipPermissions: true,
         persistSession: false,
+        ...(options.mcpServers && { mcpServers: options.mcpServers as Record<string, import("@anthropic-ai/claude-agent-sdk").McpServerConfig> }),
         abortController,
         env: {
           ...process.env,
@@ -207,16 +211,18 @@ Instructions:
 2. Implement the requested changes
 3. Run tests if available (npm test, etc.)
 4. Commit your changes with a descriptive commit message
-5. Output a summary of what you changed
+5. Push the branch using the git_push tool
+6. Create a pull request using the ensure_pr tool
+7. Report your final status using the report_status tool
 
 Important:
 - Make minimal, focused changes
 - Follow existing code patterns and conventions
 - Do not make changes outside the scope of the request
-- If you encounter issues, explain them clearly
-
-After completing your work, output a line starting with "COMMIT_HASH:" followed by the commit hash.
-Then output a line starting with "SUMMARY:" followed by a brief summary of changes.`;
+- If you encounter issues, report them via report_status
+- If git_push fails, report the error via report_status — do not retry unless you can fix the issue
+- For the PR title, use a concise description (max 72 chars)
+- For the PR summary, describe what was changed and why`;
 
 /**
  * Execute the change in the worktree
@@ -225,7 +231,7 @@ export async function executeChange(
   plan: ChangePlan,
   worktree: WorktreeInfo,
   request: ChangeRequest,
-  onProgress?: (message: string) => void,
+  sessionId: string,
   resumeContext?: string
 ): Promise<ExecutionResult> {
   const config = getConfig();
@@ -275,7 +281,23 @@ Remember to:
 1. Make the changes
 2. Run tests if available
 3. Commit with a descriptive message
-4. Output COMMIT_HASH: and SUMMARY: at the end`;
+4. Push using the git_push tool
+5. Create a PR using the ensure_pr tool
+6. Report your final status using the report_status tool`;
+
+  // Build worker tools for this execution
+  const repo = findRepoByName(plan.targetRepo, config);
+  const workerCtx = buildWorkerContext({
+    worktreePath: worktree.worktreePath,
+    branchName: plan.branchName,
+    repoName: worktree.repoName,
+    repoUrl: repo?.url ?? "",
+    channelId: request.channel,
+    threadTs: request.threadTs ?? request.messageTs,
+    sessionId,
+    config,
+  });
+  const workerTools = buildClackTools(workerCtx);
 
   const result = await runClaudeInWorktree(worktree.repoName, {
     prompt,
@@ -284,7 +306,7 @@ Remember to:
     allowedTools,
     disallowedTools,
     branchName: plan.branchName,
-    onProgress,
+    mcpServers: { clack: workerTools.mcpServer },
   });
 
   if (!result.success) {
@@ -294,14 +316,9 @@ Remember to:
     };
   }
 
-  // Parse commit hash and summary from the result text
-  const commitMatch = result.text.match(/COMMIT_HASH:\s*([a-f0-9]+)/i);
-  const summaryMatch = result.text.match(/SUMMARY:\s*(.+?)(?:\n|$)/i);
-
   return {
     success: true,
-    commitHash: commitMatch?.[1],
-    summary: summaryMatch?.[1] ?? "Changes implemented",
+    summary: "Changes implemented",
   };
 }
 

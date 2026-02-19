@@ -1,10 +1,10 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
-import type { ToolContext } from "../types.js";
+import type { QueryToolContext } from "../types.js";
 import type { IntentStore, ToolCallRecorder } from "../server.js";
 
 export function createRequestCloseTool(
-  ctx: ToolContext,
+  ctx: QueryToolContext,
   intentStore: IntentStore,
   recorder: ToolCallRecorder
 ) {

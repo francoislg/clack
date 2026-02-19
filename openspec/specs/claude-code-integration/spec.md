@@ -102,9 +102,11 @@ The system SHALL capture Claude's `submit_response` tool output and format it fo
 
 The system SHALL support an autonomous change execution mode for implementing code changes without user interaction.
 
-#### Scenario: Execute change with default tools
+#### Scenario: Execute change with default tools and MCP server
 - **WHEN** a change request is triggered by an authorized dev
-- **THEN** the system invokes the Agent SDK `query()` function with a change-focused system prompt
+- **THEN** the system builds worker tools via `buildClackTools()` with mode `execute`
+- **AND** invokes the Agent SDK `query()` function with a change-focused system prompt
+- **AND** passes the `clack` MCP server in the `mcpServers` option
 - **AND** allows default tools: `Read`, `Glob`, `Grep`, `Write`, `Edit`, `Bash`
 - **AND** sets `cwd` to the worktree directory
 - **AND** always disallows `Task` tool
@@ -124,7 +126,7 @@ The system SHALL support an autonomous change execution mode for implementing co
 - **AND** merges them with the default allowed tools
 - **AND** tools like `WebFetch`, `WebSearch` can be enabled this way
 
-#### Scenario: Change system prompt
+#### Scenario: Change system prompt references MCP tools
 - **WHEN** the autonomous Claude instance is invoked
 - **THEN** the system prompt instructs Claude to:
   - Analyze the change request
@@ -132,28 +134,24 @@ The system SHALL support an autonomous change execution mode for implementing co
   - Implement the requested change
   - Run tests if available
   - Commit changes with a descriptive message
-  - Output the final commit hash and summary
+  - Push the branch using the `git_push` tool
+  - Create a PR using the `ensure_pr` tool
+  - Report progress and results using the `report_status` tool
 
 #### Scenario: Execution timeout
 - **WHEN** change execution exceeds the configured timeout (default 10 minutes)
 - **THEN** the system aborts the query via `AbortController`
-- **AND** reports failure to the user
+- **AND** checks session state to determine partial completion (e.g., committed but not pushed)
 
-#### Scenario: Execution result capture
+#### Scenario: Execution result from session state
 - **WHEN** Claude completes execution
-- **THEN** the system captures the final text from the SDK result event
-- **AND** captures any error messages if execution failed
-- **AND** passes the result to the PR creation flow
+- **THEN** the orchestrator reads the session's `prUrl` and status to determine outcome
+- **AND** does NOT parse text markers from Claude's output
 
 #### Scenario: Git author attribution
 - **WHEN** a change execution is invoked
 - **THEN** the system passes `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME`, and `GIT_COMMITTER_EMAIL` via the SDK `env` option
 - **AND** spreads `process.env` to preserve the existing environment
-
-#### Scenario: Progress reporting
-- **WHEN** the SDK yields assistant messages during execution
-- **AND** a message contains a `tool_use` content block
-- **THEN** the system calls the `onProgress` callback with `Using <tool_name>`
 
 #### Scenario: Worktree-aware Claude invocation
 - **WHEN** any Claude invocation targets a worktree directory
@@ -167,6 +165,20 @@ The system SHALL support an autonomous change execution mode for implementing co
 - **WHEN** Claude is invoked for any worktree operation (execution, review, update, setup, intent detection)
 - **THEN** the remote URL is updated with a fresh installation token
 - **AND** this occurs regardless of whether the specific operation involves git push
+
+### Requirement: `runClaude` MCP Server Support
+
+The system SHALL support passing MCP servers to the `runClaude()` function for worker invocations.
+
+#### Scenario: MCP servers passed to Agent SDK
+- **WHEN** `runClaude()` is called with an `mcpServers` option
+- **THEN** the system passes the MCP servers to the Agent SDK `query()` call
+- **AND** the Agent SDK makes the MCP tools available to Claude during execution
+
+#### Scenario: MCP servers optional
+- **WHEN** `runClaude()` is called without `mcpServers`
+- **THEN** the system invokes the Agent SDK without MCP servers (backwards compatible)
+- **AND** Claude has access only to the standard allowed tools
 
 ### Requirement: PR Template Resolution
 
@@ -193,77 +205,3 @@ The system SHALL resolve PR templates from multiple sources in priority order.
   - Summary section
   - Changes section
   - Test plan section
-
-### Requirement: Autonomous PR Creation
-
-The system SHALL create PRs using the GitHub CLI after successful change execution.
-
-#### Scenario: Create PR via Octokit
-- **GIVEN** a successful change execution with commits
-- **WHEN** the PR creation step runs
-- **THEN** the system pushes using token-authenticated HTTPS remote
-- **AND** creates the PR via Octokit `pulls.create()` API
-- **AND** uses the resolved template for the PR body
-- **AND** sets the title based on the change summary
-- **AND** targets the repository's default branch
-
-#### Scenario: PR creation failure handling
-- **WHEN** PR creation fails
-- **THEN** the system captures the error message
-- **AND** reports the failure to the user
-- **AND** preserves the worktree for manual recovery
-
-### Requirement: PR Review and Update
-
-The system SHALL support reviewing PR comments and implementing requested changes.
-
-#### Scenario: Fetch PR comments
-- **GIVEN** a PR was created and user requests "review"
-- **WHEN** the review flow starts
-- **THEN** the system fetches PR review comments via Octokit `pulls.listReviewComments()`
-- **AND** fetches PR reviews via Octokit `pulls.listReviews()`
-- **AND** passes comments to Claude for analysis
-
-#### Scenario: Implement review feedback
-- **GIVEN** PR comments have been fetched
-- **WHEN** Claude analyzes the review comments
-- **THEN** it implements the requested changes in the worktree
-- **AND** commits changes with a message referencing the review
-- **AND** pushes to update the PR
-
-#### Scenario: Report review changes
-- **WHEN** review changes are pushed
-- **THEN** the system replies in the Slack thread with:
-  - Number of comments addressed
-  - Summary of changes made
-  - Note if any comments could not be addressed
-
-### Requirement: PR Merge
-
-The system SHALL support merging PRs when requested by authorized users.
-
-#### Scenario: Merge PR via Octokit
-- **GIVEN** a PR exists and user requests "merge"
-- **WHEN** the merge flow starts
-- **THEN** the system calls Octokit `pulls.merge()` with the configured strategy
-- **AND** uses the repository's configured merge strategy (squash/merge/rebase)
-- **AND** defaults to squash merge if not configured
-
-#### Scenario: Merge strategy configuration
-- **WHEN** a repository config includes `mergeStrategy`
-- **THEN** that strategy is used for merging PRs from that repo
-- **AND** valid values are: `squash`, `merge`, `rebase`
-
-#### Scenario: Merge failure handling
-- **WHEN** the Octokit merge call fails
-- **THEN** the system captures the error message
-- **AND** reports the failure reason to the user (conflicts, CI failed, etc.)
-- **AND** suggests next steps (resolve conflicts, wait for CI, etc.)
-
-#### Scenario: Cleanup after merge
-- **GIVEN** a PR was successfully merged
-- **WHEN** the merge completes
-- **THEN** the system removes the worktree
-- **AND** deletes the local branch
-- **AND** reports success in the Slack thread
-

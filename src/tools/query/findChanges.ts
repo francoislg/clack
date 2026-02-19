@@ -1,10 +1,10 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
-import type { ToolContext } from "../types.js";
+import type { QueryToolContext } from "../types.js";
 import { getActiveWorkers } from "../../changes/session.js";
 import { getVisibleRepos } from "../../repoAccess.js";
 
-export function createFindChangesTool(ctx: ToolContext) {
+export function createFindChangesTool(ctx: QueryToolContext) {
   return tool(
     "find_changes",
     "Find active change sessions (currently in-progress). These are changes being executed, reviewed, or merged right now.",

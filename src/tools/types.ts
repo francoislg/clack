@@ -4,10 +4,12 @@ import type { Config } from "../config.js";
 import type { ChangeSession } from "../changes/types.js";
 
 // ============================================================================
-// Tool Context
+// Tool Context (discriminated union)
 // ============================================================================
 
-export interface ToolContext {
+/** Query context — used by askClaude() for Q&A and intent-based tools */
+export interface QueryToolContext {
+  mode: "query";
   /** Slack user ID */
   userId: string;
   /** Resolved user role */
@@ -21,6 +23,31 @@ export interface ToolContext {
   /** Active change session in the current thread (if any) */
   changeSession?: ChangeSession;
 }
+
+/** Worker context — used by change execution and follow-up flows */
+export interface WorkerToolContext {
+  mode: "worker";
+  /** Worktree directory path */
+  worktreePath: string;
+  /** Git branch name */
+  branchName: string;
+  /** Repository name */
+  repoName: string;
+  /** Repository URL (for auth) */
+  repoUrl: string;
+  /** Slack channel ID (for report_status) */
+  channelId: string;
+  /** Slack thread timestamp (for report_status) */
+  threadTs: string;
+  /** Change session ID (for state updates) */
+  sessionId: string;
+  /** Full app configuration */
+  config: Config;
+}
+
+/** Discriminated union — the tool server accepts either context */
+export type ToolBuildContext = QueryToolContext | WorkerToolContext;
+
 
 // ============================================================================
 // Staged Intents

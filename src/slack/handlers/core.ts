@@ -35,6 +35,8 @@ import { getSessionByThread } from "../../changes/session.js";
 import { triggerChangeWorkflow } from "./changeAction.js";
 import { triggerFollowUp } from "./changeThreadActions.js";
 import type { StagedChangeIntent, StagedIntent, Action } from "../../tools/types.js";
+import type { UserRole } from "../../roles.js";
+import { canRequestChanges } from "../../permissions.js";
 import { getClaudeOptions } from "./changeWorkflowHelper.js";
 import { getEffectiveResponseType } from "../../userPreferences.js";
 import {
@@ -485,9 +487,15 @@ async function postPlainTextFallback(
 async function handleAutoExecuteActions(
   ctx: ProcessingContext,
   response: ClaudeResponse,
-  changeSession: ReturnType<typeof getSessionByThread>
+  changeSession: ReturnType<typeof getSessionByThread>,
+  role: UserRole
 ): Promise<void> {
   if (!response.response?.actions || !response.stagedIntents) return;
+
+  if (!canRequestChanges(role)) {
+    logger.warn(`Auto-execute blocked for non-privileged role "${role}"`);
+    return;
+  }
 
   const autoActions = response.response.actions.filter(
     (a: Action) => "auto" in a && (a as { auto?: boolean }).auto === true && "ref" in a
@@ -692,6 +700,6 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
 
   // 7. Auto-execute any actions flagged with auto: true
   if (postedResponse) {
-    await handleAutoExecuteActions(ctx, postedResponse, changeSession);
+    await handleAutoExecuteActions(ctx, postedResponse, changeSession, claudeOptions.role ?? "member");
   }
 }
