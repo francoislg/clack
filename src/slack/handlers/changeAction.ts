@@ -66,11 +66,14 @@ export async function triggerChangeWorkflow(
   );
 
   if (result.success) {
+    const message = result.prUrl
+      ? `PR created: ${result.prUrl}\n\n${result.summary || ""}`.trim()
+      : result.summary || "Changes implemented";
     await safeChatUpdate(
       client,
       channelId,
       ackMessage.ts!,
-      `PR created: ${result.prUrl}\n\n${result.summary || ""}`.trim(),
+      message,
     );
   } else {
     await safeChatUpdate(
