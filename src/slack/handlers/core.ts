@@ -399,6 +399,15 @@ async function sendErrorDM(
 // BLOCK VALIDATION RETRY
 // ============================================================
 
+function isSlackBlockError(error: unknown): error is WebAPIPlatformError {
+  if (!(error instanceof Error)) return false;
+  const code = (error as WebAPIPlatformError).data?.error;
+  return (
+    (error as WebAPIPlatformError).code === ErrorCode.PlatformError &&
+    (code === "invalid_blocks" || code === "msg_too_long")
+  );
+}
+
 async function retryWithBlockError(
   ctx: ProcessingContext,
   session: SessionContext,
@@ -406,12 +415,13 @@ async function retryWithBlockError(
   changeSession: import("../../changes/types.js").ChangeSession | undefined,
   postError: unknown
 ): Promise<ClaudeResponse | null> {
+  const slackError = (postError as WebAPIPlatformError).data?.error ?? "unknown";
   const errorDetail = (postError as WebAPIPlatformError).data?.response_metadata?.messages?.join("; ")
-    || "Slack rejected the blocks as invalid.";
+    || `Slack rejected the message with ${slackError}.`;
 
   await addRefinement(
     session.sessionId,
-    `SYSTEM: Your previous submit_response produced Slack blocks that were rejected with invalid_blocks. Error: ${errorDetail}. Please simplify your sections (shorter text, fewer sections) and call submit_response again.`
+    `SYSTEM: Your previous submit_response was rejected by Slack with error "${slackError}". Detail: ${errorDetail}. Your response is too long or has too many sections. Please significantly shorten your answer and call submit_response again.`
   );
 
   const updatedSession = await getSession(session.sessionId);
@@ -651,15 +661,16 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
   // 5. Remove thinking emoji if used
   await removeThinkingEmoji(client, channelId, messageTs, thinking);
 
-  // 6. Handle response (with retry on invalid_blocks)
+  // 6. Handle response (with retry on block errors)
   let postedResponse: ClaudeResponse | undefined;
   if (response.success) {
     try {
       await postSuccessResponse(ctx, session, response, thinking.messageTs);
       postedResponse = response;
     } catch (postError) {
-      if (isSlackPlatformError(postError, "invalid_blocks")) {
-        logger.warn(`invalid_blocks error posting response for session ${session.sessionId}, retrying via Claude...`);
+      if (isSlackBlockError(postError)) {
+        const errorCode = (postError as WebAPIPlatformError).data?.error;
+        logger.warn(`${errorCode} error posting response for session ${session.sessionId}, retrying via Claude...`);
         const retryResponse = await retryWithBlockError(ctx, session, claudeOptions, changeSession, postError);
         if (retryResponse) {
           try {
@@ -667,7 +678,7 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
             postedResponse = retryResponse;
           } catch (retryPostError) {
             // Exhausted retries — fall back to plain text
-            logger.warn("Retry also produced invalid blocks, falling back to plain text");
+            logger.warn("Retry also produced invalid/too-long blocks, falling back to plain text");
             await postPlainTextFallback(ctx, retryResponse, thinking.messageTs);
           }
         }

@@ -98,7 +98,7 @@ export async function postSuccessResponse(
 }
 
 /**
- * Post a successful response with retry on invalid_blocks.
+ * Post a successful response with retry on block errors (invalid_blocks, msg_too_long).
  * If Slack rejects the blocks, re-invokes Claude via refinement (max 1 retry),
  * then falls back to plain text if retry also fails.
  */
@@ -111,16 +111,17 @@ export async function postSuccessResponseWithRetry(
   try {
     await postSuccessResponse(client, sessionInfo, sessionId, response);
   } catch (postError) {
-    if (!isInvalidBlocksError(postError)) throw postError;
+    if (!isSlackBlockError(postError)) throw postError;
 
-    logger.warn(`invalid_blocks error in button handler for session ${sessionId}, retrying via Claude...`);
+    const slackError = (postError as WebAPIPlatformError).data?.error ?? "unknown";
+    logger.warn(`${slackError} error in button handler for session ${sessionId}, retrying via Claude...`);
 
     const errorDetail = (postError as WebAPIPlatformError).data?.response_metadata?.messages?.join("; ")
-      || "Slack rejected the blocks as invalid.";
+      || `Slack rejected the message with ${slackError}.`;
 
     await addRefinement(
       sessionId,
-      `SYSTEM: Your previous submit_response produced Slack blocks that were rejected with invalid_blocks. Error: ${errorDetail}. Please simplify your sections (shorter text, fewer sections) and call submit_response again.`
+      `SYSTEM: Your previous submit_response was rejected by Slack with error "${slackError}". Detail: ${errorDetail}. Your response is too long or has too many sections. Please significantly shorten your answer and call submit_response again.`
     );
 
     const updatedSession = await getSession(sessionId);
@@ -148,11 +149,12 @@ export async function postSuccessResponseWithRetry(
   }
 }
 
-function isInvalidBlocksError(error: unknown): error is WebAPIPlatformError {
+function isSlackBlockError(error: unknown): error is WebAPIPlatformError {
+  if (!(error instanceof Error)) return false;
+  const code = (error as WebAPIPlatformError).data?.error;
   return (
-    error instanceof Error &&
     (error as WebAPIPlatformError).code === ErrorCode.PlatformError &&
-    (error as WebAPIPlatformError).data?.error === "invalid_blocks"
+    (code === "invalid_blocks" || code === "msg_too_long")
   );
 }
 
