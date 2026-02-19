@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
-import type { ToolContext } from "../types.js";
+import type { QueryToolContext } from "../types.js";
 import type { IntentStore, ToolCallRecorder } from "../server.js";
 import { getExistingWorktree } from "../../worktrees.js";
 import { readSessionState } from "../../changes/persistence.js";
@@ -10,7 +10,7 @@ const BRANCH_PATTERN = /^clack\/(fix|feat|refactor|docs|chore)\/.+$/;
 const BRANCH_TYPES = ["fix", "feat", "refactor", "docs", "chore"];
 
 export function createProposeChangeTool(
-  ctx: ToolContext,
+  ctx: QueryToolContext,
   intentStore: IntentStore,
   recorder: ToolCallRecorder
 ) {

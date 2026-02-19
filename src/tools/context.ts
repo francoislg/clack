@@ -2,9 +2,9 @@ import type { UserRole } from "../roles.js";
 import type { SessionContext } from "../sessions.js";
 import type { Config } from "../config.js";
 import type { ChangeSession } from "../changes/types.js";
-import type { ToolContext } from "./types.js";
+import type { QueryToolContext, WorkerToolContext } from "./types.js";
 
-export interface BuildToolContextParams {
+export interface BuildQueryContextParams {
   userId: string;
   role: UserRole;
   session: SessionContext;
@@ -13,13 +13,39 @@ export interface BuildToolContextParams {
   changeSession?: ChangeSession;
 }
 
-export function buildToolContext(params: BuildToolContextParams): ToolContext {
+export function buildQueryContext(params: BuildQueryContextParams): QueryToolContext {
   return {
+    mode: "query",
     userId: params.userId,
     role: params.role,
     session: params.session,
     config: params.config,
     changesWorkflowEnabled: params.changesWorkflowEnabled,
     changeSession: params.changeSession,
+  };
+}
+
+export interface BuildWorkerContextParams {
+  worktreePath: string;
+  branchName: string;
+  repoName: string;
+  repoUrl: string;
+  channelId: string;
+  threadTs: string;
+  sessionId: string;
+  config: Config;
+}
+
+export function buildWorkerContext(params: BuildWorkerContextParams): WorkerToolContext {
+  return {
+    mode: "worker",
+    worktreePath: params.worktreePath,
+    branchName: params.branchName,
+    repoName: params.repoName,
+    repoUrl: params.repoUrl,
+    channelId: params.channelId,
+    threadTs: params.threadTs,
+    sessionId: params.sessionId,
+    config: params.config,
   };
 }

@@ -1,11 +1,11 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
-import type { ToolContext } from "../types.js";
+import type { QueryToolContext } from "../types.js";
 import type { IntentStore, ToolCallRecorder } from "../server.js";
 import { listInstructionFiles, readInstructionFile } from "../../configurationFiles.js";
 
 export function createProposeConfigUpdateTool(
-  _ctx: ToolContext,
+  _ctx: QueryToolContext,
   intentStore: IntentStore,
   recorder: ToolCallRecorder
 ) {

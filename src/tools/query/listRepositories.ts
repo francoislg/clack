@@ -1,9 +1,9 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
-import type { ToolContext } from "../types.js";
+import type { QueryToolContext } from "../types.js";
 import { getVisibleRepos, canWriteRepo } from "../../repoAccess.js";
 
-export function createListRepositoriesTool(ctx: ToolContext) {
+export function createListRepositoriesTool(ctx: QueryToolContext) {
   return tool(
     "list_repositories",
     "List repositories you have access to, with their descriptions and whether you can propose code changes.",

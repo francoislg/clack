@@ -8,7 +8,7 @@ import type { SessionContext } from "./sessions.js";
 import { formatUserIdentity } from "./slack/userCache.js";
 import type { ChangeSession } from "./changes/types.js";
 import type { SubmitResponsePayload, ToolCallRecord, StagedIntent } from "./tools/types.js";
-import { buildToolContext } from "./tools/context.js";
+import { buildQueryContext } from "./tools/context.js";
 import { buildClackTools } from "./tools/server.js";
 
 export interface ConversationMessage {
@@ -167,7 +167,7 @@ export async function askClaude(
   logger.debug(`Querying Claude via Agent SDK for session ${session.sessionId}...`);
 
   // Build clack tool server for this query
-  const toolCtx = buildToolContext({
+  const toolCtx = buildQueryContext({
     userId: session.userId,
     role: options?.role ?? "member",
     session,
@@ -405,7 +405,7 @@ export async function testMCP(): Promise<McpTestResult> {
   let clackToolNames: string[] = [];
   let clackMcpServer: unknown;
   try {
-    const toolCtx = buildToolContext({
+    const toolCtx = buildQueryContext({
       userId: "test",
       role: "owner",
       session: dummySession,

@@ -43,17 +43,6 @@ export async function triggerFollowUp(
     changeSession,
     command,
     additionalInstructions,
-    async (message: string) => {
-      try {
-        await client.chat.update({
-          channel: channelId,
-          ts: ackMessage.ts!,
-          text: message,
-        });
-      } catch (error) {
-        logger.warn("Failed to update follow-up progress message:", error);
-      }
-    }
   );
 
   if (result.success) {

@@ -158,33 +158,23 @@ The system SHALL provide feedback throughout the change request lifecycle.
 - **AND** resolves the staged intent to get branch, description, and repo
 - **AND** starts the change workflow
 
-#### Scenario: Progress update during execution
-- **WHEN** Claude is executing a change
-- **THEN** the system sends periodic updates (every 30 seconds)
-- **AND** updates the existing progress message in-place (using `chat.update`)
-- **AND** updates include current status and Claude's last activity
+#### Scenario: Initial progress message
+- **WHEN** the change workflow starts (before Claude begins executing)
+- **THEN** the orchestrator posts one initial status message to the thread (e.g., "Setting up workspace...")
+- **AND** after Claude starts, Claude owns all further communication via the `report_status` tool
 
-#### Scenario: Progress update during follow-up execution
-- **WHEN** Claude is executing a follow-up action (update, review)
-- **THEN** the system posts one acknowledgment message in the thread
-- **AND** updates that message in-place with periodic progress (every 30 seconds)
-- **AND** does NOT post new messages for each progress update
+#### Scenario: Success determined from session state
+- **GIVEN** Claude has finished executing
+- **WHEN** the orchestrator reads the session state
+- **AND** the session has a `prUrl` and status `pr_created`
+- **THEN** the workflow returns success with the PR URL
 
-#### Scenario: Success notification
-- **GIVEN** change execution and PR creation succeeded
-- **WHEN** the workflow completes
-- **THEN** the system replies in the thread with:
-  - PR URL
-  - Brief summary of changes
-  - Commit count
-
-#### Scenario: Failure notification
-- **GIVEN** change execution or PR creation failed
-- **WHEN** the workflow fails
-- **THEN** the system replies in the thread with:
-  - Error message
-  - Suggestion for what to try next
-  - Note that the worktree is preserved for manual recovery (if applicable)
+#### Scenario: Failure determined from session state
+- **GIVEN** Claude has finished executing
+- **WHEN** the orchestrator reads the session state
+- **AND** the session does NOT have a `prUrl`
+- **THEN** the workflow returns failure
+- **AND** the worktree is preserved for recovery
 
 ### Requirement: Thread Follow-up Commands
 
@@ -197,33 +187,35 @@ The system SHALL support follow-up commands in change threads via MCP tools.
 - **AND** Claude calls the appropriate tool based on user intent
 - **AND** Claude includes the corresponding action in `submit_response` for user approval
 
-#### Scenario: Review command via tool
-- **GIVEN** an active change thread with a PR
-- **WHEN** Claude calls `request_review`
-- **THEN** the tool validates the PR exists
-- **AND** stages a review intent
-- **AND** user approval triggers: fetch PR comments, run Claude to address feedback, push updates
+#### Scenario: Review command execution
+- **GIVEN** a review action is approved
+- **WHEN** the orchestrator starts the review flow
+- **THEN** it fetches PR comments and reviews via the GitHub API
+- **AND** builds a review prompt with the fetched feedback
+- **AND** runs Claude with `review` mode tools (`git_push`, `report_status`)
+- **AND** Claude implements review feedback, commits, and pushes via `git_push` tool
+- **AND** Claude reports results via `report_status` tool
 
-#### Scenario: Merge command via tool
-- **GIVEN** an active change thread with a PR
-- **WHEN** Claude calls `request_merge`
-- **THEN** the tool validates the PR exists and is open
-- **AND** stages a merge intent
-- **AND** user approval triggers: merge PR, cleanup worktree, report success
+#### Scenario: Merge command execution
+- **GIVEN** a merge action is approved
+- **WHEN** the orchestrator starts the merge flow
+- **THEN** it runs Claude with `merge` mode tools (`merge_pr`, `report_status`)
+- **AND** Claude calls `merge_pr` which handles the merge, branch cleanup, and session cleanup
+- **AND** Claude reports the result via `report_status`
 
-#### Scenario: Update command via tool
-- **GIVEN** an active change thread with a PR
-- **WHEN** Claude calls `request_update` with additional instructions
-- **THEN** the tool validates the worktree exists
-- **AND** stages an update intent with the instructions
-- **AND** user approval triggers: run Claude with new instructions, push updates
+#### Scenario: Update command execution
+- **GIVEN** an update action is approved
+- **WHEN** the orchestrator starts the update flow
+- **THEN** it runs Claude with `update` mode tools (`git_push`, `report_status`) plus standard code tools
+- **AND** Claude implements the requested changes, commits, and pushes via `git_push`
+- **AND** Claude reports results via `report_status`
 
-#### Scenario: Close command via tool
-- **GIVEN** an active change thread with a PR
-- **WHEN** Claude calls `request_close`
-- **THEN** the tool validates the PR exists and is open
-- **AND** stages a close intent
-- **AND** user approval triggers: close PR, optionally delete branch, cleanup worktree
+#### Scenario: Close command execution
+- **GIVEN** a close action is approved
+- **WHEN** the orchestrator starts the close flow
+- **THEN** it runs Claude with `close` mode tools (`close_pr`, `report_status`)
+- **AND** Claude calls `close_pr` which handles closing, optional branch deletion, and session cleanup
+- **AND** Claude reports the result via `report_status`
 
 #### Scenario: Follow-up as question
 - **GIVEN** a change thread context
@@ -303,13 +295,6 @@ The system SHALL provide real-time visibility into change execution progress.
 - **WHEN** Claude produces output during change execution
 - **THEN** the system appends to `data/worktree-sessions/{branch-name}/execution.log`
 - **AND** each log entry includes a timestamp in ISO format
-
-#### Scenario: Real-time Slack progress updates
-- **GIVEN** a change execution is in progress
-- **WHEN** 30 seconds have elapsed since the last update
-- **THEN** the system updates the Slack message with Claude's current activity
-- **AND** the format is "Implementing changes...\n_Currently: {activity}_"
-- **AND** long activity messages are truncated to fit Slack limits
 
 #### Scenario: Session folder cleanup on success
 - **GIVEN** a change session completes successfully (merged or closed)

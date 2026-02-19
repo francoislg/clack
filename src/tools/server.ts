@@ -6,7 +6,9 @@ import type {
   ToolCallRecord,
   SubmitResponsePayload,
   ClackToolsResult,
-  ToolContext,
+  ToolBuildContext,
+  QueryToolContext,
+  WorkerToolContext,
 } from "./types.js";
 import { canRequestChanges } from "../permissions.js";
 
@@ -27,6 +29,13 @@ import { createRequestCloseTool } from "./actions/requestClose.js";
 
 // Presentation tool
 import { createSubmitResponseTool } from "./presentation/submitResponse.js";
+
+// Worker tools
+import { createGitPushTool } from "./worker/gitPush.js";
+import { createEnsurePRTool } from "./worker/ensurePR.js";
+import { createMergePRTool } from "./worker/mergePR.js";
+import { createClosePRTool } from "./worker/closePR.js";
+import { createReportStatusTool } from "./worker/reportStatus.js";
 
 // ============================================================================
 // Staged Intent Store
@@ -119,18 +128,7 @@ export function createResponseCapture(): ResponseCapture {
 // Build Clack Tools (MCP Server)
 // ============================================================================
 
-/**
- * Build a fresh clack MCP tool server for a single query.
- * Tools are gated by role and context per design decision D8.
- *
- * | Role                    | Query tools       | Action tools                                              | Presentation    |
- * |-------------------------|-------------------|-----------------------------------------------------------|-----------------|
- * | member                  | list_repositories | —                                                         | submit_response |
- * | dev                     | all query tools   | propose_change                                            | submit_response |
- * | dev (in change thread)  | all query tools   | propose_change, request_review/merge/update/close          | submit_response |
- * | admin/owner             | all query tools   | propose_change, propose_config_update                     | submit_response |
- */
-export function buildClackTools(ctx: ToolContext): ClackToolsResult {
+function buildQueryTools(ctx: QueryToolContext): ClackToolsResult {
   const intentStore = createIntentStore();
   const recorder = createToolCallRecorder();
   const responseCapture = createResponseCapture();
@@ -139,42 +137,35 @@ export function buildClackTools(ctx: ToolContext): ClackToolsResult {
   const tools: SdkMcpToolDefinition<any>[] = [];
 
   // --- Query tools ---
-  // list_repositories is available to all roles
   tools.push(createListRepositoriesTool(ctx));
 
-  // Remaining query tools available to dev+ roles
   if (canRequestChanges(ctx.role)) {
     tools.push(createFindSessionsTool(ctx));
     tools.push(createFindChangesTool(ctx));
     tools.push(createFindPullRequestsTool(ctx));
   }
 
-  // list_config_files available to admin/owner
   if (ctx.role === "admin" || ctx.role === "owner") {
     tools.push(createListConfigFilesTool(ctx));
   }
 
   // --- Action tools ---
-  // propose_change available to dev+ when changes workflow is enabled
   if (canRequestChanges(ctx.role) && ctx.changesWorkflowEnabled) {
     tools.push(createProposeChangeTool(ctx, intentStore, recorder));
   }
 
-  // Change thread follow-up tools (only when in a change thread with a session)
-  if (ctx.changeSession) {
+  if (ctx.changeSession && canRequestChanges(ctx.role)) {
     tools.push(createRequestReviewTool(ctx, intentStore, recorder));
     tools.push(createRequestMergeTool(ctx, intentStore, recorder));
     tools.push(createRequestUpdateTool(ctx, intentStore, recorder));
     tools.push(createRequestCloseTool(ctx, intentStore, recorder));
   }
 
-  // propose_config_update available to admin/owner
   if (ctx.role === "admin" || ctx.role === "owner") {
     tools.push(createProposeConfigUpdateTool(ctx, intentStore, recorder));
   }
 
   // --- Presentation tool ---
-  // submit_response is always available
   tools.push(createSubmitResponseTool(intentStore, responseCapture, recorder, ctx.session.sessionId));
 
   const toolNames = tools.map((t) => t.name);
@@ -193,4 +184,45 @@ export function buildClackTools(ctx: ToolContext): ClackToolsResult {
     getStagedIntents: () => intentStore.getAll(),
     getToolCallHistory: () => recorder.getHistory(),
   };
+}
+
+function buildWorkerTools(ctx: WorkerToolContext): ClackToolsResult {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const tools: SdkMcpToolDefinition<any>[] = [];
+
+  // report_status is available in all worker modes
+  tools.push(createReportStatusTool(ctx));
+
+  tools.push(createGitPushTool(ctx));
+  tools.push(createEnsurePRTool(ctx));
+  tools.push(createMergePRTool(ctx));
+  tools.push(createClosePRTool(ctx));
+
+  const toolNames = tools.map((t) => t.name);
+
+  const mcpServer = createSdkMcpServer({
+    name: "clack",
+    version: "1.0.0",
+    tools,
+  });
+
+  return {
+    mcpServer,
+    toolNames,
+    getResult: () => null,
+    getRenderedBlocks: () => null,
+    getStagedIntents: () => new Map(),
+    getToolCallHistory: () => [],
+  };
+}
+
+/**
+ * Build a fresh clack MCP tool server.
+ * Dispatches to query or worker tool set based on the context mode.
+ */
+export function buildClackTools(ctx: ToolBuildContext): ClackToolsResult {
+  if (ctx.mode === "query") {
+    return buildQueryTools(ctx);
+  }
+  return buildWorkerTools(ctx);
 }

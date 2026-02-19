@@ -1,10 +1,10 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
-import type { ToolContext } from "../types.js";
+import type { QueryToolContext } from "../types.js";
 import { getResumableSessions } from "../../changes/persistence.js";
 import { getVisibleRepos } from "../../repoAccess.js";
 
-export function createFindSessionsTool(ctx: ToolContext) {
+export function createFindSessionsTool(ctx: QueryToolContext) {
   return tool(
     "find_sessions",
     "Find resumable change sessions. These are worktrees with previous work that can be continued. Use this to check if there's an existing session before proposing a new change.",

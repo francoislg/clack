@@ -63,17 +63,6 @@ export async function triggerChangeWorkflow(
     request,
     plan,
     threadTs,
-    async (progressMessage: string) => {
-      try {
-        await client.chat.update({
-          channel: channelId,
-          ts: ackMessage.ts!,
-          text: progressMessage,
-        });
-      } catch (error) {
-        logger.warn("Failed to update progress message:", error);
-      }
-    }
   );
 
   if (result.success) {
