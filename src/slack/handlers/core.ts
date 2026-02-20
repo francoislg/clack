@@ -437,6 +437,7 @@ async function retryWithBlockError(
   const retryResponse = await askClaude(updatedSession, {
     ...claudeOptions,
     changeSession: changeSession || undefined,
+    slackClient: ctx.client,
   });
 
   if (!retryResponse.success) {
@@ -573,6 +574,7 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
     isEphemeral: ctx.isEphemeral,
     triggerType: ctx.triggerType,
     isDmFirst: ctx.isDmFirst,
+    slackClient: client,
   });
 
   // 5. Remove thinking emoji if used

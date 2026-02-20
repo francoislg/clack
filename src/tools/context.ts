@@ -1,3 +1,4 @@
+import type { App } from "@slack/bolt";
 import type { UserRole } from "../roles.js";
 import type { SessionContext } from "../sessions.js";
 import type { Config } from "../config.js";
@@ -11,6 +12,7 @@ export interface BuildQueryContextParams {
   config: Config;
   changesWorkflowEnabled: boolean;
   changeSession?: ChangeSession;
+  slackClient?: App["client"];
 }
 
 export function buildQueryContext(params: BuildQueryContextParams): QueryToolContext {
@@ -22,6 +24,7 @@ export function buildQueryContext(params: BuildQueryContextParams): QueryToolCon
     config: params.config,
     changesWorkflowEnabled: params.changesWorkflowEnabled,
     changeSession: params.changeSession,
+    slackClient: params.slackClient,
   };
 }
 

@@ -54,6 +54,8 @@ export interface AskClaudeOptions {
   triggerType?: "directMessages" | "mentions" | "reactions";
   /** Whether the response is delivered via DM-first flow (reaction → DM) */
   isDmFirst?: boolean;
+  /** Slack WebClient for tools that need Slack API access (e.g., find_user) */
+  slackClient?: import("@slack/bolt").App["client"];
 }
 
 export interface McpServerInfo {
@@ -215,6 +217,7 @@ export async function askClaude(
     config,
     changesWorkflowEnabled: options?.changesWorkflowEnabled ?? false,
     changeSession: options?.changeSession,
+    slackClient: options?.slackClient,
   });
   const clackTools = buildClackTools(toolCtx);
 
