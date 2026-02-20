@@ -20,7 +20,7 @@ The system SHALL provide a `submit_response` MCP tool that defines the user-faci
 - **WHEN** Claude calls `submit_response` with an actions array
 - **THEN** each action has a `type` from the known set: `accept`, `reject`, `edit`, `refine`, `followup`, `choice`, `change`, `config_update`, `review`, `merge`, `update`, `close`, `send_to_thread`
 - **AND** each action type has its own schema for additional fields
-- **AND** ref-based actions (`change`, `update`, `review`, `merge`, `close`) support an optional `auto` boolean field
+- **AND** ref-based actions (`change`, `config_update`, `update`, `review`, `merge`, `close`) support an optional `auto` boolean field
 
 #### Scenario: Fallback when submit_response not called
 
@@ -56,12 +56,12 @@ The system SHALL support terminal actions that end the conversation after user i
 - **THEN** if `auto` is `true`, the system auto-executes the change workflow after posting the response
 - **AND** if `auto` is not `true`, the Slack UI renders a primary-styled button (default label: "Start Change") that triggers on click
 
-#### Scenario: Config update action with ref (no auto support)
+#### Scenario: Config update action with ref and optional auto
 
-- **WHEN** `submit_response` includes `{ type: "config_update", ref: "<id>" }` with optional custom `label`
-- **THEN** the Slack UI renders a button (default label: "Apply Update")
+- **WHEN** `submit_response` includes `{ type: "config_update", ref: "<id>" }` with optional custom `label` and optional `auto`
+- **THEN** if `auto` is `true`, the system auto-executes the config update after posting the response
+- **AND** if `auto` is not `true`, the Slack UI renders a button (default label: "Apply Update")
 - **AND** clicking writes the config file with the validated data from the staged intent
-- **AND** the `auto` flag is NOT supported for this action type
 
 ### Requirement: Send to Thread Action Type
 
