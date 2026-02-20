@@ -6,30 +6,6 @@ import { updateSession } from "../sessions.js";
 import { getStructuredResponseBlocks } from "./blocks.js";
 import { setSessionInfo } from "./state.js";
 
-/** Actions for the initial DM answer and refinement replies */
-function getDmAnswerActions(sessionId: string) {
-  return [
-    {
-      type: "actions" as const,
-      elements: [
-        {
-          type: "button" as const,
-          text: { type: "plain_text" as const, text: "Send to thread", emoji: true },
-          style: "primary" as const,
-          action_id: "clack_dm_send_to_thread",
-          value: sessionId,
-        },
-        {
-          type: "button" as const,
-          text: { type: "plain_text" as const, text: "Reject", emoji: true },
-          style: "danger" as const,
-          action_id: "clack_dm_reject",
-          value: sessionId,
-        },
-      ],
-    },
-  ];
-}
 
 /** Actions for the synthesis message (before posting to channel) */
 export function getDmSynthesisActions(sessionId: string) {
@@ -159,14 +135,14 @@ export async function postDmThreadReply(
 ): Promise<void> {
   const answerText = response.answer;
 
-  // Build blocks from structured response if available
-  let contentBlocks: Record<string, unknown>[];
+  // Use Claude's rendered blocks directly (Claude controls actions via delivery context)
+  let blocks: Record<string, unknown>[];
   if (response.response) {
-    contentBlocks = getStructuredResponseBlocks(response.response, session.sessionId);
-    // Remove the default action blocks — we'll add DM-specific ones
-    contentBlocks = contentBlocks.filter(b => b.type !== "actions" && b.type !== "divider");
+    blocks = response.renderedBlocks
+      ? [...(response.renderedBlocks as Record<string, unknown>[])]
+      : getStructuredResponseBlocks(response.response, session.sessionId);
   } else {
-    contentBlocks = [
+    blocks = [
       {
         type: "section",
         text: { type: "mrkdwn", text: answerText },
@@ -174,6 +150,8 @@ export async function postDmThreadReply(
     ];
   }
 
+  // Add instruction context block before the action buttons
+  const dividerIndex = blocks.findIndex(b => b.type === "divider");
   const instructionBlock = {
     type: "context",
     elements: [
@@ -184,12 +162,13 @@ export async function postDmThreadReply(
     ],
   };
 
-  const blocks = [
-    ...contentBlocks,
-    { type: "divider" },
-    instructionBlock,
-    ...getDmAnswerActions(session.sessionId),
-  ];
+  if (dividerIndex >= 0) {
+    // Insert after the divider, before action blocks
+    blocks.splice(dividerIndex + 1, 0, instructionBlock);
+  } else {
+    // No divider (no actions from Claude) — append instruction at the end
+    blocks.push({ type: "divider" }, instructionBlock);
+  }
 
   await client.chat.postMessage({
     channel: dmChannel,

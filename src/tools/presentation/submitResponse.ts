@@ -36,6 +36,12 @@ const choiceActionSchema = z.object({
   label: z.string().describe("Button label"),
   value: z.string().describe("The value to inject as the user's choice"),
   description: z.string().optional().describe("Optional description shown as subtitle"),
+  workMode: z.boolean().optional().describe("If true, enables work mode when clicked (use for choices that request code changes)"),
+});
+
+const sendToThreadActionSchema = z.object({
+  type: z.literal("send_to_thread"),
+  label: z.string().optional().describe("Custom button label (default: 'Send to thread')"),
 });
 
 const changeActionSchema = z.object({
@@ -86,6 +92,7 @@ const actionSchema = z.discriminatedUnion("type", [
   refineActionSchema,
   followupActionSchema,
   choiceActionSchema,
+  sendToThreadActionSchema,
   changeActionSchema,
   configUpdateActionSchema,
   reviewActionSchema,

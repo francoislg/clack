@@ -153,6 +153,13 @@ export interface ChoiceAction {
   label: string;
   value: string;
   description?: string;
+  workMode?: boolean;
+}
+
+// DM-first actions
+export interface SendToThreadAction {
+  type: "send_to_thread";
+  label?: string;
 }
 
 // Ref-based actions (reference staged intents)
@@ -204,6 +211,7 @@ export type Action =
   | RefineAction
   | FollowupAction
   | ChoiceAction
+  | SendToThreadAction
   | ChangeAction
   | ConfigUpdateAction
   | ReviewAction

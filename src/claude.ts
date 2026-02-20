@@ -48,6 +48,12 @@ export interface AskClaudeOptions {
   changeSession?: ChangeSession;
   /** When true, hints Claude to propose a change with auto-execute */
   workMode?: boolean;
+  /** Whether the response will be delivered as an ephemeral message */
+  isEphemeral?: boolean;
+  /** How the interaction was triggered */
+  triggerType?: "directMessages" | "mentions" | "reactions";
+  /** Whether the response is delivered via DM-first flow (reaction → DM) */
+  isDmFirst?: boolean;
 }
 
 export interface McpServerInfo {
@@ -96,7 +102,29 @@ function formatThreadContext(messages: SessionContext["threadContext"]): string 
   return formatted.join("\n\n");
 }
 
-function buildPrompt(session: SessionContext, options?: { workMode?: boolean }): string {
+function buildDeliveryContext(options?: AskClaudeOptions): string | null {
+  if (!options?.triggerType) return null;
+
+  const lines: string[] = ["DELIVERY CONTEXT:"];
+
+  if (options.isDmFirst) {
+    lines.push("- Mode: DM-first (reaction triggered, answer delivered via direct message)");
+    lines.push("- The user sees your response in a DM thread. Include `send_to_thread` and `reject` actions so they can share or dismiss.");
+  } else if (options.isEphemeral) {
+    lines.push("- Mode: Ephemeral (reaction triggered, only visible to the requester)");
+    lines.push("- The response is ephemeral — only the requester can see it. You MUST include `accept`, `reject`, and `refine` actions so they can publish, dismiss, or refine.");
+  } else if (options.triggerType === "directMessages") {
+    lines.push("- Mode: Direct message (the user is chatting with you in a DM)");
+    lines.push("- The response is already visible to the user. Do NOT include `accept` or `reject` actions — they have no meaning here.");
+  } else if (options.triggerType === "mentions") {
+    lines.push("- Mode: Channel mention (the user @mentioned you in a channel)");
+    lines.push("- The response is already visible in the channel thread. Do NOT include `accept` or `reject` actions — they have no meaning here.");
+  }
+
+  return lines.join("\n");
+}
+
+function buildPrompt(session: SessionContext, options?: AskClaudeOptions): string {
   const parts: string[] = [];
 
   // Thread context first so Claude reads the conversation before the question
@@ -106,6 +134,12 @@ Messages may be attributed to specific users by name (e.g., [John Doe]) or as [U
 Messages marked [Clack Bot] are previous answers from you (this bot).
 Use this context to understand the conversation flow and provide relevant answers.\n`;
     parts.push(contextIntro + formatThreadContext(session.threadContext));
+  }
+
+  // Delivery context — tells Claude how the response will be delivered
+  const deliveryContext = buildDeliveryContext(options);
+  if (deliveryContext) {
+    parts.push(deliveryContext);
   }
 
   // Work mode hint — user explicitly requested a code change
@@ -169,7 +203,7 @@ export async function askClaude(
   const externalMcpServers = await loadMcpServers();
 
   const systemPrompt = buildSystemPrompt(options);
-  const userPrompt = buildPrompt(session, { workMode: options?.workMode });
+  const userPrompt = buildPrompt(session, options);
 
   logger.debug(`Querying Claude via Agent SDK for session ${session.sessionId}...`);
 

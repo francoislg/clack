@@ -57,6 +57,9 @@ export async function restoreSessionInfo(sessionId: string): Promise<SessionInfo
       channelId: session.channelId,
       threadTs,
       userId: session.userId,
+      // Restore trigger metadata
+      ...(session.triggerType && { triggerType: session.triggerType }),
+      ...(session.isEphemeral != null && { isEphemeral: session.isEphemeral }),
       // Restore DM-first delivery coordinates if present
       ...(session.dmChannel && { dmChannel: session.dmChannel }),
       ...(session.dmThreadTs && { dmThreadTs: session.dmThreadTs }),

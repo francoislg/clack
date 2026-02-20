@@ -20,6 +20,7 @@ const DEFAULT_LABELS: Record<string, string> = {
   refine: "🔄 Refine",
   choice: "Select",
   followup: "Continue",
+  send_to_thread: "Send to thread",
   change: "Start Change",
   config_update: "Apply Update",
   review: "Review",
@@ -32,6 +33,7 @@ const DEFAULT_LABELS: Record<string, string> = {
 const ACTION_STYLES: Record<string, "primary" | "danger" | undefined> = {
   accept: "primary",
   reject: "danger",
+  send_to_thread: "primary",
   change: "primary",
   merge: "primary",
   close: "danger",
@@ -41,6 +43,8 @@ const ACTION_STYLES: Record<string, "primary" | "danger" | undefined> = {
 function getActionId(action: Action): string {
   // Avoid collision with existing clack_update (Q&A context refresh)
   if (action.type === "update") return "clack_update_change";
+  // Map to existing DM-first handler
+  if (action.type === "send_to_thread") return "clack_dm_send_to_thread";
   return `clack_${action.type}`;
 }
 
@@ -51,6 +55,7 @@ function encodeActionValue(sessionId: string, action: Action): string {
     case "accept":
     case "reject":
     case "edit":
+    case "send_to_thread":
       return sessionId;
     // JSON-encoded for new/extended handlers
     case "refine":
@@ -58,7 +63,7 @@ function encodeActionValue(sessionId: string, action: Action): string {
         ? JSON.stringify({ s: sessionId, h: action.hint })
         : sessionId;
     case "choice":
-      return JSON.stringify({ s: sessionId, v: action.value });
+      return JSON.stringify({ s: sessionId, v: action.value, ...(action.workMode && { w: true }) });
     case "followup":
       return JSON.stringify({ s: sessionId, p: action.prompt });
     case "change":
@@ -72,7 +77,7 @@ function encodeActionValue(sessionId: string, action: Action): string {
 }
 
 /** Decode a button value to extract sessionId */
-export function decodeActionValue(value: string): { sessionId: string; ref?: string; choiceValue?: string; prompt?: string; hint?: string } {
+export function decodeActionValue(value: string): { sessionId: string; ref?: string; choiceValue?: string; prompt?: string; hint?: string; workMode?: boolean } {
   // Try JSON first
   try {
     const parsed = JSON.parse(value);
@@ -83,6 +88,7 @@ export function decodeActionValue(value: string): { sessionId: string; ref?: str
         choiceValue: parsed.v,
         prompt: parsed.p,
         hint: parsed.h,
+        workMode: parsed.w === true ? true : undefined,
       };
     }
   } catch {
@@ -167,30 +173,6 @@ export function getStructuredResponseBlocks(payload: SubmitResponsePayload, sess
   ];
 }
 
-/** Actions that must always be present in ephemeral responses. */
-const REQUIRED_EPHEMERAL_ACTIONS: Action["type"][] = ["accept", "reject", "refine"];
-
-/**
- * Ensure a SubmitResponsePayload includes the mandatory ephemeral actions
- * (accept, reject, refine). Missing ones are appended with default labels.
- */
-export function ensureEphemeralActions(payload: SubmitResponsePayload): SubmitResponsePayload {
-  const existingTypes = new Set(payload.actions.map((a) => a.type));
-  const missing: Action[] = [];
-
-  for (const type of REQUIRED_EPHEMERAL_ACTIONS) {
-    if (!existingTypes.has(type)) {
-      missing.push({ type } as Action);
-    }
-  }
-
-  if (missing.length === 0) return payload;
-
-  return {
-    ...payload,
-    actions: [...payload.actions, ...missing],
-  };
-}
 
 /**
  * Build Slack blocks for the accepted (public) response from structured sections.

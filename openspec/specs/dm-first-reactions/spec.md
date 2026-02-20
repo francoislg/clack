@@ -18,7 +18,7 @@ The system SHALL deliver reaction-triggered answers via direct message when the 
 #### Scenario: Answer delivered in DM thread
 - **WHEN** Claude Code generates the answer
 - **THEN** the system posts the answer as a thread reply to the investigation notice DM
-- **AND** includes "Send to thread" and "Reject" action buttons
+- **AND** renders Claude's actions as buttons (Claude is responsible for including `send_to_thread` and `reject` actions)
 - **AND** the message mentions that the user can reply in the thread to refine, or click "Send to thread" to share
 
 #### Scenario: Effective response type resolution

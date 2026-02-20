@@ -18,7 +18,6 @@ import { askClaude, analyzeError } from "../../claude.js";
 import {
   getMessageBlocks,
   getStructuredResponseBlocks,
-  ensureEphemeralActions,
   getInvestigatingBlocks,
   getErrorBlocksWithRetry,
   getHiddenThreadNotificationBlocks,
@@ -32,12 +31,8 @@ import {
 } from "../messagesApi.js";
 import { transformUserMentions } from "../userCache.js";
 import { getSessionByThread } from "../../changes/session.js";
-import { triggerChangeWorkflow } from "./changeAction.js";
-import { triggerFollowUp } from "./changeThreadActions.js";
-import type { StagedChangeIntent, StagedIntent, Action } from "../../tools/types.js";
-import type { UserRole } from "../../roles.js";
-import { canRequestChanges } from "../../permissions.js";
 import { getClaudeOptions } from "./changeWorkflowHelper.js";
+import { handleAutoExecuteActions } from "./autoExecute.js";
 import { getEffectiveResponseType } from "../../userPreferences.js";
 import {
   postDmInvestigationNotice,
@@ -126,6 +121,12 @@ async function setupSession(ctx: ProcessingContext): Promise<SessionContext> {
     await updateSession(session.sessionId, { originalQuestion: processedMessageText });
     session = (await getSession(session.sessionId))!;
   }
+
+  // Persist trigger metadata so button handlers can restore it from disk
+  await updateSession(session.sessionId, {
+    triggerType: ctx.triggerType,
+    isEphemeral: ctx.isEphemeral,
+  });
 
   setSessionInfo(session.sessionId, {
     channelId,
@@ -281,12 +282,8 @@ async function postEphemeralResponse(
   const { client, config, userId, channelId, effectiveThreadTs } = ctx;
 
   if (response.response) {
-    // Ensure accept/reject/refine are always present for ephemeral
-    const enforced = ensureEphemeralActions(response.response);
-    // Re-render if actions were added, otherwise use pre-rendered blocks
-    const blocks = (enforced !== response.response)
-      ? getStructuredResponseBlocks(enforced, session.sessionId)
-      : (response.renderedBlocks ?? getStructuredResponseBlocks(enforced, session.sessionId));
+    const blocks = response.renderedBlocks
+      ?? getStructuredResponseBlocks(response.response, session.sessionId);
     await client.chat.postEphemeral({
       channel: channelId,
       user: userId,
@@ -480,104 +477,6 @@ async function postPlainTextFallback(
 }
 
 // ============================================================
-// AUTO-EXECUTE
-// ============================================================
-
-/**
- * Check for auto-flagged actions in the response and trigger them immediately.
- * Runs after the response is posted to Slack. Errors are caught and posted
- * to the thread without affecting the already-posted response.
- */
-async function handleAutoExecuteActions(
-  ctx: ProcessingContext,
-  response: ClaudeResponse,
-  changeSession: ReturnType<typeof getSessionByThread>,
-  role: UserRole
-): Promise<void> {
-  if (!response.response?.actions || !response.stagedIntents) return;
-
-  if (!canRequestChanges(role)) {
-    logger.warn(`Auto-execute blocked for non-privileged role "${role}"`);
-    return;
-  }
-
-  const autoActions = response.response.actions.filter(
-    (a: Action) => "auto" in a && (a as { auto?: boolean }).auto === true && "ref" in a
-  );
-  if (autoActions.length === 0) return;
-
-  const { client, channelId, effectiveThreadTs, userId } = ctx;
-
-  for (const action of autoActions) {
-    const ref = (action as { ref: string }).ref;
-    const intent = response.stagedIntents[ref] as StagedIntent | undefined;
-    if (!intent) {
-      logger.warn(`Auto-execute: could not resolve intent for ref ${ref}`);
-      continue;
-    }
-
-    try {
-      if (action.type === "change" && intent.type === "change") {
-        logger.info(`Auto-executing change action: ${(intent as StagedChangeIntent).description}`);
-        // Fire and forget — triggerChangeWorkflow manages its own progress messages
-        triggerChangeWorkflow(
-          intent as StagedChangeIntent,
-          channelId,
-          effectiveThreadTs,
-          userId,
-          client
-        ).catch((err) => {
-          logger.error("Auto-execute change workflow error:", err);
-          client.chat.postMessage({
-            channel: channelId,
-            thread_ts: effectiveThreadTs,
-            text: `Auto-execute failed: ${err instanceof Error ? err.message : String(err)}`,
-          }).catch(() => {});
-        });
-      } else if (
-        (action.type === "update" || action.type === "review" || action.type === "merge" || action.type === "close") &&
-        changeSession
-      ) {
-        const additionalInstructions = action.type === "update" && "instructions" in intent
-          ? (intent as { instructions: string }).instructions
-          : undefined;
-
-        logger.info(`Auto-executing ${action.type} follow-up action`);
-        // Fire and forget — triggerFollowUp manages its own progress messages
-        triggerFollowUp(
-          changeSession,
-          action.type,
-          additionalInstructions,
-          channelId,
-          effectiveThreadTs,
-          client
-        ).catch((err) => {
-          logger.error(`Auto-execute ${action.type} follow-up error:`, err);
-          client.chat.postMessage({
-            channel: channelId,
-            thread_ts: effectiveThreadTs,
-            text: `Auto-execute failed: ${err instanceof Error ? err.message : String(err)}`,
-          }).catch(() => {});
-        });
-      } else {
-        logger.warn(`Auto-execute: unsupported action type ${action.type} or missing change session`);
-      }
-    } catch (error) {
-      logger.error(`Auto-execute error for action type ${action.type}:`, error);
-      try {
-        await client.chat.postMessage({
-          channel: channelId,
-          thread_ts: effectiveThreadTs,
-          text: `Auto-execute failed: ${error instanceof Error ? error.message : String(error)}`,
-        });
-      } catch {
-        // Best effort — don't let error reporting crash the flow
-      }
-    }
-  }
-}
-
-// ============================================================
 // MAIN ENTRY POINT
 // ============================================================
 
@@ -671,6 +570,9 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
     ...claudeOptions,
     changeSession: changeSession || undefined,
     workMode: ctx.workMode,
+    isEphemeral: ctx.isEphemeral,
+    triggerType: ctx.triggerType,
+    isDmFirst: ctx.isDmFirst,
   });
 
   // 5. Remove thinking emoji if used
@@ -707,6 +609,14 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
 
   // 7. Auto-execute any actions flagged with auto: true
   if (postedResponse) {
-    await handleAutoExecuteActions(ctx, postedResponse, changeSession, claudeOptions.role ?? "member");
+    await handleAutoExecuteActions({
+      client,
+      channelId,
+      threadTs: ctx.effectiveThreadTs,
+      userId,
+      response: postedResponse,
+      changeSession,
+      role: claudeOptions.role ?? "member",
+    });
   }
 }
