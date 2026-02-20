@@ -7,7 +7,7 @@ Auto-execution of ref-based actions (change, update, review, merge, close) when 
 
 ### Requirement: Auto-Execute Flag on Ref-Based Actions
 
-The system SHALL support an optional `auto` boolean flag on ref-based actions (`change`, `update`, `review`, `merge`, `close`) in `submit_response`. When `auto` is `true`, the system executes the action immediately after posting the response, without waiting for a button click.
+The system SHALL support an optional `auto` boolean flag on ref-based actions (`change`, `config_update`, `update`, `review`, `merge`, `close`) in `submit_response`. When `auto` is `true`, the system executes the action immediately after posting the response, without waiting for a button click.
 
 #### Scenario: Auto-execute a change action
 
@@ -16,6 +16,15 @@ The system SHALL support an optional `auto` boolean flag on ref-based actions (`
 - **THEN** the system posts the response to Slack
 - **AND** immediately resolves the staged intent and triggers `startChangeWorkflow`
 - **AND** posts a progress message in the thread that is updated with execution status
+
+#### Scenario: Auto-execute a config_update action
+
+- **GIVEN** Claude calls `propose_config_update` and receives a ref
+- **WHEN** Claude calls `submit_response` with `{ type: "config_update", ref: "<id>", auto: true }`
+- **THEN** the system posts the response to Slack
+- **AND** immediately resolves the staged intent
+- **AND** writes the config file via `writeInstructionFile()`
+- **AND** posts a confirmation message in the thread
 
 #### Scenario: Auto-execute an update action
 
@@ -55,16 +64,10 @@ The system SHALL support an optional `auto` boolean flag on ref-based actions (`
 - **WHEN** Claude calls `submit_response` with a ref-based action without `auto`
 - **THEN** the action renders as a button and waits for user click (existing behavior)
 
-#### Scenario: Auto flag not available on config_update
-
-- **WHEN** Claude calls `submit_response` with `{ type: "config_update", ref: "<id>", auto: true }`
-- **THEN** the `auto` flag is ignored
-- **AND** the action renders as a button requiring user confirmation
-
 #### Scenario: Auto-execute failure posts error in thread
 
 - **GIVEN** an action has `auto: true`
-- **WHEN** the auto-executed workflow fails (e.g., session blocking, repo not found)
+- **WHEN** the auto-executed workflow fails (e.g., session blocking, repo not found, write error)
 - **THEN** the system posts the error message in the thread
 - **AND** does NOT crash or affect the posted response
 
