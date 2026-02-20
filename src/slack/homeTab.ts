@@ -459,11 +459,14 @@ export function buildActiveWorkersSection(): KnownBlock[] {
       const emoji = statusEmoji[worker.status] || ":hourglass:";
       const statusLabel = worker.status.charAt(0).toUpperCase() + worker.status.slice(1);
 
+      const threadLink = `https://slack.com/archives/${worker.channel}/p${worker.threadTs.replace(".", "")}`;
+
       let text = `${emoji} *${worker.description}*\n`;
       text += `• Status: ${statusLabel}\n`;
       text += `• Branch: \`${worker.branch}\`\n`;
       text += `• Repo: ${worker.repo}\n`;
-      text += `• By: <@${worker.userId}>`;
+      text += `• By: <@${worker.userId}>\n`;
+      text += `• Thread: <${threadLink}|View thread>`;
 
       if (worker.prUrl) {
         text += `\n• PR: <${worker.prUrl}|View PR>`;
