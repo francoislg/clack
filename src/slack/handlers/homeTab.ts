@@ -2,7 +2,6 @@ import type { App, BlockAction, ViewSubmitAction } from "@slack/bolt";
 import { logger } from "../../logger.js";
 import {
   loadRoles,
-  getRole,
   setOwner,
   addAdmin,
   removeAdmin,
@@ -13,18 +12,13 @@ import {
   transferOwnership,
   hasOwner,
 } from "../../roles.js";
-import { userCanEditConfig, userCanManageRoles } from "../../permissions.js";
+import { userCanManageRoles } from "../../permissions.js";
 import {
   buildHomeView,
   buildUserSelectModal,
   buildRemoveUserModal,
-  buildEditFileModal,
   buildSettingsModal,
 } from "../homeTab.js";
-import {
-  readInstructionFile,
-  writeInstructionFile,
-} from "../../configurationFiles.js";
 import { setUserPreference } from "../../userPreferences.js";
 
 async function publishHomeView(
@@ -392,36 +386,6 @@ export function registerHomeTabHandler(app: App): void {
     await publishHomeView(client, currentUserId);
   });
 
-  // Handle Edit/Customize config file button
-  app.action<BlockAction>("edit_config_file", async ({ ack, body, client }) => {
-    await ack();
-
-    const userId = body.user.id;
-
-    try {
-      // Verify edit permission
-      if (!(await userCanEditConfig(userId))) {
-        logger.warn(`Non-admin user ${userId} attempted to edit config file`);
-        return;
-      }
-
-      const action = body.actions[0];
-      const filename = "value" in action ? (action.value as string) : undefined;
-      if (!filename) return;
-
-      // readInstructionFile returns null if file doesn't exist in either tier —
-      // that's fine for repo instruction files that haven't been created yet
-      const content = readInstructionFile(filename) ?? "";
-
-      await client.views.open({
-        trigger_id: body.trigger_id,
-        view: buildEditFileModal(filename, content),
-      });
-    } catch (error) {
-      logger.error("Failed to open edit config file modal:", error);
-    }
-  });
-
   // Handle Settings button
   app.action<BlockAction>("open_settings", async ({ ack, body, client }) => {
     await ack();
@@ -458,50 +422,4 @@ export function registerHomeTabHandler(app: App): void {
     await publishHomeView(client, userId);
   });
 
-  // Handle edit config file modal submission
-  app.view<ViewSubmitAction>("edit_config_file_modal", async ({ ack, view, body, client }) => {
-    const currentUserId = body.user.id;
-    const filename = view.private_metadata;
-
-    // Verify edit permission
-    if (!(await userCanEditConfig(currentUserId))) {
-      await ack({
-        response_action: "errors",
-        errors: {
-          file_content_block: "You don't have permission to edit configuration files",
-        },
-      });
-      return;
-    }
-
-    const content = view.state.values.file_content_block.file_content.value;
-    if (content === null || content === undefined) {
-      await ack({
-        response_action: "errors",
-        errors: {
-          file_content_block: "Content cannot be empty",
-        },
-      });
-      return;
-    }
-
-    try {
-      writeInstructionFile(filename, content);
-      logger.info(`User ${currentUserId} edited config file: ${filename}`);
-    } catch (error) {
-      logger.error(`Failed to write config file ${filename}:`, error);
-      await ack({
-        response_action: "errors",
-        errors: {
-          file_content_block: "Failed to save file. Check server logs.",
-        },
-      });
-      return;
-    }
-
-    await ack();
-
-    // Refresh the Home Tab
-    await publishHomeView(client, currentUserId);
-  });
 }

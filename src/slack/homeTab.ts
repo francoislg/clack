@@ -72,13 +72,14 @@ export async function buildHomeView(options: HomeViewOptions): Promise<View> {
   blocks.push(...buildHelpSection());
 
   // Spacer to prevent Slack client from cutting off the last block
-  blocks.push(
-    { type: "divider" },
-    {
+  // (known Slack bug: bottom UI chrome clips the last blocks of App Home views)
+  blocks.push({ type: "divider" });
+  for (let i = 0; i < 4; i++) {
+    blocks.push({
       type: "context",
       elements: [{ type: "mrkdwn", text: " " }],
-    }
-  );
+    });
+  }
 
   return {
     type: "home",
@@ -312,17 +313,13 @@ export function buildConfigurationSection(): KnownBlock[] {
 
   for (const file of files) {
     let statusLabel: string;
-    let buttonLabel: string;
 
     if (file.hasOverride) {
       statusLabel = "Customized";
-      buttonLabel = "Edit";
     } else if (file.hasDefault) {
       statusLabel = "Default";
-      buttonLabel = "Customize";
     } else {
       statusLabel = "Not created";
-      buttonLabel = "Create";
     }
 
     blocks.push({
@@ -331,93 +328,22 @@ export function buildConfigurationSection(): KnownBlock[] {
         type: "mrkdwn",
         text: `:page_facing_up: \`${file.filename}\` — _${statusLabel}_`,
       },
-      accessory: {
-        type: "button",
-        text: {
-          type: "plain_text",
-          text: buttonLabel,
-          emoji: true,
-        },
-        action_id: "edit_config_file",
-        value: file.filename,
-      },
     });
   }
+
+  blocks.push({
+    type: "context",
+    elements: [
+      {
+        type: "mrkdwn",
+        text: "_Chat with Clack to view or update configuration files._",
+      },
+    ],
+  });
 
   blocks.push({ type: "divider" });
 
   return blocks;
-}
-
-// Modal builders for configuration editing
-
-const MAX_MODAL_TEXT_LENGTH = 3000;
-const MAX_MODAL_TITLE_LENGTH = 24;
-
-function truncateTitle(text: string): string {
-  if (text.length <= MAX_MODAL_TITLE_LENGTH) return text;
-  return text.slice(0, MAX_MODAL_TITLE_LENGTH - 1) + "…";
-}
-
-export function buildEditFileModal(filename: string, content: string): View {
-  const title = truncateTitle(filename);
-
-  if (content.length > MAX_MODAL_TEXT_LENGTH) {
-    return {
-      type: "modal",
-      title: {
-        type: "plain_text",
-        text: title,
-      },
-      close: {
-        type: "plain_text",
-        text: "Close",
-      },
-      blocks: [
-        {
-          type: "section",
-          text: {
-            type: "mrkdwn",
-            text: `:warning: This file is ${content.length} characters, which exceeds Slack's ${MAX_MODAL_TEXT_LENGTH} character limit for text inputs.\n\nPlease edit this file directly on the server at \`data/configuration/${filename}\`.`,
-          },
-        },
-      ],
-    };
-  }
-
-  return {
-    type: "modal",
-    callback_id: "edit_config_file_modal",
-    private_metadata: filename,
-    title: {
-      type: "plain_text",
-      text: title,
-    },
-    submit: {
-      type: "plain_text",
-      text: "Save",
-    },
-    close: {
-      type: "plain_text",
-      text: "Cancel",
-    },
-    blocks: [
-      {
-        type: "input",
-        block_id: "file_content_block",
-        element: {
-          type: "plain_text_input",
-          action_id: "file_content",
-          multiline: true,
-          initial_value: content,
-        },
-        label: {
-          type: "plain_text",
-          text: "File Content",
-        },
-      },
-    ],
-  };
 }
 
 function formatAccessTag(role: UserRole): string {
