@@ -145,8 +145,13 @@ export async function runClaude(options: {
     clearTimeout(timeoutId);
     clearInterval(heartbeatInterval);
 
-    // AbortError means timeout
-    if (error instanceof Error && error.name === "AbortError") {
+    // Detect timeout: either a standard AbortError or the SDK's "aborted by user"
+    // message when our AbortController signal has fired
+    const isAbortError = error instanceof Error && error.name === "AbortError";
+    const isSignalAbort = abortController.signal.aborted &&
+      error instanceof Error && /aborted/i.test(error.message);
+
+    if (isAbortError || isSignalAbort) {
       if (options.branchName) {
         appendExecutionLog(options.branchName, `Timeout: Execution timed out after ${timeoutMs / 60000} minutes`);
       }
@@ -367,7 +372,7 @@ export async function runWorktreeSetup(
   }
 
   const config = getConfig();
-  const timeoutMinutes = config.changesWorkflow?.worktreeSetupTimeoutMinutes ?? 2;
+  const timeoutMinutes = config.changesWorkflow?.worktreeSetupTimeoutMinutes ?? 5;
 
   logger.info(`Running worktree setup for ${repoName}${branchName ? ` (${branchName})` : ""}...`);
   if (branchName) {
