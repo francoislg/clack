@@ -60,7 +60,7 @@ The system SHALL register tools based on the user's role, current context, and i
 #### Scenario: Member user tool set
 
 - **WHEN** the user has the member role in query mode
-- **THEN** the tool server registers query tools (`list_repositories`) and `submit_response`
+- **THEN** the tool server registers query tools (`list_repositories`, `git_log`, `deepen_history`) and `submit_response`
 - **AND** does NOT register action tools (`propose_change`, `propose_config_update`)
 - **AND** does NOT register follow-up tools (`request_review`, `request_merge`, `request_update`, `request_close`)
 
@@ -133,6 +133,17 @@ The system SHALL provide read-only query tools for discovering system state.
 - **THEN** the tool queries GitHub for open PRs on that repository
 - **AND** returns PR summaries only for repositories the user can read
 - **AND** PRs for invisible repositories are not queryable
+
+#### Scenario: git_log tool
+- **WHEN** Claude calls `git_log` with required `repo` and optional `args` array
+- **THEN** the tool executes `git log` on the local repository clone
+- **AND** returns raw output with shallow-clone metadata
+- **AND** only queries repositories the user has read access to
+
+#### Scenario: deepen_history tool
+- **WHEN** Claude calls `deepen_history` with required `repo` and optional `commits` or `full` parameters
+- **THEN** the tool fetches additional commit history for the local repository clone
+- **AND** only operates on repositories the user has read access to
 
 #### Scenario: list_config_files tool
 - **WHEN** Claude calls `list_config_files`
