@@ -19,6 +19,8 @@ import { createFindChangesTool } from "./query/findChanges.js";
 import { createFindPullRequestsTool } from "./query/findPullRequests.js";
 import { createListConfigFilesTool } from "./query/listConfigFiles.js";
 import { createReadConfigFileTool } from "./query/readConfigFile.js";
+import { createGitLogTool } from "./query/gitLog.js";
+import { createDeepenHistoryTool } from "./query/deepenHistory.js";
 
 // Action tools
 import { createProposeChangeTool } from "./actions/proposeChange.js";
@@ -139,6 +141,8 @@ function buildQueryTools(ctx: QueryToolContext): ClackToolsResult {
 
   // --- Query tools ---
   tools.push(createListRepositoriesTool(ctx));
+  tools.push(createGitLogTool(ctx));
+  tools.push(createDeepenHistoryTool(ctx));
 
   if (canRequestChanges(ctx.role)) {
     tools.push(createFindSessionsTool(ctx));

@@ -19,7 +19,7 @@ function getGitInstance(baseDir?: string): SimpleGit {
  * Set the remote URL to an authenticated HTTPS URL with a fresh token.
  * Called before fetch/pull/push to ensure the token is current.
  */
-async function setAuthenticatedRemote(repoPath: string, repoUrl: string): Promise<void> {
+export async function setAuthenticatedRemote(repoPath: string, repoUrl: string): Promise<void> {
   const git = getGitInstance(repoPath);
   const authenticatedUrl = await getAuthenticatedCloneUrl(repoUrl);
   await git.remote(["set-url", "origin", authenticatedUrl]);
