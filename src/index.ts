@@ -9,6 +9,7 @@ import { startCleanupScheduler, stopCleanupScheduler } from "./sessions.js";
 import { createSlackApp, startSlackApp, stopSlackApp } from "./slack/app.js";
 import { initializeWorktrees } from "./worktrees.js";
 import { startCompletionMonitor, stopCompletionMonitor } from "./changes/monitor.js";
+import { restoreWorkerSessions } from "./changes/restore.js";
 import { validateInstructionFiles } from "./instructions.js";
 import { runBlockingMigrations, runEnhancementMigrations } from "./migrations/boot.js";
 
@@ -101,6 +102,14 @@ async function main(): Promise<void> {
     } catch (error) {
       logger.warn("Failed to initialize worktrees:", error);
       // Continue anyway - worktree cleanup is not critical
+    }
+
+    // Restore persisted worker sessions into memory (after worktree cleanup, before monitor)
+    try {
+      restoreWorkerSessions();
+    } catch (error) {
+      logger.warn("Failed to restore worker sessions:", error);
+      // Continue anyway - restoration is not critical
     }
   }
 
