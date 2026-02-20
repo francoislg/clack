@@ -203,18 +203,6 @@ export function getAcceptedBlocks(answer: string) {
   return answerSections(answer);
 }
 
-export function getThinkingBlocks() {
-  return [
-    {
-      type: "section" as const,
-      text: {
-        type: "mrkdwn" as const,
-        text: ":thinking_face: _Analyzing the codebase..._",
-      },
-    },
-  ];
-}
-
 export function getErrorBlocks(message: string) {
   return [
     {

@@ -46,6 +46,8 @@ export interface AskClaudeOptions {
   changesWorkflowEnabled?: boolean;
   /** Active change session in the current thread (for follow-up tools) */
   changeSession?: ChangeSession;
+  /** When true, hints Claude to propose a change with auto-execute */
+  workMode?: boolean;
 }
 
 export interface McpServerInfo {
@@ -94,7 +96,7 @@ function formatThreadContext(messages: SessionContext["threadContext"]): string 
   return formatted.join("\n\n");
 }
 
-function buildPrompt(session: SessionContext): string {
+function buildPrompt(session: SessionContext, options?: { workMode?: boolean }): string {
   const parts: string[] = [];
 
   // Thread context first so Claude reads the conversation before the question
@@ -104,6 +106,11 @@ Messages may be attributed to specific users by name (e.g., [John Doe]) or as [U
 Messages marked [Clack Bot] are previous answers from you (this bot).
 Use this context to understand the conversation flow and provide relevant answers.\n`;
     parts.push(contextIntro + formatThreadContext(session.threadContext));
+  }
+
+  // Work mode hint — user explicitly requested a code change
+  if (options?.workMode) {
+    parts.push(`WORK MODE: The user explicitly requested this as a work task (not a question). Propose a code change using propose_change and set auto: true on the change action in submit_response. If you cannot determine what change to make, ask for clarification via submit_response.`);
   }
 
   // Original question
@@ -162,7 +169,7 @@ export async function askClaude(
   const externalMcpServers = await loadMcpServers();
 
   const systemPrompt = buildSystemPrompt(options);
-  const userPrompt = buildPrompt(session);
+  const userPrompt = buildPrompt(session, { workMode: options?.workMode });
 
   logger.debug(`Querying Claude via Agent SDK for session ${session.sessionId}...`);
 
