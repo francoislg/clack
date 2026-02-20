@@ -22,8 +22,9 @@ import type { MigrationTest } from "./types.js";
 // --- Import individual migration tests ---
 import { test as test001 } from "./001.js";
 import { test as test002 } from "./002.js";
+import { test as test003 } from "./003.js";
 
-const allTests: MigrationTest[] = [test001, test002];
+const allTests: MigrationTest[] = [test001, test002, test003];
 
 // --- Config ---
 

@@ -1,6 +1,7 @@
 import type { Migration } from "./types.js";
 import { migration as m1 } from "./001-supports-changes-to-access.js";
 import { migration as m2 } from "./002-instruction-updates.js";
+import { migration as m3 } from "./003-auto-execute-instructions.js";
 
 // Register migrations here in version order.
-export const migrations: Migration[] = [m1, m2];
+export const migrations: Migration[] = [m1, m2, m3];

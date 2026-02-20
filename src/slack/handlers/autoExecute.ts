@@ -5,11 +5,12 @@
 import type { App } from "@slack/bolt";
 import type { ClaudeResponse } from "../../claude.js";
 import type { ChangeSession } from "../../changes/types.js";
-import type { StagedChangeIntent, StagedIntent, Action } from "../../tools/types.js";
+import type { StagedChangeIntent, StagedConfigUpdateIntent, StagedIntent, Action } from "../../tools/types.js";
 import type { UserRole } from "../../roles.js";
 import { canRequestChanges } from "../../permissions.js";
 import { triggerChangeWorkflow } from "./changeAction.js";
 import { triggerFollowUp } from "./changeThreadActions.js";
+import { writeInstructionFile } from "../../configurationFiles.js";
 import { logger } from "../../logger.js";
 
 export interface AutoExecuteParams {
@@ -51,7 +52,25 @@ export async function handleAutoExecuteActions(params: AutoExecuteParams): Promi
     }
 
     try {
-      if (action.type === "change" && intent.type === "change") {
+      if (action.type === "config_update" && intent.type === "config_update") {
+        const configIntent = intent as StagedConfigUpdateIntent;
+        logger.info(`Auto-executing config update: ${configIntent.file}`);
+        try {
+          writeInstructionFile(configIntent.file, configIntent.content);
+          await client.chat.postMessage({
+            channel: channelId,
+            thread_ts: threadTs,
+            text: `Configuration file \`${configIntent.file}\` has been updated.`,
+          });
+        } catch (err) {
+          logger.error("Auto-execute config update error:", err);
+          await client.chat.postMessage({
+            channel: channelId,
+            thread_ts: threadTs,
+            text: `Failed to update \`${configIntent.file}\`: ${err instanceof Error ? err.message : String(err)}`,
+          }).catch(() => {});
+        }
+      } else if (action.type === "change" && intent.type === "change") {
         logger.info(`Auto-executing change action: ${(intent as StagedChangeIntent).description}`);
         // Fire and forget — triggerChangeWorkflow manages its own progress messages
         triggerChangeWorkflow(
