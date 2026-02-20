@@ -18,7 +18,7 @@ The system SHALL provide a `submit_response` MCP tool that defines the user-faci
 #### Scenario: Response with actions
 
 - **WHEN** Claude calls `submit_response` with an actions array
-- **THEN** each action has a `type` from the known set: `accept`, `reject`, `edit`, `refine`, `followup`, `choice`, `change`, `config_update`, `review`, `merge`, `update`, `close`
+- **THEN** each action has a `type` from the known set: `accept`, `reject`, `edit`, `refine`, `followup`, `choice`, `change`, `config_update`, `review`, `merge`, `update`, `close`, `send_to_thread`
 - **AND** each action type has its own schema for additional fields
 - **AND** ref-based actions (`change`, `update`, `review`, `merge`, `close`) support an optional `auto` boolean field
 
@@ -62,6 +62,20 @@ The system SHALL support terminal actions that end the conversation after user i
 - **THEN** the Slack UI renders a button (default label: "Apply Update")
 - **AND** clicking writes the config file with the validated data from the staged intent
 - **AND** the `auto` flag is NOT supported for this action type
+
+### Requirement: Send to Thread Action Type
+
+The system SHALL support a `send_to_thread` action type for DM-first delivery mode.
+
+#### Scenario: send_to_thread action in submit_response
+- **WHEN** Claude calls `submit_response` with `{ type: "send_to_thread" }` and optional `label`
+- **THEN** the Slack UI renders a primary-styled button (default label: "Send to thread")
+- **AND** clicking triggers the DM-first synthesis flow (synthesize conversation, post to original channel thread)
+
+#### Scenario: send_to_thread action rendering
+- **WHEN** a response includes a `send_to_thread` action
+- **THEN** the button is rendered with action_id `clack_dm_send_to_thread`
+- **AND** the button value encodes the session ID
 
 ### Requirement: Continuation Action Types
 
@@ -139,7 +153,7 @@ The system SHALL render `submit_response` output as Slack Block Kit messages.
 - **WHEN** the response includes actions
 - **THEN** a divider separates content from actions
 - **AND** each action is rendered as a Slack button in an actions block
-- **AND** button style reflects type: `accept` and `change` and `merge` are primary, `reject` and `close` are danger, others are default
+- **AND** button style reflects type: `accept`, `change`, `merge`, and `send_to_thread` are primary, `reject` and `close` are danger, others are default
 - **AND** button `value` encodes the session ID and action metadata for handler resolution
 
 #### Scenario: Button limit handling

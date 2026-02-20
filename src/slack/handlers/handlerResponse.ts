@@ -10,7 +10,7 @@ import type { App } from "@slack/bolt";
 import { ErrorCode, type WebAPIPlatformError } from "@slack/web-api";
 import type { SessionInfo } from "../state.js";
 import type { AskClaudeOptions, ClaudeResponse } from "../../claude.js";
-import { getStructuredResponseBlocks, ensureEphemeralActions, getErrorBlocksWithRetry } from "../blocks.js";
+import { getStructuredResponseBlocks, getErrorBlocksWithRetry } from "../blocks.js";
 import { setLastAnswer, updateSession, addError, getSession, addRefinement } from "../../sessions.js";
 import { askClaude, analyzeError } from "../../claude.js";
 import { sendErrorReport } from "../messagesApi.js";
@@ -79,16 +79,9 @@ export async function postSuccessResponse(
   if (response.toolCallHistory && response.toolCallHistory.length > 0) updates.toolCallHistory = response.toolCallHistory;
   if (Object.keys(updates).length > 0) await updateSession(sessionId, updates as any);
 
-  // For ephemeral, ensure accept/reject/refine are always present
-  const payload = (response.response && sessionInfo.isEphemeral !== false)
-    ? ensureEphemeralActions(response.response)
-    : response.response;
-
-  // Use pre-rendered blocks if payload wasn't modified, otherwise re-render
-  const blocks = payload
-    ? ((payload === response.response && response.renderedBlocks)
-      ? response.renderedBlocks
-      : getStructuredResponseBlocks(payload, sessionId))
+  // Use pre-rendered blocks when available, otherwise render from payload
+  const blocks = response.response
+    ? (response.renderedBlocks ?? getStructuredResponseBlocks(response.response, sessionId))
     : undefined;
 
   await postResponse(client, sessionInfo, {
@@ -194,13 +187,19 @@ export async function postErrorResponse(
 }
 
 /**
- * Build Claude options from session info (role + changes workflow).
+ * Build Claude options from session info (role + changes workflow + delivery context).
  */
 export async function getHandlerClaudeOptions(
   sessionInfo: SessionInfo,
 ): Promise<AskClaudeOptions> {
-  return getClaudeOptions(
+  const options = await getClaudeOptions(
     sessionInfo.userId,
     sessionInfo.triggerType ?? "directMessages",
   );
+  return {
+    ...options,
+    isEphemeral: sessionInfo.isEphemeral ?? false,
+    triggerType: sessionInfo.triggerType,
+    isDmFirst: !!(sessionInfo.dmChannel && sessionInfo.originChannel),
+  };
 }

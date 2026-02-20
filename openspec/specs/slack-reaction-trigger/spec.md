@@ -59,7 +59,7 @@ The system SHALL post initial responses as ephemeral messages visible only to th
 - **AND** the user's effective response type is `"ephemeral"`
 - **THEN** the system posts an ephemeral message in the thread of the original message
 - **AND** only the user who added the trigger reaction can see the message
-- **AND** the message includes Accept, Reject, Refine, and Update action buttons
+- **AND** the system renders Claude's actions as-is (Claude is responsible for including accept, reject, and refine actions based on delivery context)
 
 #### Scenario: Silent generation
 - **WHEN** answer generation is initiated from a reaction trigger

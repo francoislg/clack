@@ -10,13 +10,16 @@ import {
   postErrorResponse,
   getHandlerClaudeOptions,
 } from "./handlerResponse.js";
+import { canRequestChanges } from "../../permissions.js";
+import { getSessionByThread } from "../../changes/session.js";
+import { handleAutoExecuteActions } from "./autoExecute.js";
 
 export function registerChoiceHandler(app: App): void {
   app.action<BlockAction>("clack_choice", async ({ ack, body, client, respond }) => {
     await ack();
 
     const rawValue = (body.actions[0] as { value: string }).value;
-    const { sessionId, choiceValue } = decodeActionValue(rawValue);
+    const { sessionId, choiceValue, workMode } = decodeActionValue(rawValue);
 
     if (!choiceValue) {
       logger.error("Choice handler: missing choice value");
@@ -42,10 +45,25 @@ export function registerChoiceHandler(app: App): void {
     const updatedSession = (await getSession(session.sessionId))!;
 
     const claudeOptions = await getHandlerClaudeOptions(sessionInfo);
-    const response = await askClaude(updatedSession, claudeOptions);
+    const effectiveWorkMode = workMode
+      && claudeOptions.changesWorkflowEnabled
+      && canRequestChanges(claudeOptions.role ?? "member");
+    const response = await askClaude(updatedSession, { ...claudeOptions, workMode: effectiveWorkMode || false });
 
     if (response.success) {
       await postSuccessResponseWithRetry(client, sessionInfo, session.sessionId, response);
+
+      // Auto-execute any actions Claude flagged with auto: true
+      const changeSession = getSessionByThread(sessionInfo.channelId, sessionInfo.threadTs);
+      await handleAutoExecuteActions({
+        client,
+        channelId: sessionInfo.channelId,
+        threadTs: sessionInfo.threadTs,
+        userId: sessionInfo.userId,
+        response,
+        changeSession,
+        role: claudeOptions.role ?? "member",
+      });
     } else {
       await postErrorResponse(client, sessionInfo, session.sessionId, response);
     }

@@ -46,6 +46,10 @@ export interface SessionContext {
   stagedIntents?: Record<string, unknown>;
   /** History of user continuations (choice, followup, refine) */
   continuationHistory?: ContinuationRecord[];
+  /** How the session was triggered (reactions, mentions, directMessages) */
+  triggerType?: "directMessages" | "mentions" | "reactions";
+  /** Whether responses for this session are ephemeral */
+  isEphemeral?: boolean;
   /** DM-first delivery: the DM channel ID */
   dmChannel?: string;
   /** DM-first delivery: the root DM message timestamp (thread anchor) */

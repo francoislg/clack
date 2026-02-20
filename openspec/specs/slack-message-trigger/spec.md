@@ -53,7 +53,7 @@ The system SHALL post and update visible messages (not ephemeral) for message mo
 - **WHEN** processing a message mode query
 - **THEN** the system posts a visible message with "Investigating..." text
 - **AND** updates the same message with the final response
-- **AND** no Accept/Reject buttons are shown (response is immediately public)
+- **AND** renders Claude's actions as-is (Claude is responsible for omitting accept/reject based on delivery context)
 
 ### Requirement: Thread Auto-Response
 The system SHALL automatically respond to all messages in threads it participates in.

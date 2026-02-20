@@ -1,7 +1,7 @@
 import type { App, BlockAction } from "@slack/bolt";
 import { logger } from "../../logger.js";
 import { getSession } from "../../sessions.js";
-import { getStructuredResponseBlocks, ensureEphemeralActions } from "../blocks.js";
+import { getStructuredResponseBlocks } from "../blocks.js";
 import { restoreSessionInfo } from "../state.js";
 import type { SubmitResponsePayload } from "../../tools/types.js";
 import { postResponse } from "./handlerResponse.js";
@@ -28,11 +28,7 @@ export function registerResendHandler(app: App): void {
       const lastResponse = (session as unknown as Record<string, unknown>).lastResponse as SubmitResponsePayload | undefined;
 
       if (lastResponse) {
-        // Ensure ephemeral responses always have accept/reject/refine
-        const payload = sessionInfo.isEphemeral !== false
-          ? ensureEphemeralActions(lastResponse)
-          : lastResponse;
-        const blocks = getStructuredResponseBlocks(payload, session.sessionId);
+        const blocks = getStructuredResponseBlocks(lastResponse, session.sessionId);
         await postResponse(client, sessionInfo, {
           blocks: blocks as unknown[],
           text: session.lastAnswer,
