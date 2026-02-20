@@ -80,6 +80,10 @@ The system SHALL support a top-level configuration section for the change reques
 **Reason**: Replaced by `{repo-name}/changes_instructions.md` convention-based files which follow the two-tier resolution chain and are editable via admin UI.
 **Migration**: Move content from `pullRequestInstructions` (repo config field) or `changesWorkflow.prInstructions` (global config) into `data/default_configuration/{repo-name}_changes_instructions.md` or `data/configuration/{repo-name}_changes_instructions.md`.
 
+### Requirement: Legacy XML-based plan generation
+**Reason**: Replaced by the unified `processMessage` flow with MCP tool-based change proposals (`propose_change` + `auto: true`). The XML parsing path (`generateChangePlan`, `PLAN_GENERATION_PROMPT`, `<change-plan>` regex) is removed entirely.
+**Migration**: No migration needed — the work-mode reaction emoji now routes through `processMessage` with the same tool pipeline as all other triggers.
+
 ### Requirement: Change Request Detection
 
 The system SHALL detect change request intent via the `propose_change` MCP tool call.
@@ -115,11 +119,18 @@ The system SHALL detect change request intent via the `propose_change` MCP tool 
 - **THEN** the tool returns success with the ref ID plus existing worktree metadata (status, last activity)
 - **AND** Claude can present a `choice` to the user: resume the existing session or start fresh
 
-#### Scenario: Explicit change request via reaction
+#### Scenario: Explicit change request via work-mode reaction
 - **GIVEN** `changesWorkflow.enabled` is `true` AND `reactions.changesWorkflow.enabled` is `true`
-- **WHEN** a user reacts with the `reactions.changesWorkflow.trigger` emoji
-- **THEN** the system treats the reacted message as a change request
-- **AND** proceeds with role verification and the tool-based flow
+- **WHEN** a dev+ user reacts with the work-mode emoji
+- **THEN** the system processes the message through the standard `processMessage` pipeline with `workMode: true`
+- **AND** Claude receives a prompt hint to use `propose_change` with `auto: true`
+- **AND** the change is auto-executed without a button click
+
+#### Scenario: Work-mode reaction from non-dev user
+- **GIVEN** `reactions.changesWorkflow.enabled` is `true`
+- **WHEN** a non-dev user reacts with the work-mode emoji
+- **THEN** the system processes the message through the standard Q&A flow
+- **AND** no change proposal tools are available (per existing role gating)
 
 ### Requirement: Change Request State Management
 

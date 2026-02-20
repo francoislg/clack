@@ -9,7 +9,7 @@
     "start": "node dist/index.js",
     "start:logfile": "mkdir -p logs && node dist/index.js 2>&1 | tee \"logs/clack-$(date +%Y%m%d-%H%M%S).log\"",
     "dev": "tsc --watch & node --watch dist/index.js",
-    "test": "node --test",
+    "test": "node --test 'src/**/*.test.ts'",
     "ask": "npx tsx scripts/askClaude.ts",
     "manifest": "npx tsx scripts/generate-manifest.ts",
     "docker-setup": "bash scripts/docker-setup.sh",

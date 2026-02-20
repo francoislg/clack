@@ -229,30 +229,6 @@ export async function deleteBranch(
 }
 
 /**
- * Get all worktrees for a repository
- */
-export async function listWorktrees(repoName: string): Promise<string[]> {
-  const worktreesDir = getWorktreesDir();
-  const repoWorktreesDir = resolve(worktreesDir, repoName);
-
-  if (!existsSync(repoWorktreesDir)) {
-    return [];
-  }
-
-  try {
-    return readdirSync(repoWorktreesDir)
-      .filter((name) => {
-        const path = join(repoWorktreesDir, name);
-        return statSync(path).isDirectory();
-      })
-      .map((name) => join(repoWorktreesDir, name));
-  } catch (error) {
-    logger.error(`Failed to list worktrees for ${repoName}:`, error);
-    return [];
-  }
-}
-
-/**
  * Cleanup stale worktrees older than retention period
  */
 export async function cleanupStaleWorktrees(retentionHours: number = 24): Promise<void> {

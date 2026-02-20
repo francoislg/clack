@@ -57,6 +57,8 @@ export interface ProcessMessageParams {
   threadTs?: string;
   triggerType: TriggerType;
   responseStyle?: ResponseStyle;
+  /** When true, hints Claude to propose a change with auto-execute */
+  workMode?: boolean;
 }
 
 interface ProcessingContext {
@@ -76,6 +78,8 @@ interface ProcessingContext {
   dmChannel?: string;
   /** DM thread ts (set during DM-first flow) */
   dmThreadTs?: string;
+  /** When true, hints Claude to propose a change with auto-execute */
+  workMode: boolean;
 }
 
 interface ThinkingState {
@@ -587,6 +591,7 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
     threadTs,
     triggerType,
     responseStyle = "regular",
+    workMode = false,
   } = params;
 
   const config = getConfig();
@@ -610,6 +615,7 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
     triggerType,
     isEphemeral: isDmFirst ? false : responseStyle === "ephemeral",
     isDmFirst,
+    workMode,
   };
 
   logger.debug(`Processing message from ${userId} in ${channelId} (trigger: ${triggerType}, dmFirst: ${isDmFirst})`);
@@ -664,6 +670,7 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
   const response = await askClaude(session, {
     ...claudeOptions,
     changeSession: changeSession || undefined,
+    workMode: ctx.workMode,
   });
 
   // 5. Remove thinking emoji if used

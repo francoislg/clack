@@ -2,123 +2,27 @@ import type { App } from "@slack/bolt";
 import { getConfig } from "../../config.js";
 import { logger } from "../../logger.js";
 import { getErrorBlocks } from "../blocks.js";
-import { isDev, getRole } from "../../roles.js";
-import type { ChangeRequest } from "../../changes/types.js";
-import { getChangeEnabledRepos } from "../../changes/detection.js";
-import { generateChangePlan } from "../../changes/execution.js";
-import { startChangeWorkflow } from "../../changes/workflow.js";
+import { isDev } from "../../roles.js";
 import { extractMessageText } from "../messagesApi.js";
 import { processMessage } from "./core.js";
-import { safeChatUpdate } from "./safeChatUpdate.js";
-
-async function handleChangeReaction(
-  client: App["client"],
-  userId: string,
-  channelId: string,
-  messageTs: string,
-  threadTs: string | undefined,
-  messageText: string
-): Promise<void> {
-  const effectiveThreadTs = threadTs || messageTs;
-  const config = getConfig();
-
-  logger.debug(`Change reaction from user ${userId} in channel ${channelId}`);
-
-  // Check if user has dev role
-  const userIsDev = await isDev(userId);
-  if (!userIsDev) {
-    await client.chat.postEphemeral({
-      channel: channelId,
-      user: userId,
-      thread_ts: effectiveThreadTs,
-      text: "Change requests require dev permissions.",
-    });
-    return;
-  }
-
-  // Get available repositories for this user's role
-  const role = await getRole(userId);
-  const availableRepos = getChangeEnabledRepos(config, role);
-  if (availableRepos.length === 0) {
-    await client.chat.postEphemeral({
-      channel: channelId,
-      user: userId,
-      thread_ts: effectiveThreadTs,
-      text: "No repositories have changes enabled for your role.",
-    });
-    return;
-  }
-
-  // Post acknowledgment message in thread
-  const ackMessage = await client.chat.postMessage({
-    channel: channelId,
-    thread_ts: effectiveThreadTs,
-    text: "Analyzing change request...",
-  });
-
-  // Generate the plan using Claude
-  const planResult = await generateChangePlan(messageText, availableRepos);
-  if (!planResult.success || !planResult.plan) {
-    await client.chat.update({
-      channel: channelId,
-      ts: ackMessage.ts!,
-      text: `❌ Failed to create plan: ${planResult.error}`,
-    });
-    return;
-  }
-
-  const request: ChangeRequest = {
-    userId,
-    message: messageText,
-    triggerType: "reactions",
-    channel: channelId,
-    messageTs,
-    threadTs,
-  };
-
-  const result = await startChangeWorkflow(
-    request,
-    planResult.plan,
-    effectiveThreadTs,
-  );
-
-  if (result.success) {
-    const message = result.prUrl
-      ? `✅ PR created: ${result.prUrl}\n\n${result.summary || ""}`.trim()
-      : `✅ ${result.summary || "Changes implemented"}`;
-    await safeChatUpdate(
-      client,
-      channelId,
-      ackMessage.ts!,
-      message,
-    );
-  } else {
-    await safeChatUpdate(
-      client,
-      channelId,
-      ackMessage.ts!,
-      `❌ Change request failed: ${result.error}`,
-    );
-  }
-}
 
 export function registerNewQueryHandler(app: App): void {
   const config = getConfig();
 
-  // Get the change trigger emoji if configured
-  const changeTrigger = config.reactions.changesWorkflow?.enabled
+  // Get the work-mode trigger emoji if configured
+  const workTrigger = config.reactions.changesWorkflow?.enabled
     ? config.reactions.changesWorkflow.trigger
     : null;
 
   app.event("reaction_added", async ({ event, client }) => {
     logger.debug(`Reaction event: ${event.reaction} from ${event.user}`);
 
-    // Check if this is the change trigger emoji
-    const isChangeTrigger = changeTrigger && event.reaction === changeTrigger;
+    // Check if this is the work-mode or query trigger emoji
+    const isWorkTrigger = workTrigger && event.reaction === workTrigger;
     const isQueryTrigger = event.reaction === config.reactions.trigger;
 
-    if (!isChangeTrigger && !isQueryTrigger) {
-      logger.debug(`Ignoring reaction ${event.reaction}, waiting for ${config.reactions.trigger}${changeTrigger ? ` or ${changeTrigger}` : ""}`);
+    if (!isWorkTrigger && !isQueryTrigger) {
+      logger.debug(`Ignoring reaction ${event.reaction}, waiting for ${config.reactions.trigger}${workTrigger ? ` or ${workTrigger}` : ""}`);
       return;
     }
 
@@ -204,41 +108,33 @@ export function registerNewQueryHandler(app: App): void {
       }
     }
 
-    // Route to the appropriate handler based on trigger type
-    if (isChangeTrigger) {
-      if (!actualMessageText) {
-        await client.chat.postEphemeral({
-          channel,
-          user: userId,
-          thread_ts: threadTs || ts,
-          text: "Sorry, I couldn't read the message for the change request.",
-        });
-        return;
-      }
-      await handleChangeReaction(client, userId, channel, ts, threadTs, actualMessageText);
-    } else {
-      // Use unified flow for Q&A reactions
-      if (!actualMessageText) {
-        await client.chat.postEphemeral({
-          channel,
-          user: userId,
-          thread_ts: threadTs || ts,
-          text: "Sorry, I couldn't read the message. Make sure I'm invited to this channel.",
-          blocks: getErrorBlocks("Sorry, I couldn't read the message. Make sure I'm invited to this channel."),
-        });
-        return;
-      }
-
-      await processMessage({
-        client,
-        userId,
-        channelId: channel,
-        messageTs: ts,
-        messageText: actualMessageText,
-        threadTs,
-        triggerType: "reactions",
-        responseStyle: "ephemeral",
+    if (!actualMessageText) {
+      await client.chat.postEphemeral({
+        channel,
+        user: userId,
+        thread_ts: threadTs || ts,
+        text: "Sorry, I couldn't read the message. Make sure I'm invited to this channel.",
+        blocks: getErrorBlocks("Sorry, I couldn't read the message. Make sure I'm invited to this channel."),
       });
+      return;
     }
+
+    // Determine work mode: work trigger + dev role = workMode, otherwise standard Q&A
+    let workMode = false;
+    if (isWorkTrigger) {
+      workMode = await isDev(userId);
+    }
+
+    await processMessage({
+      client,
+      userId,
+      channelId: channel,
+      messageTs: ts,
+      messageText: actualMessageText,
+      threadTs,
+      triggerType: "reactions",
+      responseStyle: "ephemeral",
+      workMode,
+    });
   });
 }

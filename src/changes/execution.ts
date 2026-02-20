@@ -1,12 +1,11 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { getConfig, getDefaultConfigurationDir } from "../config.js";
+import { readFileSync } from "node:fs";
+import { getConfig } from "../config.js";
 import { resolveInstructionFile } from "../instructions.js";
 import { logger } from "../logger.js";
 import { setAuthenticatedRemote } from "../worktrees.js";
 import type { WorktreeInfo } from "../worktrees.js";
-import type { ChangePlan, ChangeRequest, ExecutionResult, PlanGenerationResult } from "./types.js";
+import type { ChangePlan, ChangeRequest, ExecutionResult } from "./types.js";
 import { appendExecutionLog } from "./persistence.js";
 import { findRepoByName } from "./detection.js";
 import { buildWorkerContext } from "../tools/context.js";
@@ -42,7 +41,7 @@ export async function runClaude(options: {
   const botName = config.slackApp?.name ?? "Clack";
   const botEmail = `${botName.toLowerCase().replace(/\s+/g, "-")}[bot]@users.noreply.github.com`;
 
-  logger.debug(`Running Claude in ${options.cwd}`);
+  logger.debug(`Running Claude in ${options.cwd}${options.branchName ? ` (worktree: ${options.branchName})` : ""}`);
   if (options.branchName) {
     appendExecutionLog(options.branchName, `Running Claude via Agent SDK`);
     appendExecutionLog(options.branchName, `Working directory: ${options.cwd}`);
@@ -323,173 +322,6 @@ Remember to:
   };
 }
 
-// ============================================================================
-// Plan Generation
-// ============================================================================
-
-const PLAN_GENERATION_PROMPT = `You are analyzing a change request to create an implementation plan.
-
-Given the request message, output a plan in this format:
-<change-plan>
-  <branch>clack/{type}/{short-description}</branch>
-  <description>Clear description of what will be changed</description>
-  <repo>{target-repository-name}</repo>
-</change-plan>
-
-Where:
-- type: fix, feat, refactor, docs, or chore
-- short-description: kebab-case, max 30 chars
-- repo: exact repository name from available list
-
-Be specific in the description about what changes will be made.`;
-
-/**
- * Generate a change plan using Claude.
- * Used when the user explicitly triggers a change request (e.g., via reaction emoji).
- */
-export async function generateChangePlan(
-  message: string,
-  availableRepos: Array<{ name: string; description: string }>
-): Promise<PlanGenerationResult> {
-  if (availableRepos.length === 0) {
-    return {
-      success: false,
-      error: "No repositories have changes enabled.",
-    };
-  }
-
-  const repoList = availableRepos
-    .map((r) => `- ${r.name}: ${r.description}`)
-    .join("\n");
-
-  const prompt = `Analyze this change request and create a plan:
-
-Request: "${message}"
-
-Available repositories that support changes:
-${repoList}`;
-
-  // Use the first enabled repo as cwd for the Claude call
-  const reposDir = join(process.cwd(), "data", "repositories");
-  const firstRepo = availableRepos[0];
-  const cwd = join(reposDir, firstRepo.name);
-
-  const result = await runClaude({
-    prompt,
-    cwd: existsSync(cwd) ? cwd : process.cwd(),
-    systemPrompt: PLAN_GENERATION_PROMPT,
-    allowedTools: [], // No tools needed for planning
-    disallowedTools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep", "Task"],
-    timeout: 1, // 1 minute for quick planning
-  });
-
-  if (!result.success) {
-    return {
-      success: false,
-      error: result.error ?? "Failed to generate plan",
-    };
-  }
-
-  if (!result.text) {
-    return {
-      success: false,
-      error: "No response text from Claude",
-    };
-  }
-
-  // Parse the change plan from result text
-  const planMatch = result.text.match(/<change-plan>([\s\S]*?)<\/change-plan>/);
-  if (!planMatch) {
-    return {
-      success: false,
-      error: "Failed to parse plan response: no plan found",
-    };
-  }
-
-  const content = planMatch[1];
-  const branchMatch = content.match(/<branch>([\s\S]*?)<\/branch>/);
-  const descriptionMatch = content.match(/<description>([\s\S]*?)<\/description>/);
-  const repoMatch = content.match(/<repo>([\s\S]*?)<\/repo>/);
-
-  if (!branchMatch || !descriptionMatch || !repoMatch) {
-    return {
-      success: false,
-      error: "Invalid plan: missing required fields",
-    };
-  }
-
-  const plan = {
-    branchName: branchMatch[1].trim(),
-    description: descriptionMatch[1].trim(),
-    targetRepo: repoMatch[1].trim(),
-  };
-
-  // Verify target repo is in the available list
-  const targetValid = availableRepos.some(
-    (r) => r.name.toLowerCase() === plan.targetRepo.toLowerCase()
-  );
-  if (!targetValid) {
-    return {
-      success: false,
-      error: `Repository ${plan.targetRepo} not found in available repositories`,
-    };
-  }
-
-  return { success: true, plan };
-}
-
-// ============================================================================
-// PR Template Resolution
-// ============================================================================
-
-const PR_TEMPLATE_PATHS = [
-  ".github/PULL_REQUEST_TEMPLATE.md",
-  ".github/pull_request_template.md",
-  "docs/PULL_REQUEST_TEMPLATE.md",
-];
-
-const DEFAULT_PR_TEMPLATE = `## Summary
-
-<!-- Brief description of changes -->
-
-## Changes Made
-
-<!-- List of changes -->
-
-## Test Plan
-
-<!-- How to test these changes -->
-`;
-
-/**
- * Resolve PR template from repo or fallback locations
- */
-export function resolvePRTemplate(worktreePath: string): string {
-  // Check repo templates
-  for (const templatePath of PR_TEMPLATE_PATHS) {
-    const fullPath = join(worktreePath, templatePath);
-    if (existsSync(fullPath)) {
-      try {
-        return readFileSync(fullPath, "utf-8");
-      } catch {
-        logger.warn(`Failed to read PR template at ${fullPath}`);
-      }
-    }
-  }
-
-  // Check Clack templates directory
-  const clackTemplatePath = join(getDefaultConfigurationDir(), "pr-template.md");
-  if (existsSync(clackTemplatePath)) {
-    try {
-      return readFileSync(clackTemplatePath, "utf-8");
-    } catch {
-      logger.warn(`Failed to read Clack PR template at ${clackTemplatePath}`);
-    }
-  }
-
-  return DEFAULT_PR_TEMPLATE;
-}
-
 /**
  * Resolve repo-specific changes instructions via the two-tier instruction file chain.
  * Returns the content or empty string if not found.
@@ -537,7 +369,7 @@ export async function runWorktreeSetup(
   const config = getConfig();
   const timeoutMinutes = config.changesWorkflow?.worktreeSetupTimeoutMinutes ?? 2;
 
-  logger.info(`Running worktree setup for ${repoName}...`);
+  logger.info(`Running worktree setup for ${repoName}${branchName ? ` (${branchName})` : ""}...`);
   if (branchName) {
     appendExecutionLog(branchName, `Running worktree setup instructions from ${setupPath}`);
   }
@@ -553,12 +385,12 @@ export async function runWorktreeSetup(
   });
 
   if (!result.success) {
-    logger.warn(`Worktree setup failed for ${repoName}: ${result.error}`);
+    logger.warn(`Worktree setup failed for ${repoName}${branchName ? ` (${branchName})` : ""}: ${result.error}`);
     if (branchName) {
       appendExecutionLog(branchName, `Worktree setup failed: ${result.error}`);
     }
   } else {
-    logger.info(`Worktree setup completed for ${repoName}`);
+    logger.info(`Worktree setup completed for ${repoName}${branchName ? ` (${branchName})` : ""}`);
     if (branchName) {
       appendExecutionLog(branchName, "Worktree setup completed successfully");
     }

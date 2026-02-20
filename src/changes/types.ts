@@ -87,12 +87,6 @@ export interface ExecutionResult {
   error?: string;
 }
 
-export interface PlanGenerationResult {
-  success: boolean;
-  plan?: ChangePlan;
-  error?: string;
-}
-
 // ============================================================================
 // Worker Display Types
 // ============================================================================
