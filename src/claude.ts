@@ -196,6 +196,7 @@ export async function askClaude(
       prompt: userPrompt,
       options: {
         cwd: reposDir,
+        executable: process.execPath as "node",
         systemPrompt,
         model: config.claudeCode.model,
         permissionMode: "bypassPermissions",
@@ -457,6 +458,7 @@ export async function testMCP(): Promise<McpTestResult> {
       prompt: "test",
       options: {
         cwd: process.cwd(),
+        executable: process.execPath as "node",
         model: "haiku", // Use cheapest model for test
         permissionMode: "bypassPermissions",
         mcpServers: mcpServers as Record<string, import("@anthropic-ai/claude-agent-sdk").McpServerConfig>,
@@ -541,6 +543,7 @@ ${text}`;
       prompt,
       options: {
         cwd: process.cwd(),
+        executable: process.execPath as "node",
         model: "haiku",
         permissionMode: "bypassPermissions",
         disallowedTools: ["Write", "Edit", "NotebookEdit", "Bash", "Task", "Read", "Glob", "Grep"],
@@ -610,6 +613,7 @@ Provide a concise, non-technical explanation suitable for a user who encountered
       prompt,
       options: {
         cwd: process.cwd(),
+        executable: process.execPath as "node",
         model: "haiku", // Use fast, cheap model for analysis
         permissionMode: "bypassPermissions",
         disallowedTools: ["Write", "Edit", "NotebookEdit", "Bash", "Task", "Read", "Glob", "Grep"],

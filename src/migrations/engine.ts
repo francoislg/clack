@@ -55,6 +55,7 @@ Rules:
     prompt: migration.prompt,
     options: {
       cwd,
+      executable: process.execPath as "node",
       systemPrompt,
       model: "sonnet",
       permissionMode: "bypassPermissions",

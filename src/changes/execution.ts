@@ -79,6 +79,7 @@ export async function runClaude(options: {
       prompt: options.prompt,
       options: {
         cwd: options.cwd,
+        executable: process.execPath as "node",
         systemPrompt: options.systemPrompt,
         allowedTools: options.allowedTools,
         disallowedTools: options.disallowedTools,
