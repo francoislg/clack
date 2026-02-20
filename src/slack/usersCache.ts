@@ -1,0 +1,94 @@
+import type { App } from "@slack/bolt";
+import { logger } from "../logger.js";
+
+export interface SlackUserEntry {
+  userId: string;
+  username: string;
+  displayName: string;
+}
+
+export interface UsersCache {
+  search(queries: string[], limit?: number): Promise<SlackUserEntry[]>;
+}
+
+export function createUsersCache(client: App["client"]): UsersCache {
+  let cached: SlackUserEntry[] | null = null;
+
+  async function fetchAll(): Promise<SlackUserEntry[]> {
+    if (cached) return cached;
+
+    const users: SlackUserEntry[] = [];
+    let cursor: string | undefined;
+
+    do {
+      const result = await client.users.list({
+        limit: 1000,
+        cursor,
+      });
+
+      if (!result.ok || !result.members) {
+        logger.error(`Failed to fetch users list: ${result.error}`);
+        break;
+      }
+
+      for (const member of result.members) {
+        // Skip deleted users, bots, and USLACKBOT
+        if (member.deleted) continue;
+        if (member.is_bot) continue;
+        if (member.id === "USLACKBOT") continue;
+
+        users.push({
+          userId: member.id ?? "",
+          username: member.name ?? "",
+          displayName: member.profile?.display_name || member.profile?.real_name || "",
+        });
+      }
+
+      cursor = result.response_metadata?.next_cursor || undefined;
+    } while (cursor);
+
+    cached = users;
+    logger.debug(`UsersCache: fetched and cached ${users.length} users`);
+    return cached;
+  }
+
+  function buildMatcher(query: string): (value: string) => boolean {
+    if (query.includes("*")) {
+      // Convert wildcard pattern to regex: escape regex chars, replace * with .*
+      const escaped = query.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
+      const pattern = new RegExp(`^${escaped.replace(/\*/g, ".*")}$`, "i");
+      return (value) => pattern.test(value);
+    }
+    // Default: case-insensitive substring
+    const lower = query.toLowerCase();
+    return (value) => value.toLowerCase().includes(lower);
+  }
+
+  return {
+    async search(queries: string[], limit = 10): Promise<SlackUserEntry[]> {
+      const users = await fetchAll();
+      const matchers = queries.map(buildMatcher);
+      const seen = new Set<string>();
+      const results: SlackUserEntry[] = [];
+
+      for (const user of users) {
+        if (seen.has(user.userId)) continue;
+
+        const matches = matchers.some(
+          (match, i) =>
+            // userId is always exact (case-insensitive) — no wildcard/substring
+            queries[i].toLowerCase() === user.userId.toLowerCase() ||
+            match(user.username) ||
+            match(user.displayName)
+        );
+
+        if (matches) {
+          seen.add(user.userId);
+          results.push(user);
+        }
+      }
+
+      return results.slice(0, limit);
+    },
+  };
+}

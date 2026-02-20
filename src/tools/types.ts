@@ -1,3 +1,4 @@
+import type { App } from "@slack/bolt";
 import type { UserRole } from "../roles.js";
 import type { SessionContext } from "../sessions.js";
 import type { Config } from "../config.js";
@@ -22,6 +23,8 @@ export interface QueryToolContext {
   changesWorkflowEnabled: boolean;
   /** Active change session in the current thread (if any) */
   changeSession?: ChangeSession;
+  /** Slack WebClient for API calls (absent in test/verify contexts) */
+  slackClient?: App["client"];
 }
 
 /** Worker context — used by change execution and follow-up flows */
