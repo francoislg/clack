@@ -29,13 +29,18 @@ interface McpConfig {
 
 /**
  * Maps GitHub App installation token permission keys to github-mcp-server toolset names.
+ * One permission may enable multiple toolsets.
  */
-const PERMISSION_TO_TOOLSET: Record<string, string> = {
-  pull_requests: "pull_requests",
-  issues: "issues",
-  contents: "repos",
-  actions: "actions",
-  security_events: "code_security",
+const PERMISSION_TO_TOOLSETS: Record<string, string[]> = {
+  pull_requests: ["pull_requests"],
+  issues: ["issues", "labels"],
+  contents: ["repos", "git"],
+  actions: ["actions"],
+  security_events: ["code_security", "security_advisories"],
+  secret_scanning_alerts: ["secret_protection"],
+  vulnerability_alerts: ["dependabot"],
+  repository_projects: ["projects"],
+  organization_projects: ["projects"],
 };
 
 // Cache the static MCP config from mcp.json (parsed once)
@@ -123,15 +128,18 @@ function isGitHubMcpServerAvailable(): boolean {
 
 /**
  * Convert GitHub App token permissions to a GITHUB_TOOLSETS string.
+ * Always includes the "context" toolset (no permission required).
  */
 export function mapPermissionsToToolsets(permissions: Record<string, string>): string {
-  const toolsets: string[] = [];
-  for (const [permKey, toolset] of Object.entries(PERMISSION_TO_TOOLSET)) {
+  const toolsets = new Set<string>(["context"]);
+  for (const [permKey, toolsetList] of Object.entries(PERMISSION_TO_TOOLSETS)) {
     if (permKey in permissions) {
-      toolsets.push(toolset);
+      for (const ts of toolsetList) {
+        toolsets.add(ts);
+      }
     }
   }
-  return toolsets.join(",");
+  return [...toolsets].join(",");
 }
 
 /**
