@@ -73,6 +73,8 @@ export function writeSessionState(session: ChangeSession, lastMessage: string): 
     startedAt: session.createdAt.toISOString(),
     lastActivityAt: new Date().toISOString(),
     lastMessage: lastMessage.substring(0, 500), // Limit message length
+    channel: session.channel,
+    threadTs: session.threadTs,
   };
 
   const statePath = join(folderPath, "state.json");
@@ -153,6 +155,52 @@ export function statusToPhase(status: ChangeStatus): string {
     default:
       return status;
   }
+}
+
+// ============================================================================
+// Session Scanner
+// ============================================================================
+
+/**
+ * Get all persisted session states from disk (no status filtering).
+ * Returns every parseable state.json found in worktree-sessions/.
+ */
+export function getAllPersistedSessions(): PersistedSessionState[] {
+  const sessionsDir = getWorktreeSessionsDir();
+
+  if (!existsSync(sessionsDir)) {
+    return [];
+  }
+
+  const sessions: PersistedSessionState[] = [];
+
+  try {
+    const folders = readdirSync(sessionsDir);
+
+    for (const folder of folders) {
+      const folderPath = join(sessionsDir, folder);
+      const statePath = join(folderPath, "state.json");
+
+      try {
+        if (!statSync(folderPath).isDirectory()) continue;
+      } catch {
+        continue;
+      }
+
+      if (!existsSync(statePath)) continue;
+
+      try {
+        const state = JSON.parse(readFileSync(statePath, "utf-8")) as PersistedSessionState;
+        sessions.push(state);
+      } catch {
+        continue;
+      }
+    }
+  } catch {
+    // Return empty if can't read sessions dir
+  }
+
+  return sessions;
 }
 
 // ============================================================================

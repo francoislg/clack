@@ -125,6 +125,15 @@ export function createSession(
   return session;
 }
 
+/**
+ * Restore a session into the in-memory Maps without any disk writes or folder creation.
+ * Used on startup to hydrate sessions from persisted state.
+ */
+export function restoreSession(session: ChangeSession): void {
+  activeSessions.set(session.id, session);
+  sessionsByThread.set(getThreadKey(session.channel, session.threadTs), session.id);
+}
+
 export function updateSessionStatus(sessionId: string, status: ChangeStatus, lastMessage?: string): void {
   const session = activeSessions.get(sessionId);
   if (session) {

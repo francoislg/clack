@@ -295,7 +295,7 @@ The system SHALL provide real-time visibility into change execution progress.
 #### Scenario: Session state persistence
 - **WHEN** a change session is created
 - **THEN** the system creates `data/worktree-sessions/{branch-name}/state.json`
-- **AND** the state includes: sessionId, status, phase, branch, repo, userId, description, prUrl, startedAt, lastActivityAt, lastMessage
+- **AND** the state includes: sessionId, status, phase, branch, repo, userId, description, prUrl, startedAt, lastActivityAt, lastMessage, channel, threadTs
 
 #### Scenario: State updates during execution
 - **WHEN** the session status changes (planning → executing → pr_created → etc.)

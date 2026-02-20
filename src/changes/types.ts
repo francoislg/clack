@@ -74,6 +74,8 @@ export interface PersistedSessionState {
   startedAt: string;
   lastActivityAt: string;
   lastMessage: string;
+  channel: string | null;
+  threadTs: string | null;
 }
 
 // ============================================================================
