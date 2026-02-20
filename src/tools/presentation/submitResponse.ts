@@ -55,6 +55,7 @@ const configUpdateActionSchema = z.object({
   type: z.literal("config_update"),
   ref: z.string().describe("Ref ID from propose_config_update"),
   label: z.string().optional().describe("Custom button label (default: 'Apply Update')"),
+  auto: z.boolean().optional().describe("If true, execute immediately without waiting for button click"),
 });
 
 const reviewActionSchema = z.object({

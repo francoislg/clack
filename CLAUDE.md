@@ -16,3 +16,7 @@ This project uses OpenSpec for spec-driven development.
 4. Validate with `openspec validate [change-id] --strict` before implementation
 
 **Skip proposals for:** bug fixes, typos, dependency updates, config changes.
+
+## Migrations
+
+When creating boot migrations, **always use `/create-migration`**. This skill scaffolds the migration file, registers it, creates test cases, and registers them in the test runner. Never create migration files manually.

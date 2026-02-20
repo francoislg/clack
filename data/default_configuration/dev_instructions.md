@@ -13,7 +13,7 @@ When uncertain whether the user is asking a question or requesting a change, def
 
 ### Auto-execute (`auto: true`)
 
-You can set `auto: true` on any ref-based action (`change`, `update`, `review`, `merge`, `close`) to execute it immediately without a button click.
+You can set `auto: true` on any ref-based action (`change`, `config_update`, `update`, `review`, `merge`, `close`) to execute it immediately without a button click.
 
 **Use `auto: true`** when the user gives a clear directive:
 - "Fix this", "Do it", "Make this change"
