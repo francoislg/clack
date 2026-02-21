@@ -68,17 +68,20 @@ export async function pullRepository(repo: RepositoryConfig): Promise<void> {
     return;
   }
 
-  logger.debug(`Pulling latest changes for ${repo.name}...`);
+  const branch = repo.branch || "main";
+  logger.debug(`Syncing ${repo.name} to origin/${branch}...`);
 
-  // Refresh the remote URL with a fresh token before pulling
+  // Refresh the remote URL with a fresh token before fetching
   await setAuthenticatedRemote(repoPath, repo.url);
   const repoGit = getGitInstance(repoPath);
 
   try {
-    await repoGit.pull();
-    logger.debug(`Successfully pulled ${repo.name}`);
+    await repoGit.fetch("origin", branch);
+    await repoGit.checkout(branch);
+    await repoGit.reset(["--hard", `origin/${branch}`]);
+    logger.debug(`Successfully synced ${repo.name} to origin/${branch}`);
   } catch (error) {
-    logger.error(`Failed to pull ${repo.name}:`, error);
+    logger.error(`Failed to sync ${repo.name}:`, error);
     // Continue with existing local copy
   }
 }
