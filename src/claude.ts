@@ -144,9 +144,33 @@ Use this context to understand the conversation flow and provide relevant answer
     parts.push(deliveryContext);
   }
 
+  // Active change session hint — tell Claude about existing work in this thread
+  if (options?.changeSession) {
+    const cs = options.changeSession;
+    const lines = [
+      "ACTIVE CHANGE SESSION: There is an active code change in this thread.",
+      `- Branch: ${cs.plan.branchName}`,
+      `- Repository: ${cs.plan.targetRepo}`,
+      `- Status: ${cs.status}`,
+    ];
+    if (cs.prUrl) {
+      lines.push(`- PR: ${cs.prUrl}`);
+    }
+    lines.push(
+      "",
+      "To add more changes to this session, use `request_update` (not `propose_change`).",
+      "Only use `propose_change` if the user explicitly wants a separate, unrelated change on a different branch.",
+    );
+    parts.push(lines.join("\n"));
+  }
+
   // Work mode hint — user explicitly requested a code change
   if (options?.workMode) {
-    parts.push(`WORK MODE: The user explicitly requested this as a work task (not a question). Propose a code change using propose_change and set auto: true on the change action in submit_response. If you cannot determine what change to make, ask for clarification via submit_response.`);
+    if (options?.changeSession) {
+      parts.push(`WORK MODE: The user explicitly requested this as a work task. Since there is an active change session in this thread, use request_update with auto: true on the update action in submit_response. If you cannot determine what change to make, ask for clarification via submit_response.`);
+    } else {
+      parts.push(`WORK MODE: The user explicitly requested this as a work task (not a question). Propose a code change using propose_change and set auto: true on the change action in submit_response. If you cannot determine what change to make, ask for clarification via submit_response.`);
+    }
   }
 
   // Original question
