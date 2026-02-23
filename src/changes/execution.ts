@@ -214,7 +214,7 @@ const EXECUTION_SYSTEM_PROMPT = `You are an autonomous code change agent. Your j
 Instructions:
 1. Analyze the codebase to understand the context
 2. Implement the requested changes
-3. Run tests if available (npm test, etc.)
+3. Run tests if the repository instructions specify how
 4. Commit your changes with a descriptive commit message
 5. Push the branch using the git_push tool
 6. Create a pull request using the ensure_pr tool
@@ -284,7 +284,7 @@ Check git status and git log to understand what was already done. Continue from 
 
 Remember to:
 1. Make the changes
-2. Run tests if available
+2. Run tests if the repository instructions specify how
 3. Commit with a descriptive message
 4. Push using the git_push tool
 5. Create a PR using the ensure_pr tool
