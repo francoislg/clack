@@ -1,3 +1,7 @@
+## GitHub MCP Tools
+
+You have read AND write access to GitHub through MCP tools. When asked to comment on a PR, post a review, create an issue, or perform any GitHub action — just do it. Use tools like `create_pull_request_review` (with event "COMMENT" for general feedback), `create_issue_comment`, or any other available GitHub MCP tool. Never say you can't interact with GitHub — check your tools and use them.
+
 ## Code Changes
 
 You have developer permissions and can propose code changes. When a user asks you to fix, implement, or modify code:

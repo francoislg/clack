@@ -3,7 +3,7 @@
  * Migration test runner.
  *
  * Runs two kinds of tests:
- *   1. Individual migration tests — each migration's test cases in isolation
+ *   1. Individual migration tests — each migration's test cases in isolation (parallelized)
  *   2. Full migration path — version 0 config migrated through every migration to latest
  *
  * Usage:
@@ -23,12 +23,14 @@ import type { MigrationTest } from "./types.js";
 import { test as test001 } from "./001.js";
 import { test as test002 } from "./002.js";
 import { test as test003 } from "./003.js";
+import { test as test004 } from "./004.js";
 
-const allTests: MigrationTest[] = [test001, test002, test003];
+const allTests: MigrationTest[] = [test001, test002, test003, test004];
 
 // --- Config ---
 
 const TEST_DIR = resolve(process.cwd(), ".test-migrations");
+const CONCURRENCY = 4;
 
 // --- Helpers ---
 
@@ -56,115 +58,112 @@ function readTestConfig(path: string): Record<string, unknown> {
   return JSON.parse(readFileSync(path, "utf-8"));
 }
 
-// --- Individual migration tests ---
+/** Run async tasks with bounded concurrency. */
+async function parallel<T>(
+  tasks: (() => Promise<T>)[],
+  concurrency: number
+): Promise<T[]> {
+  const results: T[] = new Array(tasks.length);
+  let nextIndex = 0;
 
-async function runIndividualTests(
-  migrationTest: MigrationTest
-): Promise<{ passed: number; failed: number }> {
-  const cases = migrationTest.cases!;
-  const migration = migrations.find((m) => m.version === migrationTest.version);
-  if (!migration) {
-    console.error(`  No migration found for version ${migrationTest.version}`);
-    return { passed: 0, failed: cases.length };
-  }
-
-  let passed = 0;
-  let failed = 0;
-
-  for (let i = 0; i < cases.length; i++) {
-    const testCase = cases[i];
-    const testDir = join(TEST_DIR, `v${migrationTest.version}-case-${i}`);
-    const configPath = writeTestConfig(testDir, testCase.input);
-
-    console.log(`  [${i + 1}/${cases.length}] ${testCase.name}`);
-
-    // Point the migration at the test config
-    const testMigration = { ...migration, files: [configPath] };
-
-    try {
-      await executeMigration(testMigration);
-
-      const output = readTestConfig(configPath);
-      const error = testCase.validate(output);
-
-      if (error) {
-        console.error(`    FAIL: ${error}`);
-        console.error(`    Output: ${JSON.stringify(output.repositories, null, 2)}`);
-        failed++;
-      } else {
-        console.log(`    PASS`);
-        passed++;
-      }
-    } catch (error) {
-      console.error(`    FAIL: Migration threw: ${error}`);
-      failed++;
+  async function worker(): Promise<void> {
+    while (nextIndex < tasks.length) {
+      const i = nextIndex++;
+      results[i] = await tasks[i]();
     }
   }
 
-  return { passed, failed };
+  const workers = Array.from(
+    { length: Math.min(concurrency, tasks.length) },
+    () => worker()
+  );
+  await Promise.all(workers);
+  return results;
 }
 
-// --- File-based migration tests ---
+// --- Test case types ---
 
-async function runFileTests(
-  migrationTest: MigrationTest
-): Promise<{ passed: number; failed: number }> {
-  const migration = migrations.find((m) => m.version === migrationTest.version);
-  if (!migration) {
-    console.error(`  No migration found for version ${migrationTest.version}`);
-    return { passed: 0, failed: migrationTest.fileCases!.length };
-  }
+interface TestResult {
+  name: string;
+  version: number;
+  passed: boolean;
+  error?: string;
+}
 
-  let passed = 0;
-  let failed = 0;
+// --- Build individual test tasks ---
 
-  const fileCases = migrationTest.fileCases!;
-  for (let i = 0; i < fileCases.length; i++) {
-    const testCase = fileCases[i];
-    const testDir = join(TEST_DIR, `v${migrationTest.version}-file-case-${i}`);
+function buildTestTasks(testsToRun: MigrationTest[]): (() => Promise<TestResult>)[] {
+  const tasks: (() => Promise<TestResult>)[] = [];
 
-    console.log(`  [${i + 1}/${fileCases.length}] ${testCase.name}`);
+  for (const migrationTest of testsToRun) {
+    const migration = migrations.find((m) => m.version === migrationTest.version);
+    if (!migration) continue;
 
-    // Write input files
-    const testFiles: string[] = [];
-    for (const [relPath, content] of Object.entries(testCase.inputFiles)) {
-      const fullPath = join(testDir, relPath);
-      mkdirSync(dirname(fullPath), { recursive: true });
-      writeFileSync(fullPath, content);
-      testFiles.push(fullPath);
+    // JSON config cases
+    if (migrationTest.cases) {
+      for (let i = 0; i < migrationTest.cases.length; i++) {
+        const testCase = migrationTest.cases[i];
+        const version = migrationTest.version;
+
+        tasks.push(async () => {
+          const testDir = join(TEST_DIR, `v${version}-case-${i}`);
+          const configPath = writeTestConfig(testDir, testCase.input);
+          const testMigration = { ...migration, files: [configPath] };
+
+          try {
+            await executeMigration(testMigration);
+            const output = readTestConfig(configPath);
+            const error = testCase.validate(output);
+            return { name: testCase.name, version, passed: !error, error: error ?? undefined };
+          } catch (err) {
+            return { name: testCase.name, version, passed: false, error: `Migration threw: ${err}` };
+          }
+        });
+      }
     }
 
-    // Override migration files to point at test paths
-    const testMigration = { ...migration, files: testFiles };
+    // File-based cases
+    if (migrationTest.fileCases) {
+      for (let i = 0; i < migrationTest.fileCases.length; i++) {
+        const testCase = migrationTest.fileCases[i];
+        const version = migrationTest.version;
 
-    try {
-      await executeMigration(testMigration);
+        tasks.push(async () => {
+          const testDir = join(TEST_DIR, `v${version}-file-case-${i}`);
 
-      // Read output files
-      const outputFiles: Record<string, string> = {};
-      for (const [relPath] of Object.entries(testCase.inputFiles)) {
-        const fullPath = join(testDir, relPath);
-        if (existsSync(fullPath)) {
-          outputFiles[relPath] = readFileSync(fullPath, "utf-8");
-        }
+          // Write input files
+          const testFiles: string[] = [];
+          for (const [relPath, content] of Object.entries(testCase.inputFiles)) {
+            const fullPath = join(testDir, relPath);
+            mkdirSync(dirname(fullPath), { recursive: true });
+            writeFileSync(fullPath, content);
+            testFiles.push(fullPath);
+          }
+
+          const testMigration = { ...migration, files: testFiles };
+
+          try {
+            await executeMigration(testMigration);
+
+            const outputFiles: Record<string, string> = {};
+            for (const [relPath] of Object.entries(testCase.inputFiles)) {
+              const fullPath = join(testDir, relPath);
+              if (existsSync(fullPath)) {
+                outputFiles[relPath] = readFileSync(fullPath, "utf-8");
+              }
+            }
+
+            const error = testCase.validateFiles(outputFiles);
+            return { name: testCase.name, version, passed: !error, error: error ?? undefined };
+          } catch (err) {
+            return { name: testCase.name, version, passed: false, error: `Migration threw: ${err}` };
+          }
+        });
       }
-
-      const error = testCase.validateFiles(outputFiles);
-
-      if (error) {
-        console.error(`    FAIL: ${error}`);
-        failed++;
-      } else {
-        console.log(`    PASS`);
-        passed++;
-      }
-    } catch (error) {
-      console.error(`    FAIL: Migration threw: ${error}`);
-      failed++;
     }
   }
 
-  return { passed, failed };
+  return tasks;
 }
 
 // --- Full migration path test (version 0 → latest) ---
@@ -235,13 +234,16 @@ async function runFullPathTest(): Promise<boolean> {
   const testDir = join(TEST_DIR, "full-path");
   const configPath = writeTestConfig(testDir, VERSION_0_CONFIG);
 
+  // Only run config-based migrations in the full path (file-based ones operate
+  // on user override files that don't exist in a fresh install)
+  const configMigrations = getPendingMigrations(0, migrations).filter((m) =>
+    m.files.some((f) => f.endsWith("config.json"))
+  );
+
   console.log(`  Starting config: ${configPath}`);
-  console.log(`  Migrations to run: ${migrations.length}\n`);
+  console.log(`  Config migrations to run: ${configMigrations.length}\n`);
 
-  // Run all pending migrations in order (simulating boot from version 0)
-  const pending = getPendingMigrations(0, migrations);
-
-  for (const migration of pending) {
+  for (const migration of configMigrations) {
     console.log(`  Running v${migration.version}: ${migration.name}...`);
 
     const testMigration = { ...migration, files: [configPath] };
@@ -265,7 +267,7 @@ async function runFullPathTest(): Promise<boolean> {
     return false;
   }
 
-  console.log(`\n  PASS — migrated from v0 to v${pending[pending.length - 1].version}`);
+  console.log(`\n  PASS — migrated from v0 to v${configMigrations[configMigrations.length - 1].version}`);
   return true;
 }
 
@@ -276,6 +278,8 @@ async function main(): Promise<void> {
   const onlyVersion = args.includes("--only") ? Number(args[args.indexOf("--only") + 1]) : null;
   const fullOnly = args.includes("--full-only");
 
+  const startTime = Date.now();
+
   console.log("=== Migration Test Runner ===\n");
 
   setup();
@@ -283,7 +287,7 @@ async function main(): Promise<void> {
   let totalPassed = 0;
   let totalFailed = 0;
 
-  // 1. Individual migration tests
+  // 1. Individual migration tests (parallelized)
   if (!fullOnly) {
     const testsToRun = onlyVersion
       ? allTests.filter((t) => t.version === onlyVersion)
@@ -295,18 +299,32 @@ async function main(): Promise<void> {
       process.exit(1);
     }
 
-    for (const migrationTest of testsToRun) {
-      console.log(`\n--- Migration v${migrationTest.version} ---\n`);
-      if (migrationTest.cases && migrationTest.cases.length > 0) {
-        const { passed, failed } = await runIndividualTests(migrationTest);
-        totalPassed += passed;
-        totalFailed += failed;
+    const tasks = buildTestTasks(testsToRun);
+    console.log(`Running ${tasks.length} test cases (concurrency: ${CONCURRENCY})...\n`);
+
+    const results = await parallel(tasks, CONCURRENCY);
+
+    // Group results by version for display
+    const byVersion = new Map<number, TestResult[]>();
+    for (const result of results) {
+      const list = byVersion.get(result.version) ?? [];
+      list.push(result);
+      byVersion.set(result.version, list);
+    }
+
+    for (const [version, versionResults] of [...byVersion.entries()].sort((a, b) => a[0] - b[0])) {
+      console.log(`--- Migration v${version} ---\n`);
+      for (const result of versionResults) {
+        if (result.passed) {
+          console.log(`  PASS  ${result.name}`);
+          totalPassed++;
+        } else {
+          console.error(`  FAIL  ${result.name}`);
+          console.error(`        ${result.error}`);
+          totalFailed++;
+        }
       }
-      if (migrationTest.fileCases && migrationTest.fileCases.length > 0) {
-        const { passed, failed } = await runFileTests(migrationTest);
-        totalPassed += passed;
-        totalFailed += failed;
-      }
+      console.log();
     }
   }
 
@@ -319,7 +337,8 @@ async function main(): Promise<void> {
 
   cleanup();
 
-  console.log(`\n=== Results: ${totalPassed} passed, ${totalFailed} failed ===`);
+  const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+  console.log(`\n=== Results: ${totalPassed} passed, ${totalFailed} failed (${elapsed}s) ===`);
 
   if (totalFailed > 0) {
     process.exit(1);
