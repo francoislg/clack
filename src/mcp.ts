@@ -32,7 +32,7 @@ interface McpConfig {
  * One permission may enable multiple toolsets.
  */
 const PERMISSION_TO_TOOLSETS: Record<string, string[]> = {
-  pull_requests: ["pull_requests"],
+  pull_requests: ["pull_requests", "issues"],
   issues: ["issues", "labels"],
   contents: ["repos", "git"],
   actions: ["actions"],
