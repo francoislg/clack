@@ -55,29 +55,6 @@ The system SHALL run a background monitor that detects when change session PRs a
 - **AND** the session is NOT cleaned up
 - **AND** processing continues to the next session
 
-### Requirement: Slack Notification on Auto-Cleanup
-
-The system SHALL notify users when their sessions are automatically cleaned up.
-
-#### Scenario: Notify on external merge detection
-- **GIVEN** a session is detected as merged externally
-- **WHEN** cleanup completes
-- **THEN** a message is posted to the original Slack thread
-- **AND** the message indicates the PR was merged and the session cleaned up
-
-#### Scenario: Notify on external close detection
-- **GIVEN** a session is detected as closed externally
-- **WHEN** cleanup completes
-- **THEN** a message is posted to the original Slack thread
-- **AND** the message indicates the PR was closed and the session cleaned up
-
-#### Scenario: Notification failure does not block cleanup
-- **GIVEN** a session is being auto-cleaned
-- **AND** the Slack notification fails
-- **WHEN** cleanup runs
-- **THEN** the cleanup still completes
-- **AND** the notification failure is logged
-
 ### Requirement: Completion Monitor Configuration
 
 The system SHALL allow configuration of the completion monitor behavior.

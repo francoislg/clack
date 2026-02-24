@@ -1,7 +1,6 @@
 import { getConfig } from "../config.js";
 import { logger } from "../logger.js";
 import { removeWorktree } from "../worktrees.js";
-import { getSlackClient } from "../slack/app.js";
 import { getPRStatus, type PRState } from "./pr.js";
 import {
   getActiveSessions,
@@ -84,37 +83,6 @@ async function cleanupSession(
 }
 
 /**
- * Notify user in Slack thread that their session was auto-completed
- */
-async function notifySessionAutoCompleted(
-  session: ChangeSession,
-  reason: "merged" | "closed"
-): Promise<void> {
-  const client = getSlackClient();
-  if (!client) {
-    logger.warn("Cannot send notification: Slack client not available");
-    return;
-  }
-
-  const message =
-    reason === "merged"
-      ? `Your PR was merged externally. Session cleaned up automatically.`
-      : `Your PR was closed externally. Session cleaned up automatically.`;
-
-  try {
-    await client.chat.postMessage({
-      channel: session.channel,
-      thread_ts: session.threadTs,
-      text: message,
-    });
-    logger.debug(`Sent auto-completion notification for session ${session.id}`);
-  } catch (error) {
-    // Log but don't throw - notification failure shouldn't block cleanup
-    logger.warn(`Failed to send auto-completion notification: ${error}`);
-  }
-}
-
-/**
  * Run a completion check for all active sessions with PRs
  */
 export async function runCompletionCheck(): Promise<void> {
@@ -141,9 +109,6 @@ export async function runCompletionCheck(): Promise<void> {
       logger.debug(`Session ${sessionId} no longer exists, skipping cleanup`);
       continue;
     }
-
-    // Notify before cleanup
-    await notifySessionAutoCompleted(currentSession, result.action);
 
     // Clean up the session
     await cleanupSession(currentSession, result.action);
