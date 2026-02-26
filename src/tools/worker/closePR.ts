@@ -2,7 +2,7 @@ import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { WorkerToolContext } from "../types.js";
 import { getOctokit } from "../../github.js";
-import { getActiveSession, updateSessionStatus, removeSession } from "../../changes/session.js";
+import { getSession, updateActiveChangeStatus, clearActiveChange } from "../../sessions.js";
 import { appendExecutionLog } from "../../changes/persistence.js";
 import { removeWorktree, deleteBranch as deleteLocalBranch } from "../../worktrees.js";
 
@@ -15,35 +15,35 @@ export function createClosePRTool(ctx: WorkerToolContext) {
     },
     async (args) => {
       try {
+        const session = await getSession(ctx.sessionId);
+        const activeChange = session?.activeChange;
 
-        const session = getActiveSession(ctx.sessionId);
-
-        if (!session) {
+        if (!session || !activeChange) {
           return {
             content: [{
               type: "text" as const,
-              text: JSON.stringify({ error: "No active session found for this session ID." }),
+              text: JSON.stringify({ error: "No active change found for this session." }),
             }],
             isError: true,
           };
         }
 
-        if (!session.prUrl) {
+        if (!activeChange.prUrl) {
           return {
             content: [{
               type: "text" as const,
-              text: JSON.stringify({ error: "No PR URL found for this session." }),
+              text: JSON.stringify({ error: "No PR URL found for this change." }),
             }],
             isError: true,
           };
         }
 
-        const prMatch = session.prUrl.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
+        const prMatch = activeChange.prUrl.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
         if (!prMatch) {
           return {
             content: [{
               type: "text" as const,
-              text: JSON.stringify({ error: `Could not parse PR URL: ${session.prUrl}` }),
+              text: JSON.stringify({ error: `Could not parse PR URL: ${activeChange.prUrl}` }),
             }],
             isError: true,
           };
@@ -62,7 +62,7 @@ export function createClosePRTool(ctx: WorkerToolContext) {
           state: "closed",
         });
 
-        appendExecutionLog(ctx.branchName, `close_pr: closed PR ${session.prUrl}`);
+        appendExecutionLog(ctx.branchName, `close_pr: closed PR ${activeChange.prUrl}`);
 
         // Optionally delete the remote branch via GitHub API
         let branchDeleteWarning: string | undefined;
@@ -80,11 +80,11 @@ export function createClosePRTool(ctx: WorkerToolContext) {
           }
         }
 
-        // Cleanup: update session, remove worktree and local branch, remove session
-        updateSessionStatus(ctx.sessionId, "completed");
+        // Cleanup: update status, remove worktree and local branch, clear activeChange
+        updateActiveChangeStatus(ctx.sessionId, "completed");
         await removeWorktree(ctx.repoName, ctx.worktreePath);
         await deleteLocalBranch(ctx.repoName, ctx.branchName);
-        removeSession(ctx.sessionId);
+        clearActiveChange(ctx.sessionId, true);
 
         appendExecutionLog(ctx.branchName, "close_pr: cleanup complete");
 

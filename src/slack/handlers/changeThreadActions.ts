@@ -1,12 +1,11 @@
 import type { App, BlockAction } from "@slack/bolt";
 import { logger } from "../../logger.js";
-import { getSession } from "../../sessions.js";
+import { getSession, findSessionByThread, type SessionContext } from "../../sessions.js";
 import { decodeActionValue } from "../blocks.js";
 import { restoreSessionInfo } from "../state.js";
 import type { StagedIntent } from "../../tools/types.js";
 import { handleFollowUp } from "../../changes/workflow.js";
-import { getSessionByThread } from "../../changes/session.js";
-import type { ChangeSession, FollowUpCommand } from "../../changes/types.js";
+import type { FollowUpCommand } from "../../changes/types.js";
 import { safeChatUpdate } from "./safeChatUpdate.js";
 
 async function resolveStagedIntentFromSession(sessionId: string, ref: string): Promise<StagedIntent | null> {
@@ -20,12 +19,12 @@ async function resolveStagedIntentFromSession(sessionId: string, ref: string): P
 }
 
 /**
- * Shared logic for triggering a follow-up action on an existing change session.
+ * Shared logic for triggering a follow-up action on an existing change.
  * Used by both button click handlers and auto-execute.
  * Posts one ack message and updates it in-place with progress.
  */
 export async function triggerFollowUp(
-  changeSession: ChangeSession,
+  session: SessionContext,
   command: FollowUpCommand,
   additionalInstructions: string | undefined,
   channelId: string,
@@ -40,7 +39,7 @@ export async function triggerFollowUp(
   });
 
   const result = await handleFollowUp(
-    changeSession,
+    session,
     command,
     additionalInstructions,
   );
@@ -100,14 +99,14 @@ function registerFollowUpActionHandler(
       return;
     }
 
-    // Find the active change session for this thread
-    const changeSession = getSessionByThread(sessionInfo.channelId, sessionInfo.threadTs);
-    if (!changeSession) {
+    // Find the unified session for this thread
+    const session = await findSessionByThread(sessionInfo.channelId, sessionInfo.threadTs);
+    if (!session?.activeChange) {
       await client.chat.postEphemeral({
         channel: sessionInfo.channelId,
         user: userId,
         thread_ts: sessionInfo.threadTs,
-        text: "No active change session found in this thread.",
+        text: "No active change found in this thread.",
       });
       return;
     }
@@ -117,7 +116,7 @@ function registerFollowUpActionHandler(
       ? (intent as { instructions: string }).instructions
       : undefined;
 
-    await triggerFollowUp(changeSession, command, additionalInstructions, sessionInfo.channelId, sessionInfo.threadTs, client);
+    await triggerFollowUp(session, command, additionalInstructions, sessionInfo.channelId, sessionInfo.threadTs, client);
   });
 }
 

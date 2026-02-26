@@ -284,11 +284,11 @@ export function getResumableSessions(): ResumableSession[] {
  * - Active sessions (in-progress) are never cleaned up
  * - Orphaned folders (no state.json, no active session) are cleaned up after retention period
  *
- * Note: activeSessions is passed as a parameter to avoid circular dependency
+ * Note: activeBranches is passed as a parameter to avoid circular dependency
  */
 export function cleanupStaleSessionFolders(
   retentionHours: number = 24,
-  activeSessions?: Map<string, { plan: { branchName: string }; status: ChangeStatus }>
+  activeBranches?: Set<string>
 ): void {
   const sessionsDir = getWorktreeSessionsDir();
 
@@ -325,15 +325,13 @@ export function cleanupStaleSessionFolders(
           })()
         : null;
 
-      // Check if there's an active in-memory session for this branch
-      if (activeSessions) {
+      // Check if there's an active in-memory change for this branch
+      if (activeBranches) {
         const possibleBranch = folder.replace(/-/g, "/");
-        const hasActiveSession = Array.from(activeSessions.values()).some(
-          (s) => s.plan.branchName === possibleBranch || s.plan.branchName.replace(/\//g, "-") === folder
-        );
+        const hasActiveBranch = activeBranches.has(possibleBranch) || activeBranches.has(folder);
 
-        if (hasActiveSession) {
-          logger.debug(`Skipping cleanup of session folder with active session: ${folder}`);
+        if (hasActiveBranch) {
+          logger.debug(`Skipping cleanup of session folder with active branch: ${folder}`);
           continue;
         }
       }

@@ -10,14 +10,14 @@ export function createRequestUpdateTool(
 ) {
   return tool(
     "request_update",
-    "Request additional changes to the current change session's worktree. Provide instructions for what to change.",
+    "Request additional changes to the current active change's worktree. Provide instructions for what to change.",
     {
       instructions: z.string().describe("Instructions for what additional changes to make"),
     },
     async (args) => {
-      const session = ctx.changeSession;
-      if (!session) {
-        const errorResult = { error: "No active change session in this thread." };
+      const activeChange = ctx.session.activeChange;
+      if (!activeChange) {
+        const errorResult = { error: "No active change in this thread." };
         recorder.record("request_update", args as Record<string, unknown>, errorResult);
         return {
           content: [{ type: "text" as const, text: JSON.stringify(errorResult) }],
@@ -25,8 +25,8 @@ export function createRequestUpdateTool(
         };
       }
 
-      if (!session.worktree) {
-        const errorResult = { error: "No worktree exists for this change session." };
+      if (!activeChange.worktree) {
+        const errorResult = { error: "No worktree exists for this change." };
         recorder.record("request_update", args as Record<string, unknown>, errorResult);
         return {
           content: [{ type: "text" as const, text: JSON.stringify(errorResult) }],
@@ -36,11 +36,11 @@ export function createRequestUpdateTool(
 
       const ref = intentStore.stage({
         type: "update",
-        sessionId: session.id,
+        sessionId: ctx.session.sessionId,
         instructions: args.instructions,
       });
 
-      const result = { ref, sessionId: session.id, instructions: args.instructions };
+      const result = { ref, sessionId: ctx.session.sessionId, instructions: args.instructions };
       recorder.record("request_update", args as Record<string, unknown>, result);
 
       return {

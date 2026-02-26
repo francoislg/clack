@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
-import { getActiveWorkers } from "../../changes/session.js";
+import { getActiveWorkers } from "../../sessions.js";
 import { getVisibleRepos } from "../../repoAccess.js";
 
 export function createFindChangesTool(ctx: QueryToolContext) {

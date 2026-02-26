@@ -4,13 +4,13 @@
  */
 import type { App } from "@slack/bolt";
 import type { ClaudeResponse } from "../../claude.js";
-import type { ChangeSession } from "../../changes/types.js";
 import type { StagedChangeIntent, StagedConfigUpdateIntent, StagedIntent, Action } from "../../tools/types.js";
 import type { UserRole } from "../../roles.js";
 import { canRequestChanges } from "../../permissions.js";
 import { triggerChangeWorkflow } from "./changeAction.js";
 import { triggerFollowUp } from "./changeThreadActions.js";
 import { writeInstructionFile } from "../../configurationFiles.js";
+import { findSessionByThread } from "../../sessions.js";
 import { logger } from "../../logger.js";
 
 export interface AutoExecuteParams {
@@ -19,7 +19,8 @@ export interface AutoExecuteParams {
   threadTs: string;
   userId: string;
   response: ClaudeResponse;
-  changeSession: ChangeSession | undefined;
+  /** Unified session ID for looking up active change state */
+  sessionId: string;
   role: UserRole;
 }
 
@@ -29,7 +30,7 @@ export interface AutoExecuteParams {
  * to the thread without affecting the already-posted response.
  */
 export async function handleAutoExecuteActions(params: AutoExecuteParams): Promise<void> {
-  const { client, channelId, threadTs, userId, response, changeSession, role } = params;
+  const { client, channelId, threadTs, userId, response, sessionId, role } = params;
 
   if (!response.response?.actions || !response.stagedIntents) return;
 
@@ -87,25 +88,29 @@ export async function handleAutoExecuteActions(params: AutoExecuteParams): Promi
             text: `Auto-execute failed: ${err instanceof Error ? err.message : String(err)}`,
           }).catch(() => {});
         });
-      } else if (
-        (action.type === "update" || action.type === "review" || action.type === "merge" || action.type === "close") &&
-        changeSession
-      ) {
-        const additionalInstructions = action.type === "update" && "instructions" in intent
+      } else if (action.type === "update") {
+        // Look up the unified session to find active change
+        const session = await findSessionByThread(channelId, threadTs);
+        if (!session?.activeChange) {
+          logger.warn(`Auto-execute update: no active change found in thread`);
+          continue;
+        }
+
+        const additionalInstructions = "instructions" in intent
           ? (intent as { instructions: string }).instructions
           : undefined;
 
-        logger.info(`Auto-executing ${action.type} follow-up action`);
+        logger.info(`Auto-executing update follow-up action`);
         // Fire and forget — triggerFollowUp manages its own progress messages
         triggerFollowUp(
-          changeSession,
-          action.type,
+          session,
+          "update",
           additionalInstructions,
           channelId,
           threadTs,
           client
         ).catch((err) => {
-          logger.error(`Auto-execute ${action.type} follow-up error:`, err);
+          logger.error(`Auto-execute update follow-up error:`, err);
           client.chat.postMessage({
             channel: channelId,
             thread_ts: threadTs,
@@ -113,7 +118,7 @@ export async function handleAutoExecuteActions(params: AutoExecuteParams): Promi
           }).catch(() => {});
         });
       } else {
-        logger.warn(`Auto-execute: unsupported action type ${action.type} or missing change session`);
+        logger.warn(`Auto-execute: unsupported action type ${action.type}`);
       }
     } catch (error) {
       logger.error(`Auto-execute error for action type ${action.type}:`, error);

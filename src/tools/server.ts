@@ -27,10 +27,7 @@ import { createUsersCache } from "../slack/usersCache.js";
 // Action tools
 import { createProposeChangeTool } from "./actions/proposeChange.js";
 import { createProposeConfigUpdateTool } from "./actions/proposeConfigUpdate.js";
-import { createRequestReviewTool } from "./actions/requestReview.js";
-import { createRequestMergeTool } from "./actions/requestMerge.js";
 import { createRequestUpdateTool } from "./actions/requestUpdate.js";
-import { createRequestCloseTool } from "./actions/requestClose.js";
 
 // Presentation tool
 import { createSubmitResponseTool } from "./presentation/submitResponse.js";
@@ -162,16 +159,10 @@ function buildQueryTools(ctx: QueryToolContext): ClackToolsResult {
     tools.push(createReadConfigFileTool(ctx));
   }
 
-  // --- Action tools ---
+  // --- Action tools (role-only gating, no session state checks) ---
   if (canRequestChanges(ctx.role) && ctx.changesWorkflowEnabled) {
     tools.push(createProposeChangeTool(ctx, intentStore, recorder));
-  }
-
-  if (ctx.changeSession && canRequestChanges(ctx.role)) {
-    tools.push(createRequestReviewTool(ctx, intentStore, recorder));
-    tools.push(createRequestMergeTool(ctx, intentStore, recorder));
     tools.push(createRequestUpdateTool(ctx, intentStore, recorder));
-    tools.push(createRequestCloseTool(ctx, intentStore, recorder));
   }
 
   if (ctx.role === "admin" || ctx.role === "owner") {
