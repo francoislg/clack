@@ -58,31 +58,10 @@ const configUpdateActionSchema = z.object({
   auto: z.boolean().optional().describe("If true, execute immediately without waiting for button click"),
 });
 
-const reviewActionSchema = z.object({
-  type: z.literal("review"),
-  ref: z.string().describe("Ref ID from request_review"),
-  label: z.string().optional().describe("Custom button label (default: 'Review')"),
-  auto: z.boolean().optional().describe("If true, execute immediately without waiting for button click"),
-});
-
-const mergeActionSchema = z.object({
-  type: z.literal("merge"),
-  ref: z.string().describe("Ref ID from request_merge"),
-  label: z.string().optional().describe("Custom button label (default: 'Merge')"),
-  auto: z.boolean().optional().describe("If true, execute immediately without waiting for button click"),
-});
-
 const updateActionSchema = z.object({
   type: z.literal("update"),
   ref: z.string().describe("Ref ID from request_update"),
   label: z.string().optional().describe("Custom button label (default: 'Update')"),
-  auto: z.boolean().optional().describe("If true, execute immediately without waiting for button click"),
-});
-
-const closeActionSchema = z.object({
-  type: z.literal("close"),
-  ref: z.string().describe("Ref ID from request_close"),
-  label: z.string().optional().describe("Custom button label (default: 'Close PR')"),
   auto: z.boolean().optional().describe("If true, execute immediately without waiting for button click"),
 });
 
@@ -96,10 +75,7 @@ const actionSchema = z.discriminatedUnion("type", [
   sendToThreadActionSchema,
   changeActionSchema,
   configUpdateActionSchema,
-  reviewActionSchema,
-  mergeActionSchema,
   updateActionSchema,
-  closeActionSchema,
 ]);
 
 const sectionSchema = z.object({
@@ -108,7 +84,7 @@ const sectionSchema = z.object({
 });
 
 // Ref-based action types that need validation
-const REF_ACTION_TYPES = new Set(["change", "config_update", "review", "merge", "update", "close"]);
+const REF_ACTION_TYPES = new Set(["change", "config_update", "update"]);
 
 export function createSubmitResponseTool(
   intentStore: IntentStore,

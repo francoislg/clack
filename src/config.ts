@@ -144,8 +144,8 @@ const DEFAULTS: Partial<Config> = {
     cloneDepth: 1,
   },
   sessions: {
-    timeoutMinutes: 1440, // 24 hours
-    cleanupIntervalMinutes: 5,
+    timeoutMinutes: 1440, // 24 hours (legacy, age-based eviction uses MAX_AGE_DAYS)
+    cleanupIntervalMinutes: 60,
   },
   claudeCode: {
     model: "sonnet",

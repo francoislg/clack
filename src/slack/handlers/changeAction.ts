@@ -1,6 +1,6 @@
 import type { App, BlockAction } from "@slack/bolt";
 import { logger } from "../../logger.js";
-import { getSession } from "../../sessions.js";
+import { getSession, findSessionByThread } from "../../sessions.js";
 import { decodeActionValue } from "../blocks.js";
 import { restoreSessionInfo } from "../state.js";
 import type { StagedChangeIntent } from "../../tools/types.js";
@@ -37,6 +37,17 @@ export async function triggerChangeWorkflow(
   userId: string,
   client: App["client"]
 ): Promise<void> {
+  // Find the unified session for this thread
+  const session = await findSessionByThread(channelId, threadTs);
+  if (!session) {
+    await client.chat.postMessage({
+      channel: channelId,
+      thread_ts: threadTs,
+      text: "Could not find an active session for this thread.",
+    });
+    return;
+  }
+
   // Post acknowledgment
   const ackMessage = await client.chat.postMessage({
     channel: channelId,
@@ -62,7 +73,7 @@ export async function triggerChangeWorkflow(
   const result = await startChangeWorkflow(
     request,
     plan,
-    threadTs,
+    session.sessionId,
   );
 
   if (result.success) {

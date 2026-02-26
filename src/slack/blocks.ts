@@ -68,10 +68,7 @@ function encodeActionValue(sessionId: string, action: Action): string {
       return JSON.stringify({ s: sessionId, p: action.prompt });
     case "change":
     case "config_update":
-    case "review":
-    case "merge":
     case "update":
-    case "close":
       return JSON.stringify({ s: sessionId, r: action.ref });
   }
 }

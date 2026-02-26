@@ -8,7 +8,7 @@ import {
   type UserRole,
 } from "../roles.js";
 import { canEditConfig, canManageRoles, canRequestChanges } from "../permissions.js";
-import { getActiveWorkers } from "../changes/session.js";
+import { getActiveWorkers } from "../sessions.js";
 import { listInstructionFiles } from "../configurationFiles.js";
 import { getUserPreference } from "../userPreferences.js";
 import { getVisibleRepos, canWriteRepo } from "../repoAccess.js";

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { WorkerToolContext } from "../types.js";
 import { getOctokit, parseRepoUrl } from "../../github.js";
-import { updateSessionPrUrl, updateSessionStatus } from "../../changes/session.js";
+import { updateActiveChangePrUrl, updateActiveChangeStatus } from "../../sessions.js";
 import { appendExecutionLog } from "../../changes/persistence.js";
 import { findRepoByName } from "../../changes/detection.js";
 
@@ -43,8 +43,8 @@ export function createEnsurePRTool(ctx: WorkerToolContext) {
         });
 
         if (existingPRs.length > 0) {
-          updateSessionPrUrl(ctx.sessionId, existingPRs[0].html_url);
-          updateSessionStatus(ctx.sessionId, "pr_created");
+          updateActiveChangePrUrl(ctx.sessionId, existingPRs[0].html_url);
+          updateActiveChangeStatus(ctx.sessionId, "pr_created");
 
           return {
             content: [{
@@ -69,8 +69,8 @@ export function createEnsurePRTool(ctx: WorkerToolContext) {
           base: defaultBranch,
         });
 
-        updateSessionPrUrl(ctx.sessionId, pr.data.html_url);
-        updateSessionStatus(ctx.sessionId, "pr_created");
+        updateActiveChangePrUrl(ctx.sessionId, pr.data.html_url);
+        updateActiveChangeStatus(ctx.sessionId, "pr_created");
         appendExecutionLog(ctx.branchName, `ensure_pr: created PR ${pr.data.html_url}`);
 
         return {

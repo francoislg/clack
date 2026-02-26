@@ -11,7 +11,6 @@ import {
   getHandlerClaudeOptions,
 } from "./handlerResponse.js";
 import { canRequestChanges } from "../../permissions.js";
-import { getSessionByThread } from "../../changes/session.js";
 import { handleAutoExecuteActions } from "./autoExecute.js";
 
 export function registerChoiceHandler(app: App): void {
@@ -54,14 +53,13 @@ export function registerChoiceHandler(app: App): void {
       await postSuccessResponseWithRetry(client, sessionInfo, session.sessionId, response);
 
       // Auto-execute any actions Claude flagged with auto: true
-      const changeSession = getSessionByThread(sessionInfo.channelId, sessionInfo.threadTs);
       await handleAutoExecuteActions({
         client,
         channelId: sessionInfo.channelId,
         threadTs: sessionInfo.threadTs,
         userId: sessionInfo.userId,
         response,
-        changeSession,
+        sessionId: session.sessionId,
         role: claudeOptions.role ?? "member",
       });
     } else {

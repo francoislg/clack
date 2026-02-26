@@ -2,7 +2,7 @@ import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { WorkerToolContext } from "../types.js";
 import { getOctokit } from "../../github.js";
-import { getActiveSession, updateSessionStatus, removeSession } from "../../changes/session.js";
+import { getSession, updateActiveChangeStatus, clearActiveChange } from "../../sessions.js";
 import { appendExecutionLog } from "../../changes/persistence.js";
 import { removeWorktree, deleteBranch } from "../../worktrees.js";
 import { findRepoByName } from "../../changes/detection.js";
@@ -16,36 +16,37 @@ export function createMergePRTool(ctx: WorkerToolContext) {
     },
     async () => {
       try {
+        // Get session and active change
+        const session = await getSession(ctx.sessionId);
+        const activeChange = session?.activeChange;
 
-        // Get session
-        const session = getActiveSession(ctx.sessionId);
-        if (!session) {
+        if (!session || !activeChange) {
           return {
             content: [{
               type: "text" as const,
-              text: JSON.stringify({ success: false, error: "No active session found", details: `Session ${ctx.sessionId} not found` }),
+              text: JSON.stringify({ success: false, error: "No active change found", details: `Session ${ctx.sessionId} has no active change` }),
             }],
             isError: true,
           };
         }
 
-        if (!session.prUrl) {
+        if (!activeChange.prUrl) {
           return {
             content: [{
               type: "text" as const,
-              text: JSON.stringify({ success: false, error: "No PR URL found", details: "This session has no associated pull request" }),
+              text: JSON.stringify({ success: false, error: "No PR URL found", details: "This change has no associated pull request" }),
             }],
             isError: true,
           };
         }
 
         // Parse PR URL
-        const prMatch = session.prUrl.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
+        const prMatch = activeChange.prUrl.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
         if (!prMatch) {
           return {
             content: [{
               type: "text" as const,
-              text: JSON.stringify({ success: false, error: "Invalid PR URL", details: `Could not parse PR URL: ${session.prUrl}` }),
+              text: JSON.stringify({ success: false, error: "Invalid PR URL", details: `Could not parse PR URL: ${activeChange.prUrl}` }),
             }],
             isError: true,
           };
@@ -67,7 +68,7 @@ export function createMergePRTool(ctx: WorkerToolContext) {
           merge_method: mergeStrategy,
         });
 
-        appendExecutionLog(ctx.branchName, `PR merged via ${mergeStrategy}: ${session.prUrl}`);
+        appendExecutionLog(ctx.branchName, `PR merged via ${mergeStrategy}: ${activeChange.prUrl}`);
 
         // Try to delete the remote branch
         let warning: string | undefined;
@@ -85,10 +86,10 @@ export function createMergePRTool(ctx: WorkerToolContext) {
         }
 
         // Cleanup local resources
-        updateSessionStatus(ctx.sessionId, "completed");
+        updateActiveChangeStatus(ctx.sessionId, "completed");
         await removeWorktree(ctx.repoName, ctx.worktreePath);
         await deleteBranch(ctx.repoName, ctx.branchName);
-        removeSession(ctx.sessionId);
+        clearActiveChange(ctx.sessionId, true);
 
         const result: Record<string, unknown> = {
           success: true,

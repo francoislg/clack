@@ -2,8 +2,8 @@ import { getConfig, type RepositoryConfig } from "../config.js";
 import { logger } from "../logger.js";
 import { getExistingWorktree } from "../worktrees.js";
 import { getAllPersistedSessions, writeSessionState } from "./persistence.js";
-import { restoreSession } from "./session.js";
-import type { ChangeSession, ChangeStatus, PersistedSessionState } from "./types.js";
+import type { ChangeStatus, PersistedSessionState, ChangeSession } from "./types.js";
+import { findSessionByThread, setActiveChange, type ActiveChangeState } from "../sessions.js";
 
 /**
  * Statuses that indicate a session was mid-execution when the process died.
@@ -12,16 +12,17 @@ import type { ChangeSession, ChangeStatus, PersistedSessionState } from "./types
 const MID_EXECUTION_STATUSES: ChangeStatus[] = ["executing", "planning", "reviewing", "merging"];
 
 /**
- * Restore persisted worker sessions into memory on startup.
+ * Restore persisted worker sessions into the unified session model on startup.
  *
- * - `pr_created`: Restore as-is (has an open PR, user needs follow-up buttons)
+ * - `pr_created`: Restore activeChange into the matching unified session
  * - Mid-execution with PR: Restore as `pr_created` (agent dead but PR trackable)
  * - Mid-execution without PR: Mark failed on disk, skip (no PR to track)
  * - `completed`/`failed`: Skip (terminal states)
  * - Missing `channel`/`threadTs`: Skip (legacy data)
  * - Worktree gone or repo removed: Skip
+ * - No matching unified session: Skip (session was cleaned up)
  */
-export function restoreWorkerSessions(): void {
+export async function restoreWorkerSessions(): Promise<void> {
   const states = getAllPersistedSessions();
 
   if (states.length === 0) {
@@ -83,36 +84,54 @@ export function restoreWorkerSessions(): void {
       }
     }
 
-    // Reconstruct the ChangeSession
-    const session: ChangeSession = {
-      id: state.sessionId,
-      userId: state.userId,
-      request: {
-        userId: state.userId,
-        message: state.description,
-        triggerType: "reactions",
-        channel: state.channel,
-        messageTs: state.threadTs,
-      },
-      plan: {
-        branchName: state.branch,
-        description: state.description,
-        targetRepo: state.repo,
-      },
+    // Find the matching unified session by thread
+    const unifiedSession = await findSessionByThread(state.channel, state.threadTs);
+    if (!unifiedSession) {
+      logger.debug(`Skipping session ${state.sessionId}: no matching unified session for ${state.channel}:${state.threadTs}`);
+      skipped++;
+      continue;
+    }
+
+    // Attach activeChange to the unified session
+    const activeChange: ActiveChangeState = {
+      branch: state.branch,
+      repo: state.repo,
+      description: state.description,
       worktree,
-      prUrl: state.prUrl ?? undefined,
       status: effectiveStatus,
-      createdAt: new Date(state.startedAt),
+      prUrl: state.prUrl ?? undefined,
+      startedAt: new Date(state.startedAt),
       lastActivityAt: new Date(state.lastActivityAt),
-      channel: state.channel,
-      threadTs: state.threadTs,
     };
 
-    restoreSession(session);
+    setActiveChange(unifiedSession.sessionId, activeChange);
 
     // If we downgraded, persist the new status
     if (effectiveStatus !== state.status) {
-      writeSessionState(session, `Restored on startup (was ${state.status}, downgraded to ${effectiveStatus})`);
+      const minimalSession: ChangeSession = {
+        id: unifiedSession.sessionId,
+        userId: unifiedSession.userId,
+        request: {
+          userId: unifiedSession.userId,
+          message: state.description,
+          triggerType: "reactions",
+          channel: state.channel,
+          messageTs: state.threadTs,
+        },
+        plan: {
+          branchName: state.branch,
+          description: state.description,
+          targetRepo: state.repo,
+        },
+        worktree,
+        prUrl: state.prUrl ?? undefined,
+        status: effectiveStatus,
+        createdAt: new Date(state.startedAt),
+        lastActivityAt: new Date(state.lastActivityAt),
+        channel: state.channel,
+        threadTs: state.threadTs,
+      };
+      writeSessionState(minimalSession, `Restored on startup (was ${state.status}, downgraded to ${effectiveStatus})`);
     }
 
     restored++;

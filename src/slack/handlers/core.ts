@@ -30,7 +30,6 @@ import {
   sendDirectMessage,
 } from "../messagesApi.js";
 import { transformUserMentions } from "../userCache.js";
-import { getSessionByThread } from "../../changes/session.js";
 import { getClaudeOptions } from "./changeWorkflowHelper.js";
 import { handleAutoExecuteActions } from "./autoExecute.js";
 import { getEffectiveResponseType } from "../../userPreferences.js";
@@ -347,7 +346,10 @@ async function handleErrorResponse(
 
   await addError(session.sessionId, errorMessage, conversationTrace);
 
-  const errorText = `Claude seems to have crashed (session: ${session.sessionId}), maybe try again?`;
+  const isPlatformLimit = /usage limit|limit reached/i.test(errorMessage);
+  const errorText = isPlatformLimit
+    ? errorMessage
+    : `Claude seems to have crashed (session: ${session.sessionId}), maybe try again?`;
 
   if (isEphemeral) {
     await client.chat.postEphemeral({
@@ -415,7 +417,6 @@ async function retryWithBlockError(
   ctx: ProcessingContext,
   session: SessionContext,
   claudeOptions: AskClaudeOptions,
-  changeSession: import("../../changes/types.js").ChangeSession | undefined,
   postError: unknown
 ): Promise<ClaudeResponse | null> {
   const slackError = (postError as WebAPIPlatformError).data?.error ?? "unknown";
@@ -436,7 +437,6 @@ async function retryWithBlockError(
   logger.info(`Retrying Claude for block validation (session: ${session.sessionId})...`);
   const retryResponse = await askClaude(updatedSession, {
     ...claudeOptions,
-    changeSession: changeSession || undefined,
     slackClient: ctx.client,
   });
 
@@ -520,10 +520,7 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
 
   logger.debug(`Processing message from ${userId} in ${channelId} (trigger: ${triggerType}, dmFirst: ${isDmFirst})`);
 
-  // 1. Check for active change session in thread (for tool context)
-  const changeSession = threadTs ? getSessionByThread(channelId, threadTs) : undefined;
-
-  // 2. Set up or retrieve session
+  // 1. Set up or retrieve session
   const session = await setupSession(ctx);
 
   // 3. For DM-first: post investigation notice in DM (replaces thinking feedback)
@@ -569,7 +566,6 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
   );
   const response = await askClaude(session, {
     ...claudeOptions,
-    changeSession: changeSession || undefined,
     workMode: ctx.workMode,
     isEphemeral: ctx.isEphemeral,
     triggerType: ctx.triggerType,
@@ -590,7 +586,7 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
       if (isSlackBlockError(postError)) {
         const errorCode = (postError as WebAPIPlatformError).data?.error;
         logger.warn(`${errorCode} error posting response for session ${session.sessionId}, retrying via Claude...`);
-        const retryResponse = await retryWithBlockError(ctx, session, claudeOptions, changeSession, postError);
+        const retryResponse = await retryWithBlockError(ctx, session, claudeOptions, postError);
         if (retryResponse) {
           try {
             await postSuccessResponse(ctx, session, retryResponse, thinking.messageTs);
@@ -617,7 +613,7 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
       threadTs: ctx.effectiveThreadTs,
       userId,
       response: postedResponse,
-      changeSession,
+      sessionId: session.sessionId,
       role: claudeOptions.role ?? "member",
     });
   }

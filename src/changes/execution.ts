@@ -8,6 +8,7 @@ import type { WorktreeInfo } from "../worktrees.js";
 import type { ChangePlan, ChangeRequest, ExecutionResult } from "./types.js";
 import { appendExecutionLog } from "./persistence.js";
 import { findRepoByName } from "./detection.js";
+import { detectPlatformError } from "../claude.js";
 import { buildWorkerContext } from "../tools/context.js";
 import { buildClackTools } from "../tools/server.js";
 
@@ -176,6 +177,21 @@ export async function runClaude(options: {
 
   clearTimeout(timeoutId);
   clearInterval(heartbeatInterval);
+
+  // Check for platform errors masquerading as successful responses
+  const platformError = detectPlatformError(finalText) ?? detectPlatformError(lastAssistantText);
+  if (platformError) {
+    logger.warn(`Platform error detected in worker: ${platformError}`);
+    if (options.branchName) {
+      appendExecutionLog(options.branchName, `Platform error: ${platformError}`);
+    }
+    return {
+      success: false,
+      text: finalText.trim(),
+      error: platformError,
+      lastMessage: lastProgressMessage,
+    };
+  }
 
   if (options.branchName) {
     appendExecutionLog(options.branchName, `Query completed (success: ${resultSuccess}, text: ${finalText.trim().length} chars)`);

@@ -6,10 +6,21 @@ import { loadMcpServers, getConfiguredMcpServerNames } from "./mcp.js";
 import type { UserRole } from "./roles.js";
 import type { SessionContext } from "./sessions.js";
 import { formatUserIdentity } from "./slack/userCache.js";
-import type { ChangeSession } from "./changes/types.js";
 import type { SubmitResponsePayload, ToolCallRecord, StagedIntent } from "./tools/types.js";
 import { buildQueryContext } from "./tools/context.js";
 import { buildClackTools } from "./tools/server.js";
+
+/**
+ * Detect known Claude platform error messages that arrive as "successful" text
+ * (e.g. rate limits, quota exhaustion). These bypass the SDK's error handling
+ * and look like normal assistant output.
+ */
+export function detectPlatformError(text: string): string | null {
+  if (/you've\s+hit\s+your\s+limit/i.test(text) && /resets?\s+\d{1,2}/i.test(text)) {
+    return "Claude usage limit reached. The limit resets automatically — please try again later.";
+  }
+  return null;
+}
 
 export interface ConversationMessage {
   type: string;
@@ -44,8 +55,6 @@ export interface ClaudeResponse {
 export interface AskClaudeOptions {
   role?: UserRole;
   changesWorkflowEnabled?: boolean;
-  /** Active change session in the current thread (for follow-up tools) */
-  changeSession?: ChangeSession;
   /** When true, hints Claude to propose a change with auto-execute */
   workMode?: boolean;
   /** Whether the response will be delivered as an ephemeral message */
@@ -144,30 +153,33 @@ Use this context to understand the conversation flow and provide relevant answer
     parts.push(deliveryContext);
   }
 
-  // Active change session hint — tell Claude about existing work in this thread
-  if (options?.changeSession) {
-    const cs = options.changeSession;
+  // Active change context — derived from the unified session's runtime state
+  if (session.activeChange) {
+    const ac = session.activeChange;
     const lines = [
-      "ACTIVE CHANGE SESSION: There is an active code change in this thread.",
-      `- Branch: ${cs.plan.branchName}`,
-      `- Repository: ${cs.plan.targetRepo}`,
-      `- Status: ${cs.status}`,
+      "ACTIVE CHANGE: There is an active code change in this thread.",
+      `- Branch: ${ac.branch}`,
+      `- Repository: ${ac.repo}`,
+      `- Status: ${ac.status}`,
     ];
-    if (cs.prUrl) {
-      lines.push(`- PR: ${cs.prUrl}`);
+    if (ac.prUrl) {
+      lines.push(`- PR: ${ac.prUrl}`);
     }
     lines.push(
       "",
-      "To add more changes to this session, use `request_update` (not `propose_change`).",
+      "To add more changes to this active worktree, use `request_update` (not `propose_change`).",
       "Only use `propose_change` if the user explicitly wants a separate, unrelated change on a different branch.",
     );
     parts.push(lines.join("\n"));
   }
 
-  // Work mode hint — user explicitly requested a code change
+  // GitHub MCP hint — Claude can use it for PR operations on any PR
+  parts.push("GITHUB ACCESS: You have access to GitHub via MCP. You can merge, close, comment on, or review any PR — not just ones from active changes. Use GitHub MCP tools when the user asks about PR operations.");
+
+  // Work mode hint — advisory only, does NOT change available tools
   if (options?.workMode) {
-    if (options?.changeSession) {
-      parts.push(`WORK MODE: The user explicitly requested this as a work task. Since there is an active change session in this thread, use request_update with auto: true on the update action in submit_response. If you cannot determine what change to make, ask for clarification via submit_response.`);
+    if (session.activeChange) {
+      parts.push(`WORK MODE: The user explicitly requested this as a work task. Since there is an active change in this thread, use request_update with auto: true on the update action in submit_response. If you cannot determine what change to make, ask for clarification via submit_response.`);
     } else {
       parts.push(`WORK MODE: The user explicitly requested this as a work task (not a question). Propose a code change using propose_change and set auto: true on the change action in submit_response. If you cannot determine what change to make, ask for clarification via submit_response.`);
     }
@@ -176,12 +188,7 @@ Use this context to understand the conversation flow and provide relevant answer
   // Original question
   parts.push(`QUESTION: ${session.originalQuestion}`);
 
-  // Previous answer if refining
-  if (session.lastAnswer && session.refinements.length > 0) {
-    parts.push(`\nPREVIOUS ANSWER:\n${session.lastAnswer}`);
-  }
-
-  // Refinements
+  // Refinements (from button handlers within the current process lifetime)
   if (session.refinements.length > 0) {
     parts.push(`\nADDITIONAL INSTRUCTIONS FROM USER:\n${session.refinements.join("\n")}`);
   }
@@ -240,7 +247,6 @@ export async function askClaude(
     session,
     config,
     changesWorkflowEnabled: options?.changesWorkflowEnabled ?? false,
-    changeSession: options?.changeSession,
     slackClient: options?.slackClient,
   });
   const clackTools = buildClackTools(toolCtx);
@@ -268,7 +274,7 @@ export async function askClaude(
         systemPrompt,
         model: config.claudeCode.model,
         permissionMode: "bypassPermissions",
-        disallowedTools: ["Write", "Edit", "NotebookEdit", "Bash", "Task"],
+        tools: ["Read", "Glob", "Grep"],
         mcpServers: mcpServers as Record<string, import("@anthropic-ai/claude-agent-sdk").McpServerConfig>,
       },
     })) {
@@ -325,6 +331,18 @@ export async function askClaude(
           };
         }
       }
+    }
+
+    // Check for platform errors masquerading as successful responses
+    const platformError = detectPlatformError(answer) ?? detectPlatformError(lastAssistantText);
+    if (platformError) {
+      logger.warn(`Platform error detected: ${platformError}`);
+      return {
+        success: false,
+        answer: "",
+        error: platformError,
+        conversationTrace,
+      };
     }
 
     // Capture tool server results

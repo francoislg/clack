@@ -30,33 +30,41 @@ The system SHALL provide an in-process MCP tool server using the Agent SDK's `cr
 
 ### Requirement: Tool Context
 
-The system SHALL define a typed context object passed to the per-query tool builder.
+The system SHALL provide active change information as prompt context, not as tool gating criteria.
 
 #### Scenario: Context includes user identity and role
+
 - **WHEN** the tool builder is called in query mode
 - **THEN** the context includes the user's Slack ID and resolved role (member, dev, admin, owner)
 
-#### Scenario: Context includes session state
+#### Scenario: Active change as prompt context
+
 - **WHEN** the tool builder is called in query mode
-- **THEN** the context includes the current session (Q&A session or change thread session)
-- **AND** includes whether the current thread has an active change session with a PR
+- **AND** the thread's session has `activeChange` populated
+- **THEN** the active change details (branch, repo, status, PR URL) are included in the prompt sent to Claude
+- **AND** these details do NOT affect which tools are registered
+
+#### Scenario: No active change
+
+- **WHEN** the tool builder is called in query mode
+- **AND** the thread's session has no `activeChange`
+- **THEN** no active change context is included in the prompt
+- **AND** the same tools are available as when an active change exists (for the same role)
 
 #### Scenario: Context includes filtered repositories
+
 - **WHEN** the tool builder is called in query mode
 - **THEN** the context includes only repositories the user has read access to
 - **AND** tools operate on this filtered list, not the full config
 
 #### Scenario: Context includes optional Slack client
+
 - **WHEN** the tool builder is called in query mode from a real Slack interaction
 - **THEN** the context includes a Slack `WebClient` instance
 - **AND** tools that require Slack API access (such as `find_user`) use this client
 
-#### Scenario: Context without Slack client
-- **WHEN** the tool builder is called in query mode without a Slack client (e.g., setup verification)
-- **THEN** tools requiring the Slack client are not registered
-- **AND** all other tools function normally
-
 #### Scenario: Worker context includes worktree and session info
+
 - **WHEN** the tool builder is called in worker mode
 - **THEN** the context includes mode `"worker"`, the worktree path, branch name, repo name, and repo URL
 - **AND** includes the Slack channel ID and thread timestamp (for `report_status`)
@@ -65,40 +73,26 @@ The system SHALL define a typed context object passed to the per-query tool buil
 
 ### Requirement: Role-Based Tool Gating
 
-The system SHALL register tools based on the user's role, current context, and invocation mode.
+The system SHALL register tools based solely on the user's role and workflow configuration. Active change state is prompt context, not a tool gating mechanism.
 
 #### Scenario: Member user tool set
 
 - **WHEN** the user has the member role in query mode
 - **THEN** the tool server registers query tools (`list_repositories`, `git_log`, `deepen_history`) and `submit_response`
 - **AND** registers `find_user` if a Slack client is available in the context
-- **AND** does NOT register action tools (`propose_change`, `propose_config_update`)
-- **AND** does NOT register follow-up tools (`request_review`, `request_merge`, `request_update`, `request_close`)
+- **AND** does NOT register change action tools (`propose_change`, `propose_config_update`)
 
 #### Scenario: Dev user tool set
 
 - **GIVEN** the changes workflow is enabled for the trigger type
 - **WHEN** the user has the dev role (or higher) in query mode
 - **THEN** the tool server registers all query tools, `propose_change`, and `submit_response`
+- **AND** registers these tools regardless of whether the thread has an active change
 
 #### Scenario: Dev user query tools include find_pull_requests
 
 - **WHEN** the user has the dev role (or higher) in query mode
 - **THEN** the tool server registers `find_pull_requests` alongside `find_sessions` and `find_changes`
-
-#### Scenario: Dev user in change thread
-
-- **GIVEN** the current thread has an active change session with a PR
-- **AND** the user has the dev role (or higher)
-- **WHEN** the tool server is built in query mode
-- **THEN** the tool server additionally registers `request_review`, `request_merge`, `request_update`, and `request_close`
-
-#### Scenario: Member user in change thread
-
-- **GIVEN** the current thread has an active change session
-- **AND** the user has the member role
-- **WHEN** the tool server is built in query mode
-- **THEN** the tool server does NOT register follow-up action tools
 
 #### Scenario: Admin user tool set
 
@@ -226,34 +220,6 @@ The system SHALL provide action tools that validate intent and return staged ref
 - **WHEN** the tool returns an error
 - **THEN** Claude receives the error message in the tool response
 - **AND** Claude can call the tool again with corrected parameters
-
-### Requirement: Change Thread Follow-Up Tools
-
-The system SHALL provide action tools for change thread operations, available only when an active change session exists.
-
-#### Scenario: request_review tool
-
-- **WHEN** Claude calls `request_review` in a change thread
-- **THEN** the tool validates that the session has a PR URL
-- **AND** stages a review intent and returns a ref ID
-
-#### Scenario: request_merge tool
-
-- **WHEN** Claude calls `request_merge` in a change thread
-- **THEN** the tool validates that the session has a PR URL and the PR is open
-- **AND** stages a merge intent and returns a ref ID
-
-#### Scenario: request_update tool
-
-- **WHEN** Claude calls `request_update` with additional instructions
-- **THEN** the tool validates that the session has an active worktree
-- **AND** stages an update intent with the instructions and returns a ref ID
-
-#### Scenario: request_close tool
-
-- **WHEN** Claude calls `request_close` in a change thread
-- **THEN** the tool validates that the session has a PR URL and the PR is open
-- **AND** stages a close intent and returns a ref ID
 
 ### Requirement: Staged Intent Storage
 

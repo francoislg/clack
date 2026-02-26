@@ -3,12 +3,12 @@ import { logger } from "../logger.js";
 import { removeWorktree } from "../worktrees.js";
 import { getPRStatus, type PRState } from "./pr.js";
 import {
-  getActiveSessions,
-  getActiveSession,
-  updateSessionStatus,
-  removeSession,
-} from "./session.js";
-import type { ChangeSession } from "./types.js";
+  getActiveWorkers,
+  getSession,
+  updateActiveChangeStatus,
+  clearActiveChange,
+} from "../sessions.js";
+import type { ActiveChangeState } from "../sessions.js";
 
 // ============================================================================
 // Session Completion Monitoring
@@ -22,15 +22,15 @@ interface CompletionCheckResult {
 }
 
 /**
- * Check if a session's PR has been completed externally
+ * Check if a session's active change PR has been completed externally
  */
-export async function checkSessionCompletion(session: ChangeSession): Promise<CompletionCheckResult> {
-  // Only check sessions that have PRs created
-  if (session.status !== "pr_created" || !session.prUrl) {
+export async function checkSessionCompletion(activeChange: ActiveChangeState): Promise<CompletionCheckResult> {
+  // Only check changes that have PRs created
+  if (activeChange.status !== "pr_created" || !activeChange.prUrl) {
     return { action: "none" };
   }
 
-  const status = await getPRStatus(session.prUrl);
+  const status = await getPRStatus(activeChange.prUrl);
   if (!status) {
     // Error getting status - don't take action
     return { action: "none" };
@@ -49,35 +49,34 @@ export async function checkSessionCompletion(session: ChangeSession): Promise<Co
 }
 
 /**
- * Clean up a session that was completed externally
+ * Clean up a session whose PR was completed externally
  */
 async function cleanupSession(
-  session: ChangeSession,
+  sessionId: string,
+  activeChange: ActiveChangeState,
   action: "merged" | "closed"
 ): Promise<void> {
-  const sessionId = session.id;
-
   logger.info(
-    `Auto-cleaning session ${sessionId} (PR ${action}): ${session.prUrl}`
+    `Auto-cleaning session ${sessionId} (PR ${action}): ${activeChange.prUrl}`
   );
 
   // Update status based on how it was completed
   const newStatus = action === "merged" ? "completed" : "failed";
-  updateSessionStatus(sessionId, newStatus, `PR ${action} externally`);
+  updateActiveChangeStatus(sessionId, newStatus, `PR ${action} externally`);
 
   // Remove the worktree
   try {
-    await removeWorktree(session.worktree.repoName, session.worktree.worktreePath);
+    await removeWorktree(activeChange.worktree.repoName, activeChange.worktree.worktreePath);
     logger.debug(`Removed worktree for session ${sessionId}`);
   } catch (error) {
     logger.warn(`Failed to remove worktree for session ${sessionId}: ${error}`);
   }
 
-  // Remove session from memory
+  // Clear the active change from the unified session
   // For merged PRs, also clean up the session folder
   // For closed PRs, preserve the session folder for debugging
   const cleanupFolder = action === "merged";
-  removeSession(sessionId, cleanupFolder);
+  clearActiveChange(sessionId, cleanupFolder);
 
   logger.info(`Session ${sessionId} cleaned up (action: ${action})`);
 }
@@ -86,32 +85,39 @@ async function cleanupSession(
  * Run a completion check for all active sessions with PRs
  */
 export async function runCompletionCheck(): Promise<void> {
-  const sessions = getActiveSessions();
+  const workers = getActiveWorkers();
   let checked = 0;
   let cleaned = 0;
 
-  for (const [sessionId, session] of sessions.entries()) {
-    // Only check sessions with PRs
-    if (session.status !== "pr_created" || !session.prUrl) {
+  for (const worker of workers) {
+    // Only check workers with PRs in pr_created status
+    if (worker.status !== "pr_created" || !worker.prUrl) {
       continue;
     }
 
     checked++;
-    const result = await checkSessionCompletion(session);
+
+    // Get the full session to access activeChange
+    const session = await getSession(worker.id);
+    if (!session?.activeChange) {
+      continue;
+    }
+
+    const result = await checkSessionCompletion(session.activeChange);
 
     if (result.action === "none") {
       continue;
     }
 
-    // Re-fetch session to ensure it still exists (could have been cleaned up manually)
-    const currentSession = getActiveSession(sessionId);
-    if (!currentSession) {
-      logger.debug(`Session ${sessionId} no longer exists, skipping cleanup`);
+    // Re-fetch session to ensure it still has an active change
+    const currentSession = await getSession(worker.id);
+    if (!currentSession?.activeChange) {
+      logger.debug(`Session ${worker.id} no longer has active change, skipping cleanup`);
       continue;
     }
 
     // Clean up the session
-    await cleanupSession(currentSession, result.action);
+    await cleanupSession(worker.id, currentSession.activeChange, result.action);
     cleaned++;
   }
 

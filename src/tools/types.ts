@@ -2,7 +2,6 @@ import type { App } from "@slack/bolt";
 import type { UserRole } from "../roles.js";
 import type { SessionContext } from "../sessions.js";
 import type { Config } from "../config.js";
-import type { ChangeSession } from "../changes/types.js";
 
 // ============================================================================
 // Tool Context (discriminated union)
@@ -21,8 +20,6 @@ export interface QueryToolContext {
   config: Config;
   /** Whether the changes workflow is enabled for this trigger */
   changesWorkflowEnabled: boolean;
-  /** Active change session in the current thread (if any) */
-  changeSession?: ChangeSession;
   /** Slack WebClient for API calls (absent in test/verify contexts) */
   slackClient?: App["client"];
 }
@@ -59,10 +56,7 @@ export type ToolBuildContext = QueryToolContext | WorkerToolContext;
 export type StagedIntentType =
   | "change"
   | "config_update"
-  | "review"
-  | "merge"
-  | "update"
-  | "close";
+  | "update";
 
 export interface StagedChangeIntent {
   type: "change";
@@ -81,37 +75,16 @@ export interface StagedConfigUpdateIntent {
   content: string;
 }
 
-export interface StagedReviewIntent {
-  type: "review";
-  sessionId: string;
-  prUrl: string;
-}
-
-export interface StagedMergeIntent {
-  type: "merge";
-  sessionId: string;
-  prUrl: string;
-}
-
 export interface StagedUpdateIntent {
   type: "update";
   sessionId: string;
   instructions: string;
 }
 
-export interface StagedCloseIntent {
-  type: "close";
-  sessionId: string;
-  prUrl: string;
-}
-
 export type StagedIntent =
   | StagedChangeIntent
   | StagedConfigUpdateIntent
-  | StagedReviewIntent
-  | StagedMergeIntent
-  | StagedUpdateIntent
-  | StagedCloseIntent;
+  | StagedUpdateIntent;
 
 // ============================================================================
 // submit_response Payload
@@ -179,29 +152,8 @@ export interface ConfigUpdateAction {
   label?: string;
 }
 
-export interface ReviewAction {
-  type: "review";
-  ref: string;
-  label?: string;
-  auto?: boolean;
-}
-
-export interface MergeAction {
-  type: "merge";
-  ref: string;
-  label?: string;
-  auto?: boolean;
-}
-
 export interface UpdateAction {
   type: "update";
-  ref: string;
-  label?: string;
-  auto?: boolean;
-}
-
-export interface CloseAction {
-  type: "close";
   ref: string;
   label?: string;
   auto?: boolean;
@@ -217,10 +169,7 @@ export type Action =
   | SendToThreadAction
   | ChangeAction
   | ConfigUpdateAction
-  | ReviewAction
-  | MergeAction
-  | UpdateAction
-  | CloseAction;
+  | UpdateAction;
 
 export type ActionType = Action["type"];
 

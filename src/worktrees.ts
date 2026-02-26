@@ -5,7 +5,7 @@ import { getConfig, getRepositoriesDir, getWorktreesDir, getWorktreeSessionsDir,
 import { getAuthenticatedCloneUrl } from "./github.js";
 import { logger } from "./logger.js";
 import { cleanupStaleSessionFolders } from "./changes/persistence.js";
-import { getActiveSessions } from "./changes/session.js";
+import { getActiveChangeBranches } from "./sessions.js";
 
 function getGitInstance(baseDir?: string): SimpleGit {
   const options: Partial<SimpleGitOptions> = {};
@@ -307,5 +307,5 @@ export async function initializeWorktrees(): Promise<void> {
   const config = getConfig();
   const expiryHours = config.changesWorkflow?.sessionExpiryHours ?? 24;
   await cleanupStaleWorktrees(expiryHours);
-  cleanupStaleSessionFolders(expiryHours, getActiveSessions());
+  cleanupStaleSessionFolders(expiryHours, getActiveChangeBranches());
 }
