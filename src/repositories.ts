@@ -77,7 +77,7 @@ export async function pullRepository(repo: RepositoryConfig): Promise<void> {
 
   try {
     await repoGit.fetch("origin", branch);
-    await repoGit.checkout(branch);
+    await repoGit.checkout(["-f", branch]);
     await repoGit.reset(["--hard", `origin/${branch}`]);
     logger.debug(`Successfully synced ${repo.name} to origin/${branch}`);
   } catch (error) {
