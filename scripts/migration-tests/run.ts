@@ -24,8 +24,9 @@ import { test as test001 } from "./001.js";
 import { test as test002 } from "./002.js";
 import { test as test003 } from "./003.js";
 import { test as test004 } from "./004.js";
+import { test as test005 } from "./005.js";
 
-const allTests: MigrationTest[] = [test001, test002, test003, test004];
+const allTests: MigrationTest[] = [test001, test002, test003, test004, test005];
 
 // --- Config ---
 
