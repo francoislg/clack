@@ -1,28 +1,32 @@
 # Clack
 
-A Slack bot that answers codebase questions using Claude Code. React to any message with a configured emoji, and Clack provides non-technical answers visible only to you. Accept to share with the team, refine for better answers, or reject to dismiss.
+A self-hosted Slack bot that answers codebase questions using Claude Code. React to any message with an emoji, DM the bot, or @mention it — Clack reads your repositories and responds with plain-language answers. Optionally enable the **Changes Workflow** to propose code changes, create PRs, and merge — all from Slack.
 
 **Clack** = **Cl**aude + Sl**ack**
 
 ## How It Works
 
+### Reactions (default)
+
 1. **React** — Add the configured emoji (e.g., 🤖) to any Slack message
-2. **Review** — Clack sends you an ephemeral answer (only you can see it)
-3. **Decide** — Click one of:
-   - **✅ Accept** — Share the answer with everyone in the thread
-   - **✏️ Edit & Accept** — Edit the answer before sharing
-   - **🔄 Refine** — Add instructions and get a better answer
-   - **🔃 Update** — Re-read the thread and regenerate
-   - **❌ Reject** — Dismiss the answer
+2. **Review** — Clack sends you a private answer (ephemeral or via DM)
+3. **Decide** — Accept to share publicly, refine for a better answer, or reject
+
+### Direct Messages & Mentions
+
+Send a question directly to Clack or @mention it in a channel. Responses are posted visibly in the thread — no accept/reject step needed. Reply in the thread to continue the conversation.
 
 ## Features
 
-- **Non-technical answers** — Explains code in plain language for non-developers
-- **Multi-repo support** — Configure multiple repositories; Clack picks the relevant one(s)
-- **Thread-aware** — Understands conversation context from Slack threads
-- **Session memory** — Refinements build on previous answers (15-min timeout)
-- **Ephemeral first** — Review before sharing with your team
-- **Thinking feedback** — Show an emoji reaction or message while processing
+- **Multi-repo support** — Configure multiple repositories with per-repo access control
+- **Three trigger modes** — Reactions, DMs, and @mentions (each independently configurable)
+- **Session memory** — Refinements and follow-ups build on previous context
+- **Role-based access** — Owner, admin, dev, and member tiers with granular permissions
+- **Changes Workflow** — Request code changes, create branches, push commits, open and merge PRs from Slack
+- **GitHub integration** — Full read/write GitHub access via GitHub App + auto-configured MCP server
+- **Customizable instructions** — Two-tier instruction system with shipped defaults and org-specific overrides
+- **Home Tab** — Manage roles, view repositories, edit instructions, and monitor active workers
+- **Docker support** — Multi-stage build with interactive setup script
 
 ## Setup
 
@@ -43,6 +47,7 @@ Clack authenticates with GitHub using a GitHub App. Each self-hosted deployment 
    - **Contents**: Read & write (clone repos, push branches)
    - **Pull requests**: Read & write (create/merge/close PRs)
    - **Metadata**: Read-only
+   - **Issues**: Read & write *(optional — enables issue tools in the GitHub MCP server)*
 4. Click **Create GitHub App**
 5. On the app's General page, note the **App ID**
 6. Scroll to **Private keys** and click **Generate a private key** — save the `.pem` file
@@ -52,7 +57,6 @@ Clack authenticates with GitHub using a GitHub App. Each self-hosted deployment 
 Now configure the credentials:
 
 ```bash
-# Create the auth config
 cp data/auth/github.example.json data/auth/github.json
 ```
 
@@ -76,7 +80,7 @@ Clack supports two authentication methods:
 
 #### Option 1: OAuth Token (Recommended for Claude Max/Pro subscribers)
 
-Use your existing Claude Max or Pro subscription with no additional API charges:
+Use your existing Claude subscription with no additional API charges:
 
 1. Install Claude Code CLI: `npm install -g @anthropic-ai/claude-code`
 2. Generate a long-lived token: `claude setup-token`
@@ -114,29 +118,13 @@ ANTHROPIC_API_KEY=sk-ant-api-your-key-here
    cp data/config.example.json data/config.json
    ```
 
-2. Edit `data/config.json`:
-   ```json
-   {
-     "reactions": {
-       "trigger": "robot_face",
-       "thinking": {
-         "type": "emoji",
-         "emoji": "thinking_face"
-       }
-     },
-     "repositories": [
-       {
-         "name": "my-app",
-         "url": "your-org/your-repo",
-         "description": "Main application codebase",
-         "branch": "main"
-       }
-     ],
-     "claudeCode": {
-       "model": "sonnet"
-     }
-   }
-   ```
+2. Edit `data/config.json` — see `data/config.example.json` for the full schema. The key sections:
+
+   - **`reactions`** — Trigger emoji, thinking indicator, optional work-mode emoji
+   - **`directMessages`** / **`mentions`** — Enable/disable DM and @mention triggers
+   - **`repositories`** — Repos to index, with access control (`read`/`write` role thresholds) and merge strategy
+   - **`changesWorkflow`** — Enable the Changes Workflow with timeout, concurrency, and monitoring settings
+   - **`claudeCode.model`** — Claude model to use (default: `sonnet`)
 
 3. Generate the Slack app manifest:
    ```bash
@@ -154,17 +142,8 @@ ANTHROPIC_API_KEY=sk-ant-api-your-key-here
 1. Create a new Slack app at https://api.slack.com/apps using the generated `slack-app-manifest.json`
 2. Enable **Socket Mode** in the app settings
 3. Generate an **App-Level Token** with `connections:write` scope
-4. Add the following **Bot Token Scopes** under OAuth & Permissions:
-   - `reactions:read` — Detect trigger reactions
-   - `reactions:write` — Add thinking emoji feedback
-   - `channels:history` — Read messages in public channels
-   - `groups:history` — Read messages in private channels
-   - `chat:write` — Post responses
-   - `im:history` — Read direct messages (optional)
-5. Subscribe to these **Events** under Event Subscriptions:
-   - `reaction_added`
-6. Install the app to your workspace
-7. Save credentials to `data/auth/slack.json`:
+4. Install the app to your workspace
+5. Save credentials to `data/auth/slack.json`:
    ```json
    {
      "botToken": "xoxb-...",
@@ -173,26 +152,48 @@ ANTHROPIC_API_KEY=sk-ant-api-your-key-here
    }
    ```
 
-## Configuration Reference
+The manifest generator automatically configures the correct scopes and event subscriptions based on your `config.json` settings (e.g., DM scopes are only added if DMs are enabled).
 
-| Key | Description | Default |
-|-----|-------------|---------|
-| `slackApp.name` | App display name in Slack | `Clack` |
-| `slackApp.description` | App description in Slack | `Ask questions about your codebase using reactions` |
-| `slackApp.backgroundColor` | Hovercard background color (hex) | `#4A154B` |
-| `reactions.trigger` | Emoji name that triggers the bot | `robot_face` |
-| `reactions.thinking.type` | Feedback type: `message` or `emoji` | `message` |
-| `reactions.thinking.emoji` | Emoji to show while thinking (if type is `emoji`) | — |
-| `repositories[].name` | Local folder name for the repo | Required |
-| `repositories[].url` | Repository (`owner/repo` or HTTPS URL) | Required |
-| `repositories[].description` | Description for Claude context | Required |
-| `repositories[].branch` | Branch to clone | `main` |
-| `git.pullIntervalMinutes` | How often to pull updates | `60` |
-| `git.shallowClone` | Use shallow clone | `true` |
-| `git.cloneDepth` | Depth for shallow clone | `1` |
-| `sessions.timeoutMinutes` | Session inactivity timeout | `1440` (24h) |
-| `sessions.cleanupIntervalMinutes` | How often to clean expired sessions | `5` |
-| `claudeCode.model` | Claude model to use | `sonnet` |
+### Docker Deployment
+
+```bash
+# Interactive setup — prompts for credentials and generates config
+./docker-setup.sh
+
+# Or manually
+docker build -t clack .
+docker run -v ./data:/app/data clack
+```
+
+## Changes Workflow
+
+When enabled, dev+ users can request code changes directly from Slack. Clack creates a git worktree, implements the changes, pushes a branch, and opens a PR.
+
+**Flow:** Request change → Clack creates branch (`clack/{type}/{name}`) → implements in worktree → pushes & opens PR → follow up with review/update/merge/close in the thread.
+
+A background monitor detects externally merged or closed PRs and cleans up worktrees automatically.
+
+## Role System
+
+| Role | Capabilities |
+|------|-------------|
+| **Owner** | Everything + transfer ownership |
+| **Admin** | Manage roles, edit instructions and configuration |
+| **Dev** | Propose code changes (per-repo write access) |
+| **Member** | Ask questions (default role) |
+
+Roles are managed from the Home Tab in Slack. Persisted in `data/state/roles.json`.
+
+## Instruction System
+
+Clack uses a two-tier instruction system to guide Claude's behavior:
+
+- **Defaults** (`data/default_configuration/`) — Shipped with the project, checked into git
+- **Overrides** (`data/configuration/`) — Org-specific customizations, gitignored, take precedence
+
+Instruction files: `instructions.md` (base), `dev_instructions.md`, `admin_instructions.md`, `user_instructions.md` (role overlays), plus per-repo `{repo}/changes_instructions.md` and `{repo}/worktree_setup_instructions.md`.
+
+Template variables like `{BOT_NAME}` are interpolated at runtime. Admins can edit instructions from the Home Tab.
 
 ## Development
 
@@ -202,35 +203,7 @@ npm run build     # Compile TypeScript
 npm run manifest  # Generate Slack app manifest
 npm start         # Run the bot
 npm run dev       # Watch mode (rebuild on changes)
-```
-
-## Architecture
-
-```
-src/
-├── index.ts        # Entry point, startup sequence
-├── config.ts       # Configuration loading and validation
-├── github.ts       # GitHub App auth, Octokit client, token management
-├── repositories.ts # Git clone/pull operations
-├── sessions.ts     # Session lifecycle management
-├── claude.ts       # Claude Agent SDK integration
-└── slack/
-    ├── app.ts         # Slack Bolt app setup
-    ├── blocks.ts      # Slack block builders
-    ├── state.ts       # Session info state
-    ├── messagesApi.ts # Slack messages API helpers
-    └── handlers/      # Action and event handlers
-
-data/
-├── config.json              # Your configuration (gitignored)
-├── config.example.json      # Example configuration
-├── auth/
-│   ├── github.json          # GitHub App credentials (gitignored)
-│   ├── github-app.pem       # GitHub App private key (gitignored)
-│   ├── slack.json           # Slack tokens (gitignored)
-│   └── .env                 # Claude auth token (gitignored)
-├── repositories/            # Cloned repos (gitignored)
-└── sessions/                # Session state (gitignored)
+npm run test      # Run tests
 ```
 
 ## License
