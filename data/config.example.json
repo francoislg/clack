@@ -6,6 +6,7 @@
   },
   "reactions": {
     "trigger": "robot_face",
+    "responseType": "ephemeral",
     "thinking": {
       "type": "message"
     },
