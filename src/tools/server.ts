@@ -17,6 +17,7 @@ import { createListRepositoriesTool } from "./query/listRepositories.js";
 import { createFindSessionsTool } from "./query/findSessions.js";
 import { createFindChangesTool } from "./query/findChanges.js";
 import { createFindPullRequestsTool } from "./query/findPullRequests.js";
+import { createResolveReviewThreadTool } from "./query/resolveReviewThread.js";
 import { createListConfigFilesTool } from "./query/listConfigFiles.js";
 import { createReadConfigFileTool } from "./query/readConfigFile.js";
 import { createGitLogTool } from "./query/gitLog.js";
@@ -152,6 +153,7 @@ function buildQueryTools(ctx: QueryToolContext): ClackToolsResult {
     tools.push(createFindSessionsTool(ctx));
     tools.push(createFindChangesTool(ctx));
     tools.push(createFindPullRequestsTool(ctx));
+    tools.push(createResolveReviewThreadTool());
   }
 
   if (ctx.role === "admin" || ctx.role === "owner") {
@@ -201,6 +203,7 @@ function buildWorkerTools(ctx: WorkerToolContext): ClackToolsResult {
   tools.push(createEnsurePRTool(ctx));
   tools.push(createMergePRTool(ctx));
   tools.push(createClosePRTool(ctx));
+  tools.push(createResolveReviewThreadTool());
 
   const toolNames = tools.map((t) => t.name);
 
