@@ -27,8 +27,10 @@ RUN curl -fsSL https://claude.ai/install.sh | bash \
     && rm -rf /root/.local/share/claude /root/.local/bin/claude
 
 # Install github-mcp-server for GitHub API access via MCP
-ARG GITHUB_MCP_SERVER_VERSION=0.30.3
-RUN wget -qO- "https://github.com/github/github-mcp-server/releases/download/v${GITHUB_MCP_SERVER_VERSION}/github-mcp-server_Linux_x86_64.tar.gz" \
+ARG GITHUB_MCP_SERVER_VERSION=0.31.0
+ARG TARGETARCH
+RUN ARCH=$(echo "${TARGETARCH}" | sed 's/amd64/x86_64/' | sed 's/arm64/arm64/') && \
+    wget -qO- "https://github.com/github/github-mcp-server/releases/download/v${GITHUB_MCP_SERVER_VERSION}/github-mcp-server_Linux_${ARCH}.tar.gz" \
     | tar -xz -C /usr/local/bin github-mcp-server
 
 # Copy package files and install production dependencies only
