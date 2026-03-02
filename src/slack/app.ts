@@ -19,6 +19,7 @@ import { registerChangeActionHandler } from "./handlers/changeAction.js";
 import { registerConfigUpdateActionHandler } from "./handlers/configUpdateAction.js";
 import { registerChangeThreadActionHandlers } from "./handlers/changeThreadActions.js";
 import { registerDmActionHandlers } from "./handlers/dmActions.js";
+import { registerMessageChangedHandler } from "./handlers/messageChanged.js";
 
 let app: App | null = null;
 
@@ -75,6 +76,11 @@ export function createSlackApp(): App {
   if (config.mentions.enabled) {
     logger.debug("Mention mode enabled");
     registerMentionHandler(app);
+  }
+
+  // Message edit handler for cancelling in-flight requests (when DMs or mentions are enabled)
+  if (config.directMessages.enabled || config.mentions.enabled) {
+    registerMessageChangedHandler(app);
   }
 
   return app;

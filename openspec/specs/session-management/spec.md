@@ -19,7 +19,7 @@ The system SHALL create a unique session for each triggered reaction.
 
 ### Requirement: Session State Persistence
 
-The system SHALL persist session state to the filesystem, including structured tool interaction data and DM delivery coordinates. Thread conversation history (questions, answers, refinements) is derived from Slack on each request and is NOT persisted.
+The system SHALL persist session state to the filesystem, including structured tool interaction data and DM delivery coordinates. Thread conversation history (questions, answers, refinements) is derived from Slack on each request and is NOT persisted. Aborted sessions SHALL retain their state for reuse on restart.
 
 #### Scenario: Context file structure
 
@@ -28,6 +28,13 @@ The system SHALL persist session state to the filesystem, including structured t
 - **AND** includes: sessionId, channelId, messageTs, threadTs, userId, username, displayName, errors, createdAt, lastActivity
 - **AND** includes `username` and `displayName` for the requesting user when `fetchUserNames` is enabled
 - **AND** does NOT persist `refinements`, `lastAnswer`, or `threadContext` (these are fetched from Slack on each request)
+
+#### Scenario: Session reused after abort
+- **WHEN** a Claude invocation is aborted due to a message edit
+- **AND** processing is restarted with updated text
+- **THEN** `processMessage()` finds the existing session via `findSessionByThread()`
+- **AND** updates the session's `originalQuestion` with the new text
+- **AND** does NOT create a duplicate session
 
 #### Scenario: Tool call history persisted
 

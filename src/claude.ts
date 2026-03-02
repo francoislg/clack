@@ -41,6 +41,8 @@ export interface ClaudeResponse {
   success: boolean;
   answer: string;
   error?: string;
+  /** True when the request was aborted via AbortController (not a real error) */
+  cancelled?: boolean;
   conversationTrace?: ConversationMessage[];
   /** Structured response from submit_response tool */
   response?: SubmitResponsePayload;
@@ -65,6 +67,8 @@ export interface AskClaudeOptions {
   isDmFirst?: boolean;
   /** Slack WebClient for tools that need Slack API access (e.g., find_user) */
   slackClient?: import("@slack/bolt").App["client"];
+  /** AbortController for cancelling in-flight queries */
+  abortController?: AbortController;
 }
 
 export interface McpServerInfo {
@@ -276,6 +280,7 @@ export async function askClaude(
         permissionMode: "bypassPermissions",
         tools: ["Read", "Glob", "Grep"],
         mcpServers: mcpServers as Record<string, import("@anthropic-ai/claude-agent-sdk").McpServerConfig>,
+        ...(options?.abortController && { abortController: options.abortController }),
       },
     })) {
       // Record all messages in the conversation trace
@@ -392,6 +397,21 @@ export async function askClaude(
       toolCallHistory: toolCallHistory.length > 0 ? toolCallHistory : undefined,
     };
   } catch (error) {
+    // Detect cancellation via AbortController
+    const isAbortError = error instanceof Error && error.name === "AbortError";
+    const isSignalAbort = options?.abortController?.signal.aborted &&
+      error instanceof Error && /aborted/i.test(error.message);
+
+    if (isAbortError || isSignalAbort) {
+      logger.info(`Claude query cancelled for session ${session.sessionId}`);
+      return {
+        success: false,
+        cancelled: true,
+        answer: "",
+        conversationTrace,
+      };
+    }
+
     logger.error("Claude Agent SDK error:", error);
     return {
       success: false,

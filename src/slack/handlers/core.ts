@@ -33,6 +33,7 @@ import { transformUserMentions } from "../userCache.js";
 import { getClaudeOptions } from "./changeWorkflowHelper.js";
 import { handleAutoExecuteActions } from "./autoExecute.js";
 import { getEffectiveResponseType } from "../../userPreferences.js";
+import { registerInFlightRequest, deregisterInFlightRequest, type ThinkingState } from "../inFlightRequests.js";
 import {
   postDmInvestigationNotice,
   postDmThreadReply,
@@ -76,11 +77,8 @@ interface ProcessingContext {
   workMode: boolean;
 }
 
-interface ThinkingState {
-  messageTs?: string;
-  usedEmoji: boolean;
-  emoji?: string;
-}
+// Re-exported from inFlightRequests for use by other handlers
+export type { ThinkingState } from "../inFlightRequests.js";
 
 // ============================================================
 // SESSION SETUP
@@ -560,18 +558,43 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
 
   // 4. Call Claude with change session context for follow-up tools
   const claudeOptions = await getClaudeOptions(userId, triggerType);
+  const abortController = new AbortController();
 
-  logger.info(
-    `Calling Claude (session: ${session.sessionId}, role: ${claudeOptions.role ?? "member"}, changesWorkflow: ${claudeOptions.changesWorkflowEnabled ?? false})`
-  );
-  const response = await askClaude(session, {
-    ...claudeOptions,
-    workMode: ctx.workMode,
-    isEphemeral: ctx.isEphemeral,
-    triggerType: ctx.triggerType,
-    isDmFirst: ctx.isDmFirst,
-    slackClient: client,
-  });
+  // Register in-flight request for cancellation support (mentions and DMs only)
+  const canCancel = triggerType === "mentions" || triggerType === "directMessages";
+  if (canCancel) {
+    registerInFlightRequest(channelId, messageTs, {
+      abortController,
+      sessionId: session.sessionId,
+      triggerType,
+      thinkingState: thinking,
+    });
+  }
+
+  let response: ClaudeResponse;
+  try {
+    logger.info(
+      `Calling Claude (session: ${session.sessionId}, role: ${claudeOptions.role ?? "member"}, changesWorkflow: ${claudeOptions.changesWorkflowEnabled ?? false})`
+    );
+    response = await askClaude(session, {
+      ...claudeOptions,
+      workMode: ctx.workMode,
+      isEphemeral: ctx.isEphemeral,
+      triggerType: ctx.triggerType,
+      isDmFirst: ctx.isDmFirst,
+      slackClient: client,
+      abortController,
+    });
+  } finally {
+    if (canCancel) {
+      deregisterInFlightRequest(channelId, messageTs);
+    }
+  }
+
+  // If cancelled via message edit, skip all response handling — the messageChanged handler manages cleanup
+  if (response.cancelled) {
+    return;
+  }
 
   // 5. Remove thinking emoji if used
   await removeThinkingEmoji(client, channelId, messageTs, thinking);
