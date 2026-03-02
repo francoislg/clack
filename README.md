@@ -158,11 +158,11 @@ The manifest generator automatically configures the correct scopes and event sub
 
 ```bash
 # Interactive setup — prompts for credentials and generates config
-./docker-setup.sh
+npm run docker-setup
 
 # Or manually
 docker build -t clack .
-docker run -v ./data:/app/data clack
+docker run -d --name clack --env-file data/auth/.env -v ./data:/app/data clack
 ```
 
 ## Changes Workflow
