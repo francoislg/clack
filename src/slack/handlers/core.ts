@@ -579,9 +579,6 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
     response = await askClaude(session, {
       ...claudeOptions,
       workMode: ctx.workMode,
-      isEphemeral: ctx.isEphemeral,
-      triggerType: ctx.triggerType,
-      isDmFirst: ctx.isDmFirst,
       slackClient: client,
       abortController,
     });

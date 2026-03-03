@@ -1,7 +1,7 @@
 # auto-execute-actions Specification
 
 ## Purpose
-Auto-execution of ref-based actions (change, update, review, merge, close) when Claude sets `auto: true` in `submit_response`, enabling immediate workflow execution without requiring a button click for clear user directives.
+Auto-execution of actions (change, update, review, merge, close, send_to_thread) when Claude sets `auto: true` in `submit_response`, enabling immediate workflow execution without requiring a button click for clear user directives.
 
 ## Requirements
 
@@ -59,9 +59,18 @@ The system SHALL support an optional `auto` boolean flag on ref-based actions (`
 - **THEN** the system posts the response to Slack
 - **AND** immediately resolves the staged intent and triggers the close follow-up
 
+#### Scenario: Auto-execute send_to_thread in DM-first mode
+
+- **GIVEN** a DM-first session where the user is refining an answer
+- **WHEN** Claude calls `submit_response` with `{ type: "send_to_thread", auto: true }`
+- **THEN** the system posts the response to the DM thread
+- **AND** immediately posts the answer to the original channel thread (skipping synthesis)
+- **AND** stores the `channelPostTs` for future updates
+- **AND** confirms in the DM thread: "Answer posted to the original thread."
+
 #### Scenario: Auto flag defaults to false
 
-- **WHEN** Claude calls `submit_response` with a ref-based action without `auto`
+- **WHEN** Claude calls `submit_response` with an action without `auto`
 - **THEN** the action renders as a button and waits for user click (existing behavior)
 
 #### Scenario: Auto-execute failure posts error in thread

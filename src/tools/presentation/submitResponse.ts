@@ -42,6 +42,7 @@ const choiceActionSchema = z.object({
 const sendToThreadActionSchema = z.object({
   type: z.literal("send_to_thread"),
   label: z.string().optional().describe("Custom button label (default: 'Send to thread')"),
+  auto: z.boolean().optional().describe("If true, post the answer to the original channel thread immediately without waiting for button click"),
 });
 
 const changeActionSchema = z.object({

@@ -136,6 +136,7 @@ export interface ChoiceAction {
 export interface SendToThreadAction {
   type: "send_to_thread";
   label?: string;
+  auto?: boolean;
 }
 
 // Ref-based actions (reference staged intents)

@@ -59,12 +59,6 @@ export interface AskClaudeOptions {
   changesWorkflowEnabled?: boolean;
   /** When true, hints Claude to propose a change with auto-execute */
   workMode?: boolean;
-  /** Whether the response will be delivered as an ephemeral message */
-  isEphemeral?: boolean;
-  /** How the interaction was triggered */
-  triggerType?: "directMessages" | "mentions" | "reactions";
-  /** Whether the response is delivered via DM-first flow (reaction → DM) */
-  isDmFirst?: boolean;
   /** Slack WebClient for tools that need Slack API access (e.g., find_user) */
   slackClient?: import("@slack/bolt").App["client"];
   /** AbortController for cancelling in-flight queries */
@@ -117,21 +111,27 @@ function formatThreadContext(messages: SessionContext["threadContext"]): string 
   return formatted.join("\n\n");
 }
 
-function buildDeliveryContext(options?: AskClaudeOptions): string | null {
-  if (!options?.triggerType) return null;
+function buildDeliveryContext(session: SessionContext): string | null {
+  if (!session.triggerType) return null;
 
   const lines: string[] = ["DELIVERY CONTEXT:"];
 
-  if (options.isDmFirst) {
+  // DM-first: session has DM coordinates and an origin channel
+  if (session.dmChannel && session.originChannel) {
     lines.push("- Mode: DM-first (reaction triggered, answer delivered via direct message)");
-    lines.push("- The user sees your response in a DM thread. Include `send_to_thread` and `reject` actions so they can share or dismiss.");
-  } else if (options.isEphemeral) {
+    lines.push("- The user sees your response in a private DM thread. They can reply to refine.");
+    if (session.channelPostTs) {
+      lines.push("- An answer was already shared to the original channel thread.");
+    }
+    lines.push("- Available actions: `send_to_thread` (share to original channel), `reject` (dismiss)");
+    lines.push("- Choose actions appropriate to your response. Not every response needs the same buttons.");
+  } else if (session.triggerType === "reactions" && session.isEphemeral) {
     lines.push("- Mode: Ephemeral (reaction triggered, only visible to the requester)");
     lines.push("- The response is ephemeral — only the requester can see it. You MUST include `accept`, `reject`, and `refine` actions so they can publish, dismiss, or refine.");
-  } else if (options.triggerType === "directMessages") {
+  } else if (session.triggerType === "directMessages") {
     lines.push("- Mode: Direct message (the user is chatting with you in a DM)");
     lines.push("- The response is already visible to the user. Do NOT include `accept` or `reject` actions — they have no meaning here.");
-  } else if (options.triggerType === "mentions") {
+  } else if (session.triggerType === "mentions") {
     lines.push("- Mode: Channel mention (the user @mentioned you in a channel)");
     lines.push("- The response is already visible in the channel thread. Do NOT include `accept` or `reject` actions — they have no meaning here.");
   }
@@ -151,8 +151,8 @@ Use this context to understand the conversation flow and provide relevant answer
     parts.push(contextIntro + formatThreadContext(session.threadContext));
   }
 
-  // Delivery context — tells Claude how the response will be delivered
-  const deliveryContext = buildDeliveryContext(options);
+  // Delivery context — derived from session state (triggerType, dmChannel, etc.)
+  const deliveryContext = buildDeliveryContext(session);
   if (deliveryContext) {
     parts.push(deliveryContext);
   }
