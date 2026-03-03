@@ -1,9 +1,4 @@
-# delivery-context Specification
-
-## Purpose
-Derive delivery context from the session's persisted state and pass it to Claude so it can make informed decisions about which actions to include in responses.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Delivery Context in Claude Prompt
 The system SHALL include delivery context in the user prompt passed to Claude, derived from the session's persisted state, so Claude can make informed decisions about which actions to include in responses.

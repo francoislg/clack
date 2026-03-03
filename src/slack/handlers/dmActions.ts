@@ -20,6 +20,74 @@ import { getConfig } from "../../config.js";
 import { getClaudeOptions } from "./changeWorkflowHelper.js";
 
 /**
+ * If the response contains a send_to_thread action with auto: true,
+ * post the answer directly to the original channel thread (skip synthesis).
+ */
+async function autoSendToThread(
+  client: App["client"],
+  session: SessionContext,
+  response: import("../../claude.js").ClaudeResponse
+): Promise<void> {
+  if (!response.response?.actions) return;
+
+  const autoAction = response.response.actions.find(
+    a => a.type === "send_to_thread" && "auto" in a && (a as { auto?: boolean }).auto === true
+  );
+  if (!autoAction) return;
+
+  const originChannel = session.originChannel;
+  const originThreadTs = session.originThreadTs;
+  if (!originChannel || !originThreadTs) {
+    logger.error(`Auto send_to_thread: missing origin info for session ${session.sessionId}`);
+    return;
+  }
+
+  const answer = session.lastAnswer || response.answer;
+  const blocks = response.response.sections
+    ? getStructuredAcceptedBlocks(response.response.sections)
+    : getAcceptedBlocks(answer);
+
+  try {
+    const postResult = await client.chat.postMessage({
+      channel: originChannel,
+      thread_ts: originThreadTs,
+      blocks: blocks as any[],
+      text: answer,
+      unfurl_links: false,
+      unfurl_media: false,
+    });
+
+    if (postResult.ts) {
+      await updateSession(session.sessionId, { channelPostTs: postResult.ts });
+      const sessionInfo = await restoreSessionInfo(session.sessionId);
+      if (sessionInfo) {
+        setSessionInfo(session.sessionId, { ...sessionInfo, channelPostTs: postResult.ts });
+      }
+    }
+
+    // Confirm in DM
+    if (session.dmChannel && session.dmThreadTs) {
+      await client.chat.postMessage({
+        channel: session.dmChannel,
+        thread_ts: session.dmThreadTs,
+        text: ":white_check_mark: Answer posted to the original thread.",
+      });
+    }
+
+    logger.debug(`Auto send_to_thread: posted to channel for session ${session.sessionId}`);
+  } catch (error) {
+    logger.error("Auto send_to_thread failed:", error);
+    if (session.dmChannel && session.dmThreadTs) {
+      await client.chat.postMessage({
+        channel: session.dmChannel,
+        thread_ts: session.dmThreadTs,
+        text: ":warning: Failed to post to the original thread. You can try the button instead.",
+      }).catch(() => {});
+    }
+  }
+}
+
+/**
  * Process a DM thread reply as a refinement for a reaction-originated session.
  */
 export async function processDmRefinement(
@@ -99,6 +167,9 @@ export async function processDmRefinement(
 
     // Post refined answer in DM thread
     await postDmThreadReply(client, session.dmChannel, session.dmThreadTs, updatedSession, response);
+
+    // Auto-execute send_to_thread if Claude flagged it
+    await autoSendToThread(client, updatedSession, response);
   } else {
     await client.chat.postMessage({
       channel: session.dmChannel,

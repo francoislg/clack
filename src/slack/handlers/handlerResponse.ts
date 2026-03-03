@@ -187,19 +187,14 @@ export async function postErrorResponse(
 }
 
 /**
- * Build Claude options from session info (role + changes workflow + delivery context).
+ * Build Claude options from session info (role + changes workflow).
+ * Delivery context is now derived from the session itself in buildDeliveryContext.
  */
 export async function getHandlerClaudeOptions(
   sessionInfo: SessionInfo,
 ): Promise<AskClaudeOptions> {
-  const options = await getClaudeOptions(
+  return getClaudeOptions(
     sessionInfo.userId,
     sessionInfo.triggerType ?? "directMessages",
   );
-  return {
-    ...options,
-    isEphemeral: sessionInfo.isEphemeral ?? false,
-    triggerType: sessionInfo.triggerType,
-    isDmFirst: !!(sessionInfo.dmChannel && sessionInfo.originChannel),
-  };
 }
