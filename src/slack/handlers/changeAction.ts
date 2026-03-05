@@ -6,7 +6,7 @@ import { restoreSessionInfo } from "../state.js";
 import type { StagedChangeIntent } from "../../tools/types.js";
 import type { ChangeRequest, ChangePlan } from "../../changes/types.js";
 import { startChangeWorkflow } from "../../changes/workflow.js";
-import { safeChatUpdate } from "./safeChatUpdate.js";
+import { SlackStreamer } from "../../streaming/slackStreamer.js";
 
 /**
  * Resolve staged intents from session storage.
@@ -35,7 +35,8 @@ export async function triggerChangeWorkflow(
   channelId: string,
   threadTs: string,
   userId: string,
-  client: App["client"]
+  client: App["client"],
+  opts?: { streamChannel?: string; streamThreadTs?: string },
 ): Promise<void> {
   // Find the unified session for this thread
   const session = await findSessionByThread(channelId, threadTs);
@@ -48,56 +49,58 @@ export async function triggerChangeWorkflow(
     return;
   }
 
-  // Post acknowledgment
-  const ackMessage = await client.chat.postMessage({
-    channel: channelId,
-    thread_ts: threadTs,
-    text: `Starting change: ${intent.description}`,
-  });
+  // Create streamer for live progress (target DM thread if provided)
+  const streamChannel = opts?.streamChannel ?? channelId;
+  const streamThreadTs = opts?.streamThreadTs ?? threadTs;
+  const streamer = new SlackStreamer({ client, channel: streamChannel, threadTs: streamThreadTs, userId });
+  await streamer.start();
 
-  // Build change request and plan
-  const request: ChangeRequest = {
-    userId,
-    message: intent.description,
-    triggerType: "reactions",
-    channel: channelId,
-    messageTs: threadTs,
-  };
+  try {
+    // Build change request and plan
+    const request: ChangeRequest = {
+      userId,
+      message: intent.description,
+      triggerType: "reactions",
+      channel: channelId,
+      messageTs: threadTs,
+    };
 
-  const plan: ChangePlan = {
-    branchName: intent.branch,
-    description: intent.description,
-    targetRepo: intent.repo,
-  };
+    const plan: ChangePlan = {
+      branchName: intent.branch,
+      description: intent.description,
+      targetRepo: intent.repo,
+    };
 
-  const result = await startChangeWorkflow(
-    request,
-    plan,
-    session.sessionId,
-  );
-
-  if (result.success) {
-    const message = result.prUrl
-      ? `PR created: ${result.prUrl}\n\n${result.summary || ""}`.trim()
-      : result.summary || "Changes implemented";
-    await safeChatUpdate(
-      client,
-      channelId,
-      ackMessage.ts!,
-      message,
+    const result = await startChangeWorkflow(
+      request,
+      plan,
+      session.sessionId,
+      streamer.handleEvent,
     );
-  } else {
-    await safeChatUpdate(
-      client,
-      channelId,
-      ackMessage.ts!,
-      `Change request failed: ${result.error}`,
-    );
+
+    const message = result.success
+      ? (result.prUrl ? `PR created: ${result.prUrl}\n\n${result.summary || ""}`.trim() : result.summary || "Changes implemented")
+      : `Change request failed: ${result.error}`;
+
+    if (streamer.hasFailed) {
+      await streamer.stop();
+      await client.chat.postMessage({ channel: streamChannel, thread_ts: streamThreadTs, text: message });
+    } else {
+      await streamer.stop({ markdownText: message });
+    }
+  } catch (error) {
+    logger.error("Change workflow failed:", error);
+    await streamer.stop();
+    await client.chat.postMessage({
+      channel: streamChannel,
+      thread_ts: streamThreadTs,
+      text: `Change request failed unexpectedly: ${error instanceof Error ? error.message : String(error)}`,
+    });
   }
 }
 
 export function registerChangeActionHandler(app: App): void {
-  app.action<BlockAction>("clack_change", async ({ ack, body, client, respond }) => {
+  app.action<BlockAction>(/^clack_change_\d+$/, async ({ ack, body, client, respond }) => {
     await ack();
 
     const rawValue = (body.actions[0] as { value: string }).value;
@@ -109,7 +112,7 @@ export function registerChangeActionHandler(app: App): void {
       return;
     }
 
-    // Delete the ephemeral message
+    // Remove the button message
     await respond({ delete_original: true });
 
     const sessionInfo = await restoreSessionInfo(sessionId);

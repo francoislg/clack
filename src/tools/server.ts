@@ -23,6 +23,7 @@ import { createReadConfigFileTool } from "./query/readConfigFile.js";
 import { createGitLogTool } from "./query/gitLog.js";
 import { createDeepenHistoryTool } from "./query/deepenHistory.js";
 import { createFindUserTool } from "./query/findUser.js";
+import { createFetchSlackMessageTool } from "./query/fetchSlackMessage.js";
 import { createUsersCache } from "../slack/usersCache.js";
 
 // Action tools
@@ -147,6 +148,7 @@ function buildQueryTools(ctx: QueryToolContext): ClackToolsResult {
   if (ctx.slackClient) {
     const usersCache = createUsersCache(ctx.slackClient);
     tools.push(createFindUserTool(ctx, usersCache));
+    tools.push(createFetchSlackMessageTool(ctx));
   }
 
   if (canRequestChanges(ctx.role)) {

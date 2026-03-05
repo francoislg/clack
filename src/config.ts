@@ -13,7 +13,6 @@ export interface SlackConfig {
   appToken: string;
   signingSecret: string;
   fetchAndStoreUsername: boolean;
-  notifyHiddenThread: boolean;
   sendErrorsAsDM: boolean;
 }
 
@@ -62,7 +61,6 @@ export interface ThinkingFeedbackConfig {
 export interface ChangesWorkflowConfig {
   enabled: boolean;
   timeoutMinutes?: number;
-  worktreeSetupTimeoutMinutes?: number;
   maxConcurrent?: number;
   additionalAllowedTools?: string[];
   sessionExpiryHours?: number;
@@ -79,11 +77,8 @@ export interface ReactionsChangesWorkflowConfig extends TriggerChangesWorkflowCo
   trigger?: string;
 }
 
-export type ReactionsResponseType = "ephemeral" | "directMessage";
-
 export interface ReactionsConfig {
   trigger: string;
-  responseType: ReactionsResponseType;
   thinking?: ThinkingFeedbackConfig;
   changesWorkflow?: ReactionsChangesWorkflowConfig;
 }
@@ -121,7 +116,6 @@ const DEFAULTS: Partial<Config> = {
   },
   reactions: {
     trigger: "robot_face",
-    responseType: "ephemeral",
     thinking: {
       type: "message",
     },
@@ -249,15 +243,6 @@ function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Config {
     }
   }
 
-  // Validate reactions.responseType if provided
-  const reactionsObj = c.reactions as Record<string, unknown> | undefined;
-  if (reactionsObj?.responseType !== undefined) {
-    const rt = reactionsObj.responseType;
-    if (rt !== "ephemeral" && rt !== "directMessage") {
-      throw new Error("Config 'reactions.responseType' must be 'ephemeral' or 'directMessage'");
-    }
-  }
-
   // Merge with defaults
   const merged: Config = {
     slack: {
@@ -265,7 +250,6 @@ function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Config {
       appToken: slackAuth.appToken,
       signingSecret: slackAuth.signingSecret,
       fetchAndStoreUsername: ((c.slack as Record<string, unknown>)?.fetchAndStoreUsername as boolean) ?? false,
-      notifyHiddenThread: ((c.slack as Record<string, unknown>)?.notifyHiddenThread as boolean) ?? true,
       sendErrorsAsDM: ((c.slack as Record<string, unknown>)?.sendErrorsAsDM as boolean) ?? false,
     },
     slackApp: {
@@ -275,7 +259,6 @@ function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Config {
     },
     reactions: {
       trigger: (c.reactions as Record<string, unknown>)?.trigger as string || DEFAULTS.reactions!.trigger,
-      responseType: ((c.reactions as Record<string, unknown>)?.responseType as ReactionsResponseType) || DEFAULTS.reactions!.responseType,
       thinking: (c.reactions as Record<string, unknown>)?.thinking
         ? {
             type: ((c.reactions as Record<string, unknown>).thinking as Record<string, unknown>).type as "message" | "emoji",
@@ -366,7 +349,6 @@ function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Config {
       ? {
           enabled: (c.changesWorkflow as Record<string, unknown>).enabled as boolean,
           timeoutMinutes: (c.changesWorkflow as Record<string, unknown>).timeoutMinutes as number | undefined,
-          worktreeSetupTimeoutMinutes: (c.changesWorkflow as Record<string, unknown>).worktreeSetupTimeoutMinutes as number | undefined,
           maxConcurrent: (c.changesWorkflow as Record<string, unknown>).maxConcurrent as number | undefined,
           additionalAllowedTools: (c.changesWorkflow as Record<string, unknown>).additionalAllowedTools as string[] | undefined,
           sessionExpiryHours: (c.changesWorkflow as Record<string, unknown>).sessionExpiryHours as number | undefined,

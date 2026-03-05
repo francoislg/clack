@@ -95,29 +95,7 @@ export interface ResponseSection {
   body: string;
 }
 
-// Terminal actions
-export interface AcceptAction {
-  type: "accept";
-  label?: string;
-}
-
-export interface RejectAction {
-  type: "reject";
-  label?: string;
-}
-
-export interface EditAction {
-  type: "edit";
-  label?: string;
-}
-
 // Continuation actions
-export interface RefineAction {
-  type: "refine";
-  label?: string;
-  hint?: string;
-}
-
 export interface FollowupAction {
   type: "followup";
   label: string;
@@ -161,10 +139,6 @@ export interface UpdateAction {
 }
 
 export type Action =
-  | AcceptAction
-  | RejectAction
-  | EditAction
-  | RefineAction
   | FollowupAction
   | ChoiceAction
   | SendToThreadAction
@@ -191,7 +165,7 @@ export interface ToolCallRecord {
 }
 
 export interface ContinuationRecord {
-  actionType: "choice" | "followup" | "refine";
+  actionType: "choice" | "followup";
   userInput: string;
   timestamp: number;
 }

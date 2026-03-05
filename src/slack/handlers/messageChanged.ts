@@ -35,6 +35,13 @@ export function registerMessageChangedHandler(app: App): void {
       return;
     }
 
+    const previousText = msg.previous_message?.text ?? "";
+
+    // Ignore metadata-only changes (e.g. URL unfurls) where the text hasn't changed
+    if (newText === previousText) {
+      return;
+    }
+
     // Look up in-flight request — if not found, Claude already finished (ignore)
     const inFlight = getInFlightRequest(channel, messageTs);
     if (!inFlight) {
@@ -46,29 +53,7 @@ export function registerMessageChangedHandler(app: App): void {
     // Deregister before aborting to prevent race conditions
     deregisterInFlightRequest(channel, messageTs);
     inFlight.abortController.abort();
-
-    // Clean up thinking indicator
-    const { thinkingState } = inFlight;
-    if (thinkingState.usedEmoji && thinkingState.emoji) {
-      try {
-        await client.reactions.remove({
-          channel,
-          timestamp: messageTs,
-          name: thinkingState.emoji,
-        });
-      } catch {
-        // Emoji may have already been removed
-      }
-    } else if (thinkingState.messageTs) {
-      try {
-        await client.chat.delete({
-          channel,
-          ts: thinkingState.messageTs,
-        });
-      } catch {
-        // Message may have already been deleted
-      }
-    }
+    // Stream cleanup happens in processMessage when it detects cancellation
 
     // Determine whether to restart
     const botUserId = await getBotUserId(client);

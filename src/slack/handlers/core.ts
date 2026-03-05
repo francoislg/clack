@@ -1,7 +1,6 @@
 import type { App } from "@slack/bolt";
-import { ErrorCode, type WebAPIPlatformError } from "@slack/web-api";
 import type { SessionContext } from "../../sessions.js";
-import type { ClaudeResponse, ConversationMessage, AskClaudeOptions } from "../../claude.js";
+import type { ClaudeResponse, ConversationMessage } from "../../claude.js";
 import {
   findSessionByThread,
   createSession,
@@ -10,7 +9,6 @@ import {
   updateThreadContext,
   setLastAnswer,
   addError,
-  addRefinement,
 } from "../../sessions.js";
 import { getConfig, type Config } from "../../config.js";
 import { logger } from "../../logger.js";
@@ -18,30 +16,23 @@ import { askClaude, analyzeError } from "../../claude.js";
 import {
   getMessageBlocks,
   getStructuredResponseBlocks,
-  getInvestigatingBlocks,
+  getResponseActionBlocks,
   getErrorBlocksWithRetry,
-  getHiddenThreadNotificationBlocks,
 } from "../blocks.js";
 import { setSessionInfo } from "../state.js";
 import {
   fetchThreadContext,
   sendErrorReport,
-  hasThreadReplies,
-  sendDirectMessage,
 } from "../messagesApi.js";
 import { transformUserMentions } from "../userCache.js";
 import { getClaudeOptions } from "./changeWorkflowHelper.js";
 import { handleAutoExecuteActions } from "./autoExecute.js";
-import { getEffectiveResponseType } from "../../userPreferences.js";
-import { registerInFlightRequest, deregisterInFlightRequest, type ThinkingState } from "../inFlightRequests.js";
-import {
-  postDmInvestigationNotice,
-  postDmThreadReply,
-  storeDmCoordinates,
-} from "../dmResponse.js";
+import { getReactionDelivery } from "../../userPreferences.js";
+import { registerInFlightRequest, deregisterInFlightRequest } from "../inFlightRequests.js";
+import { storeDmCoordinates } from "../dmResponse.js";
+import { SlackStreamer } from "../../streaming/slackStreamer.js";
 
 export type TriggerType = "directMessages" | "mentions" | "reactions";
-export type ResponseStyle = "regular" | "ephemeral";
 
 export interface ProcessMessageParams {
   client: App["client"];
@@ -51,7 +42,6 @@ export interface ProcessMessageParams {
   messageText: string;
   threadTs?: string;
   triggerType: TriggerType;
-  responseStyle?: ResponseStyle;
   /** When true, hints Claude to propose a change with auto-execute */
   workMode?: boolean;
 }
@@ -66,19 +56,17 @@ interface ProcessingContext {
   threadTs?: string;
   effectiveThreadTs: string;
   triggerType: TriggerType;
-  isEphemeral: boolean;
-  /** DM-first delivery mode for reactions */
-  isDmFirst: boolean;
-  /** DM channel ID (set during DM-first flow) */
+  /** DM delivery mode for reactions */
+  isDm: boolean;
+  /** DM channel ID (set during DM flow) */
   dmChannel?: string;
-  /** DM thread ts (set during DM-first flow) */
+  /** DM thread ts (set during DM flow) */
   dmThreadTs?: string;
   /** When true, hints Claude to propose a change with auto-execute */
   workMode: boolean;
+  /** Slack team ID (set during session setup, passed to streamer) */
+  teamId?: string;
 }
-
-// Re-exported from inFlightRequests for use by other handlers
-export type { ThinkingState } from "../inFlightRequests.js";
 
 // ============================================================
 // SESSION SETUP
@@ -87,7 +75,9 @@ export type { ThinkingState } from "../inFlightRequests.js";
 async function setupSession(ctx: ProcessingContext): Promise<SessionContext> {
   const { client, config, userId, channelId, messageTs, messageText, threadTs, effectiveThreadTs } = ctx;
 
-  const botUserId = (await client.auth.test()).user_id || "";
+  const authResult = await client.auth.test();
+  const botUserId = authResult.user_id || "";
+  ctx.teamId = authResult.team_id;
 
   const threadContext = threadTs
     ? await fetchThreadContext(client, channelId, threadTs, botUserId, {
@@ -122,14 +112,12 @@ async function setupSession(ctx: ProcessingContext): Promise<SessionContext> {
   // Persist trigger metadata so button handlers can restore it from disk
   await updateSession(session.sessionId, {
     triggerType: ctx.triggerType,
-    isEphemeral: ctx.isEphemeral,
   });
 
   setSessionInfo(session.sessionId, {
     channelId,
     threadTs: effectiveThreadTs,
     userId,
-    isEphemeral: ctx.isEphemeral,
     triggerType: ctx.triggerType,
   });
 
@@ -137,94 +125,86 @@ async function setupSession(ctx: ProcessingContext): Promise<SessionContext> {
 }
 
 // ============================================================
-// THINKING FEEDBACK
+// STREAM SETUP
 // ============================================================
 
-async function showThinkingFeedback(ctx: ProcessingContext): Promise<ThinkingState> {
-  const { client, config, userId, channelId, messageTs, effectiveThreadTs, triggerType, isEphemeral } = ctx;
-  const thinkingFeedback = config[triggerType].thinking;
-
-  if (thinkingFeedback?.type === "emoji" && thinkingFeedback.emoji) {
-    try {
-      await client.reactions.add({
-        channel: channelId,
-        timestamp: messageTs,
-        name: thinkingFeedback.emoji,
-      });
-    } catch (error) {
-      logger.error("Failed to add thinking reaction:", error);
-    }
-    return { usedEmoji: true, emoji: thinkingFeedback.emoji };
-  }
-
-  if (isEphemeral) {
-    await client.chat.postEphemeral({
-      channel: channelId,
-      user: userId,
-      thread_ts: effectiveThreadTs,
-      text: "Acknowledged, sending to Claude...",
-    });
-    return { usedEmoji: false };
-  }
-
-  const thinkingMessage = await client.chat.postMessage({
-    channel: channelId,
-    thread_ts: effectiveThreadTs,
-    blocks: getInvestigatingBlocks(),
-    text: "Investigating...",
-  });
-
-  return { messageTs: thinkingMessage.ts, usedEmoji: false };
-}
-
-function isSlackPlatformError(
-  error: unknown,
-  code: string
-): error is WebAPIPlatformError {
-  return (
-    error instanceof Error &&
-    (error as WebAPIPlatformError).code === ErrorCode.PlatformError &&
-    (error as WebAPIPlatformError).data?.error === code
-  );
-}
-
-async function removeThinkingEmoji(
-  client: App["client"],
-  channelId: string,
-  messageTs: string,
-  thinking: ThinkingState
-): Promise<void> {
-  if (!thinking.usedEmoji || !thinking.emoji) return;
-
+/**
+ * Open a DM conversation and return the channel ID, or null on failure.
+ */
+async function openDmChannel(client: App["client"], userId: string): Promise<string | null> {
   try {
-    await client.reactions.remove({
-      channel: channelId,
-      timestamp: messageTs,
-      name: thinking.emoji,
-    });
+    const result = await client.conversations.open({ users: userId });
+    return result.channel?.id ?? null;
   } catch (error) {
-    if (!isSlackPlatformError(error, "no_reaction")) {
-      logger.error("Failed to remove thinking reaction:", error);
-    }
+    logger.error("Failed to open DM channel:", error);
+    return null;
   }
+}
+
+/**
+ * Create a SlackStreamer targeting the right channel/thread for this context.
+ * For DM-mode reactions: opens a DM and targets that.
+ * For everything else: targets the channel thread.
+ */
+async function createStreamer(ctx: ProcessingContext): Promise<SlackStreamer> {
+  if (ctx.isDm) {
+    const dmChannel = await openDmChannel(ctx.client, ctx.userId);
+    if (dmChannel) {
+      ctx.dmChannel = dmChannel;
+      // Get permalink for the original message
+      let permalink: string | undefined;
+      try {
+        const result = await ctx.client.chat.getPermalink({
+          channel: ctx.channelId,
+          message_ts: ctx.messageTs,
+        });
+        permalink = result.permalink;
+      } catch {
+        // Non-critical — fall back to channel mention only
+      }
+      // Post a thread parent in the DM so subsequent replies are threaded
+      const linkText = permalink
+        ? `<${permalink}|this message> in <#${ctx.channelId}>`
+        : `a message in <#${ctx.channelId}>`;
+      const parent = await ctx.client.chat.postMessage({
+        channel: dmChannel,
+        text: `_Looking into ${linkText}..._`,
+      });
+      if (parent.ts) {
+        ctx.dmThreadTs = parent.ts;
+      }
+      return new SlackStreamer({
+        client: ctx.client,
+        channel: dmChannel,
+        threadTs: parent.ts || ctx.effectiveThreadTs,
+        userId: ctx.userId,
+        teamId: ctx.teamId,
+      });
+    }
+    // DM failed — fall back to thread mode
+    logger.warn("DM delivery failed, falling back to thread mode");
+    ctx.isDm = false;
+  }
+
+  return new SlackStreamer({
+    client: ctx.client,
+    channel: ctx.channelId,
+    threadTs: ctx.effectiveThreadTs,
+    userId: ctx.userId,
+    teamId: ctx.teamId,
+  });
 }
 
 // ============================================================
 // SUCCESS RESPONSE HANDLING
 // ============================================================
 
-async function postSuccessResponse(
-  ctx: ProcessingContext,
+async function persistResponseState(
   session: SessionContext,
-  response: ClaudeResponse,
-  thinkingMessageTs?: string
+  response: ClaudeResponse
 ): Promise<void> {
-  const { client, channelId, effectiveThreadTs, isEphemeral } = ctx;
-
-  logger.debug("Posting Claude response...");
   await setLastAnswer(session.sessionId, response.answer);
 
-  // Persist tool-related state for button handlers and session reconstruction
   const sessionUpdates: Record<string, unknown> = {};
   if (response.response) {
     sessionUpdates.lastResponse = response.response;
@@ -238,91 +218,26 @@ async function postSuccessResponse(
   if (Object.keys(sessionUpdates).length > 0) {
     await updateSession(session.sessionId, sessionUpdates as any);
   }
-
-  if (ctx.isDmFirst && ctx.dmChannel && ctx.dmThreadTs) {
-    await postDmThreadReply(client, ctx.dmChannel, ctx.dmThreadTs, session, response);
-    return;
-  }
-
-  if (isEphemeral) {
-    await postEphemeralResponse(ctx, session, response);
-  } else {
-    // Use pre-rendered blocks from submit_response when available (already validated)
-    const blocks = response.renderedBlocks
-      ?? (response.response
-        ? getStructuredResponseBlocks(response.response, session.sessionId)
-        : getMessageBlocks(response.answer));
-
-    if (thinkingMessageTs) {
-      await client.chat.update({
-        channel: channelId,
-        ts: thinkingMessageTs,
-        blocks: blocks as any[],
-        text: response.answer,
-      });
-    } else {
-      await client.chat.postMessage({
-        channel: channelId,
-        thread_ts: effectiveThreadTs,
-        blocks: blocks as any[],
-        text: response.answer,
-      });
-    }
-  }
 }
 
-async function postEphemeralResponse(
-  ctx: ProcessingContext,
+/**
+ * Stop the stream with the response content and action buttons.
+ */
+async function stopStreamWithResponse(
+  streamer: SlackStreamer,
   session: SessionContext,
   response: ClaudeResponse
 ): Promise<void> {
-  const { client, config, userId, channelId, effectiveThreadTs } = ctx;
+  // Only include action buttons in blocks — the answer text is already in markdownText.
+  // Including answer sections would duplicate the content.
+  const actionBlocks = response.response
+    ? getResponseActionBlocks(response.response.actions, session.sessionId)
+    : [];
 
-  if (response.response) {
-    const blocks = response.renderedBlocks
-      ?? getStructuredResponseBlocks(response.response, session.sessionId);
-    await client.chat.postEphemeral({
-      channel: channelId,
-      user: userId,
-      thread_ts: effectiveThreadTs,
-      blocks: blocks as any[],
-      text: response.answer,
-    });
-  } else {
-    // No structured response — render text only
-    await client.chat.postEphemeral({
-      channel: channelId,
-      user: userId,
-      thread_ts: effectiveThreadTs,
-      text: response.answer,
-    });
-  }
-
-  if (config.slack.notifyHiddenThread && !ctx.isDmFirst) {
-    await notifyHiddenThread(ctx, session.sessionId);
-  }
-}
-
-async function notifyHiddenThread(ctx: ProcessingContext, sessionId: string): Promise<void> {
-  const { client, userId, channelId, effectiveThreadTs } = ctx;
-
-  const threadHasReplies = await hasThreadReplies(client, channelId, effectiveThreadTs);
-  if (threadHasReplies) return;
-
-  try {
-    const permalink = await client.chat.getPermalink({
-      channel: channelId,
-      message_ts: effectiveThreadTs,
-    });
-    if (permalink.permalink) {
-      const threadLink = `${permalink.permalink}?thread_ts=${effectiveThreadTs}&cid=${channelId}`;
-      const text = `Clack answered your question, but the thread isn't visible yet. Click here to see it: ${threadLink}`;
-      const blocks = getHiddenThreadNotificationBlocks(text, sessionId);
-      await sendDirectMessage(client, userId, text, blocks);
-    }
-  } catch (error) {
-    logger.error("Failed to send hidden thread notification:", error);
-  }
+  await streamer.stop({
+    markdownText: response.answer,
+    ...(actionBlocks.length > 0 && { blocks: actionBlocks as any[] }),
+  });
 }
 
 // ============================================================
@@ -333,9 +248,9 @@ async function handleErrorResponse(
   ctx: ProcessingContext,
   session: SessionContext,
   response: ClaudeResponse,
-  thinkingMessageTs?: string
+  streamer: SlackStreamer
 ): Promise<void> {
-  const { client, config, userId, channelId, effectiveThreadTs, isEphemeral } = ctx;
+  const { client, config, userId } = ctx;
 
   logger.error("Claude failed:", response.error);
 
@@ -349,27 +264,21 @@ async function handleErrorResponse(
     ? errorMessage
     : `Claude seems to have crashed (session: ${session.sessionId}), maybe try again?`;
 
-  if (isEphemeral) {
-    await client.chat.postEphemeral({
-      channel: channelId,
-      user: userId,
-      thread_ts: effectiveThreadTs,
-      text: errorText,
-      blocks: getErrorBlocksWithRetry(session.sessionId),
-    });
-  } else if (thinkingMessageTs) {
-    await client.chat.update({
-      channel: channelId,
-      ts: thinkingMessageTs,
-      blocks: getErrorBlocksWithRetry(session.sessionId),
+  // Stop the stream with error info
+  if (streamer.hasFailed) {
+    await streamer.stop();
+    const targetChannel = ctx.isDm && ctx.dmChannel ? ctx.dmChannel : ctx.channelId;
+    const targetThread = ctx.isDm && ctx.dmThreadTs ? ctx.dmThreadTs : ctx.effectiveThreadTs;
+    await client.chat.postMessage({
+      channel: targetChannel,
+      thread_ts: targetThread,
+      blocks: getErrorBlocksWithRetry(session.sessionId) as any[],
       text: errorText,
     });
   } else {
-    await client.chat.postMessage({
-      channel: channelId,
-      thread_ts: effectiveThreadTs,
-      blocks: getErrorBlocksWithRetry(session.sessionId),
-      text: errorText,
+    await streamer.stop({
+      markdownText: errorText,
+      blocks: getErrorBlocksWithRetry(session.sessionId) as any[],
     });
   }
 
@@ -399,83 +308,6 @@ async function sendErrorDM(
 }
 
 // ============================================================
-// BLOCK VALIDATION RETRY
-// ============================================================
-
-function isSlackBlockError(error: unknown): error is WebAPIPlatformError {
-  if (!(error instanceof Error)) return false;
-  const code = (error as WebAPIPlatformError).data?.error;
-  return (
-    (error as WebAPIPlatformError).code === ErrorCode.PlatformError &&
-    (code === "invalid_blocks" || code === "msg_too_long")
-  );
-}
-
-async function retryWithBlockError(
-  ctx: ProcessingContext,
-  session: SessionContext,
-  claudeOptions: AskClaudeOptions,
-  postError: unknown
-): Promise<ClaudeResponse | null> {
-  const slackError = (postError as WebAPIPlatformError).data?.error ?? "unknown";
-  const errorDetail = (postError as WebAPIPlatformError).data?.response_metadata?.messages?.join("; ")
-    || `Slack rejected the message with ${slackError}.`;
-
-  await addRefinement(
-    session.sessionId,
-    `SYSTEM: Your previous submit_response was rejected by Slack with error "${slackError}". Detail: ${errorDetail}. Your response is too long or has too many sections. Please significantly shorten your answer and call submit_response again.`
-  );
-
-  const updatedSession = await getSession(session.sessionId);
-  if (!updatedSession) {
-    logger.error("Could not reload session for block validation retry");
-    return null;
-  }
-
-  logger.info(`Retrying Claude for block validation (session: ${session.sessionId})...`);
-  const retryResponse = await askClaude(updatedSession, {
-    ...claudeOptions,
-    slackClient: ctx.client,
-  });
-
-  if (!retryResponse.success) {
-    await handleErrorResponse(ctx, session, retryResponse);
-    return null;
-  }
-
-  return retryResponse;
-}
-
-async function postPlainTextFallback(
-  ctx: ProcessingContext,
-  response: ClaudeResponse,
-  thinkingMessageTs?: string
-): Promise<void> {
-  const { client, userId, channelId, effectiveThreadTs, isEphemeral } = ctx;
-
-  if (isEphemeral) {
-    await client.chat.postEphemeral({
-      channel: channelId,
-      user: userId,
-      thread_ts: effectiveThreadTs,
-      text: response.answer,
-    });
-  } else if (thinkingMessageTs) {
-    await client.chat.update({
-      channel: channelId,
-      ts: thinkingMessageTs,
-      text: response.answer,
-    });
-  } else {
-    await client.chat.postMessage({
-      channel: channelId,
-      thread_ts: effectiveThreadTs,
-      text: response.answer,
-    });
-  }
-}
-
-// ============================================================
 // MAIN ENTRY POINT
 // ============================================================
 
@@ -488,17 +320,16 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
     messageText,
     threadTs,
     triggerType,
-    responseStyle = "regular",
     workMode = false,
   } = params;
 
   const config = getConfig();
 
-  // Resolve DM-first for reaction triggers
-  let isDmFirst = false;
-  if (triggerType === "reactions" && responseStyle === "ephemeral") {
-    const effectiveType = await getEffectiveResponseType(userId);
-    isDmFirst = effectiveType === "directMessage";
+  // Resolve DM delivery for reaction triggers based on user preference
+  let isDm = false;
+  if (triggerType === "reactions") {
+    const delivery = await getReactionDelivery(userId);
+    isDm = delivery === "dm";
   }
 
   const ctx: ProcessingContext = {
@@ -511,130 +342,138 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
     threadTs,
     effectiveThreadTs: threadTs || messageTs,
     triggerType,
-    isEphemeral: isDmFirst ? false : responseStyle === "ephemeral",
-    isDmFirst,
+    isDm,
     workMode,
   };
 
-  logger.debug(`Processing message from ${userId} in ${channelId} (trigger: ${triggerType}, dmFirst: ${isDmFirst})`);
+  logger.debug(`Processing message from ${userId} in ${channelId} (trigger: ${triggerType}, dm: ${isDm})`);
 
   // 1. Set up or retrieve session
   const session = await setupSession(ctx);
 
-  // 3. For DM-first: post investigation notice in DM (replaces thinking feedback)
-  //    For others: show regular thinking feedback
-  let thinking: ThinkingState;
-  if (isDmFirst) {
-    const dmResult = await postDmInvestigationNotice(
-      client,
-      userId,
-      channelId,
-      ctx.effectiveThreadTs,
-      session.sessionId
-    );
+  // 2. Create streamer targeting the right channel/thread
+  const streamer = await createStreamer(ctx);
 
-    if (dmResult) {
-      ctx.dmChannel = dmResult.dmChannel;
-      ctx.dmThreadTs = dmResult.dmThreadTs;
+  // 3. Start the stream
+  const streamStarted = await streamer.start();
+  if (!streamStarted) {
+    logger.warn("Stream failed to start, will fall back to one-shot posting");
+  }
 
-      // Store DM coordinates in session
+  try {
+    // Store DM coordinates in session if DM mode was used
+    if (ctx.isDm && ctx.dmChannel && ctx.dmThreadTs) {
       await storeDmCoordinates(
         session.sessionId,
-        dmResult.dmChannel,
-        dmResult.dmThreadTs,
+        ctx.dmChannel,
+        ctx.dmThreadTs,
         channelId,
         ctx.effectiveThreadTs
       );
-    } else {
-      // DM failed — fall back to ephemeral
-      logger.warn("DM-first delivery failed, falling back to ephemeral");
-      ctx.isDmFirst = false;
-      ctx.isEphemeral = true;
     }
-    thinking = { usedEmoji: false };
-  } else {
-    thinking = await showThinkingFeedback(ctx);
-  }
+    // 4. Call Claude with streaming events
+    const claudeOptions = await getClaudeOptions(userId, triggerType);
+    const abortController = new AbortController();
 
-  // 4. Call Claude with change session context for follow-up tools
-  const claudeOptions = await getClaudeOptions(userId, triggerType);
-  const abortController = new AbortController();
-
-  // Register in-flight request for cancellation support (mentions and DMs only)
-  const canCancel = triggerType === "mentions" || triggerType === "directMessages";
-  if (canCancel) {
-    registerInFlightRequest(channelId, messageTs, {
-      abortController,
-      sessionId: session.sessionId,
-      triggerType,
-      thinkingState: thinking,
-    });
-  }
-
-  let response: ClaudeResponse;
-  try {
-    logger.info(
-      `Calling Claude (session: ${session.sessionId}, role: ${claudeOptions.role ?? "member"}, changesWorkflow: ${claudeOptions.changesWorkflowEnabled ?? false})`
-    );
-    response = await askClaude(session, {
-      ...claudeOptions,
-      workMode: ctx.workMode,
-      slackClient: client,
-      abortController,
-    });
-  } finally {
+    // Register in-flight request for cancellation support (mentions and DMs only)
+    const canCancel = triggerType === "mentions" || triggerType === "directMessages";
     if (canCancel) {
-      deregisterInFlightRequest(channelId, messageTs);
+      registerInFlightRequest(channelId, messageTs, {
+        abortController,
+        sessionId: session.sessionId,
+        triggerType,
+      });
     }
-  }
 
-  // If cancelled via message edit, skip all response handling — the messageChanged handler manages cleanup
-  if (response.cancelled) {
-    return;
-  }
-
-  // 5. Remove thinking emoji if used
-  await removeThinkingEmoji(client, channelId, messageTs, thinking);
-
-  // 6. Handle response (with retry on block errors)
-  let postedResponse: ClaudeResponse | undefined;
-  if (response.success) {
+    let response: ClaudeResponse;
     try {
-      await postSuccessResponse(ctx, session, response, thinking.messageTs);
-      postedResponse = response;
-    } catch (postError) {
-      if (isSlackBlockError(postError)) {
-        const errorCode = (postError as WebAPIPlatformError).data?.error;
-        logger.warn(`${errorCode} error posting response for session ${session.sessionId}, retrying via Claude...`);
-        const retryResponse = await retryWithBlockError(ctx, session, claudeOptions, postError);
-        if (retryResponse) {
-          try {
-            await postSuccessResponse(ctx, session, retryResponse, thinking.messageTs);
-            postedResponse = retryResponse;
-          } catch (retryPostError) {
-            // Exhausted retries — fall back to plain text
-            logger.warn("Retry also produced invalid/too-long blocks, falling back to plain text");
-            await postPlainTextFallback(ctx, retryResponse, thinking.messageTs);
-          }
-        }
-      } else {
-        throw postError;
+      logger.info(
+        `Calling Claude (session: ${session.sessionId}, trigger: ${triggerType}, role: ${claudeOptions.role ?? "member"}, changesWorkflow: ${claudeOptions.changesWorkflowEnabled ?? false})`
+      );
+      response = await askClaude(session, {
+        ...claudeOptions,
+        workMode: ctx.workMode,
+        slackClient: client,
+        abortController,
+        onEvent: streamer.handleEvent,
+      });
+    } finally {
+      if (canCancel) {
+        deregisterInFlightRequest(channelId, messageTs);
       }
     }
-  } else {
-    await handleErrorResponse(ctx, session, response, thinking.messageTs);
-  }
 
-  // 7. Auto-execute any actions flagged with auto: true
-  if (postedResponse) {
-    await handleAutoExecuteActions({
-      client,
-      channelId,
-      threadTs: ctx.effectiveThreadTs,
-      userId,
-      response: postedResponse,
-      sessionId: session.sessionId,
-      role: claudeOptions.role ?? "member",
-    });
+    // If cancelled via message edit, stop the stream and bail
+    if (response.cancelled) {
+      await streamer.stop({ markdownText: "_Request cancelled._" });
+      if (streamer.hasFailed) {
+        const targetChannel = ctx.isDm && ctx.dmChannel ? ctx.dmChannel : channelId;
+        const targetThread = ctx.isDm && ctx.dmThreadTs ? ctx.dmThreadTs : ctx.effectiveThreadTs;
+        await client.chat.postMessage({
+          channel: targetChannel,
+          thread_ts: targetThread,
+          text: "_Request cancelled._",
+        });
+      }
+      return;
+    }
+
+    // 5. Handle response
+    if (response.success) {
+      await persistResponseState(session, response);
+
+      if (streamer.hasFailed) {
+        // Stream broke mid-flight — stop it to clear the loading state, then fall back
+        await streamer.stop();
+        const blocks = response.renderedBlocks
+          ?? (response.response
+            ? getStructuredResponseBlocks(response.response, session.sessionId)
+            : getMessageBlocks(response.answer));
+        const targetChannel = ctx.isDm && ctx.dmChannel ? ctx.dmChannel : channelId;
+        const targetThread = ctx.isDm && ctx.dmThreadTs ? ctx.dmThreadTs : ctx.effectiveThreadTs;
+        await client.chat.postMessage({
+          channel: targetChannel,
+          thread_ts: targetThread,
+          blocks: blocks as any[],
+          text: response.answer,
+        });
+      } else {
+        await stopStreamWithResponse(streamer, session, response);
+      }
+
+      // Auto-execute any actions flagged with auto: true
+      await handleAutoExecuteActions({
+        client,
+        channelId,
+        threadTs: ctx.effectiveThreadTs,
+        userId,
+        response,
+        sessionId: session.sessionId,
+        role: claudeOptions.role ?? "member",
+        dmChannel: ctx.dmChannel,
+        dmThreadTs: ctx.dmThreadTs,
+      });
+    } else {
+      await handleErrorResponse(ctx, session, response, streamer);
+    }
+  } catch (error) {
+    logger.error("Unhandled error in processMessage:", error);
+    try {
+      await streamer.stop({ markdownText: "Something went wrong processing this request." });
+      if (streamer.hasFailed) {
+        const targetChannel = ctx.isDm && ctx.dmChannel ? ctx.dmChannel : channelId;
+        const targetThread = ctx.isDm && ctx.dmThreadTs ? ctx.dmThreadTs : ctx.effectiveThreadTs;
+        await client.chat.postMessage({
+          channel: targetChannel,
+          thread_ts: targetThread,
+          text: "Something went wrong processing this request.",
+        });
+      }
+    } catch {
+      // Last resort — stream is unrecoverable
+    }
+  } finally {
+    // Ensure stream is stopped to prevent orphaned streams (idempotent — no-op if already stopped)
+    await streamer.stop();
   }
 }

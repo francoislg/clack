@@ -133,7 +133,6 @@ export function registerNewQueryHandler(app: App): void {
       messageText: actualMessageText,
       threadTs,
       triggerType: "reactions",
-      responseStyle: "ephemeral",
       workMode,
     });
   });

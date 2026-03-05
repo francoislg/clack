@@ -20,7 +20,7 @@ async function resolveConfigUpdateIntent(sessionId: string, ref: string): Promis
 }
 
 export function registerConfigUpdateActionHandler(app: App): void {
-  app.action<BlockAction>("clack_config_update", async ({ ack, body, client, respond }) => {
+  app.action<BlockAction>(/^clack_config_update_\d+$/, async ({ ack, body, client, respond }) => {
     await ack();
 
     const rawValue = (body.actions[0] as { value: string }).value;

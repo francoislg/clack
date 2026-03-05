@@ -70,60 +70,6 @@ export function getDmPostAcceptActions(sessionId: string) {
 }
 
 /**
- * Open a DM with the user, post the investigation notice, and return DM coordinates.
- */
-export async function postDmInvestigationNotice(
-  client: App["client"],
-  userId: string,
-  originChannel: string,
-  originThreadTs: string,
-  sessionId: string
-): Promise<{ dmChannel: string; dmThreadTs: string } | null> {
-  try {
-    // Get permalink for the original message
-    const permalinkResult = await client.chat.getPermalink({
-      channel: originChannel,
-      message_ts: originThreadTs,
-    });
-    const permalink = permalinkResult.permalink || `(could not generate link)`;
-
-    // Open DM conversation
-    const conversation = await client.conversations.open({ users: userId });
-    const dmChannel = conversation.channel?.id;
-    if (!dmChannel) {
-      logger.error("Failed to open DM conversation with user");
-      return null;
-    }
-
-    // Post investigation notice (this becomes the DM thread anchor)
-    const result = await client.chat.postMessage({
-      channel: dmChannel,
-      text: `Looking into this message: ${permalink}. I'll reply here when ready.`,
-      blocks: [
-        {
-          type: "section",
-          text: {
-            type: "mrkdwn",
-            text: `:mag: Looking into <${permalink}|this message>. I'll reply here when ready.`,
-          },
-        },
-      ],
-    });
-
-    const dmThreadTs = result.ts;
-    if (!dmThreadTs) {
-      logger.error("Failed to get DM message timestamp");
-      return null;
-    }
-
-    return { dmChannel, dmThreadTs };
-  } catch (error) {
-    logger.error("Failed to post DM investigation notice:", error);
-    return null;
-  }
-}
-
-/**
  * Post the answer as a thread reply in the DM with action buttons.
  */
 export async function postDmThreadReply(

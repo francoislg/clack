@@ -6,7 +6,7 @@ import { restoreSessionInfo } from "../state.js";
 import type { StagedIntent } from "../../tools/types.js";
 import { handleFollowUp } from "../../changes/workflow.js";
 import type { FollowUpCommand } from "../../changes/types.js";
-import { safeChatUpdate } from "./safeChatUpdate.js";
+import { SlackStreamer } from "../../streaming/slackStreamer.js";
 
 async function resolveStagedIntentFromSession(sessionId: string, ref: string): Promise<StagedIntent | null> {
   const session = await getSession(sessionId);
@@ -29,35 +29,42 @@ export async function triggerFollowUp(
   additionalInstructions: string | undefined,
   channelId: string,
   threadTs: string,
-  client: App["client"]
+  userId: string,
+  client: App["client"],
+  opts?: { streamChannel?: string; streamThreadTs?: string },
 ): Promise<void> {
-  // Post one acknowledgment message that we'll update with progress
-  const ackMessage = await client.chat.postMessage({
-    channel: channelId,
-    thread_ts: threadTs,
-    text: `Starting ${command}...`,
-  });
+  // Create streamer for live progress (target DM thread if provided)
+  const streamChannel = opts?.streamChannel ?? channelId;
+  const streamThreadTs = opts?.streamThreadTs ?? threadTs;
+  const streamer = new SlackStreamer({ client, channel: streamChannel, threadTs: streamThreadTs, userId });
+  await streamer.start();
 
-  const result = await handleFollowUp(
-    session,
-    command,
-    additionalInstructions,
-  );
+  try {
+    const result = await handleFollowUp(
+      session,
+      command,
+      additionalInstructions,
+      streamer.handleEvent,
+    );
 
-  if (result.success) {
-    await safeChatUpdate(
-      client,
-      channelId,
-      ackMessage.ts!,
-      result.summary || `${command} completed successfully.`,
-    );
-  } else {
-    await safeChatUpdate(
-      client,
-      channelId,
-      ackMessage.ts!,
-      `${command} failed: ${result.error}`,
-    );
+    const message = result.success
+      ? (result.summary || `${command} completed successfully.`)
+      : `${command} failed: ${result.error}`;
+
+    if (streamer.hasFailed) {
+      await streamer.stop();
+      await client.chat.postMessage({ channel: streamChannel, thread_ts: streamThreadTs, text: message });
+    } else {
+      await streamer.stop({ markdownText: message });
+    }
+  } catch (error) {
+    logger.error("Follow-up action failed:", error);
+    await streamer.stop();
+    await client.chat.postMessage({
+      channel: streamChannel,
+      thread_ts: streamThreadTs,
+      text: `Follow-up action failed unexpectedly: ${error instanceof Error ? error.message : String(error)}`,
+    });
   }
 }
 
@@ -67,7 +74,7 @@ function registerFollowUpActionHandler(
   intentType: string,
   command: FollowUpCommand
 ) {
-  app.action<BlockAction>(actionId, async ({ ack, body, client, respond }) => {
+  app.action<BlockAction>(new RegExp(`^${actionId}_\\d+$`), async ({ ack, body, client, respond }) => {
     await ack();
 
     const rawValue = (body.actions[0] as { value: string }).value;
@@ -116,7 +123,7 @@ function registerFollowUpActionHandler(
       ? (intent as { instructions: string }).instructions
       : undefined;
 
-    await triggerFollowUp(session, command, additionalInstructions, sessionInfo.channelId, sessionInfo.threadTs, client);
+    await triggerFollowUp(session, command, additionalInstructions, sessionInfo.channelId, sessionInfo.threadTs, userId, client);
   });
 }
 

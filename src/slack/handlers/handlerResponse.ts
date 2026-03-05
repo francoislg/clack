@@ -1,10 +1,6 @@
 /**
  * Shared response posting logic for button handlers.
- *
- * Handlers need to behave differently based on whether the original
- * interaction was ephemeral (reactions trigger) or regular (DMs, mentions):
- * - Ephemeral: delete original via respond(), post new ephemeral
- * - Regular: leave original, post new regular message in thread
+ * All responses are posted as regular thread messages.
  */
 import type { App } from "@slack/bolt";
 import { ErrorCode, type WebAPIPlatformError } from "@slack/web-api";
@@ -21,44 +17,29 @@ import { logger } from "../../logger.js";
 type RespondFn = (response: { delete_original?: boolean; replace_original?: boolean; text?: string }) => Promise<unknown>;
 
 /**
- * Dismiss the original message.
- * For ephemeral: deletes via respond().
- * For regular messages: no-op (preserves conversation history).
+ * Dismiss the original message (no-op for regular messages).
  */
 export async function dismissOriginal(
-  respond: RespondFn,
-  sessionInfo: SessionInfo,
+  _respond: RespondFn,
+  _sessionInfo: SessionInfo,
 ): Promise<void> {
-  if (sessionInfo.isEphemeral !== false) {
-    await respond({ delete_original: true });
-  }
+  // No-op — streaming messages can't be deleted via respond()
 }
 
 /**
- * Post a response message to the user.
- * Chooses ephemeral or regular based on the session's original context.
+ * Post a response message to the user in the thread.
  */
 export async function postResponse(
   client: App["client"],
   sessionInfo: SessionInfo,
   options: { blocks?: unknown[]; text: string },
 ): Promise<void> {
-  if (sessionInfo.isEphemeral !== false) {
-    await client.chat.postEphemeral({
-      channel: sessionInfo.channelId,
-      user: sessionInfo.userId,
-      thread_ts: sessionInfo.threadTs,
-      ...(options.blocks ? { blocks: options.blocks as any[] } : {}),
-      text: options.text,
-    });
-  } else {
-    await client.chat.postMessage({
-      channel: sessionInfo.channelId,
-      thread_ts: sessionInfo.threadTs,
-      ...(options.blocks ? { blocks: options.blocks as any[] } : {}),
-      text: options.text,
-    });
-  }
+  await client.chat.postMessage({
+    channel: sessionInfo.channelId,
+    thread_ts: sessionInfo.threadTs,
+    ...(options.blocks ? { blocks: options.blocks as any[] } : {}),
+    text: options.text,
+  });
 }
 
 /**

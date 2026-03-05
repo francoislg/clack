@@ -1,16 +1,9 @@
 import { logger } from "../logger.js";
 
-export interface ThinkingState {
-  messageTs?: string;
-  usedEmoji: boolean;
-  emoji?: string;
-}
-
 export interface InFlightRequest {
   abortController: AbortController;
   sessionId: string;
   triggerType: "directMessages" | "mentions";
-  thinkingState: ThinkingState;
 }
 
 const registry = new Map<string, InFlightRequest>();

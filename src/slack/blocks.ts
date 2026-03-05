@@ -14,10 +14,6 @@ function answerSections(answer: string) {
 
 /** Default button labels for each action type */
 const DEFAULT_LABELS: Record<string, string> = {
-  accept: "✅ Accept",
-  reject: "❌ Reject",
-  edit: "✏️ Edit & Accept",
-  refine: "🔄 Refine",
   choice: "Select",
   followup: "Continue",
   send_to_thread: "Send to thread",
@@ -31,8 +27,6 @@ const DEFAULT_LABELS: Record<string, string> = {
 
 /** Button styles for action types */
 const ACTION_STYLES: Record<string, "primary" | "danger" | undefined> = {
-  accept: "primary",
-  reject: "danger",
   send_to_thread: "primary",
   change: "primary",
   merge: "primary",
@@ -51,17 +45,8 @@ function getActionId(action: Action): string {
 /** Encode button value with session ID and action-specific data */
 function encodeActionValue(sessionId: string, action: Action): string {
   switch (action.type) {
-    // Backward-compat: plain sessionId for existing handlers
-    case "accept":
-    case "reject":
-    case "edit":
     case "send_to_thread":
       return sessionId;
-    // JSON-encoded for new/extended handlers
-    case "refine":
-      return action.hint
-        ? JSON.stringify({ s: sessionId, h: action.hint })
-        : sessionId;
     case "choice":
       return JSON.stringify({ s: sessionId, v: action.value, ...(action.workMode && { w: true }) });
     case "followup":
@@ -114,10 +99,12 @@ function renderSections(sections: ResponseSection[]) {
 }
 
 /** Map an Action to a Slack button element */
-function actionToButton(action: Action, sessionId: string) {
+function actionToButton(action: Action, sessionId: string, index: number) {
   const label = ("label" in action && action.label) || DEFAULT_LABELS[action.type] || action.type;
   const style = ACTION_STYLES[action.type];
 
+  // Append index to action_id to guarantee uniqueness within a message.
+  // Handlers use regex matching (e.g. /^clack_followup/) to route all variants.
   const button: Record<string, unknown> = {
     type: "button" as const,
     text: {
@@ -125,7 +112,7 @@ function actionToButton(action: Action, sessionId: string) {
       text: label,
       emoji: true,
     },
-    action_id: getActionId(action),
+    action_id: `${getActionId(action)}_${index}`,
     value: encodeActionValue(sessionId, action),
   };
 
@@ -142,14 +129,31 @@ function actionToButton(action: Action, sessionId: string) {
  */
 export function getStructuredResponseBlocks(payload: SubmitResponsePayload, sessionId: string) {
   const sectionBlocks = renderSections(payload.sections);
+  const actionBlocks = getResponseActionBlocks(payload.actions, sessionId);
 
+  if (actionBlocks.length === 0) {
+    return sectionBlocks;
+  }
+
+  return [
+    ...sectionBlocks,
+    { type: "divider" as const },
+    ...actionBlocks,
+  ];
+}
+
+/**
+ * Build only the action button blocks for a response (no answer sections).
+ * Used by streaming to append buttons without duplicating the answer text.
+ */
+export function getResponseActionBlocks(actions: Action[], sessionId: string) {
   // Filter out auto-executed actions — they fire immediately, no button needed
-  const buttonActions = payload.actions.filter(
+  const buttonActions = actions.filter(
     (a) => !("auto" in a && (a as { auto?: boolean }).auto === true)
   );
 
   if (buttonActions.length === 0) {
-    return sectionBlocks;
+    return [];
   }
 
   // Slack allows max 5 buttons per actions block — split if needed
@@ -158,16 +162,11 @@ export function getStructuredResponseBlocks(payload: SubmitResponsePayload, sess
     actionChunks.push(buttonActions.slice(i, i + 5));
   }
 
-  const actionBlocks = actionChunks.map((chunk) => ({
+  let globalIndex = 0;
+  return actionChunks.map((chunk) => ({
     type: "actions" as const,
-    elements: chunk.map((action) => actionToButton(action, sessionId)),
+    elements: chunk.map((action) => actionToButton(action, sessionId, globalIndex++)),
   }));
-
-  return [
-    ...sectionBlocks,
-    { type: "divider" as const },
-    ...actionBlocks,
-  ];
 }
 
 
@@ -214,45 +213,6 @@ export function getErrorBlocksWithRetry(sessionId: string) {
             emoji: true,
           },
           action_id: "clack_retry",
-          value: sessionId,
-        },
-      ],
-    },
-  ];
-}
-
-export function getInvestigatingBlocks() {
-  return [
-    {
-      type: "section" as const,
-      text: {
-        type: "mrkdwn" as const,
-        text: ":mag: _Investigating..._",
-      },
-    },
-  ];
-}
-
-export function getHiddenThreadNotificationBlocks(text: string, sessionId: string) {
-  return [
-    {
-      type: "section" as const,
-      text: {
-        type: "mrkdwn" as const,
-        text,
-      },
-    },
-    {
-      type: "actions" as const,
-      elements: [
-        {
-          type: "button" as const,
-          text: {
-            type: "plain_text" as const,
-            text: "Send the message again",
-            emoji: true,
-          },
-          action_id: "clack_resend",
           value: sessionId,
         },
       ],

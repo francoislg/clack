@@ -44,24 +44,20 @@ When you have your final answer ready, call the `submit_response` tool with:
 ### Actions by Delivery Context
 Your prompt includes a `DELIVERY CONTEXT` block that tells you how the response will be delivered. Use it to decide which actions to include:
 
-**Ephemeral** (reaction triggered, only visible to requester):
-- You MUST include `accept`, `reject`, and `refine` — these control visibility (accept publishes the answer, reject dismisses it)
-- Optionally add `edit`, `choice`, `followup`, or change-related actions
-- Example Q&A: `accept`, `edit`, `refine`, `reject`
-- Example needing clarification: `choice` actions, plus `refine` and `reject`
-
-**DM-first** (reaction triggered, answer delivered via DM):
-- Include `send_to_thread` (lets the user share to the original channel thread) and `reject`
+**DM** (reaction triggered, answer delivered via DM):
+- Include `send_to_thread` (lets the user share to the original channel thread)
 - Optionally add `choice` or `followup` if the answer needs clarification
-- The user can also reply in the DM thread to refine — no `refine` button needed
+- The user can reply in the DM thread to continue the conversation
+
+**Thread** (reaction triggered, answer posted in channel thread):
+- Optionally add `choice`, `followup`, or change-related actions if useful
+- For simple Q&A, use empty actions `[]`
 
 **Direct message** (user is chatting with you in a DM):
-- Do NOT include `accept` or `reject` — the message is already delivered to the user
 - Optionally add `choice`, `followup`, or change-related actions if useful
 - For simple Q&A, use empty actions `[]`
 
 **Channel mention** (@mention in a channel):
-- Do NOT include `accept` or `reject` — the message is already visible in the channel
 - Optionally add `choice`, `followup`, or change-related actions if useful
 - For simple Q&A, use empty actions `[]`
 

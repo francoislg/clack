@@ -7,6 +7,7 @@ import type { UserRole } from "./roles.js";
 import type { SessionContext } from "./sessions.js";
 import { formatUserIdentity } from "./slack/userCache.js";
 import type { SubmitResponsePayload, ToolCallRecord, StagedIntent } from "./tools/types.js";
+import type { StreamEvent } from "./streaming/types.js";
 import { buildQueryContext } from "./tools/context.js";
 import { buildClackTools } from "./tools/server.js";
 
@@ -63,6 +64,8 @@ export interface AskClaudeOptions {
   slackClient?: import("@slack/bolt").App["client"];
   /** AbortController for cancelling in-flight queries */
   abortController?: AbortController;
+  /** Callback for real-time streaming events (tool calls, text) */
+  onEvent?: (event: StreamEvent) => void;
 }
 
 export interface McpServerInfo {
@@ -79,6 +82,31 @@ export interface McpTestResult {
   mcpTools: string[];
   clackTools: string[];
   error?: string;
+}
+
+/**
+ * Extract a short error message from a tool_result block's content field.
+ * Returns undefined if content is empty or not extractable.
+ */
+export function extractToolErrorMessage(content: unknown): string | undefined {
+  const MAX_LENGTH = 100;
+  let text: string | undefined;
+
+  if (typeof content === "string") {
+    text = content;
+  } else if (Array.isArray(content)) {
+    const parts: string[] = [];
+    for (const block of content) {
+      if (block && typeof block === "object" && "text" in block && typeof block.text === "string") {
+        parts.push(block.text);
+      }
+    }
+    text = parts.join(" ");
+  }
+
+  if (!text || !text.trim()) return undefined;
+  text = text.trim();
+  return text.length > MAX_LENGTH ? text.substring(0, MAX_LENGTH) + "…" : text;
 }
 
 function buildSystemPrompt(options?: AskClaudeOptions): string {
@@ -120,20 +148,23 @@ function buildDeliveryContext(session: SessionContext): string | null {
   if (session.dmChannel && session.originChannel) {
     lines.push("- Mode: DM-first (reaction triggered, answer delivered via direct message)");
     lines.push("- The user sees your response in a private DM thread. They can reply to refine.");
+    lines.push("- The response is NOT visible in the original channel — only the user can see it in this DM.");
     if (session.channelPostTs) {
       lines.push("- An answer was already shared to the original channel thread.");
     }
-    lines.push("- Available actions: `send_to_thread` (share to original channel), `reject` (dismiss)");
+    lines.push("- `send_to_thread` shares this DM answer to the original channel thread the reaction was on. `reject` dismisses.");
     lines.push("- Choose actions appropriate to your response. Not every response needs the same buttons.");
-  } else if (session.triggerType === "reactions" && session.isEphemeral) {
-    lines.push("- Mode: Ephemeral (reaction triggered, only visible to the requester)");
-    lines.push("- The response is ephemeral — only the requester can see it. You MUST include `accept`, `reject`, and `refine` actions so they can publish, dismiss, or refine.");
-  } else if (session.triggerType === "directMessages") {
-    lines.push("- Mode: Direct message (the user is chatting with you in a DM)");
-    lines.push("- The response is already visible to the user. Do NOT include `accept` or `reject` actions — they have no meaning here.");
-  } else if (session.triggerType === "mentions") {
-    lines.push("- Mode: Channel mention (the user @mentioned you in a channel)");
-    lines.push("- The response is already visible in the channel thread. Do NOT include `accept` or `reject` actions — they have no meaning here.");
+  } else {
+    // All non-DM-first modes: response is already where the user can see it
+    if (session.triggerType === "reactions") {
+      lines.push("- Mode: Thread (reaction triggered, answer posted in the channel thread)");
+    } else if (session.triggerType === "directMessages") {
+      lines.push("- Mode: Direct message (the user is chatting with you in a DM)");
+    } else if (session.triggerType === "mentions") {
+      lines.push("- Mode: Channel mention (the user @mentioned you in a channel)");
+    }
+    lines.push("- The response is already visible to the user. There is no separate destination to send it to.");
+    lines.push("- Do NOT include `accept`, `reject`, or `send_to_thread` actions — they have no meaning here.");
   }
 
   return lines.join("\n");
@@ -291,7 +322,7 @@ export async function askClaude(
         timestamp: Date.now(),
       };
 
-      // Extract tool call details from assistant messages
+      // Extract tool call details and emit stream events
       const msg = message as Record<string, unknown>;
       if (msg.message && typeof msg.message === "object") {
         const innerMsg = msg.message as Record<string, unknown>;
@@ -299,12 +330,22 @@ export async function askClaude(
           for (const block of innerMsg.content) {
             if (block && typeof block === "object" && "type" in block && block.type === "tool_use") {
               const tb = block as Record<string, unknown>;
-              traceEntry.toolCall = {
-                tool: String(tb.name || "unknown"),
-                args: (typeof tb.input === "object" && tb.input !== null) ? tb.input as Record<string, unknown> : {},
-                result: {},
-              };
+              const toolName = String(tb.name || "unknown");
+              const toolArgs = (typeof tb.input === "object" && tb.input !== null) ? tb.input as Record<string, unknown> : {};
+              traceEntry.toolCall = { tool: toolName, args: toolArgs, result: {} };
+              // Emit tool_start event for streaming
+              if (options?.onEvent && tb.id) {
+                options.onEvent({ type: "tool_start", taskId: String(tb.id), toolName, toolArgs });
+              }
               break;
+            }
+            if (block && typeof block === "object" && "type" in block && block.type === "tool_result") {
+              // Emit tool_end event for streaming
+              const rb = block as Record<string, unknown>;
+              if (options?.onEvent && rb.tool_use_id) {
+                const errorMessage = rb.is_error === true ? extractToolErrorMessage(rb.content) : undefined;
+                options.onEvent({ type: "tool_end", taskId: String(rb.tool_use_id), error: rb.is_error === true, errorMessage });
+              }
             }
           }
         }

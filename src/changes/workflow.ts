@@ -20,6 +20,7 @@ import { executeChange, resolveChangesInstructions, runClaudeInWorktree, runWork
 import { buildWorkerContext } from "../tools/context.js";
 import { buildClackTools } from "../tools/server.js";
 import { getOctokit, parseRepoUrl } from "../github.js";
+import type { StreamEvent } from "../streaming/types.js";
 
 // ============================================================================
 // Main Workflow Orchestration
@@ -33,6 +34,7 @@ export async function startChangeWorkflow(
   request: ChangeRequest,
   plan: ChangePlan,
   sessionId: string,
+  onEvent?: (event: StreamEvent) => void,
 ): Promise<ChangeResult> {
   const config = getConfig();
 
@@ -82,8 +84,9 @@ export async function startChangeWorkflow(
   } else {
     try {
       worktree = await createWorktree(repo, plan.branchName);
-      // Run worktree setup for fresh worktrees only
-      await runWorktreeSetup(repo.name, worktree.worktreePath, plan.branchName);
+      // Run worktree setup for fresh worktrees only.
+      // Forward onEvent so setup tool calls keep the stream alive.
+      await runWorktreeSetup(repo.name, worktree.worktreePath, plan.branchName, onEvent);
     } catch (err) {
       return {
         success: false,
@@ -112,7 +115,8 @@ export async function startChangeWorkflow(
       worktree,
       request,
       sessionId,
-      resumeContext
+      resumeContext,
+      onEvent,
     );
   } catch (error) {
     appendExecutionLog(plan.branchName, `Execution error: ${error}`);
@@ -156,6 +160,7 @@ export async function handleFollowUp(
   session: SessionContext,
   command: FollowUpCommand,
   additionalInstructions?: string,
+  onEvent?: (event: StreamEvent) => void,
 ): Promise<ChangeResult> {
   const activeChange = session.activeChange;
   if (!activeChange) {
@@ -252,6 +257,8 @@ export async function handleFollowUp(
         activeChange.worktree,
         updateRequest,
         session.sessionId,
+        undefined,
+        onEvent,
       );
 
       if (!updateResult.success) {
@@ -280,6 +287,7 @@ export async function handleFollowUp(
         timeout: 2,
         branchName: activeChange.branch,
         mcpServers: { clack: workerTools.mcpServer },
+        onEvent,
       });
 
       // Check if merge succeeded by reading session state
@@ -311,6 +319,7 @@ export async function handleFollowUp(
         timeout: 2,
         branchName: activeChange.branch,
         mcpServers: { clack: workerTools.mcpServer },
+        onEvent,
       });
 
       // Check if close succeeded by reading session state
@@ -338,6 +347,7 @@ export async function handleFollowUp(
     disallowedTools: ["Task"],
     branchName: activeChange.branch,
     mcpServers: { clack: workerTools.mcpServer },
+    onEvent,
   });
 
   updateActiveChangeStatus(session.sessionId, "pr_created");
