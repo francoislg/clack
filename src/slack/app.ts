@@ -2,11 +2,6 @@ import { App } from "@slack/bolt";
 import { getConfig } from "../config.js";
 import { logger } from "../logger.js";
 import { registerNewQueryHandler } from "./handlers/newQuery.js";
-import { registerAcceptHandler } from "./handlers/accept.js";
-import { registerRejectHandler } from "./handlers/reject.js";
-import { registerRefineHandler } from "./handlers/refine.js";
-import { registerUpdateHandler } from "./handlers/update.js";
-import { registerEditHandler } from "./handlers/edit.js";
 import { registerRetryHandler } from "./handlers/retry.js";
 import { registerResendHandler } from "./handlers/resend.js";
 import { registerHomeTabHandler } from "./handlers/homeTab.js";
@@ -38,11 +33,6 @@ export function createSlackApp(): App {
 
   // Reaction mode handlers (always enabled)
   registerNewQueryHandler(app);
-  registerAcceptHandler(app);
-  registerRejectHandler(app);
-  registerRefineHandler(app);
-  registerUpdateHandler(app);
-  registerEditHandler(app);
   registerRetryHandler(app);
   registerResendHandler(app);
 
@@ -53,29 +43,21 @@ export function createSlackApp(): App {
   registerConfigUpdateActionHandler(app);
   registerChangeThreadActionHandlers(app);
 
-  // DM-first reaction handlers (when reactions.responseType is "directMessage")
-  if (config.reactions.responseType === "directMessage") {
-    logger.debug("DM-first reactions mode enabled");
-    registerDmActionHandlers(app);
-    // Thread reply handler is needed for DM-first refinement
-    // (also registered below if directMessages.enabled, but registerThreadReplyHandler is idempotent by event handler dedup)
-    registerThreadReplyHandler(app);
-  }
+  // DM reaction handlers (always enabled — DM delivery is a per-user preference)
+  registerDmActionHandlers(app);
+  registerThreadReplyHandler(app);
 
   // Direct message handlers (only when enabled)
   if (config.directMessages.enabled) {
     logger.debug("Direct message mode enabled");
     registerDirectMessageHandler(app);
-    if (config.reactions.responseType !== "directMessage") {
-      // Only register if not already registered above
-      registerThreadReplyHandler(app);
-    }
   }
 
   // Mention handlers (only when enabled)
   if (config.mentions.enabled) {
     logger.debug("Mention mode enabled");
     registerMentionHandler(app);
+
   }
 
   // Message edit handler for cancelling in-flight requests (when DMs or mentions are enabled)

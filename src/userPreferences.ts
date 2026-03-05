@@ -1,7 +1,8 @@
 import { mkdir, readFile, writeFile, access } from "node:fs/promises";
 import { resolve } from "node:path";
 import { logger } from "./logger.js";
-import { getConfig, type ReactionsResponseType } from "./config.js";
+
+export type ReactionDelivery = "dm" | "thread";
 
 async function exists(path: string): Promise<boolean> {
   try {
@@ -13,11 +14,12 @@ async function exists(path: string): Promise<boolean> {
 }
 
 export interface UserPreferences {
-  dmOptOut: boolean;
+  dmOptOut?: boolean; // deprecated, kept for migration
+  reactionDelivery: ReactionDelivery;
 }
 
 const DEFAULT_PREFERENCES: UserPreferences = {
-  dmOptOut: false,
+  reactionDelivery: "dm",
 };
 
 type PreferencesMap = Record<string, Partial<UserPreferences>>;
@@ -94,21 +96,11 @@ export async function setUserPreference<K extends keyof UserPreferences>(
 }
 
 /**
- * Resolve the effective response type for a user.
- * If config is "ephemeral", always returns "ephemeral" (no user override possible).
- * If config is "directMessage", returns "ephemeral" only if user has opted out.
+ * Get the user's preferred reaction delivery mode ("dm" or "thread").
+ * Defaults to "dm" if not set.
  */
-export async function getEffectiveResponseType(userId: string): Promise<ReactionsResponseType> {
-  const config = getConfig();
-  const configDefault = config.reactions.responseType;
-
-  if (configDefault === "ephemeral") {
-    return "ephemeral";
-  }
-
-  // Config is "directMessage" — check if user opted out
-  const dmOptOut = await getUserPreference(userId, "dmOptOut");
-  return dmOptOut ? "ephemeral" : "directMessage";
+export async function getReactionDelivery(userId: string): Promise<ReactionDelivery> {
+  return getUserPreference(userId, "reactionDelivery");
 }
 
 // Clear cache (useful for testing)

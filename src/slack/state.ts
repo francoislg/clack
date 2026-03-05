@@ -5,8 +5,6 @@ export interface SessionInfo {
   channelId: string;
   threadTs: string;
   userId: string;
-  /** Whether responses should be ephemeral (reactions) or regular (DMs, mentions). Defaults to true. */
-  isEphemeral?: boolean;
   /** Original trigger type, used to build proper Claude options on button clicks. */
   triggerType?: "directMessages" | "mentions" | "reactions";
   /** DM-first: the DM channel ID where the answer was delivered */
@@ -59,8 +57,7 @@ export async function restoreSessionInfo(sessionId: string): Promise<SessionInfo
       userId: session.userId,
       // Restore trigger metadata
       ...(session.triggerType && { triggerType: session.triggerType }),
-      ...(session.isEphemeral != null && { isEphemeral: session.isEphemeral }),
-      // Restore DM-first delivery coordinates if present
+      // Restore DM delivery coordinates if present
       ...(session.dmChannel && { dmChannel: session.dmChannel }),
       ...(session.dmThreadTs && { dmThreadTs: session.dmThreadTs }),
       ...(session.originChannel && { originChannel: session.originChannel }),

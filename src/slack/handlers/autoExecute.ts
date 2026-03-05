@@ -22,6 +22,9 @@ export interface AutoExecuteParams {
   /** Unified session ID for looking up active change state */
   sessionId: string;
   role: UserRole;
+  /** When set, stream progress to this DM thread instead of the channel thread. */
+  dmChannel?: string;
+  dmThreadTs?: string;
 }
 
 /**
@@ -30,7 +33,7 @@ export interface AutoExecuteParams {
  * to the thread without affecting the already-posted response.
  */
 export async function handleAutoExecuteActions(params: AutoExecuteParams): Promise<void> {
-  const { client, channelId, threadTs, userId, response, sessionId, role } = params;
+  const { client, channelId, threadTs, userId, response, sessionId, role, dmChannel, dmThreadTs } = params;
 
   if (!response.response?.actions || !response.stagedIntents) return;
 
@@ -79,7 +82,8 @@ export async function handleAutoExecuteActions(params: AutoExecuteParams): Promi
           channelId,
           threadTs,
           userId,
-          client
+          client,
+          dmChannel && dmThreadTs ? { streamChannel: dmChannel, streamThreadTs: dmThreadTs } : undefined,
         ).catch((err) => {
           logger.error("Auto-execute change workflow error:", err);
           client.chat.postMessage({
@@ -108,7 +112,9 @@ export async function handleAutoExecuteActions(params: AutoExecuteParams): Promi
           additionalInstructions,
           channelId,
           threadTs,
-          client
+          userId,
+          client,
+          dmChannel && dmThreadTs ? { streamChannel: dmChannel, streamThreadTs: dmThreadTs } : undefined,
         ).catch((err) => {
           logger.error(`Auto-execute update follow-up error:`, err);
           client.chat.postMessage({

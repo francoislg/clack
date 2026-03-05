@@ -4,27 +4,6 @@ import type { IntentStore, ResponseCapture, ToolCallRecorder } from "../server.j
 import { getStructuredResponseBlocks, validateSlackBlocks } from "../../slack/blocks.js";
 
 // Action schemas for submit_response
-const acceptActionSchema = z.object({
-  type: z.literal("accept"),
-  label: z.string().optional().describe("Custom button label (default: 'Accept')"),
-});
-
-const rejectActionSchema = z.object({
-  type: z.literal("reject"),
-  label: z.string().optional().describe("Custom button label (default: 'Reject')"),
-});
-
-const editActionSchema = z.object({
-  type: z.literal("edit"),
-  label: z.string().optional().describe("Custom button label (default: 'Edit')"),
-});
-
-const refineActionSchema = z.object({
-  type: z.literal("refine"),
-  label: z.string().optional().describe("Custom button label (default: 'Refine')"),
-  hint: z.string().optional().describe("Placeholder text for the refinement modal"),
-});
-
 const followupActionSchema = z.object({
   type: z.literal("followup"),
   label: z.string().describe("Button label"),
@@ -67,10 +46,6 @@ const updateActionSchema = z.object({
 });
 
 const actionSchema = z.discriminatedUnion("type", [
-  acceptActionSchema,
-  rejectActionSchema,
-  editActionSchema,
-  refineActionSchema,
   followupActionSchema,
   choiceActionSchema,
   sendToThreadActionSchema,

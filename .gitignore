@@ -46,6 +46,7 @@ npm-debug.log*
 
 # User-editable configuration overrides
 data/configuration/
+.pnpm-store/
 
 # Test coverage
 coverage/

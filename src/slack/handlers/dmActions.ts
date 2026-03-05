@@ -226,7 +226,7 @@ async function synthesizeConversation(
 
 export function registerDmActionHandlers(app: App): void {
   // === Send to thread (triggers synthesis) ===
-  app.action<BlockAction>("clack_dm_send_to_thread", async ({ ack, body, client }) => {
+  app.action<BlockAction>(/^clack_dm_send_to_thread_\d+$/, async ({ ack, body, client }) => {
     await ack();
 
     const sessionId = (body.actions[0] as { value: string }).value;

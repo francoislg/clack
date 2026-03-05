@@ -62,7 +62,6 @@
   "changesWorkflow": {
     "enabled": false,
     "timeoutMinutes": 10,
-    "worktreeSetupTimeoutMinutes": 2,
     "maxConcurrent": 3,
     "sessionExpiryHours": 24,
     "monitoringIntervalMinutes": 15

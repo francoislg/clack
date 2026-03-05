@@ -8,9 +8,10 @@ import type { WorktreeInfo } from "../worktrees.js";
 import type { ChangePlan, ChangeRequest, ExecutionResult } from "./types.js";
 import { appendExecutionLog } from "./persistence.js";
 import { findRepoByName } from "./detection.js";
-import { detectPlatformError } from "../claude.js";
+import { detectPlatformError, extractToolErrorMessage } from "../claude.js";
 import { buildWorkerContext } from "../tools/context.js";
 import { buildClackTools } from "../tools/server.js";
+import type { StreamEvent } from "../streaming/types.js";
 
 /**
  * Run Claude via the Agent SDK with the given prompt and options
@@ -25,6 +26,7 @@ export async function runClaude(options: {
   timeout?: number;
   branchName?: string;
   onProgress?: (message: string) => void;
+  onEvent?: (event: StreamEvent) => void;
 }): Promise<{ success: boolean; text: string; error?: string; lastMessage?: string }> {
   // Validate prompt early - catch empty prompts with a clear error
   if (!options.prompt || options.prompt.trim().length === 0) {
@@ -106,6 +108,12 @@ export async function runClaude(options: {
           if (block.type === "tool_use") {
             lastProgressMessage = `Using ${block.name}`;
             options.onProgress?.(lastProgressMessage);
+            options.onEvent?.({
+              type: "tool_start",
+              taskId: block.id,
+              toolName: block.name,
+              toolArgs: (block.input as Record<string, unknown>) ?? {},
+            });
             if (options.branchName) {
               appendExecutionLog(options.branchName, `Event: tool_use (${block.name})`);
             }
@@ -115,6 +123,16 @@ export async function runClaude(options: {
             if (options.branchName) {
               const preview = block.text.substring(0, 200).replace(/\n/g, " ");
               appendExecutionLog(options.branchName, `Event: assistant text: ${preview}...`);
+            }
+          }
+        }
+      } else if (message.type === "user" && options.onEvent && message.message?.content) {
+        for (const block of message.message.content) {
+          if (block && typeof block === "object" && "type" in block && (block as Record<string, unknown>).type === "tool_result") {
+            const rb = block as Record<string, unknown>;
+            if (rb.tool_use_id) {
+              const errorMessage = rb.is_error === true ? extractToolErrorMessage(rb.content) : undefined;
+              options.onEvent({ type: "tool_end", taskId: String(rb.tool_use_id), error: rb.is_error === true, errorMessage });
             }
           }
         }
@@ -253,7 +271,8 @@ export async function executeChange(
   worktree: WorktreeInfo,
   request: ChangeRequest,
   sessionId: string,
-  resumeContext?: string
+  resumeContext?: string,
+  onEvent?: (event: StreamEvent) => void,
 ): Promise<ExecutionResult> {
   const config = getConfig();
 
@@ -328,6 +347,7 @@ Remember to:
     disallowedTools,
     branchName: plan.branchName,
     mcpServers: { clack: workerTools.mcpServer },
+    onEvent,
   });
 
   if (!result.success) {
@@ -369,6 +389,7 @@ export async function runWorktreeSetup(
   repoName: string,
   worktreePath: string,
   branchName?: string,
+  onEvent?: (event: StreamEvent) => void,
 ): Promise<void> {
   const setupPath = resolveInstructionFile(`${repoName}/worktree_setup_instructions.md`);
   if (!setupPath) {
@@ -387,9 +408,6 @@ export async function runWorktreeSetup(
     return;
   }
 
-  const config = getConfig();
-  const timeoutMinutes = config.changesWorkflow?.worktreeSetupTimeoutMinutes ?? 5;
-
   logger.info(`Running worktree setup for ${repoName}${branchName ? ` (${branchName})` : ""}...`);
   if (branchName) {
     appendExecutionLog(branchName, `Running worktree setup instructions from ${setupPath}`);
@@ -398,11 +416,17 @@ export async function runWorktreeSetup(
   const result = await runClaudeInWorktree(repoName, {
     prompt: setupInstructions,
     cwd: worktreePath,
-    systemPrompt: "You are setting up a development workspace. Follow the instructions exactly. Do not ask questions — just execute the steps.",
+    systemPrompt: [
+      "You are setting up a development workspace.",
+      "Follow the instructions EXACTLY and LITERALLY. Do not skip, reorder, or improvise any steps.",
+      "When the instructions say to read a file, use the Read tool to read it, then follow its content.",
+      "Do not guess what setup commands to run — only run what the instructions explicitly tell you to.",
+      "Do not ask questions — just execute the steps.",
+    ].join(" "),
     allowedTools: ["Bash", "Write", "Edit", "Read"],
     disallowedTools: ["Task", "Glob", "Grep"],
-    timeout: timeoutMinutes,
     branchName,
+    onEvent,
   });
 
   if (!result.success) {

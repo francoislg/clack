@@ -20,6 +20,7 @@ import {
   buildSettingsModal,
 } from "../homeTab.js";
 import { setUserPreference } from "../../userPreferences.js";
+import type { ReactionDelivery } from "../../userPreferences.js";
 
 async function publishHomeView(
   client: App["client"],
@@ -410,10 +411,9 @@ export function registerHomeTabHandler(app: App): void {
     // Extract the selected response delivery option
     const deliveryValue = view.state.values.response_delivery_block?.response_delivery?.selected_option?.value;
 
-    if (deliveryValue) {
-      const dmOptOut = deliveryValue === "ephemeral";
-      await setUserPreference(userId, "dmOptOut", dmOptOut);
-      logger.info(`User ${userId} set dmOptOut=${dmOptOut}`);
+    if (deliveryValue === "dm" || deliveryValue === "thread") {
+      await setUserPreference(userId, "reactionDelivery", deliveryValue as ReactionDelivery);
+      logger.info(`User ${userId} set reactionDelivery=${deliveryValue}`);
     }
 
     await ack();

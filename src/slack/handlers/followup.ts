@@ -12,7 +12,7 @@ import {
 } from "./handlerResponse.js";
 
 export function registerFollowupHandler(app: App): void {
-  app.action<BlockAction>("clack_followup", async ({ ack, body, client, respond }) => {
+  app.action<BlockAction>(/^clack_followup_\d+$/, async ({ ack, body, client, respond }) => {
     await ack();
 
     const rawValue = (body.actions[0] as { value: string }).value;

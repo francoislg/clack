@@ -14,7 +14,7 @@ import { canRequestChanges } from "../../permissions.js";
 import { handleAutoExecuteActions } from "./autoExecute.js";
 
 export function registerChoiceHandler(app: App): void {
-  app.action<BlockAction>("clack_choice", async ({ ack, body, client, respond }) => {
+  app.action<BlockAction>(/^clack_choice_\d+$/, async ({ ack, body, client, respond }) => {
     await ack();
 
     const rawValue = (body.actions[0] as { value: string }).value;
