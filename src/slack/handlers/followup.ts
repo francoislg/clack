@@ -1,18 +1,12 @@
 import type { App, BlockAction } from "@slack/bolt";
 import { logger } from "../../logger.js";
 import { getSession, addRefinement } from "../../sessions.js";
-import { askClaude } from "../../claude.js";
 import { decodeActionValue } from "../blocks.js";
 import { restoreSessionInfo } from "../state.js";
-import {
-  dismissOriginal,
-  postSuccessResponseWithRetry,
-  postErrorResponse,
-  getHandlerClaudeOptions,
-} from "./handlerResponse.js";
+import { executeAndDeliver, getHandlerClaudeOptions } from "./handlerResponse.js";
 
 export function registerFollowupHandler(app: App): void {
-  app.action<BlockAction>(/^clack_followup_\d+$/, async ({ ack, body, client, respond }) => {
+  app.action<BlockAction>(/^clack_followup_\d+$/, async ({ ack, body, client }) => {
     await ack();
 
     const rawValue = (body.actions[0] as { value: string }).value;
@@ -29,8 +23,6 @@ export function registerFollowupHandler(app: App): void {
       return;
     }
 
-    await dismissOriginal(respond, sessionInfo);
-
     const session = await getSession(sessionId);
     if (!session) {
       logger.error(`Followup handler: session ${sessionId} not found`);
@@ -42,12 +34,11 @@ export function registerFollowupHandler(app: App): void {
     const updatedSession = (await getSession(session.sessionId))!;
 
     const claudeOptions = await getHandlerClaudeOptions(sessionInfo);
-    const response = await askClaude(updatedSession, claudeOptions);
-
-    if (response.success) {
-      await postSuccessResponseWithRetry(client, sessionInfo, session.sessionId, response);
-    } else {
-      await postErrorResponse(client, sessionInfo, session.sessionId, response);
-    }
+    await executeAndDeliver({
+      client,
+      session: updatedSession,
+      sessionInfo,
+      claudeOptions,
+    });
   });
 }

@@ -17,56 +17,41 @@ The system SHALL support enabling/disabling message mode via configuration.
 - **AND** responds to direct messages and channel mentions
 
 ### Requirement: Direct Message Handling
-The system SHALL respond to direct messages sent to the bot, and SHALL register in-flight requests for cancellation support.
+The system SHALL handle direct messages via the Bolt Assistant API, processing user messages through the standard query flow with streaming delivery.
 
-#### Scenario: User sends DM to bot
-- **WHEN** a user sends a direct message to the bot
-- **THEN** the system creates a new session for the message
-- **AND** registers the request in the in-flight registry with an `AbortController`
-- **AND** posts a visible "Investigating..." message
-- **AND** updates the message with Claude's response when ready
-- **AND** deregisters from the in-flight registry on completion
+#### Scenario: User sends message in assistant thread
+- **WHEN** a user sends a message in an assistant thread
+- **THEN** the system processes it via the Assistant's `userMessage` handler
+- **AND** calls `setStatus()` for thinking indication
+- **AND** routes to `processMessage` with `triggerType: "directMessages"`
+- **AND** starts a chat stream with plan blocks showing tool progress
+- **AND** stops the stream with the final response blocks on completion
 
-#### Scenario: DM in existing thread
-- **WHEN** a user sends a message in an existing DM thread with the bot
+#### Scenario: Follow-up in assistant thread
+- **WHEN** a user sends a follow-up message in an existing assistant thread
 - **THEN** the system continues the existing session
-- **AND** registers the request in the in-flight registry with an `AbortController`
-- **AND** posts a visible "Investigating..." reply
-- **AND** updates the reply with Claude's response
-- **AND** deregisters from the in-flight registry on completion
+- **AND** processes the message with full conversation history
+- **AND** starts a new chat stream for the reply with plan blocks
 
 ### Requirement: Channel Mention Handling
-The system SHALL respond when @mentioned in a channel, and SHALL register in-flight requests for cancellation support.
+The system SHALL respond when @mentioned in a channel, and SHALL register in-flight requests for cancellation support. Channel mentions now use streaming instead of posting and updating an "Investigating..." message.
 
 #### Scenario: User mentions bot in channel
 - **WHEN** a user @mentions the bot in a channel message
-- **THEN** the system creates a new session for the message
-- **AND** registers the request in the in-flight registry with an `AbortController`
-- **AND** posts a visible "Investigating..." reply in a thread
-- **AND** updates the reply with Claude's response when ready
-- **AND** deregisters from the in-flight registry on completion
+- **THEN** the system creates or continues a session
+- **AND** starts a chat stream in the thread with plan blocks showing tool progress
+- **AND** stops the stream with the final response blocks on completion
 
 #### Scenario: Thread reply in channel
 - **WHEN** a user posts in a thread started by a bot @mention
 - **THEN** the system continues the existing session
-- **AND** posts a visible "Investigating..." reply
-- **AND** updates the reply with Claude's response
+- **AND** starts a new chat stream for the reply with plan blocks
 
 ### Requirement: Visible Response Updates
-The system SHALL post and update visible messages (not ephemeral) for message mode.
+Responses are delivered via streaming, not by posting a placeholder and updating it.
 
 #### Scenario: Response message lifecycle
 - **WHEN** processing a message mode query
-- **THEN** the system posts a visible message with "Investigating..." text
-- **AND** updates the same message with the final response
-- **AND** renders Claude's actions as-is (Claude is responsible for omitting accept/reject based on delivery context)
-
-### Requirement: Thread Auto-Response
-The system SHALL automatically respond to all messages in threads it participates in.
-
-#### Scenario: Auto-respond to thread messages
-- **WHEN** any user posts a message in a thread where the bot has responded
-- **AND** the message is not from the bot itself
-- **THEN** the system automatically processes the message
-- **AND** responds in the same thread
-
+- **THEN** the system starts a chat stream with live tool progress (task cards)
+- **AND** finalizes the stream with the complete response on completion
+- **AND** does NOT post a separate "Investigating..." placeholder message

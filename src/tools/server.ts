@@ -5,11 +5,13 @@ import type {
   StagedIntent,
   ToolCallRecord,
   SubmitResponsePayload,
+  ResponseSnapshot,
   ClackToolsResult,
   ToolBuildContext,
   QueryToolContext,
   WorkerToolContext,
 } from "./types.js";
+import { updateSession, getSession } from "../sessions.js";
 import { canRequestChanges } from "../permissions.js";
 
 // Query tools
@@ -24,6 +26,7 @@ import { createGitLogTool } from "./query/gitLog.js";
 import { createDeepenHistoryTool } from "./query/deepenHistory.js";
 import { createFindUserTool } from "./query/findUser.js";
 import { createFetchSlackMessageTool } from "./query/fetchSlackMessage.js";
+import { createFetchChannelMessagesTool } from "./query/fetchChannelMessages.js";
 import { createUsersCache } from "../slack/usersCache.js";
 
 // Action tools
@@ -149,6 +152,7 @@ function buildQueryTools(ctx: QueryToolContext): ClackToolsResult {
     const usersCache = createUsersCache(ctx.slackClient);
     tools.push(createFindUserTool(ctx, usersCache));
     tools.push(createFetchSlackMessageTool(ctx));
+    tools.push(createFetchChannelMessagesTool(ctx));
   }
 
   if (canRequestChanges(ctx.role)) {
@@ -174,7 +178,13 @@ function buildQueryTools(ctx: QueryToolContext): ClackToolsResult {
   }
 
   // --- Presentation tool ---
-  tools.push(createSubmitResponseTool(intentStore, responseCapture, recorder, ctx.session.sessionId));
+  const persistSnapshot = async (id: string, snapshot: ResponseSnapshot): Promise<void> => {
+    const session = await getSession(ctx.session.sessionId);
+    if (!session) return;
+    const variables = { ...session.variables, [id]: snapshot };
+    await updateSession(ctx.session.sessionId, { variables });
+  };
+  tools.push(createSubmitResponseTool(intentStore, responseCapture, recorder, ctx.session.sessionId, ctx.deliver, persistSnapshot));
 
   const toolNames = tools.map((t) => t.name);
 

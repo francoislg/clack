@@ -2,7 +2,7 @@ import type { App } from "@slack/bolt";
 import type { UserRole } from "../roles.js";
 import type { SessionContext } from "../sessions.js";
 import type { Config } from "../config.js";
-import type { QueryToolContext, WorkerToolContext } from "./types.js";
+import type { QueryToolContext, WorkerToolContext, DeliverFn } from "./types.js";
 
 export interface BuildQueryContextParams {
   userId: string;
@@ -11,6 +11,7 @@ export interface BuildQueryContextParams {
   config: Config;
   changesWorkflowEnabled: boolean;
   slackClient?: App["client"];
+  deliver?: DeliverFn;
 }
 
 export function buildQueryContext(params: BuildQueryContextParams): QueryToolContext {
@@ -22,6 +23,7 @@ export function buildQueryContext(params: BuildQueryContextParams): QueryToolCon
     config: params.config,
     changesWorkflowEnabled: params.changesWorkflowEnabled,
     slackClient: params.slackClient,
+    deliver: params.deliver,
   };
 }
 

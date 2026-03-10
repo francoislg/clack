@@ -187,25 +187,18 @@ The system SHALL display a Settings section on the Home tab for all users.
 - **AND** clicking opens a Settings modal
 
 ### Requirement: Settings Modal
-The system SHALL provide a modal for users to manage their personal preferences.
+The system SHALL provide a modal for users to manage their personal preferences. The settings modal shows the reaction delivery preference instead of the DM opt-out toggle.
 
 #### Scenario: Open settings modal
-- **WHEN** a user clicks the "Settings" button on the Home tab
-- **THEN** the system opens a modal titled "Settings"
-- **AND** displays the user's current preference values
+- **WHEN** a user opens the settings modal
+- **THEN** the modal shows a "Reaction delivery" radio button group
+- **AND** options are: "Direct Message" ("Get a private DM thread to refine before sharing.") and "Thread" ("Answer posted directly in the channel thread.")
+- **AND** pre-selects the user's current `reactionDelivery` preference (default: "dm")
 
-#### Scenario: DM toggle visible when DM mode active
-- **WHEN** `reactions.responseType` is `"directMessage"`
-- **AND** the Settings modal is opened
-- **THEN** display a "Response delivery" section
-- **AND** show options: "Send answers in DM" (recommended) and "Use ephemeral messages instead"
-- **AND** pre-select based on the user's current `dmOptOut` preference
-
-#### Scenario: DM toggle hidden when ephemeral mode
-- **WHEN** `reactions.responseType` is `"ephemeral"`
-- **AND** the Settings modal is opened
-- **THEN** do NOT display the "Response delivery" section
-- **AND** show a message indicating no configurable settings are available (or omit the modal entirely)
+#### Scenario: Settings always shown
+- **WHEN** a user views the Home Tab
+- **THEN** the Settings section is always shown (not conditional on config)
+- **AND** the settings button opens the modal regardless of any config value
 
 #### Scenario: Save preferences
 - **WHEN** user submits the Settings modal

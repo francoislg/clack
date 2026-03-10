@@ -12,7 +12,7 @@ async function exists(path: string): Promise<boolean> {
 import { getConfig, getSessionsDir } from "./config.js";
 import { logger } from "./logger.js";
 import type { ErrorRecord, ConversationMessage } from "./claude.js";
-import type { SubmitResponsePayload, ToolCallRecord, ContinuationRecord } from "./tools/types.js";
+import type { SubmitResponsePayload, ToolCallRecord, ContinuationRecord, ResponseSnapshot } from "./tools/types.js";
 import type { ChangeStatus, ChangeSession } from "./changes/types.js";
 import type { WorktreeInfo } from "./worktrees.js";
 import { writeSessionState, createSessionFolder, appendExecutionLog, removeSessionFolder, statusToPhase } from "./changes/persistence.js";
@@ -72,6 +72,12 @@ export interface SessionContext {
   originThreadTs?: string;
   /** DM-first delivery: timestamp of the message posted to the original channel */
   channelPostTs?: string;
+  /** Assistant thread: channel the user was viewing when the thread was opened (immutable) */
+  assistantOriginChannelId?: string;
+  /** Assistant thread: channel the user is currently viewing (updated on context changes) */
+  assistantCurrentChannelId?: string;
+  /** Saved response snapshots, keyed by auto-generated ID */
+  variables?: Record<string, ResponseSnapshot>;
   /** Active change execution state (runtime-only, not persisted) */
   activeChange?: ActiveChangeState;
 }
@@ -505,16 +511,6 @@ export function getActiveChangeForUser(userId: string): { sessionId: string; cha
     }
   }
   return undefined;
-}
-
-export function getActiveChangeCount(): number {
-  let count = 0;
-  for (const change of activeChanges.values()) {
-    if (change.status !== "completed" && change.status !== "failed") {
-      count++;
-    }
-  }
-  return count;
 }
 
 export interface ActiveWorker {

@@ -5,16 +5,9 @@ import {
   getSession,
   updateThreadContext,
 } from "../../sessions.js";
-import { askClaude } from "../../claude.js";
 import { restoreSessionInfo } from "../state.js";
 import { fetchThreadContext } from "../messagesApi.js";
-import {
-  dismissOriginal,
-  postResponse,
-  postSuccessResponseWithRetry,
-  postErrorResponse,
-  getHandlerClaudeOptions,
-} from "./handlerResponse.js";
+import { executeAndDeliver, getHandlerClaudeOptions } from "./handlerResponse.js";
 
 export function registerRetryHandler(app: App): void {
   app.action<BlockAction>(
@@ -35,8 +28,6 @@ export function registerRetryHandler(app: App): void {
         return;
       }
 
-      await dismissOriginal(respond, sessionInfo);
-
       // Get bot user ID for thread context attribution
       const botUserId = (await client.auth.test()).user_id || "";
       const config = getConfig();
@@ -56,20 +47,15 @@ export function registerRetryHandler(app: App): void {
       await updateThreadContext(session.sessionId, threadContext);
       session = (await getSession(session.sessionId))!;
 
-      // Show thinking feedback
-      await postResponse(client, sessionInfo, { text: "Retrying..." });
-
-      // Ask Claude again
+      // Delegate to executeAndDeliver — streaming replaces "Retrying..." text
       logger.info(`Retrying Claude Code (session: ${session.sessionId})...`);
       const claudeOptions = await getHandlerClaudeOptions(sessionInfo);
-      const response = await askClaude(session, claudeOptions);
-
-      if (response.success) {
-        await postSuccessResponseWithRetry(client, sessionInfo, session.sessionId, response);
-      } else {
-        logger.error("Claude Code retry failed:", response.error);
-        await postErrorResponse(client, sessionInfo, session.sessionId, response);
-      }
+      await executeAndDeliver({
+        client,
+        session,
+        sessionInfo,
+        claudeOptions,
+      });
     }
   );
 }

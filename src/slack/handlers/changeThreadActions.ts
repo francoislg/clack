@@ -47,15 +47,17 @@ export async function triggerFollowUp(
       streamer.handleEvent,
     );
 
-    const message = result.success
-      ? (result.summary || `${command} completed successfully.`)
-      : `${command} failed: ${result.error}`;
-
-    if (streamer.hasFailed) {
+    if (result.success) {
+      // Worker Claude already reported completion via report_status — just stop the stream quietly.
       await streamer.stop();
-      await client.chat.postMessage({ channel: streamChannel, thread_ts: streamThreadTs, text: message });
     } else {
-      await streamer.stop({ markdownText: message });
+      const message = `${command} failed: ${result.error}`;
+      if (streamer.hasFailed) {
+        await streamer.stop();
+        await client.chat.postMessage({ channel: streamChannel, thread_ts: streamThreadTs, text: message });
+      } else {
+        await streamer.stop({ markdownText: message });
+      }
     }
   } catch (error) {
     logger.error("Follow-up action failed:", error);

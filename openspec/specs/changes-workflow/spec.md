@@ -10,7 +10,7 @@ The system SHALL support a top-level configuration section for the change reques
 #### Scenario: Top-level workflow configuration
 - **WHEN** `changesWorkflow` is configured at the root config level
 - **THEN** it defines the global workflow behavior
-- **AND** includes: `enabled`, `timeoutMinutes`, `maxConcurrent`, `additionalAllowedTools`, `sessionExpiryHours`, `monitoringIntervalMinutes`
+- **AND** includes: `enabled`, `timeoutMinutes`, `additionalAllowedTools`, `sessionExpiryHours`, `monitoringIntervalMinutes`
 
 #### Scenario: Disable workflow globally (default)
 - **WHEN** `changesWorkflow` is not configured or `enabled` is `false`
@@ -51,12 +51,6 @@ The system SHALL support a top-level configuration section for the change reques
 - **WHEN** `changesWorkflow.timeoutMinutes` is configured
 - **THEN** the system uses that value as the maximum execution time
 - **AND** defaults to 10 minutes if not specified
-
-#### Scenario: Concurrent execution limit
-- **WHEN** `changesWorkflow.maxConcurrent` is configured
-- **THEN** the system limits active change executions to that number
-- **AND** queues additional requests with a "please wait" message
-- **AND** defaults to 3 if not specified
 
 #### Scenario: Additional allowed tools
 - **WHEN** `changesWorkflow.additionalAllowedTools` is configured as an array
@@ -155,13 +149,6 @@ The system SHALL track active change execution as runtime state on the unified t
 - **WHEN** they send a new change request in a different thread
 - **THEN** the system allows the new change to proceed
 - **AND** the existing session's `activeChange` remains available for context
-
-#### Scenario: System-wide concurrency limit
-
-- **GIVEN** the system has reached `maxConcurrent` sessions with active change executions
-- **WHEN** a new change request arrives
-- **THEN** the system responds that capacity is reached
-- **AND** suggests trying again later
 
 ### Requirement: Change Request Feedback
 

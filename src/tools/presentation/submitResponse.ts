@@ -1,7 +1,14 @@
+import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { IntentStore, ResponseCapture, ToolCallRecorder } from "../server.js";
-import { getStructuredResponseBlocks, validateSlackBlocks } from "../../slack/blocks.js";
+import type { DeliverFn, ResponseSnapshot, SendToThreadAction } from "../types.js";
+import { getStructuredResponseBlocks, getResponseActionBlocks, validateSlackBlocks } from "../../slack/blocks.js";
+
+const sectionSchema = z.object({
+  title: z.string().optional().describe("Optional bold section title"),
+  body: z.string().describe("Section body text (supports Slack mrkdwn)"),
+});
 
 // Action schemas for submit_response
 const followupActionSchema = z.object({
@@ -22,6 +29,9 @@ const sendToThreadActionSchema = z.object({
   type: z.literal("send_to_thread"),
   label: z.string().optional().describe("Custom button label (default: 'Send to thread')"),
   auto: z.boolean().optional().describe("If true, post the answer to the original channel thread immediately without waiting for button click"),
+  channel: z.string().optional().describe("Explicit target channel ID. Use when sharing findings to a different thread than the origin (e.g., a thread the user shared via URL)."),
+  thread_ts: z.string().optional().describe("Explicit target thread timestamp. Use with channel to post into a specific thread."),
+  snapshot: z.string().optional().describe("Snapshot ID from a previous submit_response result. When provided, the button posts that previous response's exact content instead of the current one. Use this when the user asks to share a previously composed message."),
 });
 
 const changeActionSchema = z.object({
@@ -54,11 +64,6 @@ const actionSchema = z.discriminatedUnion("type", [
   updateActionSchema,
 ]);
 
-const sectionSchema = z.object({
-  title: z.string().optional().describe("Optional bold section title"),
-  body: z.string().describe("Section body text (supports Slack mrkdwn)"),
-});
-
 // Ref-based action types that need validation
 const REF_ACTION_TYPES = new Set(["change", "config_update", "update"]);
 
@@ -66,12 +71,19 @@ export function createSubmitResponseTool(
   intentStore: IntentStore,
   responseCapture: ResponseCapture,
   recorder: ToolCallRecorder,
-  sessionId: string
+  sessionId: string,
+  deliver?: DeliverFn,
+  persistSnapshot?: (id: string, snapshot: ResponseSnapshot) => Promise<void>
 ) {
   return tool(
     "submit_response",
     "Submit the final response to the user. This defines what the user sees: text sections and interactive buttons. Always call this tool to deliver your response.",
     {
+      message: z.string().optional().describe(
+        "Short conversational preamble shown to the user but NOT included when sharing via send_to_thread. " +
+        "Use for meta-commentary like 'Here is the updated version:' or 'I adjusted the tone:'. " +
+        "Put the actual shareable content in sections."
+      ),
       sections: z
         .array(sectionSchema)
         .min(1)
@@ -109,11 +121,53 @@ export function createSubmitResponseTool(
         }
       }
 
-      // Render and validate blocks before capturing
       const payload = {
+        ...(args.message && { message: args.message }),
         sections: args.sections,
         actions: args.actions,
       };
+
+      // Build the answer text from sections only (used for snapshots + lastAnswer — excludes message)
+      const answerText = payload.sections
+        .map((s) => (s.title ? `**${s.title}**\n${s.body}` : s.body))
+        .join("\n\n");
+
+      // Build display text including the conversational preamble (used for live delivery)
+      const displayText = args.message
+        ? `${args.message}\n\n${answerText}`
+        : answerText;
+
+      // Reject responses that exceed Slack's message length limit
+      const SLACK_MESSAGE_TEXT_LIMIT = 10000;
+      if (displayText.length > SLACK_MESSAGE_TEXT_LIMIT) {
+        const errorResult = {
+          error: "response_too_long",
+          details: `Total response text (${displayText.length} chars) exceeds the ${SLACK_MESSAGE_TEXT_LIMIT}-char limit. Significantly shorten your answer — summarize key points and offer followup actions to expand on specific areas.`,
+        };
+        recorder.record("submit_response", args as unknown as Record<string, unknown>, errorResult);
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(errorResult) }],
+          isError: true,
+        };
+      }
+
+      // Auto-snapshot every response so future send_to_thread actions can reference it.
+      // Must happen before block rendering so snapshot IDs are encoded in button values.
+      let currentSnapshotId: string | undefined;
+      if (persistSnapshot) {
+        currentSnapshotId = randomBytes(6).toString("hex");
+        await persistSnapshot(currentSnapshotId, { text: answerText, sections: [...payload.sections] });
+
+        // For send_to_thread actions, resolve which snapshot to embed in the button:
+        // explicit reference to a previous snapshot, or the current response's snapshot.
+        for (const action of payload.actions) {
+          if (action.type === "send_to_thread") {
+            (action as SendToThreadAction)._snapshotId = action.snapshot ?? currentSnapshotId;
+          }
+        }
+      }
+
+      // Render and validate blocks (after snapshots so button values include snapshot IDs)
       const renderedBlocks = getStructuredResponseBlocks(payload, sessionId) as Record<string, unknown>[];
       const validationErrors = validateSlackBlocks(renderedBlocks);
 
@@ -129,10 +183,33 @@ export function createSubmitResponseTool(
         };
       }
 
-      // Capture the validated payload and pre-rendered blocks
+      // Deliver to Slack if a deliver callback is provided
+      if (deliver) {
+        // Only include action buttons in delivery blocks — the answer text goes in markdownText.
+        const actionBlocks = getResponseActionBlocks(payload.actions, sessionId);
+
+        const deliveryResult = await deliver({
+          markdownText: displayText,
+          ...(actionBlocks.length > 0 && { blocks: actionBlocks as any[] }),
+        });
+
+        if (!deliveryResult.ok) {
+          const errorResult = {
+            error: "delivery_failed",
+            details: deliveryResult.error,
+          };
+          recorder.record("submit_response", args as unknown as Record<string, unknown>, errorResult);
+          return {
+            content: [{ type: "text" as const, text: JSON.stringify(errorResult) }],
+            isError: true,
+          };
+        }
+      }
+
+      // Capture the validated payload and pre-rendered blocks (for session persistence)
       responseCapture.set(payload, renderedBlocks);
 
-      const result = { success: true, sectionsCount: args.sections.length, actionsCount: args.actions.length };
+      const result = { success: true, delivered: !!deliver, sectionsCount: args.sections.length, actionsCount: args.actions.length, ...(currentSnapshotId && { snapshotId: currentSnapshotId }) };
       recorder.record("submit_response", args as unknown as Record<string, unknown>, result);
 
       return {

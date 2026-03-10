@@ -11,7 +11,8 @@ The system SHALL maintain an in-memory registry of currently executing Claude in
 #### Scenario: Request registered on invocation start
 - **WHEN** `processMessage()` begins a Claude invocation
 - **AND** the trigger type is `mentions` or `directMessages`
-- **THEN** the registry stores an entry with the `AbortController`, session ID, trigger type, and thinking state
+- **THEN** the registry stores an entry with the `AbortController`, session ID, and trigger type
+- **AND** the entry does NOT include thinking state (streaming is managed by `processMessage`)
 - **AND** the entry is keyed by `"{channelId}:{messageTs}"`
 
 #### Scenario: Request deregistered on invocation completion
@@ -50,45 +51,33 @@ The system SHALL listen for `message_changed` events and detect edits to message
 ### Requirement: Abort and Restart on Edit
 The system SHALL abort in-flight requests and optionally restart them with updated text when the triggering message is edited.
 
+#### Scenario: Stream cleanup on abort
+- **WHEN** a message edit aborts an in-flight request
+- **THEN** the message edit handler deregisters and aborts, but does NOT clean up any UI
+- **AND** `processMessage` detects `response.cancelled` and calls `streamer.stop({ markdownText: "_Request cancelled._" })`
+
 #### Scenario: Mention edit with bot mention retained
 - **WHEN** a user edits a message that @mentioned the bot
 - **AND** the edited text still contains the bot's `<@BOT_ID>` mention
 - **THEN** the system aborts the in-flight request
-- **AND** cleans up the thinking indicator
 - **AND** restarts `processMessage()` with the new message text (bot mention stripped)
 
 #### Scenario: Mention edit with bot mention removed
 - **WHEN** a user edits a message that @mentioned the bot
 - **AND** the edited text no longer contains `<@BOT_ID>`
 - **THEN** the system aborts the in-flight request
-- **AND** cleans up the thinking indicator
 - **AND** does NOT restart processing
 
 #### Scenario: DM edit restarts with new text
 - **WHEN** a user edits a direct message that triggered an in-flight request
 - **AND** the edited text is not empty
 - **THEN** the system aborts the in-flight request
-- **AND** cleans up the thinking indicator
 - **AND** restarts `processMessage()` with the new message text
 
 #### Scenario: DM edit with empty text cancels only
 - **WHEN** a user edits a direct message to empty text
 - **THEN** the system aborts the in-flight request
-- **AND** cleans up the thinking indicator
 - **AND** does NOT restart processing
-
-### Requirement: Thinking Indicator Cleanup on Abort
-The system SHALL remove thinking indicators when an in-flight request is aborted.
-
-#### Scenario: Emoji thinking indicator removed
-- **WHEN** an in-flight request is aborted
-- **AND** the thinking indicator was an emoji reaction
-- **THEN** the system removes the emoji reaction from the message
-
-#### Scenario: Message thinking indicator deleted
-- **WHEN** an in-flight request is aborted
-- **AND** the thinking indicator was an "Investigating..." message
-- **THEN** the system deletes or updates the thinking message
 
 ### Requirement: Query Mode Abort Support
 The `askClaude()` function SHALL accept an `AbortController` to support cancellation of in-flight queries.

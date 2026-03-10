@@ -5,8 +5,7 @@ import { registerNewQueryHandler } from "./handlers/newQuery.js";
 import { registerRetryHandler } from "./handlers/retry.js";
 import { registerResendHandler } from "./handlers/resend.js";
 import { registerHomeTabHandler } from "./handlers/homeTab.js";
-import { registerDirectMessageHandler } from "./handlers/directMessage.js";
-import { registerThreadReplyHandler } from "./handlers/threadReply.js";
+import { registerAssistant } from "./handlers/assistant.js";
 import { registerMentionHandler } from "./handlers/mention.js";
 import { registerChoiceHandler } from "./handlers/choice.js";
 import { registerFollowupHandler } from "./handlers/followup.js";
@@ -45,12 +44,11 @@ export function createSlackApp(): App {
 
   // DM reaction handlers (always enabled — DM delivery is a per-user preference)
   registerDmActionHandlers(app);
-  registerThreadReplyHandler(app);
 
-  // Direct message handlers (only when enabled)
+  // Assistant handler (replaces direct message and thread reply handlers)
   if (config.directMessages.enabled) {
     logger.debug("Direct message mode enabled");
-    registerDirectMessageHandler(app);
+    registerAssistant(app);
   }
 
   // Mention handlers (only when enabled)

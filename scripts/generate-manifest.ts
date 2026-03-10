@@ -12,9 +12,10 @@ import { resolve } from "node:path";
 import type { Manifest } from "@slack/web-api/dist/types/request/manifest.js";
 
 // Extract BotScope and ManifestEvent types from Manifest (they're not exported directly)
+// Extended with `string` to support newer API fields not yet in @slack/web-api types (e.g. assistant:write)
 type ArrayElement<T> = T extends readonly (infer U)[] ? U : T extends (infer U)[] ? U : never;
-type BotScope = ArrayElement<NonNullable<NonNullable<NonNullable<Manifest["oauth_config"]>["scopes"]>["bot"]>>;
-type ManifestEvent = ArrayElement<NonNullable<NonNullable<Manifest["settings"]>["event_subscriptions"]>["bot_events"]>;
+type BotScope = ArrayElement<NonNullable<NonNullable<NonNullable<Manifest["oauth_config"]>["scopes"]>["bot"]>> | (string & {});
+type ManifestEvent = ArrayElement<NonNullable<NonNullable<Manifest["settings"]>["event_subscriptions"]>["bot_events"]> | (string & {});
 
 interface SlackAppConfig {
   name?: string;
@@ -24,7 +25,6 @@ interface SlackAppConfig {
 
 interface SlackConfig {
   fetchAndStoreUsername?: boolean;
-  notifyHiddenThread?: boolean;
 }
 
 interface DirectMessagesConfig {
@@ -35,14 +35,9 @@ interface MentionsConfig {
   enabled?: boolean;
 }
 
-interface ReactionsConfig {
-  responseType?: "ephemeral" | "directMessage";
-}
-
 interface PartialConfig {
   slackApp?: SlackAppConfig;
   slack?: SlackConfig;
-  reactions?: ReactionsConfig;
   directMessages?: DirectMessagesConfig;
   mentions?: MentionsConfig;
 }
@@ -100,18 +95,14 @@ function validateSlackAppConfig(config: SlackAppConfig): void {
 interface ConfigFeatures {
   directMessages: boolean;
   mentions: boolean;
-  notifyHiddenThread: boolean;
   fetchUsernames: boolean;
-  dmFirstReactions: boolean;
 }
 
 function getEnabledFeatures(config: PartialConfig): ConfigFeatures {
   return {
     directMessages: config.directMessages?.enabled ?? false,
     mentions: config.mentions?.enabled ?? false,
-    notifyHiddenThread: config.slack?.notifyHiddenThread ?? true,
     fetchUsernames: config.slack?.fetchAndStoreUsername ?? false,
-    dmFirstReactions: config.reactions?.responseType === "directMessage",
   };
 }
 
@@ -119,16 +110,15 @@ function buildScopes(features: ConfigFeatures): BotScope[] {
   const scopes: BotScope[] = [...CORE_SCOPES];
 
   if (features.directMessages) {
-    scopes.push("im:history", "mpim:history");
+    scopes.push("im:history", "mpim:history", "assistant:write");
   }
 
   if (features.mentions) {
     scopes.push("app_mentions:read");
   }
 
-  if (features.notifyHiddenThread || features.dmFirstReactions) {
-    scopes.push("im:write");
-  }
+  // Always needed for DM delivery (per-user reaction preference)
+  scopes.push("im:write");
 
   // users:read is now in CORE_SCOPES (needed for role management)
   // fetchUsernames feature doesn't need additional scopes
@@ -140,7 +130,7 @@ function buildEvents(features: ConfigFeatures): ManifestEvent[] {
   const events: ManifestEvent[] = [...CORE_EVENTS];
 
   if (features.directMessages) {
-    events.push("message.im");
+    events.push("message.im", "assistant_thread_started", "assistant_thread_context_changed");
   }
 
   if (features.mentions) {
@@ -160,6 +150,7 @@ function generateManifest(config: PartialConfig): Manifest {
   const scopes = buildScopes(features);
   const events = buildEvents(features);
 
+  // Type assertion: @slack/web-api types lag behind the Slack API (missing assistant_view, assistant:write, etc.)
   const manifest: Manifest = {
     display_information: {
       name,
@@ -169,22 +160,30 @@ function generateManifest(config: PartialConfig): Manifest {
     features: {
       app_home: {
         home_tab_enabled: true,
-        messages_tab_enabled: features.directMessages || features.notifyHiddenThread || features.dmFirstReactions,
+        messages_tab_enabled: features.directMessages,
         messages_tab_read_only_enabled: false,
       },
       bot_user: {
         display_name: name,
         always_online: true,
       },
+      ...(features.directMessages && {
+        assistant_view: {
+          assistant_description: description,
+          suggested_prompts: [],
+        },
+      }),
     },
     oauth_config: {
       scopes: {
-        bot: scopes,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        bot: scopes as any,
       },
     },
     settings: {
       event_subscriptions: {
-        bot_events: events,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        bot_events: events as any,
       },
       interactivity: {
         is_enabled: true,
@@ -216,9 +215,7 @@ function main(): void {
   console.log(`  Features enabled:`);
   console.log(`    - Direct messages: ${features.directMessages}`);
   console.log(`    - Mentions: ${features.mentions}`);
-  console.log(`    - Notify hidden thread: ${features.notifyHiddenThread}`);
   console.log(`    - Fetch usernames: ${features.fetchUsernames}`);
-  console.log(`    - DM-first reactions: ${features.dmFirstReactions}`);
   console.log(`  Scopes: ${manifest.oauth_config?.scopes?.bot?.join(", ")}`);
   console.log(`  Events: ${manifest.settings?.event_subscriptions?.bot_events?.join(", ")}`);
 }

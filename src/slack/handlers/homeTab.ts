@@ -408,12 +408,24 @@ export function registerHomeTabHandler(app: App): void {
   app.view<ViewSubmitAction>("settings_modal", async ({ ack, view, body, client }) => {
     const userId = body.user.id;
 
-    // Extract the selected response delivery option
+    // Extract preference values from modal
     const deliveryValue = view.state.values.response_delivery_block?.response_delivery?.selected_option?.value;
+    const notifyValue = view.state.values.notify_on_response_block?.notify_on_response?.selected_option?.value;
+
+    const updates: string[] = [];
 
     if (deliveryValue === "dm" || deliveryValue === "thread") {
       await setUserPreference(userId, "reactionDelivery", deliveryValue as ReactionDelivery);
-      logger.info(`User ${userId} set reactionDelivery=${deliveryValue}`);
+      updates.push(`reactionDelivery=${deliveryValue}`);
+    }
+
+    if (notifyValue === "true" || notifyValue === "false") {
+      await setUserPreference(userId, "notifyOnResponse", notifyValue === "true");
+      updates.push(`notifyOnResponse=${notifyValue}`);
+    }
+
+    if (updates.length > 0) {
+      logger.info(`User ${userId} updated settings: ${updates.join(", ")}`);
     }
 
     await ack();

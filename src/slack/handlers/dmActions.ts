@@ -3,301 +3,124 @@ import { logger } from "../../logger.js";
 import {
   getSession,
   updateSession,
-  addRefinement,
   setLastAnswer,
   type SessionContext,
 } from "../../sessions.js";
-import { askClaude } from "../../claude.js";
+import type { ResponseSnapshot } from "../../tools/types.js";
 import { restoreSessionInfo, setSessionInfo } from "../state.js";
-import { getAcceptedBlocks, getStructuredAcceptedBlocks } from "../blocks.js";
-import {
-  postDmThreadReply,
-  getDmSynthesisActions,
-  getDmPostAcceptActions,
-} from "../dmResponse.js";
-import { fetchThreadContext } from "../messagesApi.js";
-import { getConfig } from "../../config.js";
-import { getClaudeOptions } from "./changeWorkflowHelper.js";
+import { getAcceptedBlocks, getStructuredAcceptedBlocks, decodeActionValue } from "../blocks.js";
 
 /**
- * If the response contains a send_to_thread action with auto: true,
- * post the answer directly to the original channel thread (skip synthesis).
+ * Resolve answer text from session, preferring lastAnswer but falling back
+ * to lastResponse.sections (covers the window between delivery and persistence).
  */
-async function autoSendToThread(
+function resolveAnswerText(session: SessionContext): string | undefined {
+  if (session.lastAnswer) return session.lastAnswer;
+  if (session.lastResponse?.sections) {
+    return session.lastResponse.sections
+      .map((s) => (s.title ? `**${s.title}**\n${s.body}` : s.body))
+      .join("\n\n");
+  }
+  return undefined;
+}
+
+/**
+ * Post an answer directly to a target channel. Uses snapshot content when
+ * available (each "Send to thread" button captures its own snapshot at
+ * delivery time), falling back to session.lastAnswer / lastResponse.
+ */
+async function postAnswerToChannel(
   client: App["client"],
   session: SessionContext,
-  response: import("../../claude.js").ClaudeResponse
-): Promise<void> {
-  if (!response.response?.actions) return;
+  targetChannel: string,
+  targetThreadTs?: string,
+  snapshot?: ResponseSnapshot,
+): Promise<{ ok: boolean; ts?: string }> {
+  const answer = snapshot?.text ?? resolveAnswerText(session);
+  if (!answer) return { ok: false };
 
-  const autoAction = response.response.actions.find(
-    a => a.type === "send_to_thread" && "auto" in a && (a as { auto?: boolean }).auto === true
-  );
-  if (!autoAction) return;
-
-  const originChannel = session.originChannel;
-  const originThreadTs = session.originThreadTs;
-  if (!originChannel || !originThreadTs) {
-    logger.error(`Auto send_to_thread: missing origin info for session ${session.sessionId}`);
-    return;
-  }
-
-  const answer = session.lastAnswer || response.answer;
-  const blocks = response.response.sections
-    ? getStructuredAcceptedBlocks(response.response.sections)
+  const sections = snapshot?.sections ?? session.lastResponse?.sections;
+  const blocks = sections
+    ? getStructuredAcceptedBlocks(sections)
     : getAcceptedBlocks(answer);
 
-  try {
-    const postResult = await client.chat.postMessage({
-      channel: originChannel,
-      thread_ts: originThreadTs,
-      blocks: blocks as any[],
-      text: answer,
-      unfurl_links: false,
-      unfurl_media: false,
-    });
-
-    if (postResult.ts) {
-      await updateSession(session.sessionId, { channelPostTs: postResult.ts });
-      const sessionInfo = await restoreSessionInfo(session.sessionId);
-      if (sessionInfo) {
-        setSessionInfo(session.sessionId, { ...sessionInfo, channelPostTs: postResult.ts });
-      }
-    }
-
-    // Confirm in DM
-    if (session.dmChannel && session.dmThreadTs) {
-      await client.chat.postMessage({
-        channel: session.dmChannel,
-        thread_ts: session.dmThreadTs,
-        text: ":white_check_mark: Answer posted to the original thread.",
-      });
-    }
-
-    logger.debug(`Auto send_to_thread: posted to channel for session ${session.sessionId}`);
-  } catch (error) {
-    logger.error("Auto send_to_thread failed:", error);
-    if (session.dmChannel && session.dmThreadTs) {
-      await client.chat.postMessage({
-        channel: session.dmChannel,
-        thread_ts: session.dmThreadTs,
-        text: ":warning: Failed to post to the original thread. You can try the button instead.",
-      }).catch(() => {});
-    }
-  }
-}
-
-/**
- * Process a DM thread reply as a refinement for a reaction-originated session.
- */
-export async function processDmRefinement(
-  client: App["client"],
-  session: SessionContext,
-  refinementText: string
-): Promise<void> {
-  const config = getConfig();
-
-  if (!session.dmChannel || !session.dmThreadTs) {
-    logger.error(`Session ${session.sessionId} missing DM coordinates for refinement`);
-    return;
-  }
-
-  // Add refinement to session
-  await addRefinement(session.sessionId, refinementText);
-
-  // Show thinking in DM thread
-  const thinkingMsg = await client.chat.postMessage({
-    channel: session.dmChannel,
-    thread_ts: session.dmThreadTs,
-    text: "Refining...",
-    blocks: [
-      {
-        type: "section",
-        text: { type: "mrkdwn", text: ":mag: _Refining..._" },
-      },
-    ],
+  const result = await client.chat.postMessage({
+    channel: targetChannel,
+    ...(targetThreadTs ? { thread_ts: targetThreadTs } : {}),
+    blocks: blocks as any[],
+    text: answer,
+    unfurl_links: false,
+    unfurl_media: false,
   });
 
-  // Re-read thread context from original channel
-  const botUserId = (await client.auth.test()).user_id || "";
-  const threadContext = session.originChannel && session.originThreadTs
-    ? await fetchThreadContext(client, session.originChannel, session.originThreadTs, botUserId, {
-        fetchUserNames: config.slack.fetchAndStoreUsername,
-      })
-    : session.threadContext;
-
-  // Update session with fresh thread context
-  const updatedSession = await updateSession(session.sessionId, { threadContext });
-  if (!updatedSession) {
-    logger.error(`Failed to update session ${session.sessionId} for refinement`);
-    return;
-  }
-
-  // Call Claude
-  const claudeOptions = await getClaudeOptions(session.userId, "reactions");
-  const response = await askClaude(updatedSession, claudeOptions);
-
-  // Remove thinking message
-  if (thinkingMsg.ts) {
-    try {
-      await client.chat.delete({
-        channel: session.dmChannel,
-        ts: thinkingMsg.ts,
-      });
-    } catch {
-      // Ignore — may not have permission to delete
-    }
-  }
-
-  if (response.success) {
-    await setLastAnswer(session.sessionId, response.answer);
-
-    // Persist tool state
-    const sessionUpdates: Record<string, unknown> = {};
-    if (response.response) sessionUpdates.lastResponse = response.response;
-    if (response.stagedIntents && Object.keys(response.stagedIntents).length > 0) {
-      sessionUpdates.stagedIntents = response.stagedIntents;
-    }
-    if (response.toolCallHistory && response.toolCallHistory.length > 0) {
-      sessionUpdates.toolCallHistory = response.toolCallHistory;
-    }
-    if (Object.keys(sessionUpdates).length > 0) {
-      await updateSession(session.sessionId, sessionUpdates as any);
-    }
-
-    // Post refined answer in DM thread
-    await postDmThreadReply(client, session.dmChannel, session.dmThreadTs, updatedSession, response);
-
-    // Auto-execute send_to_thread if Claude flagged it
-    await autoSendToThread(client, updatedSession, response);
-  } else {
-    await client.chat.postMessage({
-      channel: session.dmChannel,
-      thread_ts: session.dmThreadTs,
-      text: `:warning: Something went wrong: ${response.error || "Unknown error"}. Try again?`,
-    });
-  }
-}
-
-/**
- * Synthesize the full DM conversation into a clean answer.
- */
-async function synthesizeConversation(
-  client: App["client"],
-  session: SessionContext
-): Promise<string | null> {
-  if (!session.dmChannel || !session.dmThreadTs) return null;
-
-  // Fetch the DM thread to get conversation history
-  const dmReplies = await client.conversations.replies({
-    channel: session.dmChannel,
-    ts: session.dmThreadTs,
-    limit: 100,
-  });
-
-  if (!dmReplies.messages || dmReplies.messages.length === 0) return null;
-
-  // Build conversation summary for synthesis
-  const botUserId = (await client.auth.test()).user_id || "";
-  const conversation = dmReplies.messages
-    .filter(m => m.text && m.ts !== session.dmThreadTs) // Skip the root investigation notice
-    .map(m => {
-      const isBot = m.user === botUserId || m.bot_id !== undefined;
-      return `${isBot ? "Clack" : "User"}: ${m.text}`;
-    })
-    .join("\n\n");
-
-  // Create a synthesis session
-  const synthesisRefinement = `SYSTEM: Synthesize the following conversation into a single, clean, polished answer. Respond as if you are directly answering the original question "${session.originalQuestion}". Do not mention the conversation or refinement process. Just give the final, unified answer.\n\nConversation:\n${conversation}`;
-
-  await addRefinement(session.sessionId, synthesisRefinement);
-  const updatedSession = await getSession(session.sessionId);
-  if (!updatedSession) return null;
-
-  const claudeOptions = await getClaudeOptions(session.userId, "reactions");
-  const response = await askClaude(updatedSession, claudeOptions);
-
-  if (response.success) {
-    return response.answer;
-  }
-
-  return null;
+  return { ok: true, ts: result.ts ?? undefined };
 }
 
 export function registerDmActionHandlers(app: App): void {
-  // === Send to thread (triggers synthesis) ===
+  // === Send to thread (post snapshot content to target channel) ===
   app.action<BlockAction>(/^clack_dm_send_to_thread_\d+$/, async ({ ack, body, client }) => {
     await ack();
 
-    const sessionId = (body.actions[0] as { value: string }).value;
+    const rawValue = (body.actions[0] as { value: string }).value;
+    const decoded = decodeActionValue(rawValue);
+    const sessionId = decoded.sessionId;
     const session = await getSession(sessionId);
     const sessionInfo = await restoreSessionInfo(sessionId);
 
-    if (!session || !sessionInfo || !session.dmChannel || !session.dmThreadTs) {
-      logger.error(`Cannot send to thread: missing session or DM info for ${sessionId}`);
+    if (!session || !sessionInfo) {
+      logger.error(`Cannot send to thread: missing session for ${sessionId}`);
       return;
     }
 
-    // Post thinking in DM thread
-    await client.chat.postMessage({
-      channel: session.dmChannel,
-      thread_ts: session.dmThreadTs,
-      text: "Preparing a summary to share...",
-      blocks: [
-        {
-          type: "section",
-          text: { type: "mrkdwn", text: ":pencil: _Preparing a summary to share..._" },
-        },
-      ],
-    });
+    // Resolve snapshot (each button captures its own content at delivery time)
+    const snapshot = decoded.snapshotId
+      ? session.variables?.[decoded.snapshotId]
+      : undefined;
 
-    // Synthesize
-    const synthesis = await synthesizeConversation(client, session);
+    // Resolve target channel/thread via fallback chain:
+    // explicit button target > DM-first origin > assistant channel > session channel
+    const targetChannel = decoded.targetChannel
+      || session.originChannel || sessionInfo.originChannel
+      || session.assistantCurrentChannelId
+      || session.channelId;
+    const targetThreadTs = decoded.targetThreadTs
+      || session.originThreadTs || sessionInfo.originThreadTs
+      || undefined;
 
-    if (!synthesis) {
-      await client.chat.postMessage({
-        channel: session.dmChannel,
-        thread_ts: session.dmThreadTs,
-        text: ":warning: Failed to generate synthesis. You can try again.",
-      });
+    if (!targetChannel || (!snapshot && !session.lastAnswer)) {
+      logger.error(`Cannot send to thread: missing target or answer for ${sessionId}`);
       return;
     }
 
-    // Store synthesis as last answer
-    await setLastAnswer(sessionId, synthesis);
+    // Confirm in the conversation thread (DM or original)
+    const confirmChannel = session.dmChannel || session.channelId;
+    const confirmThreadTs = session.dmThreadTs || session.threadTs;
 
-    // Determine which actions to show: post-accept (update/new) or first-time (accept/edit/reject)
-    const hasExistingPost = !!(session.channelPostTs || sessionInfo.channelPostTs);
-    const actionBlocks = hasExistingPost
-      ? getDmPostAcceptActions(sessionId)
-      : getDmSynthesisActions(sessionId);
+    try {
+      const result = await postAnswerToChannel(client, session, targetChannel, targetThreadTs, snapshot);
 
-    // Post synthesis for approval
-    const blocks = [
-      {
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text: hasExistingPost
-            ? "*Here's an updated summary:*"
-            : "*Here's a summary to share:*",
-        },
-      },
-      { type: "divider" },
-      {
-        type: "section",
-        text: { type: "mrkdwn", text: synthesis },
-      },
-      { type: "divider" },
-      ...actionBlocks,
-    ];
+      if (result.ts) {
+        await updateSession(sessionId, { channelPostTs: result.ts });
+        setSessionInfo(sessionId, { ...sessionInfo, channelPostTs: result.ts });
+      }
 
-    await client.chat.postMessage({
-      channel: session.dmChannel,
-      thread_ts: session.dmThreadTs,
-      blocks: blocks as any[],
-      text: `Summary to share: ${synthesis}`,
-    });
+      if (confirmChannel && confirmThreadTs) {
+        await client.chat.postMessage({
+          channel: confirmChannel,
+          thread_ts: confirmThreadTs,
+          text: ":white_check_mark: Answer shared.",
+        });
+      }
+    } catch (error) {
+      logger.error("Send to thread failed:", error);
+      if (confirmChannel && confirmThreadTs) {
+        await client.chat.postMessage({
+          channel: confirmChannel,
+          thread_ts: confirmThreadTs,
+          text: ":warning: Failed to post. The bot may not have access to that channel.",
+        }).catch(() => {});
+      }
+    }
   });
 
   // === Accept synthesis (post to original channel) ===
@@ -314,22 +137,24 @@ export function registerDmActionHandlers(app: App): void {
     }
 
     const answer = session.lastAnswer;
+    // Target: DM-first uses originChannel+thread, assistant uses current channel (top-level)
     const originChannel = session.originChannel || sessionInfo.originChannel;
     const originThreadTs = session.originThreadTs || sessionInfo.originThreadTs;
+    const targetChannel = originChannel || session.assistantCurrentChannelId;
 
-    if (!answer || !originChannel || !originThreadTs) {
-      logger.error(`Cannot accept synthesis: missing answer or origin info for ${sessionId}`);
+    if (!answer || !targetChannel) {
+      logger.error(`Cannot accept synthesis: missing answer or target info for ${sessionId}`);
       return;
     }
 
-    // Post to original channel thread
+    // Post to target channel (threaded for DM-first, top-level for assistant)
     const blocks = session.lastResponse?.sections
       ? getStructuredAcceptedBlocks(session.lastResponse.sections)
       : getAcceptedBlocks(answer);
 
     const postResult = await client.chat.postMessage({
-      channel: originChannel,
-      thread_ts: originThreadTs,
+      channel: targetChannel,
+      ...(originThreadTs ? { thread_ts: originThreadTs } : {}),
       blocks: blocks as any[],
       text: answer,
       unfurl_links: false,
@@ -346,12 +171,14 @@ export function registerDmActionHandlers(app: App): void {
       }
     }
 
-    // Confirm in DM
-    if (session.dmChannel && session.dmThreadTs) {
+    // Confirm in the thread (DM or assistant)
+    const confirmChannel = session.dmChannel || session.channelId;
+    const confirmThreadTs = session.dmThreadTs || session.threadTs;
+    if (confirmChannel && confirmThreadTs) {
       await client.chat.postMessage({
-        channel: session.dmChannel,
-        thread_ts: session.dmThreadTs,
-        text: ":white_check_mark: Answer posted to the original thread. You can continue refining here if needed.",
+        channel: confirmChannel,
+        thread_ts: confirmThreadTs,
+        text: ":white_check_mark: Answer posted to the channel. You can continue refining here if needed.",
       });
     }
 

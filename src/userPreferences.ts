@@ -16,10 +16,13 @@ async function exists(path: string): Promise<boolean> {
 export interface UserPreferences {
   dmOptOut?: boolean; // deprecated, kept for migration
   reactionDelivery: ReactionDelivery;
+  /** Post a short follow-up message after streaming so the user gets a Slack notification. */
+  notifyOnResponse: boolean;
 }
 
 const DEFAULT_PREFERENCES: UserPreferences = {
   reactionDelivery: "dm",
+  notifyOnResponse: false,
 };
 
 type PreferencesMap = Record<string, Partial<UserPreferences>>;

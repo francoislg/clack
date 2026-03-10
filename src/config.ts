@@ -61,7 +61,7 @@ export interface ThinkingFeedbackConfig {
 export interface ChangesWorkflowConfig {
   enabled: boolean;
   timeoutMinutes?: number;
-  maxConcurrent?: number;
+
   additionalAllowedTools?: string[];
   sessionExpiryHours?: number;
   monitoringIntervalMinutes?: number;
@@ -349,7 +349,7 @@ function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Config {
       ? {
           enabled: (c.changesWorkflow as Record<string, unknown>).enabled as boolean,
           timeoutMinutes: (c.changesWorkflow as Record<string, unknown>).timeoutMinutes as number | undefined,
-          maxConcurrent: (c.changesWorkflow as Record<string, unknown>).maxConcurrent as number | undefined,
+
           additionalAllowedTools: (c.changesWorkflow as Record<string, unknown>).additionalAllowedTools as string[] | undefined,
           sessionExpiryHours: (c.changesWorkflow as Record<string, unknown>).sessionExpiryHours as number | undefined,
           monitoringIntervalMinutes: (c.changesWorkflow as Record<string, unknown>).monitoringIntervalMinutes as number | undefined,

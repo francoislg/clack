@@ -78,15 +78,17 @@ export async function triggerChangeWorkflow(
       streamer.handleEvent,
     );
 
-    const message = result.success
-      ? (result.prUrl ? `PR created: ${result.prUrl}\n\n${result.summary || ""}`.trim() : result.summary || "Changes implemented")
-      : `Change request failed: ${result.error}`;
-
-    if (streamer.hasFailed) {
+    if (result.success) {
+      // Worker Claude already reported completion via report_status — just stop the stream quietly.
       await streamer.stop();
-      await client.chat.postMessage({ channel: streamChannel, thread_ts: streamThreadTs, text: message });
     } else {
-      await streamer.stop({ markdownText: message });
+      const message = `Change request failed: ${result.error}`;
+      if (streamer.hasFailed) {
+        await streamer.stop();
+        await client.chat.postMessage({ channel: streamChannel, thread_ts: streamThreadTs, text: message });
+      } else {
+        await streamer.stop({ markdownText: message });
+      }
     }
   } catch (error) {
     logger.error("Change workflow failed:", error);
