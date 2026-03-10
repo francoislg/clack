@@ -8,6 +8,7 @@ import { initializeRepositories, syncAllRepositories, startSyncScheduler, stopSy
 import { startCleanupScheduler, stopCleanupScheduler } from "./sessions.js";
 import { createSlackApp, startSlackApp, stopSlackApp } from "./slack/app.js";
 import { initializeWorktrees } from "./worktrees.js";
+import { discoverPluginInfo } from "./plugins.js";
 import { startCompletionMonitor, stopCompletionMonitor } from "./changes/monitor.js";
 import { restoreWorkerSessions } from "./changes/restore.js";
 import { validateInstructionFiles } from "./instructions.js";
@@ -80,6 +81,13 @@ async function main(): Promise<void> {
   } catch (error) {
     logger.warn("Failed to test MCP connections:", error);
     // Continue anyway - MCP is optional
+  }
+
+  // Step 2.5: Discover plugins
+  const plugins = discoverPluginInfo();
+  if (plugins.length > 0) {
+    const pluginSummary = plugins.map((p) => `${p.name} (${p.skillCount} skills)`).join(", ");
+    logger.info(`Plugins loaded: ${pluginSummary}`);
   }
 
   // Step 3: Initialize and sync repositories

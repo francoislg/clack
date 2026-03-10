@@ -28,6 +28,8 @@ The system SHALL persist session state to the filesystem, including structured t
 - **AND** includes: sessionId, channelId, messageTs, threadTs, userId, username, displayName, errors, createdAt, lastActivity
 - **AND** includes `username` and `displayName` for the requesting user when `fetchUserNames` is enabled
 - **AND** does NOT persist `refinements`, `lastAnswer`, or `threadContext` (these are fetched from Slack on each request)
+- **AND** the context does NOT include `isEphemeral`
+- **AND** delivery mode is derived from `triggerType` and whether `dmChannel` is set
 
 #### Scenario: Session reused after abort
 - **WHEN** a Claude invocation is aborted due to a message edit
@@ -57,8 +59,9 @@ The system SHALL persist session state to the filesystem, including structured t
 
 #### Scenario: Continuation state persisted
 
-- **WHEN** a user interacts with a continuation action (choice, followup, refine)
-- **THEN** the session records: the action type, the user's input (choice value, followup prompt, or refinement text), and timestamp
+- **WHEN** a user interacts with a continuation action (choice, followup)
+- **THEN** the session records: the action type (`"choice"` or `"followup"`), the user's input, and timestamp
+- **AND** `"refine"` is no longer a valid action type (thread-based replies replace it)
 - **AND** the continuation history is available for context reconstruction in subsequent queries
 
 #### Scenario: DM delivery coordinates persisted
@@ -176,12 +179,11 @@ The system SHALL maintain an in-memory index mapping `channel:threadTs` to sessi
 - **THEN** the index is populated lazily on first lookup or eagerly from existing sessions
 
 ### Requirement: Session Identification
-The system SHALL identify sessions by the originating message and user.
+The system SHALL identify sessions by the originating message and user. Sessions are no longer identified via ephemeral message interactions.
 
 #### Scenario: Same message, same user continues session
-- **WHEN** a user interacts with buttons on an ephemeral response
+- **WHEN** a user interacts with buttons on a streamed response
 - **THEN** the system looks up the existing session for that message and user
-- **AND** continues the conversation in that session
 
 #### Scenario: Different user creates new session
 - **WHEN** a different user adds the trigger reaction to the same message
@@ -202,13 +204,14 @@ The system SHALL store all sessions under `data/sessions/`.
 - **AND** may contain additional files created by Claude Code
 
 ### Requirement: Session Restoration
-The system SHALL restore sessions from disk when needed after an app restart.
+The system SHALL restore sessions from disk when needed after an app restart. Session restoration no longer involves ephemeral-specific handling.
 
 #### Scenario: Lazy session restoration
-- **WHEN** a user clicks a button (Accept, Reject, Refine, Update) after an app restart
+- **WHEN** a user clicks a button (choice, followup, change action) after an app restart
 - **AND** the session is not in memory
 - **THEN** the system loads the session from `data/sessions/{session-id}/context.json`
-- **AND** restores the session info (channelId, threadTs, userId) to memory
+- **AND** restores session info to memory
+- **AND** the restored `SessionInfo` does NOT include `isEphemeral`
 - **AND** continues processing the action normally
 
 #### Scenario: Session info reconstruction from sessionId
@@ -218,19 +221,7 @@ The system SHALL restore sessions from disk when needed after an app restart.
 - **AND** reconstructs minimal session info to enable button handling
 
 ### Requirement: Expired Session Recreation
-The system SHALL recreate expired sessions from Slack context when possible.
-
-#### Scenario: Accept with expired session
-- **WHEN** a user clicks Accept on an expired session
-- **THEN** the system extracts the response from the ephemeral message blocks
-- **AND** posts the response publicly without requiring session data
-
-#### Scenario: Refine or Update with expired session
-- **WHEN** a user clicks Refine or Update on an expired session
-- **THEN** the system fetches the original message from Slack using the parsed messageTs
-- **AND** fetches the current thread context
-- **AND** creates a new session with the fetched data
-- **AND** continues with the Refine or Update flow normally
+The system SHALL recreate expired sessions from Slack context when possible. Expired session scenarios no longer reference ephemeral messages.
 
 #### Scenario: Choice or followup with expired session
 - **WHEN** a user clicks a choice or followup button on an expired session

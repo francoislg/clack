@@ -6,10 +6,11 @@ import { loadMcpServers, getConfiguredMcpServerNames } from "./mcp.js";
 import type { UserRole } from "./roles.js";
 import type { SessionContext } from "./sessions.js";
 import { formatUserIdentity } from "./slack/userCache.js";
-import type { SubmitResponsePayload, ToolCallRecord, StagedIntent } from "./tools/types.js";
+import type { SubmitResponsePayload, ToolCallRecord, StagedIntent, DeliverFn } from "./tools/types.js";
 import type { StreamEvent } from "./streaming/types.js";
 import { buildQueryContext } from "./tools/context.js";
 import { buildClackTools } from "./tools/server.js";
+import { discoverPlugins } from "./plugins.js";
 
 /**
  * Detect known Claude platform error messages that arrive as "successful" text
@@ -65,7 +66,9 @@ export interface AskClaudeOptions {
   /** AbortController for cancelling in-flight queries */
   abortController?: AbortController;
   /** Callback for real-time streaming events (tool calls, text) */
-  onEvent?: (event: StreamEvent) => void;
+  onEvent?: (event: StreamEvent) => void | Promise<void>;
+  /** Delivery callback — when provided, submit_response delivers to Slack directly */
+  deliver?: DeliverFn;
 }
 
 export interface McpServerInfo {
@@ -153,7 +156,20 @@ function buildDeliveryContext(session: SessionContext): string | null {
       lines.push("- An answer was already shared to the original channel thread.");
     }
     lines.push("- `send_to_thread` shares this DM answer to the original channel thread the reaction was on. `reject` dismisses.");
-    lines.push("- Choose actions appropriate to your response. Not every response needs the same buttons.");
+    lines.push("- You can also include `send_to_thread` with explicit `channel` and `thread_ts` to share findings to a different thread (e.g., one the user shared via a Slack URL).");
+    lines.push("- Choose actions appropriate to your response. If your answer investigates or summarizes the thread content, include `send_to_thread` so the user can share the findings back.");
+  } else if (session.assistantOriginChannelId && !session.originChannel) {
+    // Assistant side-panel: private chat panel, can share to channel
+    lines.push("- Mode: Assistant side-panel");
+    lines.push("- You are in the Slack assistant side-panel. The user sees your response in a private panel on the RIGHT side of their screen. On the LEFT side, they see a Slack channel.");
+    lines.push("- The response is NOT visible in any channel — only the user can see it.");
+    if (session.assistantCurrentChannelId) {
+      lines.push(`- The user is currently viewing channel ${session.assistantCurrentChannelId}. When they say "here", "this channel", "latest messages", "what's being discussed", "summarize", "what do you see", etc., they are referring to that channel.`);
+      lines.push(`- IMPORTANT: You CANNOT see the channel content unless you call \`fetch_channel_messages\` with channel ID ${session.assistantCurrentChannelId}. Always call it proactively when the user's question relates to the channel — do NOT tell the user to ask you to fetch it.`);
+    }
+    lines.push("- `send_to_thread` shares this answer to the channel the user is viewing, as a top-level message.");
+    lines.push("- You can also include `send_to_thread` with explicit `channel` and `thread_ts` to share findings to a specific thread (e.g., one the user shared via a Slack URL).");
+    lines.push("- Choose actions appropriate to your response. If your answer investigates or summarizes content from a channel or thread, include `send_to_thread` so the user can share the findings back.");
   } else {
     // All non-DM-first modes: response is already where the user can see it
     if (session.triggerType === "reactions") {
@@ -164,7 +180,9 @@ function buildDeliveryContext(session: SessionContext): string | null {
       lines.push("- Mode: Channel mention (the user @mentioned you in a channel)");
     }
     lines.push("- The response is already visible to the user. There is no separate destination to send it to.");
-    lines.push("- Do NOT include `accept`, `reject`, or `send_to_thread` actions — they have no meaning here.");
+    lines.push("- Do NOT include `accept` or `reject` actions — they have no meaning here.");
+    lines.push("- By default, do NOT include `send_to_thread` — the answer is already visible in the thread.");
+    lines.push("- Exception: if you investigated content from another thread or channel (e.g., the user shared a Slack message URL), include `send_to_thread` with explicit `channel` and `thread_ts` so the user can share findings back to that thread.");
   }
 
   return lines.join("\n");
@@ -283,6 +301,7 @@ export async function askClaude(
     config,
     changesWorkflowEnabled: options?.changesWorkflowEnabled ?? false,
     slackClient: options?.slackClient,
+    deliver: options?.deliver,
   });
   const clackTools = buildClackTools(toolCtx);
 
@@ -298,6 +317,8 @@ export async function askClaude(
   try {
     let answer = "";
     let lastAssistantText = "";
+    // Track tool IDs that already emitted tool_start (dedup between tool_progress and assistant message)
+    const emittedToolIds = new Set<string>();
 
     // Use the Agent SDK query function
     // Disallow write operations - this bot is read-only
@@ -309,7 +330,8 @@ export async function askClaude(
         systemPrompt,
         model: config.claudeCode.model,
         permissionMode: "bypassPermissions",
-        tools: ["Read", "Glob", "Grep"],
+        tools: ["Read", "Glob", "Grep", "Skill"],
+        plugins: discoverPlugins(),
         mcpServers: mcpServers as Record<string, import("@anthropic-ai/claude-agent-sdk").McpServerConfig>,
         ...(options?.abortController && { abortController: options.abortController }),
       },
@@ -322,7 +344,15 @@ export async function askClaude(
         timestamp: Date.now(),
       };
 
-      // Extract tool call details and emit stream events
+      // Emit tool_start early from tool_progress (fires during execution, before assistant message)
+      if (message.type === "tool_progress" && options?.onEvent) {
+        if (!emittedToolIds.has(message.tool_use_id)) {
+          emittedToolIds.add(message.tool_use_id);
+          await options.onEvent({ type: "tool_start", taskId: message.tool_use_id, toolName: message.tool_name, toolArgs: {} });
+        }
+      }
+
+      // Extract tool call details and emit stream events from complete messages
       const msg = message as Record<string, unknown>;
       if (msg.message && typeof msg.message === "object") {
         const innerMsg = msg.message as Record<string, unknown>;
@@ -332,19 +362,19 @@ export async function askClaude(
               const tb = block as Record<string, unknown>;
               const toolName = String(tb.name || "unknown");
               const toolArgs = (typeof tb.input === "object" && tb.input !== null) ? tb.input as Record<string, unknown> : {};
-              traceEntry.toolCall = { tool: toolName, args: toolArgs, result: {} };
-              // Emit tool_start event for streaming
-              if (options?.onEvent && tb.id) {
-                options.onEvent({ type: "tool_start", taskId: String(tb.id), toolName, toolArgs });
+              if (!traceEntry.toolCall) {
+                traceEntry.toolCall = { tool: toolName, args: toolArgs, result: {} };
               }
-              break;
-            }
-            if (block && typeof block === "object" && "type" in block && block.type === "tool_result") {
-              // Emit tool_end event for streaming
+              // Fallback: emit tool_start if tool_progress didn't fire (fast tools)
+              if (options?.onEvent && tb.id && !emittedToolIds.has(String(tb.id))) {
+                emittedToolIds.add(String(tb.id));
+                await options.onEvent({ type: "tool_start", taskId: String(tb.id), toolName, toolArgs });
+              }
+            } else if (block && typeof block === "object" && "type" in block && block.type === "tool_result") {
               const rb = block as Record<string, unknown>;
               if (options?.onEvent && rb.tool_use_id) {
                 const errorMessage = rb.is_error === true ? extractToolErrorMessage(rb.content) : undefined;
-                options.onEvent({ type: "tool_end", taskId: String(rb.tool_use_id), error: rb.is_error === true, errorMessage });
+                await options.onEvent({ type: "tool_end", taskId: String(rb.tool_use_id), error: rb.is_error === true, errorMessage });
               }
             }
           }

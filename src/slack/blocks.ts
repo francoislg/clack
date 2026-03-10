@@ -46,7 +46,12 @@ function getActionId(action: Action): string {
 function encodeActionValue(sessionId: string, action: Action): string {
   switch (action.type) {
     case "send_to_thread":
-      return sessionId;
+      return JSON.stringify({
+        s: sessionId,
+        ...(action.channel && { c: action.channel }),
+        ...(action.thread_ts && { t: action.thread_ts }),
+        ...(action._snapshotId && { sn: action._snapshotId }),
+      });
     case "choice":
       return JSON.stringify({ s: sessionId, v: action.value, ...(action.workMode && { w: true }) });
     case "followup":
@@ -59,7 +64,7 @@ function encodeActionValue(sessionId: string, action: Action): string {
 }
 
 /** Decode a button value to extract sessionId */
-export function decodeActionValue(value: string): { sessionId: string; ref?: string; choiceValue?: string; prompt?: string; hint?: string; workMode?: boolean } {
+export function decodeActionValue(value: string): { sessionId: string; ref?: string; choiceValue?: string; prompt?: string; hint?: string; workMode?: boolean; targetChannel?: string; targetThreadTs?: string; snapshotId?: string } {
   // Try JSON first
   try {
     const parsed = JSON.parse(value);
@@ -71,6 +76,9 @@ export function decodeActionValue(value: string): { sessionId: string; ref?: str
         prompt: parsed.p,
         hint: parsed.h,
         workMode: parsed.w === true ? true : undefined,
+        targetChannel: parsed.c,
+        targetThreadTs: parsed.t,
+        snapshotId: parsed.sn,
       };
     }
   } catch {
@@ -128,15 +136,28 @@ function actionToButton(action: Action, sessionId: string, index: number) {
  * This is the new rendering path — Claude controls sections and actions.
  */
 export function getStructuredResponseBlocks(payload: SubmitResponsePayload, sessionId: string) {
-  const sectionBlocks = renderSections(payload.sections);
-  const actionBlocks = getResponseActionBlocks(payload.actions, sessionId);
+  const blocks: Record<string, unknown>[] = [];
 
+  // Prepend conversational preamble if present (shown to user, excluded from send_to_thread)
+  if (payload.message) {
+    const messageChunks = splitForSlack(convertMarkdownToSlack(payload.message));
+    for (const chunk of messageChunks) {
+      blocks.push({
+        type: "section" as const,
+        text: { type: "mrkdwn" as const, text: chunk },
+      });
+    }
+  }
+
+  blocks.push(...renderSections(payload.sections));
+
+  const actionBlocks = getResponseActionBlocks(payload.actions, sessionId);
   if (actionBlocks.length === 0) {
-    return sectionBlocks;
+    return blocks;
   }
 
   return [
-    ...sectionBlocks,
+    ...blocks,
     { type: "divider" as const },
     ...actionBlocks,
   ];

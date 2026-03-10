@@ -22,7 +22,7 @@ The config file SHALL support Slack app branding configuration with optional `sl
 
 ### Requirement: Manifest Generation Script
 
-The system SHALL include Home tab scopes and events in the generated manifest, and conditionally include DM write scope for DM-first reactions.
+The system SHALL include Home tab scopes and events in the generated manifest, and SHALL include assistant-related scopes, events, and features when direct messages are enabled.
 
 #### Scenario: Home tab adds required scopes and events
 - **GIVEN** any valid config (Home tab is always enabled for role management)
@@ -34,13 +34,20 @@ The system SHALL include Home tab scopes and events in the generated manifest, a
 - **GIVEN** any valid config
 - **WHEN** the manifest is generated
 - **THEN** `features.app_home.home_tab_enabled` is `true`
-- **AND** `features.app_home.messages_tab_enabled` is `false`
+- **AND** `features.app_home.messages_tab_enabled` reflects whether direct messages are enabled
 - **AND** `features.app_home.messages_tab_read_only_enabled` is `false`
 
-#### Scenario: DM-first reactions adds im:write scope
-- **GIVEN** `reactions.responseType` is `"directMessage"`
+#### Scenario: Direct messages adds assistant scopes and events
+- **GIVEN** `directMessages.enabled` is `true`
 - **WHEN** the manifest is generated
-- **THEN** scopes include `im:write`
+- **THEN** scopes include `im:history`, `mpim:history`, `assistant:write`
+- **AND** events include `message.im`, `assistant_thread_started`, `assistant_thread_context_changed`
+- **AND** `features.assistant_view` is present with `assistant_description` and `suggested_prompts`
+
+#### Scenario: DM write scope always included
+- **GIVEN** any valid config
+- **WHEN** the manifest is generated
+- **THEN** scopes include `im:write` (needed for DM delivery of per-user reaction preference)
 
 ### Requirement: Manifest File Management
 

@@ -28,15 +28,25 @@ The system SHALL persist per-user preferences in `data/state/user-preferences.js
 - **THEN** the system writes the updated preferences to disk
 - **AND** the change is immediately effective for subsequent reactions
 
-### Requirement: DM Opt-Out Preference
-The system SHALL allow users to opt out of DM-first response delivery.
+### Requirement: Reaction Delivery Preference
+Allow users to choose how reaction-triggered answers are delivered: via DM or directly in the channel thread.
 
-#### Scenario: Opt-out respected during delivery
-- **WHEN** a user has `dmOptOut: true` in their preferences
-- **AND** `reactions.responseType` is `"directMessage"`
-- **THEN** the system delivers responses via ephemeral messages instead of DM
+#### Scenario: Preference values
+- **WHEN** a user sets their reaction delivery preference
+- **THEN** the value SHALL be one of `"dm"` or `"thread"`
 
-#### Scenario: Opt-out irrelevant when config is ephemeral
-- **WHEN** `reactions.responseType` is `"ephemeral"`
-- **THEN** the system always delivers via ephemeral regardless of user preferences
-- **AND** the `dmOptOut` preference has no effect
+#### Scenario: Default preference
+- **WHEN** a user has no `reactionDelivery` preference set
+- **THEN** the system defaults to `"dm"`
+
+#### Scenario: DM delivery selected
+- **WHEN** a user's `reactionDelivery` is `"dm"`
+- **THEN** reaction-triggered answers are delivered in a private DM thread
+
+#### Scenario: Thread delivery selected
+- **WHEN** a user's `reactionDelivery` is `"thread"`
+- **THEN** reaction-triggered answers are posted visibly in the channel thread where the reaction was added
+
+#### Scenario: Preference respected immediately
+- **WHEN** a user changes their `reactionDelivery` preference
+- **THEN** the next reaction-triggered answer uses the new preference

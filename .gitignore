@@ -44,6 +44,9 @@ logs/
 *.log
 npm-debug.log*
 
+# User-managed plugins
+data/plugins/*/
+
 # User-editable configuration overrides
 data/configuration/
 .pnpm-store/

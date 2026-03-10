@@ -1,7 +1,18 @@
 import type { App } from "@slack/bolt";
+import type { Block, KnownBlock } from "@slack/types";
 import type { UserRole } from "../roles.js";
 import type { SessionContext } from "../sessions.js";
 import type { Config } from "../config.js";
+
+// ============================================================================
+// Delivery
+// ============================================================================
+
+/** Callback for delivering a response to Slack (via streamer or fallback). */
+export type DeliverFn = (opts: {
+  markdownText: string;
+  blocks?: (KnownBlock | Block)[];
+}) => Promise<{ ok: true } | { ok: false; error: string }>;
 
 // ============================================================================
 // Tool Context (discriminated union)
@@ -22,6 +33,8 @@ export interface QueryToolContext {
   changesWorkflowEnabled: boolean;
   /** Slack WebClient for API calls (absent in test/verify contexts) */
   slackClient?: App["client"];
+  /** Delivery callback — when provided, submit_response delivers to Slack directly */
+  deliver?: DeliverFn;
 }
 
 /** Worker context — used by change execution and follow-up flows */
@@ -95,6 +108,12 @@ export interface ResponseSection {
   body: string;
 }
 
+/** Snapshot of a response, saved at delivery time for stable "Send to thread" */
+export interface ResponseSnapshot {
+  text: string;
+  sections: ResponseSection[];
+}
+
 // Continuation actions
 export interface FollowupAction {
   type: "followup";
@@ -115,6 +134,14 @@ export interface SendToThreadAction {
   type: "send_to_thread";
   label?: string;
   auto?: boolean;
+  /** Explicit target channel (for posting to a different thread than the origin) */
+  channel?: string;
+  /** Explicit target thread timestamp (for posting to a specific thread) */
+  thread_ts?: string;
+  /** Reference to a previous response's snapshot ID (from submit_response result) */
+  snapshot?: string;
+  /** Internal: resolved snapshot ID set by submit_response before delivery (not from Claude) */
+  _snapshotId?: string;
 }
 
 // Ref-based actions (reference staged intents)
@@ -149,6 +176,8 @@ export type Action =
 export type ActionType = Action["type"];
 
 export interface SubmitResponsePayload {
+  /** Conversational preamble shown to user but excluded from snapshots and send_to_thread */
+  message?: string;
   sections: ResponseSection[];
   actions: Action[];
 }

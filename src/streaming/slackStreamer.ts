@@ -2,7 +2,7 @@ import type { App } from "@slack/bolt";
 import type { Block, KnownBlock, TaskUpdateChunk } from "@slack/types";
 import type { ChatStreamer } from "@slack/web-api";
 import { logger } from "../logger.js";
-import { getToolLabel } from "./toolLabels.js";
+import { getToolLabel, getToolGroup, getToolDetails } from "./toolLabels.js";
 import type { StreamEvent } from "./types.js";
 
 export interface SlackStreamerOptions {
@@ -34,12 +34,18 @@ export class SlackStreamer {
   private teamId: string | undefined;
 
   private chatStreamer: ChatStreamer | null = null;
-  private taskTitles = new Map<string, string>();
   private thinkingFinalized = false;
   private failed = false;
   private stopped = false;
 
   private static readonly THINKING_TASK_ID = "__thinking__";
+
+  /** Currently open group: consecutive same-key tools share one Slack task. */
+  private openGroup: { slackId: string; key: string; title: string; count: number; pending: number } | null = null;
+  /** Maps each SDK taskId to the Slack task ID it belongs to. */
+  private taskSlack = new Map<string, string>();
+  /** Tracks individual task labels for non-grouped tools. */
+  private taskLabels = new Map<string, string>();
 
   constructor(opts: SlackStreamerOptions) {
     this.client = opts.client;
@@ -95,12 +101,10 @@ export class SlackStreamer {
         const label = getToolLabel(event.toolName, event.toolArgs);
         if (label === null) break;
 
-        this.taskTitles.set(event.taskId, label);
-
+        const group = getToolGroup(event.toolName, event.toolArgs);
+        const groupKey = group?.key ?? event.toolName;
         const chunks: TaskUpdateChunk[] = [];
 
-        // Update the thinking task to "Analyzing…" exactly once,
-        // then never touch it again.
         if (!this.thinkingFinalized) {
           this.thinkingFinalized = true;
           chunks.push({
@@ -111,31 +115,70 @@ export class SlackStreamer {
           });
         }
 
-        chunks.push({
-          type: "task_update",
-          id: event.taskId,
-          title: label,
-          status: "in_progress",
-        });
+        if (group && this.openGroup?.key === groupKey) {
+          // Same consecutive group — fold into the open task
+          this.openGroup.count++;
+          this.openGroup.pending++;
+          this.taskSlack.set(event.taskId, this.openGroup.slackId);
+
+          const chunk: TaskUpdateChunk = {
+            type: "task_update",
+            id: this.openGroup.slackId,
+            title: `${this.openGroup.title} (${this.openGroup.count})`,
+            status: "in_progress",
+          };
+          if (group.itemDetail) chunk.details = `\n${group.itemDetail}`;
+          chunks.push(chunk);
+        } else {
+          // New task (grouped or standalone)
+          this.openGroup = group
+            ? { slackId: event.taskId, key: groupKey, title: group.title, count: 1, pending: 1 }
+            : null;
+          this.taskSlack.set(event.taskId, event.taskId);
+          this.taskLabels.set(event.taskId, label);
+
+          const chunk: TaskUpdateChunk = {
+            type: "task_update",
+            id: event.taskId,
+            title: label,
+            status: "in_progress",
+          };
+
+          // Attach details: itemDetail for grouped, or rich details for standalone
+          const details = group?.itemDetail || getToolDetails(event.toolName, event.toolArgs);
+          if (details) chunk.details = details;
+          chunks.push(chunk);
+        }
 
         this.append(chunks);
         break;
       }
       case "tool_end": {
-        const title = this.taskTitles.get(event.taskId);
-        if (!title) break;
-        this.taskTitles.delete(event.taskId);
+        const slackId = this.taskSlack.get(event.taskId);
+        if (!slackId) break;
+        this.taskSlack.delete(event.taskId);
 
-        const task: TaskUpdateChunk = {
-          type: "task_update",
-          id: event.taskId,
-          title: event.error ? `${title} (failed)` : title,
-          status: "complete",
-        };
-        if (event.error && event.errorMessage) {
-          task.details = event.errorMessage;
+        // Grouped task — decrement pending, only complete when all done
+        if (this.openGroup?.slackId === slackId) {
+          this.openGroup.pending--;
+          const done = this.openGroup.pending === 0;
+          const title = this.openGroup.count > 1
+            ? `${this.openGroup.title} (${this.openGroup.count})`
+            : this.openGroup.title;
+          this.append([{ type: "task_update", id: slackId, title, status: done ? "complete" : "in_progress" }]);
+          break;
         }
 
+        // Standalone task
+        const label = this.taskLabels.get(event.taskId) ?? "Task";
+        this.taskLabels.delete(event.taskId);
+        const task: TaskUpdateChunk = {
+          type: "task_update",
+          id: slackId,
+          title: event.error ? `${label} (failed)` : label,
+          status: "complete",
+        };
+        if (event.error && event.errorMessage) task.details = event.errorMessage;
         this.append([task]);
         break;
       }
@@ -155,6 +198,13 @@ export class SlackStreamer {
     if (!this.chatStreamer || this.stopped) return;
 
     this.stopped = true;
+
+    // Force-complete the open group if it still has pending items (e.g. cancellation)
+    if (this.openGroup && this.openGroup.pending > 0) {
+      const g = this.openGroup;
+      const title = g.count > 1 ? `${g.title} (${g.count})` : g.title;
+      await this.append([{ type: "task_update", id: g.slackId, title, status: "complete" }]);
+    }
 
     if (!this.failed) {
       await this.append([

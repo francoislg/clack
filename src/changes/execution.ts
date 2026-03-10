@@ -11,6 +11,7 @@ import { findRepoByName } from "./detection.js";
 import { detectPlatformError, extractToolErrorMessage } from "../claude.js";
 import { buildWorkerContext } from "../tools/context.js";
 import { buildClackTools } from "../tools/server.js";
+import { discoverPlugins } from "../plugins.js";
 import type { StreamEvent } from "../streaming/types.js";
 
 /**
@@ -26,7 +27,7 @@ export async function runClaude(options: {
   timeout?: number;
   branchName?: string;
   onProgress?: (message: string) => void;
-  onEvent?: (event: StreamEvent) => void;
+  onEvent?: (event: StreamEvent) => void | Promise<void>;
 }): Promise<{ success: boolean; text: string; error?: string; lastMessage?: string }> {
   // Validate prompt early - catch empty prompts with a clear error
   if (!options.prompt || options.prompt.trim().length === 0) {
@@ -75,6 +76,7 @@ export async function runClaude(options: {
   let lastProgressMessage = "";
   let resultSuccess = false;
   let resultError: string | undefined;
+  const emittedToolIds = new Set<string>();
 
   try {
     for await (const message of query({
@@ -87,6 +89,7 @@ export async function runClaude(options: {
         disallowedTools: options.disallowedTools,
         permissionMode: "bypassPermissions",
         allowDangerouslySkipPermissions: true,
+        plugins: discoverPlugins(),
         persistSession: false,
         ...(options.mcpServers && { mcpServers: options.mcpServers as Record<string, import("@anthropic-ai/claude-agent-sdk").McpServerConfig> }),
         abortController,
@@ -102,18 +105,30 @@ export async function runClaude(options: {
       lastOutputTime = Date.now();
       outputReceived = true;
 
+      // Emit tool_start early from tool_progress (fires during execution, before assistant message)
+      if (message.type === "tool_progress" && options.onEvent) {
+        if (!emittedToolIds.has(message.tool_use_id)) {
+          emittedToolIds.add(message.tool_use_id);
+          await options.onEvent({ type: "tool_start", taskId: message.tool_use_id, toolName: message.tool_name, toolArgs: {} });
+        }
+      }
+
       if (message.type === "assistant" && message.message?.content) {
         lastAssistantText = "";
         for (const block of message.message.content) {
           if (block.type === "tool_use") {
             lastProgressMessage = `Using ${block.name}`;
             options.onProgress?.(lastProgressMessage);
-            options.onEvent?.({
-              type: "tool_start",
-              taskId: block.id,
-              toolName: block.name,
-              toolArgs: (block.input as Record<string, unknown>) ?? {},
-            });
+            // Fallback: emit tool_start if tool_progress didn't fire (fast tools)
+            if (!emittedToolIds.has(block.id)) {
+              emittedToolIds.add(block.id);
+              await options.onEvent?.({
+                type: "tool_start",
+                taskId: block.id,
+                toolName: block.name,
+                toolArgs: (block.input as Record<string, unknown>) ?? {},
+              });
+            }
             if (options.branchName) {
               appendExecutionLog(options.branchName, `Event: tool_use (${block.name})`);
             }
@@ -132,7 +147,7 @@ export async function runClaude(options: {
             const rb = block as Record<string, unknown>;
             if (rb.tool_use_id) {
               const errorMessage = rb.is_error === true ? extractToolErrorMessage(rb.content) : undefined;
-              options.onEvent({ type: "tool_end", taskId: String(rb.tool_use_id), error: rb.is_error === true, errorMessage });
+              await options.onEvent({ type: "tool_end", taskId: String(rb.tool_use_id), error: rb.is_error === true, errorMessage });
             }
           }
         }
@@ -272,7 +287,7 @@ export async function executeChange(
   request: ChangeRequest,
   sessionId: string,
   resumeContext?: string,
-  onEvent?: (event: StreamEvent) => void,
+  onEvent?: (event: StreamEvent) => void | Promise<void>,
 ): Promise<ExecutionResult> {
   const config = getConfig();
 
@@ -389,7 +404,7 @@ export async function runWorktreeSetup(
   repoName: string,
   worktreePath: string,
   branchName?: string,
-  onEvent?: (event: StreamEvent) => void,
+  onEvent?: (event: StreamEvent) => void | Promise<void>,
 ): Promise<void> {
   const setupPath = resolveInstructionFile(`${repoName}/worktree_setup_instructions.md`);
   if (!setupPath) {

@@ -1,11 +1,5 @@
-import type { App } from "@slack/bolt";
-import { logger } from "../logger.js";
-import type { ClaudeResponse } from "../claude.js";
-import type { SessionContext } from "../sessions.js";
 import { updateSession } from "../sessions.js";
-import { getStructuredResponseBlocks } from "./blocks.js";
 import { setSessionInfo } from "./state.js";
-
 
 /** Actions for the synthesis message (before posting to channel) */
 export function getDmSynthesisActions(sessionId: string) {
@@ -67,61 +61,6 @@ export function getDmPostAcceptActions(sessionId: string) {
       ],
     },
   ];
-}
-
-/**
- * Post the answer as a thread reply in the DM with action buttons.
- */
-export async function postDmThreadReply(
-  client: App["client"],
-  dmChannel: string,
-  dmThreadTs: string,
-  session: SessionContext,
-  response: ClaudeResponse
-): Promise<void> {
-  const answerText = response.answer;
-
-  // Use Claude's rendered blocks directly (Claude controls actions via delivery context)
-  let blocks: Record<string, unknown>[];
-  if (response.response) {
-    blocks = response.renderedBlocks
-      ? [...(response.renderedBlocks as Record<string, unknown>[])]
-      : getStructuredResponseBlocks(response.response, session.sessionId);
-  } else {
-    blocks = [
-      {
-        type: "section",
-        text: { type: "mrkdwn", text: answerText },
-      },
-    ];
-  }
-
-  // Add instruction context block before the action buttons
-  const dividerIndex = blocks.findIndex(b => b.type === "divider");
-  const instructionBlock = {
-    type: "context",
-    elements: [
-      {
-        type: "mrkdwn",
-        text: "_Reply in this thread to refine, or click a button below._",
-      },
-    ],
-  };
-
-  if (dividerIndex >= 0) {
-    // Insert after the divider, before action blocks
-    blocks.splice(dividerIndex + 1, 0, instructionBlock);
-  } else {
-    // No divider (no actions from Claude) — append instruction at the end
-    blocks.push({ type: "divider" }, instructionBlock);
-  }
-
-  await client.chat.postMessage({
-    channel: dmChannel,
-    thread_ts: dmThreadTs,
-    blocks: blocks as any[],
-    text: answerText,
-  });
 }
 
 /**

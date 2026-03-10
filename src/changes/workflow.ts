@@ -10,7 +10,6 @@ import type { SessionContext, ActiveChangeState } from "../sessions.js";
 import {
   setActiveChange,
   getActiveChangeForUser,
-  getActiveChangeCount,
   updateActiveChangeStatus,
   getSession,
 } from "../sessions.js";
@@ -34,18 +33,9 @@ export async function startChangeWorkflow(
   request: ChangeRequest,
   plan: ChangePlan,
   sessionId: string,
-  onEvent?: (event: StreamEvent) => void,
+  onEvent?: (event: StreamEvent) => void | Promise<void>,
 ): Promise<ChangeResult> {
   const config = getConfig();
-
-  // Check concurrency limits
-  const maxConcurrent = config.changesWorkflow?.maxConcurrent ?? 3;
-  if (getActiveChangeCount() >= maxConcurrent) {
-    return {
-      success: false,
-      error: `System is at capacity (${maxConcurrent} concurrent changes). Please try again later.`,
-    };
-  }
 
   // Check if user already has an active session
   const existingChange = getActiveChangeForUser(request.userId);
@@ -160,7 +150,7 @@ export async function handleFollowUp(
   session: SessionContext,
   command: FollowUpCommand,
   additionalInstructions?: string,
-  onEvent?: (event: StreamEvent) => void,
+  onEvent?: (event: StreamEvent) => void | Promise<void>,
 ): Promise<ChangeResult> {
   const activeChange = session.activeChange;
   if (!activeChange) {

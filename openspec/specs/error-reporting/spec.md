@@ -56,17 +56,17 @@ The system SHALL preserve sessions that contain errors for debugging.
 
 ### Requirement: User-Friendly Error Display
 
-The system SHALL show a friendly error message with retry option when errors occur.
+The system SHALL show a friendly error message with retry option when errors occur. Error responses are now delivered via the stream or as a fallback `chat.postMessage`, not via ephemeral messages.
 
-#### Scenario: Generic error message
-- **WHEN** Claude query fails
-- **THEN** the system displays "Claude seems to have crashed, maybe try again?"
-- **AND** does NOT expose technical error details to the user
+#### Scenario: Error delivered via stream
+- **WHEN** Claude query fails and the stream is healthy
+- **THEN** the system stops the stream with the error text and a "Try Again" button via `stopStream`
 
-#### Scenario: Retry button included
-- **WHEN** an error message is displayed
-- **THEN** it includes a "Try Again" button
-- **AND** clicking the button re-triggers the query
+#### Scenario: Error delivered via fallback
+- **WHEN** Claude query fails and the stream has failed
+- **THEN** the system calls `streamer.stop()` to clear loading state
+- **AND** posts error blocks with "Try Again" button via `chat.postMessage`
+- **AND** targets the DM thread if in DM mode, otherwise the channel thread
 
 ### Requirement: DM Error Reporting
 
@@ -96,44 +96,6 @@ The system SHALL optionally send detailed error reports to users via direct mess
 - **THEN** the system logs the failure
 - **AND** continues normal error handling (does not block the response)
 
-### Requirement: Block Posting Retry on Invalid Blocks
-
-The system SHALL retry Claude when the Slack API rejects blocks with `invalid_blocks` despite passing local validation.
-
-#### Scenario: Handler catches invalid_blocks error
-
-- **WHEN** the handler posts rendered blocks to Slack
-- **AND** the Slack API returns an `invalid_blocks` error
-- **THEN** the system injects the error details as a refinement into the session
-- **AND** re-invokes `askClaude()` so Claude can fix and resubmit via `submit_response`
-
-#### Scenario: Retry limit enforced
-
-- **WHEN** the handler has already retried the maximum number of times (1 retry)
-- **AND** the Slack API returns `invalid_blocks` again
-- **THEN** the system does NOT retry further
-- **AND** falls back to posting the plain text answer without blocks
-
-#### Scenario: Retry applies to all posting paths
-
-- **WHEN** an `invalid_blocks` error occurs
-- **THEN** the retry behavior applies to the initial response flow (core.ts) and all button handler response flows (handlerResponse.ts)
-
-### Requirement: Plain Text Fallback on Exhausted Retries
-
-The system SHALL fall back to plain text when block posting fails after retries are exhausted.
-
-#### Scenario: Fallback posts plain text
-
-- **WHEN** block retries are exhausted
-- **THEN** the system posts the response as plain text (no blocks) using the answer text
-- **AND** the message is delivered to the user (not lost)
-
-#### Scenario: Fallback preserves response style
-
-- **WHEN** the fallback posts plain text
-- **THEN** it respects the original response style (ephemeral for reactions, regular for DMs/mentions)
-
 ### Requirement: Migration Error DM Reporting
 
 The system SHALL send migration error details to the admin via DM when a migration fails.
@@ -147,4 +109,29 @@ The system SHALL send migration error details to the admin via DM when a migrati
 - **WHEN** sending the migration error DM fails
 - **THEN** log the failure
 - **AND** rely on the home tab banner as the fallback notification mechanism
+
+### Requirement: Block Posting Retry on Invalid Blocks
+
+The system SHALL rely on `submit_response`'s native delivery feedback loop for block error recovery, instead of external re-invoke retries.
+
+#### Scenario: Slack rejects blocks during submit_response
+
+- **WHEN** Claude calls `submit_response` with valid local blocks
+- **AND** the Slack API rejects the delivery (invalid_blocks, msg_too_long)
+- **THEN** `submit_response` returns the error details to Claude
+- **AND** Claude can adjust the content and call `submit_response` again within the same conversation turn
+
+#### Scenario: Claude self-corrects
+
+- **WHEN** Claude receives a delivery error from `submit_response`
+- **THEN** Claude shortens or restructures the response
+- **AND** calls `submit_response` again with corrected content
+- **AND** the corrected delivery succeeds
+
+#### Scenario: Fallback on stream failure
+
+- **WHEN** the streaming channel has failed (stream expired, API unreachable)
+- **AND** Claude calls `submit_response`
+- **THEN** the deliver callback falls back to `chat.postMessage`
+- **AND** if that also fails, the error is returned to Claude
 

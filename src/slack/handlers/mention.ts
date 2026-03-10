@@ -15,12 +15,12 @@ export function registerMentionHandler(app: App): void {
     const botId = (await client.auth.test()).user_id;
     const messageText = event.text.replace(new RegExp(`<@${botId}>\\s*`, "g"), "").trim();
 
-    if (!messageText) {
-      // No actual message content, just a mention
+    if (!messageText && !event.thread_ts) {
+      // No message content and not in a thread — nothing to work with
       await client.chat.postMessage({
         channel: event.channel,
-        thread_ts: event.thread_ts || event.ts,
-        text: "Hi! Please include a question when mentioning me.",
+        thread_ts: event.ts,
+        text: "Hi! Please include a question when mentioning me, or tag me in a thread and I'll read the conversation.",
       });
       return;
     }
@@ -30,7 +30,7 @@ export function registerMentionHandler(app: App): void {
       userId: event.user,
       channelId: event.channel,
       messageTs: event.ts,
-      messageText,
+      messageText: messageText || "Read the conversation above and provide an answer or investigation based on what's being discussed.",
       threadTs: event.thread_ts,
       triggerType: "mentions",
     });

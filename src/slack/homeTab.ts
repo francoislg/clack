@@ -10,9 +10,10 @@ import {
 import { canEditConfig, canManageRoles, canRequestChanges } from "../permissions.js";
 import { getActiveWorkers } from "../sessions.js";
 import { listInstructionFiles } from "../configurationFiles.js";
-import { getReactionDelivery } from "../userPreferences.js";
+import { getReactionDelivery, getUserPreference } from "../userPreferences.js";
 import { getVisibleRepos, canWriteRepo } from "../repoAccess.js";
 import { getMigrationErrors } from "../migrations/admin.js";
+import { discoverPluginInfo } from "../plugins.js";
 
 interface HomeViewOptions {
   userId: string;
@@ -403,6 +404,21 @@ export function buildStatusSection(role: UserRole): KnownBlock[] {
     });
   }
 
+  // Plugins
+  const plugins = discoverPluginInfo();
+  if (plugins.length > 0) {
+    const pluginList = plugins
+      .map((p) => `• *${p.name}*${p.skillCount > 0 ? ` (${p.skillCount} skills)` : ""}`)
+      .join("\n");
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `:jigsaw: *Plugins:*\n${pluginList}`,
+      },
+    });
+  }
+
   // Trigger methods
   const methods: string[] = [`:${config.reactions.trigger}: Reaction`];
   if (config.directMessages.enabled) {
@@ -577,6 +593,7 @@ async function buildSettingsSection(_userId: string): Promise<KnownBlock[]> {
 
 export async function buildSettingsModal(userId: string): Promise<View> {
   const delivery = await getReactionDelivery(userId);
+  const notifyOnResponse = await getUserPreference(userId, "notifyOnResponse");
 
   const dmOption = {
     text: { type: "plain_text" as const, text: "Direct Message" },
@@ -587,6 +604,17 @@ export async function buildSettingsModal(userId: string): Promise<View> {
     text: { type: "plain_text" as const, text: "Thread" },
     description: { type: "plain_text" as const, text: "Answer posted directly in the channel thread." },
     value: "thread",
+  };
+
+  const notifyOnOption = {
+    text: { type: "plain_text" as const, text: "On" },
+    description: { type: "plain_text" as const, text: "Post a short follow-up so you get a Slack notification." },
+    value: "true",
+  };
+  const notifyOffOption = {
+    text: { type: "plain_text" as const, text: "Off" },
+    description: { type: "plain_text" as const, text: "No extra message — just the streamed answer." },
+    value: "false",
   };
 
   return {
@@ -621,6 +649,26 @@ export async function buildSettingsModal(userId: string): Promise<View> {
             action_id: "response_delivery",
             initial_option: delivery === "dm" ? dmOption : threadOption,
             options: [dmOption, threadOption],
+          },
+        ],
+      },
+      { type: "divider" },
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: "*Response notification*\nPost a follow-up message when the answer is ready so you get a Slack notification?",
+        },
+      },
+      {
+        type: "actions",
+        block_id: "notify_on_response_block",
+        elements: [
+          {
+            type: "radio_buttons",
+            action_id: "notify_on_response",
+            initial_option: notifyOnResponse ? notifyOnOption : notifyOffOption,
+            options: [notifyOnOption, notifyOffOption],
           },
         ],
       },

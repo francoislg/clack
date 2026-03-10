@@ -4,7 +4,7 @@
 TBD - created by archiving change add-slack-reaction-bot. Update Purpose after archive.
 ## Requirements
 ### Requirement: Claude Code Subprocess Invocation
-The system SHALL use the Claude Agent SDK for answer generation requests.
+The system SHALL use the Claude Agent SDK for answer generation requests. The `askClaude()` function now supports an `onEvent` callback for real-time streaming of tool call progress.
 
 #### Scenario: Query via Agent SDK
 - **WHEN** answer generation is requested
@@ -20,6 +20,18 @@ The system SHALL use the Claude Agent SDK for answer generation requests.
 - **WHEN** the system starts
 - **THEN** it reads the model name from configuration
 - **AND** passes it to the SDK for all queries
+
+#### Scenario: onEvent callback for streaming
+- **WHEN** `askClaude()` is called with an `onEvent` callback in options
+- **THEN** the function emits `StreamEvent` objects as Claude executes
+- **AND** `tool_start` events are emitted when `tool_use` blocks appear in the SDK message stream
+- **AND** `tool_end` events are emitted when `tool_result` blocks appear
+- **AND** the `taskId` field uses the SDK's `tool_use_id` to correlate start/end events
+
+#### Scenario: onEvent callback is optional
+- **WHEN** `askClaude()` is called without an `onEvent` callback
+- **THEN** the function behaves identically to before (no streaming events emitted)
+- **AND** the return type (`ClaudeResponse`) is unchanged
 
 ### Requirement: Filesystem Permission Enforcement
 The system SHALL enforce read-only access to repositories by restricting allowed tools.
@@ -60,12 +72,13 @@ The system SHALL inform Claude Code about all configured repositories and their 
 - **AND** focuses its code exploration on the selected repo(s)
 
 ### Requirement: Session Context Continuation
-The system SHALL pass previous conversation context to Claude Code for follow-up questions.
+The system SHALL pass previous conversation context to Claude Code for follow-up questions. Thread-based replies replace refinement as a first-class concept.
 
 #### Scenario: Refinement includes previous context
-- **WHEN** a user submits a Refine action with additional instructions
-- **THEN** the system passes the original question, previous answer, and new instructions to Claude Code
-- **AND** Claude Code generates a response that builds on the previous context
+- **WHEN** a user replies in a thread (DM or channel)
+- **THEN** the system fetches full thread context from Slack
+- **AND** passes it to Claude as conversation history
+- **AND** does NOT use a separate refinement mechanism
 
 #### Scenario: Update preserves conversation history
 - **WHEN** a user clicks Update to regenerate
@@ -100,7 +113,7 @@ The system SHALL capture Claude's `submit_response` tool output and format it fo
 
 ### Requirement: Autonomous Change Execution
 
-The system SHALL support an autonomous change execution mode for implementing code changes without user interaction.
+The system SHALL support an autonomous change execution mode for implementing code changes without user interaction. The `runClaude()` function now supports the same `onEvent` callback for streaming worker tool progress.
 
 #### Scenario: Execute change with default tools and MCP server
 - **WHEN** a change request is triggered by an authorized dev
@@ -165,6 +178,12 @@ The system SHALL support an autonomous change execution mode for implementing co
 - **WHEN** Claude is invoked for any worktree operation (execution, review, update, setup, intent detection)
 - **THEN** the remote URL is updated with a fresh installation token
 - **AND** this occurs regardless of whether the specific operation involves git push
+
+#### Scenario: Worker onEvent callback
+- **WHEN** `runClaude()` is called with an `onEvent` callback
+- **THEN** the function emits `tool_start` events when `tool_use` blocks appear
+- **AND** emits `tool_end` events when `tool_result` blocks appear (with error status if `is_error: true`)
+- **AND** the caller (change workflow handlers) can wire these events to a `SlackStreamer` for live progress display
 
 ### Requirement: `runClaude` MCP Server Support
 
