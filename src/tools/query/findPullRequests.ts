@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
+import { textResult, errorResult } from "../helpers.js";
 import { getVisibleRepos } from "../../repoAccess.js";
 import { getOctokit, parseRepoUrl } from "../../github.js";
 import { logger } from "../../logger.js";
@@ -19,15 +20,7 @@ export function createFindPullRequestsTool(ctx: QueryToolContext) {
 
       if (!repo) {
         const available = visibleRepos.map((r) => r.name);
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({
-              error: `Repository "${args.repo}" not found or not accessible. Available: ${available.join(", ")}`,
-            }),
-          }],
-          isError: true,
-        };
+        return errorResult(`Repository "${args.repo}" not found or not accessible. Available: ${available.join(", ")}`);
       }
 
       try {
@@ -54,18 +47,10 @@ export function createFindPullRequestsTool(ctx: QueryToolContext) {
           updatedAt: pr.updated_at,
         }));
 
-        return {
-          content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
-        };
+        return textResult(result);
       } catch (error) {
         logger.debug(`Failed to fetch PRs for ${args.repo}: ${error}`);
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: `Failed to fetch pull requests: ${error}` }),
-          }],
-          isError: true,
-        };
+        return errorResult(`Failed to fetch pull requests: ${error}`);
       }
     }
   );

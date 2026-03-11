@@ -2,13 +2,13 @@ import { getConfig } from "../config.js";
 import { logger } from "../logger.js";
 import { removeWorktree } from "../worktrees.js";
 import { getPRStatus, type PRState } from "./pr.js";
+import { getSession } from "../sessions.js";
+import type { ActiveChangeState } from "./activeState.js";
 import {
   getActiveWorkers,
-  getSession,
   updateActiveChangeStatus,
   clearActiveChange,
-} from "../sessions.js";
-import type { ActiveChangeState } from "../sessions.js";
+} from "./activeState.js";
 
 // ============================================================================
 // Session Completion Monitoring

@@ -12,7 +12,7 @@ import type {
   WorkerToolContext,
 } from "./types.js";
 import { updateSession, getSession } from "../sessions.js";
-import { canRequestChanges } from "../permissions.js";
+import { canRequestChanges, canEditConfig } from "../permissions.js";
 
 // Query tools
 import { createListRepositoriesTool } from "./query/listRepositories.js";
@@ -159,10 +159,10 @@ function buildQueryTools(ctx: QueryToolContext): ClackToolsResult {
     tools.push(createFindSessionsTool(ctx));
     tools.push(createFindChangesTool(ctx));
     tools.push(createFindPullRequestsTool(ctx));
-    tools.push(createResolveReviewThreadTool());
+    tools.push(createResolveReviewThreadTool(ctx));
   }
 
-  if (ctx.role === "admin" || ctx.role === "owner") {
+  if (canEditConfig(ctx.role)) {
     tools.push(createListConfigFilesTool(ctx));
     tools.push(createReadConfigFileTool(ctx));
   }
@@ -173,7 +173,7 @@ function buildQueryTools(ctx: QueryToolContext): ClackToolsResult {
     tools.push(createRequestUpdateTool(ctx, intentStore, recorder));
   }
 
-  if (ctx.role === "admin" || ctx.role === "owner") {
+  if (canEditConfig(ctx.role)) {
     tools.push(createProposeConfigUpdateTool(ctx, intentStore, recorder));
   }
 
@@ -184,7 +184,14 @@ function buildQueryTools(ctx: QueryToolContext): ClackToolsResult {
     const variables = { ...session.variables, [id]: snapshot };
     await updateSession(ctx.session.sessionId, { variables });
   };
-  tools.push(createSubmitResponseTool(intentStore, responseCapture, recorder, ctx.session.sessionId, ctx.deliver, persistSnapshot));
+  tools.push(createSubmitResponseTool({
+    intentStore,
+    responseCapture,
+    recorder,
+    sessionId: ctx.session.sessionId,
+    deliver: ctx.deliver,
+    persistSnapshot,
+  }));
 
   const toolNames = tools.map((t) => t.name);
 
@@ -215,7 +222,7 @@ function buildWorkerTools(ctx: WorkerToolContext): ClackToolsResult {
   tools.push(createEnsurePRTool(ctx));
   tools.push(createMergePRTool(ctx));
   tools.push(createClosePRTool(ctx));
-  tools.push(createResolveReviewThreadTool());
+  tools.push(createResolveReviewThreadTool(ctx));
 
   const toolNames = tools.map((t) => t.name);
 

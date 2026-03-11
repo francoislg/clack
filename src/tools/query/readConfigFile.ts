@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
+import { textResult, errorResult } from "../helpers.js";
 import { listInstructionFiles, readInstructionFile } from "../../configurationFiles.js";
 
 export function createReadConfigFileTool(_ctx: QueryToolContext) {
@@ -16,25 +17,18 @@ export function createReadConfigFileTool(_ctx: QueryToolContext) {
 
       if (!match) {
         const available = knownFiles.map((f) => f.filename);
-        return {
-          content: [{ type: "text" as const, text: JSON.stringify({
-            error: `Unknown instruction file "${args.file}". Available files: ${available.join(", ")}`,
-          }) }],
-          isError: true,
-        };
+        return errorResult(`Unknown instruction file "${args.file}". Available files: ${available.join(", ")}`);
       }
 
       const fileContent = readInstructionFile(args.file);
 
-      return {
-        content: [{ type: "text" as const, text: JSON.stringify({
-          file: args.file,
-          hasOverride: match.hasOverride,
-          hasDefault: match.hasDefault,
-          status: match.hasOverride ? "customized" : match.hasDefault ? "default" : "not_created",
-          content: fileContent ?? "",
-        }, null, 2) }],
-      };
+      return textResult({
+        file: args.file,
+        hasOverride: match.hasOverride,
+        hasDefault: match.hasDefault,
+        status: match.hasOverride ? "customized" : match.hasDefault ? "default" : "not_created",
+        content: fileContent ?? "",
+      });
     }
   );
 }

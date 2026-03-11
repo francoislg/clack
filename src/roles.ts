@@ -1,16 +1,8 @@
-import { mkdir, readFile, writeFile, access } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { App } from "@slack/bolt";
 import { logger } from "./logger.js";
-
-async function exists(path: string): Promise<boolean> {
-  try {
-    await access(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
+import { fileExists } from "./errors.js";
 
 export interface RolesConfig {
   owner: string | null;
@@ -43,7 +35,7 @@ export async function loadRoles(): Promise<RolesConfig> {
 
   const rolesPath = getRolesPath();
 
-  if (!(await exists(rolesPath))) {
+  if (!(await fileExists(rolesPath))) {
     cachedRoles = { ...DEFAULT_ROLES };
     return cachedRoles;
   }
@@ -72,7 +64,7 @@ export async function saveRoles(roles: RolesConfig): Promise<void> {
   const rolesPath = getRolesPath();
 
   // Ensure state directory exists
-  if (!(await exists(stateDir))) {
+  if (!(await fileExists(stateDir))) {
     await mkdir(stateDir, { recursive: true });
   }
 

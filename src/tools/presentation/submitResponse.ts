@@ -3,7 +3,8 @@ import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { IntentStore, ResponseCapture, ToolCallRecorder } from "../server.js";
 import type { DeliverFn, ResponseSnapshot, SendToThreadAction } from "../types.js";
-import { getStructuredResponseBlocks, getResponseActionBlocks, validateSlackBlocks } from "../../slack/blocks.js";
+import { textResult, errorResult } from "../helpers.js";
+import { getStructuredResponseBlocks, getResponseActionBlocks, validateSlackBlocks, asSlackBlocks } from "../../slack/blocks.js";
 
 const sectionSchema = z.object({
   title: z.string().optional().describe("Optional bold section title"),
@@ -67,14 +68,17 @@ const actionSchema = z.discriminatedUnion("type", [
 // Ref-based action types that need validation
 const REF_ACTION_TYPES = new Set(["change", "config_update", "update"]);
 
-export function createSubmitResponseTool(
-  intentStore: IntentStore,
-  responseCapture: ResponseCapture,
-  recorder: ToolCallRecorder,
-  sessionId: string,
-  deliver?: DeliverFn,
-  persistSnapshot?: (id: string, snapshot: ResponseSnapshot) => Promise<void>
-) {
+export interface SubmitResponseDeps {
+  intentStore: IntentStore;
+  responseCapture: ResponseCapture;
+  recorder: ToolCallRecorder;
+  sessionId: string;
+  deliver?: DeliverFn;
+  persistSnapshot?: (id: string, snapshot: ResponseSnapshot) => Promise<void>;
+}
+
+export function createSubmitResponseTool(deps: SubmitResponseDeps) {
+  const { intentStore, responseCapture, recorder, sessionId, deliver, persistSnapshot } = deps;
   return tool(
     "submit_response",
     "Submit the final response to the user. This defines what the user sees: text sections and interactive buttons. Always call this tool to deliver your response.",
@@ -98,25 +102,15 @@ export function createSubmitResponseTool(
         if (REF_ACTION_TYPES.has(action.type) && "ref" in action) {
           const intent = intentStore.resolve(action.ref);
           if (!intent) {
-            const errorResult = {
-              error: `Action type "${action.type}" references unknown ref "${action.ref}". Call the corresponding action tool first (e.g., propose_change, request_merge).`,
-            };
-            recorder.record("submit_response", args as unknown as Record<string, unknown>, errorResult);
-            return {
-              content: [{ type: "text" as const, text: JSON.stringify(errorResult) }],
-              isError: true,
-            };
+            const errMsg = `Action type "${action.type}" references unknown ref "${action.ref}". Call the corresponding action tool first (e.g., propose_change, request_merge).`;
+            recorder.record("submit_response", args as unknown as Record<string, unknown>, { error: errMsg });
+            return errorResult(errMsg);
           }
           // Validate ref type matches action type
           if (intent.type !== action.type) {
-            const errorResult = {
-              error: `Ref "${action.ref}" is a "${intent.type}" intent but action type is "${action.type}".`,
-            };
-            recorder.record("submit_response", args as unknown as Record<string, unknown>, errorResult);
-            return {
-              content: [{ type: "text" as const, text: JSON.stringify(errorResult) }],
-              isError: true,
-            };
+            const errMsg = `Ref "${action.ref}" is a "${intent.type}" intent but action type is "${action.type}".`;
+            recorder.record("submit_response", args as unknown as Record<string, unknown>, { error: errMsg });
+            return errorResult(errMsg);
           }
         }
       }
@@ -140,15 +134,12 @@ export function createSubmitResponseTool(
       // Reject responses that exceed Slack's message length limit
       const SLACK_MESSAGE_TEXT_LIMIT = 10000;
       if (displayText.length > SLACK_MESSAGE_TEXT_LIMIT) {
-        const errorResult = {
+        const errData = {
           error: "response_too_long",
           details: `Total response text (${displayText.length} chars) exceeds the ${SLACK_MESSAGE_TEXT_LIMIT}-char limit. Significantly shorten your answer — summarize key points and offer followup actions to expand on specific areas.`,
         };
-        recorder.record("submit_response", args as unknown as Record<string, unknown>, errorResult);
-        return {
-          content: [{ type: "text" as const, text: JSON.stringify(errorResult) }],
-          isError: true,
-        };
+        recorder.record("submit_response", args as unknown as Record<string, unknown>, errData);
+        return { ...textResult(errData), isError: true as const };
       }
 
       // Auto-snapshot every response so future send_to_thread actions can reference it.
@@ -172,15 +163,12 @@ export function createSubmitResponseTool(
       const validationErrors = validateSlackBlocks(renderedBlocks);
 
       if (validationErrors.length > 0) {
-        const errorResult = {
+        const errData = {
           error: "invalid_blocks",
           details: validationErrors.map((e) => `${e.field}: ${e.message}`),
         };
-        recorder.record("submit_response", args as unknown as Record<string, unknown>, errorResult);
-        return {
-          content: [{ type: "text" as const, text: JSON.stringify(errorResult) }],
-          isError: true,
-        };
+        recorder.record("submit_response", args as unknown as Record<string, unknown>, errData);
+        return { ...textResult(errData), isError: true as const };
       }
 
       // Deliver to Slack if a deliver callback is provided
@@ -190,19 +178,16 @@ export function createSubmitResponseTool(
 
         const deliveryResult = await deliver({
           markdownText: displayText,
-          ...(actionBlocks.length > 0 && { blocks: actionBlocks as any[] }),
+          ...(actionBlocks.length > 0 && { blocks: asSlackBlocks(actionBlocks) }),
         });
 
         if (!deliveryResult.ok) {
-          const errorResult = {
+          const errData = {
             error: "delivery_failed",
             details: deliveryResult.error,
           };
-          recorder.record("submit_response", args as unknown as Record<string, unknown>, errorResult);
-          return {
-            content: [{ type: "text" as const, text: JSON.stringify(errorResult) }],
-            isError: true,
-          };
+          recorder.record("submit_response", args as unknown as Record<string, unknown>, errData);
+          return { ...textResult(errData), isError: true as const };
         }
       }
 
@@ -212,14 +197,7 @@ export function createSubmitResponseTool(
       const result = { success: true, delivered: !!deliver, sectionsCount: args.sections.length, actionsCount: args.actions.length, ...(currentSnapshotId && { snapshotId: currentSnapshotId }) };
       recorder.record("submit_response", args as unknown as Record<string, unknown>, result);
 
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: JSON.stringify(result),
-          },
-        ],
-      };
+      return textResult(result);
     }
   );
 }

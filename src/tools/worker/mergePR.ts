@@ -1,17 +1,20 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { WorkerToolContext } from "../types.js";
+import { textResult, errorResult } from "../helpers.js";
 import { getOctokit } from "../../github.js";
-import { getSession, updateActiveChangeStatus, clearActiveChange } from "../../sessions.js";
+import { getSession } from "../../sessions.js";
 import { appendExecutionLog } from "../../changes/persistence.js";
-import { removeWorktree, deleteBranch } from "../../worktrees.js";
-import { findRepoByName } from "../../changes/detection.js";
+import { findRepoByName } from "../../config.js";
+import { errorMessage } from "../../errors.js";
+import { parsePrUrl, cleanupAfterPrAction } from "./prHelpers.js";
 
 export function createMergePRTool(ctx: WorkerToolContext) {
   return tool(
     "merge_pr",
     "Merge the pull request for this change session. Handles merge, remote branch deletion, and local cleanup.",
     {
+      // Claude Agent SDK requires at least one schema property
       _placeholder: z.boolean().optional().describe("Unused parameter"),
     },
     async () => {
@@ -21,50 +24,30 @@ export function createMergePRTool(ctx: WorkerToolContext) {
         const activeChange = session?.activeChange;
 
         if (!session || !activeChange) {
-          return {
-            content: [{
-              type: "text" as const,
-              text: JSON.stringify({ success: false, error: "No active change found", details: `Session ${ctx.sessionId} has no active change` }),
-            }],
-            isError: true,
-          };
+          return errorResult(`No active change found for session ${ctx.sessionId}`);
         }
 
         if (!activeChange.prUrl) {
-          return {
-            content: [{
-              type: "text" as const,
-              text: JSON.stringify({ success: false, error: "No PR URL found", details: "This change has no associated pull request" }),
-            }],
-            isError: true,
-          };
+          return errorResult("No PR URL found — this change has no associated pull request");
         }
 
-        // Parse PR URL
-        const prMatch = activeChange.prUrl.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
-        if (!prMatch) {
-          return {
-            content: [{
-              type: "text" as const,
-              text: JSON.stringify({ success: false, error: "Invalid PR URL", details: `Could not parse PR URL: ${activeChange.prUrl}` }),
-            }],
-            isError: true,
-          };
+        const parsed = parsePrUrl(activeChange.prUrl);
+        if (!parsed) {
+          return errorResult(`Could not parse PR URL: ${activeChange.prUrl}`);
         }
 
-        const [, owner, repoName, pullNumberStr] = prMatch;
-        const pull_number = parseInt(pullNumberStr, 10);
+        const { owner, repo, pullNumber } = parsed;
 
         // Get merge strategy from repo config
-        const repo = findRepoByName(ctx.repoName, ctx.config);
-        const mergeStrategy = repo?.mergeStrategy ?? "squash";
+        const repoConfig = findRepoByName(ctx.repoName, ctx.config);
+        const mergeStrategy = repoConfig?.mergeStrategy ?? "squash";
 
         // Merge the PR
         const octokit = await getOctokit();
         await octokit.pulls.merge({
           owner,
-          repo: repoName,
-          pull_number,
+          repo,
+          pull_number: pullNumber,
           merge_method: mergeStrategy,
         });
 
@@ -75,21 +58,18 @@ export function createMergePRTool(ctx: WorkerToolContext) {
         try {
           await octokit.git.deleteRef({
             owner,
-            repo: repoName,
+            repo,
             ref: `heads/${ctx.branchName}`,
           });
           appendExecutionLog(ctx.branchName, `Deleted remote branch: ${ctx.branchName}`);
         } catch (deleteError) {
-          const deleteMessage = deleteError instanceof Error ? deleteError.message : String(deleteError);
-          warning = `Failed to delete remote branch ${ctx.branchName}: ${deleteMessage}`;
+          const deleteMsg = errorMessage(deleteError);
+          warning = `Failed to delete remote branch ${ctx.branchName}: ${deleteMsg}`;
           appendExecutionLog(ctx.branchName, warning);
         }
 
         // Cleanup local resources
-        updateActiveChangeStatus(ctx.sessionId, "completed");
-        await removeWorktree(ctx.repoName, ctx.worktreePath);
-        await deleteBranch(ctx.repoName, ctx.branchName);
-        clearActiveChange(ctx.sessionId, true);
+        await cleanupAfterPrAction(ctx, "merge_pr");
 
         const result: Record<string, unknown> = {
           success: true,
@@ -99,18 +79,9 @@ export function createMergePRTool(ctx: WorkerToolContext) {
           result.warning = warning;
         }
 
-        return {
-          content: [{ type: "text" as const, text: JSON.stringify(result) }],
-        };
+        return textResult(result);
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ success: false, error: "merge failed", details: errorMessage }),
-          }],
-          isError: true,
-        };
+        return errorResult(`merge failed: ${errorMessage(error)}`);
       }
     }
   );

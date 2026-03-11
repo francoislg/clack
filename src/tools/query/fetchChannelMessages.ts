@@ -1,8 +1,10 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
+import { textResult, errorResult } from "../helpers.js";
 import { extractMessageText } from "../../slack/messagesApi.js";
 import { resolveUsers, transformUserMentions } from "../../slack/userCache.js";
+import { errorMessage } from "../../errors.js";
 
 export function createFetchChannelMessagesTool(ctx: QueryToolContext) {
   return tool(
@@ -16,7 +18,10 @@ export function createFetchChannelMessagesTool(ctx: QueryToolContext) {
       include_threads: z.boolean().optional().describe("Whether to fetch thread replies for each message (default: false). Slower but gives full context."),
     },
     async (args) => {
-      const client = ctx.slackClient!;
+      if (!ctx.slackClient) {
+        return errorResult("Slack client is not available in this context");
+      }
+      const client = ctx.slackClient;
       const limit = Math.min(args.limit ?? 20, 100);
 
       try {
@@ -29,9 +34,7 @@ export function createFetchChannelMessagesTool(ctx: QueryToolContext) {
         });
 
         if (!result.messages || result.messages.length === 0) {
-          return {
-            content: [{ type: "text" as const, text: JSON.stringify({ channel: args.channel_id, messages: [], message_count: 0 }) }],
-          };
+          return textResult({ channel: args.channel_id, messages: [], message_count: 0 });
         }
 
         // Resolve user names for all messages
@@ -102,22 +105,14 @@ export function createFetchChannelMessagesTool(ctx: QueryToolContext) {
           messages.push(entry);
         }
 
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({
-              channel: args.channel_id,
-              message_count: messages.length,
-              has_more: result.has_more ?? false,
-              messages,
-            }),
-          }],
-        };
+        return textResult({
+          channel: args.channel_id,
+          message_count: messages.length,
+          has_more: result.has_more ?? false,
+          messages,
+        });
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        return {
-          content: [{ type: "text" as const, text: JSON.stringify({ error: `Failed to fetch channel messages: ${errorMessage}` }) }],
-        };
+        return errorResult(`Failed to fetch channel messages: ${errorMessage(error)}`);
       }
     }
   );

@@ -1,5 +1,6 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { getConfig } from "../config.js";
+import { errorMessage } from "../errors.js";
 import { loadMcpServers, getConfiguredMcpServerNames } from "../mcp.js";
 import type { SessionContext } from "../sessions.js";
 import { buildQueryContext } from "../tools/context.js";
@@ -68,7 +69,7 @@ export async function testMCP(): Promise<McpTestResult> {
       tools: [],
       mcpTools: [],
       clackTools: [],
-      error: `Clack tool server failed to build: ${error instanceof Error ? error.message : String(error)}`,
+      error: `Clack tool server failed to build: ${errorMessage(error)}`,
     };
   }
 
@@ -161,7 +162,7 @@ export async function testMCP(): Promise<McpTestResult> {
       tools: [],
       mcpTools: [],
       clackTools: clackToolNames,
-      error: error instanceof Error ? error.message : String(error),
+      error: errorMessage(error),
     };
   }
 }

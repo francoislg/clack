@@ -38,7 +38,6 @@ export interface GitConfig {
 }
 
 export interface SessionsConfig {
-  timeoutMinutes: number;
   cleanupIntervalMinutes: number;
 }
 
@@ -138,7 +137,6 @@ const DEFAULTS: Partial<Config> = {
     cloneDepth: 1,
   },
   sessions: {
-    timeoutMinutes: 1440, // 24 hours (legacy, age-based eviction uses MAX_AGE_DAYS)
     cleanupIntervalMinutes: 60,
   },
   claudeCode: {
@@ -182,11 +180,79 @@ function loadSlackAuth(): SlackAuthConfig {
   }
 
   return {
-    botToken: auth.botToken as string,
-    appToken: auth.appToken as string,
-    signingSecret: auth.signingSecret as string,
+    botToken: auth.botToken,
+    appToken: auth.appToken,
+    signingSecret: auth.signingSecret,
+  } as SlackAuthConfig;
+}
+
+// ============================================================================
+// Config Parsing Helpers
+// ============================================================================
+
+/** Safely extract a nested object section from raw config */
+function section(obj: Record<string, unknown>, key: string): Record<string, unknown> | undefined {
+  const val = obj[key];
+  if (val && typeof val === "object" && !Array.isArray(val)) {
+    return val as Record<string, unknown>;
+  }
+  return undefined;
+}
+
+/** Read a typed field from a raw config object */
+function str(obj: Record<string, unknown>, key: string): string | undefined {
+  const val = obj[key];
+  return typeof val === "string" ? val : undefined;
+}
+
+function bool(obj: Record<string, unknown>, key: string): boolean | undefined {
+  const val = obj[key];
+  return typeof val === "boolean" ? val : undefined;
+}
+
+function num(obj: Record<string, unknown>, key: string): number | undefined {
+  const val = obj[key];
+  return typeof val === "number" ? val : undefined;
+}
+
+function strArray(obj: Record<string, unknown>, key: string): string[] | undefined {
+  const val = obj[key];
+  return Array.isArray(val) ? val.filter((v): v is string => typeof v === "string") : undefined;
+}
+
+function parseThinking(raw: Record<string, unknown> | undefined, fallback?: ThinkingFeedbackConfig): ThinkingFeedbackConfig | undefined {
+  if (!raw) return fallback;
+  const type = str(raw, "type");
+  if (type !== "message" && type !== "emoji") return fallback;
+  return { type, emoji: str(raw, "emoji") };
+}
+
+function parseTriggerChangesWorkflow(raw: Record<string, unknown> | undefined): TriggerChangesWorkflowConfig | undefined {
+  if (!raw) return undefined;
+  return { enabled: bool(raw, "enabled") ?? false };
+}
+
+function parseRepo(raw: Record<string, unknown>): RepositoryConfig {
+  const access = section(raw, "access");
+  return {
+    name: str(raw, "name")!,
+    url: str(raw, "url")!,
+    description: str(raw, "description")!,
+    branch: str(raw, "branch") || "main",
+    access: access
+      ? {
+          read: str(access, "read") as UserRole | undefined,
+          write: str(access, "write") as UserRole | undefined,
+        }
+      : undefined,
+    worktreeBasePath: str(raw, "worktreeBasePath"),
+    mergeStrategy: str(raw, "mergeStrategy") as "squash" | "merge" | "rebase" | undefined,
   };
 }
+
+// ============================================================================
+// Config Validation
+// ============================================================================
 
 function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Config {
   if (!config || typeof config !== "object") {
@@ -199,6 +265,7 @@ function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Config {
   if (!Array.isArray(c.repositories) || c.repositories.length === 0) {
     throw new Error("Config 'repositories' must be a non-empty array");
   }
+  const validRoles: UserRole[] = ["member", "dev", "admin", "owner"];
   for (const repo of c.repositories) {
     if (typeof repo !== "object" || repo === null) {
       throw new Error("Each repository must be an object");
@@ -213,13 +280,8 @@ function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Config {
     if (typeof r.description !== "string") {
       throw new Error("Repository 'description' is required");
     }
-    // supportsChanges is handled by migration v1 — just ignore it during validation
-    const validRoles: UserRole[] = ["member", "dev", "admin", "owner"];
-    if (r.access !== undefined) {
-      if (typeof r.access !== "object" || r.access === null) {
-        throw new Error(`Repository '${r.name}' access must be an object`);
-      }
-      const acc = r.access as Record<string, unknown>;
+    const acc = section(r, "access");
+    if (acc) {
       if (acc.read !== undefined && !validRoles.includes(acc.read as UserRole)) {
         throw new Error(`Repository '${r.name}' access.read must be one of: ${validRoles.join(", ")}`);
       }
@@ -230,18 +292,34 @@ function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Config {
   }
 
   // Validate slackApp if provided
-  const slackApp = c.slackApp as Record<string, unknown> | undefined;
-  if (slackApp) {
-    if (slackApp.name !== undefined && (typeof slackApp.name !== "string" || slackApp.name.length === 0)) {
+  const slackAppRaw = section(c, "slackApp");
+  if (slackAppRaw) {
+    if (slackAppRaw.name !== undefined && (typeof slackAppRaw.name !== "string" || (slackAppRaw.name as string).length === 0)) {
       throw new Error("Config 'slackApp.name' must be a non-empty string");
     }
-    if (slackApp.backgroundColor !== undefined) {
-      const bgColor = slackApp.backgroundColor as string;
+    if (slackAppRaw.backgroundColor !== undefined) {
+      const bgColor = slackAppRaw.backgroundColor;
       if (typeof bgColor !== "string" || !/^#[0-9A-Fa-f]{6}$/.test(bgColor)) {
         throw new Error("Config 'slackApp.backgroundColor' must be a hex color (e.g., #4A154B)");
       }
     }
   }
+
+  // Extract sections
+  const slackRaw = section(c, "slack");
+  const reactionsRaw = section(c, "reactions");
+  const dmRaw = section(c, "directMessages");
+  const mentionsRaw = section(c, "mentions");
+  const gitRaw = section(c, "git");
+  const sessionsRaw = section(c, "sessions");
+  const claudeCodeRaw = section(c, "claudeCode");
+  const cwRaw = section(c, "changesWorkflow");
+
+  // Parse reactions changes workflow (has extra "trigger" field)
+  const reactionsChangesWorkflow = reactionsRaw ? section(reactionsRaw, "changesWorkflow") : undefined;
+  const parsedReactionsCW: ReactionsChangesWorkflowConfig | undefined = reactionsChangesWorkflow
+    ? { enabled: bool(reactionsChangesWorkflow, "enabled") ?? false, trigger: str(reactionsChangesWorkflow, "trigger") }
+    : undefined;
 
   // Merge with defaults
   const merged: Config = {
@@ -249,110 +327,48 @@ function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Config {
       botToken: slackAuth.botToken,
       appToken: slackAuth.appToken,
       signingSecret: slackAuth.signingSecret,
-      fetchAndStoreUsername: ((c.slack as Record<string, unknown>)?.fetchAndStoreUsername as boolean) ?? false,
-      sendErrorsAsDM: ((c.slack as Record<string, unknown>)?.sendErrorsAsDM as boolean) ?? false,
+      fetchAndStoreUsername: (slackRaw && bool(slackRaw, "fetchAndStoreUsername")) ?? false,
+      sendErrorsAsDM: (slackRaw && bool(slackRaw, "sendErrorsAsDM")) ?? false,
     },
     slackApp: {
-      name: (slackApp?.name as string) ?? DEFAULTS.slackApp!.name,
-      description: (slackApp?.description as string) ?? DEFAULTS.slackApp!.description,
-      backgroundColor: (slackApp?.backgroundColor as string) ?? DEFAULTS.slackApp!.backgroundColor,
+      name: (slackAppRaw && str(slackAppRaw, "name")) ?? DEFAULTS.slackApp!.name,
+      description: (slackAppRaw && str(slackAppRaw, "description")) ?? DEFAULTS.slackApp!.description,
+      backgroundColor: (slackAppRaw && str(slackAppRaw, "backgroundColor")) ?? DEFAULTS.slackApp!.backgroundColor,
     },
     reactions: {
-      trigger: (c.reactions as Record<string, unknown>)?.trigger as string || DEFAULTS.reactions!.trigger,
-      thinking: (c.reactions as Record<string, unknown>)?.thinking
-        ? {
-            type: ((c.reactions as Record<string, unknown>).thinking as Record<string, unknown>).type as "message" | "emoji",
-            emoji: ((c.reactions as Record<string, unknown>).thinking as Record<string, unknown>).emoji as string | undefined,
-          }
-        : DEFAULTS.reactions!.thinking,
-      changesWorkflow: (c.reactions as Record<string, unknown>)?.changesWorkflow
-        ? {
-            enabled: ((c.reactions as Record<string, unknown>).changesWorkflow as Record<string, unknown>).enabled as boolean,
-            trigger: ((c.reactions as Record<string, unknown>).changesWorkflow as Record<string, unknown>).trigger as string | undefined,
-          }
-        : undefined,
+      trigger: (reactionsRaw && str(reactionsRaw, "trigger")) || DEFAULTS.reactions!.trigger,
+      thinking: parseThinking(reactionsRaw && section(reactionsRaw, "thinking"), DEFAULTS.reactions!.thinking),
+      changesWorkflow: parsedReactionsCW,
     },
     directMessages: {
-      enabled:
-        ((c.directMessages as Record<string, unknown>)?.enabled as boolean) ??
-        DEFAULTS.directMessages!.enabled,
-      thinking: (c.directMessages as Record<string, unknown>)?.thinking
-        ? {
-            type: ((c.directMessages as Record<string, unknown>).thinking as Record<string, unknown>).type as "message" | "emoji",
-            emoji: ((c.directMessages as Record<string, unknown>).thinking as Record<string, unknown>).emoji as string | undefined,
-          }
-        : DEFAULTS.directMessages!.thinking,
-      changesWorkflow: (c.directMessages as Record<string, unknown>)?.changesWorkflow
-        ? {
-            enabled: ((c.directMessages as Record<string, unknown>).changesWorkflow as Record<string, unknown>).enabled as boolean,
-          }
-        : undefined,
+      enabled: (dmRaw && bool(dmRaw, "enabled")) ?? DEFAULTS.directMessages!.enabled,
+      thinking: parseThinking(dmRaw && section(dmRaw, "thinking"), DEFAULTS.directMessages!.thinking),
+      changesWorkflow: parseTriggerChangesWorkflow(dmRaw && section(dmRaw, "changesWorkflow")),
     },
     mentions: {
-      enabled:
-        ((c.mentions as Record<string, unknown>)?.enabled as boolean) ??
-        DEFAULTS.mentions!.enabled,
-      thinking: (c.mentions as Record<string, unknown>)?.thinking
-        ? {
-            type: ((c.mentions as Record<string, unknown>).thinking as Record<string, unknown>).type as "message" | "emoji",
-            emoji: ((c.mentions as Record<string, unknown>).thinking as Record<string, unknown>).emoji as string | undefined,
-          }
-        : DEFAULTS.mentions!.thinking,
-      changesWorkflow: (c.mentions as Record<string, unknown>)?.changesWorkflow
-        ? {
-            enabled: ((c.mentions as Record<string, unknown>).changesWorkflow as Record<string, unknown>).enabled as boolean,
-          }
-        : undefined,
+      enabled: (mentionsRaw && bool(mentionsRaw, "enabled")) ?? DEFAULTS.mentions!.enabled,
+      thinking: parseThinking(mentionsRaw && section(mentionsRaw, "thinking"), DEFAULTS.mentions!.thinking),
+      changesWorkflow: parseTriggerChangesWorkflow(mentionsRaw && section(mentionsRaw, "changesWorkflow")),
     },
-    repositories: c.repositories.map((r: Record<string, unknown>) => {
-      const access = r.access as Record<string, unknown> | undefined;
-      return {
-        name: r.name as string,
-        url: r.url as string,
-        description: r.description as string,
-        branch: (r.branch as string) || "main",
-        access: access
-          ? {
-              read: access.read as UserRole | undefined,
-              write: access.write as UserRole | undefined,
-            }
-          : undefined,
-        worktreeBasePath: r.worktreeBasePath as string | undefined,
-        mergeStrategy: r.mergeStrategy as "squash" | "merge" | "rebase" | undefined,
-      };
-    }),
+    repositories: c.repositories.map((r: unknown) => parseRepo(r as Record<string, unknown>)),
     git: {
-      pullIntervalMinutes:
-        ((c.git as Record<string, unknown>)?.pullIntervalMinutes as number) ??
-        DEFAULTS.git!.pullIntervalMinutes,
-      shallowClone:
-        ((c.git as Record<string, unknown>)?.shallowClone as boolean) ??
-        DEFAULTS.git!.shallowClone,
-      cloneDepth:
-        ((c.git as Record<string, unknown>)?.cloneDepth as number) ??
-        DEFAULTS.git!.cloneDepth,
+      pullIntervalMinutes: (gitRaw && num(gitRaw, "pullIntervalMinutes")) ?? DEFAULTS.git!.pullIntervalMinutes,
+      shallowClone: (gitRaw && bool(gitRaw, "shallowClone")) ?? DEFAULTS.git!.shallowClone,
+      cloneDepth: (gitRaw && num(gitRaw, "cloneDepth")) ?? DEFAULTS.git!.cloneDepth,
     },
     sessions: {
-      timeoutMinutes:
-        ((c.sessions as Record<string, unknown>)?.timeoutMinutes as number) ??
-        DEFAULTS.sessions!.timeoutMinutes,
-      cleanupIntervalMinutes:
-        ((c.sessions as Record<string, unknown>)?.cleanupIntervalMinutes as number) ??
-        DEFAULTS.sessions!.cleanupIntervalMinutes,
+      cleanupIntervalMinutes: (sessionsRaw && num(sessionsRaw, "cleanupIntervalMinutes")) ?? DEFAULTS.sessions!.cleanupIntervalMinutes,
     },
     claudeCode: {
-      model:
-        ((c.claudeCode as Record<string, unknown>)?.model as string) ??
-        DEFAULTS.claudeCode!.model,
+      model: (claudeCodeRaw && str(claudeCodeRaw, "model")) ?? DEFAULTS.claudeCode!.model,
     },
-    changesWorkflow: c.changesWorkflow
+    changesWorkflow: cwRaw
       ? {
-          enabled: (c.changesWorkflow as Record<string, unknown>).enabled as boolean,
-          timeoutMinutes: (c.changesWorkflow as Record<string, unknown>).timeoutMinutes as number | undefined,
-
-          additionalAllowedTools: (c.changesWorkflow as Record<string, unknown>).additionalAllowedTools as string[] | undefined,
-          sessionExpiryHours: (c.changesWorkflow as Record<string, unknown>).sessionExpiryHours as number | undefined,
-          monitoringIntervalMinutes: (c.changesWorkflow as Record<string, unknown>).monitoringIntervalMinutes as number | undefined,
+          enabled: bool(cwRaw, "enabled") ?? false,
+          timeoutMinutes: num(cwRaw, "timeoutMinutes"),
+          additionalAllowedTools: strArray(cwRaw, "additionalAllowedTools"),
+          sessionExpiryHours: num(cwRaw, "sessionExpiryHours"),
+          monitoringIntervalMinutes: num(cwRaw, "monitoringIntervalMinutes"),
         }
       : undefined,
   };
@@ -423,4 +439,13 @@ export function getDefaultConfigurationDir(): string {
 
 export function getWorktreeSessionsDir(): string {
   return resolve(getDataDir(), "worktree-sessions");
+}
+
+export function findRepoByName(
+  name: string,
+  config: Config
+): RepositoryConfig | undefined {
+  return config.repositories.find(
+    (r) => r.name.toLowerCase() === name.toLowerCase()
+  );
 }

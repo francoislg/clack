@@ -2,6 +2,7 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 import { getConfig, getRepositoriesDir } from "../config.js";
 import { ClaudeMessageParser, detectPlatformError } from "./messageParser.js";
 import { buildSystemPrompt, buildPrompt } from "./promptBuilder.js";
+import { errorMessage } from "../errors.js";
 import { logger } from "../logger.js";
 import { loadMcpServers } from "../mcp.js";
 import type { UserRole } from "../roles.js";
@@ -257,7 +258,7 @@ export async function askClaude(
     return {
       success: false,
       answer: "",
-      error: `Claude Agent SDK error: ${error instanceof Error ? error.message : String(error)}`,
+      error: `Claude Agent SDK error: ${errorMessage(error)}`,
       conversationTrace,
     };
   }

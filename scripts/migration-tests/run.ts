@@ -191,7 +191,7 @@ const VERSION_0_CONFIG: Record<string, unknown> = {
     },
   ],
   git: { pullIntervalMinutes: 60, shallowClone: true, cloneDepth: 1 },
-  sessions: { timeoutMinutes: 1440, cleanupIntervalMinutes: 5 },
+  sessions: { cleanupIntervalMinutes: 5 },
   claudeCode: { model: "sonnet" },
 };
 

@@ -4,8 +4,10 @@ import { resolve } from "node:path";
 import { existsSync } from "node:fs";
 import { simpleGit } from "simple-git";
 import type { QueryToolContext } from "../types.js";
+import { textResult, errorResult } from "../helpers.js";
 import { getVisibleRepos } from "../../repoAccess.js";
 import { getRepositoriesDir } from "../../config.js";
+import { errorMessage } from "../../errors.js";
 import { logger } from "../../logger.js";
 
 const MAX_OUTPUT_CHARS = 100_000;
@@ -29,33 +31,13 @@ export function createGitLogTool(ctx: QueryToolContext) {
 
       if (!repo) {
         const available = visibleRepos.map((r) => r.name);
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify({
-                error: `Repository "${input.repo}" not found or not accessible. Available: ${available.join(", ")}`,
-              }),
-            },
-          ],
-          isError: true,
-        };
+        return errorResult(`Repository "${input.repo}" not found or not accessible. Available: ${available.join(", ")}`);
       }
 
       const repoPath = resolve(getRepositoriesDir(), repo.name);
 
       if (!existsSync(repoPath)) {
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify({
-                error: `Repository "${repo.name}" has not been cloned yet.`,
-              }),
-            },
-          ],
-          isError: true,
-        };
+        return errorResult(`Repository "${repo.name}" has not been cloned yet.`);
       }
 
       try {
@@ -83,31 +65,10 @@ export function createGitLogTool(ctx: QueryToolContext) {
           truncated = true;
         }
 
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify(
-                { output, shallow, availableCommits, truncated },
-                null,
-                2
-              ),
-            },
-          ],
-        };
+        return textResult({ output, shallow, availableCommits, truncated });
       } catch (error) {
         logger.debug(`git_log failed for ${repo.name}: ${error}`);
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify({
-                error: `git log failed: ${error instanceof Error ? error.message : String(error)}`,
-              }),
-            },
-          ],
-          isError: true,
-        };
+        return errorResult(`git log failed: ${errorMessage(error)}`);
       }
     }
   );

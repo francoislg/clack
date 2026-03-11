@@ -11,10 +11,10 @@
 
 import { config as dotenvConfig } from "dotenv";
 import { join } from "path";
-import { loadConfig } from "../dist/config.js";
-import { askClaude } from "../dist/claude.js";
-import { getSession } from "../dist/sessions.js";
-import type { SessionContext } from "../dist/sessions.js";
+import { loadConfig } from "../src/config.js";
+import { askClaude } from "../src/claude/index.js";
+import { getSession } from "../src/sessions.js";
+import type { SessionContext } from "../src/sessions.js";
 
 // Load environment variables
 dotenvConfig({ path: join(process.cwd(), ".env") });

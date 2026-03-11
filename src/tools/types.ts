@@ -1,5 +1,6 @@
 import type { App } from "@slack/bolt";
 import type { Block, KnownBlock } from "@slack/types";
+import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
 import type { UserRole } from "../roles.js";
 import type { SessionContext } from "../sessions.js";
 import type { Config } from "../config.js";
@@ -204,7 +205,7 @@ export interface ContinuationRecord {
 // ============================================================================
 
 export interface ClackToolsResult {
-  mcpServer: unknown; // McpSdkServerConfigWithInstance - avoid importing SDK types
+  mcpServer: McpSdkServerConfigWithInstance;
   toolNames: string[];
   getResult: () => SubmitResponsePayload | null;
   getRenderedBlocks: () => Record<string, unknown>[] | null;

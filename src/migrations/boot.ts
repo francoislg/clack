@@ -1,3 +1,4 @@
+import { errorMessage } from "../errors.js";
 import { logger } from "../logger.js";
 import { loadConfig } from "../config.js";
 import { migrations } from "./index.js";
@@ -33,11 +34,11 @@ export async function runBlockingMigrations(): Promise<void> {
         touchedConfig = true;
       }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errMsg = errorMessage(error);
       logger.error(`Blocking migration "${migration.name}" failed:`, error);
 
       // Try to notify admin (Slack may not be started yet for blocking migrations)
-      await handleMigrationFailure(migration.name, migration.version, errorMessage);
+      await handleMigrationFailure(migration.name, migration.version, errMsg);
 
       // Blocking migration failure is fatal
       process.exit(1);
@@ -84,9 +85,9 @@ export async function runEnhancementMigrations(): Promise<void> {
         }
       }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errMsg = errorMessage(error);
       logger.error(`Enhancement migration "${migration.name}" failed:`, error);
-      await handleMigrationFailure(migration.name, migration.version, errorMessage);
+      await handleMigrationFailure(migration.name, migration.version, errMsg);
       // Enhancement failures don't stop other migrations
     }
   }

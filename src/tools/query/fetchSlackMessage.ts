@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
+import { textResult, errorResult } from "../helpers.js";
 import { fetchMessage, fetchThreadContext } from "../../slack/messagesApi.js";
 
 const SLACK_URL_PATTERN = /^https:\/\/[^/]+\.slack\.com\/archives\/([A-Z0-9]+)\/p(\d+)$/;
@@ -37,13 +38,14 @@ export function createFetchSlackMessageTool(ctx: QueryToolContext) {
     async (args) => {
       const parsed = parseSlackMessageUrl(args.url);
       if (!parsed) {
-        return {
-          content: [{ type: "text" as const, text: JSON.stringify({ error: "Invalid Slack message URL format" }) }],
-        };
+        return errorResult("Invalid Slack message URL format");
       }
 
       const { channelId, messageTs, threadTs } = parsed;
-      const client = ctx.slackClient!;
+      if (!ctx.slackClient) {
+        return errorResult("Slack client is not available in this context");
+      }
+      const client = ctx.slackClient;
 
       if (args.include_thread) {
         // Fetch the full thread — use threadTs if it's a reply, otherwise the message itself is the parent
@@ -51,44 +53,30 @@ export function createFetchSlackMessageTool(ctx: QueryToolContext) {
         const messages = await fetchThreadContext(client, channelId, parentTs, "", { fetchUserNames: true });
 
         if (messages.length === 0) {
-          return {
-            content: [{ type: "text" as const, text: JSON.stringify({ error: "Could not fetch thread or message not found" }) }],
-          };
+          return errorResult("Could not fetch thread or message not found");
         }
 
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({
-              channel: channelId,
-              thread_ts: parentTs,
-              message_count: messages.length,
-              messages: messages.map((m) => ({
-                user: m.displayName ?? m.username ?? m.userId,
-                text: m.text,
-                ts: m.ts,
-                is_bot: m.isBot,
-              })),
-            }),
-          }],
-        };
+        return textResult({
+          channel: channelId,
+          thread_ts: parentTs,
+          message_count: messages.length,
+          messages: messages.map((m) => ({
+            user: m.displayName ?? m.username ?? m.userId,
+            text: m.text,
+            ts: m.ts,
+            is_bot: m.isBot,
+          })),
+        });
       }
 
       // Fetch single message
       const text = await fetchMessage(client, channelId, messageTs, threadTs);
 
       if (!text) {
-        return {
-          content: [{ type: "text" as const, text: JSON.stringify({ error: "Message not found or empty" }) }],
-        };
+        return errorResult("Message not found or empty");
       }
 
-      return {
-        content: [{
-          type: "text" as const,
-          text: JSON.stringify({ channel: channelId, ts: messageTs, text }),
-        }],
-      };
+      return textResult({ channel: channelId, ts: messageTs, text });
     }
   );
 }

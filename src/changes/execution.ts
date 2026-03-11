@@ -1,13 +1,13 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { readFileSync } from "node:fs";
-import { getConfig } from "../config.js";
+import { getConfig, findRepoByName } from "../config.js";
+import { errorMessage } from "../errors.js";
 import { resolveInstructionFile } from "../instructions.js";
 import { logger } from "../logger.js";
 import { setAuthenticatedRemote } from "../worktrees.js";
 import type { WorktreeInfo } from "../worktrees.js";
 import type { ChangePlan, ChangeRequest, ExecutionResult } from "./types.js";
 import { appendExecutionLog } from "./persistence.js";
-import { findRepoByName } from "./detection.js";
 import { detectPlatformError } from "../claude/messageParser.js";
 import { ClaudeMessageParser } from "../claude/messageParser.js";
 import { buildWorkerContext } from "../tools/context.js";
@@ -172,12 +172,12 @@ export async function runClaude(options: {
     }
 
     if (options.branchName) {
-      appendExecutionLog(options.branchName, `SDK error: ${error instanceof Error ? error.message : String(error)}`);
+      appendExecutionLog(options.branchName, `SDK error: ${errorMessage(error)}`);
     }
     return {
       success: false,
       text: finalText.trim(),
-      error: `Agent SDK error: ${error instanceof Error ? error.message : String(error)}`,
+      error: `Agent SDK error: ${errorMessage(error)}`,
       lastMessage: lastProgressMessage,
     };
   }

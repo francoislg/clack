@@ -1,13 +1,11 @@
 import {
   existsSync,
-  readFileSync,
   writeFileSync,
   mkdirSync,
   appendFileSync,
   rmSync,
-  readdirSync,
-  statSync,
 } from "node:fs";
+import { readFile, readdir, stat, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { getWorktreeSessionsDir } from "../config.js";
 import { logger } from "../logger.js";
@@ -17,18 +15,12 @@ import type { ChangeSession, ChangeStatus, PersistedSessionState } from "./types
 // Session Folder Management
 // ============================================================================
 
-/**
- * Get the session folder path for a branch
- */
 export function getSessionFolderPath(branchName: string): string {
   // Sanitize branch name for filesystem (replace / with -)
   const safeName = branchName.replace(/\//g, "-");
   return join(getWorktreeSessionsDir(), safeName);
 }
 
-/**
- * Ensure the worktree-sessions directory exists
- */
 function ensureSessionsDir(): void {
   const dir = getWorktreeSessionsDir();
   if (!existsSync(dir)) {
@@ -36,9 +28,6 @@ function ensureSessionsDir(): void {
   }
 }
 
-/**
- * Create a session folder with initial state
- */
 export function createSessionFolder(session: ChangeSession): void {
   ensureSessionsDir();
   const folderPath = getSessionFolderPath(session.plan.branchName);
@@ -51,9 +40,6 @@ export function createSessionFolder(session: ChangeSession): void {
   writeSessionState(session, "Starting change workflow");
 }
 
-/**
- * Write session state to state.json
- */
 export function writeSessionState(session: ChangeSession, lastMessage: string): void {
   const folderPath = getSessionFolderPath(session.plan.branchName);
 
@@ -81,9 +67,6 @@ export function writeSessionState(session: ChangeSession, lastMessage: string): 
   writeFileSync(statePath, JSON.stringify(state, null, 2));
 }
 
-/**
- * Append a log entry to execution.log
- */
 export function appendExecutionLog(branchName: string, message: string): void {
   const folderPath = getSessionFolderPath(branchName);
 
@@ -98,28 +81,18 @@ export function appendExecutionLog(branchName: string, message: string): void {
   appendFileSync(logPath, entry);
 }
 
-/**
- * Read the current session state from disk
- */
-export function readSessionState(branchName: string): PersistedSessionState | null {
+export async function readSessionState(branchName: string): Promise<PersistedSessionState | null> {
   const folderPath = getSessionFolderPath(branchName);
   const statePath = join(folderPath, "state.json");
 
-  if (!existsSync(statePath)) {
-    return null;
-  }
-
   try {
-    const content = readFileSync(statePath, "utf-8");
+    const content = await readFile(statePath, "utf-8");
     return JSON.parse(content) as PersistedSessionState;
   } catch {
     return null;
   }
 }
 
-/**
- * Remove session folder (for cleanup)
- */
 export function removeSessionFolder(branchName: string): void {
   const folderPath = getSessionFolderPath(branchName);
 
@@ -133,9 +106,6 @@ export function removeSessionFolder(branchName: string): void {
   }
 }
 
-/**
- * Convert status to human-readable phase
- */
 export function statusToPhase(status: ChangeStatus): string {
   switch (status) {
     case "planning":
@@ -165,7 +135,7 @@ export function statusToPhase(status: ChangeStatus): string {
  * Get all persisted session states from disk (no status filtering).
  * Returns every parseable state.json found in worktree-sessions/.
  */
-export function getAllPersistedSessions(): PersistedSessionState[] {
+export async function getAllPersistedSessions(): Promise<PersistedSessionState[]> {
   const sessionsDir = getWorktreeSessionsDir();
 
   if (!existsSync(sessionsDir)) {
@@ -175,22 +145,21 @@ export function getAllPersistedSessions(): PersistedSessionState[] {
   const sessions: PersistedSessionState[] = [];
 
   try {
-    const folders = readdirSync(sessionsDir);
+    const folders = await readdir(sessionsDir);
 
     for (const folder of folders) {
       const folderPath = join(sessionsDir, folder);
       const statePath = join(folderPath, "state.json");
 
       try {
-        if (!statSync(folderPath).isDirectory()) continue;
+        if (!(await stat(folderPath)).isDirectory()) continue;
       } catch {
         continue;
       }
 
-      if (!existsSync(statePath)) continue;
-
       try {
-        const state = JSON.parse(readFileSync(statePath, "utf-8")) as PersistedSessionState;
+        const content = await readFile(statePath, "utf-8");
+        const state = JSON.parse(content) as PersistedSessionState;
         sessions.push(state);
       } catch {
         continue;
@@ -219,7 +188,7 @@ export interface ResumableSession {
 /**
  * Get all sessions that can be resumed (have existing worktrees and state)
  */
-export function getResumableSessions(): ResumableSession[] {
+export async function getResumableSessions(): Promise<ResumableSession[]> {
   const sessionsDir = getWorktreeSessionsDir();
 
   if (!existsSync(sessionsDir)) {
@@ -229,7 +198,7 @@ export function getResumableSessions(): ResumableSession[] {
   const resumable: ResumableSession[] = [];
 
   try {
-    const folders = readdirSync(sessionsDir);
+    const folders = await readdir(sessionsDir);
 
     for (const folder of folders) {
       const folderPath = join(sessionsDir, folder);
@@ -237,16 +206,14 @@ export function getResumableSessions(): ResumableSession[] {
 
       // Skip if not a directory
       try {
-        if (!statSync(folderPath).isDirectory()) continue;
+        if (!(await stat(folderPath)).isDirectory()) continue;
       } catch {
         continue;
       }
 
-      // Try to read state
-      if (!existsSync(statePath)) continue;
-
       try {
-        const state = JSON.parse(readFileSync(statePath, "utf-8")) as PersistedSessionState;
+        const content = await readFile(statePath, "utf-8");
+        const state = JSON.parse(content) as PersistedSessionState;
 
         // Only include sessions that are resumable (failed or in-progress, not completed)
         // pr_created sessions already have a PR and are managed differently
@@ -286,10 +253,10 @@ export function getResumableSessions(): ResumableSession[] {
  *
  * Note: activeBranches is passed as a parameter to avoid circular dependency
  */
-export function cleanupStaleSessionFolders(
+export async function cleanupStaleSessionFolders(
   retentionHours: number = 24,
   activeBranches?: Set<string>
-): void {
+): Promise<void> {
   const sessionsDir = getWorktreeSessionsDir();
 
   if (!existsSync(sessionsDir)) {
@@ -301,7 +268,7 @@ export function cleanupStaleSessionFolders(
   let cleaned = 0;
 
   try {
-    const folders = readdirSync(sessionsDir);
+    const folders = await readdir(sessionsDir);
 
     for (const folder of folders) {
       const folderPath = join(sessionsDir, folder);
@@ -309,21 +276,19 @@ export function cleanupStaleSessionFolders(
 
       // Skip if not a directory
       try {
-        if (!statSync(folderPath).isDirectory()) continue;
+        if (!(await stat(folderPath)).isDirectory()) continue;
       } catch {
         continue;
       }
 
       // Try to read state
-      const state = existsSync(statePath)
-        ? (() => {
-            try {
-              return JSON.parse(readFileSync(statePath, "utf-8")) as PersistedSessionState;
-            } catch {
-              return null;
-            }
-          })()
-        : null;
+      let state: PersistedSessionState | null = null;
+      try {
+        const content = await readFile(statePath, "utf-8");
+        state = JSON.parse(content) as PersistedSessionState;
+      } catch {
+        // No state file or unparseable
+      }
 
       // Check if there's an active in-memory change for this branch
       if (activeBranches) {
@@ -360,7 +325,7 @@ export function cleanupStaleSessionFolders(
         // If they're still here, something went wrong - clean them up
         if (state.status === "completed") {
           try {
-            rmSync(folderPath, { recursive: true });
+            await rm(folderPath, { recursive: true });
             cleaned++;
             logger.debug(`Cleaned up orphaned completed session folder: ${folder}`);
           } catch (err) {
@@ -372,7 +337,7 @@ export function cleanupStaleSessionFolders(
 
       // For orphaned folders without state (or with unknown state), check folder age
       try {
-        const folderStat = statSync(folderPath);
+        const folderStat = await stat(folderPath);
         const age = now - folderStat.mtimeMs;
         if (age < retentionMs) {
           continue;
@@ -383,7 +348,7 @@ export function cleanupStaleSessionFolders(
 
       // Clean up the orphaned folder
       try {
-        rmSync(folderPath, { recursive: true });
+        await rm(folderPath, { recursive: true });
         cleaned++;
         logger.debug(`Cleaned up stale orphaned session folder: ${folder}`);
       } catch (err) {

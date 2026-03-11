@@ -8,7 +8,7 @@ import {
   type UserRole,
 } from "../roles.js";
 import { canEditConfig, canManageRoles, canRequestChanges } from "../permissions.js";
-import { getActiveWorkers } from "../sessions.js";
+import { getActiveWorkers } from "../changes/activeState.js";
 import { listInstructionFiles } from "../configurationFiles.js";
 import { getReactionDelivery, getUserPreference } from "../userPreferences.js";
 import { getVisibleRepos, canWriteRepo } from "../repoAccess.js";
@@ -64,7 +64,7 @@ export async function buildHomeView(options: HomeViewOptions): Promise<View> {
   }
 
   // Settings section (visible to all, conditionally has content)
-  blocks.push(...(await buildSettingsSection(userId)));
+  blocks.push(...buildSettingsSection(userId));
 
   // Status section (visible to all)
   blocks.push(...buildStatusSection(role));
@@ -561,7 +561,7 @@ export function buildHelpSection(): KnownBlock[] {
 
 // Settings section and modal
 
-async function buildSettingsSection(_userId: string): Promise<KnownBlock[]> {
+function buildSettingsSection(_userId: string): KnownBlock[] {
   return [
     {
       type: "header",

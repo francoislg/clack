@@ -2,6 +2,7 @@ import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
 import type { IntentStore, ToolCallRecorder } from "../server.js";
+import { textResult, errorResult } from "../helpers.js";
 import { listInstructionFiles, readInstructionFile } from "../../configurationFiles.js";
 
 export function createProposeConfigUpdateTool(
@@ -24,14 +25,9 @@ export function createProposeConfigUpdateTool(
 
       if (!match) {
         const available = knownFiles.map((f) => f.filename);
-        const errorResult = {
-          error: `Unknown instruction file "${args.file}". Available files: ${available.join(", ")}`,
-        };
-        recorder.record("propose_config_update", args as Record<string, unknown>, errorResult);
-        return {
-          content: [{ type: "text" as const, text: JSON.stringify(errorResult) }],
-          isError: true,
-        };
+        const errMsg = `Unknown instruction file "${args.file}". Available files: ${available.join(", ")}`;
+        recorder.record("propose_config_update", args as Record<string, unknown>, { error: errMsg });
+        return errorResult(errMsg);
       }
 
       let finalContent: string;
@@ -63,9 +59,7 @@ export function createProposeConfigUpdateTool(
 
       recorder.record("propose_config_update", args as Record<string, unknown>, result);
 
-      return {
-        content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
-      };
+      return textResult(result);
     }
   );
 }

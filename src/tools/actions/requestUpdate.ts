@@ -2,6 +2,7 @@ import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
 import type { IntentStore, ToolCallRecorder } from "../server.js";
+import { textResult, errorResult } from "../helpers.js";
 
 export function createRequestUpdateTool(
   ctx: QueryToolContext,
@@ -17,21 +18,13 @@ export function createRequestUpdateTool(
     async (args) => {
       const activeChange = ctx.session.activeChange;
       if (!activeChange) {
-        const errorResult = { error: "No active change in this thread." };
-        recorder.record("request_update", args as Record<string, unknown>, errorResult);
-        return {
-          content: [{ type: "text" as const, text: JSON.stringify(errorResult) }],
-          isError: true,
-        };
+        recorder.record("request_update", args as Record<string, unknown>, { error: "No active change in this thread." });
+        return errorResult("No active change in this thread.");
       }
 
       if (!activeChange.worktree) {
-        const errorResult = { error: "No worktree exists for this change." };
-        recorder.record("request_update", args as Record<string, unknown>, errorResult);
-        return {
-          content: [{ type: "text" as const, text: JSON.stringify(errorResult) }],
-          isError: true,
-        };
+        recorder.record("request_update", args as Record<string, unknown>, { error: "No worktree exists for this change." });
+        return errorResult("No worktree exists for this change.");
       }
 
       const ref = intentStore.stage({
@@ -43,9 +36,7 @@ export function createRequestUpdateTool(
       const result = { ref, sessionId: ctx.session.sessionId, instructions: args.instructions };
       recorder.record("request_update", args as Record<string, unknown>, result);
 
-      return {
-        content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
-      };
+      return textResult(result);
     }
   );
 }

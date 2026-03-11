@@ -1,17 +1,9 @@
-import { mkdir, readFile, writeFile, access } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { logger } from "./logger.js";
+import { fileExists } from "./errors.js";
 
 export type ReactionDelivery = "dm" | "thread";
-
-async function exists(path: string): Promise<boolean> {
-  try {
-    await access(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 export interface UserPreferences {
   dmOptOut?: boolean; // deprecated, kept for migration
@@ -44,7 +36,7 @@ export async function loadPreferences(): Promise<PreferencesMap> {
 
   const prefsPath = getPreferencesPath();
 
-  if (!(await exists(prefsPath))) {
+  if (!(await fileExists(prefsPath))) {
     cachedPreferences = {};
     return cachedPreferences;
   }
@@ -64,7 +56,7 @@ export async function savePreferences(prefs: PreferencesMap): Promise<void> {
   const stateDir = getStateDir();
   const prefsPath = getPreferencesPath();
 
-  if (!(await exists(stateDir))) {
+  if (!(await fileExists(stateDir))) {
     await mkdir(stateDir, { recursive: true });
   }
 

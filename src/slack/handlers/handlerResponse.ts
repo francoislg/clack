@@ -8,9 +8,10 @@
 import type { App } from "@slack/bolt";
 import type { SessionInfo } from "../state.js";
 import type { SessionContext } from "../../sessions.js";
+import { errorMessage as toErrorMessage } from "../../errors.js";
 import type { AskClaudeOptions, ClaudeResponse } from "../../claude/index.js";
 import type { DeliverFn } from "../../tools/types.js";
-import { getErrorBlocksWithRetry } from "../blocks.js";
+import { getErrorBlocksWithRetry, asSlackBlocks, type SlackBlocks } from "../blocks.js";
 import { setLastAnswer, updateSession, addError } from "../../sessions.js";
 import { askClaude } from "../../claude/index.js";
 import { analyzeError } from "../../claude/utilities.js";
@@ -99,14 +100,13 @@ export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promis
         channel: targetChannel,
         thread_ts: targetThread,
         text: opts.markdownText,
-        ...(opts.blocks && { blocks: opts.blocks as any[] }),
+        ...(opts.blocks && { blocks: opts.blocks }),
       });
       alreadyDelivered = true;
       return { ok: true as const };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
       logger.error("Delivery failed:", error);
-      return { ok: false as const, error: message };
+      return { ok: false as const, error: toErrorMessage(error) };
     }
   };
 
@@ -171,6 +171,7 @@ export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promis
         role: claudeOptions.role ?? "member",
         dmChannel: sessionInfo.dmChannel,
         dmThreadTs: sessionInfo.dmThreadTs,
+        triggerType: sessionInfo.triggerType,
       });
     } else {
       // 3.8: Error path
@@ -191,7 +192,7 @@ export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promis
       await client.chat.postMessage({
         channel: targetChannel,
         thread_ts: targetThread,
-        blocks: getErrorBlocksWithRetry(session.sessionId) as any[],
+        blocks: asSlackBlocks(getErrorBlocksWithRetry(session.sessionId)),
         text: errorText,
       });
 
@@ -248,7 +249,7 @@ async function persistResponseState(
 ): Promise<void> {
   await setLastAnswer(session.sessionId, response.answer);
 
-  const sessionUpdates: Record<string, unknown> = {};
+  const sessionUpdates: Partial<SessionContext> = {};
   if (response.response) {
     sessionUpdates.lastResponse = response.response;
   }
@@ -259,7 +260,7 @@ async function persistResponseState(
     sessionUpdates.toolCallHistory = response.toolCallHistory;
   }
   if (Object.keys(sessionUpdates).length > 0) {
-    await updateSession(session.sessionId, sessionUpdates as any);
+    await updateSession(session.sessionId, sessionUpdates);
   }
 }
 
@@ -275,7 +276,7 @@ async function persistResponseState(
 export async function postResponse(
   client: App["client"],
   sessionInfo: SessionInfo,
-  options: { blocks?: unknown[]; text: string },
+  options: { blocks?: SlackBlocks; text: string },
 ): Promise<void> {
   const channel = sessionInfo.dmChannel || sessionInfo.channelId;
   const threadTs = sessionInfo.dmThreadTs || sessionInfo.threadTs;
@@ -283,7 +284,7 @@ export async function postResponse(
   await client.chat.postMessage({
     channel,
     thread_ts: threadTs,
-    ...(options.blocks ? { blocks: options.blocks as any[] } : {}),
+    ...(options.blocks ? { blocks: options.blocks } : {}),
     text: options.text,
   });
 }

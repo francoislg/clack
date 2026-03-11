@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { getConfigurationDir, getDefaultConfigurationDir } from "./config.js";
 import { logger } from "./logger.js";
 import type { UserRole } from "./roles.js";
+import { canEditConfig } from "./permissions.js";
 
 // Convention-based instruction filenames
 const BASE_FILE = "instructions.md";
@@ -48,7 +49,7 @@ export function resolveInstructionFile(filename: string): string | null {
  * - everyone else → user_instructions.md
  */
 function getRoleFilename(role: UserRole, changesWorkflowEnabled: boolean): string | null {
-  if (changesWorkflowEnabled && (role === "admin" || role === "owner")) {
+  if (changesWorkflowEnabled && canEditConfig(role)) {
     // Try admin first, fall back to dev
     if (resolveInstructionFile(ROLE_FILES.admin)) {
       return ROLE_FILES.admin;

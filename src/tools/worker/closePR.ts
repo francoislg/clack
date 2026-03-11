@@ -1,10 +1,12 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { WorkerToolContext } from "../types.js";
+import { textResult, errorResult } from "../helpers.js";
 import { getOctokit } from "../../github.js";
-import { getSession, updateActiveChangeStatus, clearActiveChange } from "../../sessions.js";
+import { getSession } from "../../sessions.js";
 import { appendExecutionLog } from "../../changes/persistence.js";
-import { removeWorktree, deleteBranch as deleteLocalBranch } from "../../worktrees.js";
+import { errorMessage } from "../../errors.js";
+import { parsePrUrl, cleanupAfterPrAction } from "./prHelpers.js";
 
 export function createClosePRTool(ctx: WorkerToolContext) {
   return tool(
@@ -19,46 +21,26 @@ export function createClosePRTool(ctx: WorkerToolContext) {
         const activeChange = session?.activeChange;
 
         if (!session || !activeChange) {
-          return {
-            content: [{
-              type: "text" as const,
-              text: JSON.stringify({ error: "No active change found for this session." }),
-            }],
-            isError: true,
-          };
+          return errorResult("No active change found for this session.");
         }
 
         if (!activeChange.prUrl) {
-          return {
-            content: [{
-              type: "text" as const,
-              text: JSON.stringify({ error: "No PR URL found for this change." }),
-            }],
-            isError: true,
-          };
+          return errorResult("No PR URL found for this change.");
         }
 
-        const prMatch = activeChange.prUrl.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
-        if (!prMatch) {
-          return {
-            content: [{
-              type: "text" as const,
-              text: JSON.stringify({ error: `Could not parse PR URL: ${activeChange.prUrl}` }),
-            }],
-            isError: true,
-          };
+        const parsed = parsePrUrl(activeChange.prUrl);
+        if (!parsed) {
+          return errorResult(`Could not parse PR URL: ${activeChange.prUrl}`);
         }
 
-        const [, owner, repoName, pullNumberStr] = prMatch;
-        const pull_number = parseInt(pullNumberStr, 10);
-
+        const { owner, repo, pullNumber } = parsed;
         const octokit = await getOctokit();
 
         // Close the PR without merging
         await octokit.pulls.update({
           owner,
-          repo: repoName,
-          pull_number,
+          repo,
+          pull_number: pullNumber,
           state: "closed",
         });
 
@@ -70,23 +52,18 @@ export function createClosePRTool(ctx: WorkerToolContext) {
           try {
             await octokit.git.deleteRef({
               owner,
-              repo: repoName,
+              repo,
               ref: `heads/${ctx.branchName}`,
             });
             appendExecutionLog(ctx.branchName, `close_pr: deleted remote branch ${ctx.branchName}`);
           } catch (error) {
-            branchDeleteWarning = `Failed to delete remote branch: ${error instanceof Error ? error.message : String(error)}`;
+            branchDeleteWarning = `Failed to delete remote branch: ${errorMessage(error)}`;
             appendExecutionLog(ctx.branchName, `close_pr: warning - ${branchDeleteWarning}`);
           }
         }
 
         // Cleanup: update status, remove worktree and local branch, clear activeChange
-        updateActiveChangeStatus(ctx.sessionId, "completed");
-        await removeWorktree(ctx.repoName, ctx.worktreePath);
-        await deleteLocalBranch(ctx.repoName, ctx.branchName);
-        clearActiveChange(ctx.sessionId, true);
-
-        appendExecutionLog(ctx.branchName, "close_pr: cleanup complete");
+        await cleanupAfterPrAction(ctx, "close_pr");
 
         const result: Record<string, unknown> = {
           success: true,
@@ -97,21 +74,9 @@ export function createClosePRTool(ctx: WorkerToolContext) {
           result.warning = branchDeleteWarning;
         }
 
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify(result),
-          }],
-        };
+        return textResult(result);
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: `Failed to close PR: ${errorMessage}` }),
-          }],
-          isError: true,
-        };
+        return errorResult(`Failed to close PR: ${errorMessage(error)}`);
       }
     }
   );

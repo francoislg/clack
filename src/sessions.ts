@@ -1,21 +1,13 @@
-import { mkdir, readFile, writeFile, rm, readdir, access } from "node:fs/promises";
+import { mkdir, readFile, writeFile, rm, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
-
-async function exists(path: string): Promise<boolean> {
-  try {
-    await access(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
+import { fileExists } from "./errors.js";
 import { getConfig, getSessionsDir } from "./config.js";
 import { logger } from "./logger.js";
 import type { ErrorRecord, ConversationMessage } from "./claude/index.js";
-import type { SubmitResponsePayload, ToolCallRecord, ContinuationRecord, ResponseSnapshot } from "./tools/types.js";
-import type { ChangeStatus, ChangeSession } from "./changes/types.js";
-import type { WorktreeInfo } from "./worktrees.js";
-import { writeSessionState, createSessionFolder, appendExecutionLog, removeSessionFolder, statusToPhase } from "./changes/persistence.js";
+import type { SubmitResponsePayload, ToolCallRecord, ContinuationRecord, ResponseSnapshot, StagedIntent } from "./tools/types.js";
+import type { ChangeStatus } from "./changes/types.js";
+import type { ActiveChangeState } from "./changes/activeState.js";
+import { getActiveChange, clearActiveChange } from "./changes/activeState.js";
 
 export interface ThreadMessage {
   text: string;
@@ -24,17 +16,6 @@ export interface ThreadMessage {
   ts: string;
   username?: string;
   displayName?: string;
-}
-
-export interface ActiveChangeState {
-  branch: string;
-  repo: string;
-  description: string;
-  worktree: WorktreeInfo;
-  status: ChangeStatus;
-  prUrl?: string;
-  startedAt: Date;
-  lastActivityAt: Date;
 }
 
 export interface SessionContext {
@@ -57,7 +38,7 @@ export interface SessionContext {
   /** Tool call history from the latest query */
   toolCallHistory?: ToolCallRecord[];
   /** Staged intents from action tools, keyed by ref ID */
-  stagedIntents?: Record<string, unknown>;
+  stagedIntents?: Record<string, StagedIntent>;
   /** History of user continuations (choice, followup, refine) */
   continuationHistory?: ContinuationRecord[];
   /** How the session was triggered (reactions, mentions, directMessages) */
@@ -131,9 +112,6 @@ const sessionCache = new Map<string, SessionContext>();
 /** Thread-to-session index for O(1) lookups: "channel:threadTs" → sessionId */
 const threadIndex = new Map<string, string>();
 
-/** Active change state, keyed by Q&A session ID */
-const activeChanges = new Map<string, ActiveChangeState>();
-
 function getThreadKey(channelId: string, threadTs: string): string {
   return `${channelId}:${threadTs}`;
 }
@@ -162,7 +140,7 @@ export async function createSession(
 ): Promise<SessionContext> {
   const sessionsDir = getSessionsDir();
 
-  if (!(await exists(sessionsDir))) {
+  if (!(await fileExists(sessionsDir))) {
     await mkdir(sessionsDir, { recursive: true });
   }
 
@@ -201,14 +179,14 @@ export async function getSession(sessionId: string): Promise<SessionContext | nu
   // Check cache first
   const cached = sessionCache.get(sessionId);
   if (cached) {
-    // Merge latest activeChange state
-    cached.activeChange = activeChanges.get(sessionId);
+    // Merge latest activeChange state from dedicated module
+    cached.activeChange = getActiveChange(sessionId);
     return cached;
   }
 
   // Read from disk
   const contextPath = getContextPath(sessionId);
-  if (!(await exists(contextPath))) {
+  if (!(await fileExists(contextPath))) {
     return null;
   }
 
@@ -221,8 +199,8 @@ export async function getSession(sessionId: string): Promise<SessionContext | nu
     if (!session.refinements) session.refinements = [];
     if (!session.threadContext) session.threadContext = [];
 
-    // Merge active change state from memory
-    const ac = activeChanges.get(sessionId);
+    // Merge active change state from dedicated module
+    const ac = getActiveChange(sessionId);
     if (ac) session.activeChange = ac;
 
     // Cache for future lookups and populate thread index
@@ -253,7 +231,7 @@ export async function findSessionByMessage(
 
   // Fallback: disk scan
   const sessionsDir = getSessionsDir();
-  if (!(await exists(sessionsDir))) {
+  if (!(await fileExists(sessionsDir))) {
     return null;
   }
 
@@ -286,7 +264,7 @@ export async function findSessionByThread(
 
   // Fallback: disk scan (getSession populates index on hit)
   const sessionsDir = getSessionsDir();
-  if (!(await exists(sessionsDir))) {
+  if (!(await fileExists(sessionsDir))) {
     return null;
   }
 
@@ -314,7 +292,7 @@ export async function findSessionByDmThread(
 
   // Fallback: disk scan
   const sessionsDir = getSessionsDir();
-  if (!(await exists(sessionsDir))) {
+  if (!(await fileExists(sessionsDir))) {
     return null;
   }
 
@@ -392,6 +370,16 @@ export async function touchSession(sessionId: string): Promise<SessionContext | 
   return updateSession(sessionId, {});
 }
 
+/**
+ * Resolve a staged intent by session ID and ref key.
+ * Returns null if the session or intent doesn't exist.
+ */
+export async function getStagedIntent(sessionId: string, ref: string): Promise<StagedIntent | null> {
+  const session = await getSession(sessionId);
+  if (!session?.stagedIntents?.[ref]) return null;
+  return session.stagedIntents[ref];
+}
+
 export async function deleteSession(sessionId: string): Promise<void> {
   // Clean up in-memory state
   const session = sessionCache.get(sessionId);
@@ -399,175 +387,14 @@ export async function deleteSession(sessionId: string): Promise<void> {
     threadIndex.delete(getThreadKey(session.channelId, session.threadTs));
   }
   sessionCache.delete(sessionId);
-  activeChanges.delete(sessionId);
+  clearActiveChange(sessionId);
 
   // Clean up disk
   const sessionPath = getSessionPath(sessionId);
-  if (await exists(sessionPath)) {
+  if (await fileExists(sessionPath)) {
     await rm(sessionPath, { recursive: true });
     logger.debug(`Deleted session ${sessionId}`);
   }
-}
-
-// ============================================================================
-// Active Change Management
-// ============================================================================
-
-/**
- * Build a ChangeSession-compatible object for persistence from unified session + activeChange.
- */
-function buildChangeSessionForPersistence(sessionId: string, change: ActiveChangeState, session: SessionContext): ChangeSession {
-  return {
-    id: sessionId,
-    userId: session.userId,
-    request: {
-      userId: session.userId,
-      message: change.description,
-      triggerType: session.triggerType ?? "reactions",
-      channel: session.channelId,
-      messageTs: session.threadTs,
-    },
-    plan: {
-      branchName: change.branch,
-      description: change.description,
-      targetRepo: change.repo,
-    },
-    worktree: change.worktree,
-    prUrl: change.prUrl,
-    status: change.status,
-    createdAt: change.startedAt,
-    lastActivityAt: change.lastActivityAt,
-    channel: session.channelId,
-    threadTs: session.threadTs,
-  };
-}
-
-export function setActiveChange(sessionId: string, change: ActiveChangeState): void {
-  activeChanges.set(sessionId, change);
-  const cached = sessionCache.get(sessionId);
-  if (cached) {
-    cached.activeChange = change;
-    // Persist to worktree-sessions for crash recovery
-    const cs = buildChangeSessionForPersistence(sessionId, change, cached);
-    createSessionFolder(cs);
-    appendExecutionLog(change.branch, "Phase: starting");
-  }
-}
-
-export function clearActiveChange(sessionId: string, cleanupFolder: boolean = false): void {
-  const change = activeChanges.get(sessionId);
-  activeChanges.delete(sessionId);
-  const cached = sessionCache.get(sessionId);
-  if (cached) {
-    cached.activeChange = undefined;
-  }
-  if (cleanupFolder && change) {
-    removeSessionFolder(change.branch);
-  }
-}
-
-export function updateActiveChangeStatus(sessionId: string, status: ChangeStatus, lastMessage?: string): void {
-  const change = activeChanges.get(sessionId);
-  if (change) {
-    change.status = status;
-    change.lastActivityAt = new Date();
-    // Persist state for crash recovery
-    const session = sessionCache.get(sessionId);
-    if (session) {
-      const message = lastMessage ?? `Status changed to: ${status}`;
-      const cs = buildChangeSessionForPersistence(sessionId, change, session);
-      writeSessionState(cs, message);
-      appendExecutionLog(change.branch, `Phase: ${statusToPhase(status)}`);
-    }
-  }
-}
-
-export function updateActiveChangePrUrl(sessionId: string, prUrl: string): void {
-  const change = activeChanges.get(sessionId);
-  if (change) {
-    change.prUrl = prUrl;
-    change.lastActivityAt = new Date();
-    // Persist state for crash recovery
-    const session = sessionCache.get(sessionId);
-    if (session) {
-      const cs = buildChangeSessionForPersistence(sessionId, change, session);
-      writeSessionState(cs, `PR created: ${prUrl}`);
-      appendExecutionLog(change.branch, `PR URL: ${prUrl}`);
-    }
-  }
-}
-
-/**
- * Find an actively-executing change for a user.
- * Only returns changes consuming compute (executing, reviewing, merging).
- * Changes in pr_created state are idle and do NOT block new changes.
- */
-export function getActiveChangeForUser(userId: string): { sessionId: string; change: ActiveChangeState } | undefined {
-  const activelyExecutingStatuses: ChangeStatus[] = ["executing", "reviewing", "merging"];
-  for (const [sessionId, change] of activeChanges.entries()) {
-    const session = sessionCache.get(sessionId);
-    if (session && session.userId === userId && activelyExecutingStatuses.includes(change.status)) {
-      return { sessionId, change };
-    }
-  }
-  return undefined;
-}
-
-export interface ActiveWorker {
-  id: string;
-  userId: string;
-  status: ChangeStatus;
-  description: string;
-  branch: string;
-  repo: string;
-  prUrl?: string;
-  channel: string;
-  threadTs: string;
-  startedAt: Date;
-}
-
-/**
- * Get all active change workers for display purposes
- */
-export function getActiveWorkers(): ActiveWorker[] {
-  const workers: ActiveWorker[] = [];
-
-  for (const [sessionId, change] of activeChanges.entries()) {
-    if (change.status !== "completed" && change.status !== "failed") {
-      const session = sessionCache.get(sessionId);
-      if (session) {
-        workers.push({
-          id: sessionId,
-          userId: session.userId,
-          status: change.status,
-          description: change.description,
-          branch: change.branch,
-          repo: change.repo,
-          prUrl: change.prUrl,
-          channel: session.channelId,
-          threadTs: session.threadTs,
-          startedAt: change.startedAt,
-        });
-      }
-    }
-  }
-
-  workers.sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime());
-  return workers;
-}
-
-/**
- * Get the set of branches that have active (non-terminal) changes.
- * Used by worktree cleanup to avoid removing worktrees for active sessions.
- */
-export function getActiveChangeBranches(): Set<string> {
-  const branches = new Set<string>();
-  for (const change of activeChanges.values()) {
-    if (change.status !== "completed" && change.status !== "failed") {
-      branches.add(change.branch);
-    }
-  }
-  return branches;
 }
 
 // ============================================================================
@@ -600,7 +427,7 @@ function isSessionEvictable(session: SessionContext): boolean {
 export async function cleanupExpiredSessions(): Promise<void> {
   const sessionsDir = getSessionsDir();
 
-  if (!(await exists(sessionsDir))) {
+  if (!(await fileExists(sessionsDir))) {
     return;
   }
 
