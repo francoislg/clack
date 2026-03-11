@@ -11,7 +11,7 @@ async function exists(path: string): Promise<boolean> {
 }
 import { getConfig, getSessionsDir } from "./config.js";
 import { logger } from "./logger.js";
-import type { ErrorRecord, ConversationMessage } from "./claude.js";
+import type { ErrorRecord, ConversationMessage } from "./claude/index.js";
 import type { SubmitResponsePayload, ToolCallRecord, ContinuationRecord, ResponseSnapshot } from "./tools/types.js";
 import type { ChangeStatus, ChangeSession } from "./changes/types.js";
 import type { WorktreeInfo } from "./worktrees.js";

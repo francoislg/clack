@@ -3,7 +3,7 @@
  * Extracted from core.ts so it can be shared by processMessage and button handlers.
  */
 import type { App } from "@slack/bolt";
-import type { ClaudeResponse } from "../../claude.js";
+import type { ClaudeResponse } from "../../claude/index.js";
 import type { StagedChangeIntent, StagedConfigUpdateIntent, StagedIntent, Action } from "../../tools/types.js";
 import type { UserRole } from "../../roles.js";
 import { canRequestChanges } from "../../permissions.js";

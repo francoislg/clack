@@ -1,7 +1,7 @@
 import type { App } from "@slack/bolt";
 import { logger } from "../logger.js";
 import type { ThreadMessage } from "../sessions.js";
-import type { ConversationMessage } from "../claude.js";
+import type { ConversationMessage } from "../claude/index.js";
 import { resolveUsers, transformUserMentions } from "./userCache.js";
 
 export function extractMessageText(msg: { text?: string; attachments?: { text?: string; fallback?: string }[] }): string {

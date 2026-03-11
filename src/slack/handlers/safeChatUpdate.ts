@@ -1,7 +1,7 @@
 import type { App } from "@slack/bolt";
 import { ErrorCode, type WebAPIPlatformError } from "@slack/web-api";
 import { logger } from "../../logger.js";
-import { summarizeForSlack } from "../../claude.js";
+import { summarizeForSlack } from "../../claude/utilities.js";
 
 function isMsgTooLong(error: unknown): error is WebAPIPlatformError {
   if (!(error instanceof Error)) return false;

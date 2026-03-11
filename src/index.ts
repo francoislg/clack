@@ -1,6 +1,6 @@
 import { config as dotenvConfig } from "dotenv";
 import { join } from "path";
-import { testMCP } from "./claude.js";
+import { testMCP } from "./claude/testMcp.js";
 import { loadConfig, getConfig } from "./config.js";
 import { loadGitHubCredentials, validateGitHubApp } from "./github.js";
 import { logger } from "./logger.js";

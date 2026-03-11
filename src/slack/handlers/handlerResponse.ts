@@ -8,11 +8,12 @@
 import type { App } from "@slack/bolt";
 import type { SessionInfo } from "../state.js";
 import type { SessionContext } from "../../sessions.js";
-import type { AskClaudeOptions, ClaudeResponse } from "../../claude.js";
+import type { AskClaudeOptions, ClaudeResponse } from "../../claude/index.js";
 import type { DeliverFn } from "../../tools/types.js";
 import { getErrorBlocksWithRetry } from "../blocks.js";
 import { setLastAnswer, updateSession, addError } from "../../sessions.js";
-import { askClaude, analyzeError } from "../../claude.js";
+import { askClaude } from "../../claude/index.js";
+import { analyzeError } from "../../claude/utilities.js";
 import { sendErrorReport } from "../messagesApi.js";
 import { getConfig } from "../../config.js";
 import { getClaudeOptions } from "./changeWorkflowHelper.js";

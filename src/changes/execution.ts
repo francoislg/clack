@@ -8,7 +8,8 @@ import type { WorktreeInfo } from "../worktrees.js";
 import type { ChangePlan, ChangeRequest, ExecutionResult } from "./types.js";
 import { appendExecutionLog } from "./persistence.js";
 import { findRepoByName } from "./detection.js";
-import { detectPlatformError, extractToolErrorMessage } from "../claude.js";
+import { detectPlatformError } from "../claude/messageParser.js";
+import { ClaudeMessageParser } from "../claude/messageParser.js";
 import { buildWorkerContext } from "../tools/context.js";
 import { buildClackTools } from "../tools/server.js";
 import { discoverPlugins } from "../plugins.js";
@@ -72,11 +73,10 @@ export async function runClaude(options: {
   }, 30000);
 
   let finalText = "";
-  let lastAssistantText = "";
   let lastProgressMessage = "";
   let resultSuccess = false;
   let resultError: string | undefined;
-  const emittedToolIds = new Set<string>();
+  const parser = new ClaudeMessageParser(options.onEvent);
 
   try {
     for await (const message of query({
@@ -105,72 +105,46 @@ export async function runClaude(options: {
       lastOutputTime = Date.now();
       outputReceived = true;
 
-      // Emit tool_start early from tool_progress (fires during execution, before assistant message)
-      if (message.type === "tool_progress" && options.onEvent) {
-        if (!emittedToolIds.has(message.tool_use_id)) {
-          emittedToolIds.add(message.tool_use_id);
-          await options.onEvent({ type: "tool_start", taskId: message.tool_use_id, toolName: message.tool_name, toolArgs: {} });
+      const parsed = await parser.process(message as { type: string; [key: string]: unknown });
+
+      // Worker-specific: progress callbacks and execution log for tool uses
+      for (const tool of parsed.toolUses) {
+        lastProgressMessage = `Using ${tool.name}`;
+        options.onProgress?.(lastProgressMessage);
+        if (options.branchName) {
+          appendExecutionLog(options.branchName, `Event: tool_use (${tool.name})`);
         }
       }
 
-      if (message.type === "assistant" && message.message?.content) {
-        lastAssistantText = "";
-        for (const block of message.message.content) {
-          if (block.type === "tool_use") {
-            lastProgressMessage = `Using ${block.name}`;
-            options.onProgress?.(lastProgressMessage);
-            // Fallback: emit tool_start if tool_progress didn't fire (fast tools)
-            if (!emittedToolIds.has(block.id)) {
-              emittedToolIds.add(block.id);
-              await options.onEvent?.({
-                type: "tool_start",
-                taskId: block.id,
-                toolName: block.name,
-                toolArgs: (block.input as Record<string, unknown>) ?? {},
-              });
-            }
-            if (options.branchName) {
-              appendExecutionLog(options.branchName, `Event: tool_use (${block.name})`);
-            }
-          } else if ("text" in block && typeof block.text === "string" && block.text) {
-            lastAssistantText += block.text;
-            finalText += block.text + "\n";
-            if (options.branchName) {
-              const preview = block.text.substring(0, 200).replace(/\n/g, " ");
-              appendExecutionLog(options.branchName, `Event: assistant text: ${preview}...`);
-            }
-          }
+      // Worker-specific: accumulate assistant text and log it
+      if (parsed.assistantText) {
+        finalText += parsed.assistantText + "\n";
+        if (options.branchName) {
+          const preview = parsed.assistantText.substring(0, 200).replace(/\n/g, " ");
+          appendExecutionLog(options.branchName, `Event: assistant text: ${preview}...`);
         }
-      } else if (message.type === "user" && options.onEvent && message.message?.content) {
-        for (const block of message.message.content) {
-          if (block && typeof block === "object" && "type" in block && (block as Record<string, unknown>).type === "tool_result") {
-            const rb = block as Record<string, unknown>;
-            if (rb.tool_use_id) {
-              const errorMessage = rb.is_error === true ? extractToolErrorMessage(rb.content) : undefined;
-              await options.onEvent({ type: "tool_end", taskId: String(rb.tool_use_id), error: rb.is_error === true, errorMessage });
-            }
-          }
-        }
-      } else if (message.type === "result") {
-        if (message.subtype === "success") {
+      }
+
+      // Handle result
+      if (parser.result) {
+        if (parser.result.success) {
           resultSuccess = true;
-          if (message.result) {
-            finalText = message.result;
+          if (parser.result.text) {
+            finalText = parser.result.text;
           }
         } else {
-          resultError = "errors" in message
-            ? (message.errors as string[])?.join(", ") ?? "Unknown error"
-            : "Unknown error";
+          resultError = parser.result.error;
         }
         if (options.branchName) {
-          appendExecutionLog(options.branchName, `Event: result (subtype: ${message.subtype})`);
+          const subtype = (message as Record<string, unknown>).subtype;
+          appendExecutionLog(options.branchName, `Event: result (subtype: ${subtype})`);
         }
       } else if (message.type === "system" && "subtype" in message && message.subtype === "init") {
         if (options.branchName) {
           const sessionId = "session_id" in message ? String(message.session_id).substring(0, 8) : "unknown";
           appendExecutionLog(options.branchName, `Event: init (session: ${sessionId}...)`);
         }
-      } else if (options.branchName) {
+      } else if (message.type !== "tool_progress" && message.type !== "assistant" && message.type !== "user" && options.branchName) {
         const subtype = "subtype" in message ? message.subtype : undefined;
         appendExecutionLog(options.branchName, `Event: ${message.type}${subtype ? ":" + subtype : ""}`);
       }
@@ -212,7 +186,7 @@ export async function runClaude(options: {
   clearInterval(heartbeatInterval);
 
   // Check for platform errors masquerading as successful responses
-  const platformError = detectPlatformError(finalText) ?? detectPlatformError(lastAssistantText);
+  const platformError = detectPlatformError(finalText) ?? detectPlatformError(parser.lastAssistantText);
   if (platformError) {
     logger.warn(`Platform error detected in worker: ${platformError}`);
     if (options.branchName) {

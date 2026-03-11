@@ -1,4 +1,4 @@
-import { convertMarkdownToSlack, splitForSlack } from "../claude.js";
+import { convertMarkdownToSlack, splitForSlack } from "../claude/formatting.js";
 import type { SubmitResponsePayload, Action, ResponseSection } from "../tools/types.js";
 
 function answerSections(answer: string) {
