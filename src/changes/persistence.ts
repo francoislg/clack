@@ -244,6 +244,90 @@ export async function getResumableSessions(): Promise<ResumableSession[]> {
 // Cleanup Functions
 // ============================================================================
 
+/** Outcome of evaluating whether a session folder should be cleaned up. */
+type CleanupDecision =
+  | { action: "skip"; reason: string }
+  | { action: "cleanup"; label: string }
+  | { action: "check_age"; label: string };
+
+/**
+ * Determine whether a session folder should be cleaned up based on its state
+ * and whether it has an active in-memory branch.
+ */
+function shouldCleanupSession(
+  state: PersistedSessionState | null,
+  folder: string,
+  activeBranches?: Set<string>
+): CleanupDecision {
+  // Check if there's an active in-memory change for this branch
+  if (activeBranches) {
+    const possibleBranch = folder.replace(/-/g, "/");
+    if (activeBranches.has(possibleBranch) || activeBranches.has(folder)) {
+      return { action: "skip", reason: `active branch: ${folder}` };
+    }
+  }
+
+  // No state file (or unparseable) — treat as orphan, subject to age check
+  if (!state) {
+    return { action: "check_age", label: "stale orphaned" };
+  }
+
+  switch (state.status) {
+    // In-progress work — never clean up
+    case "planning":
+    case "executing":
+    case "reviewing":
+    case "merging":
+      return { action: "skip", reason: `in-progress session: ${folder}` };
+
+    // Failed sessions kept for debugging — never auto-cleaned
+    case "failed":
+      return { action: "skip", reason: `failed session (kept for debugging): ${folder}` };
+
+    // PR waiting for user action — keep
+    case "pr_created":
+      return { action: "skip", reason: `active PR: ${folder}` };
+
+    // Completed sessions should have been removed by removeSession() already
+    case "completed":
+      return { action: "cleanup", label: "orphaned completed" };
+
+    // Unknown status — treat as orphan, subject to age check
+    default:
+      return { action: "check_age", label: "unknown-status orphaned" };
+  }
+}
+
+async function tryRemoveFolder(folderPath: string, folder: string, label: string): Promise<boolean> {
+  try {
+    await rm(folderPath, { recursive: true });
+    logger.debug(`Cleaned up ${label} session folder: ${folder}`);
+    return true;
+  } catch (err) {
+    logger.warn(`Failed to clean up session folder ${folder}: ${err}`);
+    return false;
+  }
+}
+
+async function tryReadState(statePath: string): Promise<PersistedSessionState | null> {
+  try {
+    const content = await readFile(statePath, "utf-8");
+    return JSON.parse(content) as PersistedSessionState;
+  } catch {
+    return null;
+  }
+}
+
+async function isFolderOlderThan(folderPath: string, retentionMs: number, now: number): Promise<boolean> {
+  try {
+    const folderStat = await stat(folderPath);
+    return now - folderStat.mtimeMs >= retentionMs;
+  } catch {
+    // Can't stat — assume old enough to clean
+    return true;
+  }
+}
+
 /**
  * Clean up stale session folders.
  * - Completed sessions are cleaned up when removeSession() is called
@@ -272,7 +356,6 @@ export async function cleanupStaleSessionFolders(
 
     for (const folder of folders) {
       const folderPath = join(sessionsDir, folder);
-      const statePath = join(folderPath, "state.json");
 
       // Skip if not a directory
       try {
@@ -281,78 +364,27 @@ export async function cleanupStaleSessionFolders(
         continue;
       }
 
-      // Try to read state
-      let state: PersistedSessionState | null = null;
-      try {
-        const content = await readFile(statePath, "utf-8");
-        state = JSON.parse(content) as PersistedSessionState;
-      } catch {
-        // No state file or unparseable
-      }
+      const state = await tryReadState(join(folderPath, "state.json"));
+      const decision = shouldCleanupSession(state, folder, activeBranches);
 
-      // Check if there's an active in-memory change for this branch
-      if (activeBranches) {
-        const possibleBranch = folder.replace(/-/g, "/");
-        const hasActiveBranch = activeBranches.has(possibleBranch) || activeBranches.has(folder);
+      switch (decision.action) {
+        case "skip":
+          logger.debug(`Skipping cleanup: ${decision.reason}`);
+          break;
 
-        if (hasActiveBranch) {
-          logger.debug(`Skipping cleanup of session folder with active branch: ${folder}`);
-          continue;
-        }
-      }
-
-      // If state exists, check status
-      if (state) {
-        const inProgressStatuses: ChangeStatus[] = ["planning", "executing", "reviewing", "merging"];
-        if (inProgressStatuses.includes(state.status)) {
-          logger.debug(`Skipping cleanup of in-progress session folder: ${folder}`);
-          continue;
-        }
-
-        // Failed sessions are NEVER automatically cleaned up - kept for debugging
-        if (state.status === "failed") {
-          logger.debug(`Keeping failed session folder for debugging: ${folder}`);
-          continue;
-        }
-
-        // pr_created sessions are kept (active PR, waiting for user action)
-        if (state.status === "pr_created") {
-          logger.debug(`Keeping session folder with active PR: ${folder}`);
-          continue;
-        }
-
-        // Completed sessions should have been cleaned up by removeSession()
-        // If they're still here, something went wrong - clean them up
-        if (state.status === "completed") {
-          try {
-            await rm(folderPath, { recursive: true });
+        case "cleanup":
+          if (await tryRemoveFolder(folderPath, folder, decision.label)) {
             cleaned++;
-            logger.debug(`Cleaned up orphaned completed session folder: ${folder}`);
-          } catch (err) {
-            logger.warn(`Failed to clean up session folder ${folder}: ${err}`);
           }
-          continue;
-        }
-      }
+          break;
 
-      // For orphaned folders without state (or with unknown state), check folder age
-      try {
-        const folderStat = await stat(folderPath);
-        const age = now - folderStat.mtimeMs;
-        if (age < retentionMs) {
-          continue;
-        }
-      } catch {
-        // Continue with cleanup if we can't stat
-      }
-
-      // Clean up the orphaned folder
-      try {
-        await rm(folderPath, { recursive: true });
-        cleaned++;
-        logger.debug(`Cleaned up stale orphaned session folder: ${folder}`);
-      } catch (err) {
-        logger.warn(`Failed to clean up session folder ${folder}: ${err}`);
+        case "check_age":
+          if (await isFolderOlderThan(folderPath, retentionMs, now)) {
+            if (await tryRemoveFolder(folderPath, folder, decision.label)) {
+              cleaned++;
+            }
+          }
+          break;
       }
     }
 
