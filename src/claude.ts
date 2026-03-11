@@ -723,7 +723,7 @@ ${text}`;
         executable: process.execPath as "node",
         model: "haiku",
         permissionMode: "bypassPermissions",
-        disallowedTools: ["Write", "Edit", "NotebookEdit", "Bash", "Task", "Read", "Glob", "Grep"],
+        disallowedTools: ["Write", "Edit", "NotebookEdit", "Bash", "Task", "TaskOutput", "Read", "Glob", "Grep"],
         maxTurns: 1,
       },
     })) {
@@ -793,7 +793,7 @@ Provide a concise, non-technical explanation suitable for a user who encountered
         executable: process.execPath as "node",
         model: "haiku", // Use fast, cheap model for analysis
         permissionMode: "bypassPermissions",
-        disallowedTools: ["Write", "Edit", "NotebookEdit", "Bash", "Task", "Read", "Glob", "Grep"],
+        disallowedTools: ["Write", "Edit", "NotebookEdit", "Bash", "Task", "TaskOutput", "Read", "Glob", "Grep"],
         maxTurns: 1,
       },
     })) {

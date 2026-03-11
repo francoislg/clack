@@ -76,22 +76,14 @@ export async function handleAutoExecuteActions(params: AutoExecuteParams): Promi
         }
       } else if (action.type === "change" && intent.type === "change") {
         logger.info(`Auto-executing change action: ${(intent as StagedChangeIntent).description}`);
-        // Fire and forget — triggerChangeWorkflow manages its own progress messages
-        triggerChangeWorkflow(
+        await triggerChangeWorkflow(
           intent as StagedChangeIntent,
           channelId,
           threadTs,
           userId,
           client,
           dmChannel && dmThreadTs ? { streamChannel: dmChannel, streamThreadTs: dmThreadTs } : undefined,
-        ).catch((err) => {
-          logger.error("Auto-execute change workflow error:", err);
-          client.chat.postMessage({
-            channel: channelId,
-            thread_ts: threadTs,
-            text: `Auto-execute failed: ${err instanceof Error ? err.message : String(err)}`,
-          }).catch(() => {});
-        });
+        );
       } else if (action.type === "update") {
         // Look up the unified session to find active change
         const session = await findSessionByThread(channelId, threadTs);
@@ -105,8 +97,7 @@ export async function handleAutoExecuteActions(params: AutoExecuteParams): Promi
           : undefined;
 
         logger.info(`Auto-executing update follow-up action`);
-        // Fire and forget — triggerFollowUp manages its own progress messages
-        triggerFollowUp(
+        await triggerFollowUp(
           session,
           "update",
           additionalInstructions,
@@ -115,14 +106,7 @@ export async function handleAutoExecuteActions(params: AutoExecuteParams): Promi
           userId,
           client,
           dmChannel && dmThreadTs ? { streamChannel: dmChannel, streamThreadTs: dmThreadTs } : undefined,
-        ).catch((err) => {
-          logger.error(`Auto-execute update follow-up error:`, err);
-          client.chat.postMessage({
-            channel: channelId,
-            thread_ts: threadTs,
-            text: `Auto-execute failed: ${err instanceof Error ? err.message : String(err)}`,
-          }).catch(() => {});
-        });
+        );
       } else {
         logger.warn(`Auto-execute: unsupported action type ${action.type}`);
       }
