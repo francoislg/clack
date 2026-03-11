@@ -1,4 +1,4 @@
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import { query, type McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 import { getConfig, getRepositoriesDir } from "../config.js";
 import { ClaudeMessageParser, detectPlatformError } from "./messageParser.js";
 import { buildSystemPrompt, buildPrompt } from "./promptBuilder.js";
@@ -7,7 +7,7 @@ import { logger } from "../logger.js";
 import { loadMcpServers } from "../mcp.js";
 import type { UserRole } from "../roles.js";
 import type { SessionContext } from "../sessions.js";
-import type { SubmitResponsePayload, ToolCallRecord, StagedIntent, DeliverFn } from "../tools/types.js";
+import type { SubmitResponsePayload, ToolCallRecord, StagedIntent, DeliverFn, ClackToolsResult } from "../tools/types.js";
 import type { StreamEvent } from "../streaming/types.js";
 import { buildQueryContext } from "../tools/context.js";
 import { buildClackTools } from "../tools/server.js";
@@ -91,18 +91,25 @@ function summarizeMessageContent(message: unknown): string {
   return JSON.stringify(msg).substring(0, 500);
 }
 
-export async function askClaude(
+interface QuerySetup {
+  reposDir: string;
+  systemPrompt: string;
+  userPrompt: string;
+  model: string | undefined;
+  clackTools: ClackToolsResult;
+  mcpServers: Record<string, McpServerConfig>;
+}
+
+async function buildQuerySetup(
   session: SessionContext,
   options?: AskClaudeOptions
-): Promise<ClaudeResponse> {
+): Promise<QuerySetup> {
   const config = getConfig();
   const reposDir = getRepositoriesDir();
   const externalMcpServers = await loadMcpServers();
 
   const systemPrompt = buildSystemPrompt(options);
   const userPrompt = buildPrompt(session, options);
-
-  logger.debug(`Querying Claude via Agent SDK for session ${session.sessionId}...`);
 
   // Build clack tool server for this query
   const toolCtx = buildQueryContext({
@@ -117,53 +124,160 @@ export async function askClaude(
   const clackTools = buildClackTools(toolCtx);
 
   // Merge external MCP servers with the clack tool server
-  const mcpServers: Record<string, unknown> = {
+  const mcpServers: Record<string, McpServerConfig> = {
     ...(externalMcpServers ?? {}),
-    clack: clackTools.mcpServer,
+    clack: clackTools.mcpServer as McpServerConfig,
   };
 
-  // Collect conversation trace for debugging
+  return { reposDir, systemPrompt, userPrompt, model: config.claudeCode.model, clackTools, mcpServers };
+}
+
+function recordTraceEntry(
+  message: { type: string; [key: string]: unknown },
+  parsed: { toolUses: Array<{ name: string; args: Record<string, unknown> }> }
+): ConversationMessage {
+  const entry: ConversationMessage = {
+    type: message.type,
+    subtype: "subtype" in message ? (message.subtype as string) : undefined,
+    content: summarizeMessageContent(message),
+    timestamp: Date.now(),
+  };
+
+  if (parsed.toolUses.length > 0) {
+    const first = parsed.toolUses[0];
+    entry.toolCall = { tool: first.name, args: first.args, result: {} };
+  }
+
+  return entry;
+}
+
+function buildToolResults(clackTools: ClackToolsResult): {
+  structuredResponse: SubmitResponsePayload | undefined;
+  renderedBlocks: Record<string, unknown>[] | undefined;
+  stagedIntents: Record<string, StagedIntent>;
+  toolCallHistory: ToolCallRecord[];
+} {
+  const structuredResponse = clackTools.getResult() ?? undefined;
+  const renderedBlocks = clackTools.getRenderedBlocks() ?? undefined;
+  const toolCallHistory = clackTools.getToolCallHistory();
+
+  // Convert Map to plain object for serialization
+  const stagedIntents: Record<string, StagedIntent> = {};
+  for (const [ref, intent] of clackTools.getStagedIntents()) {
+    stagedIntents[ref] = intent;
+  }
+
+  return { structuredResponse, renderedBlocks, stagedIntents, toolCallHistory };
+}
+
+function buildSuccessResponse(
+  answer: string,
+  conversationTrace: ConversationMessage[],
+  clackTools: ClackToolsResult
+): ClaudeResponse {
+  const { structuredResponse, renderedBlocks, stagedIntents, toolCallHistory } = buildToolResults(clackTools);
+  const optionalToolHistory = toolCallHistory.length > 0 ? toolCallHistory : undefined;
+  const optionalIntents = Object.keys(stagedIntents).length > 0 ? stagedIntents : undefined;
+
+  // If submit_response was called, use the structured response
+  if (structuredResponse) {
+    const answerText = structuredResponse.sections
+      .map((s) => (s.title ? `**${s.title}**\n${s.body}` : s.body))
+      .join("\n\n");
+
+    return {
+      success: true,
+      answer: answerText,
+      conversationTrace,
+      response: structuredResponse,
+      renderedBlocks,
+      stagedIntents: optionalIntents,
+      toolCallHistory: optionalToolHistory,
+    };
+  }
+
+  // No submit_response called — return raw text
+  if (answer.trim()) {
+    return {
+      success: true,
+      answer: answer.trim(),
+      conversationTrace,
+      toolCallHistory: optionalToolHistory,
+    };
+  }
+
+  return {
+    success: false,
+    answer: "",
+    error: "No response received from Claude",
+    conversationTrace,
+    toolCallHistory: optionalToolHistory,
+  };
+}
+
+function handleQueryError(
+  error: unknown,
+  sessionId: string,
+  conversationTrace: ConversationMessage[],
+  abortController?: AbortController
+): ClaudeResponse {
+  // Detect cancellation via AbortController
+  const isAbortError = error instanceof Error && error.name === "AbortError";
+  const isSignalAbort = abortController?.signal.aborted &&
+    error instanceof Error && /aborted/i.test(error.message);
+
+  if (isAbortError || isSignalAbort) {
+    logger.info(`Claude query cancelled for session ${sessionId}`);
+    return {
+      success: false,
+      cancelled: true,
+      answer: "",
+      conversationTrace,
+    };
+  }
+
+  logger.error("Claude Agent SDK error:", error);
+  return {
+    success: false,
+    answer: "",
+    error: `Claude Agent SDK error: ${errorMessage(error)}`,
+    conversationTrace,
+  };
+}
+
+export async function askClaude(
+  session: SessionContext,
+  options?: AskClaudeOptions
+): Promise<ClaudeResponse> {
+  const { reposDir, systemPrompt, userPrompt, model, clackTools, mcpServers } =
+    await buildQuerySetup(session, options);
+
+  logger.debug(`Querying Claude via Agent SDK for session ${session.sessionId}...`);
+
   const conversationTrace: ConversationMessage[] = [];
 
   try {
     let answer = "";
     const parser = new ClaudeMessageParser(options?.onEvent);
 
-    // Use the Agent SDK query function
-    // Disallow write operations - this bot is read-only
     for await (const message of query({
       prompt: userPrompt,
       options: {
         cwd: reposDir,
         executable: process.execPath as "node",
         systemPrompt,
-        model: config.claudeCode.model,
+        model,
         permissionMode: "bypassPermissions",
         tools: ["Read", "Glob", "Grep", "Skill"],
         plugins: discoverPlugins(),
-        mcpServers: mcpServers as Record<string, import("@anthropic-ai/claude-agent-sdk").McpServerConfig>,
+        mcpServers,
         ...(options?.abortController && { abortController: options.abortController }),
       },
     })) {
-      // Record all messages in the conversation trace
-      const traceEntry: ConversationMessage = {
-        type: message.type,
-        subtype: "subtype" in message ? (message.subtype as string) : undefined,
-        content: summarizeMessageContent(message),
-        timestamp: Date.now(),
-      };
+      const typedMessage = message as { type: string; [key: string]: unknown };
+      const parsed = await parser.process(typedMessage);
 
-      const parsed = await parser.process(message as { type: string; [key: string]: unknown });
-
-      // Record first tool_use in trace entry
-      if (parsed.toolUses.length > 0) {
-        const first = parsed.toolUses[0];
-        if (!traceEntry.toolCall) {
-          traceEntry.toolCall = { tool: first.name, args: first.args, result: {} };
-        }
-      }
-
-      conversationTrace.push(traceEntry);
+      conversationTrace.push(recordTraceEntry(typedMessage, parsed));
 
       // Handle result
       if (parser.result) {
@@ -192,74 +306,8 @@ export async function askClaude(
       };
     }
 
-    // Capture tool server results
-    const structuredResponse = clackTools.getResult();
-    const renderedBlocks = clackTools.getRenderedBlocks();
-    const stagedIntentsMap = clackTools.getStagedIntents();
-    const toolCallHistory = clackTools.getToolCallHistory();
-
-    // Convert Map to plain object for serialization
-    const stagedIntents: Record<string, StagedIntent> = {};
-    for (const [ref, intent] of stagedIntentsMap) {
-      stagedIntents[ref] = intent;
-    }
-
-    // If submit_response was called, use the structured response
-    if (structuredResponse) {
-      const answerText = structuredResponse.sections
-        .map((s) => (s.title ? `**${s.title}**\n${s.body}` : s.body))
-        .join("\n\n");
-
-      return {
-        success: true,
-        answer: answerText,
-        conversationTrace,
-        response: structuredResponse,
-        renderedBlocks: renderedBlocks ?? undefined,
-        stagedIntents: Object.keys(stagedIntents).length > 0 ? stagedIntents : undefined,
-        toolCallHistory: toolCallHistory.length > 0 ? toolCallHistory : undefined,
-      };
-    }
-
-    // No submit_response called — return raw text
-    if (answer.trim()) {
-      return {
-        success: true,
-        answer: answer.trim(),
-        conversationTrace,
-        toolCallHistory: toolCallHistory.length > 0 ? toolCallHistory : undefined,
-      };
-    }
-
-    return {
-      success: false,
-      answer: "",
-      error: "No response received from Claude",
-      conversationTrace,
-      toolCallHistory: toolCallHistory.length > 0 ? toolCallHistory : undefined,
-    };
+    return buildSuccessResponse(answer, conversationTrace, clackTools);
   } catch (error) {
-    // Detect cancellation via AbortController
-    const isAbortError = error instanceof Error && error.name === "AbortError";
-    const isSignalAbort = options?.abortController?.signal.aborted &&
-      error instanceof Error && /aborted/i.test(error.message);
-
-    if (isAbortError || isSignalAbort) {
-      logger.info(`Claude query cancelled for session ${session.sessionId}`);
-      return {
-        success: false,
-        cancelled: true,
-        answer: "",
-        conversationTrace,
-      };
-    }
-
-    logger.error("Claude Agent SDK error:", error);
-    return {
-      success: false,
-      answer: "",
-      error: `Claude Agent SDK error: ${errorMessage(error)}`,
-      conversationTrace,
-    };
+    return handleQueryError(error, session.sessionId, conversationTrace, options?.abortController);
   }
 }

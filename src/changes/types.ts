@@ -26,7 +26,7 @@ export interface ChangeSession {
   userId: string;
   request: ChangeRequest;
   plan: ChangePlan;
-  worktree: WorktreeInfo;
+  worktree?: WorktreeInfo;
   prUrl?: string;
   status: ChangeStatus;
   createdAt: Date;

@@ -1,5 +1,6 @@
 import { getConfig } from "../config.js";
 import { logger } from "../logger.js";
+import { errorMessage } from "../errors.js";
 import { removeWorktree } from "../worktrees.js";
 import { getPRStatus, type PRState } from "./pr.js";
 import { getSession } from "../sessions.js";
@@ -65,11 +66,13 @@ async function cleanupSession(
   updateActiveChangeStatus(sessionId, newStatus, `PR ${action} externally`);
 
   // Remove the worktree
-  try {
-    await removeWorktree(activeChange.worktree.repoName, activeChange.worktree.worktreePath);
-    logger.debug(`Removed worktree for session ${sessionId}`);
-  } catch (error) {
-    logger.warn(`Failed to remove worktree for session ${sessionId}: ${error}`);
+  if (activeChange.worktree) {
+    try {
+      await removeWorktree(activeChange.worktree.repoName, activeChange.worktree.worktreePath);
+      logger.debug(`Removed worktree for session ${sessionId}`);
+    } catch (error) {
+      logger.warn(`Failed to remove worktree for session ${sessionId}: ${errorMessage(error)}`);
+    }
   }
 
   // Clear the active change from the unified session
