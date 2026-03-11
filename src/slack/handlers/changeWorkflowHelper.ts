@@ -1,7 +1,7 @@
 import { getConfig } from "../../config.js";
 import { getRole } from "../../roles.js";
 import { canRequestChanges } from "../../permissions.js";
-import type { AskClaudeOptions } from "../../claude.js";
+import type { AskClaudeOptions } from "../../claude/index.js";
 import type { TriggerType } from "../../changes/types.js";
 import { isChangesEnabledForTrigger, getChangeEnabledRepos } from "../../changes/detection.js";
 

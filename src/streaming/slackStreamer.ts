@@ -100,6 +100,26 @@ export class SlackStreamer {
       case "tool_start": {
         const label = getToolLabel(event.toolName, event.toolArgs);
         if (label === null) break;
+        const hasArgs = Object.keys(event.toolArgs).length > 0;
+
+        // Re-emit with real args — update the existing task
+        const existingSlackId = this.taskSlack.get(event.taskId);
+        if (existingSlackId) {
+          // Re-emit for standalone tool — update label with real args
+          if (hasArgs && existingSlackId === event.taskId) {
+            this.taskLabels.set(event.taskId, label);
+            const chunk: TaskUpdateChunk = {
+              type: "task_update",
+              id: existingSlackId,
+              title: label,
+              status: "in_progress",
+            };
+            const details = getToolDetails(event.toolName, event.toolArgs);
+            if (details) chunk.details = details;
+            this.append([chunk]);
+          }
+          break;
+        }
 
         const group = getToolGroup(event.toolName, event.toolArgs);
         const groupKey = group?.key ?? event.toolName;
@@ -127,7 +147,8 @@ export class SlackStreamer {
             title: `${this.openGroup.title} (${this.openGroup.count})`,
             status: "in_progress",
           };
-          if (group.itemDetail) chunk.details = `\n${group.itemDetail}`;
+          // Only append itemDetail when we have real args (skip generic placeholders)
+          if (group.itemDetail && hasArgs) chunk.details = `\n${group.itemDetail}`;
           chunks.push(chunk);
         } else {
           // New task (grouped or standalone)
@@ -144,9 +165,13 @@ export class SlackStreamer {
             status: "in_progress",
           };
 
-          // Attach details: itemDetail for grouped, or rich details for standalone
-          const details = group?.itemDetail || getToolDetails(event.toolName, event.toolArgs);
-          if (details) chunk.details = details;
+          // Attach details: itemDetail for grouped (only with real args), or rich details for standalone
+          if (group) {
+            if (group.itemDetail && hasArgs) chunk.details = group.itemDetail;
+          } else {
+            const details = getToolDetails(event.toolName, event.toolArgs);
+            if (details) chunk.details = details;
+          }
           chunks.push(chunk);
         }
 
