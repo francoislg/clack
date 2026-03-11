@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
+import { textResult } from "../helpers.js";
 import { getResumableSessions } from "../../changes/persistence.js";
 import { getVisibleRepos } from "../../repoAccess.js";
 
@@ -16,7 +17,7 @@ export function createFindSessionsTool(ctx: QueryToolContext) {
       const visibleRepoNames = new Set(
         getVisibleRepos(ctx.role, ctx.config.repositories).map((r) => r.name)
       );
-      let sessions = getResumableSessions().filter((s) => visibleRepoNames.has(s.repo));
+      let sessions = (await getResumableSessions()).filter((s) => visibleRepoNames.has(s.repo));
 
       if (args.repo) {
         sessions = sessions.filter((s) => s.repo === args.repo);
@@ -34,9 +35,7 @@ export function createFindSessionsTool(ctx: QueryToolContext) {
         startedAt: s.startedAt,
       }));
 
-      return {
-        content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
-      };
+      return textResult(result);
     }
   );
 }

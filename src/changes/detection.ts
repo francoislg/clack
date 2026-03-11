@@ -1,4 +1,4 @@
-import { getConfig, type Config, type RepositoryConfig } from "../config.js";
+import type { Config, RepositoryConfig } from "../config.js";
 import type { TriggerType, FollowUpInfo, FollowUpCommand } from "./types.js";
 import { runClaudeInWorktree } from "./execution.js";
 import { getWritableRepos } from "../repoAccess.js";
@@ -48,18 +48,6 @@ export function findChangeEnabledRepo(config: Config, role: UserRole = "dev"): R
   }
 
   return null; // Multiple or none - need Claude to determine or error
-}
-
-/**
- * Find a repository by name
- */
-export function findRepoByName(
-  name: string,
-  config: Config
-): RepositoryConfig | undefined {
-  return config.repositories.find(
-    (r) => r.name.toLowerCase() === name.toLowerCase()
-  );
 }
 
 // ============================================================================

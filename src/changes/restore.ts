@@ -3,7 +3,8 @@ import { logger } from "../logger.js";
 import { getExistingWorktree } from "../worktrees.js";
 import { getAllPersistedSessions, writeSessionState } from "./persistence.js";
 import type { ChangeStatus, PersistedSessionState, ChangeSession } from "./types.js";
-import { findSessionByThread, setActiveChange, type ActiveChangeState } from "../sessions.js";
+import { findSessionByThread } from "../sessions.js";
+import { setActiveChange, type ActiveChangeState } from "./activeState.js";
 
 /**
  * Statuses that indicate a session was mid-execution when the process died.
@@ -23,7 +24,7 @@ const MID_EXECUTION_STATUSES: ChangeStatus[] = ["executing", "planning", "review
  * - No matching unified session: Skip (session was cleaned up)
  */
 export async function restoreWorkerSessions(): Promise<void> {
-  const states = getAllPersistedSessions();
+  const states = await getAllPersistedSessions();
 
   if (states.length === 0) {
     return;
@@ -104,7 +105,12 @@ export async function restoreWorkerSessions(): Promise<void> {
       lastActivityAt: new Date(state.lastActivityAt),
     };
 
-    setActiveChange(unifiedSession.sessionId, activeChange);
+    setActiveChange(unifiedSession.sessionId, activeChange, {
+      userId: unifiedSession.userId,
+      channelId: unifiedSession.channelId,
+      threadTs: unifiedSession.threadTs,
+      triggerType: unifiedSession.triggerType,
+    });
 
     // If we downgraded, persist the new status
     if (effectiveStatus !== state.status) {

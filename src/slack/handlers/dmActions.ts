@@ -7,8 +7,37 @@ import {
   type SessionContext,
 } from "../../sessions.js";
 import type { ResponseSnapshot } from "../../tools/types.js";
-import { restoreSessionInfo, setSessionInfo } from "../state.js";
-import { getAcceptedBlocks, getStructuredAcceptedBlocks, decodeActionValue } from "../blocks.js";
+import { restoreSessionInfo, setSessionInfo, type SessionInfo } from "../state.js";
+import { getAcceptedBlocks, getStructuredAcceptedBlocks, decodeActionValue, asSlackBlocks } from "../blocks.js";
+
+/**
+ * Shared session resolution for DM action handlers.
+ * Decodes action value, loads session + sessionInfo, and returns null (posting an ephemeral error) if either is missing.
+ */
+async function resolveActionSession(
+  rawValue: string,
+  client: App["client"],
+  channelId: string | undefined,
+  userId: string,
+): Promise<{ sessionId: string; ref?: string; session: SessionContext; sessionInfo: SessionInfo } | null> {
+  const decoded = decodeActionValue(rawValue);
+  const session = await getSession(decoded.sessionId);
+  const sessionInfo = await restoreSessionInfo(decoded.sessionId);
+
+  if (!session || !sessionInfo) {
+    logger.error(`DM action: missing session for ${decoded.sessionId}`);
+    if (channelId) {
+      await client.chat.postEphemeral({
+        channel: channelId,
+        user: userId,
+        text: "Sorry, this session has expired. Please try again.",
+      }).catch(() => {});
+    }
+    return null;
+  }
+
+  return { sessionId: decoded.sessionId, ref: decoded.ref, session, sessionInfo };
+}
 
 /**
  * Resolve answer text from session, preferring lastAnswer but falling back
@@ -47,7 +76,7 @@ async function postAnswerToChannel(
   const result = await client.chat.postMessage({
     channel: targetChannel,
     ...(targetThreadTs ? { thread_ts: targetThreadTs } : {}),
-    blocks: blocks as any[],
+    blocks: asSlackBlocks(blocks),
     text: answer,
     unfurl_links: false,
     unfurl_media: false,
@@ -62,17 +91,12 @@ export function registerDmActionHandlers(app: App): void {
     await ack();
 
     const rawValue = (body.actions[0] as { value: string }).value;
-    const decoded = decodeActionValue(rawValue);
-    const sessionId = decoded.sessionId;
-    const session = await getSession(sessionId);
-    const sessionInfo = await restoreSessionInfo(sessionId);
-
-    if (!session || !sessionInfo) {
-      logger.error(`Cannot send to thread: missing session for ${sessionId}`);
-      return;
-    }
+    const resolved = await resolveActionSession(rawValue, client, body.channel?.id, body.user.id);
+    if (!resolved) return;
+    const { sessionId, session, sessionInfo } = resolved;
 
     // Resolve snapshot (each button captures its own content at delivery time)
+    const decoded = decodeActionValue(rawValue);
     const snapshot = decoded.snapshotId
       ? session.variables?.[decoded.snapshotId]
       : undefined;
@@ -127,14 +151,10 @@ export function registerDmActionHandlers(app: App): void {
   app.action<BlockAction>("clack_dm_accept_synthesis", async ({ ack, body, client }) => {
     await ack();
 
-    const sessionId = (body.actions[0] as { value: string }).value;
-    const session = await getSession(sessionId);
-    const sessionInfo = await restoreSessionInfo(sessionId);
-
-    if (!session || !sessionInfo) {
-      logger.error(`Cannot accept synthesis: missing session for ${sessionId}`);
-      return;
-    }
+    const rawValue = (body.actions[0] as { value: string }).value;
+    const resolved = await resolveActionSession(rawValue, client, body.channel?.id, body.user.id);
+    if (!resolved) return;
+    const { sessionId, session, sessionInfo } = resolved;
 
     const answer = session.lastAnswer;
     // Target: DM-first uses originChannel+thread, assistant uses current channel (top-level)
@@ -155,7 +175,7 @@ export function registerDmActionHandlers(app: App): void {
     const postResult = await client.chat.postMessage({
       channel: targetChannel,
       ...(originThreadTs ? { thread_ts: originThreadTs } : {}),
-      blocks: blocks as any[],
+      blocks: asSlackBlocks(blocks),
       text: answer,
       unfurl_links: false,
       unfurl_media: false,
@@ -164,11 +184,7 @@ export function registerDmActionHandlers(app: App): void {
     // Store the channel post timestamp
     if (postResult.ts) {
       await updateSession(sessionId, { channelPostTs: postResult.ts });
-
-      // Update in-memory session info
-      if (sessionInfo) {
-        setSessionInfo(sessionId, { ...sessionInfo, channelPostTs: postResult.ts });
-      }
+      setSessionInfo(sessionId, { ...sessionInfo, channelPostTs: postResult.ts });
     }
 
     // Confirm in the thread (DM or assistant)
@@ -194,6 +210,13 @@ export function registerDmActionHandlers(app: App): void {
 
     if (!session?.lastAnswer) {
       logger.error(`Cannot edit synthesis: no answer for ${sessionId}`);
+      if (body.channel?.id) {
+        await client.chat.postEphemeral({
+          channel: body.channel.id,
+          user: body.user.id,
+          text: "Sorry, this session has expired or has no answer to edit.",
+        }).catch(() => {});
+      }
       return;
     }
 
@@ -252,7 +275,7 @@ export function registerDmActionHandlers(app: App): void {
     const postResult = await client.chat.postMessage({
       channel: originChannel,
       thread_ts: originThreadTs,
-      blocks: getAcceptedBlocks(editedAnswer) as any[],
+      blocks: asSlackBlocks(getAcceptedBlocks(editedAnswer)),
       text: editedAnswer,
       unfurl_links: false,
       unfurl_media: false,
@@ -260,9 +283,7 @@ export function registerDmActionHandlers(app: App): void {
 
     if (postResult.ts) {
       await updateSession(sessionId, { channelPostTs: postResult.ts });
-      if (sessionInfo) {
-        setSessionInfo(sessionId, { ...sessionInfo, channelPostTs: postResult.ts });
-      }
+      setSessionInfo(sessionId, { ...sessionInfo, channelPostTs: postResult.ts });
     }
 
     // Confirm in DM
@@ -299,14 +320,10 @@ export function registerDmActionHandlers(app: App): void {
   app.action<BlockAction>("clack_dm_update_post", async ({ ack, body, client }) => {
     await ack();
 
-    const sessionId = (body.actions[0] as { value: string }).value;
-    const session = await getSession(sessionId);
-    const sessionInfo = await restoreSessionInfo(sessionId);
-
-    if (!session || !sessionInfo) {
-      logger.error(`Cannot update post: missing session for ${sessionId}`);
-      return;
-    }
+    const rawValue = (body.actions[0] as { value: string }).value;
+    const resolved = await resolveActionSession(rawValue, client, body.channel?.id, body.user.id);
+    if (!resolved) return;
+    const { sessionId, session, sessionInfo } = resolved;
 
     const answer = session.lastAnswer;
     const originChannel = session.originChannel || sessionInfo.originChannel;
@@ -324,7 +341,7 @@ export function registerDmActionHandlers(app: App): void {
     await client.chat.update({
       channel: originChannel,
       ts: channelPostTs,
-      blocks: blocks as any[],
+      blocks: asSlackBlocks(blocks),
       text: answer,
     });
 
@@ -344,14 +361,10 @@ export function registerDmActionHandlers(app: App): void {
   app.action<BlockAction>("clack_dm_post_new", async ({ ack, body, client }) => {
     await ack();
 
-    const sessionId = (body.actions[0] as { value: string }).value;
-    const session = await getSession(sessionId);
-    const sessionInfo = await restoreSessionInfo(sessionId);
-
-    if (!session || !sessionInfo) {
-      logger.error(`Cannot post new reply: missing session for ${sessionId}`);
-      return;
-    }
+    const rawValue = (body.actions[0] as { value: string }).value;
+    const resolved = await resolveActionSession(rawValue, client, body.channel?.id, body.user.id);
+    if (!resolved) return;
+    const { sessionId, session, sessionInfo } = resolved;
 
     const answer = session.lastAnswer;
     const originChannel = session.originChannel || sessionInfo.originChannel;
@@ -369,7 +382,7 @@ export function registerDmActionHandlers(app: App): void {
     const postResult = await client.chat.postMessage({
       channel: originChannel,
       thread_ts: originThreadTs,
-      blocks: blocks as any[],
+      blocks: asSlackBlocks(blocks),
       text: answer,
       unfurl_links: false,
       unfurl_media: false,
@@ -378,9 +391,7 @@ export function registerDmActionHandlers(app: App): void {
     // Update stored channel post timestamp
     if (postResult.ts) {
       await updateSession(sessionId, { channelPostTs: postResult.ts });
-      if (sessionInfo) {
-        setSessionInfo(sessionId, { ...sessionInfo, channelPostTs: postResult.ts });
-      }
+      setSessionInfo(sessionId, { ...sessionInfo, channelPostTs: postResult.ts });
     }
 
     // Confirm in DM

@@ -42,6 +42,103 @@ async function publishHomeView(
   });
 }
 
+type RoleResult = { success: boolean; error?: string };
+
+/**
+ * Register a pair of button + modal handlers for adding a role.
+ */
+function registerAddRoleHandlers(
+  app: App,
+  buttonId: string,
+  modalId: string,
+  title: string,
+  roleFn: (userId: string) => Promise<RoleResult>,
+) {
+  app.action<BlockAction>(buttonId, async ({ ack, body, client }) => {
+    await ack();
+    try {
+      await client.views.open({
+        trigger_id: body.trigger_id,
+        view: buildUserSelectModal(title, modalId, `Select user to ${title.toLowerCase()}`),
+      });
+    } catch (error) {
+      logger.error(`Failed to open ${title} modal:`, error);
+    }
+  });
+
+  app.view<ViewSubmitAction>(modalId, async ({ ack, view, body, client }) => {
+    const selectedUser = view.state.values.user_select_block.selected_user.selected_user;
+    const currentUserId = body.user.id;
+
+    if (!selectedUser) {
+      await ack({ response_action: "errors", errors: { user_select_block: "Please select a user" } });
+      return;
+    }
+    if (!(await userCanManageRoles(currentUserId))) {
+      await ack({ response_action: "errors", errors: { user_select_block: `You don't have permission to ${title.toLowerCase()}s` } });
+      return;
+    }
+
+    const result = await roleFn(selectedUser);
+    if (!result.success) {
+      await ack({ response_action: "errors", errors: { user_select_block: result.error || `Failed to ${title.toLowerCase()}` } });
+      return;
+    }
+
+    await ack();
+    await publishHomeView(client, currentUserId);
+  });
+}
+
+/**
+ * Register a pair of button + modal handlers for removing a role.
+ */
+function registerRemoveRoleHandlers(
+  app: App,
+  buttonId: string,
+  modalId: string,
+  title: string,
+  listKey: "admins" | "devs",
+  roleFn: (userId: string) => Promise<RoleResult>,
+) {
+  app.action<BlockAction>(buttonId, async ({ ack, body, client }) => {
+    await ack();
+    try {
+      const roles = await loadRoles();
+      if (roles[listKey].length === 0) return;
+      await client.views.open({
+        trigger_id: body.trigger_id,
+        view: buildRemoveUserModal(title, modalId, roles[listKey]),
+      });
+    } catch (error) {
+      logger.error(`Failed to open ${title} modal:`, error);
+    }
+  });
+
+  app.view<ViewSubmitAction>(modalId, async ({ ack, view, body, client }) => {
+    const selectedUser = view.state.values.user_select_block.selected_user.selected_option?.value;
+    const currentUserId = body.user.id;
+
+    if (!selectedUser) {
+      await ack({ response_action: "errors", errors: { user_select_block: "Please select a user" } });
+      return;
+    }
+    if (!(await userCanManageRoles(currentUserId))) {
+      await ack({ response_action: "errors", errors: { user_select_block: `You don't have permission to ${title.toLowerCase()}s` } });
+      return;
+    }
+
+    const result = await roleFn(selectedUser);
+    if (!result.success) {
+      await ack({ response_action: "errors", errors: { user_select_block: result.error || `Failed to ${title.toLowerCase()}` } });
+      return;
+    }
+
+    await ack();
+    await publishHomeView(client, currentUserId);
+  });
+}
+
 export function registerHomeTabHandler(app: App): void {
   // Handle Home tab opened event
   app.event("app_home_opened", async ({ event, client }) => {
@@ -135,257 +232,11 @@ export function registerHomeTabHandler(app: App): void {
     await publishHomeView(client, selectedUser);
   });
 
-  // Handle Add Admin button - opens modal
-  app.action<BlockAction>("add_admin", async ({ ack, body, client }) => {
-    await ack();
-
-    try {
-      await client.views.open({
-        trigger_id: body.trigger_id,
-        view: buildUserSelectModal(
-          "Add Admin",
-          "add_admin_modal",
-          "Select user to add as admin"
-        ),
-      });
-    } catch (error) {
-      logger.error("Failed to open add admin modal:", error);
-    }
-  });
-
-  // Handle Add Admin modal submission
-  app.view<ViewSubmitAction>("add_admin_modal", async ({ ack, view, body, client }) => {
-    const selectedUser = view.state.values.user_select_block.selected_user.selected_user;
-    const currentUserId = body.user.id;
-
-    if (!selectedUser) {
-      await ack({
-        response_action: "errors",
-        errors: {
-          user_select_block: "Please select a user",
-        },
-      });
-      return;
-    }
-
-    // Verify current user is admin
-    if (!(await userCanManageRoles(currentUserId))) {
-      await ack({
-        response_action: "errors",
-        errors: {
-          user_select_block: "You don't have permission to add admins",
-        },
-      });
-      return;
-    }
-
-    const result = await addAdmin(selectedUser);
-
-    if (!result.success) {
-      await ack({
-        response_action: "errors",
-        errors: {
-          user_select_block: result.error || "Failed to add admin",
-        },
-      });
-      return;
-    }
-
-    await ack();
-    await publishHomeView(client, currentUserId);
-  });
-
-  // Handle Remove Admin button - opens modal
-  app.action<BlockAction>("remove_admin", async ({ ack, body, client }) => {
-    await ack();
-
-    try {
-      const roles = await loadRoles();
-
-      if (roles.admins.length === 0) {
-        return;
-      }
-
-      await client.views.open({
-        trigger_id: body.trigger_id,
-        view: buildRemoveUserModal(
-          "Remove Admin",
-          "remove_admin_modal",
-          roles.admins
-        ),
-      });
-    } catch (error) {
-      logger.error("Failed to open remove admin modal:", error);
-    }
-  });
-
-  // Handle Remove Admin modal submission
-  app.view<ViewSubmitAction>("remove_admin_modal", async ({ ack, view, body, client }) => {
-    const selectedUser = view.state.values.user_select_block.selected_user.selected_option?.value;
-    const currentUserId = body.user.id;
-
-    if (!selectedUser) {
-      await ack({
-        response_action: "errors",
-        errors: {
-          user_select_block: "Please select a user",
-        },
-      });
-      return;
-    }
-
-    // Verify current user is admin
-    if (!(await userCanManageRoles(currentUserId))) {
-      await ack({
-        response_action: "errors",
-        errors: {
-          user_select_block: "You don't have permission to remove admins",
-        },
-      });
-      return;
-    }
-
-    const result = await removeAdmin(selectedUser);
-
-    if (!result.success) {
-      await ack({
-        response_action: "errors",
-        errors: {
-          user_select_block: result.error || "Failed to remove admin",
-        },
-      });
-      return;
-    }
-
-    await ack();
-    await publishHomeView(client, currentUserId);
-  });
-
-  // Handle Add Dev button - opens modal
-  app.action<BlockAction>("add_dev", async ({ ack, body, client }) => {
-    await ack();
-
-    try {
-      await client.views.open({
-        trigger_id: body.trigger_id,
-        view: buildUserSelectModal(
-          "Add Dev",
-          "add_dev_modal",
-          "Select user to add as dev"
-        ),
-      });
-    } catch (error) {
-      logger.error("Failed to open add dev modal:", error);
-    }
-  });
-
-  // Handle Add Dev modal submission
-  app.view<ViewSubmitAction>("add_dev_modal", async ({ ack, view, body, client }) => {
-    const selectedUser = view.state.values.user_select_block.selected_user.selected_user;
-    const currentUserId = body.user.id;
-
-    if (!selectedUser) {
-      await ack({
-        response_action: "errors",
-        errors: {
-          user_select_block: "Please select a user",
-        },
-      });
-      return;
-    }
-
-    // Verify current user is admin
-    if (!(await userCanManageRoles(currentUserId))) {
-      await ack({
-        response_action: "errors",
-        errors: {
-          user_select_block: "You don't have permission to add devs",
-        },
-      });
-      return;
-    }
-
-    const result = await addDev(selectedUser);
-
-    if (!result.success) {
-      await ack({
-        response_action: "errors",
-        errors: {
-          user_select_block: result.error || "Failed to add dev",
-        },
-      });
-      return;
-    }
-
-    await ack();
-    await publishHomeView(client, currentUserId);
-  });
-
-  // Handle Remove Dev button - opens modal
-  app.action<BlockAction>("remove_dev", async ({ ack, body, client }) => {
-    await ack();
-
-    try {
-      const roles = await loadRoles();
-
-      if (roles.devs.length === 0) {
-        return;
-      }
-
-      await client.views.open({
-        trigger_id: body.trigger_id,
-        view: buildRemoveUserModal(
-          "Remove Dev",
-          "remove_dev_modal",
-          roles.devs
-        ),
-      });
-    } catch (error) {
-      logger.error("Failed to open remove dev modal:", error);
-    }
-  });
-
-  // Handle Remove Dev modal submission
-  app.view<ViewSubmitAction>("remove_dev_modal", async ({ ack, view, body, client }) => {
-    const selectedUser = view.state.values.user_select_block.selected_user.selected_option?.value;
-    const currentUserId = body.user.id;
-
-    if (!selectedUser) {
-      await ack({
-        response_action: "errors",
-        errors: {
-          user_select_block: "Please select a user",
-        },
-      });
-      return;
-    }
-
-    // Verify current user is admin
-    if (!(await userCanManageRoles(currentUserId))) {
-      await ack({
-        response_action: "errors",
-        errors: {
-          user_select_block: "You don't have permission to remove devs",
-        },
-      });
-      return;
-    }
-
-    const result = await removeDev(selectedUser);
-
-    if (!result.success) {
-      await ack({
-        response_action: "errors",
-        errors: {
-          user_select_block: result.error || "Failed to remove dev",
-        },
-      });
-      return;
-    }
-
-    await ack();
-    await publishHomeView(client, currentUserId);
-  });
+  // Role management handlers (add/remove admin & dev)
+  registerAddRoleHandlers(app, "add_admin", "add_admin_modal", "Add Admin", addAdmin);
+  registerRemoveRoleHandlers(app, "remove_admin", "remove_admin_modal", "Remove Admin", "admins", removeAdmin);
+  registerAddRoleHandlers(app, "add_dev", "add_dev_modal", "Add Dev", addDev);
+  registerRemoveRoleHandlers(app, "remove_dev", "remove_dev_modal", "Remove Dev", "devs", removeDev);
 
   // Handle Settings button
   app.action<BlockAction>("open_settings", async ({ ack, body, client }) => {

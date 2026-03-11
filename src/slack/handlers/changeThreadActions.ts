@@ -1,41 +1,31 @@
 import type { App, BlockAction } from "@slack/bolt";
+import { errorMessage } from "../../errors.js";
 import { logger } from "../../logger.js";
-import { getSession, findSessionByThread, type SessionContext } from "../../sessions.js";
+import { findSessionByThread, getStagedIntent, type SessionContext } from "../../sessions.js";
+import { getRole } from "../../roles.js";
+import { canRequestChanges } from "../../permissions.js";
 import { decodeActionValue } from "../blocks.js";
 import { restoreSessionInfo } from "../state.js";
-import type { StagedIntent } from "../../tools/types.js";
 import { handleFollowUp } from "../../changes/workflow.js";
 import type { FollowUpCommand } from "../../changes/types.js";
-import { SlackStreamer } from "../../streaming/slackStreamer.js";
-
-async function resolveStagedIntentFromSession(sessionId: string, ref: string): Promise<StagedIntent | null> {
-  const session = await getSession(sessionId);
-  if (!session) return null;
-
-  const intents = (session as unknown as Record<string, unknown>).stagedIntents as Record<string, unknown> | undefined;
-  if (!intents || !intents[ref]) return null;
-
-  return intents[ref] as StagedIntent;
-}
+import type { SlackDeliveryContext } from "./changeAction.js";
+import { SlackStreamer, finalizeStreamedWorkflow } from "../../streaming/slackStreamer.js";
 
 /**
  * Shared logic for triggering a follow-up action on an existing change.
  * Used by both button click handlers and auto-execute.
- * Posts one ack message and updates it in-place with progress.
  */
 export async function triggerFollowUp(
   session: SessionContext,
   command: FollowUpCommand,
   additionalInstructions: string | undefined,
-  channelId: string,
-  threadTs: string,
-  userId: string,
-  client: App["client"],
-  opts?: { streamChannel?: string; streamThreadTs?: string },
+  slack: SlackDeliveryContext,
 ): Promise<void> {
+  const { channelId, threadTs, userId, client } = slack;
+
   // Create streamer for live progress (target DM thread if provided)
-  const streamChannel = opts?.streamChannel ?? channelId;
-  const streamThreadTs = opts?.streamThreadTs ?? threadTs;
+  const streamChannel = slack.streamChannel ?? channelId;
+  const streamThreadTs = slack.streamThreadTs ?? threadTs;
   const streamer = new SlackStreamer({ client, channel: streamChannel, threadTs: streamThreadTs, userId });
   await streamer.start();
 
@@ -47,25 +37,14 @@ export async function triggerFollowUp(
       streamer.handleEvent,
     );
 
-    if (result.success) {
-      // Worker Claude already reported completion via report_status — just stop the stream quietly.
-      await streamer.stop();
-    } else {
-      const message = `${command} failed: ${result.error}`;
-      if (streamer.hasFailed) {
-        await streamer.stop();
-        await client.chat.postMessage({ channel: streamChannel, thread_ts: streamThreadTs, text: message });
-      } else {
-        await streamer.stop({ markdownText: message });
-      }
-    }
+    await finalizeStreamedWorkflow(streamer, client, streamChannel, streamThreadTs, result, command);
   } catch (error) {
     logger.error("Follow-up action failed:", error);
     await streamer.stop();
     await client.chat.postMessage({
       channel: streamChannel,
       thread_ts: streamThreadTs,
-      text: `Follow-up action failed unexpectedly: ${error instanceof Error ? error.message : String(error)}`,
+      text: `Follow-up action failed unexpectedly: ${errorMessage(error)}`,
     });
   }
 }
@@ -83,6 +62,17 @@ function registerFollowUpActionHandler(
     const { sessionId, ref } = decodeActionValue(rawValue);
     const userId = body.user.id;
 
+    // Defense-in-depth: verify the user has dev+ role
+    const role = await getRole(userId);
+    if (!canRequestChanges(role)) {
+      await client.chat.postEphemeral({
+        channel: body.channel?.id ?? "",
+        user: userId,
+        text: "You don't have permission to perform change actions. Requires dev role or higher.",
+      });
+      return;
+    }
+
     if (!ref) {
       logger.error(`${actionId} handler: missing ref`);
       return;
@@ -96,7 +86,7 @@ function registerFollowUpActionHandler(
       return;
     }
 
-    const intent = await resolveStagedIntentFromSession(sessionId, ref);
+    const intent = await getStagedIntent(sessionId, ref);
     if (!intent || intent.type !== intentType) {
       logger.error(`${actionId} handler: could not resolve ${intentType} intent ref ${ref}`);
       await client.chat.postEphemeral({
@@ -121,11 +111,14 @@ function registerFollowUpActionHandler(
     }
 
     // Extract additional instructions for update commands
-    const additionalInstructions = command === "update" && "instructions" in intent
-      ? (intent as { instructions: string }).instructions
-      : undefined;
+    const additionalInstructions = intent.type === "update" ? intent.instructions : undefined;
 
-    await triggerFollowUp(session, command, additionalInstructions, sessionInfo.channelId, sessionInfo.threadTs, userId, client);
+    await triggerFollowUp(session, command, additionalInstructions, {
+      channelId: sessionInfo.channelId,
+      threadTs: sessionInfo.threadTs,
+      userId,
+      client,
+    });
   });
 }
 

@@ -5,8 +5,13 @@ import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 import { getInstallationToken } from "./github.js";
 import { logger } from "./logger.js";
 
-const MCP_CONFIG_PATH = join(process.cwd(), "data", "mcp.json");
-const GITHUB_AUTH_PATH = join(process.cwd(), "data", "auth", "github.json");
+function getMcpConfigPath(): string {
+  return join(process.cwd(), "data", "mcp.json");
+}
+
+function getGitHubAuthPath(): string {
+  return join(process.cwd(), "data", "auth", "github.json");
+}
 
 interface McpStdioConfig {
   type?: "stdio";
@@ -61,13 +66,13 @@ function loadStaticMcpConfig(): Record<string, McpServerConfig> | undefined {
 
   staticConfigLoaded = true;
 
-  if (!existsSync(MCP_CONFIG_PATH)) {
+  if (!existsSync(getMcpConfigPath())) {
     logger.debug("No MCP configuration found at data/mcp.json");
     return undefined;
   }
 
   try {
-    const raw = readFileSync(MCP_CONFIG_PATH, "utf-8");
+    const raw = readFileSync(getMcpConfigPath(), "utf-8");
     const config: McpConfig = JSON.parse(raw);
 
     if (!config.mcpServers || Object.keys(config.mcpServers).length === 0) {
@@ -154,7 +159,7 @@ export async function loadMcpServers(): Promise<Record<string, McpServerConfig> 
 
   // Check if we should auto-inject GitHub MCP
   const hasManualGitHub = staticServers && "github" in staticServers;
-  const hasGitHubCredentials = existsSync(GITHUB_AUTH_PATH);
+  const hasGitHubCredentials = existsSync(getGitHubAuthPath());
 
   if (hasManualGitHub || !hasGitHubCredentials) {
     return staticServers;
@@ -204,7 +209,7 @@ export function getConfiguredMcpServerNames(): string[] {
   const names = servers ? Object.keys(servers) : [];
 
   // Include "github" if auto-config conditions are met
-  if (!names.includes("github") && existsSync(GITHUB_AUTH_PATH) && isGitHubMcpServerAvailable()) {
+  if (!names.includes("github") && existsSync(getGitHubAuthPath()) && isGitHubMcpServerAvailable()) {
     names.push("github");
   }
 

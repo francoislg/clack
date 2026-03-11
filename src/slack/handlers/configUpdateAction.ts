@@ -1,23 +1,11 @@
 import type { App, BlockAction } from "@slack/bolt";
 import { logger } from "../../logger.js";
-import { getSession } from "../../sessions.js";
+import { getStagedIntent } from "../../sessions.js";
+import { getRole } from "../../roles.js";
+import { canEditConfig } from "../../permissions.js";
 import { decodeActionValue } from "../blocks.js";
 import { restoreSessionInfo } from "../state.js";
 import { writeInstructionFile } from "../../configurationFiles.js";
-import type { StagedConfigUpdateIntent } from "../../tools/types.js";
-
-async function resolveConfigUpdateIntent(sessionId: string, ref: string): Promise<StagedConfigUpdateIntent | null> {
-  const session = await getSession(sessionId);
-  if (!session) return null;
-
-  const intents = (session as unknown as Record<string, unknown>).stagedIntents as Record<string, unknown> | undefined;
-  if (!intents || !intents[ref]) return null;
-
-  const intent = intents[ref] as StagedConfigUpdateIntent;
-  if (intent.type !== "config_update") return null;
-
-  return intent;
-}
 
 export function registerConfigUpdateActionHandler(app: App): void {
   app.action<BlockAction>(/^clack_config_update_\d+$/, async ({ ack, body, client, respond }) => {
@@ -26,6 +14,17 @@ export function registerConfigUpdateActionHandler(app: App): void {
     const rawValue = (body.actions[0] as { value: string }).value;
     const { sessionId, ref } = decodeActionValue(rawValue);
     const userId = body.user.id;
+
+    // Defense-in-depth: verify the user has admin+ role
+    const role = await getRole(userId);
+    if (!canEditConfig(role)) {
+      await client.chat.postEphemeral({
+        channel: body.channel?.id ?? "",
+        user: userId,
+        text: "You don't have permission to update configuration. Requires admin role or higher.",
+      });
+      return;
+    }
 
     if (!ref) {
       logger.error("Config update handler: missing ref");
@@ -40,8 +39,8 @@ export function registerConfigUpdateActionHandler(app: App): void {
       return;
     }
 
-    const intent = await resolveConfigUpdateIntent(sessionId, ref);
-    if (!intent) {
+    const intent = await getStagedIntent(sessionId, ref);
+    if (!intent || intent.type !== "config_update") {
       logger.error(`Config update handler: could not resolve intent ref ${ref}`);
       await client.chat.postEphemeral({
         channel: sessionInfo.channelId,

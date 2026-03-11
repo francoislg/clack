@@ -1,10 +1,12 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { WorkerToolContext } from "../types.js";
+import { textResult, errorResult } from "../helpers.js";
 import { getOctokit, parseRepoUrl } from "../../github.js";
-import { updateActiveChangePrUrl, updateActiveChangeStatus } from "../../sessions.js";
+import { updateActiveChangePrUrl, updateActiveChangeStatus } from "../../changes/activeState.js";
 import { appendExecutionLog } from "../../changes/persistence.js";
-import { findRepoByName } from "../../changes/detection.js";
+import { findRepoByName } from "../../config.js";
+import { errorMessage } from "../../errors.js";
 
 export function createEnsurePRTool(ctx: WorkerToolContext) {
   return tool(
@@ -20,15 +22,7 @@ export function createEnsurePRTool(ctx: WorkerToolContext) {
         const repo = findRepoByName(ctx.repoName, config);
 
         if (!repo) {
-          return {
-            content: [{
-              type: "text" as const,
-              text: JSON.stringify({
-                error: `Repository "${ctx.repoName}" not found in configuration.`,
-              }),
-            }],
-            isError: true,
-          };
+          return errorResult(`Repository "${ctx.repoName}" not found in configuration.`);
         }
 
         const { owner, repo: repoName } = parseRepoUrl(repo.url);
@@ -46,16 +40,11 @@ export function createEnsurePRTool(ctx: WorkerToolContext) {
           updateActiveChangePrUrl(ctx.sessionId, existingPRs[0].html_url);
           updateActiveChangeStatus(ctx.sessionId, "pr_created");
 
-          return {
-            content: [{
-              type: "text" as const,
-              text: JSON.stringify({
-                success: true,
-                pr_url: existingPRs[0].html_url,
-                created: false,
-              }),
-            }],
-          };
+          return textResult({
+            success: true,
+            pr_url: existingPRs[0].html_url,
+            created: false,
+          });
         }
 
         // Create a new PR — handle race condition where another call creates one first
@@ -100,26 +89,13 @@ export function createEnsurePRTool(ctx: WorkerToolContext) {
         updateActiveChangePrUrl(ctx.sessionId, prUrl);
         updateActiveChangeStatus(ctx.sessionId, "pr_created");
 
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({
-              success: true,
-              pr_url: prUrl,
-              created,
-            }),
-          }],
-        };
+        return textResult({
+          success: true,
+          pr_url: prUrl,
+          created,
+        });
       } catch (error) {
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({
-              error: `Failed to ensure PR: ${error}`,
-            }),
-          }],
-          isError: true,
-        };
+        return errorResult(`Failed to ensure PR: ${errorMessage(error)}`);
       }
     }
   );

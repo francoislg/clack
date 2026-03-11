@@ -53,3 +53,7 @@ data/configuration/
 
 # Test coverage
 coverage/
+
+# Desloppify
+.desloppify/
+scorecard.png

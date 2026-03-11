@@ -59,7 +59,7 @@ export async function cloneRepository(repo: RepositoryConfig): Promise<void> {
   logger.debug(`Successfully cloned ${repo.name}`);
 }
 
-export async function pullRepository(repo: RepositoryConfig): Promise<void> {
+export async function syncRepository(repo: RepositoryConfig): Promise<void> {
   const repoPath = resolve(getRepositoriesDir(), repo.name);
 
   if (!existsSync(repoPath)) {
@@ -88,18 +88,25 @@ export async function pullRepository(repo: RepositoryConfig): Promise<void> {
 
 export async function syncAllRepositories(): Promise<void> {
   const config = getConfig();
-  logger.debug(`Syncing ${config.repositories.length} repositories...`);
+  const total = config.repositories.length;
+  logger.debug(`Syncing ${total} repositories...`);
 
+  let failed = 0;
   for (const repo of config.repositories) {
     try {
-      await pullRepository(repo);
+      await syncRepository(repo);
     } catch (error) {
+      failed++;
       logger.error(`Failed to sync ${repo.name}:`, error);
       // Continue with other repositories
     }
   }
 
-  logger.info(`Successfully synced ${config.repositories.length} repositories`);
+  if (failed === 0) {
+    logger.info(`Successfully synced all ${total} repositories`);
+  } else {
+    logger.warn(`Synced ${total - failed}/${total} repositories (${failed} failed)`);
+  }
 }
 
 export async function initializeRepositories(): Promise<void> {

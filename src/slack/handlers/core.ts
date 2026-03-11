@@ -17,8 +17,7 @@ import { getReactionDelivery } from "../../userPreferences.js";
 import { registerInFlightRequest, deregisterInFlightRequest } from "../inFlightRequests.js";
 import { storeDmCoordinates } from "../dmResponse.js";
 import { executeAndDeliver } from "./handlerResponse.js";
-
-export type TriggerType = "directMessages" | "mentions" | "reactions";
+import type { TriggerType } from "../../changes/types.js";
 
 export interface ProcessMessageParams {
   client: App["client"];

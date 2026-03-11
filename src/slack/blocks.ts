@@ -1,5 +1,9 @@
+import type { KnownBlock, Block } from "@slack/types";
 import { convertMarkdownToSlack, splitForSlack } from "../claude/formatting.js";
 import type { SubmitResponsePayload, Action, ResponseSection } from "../tools/types.js";
+
+/** Slack Block Kit block array type — used by all block builders */
+export type SlackBlocks = (KnownBlock | Block)[];
 
 function answerSections(answer: string) {
   return splitForSlack(convertMarkdownToSlack(answer)).map((chunk) => ({
@@ -19,18 +23,13 @@ const DEFAULT_LABELS: Record<string, string> = {
   send_to_thread: "Send to thread",
   change: "Start Change",
   config_update: "Apply Update",
-  review: "Review",
-  merge: "Merge",
   update: "Update",
-  close: "Close PR",
 };
 
 /** Button styles for action types */
 const ACTION_STYLES: Record<string, "primary" | "danger" | undefined> = {
   send_to_thread: "primary",
   change: "primary",
-  merge: "primary",
-  close: "danger",
 };
 
 /** Map action type to Slack action_id */
@@ -135,6 +134,15 @@ function actionToButton(action: Action, sessionId: string, index: number) {
  * Build Slack blocks from a structured SubmitResponsePayload.
  * This is the new rendering path — Claude controls sections and actions.
  */
+/**
+ * Cast block builder output to the Slack API block array type.
+ * Our block builders use Record<string, unknown> for flexibility; Slack's API
+ * expects (KnownBlock | Block)[]. This centralizes the boundary cast.
+ */
+export function asSlackBlocks(blocks: Record<string, unknown>[]): SlackBlocks {
+  return blocks as unknown as SlackBlocks;
+}
+
 export function getStructuredResponseBlocks(payload: SubmitResponsePayload, sessionId: string) {
   const blocks: Record<string, unknown>[] = [];
 
@@ -241,9 +249,6 @@ export function getErrorBlocksWithRetry(sessionId: string) {
   ];
 }
 
-export function getMessageBlocks(answer: string) {
-  return answerSections(answer);
-}
 
 // ============================================================================
 // Block Validation

@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
-import { getActiveWorkers } from "../../sessions.js";
+import { textResult } from "../helpers.js";
+import { getActiveWorkers } from "../../changes/activeState.js";
 import { getVisibleRepos } from "../../repoAccess.js";
 
 export function createFindChangesTool(ctx: QueryToolContext) {
@@ -11,7 +12,7 @@ export function createFindChangesTool(ctx: QueryToolContext) {
     {
       repo: z.string().optional().describe("Filter by repository name"),
       status: z
-        .enum(["planning", "executing", "reviewing", "merging", "completed", "failed"])
+        .enum(["planning", "executing", "pr_created", "reviewing", "merging", "completed", "failed"])
         .optional()
         .describe("Filter by status"),
     },
@@ -38,9 +39,7 @@ export function createFindChangesTool(ctx: QueryToolContext) {
         startedAt: w.startedAt.toISOString(),
       }));
 
-      return {
-        content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
-      };
+      return textResult(result);
     }
   );
 }

@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { WorkerToolContext } from "../types.js";
+import { textResult, errorResult } from "../helpers.js";
+import { errorMessage } from "../../errors.js";
 
 export function createReportStatusTool(ctx: WorkerToolContext) {
   return tool(
@@ -15,13 +17,7 @@ export function createReportStatusTool(ctx: WorkerToolContext) {
         const client = getSlackClient();
 
         if (!client) {
-          return {
-            content: [{
-              type: "text" as const,
-              text: JSON.stringify({ success: false, error: "Slack client not available" }),
-            }],
-            isError: true,
-          };
+          return errorResult("Slack client not available");
         }
 
         await client.chat.postMessage({
@@ -30,18 +26,9 @@ export function createReportStatusTool(ctx: WorkerToolContext) {
           text: args.message,
         });
 
-        return {
-          content: [{ type: "text" as const, text: JSON.stringify({ success: true }) }],
-        };
+        return textResult({ success: true });
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ success: false, error: "slack error", details: errorMessage }),
-          }],
-          isError: true,
-        };
+        return errorResult(`slack error: ${errorMessage(error)}`);
       }
     }
   );

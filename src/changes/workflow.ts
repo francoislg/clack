@@ -1,4 +1,4 @@
-import { getConfig } from "../config.js";
+import { getConfig, findRepoByName } from "../config.js";
 import { createWorktree, getExistingWorktree, type WorktreeInfo } from "../worktrees.js";
 import type {
   ChangeRequest,
@@ -6,20 +6,20 @@ import type {
   ChangeResult,
   FollowUpCommand,
 } from "./types.js";
-import type { SessionContext, ActiveChangeState } from "../sessions.js";
+import type { SessionContext } from "../sessions.js";
+import { getSession } from "../sessions.js";
+import type { ActiveChangeState } from "./activeState.js";
 import {
   setActiveChange,
   clearActiveChange,
   getActiveChangeForUser,
   updateActiveChangeStatus,
-  getSession,
-} from "../sessions.js";
+} from "./activeState.js";
 import { appendExecutionLog, readSessionState } from "./persistence.js";
-import { findRepoByName } from "./detection.js";
 import { executeChange, resolveChangesInstructions, runClaudeInWorktree, runWorktreeSetup } from "./execution.js";
 import { buildWorkerContext } from "../tools/context.js";
 import { buildClackTools } from "../tools/server.js";
-import { getOctokit, parseRepoUrl } from "../github.js";
+import { fetchPRReviewContext } from "./pr.js";
 import type { StreamEvent } from "../streaming/types.js";
 
 // ============================================================================
@@ -68,7 +68,12 @@ export async function startChangeWorkflow(
     startedAt: new Date(),
     lastActivityAt: new Date(),
   };
-  setActiveChange(sessionId, activeChange);
+  setActiveChange(sessionId, activeChange, {
+    userId: request.userId,
+    channelId: request.channel,
+    threadTs: request.messageTs,
+    triggerType: request.triggerType,
+  });
 
   // Check for existing worktree (from a previous failed/interrupted attempt)
   let worktree: WorktreeInfo;
@@ -77,7 +82,7 @@ export async function startChangeWorkflow(
   const existingWorktree = getExistingWorktree(repo, plan.branchName);
   if (existingWorktree) {
     // Check if there's a persisted session state we can resume
-    const existingState = readSessionState(plan.branchName);
+    const existingState = await readSessionState(plan.branchName);
     if (existingState) {
       appendExecutionLog(plan.branchName, `Resuming from existing worktree (previous status: ${existingState.status})`);
       resumeContext = `Previous session was in "${existingState.phase}" phase. Last message: "${existingState.lastMessage}"`;
@@ -183,55 +188,37 @@ export async function handleFollowUp(
   });
   const workerTools = buildClackTools(workerCtx);
 
-  // Build prompt based on command
-  let prompt: string;
-  let allowedTools: string[];
-  let systemPrompt: string | undefined;
-
   const changesInstructions = resolveChangesInstructions(activeChange.repo);
 
   switch (command) {
     case "review": {
       updateActiveChangeStatus(session.sessionId, "reviewing");
 
-      // Fetch PR comments to pass as context
-      let reviewContext = "";
-      try {
-        const { owner, repo: repoName } = parseRepoUrl(repo!.url);
-        const octokit = await getOctokit();
-        const prMatch = activeChange.prUrl!.match(/pull\/(\d+)/);
-        const pull_number = parseInt(prMatch![1], 10);
-
-        const [{ data: comments }, { data: reviews }] = await Promise.all([
-          octokit.pulls.listReviewComments({ owner, repo: repoName, pull_number }),
-          octokit.pulls.listReviews({ owner, repo: repoName, pull_number }),
-        ]);
-
-        if (reviews.length > 0) {
-          reviewContext += "PR Reviews:\n";
-          for (const review of reviews) {
-            if (review.body) {
-              reviewContext += `- ${review.user?.login ?? "unknown"} (${review.state}): ${review.body}\n`;
-            }
-          }
-        }
-        if (comments.length > 0) {
-          reviewContext += "\nInline Comments:\n";
-          for (const comment of comments) {
-            reviewContext += `- ${comment.user?.login ?? "unknown"} on ${comment.path}:${comment.line ?? "?"}: ${comment.body}\n`;
-          }
-        }
-        if (!reviewContext) {
-          reviewContext = "No review comments or feedback found.";
-        }
-      } catch (error) {
-        return { success: false, error: `Failed to fetch PR reviews: ${error}` };
+      const reviewResult = await fetchPRReviewContext(activeChange.prUrl!);
+      if (!reviewResult.ok) {
+        return { success: false, error: reviewResult.error };
       }
 
-      prompt = `Address the feedback on this PR: ${activeChange.prUrl}\n\n${reviewContext}\n\n1. Read and understand each review comment\n2. Implement the requested changes\n3. Commit with a message like "Address review feedback"\n4. Push the changes using the git_push tool\n5. Report what you addressed using the report_status tool`;
-      systemPrompt = changesInstructions ? `Repository-Specific Instructions:\n${changesInstructions}` : undefined;
-      allowedTools = ["Read", "Glob", "Grep", "Write", "Edit", "Bash"];
-      break;
+      const prompt = `Address the feedback on this PR: ${activeChange.prUrl}\n\n${reviewResult.context}\n\n1. Read and understand each review comment\n2. Implement the requested changes\n3. Commit with a message like "Address review feedback"\n4. Push the changes using the git_push tool\n5. Report what you addressed using the report_status tool`;
+      const systemPrompt = changesInstructions ? `Repository-Specific Instructions:\n${changesInstructions}` : undefined;
+
+      const result = await runClaudeInWorktree(activeChange.repo, {
+        prompt,
+        cwd: activeChange.worktree.worktreePath,
+        systemPrompt,
+        allowedTools: ["Read", "Glob", "Grep", "Write", "Edit", "Bash"],
+        disallowedTools: ["Task"],
+        branchName: activeChange.branch,
+        mcpServers: { clack: workerTools.mcpServer },
+        onEvent,
+      });
+
+      updateActiveChangeStatus(session.sessionId, "pr_created");
+      return {
+        success: result.success,
+        summary: result.success ? "Review feedback addressed" : undefined,
+        error: result.success ? undefined : (result.error ?? "Review failed"),
+      };
     }
 
     case "update": {
@@ -335,23 +322,4 @@ export async function handleFollowUp(
       };
     }
   }
-
-  // For review, execute the Claude invocation
-  const result = await runClaudeInWorktree(activeChange.repo, {
-    prompt,
-    cwd: activeChange.worktree.worktreePath,
-    systemPrompt,
-    allowedTools,
-    disallowedTools: ["Task"],
-    branchName: activeChange.branch,
-    mcpServers: { clack: workerTools.mcpServer },
-    onEvent,
-  });
-
-  updateActiveChangeStatus(session.sessionId, "pr_created");
-  return {
-    success: result.success,
-    summary: result.success ? "Review feedback addressed" : undefined,
-    error: result.success ? undefined : (result.error ?? "Review failed"),
-  };
 }

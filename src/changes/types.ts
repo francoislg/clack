@@ -89,19 +89,3 @@ export interface ExecutionResult {
   error?: string;
 }
 
-// ============================================================================
-// Worker Display Types
-// ============================================================================
-
-export interface ActiveWorker {
-  id: string;
-  userId: string;
-  status: ChangeStatus;
-  description: string;
-  branch: string;
-  repo: string;
-  prUrl?: string;
-  channel: string;
-  threadTs: string;
-  startedAt: Date;
-}

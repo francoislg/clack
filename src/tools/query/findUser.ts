@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
+import { textResult } from "../helpers.js";
 import type { UsersCache } from "../../slack/usersCache.js";
 
 export function createFindUserTool(ctx: QueryToolContext, usersCache: UsersCache) {
@@ -20,18 +21,11 @@ export function createFindUserTool(ctx: QueryToolContext, usersCache: UsersCache
       const results = await usersCache.search(args.query, args.limit ?? 10);
       const total = results.length;
 
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: JSON.stringify({
-              users: results,
-              total,
-              truncated: total >= (args.limit ?? 10),
-            }),
-          },
-        ],
-      };
+      return textResult({
+        users: results,
+        total,
+        truncated: total >= (args.limit ?? 10),
+      });
     }
   );
 }

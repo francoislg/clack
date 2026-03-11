@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
+import { textResult } from "../helpers.js";
 import { getVisibleRepos, canWriteRepo } from "../../repoAccess.js";
 
 export function createListRepositoriesTool(ctx: QueryToolContext) {
@@ -21,9 +22,7 @@ export function createListRepositoriesTool(ctx: QueryToolContext) {
         ...(args.includeChangeSupport !== false && { canChange: canWriteRepo(ctx.role, r) }),
       }));
 
-      return {
-        content: [{ type: "text" as const, text: JSON.stringify(repos, null, 2) }],
-      };
+      return textResult(repos);
     }
   );
 }

@@ -1,4 +1,5 @@
 import { getOctokit } from "../github.js";
+import { errorMessage } from "../errors.js";
 import { logger } from "../logger.js";
 
 // ============================================================================
@@ -16,6 +17,44 @@ function parsePRUrl(prUrl: string): { owner: string; repo: string; pull_number: 
     throw new Error(`Invalid PR URL: ${prUrl}`);
   }
   return { owner: match[1], repo: match[2], pull_number: parseInt(match[3], 10) };
+}
+
+/**
+ * Fetch review comments and reviews for a PR, formatted as context for Claude.
+ */
+export async function fetchPRReviewContext(prUrl: string): Promise<{ ok: true; context: string } | { ok: false; error: string }> {
+  try {
+    const { owner, repo, pull_number } = parsePRUrl(prUrl);
+    const octokit = await getOctokit();
+
+    const [{ data: comments }, { data: reviews }] = await Promise.all([
+      octokit.pulls.listReviewComments({ owner, repo, pull_number }),
+      octokit.pulls.listReviews({ owner, repo, pull_number }),
+    ]);
+
+    let context = "";
+    if (reviews.length > 0) {
+      context += "PR Reviews:\n";
+      for (const review of reviews) {
+        if (review.body) {
+          context += `- ${review.user?.login ?? "unknown"} (${review.state}): ${review.body}\n`;
+        }
+      }
+    }
+    if (comments.length > 0) {
+      context += "\nInline Comments:\n";
+      for (const comment of comments) {
+        context += `- ${comment.user?.login ?? "unknown"} on ${comment.path}:${comment.line ?? "?"}: ${comment.body}\n`;
+      }
+    }
+    if (!context) {
+      context = "No review comments or feedback found.";
+    }
+
+    return { ok: true, context };
+  } catch (error) {
+    return { ok: false, error: `Failed to fetch PR reviews: ${errorMessage(error)}` };
+  }
 }
 
 /**

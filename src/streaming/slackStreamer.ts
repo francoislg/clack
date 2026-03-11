@@ -279,3 +279,28 @@ export class SlackStreamer {
     }
   }
 }
+
+/**
+ * Finalize a streamed workflow by stopping the streamer and posting a result message.
+ * Handles success, failure (with streamer-failed fallback), and unexpected errors.
+ */
+export async function finalizeStreamedWorkflow(
+  streamer: SlackStreamer,
+  client: App["client"],
+  channel: string,
+  threadTs: string,
+  result: { success: boolean; error?: string },
+  label: string,
+): Promise<void> {
+  if (result.success) {
+    await streamer.stop();
+  } else {
+    const message = `${label} failed: ${result.error}`;
+    if (streamer.hasFailed) {
+      await streamer.stop();
+      await client.chat.postMessage({ channel, thread_ts: threadTs, text: message });
+    } else {
+      await streamer.stop({ markdownText: message });
+    }
+  }
+}

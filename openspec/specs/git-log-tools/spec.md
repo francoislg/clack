@@ -91,7 +91,7 @@ The system SHALL provide a `deepen_history` query tool that fetches additional c
 
 - **WHEN** `deepen_history` prepares to fetch
 - **THEN** it refreshes the remote URL with a fresh GitHub App installation token before fetching
-- **AND** uses the same `setAuthenticatedRemote()` pattern as `pullRepository()`
+- **AND** uses the same `setAuthenticatedRemote()` pattern as `syncRepository()`
 
 #### Scenario: Fetch error handling
 

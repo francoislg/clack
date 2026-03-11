@@ -1,8 +1,10 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { WorkerToolContext } from "../types.js";
+import { textResult, errorResult } from "../helpers.js";
 import { getAuthenticatedCloneUrl } from "../../github.js";
 import { appendExecutionLog } from "../../changes/persistence.js";
+import { errorMessage } from "../../errors.js";
 import { simpleGit } from "simple-git";
 
 export function createGitPushTool(ctx: WorkerToolContext) {
@@ -10,6 +12,7 @@ export function createGitPushTool(ctx: WorkerToolContext) {
     "git_push",
     "Push the current branch to the remote origin. Returns success or a structured error if the push fails (e.g., hook failure, auth error).",
     {
+      // Claude Agent SDK requires at least one schema property
       _placeholder: z.boolean().optional().describe("Unused parameter"),
     },
     async () => {
@@ -21,19 +24,12 @@ export function createGitPushTool(ctx: WorkerToolContext) {
 
         appendExecutionLog(ctx.branchName, "git_push: pushed successfully");
 
-        return {
-          content: [{ type: "text" as const, text: JSON.stringify({ success: true }) }],
-        };
+        return textResult({ success: true });
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        appendExecutionLog(ctx.branchName, `git_push: failed - ${errorMessage}`);
+        const msg = errorMessage(error);
+        appendExecutionLog(ctx.branchName, `git_push: failed - ${msg}`);
 
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ success: false, error: "push failed", details: errorMessage }),
-          }],
-        };
+        return errorResult(`push failed: ${msg}`);
       }
     }
   );

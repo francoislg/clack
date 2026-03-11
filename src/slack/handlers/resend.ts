@@ -1,9 +1,8 @@
 import type { App, BlockAction } from "@slack/bolt";
 import { logger } from "../../logger.js";
 import { getSession } from "../../sessions.js";
-import { getStructuredResponseBlocks } from "../blocks.js";
+import { getStructuredResponseBlocks, asSlackBlocks } from "../blocks.js";
 import { restoreSessionInfo } from "../state.js";
-import type { SubmitResponsePayload } from "../../tools/types.js";
 import { postResponse } from "./handlerResponse.js";
 
 export function registerResendHandler(app: App): void {
@@ -25,12 +24,10 @@ export function registerResendHandler(app: App): void {
         return;
       }
 
-      const lastResponse = (session as unknown as Record<string, unknown>).lastResponse as SubmitResponsePayload | undefined;
-
-      if (lastResponse) {
-        const blocks = getStructuredResponseBlocks(lastResponse, session.sessionId);
+      if (session.lastResponse) {
+        const blocks = getStructuredResponseBlocks(session.lastResponse, session.sessionId);
         await postResponse(client, sessionInfo, {
-          blocks: blocks as unknown[],
+          blocks: asSlackBlocks(blocks),
           text: session.lastAnswer,
         });
       } else {

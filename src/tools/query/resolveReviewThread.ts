@@ -1,8 +1,11 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
+import type { QueryToolContext, WorkerToolContext } from "../types.js";
+import { textResult, errorResult } from "../helpers.js";
 import { getOctokit } from "../../github.js";
+import { errorMessage } from "../../errors.js";
 
-export function createResolveReviewThreadTool() {
+export function createResolveReviewThreadTool(_ctx: QueryToolContext | WorkerToolContext) {
   return tool(
     "resolve_review_thread",
     "Resolve a PR review thread after addressing the feedback. Takes the GraphQL node ID of the review thread (starts with PRRT_).",
@@ -26,25 +29,13 @@ export function createResolveReviewThreadTool() {
           { threadId: args.threadId },
         );
 
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({
-              success: true,
-              threadId: result.resolveReviewThread.thread.id,
-              isResolved: result.resolveReviewThread.thread.isResolved,
-            }),
-          }],
-        };
+        return textResult({
+          success: true,
+          threadId: result.resolveReviewThread.thread.id,
+          isResolved: result.resolveReviewThread.thread.isResolved,
+        });
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: `Failed to resolve review thread: ${errorMessage}` }),
-          }],
-          isError: true,
-        };
+        return errorResult(`Failed to resolve review thread: ${errorMessage(error)}`);
       }
     },
   );
