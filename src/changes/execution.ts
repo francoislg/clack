@@ -296,8 +296,8 @@ export async function executeChange(
   const additionalTools = config.changesWorkflow?.additionalAllowedTools ?? [];
   const allowedTools = [...defaultTools, ...additionalTools];
 
-  // Always disallow Task to prevent sub-agents
-  const disallowedTools = ["Task"];
+  // Always disallow Task/TaskOutput to prevent sub-agents
+  const disallowedTools = ["Task", "TaskOutput"];
 
   let systemPrompt = EXECUTION_SYSTEM_PROMPT;
 
@@ -439,7 +439,7 @@ export async function runWorktreeSetup(
       "Do not ask questions — just execute the steps.",
     ].join(" "),
     allowedTools: ["Bash", "Write", "Edit", "Read"],
-    disallowedTools: ["Task", "Glob", "Grep"],
+    disallowedTools: ["Task", "TaskOutput", "Glob", "Grep"],
     branchName,
     onEvent,
   });

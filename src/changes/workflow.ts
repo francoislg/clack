@@ -9,6 +9,7 @@ import type {
 import type { SessionContext, ActiveChangeState } from "../sessions.js";
 import {
   setActiveChange,
+  clearActiveChange,
   getActiveChangeForUser,
   updateActiveChangeStatus,
   getSession,
@@ -55,6 +56,20 @@ export async function startChangeWorkflow(
     };
   }
 
+  // Reserve the active change slot early to prevent concurrent triggers
+  // (e.g., auto-execute + button click racing). The worktree field is set
+  // after creation, but the slot blocks duplicate startChangeWorkflow calls.
+  const activeChange: ActiveChangeState = {
+    branch: plan.branchName,
+    repo: plan.targetRepo,
+    description: plan.description,
+    worktree: undefined as unknown as WorktreeInfo, // set below after creation
+    status: "executing",
+    startedAt: new Date(),
+    lastActivityAt: new Date(),
+  };
+  setActiveChange(sessionId, activeChange);
+
   // Check for existing worktree (from a previous failed/interrupted attempt)
   let worktree: WorktreeInfo;
   let resumeContext: string | undefined;
@@ -78,6 +93,8 @@ export async function startChangeWorkflow(
       // Forward onEvent so setup tool calls keep the stream alive.
       await runWorktreeSetup(repo.name, worktree.worktreePath, plan.branchName, onEvent);
     } catch (err) {
+      // Release the slot on failure
+      clearActiveChange(sessionId);
       return {
         success: false,
         error: `Failed to create workspace: ${err}`,
@@ -85,17 +102,8 @@ export async function startChangeWorkflow(
     }
   }
 
-  // Attach activeChange to the unified session
-  const activeChange: ActiveChangeState = {
-    branch: plan.branchName,
-    repo: plan.targetRepo,
-    description: plan.description,
-    worktree,
-    status: "executing",
-    startedAt: new Date(),
-    lastActivityAt: new Date(),
-  };
-  setActiveChange(sessionId, activeChange);
+  // Now that the worktree exists, attach it to the active change
+  activeChange.worktree = worktree;
 
   // Phase 2: Execution
   let execResult;

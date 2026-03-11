@@ -33,8 +33,14 @@ const TOOL_LABELS: Record<string, LabelEntry> = {
   Write: (args) => `Writing ${shortenPath(args.file_path) || "file"}`,
   Edit: (args) => `Editing ${shortenPath(args.file_path) || "file"}`,
   Bash: (args) => {
+    const desc = typeof args.description === "string" ? args.description : "";
+    if (desc) return desc;
     const cmd = typeof args.command === "string" ? truncate(args.command, 60) : "";
     return cmd ? `Running \`${cmd}\`` : "Running command";
+  },
+  Skill: (args) => {
+    const skill = typeof args.skill === "string" ? args.skill : "";
+    return skill ? `Running skill ${skill}` : "Running skill";
   },
 
   // Query-mode clack tools
@@ -188,7 +194,7 @@ export function getToolGroup(toolName: string, toolArgs: Record<string, unknown>
     case "Write":
       return { key: "write", title: "Writing files", itemDetail: shortenPath(toolArgs.file_path) || "file" };
     case "Bash":
-      return { key: "bash", title: "Running commands", itemDetail: "command" };
+      return { key: "bash", title: "Running commands", itemDetail: bashItemDetail(toolArgs) };
     default:
       if (toolName.startsWith("mcp__github__")) {
         return { key: "github", title: "Checking GitHub", itemDetail: toolName.replace("mcp__github__", "") };
@@ -234,6 +240,13 @@ function prLink(args: Record<string, unknown>): string | null {
 function statsigId(args: Record<string, unknown>): string {
   const id = args.id ?? args.name ?? args.gate_id ?? args.experiment_id ?? args.config_id ?? "";
   return typeof id === "string" && id ? truncate(id, 40) : "…";
+}
+
+function bashItemDetail(args: Record<string, unknown>): string {
+  const desc = typeof args.description === "string" ? args.description : "";
+  if (desc) return truncate(desc, 40);
+  const cmd = typeof args.command === "string" ? truncate(args.command, 40) : "";
+  return cmd || "command";
 }
 
 function shortenPath(value: unknown): string {

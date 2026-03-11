@@ -58,28 +58,55 @@ export function createEnsurePRTool(ctx: WorkerToolContext) {
           };
         }
 
-        // Create a new PR
+        // Create a new PR — handle race condition where another call creates one first
         const defaultBranch = repo.branch || "main";
-        const pr = await octokit.pulls.create({
-          owner,
-          repo: repoName,
-          title: args.title,
-          body: args.summary,
-          head: ctx.branchName,
-          base: defaultBranch,
-        });
+        let prUrl: string;
+        let created: boolean;
 
-        updateActiveChangePrUrl(ctx.sessionId, pr.data.html_url);
+        try {
+          const pr = await octokit.pulls.create({
+            owner,
+            repo: repoName,
+            title: args.title,
+            body: args.summary,
+            head: ctx.branchName,
+            base: defaultBranch,
+          });
+          prUrl = pr.data.html_url;
+          created = true;
+          appendExecutionLog(ctx.branchName, `ensure_pr: created PR ${prUrl}`);
+        } catch (createError: unknown) {
+          // GitHub returns 422 if a PR already exists for this head/base combo
+          const status = (createError as { status?: number }).status;
+          if (status === 422) {
+            const { data: retryPRs } = await octokit.pulls.list({
+              owner,
+              repo: repoName,
+              head: `${owner}:${ctx.branchName}`,
+              state: "open",
+            });
+            if (retryPRs.length > 0) {
+              prUrl = retryPRs[0].html_url;
+              created = false;
+              appendExecutionLog(ctx.branchName, `ensure_pr: PR already exists (race): ${prUrl}`);
+            } else {
+              throw createError;
+            }
+          } else {
+            throw createError;
+          }
+        }
+
+        updateActiveChangePrUrl(ctx.sessionId, prUrl);
         updateActiveChangeStatus(ctx.sessionId, "pr_created");
-        appendExecutionLog(ctx.branchName, `ensure_pr: created PR ${pr.data.html_url}`);
 
         return {
           content: [{
             type: "text" as const,
             text: JSON.stringify({
               success: true,
-              pr_url: pr.data.html_url,
-              created: true,
+              pr_url: prUrl,
+              created,
             }),
           }],
         };
