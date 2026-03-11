@@ -36,42 +36,60 @@ async function fetchAssistantContext(
   }
 }
 
+async function resolveContextChannelId(
+  client: App["client"],
+  msg: { channel: string; thread_ts?: string },
+  getThreadContext: () => Promise<{ channel_id?: string } | undefined>,
+): Promise<string | undefined> {
+  // Try Bolt's in-memory context store first
+  const threadContext = await getThreadContext();
+  const fromStore = threadContext?.channel_id || undefined;
+  if (fromStore) return fromStore;
+
+  // Fallback: read metadata from the bot's first message (survives restarts)
+  if (msg.thread_ts) {
+    const auth = await client.auth.test();
+    const botUserId = auth.user_id || "";
+    const stored = await fetchAssistantContext(client, msg.channel, msg.thread_ts, botUserId);
+    if (stored?.channel_id) return stored.channel_id;
+  }
+
+  // Last resort: check existing session
+  if (msg.thread_ts) {
+    const existing = await findSessionByThread(msg.channel, msg.thread_ts);
+    return existing?.assistantCurrentChannelId;
+  }
+  return undefined;
+}
+
 export function registerAssistant(app: App): void {
   const assistant = new Assistant({
     threadStarted: async ({ event, say, saveThreadContext, setSuggestedPrompts }) => {
       const ctx = event.assistant_thread?.context;
       logger.debug(`Assistant threadStarted: channel_id=${ctx?.channel_id ?? "none"}`);
 
-      // The default context store attaches context metadata to a bot message.
-      // Without say(), saveThreadContext() has no message to attach to and silently no-ops.
       await say("Hi! Ask me anything about the codebase.");
       await saveThreadContext();
 
       const prompts: Array<{ title: string; message: string }> = [];
-
-      // If a channel context is available, suggest reviewing recent messages
       if (ctx?.channel_id) {
         prompts.push({
           title: "Check recent messages",
           message: "Check the recent messages in the channel and summarize what's being discussed",
         });
       }
-
       prompts.push(
         { title: "Debug something", message: "Help me debug something in the codebase" },
         { title: "Tell me something funny", message: "Tell me something funny about the codebase" },
       );
-
       await setSuggestedPrompts({ prompts });
     },
 
     threadContextChanged: async ({ event, saveThreadContext }) => {
-      const ctx = event.assistant_thread?.context;
-      const channelId = ctx?.channel_id as string | undefined;
+      const channelId = event.assistant_thread?.context?.channel_id as string | undefined;
       logger.debug(`Assistant context changed: channel_id=${channelId}`);
       await saveThreadContext();
 
-      // Update assistantCurrentChannelId on existing session if one exists
       if (channelId && event.assistant_thread?.channel_id && event.assistant_thread?.thread_ts) {
         const session = await findSessionByThread(
           event.assistant_thread.channel_id,
@@ -91,33 +109,13 @@ export function registerAssistant(app: App): void {
         ts: string;
         thread_ts?: string;
       };
-
       if (!msg.user || !msg.text) return;
 
       await setStatus("Thinking...");
 
-      // Try Bolt's in-memory context store first (works when threadStarted fired in this process)
-      let contextChannelId: string | undefined;
-      const threadContext = await getThreadContext();
-      contextChannelId = (threadContext?.channel_id as string) || undefined;
-
-      // Fallback: read metadata from the bot's first message (survives restarts)
-      if (!contextChannelId && msg.thread_ts) {
-        const auth = await client.auth.test();
-        const botUserId = auth.user_id || "";
-        const stored = await fetchAssistantContext(client, msg.channel, msg.thread_ts, botUserId);
-        contextChannelId = stored?.channel_id;
-      }
-
-      // Last resort: check existing session for previously saved assistant channel
-      if (!contextChannelId && msg.thread_ts) {
-        const existing = await findSessionByThread(msg.channel, msg.thread_ts);
-        contextChannelId = existing?.assistantCurrentChannelId;
-      }
-
+      const contextChannelId = await resolveContextChannelId(client, msg, getThreadContext);
       logger.info(`Assistant userMessage: contextChannelId=${contextChannelId ?? "none"}`);
 
-      // Process the message through the standard flow
       await processMessage({
         client,
         userId: msg.user,
@@ -129,10 +127,7 @@ export function registerAssistant(app: App): void {
         assistantChannelId: contextChannelId,
       });
 
-      // Set thread title from the user's question
-      const title = msg.text.length > 50
-        ? msg.text.substring(0, 47) + "..."
-        : msg.text;
+      const title = msg.text.length > 50 ? msg.text.substring(0, 47) + "..." : msg.text;
       try {
         await setTitle(title);
       } catch (err) {
