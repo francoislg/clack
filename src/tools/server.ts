@@ -181,8 +181,8 @@ function buildQueryTools(ctx: QueryToolContext): ClackToolsResult {
   const persistSnapshot = async (id: string, snapshot: ResponseSnapshot): Promise<void> => {
     const session = await getSession(ctx.session.sessionId);
     if (!session) return;
-    const variables = { ...session.variables, [id]: snapshot };
-    await updateSession(ctx.session.sessionId, { variables });
+    const snapshots = { ...session.snapshots, [id]: snapshot };
+    await updateSession(ctx.session.sessionId, { snapshots });
   };
   tools.push(createSubmitResponseTool({
     intentStore,

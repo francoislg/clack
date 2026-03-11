@@ -4,6 +4,7 @@ import { resolve, join } from "node:path";
 import { getConfig, getRepositoriesDir, getWorktreesDir, getWorktreeSessionsDir, type RepositoryConfig } from "./config.js";
 import { getAuthenticatedCloneUrl } from "./github.js";
 import { logger } from "./logger.js";
+import { errorMessage } from "./errors.js";
 import { cleanupStaleSessionFolders } from "./changes/persistence.js";
 import { getActiveChangeBranches } from "./changes/activeState.js";
 
@@ -108,7 +109,7 @@ export async function createWorktree(
   try {
     await git.fetch(["--all"]);
   } catch (error) {
-    logger.warn(`Failed to fetch latest changes: ${error}`);
+    logger.warn(`Failed to fetch latest changes: ${errorMessage(error)}`);
     // Continue anyway with existing local state
   }
 
@@ -120,7 +121,7 @@ export async function createWorktree(
       await git.raw(["branch", "-D", branchName]);
     }
   } catch (error) {
-    logger.warn(`Failed to check/delete existing branch: ${error}`);
+    logger.warn(`Failed to check/delete existing branch: ${errorMessage(error)}`);
     // Continue anyway - the worktree add will fail if there's a real issue
   }
 
@@ -176,7 +177,7 @@ export async function removeWorktree(
     // Force remove the worktree
     await git.raw(["worktree", "remove", "--force", worktreePath]);
   } catch (error) {
-    logger.warn(`git worktree remove failed, cleaning up manually: ${error}`);
+    logger.warn(`git worktree remove failed, cleaning up manually: ${errorMessage(error)}`);
     // Manually remove the directory
     if (existsSync(worktreePath)) {
       rmSync(worktreePath, { recursive: true, force: true });
@@ -210,7 +211,7 @@ export async function deleteBranch(
     await git.raw(["branch", "-D", branchName]);
     logger.debug(`Deleted local branch ${branchName}`);
   } catch (error) {
-    logger.warn(`Failed to delete local branch ${branchName}: ${error}`);
+    logger.warn(`Failed to delete local branch ${branchName}: ${errorMessage(error)}`);
   }
 
   if (deleteRemote) {
@@ -223,7 +224,7 @@ export async function deleteBranch(
       await git.raw(["push", "origin", "--delete", branchName]);
       logger.debug(`Deleted remote branch ${branchName}`);
     } catch (error) {
-      logger.warn(`Failed to delete remote branch ${branchName}: ${error}`);
+      logger.warn(`Failed to delete remote branch ${branchName}: ${errorMessage(error)}`);
     }
   }
 }

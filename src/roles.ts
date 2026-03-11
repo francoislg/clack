@@ -1,8 +1,16 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { App } from "@slack/bolt";
 import { logger } from "./logger.js";
-import { fileExists } from "./errors.js";
+
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export interface RolesConfig {
   owner: string | null;

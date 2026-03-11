@@ -10,7 +10,7 @@ export interface ActiveChangeState {
   branch: string;
   repo: string;
   description: string;
-  worktree: WorktreeInfo;
+  worktree?: WorktreeInfo;
   status: ChangeStatus;
   prUrl?: string;
   startedAt: Date;

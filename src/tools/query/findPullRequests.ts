@@ -5,6 +5,7 @@ import { textResult, errorResult } from "../helpers.js";
 import { getVisibleRepos } from "../../repoAccess.js";
 import { getOctokit, parseRepoUrl } from "../../github.js";
 import { logger } from "../../logger.js";
+import { errorMessage } from "../../errors.js";
 
 export function createFindPullRequestsTool(ctx: QueryToolContext) {
   return tool(
@@ -49,8 +50,8 @@ export function createFindPullRequestsTool(ctx: QueryToolContext) {
 
         return textResult(result);
       } catch (error) {
-        logger.debug(`Failed to fetch PRs for ${args.repo}: ${error}`);
-        return errorResult(`Failed to fetch pull requests: ${error}`);
+        logger.debug(`Failed to fetch PRs for ${args.repo}: ${errorMessage(error)}`);
+        return errorResult(`Failed to fetch pull requests: ${errorMessage(error)}`);
       }
     }
   );

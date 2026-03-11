@@ -75,7 +75,7 @@ export async function getPRStatus(prUrl: string): Promise<{ state: PRState } | n
     }
     return { state: "OPEN" };
   } catch (error) {
-    logger.debug(`Failed to get PR status for ${prUrl}: ${error}`);
+    logger.debug(`Failed to get PR status for ${prUrl}: ${errorMessage(error)}`);
     return null;
   }
 }

@@ -1,7 +1,15 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { logger } from "./logger.js";
-import { fileExists } from "./errors.js";
+
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export type ReactionDelivery = "dm" | "thread";
 
@@ -94,7 +102,7 @@ export async function setUserPreference<K extends keyof UserPreferences>(
  * Get the user's preferred reaction delivery mode ("dm" or "thread").
  * Defaults to "dm" if not set.
  */
-export async function getReactionDelivery(userId: string): Promise<ReactionDelivery> {
+export function getReactionDelivery(userId: string): Promise<ReactionDelivery> {
   return getUserPreference(userId, "reactionDelivery");
 }
 

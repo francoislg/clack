@@ -21,6 +21,7 @@ import { buildWorkerContext } from "../tools/context.js";
 import { buildClackTools } from "../tools/server.js";
 import { fetchPRReviewContext } from "./pr.js";
 import type { StreamEvent } from "../streaming/types.js";
+import { errorMessage } from "../errors.js";
 
 // ============================================================================
 // Main Workflow Orchestration
@@ -63,7 +64,7 @@ export async function startChangeWorkflow(
     branch: plan.branchName,
     repo: plan.targetRepo,
     description: plan.description,
-    worktree: undefined as unknown as WorktreeInfo, // set below after creation
+    worktree: undefined, // set below after worktree creation
     status: "executing",
     startedAt: new Date(),
     lastActivityAt: new Date(),
@@ -102,7 +103,7 @@ export async function startChangeWorkflow(
       clearActiveChange(sessionId);
       return {
         success: false,
-        error: `Failed to create workspace: ${err}`,
+        error: `Failed to create workspace: ${errorMessage(err)}`,
       };
     }
   }
@@ -122,10 +123,10 @@ export async function startChangeWorkflow(
       onEvent,
     );
   } catch (error) {
-    appendExecutionLog(plan.branchName, `Execution error: ${error}`);
+    appendExecutionLog(plan.branchName, `Execution error: ${errorMessage(error)}`);
     execResult = {
       success: false,
-      error: `Execution threw exception: ${error}`,
+      error: `Execution threw exception: ${errorMessage(error)}`,
     };
   }
 
@@ -168,6 +169,10 @@ export async function handleFollowUp(
   const activeChange = session.activeChange;
   if (!activeChange) {
     return { success: false, error: "No active change in this thread." };
+  }
+
+  if (!activeChange.worktree) {
+    return { success: false, error: "No worktree exists for this change." };
   }
 
   const config = getConfig();

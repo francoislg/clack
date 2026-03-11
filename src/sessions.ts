@@ -1,6 +1,5 @@
-import { mkdir, readFile, writeFile, rm, readdir } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile, rm, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
-import { fileExists } from "./errors.js";
 import { getConfig, getSessionsDir } from "./config.js";
 import { logger } from "./logger.js";
 import type { ErrorRecord, ConversationMessage } from "./claude/index.js";
@@ -8,6 +7,15 @@ import type { SubmitResponsePayload, ToolCallRecord, ContinuationRecord, Respons
 import type { ChangeStatus } from "./changes/types.js";
 import type { ActiveChangeState } from "./changes/activeState.js";
 import { getActiveChange, clearActiveChange } from "./changes/activeState.js";
+
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export interface ThreadMessage {
   text: string;
@@ -58,7 +66,7 @@ export interface SessionContext {
   /** Assistant thread: channel the user is currently viewing (updated on context changes) */
   assistantCurrentChannelId?: string;
   /** Saved response snapshots, keyed by auto-generated ID */
-  variables?: Record<string, ResponseSnapshot>;
+  snapshots?: Record<string, ResponseSnapshot>;
   /** Active change execution state (runtime-only, not persisted) */
   activeChange?: ActiveChangeState;
 }
@@ -199,6 +207,13 @@ export async function getSession(sessionId: string): Promise<SessionContext | nu
     if (!session.refinements) session.refinements = [];
     if (!session.threadContext) session.threadContext = [];
 
+    // Backward compatibility: migrate persisted "variables" → "snapshots"
+    const raw = session as unknown as Record<string, unknown>;
+    if ("variables" in raw && !session.snapshots) {
+      session.snapshots = raw.variables as Record<string, ResponseSnapshot>;
+      delete raw.variables;
+    }
+
     // Merge active change state from dedicated module
     const ac = getActiveChange(sessionId);
     if (ac) session.activeChange = ac;
@@ -335,11 +350,11 @@ export async function addRefinement(sessionId: string, refinement: string): Prom
   });
 }
 
-export async function updateThreadContext(sessionId: string, threadContext: ThreadMessage[]): Promise<SessionContext | null> {
+export function updateThreadContext(sessionId: string, threadContext: ThreadMessage[]): Promise<SessionContext | null> {
   return updateSession(sessionId, { threadContext });
 }
 
-export async function setLastAnswer(sessionId: string, answer: string): Promise<SessionContext | null> {
+export function setLastAnswer(sessionId: string, answer: string): Promise<SessionContext | null> {
   return updateSession(sessionId, { lastAnswer: answer });
 }
 
@@ -366,7 +381,7 @@ export function hasErrors(session: SessionContext): boolean {
   return session.errors && session.errors.length > 0;
 }
 
-export async function touchSession(sessionId: string): Promise<SessionContext | null> {
+export function touchSession(sessionId: string): Promise<SessionContext | null> {
   return updateSession(sessionId, {});
 }
 

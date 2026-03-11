@@ -78,7 +78,7 @@ Managed via the Home Tab in Slack. Per-repo access control with `read` and `writ
 
 - `data/default_configuration/` — shipped defaults (checked into git)
 - `data/configuration/` — user overrides (gitignored, takes precedence)
-- Template variables like `{BOT_NAME}` are substituted at runtime (see `src/instructionVariables.ts`)
+- Template variables like `{BOT_NAME}` are substituted at runtime (see `src/claude/promptBuilder.ts`)
 - Per-repo instructions: `{repo}/changes_instructions.md` and `{repo}/worktree_setup_instructions.md`
 - Admins can edit instruction overrides from the Home Tab
 
@@ -109,7 +109,8 @@ Numbered migrations in `src/migrations/`. Two priorities: `blocking` (run before
 src/
 ├── index.ts              # Entry point and startup sequence
 ├── config.ts             # Config loading, validation, paths
-├── claude.ts             # Claude Agent SDK integration
+├── claude/               # Claude Agent SDK integration
+│   └── promptBuilder.ts  # System prompt assembly and template variable interpolation
 ├── mcp.ts                # MCP server config, GitHub MCP auto-config
 ├── sessions.ts           # Session lifecycle and persistence
 ├── repositories.ts       # Git clone/pull/sync
@@ -119,7 +120,6 @@ src/
 ├── permissions.ts        # Permission checks
 ├── repoAccess.ts         # Per-repo access control
 ├── instructions.ts       # Instruction file loading
-├── instructionVariables.ts # Template variable interpolation
 ├── configurationFiles.ts # Configuration file management
 ├── userPreferences.ts    # User preference storage
 ├── logger.ts             # Logging

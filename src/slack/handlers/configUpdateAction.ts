@@ -6,6 +6,7 @@ import { canEditConfig } from "../../permissions.js";
 import { decodeActionValue } from "../blocks.js";
 import { restoreSessionInfo } from "../state.js";
 import { writeInstructionFile } from "../../configurationFiles.js";
+import { errorMessage } from "../../errors.js";
 
 export function registerConfigUpdateActionHandler(app: App): void {
   app.action<BlockAction>(/^clack_config_update_\d+$/, async ({ ack, body, client, respond }) => {
@@ -66,7 +67,7 @@ export function registerConfigUpdateActionHandler(app: App): void {
         channel: sessionInfo.channelId,
         user: userId,
         thread_ts: sessionInfo.threadTs,
-        text: `Failed to update \`${intent.file}\`: ${error instanceof Error ? error.message : "Unknown error"}`,
+        text: `Failed to update \`${intent.file}\`: ${errorMessage(error)}`,
       });
     }
   });
