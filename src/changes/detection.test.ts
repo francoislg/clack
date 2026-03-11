@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { isChangesEnabledForTrigger, findChangeEnabledRepo } from "./detection.js";
+import { isChangesEnabledForTrigger, findChangeEnabledRepo, getChangeEnabledRepos } from "./detection.js";
 import { findRepoByName } from "../config.js";
 import type { Config, RepositoryConfig } from "../config.js";
 
@@ -83,6 +83,51 @@ describe("findChangeEnabledRepo", () => {
       ],
     });
     assert.equal(findChangeEnabledRepo(config, "dev"), null);
+  });
+});
+
+describe("getChangeEnabledRepos", () => {
+  it("returns empty array when no repos are writable", () => {
+    const config = makeConfig({
+      repositories: [makeRepo({ access: { read: "member" } })],
+    });
+    assert.deepEqual(getChangeEnabledRepos(config), []);
+  });
+
+  it("returns name and description of writable repos", () => {
+    const config = makeConfig({
+      repositories: [
+        makeRepo({ name: "repo-a", description: "First repo", access: { read: "member", write: "dev" } }),
+        makeRepo({ name: "repo-b", description: "Second repo", access: { read: "member" } }),
+      ],
+    });
+    const repos = getChangeEnabledRepos(config, "dev");
+    assert.equal(repos.length, 1);
+    assert.deepEqual(repos[0], { name: "repo-a", description: "First repo" });
+  });
+
+  it("defaults to dev role", () => {
+    const config = makeConfig({
+      repositories: [
+        makeRepo({ name: "admin-only", access: { read: "member", write: "admin" } }),
+        makeRepo({ name: "dev-writable", access: { read: "member", write: "dev" } }),
+      ],
+    });
+    // Default role is dev, so only dev-writable should be returned
+    const repos = getChangeEnabledRepos(config);
+    assert.equal(repos.length, 1);
+    assert.equal(repos[0].name, "dev-writable");
+  });
+
+  it("returns all writable repos for owner role", () => {
+    const config = makeConfig({
+      repositories: [
+        makeRepo({ name: "repo-a", description: "A", access: { read: "member", write: "admin" } }),
+        makeRepo({ name: "repo-b", description: "B", access: { read: "member", write: "dev" } }),
+      ],
+    });
+    const repos = getChangeEnabledRepos(config, "owner");
+    assert.equal(repos.length, 2);
   });
 });
 

@@ -163,16 +163,14 @@ export function startCompletionMonitor(): void {
 
   logger.info(`Starting completion monitor (interval: ${intervalMinutes} minutes)`);
 
-  // Run immediately on start, then at interval
-  runCompletionCheck().catch((error) => {
-    logger.error("Completion check failed:", error);
-  });
-
-  monitorInterval = setInterval(() => {
+  const scheduleCheck = () =>
     runCompletionCheck().catch((error) => {
       logger.error("Completion check failed:", error);
     });
-  }, intervalMs);
+
+  // Run immediately on start, then at interval
+  scheduleCheck();
+  monitorInterval = setInterval(scheduleCheck, intervalMs);
 }
 
 /**

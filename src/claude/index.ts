@@ -60,23 +60,26 @@ export interface AskClaudeOptions {
   deliver?: DeliverFn;
 }
 
+function summarizeContentBlocks(content: unknown[]): string {
+  const parts: string[] = [];
+  for (const block of content) {
+    if (block && typeof block === "object" && "text" in block && typeof block.text === "string") {
+      parts.push(block.text.substring(0, 500));
+    }
+    if (block && typeof block === "object" && "type" in block) {
+      parts.push(`[${block.type}]`);
+    }
+  }
+  return parts.join(" ").substring(0, 1000);
+}
+
 function summarizeMessageContent(message: unknown): string {
-  // Safely extract a content summary from various message types
   const msg = message as Record<string, unknown>;
 
   if (msg.message && typeof msg.message === "object") {
-    const innerMsg = msg.message as Record<string, unknown>;
-    if (Array.isArray(innerMsg.content)) {
-      const textParts: string[] = [];
-      for (const block of innerMsg.content) {
-        if (block && typeof block === "object" && "text" in block && typeof block.text === "string") {
-          textParts.push(block.text.substring(0, 500)); // Truncate long text
-        }
-        if (block && typeof block === "object" && "type" in block) {
-          textParts.push(`[${block.type}]`);
-        }
-      }
-      return textParts.join(" ").substring(0, 1000);
+    const innerContent = (msg.message as Record<string, unknown>).content;
+    if (Array.isArray(innerContent)) {
+      return summarizeContentBlocks(innerContent);
     }
   }
 

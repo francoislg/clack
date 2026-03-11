@@ -123,7 +123,7 @@ function buildScopes(features: ConfigFeatures): BotScope[] {
   // users:read is now in CORE_SCOPES (needed for role management)
   // fetchUsernames feature doesn't need additional scopes
 
-  return scopes.sort();
+  return scopes.sort((a, b) => a.localeCompare(b));
 }
 
 function buildEvents(features: ConfigFeatures): ManifestEvent[] {
@@ -137,7 +137,7 @@ function buildEvents(features: ConfigFeatures): ManifestEvent[] {
     events.push("app_mention");
   }
 
-  return events.sort();
+  return events.sort((a, b) => a.localeCompare(b));
 }
 
 function generateManifest(config: PartialConfig): Manifest {
@@ -151,6 +151,9 @@ function generateManifest(config: PartialConfig): Manifest {
   const events = buildEvents(features);
 
   // Type assertion: @slack/web-api types lag behind the Slack API (missing assistant_view, assistant:write, etc.)
+  type ManifestBotScopes = NonNullable<NonNullable<Manifest["oauth_config"]>["scopes"]>["bot"];
+  type ManifestBotEvents = NonNullable<NonNullable<Manifest["settings"]>["event_subscriptions"]>["bot_events"];
+
   const manifest: Manifest = {
     display_information: {
       name,
@@ -176,14 +179,12 @@ function generateManifest(config: PartialConfig): Manifest {
     },
     oauth_config: {
       scopes: {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        bot: scopes as any,
+        bot: scopes as ManifestBotScopes,
       },
     },
     settings: {
       event_subscriptions: {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        bot_events: events as any,
+        bot_events: events as ManifestBotEvents,
       },
       interactivity: {
         is_enabled: true,
