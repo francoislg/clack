@@ -1,21 +1,13 @@
-import { access, mkdir, readFile, writeFile, rm, readdir } from "node:fs/promises";
+import { mkdir, readFile, writeFile, rm, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { getConfig, getSessionsDir } from "./config.js";
 import { logger } from "./logger.js";
+import { fileExists } from "./fs.js";
 import type { ErrorRecord, ConversationMessage } from "./claude/index.js";
 import type { SubmitResponsePayload, ToolCallRecord, ContinuationRecord, ResponseSnapshot, StagedIntent } from "./tools/types.js";
 import type { ChangeStatus } from "./changes/types.js";
 import type { ActiveChangeState } from "./changes/activeState.js";
 import { getActiveChange, clearActiveChange } from "./changes/activeState.js";
-
-async function fileExists(path: string): Promise<boolean> {
-  try {
-    await access(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 export interface ThreadMessage {
   text: string;
@@ -206,13 +198,6 @@ export async function getSession(sessionId: string): Promise<SessionContext | nu
     if (!session.errors) session.errors = [];
     if (!session.refinements) session.refinements = [];
     if (!session.threadContext) session.threadContext = [];
-
-    // Backward compatibility: migrate persisted "variables" → "snapshots"
-    const raw = session as unknown as Record<string, unknown>;
-    if ("variables" in raw && !session.snapshots) {
-      session.snapshots = raw.variables as Record<string, ResponseSnapshot>;
-      delete raw.variables;
-    }
 
     // Merge active change state from dedicated module
     const ac = getActiveChange(sessionId);

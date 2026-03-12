@@ -46,13 +46,16 @@ export async function runClaude(options: {
   const botName = config.slackApp?.name ?? "Clack";
   const botEmail = `${botName.toLowerCase().replace(/\s+/g, "-")}[bot]@users.noreply.github.com`;
 
+  // Conditional execution logger — no-op when there's no branch context
+  const log = options.branchName
+    ? (msg: string) => appendExecutionLog(options.branchName!, msg)
+    : undefined;
+
   logger.debug(`Running Claude in ${options.cwd}${options.branchName ? ` (worktree: ${options.branchName})` : ""}`);
-  if (options.branchName) {
-    appendExecutionLog(options.branchName, `Running Claude via Agent SDK`);
-    appendExecutionLog(options.branchName, `Working directory: ${options.cwd}`);
-    appendExecutionLog(options.branchName, `Prompt length: ${options.prompt.length} chars`);
-    appendExecutionLog(options.branchName, `Timeout: ${timeoutMs / 60000} minutes`);
-  }
+  log?.(`Running Claude via Agent SDK`);
+  log?.(`Working directory: ${options.cwd}`);
+  log?.(`Prompt length: ${options.prompt.length} chars`);
+  log?.(`Timeout: ${timeoutMs / 60000} minutes`);
 
   // Timeout via AbortController
   const abortController = new AbortController();
@@ -62,14 +65,10 @@ export async function runClaude(options: {
   let lastOutputTime = Date.now();
   let outputReceived = false;
   const heartbeatInterval = setInterval(() => {
-    if (options.branchName) {
-      const elapsed = Math.round((Date.now() - lastOutputTime) / 1000);
-      if (!outputReceived) {
-        appendExecutionLog(options.branchName, `Still waiting for first output... (${elapsed}s since start)`);
-      } else {
-        appendExecutionLog(options.branchName, `Query still running... (${elapsed}s since last event)`);
-      }
-    }
+    const elapsed = Math.round((Date.now() - lastOutputTime) / 1000);
+    log?.(!outputReceived
+      ? `Still waiting for first output... (${elapsed}s since start)`
+      : `Query still running... (${elapsed}s since last event)`);
   }, 30000);
 
   let finalText = "";
@@ -111,18 +110,13 @@ export async function runClaude(options: {
       for (const tool of parsed.toolUses) {
         lastProgressMessage = `Using ${tool.name}`;
         options.onProgress?.(lastProgressMessage);
-        if (options.branchName) {
-          appendExecutionLog(options.branchName, `Event: tool_use (${tool.name})`);
-        }
+        log?.(`Event: tool_use (${tool.name})`);
       }
 
       // Worker-specific: accumulate assistant text and log it
       if (parsed.assistantText) {
         finalText += parsed.assistantText + "\n";
-        if (options.branchName) {
-          const preview = parsed.assistantText.substring(0, 200).replace(/\n/g, " ");
-          appendExecutionLog(options.branchName, `Event: assistant text: ${preview}...`);
-        }
+        log?.(`Event: assistant text: ${parsed.assistantText.substring(0, 200).replace(/\n/g, " ")}...`);
       }
 
       // Handle result
@@ -135,18 +129,13 @@ export async function runClaude(options: {
         } else {
           resultError = parser.result.error;
         }
-        if (options.branchName) {
-          const subtype = (message as Record<string, unknown>).subtype;
-          appendExecutionLog(options.branchName, `Event: result (subtype: ${subtype})`);
-        }
+        log?.(`Event: result (subtype: ${(message as Record<string, unknown>).subtype})`);
       } else if (message.type === "system" && "subtype" in message && message.subtype === "init") {
-        if (options.branchName) {
-          const sessionId = "session_id" in message ? String(message.session_id).substring(0, 8) : "unknown";
-          appendExecutionLog(options.branchName, `Event: init (session: ${sessionId}...)`);
-        }
-      } else if (message.type !== "tool_progress" && message.type !== "assistant" && message.type !== "user" && options.branchName) {
+        const sessionId = "session_id" in message ? String(message.session_id).substring(0, 8) : "unknown";
+        log?.(`Event: init (session: ${sessionId}...)`);
+      } else if (message.type !== "tool_progress" && message.type !== "assistant" && message.type !== "user") {
         const subtype = "subtype" in message ? message.subtype : undefined;
-        appendExecutionLog(options.branchName, `Event: ${message.type}${subtype ? ":" + subtype : ""}`);
+        log?.(`Event: ${message.type}${subtype ? ":" + subtype : ""}`);
       }
     }
   } catch (error) {
@@ -160,9 +149,7 @@ export async function runClaude(options: {
       error instanceof Error && /aborted/i.test(error.message);
 
     if (isAbortError || isSignalAbort) {
-      if (options.branchName) {
-        appendExecutionLog(options.branchName, `Timeout: Execution timed out after ${timeoutMs / 60000} minutes`);
-      }
+      log?.(`Timeout: Execution timed out after ${timeoutMs / 60000} minutes`);
       return {
         success: false,
         text: finalText.trim(),
@@ -171,9 +158,7 @@ export async function runClaude(options: {
       };
     }
 
-    if (options.branchName) {
-      appendExecutionLog(options.branchName, `SDK error: ${errorMessage(error)}`);
-    }
+    log?.(`SDK error: ${errorMessage(error)}`);
     return {
       success: false,
       text: finalText.trim(),
@@ -189,9 +174,7 @@ export async function runClaude(options: {
   const platformError = detectPlatformError(finalText) ?? detectPlatformError(parser.lastAssistantText);
   if (platformError) {
     logger.warn(`Platform error detected in worker: ${platformError}`);
-    if (options.branchName) {
-      appendExecutionLog(options.branchName, `Platform error: ${platformError}`);
-    }
+    log?.(`Platform error: ${platformError}`);
     return {
       success: false,
       text: finalText.trim(),
@@ -200,9 +183,7 @@ export async function runClaude(options: {
     };
   }
 
-  if (options.branchName) {
-    appendExecutionLog(options.branchName, `Query completed (success: ${resultSuccess}, text: ${finalText.trim().length} chars)`);
-  }
+  log?.(`Query completed (success: ${resultSuccess}, text: ${finalText.trim().length} chars)`);
 
   return {
     success: resultSuccess,
@@ -306,13 +287,7 @@ Check git status and git log to understand what was already done. Continue from 
 
   prompt += `
 
-Remember to:
-1. Make the changes
-2. Run tests if the repository instructions specify how
-3. Commit with a descriptive message
-4. Push using the git_push tool
-5. Create a PR using the ensure_pr tool
-6. Report your final status using the report_status tool`;
+Follow the workflow steps in the system prompt. Report your final status using the report_status tool.`;
 
   // Build worker tools for this execution
   const repo = findRepoByName(plan.targetRepo, config);

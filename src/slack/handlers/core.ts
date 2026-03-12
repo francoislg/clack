@@ -34,23 +34,22 @@ export interface ProcessMessageParams {
 }
 
 interface ProcessingContext {
-  client: App["client"];
-  config: Config;
-  userId: string;
-  channelId: string;
-  messageTs: string;
-  messageText: string;
-  threadTs?: string;
-  effectiveThreadTs: string;
-  triggerType: TriggerType;
-  /** DM delivery mode for reactions */
-  isDm: boolean;
-  /** DM channel ID (set during DM flow) */
-  dmChannel?: string;
-  /** DM thread ts (set during DM flow) */
-  dmThreadTs?: string;
+  readonly client: App["client"];
+  readonly config: Config;
+  readonly userId: string;
+  readonly channelId: string;
+  readonly messageTs: string;
+  readonly messageText: string;
+  readonly threadTs?: string;
+  readonly effectiveThreadTs: string;
+  readonly triggerType: TriggerType;
   /** When true, hints Claude to propose a change with auto-execute */
-  workMode: boolean;
+  readonly workMode: boolean;
+}
+
+interface DmCoordinates {
+  dmChannel: string;
+  dmThreadTs?: string;
 }
 
 // ============================================================
@@ -127,16 +126,14 @@ async function openDmChannel(client: App["client"], userId: string): Promise<str
 
 /**
  * Set up DM delivery for reaction triggers: open DM, post parent message, store coordinates.
- * Returns true if DM setup succeeded, false to fall back to thread mode.
+ * Returns DM coordinates if setup succeeded, null to fall back to thread mode.
  */
-async function setupDmDelivery(ctx: ProcessingContext, session: SessionContext): Promise<boolean> {
+async function setupDmDelivery(ctx: ProcessingContext, session: SessionContext): Promise<DmCoordinates | null> {
   const dmChannel = await openDmChannel(ctx.client, ctx.userId);
   if (!dmChannel) {
     logger.warn("DM delivery failed, falling back to thread mode");
-    return false;
+    return null;
   }
-
-  ctx.dmChannel = dmChannel;
 
   // Get permalink for the original message
   let permalink: string | undefined;
@@ -158,20 +155,18 @@ async function setupDmDelivery(ctx: ProcessingContext, session: SessionContext):
     channel: dmChannel,
     text: `_Looking into ${linkText}..._`,
   });
-  if (parent.ts) {
-    ctx.dmThreadTs = parent.ts;
-  }
+  const dmThreadTs = parent.ts ?? undefined;
 
   // Store DM coordinates in the session
   await storeDmCoordinates(
     session.sessionId,
     dmChannel,
-    ctx.dmThreadTs || ctx.effectiveThreadTs,
+    dmThreadTs || ctx.effectiveThreadTs,
     ctx.channelId,
     ctx.effectiveThreadTs,
   );
 
-  return true;
+  return { dmChannel, dmThreadTs };
 }
 
 // ============================================================
@@ -199,6 +194,8 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
     isDm = delivery === "dm";
   }
 
+  const effectiveThreadTs = threadTs || messageTs;
+
   const ctx: ProcessingContext = {
     client,
     config,
@@ -207,9 +204,8 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
     messageTs,
     messageText,
     threadTs,
-    effectiveThreadTs: threadTs || messageTs,
+    effectiveThreadTs,
     triggerType,
-    isDm,
     workMode,
   };
 
@@ -220,11 +216,11 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
   let session = await setupSession(ctx);
 
   // 2. DM setup for reaction triggers (before executeAndDeliver sees sessionInfo)
+  let dmCoords: DmCoordinates | null = null;
   if (isDm) {
-    const dmOk = await setupDmDelivery(ctx, session);
-    if (!dmOk) {
+    dmCoords = await setupDmDelivery(ctx, session);
+    if (!dmCoords) {
       isDm = false;
-      ctx.isDm = false;
     }
   }
 
@@ -246,11 +242,11 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
   // 4. Update sessionInfo with DM coordinates (if set)
   const sessionInfo = {
     channelId,
-    threadTs: ctx.effectiveThreadTs,
+    threadTs: effectiveThreadTs,
     userId,
     triggerType,
-    ...(ctx.dmChannel && { dmChannel: ctx.dmChannel }),
-    ...(ctx.dmThreadTs && { dmThreadTs: ctx.dmThreadTs }),
+    ...(dmCoords?.dmChannel && { dmChannel: dmCoords.dmChannel }),
+    ...(dmCoords?.dmThreadTs && { dmThreadTs: dmCoords.dmThreadTs }),
   };
   setSessionInfo(session.sessionId, sessionInfo);
 

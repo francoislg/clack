@@ -15,16 +15,7 @@ export interface BuildQueryContextParams {
 }
 
 export function buildQueryContext(params: BuildQueryContextParams): QueryToolContext {
-  return {
-    mode: "query",
-    userId: params.userId,
-    role: params.role,
-    session: params.session,
-    config: params.config,
-    changesWorkflowEnabled: params.changesWorkflowEnabled,
-    slackClient: params.slackClient,
-    deliver: params.deliver,
-  };
+  return { mode: "query", ...params };
 }
 
 export interface BuildWorkerContextParams {
@@ -39,15 +30,5 @@ export interface BuildWorkerContextParams {
 }
 
 export function buildWorkerContext(params: BuildWorkerContextParams): WorkerToolContext {
-  return {
-    mode: "worker",
-    worktreePath: params.worktreePath,
-    branchName: params.branchName,
-    repoName: params.repoName,
-    repoUrl: params.repoUrl,
-    channelId: params.channelId,
-    threadTs: params.threadTs,
-    sessionId: params.sessionId,
-    config: params.config,
-  };
+  return { mode: "worker", ...params };
 }

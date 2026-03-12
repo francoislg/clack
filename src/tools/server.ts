@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
 import type { SdkMcpToolDefinition } from "@anthropic-ai/claude-agent-sdk";
+
 import type {
   StagedIntent,
   ToolCallRecord,
@@ -140,6 +141,7 @@ function buildQueryTools(ctx: QueryToolContext): ClackToolsResult {
   const recorder = createToolCallRecorder();
   const responseCapture = createResponseCapture();
 
+  // Tool factories return different SdkMcpToolDefinition<T> generics; `any` required for the heterogeneous array
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const tools: SdkMcpToolDefinition<any>[] = [];
 
@@ -212,6 +214,7 @@ function buildQueryTools(ctx: QueryToolContext): ClackToolsResult {
 }
 
 function buildWorkerTools(ctx: WorkerToolContext): ClackToolsResult {
+  // Tool factories return different SdkMcpToolDefinition<T> generics; `any` required for the heterogeneous array
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const tools: SdkMcpToolDefinition<any>[] = [];
 

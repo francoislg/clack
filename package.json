@@ -9,7 +9,7 @@
     "start": "node dist/index.js",
     "start:logfile": "mkdir -p logs && node dist/index.js 2>&1 | tee \"logs/clack-$(date +%Y%m%d-%H%M%S).log\"",
     "dev": "tsc --watch & node --watch dist/index.js",
-    "test": "node --import tsx --test 'src/**/*.test.ts'",
+    "test": "node --import tsx --experimental-test-module-mocks --test 'src/**/*.test.ts'",
     "ask": "npx tsx scripts/askClaude.ts",
     "manifest": "npx tsx scripts/generate-manifest.ts",
     "docker-setup": "bash scripts/docker-setup.sh",
@@ -22,9 +22,11 @@
     "@octokit/auth-app": "^8.2.0",
     "@octokit/rest": "^22.0.1",
     "@slack/bolt": "^4.1.0",
+    "@slack/types": "^2.20.0",
     "@slack/web-api": "^7.14.1",
     "dotenv": "^17.2.3",
-    "simple-git": "^3.27.0"
+    "simple-git": "^3.27.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

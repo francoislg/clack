@@ -118,18 +118,25 @@ export async function initializeRepositories(): Promise<void> {
     mkdirSync(reposDir, { recursive: true });
   }
 
-  logger.debug(`Initializing ${config.repositories.length} repositories...`);
+  const total = config.repositories.length;
+  logger.debug(`Initializing ${total} repositories...`);
 
+  let failed = 0;
   for (const repo of config.repositories) {
     try {
       await cloneRepository(repo);
     } catch (error) {
+      failed++;
       logger.error(`Failed to clone ${repo.name}:`, error);
       // Continue with other repositories
     }
   }
 
-  logger.info(`Successfully initialized ${config.repositories.length} repositories`);
+  if (failed === 0) {
+    logger.info(`Successfully initialized all ${total} repositories`);
+  } else {
+    logger.warn(`Initialized ${total - failed}/${total} repositories (${failed} failed)`);
+  }
 }
 
 let syncInterval: NodeJS.Timeout | null = null;

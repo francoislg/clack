@@ -433,6 +433,25 @@ describe("loadConfig", () => {
     );
   });
 
+  it("throws when repository mergeStrategy is invalid", () => {
+    writeSlackAuth();
+    writeConfig({
+      repositories: [
+        {
+          name: "r",
+          url: "https://github.com/org/r.git",
+          description: "d",
+          mergeStrategy: "fast-forward",
+        },
+      ],
+    });
+
+    assert.throws(
+      () => loadConfig(configPath, true),
+      /mergeStrategy.*must be one of/
+    );
+  });
+
   it("throws for invalid slackApp.backgroundColor", () => {
     writeSlackAuth();
     writeConfig(

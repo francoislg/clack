@@ -13,6 +13,27 @@ async function getBotUserId(client: App["client"]): Promise<string> {
   return cachedBotUserId;
 }
 
+/**
+ * Determine if an edited message should restart the in-flight request.
+ * Returns the cleaned text to restart with, or null if no restart is needed.
+ */
+async function resolveRestartText(
+  client: App["client"],
+  triggerType: string,
+  newText: string,
+): Promise<string | null> {
+  if (triggerType === "mentions") {
+    const botUserId = await getBotUserId(client);
+    if (!new RegExp(`<@${botUserId}>`).test(newText)) return null;
+    const cleanText = newText.replace(new RegExp(`<@${botUserId}>\\s*`, "g"), "").trim();
+    return cleanText || null;
+  }
+  if (triggerType === "directMessages") {
+    return newText.trim() || null;
+  }
+  return null;
+}
+
 export function registerMessageChangedHandler(app: App): void {
   app.event("message", async ({ event, client }) => {
     const msg = event as {
@@ -55,42 +76,20 @@ export function registerMessageChangedHandler(app: App): void {
     inFlight.abortController.abort();
     // Stream cleanup happens in processMessage when it detects cancellation
 
-    // Determine whether to restart
-    const botUserId = await getBotUserId(client);
-
-    if (inFlight.triggerType === "mentions") {
-      const mentionPattern = new RegExp(`<@${botUserId}>`);
-      if (mentionPattern.test(newText)) {
-        // Still mentioned — restart with updated text
-        const cleanText = newText.replace(new RegExp(`<@${botUserId}>\\s*`, "g"), "").trim();
-        if (cleanText) {
-          logger.info(`Restarting mention request with edited text (session: ${inFlight.sessionId})`);
-          await processMessage({
-            client,
-            userId: msg.message!.user!,
-            channelId: channel,
-            messageTs,
-            messageText: cleanText,
-            triggerType: "mentions",
-          });
-        }
-      } else {
-        logger.info(`Bot mention removed — cancelled without restart (session: ${inFlight.sessionId})`);
-      }
-    } else if (inFlight.triggerType === "directMessages") {
-      if (newText.trim()) {
-        logger.info(`Restarting DM request with edited text (session: ${inFlight.sessionId})`);
-        await processMessage({
-          client,
-          userId: msg.message!.user!,
-          channelId: channel,
-          messageTs,
-          messageText: newText.trim(),
-          triggerType: "directMessages",
-        });
-      } else {
-        logger.info(`DM edited to empty — cancelled without restart (session: ${inFlight.sessionId})`);
-      }
+    // Determine whether to restart with the edited text
+    const restartText = await resolveRestartText(client, inFlight.triggerType, newText);
+    if (restartText) {
+      logger.info(`Restarting ${inFlight.triggerType} request with edited text (session: ${inFlight.sessionId})`);
+      await processMessage({
+        client,
+        userId: msg.message!.user!,
+        channelId: channel,
+        messageTs,
+        messageText: restartText,
+        triggerType: inFlight.triggerType,
+      });
+    } else {
+      logger.info(`Edit cancelled without restart (session: ${inFlight.sessionId})`);
     }
   });
 }
