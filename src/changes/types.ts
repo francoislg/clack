@@ -58,6 +58,23 @@ export interface FollowUpInfo {
   additionalInstructions?: string;
 }
 
+/**
+ * Subset of ChangeSession fields that writeSessionState actually needs.
+ * Used during restoration when a full ChangeSession cannot be reconstructed
+ * (e.g., the original ChangeRequest is unavailable).
+ */
+export interface WriteableSessionState {
+  id: string;
+  userId: string;
+  plan: ChangePlan;
+  prUrl?: string;
+  status: ChangeStatus;
+  createdAt: Date;
+  lastActivityAt: Date;
+  channel: string;
+  threadTs: string;
+}
+
 // ============================================================================
 // Persisted State Types
 // ============================================================================

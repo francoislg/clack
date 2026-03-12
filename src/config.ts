@@ -233,6 +233,11 @@ function parseTriggerChangesWorkflow(raw: Record<string, unknown> | undefined): 
 }
 
 const VALID_MERGE_STRATEGIES = ["squash", "merge", "rebase"] as const;
+const VALID_ROLES: readonly UserRole[] = ["member", "dev", "admin", "owner"];
+
+function isValidRole(value: string): value is UserRole {
+  return (VALID_ROLES as readonly string[]).includes(value);
+}
 
 function parseMergeStrategy(raw: Record<string, unknown>): RepositoryConfig["mergeStrategy"] {
   const value = str(raw, "mergeStrategy");
@@ -245,19 +250,31 @@ function parseMergeStrategy(raw: Record<string, unknown>): RepositoryConfig["mer
   return value as RepositoryConfig["mergeStrategy"];
 }
 
+function parseRepoAccess(access: Record<string, unknown>): RepoAccess {
+  const readVal = str(access, "read");
+  const writeVal = str(access, "write");
+  return {
+    read: readVal !== undefined && isValidRole(readVal) ? readVal : undefined,
+    write: writeVal !== undefined && isValidRole(writeVal) ? writeVal : undefined,
+  };
+}
+
 function parseRepo(raw: Record<string, unknown>): RepositoryConfig {
+  const name = str(raw, "name");
+  const url = str(raw, "url");
+  const description = str(raw, "description");
+
+  if (!name) throw new Error("Repository 'name' is required");
+  if (!url) throw new Error("Repository 'url' is required");
+  if (description === undefined) throw new Error("Repository 'description' is required");
+
   const access = section(raw, "access");
   return {
-    name: str(raw, "name")!,
-    url: str(raw, "url")!,
-    description: str(raw, "description")!,
+    name,
+    url,
+    description,
     branch: str(raw, "branch") || "main",
-    access: access
-      ? {
-          read: str(access, "read") as UserRole | undefined,
-          write: str(access, "write") as UserRole | undefined,
-        }
-      : undefined,
+    access: access ? parseRepoAccess(access) : undefined,
     worktreeBasePath: str(raw, "worktreeBasePath"),
     mergeStrategy: parseMergeStrategy(raw),
   };
@@ -278,7 +295,6 @@ function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Config {
   if (!Array.isArray(c.repositories) || c.repositories.length === 0) {
     throw new Error("Config 'repositories' must be a non-empty array");
   }
-  const validRoles: UserRole[] = ["member", "dev", "admin", "owner"];
   for (const repo of c.repositories) {
     if (typeof repo !== "object" || repo === null) {
       throw new Error("Each repository must be an object");
@@ -295,11 +311,13 @@ function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Config {
     }
     const acc = section(r, "access");
     if (acc) {
-      if (acc.read !== undefined && !validRoles.includes(acc.read as UserRole)) {
-        throw new Error(`Repository '${r.name}' access.read must be one of: ${validRoles.join(", ")}`);
+      const readVal = acc.read;
+      if (readVal !== undefined && (typeof readVal !== "string" || !isValidRole(readVal))) {
+        throw new Error(`Repository '${r.name}' access.read must be one of: ${VALID_ROLES.join(", ")}`);
       }
-      if (acc.write !== undefined && !validRoles.includes(acc.write as UserRole)) {
-        throw new Error(`Repository '${r.name}' access.write must be one of: ${validRoles.join(", ")}`);
+      const writeVal = acc.write;
+      if (writeVal !== undefined && (typeof writeVal !== "string" || !isValidRole(writeVal))) {
+        throw new Error(`Repository '${r.name}' access.write must be one of: ${VALID_ROLES.join(", ")}`);
       }
     }
   }

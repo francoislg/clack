@@ -1,6 +1,18 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
+import { basename } from "node:path";
 import { logger } from "../logger.js";
 import type { ConversationMessage } from "./index.js";
+
+/**
+ * Detect the JavaScript runtime from process.execPath and return
+ * the appropriate SDK executable literal ('node' | 'bun' | 'deno').
+ */
+export function detectRuntime(): "node" | "bun" | "deno" {
+  const bin = basename(process.execPath).toLowerCase();
+  if (bin.startsWith("bun")) return "bun";
+  if (bin.startsWith("deno")) return "deno";
+  return "node";
+}
 
 /**
  * Summarize text that was too long for Slack using a quick Claude call.
@@ -22,7 +34,7 @@ ${text}`;
       prompt,
       options: {
         cwd: process.cwd(),
-        executable: process.execPath as "node",
+        executable: detectRuntime(),
         model: "haiku",
         permissionMode: "bypassPermissions",
         disallowedTools: ["Write", "Edit", "NotebookEdit", "Bash", "Task", "TaskOutput", "Read", "Glob", "Grep"],
@@ -92,7 +104,7 @@ Provide a concise, non-technical explanation suitable for a user who encountered
       prompt,
       options: {
         cwd: process.cwd(),
-        executable: process.execPath as "node",
+        executable: detectRuntime(),
         model: "haiku", // Use fast, cheap model for analysis
         permissionMode: "bypassPermissions",
         disallowedTools: ["Write", "Edit", "NotebookEdit", "Bash", "Task", "TaskOutput", "Read", "Glob", "Grep"],

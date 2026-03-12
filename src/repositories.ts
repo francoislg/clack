@@ -5,7 +5,7 @@ import { getConfig, getRepositoriesDir, type RepositoryConfig } from "./config.j
 import { getAuthenticatedCloneUrl } from "./github.js";
 import { logger } from "./logger.js";
 
-function getGitInstance(baseDir?: string): SimpleGit {
+export function getGitInstance(baseDir?: string): SimpleGit {
   const options: Partial<SimpleGitOptions> = {};
 
   if (baseDir) {

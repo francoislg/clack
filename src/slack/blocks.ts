@@ -66,19 +66,22 @@ function encodeActionValue(sessionId: string, action: Action): string {
 export function decodeActionValue(value: string): { sessionId: string; ref?: string; choiceValue?: string; prompt?: string; hint?: string; workMode?: boolean; targetChannel?: string; targetThreadTs?: string; snapshotId?: string } {
   // Try JSON first
   try {
-    const parsed = JSON.parse(value);
-    if (typeof parsed === "object" && parsed.s) {
-      return {
-        sessionId: parsed.s,
-        ref: parsed.r,
-        choiceValue: parsed.v,
-        prompt: parsed.p,
-        hint: parsed.h,
-        workMode: parsed.w === true ? true : undefined,
-        targetChannel: parsed.c,
-        targetThreadTs: parsed.t,
-        snapshotId: parsed.sn,
-      };
+    const parsed: unknown = JSON.parse(value);
+    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+      const obj = parsed as Record<string, unknown>;
+      if (typeof obj.s === "string") {
+        return {
+          sessionId: obj.s,
+          ref: typeof obj.r === "string" ? obj.r : undefined,
+          choiceValue: typeof obj.v === "string" ? obj.v : undefined,
+          prompt: typeof obj.p === "string" ? obj.p : undefined,
+          hint: typeof obj.h === "string" ? obj.h : undefined,
+          workMode: obj.w === true ? true : undefined,
+          targetChannel: typeof obj.c === "string" ? obj.c : undefined,
+          targetThreadTs: typeof obj.t === "string" ? obj.t : undefined,
+          snapshotId: typeof obj.sn === "string" ? obj.sn : undefined,
+        };
+      }
     }
   } catch {
     // Not JSON — plain sessionId (backward compat)

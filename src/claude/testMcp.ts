@@ -5,6 +5,7 @@ import { loadMcpServers, getConfiguredMcpServerNames } from "../mcp.js";
 import type { SessionContext } from "../sessions.js";
 import { buildQueryContext } from "../tools/context.js";
 import { buildClackTools } from "../tools/server.js";
+import { detectRuntime } from "./utilities.js";
 
 export interface McpServerInfo {
   name: string;
@@ -102,7 +103,7 @@ export async function testMCP(): Promise<McpTestResult> {
       prompt: "test",
       options: {
         cwd: process.cwd(),
-        executable: process.execPath as "node",
+        executable: detectRuntime(),
         model: "haiku", // Use cheapest model for test
         permissionMode: "bypassPermissions",
         mcpServers: mcpServers as Record<string, import("@anthropic-ai/claude-agent-sdk").McpServerConfig>,

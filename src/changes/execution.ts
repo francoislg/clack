@@ -4,7 +4,7 @@ import { getConfig, findRepoByName } from "../config.js";
 import { errorMessage } from "../errors.js";
 import { resolveInstructionFile } from "../instructions.js";
 import { logger } from "../logger.js";
-import { setAuthenticatedRemote } from "../worktrees.js";
+import { setAuthenticatedRemote } from "../repositories.js";
 import type { WorktreeInfo } from "../worktrees.js";
 import type { ChangePlan, ChangeRequest, ExecutionResult } from "./types.js";
 import { appendExecutionLog } from "./persistence.js";

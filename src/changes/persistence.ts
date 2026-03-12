@@ -9,7 +9,7 @@ import { readFile, readdir, stat, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { getWorktreeSessionsDir } from "../config.js";
 import { logger } from "../logger.js";
-import type { ChangeSession, ChangeStatus, PersistedSessionState } from "./types.js";
+import type { ChangeSession, ChangeStatus, PersistedSessionState, WriteableSessionState } from "./types.js";
 
 // ============================================================================
 // Session Folder Management
@@ -40,7 +40,7 @@ export function createSessionFolder(session: ChangeSession): void {
   writeSessionState(session, "Starting change workflow");
 }
 
-export function writeSessionState(session: ChangeSession, lastMessage: string): void {
+export function writeSessionState(session: WriteableSessionState, lastMessage: string): void {
   const folderPath = getSessionFolderPath(session.plan.branchName);
 
   if (!existsSync(folderPath)) {
@@ -102,7 +102,8 @@ export async function readSessionState(branchName: string): Promise<PersistedSes
       return null;
     }
     return parsed;
-  } catch {
+  } catch (err) {
+    logger.debug(`Could not read session state for branch "${branchName}": ${err}`);
     return null;
   }
 }
@@ -167,7 +168,8 @@ export async function getAllPersistedSessions(): Promise<PersistedSessionState[]
 
       try {
         if (!(await stat(folderPath)).isDirectory()) continue;
-      } catch {
+      } catch (err) {
+        logger.debug(`Could not stat session folder "${folder}": ${err}`);
         continue;
       }
 
@@ -175,12 +177,13 @@ export async function getAllPersistedSessions(): Promise<PersistedSessionState[]
         const content = await readFile(statePath, "utf-8");
         const state = parseSessionState(content);
         if (state) sessions.push(state);
-      } catch {
+      } catch (err) {
+        logger.debug(`Could not read session state in "${folder}": ${err}`);
         continue;
       }
     }
-  } catch {
-    // Return empty if can't read sessions dir
+  } catch (err) {
+    logger.debug(`Could not read worktree sessions directory: ${err}`);
   }
 
   return sessions;
@@ -221,7 +224,8 @@ export async function getResumableSessions(): Promise<ResumableSession[]> {
       // Skip if not a directory
       try {
         if (!(await stat(folderPath)).isDirectory()) continue;
-      } catch {
+      } catch (err) {
+        logger.debug(`Could not stat session folder "${folder}": ${err}`);
         continue;
       }
 
@@ -243,13 +247,13 @@ export async function getResumableSessions(): Promise<ResumableSession[]> {
           lastMessage: state.lastMessage,
           startedAt: state.startedAt,
         });
-      } catch {
-        // Skip if can't parse
+      } catch (err) {
+        logger.debug(`Could not parse session state in "${folder}": ${err}`);
         continue;
       }
     }
-  } catch {
-    // Return empty if can't read sessions dir
+  } catch (err) {
+    logger.debug(`Could not read worktree sessions directory: ${err}`);
   }
 
   return resumable;
@@ -328,7 +332,8 @@ async function tryReadState(statePath: string): Promise<PersistedSessionState | 
   try {
     const content = await readFile(statePath, "utf-8");
     return parseSessionState(content);
-  } catch {
+  } catch (err) {
+    logger.debug(`Could not read state file "${statePath}": ${err}`);
     return null;
   }
 }
@@ -337,8 +342,8 @@ async function isFolderOlderThan(folderPath: string, retentionMs: number, now: n
   try {
     const folderStat = await stat(folderPath);
     return now - folderStat.mtimeMs >= retentionMs;
-  } catch {
-    // Can't stat — assume old enough to clean
+  } catch (err) {
+    logger.debug(`Could not stat folder "${folderPath}", assuming old enough to clean: ${err}`);
     return true;
   }
 }
@@ -375,7 +380,8 @@ export async function cleanupStaleSessionFolders(
       // Skip if not a directory
       try {
         if (!(await stat(folderPath)).isDirectory()) continue;
-      } catch {
+      } catch (err) {
+        logger.debug(`Could not stat folder "${folder}" during cleanup: ${err}`);
         continue;
       }
 

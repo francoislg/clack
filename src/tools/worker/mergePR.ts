@@ -7,7 +7,8 @@ import { getSession } from "../../sessions.js";
 import { appendExecutionLog } from "../../changes/persistence.js";
 import { findRepoByName } from "../../config.js";
 import { errorMessage } from "../../errors.js";
-import { parsePrUrl, cleanupAfterPrAction } from "./prHelpers.js";
+import { parsePrUrl } from "../../changes/pr.js";
+import { cleanupAfterPRAction } from "./prHelpers.js";
 
 export function createMergePRTool(ctx: WorkerToolContext) {
   return tool(
@@ -69,7 +70,7 @@ export function createMergePRTool(ctx: WorkerToolContext) {
         }
 
         // Cleanup local resources
-        await cleanupAfterPrAction(ctx, "merge_pr");
+        await cleanupAfterPRAction(ctx, "merge_pr");
 
         const result: Record<string, unknown> = {
           success: true,
