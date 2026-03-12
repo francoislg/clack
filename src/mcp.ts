@@ -217,6 +217,15 @@ export function getConfiguredMcpServerNames(): string[] {
 }
 
 /**
+ * Reset all internal caches. Intended for testing only.
+ */
+export function resetMcpCache(): void {
+  cachedStaticServers = undefined;
+  staticConfigLoaded = false;
+  binaryAvailable = null;
+}
+
+/**
  * Substitutes environment variables in config values
  * Supports ${VAR_NAME} syntax
  */
