@@ -11,6 +11,18 @@ export interface UsersCache {
   search(queries: string[], limit?: number): Promise<SlackUserEntry[]>;
 }
 
+function isRealUser(member: { deleted?: boolean; is_bot?: boolean; id?: string }): boolean {
+  return !member.deleted && !member.is_bot && member.id !== "USLACKBOT";
+}
+
+function toUserEntry(member: { id?: string; name?: string; profile?: { display_name?: string; real_name?: string } }): SlackUserEntry {
+  return {
+    userId: member.id ?? "",
+    username: member.name ?? "",
+    displayName: member.profile?.display_name || member.profile?.real_name || "",
+  };
+}
+
 export function createUsersCache(client: App["client"]): UsersCache {
   let cached: SlackUserEntry[] | null = null;
 
@@ -21,10 +33,7 @@ export function createUsersCache(client: App["client"]): UsersCache {
     let cursor: string | undefined;
 
     do {
-      const result = await client.users.list({
-        limit: 1000,
-        cursor,
-      });
+      const result = await client.users.list({ limit: 1000, cursor });
 
       if (!result.ok || !result.members) {
         logger.error(`Failed to fetch users list: ${result.error}`);
@@ -32,16 +41,7 @@ export function createUsersCache(client: App["client"]): UsersCache {
       }
 
       for (const member of result.members) {
-        // Skip deleted users, bots, and USLACKBOT
-        if (member.deleted) continue;
-        if (member.is_bot) continue;
-        if (member.id === "USLACKBOT") continue;
-
-        users.push({
-          userId: member.id ?? "",
-          username: member.name ?? "",
-          displayName: member.profile?.display_name || member.profile?.real_name || "",
-        });
+        if (isRealUser(member)) users.push(toUserEntry(member));
       }
 
       cursor = result.response_metadata?.next_cursor || undefined;

@@ -81,13 +81,27 @@ export function appendExecutionLog(branchName: string, message: string): void {
   appendFileSync(logPath, entry);
 }
 
+function isValidSessionState(parsed: unknown): parsed is PersistedSessionState {
+  return typeof parsed === "object" && parsed !== null && "sessionId" in parsed && "branch" in parsed && "status" in parsed;
+}
+
+function parseSessionState(content: string): PersistedSessionState | null {
+  const parsed: unknown = JSON.parse(content);
+  return isValidSessionState(parsed) ? parsed : null;
+}
+
 export async function readSessionState(branchName: string): Promise<PersistedSessionState | null> {
   const folderPath = getSessionFolderPath(branchName);
   const statePath = join(folderPath, "state.json");
 
   try {
     const content = await readFile(statePath, "utf-8");
-    return JSON.parse(content) as PersistedSessionState;
+    const parsed: unknown = JSON.parse(content);
+    if (!isValidSessionState(parsed)) {
+      logger.warn(`Corrupt session state file ${statePath}: missing required fields`);
+      return null;
+    }
+    return parsed;
   } catch {
     return null;
   }
@@ -159,8 +173,8 @@ export async function getAllPersistedSessions(): Promise<PersistedSessionState[]
 
       try {
         const content = await readFile(statePath, "utf-8");
-        const state = JSON.parse(content) as PersistedSessionState;
-        sessions.push(state);
+        const state = parseSessionState(content);
+        if (state) sessions.push(state);
       } catch {
         continue;
       }
@@ -213,7 +227,8 @@ export async function getResumableSessions(): Promise<ResumableSession[]> {
 
       try {
         const content = await readFile(statePath, "utf-8");
-        const state = JSON.parse(content) as PersistedSessionState;
+        const state = parseSessionState(content);
+        if (!state) continue;
 
         // Only include sessions that are resumable (failed or in-progress, not completed)
         // pr_created sessions already have a PR and are managed differently
@@ -312,7 +327,7 @@ async function tryRemoveFolder(folderPath: string, folder: string, label: string
 async function tryReadState(statePath: string): Promise<PersistedSessionState | null> {
   try {
     const content = await readFile(statePath, "utf-8");
-    return JSON.parse(content) as PersistedSessionState;
+    return parseSessionState(content);
   } catch {
     return null;
   }

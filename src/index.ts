@@ -149,21 +149,20 @@ async function main(): Promise<void> {
     logger.error("Enhancement migration error:", error);
   });
 
-  // Graceful shutdown handling
-  const shutdown = async (signal: string): Promise<void> => {
-    logger.startup(`Received ${signal}, shutting down gracefully...`);
-
-    stopCompletionMonitor();
-    stopSyncScheduler();
-    stopCleanupScheduler();
-    await stopSlackApp();
-
-    logger.startup("Shutdown complete");
-    process.exit(0);
-  };
-
   process.on("SIGINT", () => shutdown("SIGINT"));
   process.on("SIGTERM", () => shutdown("SIGTERM"));
+}
+
+async function shutdown(signal: string): Promise<void> {
+  logger.startup(`Received ${signal}, shutting down gracefully...`);
+
+  stopCompletionMonitor();
+  stopSyncScheduler();
+  stopCleanupScheduler();
+  await stopSlackApp();
+
+  logger.startup("Shutdown complete");
+  process.exit(0);
 }
 
 main().catch((error) => {
