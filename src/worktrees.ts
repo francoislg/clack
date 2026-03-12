@@ -1,29 +1,9 @@
-import { simpleGit, SimpleGit, SimpleGitOptions } from "simple-git";
 import { existsSync, mkdirSync, rmSync, readdirSync, statSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { getConfig, getRepositoriesDir, getWorktreesDir, getWorktreeSessionsDir, type RepositoryConfig } from "./config.js";
-import { getAuthenticatedCloneUrl } from "./github.js";
 import { logger } from "./logger.js";
 import { errorMessage } from "./errors.js";
-
-function getGitInstance(baseDir?: string): SimpleGit {
-  const options: Partial<SimpleGitOptions> = {};
-
-  if (baseDir) {
-    options.baseDir = baseDir;
-  }
-
-  return simpleGit(options);
-}
-
-/**
- * Set the remote URL to an authenticated HTTPS URL with a fresh token.
- */
-export async function setAuthenticatedRemote(repoPath: string, repoUrl: string): Promise<void> {
-  const git = getGitInstance(repoPath);
-  const authenticatedUrl = await getAuthenticatedCloneUrl(repoUrl);
-  await git.remote(["set-url", "origin", authenticatedUrl]);
-}
+import { getGitInstance, setAuthenticatedRemote } from "./repositories.js";
 
 /**
  * Find the repository config by name to get its URL for token auth.

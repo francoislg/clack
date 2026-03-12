@@ -3,28 +3,43 @@ import { errorMessage } from "../errors.js";
 import { logger } from "../logger.js";
 
 // ============================================================================
+// PR URL Parsing
+// ============================================================================
+
+export interface ParsedPrUrl {
+  owner: string;
+  repo: string;
+  pullNumber: number;
+}
+
+/**
+ * Extract owner, repo, and pull number from a GitHub PR URL.
+ * Returns null if the URL doesn't match the expected pattern.
+ */
+export function parsePrUrl(url: string): ParsedPrUrl | null {
+  const match = url.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
+  if (!match) return null;
+
+  const [, owner, repo, pullNumberStr] = match;
+  return { owner, repo, pullNumber: parseInt(pullNumberStr, 10) };
+}
+
+// ============================================================================
 // PR Status
 // ============================================================================
 
 export type PRState = "OPEN" | "MERGED" | "CLOSED";
 
 /**
- * Extract owner, repo, and pull number from a GitHub PR URL.
- */
-function parsePRUrl(prUrl: string): { owner: string; repo: string; pull_number: number } {
-  const match = prUrl.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
-  if (!match) {
-    throw new Error(`Invalid PR URL: ${prUrl}`);
-  }
-  return { owner: match[1], repo: match[2], pull_number: parseInt(match[3], 10) };
-}
-
-/**
  * Fetch review comments and reviews for a PR, formatted as context for Claude.
  */
 export async function fetchPRReviewContext(prUrl: string): Promise<{ ok: true; context: string } | { ok: false; error: string }> {
   try {
-    const { owner, repo, pull_number } = parsePRUrl(prUrl);
+    const parsed = parsePrUrl(prUrl);
+    if (!parsed) {
+      return { ok: false, error: `Invalid PR URL: ${prUrl}` };
+    }
+    const { owner, repo, pullNumber: pull_number } = parsed;
     const octokit = await getOctokit();
 
     const [{ data: comments }, { data: reviews }] = await Promise.all([
@@ -63,7 +78,12 @@ export async function fetchPRReviewContext(prUrl: string): Promise<{ ok: true; c
  */
 export async function getPRStatus(prUrl: string): Promise<{ state: PRState } | null> {
   try {
-    const { owner, repo, pull_number } = parsePRUrl(prUrl);
+    const parsed = parsePrUrl(prUrl);
+    if (!parsed) {
+      logger.debug(`Invalid PR URL: ${prUrl}`);
+      return null;
+    }
+    const { owner, repo, pullNumber: pull_number } = parsed;
     const octokit = await getOctokit();
     const { data } = await octokit.pulls.get({ owner, repo, pull_number });
 

@@ -471,7 +471,9 @@ export function startCleanupScheduler(): void {
   logger.debug(`Starting session cleanup scheduler (every ${intervalMinutes} minutes)`);
 
   cleanupInterval = setInterval(() => {
-    cleanupExpiredSessions();
+    cleanupExpiredSessions().catch((err) => {
+      logger.error(`Session cleanup failed: ${err}`);
+    });
   }, intervalMs);
 }
 

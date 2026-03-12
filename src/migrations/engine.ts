@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { logger } from "../logger.js";
+import { detectRuntime } from "../claude/utilities.js";
 import type { Migration } from "./types.js";
 
 export function getPendingMigrations(
@@ -55,7 +56,7 @@ Rules:
     prompt: migration.prompt,
     options: {
       cwd,
-      executable: process.execPath as "node",
+      executable: detectRuntime(),
       systemPrompt,
       model: "sonnet",
       permissionMode: "bypassPermissions",

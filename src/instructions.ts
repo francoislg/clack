@@ -48,7 +48,7 @@ export function resolveInstructionFile(filename: string): string | null {
  *   - admin_instructions.md falls back to dev_instructions.md if not found
  * - everyone else → user_instructions.md
  */
-function getRoleFilename(role: UserRole, changesWorkflowEnabled: boolean): string | null {
+function getRoleFilename(role: UserRole, changesWorkflowEnabled: boolean): string {
   if (changesWorkflowEnabled && canEditConfig(role)) {
     // Try admin first, fall back to dev
     if (resolveInstructionFile(ROLE_FILES.admin)) {
@@ -89,16 +89,14 @@ export function loadInstructions(role: UserRole, options: LoadInstructionsOption
 
   let content = readFileSync(basePath, "utf-8");
 
-  // Load role overlay (optional)
+  // Load role overlay (optional — file may not exist on disk)
   const roleFilename = getRoleFilename(role, options.changesWorkflowEnabled);
-  if (roleFilename) {
-    const rolePath = resolveInstructionFile(roleFilename);
-    if (rolePath) {
-      const roleContent = readFileSync(rolePath, "utf-8");
-      content += "\n" + roleContent;
-    } else {
-      logger.debug(`Role instruction file '${roleFilename}' not found, skipping overlay`);
-    }
+  const rolePath = resolveInstructionFile(roleFilename);
+  if (rolePath) {
+    const roleContent = readFileSync(rolePath, "utf-8");
+    content += "\n" + roleContent;
+  } else {
+    logger.debug(`Role instruction file '${roleFilename}' not found, skipping overlay`);
   }
 
   // Interpolate variables after concatenation

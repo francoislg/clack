@@ -193,7 +193,7 @@ describe("fetchPRReviewContext", () => {
   it("returns error for invalid PR URL", async () => {
     const result = await fetchPRReviewContext("https://example.com/not-a-pr");
     assert.equal(result.ok, false);
-    assert.ok("error" in result && result.error.includes("Failed to fetch PR reviews"));
+    assert.ok("error" in result && result.error.includes("Invalid PR URL"));
   });
 
   it("returns error when GitHub API call fails", async () => {

@@ -6,7 +6,8 @@ import { getOctokit } from "../../github.js";
 import { getSession } from "../../sessions.js";
 import { appendExecutionLog } from "../../changes/persistence.js";
 import { errorMessage } from "../../errors.js";
-import { parsePrUrl, cleanupAfterPrAction } from "./prHelpers.js";
+import { parsePrUrl } from "../../changes/pr.js";
+import { cleanupAfterPRAction } from "./prHelpers.js";
 
 export function createClosePRTool(ctx: WorkerToolContext) {
   return tool(
@@ -63,7 +64,7 @@ export function createClosePRTool(ctx: WorkerToolContext) {
         }
 
         // Cleanup: update status, remove worktree and local branch, clear activeChange
-        await cleanupAfterPrAction(ctx, "close_pr");
+        await cleanupAfterPRAction(ctx, "close_pr");
 
         const result: Record<string, unknown> = {
           success: true,

@@ -2,7 +2,7 @@ import { getConfig, type RepositoryConfig } from "../config.js";
 import { logger } from "../logger.js";
 import { getExistingWorktree } from "../worktrees.js";
 import { getAllPersistedSessions, writeSessionState } from "./persistence.js";
-import type { ChangeStatus, PersistedSessionState, ChangeSession } from "./types.js";
+import type { ChangeStatus, PersistedSessionState, WriteableSessionState } from "./types.js";
 import { findSessionByThread } from "../sessions.js";
 import { setActiveChange } from "./activeState.js";
 
@@ -106,25 +106,18 @@ export async function restoreWorkerSessions(): Promise<void> {
     });
 
     if (wasDowngraded) {
-      writeSessionState({
+      const restoredState: WriteableSessionState = {
         id: unifiedSession.sessionId,
         userId: unifiedSession.userId,
-        request: {
-          userId: unifiedSession.userId,
-          message: state.description,
-          triggerType: "reactions",
-          channel: state.channel!,
-          messageTs: state.threadTs!,
-        },
         plan: { branchName: state.branch, description: state.description, targetRepo: state.repo },
-        worktree,
         prUrl: state.prUrl ?? undefined,
         status: effectiveStatus,
         createdAt: new Date(state.startedAt),
         lastActivityAt: new Date(state.lastActivityAt),
         channel: state.channel!,
         threadTs: state.threadTs!,
-      } as ChangeSession, `Restored on startup (was ${state.status}, downgraded to ${effectiveStatus})`);
+      };
+      writeSessionState(restoredState, `Restored on startup (was ${state.status}, downgraded to ${effectiveStatus})`);
     }
 
     restored++;
@@ -142,8 +135,7 @@ export async function restoreWorkerSessions(): Promise<void> {
  * The worktree is preserved for manual re-request.
  */
 function markSessionFailed(state: PersistedSessionState): void {
-  // Build a minimal ChangeSession just for writeSessionState
-  const minimalSession = {
+  const failedState: WriteableSessionState = {
     id: state.sessionId,
     userId: state.userId,
     plan: {
@@ -152,12 +144,12 @@ function markSessionFailed(state: PersistedSessionState): void {
       targetRepo: state.repo,
     },
     prUrl: state.prUrl ?? undefined,
-    status: "failed" as ChangeStatus,
+    status: "failed",
     createdAt: new Date(state.startedAt),
     lastActivityAt: new Date(),
     channel: state.channel ?? "",
     threadTs: state.threadTs ?? "",
-  } as ChangeSession;
+  };
 
-  writeSessionState(minimalSession, "Marked failed on startup: agent interrupted without PR");
+  writeSessionState(failedState, "Marked failed on startup: agent interrupted without PR");
 }
