@@ -192,7 +192,12 @@ export async function getSession(sessionId: string): Promise<SessionContext | nu
 
   try {
     const content = await readFile(contextPath, "utf-8");
-    const session = JSON.parse(content) as SessionContext;
+    const parsed: unknown = JSON.parse(content);
+    if (typeof parsed !== "object" || parsed === null || !("sessionId" in parsed) || !("originalQuestion" in parsed)) {
+      logger.warn(`Corrupt session file ${contextPath}: missing required fields`);
+      return null;
+    }
+    const session = parsed as SessionContext;
 
     // Backward compatibility: ensure arrays exist
     if (!session.errors) session.errors = [];

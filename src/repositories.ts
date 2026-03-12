@@ -75,15 +75,10 @@ export async function syncRepository(repo: RepositoryConfig): Promise<void> {
   await setAuthenticatedRemote(repoPath, repo.url);
   const repoGit = getGitInstance(repoPath);
 
-  try {
-    await repoGit.fetch("origin", branch);
-    await repoGit.checkout(["-f", branch]);
-    await repoGit.reset(["--hard", `origin/${branch}`]);
-    logger.debug(`Successfully synced ${repo.name} to origin/${branch}`);
-  } catch (error) {
-    logger.error(`Failed to sync ${repo.name}:`, error);
-    // Continue with existing local copy
-  }
+  await repoGit.fetch("origin", branch);
+  await repoGit.checkout(["-f", branch]);
+  await repoGit.reset(["--hard", `origin/${branch}`]);
+  logger.debug(`Successfully synced ${repo.name} to origin/${branch}`);
 }
 
 export async function syncAllRepositories(): Promise<void> {
