@@ -1,6 +1,23 @@
-import { describe, it } from "node:test";
+import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { canEditConfig, canRequestChanges, canManageRoles, canTransferOwnership } from "./permissions.js";
+import { mkdirSync, rmSync, existsSync } from "node:fs";
+import { resolve, join } from "node:path";
+import {
+  canEditConfig,
+  canRequestChanges,
+  canManageRoles,
+  canTransferOwnership,
+  userCanEditConfig,
+  userCanManageRoles,
+} from "./permissions.js";
+import { saveRoles, clearRolesCache } from "./roles.js";
+import type { UserRole } from "./roles.js";
+
+// ---------------------------------------------------------------------------
+// Role-based (synchronous) permission checks
+// ---------------------------------------------------------------------------
+
+const ALL_ROLES: UserRole[] = ["owner", "admin", "dev", "member"];
 
 describe("canEditConfig", () => {
   it("allows admin and owner", () => {
@@ -47,5 +64,122 @@ describe("canTransferOwnership", () => {
     assert.equal(canTransferOwnership("admin"), false);
     assert.equal(canTransferOwnership("dev"), false);
     assert.equal(canTransferOwnership("member"), false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Exhaustive role matrix — verifies every (function, role) combination
+// ---------------------------------------------------------------------------
+
+describe("permission matrix", () => {
+  const expectations: Record<string, Record<UserRole, boolean>> = {
+    canEditConfig: { owner: true, admin: true, dev: false, member: false },
+    canRequestChanges: { owner: true, admin: true, dev: true, member: false },
+    canManageRoles: { owner: true, admin: true, dev: false, member: false },
+    canTransferOwnership: { owner: true, admin: false, dev: false, member: false },
+  };
+
+  const fns: Record<string, (role: UserRole) => boolean> = {
+    canEditConfig,
+    canRequestChanges,
+    canManageRoles,
+    canTransferOwnership,
+  };
+
+  for (const [fnName, expected] of Object.entries(expectations)) {
+    describe(fnName, () => {
+      for (const role of ALL_ROLES) {
+        it(`${expected[role] ? "allows" : "denies"} ${role}`, () => {
+          assert.equal(fns[fnName](role), expected[role]);
+        });
+      }
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// userId-based (async) permission wrappers
+// ---------------------------------------------------------------------------
+
+const tmpBase = resolve("/private/tmp", `permissions-test-${process.pid}`);
+const stateDir = join(tmpBase, "data", "state");
+
+describe("userCanEditConfig", () => {
+  const originalCwd = process.cwd();
+
+  beforeEach(() => {
+    if (existsSync(tmpBase)) {
+      rmSync(tmpBase, { recursive: true });
+    }
+    mkdirSync(stateDir, { recursive: true });
+    process.chdir(tmpBase);
+    clearRolesCache();
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    if (existsSync(tmpBase)) {
+      rmSync(tmpBase, { recursive: true });
+    }
+  });
+
+  it("returns true for the owner", async () => {
+    await saveRoles({ owner: "U_OWNER", admins: [], devs: [] });
+    assert.equal(await userCanEditConfig("U_OWNER"), true);
+  });
+
+  it("returns true for an admin", async () => {
+    await saveRoles({ owner: "U_OWNER", admins: ["U_ADMIN"], devs: [] });
+    assert.equal(await userCanEditConfig("U_ADMIN"), true);
+  });
+
+  it("returns false for a dev", async () => {
+    await saveRoles({ owner: "U_OWNER", admins: [], devs: ["U_DEV"] });
+    assert.equal(await userCanEditConfig("U_DEV"), false);
+  });
+
+  it("returns false for a member (unknown user)", async () => {
+    await saveRoles({ owner: "U_OWNER", admins: [], devs: [] });
+    assert.equal(await userCanEditConfig("U_MEMBER"), false);
+  });
+});
+
+describe("userCanManageRoles", () => {
+  const originalCwd = process.cwd();
+
+  beforeEach(() => {
+    if (existsSync(tmpBase)) {
+      rmSync(tmpBase, { recursive: true });
+    }
+    mkdirSync(stateDir, { recursive: true });
+    process.chdir(tmpBase);
+    clearRolesCache();
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    if (existsSync(tmpBase)) {
+      rmSync(tmpBase, { recursive: true });
+    }
+  });
+
+  it("returns true for the owner", async () => {
+    await saveRoles({ owner: "U_OWNER", admins: [], devs: [] });
+    assert.equal(await userCanManageRoles("U_OWNER"), true);
+  });
+
+  it("returns true for an admin", async () => {
+    await saveRoles({ owner: "U_OWNER", admins: ["U_ADMIN"], devs: [] });
+    assert.equal(await userCanManageRoles("U_ADMIN"), true);
+  });
+
+  it("returns false for a dev", async () => {
+    await saveRoles({ owner: "U_OWNER", admins: [], devs: ["U_DEV"] });
+    assert.equal(await userCanManageRoles("U_DEV"), false);
+  });
+
+  it("returns false for a member (unknown user)", async () => {
+    await saveRoles({ owner: "U_OWNER", admins: [], devs: [] });
+    assert.equal(await userCanManageRoles("U_MEMBER"), false);
   });
 });

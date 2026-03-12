@@ -73,25 +73,26 @@ function summarizeContentBlocks(content: unknown[]): string {
   return parts.join(" ").substring(0, 1000);
 }
 
-function summarizeMessageContent(message: unknown): string {
-  const msg = message as Record<string, unknown>;
+function hasProperty<K extends string>(obj: unknown, key: K): obj is Record<K, unknown> {
+  return typeof obj === "object" && obj !== null && key in obj;
+}
 
-  if (msg.message && typeof msg.message === "object") {
-    const innerContent = (msg.message as Record<string, unknown>).content;
-    if (Array.isArray(innerContent)) {
-      return summarizeContentBlocks(innerContent);
+function summarizeMessageContent(message: unknown): string {
+  if (hasProperty(message, "message") && hasProperty(message.message, "content")) {
+    if (Array.isArray(message.message.content)) {
+      return summarizeContentBlocks(message.message.content);
     }
   }
 
-  if (msg.result && typeof msg.result === "string") {
-    return msg.result.substring(0, 1000);
+  if (hasProperty(message, "result") && typeof message.result === "string") {
+    return message.result.substring(0, 1000);
   }
 
-  if (msg.errors && Array.isArray(msg.errors)) {
-    return `Errors: ${msg.errors.join(", ")}`;
+  if (hasProperty(message, "errors") && Array.isArray(message.errors)) {
+    return `Errors: ${message.errors.join(", ")}`;
   }
 
-  return JSON.stringify(msg).substring(0, 500);
+  return JSON.stringify(message).substring(0, 500);
 }
 
 interface QuerySetup {

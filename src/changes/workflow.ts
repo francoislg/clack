@@ -4,6 +4,7 @@ import type {
   ChangeRequest,
   ChangePlan,
   ChangeResult,
+  ChangeStatus,
   FollowUpCommand,
 } from "./types.js";
 import type { SessionContext } from "../sessions.js";
@@ -148,11 +149,11 @@ export async function startChangeWorkflow(
     };
   }
 
-  // PR wasn't created but execution succeeded — partial success
+  // PR wasn't created — execution ran but the workflow didn't fully complete
   return {
-    success: execResult.success,
+    success: false,
     summary: execResult.summary,
-    error: execResult.success ? "Changes committed but PR was not created. Check the thread for details." : execResult.error,
+    error: "Changes committed but PR was not created. Check the thread for details.",
   };
 }
 
@@ -173,6 +174,16 @@ export async function handleFollowUp(
 
   if (!activeChange.worktree) {
     return { success: false, error: "No worktree exists for this change." };
+  }
+
+  // Guard: only allow follow-ups when the change is idle (PR exists, no work in progress)
+  const terminalStatuses: ChangeStatus[] = ["completed", "failed"];
+  const busyStatuses: ChangeStatus[] = ["executing", "reviewing", "merging"];
+  if (terminalStatuses.includes(activeChange.status)) {
+    return { success: false, error: `This change is already ${activeChange.status}. No further actions are possible.` };
+  }
+  if (busyStatuses.includes(activeChange.status)) {
+    return { success: false, error: `This change is currently ${activeChange.status}. Please wait for it to finish before requesting another action.` };
   }
 
   const config = getConfig();

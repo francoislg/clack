@@ -232,6 +232,19 @@ function parseTriggerChangesWorkflow(raw: Record<string, unknown> | undefined): 
   return { enabled: bool(raw, "enabled") ?? false };
 }
 
+const VALID_MERGE_STRATEGIES = ["squash", "merge", "rebase"] as const;
+
+function parseMergeStrategy(raw: Record<string, unknown>): RepositoryConfig["mergeStrategy"] {
+  const value = str(raw, "mergeStrategy");
+  if (value === undefined) return undefined;
+  if (!(VALID_MERGE_STRATEGIES as readonly string[]).includes(value)) {
+    throw new Error(
+      `Repository 'mergeStrategy' must be one of: ${VALID_MERGE_STRATEGIES.join(", ")} (got '${value}')`
+    );
+  }
+  return value as RepositoryConfig["mergeStrategy"];
+}
+
 function parseRepo(raw: Record<string, unknown>): RepositoryConfig {
   const access = section(raw, "access");
   return {
@@ -246,7 +259,7 @@ function parseRepo(raw: Record<string, unknown>): RepositoryConfig {
         }
       : undefined,
     worktreeBasePath: str(raw, "worktreeBasePath"),
-    mergeStrategy: str(raw, "mergeStrategy") as "squash" | "merge" | "rebase" | undefined,
+    mergeStrategy: parseMergeStrategy(raw),
   };
 }
 
