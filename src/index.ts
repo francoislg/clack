@@ -11,6 +11,8 @@ import { initializeWorktrees } from "./worktrees.js";
 import { discoverPluginInfo } from "./plugins.js";
 import { startCompletionMonitor, stopCompletionMonitor } from "./changes/monitor.js";
 import { restoreWorkerSessions } from "./changes/restore.js";
+import { cleanupStaleSessionFolders } from "./changes/persistence.js";
+import { getActiveChangeBranches } from "./changes/activeState.js";
 import { validateInstructionFiles } from "./instructions.js";
 import { runBlockingMigrations, runEnhancementMigrations } from "./migrations/boot.js";
 
@@ -105,7 +107,9 @@ async function main(): Promise<void> {
   if (config.changesWorkflow?.enabled) {
     logger.debug("Initializing worktrees...");
     try {
-      await initializeWorktrees();
+      await initializeWorktrees(async (expiryHours) => {
+        await cleanupStaleSessionFolders(expiryHours, getActiveChangeBranches());
+      });
       logger.info("Worktrees initialized");
     } catch (error) {
       logger.warn("Failed to initialize worktrees:", error);
