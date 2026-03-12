@@ -1,0 +1,237 @@
+import { describe, it, beforeEach, mock } from "node:test";
+import assert from "node:assert/strict";
+
+// ============================================================================
+// Mock setup — must come before importing the module under test
+// ============================================================================
+
+const mockUpdateSession = mock.fn<(id: string, updates: Record<string, unknown>) => Promise<null>>(async () => null);
+
+mock.module("../sessions.js", {
+  namedExports: {
+    updateSession: mockUpdateSession,
+  },
+});
+
+let sessionInfoStore: Map<string, Record<string, unknown>>;
+
+const mockGetSessionInfo = mock.fn((id: string) => sessionInfoStore.get(id));
+const mockSetSessionInfo = mock.fn((id: string, info: Record<string, unknown>) => {
+  sessionInfoStore.set(id, info);
+});
+
+mock.module("./state.js", {
+  namedExports: {
+    getSessionInfo: mockGetSessionInfo,
+    setSessionInfo: mockSetSessionInfo,
+  },
+});
+
+// Import after mocks
+const {
+  getDmSynthesisActions,
+  getDmPostAcceptActions,
+  storeDmCoordinates,
+} = await import("./dmResponse.js");
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+beforeEach(() => {
+  mockUpdateSession.mock.resetCalls();
+  mockGetSessionInfo.mock.resetCalls();
+  mockSetSessionInfo.mock.resetCalls();
+  sessionInfoStore = new Map();
+});
+
+// ============================================================================
+// getDmSynthesisActions
+// ============================================================================
+
+describe("getDmSynthesisActions", () => {
+  it("returns a single actions block with three buttons", () => {
+    const blocks = getDmSynthesisActions("sess-1");
+    assert.equal(blocks.length, 1);
+    assert.equal(blocks[0].type, "actions");
+    assert.equal(blocks[0].elements.length, 3);
+  });
+
+  it("has Accept, Edit, and Reject buttons in order", () => {
+    const blocks = getDmSynthesisActions("sess-1");
+    const elements = blocks[0].elements;
+    assert.equal(elements[0].text.text, "Accept");
+    assert.equal(elements[1].text.text, "Edit");
+    assert.equal(elements[2].text.text, "Reject");
+  });
+
+  it("assigns correct action_ids", () => {
+    const blocks = getDmSynthesisActions("sess-1");
+    const elements = blocks[0].elements;
+    assert.equal(elements[0].action_id, "clack_dm_accept_synthesis");
+    assert.equal(elements[1].action_id, "clack_dm_edit_synthesis");
+    assert.equal(elements[2].action_id, "clack_dm_reject");
+  });
+
+  it("passes sessionId as value on all buttons", () => {
+    const blocks = getDmSynthesisActions("sess-xyz");
+    for (const element of blocks[0].elements) {
+      assert.equal(element.value, "sess-xyz");
+    }
+  });
+
+  it("applies primary style to Accept and danger style to Reject", () => {
+    const blocks = getDmSynthesisActions("sess-1");
+    const elements = blocks[0].elements;
+    assert.equal(elements[0].style, "primary");
+    assert.equal((elements[1] as Record<string, unknown>).style, undefined);
+    assert.equal(elements[2].style, "danger");
+  });
+
+  it("uses plain_text type with emoji for all button labels", () => {
+    const blocks = getDmSynthesisActions("sess-1");
+    for (const element of blocks[0].elements) {
+      assert.equal(element.text.type, "plain_text");
+      assert.equal(element.text.emoji, true);
+    }
+  });
+
+  it("all buttons have type 'button'", () => {
+    const blocks = getDmSynthesisActions("sess-1");
+    for (const element of blocks[0].elements) {
+      assert.equal(element.type, "button");
+    }
+  });
+});
+
+// ============================================================================
+// getDmPostAcceptActions
+// ============================================================================
+
+describe("getDmPostAcceptActions", () => {
+  it("returns a single actions block with three buttons", () => {
+    const blocks = getDmPostAcceptActions("sess-1");
+    assert.equal(blocks.length, 1);
+    assert.equal(blocks[0].type, "actions");
+    assert.equal(blocks[0].elements.length, 3);
+  });
+
+  it("has Update original post, Post new reply, and Cancel buttons in order", () => {
+    const blocks = getDmPostAcceptActions("sess-1");
+    const elements = blocks[0].elements;
+    assert.equal(elements[0].text.text, "Update original post");
+    assert.equal(elements[1].text.text, "Post new reply");
+    assert.equal(elements[2].text.text, "Cancel");
+  });
+
+  it("assigns correct action_ids", () => {
+    const blocks = getDmPostAcceptActions("sess-1");
+    const elements = blocks[0].elements;
+    assert.equal(elements[0].action_id, "clack_dm_update_post");
+    assert.equal(elements[1].action_id, "clack_dm_post_new");
+    assert.equal(elements[2].action_id, "clack_dm_reject");
+  });
+
+  it("passes sessionId as value on all buttons", () => {
+    const blocks = getDmPostAcceptActions("sess-abc");
+    for (const element of blocks[0].elements) {
+      assert.equal(element.value, "sess-abc");
+    }
+  });
+
+  it("applies primary style to Update and danger style to Cancel", () => {
+    const blocks = getDmPostAcceptActions("sess-1");
+    const elements = blocks[0].elements;
+    assert.equal(elements[0].style, "primary");
+    assert.equal((elements[1] as Record<string, unknown>).style, undefined);
+    assert.equal(elements[2].style, "danger");
+  });
+
+  it("uses plain_text type with emoji for all button labels", () => {
+    const blocks = getDmPostAcceptActions("sess-1");
+    for (const element of blocks[0].elements) {
+      assert.equal(element.text.type, "plain_text");
+      assert.equal(element.text.emoji, true);
+    }
+  });
+
+  it("Cancel shares the same action_id as Reject in synthesis actions", () => {
+    const synthesisBlocks = getDmSynthesisActions("sess-1");
+    const postAcceptBlocks = getDmPostAcceptActions("sess-1");
+    const rejectActionId = synthesisBlocks[0].elements[2].action_id;
+    const cancelActionId = postAcceptBlocks[0].elements[2].action_id;
+    assert.equal(rejectActionId, cancelActionId);
+  });
+});
+
+// ============================================================================
+// storeDmCoordinates
+// ============================================================================
+
+describe("storeDmCoordinates", () => {
+  it("calls updateSession with the DM coordinate fields", async () => {
+    await storeDmCoordinates("sess-1", "D100", "1700.001", "C200", "1700.002");
+
+    assert.equal(mockUpdateSession.mock.callCount(), 1);
+    const [sessionId, updates] = mockUpdateSession.mock.calls[0].arguments;
+    assert.equal(sessionId, "sess-1");
+    assert.deepEqual(updates, {
+      dmChannel: "D100",
+      dmThreadTs: "1700.001",
+      originChannel: "C200",
+      originThreadTs: "1700.002",
+    });
+  });
+
+  it("updates in-memory session info when it exists", async () => {
+    sessionInfoStore.set("sess-1", {
+      channelId: "C200",
+      threadTs: "1700.002",
+      userId: "U001",
+    });
+
+    await storeDmCoordinates("sess-1", "D100", "1700.001", "C200", "1700.002");
+
+    assert.equal(mockSetSessionInfo.mock.callCount(), 1);
+    const [id, info] = mockSetSessionInfo.mock.calls[0].arguments;
+    assert.equal(id, "sess-1");
+    assert.equal(info.dmChannel, "D100");
+    assert.equal(info.dmThreadTs, "1700.001");
+    assert.equal(info.originChannel, "C200");
+    assert.equal(info.originThreadTs, "1700.002");
+    // Original fields should be preserved
+    assert.equal(info.channelId, "C200");
+    assert.equal(info.threadTs, "1700.002");
+    assert.equal(info.userId, "U001");
+  });
+
+  it("does not call setSessionInfo when session info is not in memory", async () => {
+    // sessionInfoStore is empty — getSessionInfo will return undefined
+
+    await storeDmCoordinates("sess-1", "D100", "1700.001", "C200", "1700.002");
+
+    assert.equal(mockSetSessionInfo.mock.callCount(), 0);
+  });
+
+  it("still calls updateSession even when session info is not in memory", async () => {
+    await storeDmCoordinates("sess-1", "D100", "1700.001", "C200", "1700.002");
+
+    assert.equal(mockUpdateSession.mock.callCount(), 1);
+  });
+
+  it("preserves existing session info fields when merging", async () => {
+    sessionInfoStore.set("sess-1", {
+      channelId: "C200",
+      threadTs: "1700.002",
+      userId: "U001",
+      triggerType: "reactions",
+      channelPostTs: "1700.999",
+    });
+
+    await storeDmCoordinates("sess-1", "D100", "1700.001", "C200", "1700.002");
+
+    const [, info] = mockSetSessionInfo.mock.calls[0].arguments;
+    assert.equal(info.triggerType, "reactions");
+    assert.equal(info.channelPostTs, "1700.999");
+  });
+});
