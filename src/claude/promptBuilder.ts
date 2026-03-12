@@ -2,8 +2,6 @@ import { getConfig } from "../config.js";
 import { loadInstructions } from "../instructions.js";
 import type { UserRole } from "../roles.js";
 import type { SessionContext } from "../sessions.js";
-import { formatUserIdentity } from "../slack/userCache.js";
-
 /** Subset of AskClaudeOptions needed for prompt construction. */
 export interface PromptOptions {
   role?: UserRole;
@@ -26,19 +24,18 @@ export function buildSystemPrompt(options?: PromptOptions): string {
   });
 }
 
+function formatSpeaker(msg: { userId: string; username?: string; displayName?: string }): string {
+  if (msg.displayName && msg.username) {
+    return `[${msg.displayName} (@${msg.username} - ID: ${msg.userId})]`;
+  }
+  if (msg.displayName) return `[${msg.displayName} (ID: ${msg.userId})]`;
+  if (msg.username) return `[@${msg.username} (ID: ${msg.userId})]`;
+  return `[ID: ${msg.userId}]`;
+}
+
 function formatThreadContext(messages: SessionContext["threadContext"]): string {
   if (messages.length === 0) return "";
-
-  const formatted = messages.map((msg) => {
-    const speaker = formatUserIdentity(msg.userId, {
-      userId: msg.userId,
-      username: msg.username,
-      displayName: msg.displayName,
-    });
-    return `${speaker}: ${msg.text}`;
-  });
-
-  return formatted.join("\n\n");
+  return messages.map((msg) => `${formatSpeaker(msg)}: ${msg.text}`).join("\n\n");
 }
 
 function buildDeliveryContext(session: SessionContext): string | null {
