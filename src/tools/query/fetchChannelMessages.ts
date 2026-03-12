@@ -6,6 +6,91 @@ import { extractMessageText } from "../../slack/messagesApi.js";
 import { resolveUsers, transformUserMentions } from "../../slack/userCache.js";
 import { errorMessage } from "../../errors.js";
 
+type SlackClient = NonNullable<QueryToolContext["slackClient"]>;
+type UserInfoMap = Awaited<ReturnType<typeof resolveUsers>>;
+
+async function resolveReplyUserName(
+  client: SlackClient,
+  replyUserId: string | undefined,
+  userInfoMap: UserInfoMap,
+): Promise<string> {
+  if (!replyUserId) return "unknown";
+  const cached = userInfoMap.get(replyUserId);
+  if (cached) return cached.displayName ?? cached.username ?? replyUserId;
+  const extraMap = await resolveUsers(client, [replyUserId]);
+  const extra = extraMap.get(replyUserId);
+  return extra?.displayName ?? extra?.username ?? replyUserId;
+}
+
+async function fetchThreadReplies(
+  client: SlackClient,
+  channelId: string,
+  parentTs: string,
+  userInfoMap: UserInfoMap,
+): Promise<{ replies: Record<string, unknown>[] } | { error: string }> {
+  try {
+    const threadResult = await client.conversations.replies({
+      channel: channelId,
+      ts: parentTs,
+      limit: 50,
+    });
+
+    if (!threadResult.messages || threadResult.messages.length <= 1) {
+      return { replies: [] };
+    }
+
+    const replies = [];
+    for (const reply of threadResult.messages.slice(1)) {
+      const replyUserId = reply.user || reply.bot_id;
+      replies.push({
+        user: await resolveReplyUserName(client, replyUserId, userInfoMap),
+        text: await transformUserMentions(client, extractMessageText(reply) || "[attachment]"),
+        ts: reply.ts,
+        is_bot: reply.bot_id !== undefined,
+      });
+    }
+    return { replies };
+  } catch {
+    return { error: "Failed to fetch thread replies" };
+  }
+}
+
+async function formatMessage(
+  client: SlackClient,
+  msg: { ts?: string; text?: string; user?: string; bot_id?: string; reply_count?: number; attachments?: { text?: string; fallback?: string }[] },
+  channelId: string,
+  userInfoMap: UserInfoMap,
+  includeThreads: boolean,
+): Promise<Record<string, unknown> | null> {
+  if (!msg.ts) return null;
+
+  const userId = msg.user || msg.bot_id;
+  const userInfo = userId ? userInfoMap.get(userId) : undefined;
+  const text = await transformUserMentions(client, extractMessageText(msg) || "[attachment]");
+
+  const entry: Record<string, unknown> = {
+    user: userInfo?.displayName ?? userInfo?.username ?? userId ?? "unknown",
+    text,
+    ts: msg.ts,
+    is_bot: msg.bot_id !== undefined,
+  };
+
+  if (msg.reply_count && msg.reply_count > 0) {
+    entry.reply_count = msg.reply_count;
+
+    if (includeThreads) {
+      const result = await fetchThreadReplies(client, channelId, msg.ts, userInfoMap);
+      if ("error" in result) {
+        entry.thread_error = result.error;
+      } else if (result.replies.length > 0) {
+        entry.thread_replies = result.replies;
+      }
+    }
+  }
+
+  return entry;
+}
+
 export function createFetchChannelMessagesTool(ctx: QueryToolContext) {
   return tool(
     "fetch_channel_messages",
@@ -37,72 +122,15 @@ export function createFetchChannelMessagesTool(ctx: QueryToolContext) {
           return textResult({ channel: args.channel_id, messages: [], message_count: 0 });
         }
 
-        // Resolve user names for all messages
         const userIds = result.messages
           .map((msg) => msg.user || msg.bot_id)
           .filter((id): id is string => !!id);
         const userInfoMap = await resolveUsers(client, userIds);
 
-        // Process messages (conversations.history returns newest-first, reverse for chronological)
         const messages = [];
         for (const msg of [...result.messages].reverse()) {
-          if (!msg.ts) continue;
-
-          const userId = msg.user || msg.bot_id;
-          const userInfo = userId ? userInfoMap.get(userId) : undefined;
-          const text = await transformUserMentions(client, extractMessageText(msg) || "[attachment]");
-
-          const entry: Record<string, unknown> = {
-            user: userInfo?.displayName ?? userInfo?.username ?? userId ?? "unknown",
-            text,
-            ts: msg.ts,
-            is_bot: msg.bot_id !== undefined,
-          };
-
-          if (msg.reply_count && msg.reply_count > 0) {
-            entry.reply_count = msg.reply_count;
-          }
-
-          // Optionally fetch thread replies
-          if (args.include_threads && msg.reply_count && msg.reply_count > 0 && msg.ts) {
-            try {
-              const threadResult = await client.conversations.replies({
-                channel: args.channel_id,
-                ts: msg.ts,
-                limit: 50,
-              });
-
-              if (threadResult.messages && threadResult.messages.length > 1) {
-                // Skip the parent (first message), only include replies
-                const replies = [];
-                for (const reply of threadResult.messages.slice(1)) {
-                  const replyUserId = reply.user || reply.bot_id;
-                  const replyUserInfo = replyUserId ? userInfoMap.get(replyUserId) : undefined;
-
-                  // Resolve reply user if not in the initial batch
-                  let replyName = replyUserInfo?.displayName ?? replyUserInfo?.username ?? replyUserId;
-                  if (!replyUserInfo && replyUserId) {
-                    const extraMap = await resolveUsers(client, [replyUserId]);
-                    const extra = extraMap.get(replyUserId);
-                    if (extra) replyName = extra.displayName ?? extra.username ?? replyUserId;
-                  }
-
-                  replies.push({
-                    user: replyName ?? "unknown",
-                    text: await transformUserMentions(client, extractMessageText(reply) || "[attachment]"),
-                    ts: reply.ts,
-                    is_bot: reply.bot_id !== undefined,
-                  });
-                }
-                entry.thread_replies = replies;
-              }
-            } catch {
-              // Thread fetch failed — include what we have
-              entry.thread_error = "Failed to fetch thread replies";
-            }
-          }
-
-          messages.push(entry);
+          const entry = await formatMessage(client, msg, args.channel_id, userInfoMap, !!args.include_threads);
+          if (entry) messages.push(entry);
         }
 
         return textResult({

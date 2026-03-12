@@ -77,6 +77,40 @@ export interface SubmitResponseDeps {
   persistSnapshot?: (id: string, snapshot: ResponseSnapshot) => Promise<void>;
 }
 
+function validateRefActions(
+  actions: z.infer<typeof actionSchema>[],
+  intentStore: IntentStore,
+): string | null {
+  for (const action of actions) {
+    if (!REF_ACTION_TYPES.has(action.type) || !("ref" in action)) continue;
+    const intent = intentStore.resolve(action.ref);
+    if (!intent) {
+      return `Action type "${action.type}" references unknown ref "${action.ref}". Call the corresponding action tool first (e.g., propose_change, request_merge).`;
+    }
+    if (intent.type !== action.type) {
+      return `Ref "${action.ref}" is a "${intent.type}" intent but action type is "${action.type}".`;
+    }
+  }
+  return null;
+}
+
+function buildTexts(sections: z.infer<typeof sectionSchema>[], message?: string) {
+  const answerText = sections
+    .map((s) => (s.title ? `**${s.title}**\n${s.body}` : s.body))
+    .join("\n\n");
+  const displayText = message ? `${message}\n\n${answerText}` : answerText;
+  return { answerText, displayText };
+}
+
+function recordError(
+  recorder: ToolCallRecorder,
+  args: unknown,
+  errData: Record<string, unknown>,
+) {
+  recorder.record("submit_response", args as Record<string, unknown>, errData);
+  return { ...textResult(errData), isError: true as const };
+}
+
 export function createSubmitResponseTool(deps: SubmitResponseDeps) {
   const { intentStore, responseCapture, recorder, sessionId, deliver, persistSnapshot } = deps;
   return tool(
@@ -97,22 +131,10 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
         .describe("Interactive buttons for the user to click. Use an empty array for casual/conversational responses that don't need actions."),
     },
     async (args) => {
-      // Validate that all ref-based actions reference valid staged intents
-      for (const action of args.actions) {
-        if (REF_ACTION_TYPES.has(action.type) && "ref" in action) {
-          const intent = intentStore.resolve(action.ref);
-          if (!intent) {
-            const errMsg = `Action type "${action.type}" references unknown ref "${action.ref}". Call the corresponding action tool first (e.g., propose_change, request_merge).`;
-            recorder.record("submit_response", args as unknown as Record<string, unknown>, { error: errMsg });
-            return errorResult(errMsg);
-          }
-          // Validate ref type matches action type
-          if (intent.type !== action.type) {
-            const errMsg = `Ref "${action.ref}" is a "${intent.type}" intent but action type is "${action.type}".`;
-            recorder.record("submit_response", args as unknown as Record<string, unknown>, { error: errMsg });
-            return errorResult(errMsg);
-          }
-        }
+      const refError = validateRefActions(args.actions, intentStore);
+      if (refError) {
+        recorder.record("submit_response", args as unknown as Record<string, unknown>, { error: refError });
+        return errorResult(refError);
       }
 
       const payload = {
@@ -121,36 +143,22 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
         actions: args.actions,
       };
 
-      // Build the answer text from sections only (used for snapshots + lastAnswer — excludes message)
-      const answerText = payload.sections
-        .map((s) => (s.title ? `**${s.title}**\n${s.body}` : s.body))
-        .join("\n\n");
+      const { answerText, displayText } = buildTexts(args.sections, args.message);
 
-      // Build display text including the conversational preamble (used for live delivery)
-      const displayText = args.message
-        ? `${args.message}\n\n${answerText}`
-        : answerText;
-
-      // Reject responses that exceed Slack's message length limit
       const SLACK_MESSAGE_TEXT_LIMIT = 10000;
       if (displayText.length > SLACK_MESSAGE_TEXT_LIMIT) {
-        const errData = {
+        return recordError(recorder, args, {
           error: "response_too_long",
           details: `Total response text (${displayText.length} chars) exceeds the ${SLACK_MESSAGE_TEXT_LIMIT}-char limit. Significantly shorten your answer — summarize key points and offer followup actions to expand on specific areas.`,
-        };
-        recorder.record("submit_response", args as unknown as Record<string, unknown>, errData);
-        return { ...textResult(errData), isError: true as const };
+        });
       }
 
-      // Auto-snapshot every response so future send_to_thread actions can reference it.
-      // Must happen before block rendering so snapshot IDs are encoded in button values.
+      // Auto-snapshot every response so future send_to_thread actions can reference it
       let currentSnapshotId: string | undefined;
       if (persistSnapshot) {
         currentSnapshotId = randomBytes(6).toString("hex");
         await persistSnapshot(currentSnapshotId, { text: answerText, sections: [...payload.sections] });
 
-        // For send_to_thread actions, resolve which snapshot to embed in the button:
-        // explicit reference to a previous snapshot, or the current response's snapshot.
         for (const action of payload.actions) {
           if (action.type === "send_to_thread") {
             (action as SendToThreadAction)._snapshotId = action.snapshot ?? currentSnapshotId;
@@ -158,40 +166,31 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
         }
       }
 
-      // Render and validate blocks (after snapshots so button values include snapshot IDs)
       const renderedBlocks = getStructuredResponseBlocks(payload, sessionId) as Record<string, unknown>[];
       const validationErrors = validateSlackBlocks(renderedBlocks);
 
       if (validationErrors.length > 0) {
-        const errData = {
+        return recordError(recorder, args, {
           error: "invalid_blocks",
           details: validationErrors.map((e) => `${e.field}: ${e.message}`),
-        };
-        recorder.record("submit_response", args as unknown as Record<string, unknown>, errData);
-        return { ...textResult(errData), isError: true as const };
+        });
       }
 
-      // Deliver to Slack if a deliver callback is provided
       if (deliver) {
-        // Only include action buttons in delivery blocks — the answer text goes in markdownText.
         const actionBlocks = getResponseActionBlocks(payload.actions, sessionId);
-
         const deliveryResult = await deliver({
           markdownText: displayText,
           ...(actionBlocks.length > 0 && { blocks: asSlackBlocks(actionBlocks) }),
         });
 
         if (!deliveryResult.ok) {
-          const errData = {
+          return recordError(recorder, args, {
             error: "delivery_failed",
             details: deliveryResult.error,
-          };
-          recorder.record("submit_response", args as unknown as Record<string, unknown>, errData);
-          return { ...textResult(errData), isError: true as const };
+          });
         }
       }
 
-      // Capture the validated payload and pre-rendered blocks (for session persistence)
       responseCapture.set(payload, renderedBlocks);
 
       const result = { success: true, delivered: !!deliver, sectionsCount: args.sections.length, actionsCount: args.actions.length, ...(currentSnapshotId && { snapshotId: currentSnapshotId }) };
