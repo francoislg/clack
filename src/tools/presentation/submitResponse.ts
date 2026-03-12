@@ -32,7 +32,7 @@ const sendToThreadActionSchema = z.object({
   auto: z.boolean().optional().describe("If true, post the answer to the original channel thread immediately without waiting for button click"),
   channel: z.string().optional().describe("Explicit target channel ID. Use when sharing findings to a different thread than the origin (e.g., a thread the user shared via URL)."),
   thread_ts: z.string().optional().describe("Explicit target thread timestamp. Use with channel to post into a specific thread."),
-  snapshot: z.string().optional().describe("Snapshot ID from a previous submit_response result. When provided, the button posts that previous response's exact content instead of the current one. Use this when the user asks to share a previously composed message."),
+  content: z.string().describe("The exact text this button will post to the thread. Each send_to_thread button posts only its own content. When presenting multiple options, put each option's text in its own button's content field."),
 });
 
 const changeActionSchema = z.object({
@@ -143,7 +143,7 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
         actions: args.actions,
       };
 
-      const { answerText, displayText } = buildTexts(args.sections, args.message);
+      const { displayText } = buildTexts(args.sections, args.message);
 
       const SLACK_MESSAGE_TEXT_LIMIT = 10000;
       if (displayText.length > SLACK_MESSAGE_TEXT_LIMIT) {
@@ -153,15 +153,14 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
         });
       }
 
-      // Auto-snapshot every response so future send_to_thread actions can reference it
-      let currentSnapshotId: string | undefined;
+      // Persist per-button content for each send_to_thread action
       if (persistSnapshot) {
-        currentSnapshotId = randomBytes(6).toString("hex");
-        await persistSnapshot(currentSnapshotId, { text: answerText, sections: [...payload.sections] });
-
         for (const action of payload.actions) {
           if (action.type === "send_to_thread") {
-            (action as SendToThreadAction)._snapshotId = action.snapshot ?? currentSnapshotId;
+            const contentId = randomBytes(6).toString("hex");
+            const content = (action as SendToThreadAction).content;
+            await persistSnapshot(contentId, { text: content, sections: [{ body: content }] });
+            (action as SendToThreadAction)._snapshotId = contentId;
           }
         }
       }
@@ -193,7 +192,7 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
 
       responseCapture.set(payload, renderedBlocks);
 
-      const result = { success: true, delivered: !!deliver, sectionsCount: args.sections.length, actionsCount: args.actions.length, ...(currentSnapshotId && { snapshotId: currentSnapshotId }) };
+      const result = { success: true, delivered: !!deliver, sectionsCount: args.sections.length, actionsCount: args.actions.length };
       recorder.record("submit_response", args as unknown as Record<string, unknown>, result);
 
       return textResult(result);

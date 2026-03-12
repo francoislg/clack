@@ -139,9 +139,9 @@ export interface SendToThreadAction {
   channel?: string;
   /** Explicit target thread timestamp (for posting to a specific thread) */
   thread_ts?: string;
-  /** Reference to a previous response's snapshot ID (from submit_response result) */
-  snapshot?: string;
-  /** Internal: resolved snapshot ID set by submit_response before delivery (not from Claude) */
+  /** The exact text this button posts to the thread */
+  content: string;
+  /** Internal: resolved content entry ID set by submit_response before delivery (not from Claude) */
   _snapshotId?: string;
 }
 

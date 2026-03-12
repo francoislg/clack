@@ -40,28 +40,28 @@ The system SHALL support natural thread-based refinement in DM threads. Users re
 - **THEN** Claude includes `send_to_thread` with `auto: true` in the response actions
 
 ### Requirement: Synthesis and Send to Thread
-The system SHALL synthesize the full DM conversation into a clean answer when the user requests to send to the original thread.
+The system SHALL post per-button content when the user clicks "Send to thread", reading the content entry persisted at button creation time.
 
-#### Scenario: Send to thread triggers synthesis
-- **WHEN** the user clicks "Send to thread" on any DM response
-- **THEN** the system makes an additional Claude call to synthesize the full DM conversation
-- **AND** the synthesis prompt instructs Claude to produce a unified, polished answer as if responding directly to the original question
-- **AND** the synthesis is posted in the DM thread with "Accept", "Edit", and "Reject" buttons
+#### Scenario: Send to thread posts button-specific content
 
-#### Scenario: Accept synthesis posts to channel
-- **WHEN** the user clicks "Accept" on the synthesis message
-- **THEN** the system posts the synthesized answer as a visible thread reply in the original channel thread
-- **AND** stores the channel message timestamp for potential future updates
+- **WHEN** the user clicks a "Send to thread" button
+- **THEN** the handler decodes the content entry ID from the button value
+- **AND** looks up the content entry from `session.snapshots`
+- **AND** posts that specific content to the target channel thread
+- **AND** confirms delivery in the DM thread
 
-#### Scenario: Edit synthesis before accepting
-- **WHEN** the user clicks "Edit" on the synthesis message
-- **THEN** the system opens a modal allowing the user to edit the synthesis text
-- **AND** on submission, posts the edited version to the original channel thread
+#### Scenario: Send to thread with missing content entry
 
-#### Scenario: Reject synthesis
-- **WHEN** the user clicks "Reject" on the synthesis message
-- **THEN** the system acknowledges with "Got it, discarded." in the DM thread
-- **AND** the user can continue refining or send again later
+- **WHEN** the user clicks a "Send to thread" button but the content entry is not found in the session
+- **THEN** the handler logs an error
+- **AND** does NOT post to the channel
+- **AND** does NOT fall back to `session.lastAnswer` or `session.lastResponse`
+
+#### Scenario: Send to thread with explicit target
+
+- **WHEN** the button value includes explicit `channel` and `thread_ts`
+- **THEN** the content is posted to that specific channel and thread
+- **AND** the origin channel/thread fallback chain is not used
 
 ### Requirement: Post-Accept Continuation
 The system SHALL allow users to return to DM thread after answer posted to channel.

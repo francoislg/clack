@@ -65,17 +65,32 @@ The system SHALL provide a `submit_response` MCP tool that defines the user-faci
 
 ### Requirement: Send to Thread Action Type
 
-The system SHALL support a `send_to_thread` action type for DM-first delivery mode.
+The system SHALL support a `send_to_thread` action type that posts specific content to a channel thread. Each button carries its own content, persisted at creation time.
 
-#### Scenario: send_to_thread action in submit_response
-- **WHEN** Claude calls `submit_response` with `{ type: "send_to_thread" }` and optional `label`
-- **THEN** the Slack UI renders a primary-styled button (default label: "Send to thread")
-- **AND** clicking triggers the DM-first synthesis flow (synthesize conversation, post to original channel thread)
+#### Scenario: send_to_thread action with content
+
+- **WHEN** Claude calls `submit_response` with `{ type: "send_to_thread", content: "<text>" }` and optional `label`
+- **THEN** the system persists the `content` as a dedicated entry in session snapshots keyed by a unique ID
+- **AND** the Slack UI renders a primary-styled button (default label: "Send to thread")
+- **AND** the button value encodes the session ID and the content entry ID
+
+#### Scenario: send_to_thread content is required
+
+- **WHEN** Claude calls `submit_response` with a `send_to_thread` action that omits `content`
+- **THEN** the tool returns a validation error indicating `content` is required
+- **AND** delivery is NOT attempted
+
+#### Scenario: Multiple send_to_thread buttons with different content
+
+- **WHEN** Claude calls `submit_response` with multiple `send_to_thread` actions, each with distinct `content`
+- **THEN** each action gets its own persisted content entry with a unique ID
+- **AND** clicking any button posts only that button's content, not the full response
 
 #### Scenario: send_to_thread action rendering
+
 - **WHEN** a response includes a `send_to_thread` action
 - **THEN** the button is rendered with action_id `clack_dm_send_to_thread`
-- **AND** the button value encodes the session ID
+- **AND** the button value encodes the session ID and content entry ID
 
 ### Requirement: Continuation Action Types
 

@@ -40,44 +40,24 @@ async function resolveActionSession(
 }
 
 /**
- * Resolve answer text from session, preferring lastAnswer but falling back
- * to lastResponse.sections (covers the window between delivery and persistence).
- */
-function resolveAnswerText(session: SessionContext): string | undefined {
-  if (session.lastAnswer) return session.lastAnswer;
-  if (session.lastResponse?.sections) {
-    return session.lastResponse.sections
-      .map((s) => (s.title ? `**${s.title}**\n${s.body}` : s.body))
-      .join("\n\n");
-  }
-  return undefined;
-}
-
-/**
- * Post an answer directly to a target channel. Uses snapshot content when
- * available (each "Send to thread" button captures its own snapshot at
- * delivery time), falling back to session.lastAnswer / lastResponse.
+ * Post per-button content to a target channel thread.
+ * Content comes from the button's dedicated snapshot entry (persisted at creation time).
  */
 async function postAnswerToChannel(
   client: App["client"],
-  session: SessionContext,
+  snapshot: ResponseSnapshot,
   targetChannel: string,
   targetThreadTs?: string,
-  snapshot?: ResponseSnapshot,
 ): Promise<{ ok: boolean; ts?: string }> {
-  const answer = snapshot?.text ?? resolveAnswerText(session);
-  if (!answer) return { ok: false };
-
-  const sections = snapshot?.sections ?? session.lastResponse?.sections;
-  const blocks = sections
-    ? getStructuredAcceptedBlocks(sections)
-    : getAcceptedBlocks(answer);
+  const blocks = snapshot.sections
+    ? getStructuredAcceptedBlocks(snapshot.sections)
+    : getAcceptedBlocks(snapshot.text);
 
   const result = await client.chat.postMessage({
     channel: targetChannel,
     ...(targetThreadTs ? { thread_ts: targetThreadTs } : {}),
     blocks: asSlackBlocks(blocks),
-    text: answer,
+    text: snapshot.text,
     unfurl_links: false,
     unfurl_media: false,
   });
@@ -140,11 +120,16 @@ async function handleSendToThread(
   if (!resolved) return;
   const { sessionId, session, sessionInfo } = resolved;
 
-  // Resolve snapshot (each button captures its own content at delivery time)
+  // Resolve per-button content (each button has its own content entry persisted at creation time)
   const decoded = decodeActionValue(rawValue);
   const snapshot = decoded.snapshotId
     ? session.snapshots?.[decoded.snapshotId]
     : undefined;
+
+  if (!snapshot) {
+    logger.error(`Cannot send to thread: missing content entry for ${sessionId} (snapshotId: ${decoded.snapshotId ?? "none"})`);
+    return;
+  }
 
   // Resolve target channel/thread via fallback chain:
   // explicit button target > DM-first origin > assistant channel > session channel
@@ -157,13 +142,13 @@ async function handleSendToThread(
     || originThreadTs
     || undefined;
 
-  if (!targetChannel || (!snapshot && !session.lastAnswer)) {
-    logger.error(`Cannot send to thread: missing target or answer for ${sessionId}`);
+  if (!targetChannel) {
+    logger.error(`Cannot send to thread: missing target channel for ${sessionId}`);
     return;
   }
 
   try {
-    const result = await postAnswerToChannel(client, session, targetChannel, targetThreadTs, snapshot);
+    const result = await postAnswerToChannel(client, snapshot, targetChannel, targetThreadTs);
 
     if (result.ts) {
       await persistChannelPost(sessionId, sessionInfo, result.ts);

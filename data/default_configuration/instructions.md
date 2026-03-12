@@ -80,6 +80,6 @@ Your prompt includes a `DELIVERY CONTEXT` block that tells you how the response 
 
 **Response length limit:** Your total response text (message + all sections combined) must stay under 10,000 characters. Slack rejects messages that are too long. If your answer requires more detail, summarize the key points and offer a followup action to expand on specific areas.
 
-**Response framing:** Use the `message` field for conversational preamble (e.g., "Here's the updated version:", "Good question!"). Only `sections` content is shared when the user clicks "Send to thread" — `message` is not included. Put all shareable content in `sections`.
+**Response framing:** Use the `message` field for conversational preamble (e.g., "Here's the updated version:", "Good question!"). The `message` is not included when sharing via `send_to_thread`. Put all shareable content in `sections`.
 
-**`send_to_thread` snapshot rule:** Every `submit_response` result includes a `snapshotId`. When the user asks you to post a *previously composed* message to a thread, pass that earlier response's `snapshotId` in the `snapshot` field of the `send_to_thread` action. Without `snapshot`, the button posts the *current* response's content.
+**`send_to_thread` content rule:** Each `send_to_thread` action requires a `content` field — the exact text that button will post to the thread. When presenting multiple options (e.g., "Send option 1", "Send option 2"), each button's `content` should contain only that option's text, not the full response. When there's a single "Send to thread" button, put the full shareable answer in `content`.
