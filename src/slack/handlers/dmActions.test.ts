@@ -292,7 +292,7 @@ describe("handleSendToThread", () => {
     assert.equal(postArgs.text, "snapshot answer");
   });
 
-  it("falls back to session lastAnswer when no snapshot", async () => {
+  it("returns early when snapshot not found (no fallback to lastAnswer)", async () => {
     const session = makeSession({ lastAnswer: "fallback answer" });
     const sessionInfo = makeSessionInfo();
     mockGetSession.mock.mockImplementation(async () => session);
@@ -300,24 +300,28 @@ describe("handleSendToThread", () => {
 
     const client = makeClient();
     const handler = findHandler(actionHandlers, "clack_dm_send_to_thread_0");
-    const value = encodeValue("session-1");
+    const value = encodeValue("session-1"); // no snapshotId → no snapshot found
     const body = makeBlockAction("clack_dm_send_to_thread_0", value);
 
     await handler({ ack: async () => {}, body, client });
 
-    const postArgs = mockPostMessage(client).mock.calls[0].arguments[0] as Record<string, unknown>;
-    assert.equal(postArgs.text, "fallback answer");
+    // Should NOT post anything — no fallback to lastAnswer
+    assert.equal(mockPostMessage(client).mock.callCount(), 0);
   });
 
   it("resolves target channel from origin when not in button value", async () => {
-    const session = makeSession();
+    const session = makeSession({
+      snapshots: {
+        "snap-1": { text: "the answer", sections: [{ body: "the answer" }] },
+      },
+    });
     const sessionInfo = makeSessionInfo({ originChannel: "C_ORIGIN_CHAN", originThreadTs: "17.orig" });
     mockGetSession.mock.mockImplementation(async () => session);
     mockRestoreSessionInfo.mock.mockImplementation(async () => sessionInfo);
 
     const client = makeClient();
     const handler = findHandler(actionHandlers, "clack_dm_send_to_thread_0");
-    const value = encodeValue("session-1"); // no targetChannel
+    const value = encodeValue("session-1", { sn: "snap-1" }); // no targetChannel, has snapshot
     const body = makeBlockAction("clack_dm_send_to_thread_0", value);
 
     await handler({ ack: async () => {}, body, client });
@@ -328,14 +332,18 @@ describe("handleSendToThread", () => {
   });
 
   it("persists channelPostTs after successful post", async () => {
-    const session = makeSession();
+    const session = makeSession({
+      snapshots: {
+        "snap-1": { text: "the answer", sections: [{ body: "the answer" }] },
+      },
+    });
     const sessionInfo = makeSessionInfo();
     mockGetSession.mock.mockImplementation(async () => session);
     mockRestoreSessionInfo.mock.mockImplementation(async () => sessionInfo);
 
     const client = makeClient();
     const handler = findHandler(actionHandlers, "clack_dm_send_to_thread_0");
-    const value = encodeValue("session-1", { c: "C_TARGET" });
+    const value = encodeValue("session-1", { c: "C_TARGET", sn: "snap-1" });
     const body = makeBlockAction("clack_dm_send_to_thread_0", value);
 
     await handler({ ack: async () => {}, body, client });
@@ -352,6 +360,9 @@ describe("handleSendToThread", () => {
     const session = makeSession({
       dmChannel: "D_DM",
       dmThreadTs: "17.dm",
+      snapshots: {
+        "snap-1": { text: "the answer", sections: [{ body: "the answer" }] },
+      },
     });
     const sessionInfo = makeSessionInfo();
     mockGetSession.mock.mockImplementation(async () => session);
@@ -359,7 +370,7 @@ describe("handleSendToThread", () => {
 
     const client = makeClient();
     const handler = findHandler(actionHandlers, "clack_dm_send_to_thread_0");
-    const value = encodeValue("session-1", { c: "C_TARGET" });
+    const value = encodeValue("session-1", { c: "C_TARGET", sn: "snap-1" });
     const body = makeBlockAction("clack_dm_send_to_thread_0", value);
 
     await handler({ ack: async () => {}, body, client });
@@ -371,11 +382,13 @@ describe("handleSendToThread", () => {
     assert.ok((confirmArgs.text as string).includes("shared"));
   });
 
-  it("returns early when no target channel or answer", async () => {
+  it("returns early when no target channel", async () => {
     const session = makeSession({
-      lastAnswer: undefined,
       channelId: undefined as unknown as string,
       assistantCurrentChannelId: undefined,
+      snapshots: {
+        "snap-1": { text: "the answer", sections: [{ body: "the answer" }] },
+      },
     });
     const sessionInfo = makeSessionInfo({
       originChannel: undefined,
@@ -386,7 +399,7 @@ describe("handleSendToThread", () => {
 
     const client = makeClient();
     const handler = findHandler(actionHandlers, "clack_dm_send_to_thread_0");
-    const value = encodeValue("session-1");
+    const value = encodeValue("session-1", { sn: "snap-1" });
     const body = makeBlockAction("clack_dm_send_to_thread_0", value);
 
     await handler({ ack: async () => {}, body, client });
@@ -398,6 +411,9 @@ describe("handleSendToThread", () => {
     const session = makeSession({
       dmChannel: "D_DM",
       dmThreadTs: "17.dm",
+      snapshots: {
+        "snap-1": { text: "the answer", sections: [{ body: "the answer" }] },
+      },
     });
     const sessionInfo = makeSessionInfo();
     mockGetSession.mock.mockImplementation(async () => session);
@@ -413,7 +429,7 @@ describe("handleSendToThread", () => {
     });
 
     const handler = findHandler(actionHandlers, "clack_dm_send_to_thread_0");
-    const value = encodeValue("session-1", { c: "C_TARGET" });
+    const value = encodeValue("session-1", { c: "C_TARGET", sn: "snap-1" });
     const body = makeBlockAction("clack_dm_send_to_thread_0", value);
 
     await handler({ ack: async () => {}, body, client });
@@ -1037,14 +1053,13 @@ describe("handlePostNew", () => {
 // ============================================================================
 
 describe("postAnswerToChannel — structured sections", () => {
-  it("uses structured blocks when session has lastResponse sections", async () => {
+  it("uses structured blocks when snapshot has sections", async () => {
     const session = makeSession({
-      lastAnswer: "The answer",
-      lastResponse: {
-        sections: [
-          { title: "Summary", body: "Structured body" },
-        ],
-        actions: [],
+      snapshots: {
+        "snap-struct": {
+          text: "The answer",
+          sections: [{ title: "Summary", body: "Structured body" }],
+        },
       },
     });
     const sessionInfo = makeSessionInfo();
@@ -1053,17 +1068,18 @@ describe("postAnswerToChannel — structured sections", () => {
 
     const client = makeClient();
     const handler = findHandler(actionHandlers, "clack_dm_send_to_thread_0");
-    const value = encodeValue("session-1", { c: "C_TARGET" });
+    const value = encodeValue("session-1", { c: "C_TARGET", sn: "snap-struct" });
     const body = makeBlockAction("clack_dm_send_to_thread_0", value);
 
     await handler({ ack: async () => {}, body, client });
 
-    // Should have posted the message (first call) and DM confirmation (second call)
     assert.ok(mockPostMessage(client).mock.callCount() >= 1);
     const postArgs = mockPostMessage(client).mock.calls[0].arguments[0] as Record<string, unknown>;
     assert.equal(postArgs.channel, "C_TARGET");
-    // text comes from resolveAnswerText — since lastAnswer exists, it returns that
     assert.equal(postArgs.text, "The answer");
+    // blocks should come from snapshot.sections via getStructuredAcceptedBlocks
+    const blocks = postArgs.blocks as Array<Record<string, unknown>>;
+    assert.ok(blocks.length > 0);
   });
 
   it("uses snapshot sections for blocks when snapshot is provided", async () => {

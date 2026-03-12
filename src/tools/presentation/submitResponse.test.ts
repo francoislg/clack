@@ -533,8 +533,8 @@ describe("createSubmitResponseTool", () => {
     });
   });
 
-  describe("snapshot creation", () => {
-    it("returns snapshotId when persistSnapshot is provided", async () => {
+  describe("per-button content persistence", () => {
+    it("does not create snapshots when no send_to_thread actions exist", async () => {
       const snapshots: { id: string; snapshot: ResponseSnapshot }[] = [];
       const deps = makeDeps({
         persistSnapshot: async (id, snapshot) => {
@@ -543,95 +543,46 @@ describe("createSubmitResponseTool", () => {
       });
 
       const result = await callTool(deps, {
-        sections: [{ body: "Snapshot me" }],
+        sections: [{ body: "No buttons" }],
         actions: [],
       });
 
-      const parsed = JSON.parse(result.content[0].text);
-      assert.ok(typeof parsed.snapshotId === "string");
-      assert.equal(parsed.snapshotId.length, 12); // randomBytes(6).toString("hex") = 12 chars
-    });
-
-    it("persists snapshot with answerText (no message preamble)", async () => {
-      const snapshots: { id: string; snapshot: ResponseSnapshot }[] = [];
-      const deps = makeDeps({
-        persistSnapshot: async (id, snapshot) => {
-          snapshots.push({ id, snapshot });
-        },
-      });
-
-      await callTool(deps, {
-        message: "Preamble here:",
-        sections: [{ title: "Summary", body: "The real content" }],
-        actions: [],
-      });
-
-      assert.equal(snapshots.length, 1);
-      // answerText should have title formatting but no message preamble
-      assert.ok(snapshots[0].snapshot.text.includes("**Summary**"));
-      assert.ok(snapshots[0].snapshot.text.includes("The real content"));
-      assert.ok(!snapshots[0].snapshot.text.includes("Preamble here:"));
-    });
-
-    it("persists snapshot sections as a copy", async () => {
-      const snapshots: { id: string; snapshot: ResponseSnapshot }[] = [];
-      const deps = makeDeps({
-        persistSnapshot: async (id, snapshot) => {
-          snapshots.push({ id, snapshot });
-        },
-      });
-
-      await callTool(deps, {
-        sections: [{ body: "Section 1" }, { body: "Section 2" }],
-        actions: [],
-      });
-
-      assert.equal(snapshots[0].snapshot.sections.length, 2);
-      assert.equal(snapshots[0].snapshot.sections[0].body, "Section 1");
-      assert.equal(snapshots[0].snapshot.sections[1].body, "Section 2");
-    });
-
-    it("does not return snapshotId when persistSnapshot is not provided", async () => {
-      const deps = makeDeps();
-      const result = await callTool(deps, {
-        sections: [{ body: "No snapshot" }],
-        actions: [],
-      });
-
+      assert.equal(snapshots.length, 0);
       const parsed = JSON.parse(result.content[0].text);
       assert.equal(parsed.snapshotId, undefined);
     });
-  });
 
-  describe("send_to_thread snapshot resolution", () => {
-    it("sets _snapshotId to currentSnapshotId on send_to_thread without explicit snapshot", async () => {
-      const setCalls: unknown[][] = [];
+    it("creates one content entry per send_to_thread action", async () => {
+      const snapshots: { id: string; snapshot: ResponseSnapshot }[] = [];
       const deps = makeDeps({
-        persistSnapshot: async () => {},
-        responseCapture: {
-          set: ((...args: unknown[]) => { setCalls.push(args); }) as ResponseCapture["set"],
-          get: () => null,
-          getRenderedBlocks: () => null,
+        persistSnapshot: async (id, snapshot) => {
+          snapshots.push({ id, snapshot });
         },
       });
 
-      const result = await callTool(deps, {
-        sections: [{ body: "share this" }],
-        actions: [{ type: "send_to_thread" }],
+      await callTool(deps, {
+        sections: [{ body: "Option 1" }, { body: "Option 2" }],
+        actions: [
+          { type: "send_to_thread", content: "Option 1 text", label: "Send 1" },
+          { type: "send_to_thread", content: "Option 2 text", label: "Send 2" },
+        ],
       });
 
-      const parsed = JSON.parse(result.content[0].text);
-      const snapshotId = parsed.snapshotId;
-
-      // The captured payload should have _snapshotId set
-      const [payload] = setCalls[0] as [{ actions: { _snapshotId?: string }[] }];
-      assert.equal(payload.actions[0]._snapshotId, snapshotId);
+      assert.equal(snapshots.length, 2);
+      assert.equal(snapshots[0].snapshot.text, "Option 1 text");
+      assert.equal(snapshots[1].snapshot.text, "Option 2 text");
+      // Each snapshot should have the content as a single section
+      assert.equal(snapshots[0].snapshot.sections[0].body, "Option 1 text");
+      assert.equal(snapshots[1].snapshot.sections[0].body, "Option 2 text");
+      // IDs should be unique
+      assert.notEqual(snapshots[0].id, snapshots[1].id);
     });
 
-    it("uses explicit snapshot ID when provided on send_to_thread", async () => {
+    it("sets _snapshotId on each send_to_thread action", async () => {
+      const snapshots: { id: string }[] = [];
       const setCalls: unknown[][] = [];
       const deps = makeDeps({
-        persistSnapshot: async () => {},
+        persistSnapshot: async (id) => { snapshots.push({ id }); },
         responseCapture: {
           set: ((...args: unknown[]) => { setCalls.push(args); }) as ResponseCapture["set"],
           get: () => null,
@@ -640,12 +591,14 @@ describe("createSubmitResponseTool", () => {
       });
 
       await callTool(deps, {
-        sections: [{ body: "share previous" }],
-        actions: [{ type: "send_to_thread", snapshot: "prev-snapshot-id" }],
+        sections: [{ body: "Answer" }],
+        actions: [
+          { type: "send_to_thread", content: "Share this" },
+        ],
       });
 
-      const [payload] = setCalls[0] as [{ actions: { _snapshotId?: string; snapshot?: string }[] }];
-      assert.equal(payload.actions[0]._snapshotId, "prev-snapshot-id");
+      const [payload] = setCalls[0] as [{ actions: { _snapshotId?: string }[] }];
+      assert.equal(payload.actions[0]._snapshotId, snapshots[0].id);
     });
 
     it("does not set _snapshotId when persistSnapshot is not provided", async () => {
@@ -660,7 +613,7 @@ describe("createSubmitResponseTool", () => {
 
       await callTool(deps, {
         sections: [{ body: "no persist" }],
-        actions: [{ type: "send_to_thread" }],
+        actions: [{ type: "send_to_thread", content: "text" }],
       });
 
       const [payload] = setCalls[0] as [{ actions: { _snapshotId?: string }[] }];

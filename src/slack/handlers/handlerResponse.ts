@@ -45,6 +45,7 @@ interface DeliveryContext {
   targetChannel: string;
   targetThread: string;
   alreadyDelivered: boolean;
+  startTime: number;
 }
 
 /**
@@ -76,6 +77,7 @@ export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promis
     client, session, sessionInfo, claudeOptions,
     streamer, targetChannel, targetThread,
     alreadyDelivered: false,
+    startTime: Date.now(),
   };
 
   const deliver = buildDeliverFn(ctx);
@@ -160,8 +162,12 @@ function buildDeliverFn(ctx: DeliveryContext): DeliverFn {
 /**
  * Post a follow-up notification so the user gets a Slack ping.
  * Stream edits don't trigger notifications, so we send a short message.
+ * Only sends if the response took longer than 30 seconds (quick answers don't need a ping).
  */
 async function sendResponseNotification(ctx: DeliveryContext): Promise<void> {
+  const elapsedMs = Date.now() - ctx.startTime;
+  if (elapsedMs < 30_000) return;
+
   if (await getUserPreference(ctx.sessionInfo.userId, "notifyOnResponse")) {
     await ctx.client.chat.postMessage({
       channel: ctx.targetChannel,

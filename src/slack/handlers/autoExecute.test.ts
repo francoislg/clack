@@ -166,7 +166,7 @@ describe("handleAutoExecuteActions — early returns", () => {
           sections: [],
           actions: [
             // send_to_thread with auto but no ref
-            { type: "send_to_thread", auto: true },
+            { type: "send_to_thread", auto: true, content: "auto content" },
           ],
         },
         {},

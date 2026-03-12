@@ -188,7 +188,7 @@ describe("getResponseActionBlocks", () => {
 
   it("returns empty when all actions are auto", () => {
     const actions: Action[] = [
-      { type: "send_to_thread", auto: true },
+      { type: "send_to_thread", auto: true, content: "auto content" },
     ];
     const blocks = getResponseActionBlocks(actions, "sess-1");
     assert.equal(blocks.length, 0);
@@ -198,7 +198,7 @@ describe("getResponseActionBlocks", () => {
     const actions: Action[] = [
       { type: "followup", label: "Next", prompt: "next" },
       { type: "choice", label: "Pick A", value: "a" },
-      { type: "send_to_thread" },
+      { type: "send_to_thread", content: "thread content" },
       { type: "change", ref: "r1" },
       { type: "config_update", ref: "c1" },
       { type: "update", ref: "u1" },
@@ -224,7 +224,7 @@ describe("getResponseActionBlocks", () => {
 
   it("uses default labels when none provided", () => {
     const actions: Action[] = [
-      { type: "send_to_thread" },
+      { type: "send_to_thread", content: "thread content" },
       { type: "change", ref: "r1" },
     ];
     const blocks = getResponseActionBlocks(actions, "sess-1");
@@ -249,7 +249,7 @@ describe("getResponseActionBlocks", () => {
 
   it("applies primary style to send_to_thread and change buttons", () => {
     const actions: Action[] = [
-      { type: "send_to_thread" },
+      { type: "send_to_thread", content: "thread content" },
       { type: "change", ref: "r1" },
       { type: "followup", label: "Continue", prompt: "go" },
     ];
@@ -318,6 +318,7 @@ describe("getResponseActionBlocks", () => {
     const actions: Action[] = [
       {
         type: "send_to_thread",
+        content: "thread content",
         channel: "C999",
         thread_ts: "111.222",
         _snapshotId: "snap-1",
@@ -410,7 +411,7 @@ describe("getStructuredResponseBlocks", () => {
   it("skips divider when all actions are auto-executed", () => {
     const payload: SubmitResponsePayload = {
       sections: [{ body: "Done" }],
-      actions: [{ type: "send_to_thread", auto: true }],
+      actions: [{ type: "send_to_thread", auto: true, content: "auto content" }],
     };
     const blocks = getStructuredResponseBlocks(payload, "sess-1");
     assert.ok(blocks.every((b) => b.type !== "divider"));
