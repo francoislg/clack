@@ -1,7 +1,8 @@
-import { query, type McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
+import { query, type McpServerConfig, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { getConfig, getRepositoriesDir } from "../config.js";
 import { ClaudeMessageParser, detectPlatformError } from "./messageParser.js";
 import { buildSystemPrompt, buildPrompt } from "./promptBuilder.js";
+import { detectRuntime } from "./utilities.js";
 import { errorMessage } from "../errors.js";
 import { logger } from "../logger.js";
 import { loadMcpServers } from "../mcp.js";
@@ -137,12 +138,12 @@ async function buildQuerySetup(
 }
 
 function recordTraceEntry(
-  message: { type: string; [key: string]: unknown },
+  message: SDKMessage,
   parsed: { toolUses: Array<{ name: string; args: Record<string, unknown> }> }
 ): ConversationMessage {
   const entry: ConversationMessage = {
     type: message.type,
-    subtype: "subtype" in message ? (message.subtype as string) : undefined,
+    subtype: "subtype" in message ? String(message.subtype) : undefined,
     content: summarizeMessageContent(message),
     timestamp: Date.now(),
   };
@@ -268,7 +269,7 @@ export async function askClaude(
       prompt: userPrompt,
       options: {
         cwd: reposDir,
-        executable: process.execPath as "node",
+        executable: detectRuntime(),
         systemPrompt,
         model,
         permissionMode: "bypassPermissions",
@@ -278,10 +279,9 @@ export async function askClaude(
         ...(options?.abortController && { abortController: options.abortController }),
       },
     })) {
-      const typedMessage = message as { type: string; [key: string]: unknown };
-      const parsed = await parser.process(typedMessage);
+      const parsed = await parser.process(message);
 
-      conversationTrace.push(recordTraceEntry(typedMessage, parsed));
+      conversationTrace.push(recordTraceEntry(message, parsed));
 
       // Handle result
       if (parser.result) {

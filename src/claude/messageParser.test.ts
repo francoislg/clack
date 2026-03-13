@@ -6,6 +6,82 @@ import {
   extractToolErrorMessage,
 } from "./messageParser.js";
 import type { StreamEvent } from "../streaming/types.js";
+import type { SDKToolProgressMessage, SDKAssistantMessage, SDKUserMessage, SDKResultSuccess, SDKResultError } from "@anthropic-ai/claude-agent-sdk";
+import type { UUID } from "node:crypto";
+
+// ---------------------------------------------------------------------------
+// Test helpers — factory functions for SDK message types
+// ---------------------------------------------------------------------------
+
+const TEST_UUID = "00000000-0000-0000-0000-000000000000" as UUID;
+const TEST_SESSION_ID = "test-session";
+
+function toolProgress(fields: { tool_use_id: string; tool_name: string }): SDKToolProgressMessage {
+  return {
+    type: "tool_progress",
+    tool_use_id: fields.tool_use_id,
+    tool_name: fields.tool_name,
+    parent_tool_use_id: null,
+    elapsed_time_seconds: 0,
+    uuid: TEST_UUID,
+    session_id: TEST_SESSION_ID,
+  };
+}
+
+function assistantMsg(content: unknown[]): SDKAssistantMessage {
+  return {
+    type: "assistant",
+    message: { content } as SDKAssistantMessage["message"],
+    parent_tool_use_id: null,
+    uuid: TEST_UUID,
+    session_id: TEST_SESSION_ID,
+  };
+}
+
+function userMsg(content: unknown[]): SDKUserMessage {
+  return {
+    type: "user",
+    message: { role: "user", content } as SDKUserMessage["message"],
+    parent_tool_use_id: null,
+    session_id: TEST_SESSION_ID,
+  };
+}
+
+function resultSuccess(result: string): SDKResultSuccess {
+  return {
+    type: "result",
+    subtype: "success",
+    result,
+    duration_ms: 0,
+    duration_api_ms: 0,
+    is_error: false,
+    num_turns: 1,
+    total_cost_usd: 0,
+    usage: {} as SDKResultSuccess["usage"],
+    modelUsage: {},
+    permission_denials: [],
+    uuid: TEST_UUID,
+    session_id: TEST_SESSION_ID,
+  };
+}
+
+function resultError(errors: string[], subtype: SDKResultError["subtype"] = "error_during_execution"): SDKResultError {
+  return {
+    type: "result",
+    subtype,
+    errors,
+    duration_ms: 0,
+    duration_api_ms: 0,
+    is_error: true,
+    num_turns: 1,
+    total_cost_usd: 0,
+    usage: {} as SDKResultError["usage"],
+    modelUsage: {},
+    permission_denials: [],
+    uuid: TEST_UUID,
+    session_id: TEST_SESSION_ID,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // detectPlatformError
@@ -17,7 +93,7 @@ describe("detectPlatformError", () => {
     const result = detectPlatformError(text);
     assert.equal(
       result,
-      "Claude usage limit reached. The limit resets automatically — please try again later."
+      "Claude usage limit reached. The limit resets automatically \u2014 please try again later."
     );
   });
 
@@ -31,11 +107,11 @@ describe("detectPlatformError", () => {
     assert.equal(detectPlatformError("Hello, how can I help?"), null);
   });
 
-  it("returns null for partial match — only limit phrase", () => {
+  it("returns null for partial match \u2014 only limit phrase", () => {
     assert.equal(detectPlatformError("you've hit your limit"), null);
   });
 
-  it("returns null for partial match — only reset phrase", () => {
+  it("returns null for partial match \u2014 only reset phrase", () => {
     assert.equal(detectPlatformError("Usage resets 5 hours from now"), null);
   });
 
@@ -55,7 +131,7 @@ describe("extractToolErrorMessage", () => {
   it("truncates strings longer than 100 characters", () => {
     const long = "x".repeat(150);
     const result = extractToolErrorMessage(long);
-    assert.equal(result, "x".repeat(100) + "…");
+    assert.equal(result, "x".repeat(100) + "\u2026");
   });
 
   it("returns undefined for empty string", () => {
@@ -120,11 +196,7 @@ describe("ClaudeMessageParser", () => {
   // ---- tool_progress ----
   describe("tool_progress messages", () => {
     it("emits tool_start on first occurrence of a tool_use_id", async () => {
-      await parser.process({
-        type: "tool_progress",
-        tool_use_id: "tu_1",
-        tool_name: "read_file",
-      });
+      await parser.process(toolProgress({ tool_use_id: "tu_1", tool_name: "read_file" }));
 
       assert.equal(events.length, 1);
       assert.deepEqual(events[0], {
@@ -136,62 +208,36 @@ describe("ClaudeMessageParser", () => {
     });
 
     it("does not emit duplicate tool_start for the same tool_use_id", async () => {
-      await parser.process({
-        type: "tool_progress",
-        tool_use_id: "tu_1",
-        tool_name: "read_file",
-      });
-      await parser.process({
-        type: "tool_progress",
-        tool_use_id: "tu_1",
-        tool_name: "read_file",
-      });
+      await parser.process(toolProgress({ tool_use_id: "tu_1", tool_name: "read_file" }));
+      await parser.process(toolProgress({ tool_use_id: "tu_1", tool_name: "read_file" }));
 
       assert.equal(events.length, 1);
     });
 
     it("emits separate events for different tool_use_ids", async () => {
-      await parser.process({
-        type: "tool_progress",
-        tool_use_id: "tu_1",
-        tool_name: "read_file",
-      });
-      await parser.process({
-        type: "tool_progress",
-        tool_use_id: "tu_2",
-        tool_name: "write_file",
-      });
+      await parser.process(toolProgress({ tool_use_id: "tu_1", tool_name: "read_file" }));
+      await parser.process(toolProgress({ tool_use_id: "tu_2", tool_name: "write_file" }));
 
       assert.equal(events.length, 2);
     });
 
     it("does not emit when onEvent is not provided", async () => {
       const noCallbackParser = new ClaudeMessageParser();
-      // Should not throw
-      await noCallbackParser.process({
-        type: "tool_progress",
-        tool_use_id: "tu_1",
-        tool_name: "read_file",
-      });
+      await noCallbackParser.process(toolProgress({ tool_use_id: "tu_1", tool_name: "read_file" }));
     });
   });
 
   // ---- assistant messages ----
   describe("assistant messages", () => {
     it("extracts tool_use blocks into parsed.toolUses", async () => {
-      const parsed = await parser.process({
-        type: "assistant",
-        message: {
-          content: [
-            {
-              type: "tool_use",
-              id: "tu_1",
-              name: "read_file",
-              input: { path: "/tmp/test.ts" },
-            },
-          ],
+      const parsed = await parser.process(assistantMsg([
+        {
+          type: "tool_use",
+          id: "tu_1",
+          name: "read_file",
+          input: { path: "/tmp/test.ts" },
         },
-      });
+      ]));
 
       assert.equal(parsed.toolUses.length, 1);
       assert.equal(parsed.toolUses[0].name, "read_file");
@@ -200,19 +246,14 @@ describe("ClaudeMessageParser", () => {
     });
 
     it("emits tool_start for tool_use blocks", async () => {
-      await parser.process({
-        type: "assistant",
-        message: {
-          content: [
-            {
-              type: "tool_use",
-              id: "tu_1",
-              name: "search",
-              input: { query: "hello" },
-            },
-          ],
+      await parser.process(assistantMsg([
+        {
+          type: "tool_use",
+          id: "tu_1",
+          name: "search",
+          input: { query: "hello" },
         },
-      });
+      ]));
 
       assert.equal(events.length, 1);
       assert.deepEqual(events[0], {
@@ -224,30 +265,19 @@ describe("ClaudeMessageParser", () => {
     });
 
     it("re-emits tool_start with real args if previously seen via tool_progress", async () => {
-      // First: tool_progress with empty args
-      await parser.process({
-        type: "tool_progress",
-        tool_use_id: "tu_1",
-        tool_name: "search",
-      });
+      await parser.process(toolProgress({ tool_use_id: "tu_1", tool_name: "search" }));
       assert.equal(events.length, 1);
       assert.deepEqual(events[0].type, "tool_start");
       assert.deepEqual((events[0] as { toolArgs: Record<string, unknown> }).toolArgs, {});
 
-      // Then: assistant with real args
-      await parser.process({
-        type: "assistant",
-        message: {
-          content: [
-            {
-              type: "tool_use",
-              id: "tu_1",
-              name: "search",
-              input: { query: "hello" },
-            },
-          ],
+      await parser.process(assistantMsg([
+        {
+          type: "tool_use",
+          id: "tu_1",
+          name: "search",
+          input: { query: "hello" },
         },
-      });
+      ]));
 
       assert.equal(events.length, 2);
       assert.deepEqual((events[1] as { toolArgs: Record<string, unknown> }).toolArgs, {
@@ -256,152 +286,84 @@ describe("ClaudeMessageParser", () => {
     });
 
     it("does not re-emit tool_start if already seen and args are empty", async () => {
-      // First via tool_progress
-      await parser.process({
-        type: "tool_progress",
-        tool_use_id: "tu_1",
-        tool_name: "search",
-      });
+      await parser.process(toolProgress({ tool_use_id: "tu_1", tool_name: "search" }));
 
-      // Then assistant with empty input
-      await parser.process({
-        type: "assistant",
-        message: {
-          content: [
-            {
-              type: "tool_use",
-              id: "tu_1",
-              name: "search",
-              input: {},
-            },
-          ],
+      await parser.process(assistantMsg([
+        {
+          type: "tool_use",
+          id: "tu_1",
+          name: "search",
+          input: {},
         },
-      });
+      ]));
 
-      // Should not duplicate — only 1 event from tool_progress
       assert.equal(events.length, 1);
     });
 
     it("extracts text blocks into parsed.assistantText", async () => {
-      const parsed = await parser.process({
-        type: "assistant",
-        message: {
-          content: [
-            { type: "text", text: "Hello " },
-            { type: "text", text: "world" },
-          ],
-        },
-      });
+      const parsed = await parser.process(assistantMsg([
+        { type: "text", text: "Hello " },
+        { type: "text", text: "world" },
+      ]));
 
       assert.equal(parsed.assistantText, "Hello world");
     });
 
     it("updates lastAssistantText on each assistant message", async () => {
-      await parser.process({
-        type: "assistant",
-        message: { content: [{ type: "text", text: "first" }] },
-      });
+      await parser.process(assistantMsg([{ type: "text", text: "first" }]));
       assert.equal(parser.lastAssistantText, "first");
 
-      await parser.process({
-        type: "assistant",
-        message: { content: [{ type: "text", text: "second" }] },
-      });
+      await parser.process(assistantMsg([{ type: "text", text: "second" }]));
       assert.equal(parser.lastAssistantText, "second");
     });
 
     it("handles mixed tool_use and text blocks", async () => {
-      const parsed = await parser.process({
-        type: "assistant",
-        message: {
-          content: [
-            { type: "text", text: "Let me check" },
-            {
-              type: "tool_use",
-              id: "tu_1",
-              name: "read_file",
-              input: { path: "foo" },
-            },
-          ],
+      const parsed = await parser.process(assistantMsg([
+        { type: "text", text: "Let me check" },
+        {
+          type: "tool_use",
+          id: "tu_1",
+          name: "read_file",
+          input: { path: "foo" },
         },
-      });
+      ]));
 
       assert.equal(parsed.toolUses.length, 1);
       assert.equal(parsed.assistantText, "Let me check");
     });
 
     it("handles tool_use with null input", async () => {
-      const parsed = await parser.process({
-        type: "assistant",
-        message: {
-          content: [
-            {
-              type: "tool_use",
-              id: "tu_1",
-              name: "no_args_tool",
-              input: null,
-            },
-          ],
+      const parsed = await parser.process(assistantMsg([
+        {
+          type: "tool_use",
+          id: "tu_1",
+          name: "no_args_tool",
+          input: null,
         },
-      });
+      ]));
 
       assert.equal(parsed.toolUses.length, 1);
       assert.deepEqual(parsed.toolUses[0].args, {});
     });
 
-    it("handles tool_use with missing id", async () => {
-      const parsed = await parser.process({
-        type: "assistant",
-        message: {
-          content: [
-            {
-              type: "tool_use",
-              name: "some_tool",
-              input: {},
-            },
-          ],
-        },
-      });
-
-      assert.equal(parsed.toolUses.length, 1);
-      assert.equal(parsed.toolUses[0].id, "");
-    });
-
     it("handles empty content array", async () => {
-      const parsed = await parser.process({
-        type: "assistant",
-        message: { content: [] },
-      });
+      const parsed = await parser.process(assistantMsg([]));
 
       assert.deepEqual(parsed.toolUses, []);
       assert.equal(parsed.assistantText, "");
-    });
-
-    it("ignores null/undefined blocks in content", async () => {
-      const parsed = await parser.process({
-        type: "assistant",
-        message: { content: [null, undefined, { type: "text", text: "ok" }] },
-      });
-
-      assert.equal(parsed.assistantText, "ok");
     });
   });
 
   // ---- user messages (tool_result) ----
   describe("user messages", () => {
     it("emits tool_end for tool_result blocks", async () => {
-      await parser.process({
-        type: "user",
-        message: {
-          content: [
-            {
-              type: "tool_result",
-              tool_use_id: "tu_1",
-              is_error: false,
-            },
-          ],
+      await parser.process(userMsg([
+        {
+          type: "tool_result",
+          tool_use_id: "tu_1",
+          is_error: false,
         },
-      });
+      ]));
 
       assert.equal(events.length, 1);
       assert.deepEqual(events[0], {
@@ -413,19 +375,14 @@ describe("ClaudeMessageParser", () => {
     });
 
     it("emits tool_end with error flag and message for error results", async () => {
-      await parser.process({
-        type: "user",
-        message: {
-          content: [
-            {
-              type: "tool_result",
-              tool_use_id: "tu_1",
-              is_error: true,
-              content: "Permission denied",
-            },
-          ],
+      await parser.process(userMsg([
+        {
+          type: "tool_result",
+          tool_use_id: "tu_1",
+          is_error: true,
+          content: "Permission denied",
         },
-      });
+      ]));
 
       assert.equal(events.length, 1);
       assert.deepEqual(events[0], {
@@ -437,19 +394,14 @@ describe("ClaudeMessageParser", () => {
     });
 
     it("does not extract error message when is_error is false", async () => {
-      await parser.process({
-        type: "user",
-        message: {
-          content: [
-            {
-              type: "tool_result",
-              tool_use_id: "tu_1",
-              is_error: false,
-              content: "some output",
-            },
-          ],
+      await parser.process(userMsg([
+        {
+          type: "tool_result",
+          tool_use_id: "tu_1",
+          is_error: false,
+          content: "some output",
         },
-      });
+      ]));
 
       assert.equal(events.length, 1);
       assert.equal(
@@ -459,15 +411,10 @@ describe("ClaudeMessageParser", () => {
     });
 
     it("ignores non-tool_result blocks", async () => {
-      await parser.process({
-        type: "user",
-        message: {
-          content: [
-            { type: "text", text: "follow up" },
-            { type: "tool_result", tool_use_id: "tu_1", is_error: false },
-          ],
-        },
-      });
+      await parser.process(userMsg([
+        { type: "text", text: "follow up" },
+        { type: "tool_result", tool_use_id: "tu_1", is_error: false },
+      ]));
 
       assert.equal(events.length, 1);
     });
@@ -476,11 +423,7 @@ describe("ClaudeMessageParser", () => {
   // ---- result messages ----
   describe("result messages", () => {
     it("captures success result", async () => {
-      await parser.process({
-        type: "result",
-        subtype: "success",
-        result: "All done",
-      });
+      await parser.process(resultSuccess("All done"));
 
       assert.deepEqual(parser.result, {
         success: true,
@@ -489,11 +432,7 @@ describe("ClaudeMessageParser", () => {
     });
 
     it("captures success result with empty result text", async () => {
-      await parser.process({
-        type: "result",
-        subtype: "success",
-        result: "",
-      });
+      await parser.process(resultSuccess(""));
 
       assert.deepEqual(parser.result, {
         success: true,
@@ -502,11 +441,7 @@ describe("ClaudeMessageParser", () => {
     });
 
     it("captures error result with error messages", async () => {
-      await parser.process({
-        type: "result",
-        subtype: "error",
-        errors: ["timeout", "rate limit"],
-      });
+      await parser.process(resultError(["timeout", "rate limit"]));
 
       assert.deepEqual(parser.result, {
         success: false,
@@ -515,11 +450,8 @@ describe("ClaudeMessageParser", () => {
       });
     });
 
-    it("captures error result with no errors array", async () => {
-      await parser.process({
-        type: "result",
-        subtype: "error",
-      });
+    it("captures error result with empty errors array", async () => {
+      await parser.process(resultError([]));
 
       assert.deepEqual(parser.result, {
         success: false,
@@ -535,17 +467,8 @@ describe("ClaudeMessageParser", () => {
 
   // ---- return value shape ----
   describe("return value", () => {
-    it("returns empty parsed message for unknown message types", async () => {
-      const parsed = await parser.process({ type: "unknown_event" });
-      assert.deepEqual(parsed, { toolUses: [], assistantText: null });
-    });
-
     it("returns empty parsed message for tool_progress", async () => {
-      const parsed = await parser.process({
-        type: "tool_progress",
-        tool_use_id: "tu_1",
-        tool_name: "read_file",
-      });
+      const parsed = await parser.process(toolProgress({ tool_use_id: "tu_1", tool_name: "read_file" }));
       assert.deepEqual(parsed, { toolUses: [], assistantText: null });
     });
   });

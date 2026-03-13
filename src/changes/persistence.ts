@@ -86,8 +86,12 @@ function isValidSessionState(parsed: unknown): parsed is PersistedSessionState {
 }
 
 function parseSessionState(content: string): PersistedSessionState | null {
-  const parsed: unknown = JSON.parse(content);
-  return isValidSessionState(parsed) ? parsed : null;
+  try {
+    const parsed: unknown = JSON.parse(content);
+    return isValidSessionState(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function readSessionState(branchName: string): Promise<PersistedSessionState | null> {
@@ -96,12 +100,11 @@ export async function readSessionState(branchName: string): Promise<PersistedSes
 
   try {
     const content = await readFile(statePath, "utf-8");
-    const parsed: unknown = JSON.parse(content);
-    if (!isValidSessionState(parsed)) {
+    const state = parseSessionState(content);
+    if (!state) {
       logger.warn(`Corrupt session state file ${statePath}: missing required fields`);
-      return null;
     }
-    return parsed;
+    return state;
   } catch (err) {
     logger.debug(`Could not read session state for branch "${branchName}": ${err}`);
     return null;

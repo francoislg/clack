@@ -57,7 +57,11 @@ function writeTestConfig(dir: string, config: Record<string, unknown>): string {
 }
 
 function readTestConfig(path: string): Record<string, unknown> {
-  return JSON.parse(readFileSync(path, "utf-8"));
+  try {
+    return JSON.parse(readFileSync(path, "utf-8")) as Record<string, unknown>;
+  } catch (err) {
+    throw new Error(`Failed to parse test config at ${path}: ${err}`);
+  }
 }
 
 /** Run async tasks with bounded concurrency. */
