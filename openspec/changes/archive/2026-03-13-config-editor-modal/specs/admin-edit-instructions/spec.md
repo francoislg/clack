@@ -1,9 +1,5 @@
-# admin-edit-instructions Specification
+## MODIFIED Requirements
 
-## Purpose
-Admin UI for viewing and editing instruction files via the Slack Home Tab, with two-tier override support and path safety.
-
-## Requirements
 ### Requirement: Instruction File Listing
 
 The system SHALL list all instruction files grouped by directory, with source status and editability.
@@ -26,17 +22,6 @@ The system SHALL list all instruction files grouped by directory, with source st
 #### Scenario: Create new file button for role directories
 - **WHEN** a file picker modal is open for a role directory
 - **THEN** display a [+ Create New File] button below the file list
-
-#### Scenario: Read file content for editing
-- **GIVEN** an instruction file is requested for editing
-- **WHEN** an override exists in `data/configuration/`
-- **THEN** the system returns the override content
-
-#### Scenario: Read default content for customization
-- **GIVEN** an instruction file is requested for editing
-- **AND** no override exists in `data/configuration/`
-- **WHEN** a default exists in `data/default_configuration/`
-- **THEN** the system returns the default content as a starting point
 
 ### Requirement: Modal Title Length
 

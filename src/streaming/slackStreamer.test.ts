@@ -609,6 +609,36 @@ describe("SlackStreamer.stop", () => {
     assert.equal(mockStreamerObj.stop.mock.callCount(), 0);
   });
 
+  it("force-completes standalone tasks still tracked in taskSlack", async () => {
+    const mockStreamerObj = makeMockChatStreamer();
+    const client = makeClient({ chatStreamer: mockStreamerObj });
+    const streamer = new SlackStreamer({
+      client,
+      channel: "C_CHAN",
+      threadTs: "1234.5678",
+      teamId: "T_TEAM",
+    });
+    await streamer.start();
+
+    // Start a standalone tool but don't end it
+    streamer.handleEvent({
+      type: "tool_start",
+      taskId: "task-standalone",
+      toolName: "mcp__clack__propose_config_update",
+      toolArgs: { config: "test" },
+    });
+
+    mockStreamerObj.append.mock.resetCalls();
+
+    await streamer.stop();
+
+    const chunks = getAppendedChunks(mockStreamerObj);
+    const standaloneComplete = chunks.find(
+      (c) => c.id === "task-standalone" && c.status === "complete",
+    );
+    assert.ok(standaloneComplete, "standalone task should be force-completed on stop");
+  });
+
   it("force-completes the open group on stop", async () => {
     const mockStreamerObj = makeMockChatStreamer();
     const client = makeClient({ chatStreamer: mockStreamerObj });

@@ -1,4 +1,4 @@
-import { writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { writeFileSync, existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { getConfig, getConfigurationDir, getDefaultConfigurationDir } from "./config.js";
 import { logger } from "./logger.js";
@@ -116,4 +116,46 @@ export function writeInstructionFile(filename: string, content: string): void {
   }
 
   writeFileSync(targetPath, content, "utf-8");
+}
+
+// ---------------------------------------------------------------------------
+// Delete instruction file
+// ---------------------------------------------------------------------------
+
+/**
+ * Delete an instruction file from the configuration directory.
+ * Accepts paths like "user/identity.md" or "dev/custom-rule.md".
+ * Validates the path to prevent traversal attacks.
+ * Throws if the file doesn't exist.
+ */
+export function deleteInstructionFile(filepath: string): void {
+  const configDir = getConfigurationDir();
+  const targetPath = resolve(configDir, filepath);
+
+  // Path safety: ensure resolved path is inside configuration directory
+  if (!targetPath.startsWith(configDir + sep) && targetPath !== configDir) {
+    logger.warn(`Path traversal attempt blocked: ${filepath}`);
+    throw new Error("Invalid filename: path traversal not allowed");
+  }
+
+  if (!existsSync(targetPath)) {
+    throw new Error(`File not found: ${filepath}`);
+  }
+
+  unlinkSync(targetPath);
+}
+
+// ---------------------------------------------------------------------------
+// Effective content length
+// ---------------------------------------------------------------------------
+
+/**
+ * Compute the effective content length for an instruction file.
+ * Returns the length of the custom override if it exists, otherwise the default content length.
+ * Returns 0 if neither exists.
+ */
+export function getEffectiveContentLength(filepath: string): number {
+  const { default_content, custom_content } = readInstructionFile(filepath);
+  const effective = custom_content ?? default_content;
+  return effective?.length ?? 0;
 }

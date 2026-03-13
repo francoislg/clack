@@ -13,6 +13,8 @@ import {
   listInstructionFiles,
   readInstructionFile,
   writeInstructionFile,
+  deleteInstructionFile,
+  getEffectiveContentLength,
 } from "./configurationFiles.js";
 
 // ---------------------------------------------------------------------------
@@ -388,5 +390,114 @@ describe("writeInstructionFile", () => {
     const result = readInstructionFile("user/identity.md");
     assert.equal(result.default_content, "default version");
     assert.equal(result.custom_content, "override version");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// deleteInstructionFile
+// ---------------------------------------------------------------------------
+
+describe("deleteInstructionFile", () => {
+  beforeEach(() => {
+    if (existsSync(tmpBase)) {
+      rmSync(tmpBase, { recursive: true });
+    }
+    mkdirSync(tmpBase, { recursive: true });
+    process.chdir(tmpBase);
+    writeSlackAuth();
+    writeConfig([
+      { name: "repo", url: "https://github.com/org/repo.git", description: "Repo" },
+    ]);
+    loadConfig(configPath, true);
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+  });
+
+  it("deletes an existing override file", () => {
+    writeOverrideFile("user/identity.md", "custom content");
+    assert.ok(existsSync(resolve(configDir, "user/identity.md")));
+
+    deleteInstructionFile("user/identity.md");
+    assert.ok(!existsSync(resolve(configDir, "user/identity.md")));
+  });
+
+  it("throws when file does not exist", () => {
+    assert.throws(
+      () => deleteInstructionFile("user/nonexistent.md"),
+      /File not found/
+    );
+  });
+
+  it("blocks path traversal with ../", () => {
+    assert.throws(
+      () => deleteInstructionFile("../escape.md"),
+      /path traversal not allowed/
+    );
+  });
+
+  it("blocks path traversal with nested ../", () => {
+    assert.throws(
+      () => deleteInstructionFile("foo/../../escape.md"),
+      /path traversal not allowed/
+    );
+  });
+
+  it("does not affect default files", () => {
+    writeDefaultFile("user/identity.md", "default content");
+    writeOverrideFile("user/identity.md", "custom content");
+
+    deleteInstructionFile("user/identity.md");
+
+    const result = readInstructionFile("user/identity.md");
+    assert.equal(result.default_content, "default content");
+    assert.equal(result.custom_content, null);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getEffectiveContentLength
+// ---------------------------------------------------------------------------
+
+describe("getEffectiveContentLength", () => {
+  beforeEach(() => {
+    if (existsSync(tmpBase)) {
+      rmSync(tmpBase, { recursive: true });
+    }
+    mkdirSync(tmpBase, { recursive: true });
+    process.chdir(tmpBase);
+    writeSlackAuth();
+    writeConfig([
+      { name: "repo", url: "https://github.com/org/repo.git", description: "Repo" },
+    ]);
+    loadConfig(configPath, true);
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+  });
+
+  it("returns custom content length when override exists", () => {
+    writeDefaultFile("user/identity.md", "short");
+    writeOverrideFile("user/identity.md", "much longer custom content");
+
+    assert.equal(getEffectiveContentLength("user/identity.md"), 26);
+  });
+
+  it("returns default content length when no override exists", () => {
+    writeDefaultFile("user/identity.md", "default content here");
+
+    assert.equal(getEffectiveContentLength("user/identity.md"), 20);
+  });
+
+  it("returns 0 when neither file exists", () => {
+    assert.equal(getEffectiveContentLength("user/nonexistent.md"), 0);
+  });
+
+  it("returns custom-only file length", () => {
+    writeOverrideFile("admin/custom-rule.md", "custom only content");
+
+    assert.equal(getEffectiveContentLength("admin/custom-rule.md"), 19);
   });
 });
