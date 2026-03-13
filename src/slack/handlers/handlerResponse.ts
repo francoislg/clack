@@ -240,7 +240,12 @@ async function handleError(ctx: DeliveryContext, response: ClaudeResponse): Prom
   const conversationTrace = response.conversationTrace || [];
 
   logger.error("Claude failed:", errorMessage);
-  await addError(ctx.session.sessionId, errorMessage, conversationTrace);
+
+  try {
+    await addError(ctx.session.sessionId, errorMessage, conversationTrace);
+  } catch (err) {
+    logger.error("Failed to persist error to session:", err);
+  }
 
   const isPlatformLimit = /usage limit|limit reached/i.test(errorMessage);
   const errorText = isPlatformLimit

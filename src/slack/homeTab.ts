@@ -53,18 +53,13 @@ export async function buildHomeView(options: HomeViewOptions): Promise<View> {
     blocks.push(...(await buildRoleManagementSection(userId, role)));
   }
 
-  // Configuration section (only for admins/owner)
-  if (userCanEdit) {
-    blocks.push(...buildConfigurationSection());
-  }
+  // Configuration & preferences section (config editing for admins, preferences for all)
+  blocks.push(...buildConfigurationSection(userCanEdit));
 
   // Active workers section (only for devs and higher)
   if (userIsDev) {
     blocks.push(...buildActiveWorkersSection());
   }
-
-  // Settings section (visible to all, conditionally has content)
-  blocks.push(...buildSettingsSection(userId));
 
   // Status section (visible to all)
   blocks.push(...buildStatusSection(role));
@@ -299,8 +294,13 @@ export async function buildRoleManagementSection(
   return blocks;
 }
 
-export function buildConfigurationSection(): KnownBlock[] {
-  const listing = listInstructionFiles();
+const roleEmojis: Record<string, string> = {
+  user: ":bust_in_silhouette:",
+  dev: ":hammer_and_wrench:",
+  admin: ":shield:",
+};
+
+export function buildConfigurationSection(showEditButtons: boolean): KnownBlock[] {
   const blocks: KnownBlock[] = [];
 
   blocks.push({
@@ -312,51 +312,60 @@ export function buildConfigurationSection(): KnownBlock[] {
     },
   });
 
-  // Role directories — hierarchy view with files listed under each directory
-  for (const roleListing of listing.roles) {
-    const fileLines = roleListing.files.map((f) => {
-      const label = f.source === "customized" ? " — _Customized_" : f.source === "custom-only" ? " — _Custom_" : "";
-      return `      • \`${f.filename}\`${label}`;
-    });
+  const buttons: object[] = [];
 
-    blocks.push({
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: `\`${roleListing.role}/\`\n${fileLines.join("\n")}`,
-      },
-    });
-  }
+  if (showEditButtons) {
+    const listing = listInstructionFiles();
 
-  // Repo-scoped instruction files
-  for (const repo of listing.repos) {
-    let statusLabel: string;
-    if (repo.hasOverride) {
-      statusLabel = "Customized";
-    } else if (repo.hasDefault) {
-      statusLabel = "Default";
-    } else {
-      statusLabel = "Not created";
+    for (const roleListing of listing.roles) {
+      const roleLabel = roleListing.role.charAt(0).toUpperCase() + roleListing.role.slice(1);
+      const emoji = roleEmojis[roleListing.role] ?? "";
+      const label = emoji ? `${emoji} Edit ${roleLabel} Config` : `Edit ${roleLabel} Config`;
+      buttons.push({
+        type: "button",
+        text: { type: "plain_text", text: label, emoji: true },
+        action_id: `view_config_dir:${roleListing.role}`,
+        value: roleListing.role,
+      });
     }
 
-    blocks.push({
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: `:page_facing_up: \`${repo.filename}\` — _${statusLabel}_`,
-      },
-    });
+    // Repo directories — group by repo name
+    const repoGroups = new Map<string, number>();
+    for (const repo of listing.repos) {
+      const repoName = repo.filename.split("/")[0];
+      repoGroups.set(repoName, (repoGroups.get(repoName) ?? 0) + 1);
+    }
+
+    for (const [repoName] of repoGroups) {
+      buttons.push({
+        type: "button",
+        text: { type: "plain_text", text: `:file_folder: Edit ${repoName} Config`, emoji: true },
+        action_id: `view_config_dir:${repoName}`,
+        value: repoName,
+      });
+    }
   }
 
-  blocks.push({
-    type: "context",
-    elements: [
-      {
-        type: "mrkdwn",
-        text: "_Chat with Clack to view or update configuration files._",
-      },
-    ],
+  // Personal Preferences button — always visible
+  buttons.push({
+    type: "button",
+    text: { type: "plain_text", text: ":gear: Personal Preferences", emoji: true },
+    action_id: "open_settings",
   });
+
+  blocks.push({ type: "actions", elements: buttons } as KnownBlock);
+
+  if (showEditButtons) {
+    blocks.push({
+      type: "context",
+      elements: [
+        {
+          type: "mrkdwn",
+          text: "_Chat with Clack for advanced configuration changes._",
+        },
+      ],
+    });
+  }
 
   blocks.push({ type: "divider" });
 
@@ -577,36 +586,6 @@ export function buildHelpSection(): KnownBlock[] {
 
 // Settings section and modal
 
-function buildSettingsSection(_userId: string): KnownBlock[] {
-  return [
-    {
-      type: "header",
-      text: {
-        type: "plain_text",
-        text: "Settings",
-        emoji: true,
-      },
-    },
-    {
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: ":gear: Manage your personal preferences.",
-      },
-      accessory: {
-        type: "button",
-        text: {
-          type: "plain_text",
-          text: "Settings",
-          emoji: true,
-        },
-        action_id: "open_settings",
-      },
-    },
-    { type: "divider" },
-  ];
-}
-
 export async function buildSettingsModal(userId: string): Promise<View> {
   const delivery = await getReactionDelivery(userId);
   const notifyOnResponse = await getUserPreference(userId, "notifyOnResponse");
@@ -624,7 +603,7 @@ export async function buildSettingsModal(userId: string): Promise<View> {
 
   const notifyOnOption = {
     text: { type: "plain_text" as const, text: "On" },
-    description: { type: "plain_text" as const, text: "Post a short follow-up so you get a Slack notification." },
+    description: { type: "plain_text" as const, text: "If the response takes longer than 60 seconds, post a follow-up so you get a Slack notification." },
     value: "true",
   };
   const notifyOffOption = {
@@ -673,7 +652,7 @@ export async function buildSettingsModal(userId: string): Promise<View> {
         type: "section",
         text: {
           type: "mrkdwn",
-          text: "*Response notification*\nPost a follow-up message when the answer is ready so you get a Slack notification?",
+          text: "*Response notification*\nIf the response takes longer than 60 seconds, post a follow-up message so you get a Slack notification?",
         },
       },
       {
@@ -734,6 +713,275 @@ export function buildUserSelectModal(
     ],
   };
 }
+
+// ---------------------------------------------------------------------------
+// Config file picker modal
+// ---------------------------------------------------------------------------
+
+const MAX_MODAL_CONTENT_LENGTH = 3000;
+
+export interface ConfigFilePickerEntry {
+  filename: string;
+  sourceLabel: string; // "", "Customized", "Custom"
+  effectiveLength: number;
+}
+
+export function buildConfigFilePickerModal(
+  dir: string,
+  files: ConfigFilePickerEntry[],
+  isRepoDir: boolean
+): View {
+  const blocks: KnownBlock[] = [];
+
+  for (const file of files) {
+    const tooLarge = file.effectiveLength > MAX_MODAL_CONTENT_LENGTH;
+    const label = file.sourceLabel ? ` — _${file.sourceLabel}_` : "";
+
+    if (tooLarge) {
+      blocks.push({
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `\`${file.filename}\`${label}\n_Too large for modal editor_`,
+        },
+        accessory: {
+          type: "button",
+          text: {
+            type: "plain_text",
+            text: "Chat to Edit",
+          },
+          action_id: "chat_edit_config_file",
+          value: `${dir}/${file.filename}`,
+        },
+      });
+    } else {
+      blocks.push({
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `\`${file.filename}\`${label}`,
+        },
+        accessory: {
+          type: "button",
+          text: {
+            type: "plain_text",
+            text: "Edit",
+          },
+          action_id: "edit_config_file",
+          value: `${dir}/${file.filename}`,
+        },
+      });
+    }
+  }
+
+  if (!isRepoDir) {
+    blocks.push({
+      type: "actions",
+      elements: [
+        {
+          type: "button",
+          text: {
+            type: "plain_text",
+            text: "+ Create New File",
+          },
+          action_id: "create_config_file",
+          value: dir,
+        },
+      ],
+    });
+  }
+
+  const titleText = `${dir}/ Instructions`;
+  const truncatedTitle = titleText.length > 24 ? titleText.slice(0, 23) + "\u2026" : titleText;
+
+  return {
+    type: "modal",
+    title: {
+      type: "plain_text",
+      text: truncatedTitle,
+    },
+    close: {
+      type: "plain_text",
+      text: "Close",
+    },
+    blocks,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Config file editor modal
+// ---------------------------------------------------------------------------
+
+export type ConfigFileState = "default-only" | "has-override" | "custom-only";
+
+interface EditorMetadata {
+  dir: string;
+  filename: string;
+  hasDefault: boolean;
+  hasOverride: boolean;
+}
+
+export function buildConfigEditorModal(
+  dir: string,
+  filename: string,
+  content: string,
+  fileState: ConfigFileState
+): View {
+  const blocks: KnownBlock[] = [];
+
+  // Status line
+  if (fileState === "default-only") {
+    blocks.push({
+      type: "context",
+      elements: [{ type: "mrkdwn", text: "_Default — no custom override_" }],
+    });
+  }
+
+  // Content textarea
+  blocks.push({
+    type: "input",
+    block_id: "content_block",
+    element: {
+      type: "plain_text_input",
+      action_id: "file_content",
+      multiline: true,
+      initial_value: content,
+    },
+    label: {
+      type: "plain_text",
+      text: "Content",
+    },
+  });
+
+  // Action buttons row
+  const actionElements: object[] = [
+    {
+      type: "button",
+      text: { type: "plain_text", text: "Chat to Edit" },
+      action_id: "chat_edit_config_file",
+      value: `${dir}/${filename}`,
+    },
+  ];
+
+  if (fileState === "has-override") {
+    actionElements.push({
+      type: "button",
+      text: { type: "plain_text", text: "Reset to Default" },
+      style: "danger",
+      action_id: "delete_config_file",
+      value: `${dir}/${filename}`,
+    });
+  } else if (fileState === "custom-only") {
+    actionElements.push({
+      type: "button",
+      text: { type: "plain_text", text: "Delete File" },
+      style: "danger",
+      action_id: "delete_config_file",
+      value: `${dir}/${filename}`,
+    });
+  }
+
+  blocks.push({ type: "actions", elements: actionElements } as KnownBlock);
+
+  const submitLabel = fileState === "default-only" ? "Create Override" : "Save";
+
+  const metadata: EditorMetadata = {
+    dir,
+    filename,
+    hasDefault: fileState === "default-only" || fileState === "has-override",
+    hasOverride: fileState === "has-override",
+  };
+
+  // Title truncation (24 char limit)
+  const titleText = `${dir}/${filename}`;
+  const truncatedTitle = titleText.length > 24 ? titleText.slice(0, 23) + "\u2026" : titleText;
+
+  return {
+    type: "modal",
+    callback_id: "config_editor_modal",
+    title: {
+      type: "plain_text",
+      text: truncatedTitle,
+    },
+    submit: {
+      type: "plain_text",
+      text: submitLabel,
+    },
+    close: {
+      type: "plain_text",
+      text: "Back",
+    },
+    private_metadata: JSON.stringify(metadata),
+    blocks,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Config create file modal
+// ---------------------------------------------------------------------------
+
+export function buildConfigCreateFileModal(dir: string): View {
+  return {
+    type: "modal",
+    callback_id: "config_create_modal",
+    title: {
+      type: "plain_text",
+      text: "Create New File",
+    },
+    submit: {
+      type: "plain_text",
+      text: "Create",
+    },
+    close: {
+      type: "plain_text",
+      text: "Back",
+    },
+    private_metadata: JSON.stringify({ dir }),
+    blocks: [
+      {
+        type: "input",
+        block_id: "filename_block",
+        element: {
+          type: "plain_text_input",
+          action_id: "filename",
+          placeholder: {
+            type: "plain_text",
+            text: "my-instructions",
+          },
+        },
+        label: {
+          type: "plain_text",
+          text: "Filename",
+        },
+        hint: {
+          type: "plain_text",
+          text: ".md extension is added automatically",
+        },
+      },
+      {
+        type: "input",
+        block_id: "content_block",
+        element: {
+          type: "plain_text_input",
+          action_id: "file_content",
+          multiline: true,
+          placeholder: {
+            type: "plain_text",
+            text: "Enter instruction content...",
+          },
+        },
+        label: {
+          type: "plain_text",
+          text: "Content",
+        },
+      },
+    ],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// User select modals (existing)
+// ---------------------------------------------------------------------------
 
 export function buildRemoveUserModal(
   title: string,

@@ -224,6 +224,14 @@ export class SlackStreamer {
 
     this.stopped = true;
 
+    // Force-complete standalone tasks still in-flight (tool_end hasn't arrived yet)
+    const openGroupSlackId = this.openGroup?.slackId;
+    for (const [taskId, slackId] of this.taskSlack) {
+      if (slackId === openGroupSlackId) continue; // handled by the open-group block below
+      const label = this.taskLabels.get(taskId) ?? "Task";
+      await this.append([{ type: "task_update", id: slackId, title: label, status: "complete" }]);
+    }
+
     // Force-complete the open group if it still has pending items (e.g. cancellation)
     if (this.openGroup && this.openGroup.pending > 0) {
       const g = this.openGroup;

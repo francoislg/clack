@@ -96,6 +96,9 @@ const {
   buildSettingsModal,
   buildUserSelectModal,
   buildRemoveUserModal,
+  buildConfigFilePickerModal,
+  buildConfigEditorModal,
+  buildConfigCreateFileModal,
 } = await import("./homeTab.js");
 
 // ============================================================================
@@ -246,11 +249,18 @@ describe("buildHomeView", () => {
     assert.ok(headers.includes("Configuration"));
   });
 
-  it("does not include configuration section for members", async () => {
+  it("shows configuration section for members with only Personal Preferences", async () => {
     setDefaultMocks("member");
     const view = await buildHomeView({ userId: "U001" });
     const headers = getHeaderTexts(view.blocks as KnownBlock[]);
-    assert.ok(!headers.includes("Configuration"));
+    assert.ok(headers.includes("Configuration"));
+    // Members should not have any view_config_dir buttons
+    const actionsBlocks = (view.blocks as KnownBlock[]).filter((b) => b.type === "actions");
+    const configButtons = actionsBlocks.flatMap((b) => {
+      const elements = (b as unknown as { elements: Array<{ action_id: string }> }).elements;
+      return elements.filter((e) => e.action_id?.startsWith("view_config_dir:"));
+    });
+    assert.equal(configButtons.length, 0);
   });
 
   it("includes active workers section for devs", async () => {
@@ -267,13 +277,23 @@ describe("buildHomeView", () => {
     assert.ok(!headers.includes("Active Workers"));
   });
 
-  it("always includes settings, status, and help sections", async () => {
+  it("always includes status and help sections", async () => {
     setDefaultMocks("member");
     const view = await buildHomeView({ userId: "U001" });
     const headers = getHeaderTexts(view.blocks as KnownBlock[]);
-    assert.ok(headers.includes("Settings"));
     assert.ok(headers.includes("Status"));
     assert.ok(headers.includes("Help"));
+  });
+
+  it("always includes personal preferences button", async () => {
+    setDefaultMocks("member");
+    const view = await buildHomeView({ userId: "U001" });
+    const actionsBlocks = (view.blocks as KnownBlock[]).filter((b) => b.type === "actions");
+    const hasPrefsButton = actionsBlocks.some((b) => {
+      const elements = (b as unknown as { elements: Array<{ action_id: string }> }).elements;
+      return elements.some((e) => e.action_id === "open_settings");
+    });
+    assert.ok(hasPrefsButton);
   });
 
   it("includes migration error banner when errors exist", async () => {
@@ -424,12 +444,12 @@ describe("buildConfigurationSection", () => {
   });
 
   it("starts with a Configuration header", () => {
-    const blocks = buildConfigurationSection();
+    const blocks = buildConfigurationSection(true);
     assert.equal(blocks[0].type, "header");
     assert.equal((blocks[0] as unknown as { text: { text: string } }).text.text, "Configuration");
   });
 
-  it("renders role directories with file hierarchy", () => {
+  it("renders directory buttons in a single actions row", () => {
     mockListInstructionFiles.mock.mockImplementation(() => ({
       roles: [
         { role: "user", files: [
@@ -441,43 +461,73 @@ describe("buildConfigurationSection", () => {
           { filename: "changes.md", source: "default" as const },
         ]},
       ],
-      repos: [
-        { filename: "repo/changes_instructions.md", hasOverride: false, hasDefault: false },
-      ],
+      repos: [],
     }));
-    const blocks = buildConfigurationSection();
-    const texts = getSectionTexts(blocks);
+    const blocks = buildConfigurationSection(true);
+    const actionsBlocks = blocks.filter((b) => b.type === "actions");
+    assert.equal(actionsBlocks.length, 1);
 
-    // user/ directory should list files with appropriate markers
-    const userBlock = texts.find((t) => t.includes("user/"));
-    assert.ok(userBlock, "should have a user/ block");
-    assert.ok(userBlock.includes("identity.md"), "should list identity.md");
-    assert.ok(userBlock.includes("response-style.md"), "should list response-style.md");
-    assert.ok(userBlock.includes("Customized"), "should mark customized file");
-    assert.ok(userBlock.includes("company.md"), "should list custom-only file");
-    assert.ok(userBlock.includes("Custom"), "should mark custom-only file");
-
-    // dev/ directory
-    const devBlock = texts.find((t) => t.includes("dev/"));
-    assert.ok(devBlock, "should have a dev/ block");
-    assert.ok(devBlock.includes("changes.md"), "should list changes.md");
-
-    // Repo files
-    assert.ok(texts.some((t) => t.includes("changes_instructions.md") && t.includes("Not created")));
+    const elements = (actionsBlocks[0] as unknown as { elements: Array<{ text: { text: string }; action_id: string; value: string }> }).elements;
+    // 2 config buttons + 1 Personal Preferences button
+    assert.equal(elements.length, 3);
+    assert.equal(elements[0].text.text, ":bust_in_silhouette: Edit User Config");
+    assert.equal(elements[0].action_id, "view_config_dir:user");
+    assert.equal(elements[0].value, "user");
+    assert.equal(elements[1].text.text, ":hammer_and_wrench: Edit Dev Config");
+    assert.equal(elements[1].value, "dev");
+    assert.equal(elements[2].action_id, "open_settings");
   });
 
-  it("shows instruction context at the end", () => {
+  it("includes repo directory buttons alongside role buttons", () => {
+    mockListInstructionFiles.mock.mockImplementation(() => ({
+      roles: [
+        { role: "user", files: [{ filename: "identity.md", source: "default" as const }] },
+      ],
+      repos: [
+        { filename: "my-repo/changes_instructions.md", hasOverride: false, hasDefault: true },
+        { filename: "my-repo/worktree_setup_instructions.md", hasOverride: false, hasDefault: false },
+      ],
+    }));
+    const blocks = buildConfigurationSection(true);
+    const actionsBlocks = blocks.filter((b) => b.type === "actions");
+    assert.equal(actionsBlocks.length, 1);
+
+    const elements = (actionsBlocks[0] as unknown as { elements: Array<{ text: { text: string }; value: string }> }).elements;
+    // 1 role button + 1 repo button + 1 Personal Preferences button
+    assert.equal(elements.length, 3);
+    assert.equal(elements[0].text.text, ":bust_in_silhouette: Edit User Config");
+    assert.equal(elements[1].text.text, ":file_folder: Edit my-repo Config");
+    assert.equal(elements[1].value, "my-repo");
+  });
+
+  it("shows chat hint at the end", () => {
     mockListInstructionFiles.mock.mockImplementation(() => ({ roles: [], repos: [] }));
-    const blocks = buildConfigurationSection();
+    const blocks = buildConfigurationSection(true);
     const contextBlocks = blocks.filter((b) => b.type === "context");
     assert.ok(contextBlocks.length > 0);
     const contextText = ((contextBlocks[0] as unknown as { elements: Array<{ text: string }> }).elements)[0].text;
-    assert.ok(contextText.includes("Chat with Clack"));
+    assert.ok(contextText.includes("advanced configuration"));
   });
 
   it("ends with a divider", () => {
-    const blocks = buildConfigurationSection();
+    const blocks = buildConfigurationSection(true);
     assert.equal(blocks[blocks.length - 1].type, "divider");
+  });
+
+  it("shows only Personal Preferences when showEditButtons is false", () => {
+    const blocks = buildConfigurationSection(false);
+    const actionsBlocks = blocks.filter((b) => b.type === "actions");
+    assert.equal(actionsBlocks.length, 1);
+
+    const elements = (actionsBlocks[0] as unknown as { elements: Array<{ text: { text: string }; action_id: string }> }).elements;
+    assert.equal(elements.length, 1);
+    assert.equal(elements[0].action_id, "open_settings");
+  });
+
+  it("hides chat hint when showEditButtons is false", () => {
+    const blocks = buildConfigurationSection(false);
+    const contextBlocks = blocks.filter((b) => b.type === "context");
+    assert.equal(contextBlocks.length, 0);
   });
 });
 
@@ -863,5 +913,203 @@ describe("buildRemoveUserModal", () => {
     assert.equal(inputBlock!.element.options.length, 2);
     assert.equal(inputBlock!.element.options[0].value, "U001");
     assert.equal(inputBlock!.element.options[1].value, "U002");
+  });
+});
+
+// ============================================================================
+// buildConfigFilePickerModal
+// ============================================================================
+
+describe("buildConfigFilePickerModal", () => {
+  it("shows files with Edit buttons for editable files", () => {
+    const files = [
+      { filename: "identity.md", sourceLabel: "", effectiveLength: 500 },
+      { filename: "behavior.md", sourceLabel: "Customized", effectiveLength: 800 },
+    ];
+    const view = buildConfigFilePickerModal("user", files, false);
+    const sections = (view.blocks as KnownBlock[]).filter((b) => b.type === "section");
+
+    assert.equal(sections.length, 2);
+    const firstAccessory = (sections[0] as unknown as { accessory: { action_id: string; value: string } }).accessory;
+    assert.equal(firstAccessory.action_id, "edit_config_file");
+    assert.equal(firstAccessory.value, "user/identity.md");
+  });
+
+  it("shows source labels on files", () => {
+    const files = [
+      { filename: "identity.md", sourceLabel: "Customized", effectiveLength: 100 },
+      { filename: "custom.md", sourceLabel: "Custom", effectiveLength: 100 },
+    ];
+    const view = buildConfigFilePickerModal("user", files, false);
+    const texts = getSectionTexts(view.blocks as KnownBlock[]);
+
+    assert.ok(texts.some((t) => t.includes("Customized")));
+    assert.ok(texts.some((t) => t.includes("Custom")));
+  });
+
+  it("shows 'Chat to Edit' button for oversized files instead of Edit button", () => {
+    const files = [
+      { filename: "large-file.md", sourceLabel: "", effectiveLength: 3500 },
+    ];
+    const view = buildConfigFilePickerModal("user", files, false);
+    const sections = (view.blocks as KnownBlock[]).filter((b) => b.type === "section");
+    const text = (sections[0] as unknown as { text: { text: string } }).text.text;
+
+    assert.ok(text.includes("Too large for modal editor"));
+    const accessory = (sections[0] as unknown as { accessory: { action_id: string; value: string; text: { text: string } } }).accessory;
+    assert.equal(accessory.action_id, "chat_edit_config_file");
+    assert.equal(accessory.value, "user/large-file.md");
+    assert.equal(accessory.text.text, "Chat to Edit");
+  });
+
+  it("shows Create New File button for role directories", () => {
+    const view = buildConfigFilePickerModal("user", [], false);
+    const actions = (view.blocks as KnownBlock[]).filter((b) => b.type === "actions");
+    assert.equal(actions.length, 1);
+    const elements = (actions[0] as unknown as { elements: Array<{ action_id: string }> }).elements;
+    assert.equal(elements[0].action_id, "create_config_file");
+  });
+
+  it("does not show Create New File button for repo directories", () => {
+    const view = buildConfigFilePickerModal("my-repo", [], true);
+    const actions = (view.blocks as KnownBlock[]).filter((b) => b.type === "actions");
+    assert.equal(actions.length, 0);
+  });
+
+  it("truncates long modal titles", () => {
+    const view = buildConfigFilePickerModal("very-long-directory-name", [], false);
+    const title = (view as unknown as { title: { text: string } }).title.text;
+    assert.ok(title.length <= 24);
+    assert.ok(title.endsWith("\u2026"));
+  });
+});
+
+// ============================================================================
+// buildConfigEditorModal
+// ============================================================================
+
+describe("buildConfigEditorModal", () => {
+  it("shows 'Create Override' submit for default-only files", () => {
+    const view = buildConfigEditorModal("user", "identity.md", "default content", "default-only");
+    const submit = (view as unknown as { submit: { text: string } }).submit;
+    assert.equal(submit.text, "Create Override");
+  });
+
+  it("shows 'Save' submit for files with existing override", () => {
+    const view = buildConfigEditorModal("user", "identity.md", "custom content", "has-override");
+    const submit = (view as unknown as { submit: { text: string } }).submit;
+    assert.equal(submit.text, "Save");
+  });
+
+  it("shows 'Save' submit for custom-only files", () => {
+    const view = buildConfigEditorModal("user", "custom.md", "custom content", "custom-only");
+    const submit = (view as unknown as { submit: { text: string } }).submit;
+    assert.equal(submit.text, "Save");
+  });
+
+  it("includes default status context for default-only files", () => {
+    const view = buildConfigEditorModal("user", "identity.md", "content", "default-only");
+    const contextBlocks = (view.blocks as KnownBlock[]).filter((b) => b.type === "context");
+    assert.ok(contextBlocks.length > 0);
+    const text = ((contextBlocks[0] as unknown as { elements: Array<{ text: string }> }).elements)[0].text;
+    assert.ok(text.includes("no custom override"));
+  });
+
+  it("shows Reset to Default button for files with overrides", () => {
+    const view = buildConfigEditorModal("user", "identity.md", "custom", "has-override");
+    const actions = (view.blocks as KnownBlock[]).filter((b) => b.type === "actions");
+    assert.equal(actions.length, 1);
+    const elements = (actions[0] as unknown as { elements: Array<{ text: { text: string }; action_id: string }> }).elements;
+    assert.ok(elements.some((e) => e.text.text === "Reset to Default"));
+  });
+
+  it("shows Delete File button for custom-only files", () => {
+    const view = buildConfigEditorModal("user", "custom.md", "custom", "custom-only");
+    const actions = (view.blocks as KnownBlock[]).filter((b) => b.type === "actions");
+    assert.equal(actions.length, 1);
+    const elements = (actions[0] as unknown as { elements: Array<{ text: { text: string }; action_id: string }> }).elements;
+    assert.ok(elements.some((e) => e.text.text === "Delete File"));
+  });
+
+  it("does not show delete button for default-only files", () => {
+    const view = buildConfigEditorModal("user", "identity.md", "content", "default-only");
+    const actions = (view.blocks as KnownBlock[]).filter((b) => b.type === "actions");
+    assert.equal(actions.length, 1);
+    const elements = (actions[0] as unknown as { elements: Array<{ action_id: string }> }).elements;
+    // Only "Chat to Edit", no delete/reset
+    assert.equal(elements.length, 1);
+    assert.equal(elements[0].action_id, "chat_edit_config_file");
+  });
+
+  it("always shows Chat to Edit button", () => {
+    for (const state of ["default-only", "has-override", "custom-only"] as const) {
+      const view = buildConfigEditorModal("user", "test.md", "content", state);
+      const actions = (view.blocks as KnownBlock[]).filter((b) => b.type === "actions");
+      const elements = (actions[0] as unknown as { elements: Array<{ action_id: string }> }).elements;
+      assert.ok(elements.some((e) => e.action_id === "chat_edit_config_file"), `should have Chat to Edit for ${state}`);
+    }
+  });
+
+  it("stores file state in private_metadata", () => {
+    const view = buildConfigEditorModal("user", "identity.md", "content", "has-override");
+    const metadata = JSON.parse(view.private_metadata!);
+    assert.equal(metadata.dir, "user");
+    assert.equal(metadata.filename, "identity.md");
+    assert.equal(metadata.hasDefault, true);
+    assert.equal(metadata.hasOverride, true);
+  });
+
+  it("truncates long title to 24 chars", () => {
+    const view = buildConfigEditorModal("user", "very-long-filename-that-exceeds.md", "content", "default-only");
+    const title = (view as unknown as { title: { text: string } }).title.text;
+    assert.ok(title.length <= 24);
+    assert.ok(title.endsWith("\u2026"));
+  });
+
+  it("uses full title when short enough", () => {
+    const view = buildConfigEditorModal("user", "short.md", "content", "default-only");
+    const title = (view as unknown as { title: { text: string } }).title.text;
+    assert.equal(title, "user/short.md");
+  });
+});
+
+// ============================================================================
+// buildConfigCreateFileModal
+// ============================================================================
+
+describe("buildConfigCreateFileModal", () => {
+  it("returns a modal with Create submit button", () => {
+    const view = buildConfigCreateFileModal("user");
+    assert.equal(view.type, "modal");
+    const submit = (view as unknown as { submit: { text: string } }).submit;
+    assert.equal(submit.text, "Create");
+  });
+
+  it("stores dir in private_metadata", () => {
+    const view = buildConfigCreateFileModal("dev");
+    const metadata = JSON.parse(view.private_metadata!);
+    assert.equal(metadata.dir, "dev");
+  });
+
+  it("has filename and content input blocks", () => {
+    const view = buildConfigCreateFileModal("user");
+    const blocks = view.blocks as KnownBlock[];
+    const filenameBlock = blocks.find(
+      (b) => (b as unknown as { block_id?: string }).block_id === "filename_block"
+    );
+    const contentBlock = blocks.find(
+      (b) => (b as unknown as { block_id?: string }).block_id === "content_block"
+    );
+    assert.ok(filenameBlock);
+    assert.ok(contentBlock);
+  });
+
+  it("shows .md hint on filename field", () => {
+    const view = buildConfigCreateFileModal("user");
+    const blocks = view.blocks as KnownBlock[];
+    const filenameBlock = blocks.find(
+      (b) => (b as unknown as { block_id?: string }).block_id === "filename_block"
+    ) as unknown as { hint?: { text: string } } | undefined;
+    assert.ok(filenameBlock?.hint?.text.includes(".md"));
   });
 });
