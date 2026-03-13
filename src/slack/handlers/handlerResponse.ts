@@ -162,12 +162,12 @@ function buildDeliverFn(ctx: DeliveryContext): DeliverFn {
 /**
  * Post a follow-up notification so the user gets a Slack ping.
  * Stream edits don't trigger notifications, so we send a short message.
- * Only sends if the response took longer than 30 seconds (quick answers don't need a ping).
+ * Only sends if the response took longer than 60 seconds (quick answers don't need a ping).
  */
 async function sendResponseNotification(ctx: DeliveryContext): Promise<void> {
   const elapsedMs = Date.now() - ctx.startTime;
-  logger.info(`Response notification check: elapsed ${Math.round(elapsedMs / 1000)}s (threshold: 30s)`);
-  if (elapsedMs < 30_000) return;
+  logger.info(`Response notification check: elapsed ${Math.round(elapsedMs / 1000)}s (threshold: 60s)`);
+  if (elapsedMs < 60_000) return;
 
   if (await getUserPreference(ctx.sessionInfo.userId, "notifyOnResponse")) {
     await ctx.client.chat.postMessage({

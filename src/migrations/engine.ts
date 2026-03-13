@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile, unlink } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
@@ -43,7 +43,11 @@ Rules:
 - Only modify the files listed above
 - Make the minimum changes necessary
 - Preserve existing data and formatting where possible
-- If a file doesn't exist yet and needs to be created, write its full contents`;
+- If a file doesn't exist yet and needs to be created, write its full contents${
+    migration.deleteAfter?.length
+      ? `\n\nNote: The following files will be automatically deleted after you finish:\n${migration.deleteAfter.map((f) => `- ${f}`).join("\n")}\nYou do not need to clear or modify them.`
+      : ""
+  }`;
 
   logger.info(`Executing migration: ${migration.name} (v${migration.version})`);
 
@@ -87,8 +91,34 @@ Rules:
     }
   }
 
-  // Validate that only allowed files were touched
-  // (Claude SDK with bypassPermissions can write anywhere, but we trust the scoped prompt)
-  // For additional safety, we could diff the filesystem, but the prompt scoping is sufficient
-  // given migrations are developer-authored
+  // Dedup: remove output files that match their defaults
+  if (migration.dedupAgainst) {
+    for (const [outputPath, defaultPath] of Object.entries(
+      migration.dedupAgainst
+    )) {
+      const outputFull = resolve(cwd, outputPath);
+      const defaultFull = resolve(cwd, defaultPath);
+      if (existsSync(outputFull) && existsSync(defaultFull)) {
+        const outputContent = (await readFile(outputFull, "utf-8")).trim();
+        const defaultContent = (await readFile(defaultFull, "utf-8")).trim();
+        if (outputContent === defaultContent) {
+          await unlink(outputFull);
+          logger.info(
+            `Migration "${migration.name}": removed ${outputPath} (matches default)`
+          );
+        }
+      }
+    }
+  }
+
+  // Delete files listed in deleteAfter (if any)
+  if (migration.deleteAfter) {
+    for (const filePath of migration.deleteAfter) {
+      const fullPath = resolve(cwd, filePath);
+      if (existsSync(fullPath)) {
+        await unlink(fullPath);
+        logger.info(`Migration "${migration.name}": deleted ${filePath}`);
+      }
+    }
+  }
 }

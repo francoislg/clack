@@ -799,15 +799,15 @@ describe("executeAndDeliver — response notification", () => {
   it("sends notification when user has notifyOnResponse enabled and delivered via streamer", async (t) => {
     mockGetUserPreference.mock.mockImplementation(async () => true);
 
-    // Mock Date so we can advance time past the 30s notification threshold
+    // Mock Date so we can advance time past the 60s notification threshold
     t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
 
     // Simulate the deliver function being called (submit_response was called)
     mockAskClaude.mock.mockImplementation(async (...args: unknown[]) => {
       const opts = args[1] as Record<string, unknown>;
       const deliver = opts.deliver as (opts: { markdownText: string }) => Promise<{ ok: boolean }>;
-      // Advance time by 31s before deliver — sendResponseNotification checks elapsed time
-      t.mock.timers.tick(31_000);
+      // Advance time by 61s before deliver — sendResponseNotification checks elapsed time
+      t.mock.timers.tick(61_000);
       await deliver({ markdownText: "delivered answer" });
       return { success: true, answer: "delivered answer" };
     });

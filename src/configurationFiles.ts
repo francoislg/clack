@@ -1,81 +1,101 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { getConfig, getConfigurationDir, getDefaultConfigurationDir } from "./config.js";
 import { logger } from "./logger.js";
+import {
+  listRoleDirFiles,
+  readRoleFile,
+  type RoleDirListing,
+  type InstructionFileEntry,
+} from "./cascadingConfigResolver.js";
 
-/** Static role-based instruction filenames */
-const ROLE_INSTRUCTION_FILES = [
-  "instructions.md",
-  "dev_instructions.md",
-  "admin_instructions.md",
-  "user_instructions.md",
-];
+export type { RoleDirListing, InstructionFileEntry };
 
-export interface InstructionFileInfo {
+// ---------------------------------------------------------------------------
+// Repo instruction files (unchanged — flat, not cascaded)
+// ---------------------------------------------------------------------------
+
+export interface RepoInstructionFileInfo {
   filename: string;
   hasOverride: boolean;
   hasDefault: boolean;
 }
 
-/**
- * Generate repo-scoped instruction filenames from configured repositories.
- */
-function getRepoInstructionFiles(): string[] {
+function getRepoInstructionFiles(): RepoInstructionFileInfo[] {
   try {
     const config = getConfig();
-    const files: string[] = [];
+    const configDir = getConfigurationDir();
+    const defaultDir = getDefaultConfigurationDir();
+    const files: RepoInstructionFileInfo[] = [];
+
     for (const repo of config.repositories) {
-      files.push(`${repo.name}/changes_instructions.md`);
-      files.push(`${repo.name}/worktree_setup_instructions.md`);
+      for (const suffix of ["changes_instructions.md", "worktree_setup_instructions.md"]) {
+        const filename = `${repo.name}/${suffix}`;
+        files.push({
+          filename,
+          hasOverride: existsSync(resolve(configDir, filename)),
+          hasDefault: existsSync(resolve(defaultDir, filename)),
+        });
+      }
     }
     return files;
   } catch {
-    // Config may not be loaded yet (e.g., during startup validation)
     return [];
   }
 }
 
-/**
- * List all convention-based instruction files with their override status.
- * Includes static role files and dynamically generated repo-specific files.
- */
-export function listInstructionFiles(): InstructionFileInfo[] {
-  const configDir = getConfigurationDir();
-  const defaultDir = getDefaultConfigurationDir();
+// ---------------------------------------------------------------------------
+// List all instruction files (role directories + repo files)
+// ---------------------------------------------------------------------------
 
-  const allFiles = [...ROLE_INSTRUCTION_FILES, ...getRepoInstructionFiles()];
-
-  return allFiles.map((filename) => ({
-    filename,
-    hasOverride: existsSync(resolve(configDir, filename)),
-    hasDefault: existsSync(resolve(defaultDir, filename)),
-  }));
+export interface InstructionFileListing {
+  roles: RoleDirListing[];
+  repos: RepoInstructionFileInfo[];
 }
 
 /**
- * Read an instruction file. Returns the override if it exists,
- * otherwise falls back to the default. Returns null if neither exists.
+ * List all instruction files: role-based (scanned from directories)
+ * and repo-scoped (convention-based).
  */
-export function readInstructionFile(filename: string): string | null {
-  const configDir = getConfigurationDir();
-  const overridePath = resolve(configDir, filename);
-
-  if (existsSync(overridePath)) {
-    return readFileSync(overridePath, "utf-8");
-  }
-
-  const defaultDir = getDefaultConfigurationDir();
-  const defaultPath = resolve(defaultDir, filename);
-
-  if (existsSync(defaultPath)) {
-    return readFileSync(defaultPath, "utf-8");
-  }
-
-  return null;
+export function listInstructionFiles(): InstructionFileListing {
+  return {
+    roles: listRoleDirFiles(),
+    repos: getRepoInstructionFiles(),
+  };
 }
+
+// ---------------------------------------------------------------------------
+// Read instruction file (returns both default and custom content)
+// ---------------------------------------------------------------------------
+
+/**
+ * Read an instruction file from a role directory.
+ * Accepts paths like "user/identity.md" or "dev/changes.md".
+ * Returns both default and custom content for comparison.
+ *
+ * For repo-scoped files (e.g., "myrepo/changes_instructions.md"),
+ * uses the flat two-tier resolution.
+ */
+export function readInstructionFile(filepath: string): {
+  default_content: string | null;
+  custom_content: string | null;
+} {
+  const parts = filepath.split("/");
+  if (parts.length !== 2) {
+    return { default_content: null, custom_content: null };
+  }
+
+  const [dir, filename] = parts;
+  return readRoleFile(dir, filename);
+}
+
+// ---------------------------------------------------------------------------
+// Write instruction file
+// ---------------------------------------------------------------------------
 
 /**
  * Write an instruction file to the configuration directory.
+ * Accepts paths like "user/identity.md" or "dev/changes.md".
  * Creates the directory if it doesn't exist.
  * Validates the path to prevent traversal attacks.
  */

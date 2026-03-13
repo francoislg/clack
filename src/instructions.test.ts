@@ -1,6 +1,58 @@
-import { describe, it } from "node:test";
+import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { interpolateVariables } from "./instructions.js";
+import { writeFileSync, mkdirSync, rmSync, existsSync } from "node:fs";
+import { resolve, join } from "node:path";
+import { loadConfig } from "./config.js";
+import { interpolateVariables, loadInstructions, validateInstructionFiles } from "./instructions.js";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const tmpBase = resolve("/private/tmp", `instructions-test-${process.pid}`);
+const tmpDataDir = join(tmpBase, "data");
+const tmpAuthDir = join(tmpDataDir, "auth");
+const configPath = join(tmpDataDir, "config.json");
+const slackAuthPath = join(tmpAuthDir, "slack.json");
+const defaultDir = join(tmpDataDir, "default_configuration");
+
+function setup() {
+  if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true });
+  mkdirSync(tmpBase, { recursive: true });
+  process.chdir(tmpBase);
+
+  mkdirSync(tmpAuthDir, { recursive: true });
+  writeFileSync(
+    slackAuthPath,
+    JSON.stringify({
+      botToken: "xoxb-111-222-abc",
+      appToken: "xapp-1-A111-222-xyz",
+      signingSecret: "s3cr3t",
+    })
+  );
+  mkdirSync(tmpDataDir, { recursive: true });
+  writeFileSync(
+    configPath,
+    JSON.stringify({
+      repositories: [
+        { name: "repo", url: "https://github.com/org/repo.git", description: "Test" },
+      ],
+    })
+  );
+  loadConfig(configPath, true);
+}
+
+function writeDefault(role: string, filename: string, content: string) {
+  const dir = resolve(defaultDir, role);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(resolve(dir, filename), content, "utf-8");
+}
+
+const originalCwd = process.cwd();
+
+// ---------------------------------------------------------------------------
+// interpolateVariables
+// ---------------------------------------------------------------------------
 
 describe("interpolateVariables", () => {
   it("replaces known variables with their values", () => {
@@ -47,7 +99,6 @@ describe("interpolateVariables", () => {
   });
 
   it("only matches word characters inside braces", () => {
-    // Curly braces with non-word characters should not be replaced
     const result = interpolateVariables("{with-dash} {with space}", {});
     assert.equal(result, "{with-dash} {with space}");
   });
@@ -62,12 +113,107 @@ describe("interpolateVariables", () => {
 
   it("replaces variable value that itself contains braces literally", () => {
     const result = interpolateVariables("{X}", { X: "{Y}" });
-    // The replacement is not recursive — {Y} stays as-is
     assert.equal(result, "{Y}");
   });
 
   it("handles adjacent placeholders", () => {
     const result = interpolateVariables("{A}{B}", { A: "1", B: "2" });
     assert.equal(result, "12");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// loadInstructions
+// ---------------------------------------------------------------------------
+
+describe("loadInstructions", () => {
+  beforeEach(setup);
+  afterEach(() => process.chdir(originalCwd));
+
+  it("loads user-level instructions for a member", () => {
+    writeDefault("user", "identity.md", "I am {BOT_NAME}");
+    writeDefault("user", "changes.md", "No changes allowed");
+
+    const result = loadInstructions("member", {
+      changesWorkflowEnabled: false,
+      variables: { BOT_NAME: "TestBot" },
+    });
+
+    assert.ok(result.includes("I am TestBot"));
+    assert.ok(result.includes("No changes allowed"));
+  });
+
+  it("loads cascaded instructions for a dev with changesWorkflow", () => {
+    writeDefault("user", "identity.md", "Bot identity");
+    writeDefault("user", "changes.md", "No changes allowed");
+    writeDefault("dev", "changes.md", "You can propose changes");
+
+    const result = loadInstructions("dev", {
+      changesWorkflowEnabled: true,
+      variables: {},
+    });
+
+    assert.ok(result.includes("Bot identity"));
+    assert.ok(result.includes("You can propose changes"));
+    assert.ok(!result.includes("No changes allowed"));
+  });
+
+  it("dev without changesWorkflow gets only user-level instructions", () => {
+    writeDefault("user", "changes.md", "No changes allowed");
+    writeDefault("dev", "changes.md", "You can propose changes");
+
+    const result = loadInstructions("dev", {
+      changesWorkflowEnabled: false,
+      variables: {},
+    });
+
+    assert.ok(result.includes("No changes allowed"));
+    assert.ok(!result.includes("You can propose changes"));
+  });
+
+  it("admin without changesWorkflow gets [user, admin] — skips dev", () => {
+    writeDefault("user", "changes.md", "No changes");
+    writeDefault("dev", "changes.md", "Dev changes");
+    writeDefault("admin", "config.md", "Admin config");
+
+    const result = loadInstructions("admin", {
+      changesWorkflowEnabled: false,
+      variables: {},
+    });
+
+    assert.ok(result.includes("No changes"), "should keep user/changes.md");
+    assert.ok(!result.includes("Dev changes"), "should skip dev");
+    assert.ok(result.includes("Admin config"), "should include admin");
+  });
+
+  it("interpolates variables after concatenation", () => {
+    writeDefault("user", "identity.md", "I am {BOT_NAME}");
+    writeDefault("dev", "changes.md", "Ask {BOT_NAME} for help");
+
+    const result = loadInstructions("dev", {
+      changesWorkflowEnabled: true,
+      variables: { BOT_NAME: "Clack" },
+    });
+
+    assert.ok(result.includes("I am Clack"));
+    assert.ok(result.includes("Ask Clack for help"));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateInstructionFiles
+// ---------------------------------------------------------------------------
+
+describe("validateInstructionFiles", () => {
+  beforeEach(setup);
+  afterEach(() => process.chdir(originalCwd));
+
+  it("passes when user/ directory has files", () => {
+    writeDefault("user", "identity.md", "content");
+    assert.doesNotThrow(() => validateInstructionFiles());
+  });
+
+  it("throws when user/ directory is empty", () => {
+    assert.throws(() => validateInstructionFiles(), /No instruction files found/);
   });
 });

@@ -11,6 +11,10 @@ export interface FileTestCase {
   name: string;
   /** Input files to write before running (path suffix → content). Paths are relative to the test dir. */
   inputFiles: Record<string, string>;
+  /** Additional file paths to read after migration (for files created by the migration). */
+  additionalOutputPaths?: string[];
+  /** Directories to scan recursively for output files (relative to test dir). All .md files found are included in output. */
+  scanDirs?: string[];
   /** Return null if passed, error string if failed. Receives path suffix → content after migration. */
   validateFiles: (outputFiles: Record<string, string>) => string | null;
 }

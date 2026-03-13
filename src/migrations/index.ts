@@ -6,6 +6,7 @@ import { migration as m4 } from "./004-github-mcp-instructions.js";
 import { migration as m5 } from "./005-pr-review-instructions.js";
 import { migration as m6 } from "./006-remove-ephemeral-config.js";
 import { migration as m7 } from "./007-send-to-thread-content-instructions.js";
+import { migration as m8 } from "./008-cascade-config-split.js";
 
 // Register migrations here in version order.
-export const migrations: Migration[] = [m1, m2, m3, m4, m5, m6, m7];
+export const migrations: Migration[] = [m1, m2, m3, m4, m5, m6, m7, m8];

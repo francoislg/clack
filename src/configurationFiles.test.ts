@@ -75,20 +75,92 @@ describe("listInstructionFiles", () => {
     process.chdir(originalCwd);
   });
 
-  it("returns the four static role files when no repos are configured", () => {
+  it("returns empty roles when no role directory files exist", () => {
     writeSlackAuth();
     writeConfig([
-      { name: "my-repo", url: "https://github.com/org/my-repo.git", description: "Test" },
+      { name: "repo", url: "https://github.com/org/repo.git", description: "Repo" },
     ]);
     loadConfig(configPath, true);
 
-    const files = listInstructionFiles();
-    const filenames = files.map((f) => f.filename);
+    const result = listInstructionFiles();
+    assert.deepEqual(result.roles, []);
+  });
 
-    assert.ok(filenames.includes("instructions.md"));
-    assert.ok(filenames.includes("dev_instructions.md"));
-    assert.ok(filenames.includes("admin_instructions.md"));
-    assert.ok(filenames.includes("user_instructions.md"));
+  it("scans role directories for default files", () => {
+    writeSlackAuth();
+    writeConfig([
+      { name: "repo", url: "https://github.com/org/repo.git", description: "Repo" },
+    ]);
+    loadConfig(configPath, true);
+
+    writeDefaultFile("user/identity.md", "identity content");
+    writeDefaultFile("user/behavior.md", "behavior content");
+    writeDefaultFile("dev/changes.md", "changes content");
+
+    const result = listInstructionFiles();
+
+    const userRole = result.roles.find((r) => r.role === "user");
+    assert.ok(userRole);
+    assert.equal(userRole.files.length, 2);
+    assert.ok(userRole.files.some((f) => f.filename === "behavior.md" && f.source === "default"));
+    assert.ok(userRole.files.some((f) => f.filename === "identity.md" && f.source === "default"));
+
+    const devRole = result.roles.find((r) => r.role === "dev");
+    assert.ok(devRole);
+    assert.equal(devRole.files.length, 1);
+    assert.ok(devRole.files.some((f) => f.filename === "changes.md" && f.source === "default"));
+  });
+
+  it("reports source=customized when both default and custom exist", () => {
+    writeSlackAuth();
+    writeConfig([
+      { name: "repo", url: "https://github.com/org/repo.git", description: "Repo" },
+    ]);
+    loadConfig(configPath, true);
+
+    writeDefaultFile("user/identity.md", "default content");
+    writeOverrideFile("user/identity.md", "custom content");
+
+    const result = listInstructionFiles();
+
+    const userRole = result.roles.find((r) => r.role === "user");
+    assert.ok(userRole);
+    const entry = userRole.files.find((f) => f.filename === "identity.md");
+    assert.ok(entry);
+    assert.equal(entry.source, "customized");
+  });
+
+  it("reports source=custom-only when only custom file exists", () => {
+    writeSlackAuth();
+    writeConfig([
+      { name: "repo", url: "https://github.com/org/repo.git", description: "Repo" },
+    ]);
+    loadConfig(configPath, true);
+
+    writeOverrideFile("admin/custom-rule.md", "admin custom");
+
+    const result = listInstructionFiles();
+
+    const adminRole = result.roles.find((r) => r.role === "admin");
+    assert.ok(adminRole);
+    const entry = adminRole.files.find((f) => f.filename === "custom-rule.md");
+    assert.ok(entry);
+    assert.equal(entry.source, "custom-only");
+  });
+
+  it("omits role directories with no files", () => {
+    writeSlackAuth();
+    writeConfig([
+      { name: "repo", url: "https://github.com/org/repo.git", description: "Repo" },
+    ]);
+    loadConfig(configPath, true);
+
+    writeDefaultFile("user/identity.md", "content");
+
+    const result = listInstructionFiles();
+
+    assert.equal(result.roles.length, 1);
+    assert.equal(result.roles[0].role, "user");
   });
 
   it("includes repo-scoped instruction files for each configured repository", () => {
@@ -99,78 +171,39 @@ describe("listInstructionFiles", () => {
     ]);
     loadConfig(configPath, true);
 
-    const files = listInstructionFiles();
-    const filenames = files.map((f) => f.filename);
+    const result = listInstructionFiles();
+    const repoFilenames = result.repos.map((r) => r.filename);
 
-    assert.ok(filenames.includes("alpha/changes_instructions.md"));
-    assert.ok(filenames.includes("alpha/worktree_setup_instructions.md"));
-    assert.ok(filenames.includes("beta/changes_instructions.md"));
-    assert.ok(filenames.includes("beta/worktree_setup_instructions.md"));
+    assert.ok(repoFilenames.includes("alpha/changes_instructions.md"));
+    assert.ok(repoFilenames.includes("alpha/worktree_setup_instructions.md"));
+    assert.ok(repoFilenames.includes("beta/changes_instructions.md"));
+    assert.ok(repoFilenames.includes("beta/worktree_setup_instructions.md"));
   });
 
-  it("reports hasDefault=true when a default file exists", () => {
+  it("reports hasDefault and hasOverride for repo files", () => {
     writeSlackAuth();
     writeConfig([
       { name: "repo", url: "https://github.com/org/repo.git", description: "Repo" },
     ]);
     loadConfig(configPath, true);
 
-    writeDefaultFile("instructions.md", "default content");
+    writeDefaultFile("repo/changes_instructions.md", "default changes");
+    writeOverrideFile("repo/worktree_setup_instructions.md", "custom setup");
 
-    const files = listInstructionFiles();
-    const entry = files.find((f) => f.filename === "instructions.md");
-    assert.ok(entry);
-    assert.equal(entry.hasDefault, true);
-    assert.equal(entry.hasOverride, false);
+    const result = listInstructionFiles();
+
+    const changesEntry = result.repos.find((r) => r.filename === "repo/changes_instructions.md");
+    assert.ok(changesEntry);
+    assert.equal(changesEntry.hasDefault, true);
+    assert.equal(changesEntry.hasOverride, false);
+
+    const setupEntry = result.repos.find((r) => r.filename === "repo/worktree_setup_instructions.md");
+    assert.ok(setupEntry);
+    assert.equal(setupEntry.hasDefault, false);
+    assert.equal(setupEntry.hasOverride, true);
   });
 
-  it("reports hasOverride=true when an override file exists", () => {
-    writeSlackAuth();
-    writeConfig([
-      { name: "repo", url: "https://github.com/org/repo.git", description: "Repo" },
-    ]);
-    loadConfig(configPath, true);
-
-    writeOverrideFile("instructions.md", "override content");
-
-    const files = listInstructionFiles();
-    const entry = files.find((f) => f.filename === "instructions.md");
-    assert.ok(entry);
-    assert.equal(entry.hasOverride, true);
-  });
-
-  it("reports both hasDefault and hasOverride when both exist", () => {
-    writeSlackAuth();
-    writeConfig([
-      { name: "repo", url: "https://github.com/org/repo.git", description: "Repo" },
-    ]);
-    loadConfig(configPath, true);
-
-    writeDefaultFile("dev_instructions.md", "default");
-    writeOverrideFile("dev_instructions.md", "override");
-
-    const files = listInstructionFiles();
-    const entry = files.find((f) => f.filename === "dev_instructions.md");
-    assert.ok(entry);
-    assert.equal(entry.hasDefault, true);
-    assert.equal(entry.hasOverride, true);
-  });
-
-  it("reports hasDefault=false and hasOverride=false when neither exists", () => {
-    writeSlackAuth();
-    writeConfig([
-      { name: "repo", url: "https://github.com/org/repo.git", description: "Repo" },
-    ]);
-    loadConfig(configPath, true);
-
-    const files = listInstructionFiles();
-    const entry = files.find((f) => f.filename === "admin_instructions.md");
-    assert.ok(entry);
-    assert.equal(entry.hasDefault, false);
-    assert.equal(entry.hasOverride, false);
-  });
-
-  it("returns correct count: 4 static + 2 per repo", () => {
+  it("returns correct repo count: 2 files per repo", () => {
     writeSlackAuth();
     writeConfig([
       { name: "a", url: "https://github.com/org/a.git", description: "A" },
@@ -179,9 +212,8 @@ describe("listInstructionFiles", () => {
     ]);
     loadConfig(configPath, true);
 
-    const files = listInstructionFiles();
-    // 4 static + 3 repos * 2 files each = 10
-    assert.equal(files.length, 10);
+    const result = listInstructionFiles();
+    assert.equal(result.repos.length, 6);
   });
 });
 
@@ -207,47 +239,60 @@ describe("readInstructionFile", () => {
     process.chdir(originalCwd);
   });
 
-  it("returns the override content when an override file exists", () => {
-    writeDefaultFile("instructions.md", "default content");
-    writeOverrideFile("instructions.md", "override content");
+  it("returns both default and custom content when both exist", () => {
+    writeDefaultFile("user/identity.md", "default content");
+    writeOverrideFile("user/identity.md", "custom content");
 
-    const result = readInstructionFile("instructions.md");
-    assert.equal(result, "override content");
+    const result = readInstructionFile("user/identity.md");
+    assert.equal(result.default_content, "default content");
+    assert.equal(result.custom_content, "custom content");
   });
 
-  it("falls back to the default file when no override exists", () => {
-    writeDefaultFile("instructions.md", "default content");
+  it("returns only default_content when no custom file exists", () => {
+    writeDefaultFile("user/identity.md", "default content");
 
-    const result = readInstructionFile("instructions.md");
-    assert.equal(result, "default content");
+    const result = readInstructionFile("user/identity.md");
+    assert.equal(result.default_content, "default content");
+    assert.equal(result.custom_content, null);
   });
 
-  it("returns null when neither override nor default exists", () => {
-    const result = readInstructionFile("nonexistent.md");
-    assert.equal(result, null);
+  it("returns only custom_content when no default file exists", () => {
+    writeOverrideFile("dev/custom-rule.md", "custom only");
+
+    const result = readInstructionFile("dev/custom-rule.md");
+    assert.equal(result.default_content, null);
+    assert.equal(result.custom_content, "custom only");
   });
 
-  it("prefers override even for repo-scoped files", () => {
-    writeDefaultFile("repo/changes_instructions.md", "default changes");
-    writeOverrideFile("repo/changes_instructions.md", "override changes");
-
-    const result = readInstructionFile("repo/changes_instructions.md");
-    assert.equal(result, "override changes");
+  it("returns both null when neither file exists", () => {
+    const result = readInstructionFile("user/nonexistent.md");
+    assert.equal(result.default_content, null);
+    assert.equal(result.custom_content, null);
   });
 
-  it("reads default repo-scoped file when no override exists", () => {
-    writeDefaultFile("repo/worktree_setup_instructions.md", "default setup");
-
-    const result = readInstructionFile("repo/worktree_setup_instructions.md");
-    assert.equal(result, "default setup");
+  it("returns both null for paths without role/filename format", () => {
+    const result = readInstructionFile("no-slash.md");
+    assert.equal(result.default_content, null);
+    assert.equal(result.custom_content, null);
   });
 
   it("preserves file content exactly (whitespace, newlines, unicode)", () => {
     const content = "  line 1\n\ttab line\n\nempty above\n\u2603 snowman\n";
-    writeOverrideFile("instructions.md", content);
+    writeOverrideFile("user/identity.md", content);
 
-    const result = readInstructionFile("instructions.md");
-    assert.equal(result, content);
+    const result = readInstructionFile("user/identity.md");
+    assert.equal(result.custom_content, content);
+  });
+
+  it("works with all role directories", () => {
+    writeDefaultFile("admin/config.md", "admin default");
+    writeDefaultFile("owner/owner-stuff.md", "owner default");
+
+    const adminResult = readInstructionFile("admin/config.md");
+    assert.equal(adminResult.default_content, "admin default");
+
+    const ownerResult = readInstructionFile("owner/owner-stuff.md");
+    assert.equal(ownerResult.default_content, "owner default");
   });
 });
 
@@ -330,17 +375,18 @@ describe("writeInstructionFile", () => {
   });
 
   it("written file is then readable via readInstructionFile", () => {
-    writeInstructionFile("admin_instructions.md", "admin stuff");
+    writeInstructionFile("admin/custom-rule.md", "admin stuff");
 
-    const result = readInstructionFile("admin_instructions.md");
-    assert.equal(result, "admin stuff");
+    const result = readInstructionFile("admin/custom-rule.md");
+    assert.equal(result.custom_content, "admin stuff");
   });
 
   it("written override takes precedence over existing default", () => {
-    writeDefaultFile("instructions.md", "default version");
-    writeInstructionFile("instructions.md", "override version");
+    writeDefaultFile("user/identity.md", "default version");
+    writeInstructionFile("user/identity.md", "override version");
 
-    const result = readInstructionFile("instructions.md");
-    assert.equal(result, "override version");
+    const result = readInstructionFile("user/identity.md");
+    assert.equal(result.default_content, "default version");
+    assert.equal(result.custom_content, "override version");
   });
 });

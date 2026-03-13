@@ -1,17 +1,9 @@
-import { readFileSync, existsSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { getConfigurationDir, getDefaultConfigurationDir } from "./config.js";
 import { logger } from "./logger.js";
 import type { UserRole } from "./roles.js";
-import { canEditConfig } from "./permissions.js";
-
-// Convention-based instruction filenames
-const BASE_FILE = "instructions.md";
-const ROLE_FILES: Record<string, string> = {
-  dev: "dev_instructions.md",
-  admin: "admin_instructions.md",
-  user: "user_instructions.md",
-};
+import { buildRoleChain, resolveInstructions, validateInstructionDirs } from "./cascadingConfigResolver.js";
 
 export interface LoadInstructionsOptions {
   /** Whether changesWorkflow is enabled for this trigger */
@@ -26,6 +18,7 @@ export interface LoadInstructionsOptions {
  * 2. data/default_configuration/{filename}  (shipped default)
  *
  * Returns the resolved file path, or null if not found in either tier.
+ * Used for per-repo instruction files which are NOT part of the cascading system.
  */
 export function resolveInstructionFile(filename: string): string | null {
   const configPath = resolve(getConfigurationDir(), filename);
@@ -42,30 +35,6 @@ export function resolveInstructionFile(filename: string): string | null {
 }
 
 /**
- * Determine which role file to load based on the user's role and changesWorkflow state.
- *
- * - dev/admin/owner with changesWorkflow enabled → admin_instructions.md (admin/owner) or dev_instructions.md (dev)
- *   - admin_instructions.md falls back to dev_instructions.md if not found
- * - everyone else → user_instructions.md
- */
-function getRoleFilename(role: UserRole, changesWorkflowEnabled: boolean): string {
-  if (changesWorkflowEnabled && canEditConfig(role)) {
-    // Try admin first, fall back to dev
-    if (resolveInstructionFile(ROLE_FILES.admin)) {
-      return ROLE_FILES.admin;
-    }
-    return ROLE_FILES.dev;
-  }
-
-  if (changesWorkflowEnabled && role === "dev") {
-    return ROLE_FILES.dev;
-  }
-
-  // Everyone else (member, or dev/admin/owner without changesWorkflow)
-  return ROLE_FILES.user;
-}
-
-/**
  * Replace {VARIABLE_NAME} placeholders in content with their values.
  * Unknown variables are replaced with empty string.
  */
@@ -75,29 +44,14 @@ export function interpolateVariables(content: string, variables: Record<string, 
 
 /**
  * Load and compose the system prompt from instruction files.
- * Loads the base instructions + role-specific overlay, then interpolates variables.
+ * Uses the CascadingConfigResolver to resolve role-based instruction files,
+ * then interpolates variables.
  */
 export function loadInstructions(role: UserRole, options: LoadInstructionsOptions): string {
-  // Load base instructions (required)
-  const basePath = resolveInstructionFile(BASE_FILE);
-  if (!basePath) {
-    throw new Error(
-      `Base instructions file '${BASE_FILE}' not found in either data/configuration/ or data/default_configuration/. ` +
-      `Ensure the default_configuration directory is present.`
-    );
-  }
+  const roleChain = buildRoleChain(role, options.changesWorkflowEnabled);
+  logger.debug(`Loading instructions for role '${role}' with chain: [${roleChain.join(", ")}]`);
 
-  let content = readFileSync(basePath, "utf-8");
-
-  // Load role overlay (optional — file may not exist on disk)
-  const roleFilename = getRoleFilename(role, options.changesWorkflowEnabled);
-  const rolePath = resolveInstructionFile(roleFilename);
-  if (rolePath) {
-    const roleContent = readFileSync(rolePath, "utf-8");
-    content += "\n" + roleContent;
-  } else {
-    logger.debug(`Role instruction file '${roleFilename}' not found, skipping overlay`);
-  }
+  let content = resolveInstructions(roleChain);
 
   // Interpolate variables after concatenation
   content = interpolateVariables(content, options.variables);
@@ -106,16 +60,10 @@ export function loadInstructions(role: UserRole, options: LoadInstructionsOption
 }
 
 /**
- * Validate that the base instructions file can be resolved.
- * Call this on startup to fail fast if the file is missing.
+ * Validate that instruction files can be resolved.
+ * Call this on startup to fail fast if the files are missing.
  */
 export function validateInstructionFiles(): void {
-  const basePath = resolveInstructionFile(BASE_FILE);
-  if (!basePath) {
-    throw new Error(
-      `Required instruction file '${BASE_FILE}' not found in either data/configuration/ or data/default_configuration/. ` +
-      `Ensure the default_configuration directory is present with at least instructions.md.`
-    );
-  }
-  logger.debug(`Base instructions resolved from: ${basePath}`);
+  validateInstructionDirs();
+  logger.debug("Instruction directories validated successfully");
 }
