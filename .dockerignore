@@ -1,45 +1,21 @@
-# Dependencies
-node_modules/
+# Ignore everything by default
+*
 
-# Build output (rebuilt in container)
-dist/
+# Source code (for builder stage)
+!src/
+!tsconfig.json
+!package.json
+!package-lock.json
 
-# Git
-.git/
-.gitignore
+# Default configuration (instruction templates)
+!data/default_configuration/
 
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Runtime data (mounted as volumes, not baked into image)
-data/
-# But keep files needed by the Dockerfile
+# Example configs
 !data/config.example.json
 !data/mcp.example.json
 !data/auth/slack.example.json
 !data/auth/.env.example
 !data/auth/github.example.json
-!data/default_configuration/
 
-# Logs
-*.log
-npm-debug.log*
-
-# Test coverage
-coverage/
-
-# OpenSpec (development only)
-openspec/
-
-# Development files
-*.md
-
-# Generated files
-slack-app-manifest.json
+# Dockerfile itself (needed by BuildKit)
+!Dockerfile

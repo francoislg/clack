@@ -64,6 +64,20 @@ export function createUsersCache(client: App["client"]): UsersCache {
     return (value) => value.toLowerCase().includes(lower);
   }
 
+  function matchesUser(
+    user: SlackUserEntry,
+    queries: string[],
+    matchers: Array<(value: string) => boolean>,
+  ): boolean {
+    return matchers.some(
+      (match, i) =>
+        // userId is always exact (case-insensitive) — no wildcard/substring
+        queries[i].toLowerCase() === user.userId.toLowerCase() ||
+        match(user.username) ||
+        match(user.displayName),
+    );
+  }
+
   return {
     async search(queries: string[], limit = 10): Promise<SlackUserEntry[]> {
       const users = await fetchAll();
@@ -73,16 +87,7 @@ export function createUsersCache(client: App["client"]): UsersCache {
 
       for (const user of users) {
         if (seen.has(user.userId)) continue;
-
-        const matches = matchers.some(
-          (match, i) =>
-            // userId is always exact (case-insensitive) — no wildcard/substring
-            queries[i].toLowerCase() === user.userId.toLowerCase() ||
-            match(user.username) ||
-            match(user.displayName)
-        );
-
-        if (matches) {
+        if (matchesUser(user, queries, matchers)) {
           seen.add(user.userId);
           results.push(user);
         }

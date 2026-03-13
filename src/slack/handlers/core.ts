@@ -170,6 +170,66 @@ async function setupDmDelivery(ctx: ProcessingContext, session: SessionContext):
 }
 
 // ============================================================
+// IN-FLIGHT REQUEST TRACKING
+// ============================================================
+
+/**
+ * Register an in-flight request for cancellation support (mentions and DMs only),
+ * execute the callback, and deregister when done.
+ */
+async function withInFlightTracking(
+  info: {
+    channelId: string;
+    messageTs: string;
+    triggerType: TriggerType;
+    sessionId: string;
+    abortController: AbortController;
+  },
+  fn: () => Promise<unknown>,
+): Promise<void> {
+  const cancellableTrigger = info.triggerType === "mentions" || info.triggerType === "directMessages"
+    ? info.triggerType
+    : null;
+  if (cancellableTrigger) {
+    registerInFlightRequest(info.channelId, info.messageTs, {
+      abortController: info.abortController,
+      sessionId: info.sessionId,
+      triggerType: cancellableTrigger,
+    });
+  }
+  try {
+    await fn();
+  } finally {
+    if (cancellableTrigger) {
+      deregisterInFlightRequest(info.channelId, info.messageTs);
+    }
+  }
+}
+
+// ============================================================
+// ASSISTANT CONTEXT
+// ============================================================
+
+/**
+ * Store the assistant panel's current channel on the session.
+ * Sets originChannelId on first use so follow-ups know where the conversation started.
+ */
+async function storeAssistantContext(
+  session: SessionContext,
+  assistantChannelId: string,
+): Promise<SessionContext> {
+  const currentSession = await getSession(session.sessionId);
+  const updates: Record<string, unknown> = {
+    assistantCurrentChannelId: assistantChannelId,
+  };
+  if (!currentSession?.assistantOriginChannelId) {
+    updates.assistantOriginChannelId = assistantChannelId;
+  }
+  const updated = await updateSession(session.sessionId, updates);
+  return updated ?? session;
+}
+
+// ============================================================
 // MAIN ENTRY POINT
 // ============================================================
 
@@ -226,17 +286,7 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
 
   // 3. Store assistant channel context on session before Claude runs
   if (params.assistantChannelId) {
-    const currentSession = await getSession(session.sessionId);
-    const updates: Record<string, unknown> = {
-      assistantCurrentChannelId: params.assistantChannelId,
-    };
-    if (!currentSession?.assistantOriginChannelId) {
-      updates.assistantOriginChannelId = params.assistantChannelId;
-    }
-    const updated = await updateSession(session.sessionId, updates);
-    if (updated) {
-      session = updated;
-    }
+    session = await storeAssistantContext(session, params.assistantChannelId);
   }
 
   // 4. Update sessionInfo with DM coordinates (if set)
@@ -250,32 +300,18 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
   };
   setSessionInfo(session.sessionId, sessionInfo);
 
-  // 5. Build Claude options
+  // 5. Build Claude options and execute
   const claudeOptions = await getClaudeOptions(userId, triggerType);
-
-  // 6. In-flight request registration for cancellation support
   const abortController = new AbortController();
-  const canCancel = triggerType === "mentions" || triggerType === "directMessages";
-  if (canCancel) {
-    registerInFlightRequest(channelId, messageTs, {
-      abortController,
-      sessionId: session.sessionId,
-      triggerType,
-    });
-  }
 
-  try {
-    // 7. Delegate to executeAndDeliver — handles streaming, delivery, errors, auto-execute
-    await executeAndDeliver({
+  await withInFlightTracking(
+    { channelId, messageTs, triggerType, sessionId: session.sessionId, abortController },
+    () => executeAndDeliver({
       client,
       session,
       sessionInfo,
       claudeOptions: { ...claudeOptions, workMode },
       abortController,
-    });
-  } finally {
-    if (canCancel) {
-      deregisterInFlightRequest(channelId, messageTs);
-    }
-  }
+    }),
+  );
 }

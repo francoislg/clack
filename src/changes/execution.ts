@@ -10,6 +10,7 @@ import type { ChangePlan, ChangeRequest, ExecutionResult } from "./types.js";
 import { appendExecutionLog } from "./persistence.js";
 import { detectPlatformError } from "../claude/messageParser.js";
 import { ClaudeMessageParser } from "../claude/messageParser.js";
+import { detectRuntime } from "../claude/utilities.js";
 import { buildWorkerContext } from "../tools/context.js";
 import { buildClackTools } from "../tools/server.js";
 import { discoverPlugins } from "../plugins.js";
@@ -82,7 +83,7 @@ export async function runClaude(options: {
       prompt: options.prompt,
       options: {
         cwd: options.cwd,
-        executable: process.execPath as "node",
+        executable: detectRuntime(),
         systemPrompt: options.systemPrompt,
         allowedTools: options.allowedTools,
         disallowedTools: options.disallowedTools,
@@ -104,7 +105,7 @@ export async function runClaude(options: {
       lastOutputTime = Date.now();
       outputReceived = true;
 
-      const parsed = await parser.process(message as { type: string; [key: string]: unknown });
+      const parsed = await parser.process(message);
 
       // Worker-specific: progress callbacks and execution log for tool uses
       for (const tool of parsed.toolUses) {
