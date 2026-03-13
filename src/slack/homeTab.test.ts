@@ -2,7 +2,7 @@ import { describe, it, mock, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import type { UserRole, RolesConfig } from "../roles.js";
 import type { RepositoryConfig } from "../config.js";
-import type { InstructionFileInfo } from "../configurationFiles.js";
+import type { InstructionFileListing } from "../configurationFiles.js";
 import type { ActiveWorker } from "../changes/activeState.js";
 import type { PluginInfo } from "../plugins.js";
 import type { MigrationError } from "../migrations/types.js";
@@ -23,7 +23,7 @@ const mockCanRequestChanges = mock.fn<(role: UserRole) => boolean>();
 const mockGetConfig = mock.fn<() => Record<string, unknown>>();
 const mockGetConfiguredMcpServerNames = mock.fn<() => string[]>();
 const mockGetActiveWorkers = mock.fn<() => ActiveWorker[]>();
-const mockListInstructionFiles = mock.fn<() => InstructionFileInfo[]>();
+const mockListInstructionFiles = mock.fn<() => InstructionFileListing>();
 const mockGetReactionDelivery = mock.fn<(userId: string) => Promise<string>>();
 const mockGetUserPreference = mock.fn<(userId: string, key: string) => Promise<boolean>>();
 const mockGetVisibleRepos = mock.fn<(role: UserRole, repos: RepositoryConfig[]) => RepositoryConfig[]>();
@@ -160,7 +160,7 @@ function setDefaultMocks(role: UserRole = "member") {
   mockGetConfig.mock.mockImplementation(() => defaultConfig());
   mockGetConfiguredMcpServerNames.mock.mockImplementation(() => []);
   mockGetActiveWorkers.mock.mockImplementation(() => []);
-  mockListInstructionFiles.mock.mockImplementation(() => []);
+  mockListInstructionFiles.mock.mockImplementation(() => ({ roles: [], repos: [] }));
   mockGetVisibleRepos.mock.mockImplementation((_role, repos) => repos);
   mockCanWriteRepo.mock.mockImplementation(() => false);
   mockGetMigrationErrors.mock.mockImplementation(() => []);
@@ -429,21 +429,45 @@ describe("buildConfigurationSection", () => {
     assert.equal((blocks[0] as unknown as { text: { text: string } }).text.text, "Configuration");
   });
 
-  it("renders files with correct status labels", () => {
-    mockListInstructionFiles.mock.mockImplementation(() => [
-      { filename: "instructions.md", hasOverride: true, hasDefault: true },
-      { filename: "dev_instructions.md", hasOverride: false, hasDefault: true },
-      { filename: "repo/changes_instructions.md", hasOverride: false, hasDefault: false },
-    ]);
+  it("renders role directories with file hierarchy", () => {
+    mockListInstructionFiles.mock.mockImplementation(() => ({
+      roles: [
+        { role: "user", files: [
+          { filename: "identity.md", source: "default" as const },
+          { filename: "response-style.md", source: "customized" as const },
+          { filename: "company.md", source: "custom-only" as const },
+        ]},
+        { role: "dev", files: [
+          { filename: "changes.md", source: "default" as const },
+        ]},
+      ],
+      repos: [
+        { filename: "repo/changes_instructions.md", hasOverride: false, hasDefault: false },
+      ],
+    }));
     const blocks = buildConfigurationSection();
     const texts = getSectionTexts(blocks);
-    assert.ok(texts.some((t) => t.includes("instructions.md") && t.includes("Customized")));
-    assert.ok(texts.some((t) => t.includes("dev_instructions.md") && t.includes("Default")));
+
+    // user/ directory should list files with appropriate markers
+    const userBlock = texts.find((t) => t.includes("user/"));
+    assert.ok(userBlock, "should have a user/ block");
+    assert.ok(userBlock.includes("identity.md"), "should list identity.md");
+    assert.ok(userBlock.includes("response-style.md"), "should list response-style.md");
+    assert.ok(userBlock.includes("Customized"), "should mark customized file");
+    assert.ok(userBlock.includes("company.md"), "should list custom-only file");
+    assert.ok(userBlock.includes("Custom"), "should mark custom-only file");
+
+    // dev/ directory
+    const devBlock = texts.find((t) => t.includes("dev/"));
+    assert.ok(devBlock, "should have a dev/ block");
+    assert.ok(devBlock.includes("changes.md"), "should list changes.md");
+
+    // Repo files
     assert.ok(texts.some((t) => t.includes("changes_instructions.md") && t.includes("Not created")));
   });
 
   it("shows instruction context at the end", () => {
-    mockListInstructionFiles.mock.mockImplementation(() => []);
+    mockListInstructionFiles.mock.mockImplementation(() => ({ roles: [], repos: [] }));
     const blocks = buildConfigurationSection();
     const contextBlocks = blocks.filter((b) => b.type === "context");
     assert.ok(contextBlocks.length > 0);

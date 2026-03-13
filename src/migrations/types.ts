@@ -9,6 +9,10 @@ export interface Migration {
   prompt: string;
   /** Files Claude can read/write (scoped access) */
   files: string[];
+  /** Files to delete after the migration completes successfully (relative to cwd) */
+  deleteAfter?: string[];
+  /** Post-LLM dedup: maps output files to their default counterparts. If the output matches the default (ignoring whitespace), the output is deleted. */
+  dedupAgainst?: Record<string, string>;
 }
 
 export interface MigrationState {

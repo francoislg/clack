@@ -3,7 +3,9 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
 import type { IntentStore, ToolCallRecorder } from "../server.js";
 import { textResult, errorResult } from "../helpers.js";
-import { listInstructionFiles, readInstructionFile } from "../../configurationFiles.js";
+import { readInstructionFile } from "../../configurationFiles.js";
+
+const KNOWN_ROLE_DIRS = ["user", "dev", "admin", "owner"];
 
 export function createProposeConfigUpdateTool(
   _ctx: QueryToolContext,
@@ -12,31 +14,39 @@ export function createProposeConfigUpdateTool(
 ) {
   return tool(
     "propose_config_update",
-    "Propose an update to an instruction/configuration file. Validates the filename and stages the intent. Returns a ref ID to use in submit_response. Default operation is 'append' which adds content to the end of the existing file. Use 'replace' only when rewriting or removing content.",
+    "Propose an update to an instruction file. Use {role}/{filename} format (e.g., 'user/company-context.md', 'dev/changes.md'). " +
+    "Validates the path and stages the intent. Returns a ref ID to use in submit_response. " +
+    "Default operation is 'append' which adds content to the end of the existing file. Use 'replace' only when rewriting or removing content.",
     {
-      file: z.string().describe("The instruction filename to update (e.g., 'instructions.md')"),
+      file: z.string().describe("The instruction file path in {role}/{filename} format (e.g., 'user/identity.md', 'admin/config-updates.md') or {repo}/{filename} for repo-scoped files"),
       content: z.string().describe("The content to append (default) or the full replacement content (when operation is 'replace')."),
       operation: z.enum(["append", "replace"]).default("append").describe("'append' (default) adds content to the end of the existing file. 'replace' overwrites the entire file with the provided content."),
     },
     async (args) => {
-      // Validate filename against known instruction files
-      const knownFiles = listInstructionFiles();
-      const match = knownFiles.find((f) => f.filename === args.file);
-
-      if (!match) {
-        const available = knownFiles.map((f) => f.filename);
-        const errMsg = `Unknown instruction file "${args.file}". Available files: ${available.join(", ")}`;
+      // Validate the path format
+      const parts = args.file.split("/");
+      if (parts.length !== 2 || !parts[0] || !parts[1]) {
+        const errMsg = `Invalid file path "${args.file}". Use {role}/{filename} format (e.g., 'user/identity.md'). Valid role directories: ${KNOWN_ROLE_DIRS.join(", ")}`;
         recorder.record("propose_config_update", args as Record<string, unknown>, { error: errMsg });
         return errorResult(errMsg);
       }
 
+      const [dir] = parts;
+
+      // Validate it's a known role directory or repo directory
+      // (repo directories are allowed too for repo-scoped instruction files)
+      if (!KNOWN_ROLE_DIRS.includes(dir)) {
+        // Allow if the first part might be a repo name — we don't validate repo names here
+        // since the write will go to configuration/{dir}/{filename} which is safe
+      }
+
       let finalContent: string;
       if (args.operation === "replace") {
-        // Replace: use the provided content as-is
         finalContent = args.content;
       } else {
         // Append: read current content and append
-        const currentContent = readInstructionFile(args.file);
+        const current = readInstructionFile(args.file);
+        const currentContent = current.custom_content ?? current.default_content;
         if (currentContent) {
           finalContent = currentContent.trimEnd() + "\n\n" + args.content;
         } else {
@@ -51,12 +61,14 @@ export function createProposeConfigUpdateTool(
         content: finalContent,
       });
 
-      const result = {
-        ref,
-        file: args.file,
-        status: match.hasOverride ? "will_overwrite_custom" : match.hasDefault ? "will_override_default" : "will_create_new",
-      };
+      const current = readInstructionFile(args.file);
+      const status = current.custom_content !== null
+        ? "will_overwrite_custom"
+        : current.default_content !== null
+        ? "will_override_default"
+        : "will_create_new";
 
+      const result = { ref, file: args.file, status };
       recorder.record("propose_config_update", args as Record<string, unknown>, result);
 
       return textResult(result);

@@ -1,0 +1,191 @@
+import { readdirSync, readFileSync, existsSync } from "node:fs";
+import { resolve } from "node:path";
+import { getConfigurationDir, getDefaultConfigurationDir } from "./config.js";
+import type { UserRole } from "./roles.js";
+import { canEditConfig, canRequestChanges } from "./permissions.js";
+
+/** Known role directory names in cascade order (lowest to highest) */
+const ALL_ROLE_DIRS = ["user", "dev", "admin", "owner"] as const;
+type RoleDir = (typeof ALL_ROLE_DIRS)[number];
+
+/**
+ * Build the role chain based on user role and changesWorkflow state.
+ *
+ * - Dev layer is only included when changesWorkflow is enabled AND role is dev+
+ * - Admin layer always applies for admin+ users (config management powers)
+ * - Owner layer applies for owner
+ */
+export function buildRoleChain(role: UserRole, changesWorkflowEnabled: boolean): RoleDir[] {
+  const chain: RoleDir[] = ["user"];
+
+  if (changesWorkflowEnabled && canRequestChanges(role)) {
+    chain.push("dev");
+  }
+
+  if (canEditConfig(role)) {
+    chain.push("admin");
+  }
+
+  if (role === "owner") {
+    chain.push("owner");
+  }
+
+  return chain;
+}
+
+/**
+ * Scan a directory for .md files. Returns filenames (not full paths).
+ * Returns empty array if the directory does not exist.
+ */
+function scanMdFiles(dirPath: string): string[] {
+  if (!existsSync(dirPath)) return [];
+  try {
+    return readdirSync(dirPath, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
+      .map((entry) => entry.name);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Resolve all instruction files through the cascading role chain.
+ *
+ * For each unique filename found across all role directories,
+ * resolution checks in this order (last existing file wins):
+ *   default/{role1}/{file} → custom/{role1}/{file} → default/{role2}/{file} → ...
+ *
+ * Empty files (whitespace-only) suppress the instruction.
+ * Results are concatenated in alphabetical order by filename.
+ */
+export function resolveInstructions(roleChain: RoleDir[]): string {
+  const defaultDir = getDefaultConfigurationDir();
+  const configDir = getConfigurationDir();
+
+  // 1. Discover all unique filenames across all relevant role directories
+  const allFilenames = new Set<string>();
+  for (const role of roleChain) {
+    for (const filename of scanMdFiles(resolve(defaultDir, role))) {
+      allFilenames.add(filename);
+    }
+    for (const filename of scanMdFiles(resolve(configDir, role))) {
+      allFilenames.add(filename);
+    }
+  }
+
+  // 2. For each filename, resolve through the interleaved cascade
+  const resolvedContents: Array<{ filename: string; content: string }> = [];
+
+  for (const filename of allFilenames) {
+    let resolvedContent: string | null = null;
+
+    for (const role of roleChain) {
+      // Default first, then custom — within each role level
+      const defaultPath = resolve(defaultDir, role, filename);
+      if (existsSync(defaultPath)) {
+        resolvedContent = readFileSync(defaultPath, "utf-8");
+      }
+
+      const customPath = resolve(configDir, role, filename);
+      if (existsSync(customPath)) {
+        resolvedContent = readFileSync(customPath, "utf-8");
+      }
+    }
+
+    // Empty/whitespace-only files suppress the instruction
+    if (resolvedContent !== null && resolvedContent.trim().length > 0) {
+      resolvedContents.push({ filename, content: resolvedContent });
+    }
+  }
+
+  // 3. Sort alphabetically by filename and concatenate
+  resolvedContents.sort((a, b) => a.filename.localeCompare(b.filename));
+  return resolvedContents.map((r) => r.content).join("\n\n");
+}
+
+/**
+ * Validate that at least one instruction file exists in the user/ directory.
+ * Call on startup to fail fast.
+ */
+export function validateInstructionDirs(): void {
+  const defaultDir = getDefaultConfigurationDir();
+  const configDir = getConfigurationDir();
+
+  const defaultUserFiles = scanMdFiles(resolve(defaultDir, "user"));
+  const customUserFiles = scanMdFiles(resolve(configDir, "user"));
+
+  if (defaultUserFiles.length === 0 && customUserFiles.length === 0) {
+    throw new Error(
+      "No instruction files found in user/ directory of either data/configuration/ or data/default_configuration/. " +
+      "Ensure the default_configuration/user/ directory is present with at least one .md file."
+    );
+  }
+}
+
+/**
+ * List all role directories and their files for inspection (used by MCP tools and Home Tab).
+ * Returns files grouped by role directory with source status.
+ */
+export interface InstructionFileEntry {
+  filename: string;
+  source: "default" | "customized" | "custom-only";
+}
+
+export interface RoleDirListing {
+  role: string;
+  files: InstructionFileEntry[];
+}
+
+export function listRoleDirFiles(): RoleDirListing[] {
+  const defaultDir = getDefaultConfigurationDir();
+  const configDir = getConfigurationDir();
+
+  const result: RoleDirListing[] = [];
+
+  for (const role of ALL_ROLE_DIRS) {
+    const defaultFiles = new Set(scanMdFiles(resolve(defaultDir, role)));
+    const customFiles = new Set(scanMdFiles(resolve(configDir, role)));
+
+    // Union of all filenames
+    const allFiles = new Set([...defaultFiles, ...customFiles]);
+    if (allFiles.size === 0) continue;
+
+    const files: InstructionFileEntry[] = [];
+    for (const filename of [...allFiles].sort()) {
+      const hasDefault = defaultFiles.has(filename);
+      const hasCustom = customFiles.has(filename);
+
+      if (hasCustom && hasDefault) {
+        files.push({ filename, source: "customized" });
+      } else if (hasCustom) {
+        files.push({ filename, source: "custom-only" });
+      } else {
+        files.push({ filename, source: "default" });
+      }
+    }
+
+    result.push({ role, files });
+  }
+
+  return result;
+}
+
+/**
+ * Read a specific instruction file from a role directory.
+ * Returns both default and custom content for comparison.
+ */
+export function readRoleFile(role: string, filename: string): {
+  default_content: string | null;
+  custom_content: string | null;
+} {
+  const defaultDir = getDefaultConfigurationDir();
+  const configDir = getConfigurationDir();
+
+  const defaultPath = resolve(defaultDir, role, filename);
+  const customPath = resolve(configDir, role, filename);
+
+  return {
+    default_content: existsSync(defaultPath) ? readFileSync(defaultPath, "utf-8") : null,
+    custom_content: existsSync(customPath) ? readFileSync(customPath, "utf-8") : null,
+  };
+}

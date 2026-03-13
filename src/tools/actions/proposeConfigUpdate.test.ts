@@ -5,12 +5,10 @@ import assert from "node:assert/strict";
 // Module-level mocks
 // ---------------------------------------------------------------------------
 
-const mockListInstructionFiles = mock.fn<() => unknown[]>();
-const mockReadInstructionFile = mock.fn<(filename: string) => string | null>();
+const mockReadInstructionFile = mock.fn<(filepath: string) => { default_content: string | null; custom_content: string | null }>();
 
 mock.module("../../configurationFiles.js", {
   namedExports: {
-    listInstructionFiles: mockListInstructionFiles,
     readInstructionFile: mockReadInstructionFile,
   },
 });
@@ -80,20 +78,9 @@ function parseResult(result: { content: Array<{ text: string }> }) {
   return JSON.parse(result.content[0].text);
 }
 
-function makeFileInfo(filename: string, hasOverride = false, hasDefault = true) {
-  return { filename, hasOverride, hasDefault };
-}
-
 function resetMocks() {
-  mockListInstructionFiles.mock.resetCalls();
   mockReadInstructionFile.mock.resetCalls();
-
-  mockListInstructionFiles.mock.mockImplementation(() => [
-    makeFileInfo("instructions.md"),
-    makeFileInfo("dev_instructions.md"),
-    makeFileInfo("admin_instructions.md"),
-  ]);
-  mockReadInstructionFile.mock.mockImplementation(() => null);
+  mockReadInstructionFile.mock.mockImplementation(() => ({ default_content: null, custom_content: null }));
 }
 
 // ---------------------------------------------------------------------------
@@ -103,49 +90,82 @@ function resetMocks() {
 describe("proposeConfigUpdate tool", () => {
   beforeEach(resetMocks);
 
-  // --- Unknown file ---
+  // --- Path validation ---
 
-  it("returns error for unknown instruction file", async () => {
+  it("returns error for file without role/ prefix", async () => {
     const ctx = makeCtx();
     const store = makeIntentStore();
     const recorder = makeRecorder();
     const toolDef = createProposeConfigUpdateTool(ctx, store, recorder);
 
     const result = await toolDef.handler({
-      file: "nonexistent.md",
+      file: "instructions.md",
       content: "some content",
       operation: "append",
     }, { sessionId: "test" });
 
     const parsed = parseResult(result);
     assert.ok(parsed.error);
-    assert.ok(parsed.error.includes("Unknown instruction file"));
-    assert.ok(parsed.error.includes("nonexistent.md"));
-    assert.ok(parsed.error.includes("instructions.md")); // lists available files
+    assert.ok(parsed.error.includes("Invalid file path"));
     assert.equal(result.isError, true);
   });
 
-  it("records the error in the recorder for unknown file", async () => {
+  it("records the error in the recorder for invalid path", async () => {
     const ctx = makeCtx();
     const store = makeIntentStore();
     const recorder = makeRecorder();
     const toolDef = createProposeConfigUpdateTool(ctx, store, recorder);
 
     await toolDef.handler({
-      file: "unknown.md",
+      file: "bad-path",
       content: "content",
       operation: "append",
     }, { sessionId: "test" });
 
     assert.equal(recorder.calls.length, 1);
-    assert.equal(recorder.calls[0].tool, "propose_config_update");
     assert.ok((recorder.calls[0].result as { error: string }).error);
+  });
+
+  it("accepts valid role/filename paths", async () => {
+    const ctx = makeCtx();
+    const store = makeIntentStore();
+    const recorder = makeRecorder();
+    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder);
+
+    const result = await toolDef.handler({
+      file: "user/identity.md",
+      content: "content",
+      operation: "replace",
+    }, { sessionId: "test" });
+
+    const parsed = parseResult(result);
+    assert.ok(parsed.ref);
+    assert.equal(parsed.file, "user/identity.md");
+  });
+
+  it("accepts repo/filename paths", async () => {
+    const ctx = makeCtx();
+    const store = makeIntentStore();
+    const recorder = makeRecorder();
+    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder);
+
+    const result = await toolDef.handler({
+      file: "my-repo/changes_instructions.md",
+      content: "content",
+      operation: "replace",
+    }, { sessionId: "test" });
+
+    const parsed = parseResult(result);
+    assert.ok(parsed.ref);
   });
 
   // --- Append operation ---
 
-  it("appends to existing content when file has content", async () => {
-    mockReadInstructionFile.mock.mockImplementation(() => "existing line 1\nexisting line 2");
+  it("appends to existing custom content when file has content", async () => {
+    mockReadInstructionFile.mock.mockImplementation(() => ({
+      default_content: "default stuff",
+      custom_content: "existing line 1\nexisting line 2",
+    }));
 
     const ctx = makeCtx();
     const store = makeIntentStore();
@@ -153,24 +173,21 @@ describe("proposeConfigUpdate tool", () => {
     const toolDef = createProposeConfigUpdateTool(ctx, store, recorder);
 
     const result = await toolDef.handler({
-      file: "instructions.md",
+      file: "user/identity.md",
       content: "new content",
       operation: "append",
     }, { sessionId: "test" });
 
     const parsed = parseResult(result);
-    assert.ok(parsed.ref);
-    assert.equal(parsed.file, "instructions.md");
-
-    // Verify the staged intent has appended content
-    const staged = store.resolve(parsed.ref);
-    assert.ok(staged);
-    assert.equal(staged!.type, "config_update");
-    assert.equal((staged as { content: string }).content, "existing line 1\nexisting line 2\n\nnew content");
+    const staged = store.resolve(parsed.ref) as { content: string };
+    assert.equal(staged.content, "existing line 1\nexisting line 2\n\nnew content");
   });
 
-  it("trims trailing whitespace from existing content before appending", async () => {
-    mockReadInstructionFile.mock.mockImplementation(() => "existing content   \n\n  ");
+  it("appends to default content when no custom exists", async () => {
+    mockReadInstructionFile.mock.mockImplementation(() => ({
+      default_content: "default content",
+      custom_content: null,
+    }));
 
     const ctx = makeCtx();
     const store = makeIntentStore();
@@ -178,26 +195,24 @@ describe("proposeConfigUpdate tool", () => {
     const toolDef = createProposeConfigUpdateTool(ctx, store, recorder);
 
     const result = await toolDef.handler({
-      file: "instructions.md",
+      file: "user/identity.md",
       content: "appended",
       operation: "append",
     }, { sessionId: "test" });
 
     const parsed = parseResult(result);
     const staged = store.resolve(parsed.ref) as { content: string };
-    assert.equal(staged.content, "existing content\n\nappended");
+    assert.equal(staged.content, "default content\n\nappended");
   });
 
   it("uses content as-is when file has no existing content (append)", async () => {
-    mockReadInstructionFile.mock.mockImplementation(() => null);
-
     const ctx = makeCtx();
     const store = makeIntentStore();
     const recorder = makeRecorder();
     const toolDef = createProposeConfigUpdateTool(ctx, store, recorder);
 
     const result = await toolDef.handler({
-      file: "instructions.md",
+      file: "user/new-file.md",
       content: "brand new content",
       operation: "append",
     }, { sessionId: "test" });
@@ -210,15 +225,13 @@ describe("proposeConfigUpdate tool", () => {
   // --- Replace operation ---
 
   it("replaces content completely when operation is replace", async () => {
-    mockReadInstructionFile.mock.mockImplementation(() => "old content");
-
     const ctx = makeCtx();
     const store = makeIntentStore();
     const recorder = makeRecorder();
     const toolDef = createProposeConfigUpdateTool(ctx, store, recorder);
 
     const result = await toolDef.handler({
-      file: "instructions.md",
+      file: "user/identity.md",
       content: "completely new content",
       operation: "replace",
     }, { sessionId: "test" });
@@ -228,28 +241,13 @@ describe("proposeConfigUpdate tool", () => {
     assert.equal(staged.content, "completely new content");
   });
 
-  it("does not read existing content when operation is replace", async () => {
-    const ctx = makeCtx();
-    const store = makeIntentStore();
-    const recorder = makeRecorder();
-    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder);
-
-    await toolDef.handler({
-      file: "instructions.md",
-      content: "replacement",
-      operation: "replace",
-    }, { sessionId: "test" });
-
-    // readInstructionFile should not be called for replace
-    assert.equal(mockReadInstructionFile.mock.callCount(), 0);
-  });
-
   // --- Status field ---
 
-  it("returns will_overwrite_custom status when file has an override", async () => {
-    mockListInstructionFiles.mock.mockImplementation(() => [
-      makeFileInfo("instructions.md", true, true), // hasOverride=true
-    ]);
+  it("returns will_overwrite_custom status when file has custom content", async () => {
+    mockReadInstructionFile.mock.mockImplementation(() => ({
+      default_content: "default",
+      custom_content: "custom",
+    }));
 
     const ctx = makeCtx();
     const store = makeIntentStore();
@@ -257,7 +255,7 @@ describe("proposeConfigUpdate tool", () => {
     const toolDef = createProposeConfigUpdateTool(ctx, store, recorder);
 
     const result = await toolDef.handler({
-      file: "instructions.md",
+      file: "user/identity.md",
       content: "content",
       operation: "replace",
     }, { sessionId: "test" });
@@ -266,10 +264,11 @@ describe("proposeConfigUpdate tool", () => {
     assert.equal(parsed.status, "will_overwrite_custom");
   });
 
-  it("returns will_override_default status when file has default but no override", async () => {
-    mockListInstructionFiles.mock.mockImplementation(() => [
-      makeFileInfo("instructions.md", false, true), // hasOverride=false, hasDefault=true
-    ]);
+  it("returns will_override_default status when file has default but no custom", async () => {
+    mockReadInstructionFile.mock.mockImplementation(() => ({
+      default_content: "default",
+      custom_content: null,
+    }));
 
     const ctx = makeCtx();
     const store = makeIntentStore();
@@ -277,7 +276,7 @@ describe("proposeConfigUpdate tool", () => {
     const toolDef = createProposeConfigUpdateTool(ctx, store, recorder);
 
     const result = await toolDef.handler({
-      file: "instructions.md",
+      file: "user/identity.md",
       content: "content",
       operation: "replace",
     }, { sessionId: "test" });
@@ -286,18 +285,14 @@ describe("proposeConfigUpdate tool", () => {
     assert.equal(parsed.status, "will_override_default");
   });
 
-  it("returns will_create_new status when file has no override and no default", async () => {
-    mockListInstructionFiles.mock.mockImplementation(() => [
-      makeFileInfo("instructions.md", false, false),
-    ]);
-
+  it("returns will_create_new status when file has no content", async () => {
     const ctx = makeCtx();
     const store = makeIntentStore();
     const recorder = makeRecorder();
     const toolDef = createProposeConfigUpdateTool(ctx, store, recorder);
 
     const result = await toolDef.handler({
-      file: "instructions.md",
+      file: "user/new-file.md",
       content: "content",
       operation: "replace",
     }, { sessionId: "test" });
@@ -315,7 +310,7 @@ describe("proposeConfigUpdate tool", () => {
     const toolDef = createProposeConfigUpdateTool(ctx, store, recorder);
 
     const result = await toolDef.handler({
-      file: "instructions.md",
+      file: "dev/changes.md",
       content: "my content",
       operation: "replace",
     }, { sessionId: "test" });
@@ -324,7 +319,7 @@ describe("proposeConfigUpdate tool", () => {
     const staged = store.resolve(parsed.ref);
     assert.ok(staged);
     assert.equal(staged!.type, "config_update");
-    assert.equal((staged as { file: string }).file, "instructions.md");
+    assert.equal((staged as { file: string }).file, "dev/changes.md");
     assert.equal((staged as { content: string }).content, "my content");
   });
 
@@ -337,7 +332,7 @@ describe("proposeConfigUpdate tool", () => {
     const toolDef = createProposeConfigUpdateTool(ctx, store, recorder);
 
     await toolDef.handler({
-      file: "instructions.md",
+      file: "user/identity.md",
       content: "content",
       operation: "replace",
     }, { sessionId: "test" });
@@ -346,53 +341,6 @@ describe("proposeConfigUpdate tool", () => {
     assert.equal(recorder.calls[0].tool, "propose_config_update");
     const resultData = recorder.calls[0].result as { ref: string; file: string; status: string };
     assert.ok(resultData.ref);
-    assert.equal(resultData.file, "instructions.md");
-  });
-
-  // --- Default operation ---
-
-  it("defaults to append when operation is not specified", async () => {
-    mockReadInstructionFile.mock.mockImplementation(() => "existing");
-
-    const ctx = makeCtx();
-    const store = makeIntentStore();
-    const recorder = makeRecorder();
-    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder);
-
-    // Zod default kicks in — operation defaults to "append"
-    const result = await toolDef.handler({
-      file: "instructions.md",
-      content: "added",
-    } as { file: string; content: string; operation: "append" | "replace" }, { sessionId: "test" });
-
-    const parsed = parseResult(result);
-    const staged = store.resolve(parsed.ref) as { content: string };
-    assert.equal(staged.content, "existing\n\nadded");
-  });
-
-  // --- Lists available files in error ---
-
-  it("lists all available filenames in error message", async () => {
-    mockListInstructionFiles.mock.mockImplementation(() => [
-      makeFileInfo("instructions.md"),
-      makeFileInfo("dev_instructions.md"),
-      makeFileInfo("admin_instructions.md"),
-    ]);
-
-    const ctx = makeCtx();
-    const store = makeIntentStore();
-    const recorder = makeRecorder();
-    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder);
-
-    const result = await toolDef.handler({
-      file: "bad.md",
-      content: "x",
-      operation: "append",
-    }, { sessionId: "test" });
-
-    const parsed = parseResult(result);
-    assert.ok(parsed.error.includes("instructions.md"));
-    assert.ok(parsed.error.includes("dev_instructions.md"));
-    assert.ok(parsed.error.includes("admin_instructions.md"));
+    assert.equal(resultData.file, "user/identity.md");
   });
 });

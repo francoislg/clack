@@ -5,13 +5,20 @@ import assert from "node:assert/strict";
 // Module-level mocks
 // ---------------------------------------------------------------------------
 
-const mockListInstructionFiles = mock.fn<() => unknown[]>();
-const mockReadInstructionFile = mock.fn<(filename: string) => string | null>();
+const mockReadInstructionFile = mock.fn<(filename: string) => { default_content: string | null; custom_content: string | null }>();
+const mockBuildRoleChain = mock.fn<(role: string, changesWorkflowEnabled: boolean) => string[]>();
+const mockResolveInstructions = mock.fn<(roleChain: string[]) => string>();
 
 mock.module("../../configurationFiles.js", {
   namedExports: {
-    listInstructionFiles: mockListInstructionFiles,
     readInstructionFile: mockReadInstructionFile,
+  },
+});
+
+mock.module("../../cascadingConfigResolver.js", {
+  namedExports: {
+    buildRoleChain: mockBuildRoleChain,
+    resolveInstructions: mockResolveInstructions,
   },
 });
 
@@ -55,14 +62,16 @@ function parseResult(result: { content: Array<{ text: string }> }) {
 }
 
 function resetMocks() {
-  mockListInstructionFiles.mock.resetCalls();
   mockReadInstructionFile.mock.resetCalls();
+  mockBuildRoleChain.mock.resetCalls();
+  mockResolveInstructions.mock.resetCalls();
 
-  mockListInstructionFiles.mock.mockImplementation(() => [
-    { filename: "instructions.md", hasOverride: false, hasDefault: true },
-    { filename: "dev_instructions.md", hasOverride: true, hasDefault: true },
-  ]);
-  mockReadInstructionFile.mock.mockImplementation(() => "file content");
+  mockReadInstructionFile.mock.mockImplementation(() => ({
+    default_content: "file content",
+    custom_content: null,
+  }));
+  mockBuildRoleChain.mock.mockImplementation(() => ["user"]);
+  mockResolveInstructions.mock.mockImplementation(() => "resolved content");
 }
 
 // ---------------------------------------------------------------------------
@@ -72,106 +81,139 @@ function resetMocks() {
 describe("readConfigFile tool", () => {
   beforeEach(resetMocks);
 
-  it("returns error for unknown file", async () => {
+  it("returns error when file is not found (both null)", async () => {
+    mockReadInstructionFile.mock.mockImplementation(() => ({
+      default_content: null,
+      custom_content: null,
+    }));
+
     const ctx = makeCtx();
     const toolDef = createReadConfigFileTool(ctx);
 
-    const result = await toolDef.handler({ file: "nonexistent.md" }, { sessionId: "test" });
+    const result = await toolDef.handler({ file: "nonexistent.md", changesWorkflowEnabled: true }, { sessionId: "test" });
 
     const parsed = parseResult(result);
     assert.ok(parsed.error);
-    assert.ok(parsed.error.includes("Unknown instruction file"));
+    assert.ok(parsed.error.includes("not found"));
     assert.ok(parsed.error.includes("nonexistent.md"));
-    assert.ok(parsed.error.includes("instructions.md"));
-    assert.ok(parsed.error.includes("dev_instructions.md"));
     assert.equal(result.isError, true);
   });
 
-  it("reads a file with default content (no override)", async () => {
-    mockReadInstructionFile.mock.mockImplementation(() => "# Default Instructions\nBe helpful.");
+  it("reads a file with only default content", async () => {
+    mockReadInstructionFile.mock.mockImplementation(() => ({
+      default_content: "# Default Instructions\nBe helpful.",
+      custom_content: null,
+    }));
 
     const ctx = makeCtx();
     const toolDef = createReadConfigFileTool(ctx);
 
-    const result = await toolDef.handler({ file: "instructions.md" }, { sessionId: "test" });
+    const result = await toolDef.handler({ file: "user/identity.md", changesWorkflowEnabled: true }, { sessionId: "test" });
 
     const parsed = parseResult(result);
-    assert.equal(parsed.file, "instructions.md");
-    assert.equal(parsed.hasOverride, false);
-    assert.equal(parsed.hasDefault, true);
-    assert.equal(parsed.status, "default");
-    assert.equal(parsed.content, "# Default Instructions\nBe helpful.");
+    assert.equal(parsed.file, "user/identity.md");
+    assert.equal(parsed.default_content, "# Default Instructions\nBe helpful.");
+    assert.equal(parsed.custom_content, null);
     assert.equal(result.isError, undefined);
   });
 
-  it("reads a customized file (has override)", async () => {
-    mockReadInstructionFile.mock.mockImplementation(() => "Custom instructions");
+  it("reads a file with both default and custom content", async () => {
+    mockReadInstructionFile.mock.mockImplementation(() => ({
+      default_content: "Default instructions",
+      custom_content: "Custom instructions",
+    }));
 
     const ctx = makeCtx();
     const toolDef = createReadConfigFileTool(ctx);
 
-    const result = await toolDef.handler({ file: "dev_instructions.md" }, { sessionId: "test" });
+    const result = await toolDef.handler({ file: "user/identity.md", changesWorkflowEnabled: true }, { sessionId: "test" });
 
     const parsed = parseResult(result);
-    assert.equal(parsed.file, "dev_instructions.md");
-    assert.equal(parsed.hasOverride, true);
-    assert.equal(parsed.hasDefault, true);
-    assert.equal(parsed.status, "customized");
+    assert.equal(parsed.file, "user/identity.md");
+    assert.equal(parsed.default_content, "Default instructions");
+    assert.equal(parsed.custom_content, "Custom instructions");
   });
 
-  it("returns not_created status when file has neither override nor default", async () => {
-    mockListInstructionFiles.mock.mockImplementation(() => [
-      { filename: "missing.md", hasOverride: false, hasDefault: false },
-    ]);
-    mockReadInstructionFile.mock.mockImplementation(() => null);
+  it("reads a file with only custom content (custom-only)", async () => {
+    mockReadInstructionFile.mock.mockImplementation(() => ({
+      default_content: null,
+      custom_content: "Custom only content",
+    }));
 
     const ctx = makeCtx();
     const toolDef = createReadConfigFileTool(ctx);
 
-    const result = await toolDef.handler({ file: "missing.md" }, { sessionId: "test" });
+    const result = await toolDef.handler({ file: "dev/custom-rule.md", changesWorkflowEnabled: true }, { sessionId: "test" });
 
     const parsed = parseResult(result);
-    assert.equal(parsed.status, "not_created");
-    assert.equal(parsed.content, "");
-  });
-
-  it("returns empty string when readInstructionFile returns null", async () => {
-    mockReadInstructionFile.mock.mockImplementation(() => null);
-
-    const ctx = makeCtx();
-    const toolDef = createReadConfigFileTool(ctx);
-
-    const result = await toolDef.handler({ file: "instructions.md" }, { sessionId: "test" });
-
-    const parsed = parseResult(result);
-    assert.equal(parsed.content, "");
+    assert.equal(parsed.file, "dev/custom-rule.md");
+    assert.equal(parsed.default_content, null);
+    assert.equal(parsed.custom_content, "Custom only content");
+    assert.equal(result.isError, undefined);
   });
 
   it("calls readInstructionFile with the correct filename", async () => {
     const ctx = makeCtx();
     const toolDef = createReadConfigFileTool(ctx);
 
-    await toolDef.handler({ file: "dev_instructions.md" }, { sessionId: "test" });
+    await toolDef.handler({ file: "dev/changes.md", changesWorkflowEnabled: true }, { sessionId: "test" });
 
     assert.equal(mockReadInstructionFile.mock.callCount(), 1);
-    assert.equal(mockReadInstructionFile.mock.calls[0].arguments[0], "dev_instructions.md");
+    assert.equal(mockReadInstructionFile.mock.calls[0].arguments[0], "dev/changes.md");
   });
 
-  it("lists available files in error message", async () => {
-    mockListInstructionFiles.mock.mockImplementation(() => [
-      { filename: "a.md", hasOverride: false, hasDefault: true },
-      { filename: "b.md", hasOverride: false, hasDefault: true },
-      { filename: "c.md", hasOverride: false, hasDefault: true },
-    ]);
+  it("suggests role/filename format in error message", async () => {
+    mockReadInstructionFile.mock.mockImplementation(() => ({
+      default_content: null,
+      custom_content: null,
+    }));
 
     const ctx = makeCtx();
     const toolDef = createReadConfigFileTool(ctx);
 
-    const result = await toolDef.handler({ file: "unknown.md" }, { sessionId: "test" });
+    const result = await toolDef.handler({ file: "unknown.md", changesWorkflowEnabled: true }, { sessionId: "test" });
 
     const parsed = parseResult(result);
-    assert.ok(parsed.error.includes("a.md"));
-    assert.ok(parsed.error.includes("b.md"));
-    assert.ok(parsed.error.includes("c.md"));
+    assert.ok(parsed.error.includes("user/identity.md"));
+  });
+
+  it("returns resolved view when file is a valid role name", async () => {
+    mockBuildRoleChain.mock.mockImplementation(() => ["user", "dev"]);
+    mockResolveInstructions.mock.mockImplementation(() => "All resolved instructions for dev");
+
+    const ctx = makeCtx();
+    const toolDef = createReadConfigFileTool(ctx);
+
+    const result = await toolDef.handler({ file: "dev", changesWorkflowEnabled: true }, { sessionId: "test" });
+
+    const parsed = parseResult(result);
+    assert.equal(parsed.view, "resolved");
+    assert.equal(parsed.role, "dev");
+    assert.deepEqual(parsed.roleChain, ["user", "dev"]);
+    assert.equal(parsed.content, "All resolved instructions for dev");
+    assert.equal(result.isError, undefined);
+
+    assert.equal(mockBuildRoleChain.mock.callCount(), 1);
+    assert.equal(mockBuildRoleChain.mock.calls[0].arguments[0], "dev");
+    assert.equal(mockBuildRoleChain.mock.calls[0].arguments[1], true);
+  });
+
+  it("passes changesWorkflowEnabled to buildRoleChain for resolved view", async () => {
+    const ctx = makeCtx();
+    const toolDef = createReadConfigFileTool(ctx);
+
+    await toolDef.handler({ file: "admin", changesWorkflowEnabled: false }, { sessionId: "test" });
+
+    assert.equal(mockBuildRoleChain.mock.callCount(), 1);
+    assert.equal(mockBuildRoleChain.mock.calls[0].arguments[1], false);
+  });
+
+  it("does not call readInstructionFile for resolved view", async () => {
+    const ctx = makeCtx();
+    const toolDef = createReadConfigFileTool(ctx);
+
+    await toolDef.handler({ file: "member", changesWorkflowEnabled: true }, { sessionId: "test" });
+
+    assert.equal(mockReadInstructionFile.mock.callCount(), 0);
   });
 });

@@ -17,7 +17,6 @@ You can set `auto: true` on any ref-based action (`change`, `config_update`, `up
 
 **Use `auto: true`** when the user gives a clear directive:
 - "Fix this", "Do it", "Make this change"
-- "Update the config to add X", "Add this instruction"
 - "Merge it", "Merge the PR"
 - "Close the PR"
 - "Update the PR with this: ..."
@@ -27,16 +26,3 @@ You can set `auto: true` on any ref-based action (`change`, `config_update`, `up
 - The intent is ambiguous or could be a question
 - You are proactively suggesting a change the user hasn't explicitly asked for
 - The user's request is vague and you want to confirm scope first
-
-## Configuration Updates
-
-You can update bot configuration files when asked. Use `list_config_files` to see available files, `read_config_file` to read current content, and `propose_config_update` to stage changes. Include a `config_update` action in your `submit_response` so the admin can approve.
-
-**Workflow:**
-1. Use `list_config_files` to find the file
-2. Use `read_config_file` to read its current content
-3. Use `propose_config_update` to stage the update — **append by default**
-
-**Append vs Replace:**
-- Most edits are additions ("add this rule", "add this instruction"). Use the default `append` operation — provide only the new content to add, and it will be appended to the existing file.
-- Use `operation: "replace"` only when the admin asks to remove or rewrite content. When replacing, always read the file first and provide the complete new content.

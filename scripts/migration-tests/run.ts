@@ -12,8 +12,8 @@
  *   npx tsx scripts/migration-tests/run.ts --full-only  # run only full-path test
  */
 
-import { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from "node:fs";
-import { resolve, join, dirname } from "node:path";
+import { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, readdirSync, statSync } from "node:fs";
+import { resolve, join, dirname, relative } from "node:path";
 import { executeMigration } from "../../src/migrations/engine.js";
 import { getPendingMigrations } from "../../src/migrations/engine.js";
 import { migrations } from "../../src/migrations/index.js";
@@ -26,8 +26,9 @@ import { test as test003 } from "./003.js";
 import { test as test004 } from "./004.js";
 import { test as test005 } from "./005.js";
 import { test as test007 } from "./007.js";
+import { test as test008 } from "./008.js";
 
-const allTests: MigrationTest[] = [test001, test002, test003, test004, test005, test007];
+const allTests: MigrationTest[] = [test001, test002, test003, test004, test005, test007, test008];
 
 // --- Config ---
 
@@ -62,6 +63,21 @@ function readTestConfig(path: string): Record<string, unknown> {
   } catch (err) {
     throw new Error(`Failed to parse test config at ${path}: ${err}`);
   }
+}
+
+/** Recursively find all .md files in a directory, returning paths relative to baseDir. */
+function scanMdFiles(dir: string, baseDir: string): string[] {
+  const results: string[] = [];
+  if (!existsSync(dir)) return results;
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry);
+    if (statSync(full).isDirectory()) {
+      results.push(...scanMdFiles(full, baseDir));
+    } else if (entry.endsWith(".md")) {
+      results.push(relative(baseDir, full));
+    }
+  }
+  return results;
 }
 
 /** Run async tasks with bounded concurrency. */
@@ -136,23 +152,51 @@ function buildTestTasks(testsToRun: MigrationTest[]): (() => Promise<TestResult>
 
         tasks.push(async () => {
           const testDir = join(TEST_DIR, `v${version}-file-case-${i}`);
+          mkdirSync(testDir, { recursive: true });
 
           // Write input files
-          const testFiles: string[] = [];
           for (const [relPath, content] of Object.entries(testCase.inputFiles)) {
             const fullPath = join(testDir, relPath);
             mkdirSync(dirname(fullPath), { recursive: true });
             writeFileSync(fullPath, content);
-            testFiles.push(fullPath);
           }
 
-          const testMigration = { ...migration, files: testFiles };
+          // Map ALL migration file paths to the test directory
+          const testFiles = migration.files.map((f) => join(testDir, f));
+
+          const dedupAgainst = migration.dedupAgainst
+            ? Object.fromEntries(
+                Object.entries(migration.dedupAgainst).map(([output, def]) => [
+                  join(testDir, output),
+                  def, // default files stay at their real paths
+                ])
+              )
+            : undefined;
+
+          const testMigration = {
+            ...migration,
+            files: testFiles,
+            deleteAfter: migration.deleteAfter?.map((f) => join(testDir, f)),
+            dedupAgainst,
+          };
 
           try {
             await executeMigration(testMigration);
 
             const outputFiles: Record<string, string> = {};
-            for (const [relPath] of Object.entries(testCase.inputFiles)) {
+            const pathsToRead = new Set([
+              ...Object.keys(testCase.inputFiles),
+              ...(testCase.additionalOutputPaths ?? []),
+            ]);
+            // Scan directories for dynamically-created files
+            if (testCase.scanDirs) {
+              for (const scanDir of testCase.scanDirs) {
+                for (const found of scanMdFiles(join(testDir, scanDir), testDir)) {
+                  pathsToRead.add(found);
+                }
+              }
+            }
+            for (const relPath of pathsToRead) {
               const fullPath = join(testDir, relPath);
               if (existsSync(fullPath)) {
                 outputFiles[relPath] = readFileSync(fullPath, "utf-8");

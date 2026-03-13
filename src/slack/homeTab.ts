@@ -300,7 +300,7 @@ export async function buildRoleManagementSection(
 }
 
 export function buildConfigurationSection(): KnownBlock[] {
-  const files = listInstructionFiles();
+  const listing = listInstructionFiles();
   const blocks: KnownBlock[] = [];
 
   blocks.push({
@@ -312,12 +312,28 @@ export function buildConfigurationSection(): KnownBlock[] {
     },
   });
 
-  for (const file of files) {
-    let statusLabel: string;
+  // Role directories — hierarchy view with files listed under each directory
+  for (const roleListing of listing.roles) {
+    const fileLines = roleListing.files.map((f) => {
+      const label = f.source === "customized" ? " — _Customized_" : f.source === "custom-only" ? " — _Custom_" : "";
+      return `      • \`${f.filename}\`${label}`;
+    });
 
-    if (file.hasOverride) {
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `\`${roleListing.role}/\`\n${fileLines.join("\n")}`,
+      },
+    });
+  }
+
+  // Repo-scoped instruction files
+  for (const repo of listing.repos) {
+    let statusLabel: string;
+    if (repo.hasOverride) {
       statusLabel = "Customized";
-    } else if (file.hasDefault) {
+    } else if (repo.hasDefault) {
       statusLabel = "Default";
     } else {
       statusLabel = "Not created";
@@ -327,7 +343,7 @@ export function buildConfigurationSection(): KnownBlock[] {
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `:page_facing_up: \`${file.filename}\` — _${statusLabel}_`,
+        text: `:page_facing_up: \`${repo.filename}\` — _${statusLabel}_`,
       },
     });
   }
