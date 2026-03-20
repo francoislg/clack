@@ -43,6 +43,7 @@ export interface SessionsConfig {
 
 export interface ClaudeCodeConfig {
   model?: string;
+  watchMcpConfig?: boolean;
 }
 
 export interface SlackAppConfig {
@@ -392,6 +393,7 @@ function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Config {
     },
     claudeCode: {
       model: (claudeCodeRaw && str(claudeCodeRaw, "model")) ?? DEFAULTS.claudeCode!.model,
+      watchMcpConfig: (claudeCodeRaw && bool(claudeCodeRaw, "watchMcpConfig")) ?? false,
     },
     changesWorkflow: cwRaw
       ? {
