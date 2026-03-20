@@ -166,7 +166,7 @@ function buildDeliverFn(ctx: DeliveryContext): DeliverFn {
  */
 async function sendResponseNotification(ctx: DeliveryContext): Promise<void> {
   const elapsedMs = Date.now() - ctx.startTime;
-  logger.info(`Response notification check: elapsed ${Math.round(elapsedMs / 1000)}s (threshold: 60s)`);
+  logger.debug(`Response notification check: elapsed ${Math.round(elapsedMs / 1000)}s (threshold: 60s)`);
   if (elapsedMs < 60_000) return;
 
   if (await getUserPreference(ctx.sessionInfo.userId, "notifyOnResponse")) {

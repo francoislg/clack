@@ -229,12 +229,13 @@ export async function handleFollowUp(
         onEvent,
       });
 
+      if (result.success) {
+        updateActiveChangeStatus(session.sessionId, "pr_created");
+        return { success: true, summary: "Review feedback addressed" };
+      }
+      // Revert to pr_created — the PR still exists and user can retry
       updateActiveChangeStatus(session.sessionId, "pr_created");
-      return {
-        success: result.success,
-        summary: result.success ? "Review feedback addressed" : undefined,
-        error: result.success ? undefined : (result.error ?? "Review failed"),
-      };
+      return { success: false, error: result.error ?? "Review failed" };
     }
 
     case "update": {
