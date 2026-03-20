@@ -3,7 +3,7 @@
  * Test script for running Claude CLI in a worktree
  *
  * Usage:
- *   npx tsx src/changes/askClaudeWorktree.ts [options]
+ *   npx tsx scripts/askClaudeWorktree.ts [options]
  *
  * Options:
  *   --cwd <path>      Working directory (default: current directory)
@@ -13,13 +13,13 @@
  *   --branch <name>   Branch name for logging (enables execution.log)
  *
  * Examples:
- *   npx tsx src/changes/askClaudeWorktree.ts
- *   npx tsx src/changes/askClaudeWorktree.ts --prompt "What files are in this directory?"
- *   npx tsx src/changes/askClaudeWorktree.ts --cwd ./data/worktrees/my-repo/my-branch --branch my-branch
+ *   npx tsx scripts/askClaudeWorktree.ts
+ *   npx tsx scripts/askClaudeWorktree.ts --prompt "What files are in this directory?"
+ *   npx tsx scripts/askClaudeWorktree.ts --cwd ./data/worktrees/my-repo/my-branch --branch my-branch
  */
 
-import { loadConfig } from "../config.js";
-import { runClaude } from "./execution.js";
+import { loadConfig } from "../src/config.js";
+import { runClaude } from "../src/changes/execution.js";
 
 async function main() {
   // Load config before anything else
