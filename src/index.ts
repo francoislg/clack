@@ -15,6 +15,7 @@ import { cleanupStaleSessionFolders } from "./changes/persistence.js";
 import { getActiveChangeBranches } from "./changes/activeState.js";
 import { validateInstructionFiles } from "./instructions.js";
 import { runBlockingMigrations, runEnhancementMigrations } from "./migrations/boot.js";
+import { startConfigWatcher } from "./configWatcher.js";
 
 // Load environment variables from .env files (later files don't override earlier ones)
 dotenvConfig({ path: join(process.cwd(), ".env") });
@@ -129,6 +130,11 @@ async function main(): Promise<void> {
   startSyncScheduler();
   startCleanupScheduler();
 
+  // Step 4.5: Watch config files for changes (if enabled)
+  const stopConfigWatcher = config.claudeCode.watchMcpConfig
+    ? startConfigWatcher()
+    : undefined;
+
   // Step 5: Create and start Slack app
   logger.debug("Starting Slack app...");
   try {
@@ -149,20 +155,21 @@ async function main(): Promise<void> {
     logger.error("Enhancement migration error:", error);
   });
 
+  async function shutdown(signal: string): Promise<void> {
+    logger.startup(`Received ${signal}, shutting down gracefully...`);
+
+    stopConfigWatcher?.();
+    stopCompletionMonitor();
+    stopSyncScheduler();
+    stopCleanupScheduler();
+    await stopSlackApp();
+
+    logger.startup("Shutdown complete");
+    process.exit(0);
+  }
+
   process.on("SIGINT", () => shutdown("SIGINT"));
   process.on("SIGTERM", () => shutdown("SIGTERM"));
-}
-
-async function shutdown(signal: string): Promise<void> {
-  logger.startup(`Received ${signal}, shutting down gracefully...`);
-
-  stopCompletionMonitor();
-  stopSyncScheduler();
-  stopCleanupScheduler();
-  await stopSlackApp();
-
-  logger.startup("Shutdown complete");
-  process.exit(0);
 }
 
 main().catch((error) => {
