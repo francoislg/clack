@@ -1,0 +1,19 @@
+{
+  "group": "Checking GitHub",
+  "tools": {
+    "get_pull_request": "Reading <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}>",
+    "get_pull_request_files": "Reading files for <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}>",
+    "get_pull_request_status": "Checking status of <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}>",
+    "get_pull_request_comments": "Reading comments on <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}>",
+    "get_pull_request_reviews": "Reading reviews for <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}>",
+    "create_pull_request_review": "Reviewing <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}>",
+    "create_pull_request": "Creating pull request",
+    "merge_pull_request": "Merging <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}>",
+    "update_pull_request": "Updating <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}>",
+    "get_issue": "Reading <https://github.com/{owner}/{repo}/issues/{issue_number}|issue #{issue_number}>",
+    "create_issue_comment": "Commenting on <https://github.com/{owner}/{repo}/issues/{issue_number}|issue #{issue_number}>",
+    "list_issues": "Listing issues",
+    "search_code": "Searching GitHub for \"{query}\"",
+    "get_file_contents": "Reading {path|file} from GitHub"
+  }
+}

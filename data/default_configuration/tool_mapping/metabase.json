@@ -1,0 +1,16 @@
+{
+  "default": "Checking Metabase",
+  "group": "Checking Metabase",
+  "argOptions": {
+    "query": { "truncate": 30 }
+  },
+  "tools": {
+    "list": "Listing Metabase {model|items}",
+    "retrieve": "Reading Metabase {model|details}",
+    "search": "Searching Metabase for \"{query|…}\"",
+    "execute": "Running <${METABASE_URL}/question/{card_id}|question {card_id|query}>",
+    "export": "Exporting <${METABASE_URL}/question/{card_id}|question {card_id}> as {format|results}",
+    "clear_cache": "Clearing Metabase cache"
+  },
+  "hidden": ["clear_cache"]
+}

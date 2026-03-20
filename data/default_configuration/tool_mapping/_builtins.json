@@ -1,0 +1,26 @@
+{
+  "conditionalHidden": [
+    { "tool": "Read", "arg": "file_path", "pattern": "^tool-results/" }
+  ],
+  "argOptions": {
+    "file_path": { "truncate": 40 },
+    "pattern": { "truncate": 40 },
+    "description": { "truncate": 60 },
+    "command": { "truncate": 40 }
+  },
+  "tools": {
+    "Read": { "label": "Reading {file_path|file}", "group": "search", "itemDetail": "{file_path|file}" },
+    "Glob": { "label": "Searching for files", "group": "search", "itemDetail": "{pattern|files}" },
+    "Grep": { "label": "Searching for \"{pattern|codebase}\"", "group": "search", "itemDetail": "\"{pattern|search}\"" },
+    "Edit": { "label": "Editing {file_path|file}", "group": "edit", "itemDetail": "{file_path|file}" },
+    "Write": { "label": "Writing {file_path|file}", "group": "write", "itemDetail": "{file_path|file}" },
+    "Bash": { "label": "{description|Running command}", "group": "commands", "itemDetail": "{description|command|command}" },
+    "Skill": "Running skill {skill}"
+  },
+  "groups": {
+    "search": "Searching codebase",
+    "edit": "Editing files",
+    "write": "Writing files",
+    "commands": "Running commands"
+  }
+}

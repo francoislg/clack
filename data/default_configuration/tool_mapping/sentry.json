@@ -1,0 +1,33 @@
+{
+  "default": "Checking Sentry",
+  "group": "Checking Sentry",
+  "argOptions": {
+    "issueId": { "from": "issueUrl", "pattern": "/issues/(\\d+)" }
+  },
+  "tools": {
+    "search_issues": "Searching Sentry issues",
+    "search_events": "Searching Sentry events",
+    "search_issue_events": "Searching issue events",
+    "get_issue_details": "Reading Sentry issue <{issueUrl}|{issueId}>",
+    "list_issues": "Listing Sentry issues",
+    "list_events": "Listing Sentry events",
+    "list_issue_events": "Listing events for issue <{issueUrl}|{issueId}>",
+    "update_issue": "Updating Sentry issue <{issueUrl}|{issueId}>",
+    "analyze_issue_with_seer": "Analyzing issue <{issueUrl}|{issueId}> with Seer",
+    "get_trace_details": "Reading trace {traceId}",
+    "get_event_attachment": "Reading event attachment",
+    "get_issue_tag_values": "Reading tags for issue <{issueUrl}|{issueId}>",
+    "find_organizations": "Finding Sentry organizations",
+    "find_projects": "Finding Sentry projects",
+    "find_releases": "Finding Sentry releases",
+    "find_teams": "Finding Sentry teams",
+    "find_dsns": "Finding DSNs",
+    "create_project": "Creating Sentry project {name}",
+    "create_team": "Creating Sentry team {name}",
+    "create_dsn": "Creating DSN {name}",
+    "update_project": "Updating Sentry project {projectSlug}",
+    "search_docs": "Searching Sentry docs for \"{query}\"",
+    "get_doc": "Reading Sentry docs",
+    "whoami": "Checking Sentry identity"
+  }
+}

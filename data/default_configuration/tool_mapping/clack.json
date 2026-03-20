@@ -1,0 +1,28 @@
+{
+  "hidden": ["submit_response", "report_status"],
+  "argOptions": {
+    "title": { "truncate": 50 },
+    "query": { "truncate": 30 }
+  },
+  "tools": {
+    "list_repositories": "Listing repositories",
+    "git_log": "Reading git history {repo}",
+    "deepen_history": "Loading more history",
+    "find_sessions": "Finding sessions {repo}",
+    "find_changes": "Finding changes {repo}",
+    "find_pull_requests": "Finding pull requests {repo} {branch}",
+    "find_user": "Looking up user {query}",
+    "list_config_files": "Listing config files",
+    "read_config_file": "Reading config {path}",
+    "fetch_channel_messages": "Reading messages in <#{channel_id}>",
+    "fetch_slack_message": "Reading <{url}|Slack message>",
+    "resolve_review_thread": "Resolving review thread",
+    "propose_change": "Proposing change {repo}",
+    "request_update": "Requesting update",
+    "propose_config_update": "Proposing config update",
+    "git_push": "Pushing to remote",
+    "ensure_pr": "Creating pull request {title}",
+    "merge_pr": "Merging pull request",
+    "close_pr": "Closing pull request"
+  }
+}

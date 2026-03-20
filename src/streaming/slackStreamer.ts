@@ -104,9 +104,9 @@ export class SlackStreamer {
 
         // Re-emit with real args — update the existing task
         const existingSlackId = this.taskSlack.get(event.taskId);
-        if (existingSlackId) {
-          // Re-emit for standalone tool — update label with real args
-          if (hasArgs && existingSlackId === event.taskId) {
+        if (existingSlackId && hasArgs) {
+          if (existingSlackId === event.taskId) {
+            // Standalone tool — update label directly
             this.taskLabels.set(event.taskId, label);
             const chunk: TaskUpdateChunk = {
               type: "task_update",
@@ -117,9 +117,27 @@ export class SlackStreamer {
             const details = getToolDetails(event.toolName, event.toolArgs);
             if (details) chunk.details = details;
             this.append([chunk]);
+          } else {
+            // Grouped tool — update the group's details with real args
+            const group = getToolGroup(event.toolName, event.toolArgs);
+            if (group && this.openGroup && existingSlackId === this.openGroup.slackId) {
+              const chunk: TaskUpdateChunk = {
+                type: "task_update",
+                id: existingSlackId,
+                title: this.openGroup.count > 1
+                  ? `${this.openGroup.title} (${this.openGroup.count})`
+                  : label,
+                status: "in_progress",
+              };
+              if (group.itemDetail) chunk.details = this.openGroup.count > 1 ? `\n${group.itemDetail}` : group.itemDetail;
+              const details = getToolDetails(event.toolName, event.toolArgs);
+              if (details) chunk.details = (chunk.details ? chunk.details + "\n" : "") + details;
+              this.append([chunk]);
+            }
           }
           break;
         }
+        if (existingSlackId) break;
 
         const group = getToolGroup(event.toolName, event.toolArgs);
         const groupKey = group?.key ?? event.toolName;
