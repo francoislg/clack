@@ -1,0 +1,42 @@
+{
+  "default": "Checking Statsig feature flags",
+  "group": "Checking Statsig feature flags",
+  "argOptions": {
+    "id": { "from": "params.path_id" }
+  },
+  "tools": {
+    "Get_Audit_Logs": "Reading Statsig audit logs",
+    "Get_List_of_Gates": "Listing feature gates",
+    "Get_Gate_Details_by_ID": "Reading gate {id|…}",
+    "Get_Gate_Results": "Reading gate results for {id|…}",
+    "Get_List_of_Experiments": "Listing experiments",
+    "Get_Experiment_Details_by_ID": "Reading experiment {id|…}",
+    "Get_Experiment_Results": "Reading experiment results",
+    "Get_List_of_Dynamic_Configs": "Listing dynamic configs",
+    "Get_Dynamic_Config_Details_by_ID": "Reading dynamic config {id|…}",
+    "Get_List_of_Layers": "Listing layers",
+    "Get_Layer_Details_by_ID": "Reading layer {id|…}",
+    "Get_List_of_Metrics": "Listing metrics",
+    "Get_Metric_Definition_by_ID": "Reading metric {id|…}",
+    "Get_List_of_Metric_Sources": "Listing metric sources",
+    "Get_List_of_Param_Stores": "Listing param stores",
+    "Get_Param_Store_Details_by_Id": "Reading param store {id|…}",
+    "Get_List_of_Segments": "Listing segments",
+    "Get_Segment_by_ID": "Reading segment {id|…}",
+    "GetExperimentSummaryCharts": "Reading experiment charts {id|…}",
+    "search": "Searching Statsig for \"{query}\"",
+    "fetch": "Fetching Statsig document {id}",
+    "Create_Gate": "Creating feature gate",
+    "Create_Experiment": "Creating experiment",
+    "Create_Dynamic_Config": "Creating dynamic config",
+    "Create_Layer": "Creating layer",
+    "Create_Segment": "Creating segment",
+    "Update_Gate_Entirely": "Updating gate {id}",
+    "Update_Experiment_Entirely": "Updating experiment {id}",
+    "Update_Dynamic_Config_Entirely": "Updating dynamic config {id}",
+    "Update_Layer_Entirely": "Updating layer {id}",
+    "Update_Segment": "Updating segment {id}",
+    "Start_Gate_Code_Cleanup": "Starting gate code cleanup {id}",
+    "Start_Experiment_Code_Cleanup": "Starting experiment code cleanup {id}"
+  }
+}
