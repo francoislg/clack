@@ -268,11 +268,10 @@ export async function cleanupStaleWorktrees(retentionHours: number = 24): Promis
 }
 
 /**
- * Initialize worktrees directory on startup
+ * Ensure worktree and session directories exist (fast, synchronous).
+ * Call early in startup before restoring sessions.
  */
-export async function initializeWorktrees(
-  cleanupSessions?: (expiryHours: number) => Promise<void>,
-): Promise<void> {
+export function ensureWorktreeDirectories(): void {
   const worktreesDir = getWorktreesDir();
   const sessionsDir = getWorktreeSessionsDir();
 
@@ -283,8 +282,16 @@ export async function initializeWorktrees(
   if (!existsSync(sessionsDir)) {
     mkdirSync(sessionsDir, { recursive: true });
   }
+}
 
-  // Clean up stale worktrees and session folders
+/**
+ * Clean up stale worktrees and session folders.
+ * Safe to run in the background after sessions have been restored
+ * (so getActiveChangeBranches() correctly protects restored sessions).
+ */
+export async function cleanupWorktrees(
+  cleanupSessions?: (expiryHours: number) => Promise<void>,
+): Promise<void> {
   const config = getConfig();
   const expiryHours = config.changesWorkflow?.sessionExpiryHours ?? 24;
   await cleanupStaleWorktrees(expiryHours);

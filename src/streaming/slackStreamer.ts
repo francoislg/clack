@@ -13,6 +13,8 @@ export interface SlackStreamerOptions {
   userId?: string;
   /** Team ID (required for channel streams). Avoids an extra auth.test call if provided. */
   teamId?: string;
+  /** Custom title for the thinking task once tools start (defaults to "Analyzing…"). */
+  thinkingTitle?: string;
 }
 
 /**
@@ -32,6 +34,7 @@ export class SlackStreamer {
   private threadTs: string;
   private userId: string | undefined;
   private teamId: string | undefined;
+  private thinkingTitle: string;
 
   private chatStreamer: ChatStreamer | null = null;
   private thinkingFinalized = false;
@@ -53,6 +56,7 @@ export class SlackStreamer {
     this.threadTs = opts.threadTs;
     this.userId = opts.userId;
     this.teamId = opts.teamId;
+    this.thinkingTitle = opts.thinkingTitle ?? "Analyzing…";
   }
 
   /**
@@ -174,7 +178,7 @@ export class SlackStreamer {
           chunks.push({
             type: "task_update",
             id: SlackStreamer.THINKING_TASK_ID,
-            title: "Analyzing…",
+            title: this.thinkingTitle,
             status: "in_progress",
           });
         }
@@ -289,7 +293,7 @@ export class SlackStreamer {
           type: "task_update",
           id: SlackStreamer.THINKING_TASK_ID,
           title: this.thinkingFinalized
-            ? "Analyzing…"
+            ? this.thinkingTitle
             : "Acknowledged, working on it…",
           status: "complete",
         },
@@ -326,6 +330,9 @@ export class SlackStreamer {
     try {
       await this.chatStreamer.append({ chunks });
     } catch (error) {
+      // If stop() was already called, this is a benign race — an in-flight
+      // append from handleEvent resolved after the stream was finalized.
+      if (this.stopped) return;
       logger.error("Failed to append to chat stream:", error);
       this.failed = true;
     }

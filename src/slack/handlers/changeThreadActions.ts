@@ -26,7 +26,14 @@ export async function triggerFollowUp(
   // Create streamer for live progress (target DM thread if provided)
   const streamChannel = slack.streamChannel ?? channelId;
   const streamThreadTs = slack.streamThreadTs ?? threadTs;
-  const streamer = new SlackStreamer({ client, channel: streamChannel, threadTs: streamThreadTs, userId });
+  const branch = session.activeChange?.branch;
+  const streamer = new SlackStreamer({
+    client,
+    channel: streamChannel,
+    threadTs: streamThreadTs,
+    userId,
+    ...(branch && { thinkingTitle: `Working on ${branch}` }),
+  });
   await streamer.start();
 
   try {

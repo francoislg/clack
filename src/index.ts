@@ -7,7 +7,7 @@ import { logger } from "./logger.js";
 import { initializeRepositories, syncAllRepositories, startSyncScheduler, stopSyncScheduler } from "./repositories.js";
 import { startCleanupScheduler, stopCleanupScheduler } from "./sessions.js";
 import { createSlackApp, startSlackApp, stopSlackApp } from "./slack/app.js";
-import { initializeWorktrees } from "./worktrees.js";
+import { ensureWorktreeDirectories, cleanupWorktrees } from "./worktrees.js";
 import { discoverPluginInfo } from "./plugins.js";
 import { startCompletionMonitor, stopCompletionMonitor } from "./changes/monitor.js";
 import { restoreWorkerSessions } from "./changes/restore.js";
@@ -43,7 +43,7 @@ async function main(): Promise<void> {
   }
 
   // Step 1.6: Load and validate GitHub App credentials
-  logger.debug("Validating GitHub App credentials...");
+  logger.info("Validating GitHub credentials...");
   try {
     loadGitHubCredentials();
     await validateGitHubApp();
@@ -52,7 +52,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // Step 1.6: Validate instruction files
+  // Step 1.7: Validate instruction files
   try {
     validateInstructionFiles();
   } catch (error) {
@@ -61,7 +61,7 @@ async function main(): Promise<void> {
   }
 
   // Step 2: Test MCP connections and clack tools
-  logger.debug("Testing MCP connections...");
+  logger.info("Connecting to MCP servers...");
   try {
     const mcpResult = await testMCP();
     if (mcpResult.clackTools.length > 0) {
@@ -94,7 +94,7 @@ async function main(): Promise<void> {
   }
 
   // Step 3: Initialize and sync repositories
-  logger.debug("Initializing repositories...");
+  logger.info("Initializing repositories...");
   try {
     await initializeRepositories();
     await syncAllRepositories();
@@ -103,26 +103,20 @@ async function main(): Promise<void> {
     // Continue anyway - some repos might work
   }
 
-  // Step 3.5: Initialize worktrees (cleanup stale ones)
+  // Step 3.5: Initialize worktrees and restore sessions
   const config = getConfig();
   if (config.changesWorkflow?.enabled) {
-    logger.debug("Initializing worktrees...");
     try {
-      await initializeWorktrees(async (expiryHours) => {
-        await cleanupStaleSessionFolders(expiryHours, getActiveChangeBranches());
-      });
-      logger.info("Worktrees initialized");
+      ensureWorktreeDirectories();
     } catch (error) {
-      logger.warn("Failed to initialize worktrees:", error);
-      // Continue anyway - worktree cleanup is not critical
+      logger.warn("Failed to ensure worktree directories:", error);
     }
 
-    // Restore persisted worker sessions into memory (after worktree cleanup, before monitor)
+    // Restore persisted worker sessions into memory (before monitor starts)
     try {
-      restoreWorkerSessions();
+      await restoreWorkerSessions();
     } catch (error) {
       logger.warn("Failed to restore worker sessions:", error);
-      // Continue anyway - restoration is not critical
     }
   }
 
@@ -136,7 +130,7 @@ async function main(): Promise<void> {
     : undefined;
 
   // Step 5: Create and start Slack app
-  logger.debug("Starting Slack app...");
+  logger.info("Starting Slack app...");
   try {
     createSlackApp();
     await startSlackApp();
@@ -150,7 +144,16 @@ async function main(): Promise<void> {
 
   logger.startup("Clack is ready!");
 
-  // Step 7: Run enhancement migrations in background (non-blocking)
+  // Background: clean up stale worktrees and sessions (non-blocking)
+  if (config.changesWorkflow?.enabled) {
+    cleanupWorktrees(async (expiryHours) => {
+      await cleanupStaleSessionFolders(expiryHours, getActiveChangeBranches());
+    }).catch((error) => {
+      logger.warn("Worktree cleanup error:", error);
+    });
+  }
+
+  // Background: run enhancement migrations (non-blocking)
   runEnhancementMigrations().catch((error) => {
     logger.error("Enhancement migration error:", error);
   });
