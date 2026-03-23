@@ -4,11 +4,13 @@ import { logger } from "../../logger.js";
 import { getErrorBlocks } from "../blocks.js";
 import { isDev } from "../../roles.js";
 import { extractMessageText } from "../messagesApi.js";
+import { extractImageFiles, type SlackImageFile } from "../imageExtractor.js";
 import { processMessage } from "./core.js";
 
 interface ResolvedMessage {
   text: string;
   threadTs?: string;
+  imageFiles?: SlackImageFile[];
 }
 
 /**
@@ -24,7 +26,8 @@ async function fetchViaReplies(
     const msg = result.messages?.[0];
     if (msg?.ts === ts) {
       logger.debug("Found message via conversations.replies (parent message)");
-      return { text: extractMessageText(msg), threadTs: msg.thread_ts || ts };
+      const imageFiles = extractImageFiles(msg.files as unknown[] | undefined);
+      return { text: extractMessageText(msg), threadTs: msg.thread_ts || ts, ...(imageFiles.length > 0 && { imageFiles }) };
     }
   } catch (error) {
     logger.debug("conversations.replies failed, trying history approach:", error);
@@ -47,7 +50,8 @@ async function fetchViaHistory(
 
     if (msg.ts === ts) {
       logger.debug("Found message via conversations.history (channel message)");
-      return { text: extractMessageText(msg), threadTs: msg.thread_ts };
+      const imageFiles = extractImageFiles(msg.files as unknown[] | undefined);
+      return { text: extractMessageText(msg), threadTs: msg.thread_ts, ...(imageFiles.length > 0 && { imageFiles }) };
     }
 
     // ts might be a thread reply — search the parent thread
@@ -57,7 +61,8 @@ async function fetchViaHistory(
       const targetMsg = threadResult.messages?.find((m) => m.ts === ts);
       if (targetMsg) {
         logger.debug("Found message in thread replies");
-        return { text: extractMessageText(targetMsg), threadTs: msg.thread_ts };
+        const imageFiles = extractImageFiles(targetMsg.files as unknown[] | undefined);
+        return { text: extractMessageText(targetMsg), threadTs: msg.thread_ts, ...(imageFiles.length > 0 && { imageFiles }) };
       }
     }
   } catch (error) {
@@ -128,6 +133,7 @@ export function registerNewQueryHandler(app: App): void {
       threadTs: resolved.threadTs,
       triggerType: "reactions",
       workMode,
+      ...(resolved.imageFiles && { imageFiles: resolved.imageFiles }),
     });
   });
 }

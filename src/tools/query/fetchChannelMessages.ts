@@ -3,6 +3,7 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
 import { textResult, errorResult } from "../helpers.js";
 import { extractMessageText } from "../../slack/messagesApi.js";
+import { extractImageFiles } from "../../slack/imageExtractor.js";
 import { resolveUsers, transformUserMentions } from "../../slack/userCache.js";
 import { errorMessage } from "../../errors.js";
 
@@ -57,10 +58,11 @@ async function fetchThreadReplies(
 
 async function formatMessage(
   client: SlackClient,
-  msg: { ts?: string; text?: string; user?: string; bot_id?: string; reply_count?: number; attachments?: { text?: string; fallback?: string }[] },
+  msg: { ts?: string; text?: string; user?: string; bot_id?: string; reply_count?: number; attachments?: { text?: string; fallback?: string }[]; files?: unknown[] },
   channelId: string,
   userInfoMap: UserInfoMap,
   includeThreads: boolean,
+  availableImages?: Map<string, import("../../slack/imageExtractor.js").SlackImageFile>,
 ): Promise<Record<string, unknown> | null> {
   if (!msg.ts) return null;
 
@@ -68,11 +70,16 @@ async function formatMessage(
   const userInfo = userId ? userInfoMap.get(userId) : undefined;
   const text = await transformUserMentions(client, extractMessageText(msg) || "[attachment]");
 
+  // Extract and register images
+  const imageFiles = extractImageFiles(msg.files);
+  for (const img of imageFiles) availableImages?.set(img.id, img);
+
   const entry: Record<string, unknown> = {
     user: userInfo?.displayName ?? userInfo?.username ?? userId ?? "unknown",
     text,
     ts: msg.ts,
     is_bot: msg.bot_id !== undefined,
+    ...(imageFiles.length > 0 && { images: imageFiles.map((f) => ({ file_id: f.id, name: f.name })) }),
   };
 
   if (msg.reply_count && msg.reply_count > 0) {
@@ -129,7 +136,7 @@ export function createFetchChannelMessagesTool(ctx: QueryToolContext) {
 
         const messages = [];
         for (const msg of [...result.messages].reverse()) {
-          const entry = await formatMessage(client, msg, args.channel_id, userInfoMap, !!args.include_threads);
+          const entry = await formatMessage(client, msg, args.channel_id, userInfoMap, !!args.include_threads, ctx.availableImages);
           if (entry) messages.push(entry);
         }
 

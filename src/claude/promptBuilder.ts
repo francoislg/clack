@@ -2,11 +2,13 @@ import { getConfig } from "../config.js";
 import { loadInstructions } from "../instructions.js";
 import type { UserRole } from "../roles.js";
 import type { SessionContext } from "../sessions.js";
+import type { SlackImageFile } from "../slack/imageExtractor.js";
 /** Subset of AskClaudeOptions needed for prompt construction. */
 export interface PromptOptions {
   role?: UserRole;
   changesWorkflowEnabled?: boolean;
   workMode?: boolean;
+  availableImages?: Map<string, SlackImageFile>;
 }
 
 export function buildSystemPrompt(options?: PromptOptions): string {
@@ -132,6 +134,19 @@ Use this context to understand the conversation flow and provide relevant answer
     } else {
       parts.push(`WORK MODE: The user explicitly requested this as a work task (not a question). Propose a code change using propose_change and set auto: true on the change action in submit_response. If you cannot determine what change to make, ask for clarification via submit_response.`);
     }
+  }
+
+  // Image metadata — let Claude know what images are available
+  if (options?.availableImages?.size) {
+    const lines = [
+      "ATTACHED IMAGES:",
+      "The user's message includes uploaded image(s). Use view_slack_image with the file_id to view any relevant image.",
+      "Note: When you fetch Slack messages (via fetch_slack_message or fetch_channel_messages), those results may also contain images — use view_slack_image on their file_id as well.",
+    ];
+    for (const [fileId, img] of options.availableImages) {
+      lines.push(`- ${img.name} (file_id: ${fileId})`);
+    }
+    parts.push(lines.join("\n"));
   }
 
   // Original question

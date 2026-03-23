@@ -10,6 +10,7 @@ import type { UserRole } from "../roles.js";
 import type { SessionContext } from "../sessions.js";
 import type { SubmitResponsePayload, ToolCallRecord, StagedIntent, DeliverFn, ClackToolsResult } from "../tools/types.js";
 import type { StreamEvent } from "../streaming/types.js";
+import type { SlackImageFile } from "../slack/imageExtractor.js";
 import { buildQueryContext } from "../tools/context.js";
 import { buildClackTools } from "../tools/server.js";
 import { discoverPlugins } from "../plugins.js";
@@ -59,6 +60,8 @@ export interface AskClaudeOptions {
   onEvent?: (event: StreamEvent) => void | Promise<void>;
   /** Delivery callback — when provided, submit_response delivers to Slack directly */
   deliver?: DeliverFn;
+  /** Available Slack images keyed by file ID */
+  availableImages?: Map<string, SlackImageFile>;
 }
 
 function summarizeContentBlocks(content: unknown[]): string {
@@ -125,6 +128,7 @@ async function buildQuerySetup(
     changesWorkflowEnabled: options?.changesWorkflowEnabled ?? false,
     slackClient: options?.slackClient,
     deliver: options?.deliver,
+    availableImages: options?.availableImages,
   });
   const clackTools = buildClackTools(toolCtx);
 

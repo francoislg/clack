@@ -13,6 +13,7 @@ data/sessions/
 data/worktrees/
 data/worktree-sessions/
 data/state/
+data/cache/
 data/auth/*
 !data/auth/.gitkeep
 !data/auth/slack.example.json
