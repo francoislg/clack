@@ -46,7 +46,13 @@ export async function triggerChangeWorkflow(
   // Create streamer for live progress (target DM thread if provided)
   const streamChannel = slack.streamChannel ?? channelId;
   const streamThreadTs = slack.streamThreadTs ?? threadTs;
-  const streamer = new SlackStreamer({ client, channel: streamChannel, threadTs: streamThreadTs, userId });
+  const streamer = new SlackStreamer({
+    client,
+    channel: streamChannel,
+    threadTs: streamThreadTs,
+    userId,
+    thinkingTitle: `Working on ${intent.branch}`,
+  });
   await streamer.start();
 
   try {
