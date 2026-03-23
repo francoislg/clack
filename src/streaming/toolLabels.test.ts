@@ -134,15 +134,15 @@ describe("getToolLabel", () => {
   });
 
   describe("GitHub MCP tools", () => {
-    it("returns label with linked PR number when all args present", () => {
+    it("returns label with linked PR number and method when all args present", () => {
       assert.equal(
-        getToolLabel("mcp__github__get_pull_request", { owner: "org", repo: "my-repo", pullNumber: 42 }),
-        "Reading <https://github.com/org/my-repo/pull/42|PR #42>"
+        getToolLabel("mcp__github__pull_request_read", { owner: "org", repo: "my-repo", pullNumber: 42, method: "comments" }),
+        "Reading <https://github.com/org/my-repo/pull/42|PR #42> comments"
       );
     });
 
     it("returns label without link when args are missing", () => {
-      assert.equal(getToolLabel("mcp__github__get_pull_request", {}), "Reading PR #");
+      assert.equal(getToolLabel("mcp__github__pull_request_read", {}), "Reading PR #");
     });
 
     it("returns static labels for tools without dynamic args", () => {
@@ -330,12 +330,12 @@ describe("getToolGroup", () => {
     assert.equal(group.itemDetail, "command");
   });
 
-  it("groups GitHub MCP tools under github with PR number", () => {
-    const group = getToolGroup("mcp__github__get_pull_request", { pullNumber: 42 });
+  it("groups GitHub MCP tools under github with PR number and method", () => {
+    const group = getToolGroup("mcp__github__pull_request_read", { pullNumber: 42, method: "reviews" });
     assert.ok(group);
     assert.equal(group.key, "github");
     assert.equal(group.title, "Checking GitHub");
-    assert.equal(group.itemDetail, "Reading PR #42");
+    assert.equal(group.itemDetail, "Reading PR #42 reviews");
   });
 
   it("returns null for non-grouped tools", () => {
