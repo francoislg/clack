@@ -1,19 +1,104 @@
 {
+  "default": "Checking GitHub",
   "group": "Checking GitHub",
+  "argOptions": {
+    "sha": { "truncate": 7 }
+  },
   "tools": {
-    "get_pull_request": "Reading <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}>",
-    "get_pull_request_files": "Reading files for <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}>",
-    "get_pull_request_status": "Checking status of <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}>",
-    "get_pull_request_comments": "Reading comments on <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}>",
-    "get_pull_request_reviews": "Reading reviews for <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}>",
-    "create_pull_request_review": "Reviewing <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}>",
+    "pull_request_read": "Reading <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}> {method}",
+    "pull_request_review_write": "Reviewing <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}> {method}",
+    "add_comment_to_pending_review": "Adding review comment on <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}>",
+    "add_reply_to_pull_request_comment": "Replying on <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}>",
     "create_pull_request": "Creating pull request",
     "merge_pull_request": "Merging <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}>",
     "update_pull_request": "Updating <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}>",
-    "get_issue": "Reading <https://github.com/{owner}/{repo}/issues/{issue_number}|issue #{issue_number}>",
-    "create_issue_comment": "Commenting on <https://github.com/{owner}/{repo}/issues/{issue_number}|issue #{issue_number}>",
+    "update_pull_request_branch": "Updating branch for <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}>",
+    "list_pull_requests": "Listing pull requests",
+    "search_pull_requests": "Searching PRs for \"{query}\"",
+    "request_copilot_review": "Requesting Copilot review for <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}>",
+
+    "issue_read": "Reading <https://github.com/{owner}/{repo}/issues/{issue_number}|issue #{issue_number}> {method}",
+    "issue_write": "Updating <https://github.com/{owner}/{repo}/issues/{issue_number}|issue #{issue_number}> {method}",
+    "add_issue_comment": "Commenting on <https://github.com/{owner}/{repo}/issues/{issue_number}|issue #{issue_number}>",
     "list_issues": "Listing issues",
+    "list_issue_types": "Listing issue types",
+    "search_issues": "Searching issues for \"{query}\"",
+    "assign_copilot_to_issue": "Assigning Copilot to <https://github.com/{owner}/{repo}/issues/{issue_number}|issue #{issue_number}>",
+    "sub_issue_write": "Updating sub-issue for <https://github.com/{owner}/{repo}/issues/{issue_number}|issue #{issue_number}>",
+
+    "get_file_contents": "Reading {path|file} from GitHub",
+    "create_or_update_file": "Writing {path|file}",
+    "delete_file": "Deleting {path|file}",
+    "push_files": "Pushing files to {branch}",
+    "get_repository_tree": "Reading repository tree",
     "search_code": "Searching GitHub for \"{query}\"",
-    "get_file_contents": "Reading {path|file} from GitHub"
-  }
+
+    "get_commit": "Reading commit {sha}",
+    "list_commits": "Listing commits",
+    "list_branches": "Listing branches",
+    "create_branch": "Creating branch {branch}",
+    "list_tags": "Listing tags",
+    "get_tag": "Reading tag {tag}",
+
+    "list_releases": "Listing releases",
+    "get_latest_release": "Reading latest release",
+    "get_release_by_tag": "Reading release {tag}",
+
+    "label_write": "Managing label {name}",
+    "get_label": "Reading label {name}",
+    "list_label": "Listing labels",
+
+    "actions_get": "Reading GitHub Action {method}",
+    "actions_list": "Listing GitHub Actions {method}",
+    "actions_run_trigger": "Triggering GitHub Action {method}",
+    "get_job_logs": "Reading job logs",
+
+    "get_discussion": "Reading discussion #{discussionNumber}",
+    "get_discussion_comments": "Reading comments on discussion #{discussionNumber}",
+    "list_discussions": "Listing discussions",
+    "list_discussion_categories": "Listing discussion categories",
+
+    "projects_get": "Reading project {method}",
+    "projects_list": "Listing projects {method}",
+    "projects_write": "Updating project {method}",
+
+    "search_repositories": "Searching repos for \"{query}\"",
+    "search_users": "Searching users for \"{query}\"",
+    "search_orgs": "Searching orgs for \"{query}\"",
+    "create_repository": "Creating repository {name}",
+    "fork_repository": "Forking {owner}/{repo}",
+
+    "get_me": "Checking GitHub identity",
+    "get_teams": "Listing teams",
+    "get_team_members": "Listing members of {team_slug}",
+
+    "list_notifications": "Listing notifications",
+    "get_notification_details": "Reading notification",
+    "dismiss_notification": "Dismissing notification",
+    "mark_all_notifications_read": "Marking notifications read",
+
+    "list_code_scanning_alerts": "Listing code scanning alerts",
+    "get_code_scanning_alert": "Reading code scanning alert #{alertNumber}",
+    "list_secret_scanning_alerts": "Listing secret scanning alerts",
+    "get_secret_scanning_alert": "Reading secret scanning alert #{alertNumber}",
+    "list_dependabot_alerts": "Listing Dependabot alerts",
+    "get_dependabot_alert": "Reading Dependabot alert #{alertNumber}",
+    "get_global_security_advisory": "Reading security advisory {ghsaId}",
+    "list_global_security_advisories": "Listing security advisories",
+    "list_repository_security_advisories": "Listing repo security advisories",
+    "list_org_repository_security_advisories": "Listing org security advisories",
+
+    "create_gist": "Creating gist",
+    "get_gist": "Reading gist",
+    "update_gist": "Updating gist",
+    "list_gists": "Listing gists",
+
+    "star_repository": "Starring {owner}/{repo}",
+    "unstar_repository": "Unstarring {owner}/{repo}",
+    "list_starred_repositories": "Listing starred repos"
+  },
+  "hidden": [
+    "manage_notification_subscription",
+    "manage_repository_notification_subscription"
+  ]
 }
