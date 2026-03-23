@@ -2,7 +2,8 @@ import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
 import { textResult, errorResult } from "../helpers.js";
-import { fetchMessage, fetchThreadContext } from "../../slack/messagesApi.js";
+import { extractMessageText, fetchThreadContext } from "../../slack/messagesApi.js";
+import { extractImageFiles } from "../../slack/imageExtractor.js";
 
 const SLACK_URL_PATTERN = /^https:\/\/[^/]+\.slack\.com\/archives\/([A-Z0-9]+)\/p(\d+)$/;
 
@@ -56,6 +57,13 @@ export function createFetchSlackMessageTool(ctx: QueryToolContext) {
           return errorResult("Could not fetch thread or message not found");
         }
 
+        // Register discovered images so view_slack_image can access them
+        for (const m of messages) {
+          if (m.imageFiles) {
+            for (const img of m.imageFiles) ctx.availableImages?.set(img.id, img);
+          }
+        }
+
         return textResult({
           channel: channelId,
           thread_ts: parentTs,
@@ -65,18 +73,35 @@ export function createFetchSlackMessageTool(ctx: QueryToolContext) {
             text: m.text,
             ts: m.ts,
             is_bot: m.isBot,
+            ...(m.imageFiles?.length && { images: m.imageFiles.map((f) => ({ file_id: f.id, name: f.name })) }),
           })),
         });
       }
 
-      // Fetch single message
-      const text = await fetchMessage(client, channelId, messageTs, threadTs);
+      // Fetch single message — need full message object for files
+      const result = threadTs
+        ? await client.conversations.replies({ channel: channelId, ts: threadTs, limit: 100 })
+        : await client.conversations.history({ channel: channelId, latest: messageTs, inclusive: true, limit: 1 });
 
-      if (!text) {
+      const msg = threadTs
+        ? result.messages?.find((m) => m.ts === messageTs)
+        : result.messages?.[0]?.ts === messageTs ? result.messages[0] : undefined;
+
+      const text = msg ? extractMessageText(msg) : "";
+      if (!text && !msg?.files?.length) {
         return errorResult("Message not found or empty");
       }
 
-      return textResult({ channel: channelId, ts: messageTs, text });
+      // Extract and register images
+      const imageFiles = extractImageFiles(msg?.files as unknown[] | undefined);
+      for (const img of imageFiles) ctx.availableImages?.set(img.id, img);
+
+      return textResult({
+        channel: channelId,
+        ts: messageTs,
+        text: text || "[attachment]",
+        ...(imageFiles.length > 0 && { images: imageFiles.map((f) => ({ file_id: f.id, name: f.name })) }),
+      });
     }
   );
 }

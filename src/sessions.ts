@@ -5,6 +5,7 @@ import { logger } from "./logger.js";
 import { fileExists } from "./fs.js";
 import type { ErrorRecord, ConversationMessage } from "./claude/index.js";
 import type { SubmitResponsePayload, ToolCallRecord, ContinuationRecord, ResponseSnapshot, StagedIntent } from "./tools/types.js";
+import type { SlackImageFile } from "./slack/imageExtractor.js";
 import type { ChangeStatus } from "./changes/types.js";
 import type { ActiveChangeState } from "./changes/activeState.js";
 import { getActiveChange, clearActiveChange } from "./changes/activeState.js";
@@ -16,6 +17,8 @@ export interface ThreadMessage {
   ts: string;
   username?: string;
   displayName?: string;
+  /** Uploaded image files attached to this message */
+  imageFiles?: SlackImageFile[];
 }
 
 export interface SessionContext {
@@ -41,6 +44,8 @@ export interface SessionContext {
   stagedIntents?: Record<string, StagedIntent>;
   /** History of user continuations (choice, followup, refine) */
   continuationHistory?: ContinuationRecord[];
+  /** Images from the triggering message */
+  imageFiles?: SlackImageFile[];
   /** How the session was triggered (reactions, mentions, directMessages) */
   triggerType?: "directMessages" | "mentions" | "reactions";
   /** DM-first delivery: the DM channel ID */

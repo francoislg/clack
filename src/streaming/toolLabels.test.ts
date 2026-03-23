@@ -113,6 +113,17 @@ describe("getToolLabel", () => {
       );
     });
 
+    it("returns label for view_slack_image with file_id", () => {
+      assert.equal(
+        getToolLabel("mcp__clack__view_slack_image", { file_id: "F123ABC" }),
+        "Viewing image F123ABC"
+      );
+    });
+
+    it("returns label for view_slack_image without file_id", () => {
+      assert.equal(getToolLabel("mcp__clack__view_slack_image", {}), "Viewing image");
+    });
+
     it("returns null for submit_response (excluded from task cards)", () => {
       assert.equal(getToolLabel("mcp__clack__submit_response", {}), null);
     });
@@ -212,6 +223,13 @@ describe("getToolLabel", () => {
     it("hides Read when file_path matches tool-results/ pattern", () => {
       assert.equal(
         getToolLabel("Read", { file_path: "tool-results/mcp-metabase-retrieve-1774" }),
+        null
+      );
+    });
+
+    it("hides Read when file_path matches tasks/ pattern (TaskOutput)", () => {
+      assert.equal(
+        getToolLabel("Read", { file_path: "tasks/badc80a.output" }),
         null
       );
     });

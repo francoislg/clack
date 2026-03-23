@@ -2,6 +2,7 @@ import type { App } from "@slack/bolt";
 import type { UserRole } from "../roles.js";
 import type { SessionContext } from "../sessions.js";
 import type { Config } from "../config.js";
+import type { SlackImageFile } from "../slack/imageExtractor.js";
 import type { QueryToolContext, WorkerToolContext, DeliverFn } from "./types.js";
 
 export interface BuildQueryContextParams {
@@ -12,6 +13,7 @@ export interface BuildQueryContextParams {
   changesWorkflowEnabled: boolean;
   slackClient?: App["client"];
   deliver?: DeliverFn;
+  availableImages?: Map<string, SlackImageFile>;
 }
 
 export function buildQueryContext(params: BuildQueryContextParams): QueryToolContext {

@@ -18,6 +18,7 @@ import { registerInFlightRequest, deregisterInFlightRequest } from "../inFlightR
 import { storeDmCoordinates } from "../dmResponse.js";
 import { executeAndDeliver } from "./handlerResponse.js";
 import type { TriggerType } from "../../changes/types.js";
+import type { SlackImageFile } from "../imageExtractor.js";
 
 export interface ProcessMessageParams {
   client: App["client"];
@@ -31,6 +32,8 @@ export interface ProcessMessageParams {
   workMode?: boolean;
   /** Channel the user is viewing in the assistant panel */
   assistantChannelId?: string;
+  /** Image files from the triggering message */
+  imageFiles?: SlackImageFile[];
 }
 
 interface ProcessingContext {
@@ -300,7 +303,19 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
   };
   setSessionInfo(session.sessionId, sessionInfo);
 
-  // 5. Build Claude options and execute
+  // 5. Collect available images from triggering message + thread context
+  const imageMap = new Map<string, SlackImageFile>();
+  if (params.imageFiles) {
+    for (const img of params.imageFiles) imageMap.set(img.id, img);
+  }
+  for (const msg of session.threadContext) {
+    if (msg.imageFiles) {
+      for (const img of msg.imageFiles) imageMap.set(img.id, img);
+    }
+  }
+  const availableImages = imageMap;
+
+  // 6. Build Claude options and execute
   const claudeOptions = await getClaudeOptions(userId, triggerType);
   const abortController = new AbortController();
 
@@ -310,7 +325,7 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
       client,
       session,
       sessionInfo,
-      claudeOptions: { ...claudeOptions, workMode },
+      claudeOptions: { ...claudeOptions, workMode, availableImages },
       abortController,
     }),
   );

@@ -51,6 +51,7 @@ const DEFAULTS: Required<SlackAppConfig> = {
 // Core scopes - always needed for basic reaction functionality and role management
 const CORE_SCOPES: BotScope[] = [
   "channels:history",
+  "files:read", // Needed for downloading images uploaded in Slack messages
   "groups:history",
   "chat:write",
   "reactions:read",

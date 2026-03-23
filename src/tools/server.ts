@@ -28,6 +28,7 @@ import { createDeepenHistoryTool } from "./query/deepenHistory.js";
 import { createFindUserTool } from "./query/findUser.js";
 import { createFetchSlackMessageTool } from "./query/fetchSlackMessage.js";
 import { createFetchChannelMessagesTool } from "./query/fetchChannelMessages.js";
+import { createViewSlackImageTool } from "./query/viewSlackImage.js";
 import { createUsersCache } from "../slack/usersCache.js";
 
 // Action tools
@@ -167,6 +168,11 @@ function buildQueryTools(ctx: QueryToolContext): ClackToolsResult {
   if (canEditConfig(ctx.role)) {
     tools.push(createListConfigFilesTool(ctx));
     tools.push(createReadConfigFileTool(ctx));
+  }
+
+  // Always register when images exist OR Slack client is available (fetch tools can discover images mid-query)
+  if (ctx.availableImages?.size || ctx.slackClient) {
+    tools.push(createViewSlackImageTool(ctx));
   }
 
   // --- Action tools (role-only gating, no session state checks) ---

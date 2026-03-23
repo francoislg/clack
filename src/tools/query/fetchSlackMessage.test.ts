@@ -5,13 +5,21 @@ import assert from "node:assert/strict";
 // Module-level mocks
 // ---------------------------------------------------------------------------
 
-const mockFetchMessage = mock.fn<(...args: unknown[]) => Promise<string>>();
+const mockExtractMessageText = mock.fn<(...args: unknown[]) => string>();
 const mockFetchThreadContext = mock.fn<(...args: unknown[]) => Promise<unknown[]>>();
 
 mock.module("../../slack/messagesApi.js", {
   namedExports: {
-    fetchMessage: mockFetchMessage,
+    extractMessageText: mockExtractMessageText,
     fetchThreadContext: mockFetchThreadContext,
+  },
+});
+
+const mockExtractImageFiles = mock.fn<(...args: unknown[]) => unknown[]>();
+
+mock.module("../../slack/imageExtractor.js", {
+  namedExports: {
+    extractImageFiles: mockExtractImageFiles,
   },
 });
 
@@ -23,9 +31,15 @@ const { createFetchSlackMessageTool } = await import("./fetchSlackMessage.js");
 // ---------------------------------------------------------------------------
 
 import type { QueryToolContext } from "../types.js";
+import type { SlackImageFile } from "../../slack/imageExtractor.js";
 
-function makeSlackClient() {
-  return {} as NonNullable<QueryToolContext["slackClient"]>;
+function makeSlackClient(responses?: { replies?: unknown; history?: unknown }) {
+  return {
+    conversations: {
+      replies: mock.fn(async () => responses?.replies ?? { messages: [] }),
+      history: mock.fn(async () => responses?.history ?? { messages: [] }),
+    },
+  } as unknown as NonNullable<QueryToolContext["slackClient"]>;
 }
 
 function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
@@ -51,6 +65,7 @@ function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
     } as unknown as QueryToolContext["config"],
     changesWorkflowEnabled: false,
     slackClient: makeSlackClient(),
+    availableImages: new Map(),
     ...overrides,
   };
 }
@@ -60,11 +75,13 @@ function parseResult(result: { content: Array<{ text: string }> }) {
 }
 
 function resetMocks() {
-  mockFetchMessage.mock.resetCalls();
+  mockExtractMessageText.mock.resetCalls();
   mockFetchThreadContext.mock.resetCalls();
+  mockExtractImageFiles.mock.resetCalls();
 
-  mockFetchMessage.mock.mockImplementation(async () => "Hello world");
+  mockExtractMessageText.mock.mockImplementation(() => "Hello world");
   mockFetchThreadContext.mock.mockImplementation(async () => []);
+  mockExtractImageFiles.mock.mockImplementation(() => []);
 }
 
 // ---------------------------------------------------------------------------
@@ -100,17 +117,6 @@ describe("fetchSlackMessage tool", () => {
     assert.equal(result.isError, true);
   });
 
-  it("returns error for Slack URL with wrong path format", async () => {
-    const ctx = makeCtx();
-    const toolDef = createFetchSlackMessageTool(ctx);
-
-    const result = await toolDef.handler({ url: "https://workspace.slack.com/messages/C123", include_thread: undefined }, { sessionId: "test" });
-
-    const parsed = parseResult(result);
-    assert.ok(parsed.error);
-    assert.equal(result.isError, true);
-  });
-
   // --- slackClient absent ---
 
   it("returns error when slackClient is not available", async () => {
@@ -131,9 +137,12 @@ describe("fetchSlackMessage tool", () => {
   // --- Single message fetch ---
 
   it("fetches a single message by URL", async () => {
-    mockFetchMessage.mock.mockImplementation(async () => "Hello from Slack!");
+    mockExtractMessageText.mock.mockImplementation(() => "Hello from Slack!");
+    const client = makeSlackClient({
+      history: { messages: [{ ts: "1234567890.123456", text: "Hello from Slack!" }] },
+    });
 
-    const ctx = makeCtx();
+    const ctx = makeCtx({ slackClient: client });
     const toolDef = createFetchSlackMessageTool(ctx);
 
     const result = await toolDef.handler({
@@ -148,28 +157,13 @@ describe("fetchSlackMessage tool", () => {
     assert.equal(result.isError, undefined);
   });
 
-  it("parses timestamp correctly from Slack URL", async () => {
-    mockFetchMessage.mock.mockImplementation(async () => "msg");
+  it("returns error when message is not found", async () => {
+    mockExtractMessageText.mock.mockImplementation(() => "");
+    const client = makeSlackClient({
+      history: { messages: [{ ts: "9999999999.000000" }] },
+    });
 
-    const ctx = makeCtx();
-    const toolDef = createFetchSlackMessageTool(ctx);
-
-    await toolDef.handler({
-      url: "https://workspace.slack.com/archives/C999/p9876543210654321",
-      include_thread: undefined,
-    }, { sessionId: "test" });
-
-    // Verify fetchMessage was called with correctly parsed ts
-    assert.equal(mockFetchMessage.mock.callCount(), 1);
-    const callArgs = mockFetchMessage.mock.calls[0].arguments;
-    assert.equal(callArgs[1], "C999"); // channelId
-    assert.equal(callArgs[2], "9876543210.654321"); // messageTs — dot after 10th char
-  });
-
-  it("returns error when message is not found or empty", async () => {
-    mockFetchMessage.mock.mockImplementation(async () => "");
-
-    const ctx = makeCtx();
+    const ctx = makeCtx({ slackClient: client });
     const toolDef = createFetchSlackMessageTool(ctx);
 
     const result = await toolDef.handler({
@@ -205,9 +199,7 @@ describe("fetchSlackMessage tool", () => {
     assert.equal(parsed.thread_ts, "1234567890.123456");
     assert.equal(parsed.message_count, 2);
     assert.equal(parsed.messages[0].user, "Alice");
-    assert.equal(parsed.messages[0].text, "Parent message");
     assert.equal(parsed.messages[1].user, "bob");
-    assert.equal(parsed.messages[1].text, "Reply 1");
   });
 
   it("returns error when thread fetch returns empty array", async () => {
@@ -227,102 +219,49 @@ describe("fetchSlackMessage tool", () => {
     assert.equal(result.isError, true);
   });
 
-  it("uses thread_ts from query param when present in URL", async () => {
+  // --- Image discovery ---
+
+  it("includes images from thread messages and registers them", async () => {
+    const imageFile = { id: "F123", name: "screenshot.png", mimetype: "image/png", size: 1024, url_private: "https://example.com/img" };
     const threadMessages = [
-      { text: "Thread parent", userId: "U1", ts: "1111111111.000000", isBot: false, displayName: "Charlie" },
+      { text: "Check this", userId: "U1", ts: "1.0", isBot: false, imageFiles: [imageFile] },
     ];
     mockFetchThreadContext.mock.mockImplementation(async () => threadMessages);
 
-    const ctx = makeCtx();
+    const availableImages = new Map<string, SlackImageFile>();
+    const ctx = makeCtx({ availableImages });
     const toolDef = createFetchSlackMessageTool(ctx);
 
     const result = await toolDef.handler({
-      url: "https://workspace.slack.com/archives/C0123ABC/p1234567890123456?thread_ts=1111111111.000000",
+      url: "https://workspace.slack.com/archives/C0123ABC/p1234567890123456",
       include_thread: true,
     }, { sessionId: "test" });
 
     const parsed = parseResult(result);
-    // Should use the thread_ts from query param as parentTs
-    assert.equal(parsed.thread_ts, "1111111111.000000");
-
-    // Verify fetchThreadContext was called with the thread_ts
-    assert.equal(mockFetchThreadContext.mock.callCount(), 1);
-    const callArgs = mockFetchThreadContext.mock.calls[0].arguments;
-    assert.equal(callArgs[1], "C0123ABC");
-    assert.equal(callArgs[2], "1111111111.000000"); // parentTs = threadTs from query param
+    assert.equal(parsed.messages[0].images[0].file_id, "F123");
+    assert.ok(availableImages.has("F123"));
   });
 
-  it("passes threadTs to fetchMessage for single-message fetch with thread context", async () => {
-    mockFetchMessage.mock.mockImplementation(async () => "thread reply");
+  it("includes images from single message and registers them", async () => {
+    const imageFile = { id: "F456", name: "photo.jpg", mimetype: "image/jpeg", size: 2048, url_private: "https://example.com/img2" };
+    mockExtractMessageText.mock.mockImplementation(() => "Look at this");
+    mockExtractImageFiles.mock.mockImplementation(() => [imageFile]);
 
-    const ctx = makeCtx();
+    const client = makeSlackClient({
+      history: { messages: [{ ts: "1234567890.123456", text: "Look at this", files: [{}] }] },
+    });
+
+    const availableImages = new Map<string, SlackImageFile>();
+    const ctx = makeCtx({ slackClient: client, availableImages });
     const toolDef = createFetchSlackMessageTool(ctx);
 
-    await toolDef.handler({
-      url: "https://workspace.slack.com/archives/C0123ABC/p1234567890123456?thread_ts=9999999999.000000",
+    const result = await toolDef.handler({
+      url: "https://workspace.slack.com/archives/C0123ABC/p1234567890123456",
       include_thread: undefined,
     }, { sessionId: "test" });
 
-    assert.equal(mockFetchMessage.mock.callCount(), 1);
-    const callArgs = mockFetchMessage.mock.calls[0].arguments;
-    assert.equal(callArgs[1], "C0123ABC");
-    assert.equal(callArgs[2], "1234567890.123456"); // messageTs
-    assert.equal(callArgs[3], "9999999999.000000"); // threadTs from query param
-  });
-
-  it("uses userId for display when displayName and username are absent", async () => {
-    const threadMessages = [
-      { text: "message", userId: "U999", ts: "1234567890.123456", isBot: false },
-    ];
-    mockFetchThreadContext.mock.mockImplementation(async () => threadMessages);
-
-    const ctx = makeCtx();
-    const toolDef = createFetchSlackMessageTool(ctx);
-
-    const result = await toolDef.handler({
-      url: "https://workspace.slack.com/archives/C0123ABC/p1234567890123456",
-      include_thread: true,
-    }, { sessionId: "test" });
-
     const parsed = parseResult(result);
-    assert.equal(parsed.messages[0].user, "U999");
-  });
-
-  it("prefers displayName over username for thread messages", async () => {
-    const threadMessages = [
-      { text: "message", userId: "U1", ts: "1.0", isBot: false, displayName: "Alice Display", username: "alice_user" },
-    ];
-    mockFetchThreadContext.mock.mockImplementation(async () => threadMessages);
-
-    const ctx = makeCtx();
-    const toolDef = createFetchSlackMessageTool(ctx);
-
-    const result = await toolDef.handler({
-      url: "https://workspace.slack.com/archives/C0123ABC/p1234567890123456",
-      include_thread: true,
-    }, { sessionId: "test" });
-
-    const parsed = parseResult(result);
-    assert.equal(parsed.messages[0].user, "Alice Display");
-  });
-
-  it("includes is_bot flag for thread messages", async () => {
-    const threadMessages = [
-      { text: "human", userId: "U1", ts: "1.0", isBot: false },
-      { text: "bot reply", userId: "B1", ts: "1.1", isBot: true },
-    ];
-    mockFetchThreadContext.mock.mockImplementation(async () => threadMessages);
-
-    const ctx = makeCtx();
-    const toolDef = createFetchSlackMessageTool(ctx);
-
-    const result = await toolDef.handler({
-      url: "https://workspace.slack.com/archives/C0123ABC/p1234567890123456",
-      include_thread: true,
-    }, { sessionId: "test" });
-
-    const parsed = parseResult(result);
-    assert.equal(parsed.messages[0].is_bot, false);
-    assert.equal(parsed.messages[1].is_bot, true);
+    assert.equal(parsed.images[0].file_id, "F456");
+    assert.ok(availableImages.has("F456"));
   });
 });

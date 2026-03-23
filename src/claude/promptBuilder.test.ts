@@ -241,4 +241,25 @@ describe("buildPrompt", () => {
     const prompt = buildPrompt(makeSession());
     assert.ok(!prompt.includes("ADDITIONAL INSTRUCTIONS"));
   });
+
+  // ---- image metadata ----
+  it("includes ATTACHED IMAGES section when availableImages is provided", () => {
+    const availableImages = new Map([
+      ["F123", { id: "F123", name: "screenshot.png", mimetype: "image/png", size: 1024, url_private: "https://example.com/img" }],
+    ]);
+    const prompt = buildPrompt(makeSession(), { availableImages });
+    assert.ok(prompt.includes("ATTACHED IMAGES:"));
+    assert.ok(prompt.includes("screenshot.png (file_id: F123)"));
+    assert.ok(prompt.includes("view_slack_image"));
+  });
+
+  it("omits ATTACHED IMAGES section when no images", () => {
+    const prompt = buildPrompt(makeSession());
+    assert.ok(!prompt.includes("ATTACHED IMAGES"));
+  });
+
+  it("omits ATTACHED IMAGES section when availableImages is empty", () => {
+    const prompt = buildPrompt(makeSession(), { availableImages: new Map() });
+    assert.ok(!prompt.includes("ATTACHED IMAGES"));
+  });
 });
