@@ -99,11 +99,37 @@ export class SlackStreamer {
     switch (event.type) {
       case "tool_start": {
         const label = getToolLabel(event.toolName, event.toolArgs);
-        if (label === null) break;
         const hasArgs = Object.keys(event.toolArgs).length > 0;
 
-        // Re-emit with real args — update the existing task
+        // Re-emit with real args — check if the tool should now be hidden
+        // (e.g., conditionalHidden rules that depend on arg values like file_path)
         const existingSlackId = this.taskSlack.get(event.taskId);
+        if (existingSlackId && hasArgs && label === null) {
+          this.taskSlack.delete(event.taskId);
+          this.taskLabels.delete(event.taskId);
+          if (this.openGroup?.slackId === existingSlackId) {
+            this.openGroup.pending--;
+            this.openGroup.count--;
+            if (this.openGroup.count === 0) {
+              this.openGroup = null;
+            } else {
+              const title = this.openGroup.count > 1
+                ? `${this.openGroup.title} (${this.openGroup.count})`
+                : this.openGroup.title;
+              this.append([{
+                type: "task_update",
+                id: existingSlackId,
+                title,
+                status: this.openGroup.pending === 0 ? "complete" : "in_progress",
+              }]);
+            }
+          }
+          break;
+        }
+
+        if (label === null) break;
+
+        // Re-emit with real args — update the existing task
         if (existingSlackId && hasArgs) {
           if (existingSlackId === event.taskId) {
             // Standalone tool — update label directly
