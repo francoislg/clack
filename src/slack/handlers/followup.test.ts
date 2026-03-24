@@ -2,7 +2,7 @@ import { describe, it, mock, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
 import type { SessionContext } from "../../sessions.js";
-import type { SessionInfo } from "../state.js";
+import type { SessionInfo } from "../activeSessions.js";
 import type { AskClaudeOptions } from "../../claude/index.js";
 
 // ============================================================================
@@ -29,8 +29,8 @@ mock.module("../blocks.js", {
   namedExports: { decodeActionValue: mockDecodeActionValue },
 });
 
-mock.module("../state.js", {
-  namedExports: { restoreSessionInfo: mockRestoreSessionInfo },
+mock.module("../activeSessions.js", {
+  namedExports: { activeSessions: { restore: mockRestoreSessionInfo } },
 });
 
 mock.module("./handlerResponse.js", {

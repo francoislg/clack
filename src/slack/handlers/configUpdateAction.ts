@@ -4,7 +4,7 @@ import { getStagedIntent } from "../../sessions.js";
 import { getRole } from "../../roles.js";
 import { canEditConfig } from "../../permissions.js";
 import { decodeActionValue } from "../blocks.js";
-import { restoreSessionInfo } from "../state.js";
+import { activeSessions } from "../activeSessions.js";
 import { writeInstructionFile } from "../../configurationFiles.js";
 import { errorMessage } from "../../errors.js";
 
@@ -34,7 +34,7 @@ export function registerConfigUpdateActionHandler(app: App): void {
 
     await respond({ delete_original: true });
 
-    const sessionInfo = await restoreSessionInfo(sessionId);
+    const sessionInfo = await activeSessions.restore(sessionId);
     if (!sessionInfo) {
       logger.error(`Config update handler: could not restore session ${sessionId}`);
       return;

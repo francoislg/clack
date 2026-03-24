@@ -57,8 +57,8 @@ mock.module("../../logger.js", {
 
 const mockSetSessionInfo = mock.fn(() => {});
 
-mock.module("../state.js", {
-  namedExports: { setSessionInfo: mockSetSessionInfo },
+mock.module("../activeSessions.js", {
+  namedExports: { activeSessions: { set: mockSetSessionInfo } },
 });
 
 const mockFetchThreadContext = mock.fn<(...args: unknown[]) => Promise<unknown[]>>(
@@ -73,8 +73,10 @@ const mockTransformUserMentions = mock.fn(
   async (...args: unknown[]) => String(args[1]),
 );
 
+const mockGetUserInfo = mock.fn(async () => ({ userId: "U001", username: "testuser", displayName: "Test User" }));
+
 mock.module("../userCache.js", {
-  namedExports: { transformUserMentions: mockTransformUserMentions },
+  namedExports: { transformUserMentions: mockTransformUserMentions, getUserInfo: mockGetUserInfo },
 });
 
 const mockGetClaudeOptions = mock.fn(async () => ({

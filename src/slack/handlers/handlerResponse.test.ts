@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
 import type { ClaudeResponse, AskClaudeOptions } from "../../claude/index.js";
 import type { SessionContext } from "../../sessions.js";
-import type { SessionInfo } from "../state.js";
+import type { SessionInfo } from "../activeSessions.js";
 
 // ============================================================================
 // Mocks — set up before importing the module under test

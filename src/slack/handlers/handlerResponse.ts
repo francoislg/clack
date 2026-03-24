@@ -6,7 +6,7 @@
  * then hand off to executeAndDeliver for streaming, delivery, and error handling.
  */
 import type { App } from "@slack/bolt";
-import type { SessionInfo } from "../state.js";
+import type { SessionInfo } from "../activeSessions.js";
 import type { SessionContext } from "../../sessions.js";
 import { errorMessage as toErrorMessage } from "../../errors.js";
 import type { AskClaudeOptions, ClaudeResponse } from "../../claude/index.js";
@@ -83,8 +83,9 @@ export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promis
   const deliver = buildDeliverFn(ctx);
 
   try {
+    const user = session.displayName ?? session.username ?? session.userId;
     logger.info(
-      `Calling Claude (session: ${session.sessionId}, role: ${claudeOptions.role ?? "member"}, changesWorkflow: ${claudeOptions.changesWorkflowEnabled ?? false})`
+      `Calling Claude (user: ${user}, session: ${session.sessionId}, role: ${claudeOptions.role ?? "member"}, changesWorkflow: ${claudeOptions.changesWorkflowEnabled ?? false})`
     );
     const response = await askClaude(session, {
       ...claudeOptions,

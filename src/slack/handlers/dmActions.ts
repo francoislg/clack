@@ -7,7 +7,7 @@ import {
   type SessionContext,
 } from "../../sessions.js";
 import type { ResponseSnapshot } from "../../tools/types.js";
-import { restoreSessionInfo, setSessionInfo, type SessionInfo } from "../state.js";
+import { activeSessions, type SessionInfo } from "../activeSessions.js";
 import { getAcceptedBlocks, getStructuredAcceptedBlocks, decodeActionValue, asSlackBlocks } from "../blocks.js";
 
 /**
@@ -22,7 +22,7 @@ async function resolveActionSession(
 ): Promise<{ sessionId: string; ref?: string; session: SessionContext; sessionInfo: SessionInfo } | null> {
   const decoded = decodeActionValue(rawValue);
   const session = await getSession(decoded.sessionId);
-  const sessionInfo = await restoreSessionInfo(decoded.sessionId);
+  const sessionInfo = await activeSessions.restore(decoded.sessionId);
 
   if (!session || !sessionInfo) {
     logger.error(`DM action: missing session for ${decoded.sessionId}`);
@@ -90,7 +90,7 @@ async function persistChannelPost(
   ts: string,
 ): Promise<void> {
   await updateSession(sessionId, { channelPostTs: ts });
-  setSessionInfo(sessionId, { ...sessionInfo, channelPostTs: ts });
+  activeSessions.set(sessionId, { ...sessionInfo, channelPostTs: ts });
 }
 
 /** Send a confirmation message in the DM thread, if DM coordinates exist. */
@@ -264,7 +264,7 @@ async function handleEditSynthesisSubmit(
   const sessionId = view.private_metadata;
   const editedAnswer = view.state.values.synthesis_content_block.synthesis_content.value;
   const session = await getSession(sessionId);
-  const sessionInfo = await restoreSessionInfo(sessionId);
+  const sessionInfo = await activeSessions.restore(sessionId);
 
   if (!session || !sessionInfo || !editedAnswer) {
     logger.error(`Cannot post edited synthesis for ${sessionId}`);

@@ -2,7 +2,7 @@ import type { App, BlockAction } from "@slack/bolt";
 import { logger } from "../../logger.js";
 import { getSession } from "../../sessions.js";
 import { getStructuredResponseBlocks, asSlackBlocks } from "../blocks.js";
-import { restoreSessionInfo } from "../state.js";
+import { activeSessions } from "../activeSessions.js";
 import { postResponse } from "./handlerResponse.js";
 
 export function registerResendHandler(app: App): void {
@@ -13,7 +13,7 @@ export function registerResendHandler(app: App): void {
 
       const sessionId = (body.actions[0] as { value: string }).value;
       const session = await getSession(sessionId);
-      const sessionInfo = await restoreSessionInfo(sessionId);
+      const sessionInfo = await activeSessions.restore(sessionId);
 
       if (!session || !sessionInfo || !session.lastAnswer) {
         logger.error("Could not restore session for resend");

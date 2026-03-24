@@ -1,5 +1,5 @@
 import { updateSession } from "../sessions.js";
-import { setSessionInfo } from "./state.js";
+import { activeSessions } from "./activeSessions.js";
 
 /** Actions for the synthesis message (before posting to channel) */
 export function getDmSynthesisActions(sessionId: string) {
@@ -82,9 +82,9 @@ export async function storeDmCoordinates(
   });
 
   // Update in-memory session info
-  const currentInfo = (await import("./state.js")).getSessionInfo(sessionId);
+  const currentInfo = activeSessions.get(sessionId);
   if (currentInfo) {
-    setSessionInfo(sessionId, {
+    activeSessions.set(sessionId, {
       ...currentInfo,
       dmChannel,
       dmThreadTs,

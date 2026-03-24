@@ -1,7 +1,7 @@
 import { describe, it, mock, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
-import type { SessionInfo } from "../state.js";
+import type { SessionInfo } from "../activeSessions.js";
 import type { SessionContext } from "../../sessions.js";
 
 // ============================================================================
@@ -29,9 +29,9 @@ mock.module("../../sessions.js", {
   },
 });
 
-mock.module("../state.js", {
+mock.module("../activeSessions.js", {
   namedExports: {
-    restoreSessionInfo: mockRestoreSessionInfo,
+    activeSessions: { restore: mockRestoreSessionInfo },
   },
 });
 

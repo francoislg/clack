@@ -137,21 +137,26 @@ function stripRuntimeFields(session: SessionContext): Record<string, unknown> {
 // Session CRUD
 // ============================================================================
 
-export async function createSession(
-  channelId: string,
-  messageTs: string,
-  threadTs: string,
-  userId: string,
-  originalQuestion: string,
-  threadContext: ThreadMessage[] = []
-): Promise<SessionContext> {
+export interface CreateSessionOptions {
+  channelId: string;
+  messageTs: string;
+  threadTs: string;
+  userId: string;
+  originalQuestion: string;
+  threadContext?: ThreadMessage[];
+  username?: string;
+  displayName?: string;
+  triggerType?: SessionContext["triggerType"];
+}
+
+export async function createSession(opts: CreateSessionOptions): Promise<SessionContext> {
   const sessionsDir = getSessionsDir();
 
   if (!(await fileExists(sessionsDir))) {
     await mkdir(sessionsDir, { recursive: true });
   }
 
-  const sessionId = generateSessionId(channelId, messageTs, userId);
+  const sessionId = generateSessionId(opts.channelId, opts.messageTs, opts.userId);
   const sessionPath = getSessionPath(sessionId);
 
   await mkdir(sessionPath, { recursive: true });
@@ -159,12 +164,15 @@ export async function createSession(
   const now = Date.now();
   const context: SessionContext = {
     sessionId,
-    channelId,
-    messageTs,
-    threadTs,
-    userId,
-    originalQuestion,
-    threadContext,
+    channelId: opts.channelId,
+    messageTs: opts.messageTs,
+    threadTs: opts.threadTs,
+    userId: opts.userId,
+    username: opts.username,
+    displayName: opts.displayName,
+    originalQuestion: opts.originalQuestion,
+    threadContext: opts.threadContext ?? [],
+    triggerType: opts.triggerType,
     refinements: [],
     errors: [],
     lastActivity: now,
@@ -176,7 +184,7 @@ export async function createSession(
 
   // Populate caches and index
   sessionCache.set(sessionId, context);
-  threadIndex.set(getThreadKey(channelId, threadTs), sessionId);
+  threadIndex.set(getThreadKey(opts.channelId, opts.threadTs), sessionId);
 
   logger.debug(`Created session ${sessionId}`);
   return context;

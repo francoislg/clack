@@ -9,9 +9,9 @@ import {
 } from "../../sessions.js";
 import { getConfig, type Config } from "../../config.js";
 import { logger } from "../../logger.js";
-import { setSessionInfo } from "../state.js";
+import { activeSessions } from "../activeSessions.js";
 import { fetchThreadContext } from "../messagesApi.js";
-import { transformUserMentions } from "../userCache.js";
+import { transformUserMentions, getUserInfo } from "../userCache.js";
 import { getClaudeOptions } from "./changeWorkflowHelper.js";
 import { getReactionDelivery } from "../../userPreferences.js";
 import { registerInFlightRequest, deregisterInFlightRequest } from "../inFlightRequests.js";
@@ -81,28 +81,35 @@ async function setupSession(ctx: ProcessingContext): Promise<SessionContext> {
     ? await findSessionByThread(channelId, threadTs)
     : null;
 
+  // Resolve user info for session attribution
+  const userInfo = await getUserInfo(client, userId);
+
   if (!session) {
-    session = await createSession(
+    session = await createSession({
       channelId,
       messageTs,
-      effectiveThreadTs,
+      threadTs: effectiveThreadTs,
       userId,
-      processedMessageText,
-      threadContext
-    );
+      originalQuestion: processedMessageText,
+      threadContext,
+      username: userInfo?.username,
+      displayName: userInfo?.displayName,
+      triggerType: ctx.triggerType,
+    });
     logger.debug(`Created session ${session.sessionId}`);
   } else {
     await updateThreadContext(session.sessionId, threadContext);
-    await updateSession(session.sessionId, { originalQuestion: processedMessageText });
+    const updates: Record<string, unknown> = {
+      originalQuestion: processedMessageText,
+      triggerType: ctx.triggerType,
+    };
+    if (!session.username && userInfo?.username) updates.username = userInfo.username;
+    if (!session.displayName && userInfo?.displayName) updates.displayName = userInfo.displayName;
+    await updateSession(session.sessionId, updates);
     session = (await getSession(session.sessionId))!;
   }
 
-  // Persist trigger metadata so button handlers can restore it from disk
-  await updateSession(session.sessionId, {
-    triggerType: ctx.triggerType,
-  });
-
-  setSessionInfo(session.sessionId, {
+  activeSessions.set(session.sessionId, {
     channelId,
     threadTs: effectiveThreadTs,
     userId,
@@ -303,7 +310,7 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
     ...(dmCoords?.dmChannel && { dmChannel: dmCoords.dmChannel }),
     ...(dmCoords?.dmThreadTs && { dmThreadTs: dmCoords.dmThreadTs }),
   };
-  setSessionInfo(session.sessionId, sessionInfo);
+  activeSessions.set(session.sessionId, sessionInfo);
 
   // 5. Collect available images + files from triggering message + thread context
   const imageMap = new Map<string, SlackImageFile>();
