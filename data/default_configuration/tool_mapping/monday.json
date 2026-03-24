@@ -1,0 +1,83 @@
+{
+  "default": "Checking Monday",
+  "group": "Checking Monday",
+  "argOptions": {
+    "searchTerm": { "truncate": 30 },
+    "markdown": { "truncate": 60 },
+    "boardName": { "truncate": 40 },
+    "doc_name": { "truncate": 40 },
+    "body": { "truncate": 60 },
+    "title": { "truncate": 40 },
+    "text": { "truncate": 60 }
+  },
+  "tools": {
+    "create_board": "Creating board {boardName}",
+    "get_board_info": "Reading board {boardId}",
+    "get_board_schema": "Reading board schema {boardId}",
+    "get_board_items_page": "Reading items from board {boardId}",
+    "get_board_activity": "Reading activity for board {boardId}",
+    "board_insights": "Analyzing board {boardId}",
+
+    "create_item": "Creating item {name}",
+    "delete_item": "Deleting item {itemId}",
+    "change_item_column_values": "Updating item {itemId}",
+    "move_item_to_group": "Moving item {itemId}",
+
+    "create_column": "Creating column {columnTitle}",
+    "delete_column": "Deleting column {columnId}",
+
+    "create_group": "Creating group {groupName}",
+
+    "create_update": "Posting update on item {itemId}",
+    "create_update_in_monday": "Posting update on item {itemId}",
+    "get_updates": "Reading updates for {objectType} {objectId}",
+
+    "create_doc": "Creating doc {doc_name}",
+    "read_docs": "Reading docs",
+    "update_doc": "Updating doc {doc_id}",
+    "add_content_to_doc": "Adding content to doc {doc_id}",
+
+    "search": "Searching Monday {searchType} \"{searchTerm|…}\"",
+
+    "list_users_and_teams": "Listing users and teams",
+
+    "create_workspace": "Creating workspace {name}",
+    "update_workspace": "Updating workspace {attributeName|…}",
+    "list_workspaces": "Listing workspaces",
+    "workspace_info": "Reading workspace {workspace_id}",
+
+    "create_folder": "Creating folder {name}",
+    "update_folder": "Updating folder {folderId}",
+
+    "create_form": "Creating form",
+    "get_form": "Reading form {formToken}",
+    "update_form": "Updating form {formToken}",
+    "form_questions_editor": "Editing form question {questionId|…}",
+
+    "create_dashboard": "Creating dashboard {name}",
+
+    "create_view": "Creating view {name|…}",
+    "create_widget": "Creating widget {widget_name}",
+
+    "create_notification": "Sending notification to user {user_id}",
+
+    "get_monday_dev_sprints_boards": "Listing sprint boards",
+    "get_sprints_metadata": "Reading sprints metadata",
+    "get_sprint_summary": "Reading sprint summary {sprintId}",
+
+    "get_notetaker_meetings": "Reading meetings",
+
+    "create_custom_activity": "Creating custom activity {name}",
+    "create_timeline_item": "Creating timeline item {title}",
+
+    "move_object": "Moving {objectType} {id}",
+    "update_assets_on_item": "Updating assets on item {itemId}"
+  },
+  "hidden": [
+    "get_full_board_data",
+    "all_widgets_schema",
+    "get_column_type_info",
+    "get_user_context",
+    "fetch_custom_activity"
+  ]
+}
