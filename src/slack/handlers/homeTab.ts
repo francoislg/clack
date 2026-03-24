@@ -31,7 +31,6 @@ import {
   deleteInstructionFile,
   getEffectiveContentLength,
 } from "../../configurationFiles.js";
-import { sendDirectMessage } from "../messagesApi.js";
 import { setUserPreference } from "../../userPreferences.js";
 import type { ReactionDelivery } from "../../userPreferences.js";
 
@@ -534,9 +533,19 @@ export function registerHomeTabHandler(app: App): void {
       const { default_content, custom_content } = readInstructionFile(filepath);
       const content = custom_content ?? default_content ?? "";
 
-      const message = `You asked to edit \`${filepath}\`. Here's the current content:\n\n\`\`\`\n${content}\n\`\`\`\n\nReply with your changes or instructions for how to update this file.`;
+      // Open DM and upload the file, then send an intro message
+      const conversation = await client.conversations.open({ users: userId });
+      const dmChannelId = conversation.channel?.id;
+      if (!dmChannelId) return;
 
-      await sendDirectMessage(client, userId, message);
+      const filename = filepath.split("/").pop() ?? filepath;
+      await client.files.uploadV2({
+        channel_id: dmChannelId,
+        content,
+        filename,
+        title: filepath,
+        initial_comment: `Here's the current content of \`${filepath}\`. Reply with your changes or instructions for how to update this file.`,
+      });
 
       // Close the modal by replacing it with a brief confirmation
       const viewId = (body as unknown as { view?: { id: string } }).view?.id;

@@ -85,7 +85,7 @@ The system SHALL register tools based solely on the user's role and workflow con
 
 - **WHEN** the user has the member role in query mode
 - **THEN** the tool server registers query tools (`list_repositories`, `git_log`, `deepen_history`) and `submit_response`
-- **AND** registers `find_user` if a Slack client is available in the context
+- **AND** registers `find_user` and `upload_file` if a Slack client is available in the context
 - **AND** does NOT register change action tools (`propose_change`, `propose_config_update`)
 
 #### Scenario: Dev user tool set
