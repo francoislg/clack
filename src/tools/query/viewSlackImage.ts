@@ -2,7 +2,7 @@ import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
 import { errorResult } from "../helpers.js";
-import { readCachedImageBase64, cacheImage } from "../../slack/imageCache.js";
+import { readCachedFileBase64, cacheFile } from "../../slack/fileCache.js";
 import { logger } from "../../logger.js";
 
 const MAX_REDIRECTS = 5;
@@ -63,7 +63,7 @@ export function createViewSlackImageTool(ctx: QueryToolContext) {
       }
 
       // Check cache first
-      const cached = await readCachedImageBase64(args.file_id);
+      const cached = await readCachedFileBase64(args.file_id);
       if (cached) {
         return {
           content: [
@@ -77,7 +77,7 @@ export function createViewSlackImageTool(ctx: QueryToolContext) {
         const buffer = await downloadSlackFile(imageFile.url_private, ctx.config.slack.botToken);
 
         // Cache for future use
-        await cacheImage(args.file_id, buffer, {
+        await cacheFile(args.file_id, buffer, {
           mimeType: imageFile.mimetype,
           originalName: imageFile.name,
         });

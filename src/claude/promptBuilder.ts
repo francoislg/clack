@@ -2,13 +2,14 @@ import { getConfig } from "../config.js";
 import { loadInstructions } from "../instructions.js";
 import type { UserRole } from "../roles.js";
 import type { SessionContext } from "../sessions.js";
-import type { SlackImageFile } from "../slack/imageExtractor.js";
+import type { SlackImageFile, SlackFile } from "../slack/slackFileBase.js";
 /** Subset of AskClaudeOptions needed for prompt construction. */
 export interface PromptOptions {
   role?: UserRole;
   changesWorkflowEnabled?: boolean;
   workMode?: boolean;
   availableImages?: Map<string, SlackImageFile>;
+  availableFiles?: Map<string, SlackFile>;
 }
 
 export function buildSystemPrompt(options?: PromptOptions): string {
@@ -37,7 +38,18 @@ function formatSpeaker(msg: { userId: string; username?: string; displayName?: s
 
 function formatThreadContext(messages: SessionContext["threadContext"]): string {
   if (messages.length === 0) return "";
-  return messages.map((msg) => `${formatSpeaker(msg)}: ${msg.text}`).join("\n\n");
+  return messages.map((msg) => {
+    let line = `${formatSpeaker(msg)}: ${msg.text}`;
+    if (msg.imageFiles?.length) {
+      const tags = msg.imageFiles.map((f) => `${f.name} (file_id: ${f.id})`).join(", ");
+      line += `\n[attached images: ${tags}]`;
+    }
+    if (msg.files?.length) {
+      const tags = msg.files.map((f) => `${f.name} (file_id: ${f.id}, type: ${f.mimetype})`).join(", ");
+      line += `\n[attached files: ${tags}]`;
+    }
+    return line;
+  }).join("\n\n");
 }
 
 function buildDeliveryContext(session: SessionContext): string | null {
@@ -136,15 +148,25 @@ Use this context to understand the conversation flow and provide relevant answer
     }
   }
 
-  // Image metadata — let Claude know what images are available
-  if (options?.availableImages?.size) {
+  // Attachment metadata — let Claude know what images and files are available
+  const hasImages = !!options?.availableImages?.size;
+  const hasFiles = !!options?.availableFiles?.size;
+  if (hasImages || hasFiles) {
     const lines = [
-      "ATTACHED IMAGES:",
-      "The user's message includes uploaded image(s). Use view_slack_image with the file_id to view any relevant image.",
-      "Note: When you fetch Slack messages (via fetch_slack_message or fetch_channel_messages), those results may also contain images — use view_slack_image on their file_id as well.",
+      "ATTACHED FILES:",
+      "The following file(s) are available from the current message or thread. You MUST view each attachment listed below BEFORE answering — do not skip or summarize without viewing first.",
+      "Use `view_slack_image` for images and `view_slack_file` for other files (PDFs, text, etc.).",
+      "Note: When you fetch Slack messages (via fetch_slack_message or fetch_channel_messages), those results may also contain attachments — use the appropriate viewing tool on their file_id.",
     ];
-    for (const [fileId, img] of options.availableImages) {
-      lines.push(`- ${img.name} (file_id: ${fileId})`);
+    if (hasImages) {
+      for (const [fileId, img] of options!.availableImages!) {
+        lines.push(`- [image] ${img.name} (file_id: ${fileId}) → use view_slack_image`);
+      }
+    }
+    if (hasFiles) {
+      for (const [fileId, file] of options!.availableFiles!) {
+        lines.push(`- [file] ${file.name} (file_id: ${fileId}, type: ${file.mimetype}) → use view_slack_file`);
+      }
     }
     parts.push(lines.join("\n"));
   }

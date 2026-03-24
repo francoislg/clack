@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { createViewSlackImageTool } from "./viewSlackImage.js";
 import type { QueryToolContext } from "../types.js";
-import type { SlackImageFile } from "../../slack/imageExtractor.js";
+import type { SlackImageFile } from "../../slack/slackFileBase.js";
 
 function makeContext(images: Map<string, SlackImageFile>): QueryToolContext {
   return {

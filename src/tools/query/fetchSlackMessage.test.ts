@@ -31,7 +31,7 @@ const { createFetchSlackMessageTool } = await import("./fetchSlackMessage.js");
 // ---------------------------------------------------------------------------
 
 import type { QueryToolContext } from "../types.js";
-import type { SlackImageFile } from "../../slack/imageExtractor.js";
+import type { SlackImageFile } from "../../slack/slackFileBase.js";
 
 function makeSlackClient(responses?: { replies?: unknown; history?: unknown }) {
   return {

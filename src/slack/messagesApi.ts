@@ -3,7 +3,7 @@ import { logger } from "../logger.js";
 import type { ThreadMessage } from "../sessions.js";
 import type { ConversationMessage } from "../claude/index.js";
 import { resolveUsers, transformUserMentions } from "./userCache.js";
-import { extractImageFiles } from "./imageExtractor.js";
+import { extractAttachments } from "./fileExtractor.js";
 
 export function extractMessageText(msg: { text?: string; attachments?: { text?: string; fallback?: string }[] }): string {
   return msg.text || msg.attachments?.map(a => a.text || a.fallback).filter(Boolean).join("\n") || "";
@@ -34,13 +34,12 @@ export async function fetchThreadContext(
     const messages: ThreadMessage[] = result.messages
       .filter((msg) => (msg.text || msg.attachments?.length || msg.files?.length) && (msg.user || msg.bot_id) && msg.ts)
       .map((msg) => {
-        const imageFiles = extractImageFiles(msg.files as unknown[] | undefined);
         return {
           text: extractMessageText(msg) || "[attachment]",
           userId: (msg.user || msg.bot_id) as string,
           isBot: msg.user === botUserId || msg.bot_id !== undefined,
           ts: msg.ts as string,
-          ...(imageFiles.length > 0 && { imageFiles }),
+          ...extractAttachments(msg.files as unknown[] | undefined),
         };
       });
 

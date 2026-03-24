@@ -1,7 +1,7 @@
 {
   "conditionalHidden": [
     { "tool": "Read", "arg": "file_path", "pattern": "^tool-results/" },
-    { "tool": "Read", "arg": "file_path", "pattern": "cache/images/" },
+    { "tool": "Read", "arg": "file_path", "pattern": "cache/files/" },
     { "tool": "Read", "arg": "file_path", "pattern": "^tasks/" }
   ],
   "argOptions": {
