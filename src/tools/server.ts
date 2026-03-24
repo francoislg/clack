@@ -30,6 +30,7 @@ import { createFetchSlackMessageTool } from "./query/fetchSlackMessage.js";
 import { createFetchChannelMessagesTool } from "./query/fetchChannelMessages.js";
 import { createViewSlackImageTool } from "./query/viewSlackImage.js";
 import { createViewSlackFileTool } from "./query/viewSlackFile.js";
+import { createUploadFileTool } from "./query/uploadFile.js";
 import { createUsersCache } from "../slack/usersCache.js";
 
 // Action tools
@@ -157,6 +158,7 @@ function buildQueryTools(ctx: QueryToolContext): ClackToolsResult {
     tools.push(createFindUserTool(ctx, usersCache));
     tools.push(createFetchSlackMessageTool(ctx));
     tools.push(createFetchChannelMessagesTool(ctx));
+    tools.push(createUploadFileTool(ctx));
   }
 
   if (canRequestChanges(ctx.role)) {

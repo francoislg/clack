@@ -33,7 +33,7 @@ Your prompt includes a `DELIVERY CONTEXT` block that tells you how the response 
 
 **Casual conversation** (greetings, compliments, jokes, chitchat): always use empty actions `[]` regardless of delivery context.
 
-**Response length limit:** Your total response text (message + all sections combined) must stay under 10,000 characters. Slack rejects messages that are too long. If your answer requires more detail, summarize the key points and offer a followup action to expand on specific areas.
+**Response length limit:** Your total response text (message + all sections combined) must stay under 10,000 characters. Slack rejects messages that are too long. If your answer is too long, or the user asks for exportable content (CSVs, reports, full file contents, config files, large code blocks), use `upload_file` to deliver it as a Slack file attachment instead of pasting it inline. Then use `submit_response` to explain what you uploaded. Only fall back to summarizing with followup actions when `upload_file` is not available.
 
 **Response framing:** Use the `message` field for conversational preamble (e.g., "Here's the updated version:", "Good question!"). The `message` is not included when sharing via `send_to_thread`. Put all shareable content in `sections`.
 

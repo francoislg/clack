@@ -52,6 +52,7 @@ const DEFAULTS: Required<SlackAppConfig> = {
 const CORE_SCOPES: BotScope[] = [
   "channels:history",
   "files:read", // Needed for downloading images uploaded in Slack messages
+  "files:write", // Needed for uploading files to Slack (upload_file tool, Chat to Edit)
   "groups:history",
   "chat:write",
   "reactions:read",
