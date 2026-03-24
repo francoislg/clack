@@ -4,6 +4,7 @@ import type { QueryToolContext } from "../types.js";
 import { textResult, errorResult } from "../helpers.js";
 import { extractMessageText, fetchThreadContext } from "../../slack/messagesApi.js";
 import { extractImageFiles } from "../../slack/imageExtractor.js";
+import { extractFiles } from "../../slack/fileExtractor.js";
 
 const SLACK_URL_PATTERN = /^https:\/\/[^/]+\.slack\.com\/archives\/([A-Z0-9]+)\/p(\d+)$/;
 
@@ -57,10 +58,13 @@ export function createFetchSlackMessageTool(ctx: QueryToolContext) {
           return errorResult("Could not fetch thread or message not found");
         }
 
-        // Register discovered images so view_slack_image can access them
+        // Register discovered images and files so viewing tools can access them
         for (const m of messages) {
           if (m.imageFiles) {
             for (const img of m.imageFiles) ctx.availableImages?.set(img.id, img);
+          }
+          if (m.files) {
+            for (const f of m.files) ctx.availableFiles?.set(f.id, f);
           }
         }
 
@@ -74,6 +78,7 @@ export function createFetchSlackMessageTool(ctx: QueryToolContext) {
             ts: m.ts,
             is_bot: m.isBot,
             ...(m.imageFiles?.length && { images: m.imageFiles.map((f) => ({ file_id: f.id, name: f.name })) }),
+            ...(m.files?.length && { files: m.files.map((f) => ({ file_id: f.id, name: f.name, type: f.mimetype })) }),
           })),
         });
       }
@@ -92,15 +97,18 @@ export function createFetchSlackMessageTool(ctx: QueryToolContext) {
         return errorResult("Message not found or empty");
       }
 
-      // Extract and register images
+      // Extract and register images and files
       const imageFiles = extractImageFiles(msg?.files as unknown[] | undefined);
       for (const img of imageFiles) ctx.availableImages?.set(img.id, img);
+      const files = extractFiles(msg?.files as unknown[] | undefined);
+      for (const f of files) ctx.availableFiles?.set(f.id, f);
 
       return textResult({
         channel: channelId,
         ts: messageTs,
         text: text || "[attachment]",
         ...(imageFiles.length > 0 && { images: imageFiles.map((f) => ({ file_id: f.id, name: f.name })) }),
+        ...(files.length > 0 && { files: files.map((f) => ({ file_id: f.id, name: f.name, type: f.mimetype })) }),
       });
     }
   );

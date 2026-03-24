@@ -2,7 +2,7 @@ import type { App } from "@slack/bolt";
 import { Assistant } from "@slack/bolt";
 import { logger } from "../../logger.js";
 import { findSessionByThread, updateSession } from "../../sessions.js";
-import { extractImageFiles } from "../imageExtractor.js";
+import { extractAttachments } from "../fileExtractor.js";
 import { processMessage } from "./core.js";
 
 /**
@@ -118,7 +118,7 @@ export function registerAssistant(app: App): void {
       const contextChannelId = await resolveContextChannelId(client, msg, getThreadContext);
       logger.info(`Assistant userMessage: contextChannelId=${contextChannelId ?? "none"}`);
 
-      const imageFiles = extractImageFiles(msg.files);
+      const attachments = extractAttachments(msg.files);
 
       await processMessage({
         client,
@@ -129,7 +129,7 @@ export function registerAssistant(app: App): void {
         threadTs: msg.thread_ts,
         triggerType: "directMessages",
         assistantChannelId: contextChannelId,
-        ...(imageFiles.length > 0 && { imageFiles }),
+        ...attachments,
       });
 
       const title = msg.text.length > 50 ? msg.text.substring(0, 47) + "..." : msg.text;

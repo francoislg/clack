@@ -5,7 +5,7 @@ import { logger } from "./logger.js";
 import { fileExists } from "./fs.js";
 import type { ErrorRecord, ConversationMessage } from "./claude/index.js";
 import type { SubmitResponsePayload, ToolCallRecord, ContinuationRecord, ResponseSnapshot, StagedIntent } from "./tools/types.js";
-import type { SlackImageFile } from "./slack/imageExtractor.js";
+import type { SlackImageFile, SlackFile } from "./slack/slackFileBase.js";
 import type { ChangeStatus } from "./changes/types.js";
 import type { ActiveChangeState } from "./changes/activeState.js";
 import { getActiveChange, clearActiveChange } from "./changes/activeState.js";
@@ -19,6 +19,8 @@ export interface ThreadMessage {
   displayName?: string;
   /** Uploaded image files attached to this message */
   imageFiles?: SlackImageFile[];
+  /** Non-image file attachments (PDFs, text files, etc.) */
+  files?: SlackFile[];
 }
 
 export interface SessionContext {

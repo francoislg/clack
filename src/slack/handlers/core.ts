@@ -18,7 +18,7 @@ import { registerInFlightRequest, deregisterInFlightRequest } from "../inFlightR
 import { storeDmCoordinates } from "../dmResponse.js";
 import { executeAndDeliver } from "./handlerResponse.js";
 import type { TriggerType } from "../../changes/types.js";
-import type { SlackImageFile } from "../imageExtractor.js";
+import type { SlackImageFile, SlackFile } from "../slackFileBase.js";
 
 export interface ProcessMessageParams {
   client: App["client"];
@@ -34,6 +34,8 @@ export interface ProcessMessageParams {
   assistantChannelId?: string;
   /** Image files from the triggering message */
   imageFiles?: SlackImageFile[];
+  /** Non-image file attachments from the triggering message */
+  files?: SlackFile[];
 }
 
 interface ProcessingContext {
@@ -303,17 +305,25 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
   };
   setSessionInfo(session.sessionId, sessionInfo);
 
-  // 5. Collect available images from triggering message + thread context
+  // 5. Collect available images + files from triggering message + thread context
   const imageMap = new Map<string, SlackImageFile>();
   if (params.imageFiles) {
     for (const img of params.imageFiles) imageMap.set(img.id, img);
+  }
+  const fileMap = new Map<string, SlackFile>();
+  if (params.files) {
+    for (const f of params.files) fileMap.set(f.id, f);
   }
   for (const msg of session.threadContext) {
     if (msg.imageFiles) {
       for (const img of msg.imageFiles) imageMap.set(img.id, img);
     }
+    if (msg.files) {
+      for (const f of msg.files) fileMap.set(f.id, f);
+    }
   }
   const availableImages = imageMap;
+  const availableFiles = fileMap;
 
   // 6. Build Claude options and execute
   const claudeOptions = await getClaudeOptions(userId, triggerType);
@@ -325,7 +335,7 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
       client,
       session,
       sessionInfo,
-      claudeOptions: { ...claudeOptions, workMode, availableImages },
+      claudeOptions: { ...claudeOptions, workMode, availableImages, availableFiles },
       abortController,
     }),
   );

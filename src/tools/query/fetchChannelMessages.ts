@@ -4,6 +4,8 @@ import type { QueryToolContext } from "../types.js";
 import { textResult, errorResult } from "../helpers.js";
 import { extractMessageText } from "../../slack/messagesApi.js";
 import { extractImageFiles } from "../../slack/imageExtractor.js";
+import { extractFiles } from "../../slack/fileExtractor.js";
+import type { SlackFile } from "../../slack/slackFileBase.js";
 import { resolveUsers, transformUserMentions } from "../../slack/userCache.js";
 import { errorMessage } from "../../errors.js";
 
@@ -62,7 +64,8 @@ async function formatMessage(
   channelId: string,
   userInfoMap: UserInfoMap,
   includeThreads: boolean,
-  availableImages?: Map<string, import("../../slack/imageExtractor.js").SlackImageFile>,
+  availableImages?: Map<string, import("../../slack/slackFileBase.js").SlackImageFile>,
+  availableFiles?: Map<string, SlackFile>,
 ): Promise<Record<string, unknown> | null> {
   if (!msg.ts) return null;
 
@@ -70,9 +73,11 @@ async function formatMessage(
   const userInfo = userId ? userInfoMap.get(userId) : undefined;
   const text = await transformUserMentions(client, extractMessageText(msg) || "[attachment]");
 
-  // Extract and register images
+  // Extract and register images and files
   const imageFiles = extractImageFiles(msg.files);
   for (const img of imageFiles) availableImages?.set(img.id, img);
+  const files = extractFiles(msg.files);
+  for (const f of files) availableFiles?.set(f.id, f);
 
   const entry: Record<string, unknown> = {
     user: userInfo?.displayName ?? userInfo?.username ?? userId ?? "unknown",
@@ -80,6 +85,7 @@ async function formatMessage(
     ts: msg.ts,
     is_bot: msg.bot_id !== undefined,
     ...(imageFiles.length > 0 && { images: imageFiles.map((f) => ({ file_id: f.id, name: f.name })) }),
+    ...(files.length > 0 && { files: files.map((f) => ({ file_id: f.id, name: f.name, type: f.mimetype })) }),
   };
 
   if (msg.reply_count && msg.reply_count > 0) {
@@ -136,7 +142,7 @@ export function createFetchChannelMessagesTool(ctx: QueryToolContext) {
 
         const messages = [];
         for (const msg of [...result.messages].reverse()) {
-          const entry = await formatMessage(client, msg, args.channel_id, userInfoMap, !!args.include_threads, ctx.availableImages);
+          const entry = await formatMessage(client, msg, args.channel_id, userInfoMap, !!args.include_threads, ctx.availableImages, ctx.availableFiles);
           if (entry) messages.push(entry);
         }
 

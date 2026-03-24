@@ -10,7 +10,7 @@ import type { UserRole } from "../roles.js";
 import type { SessionContext } from "../sessions.js";
 import type { SubmitResponsePayload, ToolCallRecord, StagedIntent, DeliverFn, ClackToolsResult } from "../tools/types.js";
 import type { StreamEvent } from "../streaming/types.js";
-import type { SlackImageFile } from "../slack/imageExtractor.js";
+import type { SlackImageFile, SlackFile } from "../slack/slackFileBase.js";
 import { buildQueryContext } from "../tools/context.js";
 import { buildClackTools } from "../tools/server.js";
 import { discoverPlugins } from "../plugins.js";
@@ -62,6 +62,8 @@ export interface AskClaudeOptions {
   deliver?: DeliverFn;
   /** Available Slack images keyed by file ID */
   availableImages?: Map<string, SlackImageFile>;
+  /** Available non-image Slack files keyed by file ID */
+  availableFiles?: Map<string, SlackFile>;
 }
 
 function summarizeContentBlocks(content: unknown[]): string {
@@ -129,6 +131,7 @@ async function buildQuerySetup(
     slackClient: options?.slackClient,
     deliver: options?.deliver,
     availableImages: options?.availableImages,
+    availableFiles: options?.availableFiles,
   });
   const clackTools = buildClackTools(toolCtx);
 

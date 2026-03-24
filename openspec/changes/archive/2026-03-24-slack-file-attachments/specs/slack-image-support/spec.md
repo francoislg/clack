@@ -1,37 +1,4 @@
-# slack-image-support Specification
-
-## Purpose
-Extract, cache, and surface image files from Slack messages so Claude can view and reason about user-uploaded images during query sessions.
-
-## Requirements
-### Requirement: Image File Extraction
-
-The system SHALL extract image file metadata from Slack message objects, filtering for supported image types.
-
-#### Scenario: Extract supported image files
-
-- **WHEN** a Slack message contains files with MIME types `image/png`, `image/jpeg`, `image/gif`, or `image/webp`
-- **THEN** the system extracts metadata (id, name, mimetype, size, url_private) for each matching file
-
-#### Scenario: Ignore non-image files
-
-- **WHEN** a Slack message contains files with non-image MIME types (e.g., `application/pdf`, `text/plain`)
-- **THEN** those files are excluded from the extracted image list
-
-#### Scenario: Enforce per-file size limit
-
-- **WHEN** an image file exceeds 20MB
-- **THEN** that file is excluded from the extracted image list
-
-#### Scenario: Enforce per-message image cap
-
-- **WHEN** a message contains more than 10 supported image files
-- **THEN** only the first 10 are included in the extracted image list
-
-#### Scenario: Handle missing or malformed file objects
-
-- **WHEN** a file object lacks required fields (id, name, mimetype, url_private)
-- **THEN** that file is excluded from the extracted image list without error
+## MODIFIED Requirements
 
 ### Requirement: Image Disk Cache
 

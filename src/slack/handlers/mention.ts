@@ -1,6 +1,6 @@
 import type { App } from "@slack/bolt";
 import { logger } from "../../logger.js";
-import { extractImageFiles } from "../imageExtractor.js";
+import { extractAttachments } from "../fileExtractor.js";
 import { processMessage } from "./core.js";
 
 export function registerMentionHandler(app: App): void {
@@ -26,7 +26,7 @@ export function registerMentionHandler(app: App): void {
       return;
     }
 
-    const imageFiles = extractImageFiles((event as unknown as { files?: unknown[] }).files);
+    const attachments = extractAttachments((event as unknown as { files?: unknown[] }).files);
 
     await processMessage({
       client,
@@ -36,7 +36,7 @@ export function registerMentionHandler(app: App): void {
       messageText: messageText || "Read the conversation above and provide an answer or investigation based on what's being discussed.",
       threadTs: event.thread_ts,
       triggerType: "mentions",
-      ...(imageFiles.length > 0 && { imageFiles }),
+      ...attachments,
     });
   });
 }

@@ -17,6 +17,7 @@
     "fetch_channel_messages": "Reading messages in <#{channel_id}>",
     "fetch_slack_message": "Reading <{url}|Slack message>",
     "view_slack_image": "Viewing image {file_id}",
+    "view_slack_file": "Viewing file {file_id}",
     "resolve_review_thread": "Resolving review thread",
     "propose_change": "Proposing change {repo}",
     "request_update": "Requesting update",

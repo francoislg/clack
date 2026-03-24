@@ -4,7 +4,7 @@ import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-
 import type { UserRole } from "../roles.js";
 import type { SessionContext } from "../sessions.js";
 import type { Config } from "../config.js";
-import type { SlackImageFile } from "../slack/imageExtractor.js";
+import type { SlackImageFile, SlackFile } from "../slack/slackFileBase.js";
 
 // ============================================================================
 // Delivery
@@ -39,6 +39,8 @@ export interface QueryToolContext {
   deliver?: DeliverFn;
   /** Available Slack images (from triggering message + thread) keyed by file ID */
   availableImages?: Map<string, SlackImageFile>;
+  /** Available Slack files (non-image: PDFs, text, etc.) keyed by file ID */
+  availableFiles?: Map<string, SlackFile>;
 }
 
 /** Worker context — used by change execution and follow-up flows */

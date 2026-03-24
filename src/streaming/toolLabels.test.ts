@@ -124,6 +124,17 @@ describe("getToolLabel", () => {
       assert.equal(getToolLabel("mcp__clack__view_slack_image", {}), "Viewing image");
     });
 
+    it("returns label for view_slack_file with file_id", () => {
+      assert.equal(
+        getToolLabel("mcp__clack__view_slack_file", { file_id: "F456DEF" }),
+        "Viewing file F456DEF"
+      );
+    });
+
+    it("returns label for view_slack_file without file_id", () => {
+      assert.equal(getToolLabel("mcp__clack__view_slack_file", {}), "Viewing file");
+    });
+
     it("returns null for submit_response (excluded from task cards)", () => {
       assert.equal(getToolLabel("mcp__clack__submit_response", {}), null);
     });

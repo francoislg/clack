@@ -50,6 +50,26 @@ describe("buildPrompt", () => {
     assert.ok(prompt.includes("Alice"));
   });
 
+  it("annotates thread messages that have image attachments", () => {
+    const session = makeSession({
+      threadContext: [
+        {
+          userId: "U123",
+          username: "alice",
+          displayName: "Alice",
+          text: "Here's the screenshot",
+          isBot: false,
+          ts: "1234567890.000100",
+          imageFiles: [
+            { id: "F001", name: "screenshot.png", mimetype: "image/png", size: 1024, url_private: "https://example.com/img" },
+          ],
+        },
+      ],
+    });
+    const prompt = buildPrompt(session);
+    assert.ok(prompt.includes("[attached images: screenshot.png (file_id: F001)]"));
+  });
+
   it("omits thread context section when empty", () => {
     const prompt = buildPrompt(makeSession());
     assert.ok(!prompt.includes("THREAD CONTEXT"));
@@ -242,24 +262,68 @@ describe("buildPrompt", () => {
     assert.ok(!prompt.includes("ADDITIONAL INSTRUCTIONS"));
   });
 
-  // ---- image metadata ----
-  it("includes ATTACHED IMAGES section when availableImages is provided", () => {
+  // ---- attachment metadata ----
+  it("includes ATTACHED FILES section with images when availableImages is provided", () => {
     const availableImages = new Map([
       ["F123", { id: "F123", name: "screenshot.png", mimetype: "image/png", size: 1024, url_private: "https://example.com/img" }],
     ]);
     const prompt = buildPrompt(makeSession(), { availableImages });
-    assert.ok(prompt.includes("ATTACHED IMAGES:"));
-    assert.ok(prompt.includes("screenshot.png (file_id: F123)"));
+    assert.ok(prompt.includes("ATTACHED FILES:"));
+    assert.ok(prompt.includes("[image] screenshot.png (file_id: F123)"));
     assert.ok(prompt.includes("view_slack_image"));
   });
 
-  it("omits ATTACHED IMAGES section when no images", () => {
-    const prompt = buildPrompt(makeSession());
-    assert.ok(!prompt.includes("ATTACHED IMAGES"));
+  it("includes ATTACHED FILES section with non-image files", () => {
+    const availableFiles = new Map([
+      ["F456", { id: "F456", name: "report.pdf", mimetype: "application/pdf", size: 2048, url_private: "https://example.com/pdf" }],
+    ]);
+    const prompt = buildPrompt(makeSession(), { availableFiles });
+    assert.ok(prompt.includes("ATTACHED FILES:"));
+    assert.ok(prompt.includes("[file] report.pdf (file_id: F456, type: application/pdf)"));
+    assert.ok(prompt.includes("view_slack_file"));
   });
 
-  it("omits ATTACHED IMAGES section when availableImages is empty", () => {
-    const prompt = buildPrompt(makeSession(), { availableImages: new Map() });
-    assert.ok(!prompt.includes("ATTACHED IMAGES"));
+  it("includes both images and files in unified section", () => {
+    const availableImages = new Map([
+      ["F1", { id: "F1", name: "photo.jpg", mimetype: "image/jpeg", size: 1024, url_private: "https://example.com/img" }],
+    ]);
+    const availableFiles = new Map([
+      ["F2", { id: "F2", name: "data.csv", mimetype: "text/csv", size: 512, url_private: "https://example.com/csv" }],
+    ]);
+    const prompt = buildPrompt(makeSession(), { availableImages, availableFiles });
+    assert.ok(prompt.includes("ATTACHED FILES:"));
+    assert.ok(prompt.includes("[image] photo.jpg"));
+    assert.ok(prompt.includes("[file] data.csv"));
+  });
+
+  it("omits ATTACHED FILES section when no attachments", () => {
+    const prompt = buildPrompt(makeSession());
+    assert.ok(!prompt.includes("ATTACHED FILES"));
+  });
+
+  it("omits ATTACHED FILES section when both maps are empty", () => {
+    const prompt = buildPrompt(makeSession(), { availableImages: new Map(), availableFiles: new Map() });
+    assert.ok(!prompt.includes("ATTACHED FILES"));
+  });
+
+  // ---- thread context file annotations ----
+  it("annotates thread messages with file attachments", () => {
+    const session = makeSession({
+      threadContext: [
+        {
+          userId: "U123",
+          username: "alice",
+          displayName: "Alice",
+          text: "Here's the report",
+          isBot: false,
+          ts: "1234567890.000100",
+          files: [
+            { id: "F789", name: "report.pdf", mimetype: "application/pdf", size: 2048, url_private: "https://example.com/pdf" },
+          ],
+        },
+      ],
+    });
+    const prompt = buildPrompt(session);
+    assert.ok(prompt.includes("[attached files: report.pdf (file_id: F789, type: application/pdf)]"));
   });
 });
