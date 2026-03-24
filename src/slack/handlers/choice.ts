@@ -2,7 +2,7 @@ import type { App, BlockAction } from "@slack/bolt";
 import { logger } from "../../logger.js";
 import { getSession, addRefinement } from "../../sessions.js";
 import { decodeActionValue } from "../blocks.js";
-import { restoreSessionInfo } from "../state.js";
+import { activeSessions } from "../activeSessions.js";
 import { executeAndDeliver, getHandlerClaudeOptions } from "./handlerResponse.js";
 import { canRequestChanges } from "../../permissions.js";
 
@@ -18,7 +18,7 @@ export function registerChoiceHandler(app: App): void {
       return;
     }
 
-    const sessionInfo = await restoreSessionInfo(sessionId);
+    const sessionInfo = await activeSessions.restore(sessionId);
     if (!sessionInfo) {
       logger.error(`Choice handler: could not restore session ${sessionId}`);
       return;

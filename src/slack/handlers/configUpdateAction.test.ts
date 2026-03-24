@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import type { App, BlockAction } from "@slack/bolt";
 import type { UserRole } from "../../roles.js";
 import type { StagedConfigUpdateIntent, StagedIntent } from "../../tools/types.js";
-import type { SessionInfo } from "../state.js";
+import type { SessionInfo } from "../activeSessions.js";
 
 // ============================================================================
 // Mocks — set up before importing the module under test
@@ -58,9 +58,9 @@ mock.module("../blocks.js", {
   },
 });
 
-mock.module("../state.js", {
+mock.module("../activeSessions.js", {
   namedExports: {
-    restoreSessionInfo: mockRestoreSessionInfo,
+    activeSessions: { restore: mockRestoreSessionInfo },
   },
 });
 

@@ -5,7 +5,7 @@ import { findSessionByThread, getStagedIntent } from "../../sessions.js";
 import { getRole } from "../../roles.js";
 import { canRequestChanges } from "../../permissions.js";
 import { decodeActionValue } from "../blocks.js";
-import { restoreSessionInfo } from "../state.js";
+import { activeSessions } from "../activeSessions.js";
 import type { StagedChangeIntent } from "../../tools/types.js";
 import type { ChangeRequest, ChangePlan, TriggerType } from "../../changes/types.js";
 import { startChangeWorkflow } from "../../changes/workflow.js";
@@ -117,7 +117,7 @@ export function registerChangeActionHandler(app: App): void {
     // Remove the button message
     await respond({ delete_original: true });
 
-    const sessionInfo = await restoreSessionInfo(sessionId);
+    const sessionInfo = await activeSessions.restore(sessionId);
     if (!sessionInfo) {
       logger.error(`Change action handler: could not restore session ${sessionId}`);
       return;

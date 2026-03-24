@@ -5,7 +5,7 @@ import {
   getSession,
   updateThreadContext,
 } from "../../sessions.js";
-import { restoreSessionInfo } from "../state.js";
+import { activeSessions } from "../activeSessions.js";
 import { fetchThreadContext } from "../messagesApi.js";
 import { executeAndDeliver, getHandlerClaudeOptions } from "./handlerResponse.js";
 
@@ -17,7 +17,7 @@ export function registerRetryHandler(app: App): void {
 
       const sessionId = (body.actions[0] as { value: string }).value;
       let session = await getSession(sessionId);
-      const sessionInfo = await restoreSessionInfo(sessionId);
+      const sessionInfo = await activeSessions.restore(sessionId);
 
       if (!session || !sessionInfo) {
         logger.error("Could not restore session for retry");

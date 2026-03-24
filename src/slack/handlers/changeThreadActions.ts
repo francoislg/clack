@@ -5,7 +5,7 @@ import { findSessionByThread, getStagedIntent, type SessionContext } from "../..
 import { getRole } from "../../roles.js";
 import { canRequestChanges } from "../../permissions.js";
 import { decodeActionValue } from "../blocks.js";
-import { restoreSessionInfo } from "../state.js";
+import { activeSessions } from "../activeSessions.js";
 import { handleFollowUp } from "../../changes/workflow.js";
 import type { FollowUpCommand } from "../../changes/types.js";
 import type { SlackDeliveryContext } from "./changeAction.js";
@@ -87,7 +87,7 @@ function registerFollowUpActionHandler(
 
     await respond({ delete_original: true });
 
-    const sessionInfo = await restoreSessionInfo(sessionId);
+    const sessionInfo = await activeSessions.restore(sessionId);
     if (!sessionInfo) {
       logger.error(`${actionId} handler: could not restore session ${sessionId}`);
       return;

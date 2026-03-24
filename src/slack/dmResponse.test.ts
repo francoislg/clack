@@ -20,10 +20,9 @@ const mockSetSessionInfo = mock.fn((id: string, info: Record<string, unknown>) =
   sessionInfoStore.set(id, info);
 });
 
-mock.module("./state.js", {
+mock.module("./activeSessions.js", {
   namedExports: {
-    getSessionInfo: mockGetSessionInfo,
-    setSessionInfo: mockSetSessionInfo,
+    activeSessions: { get: mockGetSessionInfo, set: mockSetSessionInfo },
   },
 });
 
@@ -205,8 +204,8 @@ describe("storeDmCoordinates", () => {
     assert.equal(info.userId, "U001");
   });
 
-  it("does not call setSessionInfo when session info is not in memory", async () => {
-    // sessionInfoStore is empty — getSessionInfo will return undefined
+  it("does not call activeSessions.set when session info is not in memory", async () => {
+    // sessionInfoStore is empty — activeSessions.get will return undefined
 
     await storeDmCoordinates("sess-1", "D100", "1700.001", "C200", "1700.002");
 
