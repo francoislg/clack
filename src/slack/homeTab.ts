@@ -14,6 +14,7 @@ import { getReactionDelivery, getUserPreference } from "../userPreferences.js";
 import { getVisibleRepos, canWriteRepo } from "../repoAccess.js";
 import { getMigrationErrors } from "../migrations/admin.js";
 import { discoverPluginInfo } from "../plugins.js";
+import { getRules, type AutoRespondRule } from "../autoRespond.js";
 
 interface HomeViewOptions {
   userId: string;
@@ -51,6 +52,11 @@ export async function buildHomeView(options: HomeViewOptions): Promise<View> {
   // Role management section (only for admins/owner)
   if (userIsAdmin) {
     blocks.push(...(await buildRoleManagementSection(userId, role)));
+  }
+
+  // Auto-respond section (admin only)
+  if (userIsAdmin) {
+    blocks.push(...(await buildAutoRespondSection()));
   }
 
   // Configuration & preferences section (config editing for admins, preferences for all)
@@ -506,7 +512,7 @@ export function buildActiveWorkersSection(): KnownBlock[] {
       text += `• Status: ${statusLabel}\n`;
       text += `• Branch: \`${worker.branch}\`\n`;
       text += `• Repo: ${worker.repo}\n`;
-      text += `• By: <@${worker.userId}>\n`;
+      text += `• By: ${worker.userId === "auto-respond" ? "Auto-Respond" : `<@${worker.userId}>`}\n`;
       text += `• Thread: <${threadLink}|View thread>`;
 
       if (worker.prUrl) {
@@ -1037,5 +1043,167 @@ export function buildRemoveUserModal(
         },
       },
     ],
+  };
+}
+
+// ============================================================================
+// Auto-Respond Section
+// ============================================================================
+
+async function buildAutoRespondSection(): Promise<(KnownBlock | Block)[]> {
+  const blocks: (KnownBlock | Block)[] = [];
+  const rules = await getRules();
+
+  blocks.push({ type: "divider" });
+  blocks.push({
+    type: "header",
+    text: { type: "plain_text", text: "Auto-Respond" },
+  });
+
+  if (rules.length === 0) {
+    blocks.push({
+      type: "section",
+      text: { type: "mrkdwn", text: "_No auto-respond rules configured._" },
+    });
+  } else {
+    for (const rule of rules) {
+      const channels = rule.channels.map((c) => `<#${c}>`).join(", ");
+      const users = rule.userFilters?.length
+        ? ` · ${rule.userFilters.map((u) => `<@${u}>`).join(", ")}`
+        : "";
+      const keywords = rule.keywords?.length
+        ? ` · Keywords: ${rule.keywords.map((k) => `\`${k}\``).join(", ")}`
+        : "";
+      const status = rule.enabled ? "" : " _(paused)_";
+
+      blocks.push({
+        type: "section",
+        text: { type: "mrkdwn", text: `${channels}${users}${keywords}${status}` },
+        accessory: {
+          type: "button",
+          text: { type: "plain_text", text: "Edit" },
+          action_id: `ai_edit_rule:${rule.id}`,
+        },
+      });
+    }
+  }
+
+  blocks.push({
+    type: "actions",
+    elements: [
+      {
+        type: "button",
+        text: { type: "plain_text", text: "+ Add Rule" },
+        action_id: "ai_add_rule",
+        style: "primary",
+      },
+    ],
+  });
+
+  return blocks;
+}
+
+export function buildAutoRespondModal(
+  rule?: AutoRespondRule
+): View {
+  const isEdit = !!rule;
+  const blocks: (KnownBlock | Block)[] = [
+    {
+      type: "input",
+      block_id: "channels_block",
+      label: { type: "plain_text", text: "Channels" },
+      element: {
+        type: "multi_conversations_select",
+        action_id: "channels",
+        ...(rule?.channels && { initial_conversations: rule.channels }),
+        filter: {
+          include: ["public", "private"],
+          exclude_bot_users: true,
+        },
+        placeholder: { type: "plain_text", text: "Select channels to watch" },
+      },
+    },
+    {
+      type: "input",
+      block_id: "users_block",
+      label: { type: "plain_text", text: "Filter by users/bots (optional)" },
+      optional: true,
+      element: {
+        type: "multi_users_select",
+        action_id: "users",
+        ...(rule?.userFilters && { initial_users: rule.userFilters }),
+        placeholder: { type: "plain_text", text: "Leave empty to match all messages" },
+      },
+    },
+    {
+      type: "input",
+      block_id: "keywords_block",
+      label: { type: "plain_text", text: "Keywords (optional)" },
+      optional: true,
+      element: {
+        type: "plain_text_input",
+        action_id: "keywords",
+        ...(rule?.keywords && { initial_value: rule.keywords.join(", ") }),
+        placeholder: { type: "plain_text", text: "e.g., CRITICAL, timeout, OOM — comma-separated" },
+      },
+    },
+    {
+      type: "input",
+      block_id: "extra_context_block",
+      label: { type: "plain_text", text: "Extra context (optional)" },
+      optional: true,
+      element: {
+        type: "plain_text_input",
+        action_id: "extra_context",
+        multiline: true,
+        ...(rule?.extraContext && { initial_value: rule.extraContext }),
+        placeholder: { type: "plain_text", text: "e.g., This is a Sentry error alert. Focus on the stack trace and find the relevant code path." },
+      },
+    },
+    {
+      type: "context",
+      elements: [
+        { type: "mrkdwn", text: "The bot must be a member of selected channels to receive messages." },
+      ],
+    },
+  ];
+
+  // Edit mode: add enable/disable and delete actions at the bottom
+  if (isEdit && rule) {
+    blocks.push({ type: "divider" });
+    blocks.push({
+      type: "actions",
+      block_id: "rule_actions_block",
+      elements: [
+        {
+          type: "button",
+          text: { type: "plain_text", text: rule.enabled ? "Disable Rule" : "Enable Rule" },
+          action_id: `ai_toggle_rule:${rule.id}`,
+        },
+        {
+          type: "button",
+          text: { type: "plain_text", text: "Delete Rule" },
+          action_id: `ai_delete_rule:${rule.id}`,
+          style: "danger",
+          confirm: {
+            title: { type: "plain_text", text: "Delete rule?" },
+            text: { type: "plain_text", text: "This will permanently remove this auto-respond rule." },
+            confirm: { type: "plain_text", text: "Delete" },
+            deny: { type: "plain_text", text: "Cancel" },
+            style: "danger",
+          },
+        },
+      ],
+    });
+  }
+
+  return {
+    type: "modal",
+    callback_id: isEdit ? "ai_edit_rule_modal" : "ai_add_rule_modal",
+    private_metadata: isEdit ? rule.id : "",
+    title: { type: "plain_text", text: isEdit ? "Edit Rule" : "Add Rule" },
+    submit: { type: "plain_text", text: "Save" },
+    close: { type: "plain_text", text: "Cancel" },
+    blocks,
   };
 }

@@ -33,6 +33,9 @@
       "enabled": false
     }
   },
+  "autoRespond": {
+    "enabled": false
+  },
   "repositories": [
     {
       "name": "my-app",

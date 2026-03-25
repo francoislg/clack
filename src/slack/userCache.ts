@@ -5,6 +5,7 @@ export interface UserInfo {
   userId: string;
   username?: string;
   displayName?: string;
+  isBot?: boolean;
 }
 
 const userCache = new Map<string, UserInfo>();
@@ -21,6 +22,13 @@ export async function getUserInfo(
   const cached = userCache.get(userId);
   if (cached) {
     return cached;
+  }
+
+  // Synthetic user IDs (e.g., auto-respond) — return fallback without API call
+  if (userId === "auto-respond") {
+    const fallback: UserInfo = { userId, displayName: "Auto-Respond" };
+    userCache.set(userId, fallback);
+    return fallback;
   }
 
   // Bot IDs start with "B" — use bots.info instead of users.info
@@ -40,6 +48,7 @@ export async function getUserInfo(
       userId,
       username: result.user.name,
       displayName: result.user.profile?.display_name || result.user.profile?.real_name,
+      isBot: result.user.is_bot === true,
     };
 
     // Cache the result
@@ -69,6 +78,7 @@ async function getBotInfo(
       userId: botId,
       username: result.bot.name,
       displayName: result.bot.name,
+      isBot: true,
     };
 
     userCache.set(botId, userInfo);

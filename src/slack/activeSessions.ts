@@ -6,7 +6,7 @@ export interface SessionInfo {
   threadTs: string;
   userId: string;
   /** Original trigger type, used to build proper Claude options on button clicks. */
-  triggerType?: "directMessages" | "mentions" | "reactions";
+  triggerType?: "directMessages" | "mentions" | "reactions" | "autoRespond";
   /** DM-first: the DM channel ID where the answer was delivered */
   dmChannel?: string;
   /** DM-first: the root DM message timestamp (thread anchor) */

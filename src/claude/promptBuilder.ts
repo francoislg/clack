@@ -80,6 +80,13 @@ function buildDeliveryContext(session: SessionContext): string | null {
     lines.push("- `send_to_thread` shares this answer to the channel the user is viewing, as a top-level message.");
     lines.push("- You can also include `send_to_thread` with explicit `channel` and `thread_ts` to share findings to a specific thread (e.g., one the user shared via a Slack URL).");
     lines.push("- Choose actions appropriate to your response. If your answer investigates or summarizes content from a channel or thread, include `send_to_thread` so the user can share the findings back.");
+  } else if (session.triggerType === "autoRespond") {
+    // Auto-respond: automatically triggered response to a channel message
+    lines.push("- Mode: Auto-respond (you have been automatically tasked to respond to this message)");
+    lines.push("- Read the message carefully. It might be an alert to investigate, a question to answer, a notification to analyze, or something else entirely.");
+    lines.push("- Additional context from the rule that triggered you may be prepended to the message — use it to guide your response.");
+    lines.push("- Your response will be posted as a thread reply on the triggering message.");
+    lines.push("- Do NOT include `accept`, `reject`, or `send_to_thread` actions — they have no meaning here.");
   } else {
     // All non-DM-first modes: response is already where the user can see it
     if (session.triggerType === "reactions") {

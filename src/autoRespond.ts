@@ -1,0 +1,223 @@
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import { randomUUID } from "node:crypto";
+import { logger } from "./logger.js";
+import { fileExists } from "./fs.js";
+
+// ============================================================================
+// Types
+// ============================================================================
+
+export interface AutoRespondRule {
+  id: string;
+  channels: string[];
+  userFilters?: string[];
+  /** Optional keywords — trigger if message text contains any (case-insensitive) */
+  keywords?: string[];
+  /** Optional extra context injected into Claude's prompt for this rule */
+  extraContext?: string;
+  enabled: boolean;
+}
+
+interface AutoRespondState {
+  rules: AutoRespondRule[];
+}
+
+// ============================================================================
+// Storage
+// ============================================================================
+
+const DEFAULT_STATE: AutoRespondState = { rules: [] };
+
+let cached: AutoRespondState | null = null;
+
+function getStateDir(): string {
+  return resolve(process.cwd(), "data", "state");
+}
+
+function getFilePath(): string {
+  return resolve(getStateDir(), "auto-respond.json");
+}
+
+export async function loadRules(): Promise<AutoRespondRule[]> {
+  if (cached) {
+    return cached.rules;
+  }
+
+  const filePath = getFilePath();
+
+  if (!(await fileExists(filePath))) {
+    cached = { ...DEFAULT_STATE, rules: [] };
+    return cached.rules;
+  }
+
+  try {
+    const content = await readFile(filePath, "utf-8");
+    const parsed = JSON.parse(content) as Partial<AutoRespondState>;
+    cached = { rules: parsed.rules ?? [] };
+    return cached.rules;
+  } catch (error) {
+    logger.error("Failed to load auto-respond rules:", error);
+    cached = { ...DEFAULT_STATE, rules: [] };
+    return cached.rules;
+  }
+}
+
+async function saveState(state: AutoRespondState): Promise<void> {
+  const stateDir = getStateDir();
+  const filePath = getFilePath();
+
+  if (!(await fileExists(stateDir))) {
+    await mkdir(stateDir, { recursive: true });
+  }
+
+  await writeFile(filePath, JSON.stringify(state, null, 2));
+  cached = state;
+}
+
+// ============================================================================
+// CRUD Operations
+// ============================================================================
+
+export async function getRules(): Promise<AutoRespondRule[]> {
+  return loadRules();
+}
+
+export async function getEnabledRules(): Promise<AutoRespondRule[]> {
+  const rules = await loadRules();
+  return rules.filter((r) => r.enabled);
+}
+
+export async function addRule(
+  channels: string[],
+  userFilters?: string[],
+  keywords?: string[],
+  extraContext?: string
+): Promise<AutoRespondRule> {
+  const rules = await loadRules();
+  const rule: AutoRespondRule = {
+    id: randomUUID().slice(0, 8),
+    channels,
+    ...(userFilters && userFilters.length > 0 && { userFilters }),
+    ...(keywords && keywords.length > 0 && { keywords }),
+    ...(extraContext?.trim() && { extraContext: extraContext.trim() }),
+    enabled: true,
+  };
+  rules.push(rule);
+  await saveState({ rules });
+  logger.info(`Auto-respond rule ${rule.id} created for channels: ${channels.join(", ")}`);
+  return rule;
+}
+
+export async function updateRule(
+  ruleId: string,
+  channels: string[],
+  userFilters?: string[],
+  keywords?: string[],
+  extraContext?: string
+): Promise<AutoRespondRule | null> {
+  const rules = await loadRules();
+  const rule = rules.find((r) => r.id === ruleId);
+  if (!rule) return null;
+
+  rule.channels = channels;
+  if (userFilters && userFilters.length > 0) {
+    rule.userFilters = userFilters;
+  } else {
+    delete rule.userFilters;
+  }
+  if (keywords && keywords.length > 0) {
+    rule.keywords = keywords;
+  } else {
+    delete rule.keywords;
+  }
+  if (extraContext?.trim()) {
+    rule.extraContext = extraContext.trim();
+  } else {
+    delete rule.extraContext;
+  }
+
+  await saveState({ rules });
+  logger.info(`Auto-respond rule ${ruleId} updated`);
+  return rule;
+}
+
+export async function toggleRule(ruleId: string): Promise<AutoRespondRule | null> {
+  const rules = await loadRules();
+  const rule = rules.find((r) => r.id === ruleId);
+  if (!rule) return null;
+
+  rule.enabled = !rule.enabled;
+  await saveState({ rules });
+  logger.info(`Auto-respond rule ${ruleId} ${rule.enabled ? "enabled" : "disabled"}`);
+  return rule;
+}
+
+export async function deleteRule(ruleId: string): Promise<boolean> {
+  const rules = await loadRules();
+  const index = rules.findIndex((r) => r.id === ruleId);
+  if (index === -1) return false;
+
+  rules.splice(index, 1);
+  await saveState({ rules });
+  logger.info(`Auto-respond rule ${ruleId} deleted`);
+  return true;
+}
+
+export async function getRule(ruleId: string): Promise<AutoRespondRule | null> {
+  const rules = await loadRules();
+  return rules.find((r) => r.id === ruleId) ?? null;
+}
+
+// ============================================================================
+// Matching
+// ============================================================================
+
+/**
+ * Returns the first matching enabled rule for a given channel, author, and message text.
+ *
+ * Matching logic:
+ * - Channel must match (required)
+ * - If no userFilters and no keywords → match everything in the channel
+ * - If filters exist → match if user matches userFilters OR message contains any keyword (OR logic)
+ */
+export async function findMatchingRule(
+  channelId: string,
+  authorUserId: string | undefined,
+  messageText?: string
+): Promise<AutoRespondRule | null> {
+  const rules = await getEnabledRules();
+  const textLower = messageText?.toLowerCase();
+
+  for (const rule of rules) {
+    if (!rule.channels.includes(channelId)) continue;
+
+    const hasUserFilters = rule.userFilters && rule.userFilters.length > 0;
+    const hasKeywords = rule.keywords && rule.keywords.length > 0;
+
+    // No filters at all → match everything in the channel
+    if (!hasUserFilters && !hasKeywords) {
+      return rule;
+    }
+
+    // Check user filter (OR)
+    if (hasUserFilters && authorUserId && rule.userFilters!.includes(authorUserId)) {
+      return rule;
+    }
+
+    // Check keyword filter (OR)
+    if (hasKeywords && textLower) {
+      const keywordMatch = rule.keywords!.some((kw) => textLower.includes(kw.toLowerCase()));
+      if (keywordMatch) {
+        return rule;
+      }
+    }
+  }
+
+  return null;
+}
+
+// Clear cache (useful for testing)
+export function clearAutoRespondCache(): void {
+  cached = null;
+}

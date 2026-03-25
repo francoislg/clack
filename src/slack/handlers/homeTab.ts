@@ -21,9 +21,17 @@ import {
   buildConfigFilePickerModal,
   buildConfigEditorModal,
   buildConfigCreateFileModal,
+  buildAutoRespondModal,
   type ConfigFilePickerEntry,
   type ConfigFileState,
 } from "../homeTab.js";
+import {
+  addRule,
+  updateRule,
+  toggleRule,
+  deleteRule,
+  getRule,
+} from "../../autoRespond.js";
 import {
   listInstructionFiles,
   readInstructionFile,
@@ -33,6 +41,13 @@ import {
 } from "../../configurationFiles.js";
 import { setUserPreference } from "../../userPreferences.js";
 import type { ReactionDelivery } from "../../userPreferences.js";
+
+/** Parse comma-separated keywords input into a trimmed array, or undefined if empty. */
+function parseKeywords(raw: string | null | undefined): string[] | undefined {
+  if (!raw) return undefined;
+  const keywords = raw.split(",").map((k) => k.trim()).filter(Boolean);
+  return keywords.length > 0 ? keywords : undefined;
+}
 
 async function publishHomeView(
   client: App["client"],
@@ -519,6 +534,136 @@ export function registerHomeTabHandler(app: App): void {
     } catch (error) {
       logger.error("Failed to delete config file:", error);
     }
+  });
+
+  // =========================================================================
+  // Auto-respond handlers
+  // =========================================================================
+
+  // Add Rule button → open modal (admin only)
+  app.action<BlockAction>("ai_add_rule", async ({ ack, body, client }) => {
+    await ack();
+    try {
+      if (!(await userCanManageRoles(body.user.id))) return;
+      await client.views.open({
+        trigger_id: body.trigger_id,
+        view: buildAutoRespondModal(),
+      });
+    } catch (error) {
+      logger.error("Failed to open add auto-respond rule modal:", error);
+    }
+  });
+
+  // Edit Rule button → open pre-populated modal (admin only)
+  app.action<BlockAction>(/^ai_edit_rule:/, async ({ ack, body, client, action }) => {
+    await ack();
+    try {
+      if (!(await userCanManageRoles(body.user.id))) return;
+      const ruleId = (action as { action_id: string }).action_id.split(":")[1];
+      const rule = await getRule(ruleId);
+      if (!rule) return;
+      await client.views.open({
+        trigger_id: body.trigger_id,
+        view: buildAutoRespondModal(rule),
+      });
+    } catch (error) {
+      logger.error("Failed to open edit auto-respond rule modal:", error);
+    }
+  });
+
+  // Toggle Rule button (inside edit modal)
+  app.action<BlockAction>(/^ai_toggle_rule:/, async ({ ack, body, client, action }) => {
+    await ack();
+    try {
+      if (!(await userCanManageRoles(body.user.id))) return;
+      const ruleId = (action as { action_id: string }).action_id.split(":")[1];
+      const updated = await toggleRule(ruleId);
+      // Refresh the modal to reflect the new state
+      if (updated) {
+        const viewId = (body as unknown as { view?: { id: string } }).view?.id;
+        if (viewId) {
+          await client.views.update({
+            view_id: viewId,
+            view: buildAutoRespondModal(updated),
+          });
+        }
+      }
+      await publishHomeView(client, body.user.id);
+    } catch (error) {
+      logger.error("Failed to toggle auto-respond rule:", error);
+    }
+  });
+
+  // Delete Rule button (inside edit modal — has confirm dialog)
+  app.action<BlockAction>(/^ai_delete_rule:/, async ({ ack, body, client, action }) => {
+    await ack();
+    try {
+      if (!(await userCanManageRoles(body.user.id))) return;
+      const ruleId = (action as { action_id: string }).action_id.split(":")[1];
+      await deleteRule(ruleId);
+      // Close the modal by replacing it with a brief confirmation
+      const viewId = (body as unknown as { view?: { id: string } }).view?.id;
+      if (viewId) {
+        await client.views.update({
+          view_id: viewId,
+          view: {
+            type: "modal",
+            title: { type: "plain_text", text: "Deleted" },
+            close: { type: "plain_text", text: "Close" },
+            blocks: [
+              {
+                type: "section",
+                text: { type: "mrkdwn", text: "Rule deleted." },
+              },
+            ],
+          },
+        });
+      }
+      await publishHomeView(client, body.user.id);
+    } catch (error) {
+      logger.error("Failed to delete auto-respond rule:", error);
+    }
+  });
+
+  // Add Rule modal submission (admin only)
+  app.view<ViewSubmitAction>("ai_add_rule_modal", async ({ ack, view, body, client }) => {
+    if (!(await userCanManageRoles(body.user.id))) {
+      await ack({ response_action: "errors", errors: { channels_block: "You don't have permission to manage auto-respond rules" } });
+      return;
+    }
+    const channels = view.state.values.channels_block.channels.selected_conversations;
+    if (!channels || channels.length === 0) {
+      await ack({ response_action: "errors", errors: { channels_block: "Select at least one channel" } });
+      return;
+    }
+    const users = view.state.values.users_block.users.selected_users;
+    const keywordsRaw = view.state.values.keywords_block?.keywords?.value;
+    const keywords = parseKeywords(keywordsRaw);
+    const extraContext = view.state.values.extra_context_block?.extra_context?.value;
+    await addRule(channels, users && users.length > 0 ? users : undefined, keywords, extraContext ?? undefined);
+    await ack();
+    await publishHomeView(client, body.user.id);
+  });
+
+  // Edit Rule modal submission (admin only)
+  app.view<ViewSubmitAction>("ai_edit_rule_modal", async ({ ack, view, body, client }) => {
+    if (!(await userCanManageRoles(body.user.id))) {
+      await ack({ response_action: "errors", errors: { channels_block: "You don't have permission to manage auto-respond rules" } });
+      return;
+    }
+    const ruleId = view.private_metadata;
+    const channels = view.state.values.channels_block.channels.selected_conversations;
+    if (!channels || channels.length === 0) {
+      await ack({ response_action: "errors", errors: { channels_block: "Select at least one channel" } });
+      return;
+    }
+    const users = view.state.values.users_block.users.selected_users;
+    const keywordsRaw = view.state.values.keywords_block?.keywords?.value;
+    const keywords = parseKeywords(keywordsRaw);
+    const extraContext = view.state.values.extra_context_block?.extra_context?.value;
+    await updateRule(ruleId, channels, users && users.length > 0 ? users : undefined, keywords, extraContext ?? undefined);
+    await ack();
+    await publishHomeView(client, body.user.id);
   });
 
   // Handle "Chat to Edit" button — open DM with file content and close modal
