@@ -95,12 +95,17 @@ export interface MentionsConfig {
   changesWorkflow?: TriggerChangesWorkflowConfig;
 }
 
+export interface AutoRespondConfig {
+  enabled: boolean;
+}
+
 export interface Config {
   slack: SlackConfig;
   slackApp?: SlackAppConfig;
   reactions: ReactionsConfig;
   directMessages: DirectMessagesConfig;
   mentions: MentionsConfig;
+  autoRespond?: AutoRespondConfig;
   repositories: RepositoryConfig[];
   git: GitConfig;
   sessions: SessionsConfig;
@@ -342,6 +347,7 @@ function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Config {
   const reactionsRaw = section(c, "reactions");
   const dmRaw = section(c, "directMessages");
   const mentionsRaw = section(c, "mentions");
+  const autoRespondRaw = section(c, "autoRespond");
   const gitRaw = section(c, "git");
   const sessionsRaw = section(c, "sessions");
   const claudeCodeRaw = section(c, "claudeCode");
@@ -382,6 +388,9 @@ function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Config {
       thinking: parseThinking(mentionsRaw && section(mentionsRaw, "thinking"), DEFAULTS.mentions!.thinking),
       changesWorkflow: parseTriggerChangesWorkflow(mentionsRaw && section(mentionsRaw, "changesWorkflow")),
     },
+    autoRespond: autoRespondRaw
+      ? { enabled: bool(autoRespondRaw, "enabled") ?? false }
+      : undefined,
     repositories: c.repositories.map((r: unknown) => parseRepo(r as Record<string, unknown>)),
     git: {
       pullIntervalMinutes: (gitRaw && num(gitRaw, "pullIntervalMinutes")) ?? DEFAULTS.git!.pullIntervalMinutes,

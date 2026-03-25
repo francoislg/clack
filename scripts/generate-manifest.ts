@@ -35,11 +35,16 @@ interface MentionsConfig {
   enabled?: boolean;
 }
 
+interface AutoRespondConfig {
+  enabled?: boolean;
+}
+
 interface PartialConfig {
   slackApp?: SlackAppConfig;
   slack?: SlackConfig;
   directMessages?: DirectMessagesConfig;
   mentions?: MentionsConfig;
+  autoRespond?: AutoRespondConfig;
 }
 
 const DEFAULTS: Required<SlackAppConfig> = {
@@ -97,6 +102,7 @@ function validateSlackAppConfig(config: SlackAppConfig): void {
 interface ConfigFeatures {
   directMessages: boolean;
   mentions: boolean;
+  autoRespond: boolean;
   fetchUsernames: boolean;
 }
 
@@ -104,6 +110,7 @@ function getEnabledFeatures(config: PartialConfig): ConfigFeatures {
   return {
     directMessages: config.directMessages?.enabled ?? false,
     mentions: config.mentions?.enabled ?? false,
+    autoRespond: config.autoRespond?.enabled ?? false,
     fetchUsernames: config.slack?.fetchAndStoreUsername ?? false,
   };
 }
@@ -137,6 +144,10 @@ function buildEvents(features: ConfigFeatures): ManifestEvent[] {
 
   if (features.mentions) {
     events.push("app_mention");
+  }
+
+  if (features.autoRespond) {
+    events.push("message.channels", "message.groups");
   }
 
   return events.sort((a, b) => a.localeCompare(b));
@@ -218,6 +229,7 @@ function main(): void {
   console.log(`  Features enabled:`);
   console.log(`    - Direct messages: ${features.directMessages}`);
   console.log(`    - Mentions: ${features.mentions}`);
+  console.log(`    - Auto-respond: ${features.autoRespond}`);
   console.log(`    - Fetch usernames: ${features.fetchUsernames}`);
   console.log(`  Scopes: ${manifest.oauth_config?.scopes?.bot?.join(", ")}`);
   console.log(`  Events: ${manifest.settings?.event_subscriptions?.bot_events?.join(", ")}`);

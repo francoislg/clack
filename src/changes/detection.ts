@@ -20,6 +20,11 @@ export function isChangesEnabledForTrigger(
     return false;
   }
 
+  // Auto-respond never supports changes workflow
+  if (triggerType === "autoRespond") {
+    return false;
+  }
+
   // Check trigger-specific config
   const triggerConfig = config[triggerType];
   return triggerConfig?.changesWorkflow?.enabled === true;

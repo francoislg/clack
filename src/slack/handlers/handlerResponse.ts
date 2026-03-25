@@ -20,6 +20,7 @@ import { getConfig } from "../../config.js";
 import { getClaudeOptions } from "./changeWorkflowHelper.js";
 import { handleAutoExecuteActions } from "./autoExecute.js";
 import { SlackStreamer } from "../../streaming/slackStreamer.js";
+import { getUserInfo } from "../userCache.js";
 import { getUserPreference } from "../../userPreferences.js";
 import { logger } from "../../logger.js";
 
@@ -60,12 +61,22 @@ export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promis
   const targetChannel = sessionInfo.dmChannel ?? sessionInfo.channelId;
   const targetThread = sessionInfo.dmThreadTs ?? sessionInfo.threadTs;
 
+  // Slack's streaming API requires a human user as recipient — bot users cause
+  // channel_type_not_supported errors. Fall back to the bot's own user ID when
+  // the session user is a bot (e.g., auto-respond triggered by a Sentry message).
+  let streamUserId = sessionInfo.userId;
+  const userInfo = await getUserInfo(client, sessionInfo.userId);
+  if (userInfo?.isBot || sessionInfo.userId === "auto-respond") {
+    const authResult = await client.auth.test();
+    streamUserId = authResult.user_id ?? streamUserId;
+  }
+
   // Create streamer targeting the derived channel/thread
   const streamer = new SlackStreamer({
     client,
     channel: targetChannel,
     threadTs: targetThread,
-    userId: sessionInfo.userId,
+    userId: streamUserId,
   });
 
   const streamStarted = await streamer.start();

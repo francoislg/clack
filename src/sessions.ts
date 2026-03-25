@@ -48,8 +48,8 @@ export interface SessionContext {
   continuationHistory?: ContinuationRecord[];
   /** Images from the triggering message */
   imageFiles?: SlackImageFile[];
-  /** How the session was triggered (reactions, mentions, directMessages) */
-  triggerType?: "directMessages" | "mentions" | "reactions";
+  /** How the session was triggered (reactions, mentions, directMessages, autoRespond) */
+  triggerType?: "directMessages" | "mentions" | "reactions" | "autoRespond";
   /** DM-first delivery: the DM channel ID */
   dmChannel?: string;
   /** DM-first delivery: the root DM message timestamp (thread anchor) */

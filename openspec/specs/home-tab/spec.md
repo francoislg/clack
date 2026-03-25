@@ -253,3 +253,74 @@ The system SHALL display an interactive Configuration section on the Home tab fo
 - **GIVEN** the user does not have config edit permissions
 - **WHEN** building the home view
 - **THEN** do not include the Configuration section
+
+### Requirement: Auto-Respond Section
+
+The system SHALL display an Auto-Respond management section on the Home Tab for admin and owner users.
+
+#### Scenario: Show section to admins
+- **GIVEN** the current user is an admin or owner
+- **WHEN** building the home view
+- **THEN** display the Auto-Respond section with current rules and an "Add Rule" button
+
+#### Scenario: Hide section from non-admins
+- **GIVEN** the current user is a dev or member
+- **WHEN** building the home view
+- **THEN** do NOT include the Auto-Respond section
+
+#### Scenario: Display rules list
+- **WHEN** auto-respond rules exist
+- **THEN** display each rule showing its channels as `<#channelId>` mrkdwn references and user filters as `<@userId>` mrkdwn references (Slack resolves these to display names automatically)
+- **AND** each rule has an [Edit] accessory button
+- **AND** disabled rules are visually distinguished (e.g., "paused" label)
+
+#### Scenario: Empty state
+- **WHEN** no auto-respond rules exist
+- **THEN** display a message indicating no rules are configured
+- **AND** show the "Add Rule" button
+
+### Requirement: Add Rule Modal
+
+The system SHALL provide a modal for creating auto-respond rules.
+
+#### Scenario: Open add rule modal
+- **WHEN** an admin clicks "Add Rule"
+- **THEN** open a modal with:
+  - A `multi_conversations_select` element with filter `{ include: ["public", "private"], exclude_bot_users: true }` for choosing channels
+  - A `multi_users_select` element for optional user/bot filtering
+  - A keywords text input (comma-separated, optional)
+  - An extra context multiline text input (optional)
+  - A context note reminding the admin that the bot must be a member of selected channels
+
+#### Scenario: Submit add rule modal
+- **WHEN** an admin submits the add rule modal with valid channels
+- **THEN** the system creates a new enabled rule with the selected channels, user filters, keywords, and extra context
+- **AND** refreshes the Home Tab
+
+### Requirement: Edit Rule Modal
+
+The system SHALL provide a modal for editing existing auto-respond rules.
+
+#### Scenario: Open edit rule modal
+- **WHEN** an admin clicks "Edit" on a rule
+- **THEN** open a modal pre-populated with the rule's current channels, user filters, keywords, and extra context
+- **AND** include Enable/Disable and Delete actions at the bottom of the modal
+
+#### Scenario: Submit edit rule modal
+- **WHEN** an admin submits the edit rule modal
+- **THEN** the system updates the rule
+- **AND** refreshes the Home Tab
+
+### Requirement: Toggle and Delete Rule Actions
+
+The system SHALL support toggling and deleting rules from the edit modal.
+
+#### Scenario: Toggle rule enabled state
+- **WHEN** an admin clicks the enable/disable button in the edit modal
+- **THEN** the system toggles the rule's enabled state
+- **AND** refreshes the modal and Home Tab
+
+#### Scenario: Delete rule
+- **WHEN** an admin clicks "Delete" in the edit modal and confirms
+- **THEN** the system removes the rule
+- **AND** closes the modal and refreshes the Home Tab

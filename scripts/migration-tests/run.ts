@@ -27,8 +27,9 @@ import { test as test004 } from "./004.js";
 import { test as test005 } from "./005.js";
 import { test as test007 } from "./007.js";
 import { test as test008 } from "./008.js";
+import { test as test009 } from "./009.js";
 
-const allTests: MigrationTest[] = [test001, test002, test003, test004, test005, test007, test008];
+const allTests: MigrationTest[] = [test001, test002, test003, test004, test005, test007, test008, test009];
 
 // --- Config ---
 
@@ -269,6 +270,11 @@ function validateFinalState(config: Record<string, unknown>): string | null {
   const docs = repos.find((r) => r.name === "docs");
   const docsAccess = docs?.access as Record<string, string>;
   if ("write" in docsAccess) return `docs should not have write access`;
+
+  // After migration 009: autoRespond added with enabled: false
+  const ar = config.autoRespond as Record<string, unknown> | undefined;
+  if (!ar) return "autoRespond field missing after migration 009";
+  if (ar.enabled !== false) return `autoRespond.enabled should be false, got: ${ar.enabled}`;
 
   return null;
 }

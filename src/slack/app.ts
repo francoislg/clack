@@ -14,6 +14,7 @@ import { registerConfigUpdateActionHandler } from "./handlers/configUpdateAction
 import { registerChangeThreadActionHandlers } from "./handlers/changeThreadActions.js";
 import { registerDmActionHandlers } from "./handlers/dmActions.js";
 import { registerMessageChangedHandler } from "./handlers/messageChanged.js";
+import { registerAutoRespondHandler } from "./handlers/autoRespond.js";
 
 let app: App | null = null;
 
@@ -61,6 +62,12 @@ export function createSlackApp(): App {
   // Message edit handler for cancelling in-flight requests (when DMs or mentions are enabled)
   if (config.directMessages.enabled || config.mentions.enabled) {
     registerMessageChangedHandler(app);
+  }
+
+  // Auto-respond handler (only when enabled in config)
+  if (config.autoRespond?.enabled) {
+    logger.debug("Auto-respond mode enabled");
+    registerAutoRespondHandler(app);
   }
 
   return app;

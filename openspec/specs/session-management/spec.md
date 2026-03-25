@@ -30,6 +30,7 @@ The system SHALL persist session state to the filesystem, including structured t
 - **AND** does NOT persist `refinements`, `lastAnswer`, or `threadContext` (these are fetched from Slack on each request)
 - **AND** the context does NOT include `isEphemeral`
 - **AND** delivery mode is derived from `triggerType` and whether `dmChannel` is set
+- **AND** the `triggerType` field accepts `"directMessages"`, `"mentions"`, `"reactions"`, or `"autoRespond"`
 
 #### Scenario: Session reused after abort
 - **WHEN** a Claude invocation is aborted due to a message edit
@@ -259,3 +260,33 @@ The system SHALL track the message timestamp of answers posted to the original c
 #### Scenario: Channel post timestamp updated on re-post
 - **WHEN** a user posts a new reply to the channel after a post-accept refinement
 - **THEN** the session updates `channelPostTs` to the new message timestamp
+
+### Requirement: Synthetic User Identity for Auto-Respond
+
+The system SHALL support sessions with a synthetic user identity for auto-respond triggers when no real user ID is available.
+
+#### Scenario: Session created with synthetic user ID
+- **WHEN** an auto-respond rule triggers on a message with no `user` field
+- **THEN** the session is created with `userId` set to `"auto-respond"`
+
+#### Scenario: Role resolution for synthetic user
+- **WHEN** the system resolves the role for user ID `"auto-respond"`
+- **THEN** role resolution returns `"member"` (no entry in roles)
+- **AND** user-tier instructions apply
+
+#### Scenario: User info lookup gracefully handles synthetic user
+- **WHEN** the system attempts to fetch Slack user info for `"auto-respond"`
+- **THEN** `getUserInfo()` SHALL detect the synthetic user ID and return `{ userId: "auto-respond", displayName: "Auto-Respond", username: undefined }`
+- **AND** it does NOT call the Slack API (`users.info` or `bots.info`)
+- **AND** the fallback is cached like any other user info entry
+
+#### Scenario: Active workers display for auto-respond sessions
+- **WHEN** an auto-respond session is active
+- **AND** the Home Tab shows active workers
+- **THEN** the worker displays "Auto-Respond" as plain text instead of a `<@userId>` Slack mention
+
+#### Scenario: Session ID parsing for synthetic user
+- **WHEN** `parseSessionId()` is called for an auto-respond session with synthetic user ID
+- **THEN** the regex MAY fail to extract the userId (since `"auto-respond"` does not match the `U[A-Z0-9]+` pattern)
+- **AND** this is a known limitation affecting only the last-resort session restoration fallback
+- **AND** the primary restoration path (loading from disk via session ID) is unaffected
