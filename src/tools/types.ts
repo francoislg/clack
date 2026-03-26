@@ -114,7 +114,7 @@ export interface ResponseSection {
   body: string;
 }
 
-/** Snapshot of a response, saved at delivery time for stable "Send to thread" */
+/** Snapshot of a response, saved at delivery time for stable cross-posting */
 export interface ResponseSnapshot {
   text: string;
   sections: ResponseSection[];
@@ -135,16 +135,16 @@ export interface ChoiceAction {
   workMode?: boolean;
 }
 
-// DM-first actions
-export interface SendToThreadAction {
-  type: "send_to_thread";
+// Cross-posting actions
+export interface PostToAction {
+  type: "post_to";
   label?: string;
   auto?: boolean;
-  /** Explicit target channel (for posting to a different thread than the origin) */
+  /** Explicit target channel (for posting to a different channel/thread than the default) */
   channel?: string;
-  /** Explicit target thread timestamp (for posting to a specific thread) */
+  /** Explicit target thread timestamp. Omit for top-level channel post. */
   thread_ts?: string;
-  /** The exact text this button posts to the thread */
+  /** The exact text to post. Each post_to action posts only its own content. */
   content: string;
   /** Internal: resolved content entry ID set by submit_response before delivery (not from Claude) */
   _snapshotId?: string;
@@ -174,7 +174,7 @@ export interface UpdateAction {
 export type Action =
   | FollowupAction
   | ChoiceAction
-  | SendToThreadAction
+  | PostToAction
   | ChangeAction
   | ConfigUpdateAction
   | UpdateAction;
@@ -182,7 +182,7 @@ export type Action =
 export type ActionType = Action["type"];
 
 export interface SubmitResponsePayload {
-  /** Conversational preamble shown to user but excluded from snapshots and send_to_thread */
+  /** Conversational preamble shown to user but excluded from snapshots and post_to */
   message?: string;
   sections: ResponseSection[];
   actions: Action[];

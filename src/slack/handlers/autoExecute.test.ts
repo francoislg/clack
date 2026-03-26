@@ -14,6 +14,10 @@ const mockWriteInstructionFile = mock.fn<(filename: string, content: string) => 
 const mockTriggerChangeWorkflow = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
 const mockTriggerFollowUp = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
 const mockFindSessionByThread = mock.fn<(...args: unknown[]) => Promise<SessionContext | null>>(async () => null);
+const mockGetSession = mock.fn<(...args: unknown[]) => Promise<SessionContext | null>>(async () => null);
+const mockPostAnswerToChannel = mock.fn<(...args: unknown[]) => Promise<{ ok: boolean; ts?: string }>>(async () => ({ ok: true }));
+const mockResolveOrigin = mock.fn(() => ({ originChannel: undefined, originThreadTs: undefined }));
+const mockActiveSessions = { restore: mock.fn(async () => null) };
 
 mock.module("../../configurationFiles.js", {
   namedExports: {
@@ -33,9 +37,23 @@ mock.module("./changeThreadActions.js", {
   },
 });
 
+mock.module("./dmActions.js", {
+  namedExports: {
+    postAnswerToChannel: mockPostAnswerToChannel,
+    resolveOrigin: mockResolveOrigin,
+  },
+});
+
 mock.module("../../sessions.js", {
   namedExports: {
     findSessionByThread: mockFindSessionByThread,
+    getSession: mockGetSession,
+  },
+});
+
+mock.module("../activeSessions.js", {
+  namedExports: {
+    activeSessions: mockActiveSessions,
   },
 });
 
@@ -99,6 +117,10 @@ beforeEach(() => {
   mockTriggerChangeWorkflow.mock.resetCalls();
   mockTriggerFollowUp.mock.resetCalls();
   mockFindSessionByThread.mock.resetCalls();
+  mockGetSession.mock.resetCalls();
+  mockPostAnswerToChannel.mock.resetCalls();
+  mockResolveOrigin.mock.resetCalls();
+  mockActiveSessions.restore.mock.resetCalls();
 });
 
 // ============================================================================
@@ -159,14 +181,14 @@ describe("handleAutoExecuteActions — early returns", () => {
     assert.equal(mockTriggerChangeWorkflow.mock.callCount(), 0);
   });
 
-  it("returns immediately when auto action has no ref", async () => {
+  it("does not trigger ref-based auto-execute for post_to actions", async () => {
     const params = makeBaseParams({
       response: makeResponseWithActions(
         {
           sections: [],
           actions: [
-            // send_to_thread with auto but no ref
-            { type: "send_to_thread", auto: true, content: "auto content" },
+            // post_to with auto but no ref — handled by post_to auto-execute, not ref-based loop
+            { type: "post_to", auto: true, content: "auto content" },
           ],
         },
         {},
@@ -174,7 +196,7 @@ describe("handleAutoExecuteActions — early returns", () => {
     });
 
     await handleAutoExecuteActions(params);
-    // send_to_thread doesn't have a ref property in its type, so it should be filtered out
+    // post_to is handled separately, should not trigger change/config workflows
     assert.equal(mockTriggerChangeWorkflow.mock.callCount(), 0);
     assert.equal(mockWriteInstructionFile.mock.callCount(), 0);
   });
@@ -707,5 +729,325 @@ describe("handleAutoExecuteActions — multiple actions", () => {
     assert.equal(mockTriggerChangeWorkflow.mock.callCount(), 1);
     const calledIntent = mockTriggerChangeWorkflow.mock.calls[0].arguments[0] as StagedChangeIntent;
     assert.equal(calledIntent.branch, "feat/auto");
+  });
+});
+
+// ============================================================================
+// post_to auto-execute
+// ============================================================================
+
+describe("handleAutoExecuteActions — post_to auto-execute", () => {
+  it("posts snapshot content to the session channel when auto is true", async () => {
+    const fakeSession = {
+      sessionId: "session-1",
+      channelId: "C001",
+      messageTs: "1700000000.000001",
+      threadTs: "1700000000.000001",
+      userId: "U001",
+      originalQuestion: "q",
+      threadContext: [],
+      refinements: [],
+      errors: [],
+      lastActivity: Date.now(),
+      createdAt: Date.now(),
+      snapshots: { snap1: { text: "Channel post content", sections: [{ body: "Channel post content" }] } },
+    } as unknown as SessionContext;
+
+    mockGetSession.mock.mockImplementation(async () => fakeSession);
+    mockActiveSessions.restore.mock.mockImplementation(async () => null);
+
+    const client = makeClient();
+    const params = makeBaseParams({
+      client,
+      response: makeResponseWithActions(
+        {
+          sections: [{ body: "Thread response" }],
+          actions: [{ type: "post_to" as const, auto: true, content: "Channel post content", _snapshotId: "snap1" }],
+        },
+        {},
+      ),
+    });
+
+    await handleAutoExecuteActions(params);
+
+    assert.equal(mockPostAnswerToChannel.mock.callCount(), 1);
+    const args = mockPostAnswerToChannel.mock.calls[0].arguments;
+    assert.deepEqual(args[1], { text: "Channel post content", sections: [{ body: "Channel post content" }] });
+    assert.equal(args[2], "C001"); // session channel
+    assert.equal(args[3], undefined); // no thread_ts = top-level
+  });
+
+  it("skips post_to auto-execute for auto-respond trigger", async () => {
+    const params = makeBaseParams({
+      triggerType: "autoRespond",
+      response: makeResponseWithActions(
+        {
+          sections: [{ body: "Response" }],
+          actions: [{ type: "post_to" as const, auto: true, content: "content", _snapshotId: "snap1" }],
+        },
+        {},
+      ),
+    });
+
+    await handleAutoExecuteActions(params);
+
+    assert.equal(mockPostAnswerToChannel.mock.callCount(), 0);
+    assert.equal(mockGetSession.mock.callCount(), 0);
+  });
+
+  it("skips post_to auto-execute for plain DM trigger (no assistant)", async () => {
+    const fakeSession = {
+      sessionId: "session-1",
+      channelId: "C001",
+      messageTs: "1700000000.000001",
+      threadTs: "1700000000.000001",
+      userId: "U001",
+      originalQuestion: "q",
+      threadContext: [],
+      refinements: [],
+      errors: [],
+      lastActivity: Date.now(),
+      createdAt: Date.now(),
+      // no assistantOriginChannelId
+    } as unknown as SessionContext;
+
+    mockGetSession.mock.mockImplementation(async () => fakeSession);
+
+    const params = makeBaseParams({
+      triggerType: "directMessages",
+      response: makeResponseWithActions(
+        {
+          sections: [{ body: "Response" }],
+          actions: [{ type: "post_to" as const, auto: true, content: "content", _snapshotId: "snap1" }],
+        },
+        {},
+      ),
+    });
+
+    await handleAutoExecuteActions(params);
+
+    assert.equal(mockPostAnswerToChannel.mock.callCount(), 0);
+  });
+
+  it("proceeds for assistant panel DM trigger (has assistantOriginChannelId)", async () => {
+    const fakeSession = {
+      sessionId: "session-1",
+      channelId: "C001",
+      messageTs: "1700000000.000001",
+      threadTs: "1700000000.000001",
+      userId: "U001",
+      originalQuestion: "q",
+      threadContext: [],
+      refinements: [],
+      errors: [],
+      lastActivity: Date.now(),
+      createdAt: Date.now(),
+      assistantOriginChannelId: "C_PANEL",
+      assistantCurrentChannelId: "C_VIEWED",
+      snapshots: { snap1: { text: "content", sections: [{ body: "content" }] } },
+    } as unknown as SessionContext;
+
+    mockGetSession.mock.mockImplementation(async () => fakeSession);
+    mockActiveSessions.restore.mock.mockImplementation(async () => null);
+
+    const client = makeClient();
+    const params = makeBaseParams({
+      client,
+      triggerType: "directMessages",
+      response: makeResponseWithActions(
+        {
+          sections: [{ body: "Response" }],
+          actions: [{ type: "post_to" as const, auto: true, content: "content", _snapshotId: "snap1" }],
+        },
+        {},
+      ),
+    });
+
+    await handleAutoExecuteActions(params);
+
+    assert.equal(mockPostAnswerToChannel.mock.callCount(), 1);
+    const args = mockPostAnswerToChannel.mock.calls[0].arguments;
+    assert.equal(args[2], "C_VIEWED"); // assistantCurrentChannelId
+  });
+
+  it("uses explicit channel and thread_ts when provided", async () => {
+    const fakeSession = {
+      sessionId: "session-1",
+      channelId: "C001",
+      messageTs: "1700000000.000001",
+      threadTs: "1700000000.000001",
+      userId: "U001",
+      originalQuestion: "q",
+      threadContext: [],
+      refinements: [],
+      errors: [],
+      lastActivity: Date.now(),
+      createdAt: Date.now(),
+      snapshots: { snap1: { text: "Cross-post content", sections: [{ body: "Cross-post content" }] } },
+    } as unknown as SessionContext;
+
+    mockGetSession.mock.mockImplementation(async () => fakeSession);
+    mockActiveSessions.restore.mock.mockImplementation(async () => null);
+
+    const client = makeClient();
+    const params = makeBaseParams({
+      client,
+      response: makeResponseWithActions(
+        {
+          sections: [{ body: "Thread response" }],
+          actions: [{ type: "post_to" as const, auto: true, content: "Cross-post content", _snapshotId: "snap1", channel: "C999", thread_ts: "1700099.000" }],
+        },
+        {},
+      ),
+    });
+
+    await handleAutoExecuteActions(params);
+
+    assert.equal(mockPostAnswerToChannel.mock.callCount(), 1);
+    const args = mockPostAnswerToChannel.mock.calls[0].arguments;
+    assert.equal(args[2], "C999"); // explicit channel
+    assert.equal(args[3], "1700099.000"); // explicit thread_ts
+  });
+
+  it("does not block ref-based auto-execute when post_to also present", async () => {
+    const fakeSession = {
+      sessionId: "session-1",
+      channelId: "C001",
+      messageTs: "1700000000.000001",
+      threadTs: "1700000000.000001",
+      userId: "U001",
+      originalQuestion: "q",
+      threadContext: [],
+      refinements: [],
+      errors: [],
+      lastActivity: Date.now(),
+      createdAt: Date.now(),
+      snapshots: { snap1: { text: "content", sections: [{ body: "content" }] } },
+    } as unknown as SessionContext;
+
+    mockGetSession.mock.mockImplementation(async () => fakeSession);
+    mockActiveSessions.restore.mock.mockImplementation(async () => null);
+
+    const changeIntent: StagedChangeIntent = {
+      type: "change",
+      branch: "feat/x",
+      description: "desc",
+      repo: "org/repo",
+    };
+    const client = makeClient();
+    const params = makeBaseParams({
+      client,
+      response: makeResponseWithActions(
+        {
+          sections: [{ body: "Response" }],
+          actions: [
+            { type: "post_to" as const, auto: true, content: "content", _snapshotId: "snap1" },
+            { type: "change", ref: "r1", auto: true },
+          ],
+        },
+        { r1: changeIntent },
+      ),
+    });
+
+    await handleAutoExecuteActions(params);
+
+    // Both should execute
+    assert.equal(mockPostAnswerToChannel.mock.callCount(), 1);
+    assert.equal(mockTriggerChangeWorkflow.mock.callCount(), 1);
+  });
+
+  it("skips when session is not found", async () => {
+    mockGetSession.mock.mockImplementation(async () => null);
+
+    const params = makeBaseParams({
+      response: makeResponseWithActions(
+        {
+          sections: [{ body: "Response" }],
+          actions: [{ type: "post_to" as const, auto: true, content: "content", _snapshotId: "snap1" }],
+        },
+        {},
+      ),
+    });
+
+    await handleAutoExecuteActions(params);
+
+    assert.equal(mockPostAnswerToChannel.mock.callCount(), 0);
+  });
+
+  it("skips action when snapshot is missing", async () => {
+    const fakeSession = {
+      sessionId: "session-1",
+      channelId: "C001",
+      messageTs: "1700000000.000001",
+      threadTs: "1700000000.000001",
+      userId: "U001",
+      originalQuestion: "q",
+      threadContext: [],
+      refinements: [],
+      errors: [],
+      lastActivity: Date.now(),
+      createdAt: Date.now(),
+      snapshots: {},
+    } as unknown as SessionContext;
+
+    mockGetSession.mock.mockImplementation(async () => fakeSession);
+    mockActiveSessions.restore.mock.mockImplementation(async () => null);
+
+    const params = makeBaseParams({
+      response: makeResponseWithActions(
+        {
+          sections: [{ body: "Response" }],
+          actions: [{ type: "post_to" as const, auto: true, content: "content", _snapshotId: "missing-snap" }],
+        },
+        {},
+      ),
+    });
+
+    await handleAutoExecuteActions(params);
+
+    assert.equal(mockPostAnswerToChannel.mock.callCount(), 0);
+  });
+
+  it("posts error to thread when postAnswerToChannel throws", async () => {
+    const fakeSession = {
+      sessionId: "session-1",
+      channelId: "C001",
+      messageTs: "1700000000.000001",
+      threadTs: "1700000000.000001",
+      userId: "U001",
+      originalQuestion: "q",
+      threadContext: [],
+      refinements: [],
+      errors: [],
+      lastActivity: Date.now(),
+      createdAt: Date.now(),
+      snapshots: { snap1: { text: "content", sections: [{ body: "content" }] } },
+    } as unknown as SessionContext;
+
+    mockGetSession.mock.mockImplementation(async () => fakeSession);
+    mockActiveSessions.restore.mock.mockImplementation(async () => null);
+    mockPostAnswerToChannel.mock.mockImplementation(async () => {
+      throw new Error("channel_not_found");
+    });
+
+    const client = makeClient();
+    const params = makeBaseParams({
+      client,
+      response: makeResponseWithActions(
+        {
+          sections: [{ body: "Response" }],
+          actions: [{ type: "post_to" as const, auto: true, content: "content", _snapshotId: "snap1" }],
+        },
+        {},
+      ),
+    });
+
+    await handleAutoExecuteActions(params);
+
+    const postMessage = client.chat.postMessage as unknown as ReturnType<typeof mock.fn>;
+    assert.equal(postMessage.mock.callCount(), 1);
+    const msgArgs = postMessage.mock.calls[0].arguments[0] as { text: string };
+    assert.ok(msgArgs.text.includes("Failed to post"));
+    assert.ok(msgArgs.text.includes("channel_not_found"));
   });
 });

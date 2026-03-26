@@ -5,14 +5,16 @@
 import type { App } from "@slack/bolt";
 import { errorMessage } from "../../errors.js";
 import type { ClaudeResponse } from "../../claude/index.js";
-import type { Action } from "../../tools/types.js";
+import type { Action, PostToAction } from "../../tools/types.js";
 import type { UserRole } from "../../roles.js";
 import type { TriggerType } from "../../changes/types.js";
 import { canRequestChanges } from "../../permissions.js";
 import { triggerChangeWorkflow } from "./changeAction.js";
 import { triggerFollowUp } from "./changeThreadActions.js";
+import { postAnswerToChannel, resolveOrigin } from "./dmActions.js";
 import { writeInstructionFile } from "../../configurationFiles.js";
-import { findSessionByThread } from "../../sessions.js";
+import { findSessionByThread, getSession } from "../../sessions.js";
+import { activeSessions } from "../activeSessions.js";
 import { logger } from "../../logger.js";
 
 export interface AutoExecuteParams {
@@ -39,7 +41,12 @@ export interface AutoExecuteParams {
 export async function handleAutoExecuteActions(params: AutoExecuteParams): Promise<void> {
   const { client, channelId, threadTs, userId, response, sessionId, role, dmChannel, dmThreadTs, triggerType } = params;
 
-  if (!response.response?.actions || !response.stagedIntents) return;
+  if (!response.response?.actions) return;
+
+  // Handle post_to auto-execute first — available to all roles, not intent-based
+  await handlePostToAutoExecute(params);
+
+  if (!response.stagedIntents) return;
 
   if (!canRequestChanges(role)) {
     logger.warn(`Auto-execute blocked for non-privileged role "${role}"`);
@@ -129,6 +136,92 @@ export async function handleAutoExecuteActions(params: AutoExecuteParams): Promi
         });
       } catch {
         // Best effort — don't let error reporting crash the flow
+      }
+    }
+  }
+}
+
+/**
+ * Auto-execute post_to actions. Runs before intent-based auto-execute
+ * because post_to is snapshot-based (not intent-based) and available to all roles.
+ */
+async function handlePostToAutoExecute(params: AutoExecuteParams): Promise<void> {
+  const { client, channelId, threadTs, response, sessionId, triggerType } = params;
+
+  if (!response.response?.actions) return;
+
+  const postToActions = response.response.actions.filter(
+    (a: Action): a is PostToAction =>
+      a.type === "post_to" && a.auto === true
+  );
+  if (postToActions.length === 0) return;
+
+  // Skip for DMs (non-assistant) and auto-respond — no meaningful channel target
+  if (triggerType === "autoRespond") {
+    logger.debug("post_to auto-execute skipped: auto-respond mode");
+    return;
+  }
+
+  const session = await getSession(sessionId);
+  if (!session) {
+    logger.warn(`post_to auto-execute: session ${sessionId} not found`);
+    return;
+  }
+
+  // Skip for plain DMs (no assistant panel context)
+  if (triggerType === "directMessages" && !session.assistantOriginChannelId) {
+    logger.debug("post_to auto-execute skipped: direct message mode (no channel context)");
+    return;
+  }
+
+  const sessionInfo = await activeSessions.restore(sessionId);
+
+  for (const action of postToActions) {
+    const snapshot = action._snapshotId
+      ? session.snapshots?.[action._snapshotId]
+      : undefined;
+
+    if (!snapshot) {
+      logger.warn(`post_to auto-execute: missing snapshot for session ${sessionId} (snapshotId: ${action._snapshotId ?? "none"})`);
+      await client.chat.postMessage({
+        channel: channelId,
+        thread_ts: threadTs,
+        text: "Could not auto-post: response content was not found.",
+      }).catch(() => {});
+      continue;
+    }
+
+    // Resolve target via fallback chain: explicit → origin → assistant → session channel
+    const origin = sessionInfo
+      ? resolveOrigin(session, sessionInfo)
+      : { originChannel: undefined, originThreadTs: undefined };
+
+    const targetChannel = action.channel
+      || origin.originChannel
+      || session.assistantCurrentChannelId
+      || channelId;
+    const targetThreadTs = action.thread_ts
+      || origin.originThreadTs
+      || undefined;
+
+    if (!targetChannel) {
+      logger.warn(`post_to auto-execute: no target channel for session ${sessionId}`);
+      continue;
+    }
+
+    try {
+      logger.info(`Auto-executing post_to: channel=${targetChannel}, thread=${targetThreadTs ?? "(top-level)"}`);
+      await postAnswerToChannel(client, snapshot, targetChannel, targetThreadTs);
+    } catch (error) {
+      logger.error("post_to auto-execute failed:", error);
+      try {
+        await client.chat.postMessage({
+          channel: channelId,
+          thread_ts: threadTs,
+          text: `Failed to post: ${errorMessage(error)}`,
+        });
+      } catch {
+        // Best effort
       }
     }
   }

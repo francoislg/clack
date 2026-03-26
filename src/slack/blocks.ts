@@ -20,7 +20,7 @@ function answerSections(answer: string) {
 const DEFAULT_LABELS: Record<string, string> = {
   choice: "Select",
   followup: "Continue",
-  send_to_thread: "Send to thread",
+  post_to: "Post to thread",
   change: "Start Change",
   config_update: "Apply Update",
   update: "Update",
@@ -28,7 +28,7 @@ const DEFAULT_LABELS: Record<string, string> = {
 
 /** Button styles for action types */
 const ACTION_STYLES: Record<string, "primary" | "danger" | undefined> = {
-  send_to_thread: "primary",
+  post_to: "primary",
   change: "primary",
 };
 
@@ -36,15 +36,14 @@ const ACTION_STYLES: Record<string, "primary" | "danger" | undefined> = {
 function getActionId(action: Action): string {
   // Avoid collision with existing clack_update (Q&A context refresh)
   if (action.type === "update") return "clack_update_change";
-  // Map to existing DM-first handler
-  if (action.type === "send_to_thread") return "clack_dm_send_to_thread";
+  if (action.type === "post_to") return "clack_post_to";
   return `clack_${action.type}`;
 }
 
 /** Encode button value with session ID and action-specific data */
 function encodeActionValue(sessionId: string, action: Action): string {
   switch (action.type) {
-    case "send_to_thread":
+    case "post_to":
       return JSON.stringify({
         s: sessionId,
         ...(action.channel && { c: action.channel }),
@@ -149,7 +148,7 @@ export function asSlackBlocks(blocks: Record<string, unknown>[]): SlackBlocks {
 export function getStructuredResponseBlocks(payload: SubmitResponsePayload, sessionId: string) {
   const blocks: Record<string, unknown>[] = [];
 
-  // Prepend conversational preamble if present (shown to user, excluded from send_to_thread)
+  // Prepend conversational preamble if present (shown to user, excluded from post_to)
   if (payload.message) {
     const messageChunks = splitForSlack(convertMarkdownToSlack(payload.message));
     for (const chunk of messageChunks) {
