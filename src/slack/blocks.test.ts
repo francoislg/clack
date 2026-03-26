@@ -39,7 +39,7 @@ describe("decodeActionValue", () => {
     assert.equal(result.prompt, "please continue");
   });
 
-  it("decodes send_to_thread fields", () => {
+  it("decodes post_to fields", () => {
     const result = decodeActionValue(JSON.stringify({
       s: "s1",
       c: "C123",
@@ -188,7 +188,7 @@ describe("getResponseActionBlocks", () => {
 
   it("returns empty when all actions are auto", () => {
     const actions: Action[] = [
-      { type: "send_to_thread", auto: true, content: "auto content" },
+      { type: "post_to", auto: true, content: "auto content" },
     ];
     const blocks = getResponseActionBlocks(actions, "sess-1");
     assert.equal(blocks.length, 0);
@@ -198,7 +198,7 @@ describe("getResponseActionBlocks", () => {
     const actions: Action[] = [
       { type: "followup", label: "Next", prompt: "next" },
       { type: "choice", label: "Pick A", value: "a" },
-      { type: "send_to_thread", content: "thread content" },
+      { type: "post_to", content: "thread content" },
       { type: "change", ref: "r1" },
       { type: "config_update", ref: "c1" },
       { type: "update", ref: "u1" },
@@ -215,7 +215,7 @@ describe("getResponseActionBlocks", () => {
     // Verify action_id prefixes
     assert.ok((allElements[0].action_id as string).startsWith("clack_followup"));
     assert.ok((allElements[1].action_id as string).startsWith("clack_choice"));
-    assert.ok((allElements[2].action_id as string).startsWith("clack_dm_send_to_thread"));
+    assert.ok((allElements[2].action_id as string).startsWith("clack_post_to"));
     assert.ok((allElements[3].action_id as string).startsWith("clack_change"));
     assert.ok((allElements[4].action_id as string).startsWith("clack_config_update"));
     // "update" maps to "clack_update_change" to avoid collision
@@ -224,14 +224,14 @@ describe("getResponseActionBlocks", () => {
 
   it("uses default labels when none provided", () => {
     const actions: Action[] = [
-      { type: "send_to_thread", content: "thread content" },
+      { type: "post_to", content: "thread content" },
       { type: "change", ref: "r1" },
     ];
     const blocks = getResponseActionBlocks(actions, "sess-1");
     const elements = blocks[0].elements as Array<Record<string, unknown>>;
 
     const sendLabel = (elements[0].text as { text: string }).text;
-    assert.equal(sendLabel, "Send to thread");
+    assert.equal(sendLabel, "Post to thread");
 
     const changeLabel = (elements[1].text as { text: string }).text;
     assert.equal(changeLabel, "Start Change");
@@ -247,9 +247,9 @@ describe("getResponseActionBlocks", () => {
     assert.equal(label, "Implement Feature");
   });
 
-  it("applies primary style to send_to_thread and change buttons", () => {
+  it("applies primary style to post_to and change buttons", () => {
     const actions: Action[] = [
-      { type: "send_to_thread", content: "thread content" },
+      { type: "post_to", content: "thread content" },
       { type: "change", ref: "r1" },
       { type: "followup", label: "Continue", prompt: "go" },
     ];
@@ -314,10 +314,10 @@ describe("getResponseActionBlocks", () => {
     assert.equal(JSON.parse(elements[2].value as string).r, "update-ref");
   });
 
-  it("encodes send_to_thread channel, thread_ts, and snapshotId", () => {
+  it("encodes post_to channel, thread_ts, and snapshotId", () => {
     const actions: Action[] = [
       {
-        type: "send_to_thread",
+        type: "post_to",
         content: "thread content",
         channel: "C999",
         thread_ts: "111.222",
@@ -411,7 +411,7 @@ describe("getStructuredResponseBlocks", () => {
   it("skips divider when all actions are auto-executed", () => {
     const payload: SubmitResponsePayload = {
       sections: [{ body: "Done" }],
-      actions: [{ type: "send_to_thread", auto: true, content: "auto content" }],
+      actions: [{ type: "post_to", auto: true, content: "auto content" }],
     };
     const blocks = getStructuredResponseBlocks(payload, "sess-1");
     assert.ok(blocks.every((b) => b.type !== "divider"));

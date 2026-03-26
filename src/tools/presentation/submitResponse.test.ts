@@ -534,7 +534,7 @@ describe("createSubmitResponseTool", () => {
   });
 
   describe("per-button content persistence", () => {
-    it("does not create snapshots when no send_to_thread actions exist", async () => {
+    it("does not create snapshots when no post_to actions exist", async () => {
       const snapshots: { id: string; snapshot: ResponseSnapshot }[] = [];
       const deps = makeDeps({
         persistSnapshot: async (id, snapshot) => {
@@ -552,7 +552,7 @@ describe("createSubmitResponseTool", () => {
       assert.equal(parsed.snapshotId, undefined);
     });
 
-    it("creates one content entry per send_to_thread action", async () => {
+    it("creates one content entry per post_to action", async () => {
       const snapshots: { id: string; snapshot: ResponseSnapshot }[] = [];
       const deps = makeDeps({
         persistSnapshot: async (id, snapshot) => {
@@ -563,8 +563,8 @@ describe("createSubmitResponseTool", () => {
       await callTool(deps, {
         sections: [{ body: "Option 1" }, { body: "Option 2" }],
         actions: [
-          { type: "send_to_thread", content: "Option 1 text", label: "Send 1" },
-          { type: "send_to_thread", content: "Option 2 text", label: "Send 2" },
+          { type: "post_to", content: "Option 1 text", label: "Send 1" },
+          { type: "post_to", content: "Option 2 text", label: "Send 2" },
         ],
       });
 
@@ -578,7 +578,7 @@ describe("createSubmitResponseTool", () => {
       assert.notEqual(snapshots[0].id, snapshots[1].id);
     });
 
-    it("sets _snapshotId on each send_to_thread action", async () => {
+    it("sets _snapshotId on each post_to action", async () => {
       const snapshots: { id: string }[] = [];
       const setCalls: unknown[][] = [];
       const deps = makeDeps({
@@ -593,7 +593,7 @@ describe("createSubmitResponseTool", () => {
       await callTool(deps, {
         sections: [{ body: "Answer" }],
         actions: [
-          { type: "send_to_thread", content: "Share this" },
+          { type: "post_to", content: "Share this" },
         ],
       });
 
@@ -613,7 +613,7 @@ describe("createSubmitResponseTool", () => {
 
       await callTool(deps, {
         sections: [{ body: "no persist" }],
-        actions: [{ type: "send_to_thread", content: "text" }],
+        actions: [{ type: "post_to", content: "text" }],
       });
 
       const [payload] = setCalls[0] as [{ actions: { _snapshotId?: string }[] }];

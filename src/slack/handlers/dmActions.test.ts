@@ -207,9 +207,13 @@ beforeEach(() => {
 describe("registerDmActionHandlers — registration", () => {
   it("registers all expected action handlers", () => {
     const actionKeys = [...actionHandlers.keys()];
-    // Check for regex handler for send_to_thread
-    const hasRegex = actionKeys.some((k) => k instanceof RegExp && k.test("clack_dm_send_to_thread_0"));
-    assert.ok(hasRegex, "should register a regex handler for clack_dm_send_to_thread_N");
+    // Check for regex handler for post_to
+    const hasRegex = actionKeys.some((k) => k instanceof RegExp && k.test("clack_post_to_0"));
+    assert.ok(hasRegex, "should register a regex handler for clack_post_to_N");
+
+    // Backward compat: old action ID still registered
+    const hasOldRegex = actionKeys.some((k) => k instanceof RegExp && k.test("clack_dm_send_to_thread_0"));
+    assert.ok(hasOldRegex, "should register backward compat handler for clack_dm_send_to_thread_N");
 
     // Check string-based handlers
     const stringKeys = actionKeys.filter((k) => typeof k === "string") as string[];
@@ -263,10 +267,10 @@ describe("resolveActionSession — missing session", () => {
 });
 
 // ============================================================================
-// handleSendToThread
+// handlePostTo
 // ============================================================================
 
-describe("handleSendToThread", () => {
+describe("handlePostTo", () => {
   it("posts answer to the target channel with snapshot content", async () => {
     const session = makeSession({
       snapshots: {
@@ -278,9 +282,9 @@ describe("handleSendToThread", () => {
     mockRestoreSessionInfo.mock.mockImplementation(async () => sessionInfo);
 
     const client = makeClient();
-    const handler = findHandler(actionHandlers, "clack_dm_send_to_thread_0");
+    const handler = findHandler(actionHandlers, "clack_post_to_0");
     const value = encodeValue("session-1", { c: "C_TARGET", t: "17.001", sn: "snap-1" });
-    const body = makeBlockAction("clack_dm_send_to_thread_0", value);
+    const body = makeBlockAction("clack_post_to_0", value);
 
     await handler({ ack: async () => {}, body, client });
 
@@ -298,9 +302,9 @@ describe("handleSendToThread", () => {
     mockRestoreSessionInfo.mock.mockImplementation(async () => sessionInfo);
 
     const client = makeClient();
-    const handler = findHandler(actionHandlers, "clack_dm_send_to_thread_0");
+    const handler = findHandler(actionHandlers, "clack_post_to_0");
     const value = encodeValue("session-1"); // no snapshotId → no snapshot found
-    const body = makeBlockAction("clack_dm_send_to_thread_0", value);
+    const body = makeBlockAction("clack_post_to_0", value);
 
     await handler({ ack: async () => {}, body, client });
 
@@ -319,9 +323,9 @@ describe("handleSendToThread", () => {
     mockRestoreSessionInfo.mock.mockImplementation(async () => sessionInfo);
 
     const client = makeClient();
-    const handler = findHandler(actionHandlers, "clack_dm_send_to_thread_0");
+    const handler = findHandler(actionHandlers, "clack_post_to_0");
     const value = encodeValue("session-1", { sn: "snap-1" }); // no targetChannel, has snapshot
-    const body = makeBlockAction("clack_dm_send_to_thread_0", value);
+    const body = makeBlockAction("clack_post_to_0", value);
 
     await handler({ ack: async () => {}, body, client });
 
@@ -341,9 +345,9 @@ describe("handleSendToThread", () => {
     mockRestoreSessionInfo.mock.mockImplementation(async () => sessionInfo);
 
     const client = makeClient();
-    const handler = findHandler(actionHandlers, "clack_dm_send_to_thread_0");
+    const handler = findHandler(actionHandlers, "clack_post_to_0");
     const value = encodeValue("session-1", { c: "C_TARGET", sn: "snap-1" });
-    const body = makeBlockAction("clack_dm_send_to_thread_0", value);
+    const body = makeBlockAction("clack_post_to_0", value);
 
     await handler({ ack: async () => {}, body, client });
 
@@ -368,9 +372,9 @@ describe("handleSendToThread", () => {
     mockRestoreSessionInfo.mock.mockImplementation(async () => sessionInfo);
 
     const client = makeClient();
-    const handler = findHandler(actionHandlers, "clack_dm_send_to_thread_0");
+    const handler = findHandler(actionHandlers, "clack_post_to_0");
     const value = encodeValue("session-1", { c: "C_TARGET", sn: "snap-1" });
-    const body = makeBlockAction("clack_dm_send_to_thread_0", value);
+    const body = makeBlockAction("clack_post_to_0", value);
 
     await handler({ ack: async () => {}, body, client });
 
@@ -397,9 +401,9 @@ describe("handleSendToThread", () => {
     mockRestoreSessionInfo.mock.mockImplementation(async () => sessionInfo);
 
     const client = makeClient();
-    const handler = findHandler(actionHandlers, "clack_dm_send_to_thread_0");
+    const handler = findHandler(actionHandlers, "clack_post_to_0");
     const value = encodeValue("session-1", { sn: "snap-1" });
-    const body = makeBlockAction("clack_dm_send_to_thread_0", value);
+    const body = makeBlockAction("clack_post_to_0", value);
 
     await handler({ ack: async () => {}, body, client });
 
@@ -427,9 +431,9 @@ describe("handleSendToThread", () => {
       return { ok: true };
     });
 
-    const handler = findHandler(actionHandlers, "clack_dm_send_to_thread_0");
+    const handler = findHandler(actionHandlers, "clack_post_to_0");
     const value = encodeValue("session-1", { c: "C_TARGET", sn: "snap-1" });
-    const body = makeBlockAction("clack_dm_send_to_thread_0", value);
+    const body = makeBlockAction("clack_post_to_0", value);
 
     await handler({ ack: async () => {}, body, client });
 
@@ -1066,9 +1070,9 @@ describe("postAnswerToChannel — structured sections", () => {
     mockRestoreSessionInfo.mock.mockImplementation(async () => sessionInfo);
 
     const client = makeClient();
-    const handler = findHandler(actionHandlers, "clack_dm_send_to_thread_0");
+    const handler = findHandler(actionHandlers, "clack_post_to_0");
     const value = encodeValue("session-1", { c: "C_TARGET", sn: "snap-struct" });
-    const body = makeBlockAction("clack_dm_send_to_thread_0", value);
+    const body = makeBlockAction("clack_post_to_0", value);
 
     await handler({ ack: async () => {}, body, client });
 
@@ -1095,9 +1099,9 @@ describe("postAnswerToChannel — structured sections", () => {
     mockRestoreSessionInfo.mock.mockImplementation(async () => sessionInfo);
 
     const client = makeClient();
-    const handler = findHandler(actionHandlers, "clack_dm_send_to_thread_0");
+    const handler = findHandler(actionHandlers, "clack_post_to_0");
     const value = encodeValue("session-1", { c: "C_TARGET", sn: "snap-2" });
-    const body = makeBlockAction("clack_dm_send_to_thread_0", value);
+    const body = makeBlockAction("clack_post_to_0", value);
 
     await handler({ ack: async () => {}, body, client });
 

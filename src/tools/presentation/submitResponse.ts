@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { IntentStore, ResponseCapture, ToolCallRecorder } from "../server.js";
-import type { DeliverFn, ResponseSnapshot, SendToThreadAction } from "../types.js";
+import type { DeliverFn, ResponseSnapshot, PostToAction } from "../types.js";
 import { textResult, errorResult } from "../helpers.js";
 import { getStructuredResponseBlocks, getResponseActionBlocks, validateSlackBlocks, asSlackBlocks } from "../../slack/blocks.js";
 
@@ -26,13 +26,13 @@ const choiceActionSchema = z.object({
   workMode: z.boolean().optional().describe("If true, enables work mode when clicked (use for choices that request code changes)"),
 });
 
-const sendToThreadActionSchema = z.object({
-  type: z.literal("send_to_thread"),
-  label: z.string().optional().describe("Custom button label (default: 'Send to thread')"),
-  auto: z.boolean().optional().describe("If true, post the answer to the original channel thread immediately without waiting for button click"),
-  channel: z.string().optional().describe("Explicit target channel ID. Use when sharing findings to a different thread than the origin (e.g., a thread the user shared via URL)."),
-  thread_ts: z.string().optional().describe("Explicit target thread timestamp. Use with channel to post into a specific thread."),
-  content: z.string().describe("The exact text this button will post to the thread. Each send_to_thread button posts only its own content. When presenting multiple options, put each option's text in its own button's content field."),
+const postToActionSchema = z.object({
+  type: z.literal("post_to"),
+  label: z.string().optional().describe("Custom button label (default: 'Post to thread')"),
+  auto: z.boolean().optional().describe("If true, post the content immediately without waiting for button click. Use when the user explicitly asks to post somewhere (e.g., 'post that in the channel')."),
+  channel: z.string().optional().describe("Explicit target channel ID. Use when posting to a different channel than the default (e.g., a thread the user shared via URL)."),
+  thread_ts: z.string().optional().describe("Explicit target thread timestamp. Omit for a top-level channel post (e.g., 'in the channel')."),
+  content: z.string().describe("The exact text to post. Each post_to action posts only its own content. When presenting multiple options, put each option's text in its own action's content field."),
 });
 
 const changeActionSchema = z.object({
@@ -59,7 +59,7 @@ const updateActionSchema = z.object({
 const actionSchema = z.discriminatedUnion("type", [
   followupActionSchema,
   choiceActionSchema,
-  sendToThreadActionSchema,
+  postToActionSchema,
   changeActionSchema,
   configUpdateActionSchema,
   updateActionSchema,
@@ -118,7 +118,7 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
     "Submit the final response to the user. This defines what the user sees: text sections and interactive buttons. Always call this tool to deliver your response.",
     {
       message: z.string().optional().describe(
-        "Short conversational preamble shown to the user but NOT included when sharing via send_to_thread. " +
+        "Short conversational preamble shown to the user but NOT included when sharing via post_to. " +
         "Use for meta-commentary like 'Here is the updated version:' or 'I adjusted the tone:'. " +
         "Put the actual shareable content in sections."
       ),
@@ -153,14 +153,14 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
         });
       }
 
-      // Persist per-button content for each send_to_thread action
+      // Persist per-button content for each post_to action
       if (persistSnapshot) {
         for (const action of payload.actions) {
-          if (action.type === "send_to_thread") {
+          if (action.type === "post_to") {
             const contentId = randomBytes(6).toString("hex");
-            const content = (action as SendToThreadAction).content;
+            const content = action.content;
             await persistSnapshot(contentId, { text: content, sections: [{ body: content }] });
-            (action as SendToThreadAction)._snapshotId = contentId;
+            (action as PostToAction)._snapshotId = contentId;
           }
         }
       }

@@ -40,10 +40,10 @@ async function resolveActionSession(
 }
 
 /**
- * Post per-button content to a target channel thread.
- * Content comes from the button's dedicated snapshot entry (persisted at creation time).
+ * Post snapshot content to a target channel or thread.
+ * Content comes from the dedicated snapshot entry (persisted at creation time).
  */
-async function postAnswerToChannel(
+export async function postAnswerToChannel(
   client: App["client"],
   snapshot: ResponseSnapshot,
   targetChannel: string,
@@ -66,7 +66,7 @@ async function postAnswerToChannel(
 }
 
 /** Resolve originChannel and originThreadTs from session + sessionInfo. */
-function resolveOrigin(
+export function resolveOrigin(
   session: SessionContext,
   sessionInfo: SessionInfo,
 ): { originChannel: string | undefined; originThreadTs: string | undefined } {
@@ -110,8 +110,8 @@ async function confirmInDm(
 // Individual action handlers
 // ---------------------------------------------------------------------------
 
-/** Send snapshot/answer content to a target channel thread. */
-async function handleSendToThread(
+/** Post snapshot content to a target channel or thread. */
+async function handlePostTo(
   body: BlockAction,
   client: App["client"],
 ): Promise<void> {
@@ -127,7 +127,7 @@ async function handleSendToThread(
     : undefined;
 
   if (!snapshot) {
-    logger.error(`Cannot send to thread: missing content entry for ${sessionId} (snapshotId: ${decoded.snapshotId ?? "none"})`);
+    logger.error(`post_to failed: missing content entry for ${sessionId} (snapshotId: ${decoded.snapshotId ?? "none"})`);
     return;
   }
 
@@ -143,7 +143,7 @@ async function handleSendToThread(
     || undefined;
 
   if (!targetChannel) {
-    logger.error(`Cannot send to thread: missing target channel for ${sessionId}`);
+    logger.error(`post_to failed: missing target channel for ${sessionId}`);
     return;
   }
 
@@ -156,7 +156,7 @@ async function handleSendToThread(
 
     await confirmInDm(client, session, ":white_check_mark: Answer shared.");
   } catch (error) {
-    logger.error("Send to thread failed:", error);
+    logger.error("post_to failed:", error);
     const channel = session.dmChannel || session.channelId;
     const threadTs = session.dmThreadTs || session.threadTs;
     if (channel && threadTs) {
@@ -395,9 +395,17 @@ async function handlePostNew(
 // ---------------------------------------------------------------------------
 
 export function registerDmActionHandlers(app: App): void {
+  // New action ID
+  app.action<BlockAction>(/^clack_post_to_\d+$/, async ({ ack, body, client }) => {
+    await ack();
+    await handlePostTo(body, client);
+  });
+
+  // Backward compat: old action ID from sessions created before rename.
+  // Can be removed once all Slack messages with old buttons have expired.
   app.action<BlockAction>(/^clack_dm_send_to_thread_\d+$/, async ({ ack, body, client }) => {
     await ack();
-    await handleSendToThread(body, client);
+    await handlePostTo(body, client);
   });
 
   app.action<BlockAction>("clack_dm_accept_synthesis", async ({ ack, body, client }) => {

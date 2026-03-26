@@ -111,7 +111,7 @@ describe("buildPrompt", () => {
     const prompt = buildPrompt(session);
     assert.ok(prompt.includes("DELIVERY CONTEXT"));
     assert.ok(prompt.includes("DM-first"));
-    assert.ok(prompt.includes("send_to_thread"));
+    assert.ok(prompt.includes("post_to"));
   });
 
   it("notes when an answer was already shared in DM-first mode", () => {

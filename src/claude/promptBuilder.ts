@@ -65,9 +65,10 @@ function buildDeliveryContext(session: SessionContext): string | null {
     if (session.channelPostTs) {
       lines.push("- An answer was already shared to the original channel thread.");
     }
-    lines.push("- `send_to_thread` shares this DM answer to the original channel thread the reaction was on. `reject` dismisses.");
-    lines.push("- You can also include `send_to_thread` with explicit `channel` and `thread_ts` to share findings to a different thread (e.g., one the user shared via a Slack URL).");
-    lines.push("- Choose actions appropriate to your response. If your answer investigates or summarizes the thread content, include `send_to_thread` so the user can share the findings back.");
+    lines.push("- `post_to` shares this DM answer to the original channel thread the reaction was on. `reject` dismisses.");
+    lines.push("- You can also include `post_to` with explicit `channel` and `thread_ts` to share findings to a different thread (e.g., one the user shared via a Slack URL).");
+    lines.push("- If the user asks to share/post to the channel (not the thread), use `post_to` with `auto: true` and no `thread_ts` — this posts as a top-level channel message.");
+    lines.push("- Choose actions appropriate to your response. If your answer investigates or summarizes the thread content, include `post_to` so the user can share the findings back.");
   } else if (session.assistantOriginChannelId && !session.originChannel) {
     // Assistant side-panel: private chat panel, can share to channel
     lines.push("- Mode: Assistant side-panel");
@@ -77,16 +78,17 @@ function buildDeliveryContext(session: SessionContext): string | null {
       lines.push(`- The user is currently viewing channel ${session.assistantCurrentChannelId}. When they say "here", "this channel", "latest messages", "what's being discussed", "summarize", "what do you see", etc., they are referring to that channel.`);
       lines.push(`- IMPORTANT: You CANNOT see the channel content unless you call \`fetch_channel_messages\` with channel ID ${session.assistantCurrentChannelId}. Always call it proactively when the user's question relates to the channel — do NOT tell the user to ask you to fetch it.`);
     }
-    lines.push("- `send_to_thread` shares this answer to the channel the user is viewing, as a top-level message.");
-    lines.push("- You can also include `send_to_thread` with explicit `channel` and `thread_ts` to share findings to a specific thread (e.g., one the user shared via a Slack URL).");
-    lines.push("- Choose actions appropriate to your response. If your answer investigates or summarizes content from a channel or thread, include `send_to_thread` so the user can share the findings back.");
+    lines.push("- `post_to` shares this answer to the channel the user is viewing, as a top-level message.");
+    lines.push("- You can also include `post_to` with explicit `channel` and `thread_ts` to share findings to a specific thread (e.g., one the user shared via a Slack URL).");
+    lines.push("- If the user asks to post in the channel, use `post_to` with `auto: true` — this posts immediately without a button click.");
+    lines.push("- Choose actions appropriate to your response. If your answer investigates or summarizes content from a channel or thread, include `post_to` so the user can share the findings back.");
   } else if (session.triggerType === "autoRespond") {
     // Auto-respond: automatically triggered response to a channel message
     lines.push("- Mode: Auto-respond (you have been automatically tasked to respond to this message)");
     lines.push("- Read the message carefully. It might be an alert to investigate, a question to answer, a notification to analyze, or something else entirely.");
     lines.push("- Additional context from the rule that triggered you may be prepended to the message — use it to guide your response.");
     lines.push("- Your response will be posted as a thread reply on the triggering message.");
-    lines.push("- Do NOT include `accept`, `reject`, or `send_to_thread` actions — they have no meaning here.");
+    lines.push("- Do NOT include `accept`, `reject`, or `post_to` actions — they have no meaning here.");
   } else {
     // All non-DM-first modes: response is already where the user can see it
     if (session.triggerType === "reactions") {
@@ -98,8 +100,9 @@ function buildDeliveryContext(session: SessionContext): string | null {
     }
     lines.push("- The response is already visible to the user. There is no separate destination to send it to.");
     lines.push("- Do NOT include `accept` or `reject` actions — they have no meaning here.");
-    lines.push("- By default, do NOT include `send_to_thread` — the answer is already visible in the thread.");
-    lines.push("- Exception: if you investigated content from another thread or channel (e.g., the user shared a Slack message URL), include `send_to_thread` with explicit `channel` and `thread_ts` so the user can share findings back to that thread.");
+    lines.push("- By default, do NOT include `post_to` — the answer is already visible in the thread.");
+    lines.push("- Exception: if you investigated content from another thread or channel (e.g., the user shared a Slack message URL), include `post_to` with explicit `channel` and `thread_ts` so the user can share findings back to that thread.");
+    lines.push("- If the user asks to post \"in the channel\", include `post_to` with `auto: true` and no `thread_ts` — this posts the content as a top-level message in the parent channel.");
   }
 
   return lines.join("\n");
