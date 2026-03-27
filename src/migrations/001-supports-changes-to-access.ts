@@ -4,15 +4,28 @@ export const migration: Migration = {
   version: 1,
   name: "Migrate supportsChanges to access",
   priority: "blocking",
-  prompt: `Migrate the repository config from the deprecated "supportsChanges" boolean to the new "access" property.
-
-For each repository in the "repositories" array of data/config.json:
-- If the repository has "supportsChanges": true, replace it with "access": { "read": "member", "write": "dev" }
-- If the repository has "supportsChanges": false, replace it with "access": { "read": "member" }
-- If the repository has no "supportsChanges" field at all, leave it unchanged (it already uses the new format or defaults)
-- Remove the "supportsChanges" key entirely after migrating
-
-Do NOT change any other fields. Preserve formatting and all other config properties.
-If no repositories have "supportsChanges", the file is already migrated — do nothing.`,
   files: ["data/config.json"],
+  static: (files) => {
+    const result: Record<string, string> = {};
+    for (const [path, content] of Object.entries(files)) {
+      if (!path.endsWith("config.json") || !content) continue;
+      const config = JSON.parse(content);
+      let changed = false;
+      for (const repo of config.repositories ?? []) {
+        if ("supportsChanges" in repo) {
+          if (repo.supportsChanges) {
+            repo.access = { read: "member", write: "dev" };
+          } else {
+            repo.access = { read: "member" };
+          }
+          delete repo.supportsChanges;
+          changed = true;
+        }
+      }
+      if (changed) {
+        result[path] = JSON.stringify(config, null, 2) + "\n";
+      }
+    }
+    return result;
+  },
 };
