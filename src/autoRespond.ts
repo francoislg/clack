@@ -16,6 +16,8 @@ export interface AutoRespondRule {
   keywords?: string[];
   /** Optional extra context injected into Claude's prompt for this rule */
   extraContext?: string;
+  /** Optional pre-analysis context — when set, a lightweight Claude Haiku call evaluates message relevance before responding */
+  preAnalysisContext?: string;
   enabled: boolean;
 }
 
@@ -92,7 +94,8 @@ export async function addRule(
   channels: string[],
   userFilters?: string[],
   keywords?: string[],
-  extraContext?: string
+  extraContext?: string,
+  preAnalysisContext?: string
 ): Promise<AutoRespondRule> {
   const rules = await loadRules();
   const rule: AutoRespondRule = {
@@ -101,6 +104,7 @@ export async function addRule(
     ...(userFilters && userFilters.length > 0 && { userFilters }),
     ...(keywords && keywords.length > 0 && { keywords }),
     ...(extraContext?.trim() && { extraContext: extraContext.trim() }),
+    ...(preAnalysisContext?.trim() && { preAnalysisContext: preAnalysisContext.trim() }),
     enabled: true,
   };
   rules.push(rule);
@@ -114,7 +118,8 @@ export async function updateRule(
   channels: string[],
   userFilters?: string[],
   keywords?: string[],
-  extraContext?: string
+  extraContext?: string,
+  preAnalysisContext?: string
 ): Promise<AutoRespondRule | null> {
   const rules = await loadRules();
   const rule = rules.find((r) => r.id === ruleId);
@@ -135,6 +140,11 @@ export async function updateRule(
     rule.extraContext = extraContext.trim();
   } else {
     delete rule.extraContext;
+  }
+  if (preAnalysisContext?.trim()) {
+    rule.preAnalysisContext = preAnalysisContext.trim();
+  } else {
+    delete rule.preAnalysisContext;
   }
 
   await saveState({ rules });

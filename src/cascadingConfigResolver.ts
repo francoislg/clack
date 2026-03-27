@@ -37,7 +37,7 @@ export function buildRoleChain(role: UserRole, changesWorkflowEnabled: boolean):
  * Scan a directory for .md files. Returns filenames (not full paths).
  * Returns empty array if the directory does not exist.
  */
-function scanMdFiles(dirPath: string): string[] {
+export function scanMdFiles(dirPath: string): string[] {
   if (!existsSync(dirPath)) return [];
   try {
     return readdirSync(dirPath, { withFileTypes: true })
@@ -168,6 +168,37 @@ export function listRoleDirFiles(): RoleDirListing[] {
   }
 
   return result;
+}
+
+/**
+ * List files in a single directory pair (default + custom).
+ * Works for any directory name — not tied to role semantics.
+ */
+export function listSingleDirFiles(dir: string): InstructionFileEntry[] {
+  const defaultDir = getDefaultConfigurationDir();
+  const configDir = getConfigurationDir();
+
+  const defaultFiles = new Set(scanMdFiles(resolve(defaultDir, dir)));
+  const customFiles = new Set(scanMdFiles(resolve(configDir, dir)));
+
+  const allFiles = new Set([...defaultFiles, ...customFiles]);
+  if (allFiles.size === 0) return [];
+
+  const files: InstructionFileEntry[] = [];
+  for (const filename of [...allFiles].sort()) {
+    const hasDefault = defaultFiles.has(filename);
+    const hasCustom = customFiles.has(filename);
+
+    if (hasCustom && hasDefault) {
+      files.push({ filename, source: "customized" });
+    } else if (hasCustom) {
+      files.push({ filename, source: "custom-only" });
+    } else {
+      files.push({ filename, source: "default" });
+    }
+  }
+
+  return files;
 }
 
 /**

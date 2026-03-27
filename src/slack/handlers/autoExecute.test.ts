@@ -777,24 +777,6 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
     assert.equal(args[3], undefined); // no thread_ts = top-level
   });
 
-  it("skips post_to auto-execute for auto-respond trigger", async () => {
-    const params = makeBaseParams({
-      triggerType: "autoRespond",
-      response: makeResponseWithActions(
-        {
-          sections: [{ body: "Response" }],
-          actions: [{ type: "post_to" as const, auto: true, content: "content", _snapshotId: "snap1" }],
-        },
-        {},
-      ),
-    });
-
-    await handleAutoExecuteActions(params);
-
-    assert.equal(mockPostAnswerToChannel.mock.callCount(), 0);
-    assert.equal(mockGetSession.mock.callCount(), 0);
-  });
-
   it("skips post_to auto-execute for plain DM trigger (no assistant)", async () => {
     const fakeSession = {
       sessionId: "session-1",

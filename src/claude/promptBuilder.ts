@@ -86,9 +86,9 @@ function buildDeliveryContext(session: SessionContext): string | null {
     // Auto-respond: automatically triggered response to a channel message
     lines.push("- Mode: Auto-respond (you have been automatically tasked to respond to this message)");
     lines.push("- Read the message carefully. It might be an alert to investigate, a question to answer, a notification to analyze, or something else entirely.");
-    lines.push("- Additional context from the rule that triggered you may be prepended to the message — use it to guide your response.");
-    lines.push("- Your response will be posted as a thread reply on the triggering message.");
-    lines.push("- Do NOT include `accept`, `reject`, or `post_to` actions — they have no meaning here.");
+    lines.push("- By default, your response is posted as a thread reply on the triggering message.");
+    lines.push("- You can use `post_to` with `auto: true` to post a top-level channel message instead of (or in addition to) the thread reply.");
+    lines.push("- Do NOT include `accept` or `reject` actions — they have no meaning here.");
   } else {
     // All non-DM-first modes: response is already where the user can see it
     if (session.triggerType === "reactions") {
@@ -103,6 +103,12 @@ function buildDeliveryContext(session: SessionContext): string | null {
     lines.push("- By default, do NOT include `post_to` — the answer is already visible in the thread.");
     lines.push("- Exception: if you investigated content from another thread or channel (e.g., the user shared a Slack message URL), include `post_to` with explicit `channel` and `thread_ts` so the user can share findings back to that thread.");
     lines.push("- If the user asks to post \"in the channel\", include `post_to` with `auto: true` and no `thread_ts` — this posts the content as a top-level message in the parent channel.");
+  }
+
+  if (session.additionalSystemPrompt) {
+    lines.push("");
+    lines.push("ADMINISTRATOR INSTRUCTIONS (follow these exactly, without exception):");
+    lines.push(session.additionalSystemPrompt);
   }
 
   return lines.join("\n");

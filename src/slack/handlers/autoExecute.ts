@@ -156,11 +156,6 @@ async function handlePostToAutoExecute(params: AutoExecuteParams): Promise<void>
   );
   if (postToActions.length === 0) return;
 
-  // Skip for DMs (non-assistant) and auto-respond — no meaningful channel target
-  if (triggerType === "autoRespond") {
-    logger.debug("post_to auto-execute skipped: auto-respond mode");
-    return;
-  }
 
   const session = await getSession(sessionId);
   if (!session) {
