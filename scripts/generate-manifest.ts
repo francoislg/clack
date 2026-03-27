@@ -45,6 +45,7 @@ interface PartialConfig {
   directMessages?: DirectMessagesConfig;
   mentions?: MentionsConfig;
   autoRespond?: AutoRespondConfig;
+  allowScheduledMessages?: boolean;
 }
 
 const DEFAULTS: Required<SlackAppConfig> = {
@@ -104,6 +105,7 @@ interface ConfigFeatures {
   mentions: boolean;
   autoRespond: boolean;
   fetchUsernames: boolean;
+  scheduledMessages: boolean;
 }
 
 function getEnabledFeatures(config: PartialConfig): ConfigFeatures {
@@ -112,6 +114,7 @@ function getEnabledFeatures(config: PartialConfig): ConfigFeatures {
     mentions: config.mentions?.enabled ?? false,
     autoRespond: config.autoRespond?.enabled ?? false,
     fetchUsernames: config.slack?.fetchAndStoreUsername ?? false,
+    scheduledMessages: config.allowScheduledMessages ?? false,
   };
 }
 
@@ -231,6 +234,7 @@ function main(): void {
   console.log(`    - Mentions: ${features.mentions}`);
   console.log(`    - Auto-respond: ${features.autoRespond}`);
   console.log(`    - Fetch usernames: ${features.fetchUsernames}`);
+  console.log(`    - Scheduled messages: ${features.scheduledMessages}`);
   console.log(`  Scopes: ${manifest.oauth_config?.scopes?.bot?.join(", ")}`);
   console.log(`  Events: ${manifest.settings?.event_subscriptions?.bot_events?.join(", ")}`);
 }

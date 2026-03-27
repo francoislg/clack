@@ -104,6 +104,7 @@ export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promis
       deliver,
       onEvent: streamer.handleEvent,
       abortController,
+      userTimezone: userInfo?.tz,
     });
 
     if (response.cancelled) {

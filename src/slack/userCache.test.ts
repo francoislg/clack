@@ -58,7 +58,7 @@ describe("formatUserIdentity", () => {
 // ---------------------------------------------------------------------------
 
 function makeClient(
-  users: Record<string, { name?: string; display_name?: string; real_name?: string }>,
+  users: Record<string, { name?: string; display_name?: string; real_name?: string; tz?: string }>,
   bots: Record<string, { name?: string }> = {}
 ): App["client"] {
   return {
@@ -70,6 +70,7 @@ function makeClient(
           ok: true,
           user: {
             name: u.name,
+            tz: u.tz,
             profile: {
               display_name: u.display_name,
               real_name: u.real_name,
@@ -122,6 +123,22 @@ describe("getUserInfo", () => {
     const client = makeClient({});
     const info = await getUserInfo(client, "U999");
     assert.equal(info, undefined);
+  });
+
+  it("populates tz field from users.info response", async () => {
+    const client = makeClient({
+      U333: { name: "carol", display_name: "Carol", tz: "America/New_York" },
+    });
+    const info = await getUserInfo(client, "U333");
+    assert.equal(info?.tz, "America/New_York");
+  });
+
+  it("leaves tz undefined when not set in Slack", async () => {
+    const client = makeClient({
+      U444: { name: "dave", display_name: "Dave" },
+    });
+    const info = await getUserInfo(client, "U444");
+    assert.equal(info?.tz, undefined);
   });
 
   it("routes bot IDs (starting with B) to bots.info", async () => {

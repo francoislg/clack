@@ -14,6 +14,7 @@ describe("buildQueryContext", () => {
       session: { id: "sess-1" } as unknown as BuildQueryContextParams["session"],
       config: stubConfig,
       changesWorkflowEnabled: true,
+      allowScheduledMessages: false,
     };
 
     const ctx = buildQueryContext(params);
@@ -38,6 +39,7 @@ describe("buildQueryContext", () => {
       session: { id: "sess-2" } as unknown as BuildQueryContextParams["session"],
       config: stubConfig,
       changesWorkflowEnabled: false,
+      allowScheduledMessages: false,
       slackClient: fakeClient,
       deliver: fakeDeliver,
     };
@@ -57,6 +59,7 @@ describe("buildQueryContext", () => {
         session: {} as unknown as BuildQueryContextParams["session"],
         config: stubConfig,
         changesWorkflowEnabled: false,
+        allowScheduledMessages: false,
       });
       assert.equal(ctx.role, role);
     }

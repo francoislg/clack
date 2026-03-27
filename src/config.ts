@@ -111,6 +111,7 @@ export interface Config {
   sessions: SessionsConfig;
   claudeCode: ClaudeCodeConfig;
   changesWorkflow?: ChangesWorkflowConfig;
+  allowScheduledMessages?: boolean;
 }
 
 const DEFAULTS: Partial<Config> = {
@@ -413,6 +414,7 @@ function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Config {
           monitoringIntervalMinutes: num(cwRaw, "monitoringIntervalMinutes"),
         }
       : undefined,
+    allowScheduledMessages: bool(c, "allowScheduledMessages") ?? false,
   };
 
   return merged;
