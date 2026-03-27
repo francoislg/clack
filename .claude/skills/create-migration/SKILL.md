@@ -35,11 +35,52 @@ Create a new migration for Clack's boot migration system.
    Common files:
    - `data/config.json` — for config schema changes
    - `data/state/roles.json` — for role data changes
-   - `data/state/version.json` — rarely needed directly
+   - `data/state/user-preferences.json` — for user preference changes
 
-5. **Create the migration file**
+5. **Determine migration type: static vs Claude**
 
-   Create `src/migrations/NNN-<kebab-name>.ts` where NNN is the zero-padded version:
+   Decide based on the nature of the change:
+
+   - **Static** (use `static` function): For deterministic JSON transforms — adding fields, removing fields, renaming keys, mapping values. These run as TypeScript functions without invoking Claude. Use static when the transformation has no ambiguity and doesn't touch markdown/text files that may have user customizations.
+   - **Claude** (use `prompt`): For markdown/text file changes that require merging content into user-customized overrides, or complex transformations where AI judgment helps.
+   - **Mixed** (both `static` and `prompt`): When you need deterministic JSON changes AND Claude-powered text changes. The static transform runs first, then Claude sees the updated files.
+
+   **Default to static** for JSON-only config changes. These are faster and more reliable.
+
+6. **Create the migration file**
+
+   Create `src/migrations/NNN-<kebab-name>.ts` where NNN is the zero-padded version.
+
+   **For static migrations** (JSON-only changes):
+
+   ```typescript
+   import type { Migration } from "./types.js";
+
+   export const migration: Migration = {
+     version: <next-version>,
+     name: "<human-readable name>",
+     priority: "<blocking|enhancement>",
+     files: [<list of files>],
+     static: (files) => {
+       const result: Record<string, string> = {};
+       for (const [path, content] of Object.entries(files)) {
+         if (!path.endsWith("<target-file>") || !content) continue;
+         const data = JSON.parse(content);
+         // ... transform data ...
+         result[path] = JSON.stringify(data, null, 2) + "\n";
+       }
+       return result;
+     },
+   };
+   ```
+
+   Static function rules:
+   - Identify files by path suffix (e.g., `path.endsWith("config.json")`) — not by exact path
+   - Return only files that were actually modified
+   - Handle "already migrated" by checking if the change is needed and returning early
+   - Use `{ delete: true }` as the value to delete a file
+
+   **For Claude migrations** (markdown/text changes):
 
    ```typescript
    import type { Migration } from "./types.js";
@@ -58,7 +99,7 @@ Create a new migration for Clack's boot migration system.
    - Include the expected before/after state
    - Handle edge cases (field doesn't exist, already migrated, etc.)
 
-6. **Register in barrel export**
+7. **Register in barrel export**
 
    Update `src/migrations/index.ts` to import and include the new migration:
 
@@ -67,7 +108,7 @@ Create a new migration for Clack's boot migration system.
    // Add to the migrations array
    ```
 
-7. **Create test file**
+8. **Create test file**
 
    Create `scripts/migration-tests/NNN.ts` with test cases for the new migration:
 
@@ -97,19 +138,19 @@ Create a new migration for Clack's boot migration system.
    - Include a mixed case if the migration handles multiple items (e.g., repos array)
    - Validation should check both positive (new fields exist) and negative (old fields removed)
 
-8. **Register test in runner**
+9. **Register test in runner**
 
    Update `scripts/migration-tests/run.ts`:
    - Add import: `import { test as testNNN } from "./NNN.js";`
    - Add to `allTests` array: `const allTests: MigrationTest[] = [..., testNNN];`
 
-9. **Update the full-path test**
+10. **Update the full-path test**
 
    In `scripts/migration-tests/run.ts`:
    - Update `VERSION_0_CONFIG` if needed (it should represent the oldest supported format)
    - Update `validateFinalState()` to verify the output after ALL migrations including the new one
 
-10. **Run the tests**
+11. **Run the tests**
 
     ```bash
     npx tsx scripts/migration-tests/run.ts
@@ -117,16 +158,16 @@ Create a new migration for Clack's boot migration system.
 
     Verify all individual tests and the full-path test pass.
 
-11. **Show summary**
+12. **Show summary**
 
     Display:
     - Migration file path
     - Test file path
     - Version number
     - Priority
+    - Type (static, Claude, or mixed)
     - File scope
     - Number of test cases
-    - Prompt preview
 
 **Guardrails**
 - Migrations MUST be idempotent — running twice should be safe

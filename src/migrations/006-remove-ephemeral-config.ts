@@ -4,20 +4,49 @@ export const migration: Migration = {
   version: 6,
   name: "Remove ephemeral config and migrate user preferences",
   priority: "blocking",
-  prompt: `Migrate config and user preferences after removing the ephemeral response system.
-
-1. In data/config.json:
-   - Remove the "responseType" property from the "reactions" object if it exists
-   - Remove the "notifyHiddenThread" property from the "slack" object if it exists
-   - Do NOT change any other fields
-
-2. In data/state/user-preferences.json (if it exists):
-   - For each user entry, if it has "dmOptOut": true, set "reactionDelivery": "thread"
-   - For each user entry, if it has "dmOptOut": false or no "dmOptOut" field, set "reactionDelivery": "dm"
-   - Remove the "dmOptOut" property from each user entry
-   - Do NOT change any other fields
-
-If data/state/user-preferences.json does not exist, skip step 2.
-Preserve JSON formatting (2-space indent).`,
   files: ["data/config.json", "data/state/user-preferences.json"],
+  static: (files) => {
+    const result: Record<string, string> = {};
+
+    for (const [path, content] of Object.entries(files)) {
+      if (path.endsWith("config.json") && content) {
+        const config = JSON.parse(content);
+        let changed = false;
+        if (config.reactions && "responseType" in config.reactions) {
+          delete config.reactions.responseType;
+          changed = true;
+        }
+        if (config.slack && "notifyHiddenThread" in config.slack) {
+          delete config.slack.notifyHiddenThread;
+          changed = true;
+        }
+        if (changed) {
+          result[path] = JSON.stringify(config, null, 2) + "\n";
+        }
+      }
+
+      if (path.endsWith("user-preferences.json") && content) {
+        const prefs = JSON.parse(content);
+        let changed = false;
+        for (const userId of Object.keys(prefs)) {
+          const user = prefs[userId];
+          if (typeof user !== "object" || user === null) continue;
+          if (user.dmOptOut === true) {
+            user.reactionDelivery = "thread";
+          } else {
+            user.reactionDelivery = "dm";
+          }
+          if ("dmOptOut" in user) {
+            delete user.dmOptOut;
+          }
+          changed = true;
+        }
+        if (changed) {
+          result[path] = JSON.stringify(prefs, null, 2) + "\n";
+        }
+      }
+    }
+
+    return result;
+  },
 };
