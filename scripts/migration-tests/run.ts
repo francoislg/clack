@@ -29,8 +29,9 @@ import { test as test007 } from "./007.js";
 import { test as test008 } from "./008.js";
 import { test as test009 } from "./009.js";
 import { test as test010 } from "./010.js";
+import { test as test011 } from "./011.js";
 
-const allTests: MigrationTest[] = [test001, test002, test003, test004, test005, test007, test008, test009, test010];
+const allTests: MigrationTest[] = [test001, test002, test003, test004, test005, test007, test008, test009, test010, test011];
 
 // --- Config ---
 
@@ -276,6 +277,10 @@ function validateFinalState(config: Record<string, unknown>): string | null {
   const ar = config.autoRespond as Record<string, unknown> | undefined;
   if (!ar) return "autoRespond field missing after migration 009";
   if (ar.enabled !== false) return `autoRespond.enabled should be false, got: ${ar.enabled}`;
+
+  // After migration 011: allowScheduledMessages added with false
+  if (!("allowScheduledMessages" in config)) return "allowScheduledMessages field missing after migration 011";
+  if (config.allowScheduledMessages !== false) return `allowScheduledMessages should be false, got: ${config.allowScheduledMessages}`;
 
   return null;
 }

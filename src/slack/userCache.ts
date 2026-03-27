@@ -6,6 +6,7 @@ export interface UserInfo {
   username?: string;
   displayName?: string;
   isBot?: boolean;
+  tz?: string;
 }
 
 const userCache = new Map<string, UserInfo>();
@@ -49,6 +50,7 @@ export async function getUserInfo(
       username: result.user.name,
       displayName: result.user.profile?.display_name || result.user.profile?.real_name,
       isBot: result.user.is_bot === true,
+      tz: result.user.tz ?? undefined,
     };
 
     // Cache the result

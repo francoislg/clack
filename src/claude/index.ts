@@ -64,6 +64,8 @@ export interface AskClaudeOptions {
   availableImages?: Map<string, SlackImageFile>;
   /** Available non-image Slack files keyed by file ID */
   availableFiles?: Map<string, SlackFile>;
+  /** User's IANA timezone (e.g., "America/New_York") for time-aware prompts */
+  userTimezone?: string;
 }
 
 function summarizeContentBlocks(content: unknown[]): string {
@@ -128,6 +130,7 @@ async function buildQuerySetup(
     session,
     config,
     changesWorkflowEnabled: options?.changesWorkflowEnabled ?? false,
+    allowScheduledMessages: config.allowScheduledMessages ?? false,
     slackClient: options?.slackClient,
     deliver: options?.deliver,
     availableImages: options?.availableImages,

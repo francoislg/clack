@@ -14,6 +14,7 @@ function makeContext(images: Map<string, SlackImageFile>): QueryToolContext {
       slack: { botToken: "xoxb-test-token" },
     } as QueryToolContext["config"],
     changesWorkflowEnabled: false,
+    allowScheduledMessages: false,
     availableImages: images,
   };
 }

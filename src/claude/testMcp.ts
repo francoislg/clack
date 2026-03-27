@@ -57,6 +57,7 @@ export async function testMCP(): Promise<McpTestResult> {
       session: dummySession,
       config,
       changesWorkflowEnabled: true,
+      allowScheduledMessages: config.allowScheduledMessages ?? false,
     });
     const clackTools = buildClackTools(toolCtx);
     clackToolNames = clackTools.toolNames;

@@ -9,6 +9,7 @@ import { migration as m7 } from "./007-send-to-thread-content-instructions.js";
 import { migration as m8 } from "./008-cascade-config-split.js";
 import { migration as m9 } from "./009-add-auto-respond-config.js";
 import { migration as m10 } from "./010-rename-send-to-thread-to-post-to.js";
+import { migration as m11 } from "./011-add-allow-scheduled-messages.js";
 
 // Register migrations here in version order.
-export const migrations: Migration[] = [m1, m2, m3, m4, m5, m6, m7, m8, m9, m10];
+export const migrations: Migration[] = [m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11];

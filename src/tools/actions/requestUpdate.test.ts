@@ -68,6 +68,7 @@ function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
       repositories: [],
     } as unknown as QueryToolContext["config"],
     changesWorkflowEnabled: true,
+    allowScheduledMessages: false,
     ...overrides,
   };
 }

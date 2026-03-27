@@ -10,6 +10,7 @@ export interface PromptOptions {
   workMode?: boolean;
   availableImages?: Map<string, SlackImageFile>;
   availableFiles?: Map<string, SlackFile>;
+  userTimezone?: string;
 }
 
 export function buildSystemPrompt(options?: PromptOptions): string {
@@ -162,6 +163,18 @@ Use this context to understand the conversation flow and provide relevant answer
     } else {
       parts.push(`WORK MODE: The user explicitly requested this as a work task (not a question). Propose a code change using propose_change and set auto: true on the change action in submit_response. If you cannot determine what change to make, ask for clarification via submit_response.`);
     }
+  }
+
+  // User timezone context — for scheduled messages and time-aware responses
+  if (options?.userTimezone) {
+    const lines = [
+      `USER TIMEZONE: ${options.userTimezone}`,
+      "When the user mentions relative times (e.g., \"tomorrow at 3pm\", \"in 2 hours\", \"next Monday at 9am\"), convert them to UTC using this timezone.",
+      "When scheduling messages, provide the post_at parameter as an ISO 8601 UTC timestamp.",
+      "Slack limits scheduled messages to 120 days in the future. If the user requests a time beyond that, let them know.",
+      "Scheduled messages are attributed: they will appear as \"🔔 Reminder from @user: <message>\" in the channel.",
+    ];
+    parts.push(lines.join("\n"));
   }
 
   // Attachment metadata — let Claude know what images and files are available

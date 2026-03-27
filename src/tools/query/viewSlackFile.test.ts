@@ -14,6 +14,7 @@ function makeContext(files: Map<string, SlackFile>): QueryToolContext {
       slack: { botToken: "xoxb-test-token" },
     } as QueryToolContext["config"],
     changesWorkflowEnabled: false,
+    allowScheduledMessages: false,
     availableFiles: files,
   };
 }

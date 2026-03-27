@@ -37,6 +37,11 @@ import { createUsersCache } from "../slack/usersCache.js";
 import { createProposeChangeTool } from "./actions/proposeChange.js";
 import { createProposeConfigUpdateTool } from "./actions/proposeConfigUpdate.js";
 import { createRequestUpdateTool } from "./actions/requestUpdate.js";
+import { createScheduleReminderTool } from "./actions/scheduleReminder.js";
+import { createCancelReminderTool } from "./actions/cancelReminder.js";
+
+// Scheduled message query tools
+import { createListRemindersTool } from "./query/listReminders.js";
 
 // Presentation tool
 import { createSubmitResponseTool } from "./presentation/submitResponse.js";
@@ -191,6 +196,13 @@ function buildQueryTools(ctx: QueryToolContext): ClackToolsResult {
 
   if (canEditConfig(ctx.role)) {
     tools.push(createProposeConfigUpdateTool(ctx, intentStore, recorder));
+  }
+
+  // --- Scheduled message tools (no role gating, config-gated) ---
+  if (ctx.allowScheduledMessages && ctx.slackClient) {
+    tools.push(createScheduleReminderTool(ctx));
+    tools.push(createListRemindersTool(ctx));
+    tools.push(createCancelReminderTool(ctx));
   }
 
   // --- Presentation tool ---

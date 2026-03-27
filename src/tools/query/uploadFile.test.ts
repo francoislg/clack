@@ -17,6 +17,7 @@ function makeContext(overrides?: Partial<QueryToolContext>): QueryToolContext {
       slack: { botToken: "xoxb-test-token" },
     } as QueryToolContext["config"],
     changesWorkflowEnabled: false,
+    allowScheduledMessages: false,
     ...overrides,
   };
 }
