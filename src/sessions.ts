@@ -50,6 +50,8 @@ export interface SessionContext {
   imageFiles?: SlackImageFile[];
   /** How the session was triggered (reactions, mentions, directMessages, autoRespond) */
   triggerType?: "directMessages" | "mentions" | "reactions" | "autoRespond";
+  /** Additional system prompt injected into the delivery context */
+  additionalSystemPrompt?: string;
   /** DM-first delivery: the DM channel ID */
   dmChannel?: string;
   /** DM-first delivery: the root DM message timestamp (thread anchor) */
@@ -147,6 +149,7 @@ export interface CreateSessionOptions {
   username?: string;
   displayName?: string;
   triggerType?: SessionContext["triggerType"];
+  additionalSystemPrompt?: string;
 }
 
 export async function createSession(opts: CreateSessionOptions): Promise<SessionContext> {
@@ -173,6 +176,7 @@ export async function createSession(opts: CreateSessionOptions): Promise<Session
     originalQuestion: opts.originalQuestion,
     threadContext: opts.threadContext ?? [],
     triggerType: opts.triggerType,
+    additionalSystemPrompt: opts.additionalSystemPrompt,
     refinements: [],
     errors: [],
     lastActivity: now,

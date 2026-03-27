@@ -85,7 +85,10 @@ describe("listInstructionFiles", () => {
     loadConfig(configPath, true);
 
     const result = listInstructionFiles();
-    assert.deepEqual(result.roles, []);
+    // Only the always-present pre-analysis pseudo-directory (empty, for create-new-file UI)
+    assert.equal(result.roles.length, 1);
+    assert.equal(result.roles[0].role, "pre-analysis");
+    assert.deepEqual(result.roles[0].files, []);
   });
 
   it("scans role directories for default files", () => {
@@ -160,9 +163,13 @@ describe("listInstructionFiles", () => {
     writeDefaultFile("user/identity.md", "content");
 
     const result = listInstructionFiles();
+    const roleNames = result.roles.map((r) => r.role);
 
-    assert.equal(result.roles.length, 1);
-    assert.equal(result.roles[0].role, "user");
+    // user + always-present pre-analysis
+    assert.ok(roleNames.includes("user"));
+    assert.ok(roleNames.includes("pre-analysis"));
+    assert.ok(!roleNames.includes("dev"));
+    assert.ok(!roleNames.includes("admin"));
   });
 
   it("includes repo-scoped instruction files for each configured repository", () => {

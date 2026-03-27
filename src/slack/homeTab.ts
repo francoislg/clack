@@ -304,6 +304,7 @@ const roleEmojis: Record<string, string> = {
   user: ":bust_in_silhouette:",
   dev: ":hammer_and_wrench:",
   admin: ":shield:",
+  "pre-analysis": ":brain:",
 };
 
 export function buildConfigurationSection(showEditButtons: boolean): KnownBlock[] {
@@ -323,10 +324,15 @@ export function buildConfigurationSection(showEditButtons: boolean): KnownBlock[
   if (showEditButtons) {
     const listing = listInstructionFiles();
 
+    const customLabels: Record<string, string> = {
+      "pre-analysis": "Pre-Analysis Context",
+    };
+
     for (const roleListing of listing.roles) {
-      const roleLabel = roleListing.role.charAt(0).toUpperCase() + roleListing.role.slice(1);
+      const roleLabel = customLabels[roleListing.role]
+        ?? `${roleListing.role.charAt(0).toUpperCase() + roleListing.role.slice(1)} Config`;
       const emoji = roleEmojis[roleListing.role] ?? "";
-      const label = emoji ? `${emoji} Edit ${roleLabel} Config` : `Edit ${roleLabel} Config`;
+      const label = emoji ? `${emoji} Edit ${roleLabel}` : `Edit ${roleLabel}`;
       buttons.push({
         type: "button",
         text: { type: "plain_text", text: label, emoji: true },
@@ -1074,11 +1080,12 @@ async function buildAutoRespondSection(): Promise<(KnownBlock | Block)[]> {
       const keywords = rule.keywords?.length
         ? ` · Keywords: ${rule.keywords.map((k) => `\`${k}\``).join(", ")}`
         : "";
+      const preAnalysis = rule.preAnalysisContext ? " · Pre-analysis" : "";
       const status = rule.enabled ? "" : " _(paused)_";
 
       blocks.push({
         type: "section",
-        text: { type: "mrkdwn", text: `${channels}${users}${keywords}${status}` },
+        text: { type: "mrkdwn", text: `${channels}${users}${keywords}${preAnalysis}${status}` },
         accessory: {
           type: "button",
           text: { type: "plain_text", text: "Edit" },
@@ -1159,6 +1166,20 @@ export function buildAutoRespondModal(
         ...(rule?.extraContext && { initial_value: rule.extraContext }),
         placeholder: { type: "plain_text", text: "e.g., This is a Sentry error alert. Focus on the stack trace and find the relevant code path." },
       },
+    },
+    {
+      type: "input",
+      block_id: "pre_analysis_block",
+      label: { type: "plain_text", text: "Pre-analysis context (optional)" },
+      optional: true,
+      element: {
+        type: "plain_text_input",
+        action_id: "pre_analysis_context",
+        multiline: true,
+        ...(rule?.preAnalysisContext && { initial_value: rule.preAnalysisContext }),
+        placeholder: { type: "plain_text", text: "e.g., Only respond if this is an actionable error — leave empty to skip pre-analysis" },
+      },
+      hint: { type: "plain_text", text: "When set, a fast AI check determines if the message is worth responding to before launching a full response." },
     },
     {
       type: "context",

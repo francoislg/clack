@@ -1,10 +1,12 @@
-import { writeFileSync, existsSync, mkdirSync, unlinkSync } from "node:fs";
+import { writeFileSync, readFileSync, existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { getConfig, getConfigurationDir, getDefaultConfigurationDir } from "./config.js";
 import { logger } from "./logger.js";
 import {
   listRoleDirFiles,
+  listSingleDirFiles,
   readRoleFile,
+  scanMdFiles,
   type RoleDirListing,
   type InstructionFileEntry,
 } from "./cascadingConfigResolver.js";
@@ -54,12 +56,18 @@ export interface InstructionFileListing {
 }
 
 /**
- * List all instruction files: role-based (scanned from directories)
- * and repo-scoped (convention-based).
+ * List all instruction files: role-based (scanned from directories),
+ * pre-analysis context, and repo-scoped (convention-based).
  */
 export function listInstructionFiles(): InstructionFileListing {
+  const roles = listRoleDirFiles();
+
+  // Include pre-analysis as a pseudo-role directory (reuses same UI infrastructure).
+  // Always included so admins can create the first file from the picker.
+  roles.push({ role: "pre-analysis", files: listSingleDirFiles("pre-analysis") });
+
   return {
-    roles: listRoleDirFiles(),
+    roles,
     repos: getRepoInstructionFiles(),
   };
 }
@@ -158,4 +166,47 @@ export function getEffectiveContentLength(filepath: string): number {
   const { default_content, custom_content } = readInstructionFile(filepath);
   const effective = custom_content ?? default_content;
   return effective?.length ?? 0;
+}
+
+// ---------------------------------------------------------------------------
+// Pre-analysis shared context
+// ---------------------------------------------------------------------------
+
+/**
+ * Load and concatenate all pre-analysis context files.
+ * Resolves through the two-tier system (default_configuration → configuration).
+ * Returns empty string if no files exist.
+ */
+export function loadPreAnalysisContext(): string {
+  const defaultDir = getDefaultConfigurationDir();
+  const configDir = getConfigurationDir();
+
+  const defaultFiles = new Set(scanMdFiles(resolve(defaultDir, "pre-analysis")));
+  const customFiles = new Set(scanMdFiles(resolve(configDir, "pre-analysis")));
+  const allFilenames = new Set([...defaultFiles, ...customFiles]);
+
+  if (allFilenames.size === 0) return "";
+
+  const resolved: Array<{ filename: string; content: string }> = [];
+
+  for (const filename of allFilenames) {
+    let content: string | null = null;
+
+    const defaultPath = resolve(defaultDir, "pre-analysis", filename);
+    if (existsSync(defaultPath)) {
+      content = readFileSync(defaultPath, "utf-8");
+    }
+
+    const customPath = resolve(configDir, "pre-analysis", filename);
+    if (existsSync(customPath)) {
+      content = readFileSync(customPath, "utf-8");
+    }
+
+    if (content !== null && content.trim().length > 0) {
+      resolved.push({ filename, content });
+    }
+  }
+
+  resolved.sort((a, b) => a.filename.localeCompare(b.filename));
+  return resolved.map((r) => r.content).join("\n\n");
 }

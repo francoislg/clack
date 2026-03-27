@@ -640,7 +640,8 @@ export function registerHomeTabHandler(app: App): void {
     const keywordsRaw = view.state.values.keywords_block?.keywords?.value;
     const keywords = parseKeywords(keywordsRaw);
     const extraContext = view.state.values.extra_context_block?.extra_context?.value;
-    await addRule(channels, users && users.length > 0 ? users : undefined, keywords, extraContext ?? undefined);
+    const preAnalysisContext = view.state.values.pre_analysis_block?.pre_analysis_context?.value;
+    await addRule(channels, users && users.length > 0 ? users : undefined, keywords, extraContext ?? undefined, preAnalysisContext ?? undefined);
     await ack();
     await publishHomeView(client, body.user.id);
   });
@@ -661,7 +662,8 @@ export function registerHomeTabHandler(app: App): void {
     const keywordsRaw = view.state.values.keywords_block?.keywords?.value;
     const keywords = parseKeywords(keywordsRaw);
     const extraContext = view.state.values.extra_context_block?.extra_context?.value;
-    await updateRule(ruleId, channels, users && users.length > 0 ? users : undefined, keywords, extraContext ?? undefined);
+    const preAnalysisContext = view.state.values.pre_analysis_block?.pre_analysis_context?.value;
+    await updateRule(ruleId, channels, users && users.length > 0 ? users : undefined, keywords, extraContext ?? undefined, preAnalysisContext ?? undefined);
     await ack();
     await publishHomeView(client, body.user.id);
   });

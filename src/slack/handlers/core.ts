@@ -36,6 +36,8 @@ export interface ProcessMessageParams {
   imageFiles?: SlackImageFile[];
   /** Non-image file attachments from the triggering message */
   files?: SlackFile[];
+  /** Extra context from the auto-respond rule */
+  additionalSystemPrompt?: string;
 }
 
 interface ProcessingContext {
@@ -50,6 +52,7 @@ interface ProcessingContext {
   readonly triggerType: TriggerType;
   /** When true, hints Claude to propose a change with auto-execute */
   readonly workMode: boolean;
+  readonly additionalSystemPrompt?: string;
 }
 
 interface DmCoordinates {
@@ -95,6 +98,7 @@ async function setupSession(ctx: ProcessingContext): Promise<SessionContext> {
       username: userInfo?.username,
       displayName: userInfo?.displayName,
       triggerType: ctx.triggerType,
+      additionalSystemPrompt: ctx.additionalSystemPrompt,
     });
     logger.debug(`Created session ${session.sessionId}`);
   } else {
@@ -279,6 +283,7 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
     effectiveThreadTs,
     triggerType,
     workMode,
+    additionalSystemPrompt: params.additionalSystemPrompt,
   };
 
   const assistantSuffix = params.assistantChannelId ? ` [assistant panel, viewing ${params.assistantChannelId}]` : "";
