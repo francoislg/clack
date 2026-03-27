@@ -37,7 +37,18 @@ const mockGetConfig = mock.fn(() => ({
 }));
 
 mock.module("../config.js", {
-  namedExports: { getConfig: mockGetConfig },
+  namedExports: {
+    getConfig: mockGetConfig,
+    loadConfig: () => mockGetConfig(),
+    getDataDir: () => "/tmp/test-data",
+    getRepositoriesDir: () => "/tmp/test-data/repositories",
+    getSessionsDir: () => "/tmp/test-data/sessions",
+    getWorktreesDir: () => "/tmp/test-data/worktrees",
+    getConfigurationDir: () => "/tmp/test-data/configuration",
+    getDefaultConfigurationDir: () => "/tmp/test-data/default_configuration",
+    getWorktreeSessionsDir: () => "/tmp/test-data/worktree-sessions",
+    findRepoByName: () => undefined,
+  },
 });
 
 mock.module("../logger.js", {
@@ -65,6 +76,7 @@ const mockRegisterConfigUpdateActionHandler = mock.fn(() => {});
 const mockRegisterChangeThreadActionHandlers = mock.fn(() => {});
 const mockRegisterDmActionHandlers = mock.fn(() => {});
 const mockRegisterMessageChangedHandler = mock.fn(() => {});
+const mockRegisterAutoRespondHandler = mock.fn(() => {});
 
 mock.module("./handlers/homeTab.js", {
   namedExports: { registerHomeTabHandler: mockRegisterHomeTabHandler },
@@ -91,19 +103,32 @@ mock.module("./handlers/followup.js", {
   namedExports: { registerFollowupHandler: mockRegisterFollowupHandler },
 });
 mock.module("./handlers/changeAction.js", {
-  namedExports: { registerChangeActionHandler: mockRegisterChangeActionHandler },
+  namedExports: {
+    registerChangeActionHandler: mockRegisterChangeActionHandler,
+    triggerChangeWorkflow: mock.fn(async () => {}),
+  },
 });
 mock.module("./handlers/configUpdateAction.js", {
   namedExports: { registerConfigUpdateActionHandler: mockRegisterConfigUpdateActionHandler },
 });
 mock.module("./handlers/changeThreadActions.js", {
-  namedExports: { registerChangeThreadActionHandlers: mockRegisterChangeThreadActionHandlers },
+  namedExports: {
+    registerChangeThreadActionHandlers: mockRegisterChangeThreadActionHandlers,
+    triggerFollowUp: mock.fn(async () => {}),
+  },
 });
 mock.module("./handlers/dmActions.js", {
-  namedExports: { registerDmActionHandlers: mockRegisterDmActionHandlers },
+  namedExports: {
+    registerDmActionHandlers: mockRegisterDmActionHandlers,
+    postAnswerToChannel: mock.fn(async () => {}),
+    resolveOrigin: mock.fn(() => ({ channel: "C001", threadTs: "1234" })),
+  },
 });
 mock.module("./handlers/messageChanged.js", {
   namedExports: { registerMessageChangedHandler: mockRegisterMessageChangedHandler },
+});
+mock.module("./handlers/autoRespond.js", {
+  namedExports: { registerAutoRespondHandler: mockRegisterAutoRespondHandler },
 });
 
 // Import after mocks

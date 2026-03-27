@@ -67,6 +67,7 @@ mock.module("../homeTab.js", {
     buildConfigFilePickerModal: mockBuildConfigFilePickerModal,
     buildConfigEditorModal: mockBuildConfigEditorModal,
     buildConfigCreateFileModal: mockBuildConfigCreateFileModal,
+    buildAutoRespondModal: mock.fn(() => ({ type: "modal", blocks: [] })),
   },
 });
 
@@ -132,6 +133,12 @@ interface MockClient {
     push: ReturnType<typeof mock.fn>;
     update: ReturnType<typeof mock.fn>;
   };
+  conversations: {
+    open: ReturnType<typeof mock.fn>;
+  };
+  files: {
+    uploadV2: ReturnType<typeof mock.fn>;
+  };
 }
 
 const capturedEventHandlers = new Map<string, EventHandler>();
@@ -171,6 +178,12 @@ function makeClient(): MockClient {
       open: mock.fn(async () => {}),
       push: mock.fn(async () => {}),
       update: mock.fn(async () => {}),
+    },
+    conversations: {
+      open: mock.fn(async () => ({ channel: { id: "D_DM_CHANNEL" } })),
+    },
+    files: {
+      uploadV2: mock.fn(async () => {}),
     },
   };
 }
@@ -1196,11 +1209,14 @@ describe("chat_edit_config_file action", () => {
       action: { value: "user/identity.md" },
     });
 
-    assert.equal(mockSendDirectMessage.mock.callCount(), 1);
-    const args = mockSendDirectMessage.mock.calls[0].arguments;
-    assert.equal(args[1], "U001");
-    assert.ok((args[2] as string).includes("user/identity.md"));
-    assert.ok((args[2] as string).includes("the file content here"));
+    // Opens a DM conversation with the user
+    assert.equal(client.conversations.open.mock.callCount(), 1);
+    // Uploads file content via files.uploadV2
+    assert.equal(client.files.uploadV2.mock.callCount(), 1);
+    const uploadArgs = client.files.uploadV2.mock.calls[0].arguments[0] as Record<string, unknown>;
+    assert.equal(uploadArgs.channel_id, "D_DM_CHANNEL");
+    assert.equal(uploadArgs.content, "the file content here");
+    assert.equal(uploadArgs.title, "user/identity.md");
     // Modal should be updated with confirmation
     assert.equal(client.views.update.mock.callCount(), 1);
   });
@@ -1215,13 +1231,12 @@ describe("chat_edit_config_file action", () => {
 
     await handler({
       ack: async () => {},
-      body: { user: { id: "U001" }, trigger_id: "t1" },
+      body: { user: { id: "U001" }, trigger_id: "t1", view: { id: "V123" } },
       client,
       action: { value: "user/identity.md" },
     });
 
-    const message = mockSendDirectMessage.mock.calls[0].arguments[2] as string;
-    assert.ok(message.includes("custom override content"));
-    assert.ok(!message.includes("default"));
+    const uploadArgs = client.files.uploadV2.mock.calls[0].arguments[0] as Record<string, unknown>;
+    assert.equal(uploadArgs.content, "custom override content");
   });
 });
