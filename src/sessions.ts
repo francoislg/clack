@@ -6,7 +6,7 @@ import { fileExists } from "./fs.js";
 import type { ErrorRecord, ConversationMessage } from "./claude/index.js";
 import type { SubmitResponsePayload, ToolCallRecord, ContinuationRecord, ResponseSnapshot, StagedIntent } from "./tools/types.js";
 import type { SlackImageFile, SlackFile } from "./slack/slackFileBase.js";
-import type { ChangeStatus } from "./changes/types.js";
+import type { ChangeStatus, TriggerType } from "./changes/types.js";
 import type { ActiveChangeState } from "./changes/activeState.js";
 import { getActiveChange, clearActiveChange } from "./changes/activeState.js";
 
@@ -48,8 +48,8 @@ export interface SessionContext {
   continuationHistory?: ContinuationRecord[];
   /** Images from the triggering message */
   imageFiles?: SlackImageFile[];
-  /** How the session was triggered (reactions, mentions, directMessages, autoRespond) */
-  triggerType?: "directMessages" | "mentions" | "reactions" | "autoRespond";
+  /** How the session was triggered */
+  triggerType?: TriggerType;
   /** Additional system prompt injected into the delivery context */
   additionalSystemPrompt?: string;
   /** DM-first delivery: the DM channel ID */

@@ -1059,3 +1059,62 @@ describe("getHandlerClaudeOptions", () => {
     assert.equal(result.changesWorkflowEnabled, true);
   });
 });
+
+describe("silentThinking mode", () => {
+  beforeEach(() => {
+    resetStreamerInstance();
+    mockAskClaude.mock.resetCalls();
+    mockAskClaude.mock.mockImplementation(async () => ({
+      success: true,
+      answer: "silent answer",
+    }));
+  });
+
+  it("does not create a SlackStreamer when silentThinking is true", async () => {
+    const client = makeClient();
+    mockStreamerStart.mock.resetCalls();
+
+    await executeAndDeliver({
+      client,
+      session: makeSession(),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: { role: "dev" as const, changesWorkflowEnabled: false },
+      silentThinking: true,
+    });
+
+    // Streamer should never have been started
+    assert.equal(mockStreamerStart.mock.callCount(), 0);
+  });
+
+  it("passes no-op onEvent when silentThinking", async () => {
+    const client = makeClient();
+
+    await executeAndDeliver({
+      client,
+      session: makeSession(),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: { role: "dev" as const, changesWorkflowEnabled: false },
+      silentThinking: true,
+    });
+
+    // askClaude should have been called with a no-op event handler
+    const callArgs = mockAskClaude.mock.calls[0].arguments[1] as Record<string, unknown>;
+    assert.equal(typeof callArgs.onEvent, "function");
+  });
+
+  it("creates SlackStreamer when silentThinking is false", async () => {
+    const client = makeClient();
+    mockStreamerStart.mock.resetCalls();
+
+    await executeAndDeliver({
+      client,
+      session: makeSession(),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: { role: "dev" as const, changesWorkflowEnabled: false },
+      silentThinking: false,
+    });
+
+    // Streamer should have been started
+    assert.equal(mockStreamerStart.mock.callCount(), 1);
+  });
+});

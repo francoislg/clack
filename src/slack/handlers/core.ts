@@ -38,6 +38,8 @@ export interface ProcessMessageParams {
   files?: SlackFile[];
   /** Extra context from the auto-respond rule */
   additionalSystemPrompt?: string;
+  /** When true, skip streaming UX and post the final result directly */
+  silentThinking?: boolean;
 }
 
 interface ProcessingContext {
@@ -259,6 +261,7 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
     threadTs,
     triggerType,
     workMode = false,
+    silentThinking = false,
   } = params;
 
   const config = getConfig();
@@ -349,6 +352,7 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
       sessionInfo,
       claudeOptions: { ...claudeOptions, workMode, availableImages, availableFiles },
       abortController,
+      silentThinking,
     }),
   );
 }

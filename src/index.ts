@@ -6,7 +6,7 @@ import { loadGitHubCredentials, validateGitHubApp } from "./github.js";
 import { logger } from "./logger.js";
 import { initializeRepositories, syncAllRepositories, startSyncScheduler, stopSyncScheduler } from "./repositories.js";
 import { startCleanupScheduler, stopCleanupScheduler } from "./sessions.js";
-import { createSlackApp, startSlackApp, stopSlackApp } from "./slack/app.js";
+import { createSlackApp, startSlackApp, stopSlackApp, getSlackClient } from "./slack/app.js";
 import { ensureWorktreeDirectories, cleanupWorktrees } from "./worktrees.js";
 import { discoverPluginInfo } from "./plugins.js";
 import { startCompletionMonitor, stopCompletionMonitor } from "./changes/monitor.js";
@@ -16,6 +16,7 @@ import { getActiveChangeBranches } from "./changes/activeState.js";
 import { validateInstructionFiles } from "./instructions.js";
 import { runBlockingMigrations, runEnhancementMigrations } from "./migrations/boot.js";
 import { startConfigWatcher } from "./configWatcher.js";
+import { startCronScheduler, stopCronScheduler } from "./cronScheduler.js";
 
 // Load environment variables from .env files (later files don't override earlier ones)
 dotenvConfig({ path: join(process.cwd(), ".env") });
@@ -142,6 +143,14 @@ async function main(): Promise<void> {
   // Step 6: Start completion monitor (after Slack app is ready for notifications)
   startCompletionMonitor();
 
+  // Step 6.5: Start cron scheduler (after Slack app is ready)
+  if (config.allowScheduledMessages) {
+    const cronClient = getSlackClient();
+    if (cronClient) {
+      startCronScheduler(cronClient);
+    }
+  }
+
   logger.startup("Clack is ready!");
 
   // Background: clean up stale worktrees and sessions (non-blocking)
@@ -162,6 +171,7 @@ async function main(): Promise<void> {
     logger.startup(`Received ${signal}, shutting down gracefully...`);
 
     stopConfigWatcher?.();
+    stopCronScheduler();
     stopCompletionMonitor();
     stopSyncScheduler();
     stopCleanupScheduler();

@@ -56,7 +56,11 @@ mock.module("../mcp.js", {
 });
 
 mock.module("../changes/activeState.js", {
-  namedExports: { getActiveWorkers: mockGetActiveWorkers },
+  namedExports: {
+    getActiveWorkers: mockGetActiveWorkers,
+    getActiveChange: mock.fn(() => undefined),
+    clearActiveChange: mock.fn(() => {}),
+  },
 });
 
 mock.module("../configurationFiles.js", {
@@ -83,6 +87,19 @@ mock.module("../migrations/admin.js", {
 
 mock.module("../plugins.js", {
   namedExports: { discoverPluginInfo: mockDiscoverPluginInfo },
+});
+
+mock.module("../cronJobs.js", {
+  namedExports: {
+    getJobs: mock.fn(async () => []),
+    getJobsByUser: mock.fn(async () => []),
+  },
+});
+
+mock.module("../cronScheduler.js", {
+  namedExports: {
+    humanReadableSchedule: mock.fn(() => "Every day at 9:00 AM"),
+  },
 });
 
 // Import after mocks

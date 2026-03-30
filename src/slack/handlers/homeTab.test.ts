@@ -68,6 +68,7 @@ mock.module("../homeTab.js", {
     buildConfigEditorModal: mockBuildConfigEditorModal,
     buildConfigCreateFileModal: mockBuildConfigCreateFileModal,
     buildAutoRespondModal: mock.fn(() => ({ type: "modal", blocks: [] })),
+    buildCronJobModal: mock.fn(() => ({ type: "modal", blocks: [] })),
   },
 });
 
@@ -86,6 +87,21 @@ mock.module("../../configurationFiles.js", {
     writeInstructionFile: mockWriteInstructionFile,
     deleteInstructionFile: mockDeleteInstructionFile,
     getEffectiveContentLength: mockGetEffectiveContentLength,
+  },
+});
+
+mock.module("../../cronJobs.js", {
+  namedExports: {
+    toggleJob: mock.fn(async () => null),
+    deleteJob: mock.fn(async () => {}),
+    getJob: mock.fn(async () => null),
+    updateJob: mock.fn(async () => null),
+  },
+});
+
+mock.module("cron-parser", {
+  namedExports: {
+    CronExpressionParser: { parse: mock.fn(() => {}) },
   },
 });
 

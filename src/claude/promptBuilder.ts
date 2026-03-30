@@ -83,6 +83,13 @@ function buildDeliveryContext(session: SessionContext): string | null {
     lines.push("- You can also include `post_to` with explicit `channel` and `thread_ts` to share findings to a specific thread (e.g., one the user shared via a Slack URL).");
     lines.push("- If the user asks to post in the channel, use `post_to` with `auto: true` — this posts immediately without a button click.");
     lines.push("- Choose actions appropriate to your response. If your answer investigates or summarizes content from a channel or thread, include `post_to` so the user can share the findings back.");
+  } else if (session.triggerType === "scheduled") {
+    // Scheduled: cron-triggered, response posted as top-level channel message
+    lines.push("- Mode: Scheduled message (this is an automated cron-triggered execution)");
+    lines.push("- Your response is posted as a top-level message in the target channel via submit_response.");
+    lines.push("- Do NOT include `post_to` for the target channel — submit_response already posts there top-level.");
+    lines.push("- Do NOT include `accept` or `reject` actions — they have no meaning here.");
+    lines.push("- You MAY include `post_to` ONLY if you need to post to a DIFFERENT channel or thread than the target.");
   } else if (session.triggerType === "autoRespond") {
     // Auto-respond: automatically triggered response to a channel message
     lines.push("- Mode: Auto-respond (you have been automatically tasked to respond to this message)");
@@ -165,16 +172,12 @@ Use this context to understand the conversation flow and provide relevant answer
     }
   }
 
-  // User timezone context — for scheduled messages and time-aware responses
+  // User timezone context — for time-aware responses
   if (options?.userTimezone) {
-    const lines = [
+    parts.push([
       `USER TIMEZONE: ${options.userTimezone}`,
       "When the user mentions relative times (e.g., \"tomorrow at 3pm\", \"in 2 hours\", \"next Monday at 9am\"), convert them to UTC using this timezone.",
-      "When scheduling messages, provide the post_at parameter as an ISO 8601 UTC timestamp.",
-      "Slack limits scheduled messages to 120 days in the future. If the user requests a time beyond that, let them know.",
-      "Scheduled messages are attributed: they will appear as \"🔔 Reminder from @user: <message>\" in the channel.",
-    ];
-    parts.push(lines.join("\n"));
+    ].join("\n"));
   }
 
   // Attachment metadata — let Claude know what images and files are available

@@ -26,12 +26,14 @@ import { createReadConfigFileTool } from "./query/readConfigFile.js";
 import { createGitLogTool } from "./query/gitLog.js";
 import { createDeepenHistoryTool } from "./query/deepenHistory.js";
 import { createFindUserTool } from "./query/findUser.js";
+import { createFindEmojiTool } from "./query/findEmoji.js";
 import { createFetchSlackMessageTool } from "./query/fetchSlackMessage.js";
 import { createFetchChannelMessagesTool } from "./query/fetchChannelMessages.js";
 import { createViewSlackImageTool } from "./query/viewSlackImage.js";
 import { createViewSlackFileTool } from "./query/viewSlackFile.js";
 import { createUploadFileTool } from "./query/uploadFile.js";
 import { createUsersCache } from "../slack/usersCache.js";
+import { createEmojiCache } from "../slack/emojiCache.js";
 
 // Action tools
 import { createProposeChangeTool } from "./actions/proposeChange.js";
@@ -39,9 +41,13 @@ import { createProposeConfigUpdateTool } from "./actions/proposeConfigUpdate.js"
 import { createRequestUpdateTool } from "./actions/requestUpdate.js";
 import { createScheduleReminderTool } from "./actions/scheduleReminder.js";
 import { createCancelReminderTool } from "./actions/cancelReminder.js";
+import { createCreateScheduledMessageTool } from "./actions/createScheduledMessage.js";
+import { createCancelScheduledMessageTool } from "./actions/cancelScheduledMessage.js";
+import { createUpdateScheduledMessageTool } from "./actions/updateScheduledMessage.js";
 
 // Scheduled message query tools
 import { createListRemindersTool } from "./query/listReminders.js";
+import { createListScheduledMessagesTool } from "./query/listScheduledMessages.js";
 
 // Presentation tool
 import { createSubmitResponseTool } from "./presentation/submitResponse.js";
@@ -161,17 +167,18 @@ function buildQueryTools(ctx: QueryToolContext): ClackToolsResult {
   if (ctx.slackClient) {
     const usersCache = createUsersCache(ctx.slackClient);
     tools.push(createFindUserTool(ctx, usersCache));
+    const emojiCache = createEmojiCache(ctx.slackClient);
+    tools.push(createFindEmojiTool(emojiCache));
     tools.push(createFetchSlackMessageTool(ctx));
     tools.push(createFetchChannelMessagesTool(ctx));
     tools.push(createUploadFileTool(ctx));
   }
 
-  if (canRequestChanges(ctx.role)) {
-    tools.push(createFindSessionsTool(ctx));
-    tools.push(createFindChangesTool(ctx));
-    tools.push(createFindPullRequestsTool(ctx));
-    tools.push(createResolveReviewThreadTool(ctx));
-  }
+  // Read-only query tools — available to all roles
+  tools.push(createFindSessionsTool(ctx));
+  tools.push(createFindChangesTool(ctx));
+  tools.push(createFindPullRequestsTool(ctx));
+  tools.push(createResolveReviewThreadTool(ctx));
 
   if (canEditConfig(ctx.role)) {
     tools.push(createListConfigFilesTool(ctx));
@@ -203,6 +210,10 @@ function buildQueryTools(ctx: QueryToolContext): ClackToolsResult {
     tools.push(createScheduleReminderTool(ctx));
     tools.push(createListRemindersTool(ctx));
     tools.push(createCancelReminderTool(ctx));
+    tools.push(createCreateScheduledMessageTool(ctx));
+    tools.push(createListScheduledMessagesTool(ctx));
+    tools.push(createCancelScheduledMessageTool(ctx));
+    tools.push(createUpdateScheduledMessageTool(ctx));
   }
 
   // --- Presentation tool ---

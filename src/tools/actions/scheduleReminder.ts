@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
-import { textResult, errorResult } from "../helpers.js";
+import { textResult, errorResult, resolveChannelId } from "../helpers.js";
+import { errorMessage } from "../../errors.js";
 import { logger } from "../../logger.js";
 
 export function createScheduleReminderTool(ctx: QueryToolContext) {
@@ -22,27 +23,10 @@ export function createScheduleReminderTool(ctx: QueryToolContext) {
         return errorResult("Scheduling requires a Slack connection");
       }
 
-      // Resolve channel: if it looks like an ID, use directly; otherwise look up by name
-      let channelId = args.channel;
-      if (!channelId.startsWith("C")) {
-        const channelName = channelId.replace(/^#/, "");
-        try {
-          const listResult = await ctx.slackClient.conversations.list({
-            types: "public_channel,private_channel",
-            limit: 1000,
-          });
-          const match = listResult.channels?.find(
-            (ch) => ch.name === channelName,
-          );
-          if (!match?.id) {
-            return errorResult(`Could not find channel "${channelName}". Make sure the channel exists and the bot is a member.`);
-          }
-          channelId = match.id;
-        } catch (error) {
-          const message = error instanceof Error ? error.message : "unknown error";
-          return errorResult(`Failed to resolve channel name: ${message}`);
-        }
-      }
+      // Resolve channel
+      const resolved = await resolveChannelId(ctx.slackClient, args.channel);
+      if (!resolved.ok) return errorResult(resolved.error);
+      const channelId = resolved.channelId;
 
       // Parse timestamp
       const postAtDate = new Date(args.post_at);
@@ -69,7 +53,7 @@ export function createScheduleReminderTool(ctx: QueryToolContext) {
           message: args.message,
         });
       } catch (error) {
-        const message = error instanceof Error ? error.message : "unknown error";
+        const message = errorMessage(error);
         logger.error("Failed to schedule message:", error);
 
         if (message.includes("time_in_past")) {
