@@ -60,14 +60,32 @@ export function registerAutoRespondHandler(app: App): void {
       return;
     }
 
-    // Run pre-analysis gate if configured (fail-closed: skip on false or error)
+    // Run pre-analysis gate if configured
     if (rule.preAnalysisContext) {
       const textForAnalysis = rawText?.trim();
       if (!textForAnalysis) {
         return;
       }
+
+      // Fetch recent channel messages for context
+      let recentMessages: string[] = [];
+      try {
+        const history = await client.conversations.history({
+          channel: event.channel,
+          latest: event.ts,
+          limit: 10,
+          inclusive: false,
+        });
+        recentMessages = (history.messages ?? [])
+          .reverse()
+          .map((m) => m.text?.slice(0, 200) ?? "")
+          .filter(Boolean);
+      } catch {
+        // Non-fatal — proceed without context
+      }
+
       const sharedContext = loadPreAnalysisContext();
-      const shouldRespond = await runPreAnalysis(textForAnalysis, rule.preAnalysisContext, sharedContext || undefined);
+      const shouldRespond = await runPreAnalysis(textForAnalysis, rule.preAnalysisContext, sharedContext || undefined, recentMessages);
       logger.debug(
         `Pre-analysis: channel=${event.channel}, rule=${rule.id}, verdict=${shouldRespond ? "yes" : "no"}`
       );
