@@ -4,7 +4,7 @@ import type { WorktreeInfo } from "../worktrees.js";
 // Core Types
 // ============================================================================
 
-export type TriggerType = "directMessages" | "mentions" | "reactions" | "autoRespond";
+export type TriggerType = "directMessages" | "mentions" | "reactions" | "autoRespond" | "scheduled";
 
 export interface ChangeRequest {
   userId: string;

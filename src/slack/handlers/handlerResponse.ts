@@ -34,6 +34,8 @@ export interface ExecuteAndDeliverParams {
   sessionInfo: SessionInfo;
   claudeOptions: AskClaudeOptions;
   abortController?: AbortController;
+  /** When true, skip SlackStreamer and post the final result directly (no thinking indicators) */
+  silentThinking?: boolean;
 }
 
 /** Internal context shared by executeAndDeliver and its helpers. */
@@ -42,11 +44,12 @@ interface DeliveryContext {
   session: SessionContext;
   sessionInfo: SessionInfo;
   claudeOptions: AskClaudeOptions;
-  streamer: SlackStreamer;
+  streamer: SlackStreamer | null;
   targetChannel: string;
   targetThread: string;
   alreadyDelivered: boolean;
   startTime: number;
+  silentThinking: boolean;
 }
 
 /**
@@ -55,33 +58,37 @@ interface DeliveryContext {
  * Handles streaming, delivery via submit_response, error reporting, and auto-execute.
  */
 export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promise<ClaudeResponse> {
-  const { client, session, sessionInfo, claudeOptions, abortController } = params;
+  const { client, session, sessionInfo, claudeOptions, abortController, silentThinking = false } = params;
 
   // Derive target from sessionInfo (DM-aware)
   const targetChannel = sessionInfo.dmChannel ?? sessionInfo.channelId;
   const targetThread = sessionInfo.dmThreadTs ?? sessionInfo.threadTs;
 
-  // Slack's streaming API requires a human user as recipient — bot users cause
-  // channel_type_not_supported errors. Fall back to the bot's own user ID when
-  // the session user is a bot (e.g., auto-respond triggered by a Sentry message).
-  let streamUserId = sessionInfo.userId;
   const userInfo = await getUserInfo(client, sessionInfo.userId);
-  if (userInfo?.isBot || sessionInfo.userId === "auto-respond") {
-    const authResult = await client.auth.test();
-    streamUserId = authResult.user_id ?? streamUserId;
-  }
 
-  // Create streamer targeting the derived channel/thread
-  const streamer = new SlackStreamer({
-    client,
-    channel: targetChannel,
-    threadTs: targetThread,
-    userId: streamUserId,
-  });
+  // Create streamer only for interactive sessions
+  let streamer: SlackStreamer | null = null;
+  if (!silentThinking) {
+    // Slack's streaming API requires a human user as recipient — bot users cause
+    // channel_type_not_supported errors. Fall back to the bot's own user ID when
+    // the session user is a bot (e.g., auto-respond triggered by a Sentry message).
+    let streamUserId = sessionInfo.userId;
+    if (userInfo?.isBot || sessionInfo.userId === "auto-respond") {
+      const authResult = await client.auth.test();
+      streamUserId = authResult.user_id ?? streamUserId;
+    }
 
-  const streamStarted = await streamer.start();
-  if (!streamStarted) {
-    logger.warn("Stream failed to start, will fall back to one-shot posting");
+    streamer = new SlackStreamer({
+      client,
+      channel: targetChannel,
+      threadTs: targetThread,
+      userId: streamUserId,
+    });
+
+    const streamStarted = await streamer.start();
+    if (!streamStarted) {
+      logger.warn("Stream failed to start, will fall back to one-shot posting");
+    }
   }
 
   const ctx: DeliveryContext = {
@@ -89,20 +96,23 @@ export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promis
     streamer, targetChannel, targetThread,
     alreadyDelivered: false,
     startTime: Date.now(),
+    silentThinking,
   };
 
-  const deliver = buildDeliverFn(ctx);
+  const deliver = silentThinking
+    ? buildDirectDeliverFn(ctx)
+    : buildDeliverFn(ctx);
 
   try {
     const user = session.displayName ?? session.username ?? session.userId;
     logger.info(
-      `Calling Claude (user: ${user}, session: ${session.sessionId}, role: ${claudeOptions.role ?? "member"}, changesWorkflow: ${claudeOptions.changesWorkflowEnabled ?? false})`
+      `Calling Claude (user: ${user}, session: ${session.sessionId}, role: ${claudeOptions.role ?? "member"}, changesWorkflow: ${claudeOptions.changesWorkflowEnabled ?? false}${silentThinking ? ", silentThinking" : ""})`
     );
     const response = await askClaude(session, {
       ...claudeOptions,
       slackClient: client,
       deliver,
-      onEvent: streamer.handleEvent,
+      onEvent: streamer?.handleEvent ?? (() => {}),
       abortController,
       userTimezone: userInfo?.tz,
     });
@@ -123,7 +133,7 @@ export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promis
     await handleUnexpectedError(ctx, error);
     throw error;
   } finally {
-    await streamer.stop();
+    await streamer?.stop();
   }
 }
 
@@ -142,7 +152,7 @@ function buildDeliverFn(ctx: DeliveryContext): DeliverFn {
     }
 
     try {
-      if (!ctx.streamer.hasFailed) {
+      if (ctx.streamer && !ctx.streamer.hasFailed) {
         await ctx.streamer.stop({
           markdownText: opts.markdownText,
           ...(opts.blocks && { blocks: opts.blocks }),
@@ -167,6 +177,31 @@ function buildDeliverFn(ctx: DeliveryContext): DeliverFn {
       return { ok: true as const };
     } catch (error) {
       logger.error("Delivery failed:", error);
+      return { ok: false as const, error: toErrorMessage(error) };
+    }
+  };
+}
+
+/**
+ * Build a DeliverFn that posts directly via chat.postMessage without thread_ts.
+ * Used for silentThinking mode (e.g., cron jobs) where no streaming UX is needed.
+ */
+function buildDirectDeliverFn(ctx: DeliveryContext): DeliverFn {
+  return async (opts) => {
+    if (ctx.alreadyDelivered) {
+      return { ok: false as const, error: "Response already delivered" };
+    }
+
+    try {
+      await ctx.client.chat.postMessage({
+        channel: ctx.targetChannel,
+        text: opts.markdownText,
+        ...(opts.blocks && { blocks: opts.blocks }),
+      });
+      ctx.alreadyDelivered = true;
+      return { ok: true as const };
+    } catch (error) {
+      logger.error("Direct delivery failed:", error);
       return { ok: false as const, error: toErrorMessage(error) };
     }
   };
@@ -198,14 +233,15 @@ async function deliverViaStreamerOrFallback(
   ctx: DeliveryContext,
   text: string,
 ): Promise<void> {
-  await ctx.streamer.stop({ markdownText: text });
-  if (ctx.streamer.hasFailed) {
-    await ctx.client.chat.postMessage({
-      channel: ctx.targetChannel,
-      thread_ts: ctx.targetThread,
-      text,
-    });
+  if (ctx.streamer) {
+    await ctx.streamer.stop({ markdownText: text });
+    if (!ctx.streamer.hasFailed) return;
   }
+  await ctx.client.chat.postMessage({
+    channel: ctx.targetChannel,
+    ...(ctx.silentThinking ? {} : { thread_ts: ctx.targetThread }),
+    text,
+  });
 }
 
 /**
@@ -226,7 +262,7 @@ async function handleSuccess(ctx: DeliveryContext, response: ClaudeResponse): Pr
   if (!ctx.alreadyDelivered) {
     // submit_response was NOT called — deliver raw text via stream
     await deliverViaStreamerOrFallback(ctx, response.answer);
-    if (!ctx.streamer.hasFailed) {
+    if (ctx.streamer && !ctx.streamer.hasFailed) {
       await sendResponseNotification(ctx);
     }
   }
@@ -265,9 +301,15 @@ async function handleError(ctx: DeliveryContext, response: ClaudeResponse): Prom
     ? errorMessage
     : `Claude seems to have crashed (session: ${ctx.session.sessionId}), maybe try again?`;
 
+  // For silentThinking, suppress channel error posting — caller handles errors
+  if (ctx.silentThinking) {
+    await sendErrorReportDM(ctx, errorMessage, conversationTrace);
+    return;
+  }
+
   // Post error via chat.postMessage (stream may already be stopped if submit_response
   // delivered before the SDK errored)
-  await ctx.streamer.stop();
+  await ctx.streamer?.stop();
   await ctx.client.chat.postMessage({
     channel: ctx.targetChannel,
     thread_ts: ctx.targetThread,

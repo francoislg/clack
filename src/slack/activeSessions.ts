@@ -1,12 +1,13 @@
 import { logger } from "../logger.js";
 import { getSession, parseSessionId } from "../sessions.js";
+import type { TriggerType } from "../changes/types.js";
 
 export interface SessionInfo {
   channelId: string;
   threadTs: string;
   userId: string;
   /** Original trigger type, used to build proper Claude options on button clicks. */
-  triggerType?: "directMessages" | "mentions" | "reactions" | "autoRespond";
+  triggerType?: TriggerType;
   /** DM-first: the DM channel ID where the answer was delivered */
   dmChannel?: string;
   /** DM-first: the root DM message timestamp (thread anchor) */

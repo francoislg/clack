@@ -15,6 +15,8 @@ import { getVisibleRepos, canWriteRepo } from "../repoAccess.js";
 import { getMigrationErrors } from "../migrations/admin.js";
 import { discoverPluginInfo } from "../plugins.js";
 import { getRules, type AutoRespondRule } from "../autoRespond.js";
+import { getJobs, getJobsByUser, type CronJob } from "../cronJobs.js";
+import { humanReadableSchedule } from "../cronScheduler.js";
 
 interface HomeViewOptions {
   userId: string;
@@ -57,6 +59,12 @@ export async function buildHomeView(options: HomeViewOptions): Promise<View> {
   // Auto-respond section (admin only)
   if (userIsAdmin) {
     blocks.push(...(await buildAutoRespondSection()));
+  }
+
+  // Scheduled messages section (admins see all, others see own)
+  const scheduledBlocks = await buildScheduledMessagesSection(userId, userIsAdmin);
+  if (scheduledBlocks.length > 0) {
+    blocks.push(...scheduledBlocks);
   }
 
   // Configuration & preferences section (config editing for admins, preferences for all)
@@ -1223,6 +1231,144 @@ export function buildAutoRespondModal(
     callback_id: isEdit ? "ai_edit_rule_modal" : "ai_add_rule_modal",
     private_metadata: isEdit ? rule.id : "",
     title: { type: "plain_text", text: isEdit ? "Edit Rule" : "Add Rule" },
+    submit: { type: "plain_text", text: "Save" },
+    close: { type: "plain_text", text: "Cancel" },
+    blocks,
+  };
+}
+
+// ============================================================================
+// SCHEDULED MESSAGES
+// ============================================================================
+
+async function buildScheduledMessagesSection(
+  userId: string,
+  isAdmin: boolean,
+): Promise<(KnownBlock | Block)[]> {
+  const jobs = isAdmin ? await getJobs() : await getJobsByUser(userId);
+  if (jobs.length === 0) return [];
+
+  const blocks: (KnownBlock | Block)[] = [];
+
+  blocks.push({ type: "divider" });
+  blocks.push({
+    type: "header",
+    text: { type: "plain_text", text: "Scheduled Messages", emoji: true },
+  });
+
+  for (const job of jobs) {
+    const schedule = humanReadableSchedule(job.cronExpression, job.timezone);
+    const statusLabel = !job.enabled
+      ? " _(paused)_"
+      : job.lastRunStatus === "error"
+        ? " :warning:"
+        : "";
+    const typeLabel = job.oneShot ? " · _one-time_" : "";
+    const creator = isAdmin && job.createdBy !== userId
+      ? ` · <@${job.createdBy}>`
+      : "";
+
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `<#${job.channel}> · ${schedule}${typeLabel}${creator}${statusLabel}`,
+      },
+      accessory: {
+        type: "button",
+        text: { type: "plain_text", text: "Edit" },
+        action_id: `cron_edit_job:${job.id}`,
+      },
+    });
+  }
+
+  return blocks;
+}
+
+export function buildCronJobModal(job?: CronJob): View {
+  const isEdit = !!job;
+  const blocks: (KnownBlock | Block)[] = [
+    {
+      type: "input",
+      block_id: "cron_channel_block",
+      label: { type: "plain_text", text: "Channel" },
+      element: {
+        type: "conversations_select",
+        action_id: "channel",
+        ...(job?.channel && { initial_conversation: job.channel }),
+        filter: {
+          include: ["public", "private"],
+          exclude_bot_users: true,
+        },
+        placeholder: { type: "plain_text", text: "Select a channel" },
+      },
+    },
+    {
+      type: "input",
+      block_id: "cron_expression_block",
+      label: { type: "plain_text", text: "Cron Expression" },
+      element: {
+        type: "plain_text_input",
+        action_id: "cron_expression",
+        ...(job?.cronExpression && { initial_value: job.cronExpression }),
+        placeholder: { type: "plain_text", text: "e.g. 0 9 * * * (daily at 9am)" },
+      },
+      hint: { type: "plain_text", text: "5-field cron: minute hour day-of-month month day-of-week" },
+    },
+    {
+      type: "input",
+      block_id: "cron_prompt_block",
+      label: { type: "plain_text", text: "Prompt (dynamic content)" },
+      optional: true,
+      element: {
+        type: "plain_text_input",
+        action_id: "prompt",
+        multiline: true,
+        ...(job?.prompt && { initial_value: job.prompt }),
+        placeholder: { type: "plain_text", text: "What should Claude do? e.g. Summarize merged PRs from today" },
+      },
+    },
+    {
+      type: "context",
+      elements: [
+        { type: "mrkdwn", text: "Claude will generate content each time this runs. The bot must be a member of the selected channel." },
+      ],
+    },
+  ];
+
+  if (isEdit && job) {
+    blocks.push({ type: "divider" });
+    blocks.push({
+      type: "actions",
+      block_id: "cron_job_actions_block",
+      elements: [
+        {
+          type: "button",
+          text: { type: "plain_text", text: job.enabled ? "Disable" : "Enable" },
+          action_id: `cron_toggle_job:${job.id}`,
+        },
+        {
+          type: "button",
+          text: { type: "plain_text", text: "Delete" },
+          action_id: `cron_delete_job:${job.id}`,
+          style: "danger",
+          confirm: {
+            title: { type: "plain_text", text: "Delete scheduled message?" },
+            text: { type: "plain_text", text: "This will permanently remove this scheduled message." },
+            confirm: { type: "plain_text", text: "Delete" },
+            deny: { type: "plain_text", text: "Cancel" },
+            style: "danger",
+          },
+        },
+      ],
+    });
+  }
+
+  return {
+    type: "modal",
+    callback_id: isEdit ? "cron_edit_job_modal" : "cron_add_job_modal",
+    private_metadata: isEdit ? job.id : "",
+    title: { type: "plain_text", text: isEdit ? "Edit Schedule" : "Add Schedule" },
     submit: { type: "plain_text", text: "Save" },
     close: { type: "plain_text", text: "Cancel" },
     blocks,

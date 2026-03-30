@@ -22,6 +22,7 @@ import {
   buildConfigEditorModal,
   buildConfigCreateFileModal,
   buildAutoRespondModal,
+  buildCronJobModal,
   type ConfigFilePickerEntry,
   type ConfigFileState,
 } from "../homeTab.js";
@@ -41,6 +42,8 @@ import {
 } from "../../configurationFiles.js";
 import { setUserPreference } from "../../userPreferences.js";
 import type { ReactionDelivery } from "../../userPreferences.js";
+import { toggleJob, deleteJob, getJob, updateJob } from "../../cronJobs.js";
+import { CronExpressionParser } from "cron-parser";
 
 /** Parse comma-separated keywords input into a trimmed array, or undefined if empty. */
 function parseKeywords(raw: string | null | undefined): string[] | undefined {
@@ -714,6 +717,112 @@ export function registerHomeTabHandler(app: App): void {
       }
     } catch (error) {
       logger.error("Failed to start chat edit:", error);
+    }
+  });
+
+  // Edit scheduled message button → open modal
+  app.action<BlockAction>(/^cron_edit_job:/, async ({ ack, body, client, action }) => {
+    await ack();
+    try {
+      const jobId = (action as { action_id: string }).action_id.split(":")[1];
+      const job = await getJob(jobId);
+      if (!job) return;
+      await client.views.open({
+        trigger_id: body.trigger_id,
+        view: buildCronJobModal(job),
+      });
+    } catch (error) {
+      logger.error("Failed to open edit cron job modal:", error);
+    }
+  });
+
+  // Toggle button inside cron job modal
+  app.action<BlockAction>(/^cron_toggle_job:/, async ({ ack, body, client, action }) => {
+    await ack();
+    try {
+      const jobId = (action as { action_id: string }).action_id.split(":")[1];
+      const updated = await toggleJob(jobId);
+      if (updated) {
+        const viewId = (body as unknown as { view?: { id: string } }).view?.id;
+        if (viewId) {
+          await client.views.update({
+            view_id: viewId,
+            view: buildCronJobModal(updated),
+          });
+        }
+      }
+      await publishHomeView(client, body.user.id);
+    } catch (error) {
+      logger.error("Failed to toggle cron job:", error);
+    }
+  });
+
+  // Delete button inside cron job modal (with confirm)
+  app.action<BlockAction>(/^cron_delete_job:/, async ({ ack, body, client, action }) => {
+    await ack();
+    try {
+      const jobId = (action as { action_id: string }).action_id.split(":")[1];
+      await deleteJob(jobId);
+      const viewId = (body as unknown as { view?: { id: string } }).view?.id;
+      if (viewId) {
+        await client.views.update({
+          view_id: viewId,
+          view: {
+            type: "modal",
+            title: { type: "plain_text", text: "Deleted" },
+            close: { type: "plain_text", text: "Close" },
+            blocks: [
+              {
+                type: "section",
+                text: { type: "mrkdwn", text: "Scheduled message deleted." },
+              },
+            ],
+          },
+        });
+      }
+      await publishHomeView(client, body.user.id);
+    } catch (error) {
+      logger.error("Failed to delete cron job:", error);
+    }
+  });
+
+  // Edit cron job modal submission
+  app.view<ViewSubmitAction>("cron_edit_job_modal", async ({ ack, view, body, client }) => {
+    const jobId = view.private_metadata;
+    const channel = view.state.values.cron_channel_block.channel.selected_conversation;
+    const cronExpression = view.state.values.cron_expression_block.cron_expression.value;
+    const prompt = view.state.values.cron_prompt_block.prompt.value;
+
+    if (!channel) {
+      await ack({ response_action: "errors", errors: { cron_channel_block: "Select a channel" } });
+      return;
+    }
+    if (!cronExpression) {
+      await ack({ response_action: "errors", errors: { cron_expression_block: "Provide a cron expression" } });
+      return;
+    }
+    if (!prompt) {
+      await ack({ response_action: "errors", errors: { cron_prompt_block: "Provide a prompt" } });
+      return;
+    }
+
+    try {
+      CronExpressionParser.parse(cronExpression);
+    } catch {
+      await ack({ response_action: "errors", errors: { cron_expression_block: "Invalid cron expression" } });
+      return;
+    }
+
+    await ack();
+    try {
+      await updateJob(jobId, {
+        channel,
+        cronExpression,
+        prompt,
+      });
+      await publishHomeView(client, body.user.id);
+    } catch (error) {
+      logger.error("Failed to update cron job:", error);
     }
   });
 
