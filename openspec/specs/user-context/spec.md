@@ -18,18 +18,18 @@ The system SHALL provide a configuration option to enable or disable username fe
 - **AND** stores username and display name in session data
 
 ### Requirement: User Info Caching
-The system SHALL cache resolved user information in memory.
+The system SHALL cache resolved user information in memory, including timezone data.
 
 #### Scenario: Cache miss
 - **WHEN** a user ID is not in the cache
 - **AND** `fetchUserNames` is enabled
 - **THEN** the system calls the Slack `users.info` API
-- **AND** stores the result in the cache
+- **AND** stores the result in the cache including the `tz` (IANA timezone) field
 - **AND** returns the user info
 
 #### Scenario: Cache hit
 - **WHEN** a user ID is already in the cache
-- **THEN** the system returns the cached value
+- **THEN** the system returns the cached value (including `tz`)
 - **AND** does not make an API call
 
 #### Scenario: API error handling
@@ -37,6 +37,11 @@ The system SHALL cache resolved user information in memory.
 - **THEN** the system logs the error
 - **AND** returns undefined for that user
 - **AND** does not cache the failure
+
+#### Scenario: Timezone field populated
+- **WHEN** a user is resolved via `users.info`
+- **THEN** the `UserInfo` record includes the `tz` field from `result.user.tz` (e.g., `America/New_York`)
+- **AND** if the user has no timezone set in Slack, `tz` is `undefined`
 
 ### Requirement: Thread Context User Names
 The system SHALL include user names in thread context when enabled.
