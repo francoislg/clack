@@ -45,6 +45,10 @@ Each config file SHALL support the following fields:
 - **WHEN** a config file has `"groups": { "search": "Searching codebase", "edit": "Editing files" }` and tool entries reference these keys
 - **THEN** each tool SHALL be assigned to the group matching its `group` field, with the title from `groups`
 
+#### Scenario: Clack find_emoji tool label
+- **WHEN** the `find_emoji` tool is called with args `{ "query": "party" }`
+- **THEN** the tool SHALL resolve to label `Looking up emoji "party"` via the `clack.json` config
+
 ### Requirement: Two-Tier Config Loading
 The system SHALL load tool mapping configs from two directories with user configs overriding shipped defaults. Override granularity is per-file (full replacement, no merging).
 

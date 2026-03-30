@@ -57,6 +57,7 @@ const DEFAULTS: Required<SlackAppConfig> = {
 // Core scopes - always needed for basic reaction functionality and role management
 const CORE_SCOPES: BotScope[] = [
   "channels:history",
+  "emoji:read", // Needed for find_emoji tool (custom emoji lookup)
   "files:read", // Needed for downloading images uploaded in Slack messages
   "files:write", // Needed for uploading files to Slack (upload_file tool, Chat to Edit)
   "groups:history",
