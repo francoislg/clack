@@ -3,34 +3,40 @@ import { logger } from "../logger.js";
 import { detectRuntime } from "./utilities.js";
 
 /**
- * Pre-analysis gate for auto-respond: asks Haiku whether Clack should respond
- * to a message, given admin-provided context.
- * Returns true (respond) or false (skip). Defaults to false on error or ambiguity.
+ * Pre-analysis gate for auto-respond: asks Claude whether to skip a message.
+ * Returns true (respond) or false (skip). Defaults to true (respond) on error or ambiguity.
  */
 export async function runPreAnalysis(
   messageText: string,
   preAnalysisContext: string,
-  sharedContext?: string
+  sharedContext?: string,
+  recentMessages?: string[],
 ): Promise<boolean> {
   const contextSection = sharedContext
     ? `Background context:\n${sharedContext}\n\nFiltering criteria: ${preAnalysisContext}`
     : `Filtering criteria: ${preAnalysisContext}`;
 
-  const systemPrompt = `You are a message filter. Given the context and filtering criteria below, decide whether the assistant should respond to this message.
+  const conversationContext = recentMessages && recentMessages.length > 0
+    ? `\n\nRECENT CHANNEL HISTORY (oldest first):\n${recentMessages.map((m) => `> ${m}`).join("\n")}`
+    : "";
+
+  const systemPrompt = `You are a binary classifier. You output exactly one word, nothing else.
+
+The following message was sent in a channel where a bot monitors and responds to messages. Your job: decide if the bot should SKIP this message or RESPOND to it. The bot should respond to almost everything — only skip obvious noise.
 
 ${contextSection}
 
-Reply with exactly one word: "yes" if the assistant should respond, or "no" if it should not. Nothing else.`;
+OUTPUT FORMAT: The single word "skip" or "respond". Nothing else.`;
 
   try {
     let lastAssistantText = "";
 
     for await (const message of query({
-      prompt: messageText,
+      prompt: `${conversationContext}\n\nMESSAGE TO CLASSIFY:\n\n"""${messageText}"""`,
       options: {
         cwd: process.cwd(),
         executable: detectRuntime(),
-        model: "haiku",
+        model: "sonnet",
         systemPrompt,
         disallowedTools: ["Write", "Edit", "NotebookEdit", "Bash", "Task", "TaskOutput", "Read", "Glob", "Grep"],
         maxTurns: 1,
@@ -44,16 +50,18 @@ Reply with exactly one word: "yes" if the assistant should respond, or "no" if i
           }
         }
       }
-      if (message.type === "result" && message.subtype === "success") {
-        const resultText = (message.result || lastAssistantText).trim().toLowerCase();
-        const firstWord = resultText.split(/\s+/)[0];
-        return firstWord === "yes";
+      if (message.type === "result") {
+        const resultText = ((message as { result?: string }).result || lastAssistantText).trim().toLowerCase();
+        logger.info(`Pre-analysis result: text="${resultText}", message="${messageText.slice(0, 50)}"`);
+        if (message.subtype !== "success") return true;
+        return !resultText.includes("skip");
       }
     }
 
-    return false;
+    logger.warn(`Pre-analysis: no result message received for "${messageText.slice(0, 50)}"`);
+    return true;
   } catch (error) {
-    logger.debug("Pre-analysis call failed:", error);
-    return false;
+    logger.warn("Pre-analysis call failed:", error);
+    return true;
   }
 }

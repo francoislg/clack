@@ -43,25 +43,17 @@ function asyncIterableOf<T>(items: T[]): AsyncIterable<T> {
 }
 
 // ---------------------------------------------------------------------------
-// runPreAnalysis
+// runPreAnalysis — fail-open design: only "skip" causes a skip
 // ---------------------------------------------------------------------------
 describe("runPreAnalysis", () => {
   beforeEach(() => {
     mockQuery.mock.resetCalls();
   });
 
-  it("returns true when Claude responds with 'yes'", async () => {
+  it("returns true (respond) when Claude responds with 'respond'", async () => {
     mockQuery.mock.mockImplementation(() =>
       asyncIterableOf([
-        {
-          type: "assistant",
-          message: { content: [{ type: "text", text: "yes" }] },
-        },
-        {
-          type: "result",
-          subtype: "success",
-          result: "yes",
-        },
+        { type: "result", subtype: "success", result: "respond" },
       ])
     );
 
@@ -69,65 +61,38 @@ describe("runPreAnalysis", () => {
     assert.equal(result, true);
   });
 
-  it("returns false when Claude responds with 'no'", async () => {
+  it("returns false (skip) when Claude responds with 'skip'", async () => {
     mockQuery.mock.mockImplementation(() =>
       asyncIterableOf([
-        {
-          type: "assistant",
-          message: { content: [{ type: "text", text: "no" }] },
-        },
-        {
-          type: "result",
-          subtype: "success",
-          result: "no",
-        },
+        { type: "result", subtype: "success", result: "skip" },
       ])
     );
 
-    const result = await runPreAnalysis("daily status update", "Only respond to errors");
+    const result = await runPreAnalysis("lol", "Skip noise");
     assert.equal(result, false);
   });
 
-  it("returns true for 'Yes' (case-insensitive)", async () => {
+  it("returns true for ambiguous response (fail-open)", async () => {
     mockQuery.mock.mockImplementation(() =>
       asyncIterableOf([
-        {
-          type: "result",
-          subtype: "success",
-          result: "Yes",
-        },
-      ])
-    );
-
-    const result = await runPreAnalysis("error in production", "Only respond to errors");
-    assert.equal(result, true);
-  });
-
-  it("returns false for ambiguous response", async () => {
-    mockQuery.mock.mockImplementation(() =>
-      asyncIterableOf([
-        {
-          type: "result",
-          subtype: "success",
-          result: "maybe, it depends on context",
-        },
+        { type: "result", subtype: "success", result: "maybe, it depends on context" },
       ])
     );
 
     const result = await runPreAnalysis("some message", "Only respond to errors");
-    assert.equal(result, false);
+    assert.equal(result, true);
   });
 
-  it("returns false when query throws", async () => {
+  it("returns true when query throws (fail-open)", async () => {
     mockQuery.mock.mockImplementation(() => {
       throw new Error("SDK failure");
     });
 
     const result = await runPreAnalysis("message", "context");
-    assert.equal(result, false);
+    assert.equal(result, true);
   });
 
-  it("returns false when async iterator throws", async () => {
+  it("returns true when async iterator throws (fail-open)", async () => {
     mockQuery.mock.mockImplementation(() => ({
       async *[Symbol.asyncIterator]() {
         throw new Error("stream interrupted");
@@ -135,22 +100,18 @@ describe("runPreAnalysis", () => {
     }));
 
     const result = await runPreAnalysis("message", "context");
-    assert.equal(result, false);
+    assert.equal(result, true);
   });
 
-  it("returns false when result is empty", async () => {
+  it("returns true when result is empty (fail-open)", async () => {
     mockQuery.mock.mockImplementation(() =>
       asyncIterableOf([
-        {
-          type: "result",
-          subtype: "success",
-          result: "",
-        },
+        { type: "result", subtype: "success", result: "" },
       ])
     );
 
     const result = await runPreAnalysis("message", "context");
-    assert.equal(result, false);
+    assert.equal(result, true);
   });
 
   it("falls back to lastAssistantText when result.result is empty", async () => {
@@ -158,13 +119,9 @@ describe("runPreAnalysis", () => {
       asyncIterableOf([
         {
           type: "assistant",
-          message: { content: [{ type: "text", text: "yes" }] },
+          message: { content: [{ type: "text", text: "respond" }] },
         },
-        {
-          type: "result",
-          subtype: "success",
-          result: "",
-        },
+        { type: "result", subtype: "success", result: "" },
       ])
     );
 
@@ -172,19 +129,15 @@ describe("runPreAnalysis", () => {
     assert.equal(result, true);
   });
 
-  it("parses only the first word of the response", async () => {
+  it("detects 'skip' in verbose response", async () => {
     mockQuery.mock.mockImplementation(() =>
       asyncIterableOf([
-        {
-          type: "result",
-          subtype: "success",
-          result: "yes I think the assistant should respond",
-        },
+        { type: "result", subtype: "success", result: "I would skip this message" },
       ])
     );
 
-    const result = await runPreAnalysis("error", "Only respond to errors");
-    assert.equal(result, true);
+    const result = await runPreAnalysis("lol", "Skip noise");
+    assert.equal(result, false);
   });
 
   it("passes systemPrompt with the preAnalysisContext to query", async () => {
@@ -192,7 +145,7 @@ describe("runPreAnalysis", () => {
     mockQuery.mock.mockImplementation((...args: unknown[]) => {
       capturedOptions = ((args[0] as Record<string, unknown>).options ?? {}) as Record<string, unknown>;
       return asyncIterableOf([
-        { type: "result", subtype: "success", result: "no" },
+        { type: "result", subtype: "success", result: "respond" },
       ]);
     });
 
@@ -200,7 +153,27 @@ describe("runPreAnalysis", () => {
 
     assert.ok(typeof capturedOptions.systemPrompt === "string");
     assert.ok((capturedOptions.systemPrompt as string).includes("Only respond to product questions"));
-    assert.equal(capturedOptions.model, "haiku");
+    assert.equal(capturedOptions.model, "sonnet");
     assert.equal(capturedOptions.maxTurns, 1);
+  });
+
+  it("includes recent messages in the prompt when provided", async () => {
+    let capturedPrompt = "";
+    mockQuery.mock.mockImplementation((...args: unknown[]) => {
+      capturedPrompt = (args[0] as Record<string, unknown>).prompt as string;
+      return asyncIterableOf([
+        { type: "result", subtype: "success", result: "respond" },
+      ]);
+    });
+
+    await runPreAnalysis("what about today", "Skip noise", undefined, [
+      "Bot: Here's your daily update!",
+      "User: thanks",
+    ]);
+
+    assert.ok(capturedPrompt.includes("RECENT CHANNEL HISTORY"));
+    assert.ok(capturedPrompt.includes("Here's your daily update!"));
+    assert.ok(capturedPrompt.includes("MESSAGE TO CLASSIFY"));
+    assert.ok(capturedPrompt.includes("what about today"));
   });
 });
