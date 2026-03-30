@@ -1,7 +1,7 @@
 # auto-execute-actions Specification
 
 ## Purpose
-Auto-execution of actions (change, update, review, merge, close, send_to_thread) when Claude sets `auto: true` in `submit_response`, enabling immediate workflow execution without requiring a button click for clear user directives.
+Auto-execution of actions (change, update, review, merge, close, post_to) when Claude sets `auto: true` in `submit_response`, enabling immediate workflow execution without requiring a button click for clear user directives.
 
 ## Requirements
 
@@ -59,14 +59,38 @@ The system SHALL support an optional `auto` boolean flag on ref-based actions (`
 - **THEN** the system posts the response to Slack
 - **AND** immediately resolves the staged intent and triggers the close follow-up
 
-#### Scenario: Auto-execute send_to_thread in DM-first mode
+#### Scenario: Auto-execute post_to in DM-first mode
 
 - **GIVEN** a DM-first session where the user is refining an answer
-- **WHEN** Claude calls `submit_response` with `{ type: "send_to_thread", auto: true }`
+- **WHEN** Claude calls `submit_response` with `{ type: "post_to", auto: true }`
 - **THEN** the system posts the response to the DM thread
-- **AND** immediately posts the answer to the original channel thread (skipping synthesis)
+- **AND** immediately reads the snapshot content persisted at delivery time
+- **AND** resolves the target via fallback chain: explicit params → origin channel → assistant channel → session channel
+- **AND** posts the snapshot content to the resolved target
 - **AND** stores the `channelPostTs` for future updates
-- **AND** confirms in the DM thread: "Answer posted to the original thread."
+- **AND** confirms in the DM thread: "Answer posted."
+
+#### Scenario: Auto-execute post_to as top-level channel message
+
+- **GIVEN** a Thread, Mention, or Assistant session
+- **WHEN** Claude calls `submit_response` with `{ type: "post_to", auto: true }` and no explicit `channel` or `thread_ts`
+- **THEN** the system reads the snapshot content persisted at delivery time
+- **AND** resolves the target channel via fallback chain (session channel for Thread/Mention, assistant channel for Assistant)
+- **AND** posts the snapshot content as a top-level message in the resolved channel (no `thread_ts`)
+
+#### Scenario: Auto-execute post_to with explicit target
+
+- **GIVEN** any session
+- **WHEN** Claude calls `submit_response` with `{ type: "post_to", auto: true, channel: "<id>", thread_ts: "<ts>" }`
+- **THEN** the system posts the snapshot content to the specified channel and thread
+- **AND** the fallback chain is not used
+
+#### Scenario: Auto-execute post_to skipped for DM and auto-respond
+
+- **GIVEN** a Direct Message session (no channel context) or an auto-respond session
+- **WHEN** Claude calls `submit_response` with `{ type: "post_to", auto: true }`
+- **THEN** the system logs a debug message and does NOT post
+- **AND** the response delivery to the current thread is unaffected
 
 #### Scenario: Auto flag defaults to false
 
@@ -102,6 +126,11 @@ The system SHALL include instructions guiding Claude on when to set `auto: true`
 - **WHEN** the user gives a clear directive ("Fix this", "Do it", "Merge the PR", "Update the PR with X")
 - **THEN** Claude sets `auto: true` on the corresponding ref-based action
 
+#### Scenario: Clear post-to directive uses auto
+
+- **WHEN** the user explicitly asks to post content elsewhere ("post that in the channel", "share this to the thread", "in the channel")
+- **THEN** Claude sets `auto: true` on the `post_to` action
+
 #### Scenario: Ambiguous intent uses button
 
 - **WHEN** the user's intent is ambiguous or Claude is suggesting a change the user hasn't explicitly requested
@@ -116,22 +145,29 @@ The system SHALL include instructions guiding Claude on when to set `auto: true`
 
 ### Requirement: Auto-Execute Permission Gating
 
-The system SHALL only auto-execute ref-based actions for users with the dev role or higher.
+The system SHALL only auto-execute ref-based actions for users with the dev role or higher. The `post_to` action is NOT ref-based and SHALL be available to all roles.
 
 #### Scenario: Privileged user auto-execute proceeds
 
 - **GIVEN** a user with dev, admin, or owner role
-- **WHEN** a response contains an action with `auto: true`
+- **WHEN** a response contains a ref-based action with `auto: true`
 - **THEN** the system auto-executes the action immediately after posting the response
 
-#### Scenario: Non-privileged user auto-execute blocked
+#### Scenario: Non-privileged user auto-execute blocked for ref-based actions
 
 - **GIVEN** a user with the member role
-- **WHEN** a response contains an action with `auto: true`
+- **WHEN** a response contains a ref-based action with `auto: true`
 - **THEN** the system does NOT auto-execute the action
 - **AND** the action renders as a button (but the button handler also checks permissions)
+
+#### Scenario: post_to auto-execute available to all roles
+
+- **GIVEN** a user with any role (including member)
+- **WHEN** a response contains a `post_to` action with `auto: true`
+- **THEN** the system auto-executes the `post_to` action regardless of role
 
 #### Scenario: Role defaults to member when unset
 
 - **WHEN** the role is not provided to the auto-execute handler
-- **THEN** the system defaults to `"member"` and does NOT auto-execute
+- **THEN** the system defaults to `"member"` and does NOT auto-execute ref-based actions
+- **AND** `post_to` auto-execute still proceeds
