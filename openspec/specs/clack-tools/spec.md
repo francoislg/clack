@@ -79,13 +79,14 @@ The system SHALL provide active change information as prompt context, not as too
 
 ### Requirement: Role-Based Tool Gating
 
-The system SHALL register tools based solely on the user's role and workflow configuration. Active change state is prompt context, not a tool gating mechanism.
+The system SHALL register tools based solely on the user's role, workflow configuration, and feature flags. Active change state is prompt context, not a tool gating mechanism.
 
 #### Scenario: Member user tool set
 
 - **WHEN** the user has the member role in query mode
-- **THEN** the tool server registers query tools (`list_repositories`, `git_log`, `deepen_history`) and `submit_response`
-- **AND** registers `find_user` and `upload_file` if a Slack client is available in the context
+- **THEN** the tool server registers query tools (`list_repositories`, `git_log`, `deepen_history`, `find_sessions`, `find_changes`, `find_pull_requests`, `resolve_review_thread`) and `submit_response`
+- **AND** registers `find_user`, `find_emoji`, and `upload_file` if a Slack client is available in the context
+- **AND** registers `schedule_reminder`, `list_reminders`, and `cancel_reminder` if `allowScheduledMessages` is enabled and a Slack client is available
 - **AND** does NOT register change action tools (`propose_change`, `propose_config_update`)
 
 #### Scenario: Dev user tool set
@@ -93,18 +94,15 @@ The system SHALL register tools based solely on the user's role and workflow con
 - **GIVEN** the changes workflow is enabled for the trigger type
 - **WHEN** the user has the dev role (or higher) in query mode
 - **THEN** the tool server registers all query tools, `propose_change`, and `submit_response`
+- **AND** registers scheduled message tools if `allowScheduledMessages` is enabled and a Slack client is available
 - **AND** registers these tools regardless of whether the thread has an active change
-
-#### Scenario: Dev user query tools include find_pull_requests
-
-- **WHEN** the user has the dev role (or higher) in query mode
-- **THEN** the tool server registers `find_pull_requests` alongside `find_sessions` and `find_changes`
 
 #### Scenario: Admin user tool set
 
 - **GIVEN** the user has the admin or owner role
 - **WHEN** the tool server is built in query mode
 - **THEN** it additionally registers `propose_config_update`, `list_config_files`, and `read_config_file`
+- **AND** registers scheduled message tools if `allowScheduledMessages` is enabled and a Slack client is available
 
 #### Scenario: Dev instructions include auto-execute guidance
 
@@ -117,7 +115,7 @@ The system SHALL register tools based solely on the user's role and workflow con
 
 - **WHEN** the tool server is built with mode `"worker"`
 - **THEN** it registers `git_push`, `ensure_pr`, `merge_pr`, `close_pr`, and `report_status`
-- **AND** does NOT register query, action, or presentation tools
+- **AND** does NOT register query, action, presentation, or scheduled message tools
 
 ### Requirement: Query Tools
 
@@ -149,6 +147,11 @@ The system SHALL provide read-only query tools for discovering system state.
 - **WHEN** Claude calls `find_user` with a `query` array of search terms
 - **THEN** the tool searches workspace members using the `UsersCache` abstraction
 - **AND** returns matching users with userId, username, and displayName
+
+#### Scenario: find_emoji tool
+- **WHEN** Claude calls `find_emoji` with a `query` string
+- **THEN** the tool searches custom workspace emojis using the `EmojiCache` abstraction
+- **AND** returns matching emojis with name, URL, and optional alias information
 
 #### Scenario: git_log tool
 - **WHEN** Claude calls `git_log` with required `repo` and optional `args` array
@@ -271,6 +274,91 @@ The system SHALL provide action tools that validate intent and return staged ref
 - **WHEN** the tool returns an error
 - **THEN** Claude receives the error message in the tool response
 - **AND** Claude can call the tool again with corrected parameters
+
+### Requirement: create_scheduled_message Tool
+
+The system SHALL provide a `create_scheduled_message` tool for creating cron jobs through conversation.
+
+#### Scenario: Create a recurring dynamic job
+- **WHEN** Claude calls `create_scheduled_message` with `channel`, `cronExpression`, `prompt`, and `timezone`
+- **THEN** the tool resolves the channel name to an ID (if needed)
+- **AND** validates the cron expression using `cron-parser`
+- **AND** creates the cron job with the creator's user ID
+- **AND** returns the job ID, next run time, and human-readable schedule
+
+#### Scenario: Create a static job
+- **WHEN** Claude calls `create_scheduled_message` with `channel`, `cronExpression`, `staticMessage`, and `timezone`
+- **THEN** the tool creates a cron job that posts the static message directly (no Claude session)
+
+#### Scenario: Create a one-shot job
+- **WHEN** Claude calls `create_scheduled_message` with `oneShot: true`
+- **THEN** the tool creates a job that auto-deletes after its first execution
+
+#### Scenario: Specify repositories for dynamic jobs
+- **WHEN** Claude calls `create_scheduled_message` with `repositories` array
+- **THEN** the tool validates that the creator has read access to the specified repositories
+- **AND** stores them on the job for use during execution
+
+#### Scenario: Invalid cron expression
+- **WHEN** Claude calls `create_scheduled_message` with an unparseable cron expression
+- **THEN** the tool returns an error describing the issue
+
+#### Scenario: Channel resolution failure
+- **WHEN** the specified channel cannot be found or the bot is not a member
+- **THEN** the tool returns an error indicating the channel issue
+
+#### Scenario: Tool gating
+- **WHEN** the tool server is built
+- **AND** `allowScheduledMessages` is enabled in config
+- **AND** a Slack client is available
+- **THEN** the `create_scheduled_message` tool is registered
+
+### Requirement: list_scheduled_messages Tool
+
+The system SHALL provide a `list_scheduled_messages` tool for listing cron jobs.
+
+#### Scenario: List all jobs for user
+- **WHEN** Claude calls `list_scheduled_messages` without filters
+- **THEN** the tool returns all cron jobs created by the current user
+- **AND** each entry includes: id, channel, human-readable schedule, prompt/staticMessage summary, enabled status, last run info
+
+#### Scenario: List jobs for a channel
+- **WHEN** Claude calls `list_scheduled_messages` with a `channel` filter
+- **THEN** the tool returns only jobs targeting that channel (created by the current user)
+
+#### Scenario: Admin lists all jobs
+- **WHEN** Claude calls `list_scheduled_messages` with `all: true`
+- **AND** the current user is an admin or owner
+- **THEN** the tool returns all cron jobs across all users
+
+#### Scenario: No scheduled messages
+- **WHEN** no cron jobs match the filter
+- **THEN** the tool returns an empty list with a descriptive message
+
+### Requirement: cancel_scheduled_message Tool
+
+The system SHALL provide a `cancel_scheduled_message` tool for deleting cron jobs.
+
+#### Scenario: Cancel by ID
+- **WHEN** Claude calls `cancel_scheduled_message` with a job `id`
+- **THEN** the tool deletes the cron job
+- **AND** returns confirmation
+
+#### Scenario: Cancel own job
+- **WHEN** a non-admin user cancels a job they created
+- **THEN** the tool deletes the job
+
+#### Scenario: Admin cancels any job
+- **WHEN** an admin or owner cancels any job
+- **THEN** the tool deletes the job regardless of creator
+
+#### Scenario: Cancel non-owned job as non-admin
+- **WHEN** a non-admin user attempts to cancel a job created by another user
+- **THEN** the tool returns an error indicating insufficient permissions
+
+#### Scenario: Cancel non-existent job
+- **WHEN** Claude calls `cancel_scheduled_message` with an ID that does not exist
+- **THEN** the tool returns an error indicating the job was not found
 
 ### Requirement: Staged Intent Storage
 
