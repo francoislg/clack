@@ -354,7 +354,9 @@ describe("loadMcpServers GitHub auto-injection", () => {
     };
     assert.equal(github.type, "stdio");
     assert.equal(github.command, "github-mcp-server");
-    assert.deepEqual(github.args, ["stdio"]);
+    assert.equal(github.args[0], "stdio");
+    assert.equal(github.args[1], "--exclude-tools");
+    assert.ok(github.args[2].includes("search_pull_requests"));
     assert.equal(github.env.GITHUB_PERSONAL_ACCESS_TOKEN, "ghs_test_token");
     assert.ok(github.env.GITHUB_TOOLSETS.includes("repos"));
     assert.ok(github.env.GITHUB_TOOLSETS.includes("pull_requests"));

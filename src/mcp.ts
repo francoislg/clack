@@ -181,10 +181,21 @@ export async function loadMcpServers(): Promise<Record<string, McpServerConfig> 
       return staticServers;
     }
 
+    // GitHub App installation tokens can't use org-scoped search or /user endpoints.
+    // Exclude tools that require PAT-level access to avoid 403s, and tools that
+    // overlap with Clack's own tools (which resolve owner/repo from config correctly).
+    const excludedTools = [
+      "search_pull_requests", "search_issues", "search_code",
+      "search_repositories", "search_users", "get_me",
+      // Clack's find_pull_requests resolves owner/repo from config — the MCP version
+      // requires Claude to guess the org name, which it often gets wrong.
+      "list_pull_requests",
+    ];
+
     const githubMcpEntry: McpServerConfig = {
       type: "stdio",
       command: "github-mcp-server",
-      args: ["stdio"],
+      args: ["stdio", "--exclude-tools", excludedTools.join(",")],
       env: {
         GITHUB_PERSONAL_ACCESS_TOKEN: token,
         GITHUB_TOOLSETS: toolsets,
