@@ -1344,6 +1344,17 @@ export function buildCronJobModal(job?: CronJob): View {
       elements: [
         {
           type: "button",
+          text: { type: "plain_text", text: "Send Now" },
+          action_id: `cron_run_job:${job.id}`,
+          confirm: {
+            title: { type: "plain_text", text: "Send now?" },
+            text: { type: "plain_text", text: "This will execute the scheduled message immediately. The regular schedule is not affected." },
+            confirm: { type: "plain_text", text: "Send Now" },
+            deny: { type: "plain_text", text: "Cancel" },
+          },
+        },
+        {
+          type: "button",
           text: { type: "plain_text", text: job.enabled ? "Disable" : "Enable" },
           action_id: `cron_toggle_job:${job.id}`,
         },
