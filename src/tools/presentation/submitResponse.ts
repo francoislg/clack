@@ -94,6 +94,21 @@ function validateRefActions(
   return null;
 }
 
+function validatePostToActions(
+  actions: z.infer<typeof actionSchema>[],
+): string | null {
+  for (const action of actions) {
+    if (action.type !== "post_to") continue;
+    if (action.auto && !action.channel) {
+      return `post_to with auto: true requires an explicit channel ID. Provide the target channel (e.g., "C0APQ9JU865"). Use list_repositories or check the conversation context for channel IDs.`;
+    }
+    if (!action.content.trim()) {
+      return `post_to action has empty content. Provide the text to post.`;
+    }
+  }
+  return null;
+}
+
 function buildTexts(sections: z.infer<typeof sectionSchema>[], message?: string) {
   const answerText = sections
     .map((s) => (s.title ? `**${s.title}**\n${s.body}` : s.body))
@@ -135,6 +150,12 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
       if (refError) {
         recorder.record("submit_response", args as unknown as Record<string, unknown>, { error: refError });
         return errorResult(refError);
+      }
+
+      const postToError = validatePostToActions(args.actions);
+      if (postToError) {
+        recorder.record("submit_response", args as unknown as Record<string, unknown>, { error: postToError });
+        return errorResult(postToError);
       }
 
       const payload = {
