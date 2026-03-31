@@ -43,6 +43,7 @@ import {
 import { setUserPreference } from "../../userPreferences.js";
 import type { ReactionDelivery } from "../../userPreferences.js";
 import { toggleJob, deleteJob, getJob, updateJob } from "../../cronJobs.js";
+import { runJobNow } from "../../cronScheduler.js";
 import { CronExpressionParser } from "cron-parser";
 
 /** Parse comma-separated keywords input into a trimmed array, or undefined if empty. */
@@ -754,6 +755,42 @@ export function registerHomeTabHandler(app: App): void {
       await publishHomeView(client, body.user.id);
     } catch (error) {
       logger.error("Failed to toggle cron job:", error);
+    }
+  });
+
+  // Send Now button inside cron job modal
+  app.action<BlockAction>(/^cron_run_job:/, async ({ ack, body, client, action }) => {
+    await ack();
+    try {
+      const jobId = (action as { action_id: string }).action_id.split(":")[1];
+      const job = await getJob(jobId);
+      if (!job) return;
+
+      // Close the modal with a confirmation message
+      const viewId = (body as unknown as { view?: { id: string } }).view?.id;
+      if (viewId) {
+        await client.views.update({
+          view_id: viewId,
+          view: {
+            type: "modal",
+            title: { type: "plain_text", text: "Sending..." },
+            close: { type: "plain_text", text: "Close" },
+            blocks: [
+              {
+                type: "section",
+                text: { type: "mrkdwn", text: `Running scheduled message in <#${job.channel}>. This may take a moment.` },
+              },
+            ],
+          },
+        });
+      }
+
+      // Execute in background — don't block the modal interaction
+      runJobNow(job, client).catch((error) => {
+        logger.error(`Failed to run cron job ${jobId} on demand:`, error);
+      });
+    } catch (error) {
+      logger.error("Failed to run cron job on demand:", error);
     }
   });
 

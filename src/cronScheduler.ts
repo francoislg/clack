@@ -119,6 +119,10 @@ async function executeJob(job: CronJob): Promise<void> {
   }
 }
 
+export async function runJobNow(job: CronJob, client: App["client"]): Promise<void> {
+  await executeDynamicJob(job, client);
+}
+
 async function executeDynamicJob(job: CronJob, client: App["client"]): Promise<void> {
   const messageTs = `${Date.now() / 1000}`;
 
