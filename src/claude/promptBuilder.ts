@@ -172,13 +172,14 @@ Use this context to understand the conversation flow and provide relevant answer
     }
   }
 
-  // User timezone context — for time-aware responses
+  // Current date/time and user timezone — for time-aware responses
+  const now = new Date();
+  const tzParts = [`CURRENT DATE: ${now.toISOString().slice(0, 10)} (${now.toISOString()})`];
   if (options?.userTimezone) {
-    parts.push([
-      `USER TIMEZONE: ${options.userTimezone}`,
-      "When the user mentions relative times (e.g., \"tomorrow at 3pm\", \"in 2 hours\", \"next Monday at 9am\"), convert them to UTC using this timezone.",
-    ].join("\n"));
+    tzParts.push(`USER TIMEZONE: ${options.userTimezone}`);
+    tzParts.push("When the user mentions relative times (e.g., \"tomorrow at 3pm\", \"in 2 hours\", \"next Monday at 9am\"), convert them to UTC using this timezone.");
   }
+  parts.push(tzParts.join("\n"));
 
   // Attachment metadata — let Claude know what images and files are available
   const hasImages = !!options?.availableImages?.size;
