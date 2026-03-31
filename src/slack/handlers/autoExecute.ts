@@ -156,16 +156,9 @@ async function handlePostToAutoExecute(params: AutoExecuteParams): Promise<void>
   );
   if (postToActions.length === 0) return;
 
-
   const session = await getSession(sessionId);
   if (!session) {
     logger.warn(`post_to auto-execute: session ${sessionId} not found`);
-    return;
-  }
-
-  // Skip for plain DMs (no assistant panel context)
-  if (triggerType === "directMessages" && !session.assistantOriginChannelId) {
-    logger.debug("post_to auto-execute skipped: direct message mode (no channel context)");
     return;
   }
 
