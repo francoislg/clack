@@ -10,10 +10,7 @@ import type { View } from "@slack/types";
 
 const mockLoadRoles = mock.fn<() => Promise<RolesConfig>>();
 const mockSetOwner = mock.fn<(userId: string) => Promise<void>>(async () => {});
-const mockAddAdmin = mock.fn<(userId: string) => Promise<{ success: boolean; error?: string }>>();
-const mockRemoveAdmin = mock.fn<(userId: string) => Promise<{ success: boolean; error?: string }>>();
-const mockAddDev = mock.fn<(userId: string) => Promise<{ success: boolean; error?: string }>>();
-const mockRemoveDev = mock.fn<(userId: string) => Promise<{ success: boolean; error?: string }>>();
+const mockSetRole = mock.fn<(userId: string, role: string) => Promise<{ success: boolean; error?: string }>>();
 const mockIsUserDisabled = mock.fn<(client: unknown, userId: string) => Promise<boolean>>();
 const mockClaimOwnershipFromDisabled = mock.fn<(client: unknown, userId: string) => Promise<{ success: boolean; error?: string }>>();
 const mockTransferOwnership = mock.fn<(client: unknown, fromId: string, toId: string) => Promise<{ success: boolean; error?: string }>>();
@@ -43,10 +40,7 @@ mock.module("../../roles.js", {
   namedExports: {
     loadRoles: mockLoadRoles,
     setOwner: mockSetOwner,
-    addAdmin: mockAddAdmin,
-    removeAdmin: mockRemoveAdmin,
-    addDev: mockAddDev,
-    removeDev: mockRemoveDev,
+    setRole: mockSetRole,
     isUserDisabled: mockIsUserDisabled,
     claimOwnershipFromDisabled: mockClaimOwnershipFromDisabled,
     transferOwnership: mockTransferOwnership,
@@ -212,10 +206,10 @@ const dummyView: View = {
 function resetAllMocks() {
   mockLoadRoles.mock.resetCalls();
   mockSetOwner.mock.resetCalls();
-  mockAddAdmin.mock.resetCalls();
-  mockRemoveAdmin.mock.resetCalls();
-  mockAddDev.mock.resetCalls();
-  mockRemoveDev.mock.resetCalls();
+  mockSetRole.mock.resetCalls();
+  // (mockSetRole already reset above)
+  // (mockSetRole already reset above)
+  // (mockSetRole already reset above)
   mockIsUserDisabled.mock.resetCalls();
   mockClaimOwnershipFromDisabled.mock.resetCalls();
   mockTransferOwnership.mock.resetCalls();
@@ -523,7 +517,7 @@ describe("transfer_ownership_modal submission", () => {
 
 describe("add_admin_modal submission", () => {
   it("calls addAdmin on successful submission", async () => {
-    mockAddAdmin.mock.mockImplementation(async () => ({ success: true }));
+    mockSetRole.mock.mockImplementation(async () => ({ success: true }));
     const client = makeClient();
     const handler = capturedViewHandlers.get("add_admin_modal")!;
 
@@ -542,8 +536,9 @@ describe("add_admin_modal submission", () => {
       client,
     });
 
-    assert.equal(mockAddAdmin.mock.callCount(), 1);
-    assert.equal(mockAddAdmin.mock.calls[0].arguments[0], "U_NEW_ADMIN");
+    assert.equal(mockSetRole.mock.callCount(), 1);
+    assert.equal(mockSetRole.mock.calls[0].arguments[0], "U_NEW_ADMIN");
+    assert.equal(mockSetRole.mock.calls[0].arguments[1], "admin");
   });
 
   it("returns error when user has no permission", async () => {
@@ -572,7 +567,7 @@ describe("add_admin_modal submission", () => {
   });
 
   it("returns error when addAdmin fails", async () => {
-    mockAddAdmin.mock.mockImplementation(async () => ({
+    mockSetRole.mock.mockImplementation(async () => ({
       success: false,
       error: "User is already an admin",
     }));
@@ -644,7 +639,7 @@ describe("remove_admin action", () => {
 
 describe("remove_admin_modal submission", () => {
   it("calls removeAdmin on successful submission", async () => {
-    mockRemoveAdmin.mock.mockImplementation(async () => ({ success: true }));
+    mockSetRole.mock.mockImplementation(async () => ({ success: true }));
     const client = makeClient();
     const handler = capturedViewHandlers.get("remove_admin_modal")!;
 
@@ -663,8 +658,9 @@ describe("remove_admin_modal submission", () => {
       client,
     });
 
-    assert.equal(mockRemoveAdmin.mock.callCount(), 1);
-    assert.equal(mockRemoveAdmin.mock.calls[0].arguments[0], "U_ADMIN1");
+    assert.equal(mockSetRole.mock.callCount(), 1);
+    assert.equal(mockSetRole.mock.calls[0].arguments[0], "U_ADMIN1");
+    assert.equal(mockSetRole.mock.calls[0].arguments[1], "member");
   });
 
   it("returns error when no user selected", async () => {

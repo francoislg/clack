@@ -34,10 +34,7 @@ const {
   getRole,
   hasOwner,
   setOwner,
-  addAdmin,
-  removeAdmin,
-  addDev,
-  removeDev,
+  setRole,
   claimOwnershipFromDisabled,
   transferOwnership,
   clearRolesCache,
@@ -382,147 +379,81 @@ describe("setOwner", () => {
 });
 
 // ---------------------------------------------------------------------------
-// addAdmin
+// setRole
 // ---------------------------------------------------------------------------
 
-describe("addAdmin", () => {
+describe("setRole", () => {
   beforeEach(resetMocks);
 
-  it("adds a user as admin", async () => {
+  it("sets a member to admin", async () => {
     seedRoles({ owner: "U_OWNER", admins: [], devs: [] });
+    const result = await setRole("U2", "admin");
+    assert.equal(result.success, true);
+    assert.ok(lastSavedRoles().admins.includes("U2"));
+  });
 
-    const result = await addAdmin("U2");
+  it("sets a member to dev", async () => {
+    seedRoles({ owner: "U_OWNER", admins: [], devs: [] });
+    const result = await setRole("U2", "dev");
+    assert.equal(result.success, true);
+    assert.ok(lastSavedRoles().devs.includes("U2"));
+  });
+
+  it("promotes dev to admin and removes from devs", async () => {
+    seedRoles({ owner: "U_OWNER", admins: [], devs: ["U2", "U3"] });
+    const result = await setRole("U2", "admin");
     assert.equal(result.success, true);
     const saved = lastSavedRoles();
     assert.ok(saved.admins.includes("U2"));
-  });
-
-  it("fails when user is already the owner", async () => {
-    seedRoles({ owner: "U1", admins: [], devs: [] });
-
-    const result = await addAdmin("U1");
-    assert.equal(result.success, false);
-    assert.equal(result.error, "Owner is already an admin");
-  });
-
-  it("fails when user is already an admin", async () => {
-    seedRoles({ owner: "U_OWNER", admins: ["U2"], devs: [] });
-
-    const result = await addAdmin("U2");
-    assert.equal(result.success, false);
-    assert.equal(result.error, "User is already an admin");
-  });
-
-  it("removes user from devs when promoting to admin", async () => {
-    seedRoles({ owner: "U_OWNER", admins: [], devs: ["U2", "U3"] });
-
-    const result = await addAdmin("U2");
-    assert.equal(result.success, true);
-    const saved = lastSavedRoles();
     assert.ok(!saved.devs.includes("U2"));
     assert.ok(saved.devs.includes("U3"));
-    assert.ok(saved.admins.includes("U2"));
   });
-});
 
-// ---------------------------------------------------------------------------
-// removeAdmin
-// ---------------------------------------------------------------------------
-
-describe("removeAdmin", () => {
-  beforeEach(resetMocks);
-
-  it("removes an existing admin", async () => {
-    seedRoles({ owner: "U_OWNER", admins: ["U2", "U3"], devs: [] });
-
-    const result = await removeAdmin("U2");
+  it("demotes admin to dev and removes from admins", async () => {
+    seedRoles({ owner: "U_OWNER", admins: ["U2"], devs: [] });
+    const result = await setRole("U2", "dev");
     assert.equal(result.success, true);
     const saved = lastSavedRoles();
     assert.ok(!saved.admins.includes("U2"));
-    assert.ok(saved.admins.includes("U3"));
-  });
-
-  it("fails when trying to remove the owner", async () => {
-    seedRoles({ owner: "U1", admins: [], devs: [] });
-
-    const result = await removeAdmin("U1");
-    assert.equal(result.success, false);
-    assert.ok(result.error?.includes("Cannot remove owner"));
-  });
-
-  it("fails when user is not an admin", async () => {
-    seedRoles({ owner: "U_OWNER", admins: [], devs: ["U2"] });
-
-    const result = await removeAdmin("U2");
-    assert.equal(result.success, false);
-    assert.equal(result.error, "User is not an admin");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// addDev
-// ---------------------------------------------------------------------------
-
-describe("addDev", () => {
-  beforeEach(resetMocks);
-
-  it("adds a user as dev", async () => {
-    seedRoles({ owner: "U_OWNER", admins: [], devs: [] });
-
-    const result = await addDev("U2");
-    assert.equal(result.success, true);
-    const saved = lastSavedRoles();
     assert.ok(saved.devs.includes("U2"));
   });
 
-  it("fails when user is the owner", async () => {
-    seedRoles({ owner: "U1", admins: [], devs: [] });
-
-    const result = await addDev("U1");
-    assert.equal(result.success, false);
-    assert.equal(result.error, "User already has higher privileges");
-  });
-
-  it("fails when user is an admin", async () => {
+  it("demotes admin to member", async () => {
     seedRoles({ owner: "U_OWNER", admins: ["U2"], devs: [] });
-
-    const result = await addDev("U2");
-    assert.equal(result.success, false);
-    assert.equal(result.error, "User already has higher privileges");
+    const result = await setRole("U2", "member");
+    assert.equal(result.success, true);
+    const saved = lastSavedRoles();
+    assert.ok(!saved.admins.includes("U2"));
+    assert.ok(!saved.devs.includes("U2"));
   });
 
-  it("fails when user is already a dev", async () => {
+  it("demotes dev to member", async () => {
     seedRoles({ owner: "U_OWNER", admins: [], devs: ["U2"] });
-
-    const result = await addDev("U2");
-    assert.equal(result.success, false);
-    assert.equal(result.error, "User is already a dev");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// removeDev
-// ---------------------------------------------------------------------------
-
-describe("removeDev", () => {
-  beforeEach(resetMocks);
-
-  it("removes an existing dev", async () => {
-    seedRoles({ owner: "U_OWNER", admins: [], devs: ["U2", "U3"] });
-
-    const result = await removeDev("U2");
+    const result = await setRole("U2", "member");
     assert.equal(result.success, true);
     const saved = lastSavedRoles();
     assert.ok(!saved.devs.includes("U2"));
-    assert.ok(saved.devs.includes("U3"));
   });
 
-  it("fails when user is not a dev", async () => {
+  it("is idempotent — setting admin when already admin", async () => {
     seedRoles({ owner: "U_OWNER", admins: ["U2"], devs: [] });
+    const result = await setRole("U2", "admin");
+    assert.equal(result.success, true);
+    assert.equal(mockWriteFile.mock.callCount(), 0);
+  });
 
-    const result = await removeDev("U2");
+  it("is idempotent — setting member when already member", async () => {
+    seedRoles({ owner: "U_OWNER", admins: [], devs: [] });
+    const result = await setRole("U2", "member");
+    assert.equal(result.success, true);
+    assert.equal(mockWriteFile.mock.callCount(), 0);
+  });
+
+  it("rejects changing the owner's role", async () => {
+    seedRoles({ owner: "U1", admins: [], devs: [] });
+    const result = await setRole("U1", "dev");
     assert.equal(result.success, false);
-    assert.equal(result.error, "User is not a dev");
+    assert.ok(result.error?.includes("owner"));
   });
 });
 

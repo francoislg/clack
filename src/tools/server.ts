@@ -32,6 +32,7 @@ import { createFetchChannelMessagesTool } from "./query/fetchChannelMessages.js"
 import { createViewSlackImageTool } from "./query/viewSlackImage.js";
 import { createViewSlackFileTool } from "./query/viewSlackFile.js";
 import { createUploadFileTool } from "./query/uploadFile.js";
+import { createGetSessionTraceTool } from "./query/getSessionTrace.js";
 import { createUsersCache } from "../slack/usersCache.js";
 import { createEmojiCache } from "../slack/emojiCache.js";
 
@@ -51,6 +52,7 @@ import { createAdminWriteFileTool } from "./admin/adminWriteFile.js";
 import { createAdminRestartAppTool } from "./admin/adminRestartApp.js";
 import { createAdminSetEnvTool } from "./admin/adminSetEnv.js";
 import { createAdminListEnvTool } from "./admin/adminListEnv.js";
+import { createAdminSetRoleTool } from "./admin/adminSetRole.js";
 
 // Scheduled message query tools
 import { createListRemindersTool } from "./query/listReminders.js";
@@ -190,6 +192,7 @@ function buildQueryTools(ctx: QueryToolContext): ClackToolsResult {
   if (canEditConfig(ctx.role)) {
     tools.push(createListConfigFilesTool(ctx));
     tools.push(createReadConfigFileTool(ctx));
+    tools.push(createGetSessionTraceTool(ctx));
   }
 
   // Always register when images exist OR Slack client is available (fetch tools can discover images mid-query)
@@ -215,6 +218,7 @@ function buildQueryTools(ctx: QueryToolContext): ClackToolsResult {
     tools.push(createAdminRestartAppTool());
     tools.push(createAdminSetEnvTool());
     tools.push(createAdminListEnvTool());
+    tools.push(createAdminSetRoleTool());
   }
 
   // --- Scheduled message tools (no role gating, config-gated) ---
