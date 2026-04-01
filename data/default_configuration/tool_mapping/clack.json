@@ -39,6 +39,7 @@
     "admin_write_file": "Admin - Writing {path}",
     "admin_restart_app": "Admin - Restarting app",
     "admin_set_env": "Admin - Setting env {key}",
-    "admin_list_env": "Admin - Listing env keys"
+    "admin_list_env": "Admin - Listing env keys",
+    "admin_set_role": "Admin - Setting {user} to {role}"
   }
 }

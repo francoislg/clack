@@ -135,76 +135,34 @@ export async function setOwner(userId: string): Promise<void> {
   logger.info(`User ${userId} is now the owner`);
 }
 
-export async function addAdmin(userId: string): Promise<{ success: boolean; error?: string }> {
+export type AssignableRole = "admin" | "dev" | "member";
+
+export async function setRole(userId: string, role: AssignableRole): Promise<{ success: boolean; error?: string }> {
   const roles = await loadRoles();
 
-  // Cannot add owner as admin (they already have higher privileges)
   if (roles.owner === userId) {
-    return { success: false, error: "Owner is already an admin" };
+    return { success: false, error: "Cannot change the owner's role. Use transfer ownership instead." };
   }
 
-  // Already an admin
-  if (roles.admins.includes(userId)) {
-    return { success: false, error: "User is already an admin" };
+  const isAdmin = roles.admins.includes(userId);
+  const isDev = roles.devs.includes(userId);
+
+  if (role === "admin") {
+    if (isAdmin) return { success: true };
+    roles.admins.push(userId);
+    roles.devs = roles.devs.filter((id) => id !== userId);
+  } else if (role === "dev") {
+    if (isDev && !isAdmin) return { success: true };
+    roles.admins = roles.admins.filter((id) => id !== userId);
+    if (!isDev) roles.devs.push(userId);
+  } else {
+    if (!isAdmin && !isDev) return { success: true };
+    roles.admins = roles.admins.filter((id) => id !== userId);
+    roles.devs = roles.devs.filter((id) => id !== userId);
   }
-
-  roles.admins.push(userId);
-
-  // Remove from devs if present (promoted)
-  roles.devs = roles.devs.filter((id) => id !== userId);
 
   await saveRoles(roles);
-  logger.info(`User ${userId} added as admin`);
-  return { success: true };
-}
-
-export async function removeAdmin(userId: string): Promise<{ success: boolean; error?: string }> {
-  const roles = await loadRoles();
-
-  // Cannot remove owner via admin removal
-  if (roles.owner === userId) {
-    return { success: false, error: "Cannot remove owner. Use transfer ownership instead." };
-  }
-
-  if (!roles.admins.includes(userId)) {
-    return { success: false, error: "User is not an admin" };
-  }
-
-  roles.admins = roles.admins.filter((id) => id !== userId);
-  await saveRoles(roles);
-  logger.info(`User ${userId} removed as admin`);
-  return { success: true };
-}
-
-export async function addDev(userId: string): Promise<{ success: boolean; error?: string }> {
-  const roles = await loadRoles();
-
-  // Cannot add owner or admin as dev (they already have higher privileges)
-  if (roles.owner === userId || roles.admins.includes(userId)) {
-    return { success: false, error: "User already has higher privileges" };
-  }
-
-  // Already a dev
-  if (roles.devs.includes(userId)) {
-    return { success: false, error: "User is already a dev" };
-  }
-
-  roles.devs.push(userId);
-  await saveRoles(roles);
-  logger.info(`User ${userId} added as dev`);
-  return { success: true };
-}
-
-export async function removeDev(userId: string): Promise<{ success: boolean; error?: string }> {
-  const roles = await loadRoles();
-
-  if (!roles.devs.includes(userId)) {
-    return { success: false, error: "User is not a dev" };
-  }
-
-  roles.devs = roles.devs.filter((id) => id !== userId);
-  await saveRoles(roles);
-  logger.info(`User ${userId} removed as dev`);
+  logger.info(`User ${userId} role set to ${role}`);
   return { success: true };
 }
 

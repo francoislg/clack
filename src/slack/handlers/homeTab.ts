@@ -3,10 +3,7 @@ import { logger } from "../../logger.js";
 import {
   loadRoles,
   setOwner,
-  addAdmin,
-  removeAdmin,
-  addDev,
-  removeDev,
+  setRole,
   isUserDisabled,
   claimOwnershipFromDisabled,
   transferOwnership,
@@ -264,10 +261,10 @@ export function registerHomeTabHandler(app: App): void {
   });
 
   // Role management handlers (add/remove admin & dev)
-  registerAddRoleHandlers(app, "add_admin", "add_admin_modal", "Add Admin", addAdmin);
-  registerRemoveRoleHandlers(app, "remove_admin", "remove_admin_modal", "Remove Admin", "admins", removeAdmin);
-  registerAddRoleHandlers(app, "add_dev", "add_dev_modal", "Add Dev", addDev);
-  registerRemoveRoleHandlers(app, "remove_dev", "remove_dev_modal", "Remove Dev", "devs", removeDev);
+  registerAddRoleHandlers(app, "add_admin", "add_admin_modal", "Add Admin", (userId) => setRole(userId, "admin"));
+  registerRemoveRoleHandlers(app, "remove_admin", "remove_admin_modal", "Remove Admin", "admins", (userId) => setRole(userId, "member"));
+  registerAddRoleHandlers(app, "add_dev", "add_dev_modal", "Add Dev", (userId) => setRole(userId, "dev"));
+  registerRemoveRoleHandlers(app, "remove_dev", "remove_dev_modal", "Remove Dev", "devs", (userId) => setRole(userId, "member"));
 
   // Handle Settings button
   app.action<BlockAction>("open_settings", async ({ ack, body, client }) => {
