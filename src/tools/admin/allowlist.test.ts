@@ -41,8 +41,8 @@ describe("isAllowedPath", () => {
     assert.ok(isAllowedPath("mcp.json"));
   });
 
-  it("allows auth/.env", () => {
-    assert.ok(isAllowedPath("auth/.env"));
+  it("rejects auth/.env (managed by dedicated env tools)", () => {
+    assert.ok(!isAllowedPath("auth/.env"));
   });
 
   it("allows tool_mapping JSON files", () => {
@@ -79,7 +79,7 @@ describe("getAllowedPaths", () => {
     const paths = getAllowedPaths();
     assert.ok(paths.includes("config.json"));
     assert.ok(paths.includes("mcp.json"));
-    assert.ok(paths.includes("auth/.env"));
+    assert.ok(!paths.includes("auth/.env"));
     assert.ok(paths.some((p) => p.includes("tool_mapping")));
   });
 });
@@ -102,15 +102,10 @@ describe("validateContent", () => {
     assert.ok(result.error?.includes("Invalid JSON"));
   });
 
-  it("validates valid dotenv content", () => {
-    const result = validateContent("auth/.env", "KEY=value\nANOTHER=123\n# comment\n");
-    assert.ok(result.valid);
-  });
-
-  it("rejects dotenv with missing =", () => {
-    const result = validateContent("auth/.env", "GOOD=value\nBADLINE\n");
+  it("rejects auth/.env (no validator)", () => {
+    const result = validateContent("auth/.env", "KEY=value\n");
     assert.ok(!result.valid);
-    assert.ok(result.error?.includes("KEY=VALUE"));
+    assert.ok(result.error?.includes("No validator"));
   });
 
   it("validates valid tool_mapping JSON", () => {

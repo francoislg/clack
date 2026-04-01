@@ -1,7 +1,7 @@
 # admin-config-tools Specification
 
 ## Purpose
-MCP tools for admins to read and write core configuration files (config.json, mcp.json, auth/.env, tool_mapping configs) with validation, and to trigger a soft app restart.
+MCP tools for admins to read and write core configuration files (config.json, mcp.json, tool_mapping configs) with validation, and to trigger a soft app restart.
 
 ## Requirements
 
@@ -11,10 +11,11 @@ The system SHALL restrict admin file tools to a static allowlist of paths relati
 
 #### Scenario: Allowed file paths
 - **WHEN** an admin tool receives a file path
-- **THEN** the system accepts: `config.json`, `mcp.json`, `auth/.env`, and any path matching `configuration/tool_mapping/*.json`
+- **THEN** the system accepts: `config.json`, `mcp.json`, and any path matching `configuration/tool_mapping/*.json`
+- **AND** does NOT accept `auth/.env` (environment variables are managed via dedicated env tools)
 
 #### Scenario: Reject disallowed path
-- **WHEN** an admin tool receives a path not in the allowlist (e.g., `auth/slack.json`, `auth/github-app.pem`, `state/roles.json`)
+- **WHEN** an admin tool receives a path not in the allowlist (e.g., `auth/slack.json`, `auth/github-app.pem`, `state/roles.json`, `auth/.env`)
 - **THEN** the tool returns an error listing the allowed paths
 
 #### Scenario: Reject path traversal
@@ -53,11 +54,6 @@ The system SHALL provide an `admin_write_file` tool that writes content to an al
 - **WHEN** Claude calls `admin_write_file` with `path` set to `mcp.json` and `content` with new JSON
 - **THEN** the tool parses the content as JSON
 - **AND** verifies the top-level structure contains `mcpServers` as an object
-- **AND** on success, writes the file and returns confirmation
-
-#### Scenario: Write auth/.env with validation
-- **WHEN** Claude calls `admin_write_file` with `path` set to `auth/.env` and `content` with dotenv content
-- **THEN** the tool verifies each non-empty, non-comment line matches `KEY=VALUE` format
 - **AND** on success, writes the file and returns confirmation
 
 #### Scenario: Write tool_mapping JSON

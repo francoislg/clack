@@ -49,6 +49,8 @@ import { createUpdateScheduledMessageTool } from "./actions/updateScheduledMessa
 import { createAdminReadFileTool } from "./admin/adminReadFile.js";
 import { createAdminWriteFileTool } from "./admin/adminWriteFile.js";
 import { createAdminRestartAppTool } from "./admin/adminRestartApp.js";
+import { createAdminSetEnvTool } from "./admin/adminSetEnv.js";
+import { createAdminListEnvTool } from "./admin/adminListEnv.js";
 
 // Scheduled message query tools
 import { createListRemindersTool } from "./query/listReminders.js";
@@ -211,6 +213,8 @@ function buildQueryTools(ctx: QueryToolContext): ClackToolsResult {
     tools.push(createAdminReadFileTool());
     tools.push(createAdminWriteFileTool());
     tools.push(createAdminRestartAppTool());
+    tools.push(createAdminSetEnvTool());
+    tools.push(createAdminListEnvTool());
   }
 
   // --- Scheduled message tools (no role gating, config-gated) ---

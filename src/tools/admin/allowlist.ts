@@ -6,7 +6,7 @@ import { getDataDir, validateConfig, loadSlackAuth } from "../../config.js";
 // Allowed file paths (relative to data/)
 // ---------------------------------------------------------------------------
 
-const STATIC_ALLOWED = ["config.json", "mcp.json", "auth/.env"] as const;
+const STATIC_ALLOWED = ["config.json", "mcp.json"] as const;
 const TOOL_MAPPING_GLOB = "configuration/tool_mapping/";
 
 export function isAllowedPath(path: string): boolean {
@@ -52,9 +52,6 @@ export function validateContent(path: string, content: string): ValidationResult
   if (path === "mcp.json") {
     return validateMcpJson(content);
   }
-  if (path === "auth/.env") {
-    return validateDotenv(content);
-  }
   if (path.startsWith(TOOL_MAPPING_GLOB) && path.endsWith(".json")) {
     return validateJson(content);
   }
@@ -95,18 +92,6 @@ function validateMcpJson(content: string): ValidationResult {
     return { valid: false, error: "mcp.json must contain an 'mcpServers' object" };
   }
 
-  return { valid: true };
-}
-
-function validateDotenv(content: string): ValidationResult {
-  const lines = content.split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (line === "" || line.startsWith("#")) continue;
-    if (!line.includes("=")) {
-      return { valid: false, error: `Line ${i + 1}: expected KEY=VALUE format, got: ${line}` };
-    }
-  }
   return { valid: true };
 }
 
@@ -162,7 +147,6 @@ export function writeDataFile(relativePath: string, content: string): void {
 export function getFormatHint(path: string): string {
   if (path === "config.json") return "Expected format: JSON (see data/config.example.json)";
   if (path === "mcp.json") return "Expected format: JSON with { mcpServers: { ... } }";
-  if (path === "auth/.env") return "Expected format: KEY=VALUE lines (one per line)";
   if (path.endsWith(".json")) return "Expected format: JSON";
   return "Unknown format";
 }
