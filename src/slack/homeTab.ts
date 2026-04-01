@@ -381,7 +381,7 @@ export function buildConfigurationSection(showEditButtons: boolean): KnownBlock[
       elements: [
         {
           type: "mrkdwn",
-          text: "_Chat with Clack for advanced configuration changes._",
+          text: "_Chat with me to edit core config files (config.json, mcp.json, .env, tool mappings) or restart the app._",
         },
       ],
     });

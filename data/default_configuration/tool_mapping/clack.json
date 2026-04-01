@@ -34,6 +34,9 @@
     "create_scheduled_message": "Scheduling message to <#{channel}>",
     "list_scheduled_messages": "Listing scheduled messages",
     "cancel_scheduled_message": "Cancelling scheduled message {id}",
-    "update_scheduled_message": "Updating scheduled message {id}"
+    "update_scheduled_message": "Updating scheduled message {id}",
+    "admin_read_file": "Admin - Reading {path}",
+    "admin_write_file": "Admin - Writing {path}",
+    "admin_restart_app": "Admin - Restarting app"
   }
 }

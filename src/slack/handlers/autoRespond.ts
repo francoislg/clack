@@ -1,4 +1,5 @@
 import type { App } from "@slack/bolt";
+import { getConfig } from "../../config.js";
 import { logger } from "../../logger.js";
 import { findMatchingRule, loadRules } from "../../autoRespond.js";
 import { runPreAnalysis } from "../../claude/preAnalysis.js";
@@ -14,6 +15,8 @@ export function registerAutoRespondHandler(app: App): void {
   let botId: string | undefined;
 
   app.event("message", async ({ event, client }) => {
+    if (!getConfig().autoRespond?.enabled) return;
+
     // Skip non-message subtypes (edits, deletes, joins, etc.) — but allow bot_message through
     if ("subtype" in event && event.subtype !== undefined && event.subtype !== "bot_message") {
       return;

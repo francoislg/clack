@@ -1,10 +1,13 @@
 import type { App } from "@slack/bolt";
+import { getConfig } from "../../config.js";
 import { logger } from "../../logger.js";
 import { extractAttachments } from "../fileExtractor.js";
 import { processMessage } from "./core.js";
 
 export function registerMentionHandler(app: App): void {
   app.event("app_mention", async ({ event, client }) => {
+    if (!getConfig().mentions.enabled) return;
+
     // Skip if no user (shouldn't happen for app_mention)
     if (!event.user) {
       return;

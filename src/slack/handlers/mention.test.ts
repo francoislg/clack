@@ -12,6 +12,12 @@ mock.module("./core.js", {
   namedExports: { processMessage: mockProcessMessage },
 });
 
+mock.module("../../config.js", {
+  namedExports: {
+    getConfig: () => ({ mentions: { enabled: true } }),
+  },
+});
+
 mock.module("../../logger.js", {
   namedExports: {
     logger: {

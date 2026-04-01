@@ -146,7 +146,7 @@ export async function handleAutoExecuteActions(params: AutoExecuteParams): Promi
  * because post_to is snapshot-based (not intent-based) and available to all roles.
  */
 async function handlePostToAutoExecute(params: AutoExecuteParams): Promise<void> {
-  const { client, channelId, threadTs, response, sessionId, triggerType } = params;
+  const { client, channelId, threadTs, response, sessionId } = params;
 
   if (!response.response?.actions) return;
 

@@ -55,7 +55,7 @@ async function tick(): Promise<void> {
       continue;
     }
 
-    if (matchesCron(job.cronExpression, now, job.timezone)) {
+    if (matchesCron(job.cronExpression, now, job.timezone, job.lastRunAt)) {
       // Fire and forget — errors handled inside executeJob
       executeJob(job).catch((error) => {
         logger.error(`Cron job ${job.id} unexpected error:`, error);
@@ -68,7 +68,7 @@ async function tick(): Promise<void> {
 // Cron Matching
 // ============================================================================
 
-function matchesCron(expression: string, now: Date, timezone: string): boolean {
+export function matchesCron(expression: string, now: Date, timezone: string, lastRunAt?: string): boolean {
   try {
     const interval = CronExpressionParser.parse(expression, {
       currentDate: now,
@@ -78,7 +78,17 @@ function matchesCron(expression: string, now: Date, timezone: string): boolean {
     // Get the previous scheduled time and check if it falls within the current minute
     const prev = interval.prev().toDate();
     const diffMs = now.getTime() - prev.getTime();
-    return diffMs >= 0 && diffMs < 60_000;
+    if (diffMs < 0 || diffMs >= 60_000) return false;
+
+    // Guard against double-fire: if this cron time was already handled, skip it.
+    // setInterval can drift slightly, causing two consecutive ticks to both fall
+    // within the same 60-second matching window.
+    if (lastRunAt) {
+      const lastRun = new Date(lastRunAt).getTime();
+      if (prev.getTime() <= lastRun) return false;
+    }
+
+    return true;
   } catch (error) {
     logger.error(`Invalid cron expression "${expression}":`, error);
     return false;

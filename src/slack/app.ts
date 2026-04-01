@@ -46,29 +46,12 @@ export function createSlackApp(): App {
   // DM reaction handlers (always enabled — DM delivery is a per-user preference)
   registerDmActionHandlers(app);
 
-  // Assistant handler (replaces direct message and thread reply handlers)
-  if (config.directMessages.enabled) {
-    logger.debug("Direct message mode enabled");
-    registerAssistant(app);
-  }
-
-  // Mention handlers (only when enabled)
-  if (config.mentions.enabled) {
-    logger.debug("Mention mode enabled");
-    registerMentionHandler(app);
-
-  }
-
-  // Message edit handler for cancelling in-flight requests (when DMs or mentions are enabled)
-  if (config.directMessages.enabled || config.mentions.enabled) {
-    registerMessageChangedHandler(app);
-  }
-
-  // Auto-respond handler (only when enabled in config)
-  if (config.autoRespond?.enabled) {
-    logger.debug("Auto-respond mode enabled");
-    registerAutoRespondHandler(app);
-  }
+  // Always register all handlers — enablement is checked at invocation time
+  // so that soft restarts can toggle features without reconnecting the socket.
+  registerAssistant(app);
+  registerMentionHandler(app);
+  registerMessageChangedHandler(app);
+  registerAutoRespondHandler(app);
 
   return app;
 }
