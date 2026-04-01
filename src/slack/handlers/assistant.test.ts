@@ -21,6 +21,12 @@ mock.module("../../sessions.js", {
   },
 });
 
+mock.module("../../config.js", {
+  namedExports: {
+    getConfig: () => ({ directMessages: { enabled: true } }),
+  },
+});
+
 mock.module("../../logger.js", {
   namedExports: {
     logger: {

@@ -42,7 +42,7 @@ export function createListScheduledMessagesTool(ctx: QueryToolContext) {
         channel: j.channel,
         schedule: humanReadableSchedule(j.cronExpression, j.timezone),
         cronExpression: j.cronExpression,
-        summary: j.prompt.slice(0, 100) + (j.prompt.length > 100 ? "..." : ""),
+        prompt: j.prompt,
         enabled: j.enabled,
         oneShot: j.oneShot ?? false,
         createdBy: j.createdBy,

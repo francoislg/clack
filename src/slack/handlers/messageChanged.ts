@@ -1,4 +1,5 @@
 import type { App } from "@slack/bolt";
+import { getConfig } from "../../config.js";
 import { logger } from "../../logger.js";
 import { getInFlightRequest, deregisterInFlightRequest } from "../inFlightRequests.js";
 import { processMessage } from "./core.js";
@@ -88,6 +89,9 @@ async function handleMessageChanged(
 
 export function registerMessageChangedHandler(app: App): void {
   app.event("message", async ({ event, client }) => {
+    const config = getConfig();
+    if (!config.directMessages.enabled && !config.mentions.enabled) return;
+
     const msg = event as MessageChangedEvent;
     if (msg.subtype !== "message_changed") return;
     await handleMessageChanged(msg, client);

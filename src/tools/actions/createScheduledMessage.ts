@@ -17,7 +17,10 @@ export function createCreateScheduledMessageTool(ctx: QueryToolContext) {
     "If the user's request is ambiguous (e.g., 'send this regularly' without specifying when), " +
     "ask clarifying questions first before calling this tool. " +
     "The cronExpression uses standard 5-field cron syntax (minute hour day-of-month month day-of-week). " +
-    "Provide a prompt describing what Claude should do each time the schedule fires.",
+    "Provide a prompt describing what Claude should do each time the schedule fires. " +
+    "IMPORTANT: The prompt should only describe WHAT to do, not HOW to deliver the result. " +
+    "The scheduler automatically handles delivery via submit_response — do NOT include " +
+    "instructions about submit_response, post_to, or how to post the message in the prompt.",
     {
       channel: z.string().describe("Channel name (e.g. '#ops' or 'ops') or channel ID (e.g. 'C0123ABCDEF')"),
       cronExpression: z.string().describe("5-field cron expression (e.g. '0 9 * * *' for daily at 9am, '0 9 * * 1' for Mondays at 9am)"),

@@ -1,5 +1,6 @@
 import type { App } from "@slack/bolt";
 import { Assistant } from "@slack/bolt";
+import { getConfig } from "../../config.js";
 import { logger } from "../../logger.js";
 import { findSessionByThread, updateSession } from "../../sessions.js";
 import { extractAttachments } from "../fileExtractor.js";
@@ -66,6 +67,7 @@ async function resolveContextChannelId(
 export function registerAssistant(app: App): void {
   const assistant = new Assistant({
     threadStarted: async ({ event, say, saveThreadContext, setSuggestedPrompts }) => {
+      if (!getConfig().directMessages.enabled) return;
       const ctx = event.assistant_thread?.context;
       logger.debug(`Assistant threadStarted: channel_id=${ctx?.channel_id ?? "none"}`);
 
@@ -103,6 +105,7 @@ export function registerAssistant(app: App): void {
     },
 
     userMessage: async ({ event, client, setStatus, setTitle, getThreadContext }) => {
+      if (!getConfig().directMessages.enabled) return;
       const msg = event as unknown as {
         text?: string;
         user?: string;

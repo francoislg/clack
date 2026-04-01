@@ -121,6 +121,10 @@ export async function getInstallationToken(): Promise<InstallationTokenResult> {
   return cachedToken;
 }
 
+export function clearGitHubTokenCache(): void {
+  cachedToken = null;
+}
+
 export async function getOctokit(): Promise<Octokit> {
   const { token } = await getInstallationToken();
 

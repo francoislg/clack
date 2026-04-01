@@ -153,6 +153,7 @@ function resetAllHandlerMocks() {
   mockRegisterChangeThreadActionHandlers.mock.resetCalls();
   mockRegisterDmActionHandlers.mock.resetCalls();
   mockRegisterMessageChangedHandler.mock.resetCalls();
+  mockRegisterAutoRespondHandler.mock.resetCalls();
   MockAppFn.mock.resetCalls();
   mockStart.mock.resetCalls();
   mockStop.mock.resetCalls();
@@ -206,60 +207,32 @@ describe("createSlackApp", () => {
     assert.equal(mockRegisterDmActionHandlers.mock.callCount(), 1);
   });
 
-  it("registers assistant when directMessages.enabled", () => {
-    setConfig({ directMessages: true });
+  it("always registers assistant handler regardless of config", () => {
+    setConfig({ directMessages: false });
     createSlackApp();
 
     assert.equal(mockRegisterAssistant.mock.callCount(), 1);
   });
 
-  it("does NOT register assistant when directMessages disabled", () => {
-    setConfig({ directMessages: false });
-    createSlackApp();
-
-    assert.equal(mockRegisterAssistant.mock.callCount(), 0);
-  });
-
-  it("registers mention handler when mentions.enabled", () => {
-    setConfig({ mentions: true });
+  it("always registers mention handler regardless of config", () => {
+    setConfig({ mentions: false });
     createSlackApp();
 
     assert.equal(mockRegisterMentionHandler.mock.callCount(), 1);
   });
 
-  it("does NOT register mention handler when mentions disabled", () => {
-    setConfig({ mentions: false });
-    createSlackApp();
-
-    assert.equal(mockRegisterMentionHandler.mock.callCount(), 0);
-  });
-
-  it("registers messageChanged when directMessages enabled", () => {
-    setConfig({ directMessages: true, mentions: false });
-    createSlackApp();
-
-    assert.equal(mockRegisterMessageChangedHandler.mock.callCount(), 1);
-  });
-
-  it("registers messageChanged when mentions enabled", () => {
-    setConfig({ directMessages: false, mentions: true });
-    createSlackApp();
-
-    assert.equal(mockRegisterMessageChangedHandler.mock.callCount(), 1);
-  });
-
-  it("registers messageChanged when both directMessages and mentions enabled", () => {
-    setConfig({ directMessages: true, mentions: true });
-    createSlackApp();
-
-    assert.equal(mockRegisterMessageChangedHandler.mock.callCount(), 1);
-  });
-
-  it("does NOT register messageChanged when neither directMessages nor mentions enabled", () => {
+  it("always registers messageChanged handler regardless of config", () => {
     setConfig({ directMessages: false, mentions: false });
     createSlackApp();
 
-    assert.equal(mockRegisterMessageChangedHandler.mock.callCount(), 0);
+    assert.equal(mockRegisterMessageChangedHandler.mock.callCount(), 1);
+  });
+
+  it("always registers autoRespond handler regardless of config", () => {
+    setConfig();
+    createSlackApp();
+
+    assert.equal(mockRegisterAutoRespondHandler.mock.callCount(), 1);
   });
 });
 

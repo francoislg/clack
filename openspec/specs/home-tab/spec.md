@@ -248,6 +248,10 @@ The system SHALL display a summary Configuration section on the Home tab for use
 - **WHEN** the directory summary has been rendered
 - **THEN** display a context hint directing the user to chat with Clack to view or update configuration files
 
+#### Scenario: Show admin config tools hint for admin users
+- **WHEN** building the Home Tab for a user with admin or owner role
+- **THEN** display a context block in the Configuration section noting that core config files (config.json, mcp.json, .env, tool mappings) can be edited by asking in a conversation
+
 #### Scenario: Hide from non-editors
 - **GIVEN** the user does not have config edit permissions
 - **WHEN** building the home view

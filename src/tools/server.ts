@@ -45,6 +45,11 @@ import { createCreateScheduledMessageTool } from "./actions/createScheduledMessa
 import { createCancelScheduledMessageTool } from "./actions/cancelScheduledMessage.js";
 import { createUpdateScheduledMessageTool } from "./actions/updateScheduledMessage.js";
 
+// Admin tools
+import { createAdminReadFileTool } from "./admin/adminReadFile.js";
+import { createAdminWriteFileTool } from "./admin/adminWriteFile.js";
+import { createAdminRestartAppTool } from "./admin/adminRestartApp.js";
+
 // Scheduled message query tools
 import { createListRemindersTool } from "./query/listReminders.js";
 import { createListScheduledMessagesTool } from "./query/listScheduledMessages.js";
@@ -203,6 +208,9 @@ function buildQueryTools(ctx: QueryToolContext): ClackToolsResult {
 
   if (canEditConfig(ctx.role)) {
     tools.push(createProposeConfigUpdateTool(ctx, intentStore, recorder));
+    tools.push(createAdminReadFileTool());
+    tools.push(createAdminWriteFileTool());
+    tools.push(createAdminRestartAppTool());
   }
 
   // --- Scheduled message tools (no role gating, config-gated) ---

@@ -22,6 +22,12 @@ mock.module("../inFlightRequests.js", {
   },
 });
 
+mock.module("../../config.js", {
+  namedExports: {
+    getConfig: () => ({ directMessages: { enabled: true }, mentions: { enabled: true } }),
+  },
+});
+
 mock.module("../../logger.js", {
   namedExports: {
     logger: {

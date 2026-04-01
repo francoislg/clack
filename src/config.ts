@@ -151,7 +151,7 @@ const DEFAULTS: Partial<Config> = {
   },
 };
 
-function loadSlackAuth(): SlackAuthConfig {
+export function loadSlackAuth(): SlackAuthConfig {
   const authPath = resolve(process.cwd(), "data", "auth", "slack.json");
 
   if (!existsSync(authPath)) {
@@ -291,7 +291,7 @@ function parseRepo(raw: Record<string, unknown>): RepositoryConfig {
 // Config Validation
 // ============================================================================
 
-function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Config {
+export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Config {
   if (!config || typeof config !== "object") {
     throw new Error("Config must be an object");
   }

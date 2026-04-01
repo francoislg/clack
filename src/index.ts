@@ -4,19 +4,16 @@ import { testMCP } from "./claude/testMcp.js";
 import { loadConfig, getConfig } from "./config.js";
 import { loadGitHubCredentials, validateGitHubApp } from "./github.js";
 import { logger } from "./logger.js";
-import { initializeRepositories, syncAllRepositories, startSyncScheduler, stopSyncScheduler } from "./repositories.js";
-import { startCleanupScheduler, stopCleanupScheduler } from "./sessions.js";
-import { createSlackApp, startSlackApp, stopSlackApp, getSlackClient } from "./slack/app.js";
+import { initializeRepositories, syncAllRepositories } from "./repositories.js";
+import { createSlackApp, startSlackApp, stopSlackApp } from "./slack/app.js";
 import { ensureWorktreeDirectories, cleanupWorktrees } from "./worktrees.js";
 import { discoverPluginInfo } from "./plugins.js";
-import { startCompletionMonitor, stopCompletionMonitor } from "./changes/monitor.js";
 import { restoreWorkerSessions } from "./changes/restore.js";
 import { cleanupStaleSessionFolders } from "./changes/persistence.js";
 import { getActiveChangeBranches } from "./changes/activeState.js";
 import { validateInstructionFiles } from "./instructions.js";
 import { runBlockingMigrations, runEnhancementMigrations } from "./migrations/boot.js";
-import { startConfigWatcher } from "./configWatcher.js";
-import { startCronScheduler, stopCronScheduler } from "./cronScheduler.js";
+import { startAll, stopAll } from "./lifecycle.js";
 
 // Load environment variables from .env files (later files don't override earlier ones)
 dotenvConfig({ path: join(process.cwd(), ".env") });
@@ -121,16 +118,7 @@ async function main(): Promise<void> {
     }
   }
 
-  // Step 4: Start schedulers
-  startSyncScheduler();
-  startCleanupScheduler();
-
-  // Step 4.5: Watch config files for changes (if enabled)
-  const stopConfigWatcher = config.claudeCode.watchMcpConfig
-    ? startConfigWatcher()
-    : undefined;
-
-  // Step 5: Create and start Slack app
+  // Step 4: Create and start Slack app
   logger.info("Starting Slack app...");
   try {
     createSlackApp();
@@ -140,16 +128,8 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // Step 6: Start completion monitor (after Slack app is ready for notifications)
-  startCompletionMonitor();
-
-  // Step 6.5: Start cron scheduler (after Slack app is ready)
-  if (config.allowScheduledMessages) {
-    const cronClient = getSlackClient();
-    if (cronClient) {
-      startCronScheduler(cronClient);
-    }
-  }
+  // Step 5: Start all schedulers, watchers, and monitors (after Slack app is ready)
+  startAll();
 
   logger.startup("Clack is ready!");
 
@@ -170,11 +150,7 @@ async function main(): Promise<void> {
   async function shutdown(signal: string): Promise<void> {
     logger.startup(`Received ${signal}, shutting down gracefully...`);
 
-    stopConfigWatcher?.();
-    stopCronScheduler();
-    stopCompletionMonitor();
-    stopSyncScheduler();
-    stopCleanupScheduler();
+    stopAll();
     await stopSlackApp();
 
     logger.startup("Shutdown complete");

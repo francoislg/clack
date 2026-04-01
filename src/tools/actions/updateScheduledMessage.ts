@@ -19,7 +19,7 @@ export function createUpdateScheduledMessageTool(ctx: QueryToolContext) {
       id: z.string().describe("The scheduled message ID to update"),
       cronExpression: z.string().optional().describe("New cron expression"),
       channel: z.string().optional().describe("New target channel"),
-      prompt: z.string().optional().describe("New prompt for dynamic content generation"),
+      prompt: z.string().optional().describe("New prompt for dynamic content generation. Should only describe WHAT to do, not HOW to deliver — the scheduler handles delivery automatically."),
     },
     async (args) => {
       const job = await getJob(args.id);
