@@ -15,6 +15,8 @@ export interface ActiveChangeState {
   prUrl?: string;
   startedAt: Date;
   lastActivityAt: Date;
+  /** SDK session ID for resuming change executions across follow-ups */
+  sdkSessionId?: string;
 }
 
 export interface ActiveWorker {
