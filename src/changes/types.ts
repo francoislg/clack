@@ -104,5 +104,7 @@ export interface ExecutionResult {
   commitHash?: string;
   summary?: string;
   error?: string;
+  /** SDK session ID captured during execution (for resuming follow-ups) */
+  sdkSessionId?: string;
 }
 

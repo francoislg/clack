@@ -1,4 +1,4 @@
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import { clackQuery } from "./query.js";
 import { logger } from "../logger.js";
 import { detectRuntime } from "./utilities.js";
 
@@ -31,7 +31,7 @@ OUTPUT FORMAT: The single word "skip" or "respond". Nothing else.`;
   try {
     let lastAssistantText = "";
 
-    for await (const message of query({
+    for await (const message of clackQuery({
       prompt: `${conversationContext}\n\nMESSAGE TO CLASSIFY:\n\n"""${messageText}"""`,
       options: {
         cwd: process.cwd(),

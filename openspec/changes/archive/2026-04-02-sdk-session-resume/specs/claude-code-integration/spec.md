@@ -1,8 +1,5 @@
-# claude-code-integration Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change add-slack-reaction-bot. Update Purpose after archive.
-## Requirements
 ### Requirement: Claude Code Subprocess Invocation
 The system SHALL use the Claude Agent SDK for answer generation requests via the `clackSession` wrapper function. The `askClaude()` function now supports session resumption across turns and an `onEvent` callback for real-time streaming of tool call progress.
 
@@ -42,92 +39,6 @@ The system SHALL use the Claude Agent SDK for answer generation requests via the
 - **WHEN** `askClaude()` is called without an `onEvent` callback
 - **THEN** the function behaves identically to before (no streaming events emitted)
 - **AND** the return type (`ClaudeResponse`) is unchanged
-
-### Requirement: Filesystem Permission Enforcement
-The system SHALL enforce read-only access to repositories by restricting allowed tools.
-
-#### Scenario: Read-only repository access
-- **WHEN** the Agent SDK query is invoked
-- **THEN** the `allowedTools` option includes only `Read`, `Glob`, and `Grep`
-- **AND** excludes `Write`, `Edit`, and `Bash`
-- **AND** Claude can read files in cloned repositories
-- **AND** Claude cannot modify any files
-
-### Requirement: Non-Technical Response Style
-The system SHALL instruct Claude Code to provide answers in broad, non-technical language suitable for non-developers by default.
-
-#### Scenario: System prompt enforces non-technical style
-- **WHEN** Claude Code subprocess is spawned
-- **THEN** the system prompt instructs Claude to explain like talking to a teammate who doesn't code
-- **AND** never include file paths, line numbers, function names, table/field names, or code snippets
-- **AND** focus on WHAT is happening and WHY, not HOW it's implemented
-
-#### Scenario: Technical details available only on explicit request
-- **WHEN** a user explicitly asks for "more details", "technical info", or "specifics"
-- **THEN** Claude Code may include code references and technical explanations
-- **AND** still prioritizes clarity over exhaustive technical accuracy
-
-### Requirement: Multi-Repository Awareness
-The system SHALL inform Claude Code about all configured repositories and their purposes.
-
-#### Scenario: Repository list in system prompt
-- **WHEN** Claude Code subprocess is spawned
-- **THEN** the system prompt includes the list of available repositories
-- **AND** each repository's name and description from config
-- **AND** instructs Claude to determine which repo(s) are relevant to the question
-
-#### Scenario: Claude selects relevant repository
-- **WHEN** Claude Code processes a question
-- **THEN** it determines which repository or repositories to search
-- **AND** focuses its code exploration on the selected repo(s)
-
-### Requirement: Session Context Continuation
-The system SHALL pass previous conversation context to Claude Code for follow-up questions. When an SDK session is being resumed, only new messages since the last query are injected; otherwise, full thread context is provided. Thread-based replies replace refinement as a first-class concept.
-
-#### Scenario: Refinement includes previous context
-- **WHEN** a user replies in a thread (DM or channel)
-- **AND** the session has no `sdkSessionId` (first query or legacy session)
-- **THEN** the system fetches full thread context from Slack
-- **AND** passes it to Claude as conversation history
-- **AND** does NOT use a separate refinement mechanism
-
-#### Scenario: Delta context on resumed session
-- **WHEN** a user replies in a thread (DM or channel)
-- **AND** the session has an `sdkSessionId` (resumed SDK session)
-- **THEN** the system fetches only thread messages newer than `lastSeenThreadTs`
-- **AND** injects only those messages as additional context in the prompt built by `buildPrompt()`
-- **AND** Claude relies on SDK session memory for all prior conversation context
-
-#### Scenario: Update preserves conversation history
-- **WHEN** a user clicks Update to regenerate
-- **THEN** the system passes the updated message/thread context along with any previous refinements
-- **AND** Claude Code considers the full conversation history
-
-### Requirement: Output Capture and Formatting
-The system SHALL capture Claude's `submit_response` tool output and format it for Slack.
-
-#### Scenario: Structured response from submit_response
-
-- **WHEN** Claude calls `submit_response` during a query
-- **THEN** the system captures the structured payload (sections and actions)
-- **AND** uses the payload to render Slack blocks via the response renderer
-
-#### Scenario: Fallback to raw text
-
-- **WHEN** a query completes without Claude calling `submit_response`
-- **THEN** the system falls back to the last assistant text output
-- **AND** renders it as a plain section block with generic retry/reject actions
-
-#### Scenario: Markdown to Slack formatting
-- **WHEN** response sections contain markdown
-- **THEN** the system converts markdown to Slack-compatible mrkdwn format
-- **AND** preserves code blocks, lists, and emphasis
-
-#### Scenario: Long responses split for Slack
-- **WHEN** a section body exceeds Slack's 3000-character section block limit
-- **THEN** the system splits the text at paragraph boundaries
-- **AND** creates multiple section blocks
-
 
 ### Requirement: Autonomous Change Execution
 
@@ -220,45 +131,27 @@ The system SHALL support an autonomous change execution mode using `clackSession
 - **AND** emits `tool_end` events when `tool_result` blocks appear (with error status if `is_error: true`)
 - **AND** the caller (change workflow handlers) can wire these events to a `SlackStreamer` for live progress display
 
-### Requirement: `runClaude` MCP Server Support
+### Requirement: Session Context Continuation
+The system SHALL pass previous conversation context to Claude Code for follow-up questions. When an SDK session is being resumed, only new messages since the last query are injected; otherwise, full thread context is provided. Thread-based replies replace refinement as a first-class concept.
 
-The system SHALL support passing MCP servers to the `runClaude()` function for worker invocations.
+#### Scenario: Refinement includes previous context
+- **WHEN** a user replies in a thread (DM or channel)
+- **AND** the session has no `sdkSessionId` (first query or legacy session)
+- **THEN** the system fetches full thread context from Slack
+- **AND** passes it to Claude as conversation history
+- **AND** does NOT use a separate refinement mechanism
 
-#### Scenario: MCP servers passed to Agent SDK
-- **WHEN** `runClaude()` is called with an `mcpServers` option
-- **THEN** the system passes the MCP servers to the Agent SDK `query()` call
-- **AND** the Agent SDK makes the MCP tools available to Claude during execution
+#### Scenario: Delta context on resumed session
+- **WHEN** a user replies in a thread (DM or channel)
+- **AND** the session has an `sdkSessionId` (resumed SDK session)
+- **THEN** the system fetches only thread messages newer than `lastSeenThreadTs`
+- **AND** injects only those messages as additional context in the prompt built by `buildPrompt()`
+- **AND** Claude relies on SDK session memory for all prior conversation context
 
-#### Scenario: MCP servers optional
-- **WHEN** `runClaude()` is called without `mcpServers`
-- **THEN** the system invokes the Agent SDK without MCP servers (backwards compatible)
-- **AND** Claude has access only to the standard allowed tools
-
-### Requirement: PR Template Resolution
-
-The system SHALL resolve PR templates from multiple sources in priority order.
-
-#### Scenario: Template from repository
-- **WHEN** preparing to create a PR
-- **THEN** the system checks the worktree for templates in order:
-  - `.github/PULL_REQUEST_TEMPLATE.md`
-  - `.github/pull_request_template.md`
-  - `docs/PULL_REQUEST_TEMPLATE.md`
-- **AND** uses the first template found
-
-#### Scenario: Template from Clack data directory
-- **GIVEN** no template found in the repository
-- **WHEN** preparing to create a PR
-- **THEN** the system checks for `data/default_configuration/pr-template.md`
-- **AND** uses it if present
-
-#### Scenario: Built-in default template
-- **GIVEN** no template found in repo or data directory
-- **WHEN** preparing to create a PR
-- **THEN** the system uses a minimal built-in template with:
-  - Summary section
-  - Changes section
-  - Test plan section
+#### Scenario: Update preserves conversation history
+- **WHEN** a user clicks Update to regenerate
+- **THEN** the system passes the updated message/thread context along with any previous refinements
+- **AND** Claude Code considers the full conversation history
 
 ### Requirement: Utility Queries Use clackQuery
 

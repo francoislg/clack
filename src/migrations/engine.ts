@@ -1,7 +1,7 @@
 import { readFile, writeFile, unlink, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import { clackQuery } from "../claude/query.js";
 import { logger } from "../logger.js";
 import { errorMessage } from "../errors.js";
 import { detectRuntime } from "../claude/utilities.js";
@@ -127,7 +127,7 @@ Rules:
         : ""
     }${staticErrorContext}`;
 
-    for await (const message of query({
+    for await (const message of clackQuery({
       prompt: migration.prompt!,
       options: {
         cwd: process.cwd(),

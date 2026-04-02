@@ -19,7 +19,7 @@ The system SHALL create a unique session for each triggered reaction.
 
 ### Requirement: Session State Persistence
 
-The system SHALL persist session state to the filesystem, including structured tool interaction data and DM delivery coordinates. Thread conversation history (questions, answers, refinements) is derived from Slack on each request and is NOT persisted. Aborted sessions SHALL retain their state for reuse on restart.
+The system SHALL persist session state to the filesystem, including structured tool interaction data, DM delivery coordinates, and the SDK session ID for conversation resumption. Thread conversation history (questions, answers, refinements) is derived from Slack on each request and is NOT persisted. Aborted sessions SHALL retain their state for reuse on restart.
 
 #### Scenario: Context file structure
 
@@ -27,6 +27,7 @@ The system SHALL persist session state to the filesystem, including structured t
 - **THEN** the system writes `data/sessions/{session-id}/context.json`
 - **AND** includes: sessionId, channelId, messageTs, threadTs, userId, username, displayName, errors, createdAt, lastActivity
 - **AND** includes `username` and `displayName` for the requesting user when `fetchUserNames` is enabled
+- **AND** includes `sdkSessionId` when an SDK session has been established for this session
 - **AND** does NOT persist `refinements`, `lastAnswer`, or `threadContext` (these are fetched from Slack on each request)
 - **AND** the context does NOT include `isEphemeral`
 - **AND** delivery mode is derived from `triggerType` and whether `dmChannel` is set
@@ -72,6 +73,42 @@ The system SHALL persist session state to the filesystem, including structured t
 - **AND** the session stores `originChannel` and `originThreadTs` for the original channel message
 - **AND** these coordinates are persisted in `context.json`
 - **AND** are available for session restoration after app restart
+
+#### Scenario: SDK session ID persisted
+
+- **WHEN** a `clackSession()` call completes and yields a `session_id` from the SDK init message
+- **THEN** the system stores the SDK session ID as `sdkSessionId` in the Clack session context
+- **AND** persists it to `context.json`
+- **AND** uses it as the `resumeSessionId` for subsequent queries in the same thread
+
+#### Scenario: SDK session ID cleared on resume failure
+
+- **WHEN** a resumed SDK session fails (file missing or corrupted)
+- **AND** the wrapper falls back to a fresh session
+- **THEN** the `sdkSessionId` on the Clack session is updated to the new SDK session ID
+- **AND** the new ID is persisted to `context.json`
+
+### Requirement: Thread Context Delta Tracking
+
+The system SHALL track the last-seen thread timestamp to enable delta-based thread context injection on resumed sessions.
+
+#### Scenario: Last seen timestamp updated after query
+
+- **WHEN** a `clackSession()` query completes successfully
+- **THEN** the session stores `lastSeenThreadTs` as the timestamp of the most recent thread message fetched when building the prompt for this query (i.e., at query start, before Claude begins executing)
+- **AND** persists it to `context.json`
+
+#### Scenario: Delta thread context on resume
+
+- **WHEN** a follow-up query resumes an SDK session (sdkSessionId is present)
+- **THEN** the system fetches only thread messages newer than `lastSeenThreadTs`
+- **AND** injects only those messages as additional context in the prompt
+
+#### Scenario: Full thread context fallback
+
+- **WHEN** a query does not resume an SDK session (no sdkSessionId, or resume failed)
+- **THEN** the system injects the full thread context as today
+- **AND** `lastSeenThreadTs` is not used for filtering
 
 ### Requirement: Session Timeout
 

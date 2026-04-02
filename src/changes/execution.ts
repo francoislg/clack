@@ -1,4 +1,4 @@
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import { clackSession } from "../claude/query.js";
 import { readFileSync } from "node:fs";
 import { getConfig, findRepoByName } from "../config.js";
 import { errorMessage } from "../errors.js";
@@ -30,6 +30,8 @@ export async function runClaude(options: {
   branchName?: string;
   onProgress?: (message: string) => void;
   onEvent?: (event: StreamEvent) => void | Promise<void>;
+  resumeSessionId?: string;
+  onSessionId?: (sessionId: string) => void;
 }): Promise<{ success: boolean; text: string; error?: string; lastMessage?: string }> {
   // Validate prompt early - catch empty prompts with a clear error
   if (!options.prompt || options.prompt.trim().length === 0) {
@@ -79,8 +81,10 @@ export async function runClaude(options: {
   const parser = new ClaudeMessageParser(options.onEvent);
 
   try {
-    for await (const message of query({
+    for await (const message of clackSession({
       prompt: options.prompt,
+      resumeSessionId: options.resumeSessionId,
+      onSessionId: options.onSessionId,
       options: {
         cwd: options.cwd,
         executable: detectRuntime(),
@@ -90,7 +94,6 @@ export async function runClaude(options: {
         permissionMode: "bypassPermissions",
         allowDangerouslySkipPermissions: true,
         plugins: discoverPlugins(),
-        persistSession: false,
         ...(options.mcpServers && { mcpServers: options.mcpServers as Record<string, import("@anthropic-ai/claude-agent-sdk").McpServerConfig> }),
         abortController,
         env: {
@@ -237,14 +240,18 @@ Important:
 /**
  * Execute the change in the worktree
  */
-export async function executeChange(
-  plan: ChangePlan,
-  worktree: WorktreeInfo,
-  request: ChangeRequest,
-  sessionId: string,
-  resumeContext?: string,
-  onEvent?: (event: StreamEvent) => void | Promise<void>,
-): Promise<ExecutionResult> {
+export interface ExecuteChangeOptions {
+  plan: ChangePlan;
+  worktree: WorktreeInfo;
+  request: ChangeRequest;
+  sessionId: string;
+  resumeContext?: string;
+  onEvent?: (event: StreamEvent) => void | Promise<void>;
+  sdkSessionId?: string;
+}
+
+export async function executeChange(opts: ExecuteChangeOptions): Promise<ExecutionResult> {
+  const { plan, worktree, request, sessionId, resumeContext, onEvent, sdkSessionId } = opts;
   const config = getConfig();
 
   // Build the allowed tools list
@@ -304,6 +311,7 @@ Follow the workflow steps in the system prompt. Report your final status using t
   });
   const workerTools = buildClackTools(workerCtx);
 
+  let capturedSdkSessionId: string | undefined;
   const result = await runClaudeInWorktree(worktree.repoName, {
     prompt,
     cwd: worktree.worktreePath,
@@ -313,18 +321,22 @@ Follow the workflow steps in the system prompt. Report your final status using t
     branchName: plan.branchName,
     mcpServers: { clack: workerTools.mcpServer },
     onEvent,
+    resumeSessionId: sdkSessionId,
+    onSessionId: (id) => { capturedSdkSessionId = id; },
   });
 
   if (!result.success) {
     return {
       success: false,
       error: result.error ?? "Execution failed",
+      sdkSessionId: capturedSdkSessionId,
     };
   }
 
   return {
     success: true,
     summary: "Changes implemented",
+    sdkSessionId: capturedSdkSessionId,
   };
 }
 

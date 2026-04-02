@@ -73,6 +73,8 @@ export interface SessionContext {
   responseTs?: string;
   /** SDK session ID for resuming Claude conversations across turns */
   sdkSessionId?: string;
+  /** Timestamp of the most recent thread message at last query start (for delta context) */
+  lastSeenThreadTs?: string;
   /** Active change execution state (runtime-only, not persisted) */
   activeChange?: ActiveChangeState;
 }

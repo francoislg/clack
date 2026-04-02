@@ -1,4 +1,4 @@
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import { clackQuery } from "./query.js";
 import { getConfig } from "../config.js";
 import { errorMessage } from "../errors.js";
 import { loadMcpServers, getConfiguredMcpServerNames } from "../mcp.js";
@@ -100,7 +100,7 @@ export async function testMCP(): Promise<McpTestResult> {
     let mcpServerStatus: McpServerInfo[] = [];
 
     // Start a minimal query just to get the init message
-    for await (const message of query({
+    for await (const message of clackQuery({
       prompt: "test",
       options: {
         cwd: process.cwd(),
