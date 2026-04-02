@@ -2,11 +2,10 @@ import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
 import { textResult, errorResult } from "../helpers.js";
-import { extractMessageText, fetchThreadContext } from "../../slack/messagesApi.js";
-import { extractImageFiles } from "../../slack/imageExtractor.js";
-import { extractFiles } from "../../slack/fileExtractor.js";
+import { fetchThreadContext } from "../../slack/messagesApi.js";
 
 const SLACK_URL_PATTERN = /^https:\/\/[^/]+\.slack\.com\/archives\/([A-Z0-9]+)\/p(\d+)$/;
+const MAX_FETCH = 200;
 
 function parseSlackMessageUrl(url: string): { channelId: string; messageTs: string; threadTs?: string } | null {
   let urlObj: URL;
@@ -32,10 +31,11 @@ function parseSlackMessageUrl(url: string): { channelId: string; messageTs: stri
 export function createFetchSlackMessageTool(ctx: QueryToolContext) {
   return tool(
     "fetch_slack_message",
-    "Fetch the content of a Slack message from its URL. Optionally include the full thread. Use this when a user shares a Slack message link and you need to read its content.",
+    "Fetch a Slack message and its thread context from a URL, with pagination support. Returns the first 5 messages by default; use page/limit to load more.",
     {
       url: z.string().describe("Slack message URL (e.g. https://workspace.slack.com/archives/C123/p1234567890123456)"),
-      include_thread: z.boolean().optional().describe("Whether to fetch the full thread (default: false)"),
+      page: z.number().optional().describe("Page number, 0-indexed (default: 0)"),
+      limit: z.number().optional().describe("Messages per page (default: 5)"),
     },
     async (args) => {
       const parsed = parseSlackMessageUrl(args.url);
@@ -47,68 +47,56 @@ export function createFetchSlackMessageTool(ctx: QueryToolContext) {
       if (!ctx.slackClient) {
         return errorResult("Slack client is not available in this context");
       }
-      const client = ctx.slackClient;
 
-      if (args.include_thread) {
-        // Fetch the full thread — use threadTs if it's a reply, otherwise the message itself is the parent
-        const parentTs = threadTs ?? messageTs;
-        const messages = await fetchThreadContext(client, channelId, parentTs, "", { fetchUserNames: true });
+      const page = args.page ?? 0;
+      const limit = args.limit ?? 5;
+      const fetchCount = (page + 1) * limit + 1; // +1 to detect has_more
 
-        if (messages.length === 0) {
-          return errorResult("Could not fetch thread or message not found");
-        }
-
-        // Register discovered images and files so viewing tools can access them
-        for (const m of messages) {
-          if (m.imageFiles) {
-            for (const img of m.imageFiles) ctx.availableImages?.set(img.id, img);
-          }
-          if (m.files) {
-            for (const f of m.files) ctx.availableFiles?.set(f.id, f);
-          }
-        }
-
-        return textResult({
-          channel: channelId,
-          thread_ts: parentTs,
-          message_count: messages.length,
-          messages: messages.map((m) => ({
-            user: m.displayName ?? m.username ?? m.userId,
-            text: m.text,
-            ts: m.ts,
-            is_bot: m.isBot,
-            ...(m.imageFiles?.length && { images: m.imageFiles.map((f) => ({ file_id: f.id, name: f.name })) }),
-            ...(m.files?.length && { files: m.files.map((f) => ({ file_id: f.id, name: f.name, type: f.mimetype })) }),
-          })),
-        });
+      if ((page + 1) * limit > MAX_FETCH) {
+        return errorResult(`Requested range exceeds maximum fetch cap of ${MAX_FETCH} messages`);
       }
 
-      // Fetch single message — need full message object for files
-      const result = threadTs
-        ? await client.conversations.replies({ channel: channelId, ts: threadTs, limit: 100 })
-        : await client.conversations.history({ channel: channelId, latest: messageTs, inclusive: true, limit: 1 });
+      // Use threadTs as parent if this is a reply URL, otherwise the message itself is the parent
+      const parentTs = threadTs ?? messageTs;
+      const messages = await fetchThreadContext(ctx.slackClient, channelId, parentTs, "", {
+        fetchUserNames: true,
+        limit: fetchCount,
+      });
 
-      const msg = threadTs
-        ? result.messages?.find((m) => m.ts === messageTs)
-        : result.messages?.[0]?.ts === messageTs ? result.messages[0] : undefined;
-
-      const text = msg ? extractMessageText(msg) : "";
-      if (!text && !msg?.files?.length) {
-        return errorResult("Message not found or empty");
+      if (messages.length === 0) {
+        return errorResult("Could not fetch thread or message not found");
       }
 
-      // Extract and register images and files
-      const imageFiles = extractImageFiles(msg?.files as unknown[] | undefined);
-      for (const img of imageFiles) ctx.availableImages?.set(img.id, img);
-      const files = extractFiles(msg?.files as unknown[] | undefined);
-      for (const f of files) ctx.availableFiles?.set(f.id, f);
+      // Slice to the requested page window
+      const start = page * limit;
+      const pageMessages = messages.slice(start, start + limit);
+      const hasMore = messages.length > start + limit;
+
+      // Register discovered images and files from the page
+      for (const m of pageMessages) {
+        if (m.imageFiles) {
+          for (const img of m.imageFiles) ctx.availableImages?.set(img.id, img);
+        }
+        if (m.files) {
+          for (const f of m.files) ctx.availableFiles?.set(f.id, f);
+        }
+      }
 
       return textResult({
         channel: channelId,
-        ts: messageTs,
-        text: text || "[attachment]",
-        ...(imageFiles.length > 0 && { images: imageFiles.map((f) => ({ file_id: f.id, name: f.name })) }),
-        ...(files.length > 0 && { files: files.map((f) => ({ file_id: f.id, name: f.name, type: f.mimetype })) }),
+        thread_ts: parentTs,
+        message_count: pageMessages.length,
+        page,
+        limit,
+        has_more: hasMore,
+        messages: pageMessages.map((m) => ({
+          user: m.displayName ?? m.username ?? m.userId,
+          text: m.text,
+          ts: m.ts,
+          is_bot: m.isBot,
+          ...(m.imageFiles?.length && { images: m.imageFiles.map((f) => ({ file_id: f.id, name: f.name })) }),
+          ...(m.files?.length && { files: m.files.map((f) => ({ file_id: f.id, name: f.name, type: f.mimetype })) }),
+        })),
       });
     }
   );

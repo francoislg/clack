@@ -11,6 +11,7 @@ export function extractMessageText(msg: { text?: string; attachments?: { text?: 
 
 export interface FetchThreadContextOptions {
   fetchUserNames?: boolean;
+  limit?: number;
 }
 
 export async function fetchThreadContext(
@@ -24,7 +25,7 @@ export async function fetchThreadContext(
     const result = await client.conversations.replies({
       channel: channelId,
       ts: threadTs,
-      limit: 20,
+      limit: options.limit ?? 20,
     });
 
     if (!result.messages) {
