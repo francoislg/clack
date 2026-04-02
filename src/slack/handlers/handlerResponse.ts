@@ -104,7 +104,7 @@ export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promis
     : buildDeliverFn(ctx);
 
   try {
-    const user = session.displayName ?? session.username ?? session.userId;
+    const user = userInfo?.displayName ?? userInfo?.username ?? sessionInfo.userId;
     logger.info(
       `Calling Claude (user: ${user}, session: ${session.sessionId}, role: ${claudeOptions.role ?? "member"}, changesWorkflow: ${claudeOptions.changesWorkflowEnabled ?? false}${silentThinking ? ", silentThinking" : ""})`
     );
@@ -193,12 +193,15 @@ function buildDirectDeliverFn(ctx: DeliveryContext): DeliverFn {
     }
 
     try {
-      await ctx.client.chat.postMessage({
+      const result = await ctx.client.chat.postMessage({
         channel: ctx.targetChannel,
         text: opts.markdownText,
         ...(opts.blocks && { blocks: opts.blocks }),
       });
       ctx.alreadyDelivered = true;
+      if (result.ts) {
+        await updateSession(ctx.session.sessionId, { responseTs: result.ts });
+      }
       return { ok: true as const };
     } catch (error) {
       logger.error("Direct delivery failed:", error);

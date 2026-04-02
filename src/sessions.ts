@@ -68,6 +68,11 @@ export interface SessionContext {
   assistantCurrentChannelId?: string;
   /** Saved response snapshots, keyed by auto-generated ID */
   snapshots?: Record<string, ResponseSnapshot>;
+  /** Timestamp of Clack's top-level response (when posted without thread_ts).
+   *  Used so replies to this message can find the originating session. */
+  responseTs?: string;
+  /** SDK session ID for resuming Claude conversations across turns */
+  sdkSessionId?: string;
   /** Active change execution state (runtime-only, not persisted) */
   activeChange?: ActiveChangeState;
 }
@@ -233,6 +238,12 @@ export async function getSession(sessionId: string): Promise<SessionContext | nu
     if (!threadIndex.has(key)) {
       threadIndex.set(key, sessionId);
     }
+    if (session.responseTs) {
+      const responseKey = getThreadKey(session.channelId, session.responseTs);
+      if (!threadIndex.has(responseKey)) {
+        threadIndex.set(responseKey, sessionId);
+      }
+    }
 
     return session;
   } catch (error) {
@@ -346,6 +357,11 @@ export async function updateSession(sessionId: string, updates: Partial<SessionC
 
   // Update cache
   sessionCache.set(sessionId, updated);
+
+  // Index responseTs so findSessionByThread can find this session by the posted message
+  if (updates.responseTs) {
+    threadIndex.set(getThreadKey(updated.channelId, updates.responseTs), sessionId);
+  }
 
   return updated;
 }

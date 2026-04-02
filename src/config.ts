@@ -112,6 +112,8 @@ export interface Config {
   claudeCode: ClaudeCodeConfig;
   changesWorkflow?: ChangesWorkflowConfig;
   allowScheduledMessages?: boolean;
+  /** Auto-respond to thread replies in existing sessions (default: true) */
+  threadAutoRespond?: boolean;
 }
 
 const DEFAULTS: Partial<Config> = {

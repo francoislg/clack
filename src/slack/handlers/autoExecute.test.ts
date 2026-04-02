@@ -48,6 +48,7 @@ mock.module("../../sessions.js", {
   namedExports: {
     findSessionByThread: mockFindSessionByThread,
     getSession: mockGetSession,
+    updateSession: mock.fn(async () => null),
   },
 });
 
