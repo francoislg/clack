@@ -90,13 +90,18 @@ function buildDeliveryContext(session: SessionContext): string | null {
     lines.push("- Do NOT include `post_to` for the target channel — submit_response already posts there top-level.");
     lines.push("- Do NOT include `accept` or `reject` actions — they have no meaning here.");
     lines.push("- You MAY include `post_to` ONLY if you need to post to a DIFFERENT channel or thread than the target.");
-  } else if (session.triggerType === "autoRespond") {
-    // Auto-respond: automatically triggered response to a channel message
-    lines.push("- Mode: Auto-respond (you have been automatically tasked to respond to this message)");
-    lines.push("- Read the message carefully. It might be an alert to investigate, a question to answer, a notification to analyze, or something else entirely.");
-    lines.push("- By default, your response is posted as a thread reply on the triggering message.");
-    lines.push("- You can use `post_to` with `auto: true` to post a top-level channel message instead of (or in addition to) the thread reply.");
+  } else if (session.triggerType === "autoRespond" || session.triggerType === "threadReply") {
+    // Auto-respond / thread reply: automatically triggered response
+    if (session.triggerType === "autoRespond") {
+      lines.push("- Mode: Auto-respond (you have been automatically tasked to respond to this message)");
+      lines.push("- Read the message carefully. It might be an alert to investigate, a question to answer, a notification to analyze, or something else entirely.");
+      lines.push("- By default, your response is posted as a thread reply on the triggering message.");
+      lines.push("- You can use `post_to` with `auto: true` to post a top-level channel message instead of (or in addition to) the thread reply.");
+    } else {
+      lines.push("- Mode: Thread reply (you are continuing a conversation in a thread)");
+    }
     lines.push("- Do NOT include `accept` or `reject` actions — they have no meaning here.");
+    lines.push("- If the users are talking to each other and not following up on what you said, or if the conversation has moved on and you have nothing useful to add, you can use `skip_response` to decline answering silently.");
   } else {
     // All non-DM-first modes: response is already where the user can see it
     if (session.triggerType === "reactions") {
@@ -125,13 +130,20 @@ function buildDeliveryContext(session: SessionContext): string | null {
 export function buildPrompt(session: SessionContext, options?: PromptOptions): string {
   const parts: string[] = [];
 
-  // Thread context first so Claude reads the conversation before the question
-  if (session.threadContext.length > 0) {
-    const contextIntro = `THREAD CONTEXT (previous messages in the Slack thread, in chronological order):
+  // Thread context — when resuming an SDK session, only inject messages Claude hasn't seen (delta).
+  const isResuming = !!session.sdkSessionId && !!session.lastSeenThreadTs;
+  const threadMessages = isResuming
+    ? session.threadContext.filter((m) => m.ts > session.lastSeenThreadTs!)
+    : session.threadContext;
+
+  if (threadMessages.length > 0) {
+    const contextIntro = isResuming
+      ? `NEW THREAD MESSAGES (posted since your last response):\n`
+      : `THREAD CONTEXT (previous messages in the Slack thread, in chronological order):
 Messages may be attributed to specific users by name (e.g., [John Doe]) or as [User] if names are not available.
 Messages marked [Clack Bot] are previous answers from you (this bot).
 Use this context to understand the conversation flow and provide relevant answers.\n`;
-    parts.push(contextIntro + formatThreadContext(session.threadContext));
+    parts.push(contextIntro + formatThreadContext(threadMessages));
   }
 
   // Delivery context — derived from session state (triggerType, dmChannel, etc.)

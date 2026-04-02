@@ -130,9 +130,10 @@ The system SHALL support `"autoRespond"` as a trigger type throughout the proces
 - **THEN** the response is posted as a thread reply on the triggering message
 
 #### Scenario: Delivery context for auto-respond
-- **WHEN** the system builds the delivery context prompt for a session with triggerType `"autoRespond"`
+- **WHEN** the system builds the delivery context prompt for a session with triggerType `"autoRespond"` or `"threadReply"`
 - **THEN** the prompt SHALL indicate this is an automated response to a channel message
 - **AND** the prompt SHALL NOT include `accept`, `reject`, or `send_to_thread` action guidance
+- **AND** the prompt SHALL include guidance that Claude can use `skip_response` when the conversation doesn't need a Clack response (e.g., users talking to each other, question already answered)
 
 #### Scenario: Extra context injected into response
 - **WHEN** a matched rule has an `extraContext` field
@@ -142,6 +143,12 @@ The system SHALL support `"autoRespond"` as a trigger type throughout the proces
 - **WHEN** an auto-respond session is in progress
 - **THEN** it is NOT registered in the in-flight request tracker
 - **AND** it cannot be cancelled by editing or deleting the triggering message
+
+#### Scenario: Skipped auto-respond leaves no trace
+- **WHEN** Claude skips a response in an auto-respond session
+- **THEN** the streamer message is deleted from the channel thread
+- **AND** no session is persisted
+- **AND** from the user's perspective, Clack never responded
 
 ### Requirement: Auto-Respond Error Handling
 

@@ -1,4 +1,5 @@
-import { query, type McpServerConfig, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import { type McpServerConfig, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import { clackSession } from "./query.js";
 import { getConfig, getRepositoriesDir } from "../config.js";
 import { ClaudeMessageParser, detectPlatformError } from "./messageParser.js";
 import { buildSystemPrompt, buildPrompt } from "./promptBuilder.js";
@@ -8,6 +9,7 @@ import { logger } from "../logger.js";
 import { loadMcpServers } from "../mcp.js";
 import type { UserRole } from "../roles.js";
 import type { SessionContext } from "../sessions.js";
+import { updateSession } from "../sessions.js";
 import type { SubmitResponsePayload, ToolCallRecord, StagedIntent, DeliverFn, ClackToolsResult } from "../tools/types.js";
 import type { StreamEvent } from "../streaming/types.js";
 import type { SlackImageFile, SlackFile } from "../slack/slackFileBase.js";
@@ -36,6 +38,8 @@ export interface ClaudeResponse {
   error?: string;
   /** True when the request was aborted via AbortController (not a real error) */
   cancelled?: boolean;
+  /** True when Claude chose to skip the response via submit_response skip_response flag */
+  skipped?: boolean;
   conversationTrace?: ConversationMessage[];
   /** Structured response from submit_response tool */
   response?: SubmitResponsePayload;
@@ -190,6 +194,17 @@ function buildSuccessResponse(
   conversationTrace: ConversationMessage[],
   clackTools: ClackToolsResult
 ): ClaudeResponse {
+  // Skip check must come before structuredResponse — when skipped,
+  // responseCapture.get() returns null so structuredResponse is absent.
+  if (clackTools.isSkipped()) {
+    return {
+      success: true,
+      skipped: true,
+      answer: "",
+      conversationTrace,
+    };
+  }
+
   const { structuredResponse, renderedBlocks, stagedIntents, toolCallHistory } = buildToolResults(clackTools);
   const optionalToolHistory = toolCallHistory.length > 0 ? toolCallHistory : undefined;
   const optionalIntents = Object.keys(stagedIntents).length > 0 ? stagedIntents : undefined;
@@ -275,8 +290,19 @@ export async function askClaude(
     let answer = "";
     const parser = new ClaudeMessageParser(options?.onEvent);
 
-    for await (const message of query({
+    // Compute lastSeenThreadTs before the query starts
+    const lastSeenTs = session.threadContext?.length
+      ? session.threadContext[session.threadContext.length - 1].ts
+      : undefined;
+
+    for await (const message of clackSession({
       prompt: userPrompt,
+      resumeSessionId: session.sdkSessionId,
+      onSessionId: (id) => {
+        updateSession(session.sessionId, { sdkSessionId: id }).catch((err) =>
+          logger.warn(`Failed to save sdkSessionId: ${errorMessage(err)}`)
+        );
+      },
       options: {
         cwd: reposDir,
         executable: detectRuntime(),
@@ -318,6 +344,13 @@ export async function askClaude(
         error: platformError,
         conversationTrace,
       };
+    }
+
+    // Persist lastSeenThreadTs so the next resumed query only injects delta context
+    if (lastSeenTs) {
+      updateSession(session.sessionId, { lastSeenThreadTs: lastSeenTs }).catch((err) =>
+        logger.warn(`Failed to save lastSeenThreadTs: ${errorMessage(err)}`)
+      );
     }
 
     return buildSuccessResponse(answer, conversationTrace, clackTools);

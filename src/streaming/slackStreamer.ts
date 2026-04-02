@@ -40,6 +40,7 @@ export class SlackStreamer {
   private thinkingFinalized = false;
   private failed = false;
   private stopped = false;
+  private messageTs: string | undefined;
 
   private static readonly THINKING_TASK_ID = "__thinking__";
 
@@ -323,12 +324,20 @@ export class SlackStreamer {
     return this.failed;
   }
 
+  /** The Slack message timestamp of the streamed message (available after start()). */
+  getMessageTs(): string | undefined {
+    return this.messageTs;
+  }
+
   // --- Private ---
 
   private async append(chunks: TaskUpdateChunk[]): Promise<void> {
     if (!this.chatStreamer) return;
     try {
-      await this.chatStreamer.append({ chunks });
+      const result = await this.chatStreamer.append({ chunks });
+      if (!this.messageTs && result?.ts) {
+        this.messageTs = result.ts;
+      }
     } catch (error) {
       // If stop() was already called, this is a benign race — an in-flight
       // append from handleEvent resolved after the stream was finalized.

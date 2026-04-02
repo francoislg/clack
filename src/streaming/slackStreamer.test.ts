@@ -136,6 +136,35 @@ describe("SlackStreamer.start", () => {
     const result = await streamer.start();
     assert.equal(result, true);
   });
+
+  it("captures message ts from first append response", async () => {
+    const mockStreamer = makeMockChatStreamer();
+    mockStreamer.append = mock.fn(async () => ({ ok: true, ts: "1111.2222" }));
+    const client = makeClient({ chatStreamer: mockStreamer });
+    const streamer = new SlackStreamer({
+      client,
+      channel: "C_CHAN",
+      threadTs: "1234.5678",
+      teamId: "T_TEAM",
+    });
+
+    assert.equal(streamer.getMessageTs(), undefined);
+    await streamer.start();
+    assert.equal(streamer.getMessageTs(), "1111.2222");
+  });
+
+  it("returns undefined messageTs when start fails", async () => {
+    const client = makeClient({ throwOnChatStream: true });
+    const streamer = new SlackStreamer({
+      client,
+      channel: "C_CHAN",
+      threadTs: "1234.5678",
+      teamId: "T_TEAM",
+    });
+
+    await streamer.start();
+    assert.equal(streamer.getMessageTs(), undefined);
+  });
 });
 
 // ---------------------------------------------------------------------------
