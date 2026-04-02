@@ -18,6 +18,9 @@ let slackClient: App["client"] | null = null;
 // ============================================================================
 
 export function startCronScheduler(client: App["client"]): void {
+  if (tickInterval) {
+    clearInterval(tickInterval);
+  }
   slackClient = client;
   tickInterval = setInterval(tick, 60_000);
   logger.info("Cron scheduler started (60s tick)");
@@ -130,6 +133,7 @@ async function executeJob(job: CronJob): Promise<void> {
 }
 
 export async function runJobNow(job: CronJob, client: App["client"]): Promise<void> {
+  logger.info(`Cron job ${job.id} executing manually (channel: ${job.channel})`);
   await executeDynamicJob(job, client);
 }
 
