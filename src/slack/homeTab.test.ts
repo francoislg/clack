@@ -523,7 +523,7 @@ describe("buildConfigurationSection", () => {
     const contextBlocks = blocks.filter((b) => b.type === "context");
     assert.ok(contextBlocks.length > 0);
     const contextText = ((contextBlocks[0] as unknown as { elements: Array<{ text: string }> }).elements)[0].text;
-    assert.ok(contextText.includes("advanced configuration"));
+    assert.ok(contextText.includes("Chat with me to edit"));
   });
 
   it("ends with a divider", () => {

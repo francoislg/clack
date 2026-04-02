@@ -49,7 +49,14 @@ mock.module("../../roles.js", {
 });
 
 mock.module("../../permissions.js", {
-  namedExports: { userCanManageRoles: mockUserCanManageRoles, userCanEditConfig: mockUserCanEditConfig },
+  namedExports: {
+    userCanManageRoles: mockUserCanManageRoles,
+    userCanEditConfig: mockUserCanEditConfig,
+    canEditConfig: (role: string) => role === "admin" || role === "owner",
+    canRequestChanges: (role: string) => role === "dev" || role === "admin" || role === "owner",
+    canManageRoles: (role: string) => role === "admin" || role === "owner",
+    canTransferOwnership: (role: string) => role === "owner",
+  },
 });
 
 mock.module("../homeTab.js", {
@@ -90,6 +97,12 @@ mock.module("../../cronJobs.js", {
     deleteJob: mock.fn(async () => {}),
     getJob: mock.fn(async () => null),
     updateJob: mock.fn(async () => null),
+  },
+});
+
+mock.module("../../cronScheduler.js", {
+  namedExports: {
+    runJobNow: mock.fn(async () => {}),
   },
 });
 

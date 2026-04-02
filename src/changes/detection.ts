@@ -20,8 +20,8 @@ export function isChangesEnabledForTrigger(
     return false;
   }
 
-  // Auto-respond and scheduled triggers never support changes workflow
-  if (triggerType === "autoRespond" || triggerType === "scheduled") {
+  // Auto-respond, scheduled, and thread reply triggers never support changes workflow
+  if (triggerType === "autoRespond" || triggerType === "scheduled" || triggerType === "threadReply") {
     return false;
   }
 

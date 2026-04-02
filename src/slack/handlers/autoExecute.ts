@@ -13,7 +13,7 @@ import { triggerChangeWorkflow } from "./changeAction.js";
 import { triggerFollowUp } from "./changeThreadActions.js";
 import { postAnswerToChannel, resolveOrigin } from "./dmActions.js";
 import { writeInstructionFile } from "../../configurationFiles.js";
-import { findSessionByThread, getSession } from "../../sessions.js";
+import { findSessionByThread, getSession, updateSession } from "../../sessions.js";
 import { activeSessions } from "../activeSessions.js";
 import { logger } from "../../logger.js";
 
@@ -199,7 +199,11 @@ async function handlePostToAutoExecute(params: AutoExecuteParams): Promise<void>
 
     try {
       logger.info(`Auto-executing post_to: channel=${targetChannel}, thread=${targetThreadTs ?? "(top-level)"}`);
-      await postAnswerToChannel(client, snapshot, targetChannel, targetThreadTs);
+      const postResult = await postAnswerToChannel(client, snapshot, targetChannel, targetThreadTs);
+      // Track top-level posts so thread replies can find this session
+      if (!targetThreadTs && postResult.ts) {
+        await updateSession(sessionId, { responseTs: postResult.ts });
+      }
     } catch (error) {
       logger.error("post_to auto-execute failed:", error);
       try {
