@@ -7,28 +7,42 @@ import { getOctokit, parseRepoUrl } from "../../github.js";
 import { logger } from "../../logger.js";
 import { errorMessage } from "../../errors.js";
 
-const STATE_ENUM = z.enum(["open", "closed", "merged", "all"])
-  .describe("Required. PR state filter: 'open' for open PRs, 'merged' for merged PRs, 'closed' for closed (including merged), 'all' for everything.");
+const STATE_ENUM = z
+  .enum(["open", "closed", "merged", "all"])
+  .describe(
+    "Required. PR state filter: 'open' for open PRs, 'merged' for merged PRs, 'closed' for closed (including merged), 'all' for everything.",
+  );
 
 export function createFindPullRequestsTool(ctx: QueryToolContext) {
   return tool(
     "find_pull_requests",
     "Find pull requests on a repository via GitHub. Supports filtering by state (open, closed, merged, all), branch, and date.",
     {
-      repo: z.string().describe("Repository name (e.g. 'my-repo') or URL. Use list_repositories to discover available names."),
+      repo: z
+        .string()
+        .describe(
+          "Repository name (e.g. 'my-repo') or URL. Use list_repositories to discover available names.",
+        ),
       state: STATE_ENUM,
       branch: z.string().optional().describe("Filter by head branch name (partial match)"),
-      since: z.string().optional().describe("ISO 8601 date or datetime. Only return PRs updated/merged on or after this date (e.g. '2026-03-30' or '2026-03-30T00:00:00Z')."),
+      since: z
+        .string()
+        .optional()
+        .describe(
+          "ISO 8601 date or datetime. Only return PRs updated/merged on or after this date (e.g. '2026-03-30' or '2026-03-30T00:00:00Z').",
+        ),
     },
     async (args) => {
       const visibleRepos = getVisibleRepos(ctx.role, ctx.config.repositories);
-      const repo = visibleRepos.find((r) =>
-        r.name === args.repo || r.url.includes(args.repo) || args.repo.includes(r.name)
+      const repo = visibleRepos.find(
+        (r) => r.name === args.repo || r.url.includes(args.repo) || args.repo.includes(r.name),
       );
 
       if (!repo) {
         const available = visibleRepos.map((r) => r.name);
-        return errorResult(`Repository "${args.repo}" not found or not accessible. Available: ${available.join(", ")}`);
+        return errorResult(
+          `Repository "${args.repo}" not found or not accessible. Available: ${available.join(", ")}`,
+        );
       }
 
       try {
@@ -85,6 +99,6 @@ export function createFindPullRequestsTool(ctx: QueryToolContext) {
         logger.debug(`Failed to fetch PRs for ${args.repo}: ${errorMessage(error)}`);
         return errorResult(`Failed to fetch pull requests: ${errorMessage(error)}`);
       }
-    }
+    },
   );
 }

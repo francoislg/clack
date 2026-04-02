@@ -2,7 +2,6 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
 import { createUsersCache } from "./usersCache.js";
-import type { SlackUserEntry } from "./usersCache.js";
 
 // ---------------------------------------------------------------------------
 // Mock Slack client that returns a fixed list of members

@@ -62,7 +62,17 @@ function encodeActionValue(sessionId: string, action: Action): string {
 }
 
 /** Decode a button value to extract sessionId */
-export function decodeActionValue(value: string): { sessionId: string; ref?: string; choiceValue?: string; prompt?: string; hint?: string; workMode?: boolean; targetChannel?: string; targetThreadTs?: string; snapshotId?: string } {
+export function decodeActionValue(value: string): {
+  sessionId: string;
+  ref?: string;
+  choiceValue?: string;
+  prompt?: string;
+  hint?: string;
+  workMode?: boolean;
+  targetChannel?: string;
+  targetThreadTs?: string;
+  snapshotId?: string;
+} {
   // Try JSON first
   try {
     const parsed: unknown = JSON.parse(value);
@@ -92,9 +102,7 @@ export function decodeActionValue(value: string): { sessionId: string; ref?: str
 function renderSections(sections: ResponseSection[]) {
   const blocks: Record<string, unknown>[] = [];
   for (const section of sections) {
-    const text = section.title
-      ? `*${section.title}*\n${section.body}`
-      : section.body;
+    const text = section.title ? `*${section.title}*\n${section.body}` : section.body;
     // Split long sections to fit Slack limits
     const chunks = splitForSlack(convertMarkdownToSlack(text));
     for (const chunk of chunks) {
@@ -166,11 +174,7 @@ export function getStructuredResponseBlocks(payload: SubmitResponsePayload, sess
     return blocks;
   }
 
-  return [
-    ...blocks,
-    { type: "divider" as const },
-    ...actionBlocks,
-  ];
+  return [...blocks, { type: "divider" as const }, ...actionBlocks];
 }
 
 /**
@@ -180,7 +184,7 @@ export function getStructuredResponseBlocks(payload: SubmitResponsePayload, sess
 export function getResponseActionBlocks(actions: Action[], sessionId: string) {
   // Filter out auto-executed actions — they fire immediately, no button needed
   const buttonActions = actions.filter(
-    (a) => !("auto" in a && (a as { auto?: boolean }).auto === true)
+    (a) => !("auto" in a && (a as { auto?: boolean }).auto === true),
   );
 
   if (buttonActions.length === 0) {
@@ -199,7 +203,6 @@ export function getResponseActionBlocks(actions: Action[], sessionId: string) {
     elements: chunk.map((action) => actionToButton(action, sessionId, globalIndex++)),
   }));
 }
-
 
 /**
  * Build Slack blocks for the accepted (public) response from structured sections.
@@ -250,7 +253,6 @@ export function getErrorBlocksWithRetry(sessionId: string) {
     },
   ];
 }
-
 
 // ============================================================================
 // Block Validation

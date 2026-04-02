@@ -12,15 +12,23 @@ export function createReadConfigFileTool(_ctx: QueryToolContext) {
   return tool(
     "read_config_file",
     "Read an instruction file. Returns both default and custom content for comparison. " +
-    "Use {role}/{filename} format (e.g., 'user/identity.md', 'dev/changes.md'). " +
-    "Alternatively, pass just a role name (e.g., 'dev') to get the full resolved instruction set for that role.",
+      "Use {role}/{filename} format (e.g., 'user/identity.md', 'dev/changes.md'). " +
+      "Alternatively, pass just a role name (e.g., 'dev') to get the full resolved instruction set for that role.",
     {
-      file: z.string().describe("The instruction file path (e.g., 'user/identity.md') or a role name (e.g., 'dev') for resolved view"),
-      changesWorkflowEnabled: z.boolean().optional().default(true).describe("Whether changesWorkflow is enabled (used for resolved view)"),
+      file: z
+        .string()
+        .describe(
+          "The instruction file path (e.g., 'user/identity.md') or a role name (e.g., 'dev') for resolved view",
+        ),
+      changesWorkflowEnabled: z
+        .boolean()
+        .optional()
+        .default(true)
+        .describe("Whether changesWorkflow is enabled (used for resolved view)"),
     },
     async (args) => {
       // Check if this is a resolved view request (just a role name)
-      if (VALID_ROLES.includes(args.file as typeof VALID_ROLES[number])) {
+      if (VALID_ROLES.includes(args.file as (typeof VALID_ROLES)[number])) {
         const roleChain = buildRoleChain(args.file as UserRole, args.changesWorkflowEnabled);
         const resolved = resolveInstructions(roleChain);
         return textResult({
@@ -35,7 +43,9 @@ export function createReadConfigFileTool(_ctx: QueryToolContext) {
       const result = readInstructionFile(args.file);
 
       if (result.default_content === null && result.custom_content === null) {
-        return errorResult(`File "${args.file}" not found. Use {role}/{filename} format (e.g., 'user/identity.md').`);
+        return errorResult(
+          `File "${args.file}" not found. Use {role}/{filename} format (e.g., 'user/identity.md').`,
+        );
       }
 
       return textResult({
@@ -43,6 +53,6 @@ export function createReadConfigFileTool(_ctx: QueryToolContext) {
         default_content: result.default_content,
         custom_content: result.custom_content,
       });
-    }
+    },
   );
 }

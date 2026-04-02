@@ -5,7 +5,9 @@ import assert from "node:assert/strict";
 // Mock setup — must come before importing the module under test
 // ============================================================================
 
-const mockUpdateSession = mock.fn<(id: string, updates: Record<string, unknown>) => Promise<null>>(async () => null);
+const mockUpdateSession = mock.fn<(id: string, updates: Record<string, unknown>) => Promise<null>>(
+  async () => null,
+);
 
 mock.module("../sessions.js", {
   namedExports: {
@@ -27,11 +29,8 @@ mock.module("./activeSessions.js", {
 });
 
 // Import after mocks
-const {
-  getDmSynthesisActions,
-  getDmPostAcceptActions,
-  storeDmCoordinates,
-} = await import("./dmResponse.js");
+const { getDmSynthesisActions, getDmPostAcceptActions, storeDmCoordinates } =
+  await import("./dmResponse.js");
 
 // ============================================================================
 // Helpers

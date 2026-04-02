@@ -5,7 +5,10 @@ import assert from "node:assert/strict";
 // Module-level mocks
 // ---------------------------------------------------------------------------
 
-const mockReadInstructionFile = mock.fn<(filename: string) => { default_content: string | null; custom_content: string | null }>();
+const mockReadInstructionFile =
+  mock.fn<
+    (filename: string) => { default_content: string | null; custom_content: string | null }
+  >();
 const mockBuildRoleChain = mock.fn<(role: string, changesWorkflowEnabled: boolean) => string[]>();
 const mockResolveInstructions = mock.fn<(roleChain: string[]) => string>();
 
@@ -91,7 +94,10 @@ describe("readConfigFile tool", () => {
     const ctx = makeCtx();
     const toolDef = createReadConfigFileTool(ctx);
 
-    const result = await toolDef.handler({ file: "nonexistent.md", changesWorkflowEnabled: true }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { file: "nonexistent.md", changesWorkflowEnabled: true },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.ok(parsed.error);
@@ -109,7 +115,10 @@ describe("readConfigFile tool", () => {
     const ctx = makeCtx();
     const toolDef = createReadConfigFileTool(ctx);
 
-    const result = await toolDef.handler({ file: "user/identity.md", changesWorkflowEnabled: true }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { file: "user/identity.md", changesWorkflowEnabled: true },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed.file, "user/identity.md");
@@ -127,7 +136,10 @@ describe("readConfigFile tool", () => {
     const ctx = makeCtx();
     const toolDef = createReadConfigFileTool(ctx);
 
-    const result = await toolDef.handler({ file: "user/identity.md", changesWorkflowEnabled: true }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { file: "user/identity.md", changesWorkflowEnabled: true },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed.file, "user/identity.md");
@@ -144,7 +156,10 @@ describe("readConfigFile tool", () => {
     const ctx = makeCtx();
     const toolDef = createReadConfigFileTool(ctx);
 
-    const result = await toolDef.handler({ file: "dev/custom-rule.md", changesWorkflowEnabled: true }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { file: "dev/custom-rule.md", changesWorkflowEnabled: true },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed.file, "dev/custom-rule.md");
@@ -157,7 +172,10 @@ describe("readConfigFile tool", () => {
     const ctx = makeCtx();
     const toolDef = createReadConfigFileTool(ctx);
 
-    await toolDef.handler({ file: "dev/changes.md", changesWorkflowEnabled: true }, { sessionId: "test" });
+    await toolDef.handler(
+      { file: "dev/changes.md", changesWorkflowEnabled: true },
+      { sessionId: "test" },
+    );
 
     assert.equal(mockReadInstructionFile.mock.callCount(), 1);
     assert.equal(mockReadInstructionFile.mock.calls[0].arguments[0], "dev/changes.md");
@@ -172,7 +190,10 @@ describe("readConfigFile tool", () => {
     const ctx = makeCtx();
     const toolDef = createReadConfigFileTool(ctx);
 
-    const result = await toolDef.handler({ file: "unknown.md", changesWorkflowEnabled: true }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { file: "unknown.md", changesWorkflowEnabled: true },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.ok(parsed.error.includes("user/identity.md"));
@@ -185,7 +206,10 @@ describe("readConfigFile tool", () => {
     const ctx = makeCtx();
     const toolDef = createReadConfigFileTool(ctx);
 
-    const result = await toolDef.handler({ file: "dev", changesWorkflowEnabled: true }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { file: "dev", changesWorkflowEnabled: true },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed.view, "resolved");

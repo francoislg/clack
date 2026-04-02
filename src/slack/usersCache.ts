@@ -15,7 +15,11 @@ function isRealUser(member: { deleted?: boolean; is_bot?: boolean; id?: string }
   return !member.deleted && !member.is_bot && member.id !== "USLACKBOT";
 }
 
-function toUserEntry(member: { id?: string; name?: string; profile?: { display_name?: string; real_name?: string } }): SlackUserEntry {
+function toUserEntry(member: {
+  id?: string;
+  name?: string;
+  profile?: { display_name?: string; real_name?: string };
+}): SlackUserEntry {
   return {
     userId: member.id ?? "",
     username: member.name ?? "",

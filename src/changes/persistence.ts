@@ -1,15 +1,14 @@
-import {
-  existsSync,
-  writeFileSync,
-  mkdirSync,
-  appendFileSync,
-  rmSync,
-} from "node:fs";
+import { existsSync, writeFileSync, mkdirSync, appendFileSync, rmSync } from "node:fs";
 import { readFile, readdir, stat, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { getWorktreeSessionsDir } from "../config.js";
 import { logger } from "../logger.js";
-import type { ChangeSession, ChangeStatus, PersistedSessionState, WriteableSessionState } from "./types.js";
+import type {
+  ChangeSession,
+  ChangeStatus,
+  PersistedSessionState,
+  WriteableSessionState,
+} from "./types.js";
 
 // ============================================================================
 // Session Folder Management
@@ -82,7 +81,13 @@ export function appendExecutionLog(branchName: string, message: string): void {
 }
 
 function isValidSessionState(parsed: unknown): parsed is PersistedSessionState {
-  return typeof parsed === "object" && parsed !== null && "sessionId" in parsed && "branch" in parsed && "status" in parsed;
+  return (
+    typeof parsed === "object" &&
+    parsed !== null &&
+    "sessionId" in parsed &&
+    "branch" in parsed &&
+    "status" in parsed
+  );
 }
 
 function parseSessionState(content: string): PersistedSessionState | null {
@@ -279,7 +284,7 @@ type CleanupDecision =
 function shouldCleanupSession(
   state: PersistedSessionState | null,
   folder: string,
-  activeBranches?: Set<string>
+  activeBranches?: Set<string>,
 ): CleanupDecision {
   // Check if there's an active in-memory change for this branch
   if (activeBranches) {
@@ -320,7 +325,11 @@ function shouldCleanupSession(
   }
 }
 
-async function tryRemoveFolder(folderPath: string, folder: string, label: string): Promise<boolean> {
+async function tryRemoveFolder(
+  folderPath: string,
+  folder: string,
+  label: string,
+): Promise<boolean> {
   try {
     await rm(folderPath, { recursive: true });
     logger.debug(`Cleaned up ${label} session folder: ${folder}`);
@@ -341,7 +350,11 @@ async function tryReadState(statePath: string): Promise<PersistedSessionState | 
   }
 }
 
-async function isFolderOlderThan(folderPath: string, retentionMs: number, now: number): Promise<boolean> {
+async function isFolderOlderThan(
+  folderPath: string,
+  retentionMs: number,
+  now: number,
+): Promise<boolean> {
   try {
     const folderStat = await stat(folderPath);
     return now - folderStat.mtimeMs >= retentionMs;
@@ -362,7 +375,7 @@ async function isFolderOlderThan(folderPath: string, retentionMs: number, now: n
  */
 export async function cleanupStaleSessionFolders(
   retentionHours: number = 24,
-  activeBranches?: Set<string>
+  activeBranches?: Set<string>,
 ): Promise<void> {
   const sessionsDir = getWorktreeSessionsDir();
 

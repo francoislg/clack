@@ -1,12 +1,6 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import {
-  writeFileSync,
-  mkdirSync,
-  rmSync,
-  existsSync,
-  readFileSync,
-} from "node:fs";
+import { writeFileSync, mkdirSync, rmSync, existsSync, readFileSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { loadConfig } from "./config.js";
 import {
@@ -37,7 +31,7 @@ function writeSlackAuth() {
       botToken: "xoxb-111-222-abc",
       appToken: "xapp-1-A111-222-xyz",
       signingSecret: "s3cr3t",
-    })
+    }),
   );
 }
 
@@ -79,9 +73,7 @@ describe("listInstructionFiles", () => {
 
   it("returns empty roles when no role directory files exist", () => {
     writeSlackAuth();
-    writeConfig([
-      { name: "repo", url: "https://github.com/org/repo.git", description: "Repo" },
-    ]);
+    writeConfig([{ name: "repo", url: "https://github.com/org/repo.git", description: "Repo" }]);
     loadConfig(configPath, true);
 
     const result = listInstructionFiles();
@@ -93,9 +85,7 @@ describe("listInstructionFiles", () => {
 
   it("scans role directories for default files", () => {
     writeSlackAuth();
-    writeConfig([
-      { name: "repo", url: "https://github.com/org/repo.git", description: "Repo" },
-    ]);
+    writeConfig([{ name: "repo", url: "https://github.com/org/repo.git", description: "Repo" }]);
     loadConfig(configPath, true);
 
     writeDefaultFile("user/identity.md", "identity content");
@@ -118,9 +108,7 @@ describe("listInstructionFiles", () => {
 
   it("reports source=customized when both default and custom exist", () => {
     writeSlackAuth();
-    writeConfig([
-      { name: "repo", url: "https://github.com/org/repo.git", description: "Repo" },
-    ]);
+    writeConfig([{ name: "repo", url: "https://github.com/org/repo.git", description: "Repo" }]);
     loadConfig(configPath, true);
 
     writeDefaultFile("user/identity.md", "default content");
@@ -137,9 +125,7 @@ describe("listInstructionFiles", () => {
 
   it("reports source=custom-only when only custom file exists", () => {
     writeSlackAuth();
-    writeConfig([
-      { name: "repo", url: "https://github.com/org/repo.git", description: "Repo" },
-    ]);
+    writeConfig([{ name: "repo", url: "https://github.com/org/repo.git", description: "Repo" }]);
     loadConfig(configPath, true);
 
     writeOverrideFile("admin/custom-rule.md", "admin custom");
@@ -155,9 +141,7 @@ describe("listInstructionFiles", () => {
 
   it("omits role directories with no files", () => {
     writeSlackAuth();
-    writeConfig([
-      { name: "repo", url: "https://github.com/org/repo.git", description: "Repo" },
-    ]);
+    writeConfig([{ name: "repo", url: "https://github.com/org/repo.git", description: "Repo" }]);
     loadConfig(configPath, true);
 
     writeDefaultFile("user/identity.md", "content");
@@ -191,9 +175,7 @@ describe("listInstructionFiles", () => {
 
   it("reports hasDefault and hasOverride for repo files", () => {
     writeSlackAuth();
-    writeConfig([
-      { name: "repo", url: "https://github.com/org/repo.git", description: "Repo" },
-    ]);
+    writeConfig([{ name: "repo", url: "https://github.com/org/repo.git", description: "Repo" }]);
     loadConfig(configPath, true);
 
     writeDefaultFile("repo/changes_instructions.md", "default changes");
@@ -206,7 +188,9 @@ describe("listInstructionFiles", () => {
     assert.equal(changesEntry.hasDefault, true);
     assert.equal(changesEntry.hasOverride, false);
 
-    const setupEntry = result.repos.find((r) => r.filename === "repo/worktree_setup_instructions.md");
+    const setupEntry = result.repos.find(
+      (r) => r.filename === "repo/worktree_setup_instructions.md",
+    );
     assert.ok(setupEntry);
     assert.equal(setupEntry.hasDefault, false);
     assert.equal(setupEntry.hasOverride, true);
@@ -238,9 +222,7 @@ describe("readInstructionFile", () => {
     mkdirSync(tmpBase, { recursive: true });
     process.chdir(tmpBase);
     writeSlackAuth();
-    writeConfig([
-      { name: "repo", url: "https://github.com/org/repo.git", description: "Repo" },
-    ]);
+    writeConfig([{ name: "repo", url: "https://github.com/org/repo.git", description: "Repo" }]);
     loadConfig(configPath, true);
   });
 
@@ -317,9 +299,7 @@ describe("writeInstructionFile", () => {
     mkdirSync(tmpBase, { recursive: true });
     process.chdir(tmpBase);
     writeSlackAuth();
-    writeConfig([
-      { name: "repo", url: "https://github.com/org/repo.git", description: "Repo" },
-    ]);
+    writeConfig([{ name: "repo", url: "https://github.com/org/repo.git", description: "Repo" }]);
     loadConfig(configPath, true);
   });
 
@@ -355,7 +335,7 @@ describe("writeInstructionFile", () => {
   it("blocks path traversal with ../", () => {
     assert.throws(
       () => writeInstructionFile("../escape.md", "malicious"),
-      /path traversal not allowed/
+      /path traversal not allowed/,
     );
   });
 
@@ -363,7 +343,7 @@ describe("writeInstructionFile", () => {
     // A filename like "foo/../../etc/passwd" should resolve outside configDir
     assert.throws(
       () => writeInstructionFile("foo/../../escape.md", "malicious"),
-      /path traversal not allowed/
+      /path traversal not allowed/,
     );
   });
 
@@ -412,9 +392,7 @@ describe("deleteInstructionFile", () => {
     mkdirSync(tmpBase, { recursive: true });
     process.chdir(tmpBase);
     writeSlackAuth();
-    writeConfig([
-      { name: "repo", url: "https://github.com/org/repo.git", description: "Repo" },
-    ]);
+    writeConfig([{ name: "repo", url: "https://github.com/org/repo.git", description: "Repo" }]);
     loadConfig(configPath, true);
   });
 
@@ -431,24 +409,15 @@ describe("deleteInstructionFile", () => {
   });
 
   it("throws when file does not exist", () => {
-    assert.throws(
-      () => deleteInstructionFile("user/nonexistent.md"),
-      /File not found/
-    );
+    assert.throws(() => deleteInstructionFile("user/nonexistent.md"), /File not found/);
   });
 
   it("blocks path traversal with ../", () => {
-    assert.throws(
-      () => deleteInstructionFile("../escape.md"),
-      /path traversal not allowed/
-    );
+    assert.throws(() => deleteInstructionFile("../escape.md"), /path traversal not allowed/);
   });
 
   it("blocks path traversal with nested ../", () => {
-    assert.throws(
-      () => deleteInstructionFile("foo/../../escape.md"),
-      /path traversal not allowed/
-    );
+    assert.throws(() => deleteInstructionFile("foo/../../escape.md"), /path traversal not allowed/);
   });
 
   it("does not affect default files", () => {
@@ -475,9 +444,7 @@ describe("getEffectiveContentLength", () => {
     mkdirSync(tmpBase, { recursive: true });
     process.chdir(tmpBase);
     writeSlackAuth();
-    writeConfig([
-      { name: "repo", url: "https://github.com/org/repo.git", description: "Repo" },
-    ]);
+    writeConfig([{ name: "repo", url: "https://github.com/org/repo.git", description: "Repo" }]);
     loadConfig(configPath, true);
   });
 

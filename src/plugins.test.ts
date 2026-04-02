@@ -62,9 +62,7 @@ describe("discoverPluginInfo", () => {
   });
 
   it("returns empty array when plugins directory is empty", () => {
-    mockExistsSync.mock.mockImplementation((p: string) =>
-      p === "/fake/data/plugins"
-    );
+    mockExistsSync.mock.mockImplementation((p: string) => p === "/fake/data/plugins");
     mockReaddirSync.mock.mockImplementation(() => []);
 
     const result = discoverPluginInfo();
@@ -72,9 +70,7 @@ describe("discoverPluginInfo", () => {
   });
 
   it("skips non-directory entries in plugins/", () => {
-    mockExistsSync.mock.mockImplementation((p: string) =>
-      p === "/fake/data/plugins"
-    );
+    mockExistsSync.mock.mockImplementation((p: string) => p === "/fake/data/plugins");
     mockReaddirSync.mock.mockImplementation(() => ["somefile.txt"]);
     mockStatSync.mock.mockImplementation(() => ({ isDirectory: () => false }));
 
@@ -108,9 +104,7 @@ describe("discoverPluginInfo", () => {
     mockStatSync.mock.mockImplementation((p: string) => ({
       isDirectory: () => p === "/fake/data/plugins/awesome",
     }));
-    mockReadFileSync.mock.mockImplementation(() =>
-      JSON.stringify({ name: "Awesome Plugin" })
-    );
+    mockReadFileSync.mock.mockImplementation(() => JSON.stringify({ name: "Awesome Plugin" }));
 
     const result = discoverPluginInfo();
     assert.equal(result.length, 1);
@@ -129,9 +123,7 @@ describe("discoverPluginInfo", () => {
     mockStatSync.mock.mockImplementation((p: string) => ({
       isDirectory: () => p === "/fake/data/plugins/market",
     }));
-    mockReadFileSync.mock.mockImplementation(() =>
-      JSON.stringify({ name: "Market Plugin" })
-    );
+    mockReadFileSync.mock.mockImplementation(() => JSON.stringify({ name: "Market Plugin" }));
 
     const result = discoverPluginInfo();
     assert.equal(result.length, 1);
@@ -149,9 +141,7 @@ describe("discoverPluginInfo", () => {
     mockStatSync.mock.mockImplementation((p: string) => ({
       isDirectory: () => p === "/fake/data/plugins/both",
     }));
-    mockReadFileSync.mock.mockImplementation(() =>
-      JSON.stringify({ name: "Plugin JSON Name" })
-    );
+    mockReadFileSync.mock.mockImplementation(() => JSON.stringify({ name: "Plugin JSON Name" }));
 
     const result = discoverPluginInfo();
     assert.equal(result.length, 1);
@@ -191,7 +181,7 @@ describe("discoverPluginInfo", () => {
       JSON.stringify({
         name: "Skilled Plugin",
         plugins: [{ skills: ["skill-a", "skill-b", "skill-c"] }],
-      })
+      }),
     );
 
     const result = discoverPluginInfo();
@@ -214,9 +204,9 @@ describe("discoverPluginInfo", () => {
       return ["skill-one", "skill-two", "not-a-dir"]; // skills dir listing
     });
 
-    let statCallCount = 0;
+    let _statCallCount = 0;
     mockStatSync.mock.mockImplementation((p: string) => {
-      statCallCount++;
+      _statCallCount++;
       // The plugin entry itself and skill subdirs
       if (p === "/fake/data/plugins/dir-skills") return { isDirectory: () => true };
       if (p.endsWith("skill-one")) return { isDirectory: () => true };
@@ -224,9 +214,7 @@ describe("discoverPluginInfo", () => {
       if (p.endsWith("not-a-dir")) return { isDirectory: () => false };
       return { isDirectory: () => false };
     });
-    mockReadFileSync.mock.mockImplementation(() =>
-      JSON.stringify({ name: "Dir Skills Plugin" })
-    );
+    mockReadFileSync.mock.mockImplementation(() => JSON.stringify({ name: "Dir Skills Plugin" }));
 
     const result = discoverPluginInfo();
     assert.equal(result.length, 1);
@@ -259,14 +247,13 @@ describe("discoverPluginInfo", () => {
     ]);
     mockExistsSync.mock.mockImplementation((p: string) => existingPaths.has(p));
 
-    let readdirCallCount = 0;
+    let _readdirCallCount = 0;
     mockReaddirSync.mock.mockImplementation(() => {
-      readdirCallCount++;
+      _readdirCallCount++;
       return ["alpha", "beta"];
     });
     mockStatSync.mock.mockImplementation((p: string) => ({
-      isDirectory: () =>
-        p === "/fake/data/plugins/alpha" || p === "/fake/data/plugins/beta",
+      isDirectory: () => p === "/fake/data/plugins/alpha" || p === "/fake/data/plugins/beta",
     }));
     mockReadFileSync.mock.mockImplementation((p: string) => {
       if (p.includes("alpha")) return JSON.stringify({ name: "Alpha" });
@@ -304,9 +291,7 @@ describe("discoverPlugins", () => {
     mockStatSync.mock.mockImplementation((p: string) => ({
       isDirectory: () => p === "/fake/data/plugins/my-plugin",
     }));
-    mockReadFileSync.mock.mockImplementation(() =>
-      JSON.stringify({ name: "My Plugin" })
-    );
+    mockReadFileSync.mock.mockImplementation(() => JSON.stringify({ name: "My Plugin" }));
 
     const result = discoverPlugins();
     assert.equal(result.length, 1);

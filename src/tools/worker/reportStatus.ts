@@ -30,6 +30,6 @@ export function createReportStatusTool(ctx: WorkerToolContext) {
       } catch (error) {
         return errorResult(`slack error: ${errorMessage(error)}`);
       }
-    }
+    },
   );
 }

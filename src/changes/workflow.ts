@@ -18,7 +18,12 @@ import {
   updateActiveChangeStatus,
 } from "./activeState.js";
 import { appendExecutionLog, readSessionState } from "./persistence.js";
-import { executeChange, resolveChangesInstructions, runClaudeInWorktree, runWorktreeSetup } from "./execution.js";
+import {
+  executeChange,
+  resolveChangesInstructions,
+  runClaudeInWorktree,
+  runWorktreeSetup,
+} from "./execution.js";
 import { buildWorkerContext } from "../tools/context.js";
 import { buildClackTools } from "../tools/server.js";
 import { fetchPRReviewContext } from "./pr.js";
@@ -87,11 +92,15 @@ export async function startChangeWorkflow(
     // Check if there's a persisted session state we can resume
     const existingState = await readSessionState(plan.branchName);
     if (existingState) {
-      appendExecutionLog(plan.branchName, `Resuming from existing worktree (previous status: ${existingState.status})`);
+      appendExecutionLog(
+        plan.branchName,
+        `Resuming from existing worktree (previous status: ${existingState.status})`,
+      );
       resumeContext = `Previous session was in "${existingState.phase}" phase. Last message: "${existingState.lastMessage}"`;
     } else {
       appendExecutionLog(plan.branchName, "Reusing existing worktree (no previous state)");
-      resumeContext = "A previous session started but left no state. The workspace may have partial changes.";
+      resumeContext =
+        "A previous session started but left no state. The workspace may have partial changes.";
     }
     worktree = existingWorktree;
   } else {
@@ -187,10 +196,16 @@ export async function handleFollowUp(
   const terminalStatuses: ChangeStatus[] = ["completed", "failed"];
   const busyStatuses: ChangeStatus[] = ["executing", "reviewing", "merging"];
   if (terminalStatuses.includes(activeChange.status)) {
-    return { success: false, error: `This change is already ${activeChange.status}. No further actions are possible.` };
+    return {
+      success: false,
+      error: `This change is already ${activeChange.status}. No further actions are possible.`,
+    };
   }
   if (busyStatuses.includes(activeChange.status)) {
-    return { success: false, error: `This change is currently ${activeChange.status}. Please wait for it to finish before requesting another action.` };
+    return {
+      success: false,
+      error: `This change is currently ${activeChange.status}. Please wait for it to finish before requesting another action.`,
+    };
   }
 
   const config = getConfig();
@@ -223,7 +238,9 @@ export async function handleFollowUp(
       }
 
       const prompt = `Address the feedback on this PR: ${activeChange.prUrl}\n\n${reviewResult.context}\n\n1. Read and understand each review comment\n2. Implement the requested changes\n3. Commit with a message like "Address review feedback"\n4. Push the changes using the git_push tool\n5. Report what you addressed using the report_status tool`;
-      const systemPrompt = changesInstructions ? `Repository-Specific Instructions:\n${changesInstructions}` : undefined;
+      const systemPrompt = changesInstructions
+        ? `Repository-Specific Instructions:\n${changesInstructions}`
+        : undefined;
 
       const result = await runClaudeInWorktree(activeChange.repo, {
         prompt,
@@ -235,7 +252,9 @@ export async function handleFollowUp(
         mcpServers: { clack: workerTools.mcpServer },
         onEvent,
         resumeSessionId: activeChange.sdkSessionId,
-        onSessionId: (id: string) => { activeChange.sdkSessionId = id; },
+        onSessionId: (id: string) => {
+          activeChange.sdkSessionId = id;
+        },
       });
 
       if (result.success) {

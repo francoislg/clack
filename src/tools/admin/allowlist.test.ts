@@ -109,7 +109,10 @@ describe("validateContent", () => {
   });
 
   it("validates valid tool_mapping JSON", () => {
-    const result = validateContent("configuration/tool_mapping/test.json", JSON.stringify({ tools: [] }));
+    const result = validateContent(
+      "configuration/tool_mapping/test.json",
+      JSON.stringify({ tools: [] }),
+    );
     assert.ok(result.valid);
   });
 

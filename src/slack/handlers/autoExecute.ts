@@ -39,7 +39,18 @@ export interface AutoExecuteParams {
  * to the thread without affecting the already-posted response.
  */
 export async function handleAutoExecuteActions(params: AutoExecuteParams): Promise<void> {
-  const { client, channelId, threadTs, userId, response, sessionId, role, dmChannel, dmThreadTs, triggerType } = params;
+  const {
+    client,
+    channelId,
+    threadTs,
+    userId,
+    response,
+    sessionId: _sessionId,
+    role,
+    dmChannel,
+    dmThreadTs,
+    triggerType,
+  } = params;
 
   if (!response.response?.actions) return;
 
@@ -57,7 +68,7 @@ export async function handleAutoExecuteActions(params: AutoExecuteParams): Promi
   type AutoAction = Action & { auto: true; ref: string };
   const autoActions = response.response.actions.filter(
     (a: Action): a is AutoAction =>
-      "auto" in a && (a as unknown as { auto: boolean }).auto === true && "ref" in a
+      "auto" in a && (a as unknown as { auto: boolean }).auto === true && "ref" in a,
   );
   if (autoActions.length === 0) return;
 
@@ -81,11 +92,13 @@ export async function handleAutoExecuteActions(params: AutoExecuteParams): Promi
             });
           } catch (err) {
             logger.error("Auto-execute config update error:", err);
-            await client.chat.postMessage({
-              channel: channelId,
-              thread_ts: threadTs,
-              text: `Failed to update \`${intent.file}\`: ${errorMessage(err)}`,
-            }).catch(() => {});
+            await client.chat
+              .postMessage({
+                channel: channelId,
+                thread_ts: threadTs,
+                text: `Failed to update \`${intent.file}\`: ${errorMessage(err)}`,
+              })
+              .catch(() => {});
           }
           break;
         }
@@ -97,7 +110,9 @@ export async function handleAutoExecuteActions(params: AutoExecuteParams): Promi
             threadTs,
             userId,
             client,
-            ...(dmChannel && dmThreadTs ? { streamChannel: dmChannel, streamThreadTs: dmThreadTs } : {}),
+            ...(dmChannel && dmThreadTs
+              ? { streamChannel: dmChannel, streamThreadTs: dmThreadTs }
+              : {}),
             triggerType,
           });
           break;
@@ -116,14 +131,18 @@ export async function handleAutoExecuteActions(params: AutoExecuteParams): Promi
             threadTs,
             userId,
             client,
-            ...(dmChannel && dmThreadTs ? { streamChannel: dmChannel, streamThreadTs: dmThreadTs } : {}),
+            ...(dmChannel && dmThreadTs
+              ? { streamChannel: dmChannel, streamThreadTs: dmThreadTs }
+              : {}),
           });
           break;
         }
 
         default: {
           const _exhaustive: never = intent;
-          logger.warn(`Auto-execute: unsupported intent type ${(_exhaustive as { type: string }).type}`);
+          logger.warn(
+            `Auto-execute: unsupported intent type ${(_exhaustive as { type: string }).type}`,
+          );
         }
       }
     } catch (error) {
@@ -151,8 +170,7 @@ async function handlePostToAutoExecute(params: AutoExecuteParams): Promise<void>
   if (!response.response?.actions) return;
 
   const postToActions = response.response.actions.filter(
-    (a: Action): a is PostToAction =>
-      a.type === "post_to" && a.auto === true
+    (a: Action): a is PostToAction => a.type === "post_to" && a.auto === true,
   );
   if (postToActions.length === 0) return;
 
@@ -165,17 +183,19 @@ async function handlePostToAutoExecute(params: AutoExecuteParams): Promise<void>
   const sessionInfo = await activeSessions.restore(sessionId);
 
   for (const action of postToActions) {
-    const snapshot = action._snapshotId
-      ? session.snapshots?.[action._snapshotId]
-      : undefined;
+    const snapshot = action._snapshotId ? session.snapshots?.[action._snapshotId] : undefined;
 
     if (!snapshot) {
-      logger.warn(`post_to auto-execute: missing snapshot for session ${sessionId} (snapshotId: ${action._snapshotId ?? "none"})`);
-      await client.chat.postMessage({
-        channel: channelId,
-        thread_ts: threadTs,
-        text: "Could not auto-post: response content was not found.",
-      }).catch(() => {});
+      logger.warn(
+        `post_to auto-execute: missing snapshot for session ${sessionId} (snapshotId: ${action._snapshotId ?? "none"})`,
+      );
+      await client.chat
+        .postMessage({
+          channel: channelId,
+          thread_ts: threadTs,
+          text: "Could not auto-post: response content was not found.",
+        })
+        .catch(() => {});
       continue;
     }
 
@@ -184,13 +204,9 @@ async function handlePostToAutoExecute(params: AutoExecuteParams): Promise<void>
       ? resolveOrigin(session, sessionInfo)
       : { originChannel: undefined, originThreadTs: undefined };
 
-    const targetChannel = action.channel
-      || origin.originChannel
-      || session.assistantCurrentChannelId
-      || channelId;
-    const targetThreadTs = action.thread_ts
-      || origin.originThreadTs
-      || undefined;
+    const targetChannel =
+      action.channel || origin.originChannel || session.assistantCurrentChannelId || channelId;
+    const targetThreadTs = action.thread_ts || origin.originThreadTs || undefined;
 
     if (!targetChannel) {
       logger.warn(`post_to auto-execute: no target channel for session ${sessionId}`);
@@ -198,7 +214,9 @@ async function handlePostToAutoExecute(params: AutoExecuteParams): Promise<void>
     }
 
     try {
-      logger.info(`Auto-executing post_to: channel=${targetChannel}, thread=${targetThreadTs ?? "(top-level)"}`);
+      logger.info(
+        `Auto-executing post_to: channel=${targetChannel}, thread=${targetThreadTs ?? "(top-level)"}`,
+      );
       const postResult = await postAnswerToChannel(client, snapshot, targetChannel, targetThreadTs);
       // Track top-level posts so thread replies can find this session
       if (!targetThreadTs && postResult.ts) {

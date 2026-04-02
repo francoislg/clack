@@ -5,7 +5,10 @@ import assert from "node:assert/strict";
 // Module-level mocks
 // ---------------------------------------------------------------------------
 
-const mockReadInstructionFile = mock.fn<(filepath: string) => { default_content: string | null; custom_content: string | null }>();
+const mockReadInstructionFile =
+  mock.fn<
+    (filepath: string) => { default_content: string | null; custom_content: string | null }
+  >();
 
 mock.module("../../configurationFiles.js", {
   namedExports: {
@@ -64,7 +67,9 @@ function makeIntentStore(): IntentStore {
   };
 }
 
-function makeRecorder(): ToolCallRecorder & { calls: Array<{ tool: string; args: unknown; result: unknown }> } {
+function makeRecorder(): ToolCallRecorder & {
+  calls: Array<{ tool: string; args: unknown; result: unknown }>;
+} {
   const calls: Array<{ tool: string; args: unknown; result: unknown }> = [];
   return {
     calls,
@@ -81,7 +86,10 @@ function parseResult(result: { content: Array<{ text: string }> }) {
 
 function resetMocks() {
   mockReadInstructionFile.mock.resetCalls();
-  mockReadInstructionFile.mock.mockImplementation(() => ({ default_content: null, custom_content: null }));
+  mockReadInstructionFile.mock.mockImplementation(() => ({
+    default_content: null,
+    custom_content: null,
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -99,11 +107,14 @@ describe("proposeConfigUpdate tool", () => {
     const recorder = makeRecorder();
     const toolDef = createProposeConfigUpdateTool(ctx, store, recorder);
 
-    const result = await toolDef.handler({
-      file: "instructions.md",
-      content: "some content",
-      operation: "append",
-    }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      {
+        file: "instructions.md",
+        content: "some content",
+        operation: "append",
+      },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.ok(parsed.error);
@@ -117,11 +128,14 @@ describe("proposeConfigUpdate tool", () => {
     const recorder = makeRecorder();
     const toolDef = createProposeConfigUpdateTool(ctx, store, recorder);
 
-    await toolDef.handler({
-      file: "bad-path",
-      content: "content",
-      operation: "append",
-    }, { sessionId: "test" });
+    await toolDef.handler(
+      {
+        file: "bad-path",
+        content: "content",
+        operation: "append",
+      },
+      { sessionId: "test" },
+    );
 
     assert.equal(recorder.calls.length, 1);
     assert.ok((recorder.calls[0].result as { error: string }).error);
@@ -133,11 +147,14 @@ describe("proposeConfigUpdate tool", () => {
     const recorder = makeRecorder();
     const toolDef = createProposeConfigUpdateTool(ctx, store, recorder);
 
-    const result = await toolDef.handler({
-      file: "user/identity.md",
-      content: "content",
-      operation: "replace",
-    }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      {
+        file: "user/identity.md",
+        content: "content",
+        operation: "replace",
+      },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.ok(parsed.ref);
@@ -150,11 +167,14 @@ describe("proposeConfigUpdate tool", () => {
     const recorder = makeRecorder();
     const toolDef = createProposeConfigUpdateTool(ctx, store, recorder);
 
-    const result = await toolDef.handler({
-      file: "my-repo/changes_instructions.md",
-      content: "content",
-      operation: "replace",
-    }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      {
+        file: "my-repo/changes_instructions.md",
+        content: "content",
+        operation: "replace",
+      },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.ok(parsed.ref);
@@ -173,11 +193,14 @@ describe("proposeConfigUpdate tool", () => {
     const recorder = makeRecorder();
     const toolDef = createProposeConfigUpdateTool(ctx, store, recorder);
 
-    const result = await toolDef.handler({
-      file: "user/identity.md",
-      content: "new content",
-      operation: "append",
-    }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      {
+        file: "user/identity.md",
+        content: "new content",
+        operation: "append",
+      },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     const staged = store.resolve(parsed.ref) as { content: string };
@@ -195,11 +218,14 @@ describe("proposeConfigUpdate tool", () => {
     const recorder = makeRecorder();
     const toolDef = createProposeConfigUpdateTool(ctx, store, recorder);
 
-    const result = await toolDef.handler({
-      file: "user/identity.md",
-      content: "appended",
-      operation: "append",
-    }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      {
+        file: "user/identity.md",
+        content: "appended",
+        operation: "append",
+      },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     const staged = store.resolve(parsed.ref) as { content: string };
@@ -212,11 +238,14 @@ describe("proposeConfigUpdate tool", () => {
     const recorder = makeRecorder();
     const toolDef = createProposeConfigUpdateTool(ctx, store, recorder);
 
-    const result = await toolDef.handler({
-      file: "user/new-file.md",
-      content: "brand new content",
-      operation: "append",
-    }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      {
+        file: "user/new-file.md",
+        content: "brand new content",
+        operation: "append",
+      },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     const staged = store.resolve(parsed.ref) as { content: string };
@@ -231,11 +260,14 @@ describe("proposeConfigUpdate tool", () => {
     const recorder = makeRecorder();
     const toolDef = createProposeConfigUpdateTool(ctx, store, recorder);
 
-    const result = await toolDef.handler({
-      file: "user/identity.md",
-      content: "completely new content",
-      operation: "replace",
-    }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      {
+        file: "user/identity.md",
+        content: "completely new content",
+        operation: "replace",
+      },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     const staged = store.resolve(parsed.ref) as { content: string };
@@ -255,11 +287,14 @@ describe("proposeConfigUpdate tool", () => {
     const recorder = makeRecorder();
     const toolDef = createProposeConfigUpdateTool(ctx, store, recorder);
 
-    const result = await toolDef.handler({
-      file: "user/identity.md",
-      content: "content",
-      operation: "replace",
-    }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      {
+        file: "user/identity.md",
+        content: "content",
+        operation: "replace",
+      },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed.status, "will_overwrite_custom");
@@ -276,11 +311,14 @@ describe("proposeConfigUpdate tool", () => {
     const recorder = makeRecorder();
     const toolDef = createProposeConfigUpdateTool(ctx, store, recorder);
 
-    const result = await toolDef.handler({
-      file: "user/identity.md",
-      content: "content",
-      operation: "replace",
-    }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      {
+        file: "user/identity.md",
+        content: "content",
+        operation: "replace",
+      },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed.status, "will_override_default");
@@ -292,11 +330,14 @@ describe("proposeConfigUpdate tool", () => {
     const recorder = makeRecorder();
     const toolDef = createProposeConfigUpdateTool(ctx, store, recorder);
 
-    const result = await toolDef.handler({
-      file: "user/new-file.md",
-      content: "content",
-      operation: "replace",
-    }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      {
+        file: "user/new-file.md",
+        content: "content",
+        operation: "replace",
+      },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed.status, "will_create_new");
@@ -310,11 +351,14 @@ describe("proposeConfigUpdate tool", () => {
     const recorder = makeRecorder();
     const toolDef = createProposeConfigUpdateTool(ctx, store, recorder);
 
-    const result = await toolDef.handler({
-      file: "dev/changes.md",
-      content: "my content",
-      operation: "replace",
-    }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      {
+        file: "dev/changes.md",
+        content: "my content",
+        operation: "replace",
+      },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     const staged = store.resolve(parsed.ref);
@@ -332,11 +376,14 @@ describe("proposeConfigUpdate tool", () => {
     const recorder = makeRecorder();
     const toolDef = createProposeConfigUpdateTool(ctx, store, recorder);
 
-    await toolDef.handler({
-      file: "user/identity.md",
-      content: "content",
-      operation: "replace",
-    }, { sessionId: "test" });
+    await toolDef.handler(
+      {
+        file: "user/identity.md",
+        content: "content",
+        operation: "replace",
+      },
+      { sessionId: "test" },
+    );
 
     assert.equal(recorder.calls.length, 1);
     assert.equal(recorder.calls[0].tool, "propose_config_update");

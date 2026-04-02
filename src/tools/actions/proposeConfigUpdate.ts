@@ -10,24 +10,39 @@ const KNOWN_ROLE_DIRS = ["user", "dev", "admin", "owner"];
 export function createProposeConfigUpdateTool(
   _ctx: QueryToolContext,
   intentStore: IntentStore,
-  recorder: ToolCallRecorder
+  recorder: ToolCallRecorder,
 ) {
   return tool(
     "propose_config_update",
     "Propose an update to an instruction file. Use {role}/{filename} format (e.g., 'user/company-context.md', 'dev/changes.md'). " +
-    "Validates the path and stages the intent. Returns a ref ID to use in submit_response. " +
-    "Default operation is 'append' which adds content to the end of the existing file. Use 'replace' only when rewriting or removing content.",
+      "Validates the path and stages the intent. Returns a ref ID to use in submit_response. " +
+      "Default operation is 'append' which adds content to the end of the existing file. Use 'replace' only when rewriting or removing content.",
     {
-      file: z.string().describe("The instruction file path in {role}/{filename} format (e.g., 'user/identity.md', 'admin/config-updates.md') or {repo}/{filename} for repo-scoped files"),
-      content: z.string().describe("The content to append (default) or the full replacement content (when operation is 'replace')."),
-      operation: z.enum(["append", "replace"]).default("append").describe("'append' (default) adds content to the end of the existing file. 'replace' overwrites the entire file with the provided content."),
+      file: z
+        .string()
+        .describe(
+          "The instruction file path in {role}/{filename} format (e.g., 'user/identity.md', 'admin/config-updates.md') or {repo}/{filename} for repo-scoped files",
+        ),
+      content: z
+        .string()
+        .describe(
+          "The content to append (default) or the full replacement content (when operation is 'replace').",
+        ),
+      operation: z
+        .enum(["append", "replace"])
+        .default("append")
+        .describe(
+          "'append' (default) adds content to the end of the existing file. 'replace' overwrites the entire file with the provided content.",
+        ),
     },
     async (args) => {
       // Validate the path format
       const parts = args.file.split("/");
       if (parts.length !== 2 || !parts[0] || !parts[1]) {
         const errMsg = `Invalid file path "${args.file}". Use {role}/{filename} format (e.g., 'user/identity.md'). Valid role directories: ${KNOWN_ROLE_DIRS.join(", ")}`;
-        recorder.record("propose_config_update", args as Record<string, unknown>, { error: errMsg });
+        recorder.record("propose_config_update", args as Record<string, unknown>, {
+          error: errMsg,
+        });
         return errorResult(errMsg);
       }
 
@@ -62,16 +77,17 @@ export function createProposeConfigUpdateTool(
       });
 
       const current = readInstructionFile(args.file);
-      const status = current.custom_content !== null
-        ? "will_overwrite_custom"
-        : current.default_content !== null
-        ? "will_override_default"
-        : "will_create_new";
+      const status =
+        current.custom_content !== null
+          ? "will_overwrite_custom"
+          : current.default_content !== null
+            ? "will_override_default"
+            : "will_create_new";
 
       const result = { ref, file: args.file, status };
       recorder.record("propose_config_update", args as Record<string, unknown>, result);
 
       return textResult(result);
-    }
+    },
   );
 }

@@ -60,7 +60,15 @@ async function fetchThreadReplies(
 
 async function formatMessage(
   client: SlackClient,
-  msg: { ts?: string; text?: string; user?: string; bot_id?: string; reply_count?: number; attachments?: { text?: string; fallback?: string }[]; files?: unknown[] },
+  msg: {
+    ts?: string;
+    text?: string;
+    user?: string;
+    bot_id?: string;
+    reply_count?: number;
+    attachments?: { text?: string; fallback?: string }[];
+    files?: unknown[];
+  },
   channelId: string,
   userInfoMap: UserInfoMap,
   includeThreads: boolean,
@@ -84,8 +92,12 @@ async function formatMessage(
     text,
     ts: msg.ts,
     is_bot: msg.bot_id !== undefined,
-    ...(imageFiles.length > 0 && { images: imageFiles.map((f) => ({ file_id: f.id, name: f.name })) }),
-    ...(files.length > 0 && { files: files.map((f) => ({ file_id: f.id, name: f.name, type: f.mimetype })) }),
+    ...(imageFiles.length > 0 && {
+      images: imageFiles.map((f) => ({ file_id: f.id, name: f.name })),
+    }),
+    ...(files.length > 0 && {
+      files: files.map((f) => ({ file_id: f.id, name: f.name, type: f.mimetype })),
+    }),
   };
 
   if (msg.reply_count && msg.reply_count > 0) {
@@ -111,9 +123,20 @@ export function createFetchChannelMessagesTool(ctx: QueryToolContext) {
     {
       channel_id: z.string().describe("Slack channel ID (e.g. C0123456789)"),
       limit: z.number().optional().describe("Number of messages to fetch (default: 20, max: 100)"),
-      oldest: z.string().optional().describe("Only messages after this Unix timestamp (e.g. '1234567890.123456')"),
-      latest: z.string().optional().describe("Only messages before this Unix timestamp (e.g. '1234567890.123456')"),
-      include_threads: z.boolean().optional().describe("Whether to fetch thread replies for each message (default: false). Slower but gives full context."),
+      oldest: z
+        .string()
+        .optional()
+        .describe("Only messages after this Unix timestamp (e.g. '1234567890.123456')"),
+      latest: z
+        .string()
+        .optional()
+        .describe("Only messages before this Unix timestamp (e.g. '1234567890.123456')"),
+      include_threads: z
+        .boolean()
+        .optional()
+        .describe(
+          "Whether to fetch thread replies for each message (default: false). Slower but gives full context.",
+        ),
     },
     async (args) => {
       if (!ctx.slackClient) {
@@ -142,7 +165,15 @@ export function createFetchChannelMessagesTool(ctx: QueryToolContext) {
 
         const messages = [];
         for (const msg of [...result.messages].reverse()) {
-          const entry = await formatMessage(client, msg, args.channel_id, userInfoMap, !!args.include_threads, ctx.availableImages, ctx.availableFiles);
+          const entry = await formatMessage(
+            client,
+            msg,
+            args.channel_id,
+            userInfoMap,
+            !!args.include_threads,
+            ctx.availableImages,
+            ctx.availableFiles,
+          );
           if (entry) messages.push(entry);
         }
 
@@ -155,6 +186,6 @@ export function createFetchChannelMessagesTool(ctx: QueryToolContext) {
       } catch (error) {
         return errorResult(`Failed to fetch channel messages: ${errorMessage(error)}`);
       }
-    }
+    },
   );
 }

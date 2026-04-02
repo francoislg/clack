@@ -15,10 +15,8 @@ let captured: { method: string; args: unknown[] }[];
 function captureConsole() {
   captured = [];
   console.log = (...args: unknown[]) => captured.push({ method: "log", args });
-  console.warn = (...args: unknown[]) =>
-    captured.push({ method: "warn", args });
-  console.error = (...args: unknown[]) =>
-    captured.push({ method: "error", args });
+  console.warn = (...args: unknown[]) => captured.push({ method: "warn", args });
+  console.error = (...args: unknown[]) => captured.push({ method: "error", args });
 }
 
 function restoreConsole() {

@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, mock, type Mock } from "node:test";
+import { describe, it, beforeEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import type { ChangeSession, ChangeStatus, PersistedSessionState } from "./types.js";
@@ -240,7 +240,9 @@ describe("createSessionFolder", () => {
   });
 
   it("creates the session folder if it does not exist", () => {
-    const session = makeSession({ plan: { branchName: "feat/new", description: "desc", targetRepo: "repo" } });
+    const session = makeSession({
+      plan: { branchName: "feat/new", description: "desc", targetRepo: "repo" },
+    });
     createSessionFolder(session);
 
     const expectedFolder = join("/tmp/test-worktree-sessions", "feat-new");
@@ -267,7 +269,9 @@ describe("createSessionFolder", () => {
   });
 
   it("writes state.json in the session folder", () => {
-    const session = makeSession({ plan: { branchName: "feat/test", description: "d", targetRepo: "r" } });
+    const session = makeSession({
+      plan: { branchName: "feat/test", description: "d", targetRepo: "r" },
+    });
     createSessionFolder(session);
 
     const expectedStatePath = join("/tmp/test-worktree-sessions", "feat-test", "state.json");
@@ -393,7 +397,11 @@ describe("writeSessionState", () => {
       writeSessionState(session, "test");
 
       const parsed = JSON.parse(fsState.writeCalls[0].content) as PersistedSessionState;
-      assert.equal(parsed.phase, expectedPhase, `Status "${status}" should map to phase "${expectedPhase}"`);
+      assert.equal(
+        parsed.phase,
+        expectedPhase,
+        `Status "${status}" should map to phase "${expectedPhase}"`,
+      );
     }
   });
 });
@@ -958,9 +966,18 @@ describe("cleanupStaleSessionFolders", () => {
     fsState.statResults.set(executingFolder, { isDirectory: () => true, mtimeMs: Date.now() });
     fsState.statResults.set(failedFolder, { isDirectory: () => true, mtimeMs: Date.now() });
 
-    fsState.files.set(join(completedFolder, "state.json"), JSON.stringify(makePersistedState({ status: "completed" })));
-    fsState.files.set(join(executingFolder, "state.json"), JSON.stringify(makePersistedState({ status: "executing" })));
-    fsState.files.set(join(failedFolder, "state.json"), JSON.stringify(makePersistedState({ status: "failed" })));
+    fsState.files.set(
+      join(completedFolder, "state.json"),
+      JSON.stringify(makePersistedState({ status: "completed" })),
+    );
+    fsState.files.set(
+      join(executingFolder, "state.json"),
+      JSON.stringify(makePersistedState({ status: "executing" })),
+    );
+    fsState.files.set(
+      join(failedFolder, "state.json"),
+      JSON.stringify(makePersistedState({ status: "failed" })),
+    );
 
     await cleanupStaleSessionFolders();
     // Only completed should be cleaned

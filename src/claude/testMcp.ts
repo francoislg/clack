@@ -107,7 +107,10 @@ export async function testMCP(): Promise<McpTestResult> {
         executable: detectRuntime(),
         model: "haiku", // Use cheapest model for test
         permissionMode: "bypassPermissions",
-        mcpServers: mcpServers as Record<string, import("@anthropic-ai/claude-agent-sdk").McpServerConfig>,
+        mcpServers: mcpServers as Record<
+          string,
+          import("@anthropic-ai/claude-agent-sdk").McpServerConfig
+        >,
         abortController,
         maxTurns: 1,
       },
@@ -115,10 +118,12 @@ export async function testMCP(): Promise<McpTestResult> {
       // Capture the init message which contains tools and MCP status
       if (message.type === "system" && message.subtype === "init") {
         tools = message.tools || [];
-        mcpServerStatus = (message.mcp_servers || []).map((s: { name: string; status: string }) => ({
-          name: s.name,
-          status: s.status,
-        }));
+        mcpServerStatus = (message.mcp_servers || []).map(
+          (s: { name: string; status: string }) => ({
+            name: s.name,
+            status: s.status,
+          }),
+        );
         // Abort after getting init info - we don't need the actual response
         abortController.abort();
         break;

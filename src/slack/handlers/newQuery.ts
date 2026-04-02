@@ -25,7 +25,11 @@ async function fetchViaReplies(
     const msg = result.messages?.[0];
     if (msg?.ts === ts) {
       logger.debug("Found message via conversations.replies (parent message)");
-      return { text: extractMessageText(msg), threadTs: msg.thread_ts || ts, ...extractAttachments(msg.files as unknown[] | undefined) };
+      return {
+        text: extractMessageText(msg),
+        threadTs: msg.thread_ts || ts,
+        ...extractAttachments(msg.files as unknown[] | undefined),
+      };
     }
   } catch (error) {
     logger.debug("conversations.replies failed, trying history approach:", error);
@@ -42,23 +46,40 @@ async function fetchViaHistory(
   ts: string,
 ): Promise<ResolvedMessage | null> {
   try {
-    const histResult = await client.conversations.history({ channel, latest: ts, inclusive: true, limit: 1 });
+    const histResult = await client.conversations.history({
+      channel,
+      latest: ts,
+      inclusive: true,
+      limit: 1,
+    });
     const msg = histResult.messages?.[0];
     if (!msg) return null;
 
     if (msg.ts === ts) {
       logger.debug("Found message via conversations.history (channel message)");
-      return { text: extractMessageText(msg), threadTs: msg.thread_ts, ...extractAttachments(msg.files as unknown[] | undefined) };
+      return {
+        text: extractMessageText(msg),
+        threadTs: msg.thread_ts,
+        ...extractAttachments(msg.files as unknown[] | undefined),
+      };
     }
 
     // ts might be a thread reply — search the parent thread
     if (msg.thread_ts) {
       logger.debug(`Message not in channel history, searching in thread ${msg.thread_ts}`);
-      const threadResult = await client.conversations.replies({ channel, ts: msg.thread_ts, limit: 100 });
+      const threadResult = await client.conversations.replies({
+        channel,
+        ts: msg.thread_ts,
+        limit: 100,
+      });
       const targetMsg = threadResult.messages?.find((m) => m.ts === ts);
       if (targetMsg) {
         logger.debug("Found message in thread replies");
-        return { text: extractMessageText(targetMsg), threadTs: msg.thread_ts, ...extractAttachments(targetMsg.files as unknown[] | undefined) };
+        return {
+          text: extractMessageText(targetMsg),
+          threadTs: msg.thread_ts,
+          ...extractAttachments(targetMsg.files as unknown[] | undefined),
+        };
       }
     }
   } catch (error) {
@@ -76,7 +97,9 @@ async function resolveReactedMessage(
   channel: string,
   ts: string,
 ): Promise<ResolvedMessage | null> {
-  return (await fetchViaReplies(client, channel, ts)) ?? (await fetchViaHistory(client, channel, ts));
+  return (
+    (await fetchViaReplies(client, channel, ts)) ?? (await fetchViaHistory(client, channel, ts))
+  );
 }
 
 export function registerNewQueryHandler(app: App): void {
@@ -93,7 +116,9 @@ export function registerNewQueryHandler(app: App): void {
     const isQueryTrigger = event.reaction === config.reactions.trigger;
 
     if (!isWorkTrigger && !isQueryTrigger) {
-      logger.debug(`Ignoring reaction ${event.reaction}, waiting for ${config.reactions.trigger}${workTrigger ? ` or ${workTrigger}` : ""}`);
+      logger.debug(
+        `Ignoring reaction ${event.reaction}, waiting for ${config.reactions.trigger}${workTrigger ? ` or ${workTrigger}` : ""}`,
+      );
       return;
     }
 
@@ -113,7 +138,9 @@ export function registerNewQueryHandler(app: App): void {
         user: userId,
         thread_ts: resolved?.threadTs || ts,
         text: "Sorry, I couldn't read the message. Make sure I'm invited to this channel.",
-        blocks: getErrorBlocks("Sorry, I couldn't read the message. Make sure I'm invited to this channel."),
+        blocks: getErrorBlocks(
+          "Sorry, I couldn't read the message. Make sure I'm invited to this channel.",
+        ),
       });
       return;
     }

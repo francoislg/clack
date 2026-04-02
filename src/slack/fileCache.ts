@@ -17,17 +17,28 @@ export function getCacheDir(): string {
 
 function extensionForMime(mimeType: string): string {
   switch (mimeType) {
-    case "image/png": return ".png";
-    case "image/jpeg": return ".jpg";
-    case "image/gif": return ".gif";
-    case "image/webp": return ".webp";
-    case "application/pdf": return ".pdf";
-    case "application/json": return ".json";
-    case "text/plain": return ".txt";
-    case "text/csv": return ".csv";
-    case "text/html": return ".html";
-    case "text/markdown": return ".md";
-    default: return extname(mimeType) || ".bin";
+    case "image/png":
+      return ".png";
+    case "image/jpeg":
+      return ".jpg";
+    case "image/gif":
+      return ".gif";
+    case "image/webp":
+      return ".webp";
+    case "application/pdf":
+      return ".pdf";
+    case "application/json":
+      return ".json";
+    case "text/plain":
+      return ".txt";
+    case "text/csv":
+      return ".csv";
+    case "text/html":
+      return ".html";
+    case "text/markdown":
+      return ".md";
+    default:
+      return extname(mimeType) || ".bin";
   }
 }
 

@@ -1,12 +1,7 @@
 import type { View, KnownBlock, Block } from "@slack/types";
 import { getConfig } from "../config.js";
 import { getConfiguredMcpServerNames } from "../mcp.js";
-import {
-  loadRoles,
-  getRole,
-  hasOwner,
-  type UserRole,
-} from "../roles.js";
+import { loadRoles, getRole, hasOwner, type UserRole } from "../roles.js";
 import { canEditConfig, canManageRoles, canRequestChanges } from "../permissions.js";
 import { getActiveWorkers } from "../changes/activeState.js";
 import { listInstructionFiles } from "../configurationFiles.js";
@@ -99,7 +94,7 @@ export async function buildHomeView(options: HomeViewOptions): Promise<View> {
 
 function buildMigrationBanner(
   errors: import("../migrations/types.js").MigrationError[],
-  isAdmin: boolean
+  isAdmin: boolean,
 ): KnownBlock[] {
   const errorList = errors
     .map((e) => `• *${e.migrationName}* (v${e.version}): ${e.error}`)
@@ -179,7 +174,7 @@ function buildClaimOwnershipSection(ownerDisabled: boolean): KnownBlock[] {
 
 export async function buildRoleManagementSection(
   userId: string,
-  role: UserRole
+  role: UserRole,
 ): Promise<KnownBlock[]> {
   const roles = await loadRoles();
   const blocks: KnownBlock[] = [];
@@ -221,9 +216,7 @@ export async function buildRoleManagementSection(
 
   // Admins section
   const adminList =
-    roles.admins.length > 0
-      ? roles.admins.map((id) => `<@${id}>`).join(", ")
-      : "_None_";
+    roles.admins.length > 0 ? roles.admins.map((id) => `<@${id}>`).join(", ") : "_None_";
 
   blocks.push({
     type: "section",
@@ -262,10 +255,7 @@ export async function buildRoleManagementSection(
   });
 
   // Devs section
-  const devList =
-    roles.devs.length > 0
-      ? roles.devs.map((id) => `<@${id}>`).join(", ")
-      : "_None_";
+  const devList = roles.devs.length > 0 ? roles.devs.map((id) => `<@${id}>`).join(", ") : "_None_";
 
   blocks.push({
     type: "section",
@@ -337,8 +327,9 @@ export function buildConfigurationSection(showEditButtons: boolean): KnownBlock[
     };
 
     for (const roleListing of listing.roles) {
-      const roleLabel = customLabels[roleListing.role]
-        ?? `${roleListing.role.charAt(0).toUpperCase() + roleListing.role.slice(1)} Config`;
+      const roleLabel =
+        customLabels[roleListing.role] ??
+        `${roleListing.role.charAt(0).toUpperCase() + roleListing.role.slice(1)} Config`;
       const emoji = roleEmojis[roleListing.role] ?? "";
       const label = emoji ? `${emoji} Edit ${roleLabel}` : `Edit ${roleLabel}`;
       buttons.push({
@@ -554,19 +545,15 @@ export function buildHelpSection(): KnownBlock[] {
   const triggerInstructions: string[] = [];
 
   triggerInstructions.push(
-    `• *Reaction:* React to any message with :${config.reactions.trigger}: to ask about it`
+    `• *Reaction:* React to any message with :${config.reactions.trigger}: to ask about it`,
   );
 
   if (config.directMessages.enabled) {
-    triggerInstructions.push(
-      "• *Direct Message:* Send me a DM with your question"
-    );
+    triggerInstructions.push("• *Direct Message:* Send me a DM with your question");
   }
 
   if (config.mentions.enabled) {
-    triggerInstructions.push(
-      "• *Mention:* @mention me in any channel with your question"
-    );
+    triggerInstructions.push("• *Mention:* @mention me in any channel with your question");
   }
 
   return [
@@ -612,23 +599,35 @@ export async function buildSettingsModal(userId: string): Promise<View> {
 
   const dmOption = {
     text: { type: "plain_text" as const, text: "Direct Message" },
-    description: { type: "plain_text" as const, text: "Get a private DM thread to refine before sharing." },
+    description: {
+      type: "plain_text" as const,
+      text: "Get a private DM thread to refine before sharing.",
+    },
     value: "dm",
   };
   const threadOption = {
     text: { type: "plain_text" as const, text: "Thread" },
-    description: { type: "plain_text" as const, text: "Answer posted directly in the channel thread." },
+    description: {
+      type: "plain_text" as const,
+      text: "Answer posted directly in the channel thread.",
+    },
     value: "thread",
   };
 
   const notifyOnOption = {
     text: { type: "plain_text" as const, text: "On" },
-    description: { type: "plain_text" as const, text: "If the response takes longer than 60 seconds, post a follow-up so you get a Slack notification." },
+    description: {
+      type: "plain_text" as const,
+      text: "If the response takes longer than 60 seconds, post a follow-up so you get a Slack notification.",
+    },
     value: "true",
   };
   const notifyOffOption = {
     text: { type: "plain_text" as const, text: "Off" },
-    description: { type: "plain_text" as const, text: "No extra message — just the streamed answer." },
+    description: {
+      type: "plain_text" as const,
+      text: "No extra message — just the streamed answer.",
+    },
     value: "false",
   };
 
@@ -693,11 +692,7 @@ export async function buildSettingsModal(userId: string): Promise<View> {
 
 // Modal builders for user selection
 
-export function buildUserSelectModal(
-  title: string,
-  actionId: string,
-  placeholder: string
-): View {
+export function buildUserSelectModal(title: string, actionId: string, placeholder: string): View {
   return {
     type: "modal",
     callback_id: actionId,
@@ -749,7 +744,7 @@ export interface ConfigFilePickerEntry {
 export function buildConfigFilePickerModal(
   dir: string,
   files: ConfigFilePickerEntry[],
-  isRepoDir: boolean
+  isRepoDir: boolean,
 ): View {
   const blocks: KnownBlock[] = [];
 
@@ -845,7 +840,7 @@ export function buildConfigEditorModal(
   dir: string,
   filename: string,
   content: string,
-  fileState: ConfigFileState
+  fileState: ConfigFileState,
 ): View {
   const blocks: KnownBlock[] = [];
 
@@ -1003,11 +998,7 @@ export function buildConfigCreateFileModal(dir: string): View {
 // User select modals (existing)
 // ---------------------------------------------------------------------------
 
-export function buildRemoveUserModal(
-  title: string,
-  actionId: string,
-  users: string[]
-): View {
+export function buildRemoveUserModal(title: string, actionId: string, users: string[]): View {
   const options = users.map((userId) => ({
     text: {
       type: "plain_text" as const,
@@ -1118,9 +1109,7 @@ async function buildAutoRespondSection(): Promise<(KnownBlock | Block)[]> {
   return blocks;
 }
 
-export function buildAutoRespondModal(
-  rule?: AutoRespondRule
-): View {
+export function buildAutoRespondModal(rule?: AutoRespondRule): View {
   const isEdit = !!rule;
   const blocks: (KnownBlock | Block)[] = [
     {
@@ -1172,7 +1161,10 @@ export function buildAutoRespondModal(
         action_id: "extra_context",
         multiline: true,
         ...(rule?.extraContext && { initial_value: rule.extraContext }),
-        placeholder: { type: "plain_text", text: "e.g., This is a Sentry error alert. Focus on the stack trace and find the relevant code path." },
+        placeholder: {
+          type: "plain_text",
+          text: "e.g., This is a Sentry error alert. Focus on the stack trace and find the relevant code path.",
+        },
       },
     },
     {
@@ -1185,14 +1177,23 @@ export function buildAutoRespondModal(
         action_id: "pre_analysis_context",
         multiline: true,
         ...(rule?.preAnalysisContext && { initial_value: rule.preAnalysisContext }),
-        placeholder: { type: "plain_text", text: "e.g., Only respond if this is an actionable error — leave empty to skip pre-analysis" },
+        placeholder: {
+          type: "plain_text",
+          text: "e.g., Only respond if this is an actionable error — leave empty to skip pre-analysis",
+        },
       },
-      hint: { type: "plain_text", text: "When set, a fast AI check determines if the message is worth responding to before launching a full response." },
+      hint: {
+        type: "plain_text",
+        text: "When set, a fast AI check determines if the message is worth responding to before launching a full response.",
+      },
     },
     {
       type: "context",
       elements: [
-        { type: "mrkdwn", text: "The bot must be a member of selected channels to receive messages." },
+        {
+          type: "mrkdwn",
+          text: "The bot must be a member of selected channels to receive messages.",
+        },
       ],
     },
   ];
@@ -1216,7 +1217,10 @@ export function buildAutoRespondModal(
           style: "danger",
           confirm: {
             title: { type: "plain_text", text: "Delete rule?" },
-            text: { type: "plain_text", text: "This will permanently remove this auto-respond rule." },
+            text: {
+              type: "plain_text",
+              text: "This will permanently remove this auto-respond rule.",
+            },
             confirm: { type: "plain_text", text: "Delete" },
             deny: { type: "plain_text", text: "Cancel" },
             style: "danger",
@@ -1264,9 +1268,7 @@ async function buildScheduledMessagesSection(
         ? " :warning:"
         : "";
     const typeLabel = job.oneShot ? " · _one-time_" : "";
-    const creator = isAdmin && job.createdBy !== userId
-      ? ` · <@${job.createdBy}>`
-      : "";
+    const creator = isAdmin && job.createdBy !== userId ? ` · <@${job.createdBy}>` : "";
 
     blocks.push({
       type: "section",
@@ -1313,7 +1315,10 @@ export function buildCronJobModal(job?: CronJob): View {
         ...(job?.cronExpression && { initial_value: job.cronExpression }),
         placeholder: { type: "plain_text", text: "e.g. 0 9 * * * (daily at 9am)" },
       },
-      hint: { type: "plain_text", text: "5-field cron: minute hour day-of-month month day-of-week" },
+      hint: {
+        type: "plain_text",
+        text: "5-field cron: minute hour day-of-month month day-of-week",
+      },
     },
     {
       type: "input",
@@ -1325,13 +1330,19 @@ export function buildCronJobModal(job?: CronJob): View {
         action_id: "prompt",
         multiline: true,
         ...(job?.prompt && { initial_value: job.prompt }),
-        placeholder: { type: "plain_text", text: "What should Claude do? e.g. Summarize merged PRs from today" },
+        placeholder: {
+          type: "plain_text",
+          text: "What should Claude do? e.g. Summarize merged PRs from today",
+        },
       },
     },
     {
       type: "context",
       elements: [
-        { type: "mrkdwn", text: "Claude will generate content each time this runs. The bot must be a member of the selected channel." },
+        {
+          type: "mrkdwn",
+          text: "Claude will generate content each time this runs. The bot must be a member of the selected channel.",
+        },
       ],
     },
   ];
@@ -1348,7 +1359,10 @@ export function buildCronJobModal(job?: CronJob): View {
           action_id: `cron_run_job:${job.id}`,
           confirm: {
             title: { type: "plain_text", text: "Send now?" },
-            text: { type: "plain_text", text: "This will execute the scheduled message immediately. The regular schedule is not affected." },
+            text: {
+              type: "plain_text",
+              text: "This will execute the scheduled message immediately. The regular schedule is not affected.",
+            },
             confirm: { type: "plain_text", text: "Send Now" },
             deny: { type: "plain_text", text: "Cancel" },
           },
@@ -1365,7 +1379,10 @@ export function buildCronJobModal(job?: CronJob): View {
           style: "danger",
           confirm: {
             title: { type: "plain_text", text: "Delete scheduled message?" },
-            text: { type: "plain_text", text: "This will permanently remove this scheduled message." },
+            text: {
+              type: "plain_text",
+              text: "This will permanently remove this scheduled message.",
+            },
             confirm: { type: "plain_text", text: "Delete" },
             deny: { type: "plain_text", text: "Cancel" },
             style: "danger",

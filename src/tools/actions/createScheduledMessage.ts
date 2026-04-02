@@ -13,19 +13,30 @@ export function createCreateScheduledMessageTool(ctx: QueryToolContext) {
   return tool(
     "create_scheduled_message",
     "Create a scheduled message that runs on a cron schedule. " +
-    "Use this when the user asks to schedule recurring messages or one-time future messages. " +
-    "If the user's request is ambiguous (e.g., 'send this regularly' without specifying when), " +
-    "ask clarifying questions first before calling this tool. " +
-    "The cronExpression uses standard 5-field cron syntax (minute hour day-of-month month day-of-week). " +
-    "Provide a prompt describing what Claude should do each time the schedule fires. " +
-    "IMPORTANT: The prompt should only describe WHAT to do, not HOW to deliver the result. " +
-    "The scheduler automatically handles delivery via submit_response — do NOT include " +
-    "instructions about submit_response, post_to, or how to post the message in the prompt.",
+      "Use this when the user asks to schedule recurring messages or one-time future messages. " +
+      "If the user's request is ambiguous (e.g., 'send this regularly' without specifying when), " +
+      "ask clarifying questions first before calling this tool. " +
+      "The cronExpression uses standard 5-field cron syntax (minute hour day-of-month month day-of-week). " +
+      "Provide a prompt describing what Claude should do each time the schedule fires. " +
+      "IMPORTANT: The prompt should only describe WHAT to do, not HOW to deliver the result. " +
+      "The scheduler automatically handles delivery via submit_response — do NOT include " +
+      "instructions about submit_response, post_to, or how to post the message in the prompt.",
     {
-      channel: z.string().describe("Channel name (e.g. '#ops' or 'ops') or channel ID (e.g. 'C0123ABCDEF')"),
-      cronExpression: z.string().describe("5-field cron expression (e.g. '0 9 * * *' for daily at 9am, '0 9 * * 1' for Mondays at 9am)"),
-      prompt: z.string().describe("What Claude should do each time (e.g. 'Summarize today's merged PRs')"),
-      oneShot: z.boolean().optional().describe("If true, the scheduled message fires once and is automatically deleted."),
+      channel: z
+        .string()
+        .describe("Channel name (e.g. '#ops' or 'ops') or channel ID (e.g. 'C0123ABCDEF')"),
+      cronExpression: z
+        .string()
+        .describe(
+          "5-field cron expression (e.g. '0 9 * * *' for daily at 9am, '0 9 * * 1' for Mondays at 9am)",
+        ),
+      prompt: z
+        .string()
+        .describe("What Claude should do each time (e.g. 'Summarize today's merged PRs')"),
+      oneShot: z
+        .boolean()
+        .optional()
+        .describe("If true, the scheduled message fires once and is automatically deleted."),
     },
     async (args) => {
       if (!ctx.slackClient) {
@@ -36,7 +47,9 @@ export function createCreateScheduledMessageTool(ctx: QueryToolContext) {
       try {
         CronExpressionParser.parse(args.cronExpression);
       } catch (error) {
-        return errorResult(`Invalid cron expression "${args.cronExpression}": ${errorMessage(error)}. Use 5-field format: minute hour day-of-month month day-of-week`);
+        return errorResult(
+          `Invalid cron expression "${args.cronExpression}": ${errorMessage(error)}. Use 5-field format: minute hour day-of-month month day-of-week`,
+        );
       }
 
       // Resolve channel

@@ -32,8 +32,7 @@ mock.module("./prHelpers.js", {
 
 mock.module("../../errors.js", {
   namedExports: {
-    errorMessage: (err: unknown) =>
-      err instanceof Error ? err.message : String(err),
+    errorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
   },
 });
 
@@ -154,7 +153,9 @@ describe("closePR tool", () => {
 
     // Verify PR was closed
     assert.equal(mockUpdate.mock.callCount(), 1);
-    const callArgs = (mockUpdate.mock.calls[0].arguments as unknown as [Record<string, unknown>])[0];
+    const callArgs = (
+      mockUpdate.mock.calls[0].arguments as unknown as [Record<string, unknown>]
+    )[0];
     assert.equal(callArgs.owner, "org");
     assert.equal(callArgs.repo, "my-repo");
     assert.equal(callArgs.pull_number, 42);
@@ -182,7 +183,9 @@ describe("closePR tool", () => {
 
     // Verify branch deletion was called
     assert.equal(mockDeleteRef.mock.callCount(), 1);
-    const deleteArgs = (mockDeleteRef.mock.calls[0].arguments as unknown as [Record<string, unknown>])[0];
+    const deleteArgs = (
+      mockDeleteRef.mock.calls[0].arguments as unknown as [Record<string, unknown>]
+    )[0];
     assert.equal(deleteArgs.owner, "org");
     assert.equal(deleteArgs.repo, "my-repo");
     assert.equal(deleteArgs.ref, `heads/${ctx.branchName}`);

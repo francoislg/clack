@@ -106,7 +106,10 @@ describe("findChanges tool", () => {
     const ctx = makeCtx();
     const toolDef = createFindChangesTool(ctx);
 
-    const result = await toolDef.handler({ repo: undefined, status: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { repo: undefined, status: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.deepEqual(parsed, []);
@@ -119,7 +122,10 @@ describe("findChanges tool", () => {
     const ctx = makeCtx();
     const toolDef = createFindChangesTool(ctx);
 
-    const result = await toolDef.handler({ repo: undefined, status: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { repo: undefined, status: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed.length, 1);
@@ -141,7 +147,10 @@ describe("findChanges tool", () => {
     const ctx = makeCtx();
     const toolDef = createFindChangesTool(ctx);
 
-    const result = await toolDef.handler({ repo: undefined, status: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { repo: undefined, status: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed.length, 1);
@@ -164,7 +173,10 @@ describe("findChanges tool", () => {
     });
     const toolDef = createFindChangesTool(ctx);
 
-    const result = await toolDef.handler({ repo: "repo-a", status: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { repo: "repo-a", status: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed.length, 1);
@@ -180,7 +192,10 @@ describe("findChanges tool", () => {
     const ctx = makeCtx();
     const toolDef = createFindChangesTool(ctx);
 
-    const result = await toolDef.handler({ repo: undefined, status: "executing" }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { repo: undefined, status: "executing" },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed.length, 2);
@@ -204,7 +219,10 @@ describe("findChanges tool", () => {
     });
     const toolDef = createFindChangesTool(ctx);
 
-    const result = await toolDef.handler({ repo: "repo-a", status: "executing" }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { repo: "repo-a", status: "executing" },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed.length, 1);
@@ -218,7 +236,10 @@ describe("findChanges tool", () => {
     const ctx = makeCtx();
     const toolDef = createFindChangesTool(ctx);
 
-    const result = await toolDef.handler({ repo: "nonexistent", status: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { repo: "nonexistent", status: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.deepEqual(parsed, []);
@@ -231,7 +252,10 @@ describe("findChanges tool", () => {
     const ctx = makeCtx();
     const toolDef = createFindChangesTool(ctx);
 
-    const result = await toolDef.handler({ repo: undefined, status: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { repo: undefined, status: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed[0].prUrl, "https://github.com/org/my-repo/pull/42");
@@ -244,7 +268,10 @@ describe("findChanges tool", () => {
     const ctx = makeCtx();
     const toolDef = createFindChangesTool(ctx);
 
-    const result = await toolDef.handler({ repo: undefined, status: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { repo: undefined, status: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed[0].startedAt, "2025-12-25T00:00:00.000Z");

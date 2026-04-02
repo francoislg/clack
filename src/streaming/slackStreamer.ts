@@ -45,7 +45,13 @@ export class SlackStreamer {
   private static readonly THINKING_TASK_ID = "__thinking__";
 
   /** Currently open group: consecutive same-key tools share one Slack task. */
-  private openGroup: { slackId: string; key: string; title: string; count: number; pending: number } | null = null;
+  private openGroup: {
+    slackId: string;
+    key: string;
+    title: string;
+    count: number;
+    pending: number;
+  } | null = null;
   /** Maps each SDK taskId to the Slack task ID it belongs to. */
   private taskSlack = new Map<string, string>();
   /** Tracks individual task labels for non-grouped tools. */
@@ -118,15 +124,18 @@ export class SlackStreamer {
             if (this.openGroup.count === 0) {
               this.openGroup = null;
             } else {
-              const title = this.openGroup.count > 1
-                ? `${this.openGroup.title} (${this.openGroup.count})`
-                : this.openGroup.title;
-              this.append([{
-                type: "task_update",
-                id: existingSlackId,
-                title,
-                status: this.openGroup.pending === 0 ? "complete" : "in_progress",
-              }]);
+              const title =
+                this.openGroup.count > 1
+                  ? `${this.openGroup.title} (${this.openGroup.count})`
+                  : this.openGroup.title;
+              this.append([
+                {
+                  type: "task_update",
+                  id: existingSlackId,
+                  title,
+                  status: this.openGroup.pending === 0 ? "complete" : "in_progress",
+                },
+              ]);
             }
           }
           break;
@@ -155,12 +164,15 @@ export class SlackStreamer {
               const chunk: TaskUpdateChunk = {
                 type: "task_update",
                 id: existingSlackId,
-                title: this.openGroup.count > 1
-                  ? `${this.openGroup.title} (${this.openGroup.count})`
-                  : label,
+                title:
+                  this.openGroup.count > 1
+                    ? `${this.openGroup.title} (${this.openGroup.count})`
+                    : label,
                 status: "in_progress",
               };
-              if (group.itemDetail) chunk.details = this.openGroup.count > 1 ? `\n${group.itemDetail}` : group.itemDetail;
+              if (group.itemDetail)
+                chunk.details =
+                  this.openGroup.count > 1 ? `\n${group.itemDetail}` : group.itemDetail;
               const details = getToolDetails(event.toolName, event.toolArgs);
               if (details) chunk.details = (chunk.details ? chunk.details + "\n" : "") + details;
               this.append([chunk]);
@@ -236,10 +248,13 @@ export class SlackStreamer {
         if (this.openGroup?.slackId === slackId) {
           this.openGroup.pending--;
           const done = this.openGroup.pending === 0;
-          const title = this.openGroup.count > 1
-            ? `${this.openGroup.title} (${this.openGroup.count})`
-            : this.openGroup.title;
-          this.append([{ type: "task_update", id: slackId, title, status: done ? "complete" : "in_progress" }]);
+          const title =
+            this.openGroup.count > 1
+              ? `${this.openGroup.title} (${this.openGroup.count})`
+              : this.openGroup.title;
+          this.append([
+            { type: "task_update", id: slackId, title, status: done ? "complete" : "in_progress" },
+          ]);
           break;
         }
 
@@ -265,10 +280,7 @@ export class SlackStreamer {
   /**
    * Stop the stream and finalize the message.
    */
-  async stop(opts?: {
-    markdownText?: string;
-    blocks?: (KnownBlock | Block)[];
-  }): Promise<void> {
+  async stop(opts?: { markdownText?: string; blocks?: (KnownBlock | Block)[] }): Promise<void> {
     if (!this.chatStreamer || this.stopped) return;
 
     this.stopped = true;
@@ -293,9 +305,7 @@ export class SlackStreamer {
         {
           type: "task_update",
           id: SlackStreamer.THINKING_TASK_ID,
-          title: this.thinkingFinalized
-            ? this.thinkingTitle
-            : "Acknowledged, working on it…",
+          title: this.thinkingFinalized ? this.thinkingTitle : "Acknowledged, working on it…",
           status: "complete",
         },
       ]);

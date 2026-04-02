@@ -78,7 +78,14 @@ export async function triggerChangeWorkflow(
       streamer.handleEvent,
     );
 
-    await finalizeStreamedWorkflow(streamer, client, streamChannel, streamThreadTs, result, "Change request");
+    await finalizeStreamedWorkflow(
+      streamer,
+      client,
+      streamChannel,
+      streamThreadTs,
+      result,
+      "Change request",
+    );
   } catch (error) {
     logger.error("Change workflow failed:", error);
     await streamer.stop();

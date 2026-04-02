@@ -24,22 +24,19 @@ describe("interpolateLabel", () => {
     it("substitutes a single arg", () => {
       assert.equal(
         interpolateLabel("Reading {file_path}", { file_path: "foo.ts" }),
-        "Reading foo.ts"
+        "Reading foo.ts",
       );
     });
 
     it("substitutes multiple args", () => {
       assert.equal(
         interpolateLabel("{action} {target}", { action: "Reading", target: "file" }),
-        "Reading file"
+        "Reading file",
       );
     });
 
     it("returns trimmed result when arg is missing (no trailing space)", () => {
-      assert.equal(
-        interpolateLabel("Reading {file_path}", {}),
-        "Reading"
-      );
+      assert.equal(interpolateLabel("Reading {file_path}", {}), "Reading");
     });
   });
 
@@ -50,7 +47,7 @@ describe("interpolateLabel", () => {
           description: "Install deps",
           command: "npm install",
         }),
-        "Install deps"
+        "Install deps",
       );
     });
 
@@ -59,30 +56,27 @@ describe("interpolateLabel", () => {
         interpolateLabel("{description|command|Running command}", {
           command: "npm test",
         }),
-        "npm test"
+        "npm test",
       );
     });
 
     it("falls back to literal when all args are missing", () => {
       assert.equal(
         interpolateLabel("{description|command|Running command}", {}),
-        "Running command"
+        "Running command",
       );
     });
 
     it("handles single-arg fallback to literal", () => {
       // "unknown" matches \w+ so it's treated as an arg lookup, not a literal.
       // Use a non-word string for a true literal fallback.
-      assert.equal(
-        interpolateLabel("{name|unknown value}", {}),
-        "unknown value"
-      );
+      assert.equal(interpolateLabel("{name|unknown value}", {}), "unknown value");
     });
 
     it("tries multiple arg names before literal", () => {
       assert.equal(
         interpolateLabel("{id|name|gate_id|experiment_id|…}", { gate_id: "my-gate" }),
-        "my-gate"
+        "my-gate",
       );
     });
   });
@@ -91,37 +85,28 @@ describe("interpolateLabel", () => {
     it("skips empty string and uses next in chain", () => {
       assert.equal(
         interpolateLabel("{description|fallback text}", { description: "" }),
-        "fallback text"
+        "fallback text",
       );
     });
 
     it("skips empty string and uses next arg", () => {
-      assert.equal(
-        interpolateLabel("{first|second}", { first: "", second: "value" }),
-        "value"
-      );
+      assert.equal(interpolateLabel("{first|second}", { first: "", second: "value" }), "value");
     });
   });
 
   describe("sanitization of interpolated values", () => {
     it("strips < > @ ! from arg values", () => {
-      assert.equal(
-        interpolateLabel("User {name}", { name: "<@U123>" }),
-        "User U123"
-      );
+      assert.equal(interpolateLabel("User {name}", { name: "<@U123>" }), "User U123");
     });
 
     it("strips newlines from arg values", () => {
-      assert.equal(
-        interpolateLabel("Cmd {cmd}", { cmd: "line1\nline2" }),
-        "Cmd line1line2"
-      );
+      assert.equal(interpolateLabel("Cmd {cmd}", { cmd: "line1\nline2" }), "Cmd line1line2");
     });
 
     it("shortens paths in arg values", () => {
       assert.equal(
         interpolateLabel("Reading {file_path}", { file_path: "/home/user/project/src/index.ts" }),
-        "Reading src/index.ts"
+        "Reading src/index.ts",
       );
     });
 
@@ -160,10 +145,7 @@ describe("interpolateLabel", () => {
     });
 
     it("handles adjacent placeholders", () => {
-      assert.equal(
-        interpolateLabel("{a}{b}", { a: "hello", b: "world" }),
-        "helloworld"
-      );
+      assert.equal(interpolateLabel("{a}{b}", { a: "hello", b: "world" }), "helloworld");
     });
 
     it("handles empty template", () => {
@@ -202,22 +184,28 @@ describe("interpolateLabel", () => {
 
     it("returns text only when URL has empty path segments from missing args", () => {
       assert.equal(
-        interpolateLabel("<https://github.com/{owner}/{repo}/pull/{pr}|PR #{pr}>", { owner: "org" }),
-        "PR #"
+        interpolateLabel("<https://github.com/{owner}/{repo}/pull/{pr}|PR #{pr}>", {
+          owner: "org",
+        }),
+        "PR #",
       );
     });
 
     it("preserves valid mrkdwn links", () => {
       assert.equal(
         interpolateLabel("<https://example.com/ok|text>", {}),
-        "<https://example.com/ok|text>"
+        "<https://example.com/ok|text>",
       );
     });
 
     it("preserves link when all args are present", () => {
       assert.equal(
-        interpolateLabel("<https://github.com/{owner}/{repo}/pull/{pr}|PR #{pr}>", { owner: "org", repo: "my-repo", pr: 42 }),
-        "<https://github.com/org/my-repo/pull/42|PR #42>"
+        interpolateLabel("<https://github.com/{owner}/{repo}/pull/{pr}|PR #{pr}>", {
+          owner: "org",
+          repo: "my-repo",
+          pr: 42,
+        }),
+        "<https://github.com/org/my-repo/pull/42|PR #42>",
       );
     });
   });
@@ -226,42 +214,30 @@ describe("interpolateLabel", () => {
     it("resolves a nested arg path", () => {
       assert.equal(
         interpolateLabel("Reading {params.path_id}", { params: { path_id: "my-gate" } }),
-        "Reading my-gate"
+        "Reading my-gate",
       );
     });
 
     it("resolves deeply nested paths", () => {
-      assert.equal(
-        interpolateLabel("{a.b.c}", { a: { b: { c: "deep" } } }),
-        "deep"
-      );
+      assert.equal(interpolateLabel("{a.b.c}", { a: { b: { c: "deep" } } }), "deep");
     });
 
     it("falls back when nested path is missing", () => {
-      assert.equal(
-        interpolateLabel("{params.path_id|…}", {}),
-        "…"
-      );
+      assert.equal(interpolateLabel("{params.path_id|…}", {}), "…");
     });
 
     it("falls back when intermediate key is missing", () => {
-      assert.equal(
-        interpolateLabel("{params.path_id|…}", { params: {} }),
-        "…"
-      );
+      assert.equal(interpolateLabel("{params.path_id|…}", { params: {} }), "…");
     });
 
     it("works in a fallback chain with flat args", () => {
-      assert.equal(
-        interpolateLabel("{params.path_id|id|…}", { id: "flat-id" }),
-        "flat-id"
-      );
+      assert.equal(interpolateLabel("{params.path_id|id|…}", { id: "flat-id" }), "flat-id");
     });
 
     it("sanitizes nested values", () => {
       assert.equal(
         interpolateLabel("{params.path_id}", { params: { path_id: "<script>alert</script>" } }),
-        "scriptalert/script"
+        "scriptalert/script",
       );
     });
   });
@@ -275,14 +251,15 @@ describe("applyArgConfigs", () => {
     const configs = new Map<string, ResolvedArgConfig>([
       ["issueId", { from: "issueUrl", regex: /\/issues\/(\d+)/ }],
     ]);
-    const { args } = applyArgConfigs({ issueUrl: "https://org.sentry.io/issues/7313838390/" }, configs);
+    const { args } = applyArgConfigs(
+      { issueUrl: "https://org.sentry.io/issues/7313838390/" },
+      configs,
+    );
     assert.equal(args.issueId, "7313838390");
   });
 
   it("aliases a nested value without regex", () => {
-    const configs = new Map<string, ResolvedArgConfig>([
-      ["id", { from: "params.path_id" }],
-    ]);
+    const configs = new Map<string, ResolvedArgConfig>([["id", { from: "params.path_id" }]]);
     const { args } = applyArgConfigs({ params: { path_id: "my-gate" } }, configs);
     assert.equal(args.id, "my-gate");
   });
@@ -291,7 +268,10 @@ describe("applyArgConfigs", () => {
     const configs = new Map<string, ResolvedArgConfig>([
       ["issueId", { from: "issueUrl", regex: /\/issues\/(\d+)/ }],
     ]);
-    const { args } = applyArgConfigs({ issueId: "real-id", issueUrl: "https://sentry.io/issues/999/" }, configs);
+    const { args } = applyArgConfigs(
+      { issueId: "real-id", issueUrl: "https://sentry.io/issues/999/" },
+      configs,
+    );
     assert.equal(args.issueId, "real-id");
   });
 
@@ -427,7 +407,7 @@ describe("substituteEnvVars", () => {
     try {
       assert.equal(
         substituteEnvVars("Reading <${__TEST_METABASE_URL}/question/{card_id}|link>"),
-        "Reading <https://metabase.example.com/question/{card_id}|link>"
+        "Reading <https://metabase.example.com/question/{card_id}|link>",
       );
     } finally {
       delete process.env.__TEST_METABASE_URL;
@@ -464,16 +444,19 @@ describe("substituteEnvVars", () => {
 // ---------------------------------------------------------------------------
 describe("resolveConfig", () => {
   it("parses string tool entries as labels", () => {
-    const resolved = resolveConfig({ tools: { "myTool": "My label" } }, "test");
+    const resolved = resolveConfig({ tools: { myTool: "My label" } }, "test");
     assert.equal(resolved.labels.get("myTool"), "My label");
     assert.equal(resolved.toolGroups.has("myTool"), false);
   });
 
   it("parses object tool entries with group and itemDetail", () => {
-    const resolved = resolveConfig({
-      tools: { "Read": { label: "Reading {file}", group: "search", itemDetail: "{file}" } },
-      groups: { "search": "Searching codebase" },
-    }, "test");
+    const resolved = resolveConfig(
+      {
+        tools: { Read: { label: "Reading {file}", group: "search", itemDetail: "{file}" } },
+        groups: { search: "Searching codebase" },
+      },
+      "test",
+    );
     assert.equal(resolved.labels.get("Read"), "Reading {file}");
     const group = resolved.toolGroups.get("Read");
     assert.ok(group);
@@ -503,9 +486,12 @@ describe("resolveConfig", () => {
   });
 
   it("parses argOptions with valid regex", () => {
-    const resolved = resolveConfig({
-      argOptions: { issueId: { from: "issueUrl", pattern: "/issues/(\\d+)" } },
-    }, "test");
+    const resolved = resolveConfig(
+      {
+        argOptions: { issueId: { from: "issueUrl", pattern: "/issues/(\\d+)" } },
+      },
+      "test",
+    );
     const config = resolved.argConfigs.get("issueId");
     assert.ok(config);
     assert.equal(config.from, "issueUrl");
@@ -513,9 +499,12 @@ describe("resolveConfig", () => {
   });
 
   it("skips argOptions with invalid regex", () => {
-    const resolved = resolveConfig({
-      argOptions: { bad: { from: "src", pattern: "([invalid" } },
-    }, "test");
+    const resolved = resolveConfig(
+      {
+        argOptions: { bad: { from: "src", pattern: "([invalid" } },
+      },
+      "test",
+    );
     assert.equal(resolved.argConfigs.has("bad"), false);
   });
 
@@ -531,11 +520,12 @@ describe("resolveConfig", () => {
 
   describe("conditionalHidden", () => {
     it("parses valid rules with pre-compiled regex", () => {
-      const resolved = resolveConfig({
-        conditionalHidden: [
-          { tool: "Read", arg: "file_path", pattern: "^tool-results/" },
-        ],
-      }, "test");
+      const resolved = resolveConfig(
+        {
+          conditionalHidden: [{ tool: "Read", arg: "file_path", pattern: "^tool-results/" }],
+        },
+        "test",
+      );
       assert.equal(resolved.conditionalHidden.length, 1);
       assert.equal(resolved.conditionalHidden[0].tool, "Read");
       assert.equal(resolved.conditionalHidden[0].arg, "file_path");
@@ -544,12 +534,15 @@ describe("resolveConfig", () => {
     });
 
     it("skips rules with invalid regex patterns", () => {
-      const resolved = resolveConfig({
-        conditionalHidden: [
-          { tool: "Read", arg: "file_path", pattern: "([invalid" },
-          { tool: "Bash", arg: "command", pattern: "^echo" },
-        ],
-      }, "test");
+      const resolved = resolveConfig(
+        {
+          conditionalHidden: [
+            { tool: "Read", arg: "file_path", pattern: "([invalid" },
+            { tool: "Bash", arg: "command", pattern: "^echo" },
+          ],
+        },
+        "test",
+      );
       assert.equal(resolved.conditionalHidden.length, 1);
       assert.equal(resolved.conditionalHidden[0].tool, "Bash");
     });
@@ -560,12 +553,15 @@ describe("resolveConfig", () => {
     });
 
     it("handles multiple valid rules", () => {
-      const resolved = resolveConfig({
-        conditionalHidden: [
-          { tool: "Read", arg: "file_path", pattern: "^tool-results/" },
-          { tool: "Read", arg: "file_path", pattern: "^/tmp/" },
-        ],
-      }, "test");
+      const resolved = resolveConfig(
+        {
+          conditionalHidden: [
+            { tool: "Read", arg: "file_path", pattern: "^tool-results/" },
+            { tool: "Read", arg: "file_path", pattern: "^/tmp/" },
+          ],
+        },
+        "test",
+      );
       assert.equal(resolved.conditionalHidden.length, 2);
     });
   });
@@ -631,7 +627,10 @@ describe("shipped default tool mapping configs", () => {
             assert.equal(typeof rule.arg, "string", "rule.arg must be a string");
             assert.equal(typeof rule.pattern, "string", "rule.pattern must be a string");
             // Validate that the pattern compiles
-            assert.doesNotThrow(() => new RegExp(rule.pattern), `Invalid regex pattern: ${rule.pattern}`);
+            assert.doesNotThrow(
+              () => new RegExp(rule.pattern),
+              `Invalid regex pattern: ${rule.pattern}`,
+            );
           }
         }
 
@@ -662,7 +661,7 @@ describe("shipped default tool mapping configs", () => {
           const result = interpolateLabel(template, {});
           assert.ok(
             result.length > 0,
-            `Tool "${toolName}" produced empty label with empty args (template: "${template}")`
+            `Tool "${toolName}" produced empty label with empty args (template: "${template}")`,
           );
         }
       });
@@ -674,7 +673,7 @@ describe("shipped default tool mapping configs", () => {
           const result = interpolateLabel(template, GENERIC_ARGS);
           assert.ok(
             result.length > 0,
-            `Tool "${toolName}" produced empty label with generic args (template: "${template}")`
+            `Tool "${toolName}" produced empty label with generic args (template: "${template}")`,
           );
         }
       });
@@ -687,7 +686,7 @@ describe("shipped default tool mapping configs", () => {
           if (typeof entry === "object" && entry.group) {
             assert.ok(
               resolved.groupTitles.has(entry.group),
-              `Tool "${toolName}" references group "${entry.group}" but no matching group title found`
+              `Tool "${toolName}" references group "${entry.group}" but no matching group title found`,
             );
           }
         }
@@ -698,7 +697,7 @@ describe("shipped default tool mapping configs", () => {
         const result = interpolateLabel(config.default, {});
         assert.ok(
           result.length > 0,
-          `Default label produced empty string (template: "${config.default}")`
+          `Default label produced empty string (template: "${config.default}")`,
         );
       });
     });
@@ -745,9 +744,12 @@ describe("loadToolMappings error handling", () => {
 
     // Write a minimal override that replaces _builtins
     const overridePath = resolve(USER_TOOL_MAPPING_DIR, "_test_malformed.json");
-    writeFileSync(overridePath, JSON.stringify({
-      tools: { "TestTool": "Test label" },
-    }));
+    writeFileSync(
+      overridePath,
+      JSON.stringify({
+        tools: { TestTool: "Test label" },
+      }),
+    );
 
     resetToolMappingCache();
     const mappings = loadToolMappings();

@@ -4,7 +4,13 @@ import type { WorktreeInfo } from "../worktrees.js";
 // Core Types
 // ============================================================================
 
-export type TriggerType = "directMessages" | "mentions" | "reactions" | "autoRespond" | "scheduled" | "threadReply";
+export type TriggerType =
+  | "directMessages"
+  | "mentions"
+  | "reactions"
+  | "autoRespond"
+  | "scheduled"
+  | "threadReply";
 
 export interface ChangeRequest {
   userId: string;
@@ -107,4 +113,3 @@ export interface ExecutionResult {
   /** SDK session ID captured during execution (for resuming follow-ups) */
   sdkSessionId?: string;
 }
-

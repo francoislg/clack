@@ -36,8 +36,7 @@ mock.module("../../changes/persistence.js", {
 
 mock.module("../../errors.js", {
   namedExports: {
-    errorMessage: (err: unknown) =>
-      err instanceof Error ? err.message : String(err),
+    errorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
   },
 });
 
@@ -105,7 +104,7 @@ describe("ensurePR tool", () => {
     const toolDef = createEnsurePRTool(makeCtx());
     const result = await toolDef.handler(
       { title: "Test PR", summary: "Fix things" },
-      { sessionId: "test" }
+      { sessionId: "test" },
     );
 
     const parsed = parseResult(result);
@@ -125,7 +124,7 @@ describe("ensurePR tool", () => {
     const toolDef = createEnsurePRTool(makeCtx());
     const result = await toolDef.handler(
       { title: "Test PR", summary: "Fix things" },
-      { sessionId: "test" }
+      { sessionId: "test" },
     );
 
     const parsed = parseResult(result);
@@ -153,7 +152,7 @@ describe("ensurePR tool", () => {
     const toolDef = createEnsurePRTool(ctx);
     const result = await toolDef.handler(
       { title: "My PR", summary: "Changes" },
-      { sessionId: "test" }
+      { sessionId: "test" },
     );
 
     const parsed = parseResult(result);
@@ -163,7 +162,9 @@ describe("ensurePR tool", () => {
 
     // Verify create was called with correct args
     assert.equal(mockCreate.mock.callCount(), 1);
-    const createArgs = (mockCreate.mock.calls[0].arguments as unknown as [Record<string, unknown>])[0];
+    const createArgs = (
+      mockCreate.mock.calls[0].arguments as unknown as [Record<string, unknown>]
+    )[0];
     assert.equal(createArgs.owner, "org");
     assert.equal(createArgs.repo, "my-repo");
     assert.equal(createArgs.title, "My PR");
@@ -194,7 +195,7 @@ describe("ensurePR tool", () => {
     const toolDef = createEnsurePRTool(makeCtx());
     const result = await toolDef.handler(
       { title: "Race PR", summary: "Race" },
-      { sessionId: "test" }
+      { sessionId: "test" },
     );
 
     const parsed = parseResult(result);
@@ -220,7 +221,7 @@ describe("ensurePR tool", () => {
     const toolDef = createEnsurePRTool(makeCtx());
     const result = await toolDef.handler(
       { title: "Fail PR", summary: "Fail" },
-      { sessionId: "test" }
+      { sessionId: "test" },
     );
 
     const parsed = parseResult(result);
@@ -243,7 +244,7 @@ describe("ensurePR tool", () => {
     const toolDef = createEnsurePRTool(makeCtx());
     const result = await toolDef.handler(
       { title: "Error PR", summary: "Error" },
-      { sessionId: "test" }
+      { sessionId: "test" },
     );
 
     const parsed = parseResult(result);
@@ -268,12 +269,11 @@ describe("ensurePR tool", () => {
     }));
 
     const toolDef = createEnsurePRTool(makeCtx());
-    await toolDef.handler(
-      { title: "PR", summary: "S" },
-      { sessionId: "test" }
-    );
+    await toolDef.handler({ title: "PR", summary: "S" }, { sessionId: "test" });
 
-    const createArgs = (mockCreate.mock.calls[0].arguments as unknown as [Record<string, unknown>])[0];
+    const createArgs = (
+      mockCreate.mock.calls[0].arguments as unknown as [Record<string, unknown>]
+    )[0];
     assert.equal(createArgs.base, "main");
   });
 
@@ -288,10 +288,7 @@ describe("ensurePR tool", () => {
 
     const ctx = makeCtx();
     const toolDef = createEnsurePRTool(ctx);
-    await toolDef.handler(
-      { title: "PR", summary: "S" },
-      { sessionId: "test" }
-    );
+    await toolDef.handler({ title: "PR", summary: "S" }, { sessionId: "test" });
 
     assert.ok(mockAppendExecutionLog.mock.callCount() >= 1);
     const logArgs = mockAppendExecutionLog.mock.calls[0].arguments as [string, string];
@@ -309,10 +306,7 @@ describe("ensurePR tool", () => {
 
     const ctx = makeCtx();
     const toolDef = createEnsurePRTool(ctx);
-    await toolDef.handler(
-      { title: "PR", summary: "S" },
-      { sessionId: "test" }
-    );
+    await toolDef.handler({ title: "PR", summary: "S" }, { sessionId: "test" });
 
     const listArgs = (mockList.mock.calls[0].arguments as unknown as [Record<string, unknown>])[0];
     assert.equal(listArgs.head, `org:${ctx.branchName}`);

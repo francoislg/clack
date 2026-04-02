@@ -17,7 +17,7 @@ const userCache = new Map<string, UserInfo>();
  */
 export async function getUserInfo(
   client: App["client"],
-  userId: string
+  userId: string,
 ): Promise<UserInfo | undefined> {
   // Return cached value if present
   const cached = userCache.get(userId);
@@ -64,10 +64,7 @@ export async function getUserInfo(
   }
 }
 
-async function getBotInfo(
-  client: App["client"],
-  botId: string
-): Promise<UserInfo | undefined> {
+async function getBotInfo(client: App["client"], botId: string): Promise<UserInfo | undefined> {
   try {
     const result = await client.bots.info({ bot: botId });
 
@@ -99,7 +96,7 @@ async function getBotInfo(
  */
 export async function resolveUsers(
   client: App["client"],
-  userIds: string[]
+  userIds: string[],
 ): Promise<Map<string, UserInfo>> {
   const results = new Map<string, UserInfo>();
   const uniqueIds = [...new Set(userIds)];
@@ -145,10 +142,7 @@ export function formatUserIdentity(userId: string, userInfo?: UserInfo): string 
  * Transform <@USERID> mentions in text to readable format.
  * Uses formatUserIdentity for consistent formatting.
  */
-export async function transformUserMentions(
-  client: App["client"],
-  text: string
-): Promise<string> {
+export async function transformUserMentions(client: App["client"], text: string): Promise<string> {
   // Match Slack user mentions: <@U12345678> or <@W12345678>
   const mentionPattern = /<@([UW][A-Z0-9]+)>/g;
   const matches = [...text.matchAll(mentionPattern)];

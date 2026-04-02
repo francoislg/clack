@@ -87,11 +87,7 @@ export async function isAdmin(userId: string): Promise<boolean> {
 export async function isDev(userId: string): Promise<boolean> {
   const roles = await loadRoles();
   // Owner and admins are implicitly devs
-  return (
-    roles.owner === userId ||
-    roles.admins.includes(userId) ||
-    roles.devs.includes(userId)
-  );
+  return roles.owner === userId || roles.admins.includes(userId) || roles.devs.includes(userId);
 }
 
 export async function getRole(userId: string): Promise<UserRole> {
@@ -137,11 +133,17 @@ export async function setOwner(userId: string): Promise<void> {
 
 export type AssignableRole = "admin" | "dev" | "member";
 
-export async function setRole(userId: string, role: AssignableRole): Promise<{ success: boolean; error?: string }> {
+export async function setRole(
+  userId: string,
+  role: AssignableRole,
+): Promise<{ success: boolean; error?: string }> {
   const roles = await loadRoles();
 
   if (roles.owner === userId) {
-    return { success: false, error: "Cannot change the owner's role. Use transfer ownership instead." };
+    return {
+      success: false,
+      error: "Cannot change the owner's role. Use transfer ownership instead.",
+    };
   }
 
   const isAdmin = roles.admins.includes(userId);
@@ -166,10 +168,7 @@ export async function setRole(userId: string, role: AssignableRole): Promise<{ s
   return { success: true };
 }
 
-export async function isUserDisabled(
-  client: App["client"],
-  userId: string
-): Promise<boolean> {
+export async function isUserDisabled(client: App["client"], userId: string): Promise<boolean> {
   try {
     const result = await client.users.info({ user: userId });
     return result.user?.deleted === true;
@@ -182,7 +181,7 @@ export async function isUserDisabled(
 
 export async function claimOwnershipFromDisabled(
   client: App["client"],
-  claimingUserId: string
+  claimingUserId: string,
 ): Promise<{ success: boolean; error?: string }> {
   const roles = await loadRoles();
 
@@ -217,7 +216,7 @@ export async function claimOwnershipFromDisabled(
 export async function transferOwnership(
   client: App["client"],
   currentOwnerId: string,
-  newOwnerId: string
+  newOwnerId: string,
 ): Promise<{ success: boolean; error?: string }> {
   const roles = await loadRoles();
 

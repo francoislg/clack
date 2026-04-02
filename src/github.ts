@@ -32,8 +32,8 @@ export function loadGitHubCredentials(): GitHubAppCredentials {
   if (!existsSync(authPath)) {
     throw new Error(
       `GitHub App auth file not found at ${authPath}.\n` +
-      `Create a GitHub App and save credentials to data/auth/github.json.\n` +
-      `See data/auth/github.example.json for the expected format.`
+        `Create a GitHub App and save credentials to data/auth/github.json.\n` +
+        `See data/auth/github.example.json for the expected format.`,
     );
   }
 
@@ -64,7 +64,7 @@ export function loadGitHubCredentials(): GitHubAppCredentials {
   if (!existsSync(resolvedKeyPath)) {
     throw new Error(
       `GitHub App private key not found at ${resolvedKeyPath}.\n` +
-      `Download the private key from your GitHub App settings page.`
+        `Download the private key from your GitHub App settings page.`,
     );
   }
 
@@ -109,7 +109,8 @@ export async function getInstallationToken(): Promise<InstallationTokenResult> {
   });
 
   const result = await auth({ type: "installation" });
-  const permissions = (result as Record<string, unknown>).permissions as Record<string, string> ?? {};
+  const permissions =
+    ((result as Record<string, unknown>).permissions as Record<string, string>) ?? {};
 
   cachedToken = {
     token: result.token,
@@ -152,7 +153,7 @@ export function parseRepoUrl(url: string): { owner: string; repo: string } {
 
   throw new Error(
     `Cannot parse repository URL: ${url}\n` +
-    `Use "owner/repo" shorthand or "https://github.com/owner/repo.git" format.`
+      `Use "owner/repo" shorthand or "https://github.com/owner/repo.git" format.`,
   );
 }
 
@@ -186,11 +187,12 @@ export async function validateGitHubApp(): Promise<void> {
     installation_id: Number(creds.installationId),
   });
 
-  const accountName = installation.account && "login" in installation.account
-    ? installation.account.login
-    : "unknown";
+  const accountName =
+    installation.account && "login" in installation.account
+      ? installation.account.login
+      : "unknown";
 
   logger.info(
-    `GitHub App authenticated — installation on "${accountName}" (ID: ${creds.installationId})`
+    `GitHub App authenticated — installation on "${accountName}" (ID: ${creds.installationId})`,
   );
 }

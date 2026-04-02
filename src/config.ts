@@ -159,8 +159,8 @@ export function loadSlackAuth(): SlackAuthConfig {
   if (!existsSync(authPath)) {
     throw new Error(
       `Slack auth file not found at ${authPath}.\n` +
-      `Run 'npm run docker-setup' or create data/auth/slack.json manually.\n` +
-      `See data/auth/slack.example.json for the expected format.`
+        `Run 'npm run docker-setup' or create data/auth/slack.json manually.\n` +
+        `See data/auth/slack.example.json for the expected format.`,
     );
   }
 
@@ -229,14 +229,19 @@ function strArray(obj: Record<string, unknown>, key: string): string[] | undefin
   return Array.isArray(val) ? val.filter((v): v is string => typeof v === "string") : undefined;
 }
 
-function parseThinking(raw: Record<string, unknown> | undefined, fallback?: ThinkingFeedbackConfig): ThinkingFeedbackConfig | undefined {
+function parseThinking(
+  raw: Record<string, unknown> | undefined,
+  fallback?: ThinkingFeedbackConfig,
+): ThinkingFeedbackConfig | undefined {
   if (!raw) return fallback;
   const type = str(raw, "type");
   if (type !== "message" && type !== "emoji") return fallback;
   return { type, emoji: str(raw, "emoji") };
 }
 
-function parseTriggerChangesWorkflow(raw: Record<string, unknown> | undefined): TriggerChangesWorkflowConfig | undefined {
+function parseTriggerChangesWorkflow(
+  raw: Record<string, unknown> | undefined,
+): TriggerChangesWorkflowConfig | undefined {
   if (!raw) return undefined;
   return { enabled: bool(raw, "enabled") ?? false };
 }
@@ -253,7 +258,7 @@ function parseMergeStrategy(raw: Record<string, unknown>): RepositoryConfig["mer
   if (value === undefined) return undefined;
   if (!(VALID_MERGE_STRATEGIES as readonly string[]).includes(value)) {
     throw new Error(
-      `Repository 'mergeStrategy' must be one of: ${VALID_MERGE_STRATEGIES.join(", ")} (got '${value}')`
+      `Repository 'mergeStrategy' must be one of: ${VALID_MERGE_STRATEGIES.join(", ")} (got '${value}')`,
     );
   }
   return value as RepositoryConfig["mergeStrategy"];
@@ -322,11 +327,15 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
     if (acc) {
       const readVal = acc.read;
       if (readVal !== undefined && (typeof readVal !== "string" || !isValidRole(readVal))) {
-        throw new Error(`Repository '${r.name}' access.read must be one of: ${VALID_ROLES.join(", ")}`);
+        throw new Error(
+          `Repository '${r.name}' access.read must be one of: ${VALID_ROLES.join(", ")}`,
+        );
       }
       const writeVal = acc.write;
       if (writeVal !== undefined && (typeof writeVal !== "string" || !isValidRole(writeVal))) {
-        throw new Error(`Repository '${r.name}' access.write must be one of: ${VALID_ROLES.join(", ")}`);
+        throw new Error(
+          `Repository '${r.name}' access.write must be one of: ${VALID_ROLES.join(", ")}`,
+        );
       }
     }
   }
@@ -334,7 +343,10 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
   // Validate slackApp if provided
   const slackAppRaw = section(c, "slackApp");
   if (slackAppRaw) {
-    if (slackAppRaw.name !== undefined && (typeof slackAppRaw.name !== "string" || (slackAppRaw.name as string).length === 0)) {
+    if (
+      slackAppRaw.name !== undefined &&
+      (typeof slackAppRaw.name !== "string" || (slackAppRaw.name as string).length === 0)
+    ) {
       throw new Error("Config 'slackApp.name' must be a non-empty string");
     }
     if (slackAppRaw.backgroundColor !== undefined) {
@@ -357,9 +369,14 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
   const cwRaw = section(c, "changesWorkflow");
 
   // Parse reactions changes workflow (has extra "trigger" field)
-  const reactionsChangesWorkflow = reactionsRaw ? section(reactionsRaw, "changesWorkflow") : undefined;
+  const reactionsChangesWorkflow = reactionsRaw
+    ? section(reactionsRaw, "changesWorkflow")
+    : undefined;
   const parsedReactionsCW: ReactionsChangesWorkflowConfig | undefined = reactionsChangesWorkflow
-    ? { enabled: bool(reactionsChangesWorkflow, "enabled") ?? false, trigger: str(reactionsChangesWorkflow, "trigger") }
+    ? {
+        enabled: bool(reactionsChangesWorkflow, "enabled") ?? false,
+        trigger: str(reactionsChangesWorkflow, "trigger"),
+      }
     : undefined;
 
   // Merge with defaults
@@ -373,35 +390,49 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
     },
     slackApp: {
       name: (slackAppRaw && str(slackAppRaw, "name")) ?? DEFAULTS.slackApp!.name,
-      description: (slackAppRaw && str(slackAppRaw, "description")) ?? DEFAULTS.slackApp!.description,
-      backgroundColor: (slackAppRaw && str(slackAppRaw, "backgroundColor")) ?? DEFAULTS.slackApp!.backgroundColor,
+      description:
+        (slackAppRaw && str(slackAppRaw, "description")) ?? DEFAULTS.slackApp!.description,
+      backgroundColor:
+        (slackAppRaw && str(slackAppRaw, "backgroundColor")) ?? DEFAULTS.slackApp!.backgroundColor,
     },
     reactions: {
       trigger: (reactionsRaw && str(reactionsRaw, "trigger")) || DEFAULTS.reactions!.trigger,
-      thinking: parseThinking(reactionsRaw && section(reactionsRaw, "thinking"), DEFAULTS.reactions!.thinking),
+      thinking: parseThinking(
+        reactionsRaw && section(reactionsRaw, "thinking"),
+        DEFAULTS.reactions!.thinking,
+      ),
       changesWorkflow: parsedReactionsCW,
     },
     directMessages: {
       enabled: (dmRaw && bool(dmRaw, "enabled")) ?? DEFAULTS.directMessages!.enabled,
-      thinking: parseThinking(dmRaw && section(dmRaw, "thinking"), DEFAULTS.directMessages!.thinking),
+      thinking: parseThinking(
+        dmRaw && section(dmRaw, "thinking"),
+        DEFAULTS.directMessages!.thinking,
+      ),
       changesWorkflow: parseTriggerChangesWorkflow(dmRaw && section(dmRaw, "changesWorkflow")),
     },
     mentions: {
       enabled: (mentionsRaw && bool(mentionsRaw, "enabled")) ?? DEFAULTS.mentions!.enabled,
-      thinking: parseThinking(mentionsRaw && section(mentionsRaw, "thinking"), DEFAULTS.mentions!.thinking),
-      changesWorkflow: parseTriggerChangesWorkflow(mentionsRaw && section(mentionsRaw, "changesWorkflow")),
+      thinking: parseThinking(
+        mentionsRaw && section(mentionsRaw, "thinking"),
+        DEFAULTS.mentions!.thinking,
+      ),
+      changesWorkflow: parseTriggerChangesWorkflow(
+        mentionsRaw && section(mentionsRaw, "changesWorkflow"),
+      ),
     },
-    autoRespond: autoRespondRaw
-      ? { enabled: bool(autoRespondRaw, "enabled") ?? false }
-      : undefined,
+    autoRespond: autoRespondRaw ? { enabled: bool(autoRespondRaw, "enabled") ?? false } : undefined,
     repositories: c.repositories.map((r: unknown) => parseRepo(r as Record<string, unknown>)),
     git: {
-      pullIntervalMinutes: (gitRaw && num(gitRaw, "pullIntervalMinutes")) ?? DEFAULTS.git!.pullIntervalMinutes,
+      pullIntervalMinutes:
+        (gitRaw && num(gitRaw, "pullIntervalMinutes")) ?? DEFAULTS.git!.pullIntervalMinutes,
       shallowClone: (gitRaw && bool(gitRaw, "shallowClone")) ?? DEFAULTS.git!.shallowClone,
       cloneDepth: (gitRaw && num(gitRaw, "cloneDepth")) ?? DEFAULTS.git!.cloneDepth,
     },
     sessions: {
-      cleanupIntervalMinutes: (sessionsRaw && num(sessionsRaw, "cleanupIntervalMinutes")) ?? DEFAULTS.sessions!.cleanupIntervalMinutes,
+      cleanupIntervalMinutes:
+        (sessionsRaw && num(sessionsRaw, "cleanupIntervalMinutes")) ??
+        DEFAULTS.sessions!.cleanupIntervalMinutes,
     },
     claudeCode: {
       model: (claudeCodeRaw && str(claudeCodeRaw, "model")) ?? DEFAULTS.claudeCode!.model,
@@ -433,7 +464,7 @@ export function loadConfig(configPath?: string, forceReload?: boolean): Config {
 
   if (!existsSync(path)) {
     throw new Error(
-      `Config file not found at ${path}. Copy data/config.example.json to data/config.json and fill in your values.`
+      `Config file not found at ${path}. Copy data/config.example.json to data/config.json and fill in your values.`,
     );
   }
 
@@ -487,11 +518,6 @@ export function getWorktreeSessionsDir(): string {
   return resolve(getDataDir(), "worktree-sessions");
 }
 
-export function findRepoByName(
-  name: string,
-  config: Config
-): RepositoryConfig | undefined {
-  return config.repositories.find(
-    (r) => r.name.toLowerCase() === name.toLowerCase()
-  );
+export function findRepoByName(name: string, config: Config): RepositoryConfig | undefined {
+  return config.repositories.find((r) => r.name.toLowerCase() === name.toLowerCase());
 }

@@ -4,7 +4,13 @@ import { getConfig, getSessionsDir } from "./config.js";
 import { logger } from "./logger.js";
 import { fileExists } from "./fs.js";
 import type { ErrorRecord, ConversationMessage } from "./claude/index.js";
-import type { SubmitResponsePayload, ToolCallRecord, ContinuationRecord, ResponseSnapshot, StagedIntent } from "./tools/types.js";
+import type {
+  SubmitResponsePayload,
+  ToolCallRecord,
+  ContinuationRecord,
+  ResponseSnapshot,
+  StagedIntent,
+} from "./tools/types.js";
 import type { SlackImageFile, SlackFile } from "./slack/slackFileBase.js";
 import type { ChangeStatus, TriggerType } from "./changes/types.js";
 import type { ActiveChangeState } from "./changes/activeState.js";
@@ -137,8 +143,7 @@ function getThreadKey(channelId: string, threadTs: string): string {
  * These fields are held in the session cache and don't need to survive restarts.
  */
 function stripRuntimeFields(session: SessionContext): Record<string, unknown> {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { activeChange, threadContext, ...persistable } = session;
+  const { activeChange: _activeChange, threadContext: _threadContext, ...persistable } = session;
   return persistable;
 }
 
@@ -219,7 +224,12 @@ export async function getSession(sessionId: string): Promise<SessionContext | nu
   try {
     const content = await readFile(contextPath, "utf-8");
     const parsed: unknown = JSON.parse(content);
-    if (typeof parsed !== "object" || parsed === null || !("sessionId" in parsed) || !("originalQuestion" in parsed)) {
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      !("sessionId" in parsed) ||
+      !("originalQuestion" in parsed)
+    ) {
       logger.warn(`Corrupt session file ${contextPath}: missing required fields`);
       return null;
     }
@@ -257,11 +267,15 @@ export async function getSession(sessionId: string): Promise<SessionContext | nu
 export async function findSessionByMessage(
   channelId: string,
   messageTs: string,
-  userId: string
+  userId: string,
 ): Promise<SessionContext | null> {
   // Check cache first
   for (const session of sessionCache.values()) {
-    if (session.channelId === channelId && session.messageTs === messageTs && session.userId === userId) {
+    if (
+      session.channelId === channelId &&
+      session.messageTs === messageTs &&
+      session.userId === userId
+    ) {
       return session;
     }
   }
@@ -290,7 +304,7 @@ export async function findSessionByMessage(
 
 export async function findSessionByThread(
   channelId: string,
-  threadTs: string
+  threadTs: string,
 ): Promise<SessionContext | null> {
   // Check thread index first (O(1))
   const key = getThreadKey(channelId, threadTs);
@@ -318,7 +332,7 @@ export async function findSessionByThread(
 
 export async function findSessionByDmThread(
   dmChannel: string,
-  dmThreadTs: string
+  dmThreadTs: string,
 ): Promise<SessionContext | null> {
   // Check cache first
   for (const session of sessionCache.values()) {
@@ -344,7 +358,10 @@ export async function findSessionByDmThread(
   return null;
 }
 
-export async function updateSession(sessionId: string, updates: Partial<SessionContext>): Promise<SessionContext | null> {
+export async function updateSession(
+  sessionId: string,
+  updates: Partial<SessionContext>,
+): Promise<SessionContext | null> {
   const session = await getSession(sessionId);
   if (!session) return null;
 
@@ -368,7 +385,10 @@ export async function updateSession(sessionId: string, updates: Partial<SessionC
   return updated;
 }
 
-export async function addRefinement(sessionId: string, refinement: string): Promise<SessionContext | null> {
+export async function addRefinement(
+  sessionId: string,
+  refinement: string,
+): Promise<SessionContext | null> {
   const session = await getSession(sessionId);
   if (!session) return null;
 
@@ -377,7 +397,10 @@ export async function addRefinement(sessionId: string, refinement: string): Prom
   });
 }
 
-export function updateThreadContext(sessionId: string, threadContext: ThreadMessage[]): Promise<SessionContext | null> {
+export function updateThreadContext(
+  sessionId: string,
+  threadContext: ThreadMessage[],
+): Promise<SessionContext | null> {
   return updateSession(sessionId, { threadContext });
 }
 
@@ -388,7 +411,7 @@ export function setLastAnswer(sessionId: string, answer: string): Promise<Sessio
 export async function addError(
   sessionId: string,
   errorMessage: string,
-  conversationTrace: ConversationMessage[]
+  conversationTrace: ConversationMessage[],
 ): Promise<SessionContext | null> {
   const session = await getSession(sessionId);
   if (!session) return null;
@@ -416,7 +439,10 @@ export function touchSession(sessionId: string): Promise<SessionContext | null> 
  * Resolve a staged intent by session ID and ref key.
  * Returns null if the session or intent doesn't exist.
  */
-export async function getStagedIntent(sessionId: string, ref: string): Promise<StagedIntent | null> {
+export async function getStagedIntent(
+  sessionId: string,
+  ref: string,
+): Promise<StagedIntent | null> {
   const session = await getSession(sessionId);
   if (!session?.stagedIntents?.[ref]) return null;
   return session.stagedIntents[ref];

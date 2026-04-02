@@ -11,17 +11,18 @@ import type { UserRole } from "../roles.js";
 /**
  * Check if changes workflow is enabled for a specific trigger type
  */
-export function isChangesEnabledForTrigger(
-  triggerType: TriggerType,
-  config: Config
-): boolean {
+export function isChangesEnabledForTrigger(triggerType: TriggerType, config: Config): boolean {
   // Global changesWorkflow must be enabled
   if (!config.changesWorkflow?.enabled) {
     return false;
   }
 
   // Auto-respond, scheduled, and thread reply triggers never support changes workflow
-  if (triggerType === "autoRespond" || triggerType === "scheduled" || triggerType === "threadReply") {
+  if (
+    triggerType === "autoRespond" ||
+    triggerType === "scheduled" ||
+    triggerType === "threadReply"
+  ) {
     return false;
   }
 
@@ -35,17 +36,22 @@ export function isChangesEnabledForTrigger(
  */
 export function getChangeEnabledRepos(
   config: Config,
-  role: UserRole = "dev"
+  role: UserRole = "dev",
 ): Array<{ name: string; description: string }> {
-  return getWritableRepos(role, config.repositories)
-    .map((r) => ({ name: r.name, description: r.description }));
+  return getWritableRepos(role, config.repositories).map((r) => ({
+    name: r.name,
+    description: r.description,
+  }));
 }
 
 /**
  * Find the repository the given role can write to.
  * If multiple repos are writable, returns null (Claude will need to determine).
  */
-export function findChangeEnabledRepo(config: Config, role: UserRole = "dev"): RepositoryConfig | null {
+export function findChangeEnabledRepo(
+  config: Config,
+  role: UserRole = "dev",
+): RepositoryConfig | null {
   const enabledRepos = getWritableRepos(role, config.repositories);
 
   if (enabledRepos.length === 1) {
@@ -106,7 +112,7 @@ When uncertain, default to treating it as a question.`;
 export async function detectFollowUpCommand(
   message: string,
   worktreePath: string,
-  repoName: string
+  repoName: string,
 ): Promise<{ isCommand: boolean; info?: FollowUpInfo }> {
   const result = await runClaudeInWorktree(repoName, {
     prompt: `Analyze this message in a change thread and determine the user's intent:\n\n"${message}"`,

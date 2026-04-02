@@ -58,7 +58,14 @@ interface DeliveryContext {
  * Handles streaming, delivery via submit_response, error reporting, and auto-execute.
  */
 export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promise<ClaudeResponse> {
-  const { client, session, sessionInfo, claudeOptions, abortController, silentThinking = false } = params;
+  const {
+    client,
+    session,
+    sessionInfo,
+    claudeOptions,
+    abortController,
+    silentThinking = false,
+  } = params;
 
   // Derive target from sessionInfo (DM-aware)
   const targetChannel = sessionInfo.dmChannel ?? sessionInfo.channelId;
@@ -92,21 +99,24 @@ export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promis
   }
 
   const ctx: DeliveryContext = {
-    client, session, sessionInfo, claudeOptions,
-    streamer, targetChannel, targetThread,
+    client,
+    session,
+    sessionInfo,
+    claudeOptions,
+    streamer,
+    targetChannel,
+    targetThread,
     alreadyDelivered: false,
     startTime: Date.now(),
     silentThinking,
   };
 
-  const deliver = silentThinking
-    ? buildDirectDeliverFn(ctx)
-    : buildDeliverFn(ctx);
+  const deliver = silentThinking ? buildDirectDeliverFn(ctx) : buildDeliverFn(ctx);
 
   try {
     const user = userInfo?.displayName ?? userInfo?.username ?? sessionInfo.userId;
     logger.info(
-      `Calling Claude (user: ${user}, session: ${session.sessionId}, role: ${claudeOptions.role ?? "member"}, changesWorkflow: ${claudeOptions.changesWorkflowEnabled ?? false}${silentThinking ? ", silentThinking" : ""})`
+      `Calling Claude (user: ${user}, session: ${session.sessionId}, role: ${claudeOptions.role ?? "member"}, changesWorkflow: ${claudeOptions.changesWorkflowEnabled ?? false}${silentThinking ? ", silentThinking" : ""})`,
     );
     const response = await askClaude(session, {
       ...claudeOptions,
@@ -222,7 +232,9 @@ function buildDirectDeliverFn(ctx: DeliveryContext): DeliverFn {
  */
 async function sendResponseNotification(ctx: DeliveryContext): Promise<void> {
   const elapsedMs = Date.now() - ctx.startTime;
-  logger.debug(`Response notification check: elapsed ${Math.round(elapsedMs / 1000)}s (threshold: 60s)`);
+  logger.debug(
+    `Response notification check: elapsed ${Math.round(elapsedMs / 1000)}s (threshold: 60s)`,
+  );
   if (elapsedMs < 60_000) return;
 
   if (await getUserPreference(ctx.sessionInfo.userId, "notifyOnResponse")) {
@@ -237,10 +249,7 @@ async function sendResponseNotification(ctx: DeliveryContext): Promise<void> {
 /**
  * Deliver a message via streamer with chat.postMessage fallback.
  */
-async function deliverViaStreamerOrFallback(
-  ctx: DeliveryContext,
-  text: string,
-): Promise<void> {
+async function deliverViaStreamerOrFallback(ctx: DeliveryContext, text: string): Promise<void> {
   if (ctx.streamer) {
     await ctx.streamer.stop({ markdownText: text });
     if (!ctx.streamer.hasFailed) return;
@@ -443,11 +452,6 @@ export async function postResponse(
 /**
  * Build Claude options from session info (role + changes workflow).
  */
-export function getHandlerClaudeOptions(
-  sessionInfo: SessionInfo,
-): Promise<AskClaudeOptions> {
-  return getClaudeOptions(
-    sessionInfo.userId,
-    sessionInfo.triggerType ?? "directMessages",
-  );
+export function getHandlerClaudeOptions(sessionInfo: SessionInfo): Promise<AskClaudeOptions> {
+  return getClaudeOptions(sessionInfo.userId, sessionInfo.triggerType ?? "directMessages");
 }

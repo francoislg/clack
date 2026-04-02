@@ -102,7 +102,10 @@ describe("findSessions tool", () => {
     const ctx = makeCtx();
     const toolDef = createFindSessionsTool(ctx);
 
-    const result = await toolDef.handler({ repo: undefined, branch: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { repo: undefined, branch: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.deepEqual(parsed, []);
@@ -115,7 +118,10 @@ describe("findSessions tool", () => {
     const ctx = makeCtx();
     const toolDef = createFindSessionsTool(ctx);
 
-    const result = await toolDef.handler({ repo: undefined, branch: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { repo: undefined, branch: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed.length, 1);
@@ -135,7 +141,10 @@ describe("findSessions tool", () => {
     const ctx = makeCtx();
     const toolDef = createFindSessionsTool(ctx);
 
-    const result = await toolDef.handler({ repo: undefined, branch: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { repo: undefined, branch: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed.length, 1);
@@ -146,7 +155,10 @@ describe("findSessions tool", () => {
     const session1 = makeSession({ repo: "my-repo" });
     const session2 = makeSession({ repo: "other-repo", branchName: "clack/feat/other" });
     mockGetResumableSessions.mock.mockImplementation(async () => [session1, session2]);
-    mockGetVisibleRepos.mock.mockImplementation(() => [makeRepo(), makeRepo({ name: "other-repo" })]);
+    mockGetVisibleRepos.mock.mockImplementation(() => [
+      makeRepo(),
+      makeRepo({ name: "other-repo" }),
+    ]);
 
     const ctx = makeCtx({
       config: {
@@ -155,7 +167,10 @@ describe("findSessions tool", () => {
     });
     const toolDef = createFindSessionsTool(ctx);
 
-    const result = await toolDef.handler({ repo: "my-repo", branch: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { repo: "my-repo", branch: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed.length, 1);
@@ -170,7 +185,10 @@ describe("findSessions tool", () => {
     const ctx = makeCtx();
     const toolDef = createFindSessionsTool(ctx);
 
-    const result = await toolDef.handler({ repo: undefined, branch: "login" }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { repo: undefined, branch: "login" },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed.length, 1);
@@ -182,7 +200,10 @@ describe("findSessions tool", () => {
     const session2 = makeSession({ repo: "my-repo", branchName: "clack/feat/signup" });
     const session3 = makeSession({ repo: "other-repo", branchName: "clack/fix/login-other" });
     mockGetResumableSessions.mock.mockImplementation(async () => [session1, session2, session3]);
-    mockGetVisibleRepos.mock.mockImplementation(() => [makeRepo(), makeRepo({ name: "other-repo" })]);
+    mockGetVisibleRepos.mock.mockImplementation(() => [
+      makeRepo(),
+      makeRepo({ name: "other-repo" }),
+    ]);
 
     const ctx = makeCtx({
       config: {
@@ -191,7 +212,10 @@ describe("findSessions tool", () => {
     });
     const toolDef = createFindSessionsTool(ctx);
 
-    const result = await toolDef.handler({ repo: "my-repo", branch: "login" }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { repo: "my-repo", branch: "login" },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed.length, 1);
@@ -206,12 +230,22 @@ describe("findSessions tool", () => {
     const ctx = makeCtx();
     const toolDef = createFindSessionsTool(ctx);
 
-    const result = await toolDef.handler({ repo: undefined, branch: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { repo: undefined, branch: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed.length, 1);
     assert.equal(parsed[0].secretField, undefined);
     const keys = Object.keys(parsed[0]);
-    assert.deepEqual(keys.sort(), ["branchName", "description", "lastMessage", "phase", "repo", "startedAt"]);
+    assert.deepEqual(keys.sort(), [
+      "branchName",
+      "description",
+      "lastMessage",
+      "phase",
+      "repo",
+      "startedAt",
+    ]);
   });
 });

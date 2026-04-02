@@ -10,7 +10,6 @@
 import { query, type Options, type SDKMessage, type Query } from "@anthropic-ai/claude-agent-sdk";
 import { logger } from "../logger.js";
 
-
 /* -------------------------------------------------------------------------- */
 /*  clackQuery — ephemeral, no persistence                                    */
 /* -------------------------------------------------------------------------- */
@@ -81,7 +80,7 @@ export function clackSession(params: ClackSessionParams): AsyncIterable<SDKMessa
 
       // Resume failed — fall back to fresh session
       logger.warn(
-        `SDK session resume failed for ${resumeSessionId}: ${error instanceof Error ? error.message : String(error)}. Falling back to fresh session.`
+        `SDK session resume failed for ${resumeSessionId}: ${error instanceof Error ? error.message : String(error)}. Falling back to fresh session.`,
       );
 
       stream = query({
@@ -109,10 +108,7 @@ export function clackSession(params: ClackSessionParams): AsyncIterable<SDKMessa
   return sessionGenerator();
 }
 
-function captureSessionId(
-  message: SDKMessage,
-  onSessionId?: (sessionId: string) => void,
-): void {
+function captureSessionId(message: SDKMessage, onSessionId?: (sessionId: string) => void): void {
   if (
     message.type === "system" &&
     "subtype" in message &&

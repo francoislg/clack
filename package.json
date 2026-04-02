@@ -2,10 +2,12 @@
   "name": "clack",
   "version": "1.0.0",
   "description": "Clack - Slack bot that answers codebase questions using Claude Code",
-  "main": "dist/index.js",
+  "license": "ISC",
+  "author": "",
   "type": "module",
+  "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "start": "node dist/index.js",
     "start:logfile": "mkdir -p logs && node dist/index.js 2>&1 | tee \"logs/clack-$(date +%Y%m%d-%H%M%S).log\"",
     "dev": "tsc --watch & node --watch dist/index.js",
@@ -13,10 +15,12 @@
     "ask": "npx tsx scripts/askClaude.ts",
     "manifest": "npx tsx scripts/generate-manifest.ts",
     "docker-setup": "bash scripts/docker-setup.sh",
-    "deploy:gce": "bash scripts/gce-deploy.sh"
+    "deploy:gce": "bash scripts/gce-deploy.sh",
+    "lint": "oxlint --deny-warnings src/",
+    "lint:fix": "oxlint --fix --deny-warnings src/",
+    "format": "oxfmt src/",
+    "format:check": "oxfmt --check src/"
   },
-  "author": "",
-  "license": "ISC",
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.7",
     "@octokit/auth-app": "^8.2.0",
@@ -31,6 +35,9 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "lefthook": "^2.1.4",
+    "oxfmt": "^0.43.0",
+    "oxlint": "^1.58.0",
     "tsx": "^4.21.0",
     "typescript": "^5.7.0"
   },

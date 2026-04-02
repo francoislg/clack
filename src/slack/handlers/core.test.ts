@@ -11,11 +11,11 @@ import type { ProcessMessageParams } from "./core.js";
 const mockFindSessionByThread = mock.fn<(...args: unknown[]) => Promise<SessionContext | null>>(
   async () => null,
 );
-const mockCreateSession = mock.fn<(...args: unknown[]) => Promise<SessionContext>>(
-  async () => makeSession(),
+const mockCreateSession = mock.fn<(...args: unknown[]) => Promise<SessionContext>>(async () =>
+  makeSession(),
 );
-const mockGetSession = mock.fn<(...args: unknown[]) => Promise<SessionContext | null>>(
-  async () => makeSession(),
+const mockGetSession = mock.fn<(...args: unknown[]) => Promise<SessionContext | null>>(async () =>
+  makeSession(),
 );
 const mockUpdateSession = mock.fn<(...args: unknown[]) => Promise<SessionContext | null>>(
   async () => makeSession(),
@@ -61,19 +61,19 @@ mock.module("../activeSessions.js", {
   namedExports: { activeSessions: { set: mockSetSessionInfo } },
 });
 
-const mockFetchThreadContext = mock.fn<(...args: unknown[]) => Promise<unknown[]>>(
-  async () => [],
-);
+const mockFetchThreadContext = mock.fn<(...args: unknown[]) => Promise<unknown[]>>(async () => []);
 
 mock.module("../messagesApi.js", {
   namedExports: { fetchThreadContext: mockFetchThreadContext },
 });
 
-const mockTransformUserMentions = mock.fn(
-  async (...args: unknown[]) => String(args[1]),
-);
+const mockTransformUserMentions = mock.fn(async (...args: unknown[]) => String(args[1]));
 
-const mockGetUserInfo = mock.fn(async () => ({ userId: "U001", username: "testuser", displayName: "Test User" }));
+const mockGetUserInfo = mock.fn(async () => ({
+  userId: "U001",
+  username: "testuser",
+  displayName: "Test User",
+}));
 
 mock.module("../userCache.js", {
   namedExports: { transformUserMentions: mockTransformUserMentions, getUserInfo: mockGetUserInfo },
@@ -112,9 +112,10 @@ mock.module("../dmResponse.js", {
   namedExports: { storeDmCoordinates: mockStoreDmCoordinates },
 });
 
-const mockExecuteAndDeliver = mock.fn<(...args: unknown[]) => Promise<unknown>>(
-  async () => ({ success: true, answer: "test" }),
-);
+const mockExecuteAndDeliver = mock.fn<(...args: unknown[]) => Promise<unknown>>(async () => ({
+  success: true,
+  answer: "test",
+}));
 
 mock.module("./handlerResponse.js", {
   namedExports: { executeAndDeliver: mockExecuteAndDeliver },
@@ -328,10 +329,9 @@ describe("processMessage — in-flight request registration", () => {
       throw new Error("executeAndDeliver failed");
     });
 
-    await assert.rejects(
-      () => processMessage(makeParams({ triggerType: "mentions" })),
-      { message: "executeAndDeliver failed" },
-    );
+    await assert.rejects(() => processMessage(makeParams({ triggerType: "mentions" })), {
+      message: "executeAndDeliver failed",
+    });
 
     assert.equal(mockDeregisterInFlightRequest.mock.callCount(), 1);
     assert.equal(mockDeregisterInFlightRequest.mock.calls[0].arguments[0], "C001");
@@ -343,10 +343,9 @@ describe("processMessage — in-flight request registration", () => {
       throw new Error("boom");
     });
 
-    await assert.rejects(
-      () => processMessage(makeParams({ triggerType: "reactions" })),
-      { message: "boom" },
-    );
+    await assert.rejects(() => processMessage(makeParams({ triggerType: "reactions" })), {
+      message: "boom",
+    });
 
     assert.equal(mockDeregisterInFlightRequest.mock.callCount(), 0);
   });

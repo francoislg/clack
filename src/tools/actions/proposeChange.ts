@@ -13,7 +13,7 @@ const BRANCH_TYPES = ["fix", "feat", "refactor", "docs", "chore"];
 export function createProposeChangeTool(
   ctx: QueryToolContext,
   intentStore: IntentStore,
-  recorder: ToolCallRecorder
+  recorder: ToolCallRecorder,
 ) {
   return tool(
     "propose_change",
@@ -22,7 +22,7 @@ export function createProposeChangeTool(
       branch: z
         .string()
         .describe(
-          `Branch name following convention: clack/{type}/{name} where type is one of: ${BRANCH_TYPES.join(", ")}`
+          `Branch name following convention: clack/{type}/{name} where type is one of: ${BRANCH_TYPES.join(", ")}`,
         ),
       description: z.string().describe("Brief description of the change to make"),
       repo: z.string().describe("Repository name to make the change in"),
@@ -47,7 +47,9 @@ export function createProposeChangeTool(
       }
 
       if (!canWriteRepo(ctx.role, repo)) {
-        const writableRepos = getWritableRepos(ctx.role, ctx.config.repositories).map((r) => r.name);
+        const writableRepos = getWritableRepos(ctx.role, ctx.config.repositories).map(
+          (r) => r.name,
+        );
         const errMsg = `You do not have write access to "${args.repo}".${writableRepos.length > 0 ? ` Repos you can change: ${writableRepos.join(", ")}` : " No repos have change support for your role."}`;
         recorder.record("propose_change", argsRecord, { error: errMsg });
         return errorResult(errMsg);
@@ -84,6 +86,6 @@ export function createProposeChangeTool(
       recorder.record("propose_change", argsRecord, result);
 
       return textResult(result);
-    }
+    },
   );
 }

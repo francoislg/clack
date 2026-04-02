@@ -67,7 +67,7 @@ export async function savePreferences(prefs: PreferencesMap): Promise<void> {
 
 export async function getUserPreference<K extends keyof UserPreferences>(
   userId: string,
-  key: K
+  key: K,
 ): Promise<UserPreferences[K]> {
   const prefs = await loadPreferences();
   const userPrefs = prefs[userId];
@@ -80,7 +80,7 @@ export async function getUserPreference<K extends keyof UserPreferences>(
 export async function setUserPreference<K extends keyof UserPreferences>(
   userId: string,
   key: K,
-  value: UserPreferences[K]
+  value: UserPreferences[K],
 ): Promise<void> {
   const prefs = await loadPreferences();
   if (!prefs[userId]) {

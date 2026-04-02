@@ -37,7 +37,17 @@ ${text}`;
         executable: detectRuntime(),
         model: "haiku",
         permissionMode: "bypassPermissions",
-        disallowedTools: ["Write", "Edit", "NotebookEdit", "Bash", "Task", "TaskOutput", "Read", "Glob", "Grep"],
+        disallowedTools: [
+          "Write",
+          "Edit",
+          "NotebookEdit",
+          "Bash",
+          "Task",
+          "TaskOutput",
+          "Read",
+          "Glob",
+          "Grep",
+        ],
         maxTurns: 1,
       },
     })) {
@@ -70,7 +80,7 @@ ${text}`;
  */
 export async function analyzeError(
   errorMessage: string,
-  conversationTrace: ConversationMessage[]
+  conversationTrace: ConversationMessage[],
 ): Promise<string> {
   // Format trace for analysis (last 10 messages)
   const recentTrace = conversationTrace.slice(-10);
@@ -107,7 +117,17 @@ Provide a concise, non-technical explanation suitable for a user who encountered
         executable: detectRuntime(),
         model: "haiku", // Use fast, cheap model for analysis
         permissionMode: "bypassPermissions",
-        disallowedTools: ["Write", "Edit", "NotebookEdit", "Bash", "Task", "TaskOutput", "Read", "Glob", "Grep"],
+        disallowedTools: [
+          "Write",
+          "Edit",
+          "NotebookEdit",
+          "Bash",
+          "Task",
+          "TaskOutput",
+          "Read",
+          "Glob",
+          "Grep",
+        ],
         maxTurns: 1,
       },
     })) {

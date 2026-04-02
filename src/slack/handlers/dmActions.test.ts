@@ -9,10 +9,16 @@ import type { SessionInfo } from "../activeSessions.js";
 // ============================================================================
 
 const mockGetSession = mock.fn<(id: string) => Promise<SessionContext | null>>(async () => null);
-const mockUpdateSession = mock.fn<(id: string, updates: Partial<SessionContext>) => Promise<SessionContext | null>>(async () => null);
-const mockSetLastAnswer = mock.fn<(id: string, answer: string) => Promise<SessionContext | null>>(async () => null);
+const mockUpdateSession = mock.fn<
+  (id: string, updates: Partial<SessionContext>) => Promise<SessionContext | null>
+>(async () => null);
+const mockSetLastAnswer = mock.fn<(id: string, answer: string) => Promise<SessionContext | null>>(
+  async () => null,
+);
 
-const mockRestoreSessionInfo = mock.fn<(id: string) => Promise<SessionInfo | undefined>>(async () => undefined);
+const mockRestoreSessionInfo = mock.fn<(id: string) => Promise<SessionInfo | undefined>>(
+  async () => undefined,
+);
 const mockSetSessionInfo = mock.fn<(id: string, info: SessionInfo) => void>();
 
 mock.module("../../sessions.js", {
@@ -48,7 +54,9 @@ mock.module("../blocks.js", {
       }
       return { sessionId: value };
     },
-    getAcceptedBlocks: (answer: string) => [{ type: "section", text: { type: "mrkdwn", text: answer } }],
+    getAcceptedBlocks: (answer: string) => [
+      { type: "section", text: { type: "mrkdwn", text: answer } },
+    ],
     getStructuredAcceptedBlocks: (sections: Array<{ title?: string; body: string }>) =>
       sections.map((s) => ({ type: "section", text: { type: "mrkdwn", text: s.body } })),
     asSlackBlocks: (blocks: unknown[]) => blocks,
@@ -140,8 +148,16 @@ function makeSessionInfo(overrides: Partial<SessionInfo> = {}): SessionInfo {
  * Capture registered action/view handlers by calling registerDmActionHandlers
  * with a fake App. Returns a map of actionId -> handler.
  */
-type ActionHandler = (ctx: { ack: () => Promise<void>; body: BlockAction; client: App["client"] }) => Promise<void>;
-type ViewHandler = (ctx: { ack: () => Promise<void>; view: ViewSubmitAction["view"]; client: App["client"] }) => Promise<void>;
+type ActionHandler = (ctx: {
+  ack: () => Promise<void>;
+  body: BlockAction;
+  client: App["client"];
+}) => Promise<void>;
+type ViewHandler = (ctx: {
+  ack: () => Promise<void>;
+  view: ViewSubmitAction["view"];
+  client: App["client"];
+}) => Promise<void>;
 
 function captureHandlers() {
   const actionHandlers = new Map<string | RegExp, ActionHandler>();
@@ -149,7 +165,10 @@ function captureHandlers() {
 
   const fakeApp = {
     action: mock.fn((actionIdOrPattern: string | RegExp, handler: ActionHandler) => {
-      actionHandlers.set(actionIdOrPattern instanceof RegExp ? actionIdOrPattern : actionIdOrPattern, handler);
+      actionHandlers.set(
+        actionIdOrPattern instanceof RegExp ? actionIdOrPattern : actionIdOrPattern,
+        handler,
+      );
     }),
     view: mock.fn((callbackId: string, handler: ViewHandler) => {
       viewHandlers.set(callbackId, handler);
@@ -161,7 +180,10 @@ function captureHandlers() {
   return { actionHandlers, viewHandlers };
 }
 
-function findHandler(handlers: Map<string | RegExp, ActionHandler>, actionId: string): ActionHandler {
+function findHandler(
+  handlers: Map<string | RegExp, ActionHandler>,
+  actionId: string,
+): ActionHandler {
   // Try exact match first
   const exact = handlers.get(actionId);
   if (exact) return exact;
@@ -173,7 +195,11 @@ function findHandler(handlers: Map<string | RegExp, ActionHandler>, actionId: st
   throw new Error(`No handler found for action: ${actionId}`);
 }
 
-function makeBlockAction(actionId: string, value: string, overrides: Partial<BlockAction> = {}): BlockAction {
+function makeBlockAction(
+  actionId: string,
+  value: string,
+  overrides: Partial<BlockAction> = {},
+): BlockAction {
   return {
     type: "block_actions",
     trigger_id: "trigger-123",
@@ -212,7 +238,9 @@ describe("registerDmActionHandlers — registration", () => {
     assert.ok(hasRegex, "should register a regex handler for clack_post_to_N");
 
     // Backward compat: old action ID still registered
-    const hasOldRegex = actionKeys.some((k) => k instanceof RegExp && k.test("clack_dm_send_to_thread_0"));
+    const hasOldRegex = actionKeys.some(
+      (k) => k instanceof RegExp && k.test("clack_dm_send_to_thread_0"),
+    );
     assert.ok(hasOldRegex, "should register backward compat handler for clack_dm_send_to_thread_N");
 
     // Check string-based handlers
@@ -318,7 +346,10 @@ describe("handlePostTo", () => {
         "snap-1": { text: "the answer", sections: [{ body: "the answer" }] },
       },
     });
-    const sessionInfo = makeSessionInfo({ originChannel: "C_ORIGIN_CHAN", originThreadTs: "17.orig" });
+    const sessionInfo = makeSessionInfo({
+      originChannel: "C_ORIGIN_CHAN",
+      originThreadTs: "17.orig",
+    });
     mockGetSession.mock.mockImplementation(async () => session);
     mockRestoreSessionInfo.mock.mockImplementation(async () => sessionInfo);
 
@@ -379,7 +410,10 @@ describe("handlePostTo", () => {
     await handler({ ack: async () => {}, body, client });
 
     // Second postMessage call is the DM confirmation
-    const confirmArgs = mockPostMessage(client).mock.calls[1].arguments[0] as Record<string, unknown>;
+    const confirmArgs = mockPostMessage(client).mock.calls[1].arguments[0] as Record<
+      string,
+      unknown
+    >;
     assert.equal(confirmArgs.channel, "D_DM");
     assert.equal(confirmArgs.thread_ts, "17.dm");
     assert.ok((confirmArgs.text as string).includes("shared"));
@@ -518,7 +552,10 @@ describe("handleAcceptSynthesis", () => {
 
     await handler({ ack: async () => {}, body, client });
 
-    const confirmArgs = mockPostMessage(client).mock.calls[1].arguments[0] as Record<string, unknown>;
+    const confirmArgs = mockPostMessage(client).mock.calls[1].arguments[0] as Record<
+      string,
+      unknown
+    >;
     assert.equal(confirmArgs.channel, "D_DM");
     assert.ok((confirmArgs.text as string).includes("posted to the channel"));
   });
@@ -719,7 +756,10 @@ describe("handleEditSynthesisSubmit", () => {
     await viewHandler({ ack: async () => {}, view, client });
 
     // Second call is DM confirmation
-    const confirmArgs = mockPostMessage(client).mock.calls[1].arguments[0] as Record<string, unknown>;
+    const confirmArgs = mockPostMessage(client).mock.calls[1].arguments[0] as Record<
+      string,
+      unknown
+    >;
     assert.equal(confirmArgs.channel, "D_DM");
     assert.ok((confirmArgs.text as string).includes("Edited answer posted"));
   });
@@ -890,7 +930,10 @@ describe("handleUpdatePost", () => {
 
     await handler({ ack: async () => {}, body, client });
 
-    const confirmArgs = mockPostMessage(client).mock.calls[0].arguments[0] as Record<string, unknown>;
+    const confirmArgs = mockPostMessage(client).mock.calls[0].arguments[0] as Record<
+      string,
+      unknown
+    >;
     assert.equal(confirmArgs.channel, "D_DM");
     assert.ok((confirmArgs.text as string).includes("updated"));
   });
@@ -1015,7 +1058,10 @@ describe("handlePostNew", () => {
 
     await handler({ ack: async () => {}, body, client });
 
-    const confirmArgs = mockPostMessage(client).mock.calls[1].arguments[0] as Record<string, unknown>;
+    const confirmArgs = mockPostMessage(client).mock.calls[1].arguments[0] as Record<
+      string,
+      unknown
+    >;
     assert.equal(confirmArgs.channel, "D_DM");
     assert.ok((confirmArgs.text as string).includes("New reply posted"));
   });

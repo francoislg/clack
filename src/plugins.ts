@@ -47,8 +47,8 @@ export function discoverPluginInfo(): PluginInfo[] {
       } else {
         const skillsDir = join(entryPath, "skills");
         if (existsSync(skillsDir)) {
-          skillCount = readdirSync(skillsDir).filter(
-            (s) => statSync(join(skillsDir, s)).isDirectory()
+          skillCount = readdirSync(skillsDir).filter((s) =>
+            statSync(join(skillsDir, s)).isDirectory(),
           ).length;
         }
       }

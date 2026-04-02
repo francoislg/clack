@@ -9,9 +9,10 @@ import type { SessionInfo } from "../activeSessions.js";
 // Mocks — set up before importing the module under test
 // ============================================================================
 
-const mockAskClaude = mock.fn<(...args: unknown[]) => Promise<ClaudeResponse>>(
-  async () => ({ success: true, answer: "test answer" }),
-);
+const mockAskClaude = mock.fn<(...args: unknown[]) => Promise<ClaudeResponse>>(async () => ({
+  success: true,
+  answer: "test answer",
+}));
 
 const mockSetLastAnswer = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
 const mockUpdateSession = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
@@ -21,7 +22,9 @@ const mockGetErrorBlocksWithRetry = mock.fn(() => [{ type: "section" }]);
 const mockAsSlackBlocks = mock.fn((blocks: unknown) => blocks);
 
 const mockSendErrorReport = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
-const mockAnalyzeError = mock.fn<(...args: unknown[]) => Promise<string>>(async () => "error analysis");
+const mockAnalyzeError = mock.fn<(...args: unknown[]) => Promise<string>>(
+  async () => "error analysis",
+);
 
 const mockGetConfig = mock.fn(() => ({
   slack: { sendErrorsAsDM: false },
@@ -43,7 +46,11 @@ let mockStreamerStop: ReturnType<typeof mock.fn>;
 let mockStreamerHandleEvent: ReturnType<typeof mock.fn>;
 let mockStreamerGetMessageTs: ReturnType<typeof mock.fn>;
 
-function resetStreamerInstance(overrides?: { hasFailed?: boolean; startReturns?: boolean; messageTs?: string }) {
+function resetStreamerInstance(overrides?: {
+  hasFailed?: boolean;
+  startReturns?: boolean;
+  messageTs?: string;
+}) {
   streamerHasFailed = overrides?.hasFailed ?? false;
   streamerMessageTs = overrides?.messageTs;
   mockStreamerStart = mock.fn(async () => overrides?.startReturns ?? true);
@@ -106,11 +113,21 @@ mock.module("./autoExecute.js", {
 mock.module("../../streaming/slackStreamer.js", {
   namedExports: {
     SlackStreamer: class MockSlackStreamer {
-      start(...args: unknown[]) { return mockStreamerStart(...args); }
-      stop(...args: unknown[]) { return mockStreamerStop(...args); }
-      handleEvent(...args: unknown[]) { return mockStreamerHandleEvent(...args); }
-      getMessageTs() { return mockStreamerGetMessageTs(); }
-      get hasFailed() { return streamerHasFailed; }
+      start(...args: unknown[]) {
+        return mockStreamerStart(...args);
+      }
+      stop(...args: unknown[]) {
+        return mockStreamerStop(...args);
+      }
+      handleEvent(...args: unknown[]) {
+        return mockStreamerHandleEvent(...args);
+      }
+      getMessageTs() {
+        return mockStreamerGetMessageTs();
+      }
+      get hasFailed() {
+        return streamerHasFailed;
+      }
     },
   },
 });
@@ -134,8 +151,7 @@ mock.module("../../logger.js", {
 
 mock.module("../../errors.js", {
   namedExports: {
-    errorMessage: (error: unknown) =>
-      error instanceof Error ? error.message : String(error),
+    errorMessage: (error: unknown) => (error instanceof Error ? error.message : String(error)),
   },
 });
 
@@ -461,7 +477,10 @@ describe("executeAndDeliver — success handling", () => {
     const stopCalls = mockStreamerStop.mock.calls;
     // At least one stop call should have markdownText
     const deliveryStopCall = stopCalls.find(
-      (c: { arguments: unknown[] }) => c.arguments[0] && typeof c.arguments[0] === "object" && "markdownText" in (c.arguments[0] as Record<string, unknown>),
+      (c: { arguments: unknown[] }) =>
+        c.arguments[0] &&
+        typeof c.arguments[0] === "object" &&
+        "markdownText" in (c.arguments[0] as Record<string, unknown>),
     );
     assert.ok(deliveryStopCall, "streamer.stop should be called with markdownText");
     assert.equal(
@@ -830,9 +849,8 @@ describe("executeAndDeliver — response notification", () => {
 
     const postMessage = getPostMessageMock(client);
     // Should have posted a notification
-    const notifCall = postMessage.mock.calls.find(
-      (c: { arguments: unknown[] }) =>
-        (c.arguments[0] as { text: string }).text.includes("Response ready"),
+    const notifCall = postMessage.mock.calls.find((c: { arguments: unknown[] }) =>
+      (c.arguments[0] as { text: string }).text.includes("Response ready"),
     );
     assert.ok(notifCall, "should post notification message");
   });
@@ -857,9 +875,8 @@ describe("executeAndDeliver — response notification", () => {
     });
 
     const postMessage = getPostMessageMock(client);
-    const notifCall = postMessage.mock.calls.find(
-      (c: { arguments: unknown[] }) =>
-        (c.arguments[0] as { text: string }).text.includes("Response ready"),
+    const notifCall = postMessage.mock.calls.find((c: { arguments: unknown[] }) =>
+      (c.arguments[0] as { text: string }).text.includes("Response ready"),
     );
     assert.equal(notifCall, undefined, "should not post notification message");
   });
@@ -873,7 +890,9 @@ describe("executeAndDeliver — deliver function", () => {
   it("prevents double delivery", async () => {
     mockAskClaude.mock.mockImplementation(async (...args: unknown[]) => {
       const opts = args[1] as Record<string, unknown>;
-      const deliver = opts.deliver as (opts: { markdownText: string }) => Promise<{ ok: boolean; error?: string }>;
+      const deliver = opts.deliver as (opts: {
+        markdownText: string;
+      }) => Promise<{ ok: boolean; error?: string }>;
       await deliver({ markdownText: "first" });
       await deliver({ markdownText: "second" });
       return { success: true, answer: "done" };
@@ -947,7 +966,9 @@ describe("executeAndDeliver — deliver function", () => {
 
     mockAskClaude.mock.mockImplementation(async (...args: unknown[]) => {
       const opts = args[1] as Record<string, unknown>;
-      const deliver = opts.deliver as (opts: { markdownText: string }) => Promise<{ ok: boolean; error?: string }>;
+      const deliver = opts.deliver as (opts: {
+        markdownText: string;
+      }) => Promise<{ ok: boolean; error?: string }>;
       deliverResult = await deliver({ markdownText: "will fail" });
       return { success: true, answer: "done" };
     });
@@ -1009,9 +1030,14 @@ describe("postResponse", () => {
   it("includes blocks when provided", async () => {
     const client = makeClient();
     const sessionInfo = makeSessionInfo();
-    const blocks = [{ type: "section" as const, text: { type: "mrkdwn" as const, text: "block text" } }];
+    const blocks = [
+      { type: "section" as const, text: { type: "mrkdwn" as const, text: "block text" } },
+    ];
 
-    await postResponse(client, sessionInfo, { text: "fallback", blocks: blocks as unknown[] as import("../blocks.js").SlackBlocks });
+    await postResponse(client, sessionInfo, {
+      text: "fallback",
+      blocks: blocks as unknown[] as import("../blocks.js").SlackBlocks,
+    });
 
     const postMessage = getPostMessageMock(client);
     const call = postMessage.mock.calls[0].arguments[0] as { blocks?: unknown[] };
@@ -1148,7 +1174,8 @@ describe("silentThinking mode", () => {
       assert.equal(response.skipped, true);
 
       // chat.delete should have been called with the streamer's ts
-      const deleteCall = (client.chat.delete as unknown as ReturnType<typeof mock.fn>).mock.calls[0];
+      const deleteCall = (client.chat.delete as unknown as ReturnType<typeof mock.fn>).mock
+        .calls[0];
       assert.ok(deleteCall);
       assert.deepStrictEqual(deleteCall.arguments[0], { channel: "C001", ts: "1234.5678" });
 
@@ -1175,7 +1202,10 @@ describe("silentThinking mode", () => {
 
       assert.equal(response.skipped, true);
       // chat.delete should NOT have been called
-      assert.equal((client.chat.delete as unknown as ReturnType<typeof mock.fn>).mock.callCount(), 0);
+      assert.equal(
+        (client.chat.delete as unknown as ReturnType<typeof mock.fn>).mock.callCount(),
+        0,
+      );
     });
   });
 });

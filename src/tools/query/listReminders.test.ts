@@ -24,18 +24,21 @@ function makeSlackClient(listResult?: unknown) {
   return {
     chat: {
       scheduledMessages: {
-        list: mock.fn(async () => listResult ?? {
-          ok: true,
-          scheduled_messages: [
-            {
-              id: "Q123",
-              channel_id: "C_OPS",
-              post_at: 1743523200,
-              date_created: 1743436800,
-              text: "🔔 Reminder from <@U123>:\nCheck the dashboard",
+        list: mock.fn(
+          async () =>
+            listResult ?? {
+              ok: true,
+              scheduled_messages: [
+                {
+                  id: "Q123",
+                  channel_id: "C_OPS",
+                  post_at: 1743523200,
+                  date_created: 1743436800,
+                  text: "🔔 Reminder from <@U123>:\nCheck the dashboard",
+                },
+              ],
             },
-          ],
-        }),
+        ),
       },
     },
   } as unknown as QueryToolContext["slackClient"];

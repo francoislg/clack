@@ -23,16 +23,22 @@ function makeContext(overrides?: Partial<QueryToolContext>): QueryToolContext {
 function makeSlackClient(scheduleResult?: unknown, listResult?: unknown) {
   return {
     chat: {
-      scheduleMessage: mock.fn(async () => scheduleResult ?? {
-        ok: true,
-        scheduled_message_id: "Q1234567890",
-      }),
+      scheduleMessage: mock.fn(
+        async () =>
+          scheduleResult ?? {
+            ok: true,
+            scheduled_message_id: "Q1234567890",
+          },
+      ),
     },
     conversations: {
-      list: mock.fn(async () => listResult ?? {
-        ok: true,
-        channels: [{ id: "C_OPS", name: "ops" }],
-      }),
+      list: mock.fn(
+        async () =>
+          listResult ?? {
+            ok: true,
+            channels: [{ id: "C_OPS", name: "ops" }],
+          },
+      ),
     },
   } as unknown as QueryToolContext["slackClient"];
 }
@@ -116,7 +122,9 @@ describe("createScheduleReminderTool", () => {
   });
 
   it("returns error for time_in_past", async () => {
-    const scheduleMsg = mock.fn(async () => { throw new Error("time_in_past"); });
+    const scheduleMsg = mock.fn(async () => {
+      throw new Error("time_in_past");
+    });
     const client = {
       chat: { scheduleMessage: scheduleMsg },
       conversations: { list: mock.fn(async () => ({ ok: true, channels: [] })) },
@@ -132,7 +140,9 @@ describe("createScheduleReminderTool", () => {
   });
 
   it("returns error for time_too_far", async () => {
-    const scheduleMsg = mock.fn(async () => { throw new Error("time_too_far"); });
+    const scheduleMsg = mock.fn(async () => {
+      throw new Error("time_too_far");
+    });
     const client = {
       chat: { scheduleMessage: scheduleMsg },
       conversations: { list: mock.fn(async () => ({ ok: true, channels: [] })) },

@@ -30,10 +30,7 @@ describe("formatUserIdentity", () => {
       username: "jdoe",
       displayName: "Jane Doe",
     };
-    assert.equal(
-      formatUserIdentity("U123", info),
-      "[Jane Doe (@jdoe - ID: U123)]"
-    );
+    assert.equal(formatUserIdentity("U123", info), "[Jane Doe (@jdoe - ID: U123)]");
   });
 
   it("formats with displayName only", () => {
@@ -59,7 +56,7 @@ describe("formatUserIdentity", () => {
 
 function makeClient(
   users: Record<string, { name?: string; display_name?: string; real_name?: string; tz?: string }>,
-  bots: Record<string, { name?: string }> = {}
+  bots: Record<string, { name?: string }> = {},
 ): App["client"] {
   return {
     users: {
@@ -223,10 +220,7 @@ describe("transformUserMentions", () => {
     const client = makeClient({
       U123: { name: "alice", display_name: "Alice" },
     });
-    const result = await transformUserMentions(
-      client,
-      "Hey <@U123>, how are you?"
-    );
+    const result = await transformUserMentions(client, "Hey <@U123>, how are you?");
     assert.equal(result, "Hey [Alice (@alice - ID: U123)], how are you?");
   });
 
@@ -235,10 +229,7 @@ describe("transformUserMentions", () => {
       U001: { name: "alice", display_name: "Alice" },
       U002: { name: "bob", display_name: "Bob" },
     });
-    const result = await transformUserMentions(
-      client,
-      "<@U001> and <@U002> are here"
-    );
+    const result = await transformUserMentions(client, "<@U001> and <@U002> are here");
     assert.ok(result.includes("[Alice (@alice - ID: U001)]"));
     assert.ok(result.includes("[Bob (@bob - ID: U002)]"));
   });
@@ -254,9 +245,6 @@ describe("transformUserMentions", () => {
       W123: { name: "enterprise_user", display_name: "Enterprise User" },
     });
     const result = await transformUserMentions(client, "ask <@W123>");
-    assert.equal(
-      result,
-      "ask [Enterprise User (@enterprise_user - ID: W123)]"
-    );
+    assert.equal(result, "ask [Enterprise User (@enterprise_user - ID: W123)]");
   });
 });

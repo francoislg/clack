@@ -86,8 +86,16 @@ function asyncIterableOf<T>(items: T[]): AsyncIterable<T> {
 /** Minimal config object for tests */
 function fakeConfig() {
   return {
-    repositories: [{ name: "test-repo", url: "https://github.com/org/test.git", description: "Test" }],
-    slack: { botToken: "xoxb-test", appToken: "xapp-test", signingSecret: "secret", fetchAndStoreUsername: false, sendErrorsAsDM: false },
+    repositories: [
+      { name: "test-repo", url: "https://github.com/org/test.git", description: "Test" },
+    ],
+    slack: {
+      botToken: "xoxb-test",
+      appToken: "xapp-test",
+      signingSecret: "secret",
+      fetchAndStoreUsername: false,
+      sendErrorsAsDM: false,
+    },
     reactions: { trigger: "robot_face" },
     directMessages: { enabled: false },
     mentions: { enabled: false },
@@ -219,7 +227,7 @@ describe("testMCP", () => {
               { name: "clack", status: "connected" },
             ],
           },
-        ])
+        ]),
       );
 
       const result = await testMCP();
@@ -250,15 +258,12 @@ describe("testMCP", () => {
               { name: "clack", status: "connected" },
             ],
           },
-        ])
+        ]),
       );
 
       const result = await testMCP();
 
-      assert.deepEqual(result.mcpTools, [
-        "mcp__github__create_issue",
-        "mcp__github__list_prs",
-      ]);
+      assert.deepEqual(result.mcpTools, ["mcp__github__create_issue", "mcp__github__list_prs"]);
       assert.deepEqual(result.clackTools, [
         "mcp__clack__list_repositories",
         "mcp__clack__submit_response",
@@ -277,18 +282,14 @@ describe("testMCP", () => {
               { name: "clack", status: "connected" },
             ],
           },
-        ])
+        ]),
       );
 
       const result = await testMCP();
 
       assert.equal(result.success, true);
-      assert.deepEqual(result.connectedServers, [
-        { name: "clack", status: "connected" },
-      ]);
-      assert.deepEqual(result.failedServers, [
-        { name: "github", status: "error" },
-      ]);
+      assert.deepEqual(result.connectedServers, [{ name: "clack", status: "connected" }]);
+      assert.deepEqual(result.failedServers, [{ name: "github", status: "error" }]);
     });
 
     it("handles init message with no tools or mcp_servers fields", async () => {
@@ -299,7 +300,7 @@ describe("testMCP", () => {
             subtype: "init",
             // tools and mcp_servers omitted
           },
-        ])
+        ]),
       );
 
       const result = await testMCP();
@@ -325,7 +326,7 @@ describe("testMCP", () => {
             tools: ["mcp__github__list_prs"],
             mcp_servers: [{ name: "github", status: "connected" }],
           },
-        ])
+        ]),
       );
 
       const result = await testMCP();
@@ -340,15 +341,10 @@ describe("testMCP", () => {
           {
             type: "system",
             subtype: "init",
-            tools: [
-              "mcp__github__create_issue",
-              "mcp__clack__submit_response",
-              "Read",
-              "Write",
-            ],
+            tools: ["mcp__github__create_issue", "mcp__clack__submit_response", "Read", "Write"],
             mcp_servers: [],
           },
-        ])
+        ]),
       );
 
       const result = await testMCP();
@@ -527,7 +523,7 @@ describe("testMCP", () => {
               { name: "clack", status: "connected" },
             ],
           },
-        ])
+        ]),
       );
 
       const result = await testMCP();
@@ -535,10 +531,7 @@ describe("testMCP", () => {
       assert.equal(result.success, true);
       assert.deepEqual(result.configuredServers, ["github", "linear"]);
       assert.equal(result.connectedServers.length, 3);
-      assert.deepEqual(result.mcpTools, [
-        "mcp__github__create_issue",
-        "mcp__linear__list_issues",
-      ]);
+      assert.deepEqual(result.mcpTools, ["mcp__github__create_issue", "mcp__linear__list_issues"]);
     });
   });
 });

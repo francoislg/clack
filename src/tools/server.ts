@@ -251,19 +251,21 @@ function buildQueryTools(ctx: QueryToolContext): ClackToolsResult {
     await updateSession(ctx.session.sessionId, { snapshots });
   };
   const triggerType = ctx.session.triggerType;
-  tools.push(createSubmitResponseTool({
-    intentStore,
-    responseCapture,
-    recorder,
-    sessionId: ctx.session.sessionId,
-    deliver: ctx.deliver,
-    persistSnapshot,
-    // In scheduled mode, submit_response delivers top-level to the channel.
-    // Pass the channel so post_to validation can reject duplicates.
-    topLevelDeliveryChannel: triggerType === "scheduled" ? ctx.session.channelId : undefined,
-    // Skip is only available for auto-respond and thread-reply triggers
-    allowSkip: triggerType === "autoRespond" || triggerType === "threadReply",
-  }));
+  tools.push(
+    createSubmitResponseTool({
+      intentStore,
+      responseCapture,
+      recorder,
+      sessionId: ctx.session.sessionId,
+      deliver: ctx.deliver,
+      persistSnapshot,
+      // In scheduled mode, submit_response delivers top-level to the channel.
+      // Pass the channel so post_to validation can reject duplicates.
+      topLevelDeliveryChannel: triggerType === "scheduled" ? ctx.session.channelId : undefined,
+      // Skip is only available for auto-respond and thread-reply triggers
+      allowSkip: triggerType === "autoRespond" || triggerType === "threadReply",
+    }),
+  );
 
   const toolNames = tools.map((t) => t.name);
 

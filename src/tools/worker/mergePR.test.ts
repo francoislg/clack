@@ -37,8 +37,7 @@ mock.module("./prHelpers.js", {
 
 mock.module("../../errors.js", {
   namedExports: {
-    errorMessage: (err: unknown) =>
-      err instanceof Error ? err.message : String(err),
+    errorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
   },
 });
 
@@ -165,7 +164,9 @@ describe("mergePR tool", () => {
 
     // Verify merge was called correctly
     assert.equal(mockMerge.mock.callCount(), 1);
-    const mergeArgs = (mockMerge.mock.calls[0].arguments as unknown as [Record<string, unknown>])[0];
+    const mergeArgs = (
+      mockMerge.mock.calls[0].arguments as unknown as [Record<string, unknown>]
+    )[0];
     assert.equal(mergeArgs.owner, "org");
     assert.equal(mergeArgs.repo, "my-repo");
     assert.equal(mergeArgs.pull_number, 42);
@@ -194,7 +195,9 @@ describe("mergePR tool", () => {
     const parsed = parseResult(result);
     assert.equal(parsed.merge_method, "merge");
 
-    const mergeArgs = (mockMerge.mock.calls[0].arguments as unknown as [Record<string, unknown>])[0];
+    const mergeArgs = (
+      mockMerge.mock.calls[0].arguments as unknown as [Record<string, unknown>]
+    )[0];
     assert.equal(mergeArgs.merge_method, "merge");
   });
 
@@ -248,7 +251,9 @@ describe("mergePR tool", () => {
     await toolDef.handler({ _placeholder: undefined }, { sessionId: "test" });
 
     assert.equal(mockDeleteRef.mock.callCount(), 1);
-    const deleteArgs = (mockDeleteRef.mock.calls[0].arguments as unknown as [Record<string, unknown>])[0];
+    const deleteArgs = (
+      mockDeleteRef.mock.calls[0].arguments as unknown as [Record<string, unknown>]
+    )[0];
     assert.equal(deleteArgs.owner, "org");
     assert.equal(deleteArgs.repo, "my-repo");
     assert.equal(deleteArgs.ref, `heads/${ctx.branchName}`);

@@ -1,6 +1,6 @@
 import { describe, it, mock, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import type { App, BlockAction } from "@slack/bolt";
+import type { App } from "@slack/bolt";
 import type { UserRole } from "../../roles.js";
 import type { StagedIntent, StagedUpdateIntent } from "../../tools/types.js";
 import type { SessionInfo } from "../activeSessions.js";
@@ -12,8 +12,12 @@ import type { ChangeResult } from "../../changes/types.js";
 // ============================================================================
 
 const mockGetRole = mock.fn<(userId: string) => Promise<UserRole>>(async () => "dev");
-const mockGetStagedIntent = mock.fn<(...args: unknown[]) => Promise<StagedIntent | null>>(async () => null);
-const mockFindSessionByThread = mock.fn<(...args: unknown[]) => Promise<SessionContext | null>>(async () => null);
+const mockGetStagedIntent = mock.fn<(...args: unknown[]) => Promise<StagedIntent | null>>(
+  async () => null,
+);
+const mockFindSessionByThread = mock.fn<(...args: unknown[]) => Promise<SessionContext | null>>(
+  async () => null,
+);
 const mockDecodeActionValue = mock.fn<(value: string) => { sessionId: string; ref?: string }>(
   () => ({ sessionId: "session-1", ref: "r1" }),
 );
@@ -24,9 +28,9 @@ const mockRestoreSessionInfo = mock.fn<(sessionId: string) => Promise<SessionInf
     userId: "U001",
   }),
 );
-const mockHandleFollowUp = mock.fn<(...args: unknown[]) => Promise<ChangeResult>>(
-  async () => ({ success: true }),
-);
+const mockHandleFollowUp = mock.fn<(...args: unknown[]) => Promise<ChangeResult>>(async () => ({
+  success: true,
+}));
 
 // SlackStreamer mock
 const mockStreamerStart = mock.fn(async () => true);
@@ -106,7 +110,8 @@ mock.module("./changeAction.js", {
 });
 
 // Import after mocks are configured
-const { registerChangeThreadActionHandlers, triggerFollowUp } = await import("./changeThreadActions.js");
+const { registerChangeThreadActionHandlers, triggerFollowUp } =
+  await import("./changeThreadActions.js");
 
 // ============================================================================
 // Helpers
@@ -159,7 +164,7 @@ function makeHandlerArgs(overrides: Record<string, unknown> = {}) {
       user: { id: "U001" },
       channel: { id: "C001" },
       actions: [{ value: "encoded-value" }],
-      ...(overrides.body as Record<string, unknown> ?? {}),
+      ...(overrides.body as Record<string, unknown>),
     },
     client,
     respond: respondFn,
@@ -234,9 +239,7 @@ describe("registerChangeThreadActionHandlers — registration", () => {
     const app = { action: actionFn } as unknown as App;
     registerChangeThreadActionHandlers(app);
 
-    const patterns = actionFn.mock.calls.map(
-      (call) => (call.arguments[0] as RegExp).source,
-    );
+    const patterns = actionFn.mock.calls.map((call) => (call.arguments[0] as RegExp).source);
     assert.ok(patterns.some((p) => p.includes("clack_review")));
     assert.ok(patterns.some((p) => p.includes("clack_merge")));
     assert.ok(patterns.some((p) => p.includes("clack_update_change")));
@@ -362,11 +365,14 @@ describe("registerChangeThreadActionHandlers — no active change", () => {
   it("posts ephemeral when session has no active change", async () => {
     const handler = getHandler("clack_review");
     // Return a valid intent so we get past the intent check
-    mockGetStagedIntent.mock.mockImplementation(async () => ({
-      type: "review",
-      sessionId: "s1",
-      instructions: "",
-    } as unknown as StagedIntent));
+    mockGetStagedIntent.mock.mockImplementation(
+      async () =>
+        ({
+          type: "review",
+          sessionId: "s1",
+          instructions: "",
+        }) as unknown as StagedIntent,
+    );
     // Session with no activeChange
     mockFindSessionByThread.mock.mockImplementation(async () =>
       makeSession({ activeChange: undefined }),
@@ -383,11 +389,14 @@ describe("registerChangeThreadActionHandlers — no active change", () => {
 
   it("posts ephemeral when findSessionByThread returns null", async () => {
     const handler = getHandler("clack_merge");
-    mockGetStagedIntent.mock.mockImplementation(async () => ({
-      type: "merge",
-      sessionId: "s1",
-      instructions: "",
-    } as unknown as StagedIntent));
+    mockGetStagedIntent.mock.mockImplementation(
+      async () =>
+        ({
+          type: "merge",
+          sessionId: "s1",
+          instructions: "",
+        }) as unknown as StagedIntent,
+    );
     mockFindSessionByThread.mock.mockImplementation(async () => null);
     const args = makeHandlerArgs();
 
@@ -409,11 +418,14 @@ describe("registerChangeThreadActionHandlers — successful review", () => {
     const handler = getHandler("clack_review");
     const session = makeSession();
 
-    mockGetStagedIntent.mock.mockImplementation(async () => ({
-      type: "review",
-      sessionId: "s1",
-      instructions: "",
-    } as unknown as StagedIntent));
+    mockGetStagedIntent.mock.mockImplementation(
+      async () =>
+        ({
+          type: "review",
+          sessionId: "s1",
+          instructions: "",
+        }) as unknown as StagedIntent,
+    );
     mockFindSessionByThread.mock.mockImplementation(async () => session);
 
     const args = makeHandlerArgs();
@@ -421,7 +433,9 @@ describe("registerChangeThreadActionHandlers — successful review", () => {
 
     assert.equal(args.ack.mock.callCount(), 1);
     assert.equal(args.respond.mock.callCount(), 1);
-    const respondCall = args.respond.mock.calls[0] as unknown as { arguments: [{ delete_original: boolean }] };
+    const respondCall = args.respond.mock.calls[0] as unknown as {
+      arguments: [{ delete_original: boolean }];
+    };
     assert.equal(respondCall.arguments[0].delete_original, true);
 
     assert.equal(mockHandleFollowUp.mock.callCount(), 1);
@@ -468,11 +482,14 @@ describe("registerChangeThreadActionHandlers — close", () => {
     const handler = getHandler("clack_close");
     const session = makeSession();
 
-    mockGetStagedIntent.mock.mockImplementation(async () => ({
-      type: "close",
-      sessionId: "s1",
-      instructions: "",
-    } as unknown as StagedIntent));
+    mockGetStagedIntent.mock.mockImplementation(
+      async () =>
+        ({
+          type: "close",
+          sessionId: "s1",
+          instructions: "",
+        }) as unknown as StagedIntent,
+    );
     mockFindSessionByThread.mock.mockImplementation(async () => session);
 
     const args = makeHandlerArgs();
@@ -542,7 +559,9 @@ describe("triggerFollowUp", () => {
     });
 
     assert.equal(mockFinalizeStreamedWorkflow.mock.callCount(), 1);
-    const finalizeCall = mockFinalizeStreamedWorkflow.mock.calls[0] as unknown as { arguments: unknown[] };
+    const finalizeCall = mockFinalizeStreamedWorkflow.mock.calls[0] as unknown as {
+      arguments: unknown[];
+    };
     assert.equal(finalizeCall.arguments[2], "D_DM");
     assert.equal(finalizeCall.arguments[3], "1700000099.000001");
   });
@@ -558,7 +577,9 @@ describe("triggerFollowUp", () => {
       client,
     });
 
-    const finalizeCall = mockFinalizeStreamedWorkflow.mock.calls[0] as unknown as { arguments: unknown[] };
+    const finalizeCall = mockFinalizeStreamedWorkflow.mock.calls[0] as unknown as {
+      arguments: unknown[];
+    };
     assert.equal(finalizeCall.arguments[2], "C001");
     assert.equal(finalizeCall.arguments[3], "1700000000.000001");
   });
@@ -604,7 +625,10 @@ describe("triggerFollowUp", () => {
     });
 
     const postMessage = client.chat.postMessage as unknown as ReturnType<typeof mock.fn>;
-    const msgArgs = postMessage.mock.calls[0].arguments[0] as { channel: string; thread_ts: string };
+    const msgArgs = postMessage.mock.calls[0].arguments[0] as {
+      channel: string;
+      thread_ts: string;
+    };
     assert.equal(msgArgs.channel, "D_DM");
     assert.equal(msgArgs.thread_ts, "1700000099.000001");
   });

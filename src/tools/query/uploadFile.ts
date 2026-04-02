@@ -10,14 +10,20 @@ export function createUploadFileTool(ctx: QueryToolContext) {
   return tool(
     "upload_file",
     "Upload generated content (CSV, JSON, Markdown, code, config files) to Slack as a file attachment. " +
-    "Use this when the user asks for exportable data, when displaying file contents, or when a response is too large for a chat message. " +
-    "You must still call submit_response after uploading to explain what you uploaded.",
+      "Use this when the user asks for exportable data, when displaying file contents, or when a response is too large for a chat message. " +
+      "You must still call submit_response after uploading to explain what you uploaded.",
     {
       content: z.string().describe("The file content to upload"),
       filename: z.string().describe("Filename with extension (e.g. 'report.csv', 'config.md')"),
       title: z.string().optional().describe("Display title in Slack (defaults to filename)"),
-      channel: z.string().optional().describe("Target channel ID (defaults to current thread's channel)"),
-      thread_ts: z.string().optional().describe("Target thread timestamp (defaults to current thread)"),
+      channel: z
+        .string()
+        .optional()
+        .describe("Target channel ID (defaults to current thread's channel)"),
+      thread_ts: z
+        .string()
+        .optional()
+        .describe("Target thread timestamp (defaults to current thread)"),
     },
     async (args) => {
       if (!ctx.slackClient) {
@@ -33,7 +39,7 @@ export function createUploadFileTool(ctx: QueryToolContext) {
       if (contentBytes > MAX_CONTENT_BYTES) {
         return errorResult(
           `Content is too large (${Math.round(contentBytes / 1024)}KB). ` +
-          `Maximum is ${MAX_CONTENT_BYTES / 1024}KB. Summarize or split the content.`,
+            `Maximum is ${MAX_CONTENT_BYTES / 1024}KB. Summarize or split the content.`,
         );
       }
 

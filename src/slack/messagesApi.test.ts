@@ -37,7 +37,7 @@ describe("extractMessageText", () => {
       extractMessageText({
         attachments: [{ text: "attachment content" }],
       }),
-      "attachment content"
+      "attachment content",
     );
   });
 
@@ -46,7 +46,7 @@ describe("extractMessageText", () => {
       extractMessageText({
         attachments: [{ fallback: "fallback content" }],
       }),
-      "fallback content"
+      "fallback content",
     );
   });
 
@@ -55,7 +55,7 @@ describe("extractMessageText", () => {
       extractMessageText({
         attachments: [{ text: "primary", fallback: "secondary" }],
       }),
-      "primary"
+      "primary",
     );
   });
 
@@ -64,7 +64,7 @@ describe("extractMessageText", () => {
       extractMessageText({
         attachments: [{ text: "first" }, { text: "second" }],
       }),
-      "first\nsecond"
+      "first\nsecond",
     );
   });
 
@@ -73,7 +73,7 @@ describe("extractMessageText", () => {
       extractMessageText({
         attachments: [{}, { text: "valid" }, {}],
       }),
-      "valid"
+      "valid",
     );
   });
 
@@ -83,7 +83,7 @@ describe("extractMessageText", () => {
         text: "main text",
         attachments: [{ text: "attachment text" }],
       }),
-      "main text"
+      "main text",
     );
   });
 
@@ -97,8 +97,26 @@ describe("extractMessageText", () => {
 // ---------------------------------------------------------------------------
 
 interface MockConversationsConfig {
-  replies?: Record<string, Array<{ text?: string; user?: string; bot_id?: string; ts?: string; attachments?: { text?: string; fallback?: string }[] }>>;
-  history?: Record<string, Array<{ text?: string; user?: string; bot_id?: string; ts?: string; attachments?: { text?: string; fallback?: string }[] }>>;
+  replies?: Record<
+    string,
+    Array<{
+      text?: string;
+      user?: string;
+      bot_id?: string;
+      ts?: string;
+      attachments?: { text?: string; fallback?: string }[];
+    }>
+  >;
+  history?: Record<
+    string,
+    Array<{
+      text?: string;
+      user?: string;
+      bot_id?: string;
+      ts?: string;
+      attachments?: { text?: string; fallback?: string }[];
+    }>
+  >;
   openChannel?: string;
   throwOnReplies?: boolean;
   throwOnHistory?: boolean;
@@ -242,9 +260,7 @@ describe("fetchThreadContext", () => {
   it("uses [attachment] when extractMessageText returns empty", async () => {
     const client = makeClient({
       replies: {
-        "C1:ts1": [
-          { attachments: [{ text: "" }], user: "U1", ts: "1" },
-        ],
+        "C1:ts1": [{ attachments: [{ text: "" }], user: "U1", ts: "1" }],
       },
     });
     const result = await fetchThreadContext(client, "C1", "ts1", "BOTU");
@@ -404,7 +420,7 @@ describe("sendDirectMessage", () => {
     const client = makeClient({ openChannel: "DM_CHAN" });
     await sendDirectMessage(client, "U1", "hello");
 
-    const postMessage = (client.chat.postMessage as unknown as ReturnType<typeof mock.fn>);
+    const postMessage = client.chat.postMessage as unknown as ReturnType<typeof mock.fn>;
     assert.equal(postMessage.mock.callCount(), 1);
     const call = postMessage.mock.calls[0].arguments[0] as { channel: string; text: string };
     assert.equal(call.channel, "DM_CHAN");
@@ -416,8 +432,12 @@ describe("sendDirectMessage", () => {
     const blocks = [{ type: "section", text: { type: "mrkdwn", text: "test" } }];
     await sendDirectMessage(client, "U1", "hello", blocks);
 
-    const postMessage = (client.chat.postMessage as unknown as ReturnType<typeof mock.fn>);
-    const call = postMessage.mock.calls[0].arguments[0] as { channel: string; text: string; blocks?: object[] };
+    const postMessage = client.chat.postMessage as unknown as ReturnType<typeof mock.fn>;
+    const call = postMessage.mock.calls[0].arguments[0] as {
+      channel: string;
+      text: string;
+      blocks?: object[];
+    };
     assert.deepEqual(call.blocks, blocks);
   });
 
@@ -425,7 +445,7 @@ describe("sendDirectMessage", () => {
     const client = makeClient({ openChannel: "DM_CHAN" });
     await sendDirectMessage(client, "U1", "hello");
 
-    const postMessage = (client.chat.postMessage as unknown as ReturnType<typeof mock.fn>);
+    const postMessage = client.chat.postMessage as unknown as ReturnType<typeof mock.fn>;
     const call = postMessage.mock.calls[0].arguments[0] as Record<string, unknown>;
     assert.equal("blocks" in call, false);
   });
@@ -434,7 +454,7 @@ describe("sendDirectMessage", () => {
     const client = makeClient({}); // openChannel is undefined
     await sendDirectMessage(client, "U1", "hello");
 
-    const postMessage = (client.chat.postMessage as unknown as ReturnType<typeof mock.fn>);
+    const postMessage = client.chat.postMessage as unknown as ReturnType<typeof mock.fn>;
     assert.equal(postMessage.mock.callCount(), 0);
   });
 
@@ -463,9 +483,13 @@ describe("sendErrorReport", () => {
       analysis: "The assistant ran into an issue",
     });
 
-    const postMessage = (client.chat.postMessage as unknown as ReturnType<typeof mock.fn>);
+    const postMessage = client.chat.postMessage as unknown as ReturnType<typeof mock.fn>;
     assert.equal(postMessage.mock.callCount(), 1);
-    const call = postMessage.mock.calls[0].arguments[0] as { channel: string; text: string; blocks: unknown[] };
+    const call = postMessage.mock.calls[0].arguments[0] as {
+      channel: string;
+      text: string;
+      blocks: unknown[];
+    };
     assert.equal(call.channel, "DM_CHAN");
     assert.ok(call.text.includes("Error Report"));
     assert.ok(Array.isArray(call.blocks));
@@ -475,9 +499,7 @@ describe("sendErrorReport", () => {
   it("truncates long message content in trace to 200 chars", async () => {
     const client = makeClient({ openChannel: "DM_CHAN" });
     const longContent = "x".repeat(300);
-    const trace: ConversationMessage[] = [
-      { type: "user", content: longContent, timestamp: 1 },
-    ];
+    const trace: ConversationMessage[] = [{ type: "user", content: longContent, timestamp: 1 }];
 
     await sendErrorReport(client, "U1", {
       sessionId: "sess-1",
@@ -486,10 +508,12 @@ describe("sendErrorReport", () => {
       analysis: "analysis",
     });
 
-    const postMessage = (client.chat.postMessage as unknown as ReturnType<typeof mock.fn>);
-    const call = postMessage.mock.calls[0].arguments[0] as { blocks: Array<{ text?: { text?: string } }> };
+    const postMessage = client.chat.postMessage as unknown as ReturnType<typeof mock.fn>;
+    const call = postMessage.mock.calls[0].arguments[0] as {
+      blocks: Array<{ text?: { text?: string } }>;
+    };
     // The trace section is the last block — find it by checking for the trace content
-    const traceBlock = call.blocks.find(b => b.text?.text?.includes("Conversation Trace"));
+    const traceBlock = call.blocks.find((b) => b.text?.text?.includes("Conversation Trace"));
     assert.ok(traceBlock);
     assert.ok(traceBlock.text!.text!.includes("..."));
     assert.ok(!traceBlock.text!.text!.includes("x".repeat(300)));
@@ -510,9 +534,11 @@ describe("sendErrorReport", () => {
       analysis: "analysis",
     });
 
-    const postMessage = (client.chat.postMessage as unknown as ReturnType<typeof mock.fn>);
-    const call = postMessage.mock.calls[0].arguments[0] as { blocks: Array<{ text?: { text?: string } }> };
-    const traceBlock = call.blocks.find(b => b.text?.text?.includes("Conversation Trace"));
+    const postMessage = client.chat.postMessage as unknown as ReturnType<typeof mock.fn>;
+    const call = postMessage.mock.calls[0].arguments[0] as {
+      blocks: Array<{ text?: { text?: string } }>;
+    };
+    const traceBlock = call.blocks.find((b) => b.text?.text?.includes("Conversation Trace"));
     assert.ok(traceBlock);
     // Should say "last 10 messages"
     assert.ok(traceBlock.text!.text!.includes("last 10"));
@@ -542,9 +568,11 @@ describe("sendErrorReport", () => {
       analysis: "analysis",
     });
 
-    const postMessage = (client.chat.postMessage as unknown as ReturnType<typeof mock.fn>);
-    const call = postMessage.mock.calls[0].arguments[0] as { blocks: Array<{ text?: { text?: string } }> };
-    const traceBlock = call.blocks.find(b => b.text?.text?.includes("Conversation Trace"));
+    const postMessage = client.chat.postMessage as unknown as ReturnType<typeof mock.fn>;
+    const call = postMessage.mock.calls[0].arguments[0] as {
+      blocks: Array<{ text?: { text?: string } }>;
+    };
+    const traceBlock = call.blocks.find((b) => b.text?.text?.includes("Conversation Trace"));
     assert.ok(traceBlock);
     assert.ok(traceBlock.text!.text!.includes("list_repositories"));
     assert.ok(traceBlock.text!.text!.includes("tool:result"));
@@ -558,7 +586,7 @@ describe("sendErrorReport", () => {
         errorMessage: "err",
         conversationTrace: [],
         analysis: "analysis",
-      })
+      }),
     );
   });
 });

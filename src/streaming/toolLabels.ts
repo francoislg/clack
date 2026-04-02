@@ -31,7 +31,10 @@ function parseToolName(toolName: string): { serverName: string; rawToolName: str
 }
 
 /** Resolve the mapping for a tool, augment args, and collect truncation limits. */
-function resolve(toolName: string, toolArgs: Record<string, unknown>): {
+function resolve(
+  toolName: string,
+  toolArgs: Record<string, unknown>,
+): {
   serverName: string;
   rawToolName: string;
   mapping: ResolvedToolMapping | undefined;
@@ -86,7 +89,10 @@ export function getToolLabel(toolName: string, toolArgs: Record<string, unknown>
  * Get grouping info for a tool call.
  * Returns null if the tool should not be grouped (gets its own individual task).
  */
-export function getToolGroup(toolName: string, toolArgs: Record<string, unknown>): ToolGroupInfo | null {
+export function getToolGroup(
+  toolName: string,
+  toolArgs: Record<string, unknown>,
+): ToolGroupInfo | null {
   const { rawToolName, mapping, args, truncations } = resolve(toolName, toolArgs);
   if (!mapping) return null;
 
@@ -103,9 +109,7 @@ export function getToolGroup(toolName: string, toolArgs: Record<string, unknown>
   // Check file-level group — use interpolated label as itemDetail
   if (mapping.fileGroup) {
     const template = mapping.labels.get(rawToolName);
-    const itemDetail = template
-      ? interpolateLabel(template, args, truncations)
-      : rawToolName;
+    const itemDetail = template ? interpolateLabel(template, args, truncations) : rawToolName;
     return { key: mapping.fileGroup.key, title: mapping.fileGroup.title, itemDetail };
   }
 

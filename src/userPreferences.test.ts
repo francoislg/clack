@@ -7,7 +7,8 @@ import assert from "node:assert/strict";
 
 const mockReadFile = mock.fn<(path: string, encoding: string) => Promise<string>>();
 const mockWriteFile = mock.fn<(path: string, data: string) => Promise<void>>();
-const mockMkdir = mock.fn<(path: string, opts?: { recursive: boolean }) => Promise<string | undefined>>();
+const mockMkdir =
+  mock.fn<(path: string, opts?: { recursive: boolean }) => Promise<string | undefined>>();
 
 mock.module("node:fs/promises", {
   namedExports: {
@@ -285,7 +286,9 @@ describe("clearPreferencesCache", () => {
   it("forces next load from disk", async () => {
     // First load: populate cache
     mockFileExists.mock.mockImplementation(async () => true);
-    mockReadFile.mock.mockImplementation(async () => JSON.stringify({ U1: { reactionDelivery: "thread" } }));
+    mockReadFile.mock.mockImplementation(async () =>
+      JSON.stringify({ U1: { reactionDelivery: "thread" } }),
+    );
     await loadPreferences();
     assert.equal(mockReadFile.mock.callCount(), 1);
 
@@ -293,7 +296,9 @@ describe("clearPreferencesCache", () => {
     clearPreferencesCache();
 
     // Second load: should read from disk again
-    mockReadFile.mock.mockImplementation(async () => JSON.stringify({ U2: { notifyOnResponse: true } }));
+    mockReadFile.mock.mockImplementation(async () =>
+      JSON.stringify({ U2: { notifyOnResponse: true } }),
+    );
     const result = await loadPreferences();
     assert.equal(mockReadFile.mock.callCount(), 2);
     assert.deepEqual(result, { U2: { notifyOnResponse: true } });

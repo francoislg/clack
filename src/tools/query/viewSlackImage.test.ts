@@ -26,7 +26,16 @@ describe("createViewSlackImageTool", () => {
 
   it("creates a tool with correct name and description", () => {
     const images = new Map<string, SlackImageFile>([
-      ["F1", { id: "F1", name: "test.png", mimetype: "image/png", size: 100, url_private: "https://example.com" }],
+      [
+        "F1",
+        {
+          id: "F1",
+          name: "test.png",
+          mimetype: "image/png",
+          size: 100,
+          url_private: "https://example.com",
+        },
+      ],
     ]);
     const tool = createViewSlackImageTool(makeContext(images));
     assert.equal(tool.name, "view_slack_image");
@@ -35,7 +44,16 @@ describe("createViewSlackImageTool", () => {
 
   it("handler returns error for unknown file_id", async () => {
     const images = new Map<string, SlackImageFile>([
-      ["F1", { id: "F1", name: "test.png", mimetype: "image/png", size: 100, url_private: "https://example.com" }],
+      [
+        "F1",
+        {
+          id: "F1",
+          name: "test.png",
+          mimetype: "image/png",
+          size: 100,
+          url_private: "https://example.com",
+        },
+      ],
     ]);
     const tool = createViewSlackImageTool(makeContext(images));
     const result = await tool.handler({ file_id: "NONEXISTENT" }, {});

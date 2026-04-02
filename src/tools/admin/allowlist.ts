@@ -71,7 +71,10 @@ function validateConfigJson(content: string): ValidationResult {
     validateConfig(parsed, slackAuth);
     return { valid: true };
   } catch (e) {
-    return { valid: false, error: `Config validation failed: ${e instanceof Error ? e.message : String(e)}` };
+    return {
+      valid: false,
+      error: `Config validation failed: ${e instanceof Error ? e.message : String(e)}`,
+    };
   }
 }
 
@@ -108,7 +111,10 @@ function validateJson(content: string): ValidationResult {
 // File operations
 // ---------------------------------------------------------------------------
 
-export function readDataFile(relativePath: string): { content: string | null; isDirectory: boolean } {
+export function readDataFile(relativePath: string): {
+  content: string | null;
+  isDirectory: boolean;
+} {
   const absolute = resolveDataPath(relativePath);
 
   // Directory listing for tool_mapping
@@ -118,9 +124,10 @@ export function readDataFile(relativePath: string): { content: string | null; is
     }
     const files = readdirSync(absolute).filter((f) => f.endsWith(".json"));
     return {
-      content: files.length === 0
-        ? "No .json files found in this directory."
-        : files.map((f) => `${relativePath}${f}`).join("\n"),
+      content:
+        files.length === 0
+          ? "No .json files found in this directory."
+          : files.map((f) => `${relativePath}${f}`).join("\n"),
       isDirectory: true,
     };
   }

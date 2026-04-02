@@ -36,7 +36,9 @@ export function registerMentionHandler(app: App): void {
       userId: event.user,
       channelId: event.channel,
       messageTs: event.ts,
-      messageText: messageText || "Read the conversation above and provide an answer or investigation based on what's being discussed.",
+      messageText:
+        messageText ||
+        "Read the conversation above and provide an answer or investigation based on what's being discussed.",
       threadTs: event.thread_ts,
       triggerType: "mentions",
       ...attachments,

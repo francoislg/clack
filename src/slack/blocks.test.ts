@@ -40,12 +40,14 @@ describe("decodeActionValue", () => {
   });
 
   it("decodes post_to fields", () => {
-    const result = decodeActionValue(JSON.stringify({
-      s: "s1",
-      c: "C123",
-      t: "1234.5678",
-      sn: "snapshot-1",
-    }));
+    const result = decodeActionValue(
+      JSON.stringify({
+        s: "s1",
+        c: "C123",
+        t: "1234.5678",
+        sn: "snapshot-1",
+      }),
+    );
     assert.equal(result.targetChannel, "C123");
     assert.equal(result.targetThreadTs, "1234.5678");
     assert.equal(result.snapshotId, "snapshot-1");
@@ -118,7 +120,7 @@ describe("getAcceptedBlocks", () => {
     const blocks = getAcceptedBlocks("Hello world");
     assert.ok(blocks.length >= 1);
     assert.equal(blocks[0].type, "section");
-    const text = (blocks[0].text as { type: string; text: string });
+    const text = blocks[0].text as { type: string; text: string };
     assert.equal(text.type, "mrkdwn");
     assert.ok(text.text.includes("Hello world"));
   });
@@ -130,9 +132,7 @@ describe("getAcceptedBlocks", () => {
 
 describe("getStructuredAcceptedBlocks", () => {
   it("renders sections without title", () => {
-    const blocks = getStructuredAcceptedBlocks([
-      { body: "Some explanation" },
-    ]);
+    const blocks = getStructuredAcceptedBlocks([{ body: "Some explanation" }]);
     assert.equal(blocks.length, 1);
     assert.equal(blocks[0].type, "section");
     const text = (blocks[0].text as { text: string }).text;
@@ -187,9 +187,7 @@ describe("getResponseActionBlocks", () => {
   });
 
   it("returns empty when all actions are auto", () => {
-    const actions: Action[] = [
-      { type: "post_to", auto: true, content: "auto content" },
-    ];
+    const actions: Action[] = [{ type: "post_to", auto: true, content: "auto content" }];
     const blocks = getResponseActionBlocks(actions, "sess-1");
     assert.equal(blocks.length, 0);
   });
@@ -207,9 +205,7 @@ describe("getResponseActionBlocks", () => {
     // 6 buttons — fits in 2 action blocks (5 + 1)
     assert.equal(blocks.length, 2);
 
-    const allElements = blocks.flatMap(
-      (b) => b.elements as Array<Record<string, unknown>>
-    );
+    const allElements = blocks.flatMap((b) => b.elements as Array<Record<string, unknown>>);
     assert.equal(allElements.length, 6);
 
     // Verify action_id prefixes
@@ -238,9 +234,7 @@ describe("getResponseActionBlocks", () => {
   });
 
   it("uses custom labels when provided", () => {
-    const actions: Action[] = [
-      { type: "change", ref: "r1", label: "Implement Feature" },
-    ];
+    const actions: Action[] = [{ type: "change", ref: "r1", label: "Implement Feature" }];
     const blocks = getResponseActionBlocks(actions, "sess-1");
     const elements = blocks[0].elements as Array<Record<string, unknown>>;
     const label = (elements[0].text as { text: string }).text;
@@ -278,9 +272,7 @@ describe("getResponseActionBlocks", () => {
   });
 
   it("encodes session ID and action data in button value", () => {
-    const actions: Action[] = [
-      { type: "followup", label: "Go", prompt: "do it" },
-    ];
+    const actions: Action[] = [{ type: "followup", label: "Go", prompt: "do it" }];
     const blocks = getResponseActionBlocks(actions, "sess-xyz");
     const elements = blocks[0].elements as Array<Record<string, unknown>>;
     const value = JSON.parse(elements[0].value as string);
@@ -289,9 +281,7 @@ describe("getResponseActionBlocks", () => {
   });
 
   it("encodes choice value and workMode in button value", () => {
-    const actions: Action[] = [
-      { type: "choice", label: "Pick", value: "v1", workMode: true },
-    ];
+    const actions: Action[] = [{ type: "choice", label: "Pick", value: "v1", workMode: true }];
     const blocks = getResponseActionBlocks(actions, "sess-1");
     const elements = blocks[0].elements as Array<Record<string, unknown>>;
     const value = JSON.parse(elements[0].value as string);
@@ -306,9 +296,7 @@ describe("getResponseActionBlocks", () => {
       { type: "update", ref: "update-ref" },
     ];
     const blocks = getResponseActionBlocks(actions, "sess-1");
-    const elements = blocks.flatMap(
-      (b) => b.elements as Array<Record<string, unknown>>
-    );
+    const elements = blocks.flatMap((b) => b.elements as Array<Record<string, unknown>>);
     assert.equal(JSON.parse(elements[0].value as string).r, "change-ref");
     assert.equal(JSON.parse(elements[1].value as string).r, "config-ref");
     assert.equal(JSON.parse(elements[2].value as string).r, "update-ref");
@@ -339,9 +327,7 @@ describe("getResponseActionBlocks", () => {
       prompt: `p${i}`,
     }));
     const blocks = getResponseActionBlocks(actions, "sess-1");
-    const allElements = blocks.flatMap(
-      (b) => b.elements as Array<Record<string, unknown>>
-    );
+    const allElements = blocks.flatMap((b) => b.elements as Array<Record<string, unknown>>);
     for (let i = 0; i < 6; i++) {
       assert.ok((allElements[i].action_id as string).endsWith(`_${i}`));
     }
@@ -435,9 +421,7 @@ describe("validateSlackBlocks", () => {
 
   it("detects section text exceeding 3000 chars", () => {
     const longText = "x".repeat(3001);
-    const blocks = [
-      { type: "section", text: { type: "mrkdwn", text: longText } },
-    ];
+    const blocks = [{ type: "section", text: { type: "mrkdwn", text: longText } }];
     const errors = validateSlackBlocks(blocks);
     assert.equal(errors.length, 1);
     assert.equal(errors[0].field, "section[0]");
@@ -447,9 +431,7 @@ describe("validateSlackBlocks", () => {
 
   it("allows section text at exactly 3000 chars", () => {
     const exactText = "x".repeat(3000);
-    const blocks = [
-      { type: "section", text: { type: "mrkdwn", text: exactText } },
-    ];
+    const blocks = [{ type: "section", text: { type: "mrkdwn", text: exactText } }];
     const errors = validateSlackBlocks(blocks);
     assert.equal(errors.length, 0);
   });
@@ -459,9 +441,7 @@ describe("validateSlackBlocks", () => {
     const blocks = [
       {
         type: "actions",
-        elements: [
-          { type: "button", text: { type: "plain_text", text: longLabel } },
-        ],
+        elements: [{ type: "button", text: { type: "plain_text", text: longLabel } }],
       },
     ];
     const errors = validateSlackBlocks(blocks);
@@ -492,9 +472,7 @@ describe("validateSlackBlocks", () => {
       { type: "section", text: { type: "mrkdwn", text: longText } },
       {
         type: "actions",
-        elements: [
-          { type: "button", text: { type: "plain_text", text: longLabel } },
-        ],
+        elements: [{ type: "button", text: { type: "plain_text", text: longLabel } }],
       },
     ];
     const errors = validateSlackBlocks(blocks);
@@ -505,9 +483,7 @@ describe("validateSlackBlocks", () => {
   });
 
   it("handles blocks with no text object gracefully", () => {
-    const blocks = [
-      { type: "section", text: undefined },
-    ];
+    const blocks = [{ type: "section", text: undefined }];
     const errors = validateSlackBlocks(blocks);
     // Empty text "" is under limit — no error
     assert.equal(errors.length, 0);

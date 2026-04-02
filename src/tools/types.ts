@@ -69,15 +69,11 @@ export interface WorkerToolContext {
 /** Discriminated union — the tool server accepts either context */
 export type ToolBuildContext = QueryToolContext | WorkerToolContext;
 
-
 // ============================================================================
 // Staged Intents
 // ============================================================================
 
-export type StagedIntentType =
-  | "change"
-  | "config_update"
-  | "update";
+export type StagedIntentType = "change" | "config_update" | "update";
 
 export interface StagedChangeIntent {
   type: "change";
@@ -102,10 +98,7 @@ export interface StagedUpdateIntent {
   instructions: string;
 }
 
-export type StagedIntent =
-  | StagedChangeIntent
-  | StagedConfigUpdateIntent
-  | StagedUpdateIntent;
+export type StagedIntent = StagedChangeIntent | StagedConfigUpdateIntent | StagedUpdateIntent;
 
 // ============================================================================
 // submit_response Payload

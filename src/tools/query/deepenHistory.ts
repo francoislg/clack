@@ -23,10 +23,7 @@ export function createDeepenHistoryTool(ctx: QueryToolContext) {
         .number()
         .optional()
         .describe("Number of additional commits to fetch (default: 100)"),
-      full: z
-        .boolean()
-        .optional()
-        .describe("Set to true to fetch the entire history (unshallow)"),
+      full: z.boolean().optional().describe("Set to true to fetch the entire history (unshallow)"),
     },
     async (input) => {
       const visibleRepos = getVisibleRepos(ctx.role, ctx.config.repositories);
@@ -34,7 +31,9 @@ export function createDeepenHistoryTool(ctx: QueryToolContext) {
 
       if (!repo) {
         const available = visibleRepos.map((r) => r.name);
-        return errorResult(`Repository "${input.repo}" not found or not accessible. Available: ${available.join(", ")}`);
+        return errorResult(
+          `Repository "${input.repo}" not found or not accessible. Available: ${available.join(", ")}`,
+        );
       }
 
       const repoPath = resolve(getRepositoriesDir(), repo.name);
@@ -47,18 +46,11 @@ export function createDeepenHistoryTool(ctx: QueryToolContext) {
         const git = simpleGit({ baseDir: repoPath });
 
         // Check if repo is shallow
-        const isShallowRaw = await git.raw([
-          "rev-parse",
-          "--is-shallow-repository",
-        ]);
+        const isShallowRaw = await git.raw(["rev-parse", "--is-shallow-repository"]);
         const isShallow = isShallowRaw.trim() === "true";
 
         if (!isShallow) {
-          const commitCountRaw = await git.raw([
-            "rev-list",
-            "--count",
-            "HEAD",
-          ]);
+          const commitCountRaw = await git.raw(["rev-list", "--count", "HEAD"]);
           const availableCommits = parseInt(commitCountRaw.trim(), 10) || 0;
 
           return textResult({
@@ -80,10 +72,7 @@ export function createDeepenHistoryTool(ctx: QueryToolContext) {
         }
 
         // Get updated metadata
-        const newShallowRaw = await git.raw([
-          "rev-parse",
-          "--is-shallow-repository",
-        ]);
+        const newShallowRaw = await git.raw(["rev-parse", "--is-shallow-repository"]);
         const shallow = newShallowRaw.trim() === "true";
 
         const commitCountRaw = await git.raw(["rev-list", "--count", "HEAD"]);
@@ -100,6 +89,6 @@ export function createDeepenHistoryTool(ctx: QueryToolContext) {
         logger.debug(`deepen_history failed for ${repo.name}: ${error}`);
         return errorResult(`Failed to deepen history: ${errorMessage(error)}`);
       }
-    }
+    },
   );
 }

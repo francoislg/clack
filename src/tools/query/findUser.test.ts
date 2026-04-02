@@ -74,7 +74,10 @@ describe("findUser tool", () => {
     const ctx = makeCtx();
     const toolDef = createFindUserTool(ctx, makeUsersCache());
 
-    const result = await toolDef.handler({ query: ["alice", "bob"], limit: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { query: ["alice", "bob"], limit: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed.total, 2);
@@ -121,7 +124,10 @@ describe("findUser tool", () => {
     const ctx = makeCtx();
     const toolDef = createFindUserTool(ctx, makeUsersCache());
 
-    const result = await toolDef.handler({ query: ["user"], limit: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { query: ["user"], limit: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed.total, 10);
@@ -152,7 +158,10 @@ describe("findUser tool", () => {
     const ctx = makeCtx();
     const toolDef = createFindUserTool(ctx, makeUsersCache());
 
-    const result = await toolDef.handler({ query: ["solo"], limit: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { query: ["solo"], limit: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed.total, 1);
@@ -165,7 +174,10 @@ describe("findUser tool", () => {
     const ctx = makeCtx();
     const toolDef = createFindUserTool(ctx, makeUsersCache());
 
-    const result = await toolDef.handler({ query: ["nonexistent"], limit: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { query: ["nonexistent"], limit: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed.total, 0);

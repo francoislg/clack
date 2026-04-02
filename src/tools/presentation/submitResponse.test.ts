@@ -7,15 +7,15 @@ import type { StagedIntent, ResponseSnapshot } from "../types.js";
 // Module-level mocks — must be set up before importing the module under test
 // ---------------------------------------------------------------------------
 
-const mockGetStructuredResponseBlocks = mock.fn<
-  (...args: unknown[]) => Record<string, unknown>[]
->();
-const mockValidateSlackBlocks = mock.fn<
-  (...args: unknown[]) => { field: string; message: string; currentLength: number; limit: number }[]
->();
-const mockGetResponseActionBlocks = mock.fn<
-  (...args: unknown[]) => Record<string, unknown>[]
->();
+const mockGetStructuredResponseBlocks =
+  mock.fn<(...args: unknown[]) => Record<string, unknown>[]>();
+const mockValidateSlackBlocks =
+  mock.fn<
+    (
+      ...args: unknown[]
+    ) => { field: string; message: string; currentLength: number; limit: number }[]
+  >();
+const mockGetResponseActionBlocks = mock.fn<(...args: unknown[]) => Record<string, unknown>[]>();
 const mockAsSlackBlocks = mock.fn<(...args: unknown[]) => unknown>();
 
 mock.module("../../slack/blocks.js", {
@@ -33,15 +33,20 @@ const { createSubmitResponseTool } = await import("./submitResponse.js");
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeDeps(overrides: Partial<{
-  intentStore: IntentStore;
-  responseCapture: ResponseCapture;
-  recorder: ToolCallRecorder;
-  sessionId: string;
-  deliver: (opts: { markdownText: string; blocks?: unknown[] }) => Promise<{ ok: true } | { ok: false; error: string }>;
-  persistSnapshot: (id: string, snapshot: ResponseSnapshot) => Promise<void>;
-  allowSkip: boolean;
-}> = {}) {
+function makeDeps(
+  overrides: Partial<{
+    intentStore: IntentStore;
+    responseCapture: ResponseCapture;
+    recorder: ToolCallRecorder;
+    sessionId: string;
+    deliver: (opts: {
+      markdownText: string;
+      blocks?: unknown[];
+    }) => Promise<{ ok: true } | { ok: false; error: string }>;
+    persistSnapshot: (id: string, snapshot: ResponseSnapshot) => Promise<void>;
+    allowSkip: boolean;
+  }> = {},
+) {
   const intentStore: IntentStore = {
     stage: mock.fn<(intent: StagedIntent) => string>(() => "ref-1"),
     resolve: mock.fn<(ref: string) => StagedIntent | undefined>(() => undefined),
@@ -59,7 +64,10 @@ function makeDeps(overrides: Partial<{
   };
 
   const recorder: ToolCallRecorder = {
-    record: mock.fn<(tool: string, args: Record<string, unknown>, result: Record<string, unknown>) => void>(),
+    record:
+      mock.fn<
+        (tool: string, args: Record<string, unknown>, result: Record<string, unknown>) => void
+      >(),
     getHistory: mock.fn<() => []>(() => []),
     ...overrides.recorder,
   };
@@ -91,9 +99,9 @@ function resetBlockMocks() {
   mockAsSlackBlocks.mock.resetCalls();
 
   // Defaults: valid blocks, no errors
-  mockGetStructuredResponseBlocks.mock.mockImplementation(
-    () => [{ type: "section", text: { type: "mrkdwn", text: "test" } }],
-  );
+  mockGetStructuredResponseBlocks.mock.mockImplementation(() => [
+    { type: "section", text: { type: "mrkdwn", text: "test" } },
+  ]);
   mockValidateSlackBlocks.mock.mockImplementation(() => []);
   mockGetResponseActionBlocks.mock.mockImplementation(() => []);
   mockAsSlackBlocks.mock.mockImplementation((blocks: unknown) => blocks);
@@ -125,7 +133,9 @@ describe("createSubmitResponseTool", () => {
       const setCalls: unknown[][] = [];
       const deps = makeDeps({
         responseCapture: {
-          set: ((...args: unknown[]) => { setCalls.push(args); }) as ResponseCapture["set"],
+          set: ((...args: unknown[]) => {
+            setCalls.push(args);
+          }) as ResponseCapture["set"],
           get: () => null,
           getRenderedBlocks: () => null,
           setSkipped: () => {},
@@ -147,7 +157,9 @@ describe("createSubmitResponseTool", () => {
       const recorded: unknown[][] = [];
       const deps = makeDeps({
         recorder: {
-          record: ((...args: unknown[]) => { recorded.push(args); }) as ToolCallRecorder["record"],
+          record: ((...args: unknown[]) => {
+            recorded.push(args);
+          }) as ToolCallRecorder["record"],
           getHistory: () => [],
         },
       });
@@ -293,7 +305,9 @@ describe("createSubmitResponseTool", () => {
       const recorded: unknown[][] = [];
       const deps = makeDeps({
         recorder: {
-          record: ((...args: unknown[]) => { recorded.push(args); }) as ToolCallRecorder["record"],
+          record: ((...args: unknown[]) => {
+            recorded.push(args);
+          }) as ToolCallRecorder["record"],
           getHistory: () => [],
         },
       });
@@ -344,7 +358,9 @@ describe("createSubmitResponseTool", () => {
       const recorded: unknown[][] = [];
       const deps = makeDeps({
         recorder: {
-          record: ((...args: unknown[]) => { recorded.push(args); }) as ToolCallRecorder["record"],
+          record: ((...args: unknown[]) => {
+            recorded.push(args);
+          }) as ToolCallRecorder["record"],
           getHistory: () => [],
         },
       });
@@ -387,9 +403,14 @@ describe("createSubmitResponseTool", () => {
       let delivered = false;
       const setCalls: unknown[] = [];
       const deps = makeDeps({
-        deliver: async () => { delivered = true; return { ok: true as const }; },
+        deliver: async () => {
+          delivered = true;
+          return { ok: true as const };
+        },
         responseCapture: {
-          set: (() => { setCalls.push(true); }) as ResponseCapture["set"],
+          set: (() => {
+            setCalls.push(true);
+          }) as ResponseCapture["set"],
           get: () => null,
           getRenderedBlocks: () => null,
           setSkipped: () => {},
@@ -506,7 +527,9 @@ describe("createSubmitResponseTool", () => {
       const deps = makeDeps({
         deliver: async () => ({ ok: false as const, error: "timeout" }),
         recorder: {
-          record: ((...args: unknown[]) => { recorded.push(args); }) as ToolCallRecorder["record"],
+          record: ((...args: unknown[]) => {
+            recorded.push(args);
+          }) as ToolCallRecorder["record"],
           getHistory: () => [],
         },
       });
@@ -526,7 +549,9 @@ describe("createSubmitResponseTool", () => {
       const setCalls: unknown[][] = [];
       const deps = makeDeps({
         responseCapture: {
-          set: ((...args: unknown[]) => { setCalls.push(args); }) as ResponseCapture["set"],
+          set: ((...args: unknown[]) => {
+            setCalls.push(args);
+          }) as ResponseCapture["set"],
           get: () => null,
           getRenderedBlocks: () => null,
           setSkipped: () => {},
@@ -592,9 +617,13 @@ describe("createSubmitResponseTool", () => {
       const snapshots: { id: string }[] = [];
       const setCalls: unknown[][] = [];
       const deps = makeDeps({
-        persistSnapshot: async (id) => { snapshots.push({ id }); },
+        persistSnapshot: async (id) => {
+          snapshots.push({ id });
+        },
         responseCapture: {
-          set: ((...args: unknown[]) => { setCalls.push(args); }) as ResponseCapture["set"],
+          set: ((...args: unknown[]) => {
+            setCalls.push(args);
+          }) as ResponseCapture["set"],
           get: () => null,
           getRenderedBlocks: () => null,
           setSkipped: () => {},
@@ -604,9 +633,7 @@ describe("createSubmitResponseTool", () => {
 
       await callTool(deps, {
         sections: [{ body: "Answer" }],
-        actions: [
-          { type: "post_to", content: "Share this" },
-        ],
+        actions: [{ type: "post_to", content: "Share this" }],
       });
 
       const [payload] = setCalls[0] as [{ actions: { _snapshotId?: string }[] }];
@@ -617,7 +644,9 @@ describe("createSubmitResponseTool", () => {
       const setCalls: unknown[][] = [];
       const deps = makeDeps({
         responseCapture: {
-          set: ((...args: unknown[]) => { setCalls.push(args); }) as ResponseCapture["set"],
+          set: ((...args: unknown[]) => {
+            setCalls.push(args);
+          }) as ResponseCapture["set"],
           get: () => null,
           getRenderedBlocks: () => null,
           setSkipped: () => {},
@@ -637,10 +666,7 @@ describe("createSubmitResponseTool", () => {
 
   describe("skip_response", () => {
     /** Call the tool with arbitrary args (no type enforcement for skip tests). */
-    async function callToolRaw(
-      deps: ReturnType<typeof makeDeps>,
-      args: Record<string, unknown>,
-    ) {
+    async function callToolRaw(deps: ReturnType<typeof makeDeps>, args: Record<string, unknown>) {
       const toolDef = createSubmitResponseTool(deps);
       return toolDef.handler(args as never, {});
     }
@@ -649,7 +675,8 @@ describe("createSubmitResponseTool", () => {
       const deps = makeDeps({ allowSkip: true });
       const result = await callToolRaw(deps, {
         skip_response: true,
-        message: "I acknowledge that responding to this would serve no purpose, so I am skipping it.",
+        message:
+          "I acknowledge that responding to this would serve no purpose, so I am skipping it.",
       });
 
       const parsed = JSON.parse(result.content[0].text);
@@ -690,7 +717,8 @@ describe("createSubmitResponseTool", () => {
       const deps = makeDeps({ deliver, allowSkip: true });
       await callToolRaw(deps, {
         skip_response: true,
-        message: "I acknowledge that responding to this would serve no purpose, so I am skipping it.",
+        message:
+          "I acknowledge that responding to this would serve no purpose, so I am skipping it.",
       });
 
       assert.equal(deliver.mock.callCount(), 0);

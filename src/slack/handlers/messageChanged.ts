@@ -64,7 +64,9 @@ async function handleMessageChanged(
   const inFlight = getInFlightRequest(channel, messageTs);
   if (!inFlight) return;
 
-  logger.info(`Message edited while in-flight (session: ${inFlight.sessionId}, trigger: ${inFlight.triggerType})`);
+  logger.info(
+    `Message edited while in-flight (session: ${inFlight.sessionId}, trigger: ${inFlight.triggerType})`,
+  );
 
   // Deregister before aborting to prevent race conditions
   deregisterInFlightRequest(channel, messageTs);
@@ -73,7 +75,9 @@ async function handleMessageChanged(
   // Determine whether to restart with the edited text
   const restartText = await resolveRestartText(client, inFlight.triggerType, newText);
   if (restartText) {
-    logger.info(`Restarting ${inFlight.triggerType} request with edited text (session: ${inFlight.sessionId})`);
+    logger.info(
+      `Restarting ${inFlight.triggerType} request with edited text (session: ${inFlight.sessionId})`,
+    );
     await processMessage({
       client,
       userId: msg.message!.user!,

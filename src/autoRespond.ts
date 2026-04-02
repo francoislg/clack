@@ -95,7 +95,7 @@ export async function addRule(
   userFilters?: string[],
   keywords?: string[],
   extraContext?: string,
-  preAnalysisContext?: string
+  preAnalysisContext?: string,
 ): Promise<AutoRespondRule> {
   const rules = await loadRules();
   const rule: AutoRespondRule = {
@@ -119,7 +119,7 @@ export async function updateRule(
   userFilters?: string[],
   keywords?: string[],
   extraContext?: string,
-  preAnalysisContext?: string
+  preAnalysisContext?: string,
 ): Promise<AutoRespondRule | null> {
   const rules = await loadRules();
   const rule = rules.find((r) => r.id === ruleId);
@@ -194,7 +194,7 @@ export async function getRule(ruleId: string): Promise<AutoRespondRule | null> {
 export async function findMatchingRule(
   channelId: string,
   authorUserId: string | undefined,
-  messageText?: string
+  messageText?: string,
 ): Promise<AutoRespondRule | null> {
   const rules = await getEnabledRules();
   const textLower = messageText?.toLowerCase();

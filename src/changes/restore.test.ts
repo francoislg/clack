@@ -46,7 +46,13 @@ mock.module("../config.js", {
   },
 });
 
-const mockGetExistingWorktree = mock.fn<(repo: RepositoryConfig, branch: string) => { repoName: string; branchName: string; worktreePath: string; createdAt: Date } | null>();
+const mockGetExistingWorktree =
+  mock.fn<
+    (
+      repo: RepositoryConfig,
+      branch: string,
+    ) => { repoName: string; branchName: string; worktreePath: string; createdAt: Date } | null
+  >();
 
 mock.module("../worktrees.js", {
   namedExports: {
@@ -54,14 +60,19 @@ mock.module("../worktrees.js", {
   },
 });
 
-const mockFindSessionByThread = mock.fn<(channelId: string, threadTs: string) => Promise<{
-  sessionId: string;
-  channelId: string;
-  threadTs: string;
-  userId: string;
-  triggerType?: string;
-  activeChange?: unknown;
-} | null>>();
+const mockFindSessionByThread = mock.fn<
+  (
+    channelId: string,
+    threadTs: string,
+  ) => Promise<{
+    sessionId: string;
+    channelId: string;
+    threadTs: string;
+    userId: string;
+    triggerType?: string;
+    activeChange?: unknown;
+  } | null>
+>();
 
 mock.module("../sessions.js", {
   namedExports: {
@@ -223,9 +234,7 @@ describe("restoreWorkerSessions", () => {
 
     it("skips sessions whose worktree is not found", async () => {
       mockGetExistingWorktree.mock.mockImplementation(() => null);
-      mockGetAllPersistedSessions.mock.mockImplementation(async () => [
-        makePersistedState(),
-      ]);
+      mockGetAllPersistedSessions.mock.mockImplementation(async () => [makePersistedState()]);
 
       await restoreWorkerSessions();
 
@@ -478,7 +487,11 @@ describe("restoreWorkerSessions", () => {
         threadTs: "1700000003.000001",
       });
 
-      mockGetAllPersistedSessions.mock.mockImplementation(async () => [session1, session2, session3]);
+      mockGetAllPersistedSessions.mock.mockImplementation(async () => [
+        session1,
+        session2,
+        session3,
+      ]);
 
       let findCallCount = 0;
       mockFindSessionByThread.mock.mockImplementation(async () => {

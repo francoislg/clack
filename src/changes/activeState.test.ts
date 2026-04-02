@@ -23,7 +23,6 @@ import {
   getActiveChangeBranches,
 } from "./activeState.js";
 import type { ActiveChangeState, SessionRef } from "./activeState.js";
-import type { ChangeStatus } from "./types.js";
 
 // ============================================================================
 // Helpers
@@ -384,23 +383,43 @@ describe("getActiveChangeBranches", () => {
   });
 
   it("excludes branches for completed changes", () => {
-    setActiveChange("session-1", makeChange({ branch: "feat/done", status: "completed" }), makeRef());
+    setActiveChange(
+      "session-1",
+      makeChange({ branch: "feat/done", status: "completed" }),
+      makeRef(),
+    );
 
     const branches = getActiveChangeBranches();
     assert.equal(branches.size, 0);
   });
 
   it("excludes branches for failed changes", () => {
-    setActiveChange("session-1", makeChange({ branch: "feat/broken", status: "failed" }), makeRef());
+    setActiveChange(
+      "session-1",
+      makeChange({ branch: "feat/broken", status: "failed" }),
+      makeRef(),
+    );
 
     const branches = getActiveChangeBranches();
     assert.equal(branches.size, 0);
   });
 
   it("mixes active and terminal changes correctly", () => {
-    setActiveChange("session-1", makeChange({ branch: "feat/active", status: "executing" }), makeRef());
-    setActiveChange("session-2", makeChange({ branch: "feat/done", status: "completed" }), makeRef());
-    setActiveChange("session-3", makeChange({ branch: "feat/also-active", status: "reviewing" }), makeRef());
+    setActiveChange(
+      "session-1",
+      makeChange({ branch: "feat/active", status: "executing" }),
+      makeRef(),
+    );
+    setActiveChange(
+      "session-2",
+      makeChange({ branch: "feat/done", status: "completed" }),
+      makeRef(),
+    );
+    setActiveChange(
+      "session-3",
+      makeChange({ branch: "feat/also-active", status: "reviewing" }),
+      makeRef(),
+    );
 
     const branches = getActiveChangeBranches();
     assert.equal(branches.size, 2);

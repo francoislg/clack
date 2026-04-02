@@ -44,7 +44,14 @@ export async function triggerFollowUp(
       streamer.handleEvent,
     );
 
-    await finalizeStreamedWorkflow(streamer, client, streamChannel, streamThreadTs, result, command);
+    await finalizeStreamedWorkflow(
+      streamer,
+      client,
+      streamChannel,
+      streamThreadTs,
+      result,
+      command,
+    );
   } catch (error) {
     logger.error("Follow-up action failed:", error);
     await streamer.stop();
@@ -60,73 +67,76 @@ function registerFollowUpActionHandler(
   app: App,
   actionId: string,
   intentType: string,
-  command: FollowUpCommand
+  command: FollowUpCommand,
 ) {
-  app.action<BlockAction>(new RegExp(`^${actionId}_\\d+$`), async ({ ack, body, client, respond }) => {
-    await ack();
+  app.action<BlockAction>(
+    new RegExp(`^${actionId}_\\d+$`),
+    async ({ ack, body, client, respond }) => {
+      await ack();
 
-    const rawValue = (body.actions[0] as { value: string }).value;
-    const { sessionId, ref } = decodeActionValue(rawValue);
-    const userId = body.user.id;
+      const rawValue = (body.actions[0] as { value: string }).value;
+      const { sessionId, ref } = decodeActionValue(rawValue);
+      const userId = body.user.id;
 
-    // Defense-in-depth: verify the user has dev+ role
-    const role = await getRole(userId);
-    if (!canRequestChanges(role)) {
-      await client.chat.postEphemeral({
-        channel: body.channel?.id ?? "",
-        user: userId,
-        text: "You don't have permission to perform change actions. Requires dev role or higher.",
+      // Defense-in-depth: verify the user has dev+ role
+      const role = await getRole(userId);
+      if (!canRequestChanges(role)) {
+        await client.chat.postEphemeral({
+          channel: body.channel?.id ?? "",
+          user: userId,
+          text: "You don't have permission to perform change actions. Requires dev role or higher.",
+        });
+        return;
+      }
+
+      if (!ref) {
+        logger.error(`${actionId} handler: missing ref`);
+        return;
+      }
+
+      await respond({ delete_original: true });
+
+      const sessionInfo = await activeSessions.restore(sessionId);
+      if (!sessionInfo) {
+        logger.error(`${actionId} handler: could not restore session ${sessionId}`);
+        return;
+      }
+
+      const intent = await getStagedIntent(sessionId, ref);
+      if (!intent || intent.type !== intentType) {
+        logger.error(`${actionId} handler: could not resolve ${intentType} intent ref ${ref}`);
+        await client.chat.postEphemeral({
+          channel: sessionInfo.channelId,
+          user: userId,
+          thread_ts: sessionInfo.threadTs,
+          text: "Sorry, this action has expired. Please try again.",
+        });
+        return;
+      }
+
+      // Find the unified session for this thread
+      const session = await findSessionByThread(sessionInfo.channelId, sessionInfo.threadTs);
+      if (!session?.activeChange) {
+        await client.chat.postEphemeral({
+          channel: sessionInfo.channelId,
+          user: userId,
+          thread_ts: sessionInfo.threadTs,
+          text: "No active change found in this thread.",
+        });
+        return;
+      }
+
+      // Extract additional instructions for update commands
+      const additionalInstructions = intent.type === "update" ? intent.instructions : undefined;
+
+      await triggerFollowUp(session, command, additionalInstructions, {
+        channelId: sessionInfo.channelId,
+        threadTs: sessionInfo.threadTs,
+        userId,
+        client,
       });
-      return;
-    }
-
-    if (!ref) {
-      logger.error(`${actionId} handler: missing ref`);
-      return;
-    }
-
-    await respond({ delete_original: true });
-
-    const sessionInfo = await activeSessions.restore(sessionId);
-    if (!sessionInfo) {
-      logger.error(`${actionId} handler: could not restore session ${sessionId}`);
-      return;
-    }
-
-    const intent = await getStagedIntent(sessionId, ref);
-    if (!intent || intent.type !== intentType) {
-      logger.error(`${actionId} handler: could not resolve ${intentType} intent ref ${ref}`);
-      await client.chat.postEphemeral({
-        channel: sessionInfo.channelId,
-        user: userId,
-        thread_ts: sessionInfo.threadTs,
-        text: "Sorry, this action has expired. Please try again.",
-      });
-      return;
-    }
-
-    // Find the unified session for this thread
-    const session = await findSessionByThread(sessionInfo.channelId, sessionInfo.threadTs);
-    if (!session?.activeChange) {
-      await client.chat.postEphemeral({
-        channel: sessionInfo.channelId,
-        user: userId,
-        thread_ts: sessionInfo.threadTs,
-        text: "No active change found in this thread.",
-      });
-      return;
-    }
-
-    // Extract additional instructions for update commands
-    const additionalInstructions = intent.type === "update" ? intent.instructions : undefined;
-
-    await triggerFollowUp(session, command, additionalInstructions, {
-      channelId: sessionInfo.channelId,
-      threadTs: sessionInfo.threadTs,
-      userId,
-      client,
-    });
-  });
+    },
+  );
 }
 
 export function registerChangeThreadActionHandlers(app: App): void {

@@ -1,6 +1,12 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { roleLevel, canReadRepo, canWriteRepo, getVisibleRepos, getWritableRepos } from "./repoAccess.js";
+import {
+  roleLevel,
+  canReadRepo,
+  canWriteRepo,
+  getVisibleRepos,
+  getWritableRepos,
+} from "./repoAccess.js";
 import type { RepositoryConfig } from "./config.js";
 import type { UserRole } from "./roles.js";
 

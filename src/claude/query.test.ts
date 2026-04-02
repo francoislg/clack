@@ -80,9 +80,7 @@ describe("clackQuery", () => {
   });
 
   it("sets persistSession to false", () => {
-    mockQuery.mock.mockImplementation(() =>
-      makeAsyncIterable([makeResultMessage("done")])
-    );
+    mockQuery.mock.mockImplementation(() => makeAsyncIterable([makeResultMessage("done")]));
 
     clackQuery({
       prompt: "test",
@@ -98,9 +96,7 @@ describe("clackQuery", () => {
   });
 
   it("does not pass resume", () => {
-    mockQuery.mock.mockImplementation(() =>
-      makeAsyncIterable([makeResultMessage("done")])
-    );
+    mockQuery.mock.mockImplementation(() => makeAsyncIterable([makeResultMessage("done")]));
 
     clackQuery({ prompt: "test" });
 
@@ -120,7 +116,7 @@ describe("clackSession", () => {
 
   it("sets persistSession to true", async () => {
     mockQuery.mock.mockImplementation(() =>
-      makeAsyncIterable([makeInitMessage("abc-123"), makeResultMessage("done")])
+      makeAsyncIterable([makeInitMessage("abc-123"), makeResultMessage("done")]),
     );
 
     const messages: unknown[] = [];
@@ -135,13 +131,15 @@ describe("clackSession", () => {
 
   it("captures session_id from init message via onSessionId callback", async () => {
     mockQuery.mock.mockImplementation(() =>
-      makeAsyncIterable([makeInitMessage("captured-id"), makeResultMessage("done")])
+      makeAsyncIterable([makeInitMessage("captured-id"), makeResultMessage("done")]),
     );
 
     let capturedId: string | undefined;
     for await (const _msg of clackSession({
       prompt: "test",
-      onSessionId: (id) => { capturedId = id; },
+      onSessionId: (id) => {
+        capturedId = id;
+      },
     })) {
       // consume
     }
@@ -151,7 +149,7 @@ describe("clackSession", () => {
 
   it("passes resumeSessionId as resume option", async () => {
     mockQuery.mock.mockImplementation(() =>
-      makeAsyncIterable([makeInitMessage("resumed-id"), makeResultMessage("done")])
+      makeAsyncIterable([makeInitMessage("resumed-id"), makeResultMessage("done")]),
     );
 
     for await (const _msg of clackSession({
@@ -167,7 +165,7 @@ describe("clackSession", () => {
 
   it("does not pass resume when resumeSessionId is undefined", async () => {
     mockQuery.mock.mockImplementation(() =>
-      makeAsyncIterable([makeInitMessage("fresh-id"), makeResultMessage("done")])
+      makeAsyncIterable([makeInitMessage("fresh-id"), makeResultMessage("done")]),
     );
 
     for await (const _msg of clackSession({ prompt: "test" })) {
@@ -199,7 +197,9 @@ describe("clackSession", () => {
     for await (const msg of clackSession({
       prompt: "test",
       resumeSessionId: "broken-session",
-      onSessionId: (id) => { capturedId = id; },
+      onSessionId: (id) => {
+        capturedId = id;
+      },
     })) {
       messages.push(msg);
     }
@@ -229,13 +229,13 @@ describe("clackSession", () => {
           // consume
         }
       },
-      { message: "API rate limit" }
+      { message: "API rate limit" },
     );
   });
 
   it("forwards all other options unchanged", async () => {
     mockQuery.mock.mockImplementation(() =>
-      makeAsyncIterable([makeInitMessage("id"), makeResultMessage("done")])
+      makeAsyncIterable([makeInitMessage("id"), makeResultMessage("done")]),
     );
 
     for await (const _msg of clackSession({

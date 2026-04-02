@@ -70,7 +70,7 @@ function writeSlackAuth() {
       botToken: "xoxb-111-222-abc",
       appToken: "xapp-1-A111-222-xyz",
       signingSecret: "s3cr3t",
-    })
+    }),
   );
 }
 
@@ -147,17 +147,11 @@ describe("path helpers", () => {
   });
 
   it("getDefaultConfigurationDir returns data/default_configuration", () => {
-    assert.equal(
-      getDefaultConfigurationDir(),
-      resolve(dataDir, "default_configuration")
-    );
+    assert.equal(getDefaultConfigurationDir(), resolve(dataDir, "default_configuration"));
   });
 
   it("getWorktreeSessionsDir returns data/worktree-sessions", () => {
-    assert.equal(
-      getWorktreeSessionsDir(),
-      resolve(dataDir, "worktree-sessions")
-    );
+    assert.equal(getWorktreeSessionsDir(), resolve(dataDir, "worktree-sessions"));
   });
 });
 
@@ -236,7 +230,7 @@ describe("loadConfig", () => {
           description: "Custom desc",
           backgroundColor: "#FF0000",
         },
-      })
+      }),
     );
 
     const cfg = loadConfig(configPath, true);
@@ -278,17 +272,14 @@ describe("loadConfig", () => {
           enabled: true,
           changesWorkflow: { enabled: true },
         },
-      })
+      }),
     );
 
     const cfg = loadConfig(configPath, true);
 
     assert.equal(cfg.changesWorkflow?.enabled, true);
     assert.equal(cfg.changesWorkflow?.timeoutMinutes, 30);
-    assert.deepEqual(cfg.changesWorkflow?.additionalAllowedTools, [
-      "tool_a",
-      "tool_b",
-    ]);
+    assert.deepEqual(cfg.changesWorkflow?.additionalAllowedTools, ["tool_a", "tool_b"]);
     assert.equal(cfg.changesWorkflow?.sessionExpiryHours, 48);
     assert.equal(cfg.changesWorkflow?.monitoringIntervalMinutes, 10);
 
@@ -343,20 +334,14 @@ describe("loadConfig", () => {
     writeSlackAuth();
     writeConfig({});
 
-    assert.throws(
-      () => loadConfig(configPath, true),
-      /repositories.*must be a non-empty array/
-    );
+    assert.throws(() => loadConfig(configPath, true), /repositories.*must be a non-empty array/);
   });
 
   it("throws when repositories is an empty array", () => {
     writeSlackAuth();
     writeConfig({ repositories: [] });
 
-    assert.throws(
-      () => loadConfig(configPath, true),
-      /repositories.*must be a non-empty array/
-    );
+    assert.throws(() => loadConfig(configPath, true), /repositories.*must be a non-empty array/);
   });
 
   it("throws when a repository is missing name", () => {
@@ -365,10 +350,7 @@ describe("loadConfig", () => {
       repositories: [{ url: "https://github.com/org/r.git", description: "d" }],
     });
 
-    assert.throws(
-      () => loadConfig(configPath, true),
-      /Repository 'name' is required/
-    );
+    assert.throws(() => loadConfig(configPath, true), /Repository 'name' is required/);
   });
 
   it("throws when a repository is missing url", () => {
@@ -377,10 +359,7 @@ describe("loadConfig", () => {
       repositories: [{ name: "r", description: "d" }],
     });
 
-    assert.throws(
-      () => loadConfig(configPath, true),
-      /Repository 'url' is required/
-    );
+    assert.throws(() => loadConfig(configPath, true), /Repository 'url' is required/);
   });
 
   it("throws when a repository is missing description", () => {
@@ -389,10 +368,7 @@ describe("loadConfig", () => {
       repositories: [{ name: "r", url: "https://github.com/org/r.git" }],
     });
 
-    assert.throws(
-      () => loadConfig(configPath, true),
-      /Repository 'description' is required/
-    );
+    assert.throws(() => loadConfig(configPath, true), /Repository 'description' is required/);
   });
 
   it("throws when repository access.read has an invalid role", () => {
@@ -408,10 +384,7 @@ describe("loadConfig", () => {
       ],
     });
 
-    assert.throws(
-      () => loadConfig(configPath, true),
-      /access\.read must be one of/
-    );
+    assert.throws(() => loadConfig(configPath, true), /access\.read must be one of/);
   });
 
   it("throws when repository access.write has an invalid role", () => {
@@ -427,10 +400,7 @@ describe("loadConfig", () => {
       ],
     });
 
-    assert.throws(
-      () => loadConfig(configPath, true),
-      /access\.write must be one of/
-    );
+    assert.throws(() => loadConfig(configPath, true), /access\.write must be one of/);
   });
 
   it("throws when repository mergeStrategy is invalid", () => {
@@ -446,10 +416,7 @@ describe("loadConfig", () => {
       ],
     });
 
-    assert.throws(
-      () => loadConfig(configPath, true),
-      /mergeStrategy.*must be one of/
-    );
+    assert.throws(() => loadConfig(configPath, true), /mergeStrategy.*must be one of/);
   });
 
   it("throws for invalid slackApp.backgroundColor", () => {
@@ -457,13 +424,10 @@ describe("loadConfig", () => {
     writeConfig(
       minimalConfig({
         slackApp: { backgroundColor: "not-a-color" },
-      })
+      }),
     );
 
-    assert.throws(
-      () => loadConfig(configPath, true),
-      /backgroundColor.*must be a hex color/
-    );
+    assert.throws(() => loadConfig(configPath, true), /backgroundColor.*must be a hex color/);
   });
 
   it("throws for empty slackApp.name", () => {
@@ -471,20 +435,14 @@ describe("loadConfig", () => {
     writeConfig(
       minimalConfig({
         slackApp: { name: "" },
-      })
+      }),
     );
 
-    assert.throws(
-      () => loadConfig(configPath, true),
-      /slackApp\.name.*must be a non-empty string/
-    );
+    assert.throws(() => loadConfig(configPath, true), /slackApp\.name.*must be a non-empty string/);
   });
 
   it("throws when config file does not exist", () => {
-    assert.throws(
-      () => loadConfig("/nonexistent/path/config.json", true),
-      /Config file not found/
-    );
+    assert.throws(() => loadConfig("/nonexistent/path/config.json", true), /Config file not found/);
   });
 
   it("throws when config file is not valid JSON", () => {
@@ -492,10 +450,7 @@ describe("loadConfig", () => {
     mkdirSync(tmpDataDir, { recursive: true });
     writeFileSync(configPath, "{ invalid json }}}");
 
-    assert.throws(
-      () => loadConfig(configPath, true),
-      /Config file is not valid JSON/
-    );
+    assert.throws(() => loadConfig(configPath, true), /Config file is not valid JSON/);
   });
 
   // ---- Caching ----
@@ -509,7 +464,7 @@ describe("loadConfig", () => {
     writeConfig(
       minimalConfig({
         claudeCode: { model: "haiku" },
-      })
+      }),
     );
     const second = loadConfig(configPath);
     // Should still be cached
@@ -526,7 +481,7 @@ describe("loadConfig", () => {
     writeConfig(
       minimalConfig({
         claudeCode: { model: "haiku" },
-      })
+      }),
     );
     const second = loadConfig(configPath, true);
     assert.equal(second.claudeCode.model, "haiku");

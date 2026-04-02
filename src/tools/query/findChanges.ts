@@ -12,13 +12,21 @@ export function createFindChangesTool(ctx: QueryToolContext) {
     {
       repo: z.string().optional().describe("Filter by repository name"),
       status: z
-        .enum(["planning", "executing", "pr_created", "reviewing", "merging", "completed", "failed"])
+        .enum([
+          "planning",
+          "executing",
+          "pr_created",
+          "reviewing",
+          "merging",
+          "completed",
+          "failed",
+        ])
         .optional()
         .describe("Filter by status"),
     },
     async (args) => {
       const visibleRepoNames = new Set(
-        getVisibleRepos(ctx.role, ctx.config.repositories).map((r) => r.name)
+        getVisibleRepos(ctx.role, ctx.config.repositories).map((r) => r.name),
       );
       let workers = getActiveWorkers().filter((w) => visibleRepoNames.has(w.repo));
 
@@ -40,6 +48,6 @@ export function createFindChangesTool(ctx: QueryToolContext) {
       }));
 
       return textResult(result);
-    }
+    },
   );
 }

@@ -12,10 +12,7 @@ export function createFindUserTool(ctx: QueryToolContext, usersCache: UsersCache
       query: z
         .array(z.string())
         .describe("One or more search terms to match against userId, username, or displayName"),
-      limit: z
-        .number()
-        .optional()
-        .describe("Maximum number of results to return (default: 10)"),
+      limit: z.number().optional().describe("Maximum number of results to return (default: 10)"),
     },
     async (args) => {
       const results = await usersCache.search(args.query, args.limit ?? 10);
@@ -26,6 +23,6 @@ export function createFindUserTool(ctx: QueryToolContext, usersCache: UsersCache
         total,
         truncated: total >= (args.limit ?? 10),
       });
-    }
+    },
   );
 }

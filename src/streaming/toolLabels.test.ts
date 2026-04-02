@@ -10,7 +10,7 @@ describe("getToolLabel", () => {
     it("returns dynamic label for Read with file_path", () => {
       assert.equal(
         getToolLabel("Read", { file_path: "/home/user/projects/my-app/src/index.ts" }),
-        "Reading src/index.ts"
+        "Reading src/index.ts",
       );
     });
 
@@ -23,10 +23,7 @@ describe("getToolLabel", () => {
     });
 
     it("returns dynamic label for Grep with pattern", () => {
-      assert.equal(
-        getToolLabel("Grep", { pattern: "TODO" }),
-        'Searching for "TODO"'
-      );
+      assert.equal(getToolLabel("Grep", { pattern: "TODO" }), 'Searching for "TODO"');
     });
 
     it("returns fallback for Grep without pattern", () => {
@@ -43,31 +40,28 @@ describe("getToolLabel", () => {
     it("returns dynamic label for Write with file_path", () => {
       assert.equal(
         getToolLabel("Write", { file_path: "/app/src/utils.ts" }),
-        "Writing src/utils.ts"
+        "Writing src/utils.ts",
       );
     });
 
     it("returns dynamic label for Edit with file_path", () => {
       assert.equal(
         getToolLabel("Edit", { file_path: "/app/src/config.ts" }),
-        "Editing src/config.ts"
+        "Editing src/config.ts",
       );
     });
 
     it("returns description for Bash when provided", () => {
       assert.equal(
         getToolLabel("Bash", { description: "Install dependencies", command: "npm install" }),
-        "Install dependencies"
+        "Install dependencies",
       );
     });
 
     it("falls back to generic label for Bash when no description", () => {
       // Config-driven labels use {description|Running command} — command arg
       // is no longer used in the label template (design decision: simplified).
-      assert.equal(
-        getToolLabel("Bash", { command: "npm install" }),
-        "Running command"
-      );
+      assert.equal(getToolLabel("Bash", { command: "npm install" }), "Running command");
     });
 
     it("returns fallback for Bash with no args", () => {
@@ -75,10 +69,7 @@ describe("getToolLabel", () => {
     });
 
     it("returns dynamic label for Skill with skill name", () => {
-      assert.equal(
-        getToolLabel("Skill", { skill: "commit" }),
-        "Running skill commit"
-      );
+      assert.equal(getToolLabel("Skill", { skill: "commit" }), "Running skill commit");
     });
 
     it("returns fallback for Skill without skill name", () => {
@@ -88,10 +79,22 @@ describe("getToolLabel", () => {
 
   describe("clack tools", () => {
     it("returns dynamic labels for query tools with args", () => {
-      assert.equal(getToolLabel("mcp__clack__git_log", { repo: "my-app" }), "Reading git history my-app");
-      assert.equal(getToolLabel("mcp__clack__find_sessions", { repo: "api" }), "Finding sessions api");
-      assert.equal(getToolLabel("mcp__clack__find_changes", { repo: "web" }), "Finding changes web");
-      assert.equal(getToolLabel("mcp__clack__find_pull_requests", { repo: "web" }), "Finding pull requests web");
+      assert.equal(
+        getToolLabel("mcp__clack__git_log", { repo: "my-app" }),
+        "Reading git history my-app",
+      );
+      assert.equal(
+        getToolLabel("mcp__clack__find_sessions", { repo: "api" }),
+        "Finding sessions api",
+      );
+      assert.equal(
+        getToolLabel("mcp__clack__find_changes", { repo: "web" }),
+        "Finding changes web",
+      );
+      assert.equal(
+        getToolLabel("mcp__clack__find_pull_requests", { repo: "web" }),
+        "Finding pull requests web",
+      );
     });
 
     it("returns labels without repo when arg is missing", () => {
@@ -99,24 +102,29 @@ describe("getToolLabel", () => {
       assert.equal(getToolLabel("mcp__clack__list_repositories", {}), "Listing repositories");
       assert.equal(getToolLabel("mcp__clack__deepen_history", {}), "Loading more history");
       assert.equal(getToolLabel("mcp__clack__find_user", {}), "Looking up user");
-      assert.equal(getToolLabel("mcp__clack__find_user", { query: ["john"] }), "Looking up user john");
+      assert.equal(
+        getToolLabel("mcp__clack__find_user", { query: ["john"] }),
+        "Looking up user john",
+      );
     });
 
     it("returns Slack mrkdwn links for channel/message tools", () => {
       assert.equal(
         getToolLabel("mcp__clack__fetch_channel_messages", { channel_id: "C12345" }),
-        "Reading messages in <#C12345>"
+        "Reading messages in <#C12345>",
       );
       assert.equal(
-        getToolLabel("mcp__clack__fetch_slack_message", { url: "https://slack.com/archives/C123/p456" }),
-        "Reading <https://slack.com/archives/C123/p456|Slack message>"
+        getToolLabel("mcp__clack__fetch_slack_message", {
+          url: "https://slack.com/archives/C123/p456",
+        }),
+        "Reading <https://slack.com/archives/C123/p456|Slack message>",
       );
     });
 
     it("returns label for view_slack_image with file_id", () => {
       assert.equal(
         getToolLabel("mcp__clack__view_slack_image", { file_id: "F123ABC" }),
-        "Viewing image F123ABC"
+        "Viewing image F123ABC",
       );
     });
 
@@ -127,7 +135,7 @@ describe("getToolLabel", () => {
     it("returns label for view_slack_file with file_id", () => {
       assert.equal(
         getToolLabel("mcp__clack__view_slack_file", { file_id: "F456DEF" }),
-        "Viewing file F456DEF"
+        "Viewing file F456DEF",
       );
     });
 
@@ -144,7 +152,10 @@ describe("getToolLabel", () => {
     });
 
     it("returns dynamic labels for action tools with repo", () => {
-      assert.equal(getToolLabel("mcp__clack__propose_change", { repo: "api" }), "Proposing change api");
+      assert.equal(
+        getToolLabel("mcp__clack__propose_change", { repo: "api" }),
+        "Proposing change api",
+      );
       assert.equal(getToolLabel("mcp__clack__request_update", {}), "Requesting update");
     });
 
@@ -158,8 +169,13 @@ describe("getToolLabel", () => {
   describe("GitHub MCP tools", () => {
     it("returns label with linked PR number and method when all args present", () => {
       assert.equal(
-        getToolLabel("mcp__github__pull_request_read", { owner: "org", repo: "my-repo", pullNumber: 42, method: "comments" }),
-        "Reading <https://github.com/org/my-repo/pull/42|PR #42> comments"
+        getToolLabel("mcp__github__pull_request_read", {
+          owner: "org",
+          repo: "my-repo",
+          pullNumber: 42,
+          method: "comments",
+        }),
+        "Reading <https://github.com/org/my-repo/pull/42|PR #42> comments",
       );
     });
 
@@ -174,7 +190,7 @@ describe("getToolLabel", () => {
     it("returns dynamic labels for search", () => {
       assert.equal(
         getToolLabel("mcp__github__search_code", { query: "hello" }),
-        'Searching GitHub for "hello"'
+        'Searching GitHub for "hello"',
       );
     });
   });
@@ -186,8 +202,10 @@ describe("getToolLabel", () => {
 
     it("extracts issueId from issueUrl and produces mrkdwn link", () => {
       assert.equal(
-        getToolLabel("mcp__sentry__get_issue_details", { issueUrl: "https://myorg.sentry.io/issues/7313838390/" }),
-        "Reading Sentry issue <https://myorg.sentry.io/issues/7313838390/|7313838390>"
+        getToolLabel("mcp__sentry__get_issue_details", {
+          issueUrl: "https://myorg.sentry.io/issues/7313838390/",
+        }),
+        "Reading Sentry issue <https://myorg.sentry.io/issues/7313838390/|7313838390>",
       );
     });
 
@@ -203,29 +221,31 @@ describe("getToolLabel", () => {
   describe("Statsig MCP tools", () => {
     it("extracts id from nested params.path_id via extractor", () => {
       assert.equal(
-        getToolLabel("mcp__statsig__Get_Experiment_Details_by_ID", { params: { path_id: "my-experiment" } }),
-        "Reading experiment my-experiment"
+        getToolLabel("mcp__statsig__Get_Experiment_Details_by_ID", {
+          params: { path_id: "my-experiment" },
+        }),
+        "Reading experiment my-experiment",
       );
     });
 
     it("uses real id arg over extracted one (real args win)", () => {
       assert.equal(
-        getToolLabel("mcp__statsig__Get_Experiment_Details_by_ID", { id: "direct-id", params: { path_id: "nested" } }),
-        "Reading experiment direct-id"
+        getToolLabel("mcp__statsig__Get_Experiment_Details_by_ID", {
+          id: "direct-id",
+          params: { path_id: "nested" },
+        }),
+        "Reading experiment direct-id",
       );
     });
 
     it("returns ellipsis when no id source is available", () => {
-      assert.equal(
-        getToolLabel("mcp__statsig__Get_Gate_Details_by_ID", {}),
-        "Reading gate \u2026"
-      );
+      assert.equal(getToolLabel("mcp__statsig__Get_Gate_Details_by_ID", {}), "Reading gate \u2026");
     });
 
     it("uses default fallback for unknown Statsig tools", () => {
       assert.equal(
         getToolLabel("mcp__statsig__Some_New_Endpoint", {}),
-        "Checking Statsig feature flags"
+        "Checking Statsig feature flags",
       );
     });
   });
@@ -234,21 +254,18 @@ describe("getToolLabel", () => {
     it("hides Read when file_path matches tool-results/ pattern", () => {
       assert.equal(
         getToolLabel("Read", { file_path: "tool-results/mcp-metabase-retrieve-1774" }),
-        null
+        null,
       );
     });
 
     it("hides Read when file_path matches tasks/ pattern (TaskOutput)", () => {
-      assert.equal(
-        getToolLabel("Read", { file_path: "tasks/badc80a.output" }),
-        null
-      );
+      assert.equal(getToolLabel("Read", { file_path: "tasks/badc80a.output" }), null);
     });
 
     it("shows Read normally when file_path does not match tool-results/", () => {
       assert.equal(
         getToolLabel("Read", { file_path: "/app/src/index.ts" }),
-        "Reading src/index.ts"
+        "Reading src/index.ts",
       );
     });
 
@@ -258,19 +275,13 @@ describe("getToolLabel", () => {
 
     it("does not hide non-matching tools even with tool-results/ path", () => {
       // The rule is scoped to "Read" — Grep with a tool-results arg should not be hidden
-      assert.notEqual(
-        getToolLabel("Grep", { pattern: "tool-results/" }),
-        null
-      );
+      assert.notEqual(getToolLabel("Grep", { pattern: "tool-results/" }), null);
     });
   });
 
   describe("generic MCP fallback", () => {
     it("formats unknown MCP tool with capitalized server name", () => {
-      assert.equal(
-        getToolLabel("mcp__jira__create_issue", {}),
-        "Checking Jira"
-      );
+      assert.equal(getToolLabel("mcp__jira__create_issue", {}), "Checking Jira");
     });
 
     it("falls back to Running <name> for non-MCP tools", () => {
@@ -360,7 +371,10 @@ describe("getToolGroup", () => {
   });
 
   it("groups GitHub MCP tools under github with PR number and method", () => {
-    const group = getToolGroup("mcp__github__pull_request_read", { pullNumber: 42, method: "reviews" });
+    const group = getToolGroup("mcp__github__pull_request_read", {
+      pullNumber: 42,
+      method: "reviews",
+    });
     assert.ok(group);
     assert.equal(group.key, "github");
     assert.equal(group.title, "Checking GitHub");

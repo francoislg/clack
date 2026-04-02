@@ -3,7 +3,11 @@ import { resolve } from "node:path";
 import { getConfigurationDir, getDefaultConfigurationDir } from "./config.js";
 import { logger } from "./logger.js";
 import type { UserRole } from "./roles.js";
-import { buildRoleChain, resolveInstructions, validateInstructionDirs } from "./cascadingConfigResolver.js";
+import {
+  buildRoleChain,
+  resolveInstructions,
+  validateInstructionDirs,
+} from "./cascadingConfigResolver.js";
 
 export interface LoadInstructionsOptions {
   /** Whether changesWorkflow is enabled for this trigger */

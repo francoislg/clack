@@ -71,7 +71,7 @@ export async function storeDmCoordinates(
   dmChannel: string,
   dmThreadTs: string,
   originChannel: string,
-  originThreadTs: string
+  originThreadTs: string,
 ): Promise<void> {
   // Update persisted session
   await updateSession(sessionId, {

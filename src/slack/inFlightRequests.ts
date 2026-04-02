@@ -29,6 +29,9 @@ export function deregisterInFlightRequest(channelId: string, messageTs: string):
   }
 }
 
-export function getInFlightRequest(channelId: string, messageTs: string): InFlightRequest | undefined {
+export function getInFlightRequest(
+  channelId: string,
+  messageTs: string,
+): InFlightRequest | undefined {
   return registry.get(makeKey(channelId, messageTs));
 }

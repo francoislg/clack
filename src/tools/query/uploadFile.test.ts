@@ -25,10 +25,13 @@ function makeContext(overrides?: Partial<QueryToolContext>): QueryToolContext {
 function makeSlackClient(uploadResult?: unknown) {
   return {
     files: {
-      uploadV2: mock.fn(async () => uploadResult ?? {
-        ok: true,
-        files: [{ id: "F123", permalink: "https://slack.com/files/F123" }],
-      }),
+      uploadV2: mock.fn(
+        async () =>
+          uploadResult ?? {
+            ok: true,
+            files: [{ id: "F123", permalink: "https://slack.com/files/F123" }],
+          },
+      ),
     },
   } as unknown as QueryToolContext["slackClient"];
 }
@@ -80,14 +83,21 @@ describe("createUploadFileTool", () => {
   it("uploads to current thread by default", async () => {
     const client = makeSlackClient();
     const tool = createUploadFileTool(makeContext({ slackClient: client }));
-    const result = await tool.handler(uploadArgs({ content: "csv,data", filename: "report.csv" }), {});
+    const result = await tool.handler(
+      uploadArgs({ content: "csv,data", filename: "report.csv" }),
+      {},
+    );
 
     assert.ok(!result.isError);
     const parsed = JSON.parse((result.content[0] as { text: string }).text);
     assert.equal(parsed.ok, true);
     assert.equal(parsed.file_id, "F123");
 
-    const uploadV2 = (client as unknown as { files: { uploadV2: { mock: { calls: Array<{ arguments: unknown[] }> } } } }).files.uploadV2;
+    const uploadV2 = (
+      client as unknown as {
+        files: { uploadV2: { mock: { calls: Array<{ arguments: unknown[] }> } } };
+      }
+    ).files.uploadV2;
     const callArgs = uploadV2.mock.calls[0].arguments[0] as Record<string, unknown>;
     assert.equal(callArgs.channel_id, "C_DEFAULT");
     assert.equal(callArgs.thread_ts, "1234567890.000001");
@@ -98,12 +108,19 @@ describe("createUploadFileTool", () => {
   it("uploads to explicit channel and thread", async () => {
     const client = makeSlackClient();
     const tool = createUploadFileTool(makeContext({ slackClient: client }));
-    await tool.handler(uploadArgs({
-      channel: "C_OTHER",
-      thread_ts: "9999999999.000001",
-    }), {});
+    await tool.handler(
+      uploadArgs({
+        channel: "C_OTHER",
+        thread_ts: "9999999999.000001",
+      }),
+      {},
+    );
 
-    const uploadV2 = (client as unknown as { files: { uploadV2: { mock: { calls: Array<{ arguments: unknown[] }> } } } }).files.uploadV2;
+    const uploadV2 = (
+      client as unknown as {
+        files: { uploadV2: { mock: { calls: Array<{ arguments: unknown[] }> } } };
+      }
+    ).files.uploadV2;
     const callArgs = uploadV2.mock.calls[0].arguments[0] as Record<string, unknown>;
     assert.equal(callArgs.channel_id, "C_OTHER");
     assert.equal(callArgs.thread_ts, "9999999999.000001");
@@ -114,7 +131,11 @@ describe("createUploadFileTool", () => {
     const tool = createUploadFileTool(makeContext({ slackClient: client }));
     await tool.handler(uploadArgs({ channel: "C_OTHER" }), {});
 
-    const uploadV2 = (client as unknown as { files: { uploadV2: { mock: { calls: Array<{ arguments: unknown[] }> } } } }).files.uploadV2;
+    const uploadV2 = (
+      client as unknown as {
+        files: { uploadV2: { mock: { calls: Array<{ arguments: unknown[] }> } } };
+      }
+    ).files.uploadV2;
     const callArgs = uploadV2.mock.calls[0].arguments[0] as Record<string, unknown>;
     assert.equal(callArgs.channel_id, "C_OTHER");
     assert.equal(callArgs.thread_ts, undefined);
@@ -125,7 +146,11 @@ describe("createUploadFileTool", () => {
     const tool = createUploadFileTool(makeContext({ slackClient: client }));
     await tool.handler(uploadArgs({ filename: "report.csv" }), {});
 
-    const uploadV2 = (client as unknown as { files: { uploadV2: { mock: { calls: Array<{ arguments: unknown[] }> } } } }).files.uploadV2;
+    const uploadV2 = (
+      client as unknown as {
+        files: { uploadV2: { mock: { calls: Array<{ arguments: unknown[] }> } } };
+      }
+    ).files.uploadV2;
     const callArgs = uploadV2.mock.calls[0].arguments[0] as Record<string, unknown>;
     assert.equal(callArgs.title, "report.csv");
   });
@@ -135,7 +160,11 @@ describe("createUploadFileTool", () => {
     const tool = createUploadFileTool(makeContext({ slackClient: client }));
     await tool.handler(uploadArgs({ filename: "report.csv", title: "Monthly Report" }), {});
 
-    const uploadV2 = (client as unknown as { files: { uploadV2: { mock: { calls: Array<{ arguments: unknown[] }> } } } }).files.uploadV2;
+    const uploadV2 = (
+      client as unknown as {
+        files: { uploadV2: { mock: { calls: Array<{ arguments: unknown[] }> } } };
+      }
+    ).files.uploadV2;
     const callArgs = uploadV2.mock.calls[0].arguments[0] as Record<string, unknown>;
     assert.equal(callArgs.title, "Monthly Report");
   });
@@ -143,7 +172,9 @@ describe("createUploadFileTool", () => {
   it("returns error on Slack API failure", async () => {
     const client = {
       files: {
-        uploadV2: mock.fn(async () => { throw new Error("channel_not_found"); }),
+        uploadV2: mock.fn(async () => {
+          throw new Error("channel_not_found");
+        }),
       },
     } as unknown as QueryToolContext["slackClient"];
     const tool = createUploadFileTool(makeContext({ slackClient: client }));

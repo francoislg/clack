@@ -71,7 +71,12 @@ async function tick(): Promise<void> {
 // Cron Matching
 // ============================================================================
 
-export function matchesCron(expression: string, now: Date, timezone: string, lastRunAt?: string): boolean {
+export function matchesCron(
+  expression: string,
+  now: Date,
+  timezone: string,
+  lastRunAt?: string,
+): boolean {
   try {
     const interval = CronExpressionParser.parse(expression, {
       currentDate: now,
@@ -122,10 +127,18 @@ async function executeJob(job: CronJob): Promise<void> {
     }
   } catch (error) {
     logger.error(`Cron job ${job.id} failed:`, error);
-    try { await updateJobRunStatus(job.id, "error"); } catch (e) { logger.error("Failed to update job status:", e); }
+    try {
+      await updateJobRunStatus(job.id, "error");
+    } catch (e) {
+      logger.error("Failed to update job status:", e);
+    }
     // Dynamic jobs already notify via handleError in silentThinking mode; only notify here for static jobs
     if (!job.prompt) {
-      try { await notifyCreatorOfError(job, slackClient, error); } catch (e) { logger.error("Failed to notify creator:", e); }
+      try {
+        await notifyCreatorOfError(job, slackClient, error);
+      } catch (e) {
+        logger.error("Failed to notify creator:", e);
+      }
     }
   } finally {
     runningJobs.delete(job.id);
@@ -199,7 +212,13 @@ export function humanReadableSchedule(cronExpression: string, timezone: string):
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const DAY_NAME_MAP: Record<string, number> = {
-  sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6,
+  sun: 0,
+  mon: 1,
+  tue: 2,
+  wed: 3,
+  thu: 4,
+  fri: 5,
+  sat: 6,
 };
 
 function toDayIndex(value: string): number {

@@ -8,12 +8,21 @@ import type { SessionContext } from "../../sessions.js";
 // Mocks — set up before importing the module under test
 // ============================================================================
 
-const mockGetSession = mock.fn<(sessionId: string) => Promise<SessionContext | null>>(async () => null);
+const mockGetSession = mock.fn<(sessionId: string) => Promise<SessionContext | null>>(
+  async () => null,
+);
 const mockUpdateThreadContext = mock.fn<(...args: unknown[]) => Promise<unknown>>(async () => null);
-const mockRestoreSessionInfo = mock.fn<(sessionId: string) => Promise<SessionInfo | undefined>>(async () => undefined);
+const mockRestoreSessionInfo = mock.fn<(sessionId: string) => Promise<SessionInfo | undefined>>(
+  async () => undefined,
+);
 const mockFetchThreadContext = mock.fn<(...args: unknown[]) => Promise<unknown[]>>(async () => []);
-const mockExecuteAndDeliver = mock.fn<(...args: unknown[]) => Promise<unknown>>(async () => ({ success: true, answer: "done" }));
-const mockGetHandlerClaudeOptions = mock.fn<(...args: unknown[]) => Promise<Record<string, unknown>>>(async () => ({}));
+const mockExecuteAndDeliver = mock.fn<(...args: unknown[]) => Promise<unknown>>(async () => ({
+  success: true,
+  answer: "done",
+}));
+const mockGetHandlerClaudeOptions = mock.fn<
+  (...args: unknown[]) => Promise<Record<string, unknown>>
+>(async () => ({}));
 
 const mockConfig = {
   slack: {
@@ -166,7 +175,9 @@ describe("registerRetryHandler", () => {
 
     assert.equal(mockAck.mock.callCount(), 1);
     assert.equal(mockRespond.mock.callCount(), 1);
-    const respondArgs = (mockRespond.mock.calls as unknown as Array<{ arguments: [Record<string, unknown>] }>)[0].arguments[0];
+    const respondArgs = (
+      mockRespond.mock.calls as unknown as Array<{ arguments: [Record<string, unknown>] }>
+    )[0].arguments[0];
     assert.ok((respondArgs.text as string).includes("expired"));
     assert.equal(respondArgs.replace_original, true);
   });
@@ -189,7 +200,9 @@ describe("registerRetryHandler", () => {
 
   it("re-fetches thread context and calls executeAndDeliver", async () => {
     const session = makeSession();
-    const updatedSession = makeSession({ threadContext: [{ text: "msg", userId: "U001", isBot: false, ts: "1" }] });
+    const updatedSession = makeSession({
+      threadContext: [{ text: "msg", userId: "U001", isBot: false, ts: "1" }],
+    });
     const sessionInfo = makeSessionInfo();
     const claudeOptions = { model: "claude-test" };
 
@@ -200,7 +213,9 @@ describe("registerRetryHandler", () => {
       return getSessionCallCount === 1 ? session : updatedSession;
     });
     mockRestoreSessionInfo.mock.mockImplementation(async () => sessionInfo);
-    mockFetchThreadContext.mock.mockImplementation(async () => [{ text: "msg", userId: "U001", isBot: false, ts: "1" }]);
+    mockFetchThreadContext.mock.mockImplementation(async () => [
+      { text: "msg", userId: "U001", isBot: false, ts: "1" },
+    ]);
     mockGetHandlerClaudeOptions.mock.mockImplementation(async () => claudeOptions);
 
     const mockAck = mock.fn(async () => {});
@@ -266,8 +281,12 @@ describe("registerRetryHandler", () => {
     mockRestoreSessionInfo.mock.mockImplementation(async () => undefined);
 
     const callOrder: string[] = [];
-    const mockAck = mock.fn(async () => { callOrder.push("ack"); });
-    const mockRespond = mock.fn(async () => { callOrder.push("respond"); });
+    const mockAck = mock.fn(async () => {
+      callOrder.push("ack");
+    });
+    const mockRespond = mock.fn(async () => {
+      callOrder.push("respond");
+    });
 
     await capturedHandler({
       ack: mockAck,

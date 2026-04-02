@@ -15,7 +15,7 @@ export function createFindSessionsTool(ctx: QueryToolContext) {
     },
     async (args) => {
       const visibleRepoNames = new Set(
-        getVisibleRepos(ctx.role, ctx.config.repositories).map((r) => r.name)
+        getVisibleRepos(ctx.role, ctx.config.repositories).map((r) => r.name),
       );
       let sessions = (await getResumableSessions()).filter((s) => visibleRepoNames.has(s.repo));
 
@@ -36,6 +36,6 @@ export function createFindSessionsTool(ctx: QueryToolContext) {
       }));
 
       return textResult(result);
-    }
+    },
   );
 }

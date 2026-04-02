@@ -9,7 +9,8 @@ import type { UserRole } from "../../roles.js";
 const mockGetConfig = mock.fn<() => Record<string, unknown>>();
 const mockGetRole = mock.fn<(userId: string) => Promise<UserRole>>();
 const mockIsChangesEnabledForTrigger = mock.fn<(...args: unknown[]) => boolean>();
-const mockGetChangeEnabledRepos = mock.fn<(...args: unknown[]) => Array<{ name: string; description: string }>>();
+const mockGetChangeEnabledRepos =
+  mock.fn<(...args: unknown[]) => Array<{ name: string; description: string }>>();
 const mockCanRequestChanges = mock.fn<(role: UserRole) => boolean>();
 
 mock.module("../../config.js", {
@@ -50,7 +51,9 @@ beforeEach(() => {
   mockGetRole.mock.mockImplementation(async () => "dev" as UserRole);
   mockIsChangesEnabledForTrigger.mock.mockImplementation(() => true);
   mockCanRequestChanges.mock.mockImplementation(() => true);
-  mockGetChangeEnabledRepos.mock.mockImplementation(() => [{ name: "org/repo", description: "desc" }]);
+  mockGetChangeEnabledRepos.mock.mockImplementation(() => [
+    { name: "org/repo", description: "desc" },
+  ]);
 });
 
 // ============================================================================

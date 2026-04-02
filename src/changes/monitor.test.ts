@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, mock, type Mock } from "node:test";
+import { describe, it, beforeEach, mock } from "node:test";
 import assert from "node:assert/strict";
 
 // ============================================================================
@@ -62,7 +62,8 @@ mock.module("../sessions.js", {
 
 // -- activeState --
 const mockGetActiveWorkers = mock.fn<() => Array<Record<string, unknown>>>();
-const mockUpdateActiveChangeStatus = mock.fn<(sessionId: string, status: string, message?: string) => void>();
+const mockUpdateActiveChangeStatus =
+  mock.fn<(sessionId: string, status: string, message?: string) => void>();
 const mockClearActiveChange = mock.fn<(sessionId: string, cleanupFolder?: boolean) => void>();
 
 mock.module("./activeState.js", {
@@ -215,9 +216,7 @@ describe("runCompletionCheck", () => {
   });
 
   it("skips workers without pr_created status", async () => {
-    mockGetActiveWorkers.mock.mockImplementation(() => [
-      makeWorker({ status: "executing" }),
-    ]);
+    mockGetActiveWorkers.mock.mockImplementation(() => [makeWorker({ status: "executing" })]);
     await runCompletionCheck();
     assert.equal(mockGetPRStatus.mock.callCount(), 0);
   });

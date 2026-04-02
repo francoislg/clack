@@ -16,16 +16,12 @@ export function createListScheduledMessagesTool(ctx: QueryToolContext) {
     },
     async (args) => {
       const isAdmin = canManageRoles(ctx.role);
-      let jobs = args.all && isAdmin
-        ? await getJobs()
-        : await getJobsByUser(ctx.userId);
+      let jobs = args.all && isAdmin ? await getJobs() : await getJobsByUser(ctx.userId);
 
       // Filter by channel if specified
       if (args.channel) {
         const channelFilter = args.channel.replace(/^#/, "");
-        jobs = jobs.filter(
-          (j) => j.channel === channelFilter || j.channel === args.channel,
-        );
+        jobs = jobs.filter((j) => j.channel === channelFilter || j.channel === args.channel);
       }
 
       if (jobs.length === 0) {

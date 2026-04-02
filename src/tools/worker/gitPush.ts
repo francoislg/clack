@@ -31,6 +31,6 @@ export function createGitPushTool(ctx: WorkerToolContext) {
 
         return errorResult(`push failed: ${msg}`);
       }
-    }
+    },
   );
 }

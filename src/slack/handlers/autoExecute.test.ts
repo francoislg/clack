@@ -2,7 +2,13 @@ import { describe, it, mock, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
 import type { ClaudeResponse } from "../../claude/index.js";
-import type { Action, StagedIntent, StagedChangeIntent, StagedConfigUpdateIntent, StagedUpdateIntent } from "../../tools/types.js";
+import type {
+  Action,
+  StagedIntent,
+  StagedChangeIntent,
+  StagedConfigUpdateIntent,
+  StagedUpdateIntent,
+} from "../../tools/types.js";
 import type { UserRole } from "../../roles.js";
 import type { SessionContext } from "../../sessions.js";
 
@@ -13,9 +19,15 @@ import type { SessionContext } from "../../sessions.js";
 const mockWriteInstructionFile = mock.fn<(filename: string, content: string) => void>();
 const mockTriggerChangeWorkflow = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
 const mockTriggerFollowUp = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
-const mockFindSessionByThread = mock.fn<(...args: unknown[]) => Promise<SessionContext | null>>(async () => null);
-const mockGetSession = mock.fn<(...args: unknown[]) => Promise<SessionContext | null>>(async () => null);
-const mockPostAnswerToChannel = mock.fn<(...args: unknown[]) => Promise<{ ok: boolean; ts?: string }>>(async () => ({ ok: true }));
+const mockFindSessionByThread = mock.fn<(...args: unknown[]) => Promise<SessionContext | null>>(
+  async () => null,
+);
+const mockGetSession = mock.fn<(...args: unknown[]) => Promise<SessionContext | null>>(
+  async () => null,
+);
+const mockPostAnswerToChannel = mock.fn<
+  (...args: unknown[]) => Promise<{ ok: boolean; ts?: string }>
+>(async () => ({ ok: true }));
 const mockResolveOrigin = mock.fn(() => ({ originChannel: undefined, originThreadTs: undefined }));
 const mockActiveSessions = { restore: mock.fn(async () => null) };
 
@@ -170,7 +182,12 @@ describe("handleAutoExecuteActions — early returns", () => {
   });
 
   it("returns immediately when there are no auto-flagged actions", async () => {
-    const changeIntent: StagedChangeIntent = { type: "change", branch: "feat/x", description: "desc", repo: "org/repo" };
+    const changeIntent: StagedChangeIntent = {
+      type: "change",
+      branch: "feat/x",
+      description: "desc",
+      repo: "org/repo",
+    };
     const params = makeBaseParams({
       response: makeResponseWithActions(
         { sections: [], actions: [{ type: "change", ref: "r1" }] },
@@ -209,7 +226,12 @@ describe("handleAutoExecuteActions — early returns", () => {
 
 describe("handleAutoExecuteActions — permission checks", () => {
   it("blocks auto-execute for member role", async () => {
-    const changeIntent: StagedChangeIntent = { type: "change", branch: "feat/x", description: "desc", repo: "org/repo" };
+    const changeIntent: StagedChangeIntent = {
+      type: "change",
+      branch: "feat/x",
+      description: "desc",
+      repo: "org/repo",
+    };
     const params = makeBaseParams({
       role: "member",
       response: makeResponseWithActions(
@@ -223,7 +245,12 @@ describe("handleAutoExecuteActions — permission checks", () => {
   });
 
   it("allows auto-execute for dev role", async () => {
-    const changeIntent: StagedChangeIntent = { type: "change", branch: "feat/x", description: "desc", repo: "org/repo" };
+    const changeIntent: StagedChangeIntent = {
+      type: "change",
+      branch: "feat/x",
+      description: "desc",
+      repo: "org/repo",
+    };
     const params = makeBaseParams({
       role: "dev",
       response: makeResponseWithActions(
@@ -237,7 +264,12 @@ describe("handleAutoExecuteActions — permission checks", () => {
   });
 
   it("allows auto-execute for admin role", async () => {
-    const changeIntent: StagedChangeIntent = { type: "change", branch: "feat/x", description: "desc", repo: "org/repo" };
+    const changeIntent: StagedChangeIntent = {
+      type: "change",
+      branch: "feat/x",
+      description: "desc",
+      repo: "org/repo",
+    };
     const params = makeBaseParams({
       role: "admin",
       response: makeResponseWithActions(
@@ -251,7 +283,12 @@ describe("handleAutoExecuteActions — permission checks", () => {
   });
 
   it("allows auto-execute for owner role", async () => {
-    const changeIntent: StagedChangeIntent = { type: "change", branch: "feat/x", description: "desc", repo: "org/repo" };
+    const changeIntent: StagedChangeIntent = {
+      type: "change",
+      branch: "feat/x",
+      description: "desc",
+      repo: "org/repo",
+    };
     const params = makeBaseParams({
       role: "owner",
       response: makeResponseWithActions(
@@ -298,7 +335,10 @@ describe("handleAutoExecuteActions — config_update", () => {
     const params = makeBaseParams({
       client,
       response: makeResponseWithActions(
-        { sections: [], actions: [{ type: "config_update", ref: "c1", auto: true } as unknown as Action] },
+        {
+          sections: [],
+          actions: [{ type: "config_update", ref: "c1", auto: true } as unknown as Action],
+        },
         { c1: configIntent },
       ),
     });
@@ -312,7 +352,11 @@ describe("handleAutoExecuteActions — config_update", () => {
 
     const postMessage = client.chat.postMessage as unknown as ReturnType<typeof mock.fn>;
     assert.equal(postMessage.mock.callCount(), 1);
-    const msgArgs = postMessage.mock.calls[0].arguments[0] as { channel: string; thread_ts: string; text: string };
+    const msgArgs = postMessage.mock.calls[0].arguments[0] as {
+      channel: string;
+      thread_ts: string;
+      text: string;
+    };
     assert.equal(msgArgs.channel, "C001");
     assert.ok(msgArgs.text.includes("instructions.md"));
     assert.ok(msgArgs.text.includes("updated"));
@@ -332,7 +376,10 @@ describe("handleAutoExecuteActions — config_update", () => {
     const params = makeBaseParams({
       client,
       response: makeResponseWithActions(
-        { sections: [], actions: [{ type: "config_update", ref: "c1", auto: true } as unknown as Action] },
+        {
+          sections: [],
+          actions: [{ type: "config_update", ref: "c1", auto: true } as unknown as Action],
+        },
         { c1: configIntent },
       ),
     });
@@ -395,7 +442,10 @@ describe("handleAutoExecuteActions — change intent", () => {
 
     await handleAutoExecuteActions(params);
 
-    const slackCtx = mockTriggerChangeWorkflow.mock.calls[0].arguments[1] as Record<string, unknown>;
+    const slackCtx = mockTriggerChangeWorkflow.mock.calls[0].arguments[1] as Record<
+      string,
+      unknown
+    >;
     assert.equal(slackCtx.triggerType, "mentions");
   });
 
@@ -417,7 +467,10 @@ describe("handleAutoExecuteActions — change intent", () => {
 
     await handleAutoExecuteActions(params);
 
-    const slackCtx = mockTriggerChangeWorkflow.mock.calls[0].arguments[1] as Record<string, unknown>;
+    const slackCtx = mockTriggerChangeWorkflow.mock.calls[0].arguments[1] as Record<
+      string,
+      unknown
+    >;
     assert.equal(slackCtx.streamChannel, "D_DM");
     assert.equal(slackCtx.streamThreadTs, "1700000099.000001");
   });
@@ -438,7 +491,10 @@ describe("handleAutoExecuteActions — change intent", () => {
 
     await handleAutoExecuteActions(params);
 
-    const slackCtx = mockTriggerChangeWorkflow.mock.calls[0].arguments[1] as Record<string, unknown>;
+    const slackCtx = mockTriggerChangeWorkflow.mock.calls[0].arguments[1] as Record<
+      string,
+      unknown
+    >;
     assert.equal("streamChannel" in slackCtx, false);
     assert.equal("streamThreadTs" in slackCtx, false);
   });
@@ -646,9 +702,11 @@ describe("handleAutoExecuteActions — error handling", () => {
     };
     const client = makeClient();
     // Make postMessage also throw
-    (client.chat.postMessage as unknown as ReturnType<typeof mock.fn>).mock.mockImplementation(async () => {
-      throw new Error("slack down");
-    });
+    (client.chat.postMessage as unknown as ReturnType<typeof mock.fn>).mock.mockImplementation(
+      async () => {
+        throw new Error("slack down");
+      },
+    );
 
     const params = makeBaseParams({
       client,
@@ -717,8 +775,8 @@ describe("handleAutoExecuteActions — multiple actions", () => {
         {
           sections: [],
           actions: [
-            { type: "change", ref: "r1" },             // no auto
-            { type: "change", ref: "r2", auto: true },  // auto
+            { type: "change", ref: "r1" }, // no auto
+            { type: "change", ref: "r2", auto: true }, // auto
           ],
         },
         { r1: changeIntent1, r2: changeIntent2 },
@@ -751,7 +809,9 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
       errors: [],
       lastActivity: Date.now(),
       createdAt: Date.now(),
-      snapshots: { snap1: { text: "Channel post content", sections: [{ body: "Channel post content" }] } },
+      snapshots: {
+        snap1: { text: "Channel post content", sections: [{ body: "Channel post content" }] },
+      },
     } as unknown as SessionContext;
 
     mockGetSession.mock.mockImplementation(async () => fakeSession);
@@ -763,7 +823,14 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
       response: makeResponseWithActions(
         {
           sections: [{ body: "Thread response" }],
-          actions: [{ type: "post_to" as const, auto: true, content: "Channel post content", _snapshotId: "snap1" }],
+          actions: [
+            {
+              type: "post_to" as const,
+              auto: true,
+              content: "Channel post content",
+              _snapshotId: "snap1",
+            },
+          ],
         },
         {},
       ),
@@ -773,7 +840,10 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
 
     assert.equal(mockPostAnswerToChannel.mock.callCount(), 1);
     const args = mockPostAnswerToChannel.mock.calls[0].arguments;
-    assert.deepEqual(args[1], { text: "Channel post content", sections: [{ body: "Channel post content" }] });
+    assert.deepEqual(args[1], {
+      text: "Channel post content",
+      sections: [{ body: "Channel post content" }],
+    });
     assert.equal(args[2], "C001"); // session channel
     assert.equal(args[3], undefined); // no thread_ts = top-level
   });
@@ -801,7 +871,9 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
       response: makeResponseWithActions(
         {
           sections: [{ body: "Response" }],
-          actions: [{ type: "post_to" as const, auto: true, content: "content", _snapshotId: "snap1" }],
+          actions: [
+            { type: "post_to" as const, auto: true, content: "content", _snapshotId: "snap1" },
+          ],
         },
         {},
       ),
@@ -840,7 +912,9 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
       response: makeResponseWithActions(
         {
           sections: [{ body: "Response" }],
-          actions: [{ type: "post_to" as const, auto: true, content: "content", _snapshotId: "snap1" }],
+          actions: [
+            { type: "post_to" as const, auto: true, content: "content", _snapshotId: "snap1" },
+          ],
         },
         {},
       ),
@@ -866,7 +940,9 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
       errors: [],
       lastActivity: Date.now(),
       createdAt: Date.now(),
-      snapshots: { snap1: { text: "Cross-post content", sections: [{ body: "Cross-post content" }] } },
+      snapshots: {
+        snap1: { text: "Cross-post content", sections: [{ body: "Cross-post content" }] },
+      },
     } as unknown as SessionContext;
 
     mockGetSession.mock.mockImplementation(async () => fakeSession);
@@ -878,7 +954,16 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
       response: makeResponseWithActions(
         {
           sections: [{ body: "Thread response" }],
-          actions: [{ type: "post_to" as const, auto: true, content: "Cross-post content", _snapshotId: "snap1", channel: "C999", thread_ts: "1700099.000" }],
+          actions: [
+            {
+              type: "post_to" as const,
+              auto: true,
+              content: "Cross-post content",
+              _snapshotId: "snap1",
+              channel: "C999",
+              thread_ts: "1700099.000",
+            },
+          ],
         },
         {},
       ),
@@ -946,7 +1031,9 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
       response: makeResponseWithActions(
         {
           sections: [{ body: "Response" }],
-          actions: [{ type: "post_to" as const, auto: true, content: "content", _snapshotId: "snap1" }],
+          actions: [
+            { type: "post_to" as const, auto: true, content: "content", _snapshotId: "snap1" },
+          ],
         },
         {},
       ),
@@ -980,7 +1067,14 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
       response: makeResponseWithActions(
         {
           sections: [{ body: "Response" }],
-          actions: [{ type: "post_to" as const, auto: true, content: "content", _snapshotId: "missing-snap" }],
+          actions: [
+            {
+              type: "post_to" as const,
+              auto: true,
+              content: "content",
+              _snapshotId: "missing-snap",
+            },
+          ],
         },
         {},
       ),
@@ -1019,7 +1113,9 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
       response: makeResponseWithActions(
         {
           sections: [{ body: "Response" }],
-          actions: [{ type: "post_to" as const, auto: true, content: "content", _snapshotId: "snap1" }],
+          actions: [
+            { type: "post_to" as const, auto: true, content: "content", _snapshotId: "snap1" },
+          ],
         },
         {},
       ),

@@ -155,16 +155,28 @@ const defaultConfig = () => ({
 
 function resetMocks() {
   for (const fn of [
-    mockLoadConfig, mockGetConfig, mockLoadGitHubCredentials, mockClearGitHubTokenCache,
-    mockStartSyncScheduler, mockStopSyncScheduler,
-    mockInitializeRepositories, mockSyncAllRepositories,
-    mockStartCleanupScheduler, mockStopCleanupScheduler,
-    mockStartCompletionMonitor, mockStopCompletionMonitor,
-    mockValidateInstructionFiles, mockStartConfigWatcher,
-    mockStartCronScheduler, mockStopCronScheduler,
-    mockResetMcpCache, mockResetToolMappingCache,
-    mockClearRolesCache, mockClearPreferencesCache,
-    mockClearAutoRespondCache, mockClearCronJobsCache,
+    mockLoadConfig,
+    mockGetConfig,
+    mockLoadGitHubCredentials,
+    mockClearGitHubTokenCache,
+    mockStartSyncScheduler,
+    mockStopSyncScheduler,
+    mockInitializeRepositories,
+    mockSyncAllRepositories,
+    mockStartCleanupScheduler,
+    mockStopCleanupScheduler,
+    mockStartCompletionMonitor,
+    mockStopCompletionMonitor,
+    mockValidateInstructionFiles,
+    mockStartConfigWatcher,
+    mockStartCronScheduler,
+    mockStopCronScheduler,
+    mockResetMcpCache,
+    mockResetToolMappingCache,
+    mockClearRolesCache,
+    mockClearPreferencesCache,
+    mockClearAutoRespondCache,
+    mockClearCronJobsCache,
     mockEnsureWorktreeDirectories,
   ]) {
     fn.mock.resetCalls();
@@ -199,11 +211,15 @@ describe("restartAll", () => {
     mockLoadConfig.mock.mockImplementation(() => {
       callOrder.push("loadConfig");
       return {
-        repositories: [], changesWorkflow: { enabled: false },
-        claudeCode: { watchMcpConfig: false }, allowScheduledMessages: false,
+        repositories: [],
+        changesWorkflow: { enabled: false },
+        claudeCode: { watchMcpConfig: false },
+        allowScheduledMessages: false,
       };
     });
-    mockStopSyncScheduler.mock.mockImplementation(() => { callOrder.push("stopSync"); });
+    mockStopSyncScheduler.mock.mockImplementation(() => {
+      callOrder.push("stopSync");
+    });
 
     await restartAll();
 
@@ -213,7 +229,9 @@ describe("restartAll", () => {
   });
 
   it("aborts without side effects on config validation failure", async () => {
-    mockLoadConfig.mock.mockImplementation(() => { throw new Error("Invalid config"); });
+    mockLoadConfig.mock.mockImplementation(() => {
+      throw new Error("Invalid config");
+    });
 
     await assert.rejects(() => restartAll(), { message: "Invalid config" });
 
@@ -242,7 +260,9 @@ describe("restartAll", () => {
   });
 
   it("tolerates non-critical failures and includes them in warnings", async () => {
-    mockInitializeRepositories.mock.mockImplementation(async () => { throw new Error("clone failed"); });
+    mockInitializeRepositories.mock.mockImplementation(async () => {
+      throw new Error("clone failed");
+    });
 
     const result = await restartAll();
 

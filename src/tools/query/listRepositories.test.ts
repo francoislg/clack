@@ -84,7 +84,10 @@ describe("listRepositories tool", () => {
     const ctx = makeCtx();
     const toolDef = createListRepositoriesTool(ctx);
 
-    const result = await toolDef.handler({ includeChangeSupport: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { includeChangeSupport: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed.length, 1);
@@ -99,7 +102,10 @@ describe("listRepositories tool", () => {
     const ctx = makeCtx();
     const toolDef = createListRepositoriesTool(ctx);
 
-    const result = await toolDef.handler({ includeChangeSupport: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { includeChangeSupport: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed[0].canChange, false);
@@ -109,7 +115,10 @@ describe("listRepositories tool", () => {
     const ctx = makeCtx();
     const toolDef = createListRepositoriesTool(ctx);
 
-    const result = await toolDef.handler({ includeChangeSupport: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { includeChangeSupport: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.ok("canChange" in parsed[0]);
@@ -142,7 +151,10 @@ describe("listRepositories tool", () => {
     const ctx = makeCtx();
     const toolDef = createListRepositoriesTool(ctx);
 
-    const result = await toolDef.handler({ includeChangeSupport: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { includeChangeSupport: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.deepEqual(parsed, []);
@@ -159,7 +171,10 @@ describe("listRepositories tool", () => {
     const ctx = makeCtx();
     const toolDef = createListRepositoriesTool(ctx);
 
-    const result = await toolDef.handler({ includeChangeSupport: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { includeChangeSupport: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed.length, 3);

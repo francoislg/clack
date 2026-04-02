@@ -1,0 +1,22 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "categories": {
+    "correctness": "error"
+  },
+  "plugins": ["typescript", "import", "unicorn"],
+  "rules": {
+    "no-unused-vars": "warn",
+    "no-console": "off",
+    "unicorn/no-null": "off"
+  },
+  "overrides": [
+    {
+      "files": ["**/*.test.ts"],
+      "plugins": ["vitest"],
+      "rules": {
+        "no-unused-vars": "off"
+      }
+    }
+  ],
+  "ignorePatterns": ["dist", "node_modules", ".desloppify"]
+}

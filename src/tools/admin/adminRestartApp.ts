@@ -18,9 +18,10 @@ export function createAdminRestartAppTool() {
           success: true,
           repoCount: summary.repoCount,
           warnings: summary.warnings.length > 0 ? summary.warnings : undefined,
-          message: summary.warnings.length > 0
-            ? "Restart completed with warnings."
-            : "Restart completed successfully.",
+          message:
+            summary.warnings.length > 0
+              ? "Restart completed with warnings."
+              : "Restart completed successfully.",
         });
       } catch (error) {
         return textResult({

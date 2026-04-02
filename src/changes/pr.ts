@@ -33,7 +33,9 @@ export type PRState = "OPEN" | "MERGED" | "CLOSED";
 /**
  * Fetch review comments and reviews for a PR, formatted as context for Claude.
  */
-export async function fetchPRReviewContext(prUrl: string): Promise<{ ok: true; context: string } | { ok: false; error: string }> {
+export async function fetchPRReviewContext(
+  prUrl: string,
+): Promise<{ ok: true; context: string } | { ok: false; error: string }> {
   try {
     const parsed = parsePrUrl(prUrl);
     if (!parsed) {

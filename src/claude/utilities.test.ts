@@ -43,7 +43,9 @@ function asyncIterableOf<T>(items: T[]): AsyncIterable<T> {
   };
 }
 
-function makeConversationMessage(overrides: Partial<ConversationMessage> = {}): ConversationMessage {
+function makeConversationMessage(
+  overrides: Partial<ConversationMessage> = {},
+): ConversationMessage {
   return {
     type: "assistant",
     content: "test content",
@@ -74,7 +76,7 @@ describe("summarizeForSlack", () => {
           subtype: "success",
           result: "Condensed summary",
         },
-      ])
+      ]),
     );
 
     const result = await summarizeForSlack("a very long text");
@@ -95,7 +97,7 @@ describe("summarizeForSlack", () => {
           subtype: "success",
           result: "",
         },
-      ])
+      ]),
     );
 
     const result = await summarizeForSlack("long text");
@@ -119,7 +121,7 @@ describe("summarizeForSlack", () => {
           subtype: "success",
           result: "",
         },
-      ])
+      ]),
     );
 
     const result = await summarizeForSlack("long text");
@@ -143,7 +145,7 @@ describe("summarizeForSlack", () => {
           subtype: "success",
           result: "",
         },
-      ])
+      ]),
     );
 
     const result = await summarizeForSlack("long text");
@@ -170,7 +172,7 @@ describe("summarizeForSlack", () => {
           subtype: "success",
           result: "",
         },
-      ])
+      ]),
     );
 
     const result = await summarizeForSlack("long text");
@@ -184,16 +186,17 @@ describe("summarizeForSlack", () => {
 
     const input = "a".repeat(50000);
     const result = await summarizeForSlack(input);
-    assert.equal(result.length, 39000 + "\n\n(truncated — full output was too long for Slack)".length);
+    assert.equal(
+      result.length,
+      39000 + "\n\n(truncated — full output was too long for Slack)".length,
+    );
     assert.ok(result.startsWith("a".repeat(100)));
     assert.ok(result.endsWith("(truncated — full output was too long for Slack)"));
   });
 
   it("falls back to hard truncation when result is empty", async () => {
     mockQuery.mock.mockImplementation(() =>
-      asyncIterableOf([
-        { type: "result", subtype: "error", errors: ["fail"] },
-      ])
+      asyncIterableOf([{ type: "result", subtype: "error", errors: ["fail"] }]),
     );
 
     const input = "x".repeat(50000);
@@ -209,7 +212,7 @@ describe("summarizeForSlack", () => {
           subtype: "success",
           result: "  trimmed  ",
         },
-      ])
+      ]),
     );
 
     const result = await summarizeForSlack("text");
@@ -255,7 +258,7 @@ describe("analyzeError", () => {
           subtype: "success",
           result: "The error occurred because...",
         },
-      ])
+      ]),
     );
 
     const result = await analyzeError("timeout", [makeConversationMessage()]);
@@ -276,7 +279,7 @@ describe("analyzeError", () => {
           subtype: "success",
           result: "",
         },
-      ])
+      ]),
     );
 
     const result = await analyzeError("error", [makeConversationMessage()]);
@@ -291,7 +294,7 @@ describe("analyzeError", () => {
           subtype: "success",
           result: "   ",
         },
-      ])
+      ]),
     );
 
     const result = await analyzeError("error", [makeConversationMessage()]);
@@ -309,6 +312,8 @@ describe("analyzeError", () => {
 
   it("returns 'Error analysis unavailable.' when async iterator throws", async () => {
     mockQuery.mock.mockImplementation(() => ({
+      // Intentionally throws before yielding to simulate a stream error
+      // eslint-disable-next-line require-yield
       async *[Symbol.asyncIterator]() {
         throw new Error("stream interrupted");
       },
@@ -332,7 +337,7 @@ describe("analyzeError", () => {
     });
 
     const trace: ConversationMessage[] = Array.from({ length: 20 }, (_, i) =>
-      makeConversationMessage({ content: `msg-${i}`, type: "assistant" })
+      makeConversationMessage({ content: `msg-${i}`, type: "assistant" }),
     );
 
     await analyzeError("some error", trace);
@@ -472,7 +477,7 @@ describe("analyzeError", () => {
           subtype: "success",
           result: "No context available",
         },
-      ])
+      ]),
     );
 
     const result = await analyzeError("error", []);

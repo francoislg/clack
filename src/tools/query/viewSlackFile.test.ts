@@ -26,7 +26,16 @@ describe("createViewSlackFileTool", () => {
 
   it("creates a tool with correct name", () => {
     const files = new Map<string, SlackFile>([
-      ["F1", { id: "F1", name: "report.pdf", mimetype: "application/pdf", size: 100, url_private: "https://example.com" }],
+      [
+        "F1",
+        {
+          id: "F1",
+          name: "report.pdf",
+          mimetype: "application/pdf",
+          size: 100,
+          url_private: "https://example.com",
+        },
+      ],
     ]);
     const tool = createViewSlackFileTool(makeContext(files));
     assert.equal(tool.name, "view_slack_file");
@@ -35,7 +44,16 @@ describe("createViewSlackFileTool", () => {
 
   it("returns error for unknown file_id", async () => {
     const files = new Map<string, SlackFile>([
-      ["F1", { id: "F1", name: "report.pdf", mimetype: "application/pdf", size: 100, url_private: "https://example.com" }],
+      [
+        "F1",
+        {
+          id: "F1",
+          name: "report.pdf",
+          mimetype: "application/pdf",
+          size: 100,
+          url_private: "https://example.com",
+        },
+      ],
     ]);
     const tool = createViewSlackFileTool(makeContext(files));
     const result = await tool.handler({ file_id: "NONEXISTENT" }, {});
@@ -47,7 +65,16 @@ describe("createViewSlackFileTool", () => {
 
   it("returns metadata-only text for unsupported binary formats", async () => {
     const files = new Map<string, SlackFile>([
-      ["F1", { id: "F1", name: "archive.zip", mimetype: "application/zip", size: 4096, url_private: "https://example.com" }],
+      [
+        "F1",
+        {
+          id: "F1",
+          name: "archive.zip",
+          mimetype: "application/zip",
+          size: 4096,
+          url_private: "https://example.com",
+        },
+      ],
     ]);
     const tool = createViewSlackFileTool(makeContext(files));
     const result = await tool.handler({ file_id: "F1" }, {});
@@ -60,7 +87,16 @@ describe("createViewSlackFileTool", () => {
 
   it("returns metadata with formatted size for unsupported files", async () => {
     const files = new Map<string, SlackFile>([
-      ["F1", { id: "F1", name: "big.xlsx", mimetype: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", size: 2.5 * 1024 * 1024, url_private: "https://example.com" }],
+      [
+        "F1",
+        {
+          id: "F1",
+          name: "big.xlsx",
+          mimetype: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          size: 2.5 * 1024 * 1024,
+          url_private: "https://example.com",
+        },
+      ],
     ]);
     const tool = createViewSlackFileTool(makeContext(files));
     const result = await tool.handler({ file_id: "F1" }, {});

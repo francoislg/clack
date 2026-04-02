@@ -43,20 +43,36 @@ export function startConfigWatcher(): () => void {
   const watchers: FSWatcher[] = [];
   const watched: string[] = [];
 
-  const mcpWatcher = watchFile(mcpPath, () => {
-    logger.info("MCP config changed (data/mcp.json) — cache invalidated");
-    resetMcpCache();
-    resetToolMappingCache();
-  }, "MCP config");
-  if (mcpWatcher) { watchers.push(mcpWatcher); watched.push("mcp.json"); }
+  const mcpWatcher = watchFile(
+    mcpPath,
+    () => {
+      logger.info("MCP config changed (data/mcp.json) — cache invalidated");
+      resetMcpCache();
+      resetToolMappingCache();
+    },
+    "MCP config",
+  );
+  if (mcpWatcher) {
+    watchers.push(mcpWatcher);
+    watched.push("mcp.json");
+  }
 
-  const envWatcher = watchFile(envPath, () => {
-    logger.info("Environment file changed (data/auth/.env) — reloading env vars and invalidating MCP cache");
-    dotenvConfig({ path: envPath, override: true });
-    resetMcpCache();
-    resetToolMappingCache();
-  }, "Env file");
-  if (envWatcher) { watchers.push(envWatcher); watched.push(".env"); }
+  const envWatcher = watchFile(
+    envPath,
+    () => {
+      logger.info(
+        "Environment file changed (data/auth/.env) — reloading env vars and invalidating MCP cache",
+      );
+      dotenvConfig({ path: envPath, override: true });
+      resetMcpCache();
+      resetToolMappingCache();
+    },
+    "Env file",
+  );
+  if (envWatcher) {
+    watchers.push(envWatcher);
+    watched.push(".env");
+  }
 
   const onToolMappingChange = () => {
     logger.info("Tool mapping config changed — cache invalidated");

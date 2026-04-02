@@ -97,7 +97,10 @@ export class ClaudeMessageParser {
       for (const block of content) {
         if (block.type === "tool_use") {
           const toolName = block.name || "unknown";
-          const toolArgs = (typeof block.input === "object" && block.input !== null) ? block.input as Record<string, unknown> : {};
+          const toolArgs =
+            typeof block.input === "object" && block.input !== null
+              ? (block.input as Record<string, unknown>)
+              : {};
           const taskId = block.id;
 
           parsed.toolUses.push({ id: taskId, name: toolName, args: toolArgs });
@@ -124,8 +127,14 @@ export class ClaudeMessageParser {
       if (Array.isArray(content)) {
         for (const block of content) {
           if (typeof block === "object" && block.type === "tool_result") {
-            const errorMessage = block.is_error === true ? extractToolErrorMessage(block.content) : undefined;
-            await this.onEvent({ type: "tool_end", taskId: block.tool_use_id, error: block.is_error === true, errorMessage });
+            const errorMessage =
+              block.is_error === true ? extractToolErrorMessage(block.content) : undefined;
+            await this.onEvent({
+              type: "tool_end",
+              taskId: block.tool_use_id,
+              error: block.is_error === true,
+              errorMessage,
+            });
           }
         }
       }

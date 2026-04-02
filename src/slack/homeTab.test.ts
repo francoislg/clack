@@ -26,7 +26,8 @@ const mockGetActiveWorkers = mock.fn<() => ActiveWorker[]>();
 const mockListInstructionFiles = mock.fn<() => InstructionFileListing>();
 const mockGetReactionDelivery = mock.fn<(userId: string) => Promise<string>>();
 const mockGetUserPreference = mock.fn<(userId: string, key: string) => Promise<boolean>>();
-const mockGetVisibleRepos = mock.fn<(role: UserRole, repos: RepositoryConfig[]) => RepositoryConfig[]>();
+const mockGetVisibleRepos =
+  mock.fn<(role: UserRole, repos: RepositoryConfig[]) => RepositoryConfig[]>();
 const mockCanWriteRepo = mock.fn<(role: UserRole, repo: RepositoryConfig) => boolean>();
 const mockGetMigrationErrors = mock.fn<() => MigrationError[]>();
 const mockDiscoverPluginInfo = mock.fn<() => PluginInfo[]>();
@@ -125,14 +126,18 @@ const {
 /** Extract text from section blocks (blocks are typed as KnownBlock which is a union). */
 function getSectionTexts(blocks: KnownBlock[]): string[] {
   return blocks
-    .filter((b): b is KnownBlock & { type: "section"; text: { text: string } } => b.type === "section")
+    .filter(
+      (b): b is KnownBlock & { type: "section"; text: { text: string } } => b.type === "section",
+    )
     .map((b) => (b.text as { text: string })?.text ?? "");
 }
 
 /** Extract header texts from blocks. */
 function getHeaderTexts(blocks: KnownBlock[]): string[] {
   return blocks
-    .filter((b): b is KnownBlock & { type: "header"; text: { text: string } } => b.type === "header")
+    .filter(
+      (b): b is KnownBlock & { type: "header"; text: { text: string } } => b.type === "header",
+    )
     .map((b) => (b.text as { text: string })?.text ?? "");
 }
 
@@ -176,7 +181,9 @@ function setDefaultMocks(role: UserRole = "member") {
   }));
   mockCanEditConfig.mock.mockImplementation(() => role === "admin" || role === "owner");
   mockCanManageRoles.mock.mockImplementation(() => role === "admin" || role === "owner");
-  mockCanRequestChanges.mock.mockImplementation(() => role === "dev" || role === "admin" || role === "owner");
+  mockCanRequestChanges.mock.mockImplementation(
+    () => role === "dev" || role === "admin" || role === "owner",
+  );
   mockGetConfig.mock.mockImplementation(() => defaultConfig());
   mockGetConfiguredMcpServerNames.mock.mockImplementation(() => []);
   mockGetActiveWorkers.mock.mockImplementation(() => []);
@@ -316,7 +323,12 @@ describe("buildHomeView", () => {
   it("includes migration error banner when errors exist", async () => {
     setDefaultMocks("member");
     mockGetMigrationErrors.mock.mockImplementation(() => [
-      { migrationName: "test-migration", version: 1, error: "something failed", timestamp: Date.now() },
+      {
+        migrationName: "test-migration",
+        version: 1,
+        error: "something failed",
+        timestamp: Date.now(),
+      },
     ]);
     const view = await buildHomeView({ userId: "U001" });
     const texts = getSectionTexts(view.blocks as KnownBlock[]);
@@ -328,7 +340,12 @@ describe("buildHomeView", () => {
   it("adds admin guidance in migration banner for admin users", async () => {
     setDefaultMocks("admin");
     mockGetMigrationErrors.mock.mockImplementation(() => [
-      { migrationName: "test-migration", version: 1, error: "something failed", timestamp: Date.now() },
+      {
+        migrationName: "test-migration",
+        version: 1,
+        error: "something failed",
+        timestamp: Date.now(),
+      },
     ]);
     const view = await buildHomeView({ userId: "U001" });
     const texts = getSectionTexts(view.blocks as KnownBlock[]);
@@ -367,7 +384,9 @@ describe("buildRoleManagementSection", () => {
   it("shows owner with transfer button when user is owner", async () => {
     const blocks = await buildRoleManagementSection("U_OWNER", "owner");
     const ownerSection = blocks.find(
-      (b) => b.type === "section" && ((b as unknown as { text: { text: string } }).text?.text ?? "").includes("Owner:")
+      (b) =>
+        b.type === "section" &&
+        ((b as unknown as { text: { text: string } }).text?.text ?? "").includes("Owner:"),
     );
     assert.ok(ownerSection);
     const accessory = (ownerSection as unknown as { accessory?: { action_id: string } }).accessory;
@@ -378,7 +397,9 @@ describe("buildRoleManagementSection", () => {
   it("shows owner without transfer button for non-owner admin", async () => {
     const blocks = await buildRoleManagementSection("U_ADMIN", "admin");
     const ownerSection = blocks.find(
-      (b) => b.type === "section" && ((b as unknown as { text: { text: string } }).text?.text ?? "").includes("Owner:")
+      (b) =>
+        b.type === "section" &&
+        ((b as unknown as { text: { text: string } }).text?.text ?? "").includes("Owner:"),
     );
     assert.ok(ownerSection);
     const accessory = (ownerSection as unknown as { accessory?: unknown }).accessory;
@@ -388,11 +409,17 @@ describe("buildRoleManagementSection", () => {
   it("shows admins list with add button", async () => {
     const blocks = await buildRoleManagementSection("U_OWNER", "owner");
     const adminSection = blocks.find(
-      (b) => b.type === "section" && ((b as unknown as { text: { text: string } }).text?.text ?? "").includes("Admins:")
+      (b) =>
+        b.type === "section" &&
+        ((b as unknown as { text: { text: string } }).text?.text ?? "").includes("Admins:"),
     );
     assert.ok(adminSection);
     const adminActions = blocks.find(
-      (b) => b.type === "actions" && ((b as unknown as { elements: Array<{ action_id: string }> }).elements ?? []).some((e) => e.action_id === "add_admin")
+      (b) =>
+        b.type === "actions" &&
+        ((b as unknown as { elements: Array<{ action_id: string }> }).elements ?? []).some(
+          (e) => e.action_id === "add_admin",
+        ),
     );
     assert.ok(adminActions);
   });
@@ -405,7 +432,11 @@ describe("buildRoleManagementSection", () => {
     }));
     const blocks = await buildRoleManagementSection("U_OWNER", "owner");
     const adminActions = blocks.find(
-      (b) => b.type === "actions" && ((b as unknown as { elements: Array<{ action_id: string }> }).elements ?? []).some((e) => e.action_id === "remove_admin")
+      (b) =>
+        b.type === "actions" &&
+        ((b as unknown as { elements: Array<{ action_id: string }> }).elements ?? []).some(
+          (e) => e.action_id === "remove_admin",
+        ),
     );
     assert.ok(adminActions);
   });
@@ -422,11 +453,17 @@ describe("buildRoleManagementSection", () => {
   it("shows devs list with add button", async () => {
     const blocks = await buildRoleManagementSection("U_OWNER", "owner");
     const devSection = blocks.find(
-      (b) => b.type === "section" && ((b as unknown as { text: { text: string } }).text?.text ?? "").includes("Devs:")
+      (b) =>
+        b.type === "section" &&
+        ((b as unknown as { text: { text: string } }).text?.text ?? "").includes("Devs:"),
     );
     assert.ok(devSection);
     const devActions = blocks.find(
-      (b) => b.type === "actions" && ((b as unknown as { elements: Array<{ action_id: string }> }).elements ?? []).some((e) => e.action_id === "add_dev")
+      (b) =>
+        b.type === "actions" &&
+        ((b as unknown as { elements: Array<{ action_id: string }> }).elements ?? []).some(
+          (e) => e.action_id === "add_dev",
+        ),
     );
     assert.ok(devActions);
   });
@@ -469,14 +506,15 @@ describe("buildConfigurationSection", () => {
   it("renders directory buttons in a single actions row", () => {
     mockListInstructionFiles.mock.mockImplementation(() => ({
       roles: [
-        { role: "user", files: [
-          { filename: "identity.md", source: "default" as const },
-          { filename: "response-style.md", source: "customized" as const },
-          { filename: "company.md", source: "custom-only" as const },
-        ]},
-        { role: "dev", files: [
-          { filename: "changes.md", source: "default" as const },
-        ]},
+        {
+          role: "user",
+          files: [
+            { filename: "identity.md", source: "default" as const },
+            { filename: "response-style.md", source: "customized" as const },
+            { filename: "company.md", source: "custom-only" as const },
+          ],
+        },
+        { role: "dev", files: [{ filename: "changes.md", source: "default" as const }] },
       ],
       repos: [],
     }));
@@ -484,7 +522,11 @@ describe("buildConfigurationSection", () => {
     const actionsBlocks = blocks.filter((b) => b.type === "actions");
     assert.equal(actionsBlocks.length, 1);
 
-    const elements = (actionsBlocks[0] as unknown as { elements: Array<{ text: { text: string }; action_id: string; value: string }> }).elements;
+    const elements = (
+      actionsBlocks[0] as unknown as {
+        elements: Array<{ text: { text: string }; action_id: string; value: string }>;
+      }
+    ).elements;
     // 2 config buttons + 1 Personal Preferences button
     assert.equal(elements.length, 3);
     assert.equal(elements[0].text.text, ":bust_in_silhouette: Edit User Config");
@@ -497,19 +539,23 @@ describe("buildConfigurationSection", () => {
 
   it("includes repo directory buttons alongside role buttons", () => {
     mockListInstructionFiles.mock.mockImplementation(() => ({
-      roles: [
-        { role: "user", files: [{ filename: "identity.md", source: "default" as const }] },
-      ],
+      roles: [{ role: "user", files: [{ filename: "identity.md", source: "default" as const }] }],
       repos: [
         { filename: "my-repo/changes_instructions.md", hasOverride: false, hasDefault: true },
-        { filename: "my-repo/worktree_setup_instructions.md", hasOverride: false, hasDefault: false },
+        {
+          filename: "my-repo/worktree_setup_instructions.md",
+          hasOverride: false,
+          hasDefault: false,
+        },
       ],
     }));
     const blocks = buildConfigurationSection(true);
     const actionsBlocks = blocks.filter((b) => b.type === "actions");
     assert.equal(actionsBlocks.length, 1);
 
-    const elements = (actionsBlocks[0] as unknown as { elements: Array<{ text: { text: string }; value: string }> }).elements;
+    const elements = (
+      actionsBlocks[0] as unknown as { elements: Array<{ text: { text: string }; value: string }> }
+    ).elements;
     // 1 role button + 1 repo button + 1 Personal Preferences button
     assert.equal(elements.length, 3);
     assert.equal(elements[0].text.text, ":bust_in_silhouette: Edit User Config");
@@ -522,7 +568,8 @@ describe("buildConfigurationSection", () => {
     const blocks = buildConfigurationSection(true);
     const contextBlocks = blocks.filter((b) => b.type === "context");
     assert.ok(contextBlocks.length > 0);
-    const contextText = ((contextBlocks[0] as unknown as { elements: Array<{ text: string }> }).elements)[0].text;
+    const contextText = (contextBlocks[0] as unknown as { elements: Array<{ text: string }> })
+      .elements[0].text;
     assert.ok(contextText.includes("Chat with me to edit"));
   });
 
@@ -536,7 +583,11 @@ describe("buildConfigurationSection", () => {
     const actionsBlocks = blocks.filter((b) => b.type === "actions");
     assert.equal(actionsBlocks.length, 1);
 
-    const elements = (actionsBlocks[0] as unknown as { elements: Array<{ text: { text: string }; action_id: string }> }).elements;
+    const elements = (
+      actionsBlocks[0] as unknown as {
+        elements: Array<{ text: { text: string }; action_id: string }>;
+      }
+    ).elements;
     assert.equal(elements.length, 1);
     assert.equal(elements[0].action_id, "open_settings");
   });
@@ -590,7 +641,12 @@ describe("buildStatusSection", () => {
   it("shows write tags for writable repos", () => {
     mockCanRequestChanges.mock.mockImplementation(() => true);
     mockGetVisibleRepos.mock.mockImplementation(() => [
-      { name: "my-repo", url: "u", description: "d", access: { read: "member" as UserRole, write: "dev" as UserRole } },
+      {
+        name: "my-repo",
+        url: "u",
+        description: "d",
+        access: { read: "member" as UserRole, write: "dev" as UserRole },
+      },
     ]);
     mockCanWriteRepo.mock.mockImplementation(() => true);
     const blocks = buildStatusSection("dev");
@@ -843,7 +899,7 @@ describe("buildSettingsModal", () => {
     mockGetUserPreference.mock.mockImplementation(async () => false);
     const view = await buildSettingsModal("U001");
     const deliveryBlock = (view.blocks as unknown[]).find(
-      (b) => (b as { block_id?: string }).block_id === "response_delivery_block"
+      (b) => (b as { block_id?: string }).block_id === "response_delivery_block",
     ) as { elements: Array<{ initial_option: { value: string } }> } | undefined;
     assert.ok(deliveryBlock);
     assert.equal(deliveryBlock!.elements[0].initial_option.value, "dm");
@@ -854,7 +910,7 @@ describe("buildSettingsModal", () => {
     mockGetUserPreference.mock.mockImplementation(async () => false);
     const view = await buildSettingsModal("U001");
     const deliveryBlock = (view.blocks as unknown[]).find(
-      (b) => (b as { block_id?: string }).block_id === "response_delivery_block"
+      (b) => (b as { block_id?: string }).block_id === "response_delivery_block",
     ) as { elements: Array<{ initial_option: { value: string } }> } | undefined;
     assert.ok(deliveryBlock);
     assert.equal(deliveryBlock!.elements[0].initial_option.value, "thread");
@@ -865,7 +921,7 @@ describe("buildSettingsModal", () => {
     mockGetUserPreference.mock.mockImplementation(async () => true);
     const view = await buildSettingsModal("U001");
     const notifyBlock = (view.blocks as unknown[]).find(
-      (b) => (b as { block_id?: string }).block_id === "notify_on_response_block"
+      (b) => (b as { block_id?: string }).block_id === "notify_on_response_block",
     ) as { elements: Array<{ initial_option: { value: string } }> } | undefined;
     assert.ok(notifyBlock);
     assert.equal(notifyBlock!.elements[0].initial_option.value, "true");
@@ -891,7 +947,9 @@ describe("buildUserSelectModal", () => {
 
   it("includes a users_select element with the placeholder", () => {
     const view = buildUserSelectModal("Add Admin", "add_admin_modal", "Select admin");
-    const inputBlock = view.blocks[0] as unknown as { element: { type: string; placeholder: { text: string } } };
+    const inputBlock = view.blocks[0] as unknown as {
+      element: { type: string; placeholder: { text: string } };
+    };
     assert.equal(inputBlock.element.type, "users_select");
     assert.equal(inputBlock.element.placeholder.text, "Select admin");
   });
@@ -923,7 +981,7 @@ describe("buildRemoveUserModal", () => {
   it("creates static_select options from user list", () => {
     const view = buildRemoveUserModal("Remove Admin", "remove_admin_modal", ["U001", "U002"]);
     const inputBlock = (view.blocks as unknown[]).find(
-      (b) => (b as { block_id?: string }).block_id === "user_select_block"
+      (b) => (b as { block_id?: string }).block_id === "user_select_block",
     ) as { element: { type: string; options: Array<{ value: string }> } } | undefined;
     assert.ok(inputBlock);
     assert.equal(inputBlock!.element.type, "static_select");
@@ -947,7 +1005,9 @@ describe("buildConfigFilePickerModal", () => {
     const sections = (view.blocks as KnownBlock[]).filter((b) => b.type === "section");
 
     assert.equal(sections.length, 2);
-    const firstAccessory = (sections[0] as unknown as { accessory: { action_id: string; value: string } }).accessory;
+    const firstAccessory = (
+      sections[0] as unknown as { accessory: { action_id: string; value: string } }
+    ).accessory;
     assert.equal(firstAccessory.action_id, "edit_config_file");
     assert.equal(firstAccessory.value, "user/identity.md");
   });
@@ -965,15 +1025,17 @@ describe("buildConfigFilePickerModal", () => {
   });
 
   it("shows 'Chat to Edit' button for oversized files instead of Edit button", () => {
-    const files = [
-      { filename: "large-file.md", sourceLabel: "", effectiveLength: 3500 },
-    ];
+    const files = [{ filename: "large-file.md", sourceLabel: "", effectiveLength: 3500 }];
     const view = buildConfigFilePickerModal("user", files, false);
     const sections = (view.blocks as KnownBlock[]).filter((b) => b.type === "section");
     const text = (sections[0] as unknown as { text: { text: string } }).text.text;
 
     assert.ok(text.includes("Too large for modal editor"));
-    const accessory = (sections[0] as unknown as { accessory: { action_id: string; value: string; text: { text: string } } }).accessory;
+    const accessory = (
+      sections[0] as unknown as {
+        accessory: { action_id: string; value: string; text: { text: string } };
+      }
+    ).accessory;
     assert.equal(accessory.action_id, "chat_edit_config_file");
     assert.equal(accessory.value, "user/large-file.md");
     assert.equal(accessory.text.text, "Chat to Edit");
@@ -1028,7 +1090,8 @@ describe("buildConfigEditorModal", () => {
     const view = buildConfigEditorModal("user", "identity.md", "content", "default-only");
     const contextBlocks = (view.blocks as KnownBlock[]).filter((b) => b.type === "context");
     assert.ok(contextBlocks.length > 0);
-    const text = ((contextBlocks[0] as unknown as { elements: Array<{ text: string }> }).elements)[0].text;
+    const text = (contextBlocks[0] as unknown as { elements: Array<{ text: string }> }).elements[0]
+      .text;
     assert.ok(text.includes("no custom override"));
   });
 
@@ -1036,7 +1099,9 @@ describe("buildConfigEditorModal", () => {
     const view = buildConfigEditorModal("user", "identity.md", "custom", "has-override");
     const actions = (view.blocks as KnownBlock[]).filter((b) => b.type === "actions");
     assert.equal(actions.length, 1);
-    const elements = (actions[0] as unknown as { elements: Array<{ text: { text: string }; action_id: string }> }).elements;
+    const elements = (
+      actions[0] as unknown as { elements: Array<{ text: { text: string }; action_id: string }> }
+    ).elements;
     assert.ok(elements.some((e) => e.text.text === "Reset to Default"));
   });
 
@@ -1044,7 +1109,9 @@ describe("buildConfigEditorModal", () => {
     const view = buildConfigEditorModal("user", "custom.md", "custom", "custom-only");
     const actions = (view.blocks as KnownBlock[]).filter((b) => b.type === "actions");
     assert.equal(actions.length, 1);
-    const elements = (actions[0] as unknown as { elements: Array<{ text: { text: string }; action_id: string }> }).elements;
+    const elements = (
+      actions[0] as unknown as { elements: Array<{ text: { text: string }; action_id: string }> }
+    ).elements;
     assert.ok(elements.some((e) => e.text.text === "Delete File"));
   });
 
@@ -1062,8 +1129,12 @@ describe("buildConfigEditorModal", () => {
     for (const state of ["default-only", "has-override", "custom-only"] as const) {
       const view = buildConfigEditorModal("user", "test.md", "content", state);
       const actions = (view.blocks as KnownBlock[]).filter((b) => b.type === "actions");
-      const elements = (actions[0] as unknown as { elements: Array<{ action_id: string }> }).elements;
-      assert.ok(elements.some((e) => e.action_id === "chat_edit_config_file"), `should have Chat to Edit for ${state}`);
+      const elements = (actions[0] as unknown as { elements: Array<{ action_id: string }> })
+        .elements;
+      assert.ok(
+        elements.some((e) => e.action_id === "chat_edit_config_file"),
+        `should have Chat to Edit for ${state}`,
+      );
     }
   });
 
@@ -1077,7 +1148,12 @@ describe("buildConfigEditorModal", () => {
   });
 
   it("truncates long title to 24 chars", () => {
-    const view = buildConfigEditorModal("user", "very-long-filename-that-exceeds.md", "content", "default-only");
+    const view = buildConfigEditorModal(
+      "user",
+      "very-long-filename-that-exceeds.md",
+      "content",
+      "default-only",
+    );
     const title = (view as unknown as { title: { text: string } }).title.text;
     assert.ok(title.length <= 24);
     assert.ok(title.endsWith("\u2026"));
@@ -1112,10 +1188,10 @@ describe("buildConfigCreateFileModal", () => {
     const view = buildConfigCreateFileModal("user");
     const blocks = view.blocks as KnownBlock[];
     const filenameBlock = blocks.find(
-      (b) => (b as unknown as { block_id?: string }).block_id === "filename_block"
+      (b) => (b as unknown as { block_id?: string }).block_id === "filename_block",
     );
     const contentBlock = blocks.find(
-      (b) => (b as unknown as { block_id?: string }).block_id === "content_block"
+      (b) => (b as unknown as { block_id?: string }).block_id === "content_block",
     );
     assert.ok(filenameBlock);
     assert.ok(contentBlock);
@@ -1125,7 +1201,7 @@ describe("buildConfigCreateFileModal", () => {
     const view = buildConfigCreateFileModal("user");
     const blocks = view.blocks as KnownBlock[];
     const filenameBlock = blocks.find(
-      (b) => (b as unknown as { block_id?: string }).block_id === "filename_block"
+      (b) => (b as unknown as { block_id?: string }).block_id === "filename_block",
     ) as unknown as { hint?: { text: string } } | undefined;
     assert.ok(filenameBlock?.hint?.text.includes(".md"));
   });
