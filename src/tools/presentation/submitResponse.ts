@@ -3,7 +3,7 @@ import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { IntentStore, ResponseCapture, ToolCallRecorder } from "../server.js";
 import type { DeliverFn, ResponseSnapshot, PostToAction } from "../types.js";
-import { textResult, errorResult } from "../helpers.js";
+import { textResult } from "../helpers.js";
 import { getStructuredResponseBlocks, getResponseActionBlocks, validateSlackBlocks, asSlackBlocks } from "../../slack/blocks.js";
 
 const sectionSchema = z.object({
@@ -68,6 +68,8 @@ const actionSchema = z.discriminatedUnion("type", [
 // Ref-based action types that need validation
 const REF_ACTION_TYPES = new Set(["change", "config_update", "update"]);
 
+const SKIP_ACKNOWLEDGMENT = "I acknowledge that responding to this would serve no purpose, so I am skipping it.";
+
 export interface SubmitResponseDeps {
   intentStore: IntentStore;
   responseCapture: ResponseCapture;
@@ -77,6 +79,8 @@ export interface SubmitResponseDeps {
   persistSnapshot?: (id: string, snapshot: ResponseSnapshot) => Promise<void>;
   /** When set, submit_response already delivers top-level to this channel — post_to targeting it is rejected. */
   topLevelDeliveryChannel?: string;
+  /** When true, the skip_response parameter is available in the schema. */
+  allowSkip?: boolean;
 }
 
 function validateRefActions(
@@ -134,45 +138,97 @@ function recordError(
   return { ...textResult(errData), isError: true as const };
 }
 
+// Schema for the normal response path
+const normalResponseSchema = {
+  message: z.string().optional().describe(
+    "Short conversational preamble shown to the user but NOT included when sharing via post_to. " +
+    "Use for meta-commentary like 'Here is the updated version:' or 'I adjusted the tone:'. " +
+    "Put the actual shareable content in sections."
+  ),
+  sections: z
+    .array(sectionSchema)
+    .min(1)
+    .describe("Response sections shown to the user"),
+  actions: z
+    .array(actionSchema)
+    .describe("Interactive buttons for the user to click. Use an empty array for casual/conversational responses that don't need actions."),
+};
+
+// Schema with skip_response support
+const skipEnabledResponseSchema = {
+  ...normalResponseSchema,
+  skip_response: z.boolean().optional().describe(
+    "Set to true to decline answering. Use when the conversation doesn't need a Clack response " +
+    "(e.g., users talking to each other, question already answered). When true, sections and actions are not required."
+  ),
+  // Override sections and actions to be optional when skip is used
+  sections: z
+    .array(sectionSchema)
+    .min(1)
+    .optional()
+    .describe("Response sections shown to the user (not required when skip_response is true)"),
+  actions: z
+    .array(actionSchema)
+    .optional()
+    .describe("Interactive buttons for the user to click (not required when skip_response is true)"),
+};
+
 export function createSubmitResponseTool(deps: SubmitResponseDeps) {
-  const { intentStore, responseCapture, recorder, sessionId, deliver, persistSnapshot, topLevelDeliveryChannel } = deps;
+  const { intentStore, responseCapture, recorder, sessionId, deliver, persistSnapshot, topLevelDeliveryChannel, allowSkip } = deps;
+
+  const schema = allowSkip ? skipEnabledResponseSchema : normalResponseSchema;
+
   return tool(
     "submit_response",
     "Submit the final response to the user. This defines what the user sees: text sections and interactive buttons. Always call this tool to deliver your response.",
-    {
-      message: z.string().optional().describe(
-        "Short conversational preamble shown to the user but NOT included when sharing via post_to. " +
-        "Use for meta-commentary like 'Here is the updated version:' or 'I adjusted the tone:'. " +
-        "Put the actual shareable content in sections."
-      ),
-      sections: z
-        .array(sectionSchema)
-        .min(1)
-        .describe("Response sections shown to the user"),
-      actions: z
-        .array(actionSchema)
-        .describe("Interactive buttons for the user to click. Use an empty array for casual/conversational responses that don't need actions."),
-    },
+    schema,
     async (args) => {
-      const refError = validateRefActions(args.actions, intentStore);
+      // --- Skip path ---
+      if ("skip_response" in args && args.skip_response) {
+        // Cannot skip after a response was already delivered
+        if (responseCapture.get()) {
+          return recordError(recorder, args, { error: "Response already delivered — cannot skip after delivery." });
+        }
+        const message = "message" in args ? args.message : undefined;
+        if (message !== SKIP_ACKNOWLEDGMENT) {
+          return recordError(recorder, args, {
+            error: `To skip a response, the message field must be exactly: "${SKIP_ACKNOWLEDGMENT}"`,
+          });
+        }
+        responseCapture.setSkipped();
+        const result = { success: true, skipped: true };
+        recorder.record("submit_response", args as unknown as Record<string, unknown>, result);
+        return textResult(result);
+      }
+
+      // --- Normal response path ---
+      const sections = "sections" in args ? args.sections : undefined;
+      const actions = "actions" in args ? args.actions : undefined;
+      if (!sections || sections.length === 0) {
+        return recordError(recorder, args, { error: "sections is required with at least 1 item when not skipping." });
+      }
+      if (!actions) {
+        return recordError(recorder, args, { error: "actions is required when not skipping." });
+      }
+
+      const refError = validateRefActions(actions, intentStore);
       if (refError) {
-        recorder.record("submit_response", args as unknown as Record<string, unknown>, { error: refError });
-        return errorResult(refError);
+        return recordError(recorder, args, { error: refError });
       }
 
-      const postToError = validatePostToActions(args.actions, topLevelDeliveryChannel);
+      const postToError = validatePostToActions(actions, topLevelDeliveryChannel);
       if (postToError) {
-        recorder.record("submit_response", args as unknown as Record<string, unknown>, { error: postToError });
-        return errorResult(postToError);
+        return recordError(recorder, args, { error: postToError });
       }
 
+      const message = "message" in args ? args.message : undefined;
       const payload = {
-        ...(args.message && { message: args.message }),
-        sections: args.sections,
-        actions: args.actions,
+        ...(message && { message }),
+        sections,
+        actions,
       };
 
-      const { displayText } = buildTexts(args.sections, args.message);
+      const { displayText } = buildTexts(sections, message);
 
       const SLACK_MESSAGE_TEXT_LIMIT = 10000;
       if (displayText.length > SLACK_MESSAGE_TEXT_LIMIT) {
@@ -221,7 +277,7 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
 
       responseCapture.set(payload, renderedBlocks);
 
-      const result = { success: true, delivered: !!deliver, sectionsCount: args.sections.length, actionsCount: args.actions.length };
+      const result = { success: true, delivered: !!deliver, sectionsCount: sections.length, actionsCount: actions.length };
       recorder.record("submit_response", args as unknown as Record<string, unknown>, result);
 
       return textResult(result);

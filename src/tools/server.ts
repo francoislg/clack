@@ -133,11 +133,14 @@ export interface ResponseCapture {
   set: (payload: SubmitResponsePayload, renderedBlocks: Record<string, unknown>[]) => void;
   get: () => SubmitResponsePayload | null;
   getRenderedBlocks: () => Record<string, unknown>[] | null;
+  setSkipped: () => void;
+  isSkipped: () => boolean;
 }
 
 export function createResponseCapture(): ResponseCapture {
   let result: SubmitResponsePayload | null = null;
   let blocks: Record<string, unknown>[] | null = null;
+  let skipped = false;
 
   return {
     set(payload: SubmitResponsePayload, renderedBlocks: Record<string, unknown>[]): void {
@@ -151,6 +154,14 @@ export function createResponseCapture(): ResponseCapture {
 
     getRenderedBlocks(): Record<string, unknown>[] | null {
       return blocks;
+    },
+
+    setSkipped(): void {
+      skipped = true;
+    },
+
+    isSkipped(): boolean {
+      return skipped;
     },
   };
 }
@@ -239,6 +250,7 @@ function buildQueryTools(ctx: QueryToolContext): ClackToolsResult {
     const snapshots = { ...session.snapshots, [id]: snapshot };
     await updateSession(ctx.session.sessionId, { snapshots });
   };
+  const triggerType = ctx.session.triggerType;
   tools.push(createSubmitResponseTool({
     intentStore,
     responseCapture,
@@ -248,7 +260,9 @@ function buildQueryTools(ctx: QueryToolContext): ClackToolsResult {
     persistSnapshot,
     // In scheduled mode, submit_response delivers top-level to the channel.
     // Pass the channel so post_to validation can reject duplicates.
-    topLevelDeliveryChannel: ctx.session.triggerType === "scheduled" ? ctx.session.channelId : undefined,
+    topLevelDeliveryChannel: triggerType === "scheduled" ? ctx.session.channelId : undefined,
+    // Skip is only available for auto-respond and thread-reply triggers
+    allowSkip: triggerType === "autoRespond" || triggerType === "threadReply",
   }));
 
   const toolNames = tools.map((t) => t.name);
@@ -266,6 +280,7 @@ function buildQueryTools(ctx: QueryToolContext): ClackToolsResult {
     getRenderedBlocks: () => responseCapture.getRenderedBlocks(),
     getStagedIntents: () => intentStore.getAll(),
     getToolCallHistory: () => recorder.getHistory(),
+    isSkipped: () => responseCapture.isSkipped(),
   };
 }
 
@@ -298,6 +313,7 @@ function buildWorkerTools(ctx: WorkerToolContext): ClackToolsResult {
     getRenderedBlocks: () => null,
     getStagedIntents: () => new Map(),
     getToolCallHistory: () => [],
+    isSkipped: () => false,
   };
 }
 

@@ -6,7 +6,7 @@ The `submit_response` MCP tool contract defining how Claude structures user-faci
 ## Requirements
 ### Requirement: submit_response Tool
 
-The system SHALL provide a `submit_response` MCP tool that defines the user-facing response with structured content and actions, and delivers it to Slack.
+The system SHALL provide a `submit_response` MCP tool that defines the user-facing response with structured content and actions, and delivers it to Slack. The tool also supports a `skip_response` mode that declines to answer.
 
 #### Scenario: Basic response with sections
 
@@ -49,6 +49,26 @@ The system SHALL provide a `submit_response` MCP tool that defines the user-faci
 - **WHEN** the query completes without Claude calling `submit_response`
 - **THEN** the system falls back to Claude's raw text output
 - **AND** delivers it via the streamer or one-shot posting
+
+#### Scenario: Skip response with valid acknowledgment
+
+- **WHEN** Claude calls `submit_response` with `skip_response: true` and the correct acknowledgment message
+- **THEN** the tool does NOT call the deliver callback
+- **AND** does NOT render blocks or validate sections
+- **AND** sets the skipped flag on ResponseCapture
+- **AND** returns `{ success: true, skipped: true }` to Claude
+
+#### Scenario: Skip response with invalid acknowledgment
+
+- **WHEN** Claude calls `submit_response` with `skip_response: true` and an incorrect or missing message
+- **THEN** the tool returns an error containing the required exact acknowledgment string
+- **AND** does NOT set the skipped flag
+
+#### Scenario: Sections not required when skipping
+
+- **WHEN** Claude calls `submit_response` with `skip_response: true`
+- **THEN** the `sections` and `actions` parameters are not required
+- **AND** only `skip_response` and `message` are validated
 
 #### Scenario: Change action with ref and optional auto
 

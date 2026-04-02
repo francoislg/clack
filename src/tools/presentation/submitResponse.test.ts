@@ -40,6 +40,7 @@ function makeDeps(overrides: Partial<{
   sessionId: string;
   deliver: (opts: { markdownText: string; blocks?: unknown[] }) => Promise<{ ok: true } | { ok: false; error: string }>;
   persistSnapshot: (id: string, snapshot: ResponseSnapshot) => Promise<void>;
+  allowSkip: boolean;
 }> = {}) {
   const intentStore: IntentStore = {
     stage: mock.fn<(intent: StagedIntent) => string>(() => "ref-1"),
@@ -52,6 +53,8 @@ function makeDeps(overrides: Partial<{
     set: mock.fn<(payload: unknown, blocks: unknown) => void>(),
     get: mock.fn<() => null>(() => null),
     getRenderedBlocks: mock.fn<() => null>(() => null),
+    setSkipped: mock.fn<() => void>(),
+    isSkipped: mock.fn<() => boolean>(() => false),
     ...overrides.responseCapture,
   };
 
@@ -68,6 +71,7 @@ function makeDeps(overrides: Partial<{
     sessionId: overrides.sessionId ?? "sess-123",
     deliver: overrides.deliver,
     persistSnapshot: overrides.persistSnapshot,
+    allowSkip: overrides.allowSkip,
   };
 }
 
@@ -124,6 +128,8 @@ describe("createSubmitResponseTool", () => {
           set: ((...args: unknown[]) => { setCalls.push(args); }) as ResponseCapture["set"],
           get: () => null,
           getRenderedBlocks: () => null,
+          setSkipped: () => {},
+          isSkipped: () => false,
         },
       });
 
@@ -386,6 +392,8 @@ describe("createSubmitResponseTool", () => {
           set: (() => { setCalls.push(true); }) as ResponseCapture["set"],
           get: () => null,
           getRenderedBlocks: () => null,
+          setSkipped: () => {},
+          isSkipped: () => false,
         },
       });
 
@@ -521,6 +529,8 @@ describe("createSubmitResponseTool", () => {
           set: ((...args: unknown[]) => { setCalls.push(args); }) as ResponseCapture["set"],
           get: () => null,
           getRenderedBlocks: () => null,
+          setSkipped: () => {},
+          isSkipped: () => false,
         },
       });
 
@@ -587,6 +597,8 @@ describe("createSubmitResponseTool", () => {
           set: ((...args: unknown[]) => { setCalls.push(args); }) as ResponseCapture["set"],
           get: () => null,
           getRenderedBlocks: () => null,
+          setSkipped: () => {},
+          isSkipped: () => false,
         },
       });
 
@@ -608,6 +620,8 @@ describe("createSubmitResponseTool", () => {
           set: ((...args: unknown[]) => { setCalls.push(args); }) as ResponseCapture["set"],
           get: () => null,
           getRenderedBlocks: () => null,
+          setSkipped: () => {},
+          isSkipped: () => false,
         },
       });
 
@@ -618,6 +632,81 @@ describe("createSubmitResponseTool", () => {
 
       const [payload] = setCalls[0] as [{ actions: { _snapshotId?: string }[] }];
       assert.equal(payload.actions[0]._snapshotId, undefined);
+    });
+  });
+
+  describe("skip_response", () => {
+    /** Call the tool with arbitrary args (no type enforcement for skip tests). */
+    async function callToolRaw(
+      deps: ReturnType<typeof makeDeps>,
+      args: Record<string, unknown>,
+    ) {
+      const toolDef = createSubmitResponseTool(deps);
+      return toolDef.handler(args as never, {});
+    }
+
+    it("accepts skip with correct acknowledgment message", async () => {
+      const deps = makeDeps({ allowSkip: true });
+      const result = await callToolRaw(deps, {
+        skip_response: true,
+        message: "I acknowledge that responding to this would serve no purpose, so I am skipping it.",
+      });
+
+      const parsed = JSON.parse(result.content[0].text);
+      assert.equal(parsed.success, true);
+      assert.equal(parsed.skipped, true);
+      // Verify setSkipped was actually called (this is the signal to buildSuccessResponse)
+      assert.equal(
+        (deps.responseCapture.setSkipped as unknown as ReturnType<typeof mock.fn>).mock.callCount(),
+        1,
+      );
+    });
+
+    it("rejects skip with wrong message", async () => {
+      const deps = makeDeps({ allowSkip: true });
+      const result = await callToolRaw(deps, {
+        skip_response: true,
+        message: "I want to skip",
+      });
+
+      assert.equal(result.isError, true);
+      const text = result.content[0].text;
+      assert.ok(text.includes("I acknowledge that responding to this would serve no purpose"));
+    });
+
+    it("rejects skip with missing message", async () => {
+      const deps = makeDeps({ allowSkip: true });
+      const result = await callToolRaw(deps, {
+        skip_response: true,
+      });
+
+      assert.equal(result.isError, true);
+      const text = result.content[0].text;
+      assert.ok(text.includes("I acknowledge that responding to this would serve no purpose"));
+    });
+
+    it("does not call deliver when skip is accepted", async () => {
+      const deliver = mock.fn(async () => ({ ok: true as const }));
+      const deps = makeDeps({ deliver, allowSkip: true });
+      await callToolRaw(deps, {
+        skip_response: true,
+        message: "I acknowledge that responding to this would serve no purpose, so I am skipping it.",
+      });
+
+      assert.equal(deliver.mock.callCount(), 0);
+    });
+
+    it("normal flow unchanged when allowSkip is true but skip_response is absent", async () => {
+      const deps = makeDeps({ allowSkip: true });
+      const result = await callTool(deps, {
+        sections: [{ body: "Hello" }],
+        actions: [],
+      });
+
+      const parsed = JSON.parse(result.content[0].text);
+      assert.equal(parsed.success, true);
+      assert.equal(parsed.skipped, undefined);
+      assert.equal(parsed.sectionsCount, 1);
     });
   });
 });

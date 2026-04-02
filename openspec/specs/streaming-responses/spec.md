@@ -6,12 +6,25 @@ Manage Slack chat streams for Claude queries, displaying real-time tool call pro
 ## Requirements
 
 ### Requirement: Stream Lifecycle
-The system SHALL manage a Slack chat stream for each Claude query, using `chat.startStream` to begin, `chat.appendStream` to send task updates, and `chat.stopStream` to finalize the response with the answer and action buttons.
+The system SHALL manage a Slack chat stream for each Claude query, using `chat.startStream` to begin, `chat.appendStream` to send task updates, and `chat.stopStream` to finalize the response with the answer and action buttons. The streamer SHALL also expose the message timestamp for post-delivery operations such as deletion.
 
 #### Scenario: Stream started on query begin
 - **WHEN** a Claude query begins processing (any trigger mode)
 - **THEN** the system starts a chat stream in the target channel/thread with `task_display_mode: "plan"`
 - **AND** immediately shows an initial "Acknowledged, working on it..." task card in `in_progress` status
+
+#### Scenario: Message timestamp captured on first append
+- **WHEN** the first `append` call to the Slack streaming API returns successfully
+- **THEN** the system captures the message `ts` from the API response
+- **AND** exposes it via a `getMessageTs()` getter on SlackStreamer
+
+#### Scenario: Message timestamp available after start
+- **WHEN** `start()` completes successfully (the initial append posts the thinking task)
+- **THEN** `getMessageTs()` returns the streaming message `ts`
+
+#### Scenario: Message timestamp null on failed start
+- **WHEN** `start()` fails and the streamer enters failed state
+- **THEN** `getMessageTs()` returns `undefined`
 
 #### Scenario: Stream stopped on query complete
 - **WHEN** Claude's query completes and the answer is ready
@@ -42,6 +55,11 @@ The system SHALL manage a Slack chat stream for each Claude query, using `chat.s
 - **WHEN** processing completes (success, error, or exception)
 - **THEN** the system calls `streamer.stop()` in a `finally` block to prevent orphaned streams
 - **AND** `stop()` is idempotent -- safe to call multiple times
+
+#### Scenario: Stream message deleted on skip
+- **WHEN** a response is skipped and `getMessageTs()` returns a valid timestamp
+- **THEN** the caller uses `chat.delete` with the channel and message `ts` to remove the stream message
+- **AND** the thinking indicator and all task cards disappear from Slack
 
 ### Requirement: Tool Call Progress
 The system SHALL display Claude's tool calls as task cards within a plan block, updated in real-time as tools execute.

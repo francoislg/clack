@@ -218,4 +218,5 @@ export interface ClackToolsResult {
   getRenderedBlocks: () => Record<string, unknown>[] | null;
   getStagedIntents: () => Map<string, StagedIntent>;
   getToolCallHistory: () => ToolCallRecord[];
+  isSkipped: () => boolean;
 }

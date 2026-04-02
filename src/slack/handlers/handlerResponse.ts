@@ -122,6 +122,11 @@ export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promis
       return response;
     }
 
+    if (response.skipped) {
+      await handleSkip(ctx);
+      return response;
+    }
+
     if (response.success) {
       await handleSuccess(ctx, response);
     } else {
@@ -253,6 +258,29 @@ async function deliverViaStreamerOrFallback(
 async function handleCancellation(ctx: DeliveryContext): Promise<void> {
   if (!ctx.alreadyDelivered) {
     await deliverViaStreamerOrFallback(ctx, "_Request cancelled._");
+  }
+}
+
+/**
+ * Handle a skipped response: delete the streamer message so no trace remains.
+ * Skips session persistence and auto-execute.
+ */
+async function handleSkip(ctx: DeliveryContext): Promise<void> {
+  // Stop the streamer first so the finally block's stop() becomes a no-op
+  // (stop checks this.stopped internally). Must happen before chat.delete
+  // to avoid the finally block attempting to finalize a deleted message.
+  await ctx.streamer?.stop();
+
+  const messageTs = ctx.streamer?.getMessageTs();
+  if (messageTs) {
+    try {
+      await ctx.client.chat.delete({
+        channel: ctx.targetChannel,
+        ts: messageTs,
+      });
+    } catch (error) {
+      logger.warn("Failed to delete streamer message after skip:", error);
+    }
   }
 }
 

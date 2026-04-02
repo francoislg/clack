@@ -37,15 +37,19 @@ const mockGetUserPreference = mock.fn<(...args: unknown[]) => Promise<unknown>>(
 
 // Track SlackStreamer instances for inspection
 let streamerHasFailed = false;
+let streamerMessageTs: string | undefined;
 let mockStreamerStart: ReturnType<typeof mock.fn>;
 let mockStreamerStop: ReturnType<typeof mock.fn>;
 let mockStreamerHandleEvent: ReturnType<typeof mock.fn>;
+let mockStreamerGetMessageTs: ReturnType<typeof mock.fn>;
 
-function resetStreamerInstance(overrides?: { hasFailed?: boolean; startReturns?: boolean }) {
+function resetStreamerInstance(overrides?: { hasFailed?: boolean; startReturns?: boolean; messageTs?: string }) {
   streamerHasFailed = overrides?.hasFailed ?? false;
+  streamerMessageTs = overrides?.messageTs;
   mockStreamerStart = mock.fn(async () => overrides?.startReturns ?? true);
   mockStreamerStop = mock.fn(async () => {});
   mockStreamerHandleEvent = mock.fn();
+  mockStreamerGetMessageTs = mock.fn(() => streamerMessageTs);
 }
 
 mock.module("../../claude/index.js", {
@@ -105,6 +109,7 @@ mock.module("../../streaming/slackStreamer.js", {
       start(...args: unknown[]) { return mockStreamerStart(...args); }
       stop(...args: unknown[]) { return mockStreamerStop(...args); }
       handleEvent(...args: unknown[]) { return mockStreamerHandleEvent(...args); }
+      getMessageTs() { return mockStreamerGetMessageTs(); }
       get hasFailed() { return streamerHasFailed; }
     },
   },
@@ -144,9 +149,11 @@ const { executeAndDeliver, postResponse, getHandlerClaudeOptions } =
 
 function makeClient(): App["client"] {
   const postMessageFn = mock.fn(async () => ({ ok: true }));
+  const deleteFn = mock.fn(async () => ({ ok: true }));
   return {
     chat: {
       postMessage: postMessageFn,
+      delete: deleteFn,
     },
   } as unknown as App["client"];
 }
@@ -1116,5 +1123,59 @@ describe("silentThinking mode", () => {
 
     // Streamer should have been started
     assert.equal(mockStreamerStart.mock.callCount(), 1);
+  });
+
+  describe("skip handling", () => {
+    it("deletes the streamer message and skips persistence when response is skipped", async () => {
+      resetStreamerInstance({ messageTs: "1234.5678" });
+      mockAskClaude.mock.mockImplementationOnce(async () => ({
+        success: true,
+        skipped: true,
+        answer: "",
+      }));
+      mockSetLastAnswer.mock.resetCalls();
+      mockUpdateSession.mock.resetCalls();
+      mockHandleAutoExecuteActions.mock.resetCalls();
+
+      const client = makeClient();
+      const response = await executeAndDeliver({
+        client,
+        session: makeSession(),
+        sessionInfo: makeSessionInfo(),
+        claudeOptions: { role: "dev" as const, changesWorkflowEnabled: false },
+      });
+
+      assert.equal(response.skipped, true);
+
+      // chat.delete should have been called with the streamer's ts
+      const deleteCall = (client.chat.delete as unknown as ReturnType<typeof mock.fn>).mock.calls[0];
+      assert.ok(deleteCall);
+      assert.deepStrictEqual(deleteCall.arguments[0], { channel: "C001", ts: "1234.5678" });
+
+      // Session persistence and auto-execute should NOT have been called
+      assert.equal(mockSetLastAnswer.mock.callCount(), 0);
+      assert.equal(mockHandleAutoExecuteActions.mock.callCount(), 0);
+    });
+
+    it("handles skip gracefully when streamer has no messageTs", async () => {
+      resetStreamerInstance({ messageTs: undefined });
+      mockAskClaude.mock.mockImplementationOnce(async () => ({
+        success: true,
+        skipped: true,
+        answer: "",
+      }));
+
+      const client = makeClient();
+      const response = await executeAndDeliver({
+        client,
+        session: makeSession(),
+        sessionInfo: makeSessionInfo(),
+        claudeOptions: { role: "dev" as const, changesWorkflowEnabled: false },
+      });
+
+      assert.equal(response.skipped, true);
+      // chat.delete should NOT have been called
+      assert.equal((client.chat.delete as unknown as ReturnType<typeof mock.fn>).mock.callCount(), 0);
+    });
   });
 });
