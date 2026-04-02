@@ -48,7 +48,9 @@ function makeClient(opts?: {
 
   return {
     chatStream: opts?.throwOnChatStream
-      ? () => { throw new Error("chatStream failed"); }
+      ? () => {
+          throw new Error("chatStream failed");
+        }
       : () => streamer,
     auth: {
       test: async () => ({ team_id: opts?.teamId ?? "T_TEAM" }),
@@ -291,7 +293,9 @@ describe("SlackStreamer.handleEvent — tool_start", () => {
 
   it("does nothing when streamer has failed", async () => {
     // Simulate failure
-    mockStreamerObj.append.mock.mockImplementation(async () => { throw new Error("append failed"); });
+    mockStreamerObj.append.mock.mockImplementation(async () => {
+      throw new Error("append failed");
+    });
     streamer.handleEvent({
       type: "tool_start",
       taskId: "fail-trigger",
@@ -621,7 +625,9 @@ describe("SlackStreamer.stop", () => {
   it("skips chatStreamer.stop when stream has failed", async () => {
     const mockStreamerObj = makeMockChatStreamer();
     // Make append fail so stream is marked failed
-    mockStreamerObj.append.mock.mockImplementation(async () => { throw new Error("broken"); });
+    mockStreamerObj.append.mock.mockImplementation(async () => {
+      throw new Error("broken");
+    });
 
     const client = makeClient({ chatStreamer: mockStreamerObj });
     const streamer = new SlackStreamer({
@@ -714,7 +720,9 @@ describe("SlackStreamer.hasFailed", () => {
 
   it("returns true after append failure", async () => {
     const mockStreamerObj = makeMockChatStreamer();
-    mockStreamerObj.append.mock.mockImplementation(async () => { throw new Error("fail"); });
+    mockStreamerObj.append.mock.mockImplementation(async () => {
+      throw new Error("fail");
+    });
 
     const client = makeClient({ chatStreamer: mockStreamerObj });
     const streamer = new SlackStreamer({
@@ -746,7 +754,14 @@ describe("finalizeStreamedWorkflow", () => {
     await streamer.start();
     mockStreamerObj.append.mock.resetCalls();
 
-    await finalizeStreamedWorkflow(streamer, client, "C_CHAN", "1234.5678", { success: true }, "Change");
+    await finalizeStreamedWorkflow(
+      streamer,
+      client,
+      "C_CHAN",
+      "1234.5678",
+      { success: true },
+      "Change",
+    );
 
     assert.equal(mockStreamerObj.stop.mock.callCount(), 1);
   });
@@ -779,7 +794,9 @@ describe("finalizeStreamedWorkflow", () => {
   it("posts fallback message when streamer has failed", async () => {
     const mockStreamerObj = makeMockChatStreamer();
     // Make the streamer fail during start
-    mockStreamerObj.append.mock.mockImplementation(async () => { throw new Error("broken"); });
+    mockStreamerObj.append.mock.mockImplementation(async () => {
+      throw new Error("broken");
+    });
 
     const client = makeClient({ chatStreamer: mockStreamerObj });
     const streamer = new SlackStreamer({
@@ -802,7 +819,11 @@ describe("finalizeStreamedWorkflow", () => {
     // Should have fallen back to chat.postMessage
     const postMessage = client.chat.postMessage as unknown as ReturnType<typeof mock.fn>;
     assert.equal(postMessage.mock.callCount(), 1);
-    const pmArgs = postMessage.mock.calls[0].arguments[0] as { channel: string; thread_ts: string; text: string };
+    const pmArgs = postMessage.mock.calls[0].arguments[0] as {
+      channel: string;
+      thread_ts: string;
+      text: string;
+    };
     assert.equal(pmArgs.channel, "C_CHAN");
     assert.equal(pmArgs.thread_ts, "1234.5678");
     assert.ok(pmArgs.text.includes("Update failed: oops"));

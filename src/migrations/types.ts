@@ -17,9 +17,7 @@ export interface Migration {
    * Receives file contents keyed by path (null if file doesn't exist).
    * Returns a map of files to write/delete. Keys absent from the return are untouched.
    */
-  static?: (
-    files: Record<string, string | null>
-  ) => Record<string, StaticFileResult>;
+  static?: (files: Record<string, string | null>) => Record<string, StaticFileResult>;
   /** Files to delete after the migration completes successfully (relative to cwd) */
   deleteAfter?: string[];
   /** Post-LLM dedup: maps output files to their default counterparts. If the output matches the default (ignoring whitespace), the output is deleted. */

@@ -84,6 +84,6 @@ export function createMergePRTool(ctx: WorkerToolContext) {
       } catch (error) {
         return errorResult(`merge failed: ${errorMessage(error)}`);
       }
-    }
+    },
   );
 }

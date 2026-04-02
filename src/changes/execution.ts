@@ -54,7 +54,9 @@ export async function runClaude(options: {
     ? (msg: string) => appendExecutionLog(options.branchName!, msg)
     : undefined;
 
-  logger.debug(`Running Claude in ${options.cwd}${options.branchName ? ` (worktree: ${options.branchName})` : ""}`);
+  logger.debug(
+    `Running Claude in ${options.cwd}${options.branchName ? ` (worktree: ${options.branchName})` : ""}`,
+  );
   log?.(`Running Claude via Agent SDK`);
   log?.(`Working directory: ${options.cwd}`);
   log?.(`Prompt length: ${options.prompt.length} chars`);
@@ -69,9 +71,11 @@ export async function runClaude(options: {
   let outputReceived = false;
   const heartbeatInterval = setInterval(() => {
     const elapsed = Math.round((Date.now() - lastOutputTime) / 1000);
-    log?.(!outputReceived
-      ? `Still waiting for first output... (${elapsed}s since start)`
-      : `Query still running... (${elapsed}s since last event)`);
+    log?.(
+      !outputReceived
+        ? `Still waiting for first output... (${elapsed}s since start)`
+        : `Query still running... (${elapsed}s since last event)`,
+    );
   }, 30000);
 
   let finalText = "";
@@ -94,7 +98,12 @@ export async function runClaude(options: {
         permissionMode: "bypassPermissions",
         allowDangerouslySkipPermissions: true,
         plugins: discoverPlugins(),
-        ...(options.mcpServers && { mcpServers: options.mcpServers as Record<string, import("@anthropic-ai/claude-agent-sdk").McpServerConfig> }),
+        ...(options.mcpServers && {
+          mcpServers: options.mcpServers as Record<
+            string,
+            import("@anthropic-ai/claude-agent-sdk").McpServerConfig
+          >,
+        }),
         abortController,
         env: {
           ...process.env,
@@ -120,7 +129,9 @@ export async function runClaude(options: {
       // Worker-specific: accumulate assistant text and log it
       if (parsed.assistantText) {
         finalText += parsed.assistantText + "\n";
-        log?.(`Event: assistant text: ${parsed.assistantText.substring(0, 200).replace(/\n/g, " ")}...`);
+        log?.(
+          `Event: assistant text: ${parsed.assistantText.substring(0, 200).replace(/\n/g, " ")}...`,
+        );
       }
 
       // Handle result
@@ -135,9 +146,14 @@ export async function runClaude(options: {
         }
         log?.(`Event: result (subtype: ${(message as Record<string, unknown>).subtype})`);
       } else if (message.type === "system" && "subtype" in message && message.subtype === "init") {
-        const sessionId = "session_id" in message ? String(message.session_id).substring(0, 8) : "unknown";
+        const sessionId =
+          "session_id" in message ? String(message.session_id).substring(0, 8) : "unknown";
         log?.(`Event: init (session: ${sessionId}...)`);
-      } else if (message.type !== "tool_progress" && message.type !== "assistant" && message.type !== "user") {
+      } else if (
+        message.type !== "tool_progress" &&
+        message.type !== "assistant" &&
+        message.type !== "user"
+      ) {
         const subtype = "subtype" in message ? message.subtype : undefined;
         log?.(`Event: ${message.type}${subtype ? ":" + subtype : ""}`);
       }
@@ -149,8 +165,8 @@ export async function runClaude(options: {
     // Detect timeout: either a standard AbortError or the SDK's "aborted by user"
     // message when our AbortController signal has fired
     const isAbortError = error instanceof Error && error.name === "AbortError";
-    const isSignalAbort = abortController.signal.aborted &&
-      error instanceof Error && /aborted/i.test(error.message);
+    const isSignalAbort =
+      abortController.signal.aborted && error instanceof Error && /aborted/i.test(error.message);
 
     if (isAbortError || isSignalAbort) {
       log?.(`Timeout: Execution timed out after ${timeoutMs / 60000} minutes`);
@@ -175,7 +191,8 @@ export async function runClaude(options: {
   clearInterval(heartbeatInterval);
 
   // Check for platform errors masquerading as successful responses
-  const platformError = detectPlatformError(finalText) ?? detectPlatformError(parser.lastAssistantText);
+  const platformError =
+    detectPlatformError(finalText) ?? detectPlatformError(parser.lastAssistantText);
   if (platformError) {
     logger.warn(`Platform error detected in worker: ${platformError}`);
     log?.(`Platform error: ${platformError}`);
@@ -203,7 +220,7 @@ export async function runClaude(options: {
  */
 export async function runClaudeInWorktree(
   repoName: string,
-  options: Parameters<typeof runClaude>[0]
+  options: Parameters<typeof runClaude>[0],
 ): Promise<Awaited<ReturnType<typeof runClaude>>> {
   const config = getConfig();
   const repo = findRepoByName(repoName, config);
@@ -265,7 +282,9 @@ export async function executeChange(opts: ExecuteChangeOptions): Promise<Executi
   let systemPrompt = EXECUTION_SYSTEM_PROMPT;
 
   // Append repo-specific changes instructions if available
-  const changesInstructionsFile = resolveInstructionFile(`${worktree.repoName}/changes_instructions.md`);
+  const changesInstructionsFile = resolveInstructionFile(
+    `${worktree.repoName}/changes_instructions.md`,
+  );
   if (changesInstructionsFile) {
     try {
       const changesInstructions = readFileSync(changesInstructionsFile, "utf-8");
@@ -322,7 +341,9 @@ Follow the workflow steps in the system prompt. Report your final status using t
     mcpServers: { clack: workerTools.mcpServer },
     onEvent,
     resumeSessionId: sdkSessionId,
-    onSessionId: (id) => { capturedSdkSessionId = id; },
+    onSessionId: (id) => {
+      capturedSdkSessionId = id;
+    },
   });
 
   if (!result.success) {
@@ -407,7 +428,9 @@ export async function runWorktreeSetup(
   });
 
   if (!result.success) {
-    logger.warn(`Worktree setup failed for ${repoName}${branchName ? ` (${branchName})` : ""}: ${result.error}`);
+    logger.warn(
+      `Worktree setup failed for ${repoName}${branchName ? ` (${branchName})` : ""}: ${result.error}`,
+    );
     if (branchName) {
       appendExecutionLog(branchName, `Worktree setup failed: ${result.error}`);
     }

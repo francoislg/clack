@@ -9,13 +9,8 @@ export function createFindEmojiTool(emojiCache: EmojiCache) {
     "find_emoji",
     "Search for custom emojis in the Slack workspace by name. Matching is case-insensitive substring by default. Use * as a wildcard (e.g., 'party*' matches 'partyparrot', 'partytime'). Use '*' alone to list all custom emojis.",
     {
-      query: z
-        .string()
-        .describe("Search term to match against emoji names"),
-      limit: z
-        .number()
-        .optional()
-        .describe("Maximum number of results to return (default: 25)"),
+      query: z.string().describe("Search term to match against emoji names"),
+      limit: z.number().optional().describe("Maximum number of results to return (default: 25)"),
     },
     async (args) => {
       try {
@@ -24,6 +19,6 @@ export function createFindEmojiTool(emojiCache: EmojiCache) {
       } catch (error) {
         return errorResult(`Failed to search emojis: ${errorMessage(error)}`);
       }
-    }
+    },
   );
 }

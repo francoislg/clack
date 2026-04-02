@@ -7,7 +7,8 @@ import assert from "node:assert/strict";
 
 const mockReadFile = mock.fn<(path: string, encoding: string) => Promise<string>>();
 const mockWriteFile = mock.fn<(path: string, data: string) => Promise<void>>();
-const mockMkdir = mock.fn<(path: string, opts: { recursive: boolean }) => Promise<string | undefined>>();
+const mockMkdir =
+  mock.fn<(path: string, opts: { recursive: boolean }) => Promise<string | undefined>>();
 const mockFileExists = mock.fn<(path: string) => Promise<boolean>>();
 
 mock.module("node:fs/promises", {
@@ -74,9 +75,7 @@ function lastSavedRoles(): RolesConfig {
   return JSON.parse(lastCall.arguments[1] as string) as RolesConfig;
 }
 
-function makeSlackClient(
-  users: Record<string, { deleted?: boolean }> = {},
-): App["client"] {
+function makeSlackClient(users: Record<string, { deleted?: boolean }> = {}): App["client"] {
   return {
     users: {
       info: async ({ user }: { user: string }) => {

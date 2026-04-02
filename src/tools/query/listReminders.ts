@@ -8,8 +8,8 @@ export function createListRemindersTool(ctx: QueryToolContext) {
   return tool(
     "list_reminders",
     "List all pending scheduled messages. " +
-    "Returns messages scheduled by this bot that haven't been posted yet. " +
-    "Optionally filter by channel.",
+      "Returns messages scheduled by this bot that haven't been posted yet. " +
+      "Optionally filter by channel.",
     {
       channel: z.string().optional().describe("Channel ID to filter by (optional)"),
     },

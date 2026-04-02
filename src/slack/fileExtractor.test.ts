@@ -25,7 +25,10 @@ describe("classifyMimeType", () => {
 
   it("classifies unknown types as unsupported", () => {
     assert.equal(classifyMimeType("application/zip"), "unsupported");
-    assert.equal(classifyMimeType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"), "unsupported");
+    assert.equal(
+      classifyMimeType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+      "unsupported",
+    );
     assert.equal(classifyMimeType("video/mp4"), "unsupported");
   });
 });
@@ -143,6 +146,9 @@ describe("extractFiles", () => {
     ];
     const result = extractFiles(files);
     assert.equal(result.length, 3);
-    assert.deepEqual(result.map((f) => f.id), ["F100", "F200", "F300"]);
+    assert.deepEqual(
+      result.map((f) => f.id),
+      ["F100", "F200", "F300"],
+    );
   });
 });

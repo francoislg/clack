@@ -19,9 +19,17 @@ interface RestorationContext {
 type RestorationOutcome =
   | { action: "skip" }
   | { action: "fail" }
-  | { action: "restore"; effectiveStatus: ChangeStatus; repo: RepositoryConfig; worktree: ReturnType<typeof getExistingWorktree> & {} };
+  | {
+      action: "restore";
+      effectiveStatus: ChangeStatus;
+      repo: RepositoryConfig;
+      worktree: ReturnType<typeof getExistingWorktree> & {};
+    };
 
-function classifySession(state: PersistedSessionState, ctx: RestorationContext): RestorationOutcome {
+function classifySession(
+  state: PersistedSessionState,
+  ctx: RestorationContext,
+): RestorationOutcome {
   if (state.status === "completed" || state.status === "failed") return { action: "skip" };
   if (!state.channel || !state.threadTs) return { action: "skip" };
 
@@ -75,8 +83,15 @@ export async function restoreWorkerSessions(): Promise<void> {
   for (const state of states) {
     const outcome = classifySession(state, ctx);
 
-    if (outcome.action === "skip") { skipped++; continue; }
-    if (outcome.action === "fail") { markSessionFailed(state); markedFailed++; continue; }
+    if (outcome.action === "skip") {
+      skipped++;
+      continue;
+    }
+    if (outcome.action === "fail") {
+      markSessionFailed(state);
+      markedFailed++;
+      continue;
+    }
 
     const { effectiveStatus, worktree } = outcome;
     const wasDowngraded = effectiveStatus !== state.status;
@@ -84,26 +99,32 @@ export async function restoreWorkerSessions(): Promise<void> {
 
     const unifiedSession = await findSessionByThread(state.channel!, state.threadTs!);
     if (!unifiedSession) {
-      logger.debug(`Skipping session ${state.sessionId}: no matching unified session for ${state.channel}:${state.threadTs}`);
+      logger.debug(
+        `Skipping session ${state.sessionId}: no matching unified session for ${state.channel}:${state.threadTs}`,
+      );
       skipped++;
       continue;
     }
 
-    setActiveChange(unifiedSession.sessionId, {
-      branch: state.branch,
-      repo: state.repo,
-      description: state.description,
-      worktree,
-      status: effectiveStatus,
-      prUrl: state.prUrl ?? undefined,
-      startedAt: new Date(state.startedAt),
-      lastActivityAt: new Date(state.lastActivityAt),
-    }, {
-      userId: unifiedSession.userId,
-      channelId: unifiedSession.channelId,
-      threadTs: unifiedSession.threadTs,
-      triggerType: unifiedSession.triggerType,
-    });
+    setActiveChange(
+      unifiedSession.sessionId,
+      {
+        branch: state.branch,
+        repo: state.repo,
+        description: state.description,
+        worktree,
+        status: effectiveStatus,
+        prUrl: state.prUrl ?? undefined,
+        startedAt: new Date(state.startedAt),
+        lastActivityAt: new Date(state.lastActivityAt),
+      },
+      {
+        userId: unifiedSession.userId,
+        channelId: unifiedSession.channelId,
+        threadTs: unifiedSession.threadTs,
+        triggerType: unifiedSession.triggerType,
+      },
+    );
 
     if (wasDowngraded) {
       const restoredState: WriteableSessionState = {
@@ -117,7 +138,10 @@ export async function restoreWorkerSessions(): Promise<void> {
         channel: state.channel!,
         threadTs: state.threadTs!,
       };
-      writeSessionState(restoredState, `Restored on startup (was ${state.status}, downgraded to ${effectiveStatus})`);
+      writeSessionState(
+        restoredState,
+        `Restored on startup (was ${state.status}, downgraded to ${effectiveStatus})`,
+      );
     }
 
     restored++;

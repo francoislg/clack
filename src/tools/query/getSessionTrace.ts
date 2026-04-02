@@ -76,8 +76,14 @@ export function createGetSessionTraceTool(_ctx: QueryToolContext) {
     "Retrieve the SDK conversation trace for a Clack session. Shows the full message flow including tool calls and results. Admin only.",
     {
       sessionId: z.string().describe("The Clack session ID to retrieve the trace for"),
-      verbose: z.boolean().optional().describe("Include tool call args and truncated results (default: false)"),
-      source: z.enum(["qa", "change"]).optional().describe("Which trace to retrieve: 'qa' (default) or 'change' execution trace"),
+      verbose: z
+        .boolean()
+        .optional()
+        .describe("Include tool call args and truncated results (default: false)"),
+      source: z
+        .enum(["qa", "change"])
+        .optional()
+        .describe("Which trace to retrieve: 'qa' (default) or 'change' execution trace"),
     },
     async ({ sessionId, verbose = false, source = "qa" }) => {
       const session = await getSession(sessionId);
@@ -121,7 +127,9 @@ export function createGetSessionTraceTool(_ctx: QueryToolContext) {
       try {
         content = await readFile(sessionFile, "utf-8");
       } catch {
-        return textResult({ error: `SDK session file not found at ${sessionFile}. The session trace may have been cleaned up.` });
+        return textResult({
+          error: `SDK session file not found at ${sessionFile}. The session trace may have been cleaned up.`,
+        });
       }
 
       const lines = content.split("\n").filter((l) => l.trim());

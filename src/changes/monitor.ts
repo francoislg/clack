@@ -5,11 +5,7 @@ import { removeWorktree } from "../worktrees.js";
 import { getPRStatus, type PRState } from "./pr.js";
 import { getSession } from "../sessions.js";
 import type { ActiveChangeState } from "./activeState.js";
-import {
-  getActiveWorkers,
-  updateActiveChangeStatus,
-  clearActiveChange,
-} from "./activeState.js";
+import { getActiveWorkers, updateActiveChangeStatus, clearActiveChange } from "./activeState.js";
 
 // ============================================================================
 // Session Completion Monitoring
@@ -25,7 +21,9 @@ interface CompletionCheckResult {
 /**
  * Check if a session's active change PR has been completed externally
  */
-export async function checkSessionCompletion(activeChange: ActiveChangeState): Promise<CompletionCheckResult> {
+export async function checkSessionCompletion(
+  activeChange: ActiveChangeState,
+): Promise<CompletionCheckResult> {
   // Only check changes that have PRs created
   if (activeChange.status !== "pr_created" || !activeChange.prUrl) {
     return { action: "none" };
@@ -55,11 +53,9 @@ export async function checkSessionCompletion(activeChange: ActiveChangeState): P
 async function cleanupSession(
   sessionId: string,
   activeChange: ActiveChangeState,
-  action: "merged" | "closed"
+  action: "merged" | "closed",
 ): Promise<void> {
-  logger.info(
-    `Auto-cleaning session ${sessionId} (PR ${action}): ${activeChange.prUrl}`
-  );
+  logger.info(`Auto-cleaning session ${sessionId} (PR ${action}): ${activeChange.prUrl}`);
 
   // Update status based on how it was completed
   const newStatus = action === "merged" ? "completed" : "failed";

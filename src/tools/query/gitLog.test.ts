@@ -131,7 +131,10 @@ describe("gitLog tool", () => {
     const ctx = makeCtx();
     const toolDef = createGitLogTool(ctx);
 
-    const result = await toolDef.handler({ repo: "nonexistent", args: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { repo: "nonexistent", args: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.ok(parsed.error);
@@ -146,7 +149,10 @@ describe("gitLog tool", () => {
     const ctx = makeCtx();
     const toolDef = createGitLogTool(ctx);
 
-    const result = await toolDef.handler({ repo: "my-repo", args: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { repo: "my-repo", args: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.ok(parsed.error);
@@ -166,7 +172,10 @@ describe("gitLog tool", () => {
     const ctx = makeCtx();
     const toolDef = createGitLogTool(ctx);
 
-    const result = await toolDef.handler({ repo: "my-repo", args: ["--oneline", "-n", "5"] }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { repo: "my-repo", args: ["--oneline", "-n", "5"] },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.ok(parsed.output.includes("commit abc123"));
@@ -189,11 +198,12 @@ describe("gitLog tool", () => {
     const ctx = makeCtx();
     const toolDef = createGitLogTool(ctx);
 
-    await toolDef.handler({ repo: "my-repo", args: ["--oneline", "--author=John", "-n", "20"] }, { sessionId: "test" });
+    await toolDef.handler(
+      { repo: "my-repo", args: ["--oneline", "--author=John", "-n", "20"] },
+      { sessionId: "test" },
+    );
 
-    const logCall = rawCalls.find(
-      (c) => (c as string[])[0] === "log"
-    ) as string[];
+    const logCall = rawCalls.find((c) => (c as string[])[0] === "log") as string[];
     assert.ok(logCall);
     assert.ok(logCall.includes("--oneline"));
     assert.ok(logCall.includes("--author=John"));
@@ -216,9 +226,7 @@ describe("gitLog tool", () => {
 
     await toolDef.handler({ repo: "my-repo", args: undefined }, { sessionId: "test" });
 
-    const logCall = rawCalls.find(
-      (c) => (c as string[])[0] === "log"
-    ) as string[];
+    const logCall = rawCalls.find((c) => (c as string[])[0] === "log") as string[];
     assert.ok(logCall);
     assert.deepEqual(logCall, ["log"]);
   });
@@ -235,7 +243,10 @@ describe("gitLog tool", () => {
     const ctx = makeCtx();
     const toolDef = createGitLogTool(ctx);
 
-    const result = await toolDef.handler({ repo: "my-repo", args: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { repo: "my-repo", args: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed.truncated, true);
@@ -254,7 +265,10 @@ describe("gitLog tool", () => {
     const ctx = makeCtx();
     const toolDef = createGitLogTool(ctx);
 
-    const result = await toolDef.handler({ repo: "my-repo", args: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { repo: "my-repo", args: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed.shallow, false);
@@ -269,7 +283,10 @@ describe("gitLog tool", () => {
     const ctx = makeCtx();
     const toolDef = createGitLogTool(ctx);
 
-    const result = await toolDef.handler({ repo: "my-repo", args: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { repo: "my-repo", args: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.ok(parsed.error);
@@ -288,7 +305,10 @@ describe("gitLog tool", () => {
     const ctx = makeCtx();
     const toolDef = createGitLogTool(ctx);
 
-    const result = await toolDef.handler({ repo: "my-repo", args: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { repo: "my-repo", args: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed.availableCommits, 0);
@@ -301,7 +321,10 @@ describe("gitLog tool", () => {
     const ctx = makeCtx();
     const toolDef = createGitLogTool(ctx);
 
-    const result = await toolDef.handler({ repo: "my-repo", args: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { repo: "my-repo", args: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.ok(parsed.error);

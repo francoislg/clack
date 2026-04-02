@@ -19,7 +19,11 @@ export interface BuildQueryContextParams {
 }
 
 export function buildQueryContext(params: BuildQueryContextParams): QueryToolContext {
-  return { ...params, mode: "query", allowScheduledMessages: params.allowScheduledMessages ?? false };
+  return {
+    ...params,
+    mode: "query",
+    allowScheduledMessages: params.allowScheduledMessages ?? false,
+  };
 }
 
 export interface BuildWorkerContextParams {

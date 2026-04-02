@@ -132,8 +132,7 @@ mock.module("./handlers/autoRespond.js", {
 });
 
 // Import after mocks
-const { createSlackApp, startSlackApp, stopSlackApp, getSlackClient } =
-  await import("./app.js");
+const { createSlackApp, startSlackApp, stopSlackApp, getSlackClient } = await import("./app.js");
 
 // ============================================================================
 // Helpers

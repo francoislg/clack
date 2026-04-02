@@ -16,9 +16,10 @@ export async function runPreAnalysis(
     ? `Background context:\n${sharedContext}\n\nFiltering criteria: ${preAnalysisContext}`
     : `Filtering criteria: ${preAnalysisContext}`;
 
-  const conversationContext = recentMessages && recentMessages.length > 0
-    ? `\n\nRECENT CHANNEL HISTORY (oldest first):\n${recentMessages.map((m) => `> ${m}`).join("\n")}`
-    : "";
+  const conversationContext =
+    recentMessages && recentMessages.length > 0
+      ? `\n\nRECENT CHANNEL HISTORY (oldest first):\n${recentMessages.map((m) => `> ${m}`).join("\n")}`
+      : "";
 
   const systemPrompt = `You are a binary classifier. You output exactly one word, nothing else.
 
@@ -38,7 +39,17 @@ OUTPUT FORMAT: The single word "skip" or "respond". Nothing else.`;
         executable: detectRuntime(),
         model: "sonnet",
         systemPrompt,
-        disallowedTools: ["Write", "Edit", "NotebookEdit", "Bash", "Task", "TaskOutput", "Read", "Glob", "Grep"],
+        disallowedTools: [
+          "Write",
+          "Edit",
+          "NotebookEdit",
+          "Bash",
+          "Task",
+          "TaskOutput",
+          "Read",
+          "Glob",
+          "Grep",
+        ],
         maxTurns: 1,
       },
     })) {
@@ -51,8 +62,12 @@ OUTPUT FORMAT: The single word "skip" or "respond". Nothing else.`;
         }
       }
       if (message.type === "result") {
-        const resultText = ((message as { result?: string }).result || lastAssistantText).trim().toLowerCase();
-        logger.info(`Pre-analysis result: text="${resultText}", message="${messageText.slice(0, 50)}"`);
+        const resultText = ((message as { result?: string }).result || lastAssistantText)
+          .trim()
+          .toLowerCase();
+        logger.info(
+          `Pre-analysis result: text="${resultText}", message="${messageText.slice(0, 50)}"`,
+        );
         if (message.subtype !== "success") return true;
         return !resultText.includes("skip");
       }

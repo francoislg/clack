@@ -10,7 +10,13 @@ import { loadMcpServers } from "../mcp.js";
 import type { UserRole } from "../roles.js";
 import type { SessionContext } from "../sessions.js";
 import { updateSession } from "../sessions.js";
-import type { SubmitResponsePayload, ToolCallRecord, StagedIntent, DeliverFn, ClackToolsResult } from "../tools/types.js";
+import type {
+  SubmitResponsePayload,
+  ToolCallRecord,
+  StagedIntent,
+  DeliverFn,
+  ClackToolsResult,
+} from "../tools/types.js";
 import type { StreamEvent } from "../streaming/types.js";
 import type { SlackImageFile, SlackFile } from "../slack/slackFileBase.js";
 import { buildQueryContext } from "../tools/context.js";
@@ -118,7 +124,7 @@ interface QuerySetup {
 
 async function buildQuerySetup(
   session: SessionContext,
-  options?: AskClaudeOptions
+  options?: AskClaudeOptions,
 ): Promise<QuerySetup> {
   const config = getConfig();
   const reposDir = getRepositoriesDir();
@@ -144,16 +150,23 @@ async function buildQuerySetup(
 
   // Merge external MCP servers with the clack tool server
   const mcpServers: Record<string, McpServerConfig> = {
-    ...(externalMcpServers ?? {}),
+    ...externalMcpServers,
     clack: clackTools.mcpServer as McpServerConfig,
   };
 
-  return { reposDir, systemPrompt, userPrompt, model: config.claudeCode.model, clackTools, mcpServers };
+  return {
+    reposDir,
+    systemPrompt,
+    userPrompt,
+    model: config.claudeCode.model,
+    clackTools,
+    mcpServers,
+  };
 }
 
 function recordTraceEntry(
   message: SDKMessage,
-  parsed: { toolUses: Array<{ name: string; args: Record<string, unknown> }> }
+  parsed: { toolUses: Array<{ name: string; args: Record<string, unknown> }> },
 ): ConversationMessage {
   const entry: ConversationMessage = {
     type: message.type,
@@ -192,7 +205,7 @@ function buildToolResults(clackTools: ClackToolsResult): {
 function buildSuccessResponse(
   answer: string,
   conversationTrace: ConversationMessage[],
-  clackTools: ClackToolsResult
+  clackTools: ClackToolsResult,
 ): ClaudeResponse {
   // Skip check must come before structuredResponse — when skipped,
   // responseCapture.get() returns null so structuredResponse is absent.
@@ -205,7 +218,8 @@ function buildSuccessResponse(
     };
   }
 
-  const { structuredResponse, renderedBlocks, stagedIntents, toolCallHistory } = buildToolResults(clackTools);
+  const { structuredResponse, renderedBlocks, stagedIntents, toolCallHistory } =
+    buildToolResults(clackTools);
   const optionalToolHistory = toolCallHistory.length > 0 ? toolCallHistory : undefined;
   const optionalIntents = Object.keys(stagedIntents).length > 0 ? stagedIntents : undefined;
 
@@ -249,12 +263,12 @@ function handleQueryError(
   error: unknown,
   sessionId: string,
   conversationTrace: ConversationMessage[],
-  abortController?: AbortController
+  abortController?: AbortController,
 ): ClaudeResponse {
   // Detect cancellation via AbortController
   const isAbortError = error instanceof Error && error.name === "AbortError";
-  const isSignalAbort = abortController?.signal.aborted &&
-    error instanceof Error && /aborted/i.test(error.message);
+  const isSignalAbort =
+    abortController?.signal.aborted && error instanceof Error && /aborted/i.test(error.message);
 
   if (isAbortError || isSignalAbort) {
     logger.info(`Claude query cancelled for session ${sessionId}`);
@@ -277,7 +291,7 @@ function handleQueryError(
 
 export async function askClaude(
   session: SessionContext,
-  options?: AskClaudeOptions
+  options?: AskClaudeOptions,
 ): Promise<ClaudeResponse> {
   const { reposDir, systemPrompt, userPrompt, model, clackTools, mcpServers } =
     await buildQuerySetup(session, options);
@@ -300,7 +314,7 @@ export async function askClaude(
       resumeSessionId: session.sdkSessionId,
       onSessionId: (id) => {
         updateSession(session.sessionId, { sdkSessionId: id }).catch((err) =>
-          logger.warn(`Failed to save sdkSessionId: ${errorMessage(err)}`)
+          logger.warn(`Failed to save sdkSessionId: ${errorMessage(err)}`),
         );
       },
       options: {
@@ -335,7 +349,8 @@ export async function askClaude(
     }
 
     // Check for platform errors masquerading as successful responses
-    const platformError = detectPlatformError(answer) ?? detectPlatformError(parser.lastAssistantText);
+    const platformError =
+      detectPlatformError(answer) ?? detectPlatformError(parser.lastAssistantText);
     if (platformError) {
       logger.warn(`Platform error detected: ${platformError}`);
       return {
@@ -349,7 +364,7 @@ export async function askClaude(
     // Persist lastSeenThreadTs so the next resumed query only injects delta context
     if (lastSeenTs) {
       updateSession(session.sessionId, { lastSeenThreadTs: lastSeenTs }).catch((err) =>
-        logger.warn(`Failed to save lastSeenThreadTs: ${errorMessage(err)}`)
+        logger.warn(`Failed to save lastSeenThreadTs: ${errorMessage(err)}`),
       );
     }
 

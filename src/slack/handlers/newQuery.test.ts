@@ -81,7 +81,9 @@ function makeApp(): App {
 function makeClient(): App["client"] {
   const postEphemeralFn = mock.fn(async () => ({ ok: true }));
   const repliesFn = mock.fn(async () => ({
-    messages: [{ ts: "1700000000.000001", text: "original message", thread_ts: "1700000000.000001" }],
+    messages: [
+      { ts: "1700000000.000001", text: "original message", thread_ts: "1700000000.000001" },
+    ],
   }));
   const historyFn = mock.fn(async () => ({ messages: [] }));
 
@@ -107,7 +109,9 @@ beforeEach(() => {
   mockConfig.reactions.changesWorkflow = undefined;
 
   // Default: extractMessageText returns the text
-  mockExtractMessageText.mock.mockImplementation((msg: Record<string, unknown>) => (msg.text as string) || "");
+  mockExtractMessageText.mock.mockImplementation(
+    (msg: Record<string, unknown>) => (msg.text as string) || "",
+  );
 
   // Register handler
   const app = makeApp();
@@ -181,7 +185,9 @@ describe("registerNewQueryHandler", () => {
     // Make replies return empty text
     mockExtractMessageText.mock.mockImplementation(() => "");
     (client.conversations.replies as unknown as ReturnType<typeof mock.fn>).mock.mockImplementation(
-      async () => ({ messages: [{ ts: "1700000000.000001", text: "", thread_ts: "1700000000.000001" }] }),
+      async () => ({
+        messages: [{ ts: "1700000000.000001", text: "", thread_ts: "1700000000.000001" }],
+      }),
     );
 
     await capturedHandler({
@@ -205,7 +211,9 @@ describe("registerNewQueryHandler", () => {
     const client = makeClient();
     // Make replies throw, history return the message
     (client.conversations.replies as unknown as ReturnType<typeof mock.fn>).mock.mockImplementation(
-      async () => { throw new Error("not found"); },
+      async () => {
+        throw new Error("not found");
+      },
     );
     (client.conversations.history as unknown as ReturnType<typeof mock.fn>).mock.mockImplementation(
       async () => ({

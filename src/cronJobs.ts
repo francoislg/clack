@@ -154,7 +154,10 @@ export interface UpdateCronJobParams {
   oneShot?: boolean;
 }
 
-export async function updateJob(jobId: string, params: UpdateCronJobParams): Promise<CronJob | null> {
+export async function updateJob(
+  jobId: string,
+  params: UpdateCronJobParams,
+): Promise<CronJob | null> {
   const jobs = await loadJobs();
   const job = jobs.find((j) => j.id === jobId);
   if (!job) return null;

@@ -4,7 +4,12 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { IntentStore, ResponseCapture, ToolCallRecorder } from "../server.js";
 import type { DeliverFn, ResponseSnapshot, PostToAction } from "../types.js";
 import { textResult } from "../helpers.js";
-import { getStructuredResponseBlocks, getResponseActionBlocks, validateSlackBlocks, asSlackBlocks } from "../../slack/blocks.js";
+import {
+  getStructuredResponseBlocks,
+  getResponseActionBlocks,
+  validateSlackBlocks,
+  asSlackBlocks,
+} from "../../slack/blocks.js";
 
 const sectionSchema = z.object({
   title: z.string().optional().describe("Optional bold section title"),
@@ -23,37 +28,70 @@ const choiceActionSchema = z.object({
   label: z.string().describe("Button label"),
   value: z.string().describe("The value to inject as the user's choice"),
   description: z.string().optional().describe("Optional description shown as subtitle"),
-  workMode: z.boolean().optional().describe("If true, enables work mode when clicked (use for choices that request code changes)"),
+  workMode: z
+    .boolean()
+    .optional()
+    .describe(
+      "If true, enables work mode when clicked (use for choices that request code changes)",
+    ),
 });
 
 const postToActionSchema = z.object({
   type: z.literal("post_to"),
   label: z.string().optional().describe("Custom button label (default: 'Post to thread')"),
-  auto: z.boolean().optional().describe("If true, post the content immediately without waiting for button click. Use when the user explicitly asks to post somewhere (e.g., 'post that in the channel')."),
-  channel: z.string().optional().describe("Explicit target channel ID. Use when posting to a different channel than the default (e.g., a thread the user shared via URL)."),
-  thread_ts: z.string().optional().describe("Explicit target thread timestamp. Omit for a top-level channel post (e.g., 'in the channel')."),
-  content: z.string().describe("The exact text to post. Each post_to action posts only its own content. When presenting multiple options, put each option's text in its own action's content field."),
+  auto: z
+    .boolean()
+    .optional()
+    .describe(
+      "If true, post the content immediately without waiting for button click. Use when the user explicitly asks to post somewhere (e.g., 'post that in the channel').",
+    ),
+  channel: z
+    .string()
+    .optional()
+    .describe(
+      "Explicit target channel ID. Use when posting to a different channel than the default (e.g., a thread the user shared via URL).",
+    ),
+  thread_ts: z
+    .string()
+    .optional()
+    .describe(
+      "Explicit target thread timestamp. Omit for a top-level channel post (e.g., 'in the channel').",
+    ),
+  content: z
+    .string()
+    .describe(
+      "The exact text to post. Each post_to action posts only its own content. When presenting multiple options, put each option's text in its own action's content field.",
+    ),
 });
 
 const changeActionSchema = z.object({
   type: z.literal("change"),
   ref: z.string().describe("Ref ID from propose_change"),
   label: z.string().optional().describe("Custom button label (default: 'Start Change')"),
-  auto: z.boolean().optional().describe("If true, execute immediately without waiting for button click"),
+  auto: z
+    .boolean()
+    .optional()
+    .describe("If true, execute immediately without waiting for button click"),
 });
 
 const configUpdateActionSchema = z.object({
   type: z.literal("config_update"),
   ref: z.string().describe("Ref ID from propose_config_update"),
   label: z.string().optional().describe("Custom button label (default: 'Apply Update')"),
-  auto: z.boolean().optional().describe("If true, execute immediately without waiting for button click"),
+  auto: z
+    .boolean()
+    .optional()
+    .describe("If true, execute immediately without waiting for button click"),
 });
 
 const updateActionSchema = z.object({
   type: z.literal("update"),
   ref: z.string().describe("Ref ID from request_update"),
   label: z.string().optional().describe("Custom button label (default: 'Update')"),
-  auto: z.boolean().optional().describe("If true, execute immediately without waiting for button click"),
+  auto: z
+    .boolean()
+    .optional()
+    .describe("If true, execute immediately without waiting for button click"),
 });
 
 const actionSchema = z.discriminatedUnion("type", [
@@ -68,7 +106,8 @@ const actionSchema = z.discriminatedUnion("type", [
 // Ref-based action types that need validation
 const REF_ACTION_TYPES = new Set(["change", "config_update", "update"]);
 
-const SKIP_ACKNOWLEDGMENT = "I acknowledge that responding to this would serve no purpose, so I am skipping it.";
+const SKIP_ACKNOWLEDGMENT =
+  "I acknowledge that responding to this would serve no purpose, so I am skipping it.";
 
 export interface SubmitResponseDeps {
   intentStore: IntentStore;
@@ -114,7 +153,11 @@ function validatePostToActions(
     }
     // In scheduled mode, submit_response already delivers top-level to the target channel.
     // A post_to targeting the same channel without a thread would duplicate the message.
-    if (topLevelDeliveryChannel && action.channel === topLevelDeliveryChannel && !action.thread_ts) {
+    if (
+      topLevelDeliveryChannel &&
+      action.channel === topLevelDeliveryChannel &&
+      !action.thread_ts
+    ) {
       return `submit_response already posts top-level to channel ${topLevelDeliveryChannel}. Remove this post_to action — it would duplicate the message. Use post_to only for a DIFFERENT channel or a specific thread.`;
     }
   }
@@ -129,38 +172,39 @@ function buildTexts(sections: z.infer<typeof sectionSchema>[], message?: string)
   return { answerText, displayText };
 }
 
-function recordError(
-  recorder: ToolCallRecorder,
-  args: unknown,
-  errData: Record<string, unknown>,
-) {
+function recordError(recorder: ToolCallRecorder, args: unknown, errData: Record<string, unknown>) {
   recorder.record("submit_response", args as Record<string, unknown>, errData);
   return { ...textResult(errData), isError: true as const };
 }
 
 // Schema for the normal response path
 const normalResponseSchema = {
-  message: z.string().optional().describe(
-    "Short conversational preamble shown to the user but NOT included when sharing via post_to. " +
-    "Use for meta-commentary like 'Here is the updated version:' or 'I adjusted the tone:'. " +
-    "Put the actual shareable content in sections."
-  ),
-  sections: z
-    .array(sectionSchema)
-    .min(1)
-    .describe("Response sections shown to the user"),
+  message: z
+    .string()
+    .optional()
+    .describe(
+      "Short conversational preamble shown to the user but NOT included when sharing via post_to. " +
+        "Use for meta-commentary like 'Here is the updated version:' or 'I adjusted the tone:'. " +
+        "Put the actual shareable content in sections.",
+    ),
+  sections: z.array(sectionSchema).min(1).describe("Response sections shown to the user"),
   actions: z
     .array(actionSchema)
-    .describe("Interactive buttons for the user to click. Use an empty array for casual/conversational responses that don't need actions."),
+    .describe(
+      "Interactive buttons for the user to click. Use an empty array for casual/conversational responses that don't need actions.",
+    ),
 };
 
 // Schema with skip_response support
 const skipEnabledResponseSchema = {
   ...normalResponseSchema,
-  skip_response: z.boolean().optional().describe(
-    "Set to true to decline answering. Use when the conversation doesn't need a Clack response " +
-    "(e.g., users talking to each other, question already answered). When true, sections and actions are not required."
-  ),
+  skip_response: z
+    .boolean()
+    .optional()
+    .describe(
+      "Set to true to decline answering. Use when the conversation doesn't need a Clack response " +
+        "(e.g., users talking to each other, question already answered). When true, sections and actions are not required.",
+    ),
   // Override sections and actions to be optional when skip is used
   sections: z
     .array(sectionSchema)
@@ -170,11 +214,22 @@ const skipEnabledResponseSchema = {
   actions: z
     .array(actionSchema)
     .optional()
-    .describe("Interactive buttons for the user to click (not required when skip_response is true)"),
+    .describe(
+      "Interactive buttons for the user to click (not required when skip_response is true)",
+    ),
 };
 
 export function createSubmitResponseTool(deps: SubmitResponseDeps) {
-  const { intentStore, responseCapture, recorder, sessionId, deliver, persistSnapshot, topLevelDeliveryChannel, allowSkip } = deps;
+  const {
+    intentStore,
+    responseCapture,
+    recorder,
+    sessionId,
+    deliver,
+    persistSnapshot,
+    topLevelDeliveryChannel,
+    allowSkip,
+  } = deps;
 
   const schema = allowSkip ? skipEnabledResponseSchema : normalResponseSchema;
 
@@ -187,7 +242,9 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
       if ("skip_response" in args && args.skip_response) {
         // Cannot skip after a response was already delivered
         if (responseCapture.get()) {
-          return recordError(recorder, args, { error: "Response already delivered — cannot skip after delivery." });
+          return recordError(recorder, args, {
+            error: "Response already delivered — cannot skip after delivery.",
+          });
         }
         const message = "message" in args ? args.message : undefined;
         if (message !== SKIP_ACKNOWLEDGMENT) {
@@ -205,7 +262,9 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
       const sections = "sections" in args ? args.sections : undefined;
       const actions = "actions" in args ? args.actions : undefined;
       if (!sections || sections.length === 0) {
-        return recordError(recorder, args, { error: "sections is required with at least 1 item when not skipping." });
+        return recordError(recorder, args, {
+          error: "sections is required with at least 1 item when not skipping.",
+        });
       }
       if (!actions) {
         return recordError(recorder, args, { error: "actions is required when not skipping." });
@@ -250,7 +309,10 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
         }
       }
 
-      const renderedBlocks = getStructuredResponseBlocks(payload, sessionId) as Record<string, unknown>[];
+      const renderedBlocks = getStructuredResponseBlocks(payload, sessionId) as Record<
+        string,
+        unknown
+      >[];
       const validationErrors = validateSlackBlocks(renderedBlocks);
 
       if (validationErrors.length > 0) {
@@ -277,10 +339,15 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
 
       responseCapture.set(payload, renderedBlocks);
 
-      const result = { success: true, delivered: !!deliver, sectionsCount: sections.length, actionsCount: actions.length };
+      const result = {
+        success: true,
+        delivered: !!deliver,
+        sectionsCount: sections.length,
+        actionsCount: actions.length,
+      };
       recorder.record("submit_response", args as unknown as Record<string, unknown>, result);
 
       return textResult(result);
-    }
+    },
   );
 }

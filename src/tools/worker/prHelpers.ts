@@ -7,7 +7,10 @@ import { removeWorktree, deleteBranch } from "../../worktrees.js";
  * Shared cleanup sequence after closing or merging a PR:
  * mark status completed, remove worktree, delete local branch, clear active change.
  */
-export async function cleanupAfterPRAction(ctx: WorkerToolContext, logPrefix: string): Promise<void> {
+export async function cleanupAfterPRAction(
+  ctx: WorkerToolContext,
+  logPrefix: string,
+): Promise<void> {
   updateActiveChangeStatus(ctx.sessionId, "completed");
   await removeWorktree(ctx.repoName, ctx.worktreePath);
   await deleteBranch(ctx.repoName, ctx.branchName);

@@ -61,7 +61,13 @@ describe("buildPrompt", () => {
           isBot: false,
           ts: "1234567890.000100",
           imageFiles: [
-            { id: "F001", name: "screenshot.png", mimetype: "image/png", size: 1024, url_private: "https://example.com/img" },
+            {
+              id: "F001",
+              name: "screenshot.png",
+              mimetype: "image/png",
+              size: 1024,
+              url_private: "https://example.com/img",
+            },
           ],
         },
       ],
@@ -265,7 +271,16 @@ describe("buildPrompt", () => {
   // ---- attachment metadata ----
   it("includes ATTACHED FILES section with images when availableImages is provided", () => {
     const availableImages = new Map([
-      ["F123", { id: "F123", name: "screenshot.png", mimetype: "image/png", size: 1024, url_private: "https://example.com/img" }],
+      [
+        "F123",
+        {
+          id: "F123",
+          name: "screenshot.png",
+          mimetype: "image/png",
+          size: 1024,
+          url_private: "https://example.com/img",
+        },
+      ],
     ]);
     const prompt = buildPrompt(makeSession(), { availableImages });
     assert.ok(prompt.includes("ATTACHED FILES:"));
@@ -275,7 +290,16 @@ describe("buildPrompt", () => {
 
   it("includes ATTACHED FILES section with non-image files", () => {
     const availableFiles = new Map([
-      ["F456", { id: "F456", name: "report.pdf", mimetype: "application/pdf", size: 2048, url_private: "https://example.com/pdf" }],
+      [
+        "F456",
+        {
+          id: "F456",
+          name: "report.pdf",
+          mimetype: "application/pdf",
+          size: 2048,
+          url_private: "https://example.com/pdf",
+        },
+      ],
     ]);
     const prompt = buildPrompt(makeSession(), { availableFiles });
     assert.ok(prompt.includes("ATTACHED FILES:"));
@@ -285,10 +309,28 @@ describe("buildPrompt", () => {
 
   it("includes both images and files in unified section", () => {
     const availableImages = new Map([
-      ["F1", { id: "F1", name: "photo.jpg", mimetype: "image/jpeg", size: 1024, url_private: "https://example.com/img" }],
+      [
+        "F1",
+        {
+          id: "F1",
+          name: "photo.jpg",
+          mimetype: "image/jpeg",
+          size: 1024,
+          url_private: "https://example.com/img",
+        },
+      ],
     ]);
     const availableFiles = new Map([
-      ["F2", { id: "F2", name: "data.csv", mimetype: "text/csv", size: 512, url_private: "https://example.com/csv" }],
+      [
+        "F2",
+        {
+          id: "F2",
+          name: "data.csv",
+          mimetype: "text/csv",
+          size: 512,
+          url_private: "https://example.com/csv",
+        },
+      ],
     ]);
     const prompt = buildPrompt(makeSession(), { availableImages, availableFiles });
     assert.ok(prompt.includes("ATTACHED FILES:"));
@@ -302,7 +344,10 @@ describe("buildPrompt", () => {
   });
 
   it("omits ATTACHED FILES section when both maps are empty", () => {
-    const prompt = buildPrompt(makeSession(), { availableImages: new Map(), availableFiles: new Map() });
+    const prompt = buildPrompt(makeSession(), {
+      availableImages: new Map(),
+      availableFiles: new Map(),
+    });
     assert.ok(!prompt.includes("ATTACHED FILES"));
   });
 
@@ -318,13 +363,21 @@ describe("buildPrompt", () => {
           isBot: false,
           ts: "1234567890.000100",
           files: [
-            { id: "F789", name: "report.pdf", mimetype: "application/pdf", size: 2048, url_private: "https://example.com/pdf" },
+            {
+              id: "F789",
+              name: "report.pdf",
+              mimetype: "application/pdf",
+              size: 2048,
+              url_private: "https://example.com/pdf",
+            },
           ],
         },
       ],
     });
     const prompt = buildPrompt(session);
-    assert.ok(prompt.includes("[attached files: report.pdf (file_id: F789, type: application/pdf)]"));
+    assert.ok(
+      prompt.includes("[attached files: report.pdf (file_id: F789, type: application/pdf)]"),
+    );
   });
 
   // ---- delta thread context on resume ----

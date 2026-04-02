@@ -20,15 +20,17 @@ export function createViewSlackFileTool(ctx: QueryToolContext) {
     "view_slack_file",
     "View a non-image file uploaded in Slack. Returns PDFs as document blocks, text-based files as text, and metadata for unsupported formats. Use this when the prompt lists attached files or when a fetched message contains non-image file attachments.",
     {
-      file_id: z.string().describe("The Slack file ID from the ATTACHED FILES section or from a fetched message's files array"),
+      file_id: z
+        .string()
+        .describe(
+          "The Slack file ID from the ATTACHED FILES section or from a fetched message's files array",
+        ),
     },
     async (args) => {
       const file = availableFiles.get(args.file_id);
       if (!file) {
         const available = [...availableFiles.keys()].join(", ");
-        return errorResult(
-          `Unknown file_id "${args.file_id}". Available: ${available}`,
-        );
+        return errorResult(`Unknown file_id "${args.file_id}". Available: ${available}`);
       }
 
       const tier = classifyMimeType(file.mimetype);
@@ -51,7 +53,14 @@ export function createViewSlackFileTool(ctx: QueryToolContext) {
         if (cached) {
           return {
             content: [
-              { type: "document" as const, source: { type: "base64" as const, media_type: "application/pdf" as const, data: cached.data } },
+              {
+                type: "document" as const,
+                source: {
+                  type: "base64" as const,
+                  media_type: "application/pdf" as const,
+                  data: cached.data,
+                },
+              },
             ],
           };
         }
@@ -60,9 +69,7 @@ export function createViewSlackFileTool(ctx: QueryToolContext) {
         if (cached) {
           const text = new TextDecoder("utf-8", { fatal: false }).decode(cached.data);
           return {
-            content: [
-              { type: "text" as const, text: `File: ${file.name}\n\n${text}` },
-            ],
+            content: [{ type: "text" as const, text: `File: ${file.name}\n\n${text}` }],
           };
         }
       }
@@ -80,7 +87,14 @@ export function createViewSlackFileTool(ctx: QueryToolContext) {
           const base64 = buffer.toString("base64");
           return {
             content: [
-              { type: "document" as const, source: { type: "base64" as const, media_type: "application/pdf" as const, data: base64 } },
+              {
+                type: "document" as const,
+                source: {
+                  type: "base64" as const,
+                  media_type: "application/pdf" as const,
+                  data: base64,
+                },
+              },
             ],
           };
         }
@@ -88,13 +102,13 @@ export function createViewSlackFileTool(ctx: QueryToolContext) {
         // Text tier
         const text = new TextDecoder("utf-8", { fatal: false }).decode(buffer);
         return {
-          content: [
-            { type: "text" as const, text: `File: ${file.name}\n\n${text}` },
-          ],
+          content: [{ type: "text" as const, text: `File: ${file.name}\n\n${text}` }],
         };
       } catch (error) {
         logger.error("Failed to download Slack file:", error);
-        return errorResult(`Failed to download file from Slack: ${error instanceof Error ? error.message : "unknown error"}`);
+        return errorResult(
+          `Failed to download file from Slack: ${error instanceof Error ? error.message : "unknown error"}`,
+        );
       }
     },
   );

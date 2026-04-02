@@ -1,6 +1,6 @@
 import { describe, it, mock, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import type { App, BlockAction } from "@slack/bolt";
+import type { App } from "@slack/bolt";
 import type { UserRole } from "../../roles.js";
 import type { StagedConfigUpdateIntent, StagedIntent } from "../../tools/types.js";
 import type { SessionInfo } from "../activeSessions.js";
@@ -10,7 +10,9 @@ import type { SessionInfo } from "../activeSessions.js";
 // ============================================================================
 
 const mockGetRole = mock.fn<(userId: string) => Promise<UserRole>>(async () => "admin");
-const mockGetStagedIntent = mock.fn<(...args: unknown[]) => Promise<StagedIntent | null>>(async () => null);
+const mockGetStagedIntent = mock.fn<(...args: unknown[]) => Promise<StagedIntent | null>>(
+  async () => null,
+);
 const mockDecodeActionValue = mock.fn<(value: string) => { sessionId: string; ref?: string }>(
   () => ({ sessionId: "session-1", ref: "r1" }),
 );
@@ -100,7 +102,9 @@ function captureHandler() {
   registerConfigUpdateActionHandler(app);
 
   assert.equal(actionFn.mock.callCount(), 1, "should register exactly one action handler");
-  const handler = actionFn.mock.calls[0].arguments[1] as (args: Record<string, unknown>) => Promise<void>;
+  const handler = actionFn.mock.calls[0].arguments[1] as (
+    args: Record<string, unknown>,
+  ) => Promise<void>;
   return handler;
 }
 
@@ -113,7 +117,7 @@ function makeHandlerArgs(overrides: Record<string, unknown> = {}) {
       user: { id: "U001" },
       channel: { id: "C001" },
       actions: [{ value: "encoded-value" }],
-      ...(overrides.body as Record<string, unknown> ?? {}),
+      ...(overrides.body as Record<string, unknown>),
     },
     client,
     respond: respondFn,
@@ -338,7 +342,11 @@ describe("registerConfigUpdateActionHandler — success", () => {
     // Should post success ephemeral
     const postEphemeral = args.client.chat.postEphemeral as unknown as ReturnType<typeof mock.fn>;
     assert.equal(postEphemeral.mock.callCount(), 1);
-    const msgArgs = postEphemeral.mock.calls[0].arguments[0] as { text: string; channel: string; thread_ts: string };
+    const msgArgs = postEphemeral.mock.calls[0].arguments[0] as {
+      text: string;
+      channel: string;
+      thread_ts: string;
+    };
     assert.ok(msgArgs.text.includes("instructions.md"));
     assert.ok(msgArgs.text.includes("updated"));
     assert.equal(msgArgs.channel, "C001");

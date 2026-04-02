@@ -31,13 +31,15 @@ const { fetchPRReviewContext, getPRStatus } = await import("./pr.js");
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeOctokit(overrides: {
-  pulls?: {
-    get?: (args: unknown) => Promise<unknown>;
-    listReviewComments?: (args: unknown) => Promise<unknown>;
-    listReviews?: (args: unknown) => Promise<unknown>;
-  };
-} = {}) {
+function makeOctokit(
+  overrides: {
+    pulls?: {
+      get?: (args: unknown) => Promise<unknown>;
+      listReviewComments?: (args: unknown) => Promise<unknown>;
+      listReviews?: (args: unknown) => Promise<unknown>;
+    };
+  } = {},
+) {
   return {
     pulls: {
       get: overrides.pulls?.get ?? (async () => ({ data: {} })),
@@ -65,7 +67,11 @@ describe("fetchPRReviewContext", () => {
         pulls: {
           listReviews: async () => ({
             data: [
-              { user: { login: "reviewer1" }, state: "CHANGES_REQUESTED", body: "Please fix the bug" },
+              {
+                user: { login: "reviewer1" },
+                state: "CHANGES_REQUESTED",
+                body: "Please fix the bug",
+              },
               { user: { login: "reviewer2" }, state: "APPROVED", body: "Looks good" },
             ],
           }),
@@ -100,7 +106,9 @@ describe("fetchPRReviewContext", () => {
 
     const result = await fetchPRReviewContext("https://github.com/myorg/myrepo/pull/1");
     assert.equal(result.ok, true);
-    assert.ok("context" in result && result.context.includes("No review comments or feedback found"));
+    assert.ok(
+      "context" in result && result.context.includes("No review comments or feedback found"),
+    );
   });
 
   it("skips reviews that have no body", async () => {
@@ -153,7 +161,12 @@ describe("fetchPRReviewContext", () => {
           listReviews: async () => ({ data: [] }),
           listReviewComments: async () => ({
             data: [
-              { user: { login: "reviewer" }, path: "src/app.ts", line: null, body: "General comment" },
+              {
+                user: { login: "reviewer" },
+                path: "src/app.ts",
+                line: null,
+                body: "General comment",
+              },
             ],
           }),
         },
@@ -186,8 +199,16 @@ describe("fetchPRReviewContext", () => {
 
     await fetchPRReviewContext("https://github.com/acme-corp/widget-api/pull/456");
 
-    assert.deepEqual(capturedReviewArgs, { owner: "acme-corp", repo: "widget-api", pull_number: 456 });
-    assert.deepEqual(capturedCommentArgs, { owner: "acme-corp", repo: "widget-api", pull_number: 456 });
+    assert.deepEqual(capturedReviewArgs, {
+      owner: "acme-corp",
+      repo: "widget-api",
+      pull_number: 456,
+    });
+    assert.deepEqual(capturedCommentArgs, {
+      owner: "acme-corp",
+      repo: "widget-api",
+      pull_number: 456,
+    });
   });
 
   it("returns error for invalid PR URL", async () => {

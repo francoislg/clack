@@ -1,6 +1,12 @@
 import type { ChangeStatus, ChangeSession } from "./types.js";
 import type { WorktreeInfo } from "../worktrees.js";
-import { writeSessionState, createSessionFolder, appendExecutionLog, removeSessionFolder, statusToPhase } from "./persistence.js";
+import {
+  writeSessionState,
+  createSessionFolder,
+  appendExecutionLog,
+  removeSessionFolder,
+  statusToPhase,
+} from "./persistence.js";
 
 // ============================================================================
 // Types
@@ -92,7 +98,11 @@ export function getActiveChange(sessionId: string): ActiveChangeState | undefine
   return activeChanges.get(sessionId);
 }
 
-export function setActiveChange(sessionId: string, change: ActiveChangeState, ref: SessionRef): void {
+export function setActiveChange(
+  sessionId: string,
+  change: ActiveChangeState,
+  ref: SessionRef,
+): void {
   activeChanges.set(sessionId, change);
   sessionRefs.set(sessionId, ref);
   const cs = buildChangeSessionForPersistence(sessionId, change, ref);
@@ -109,7 +119,11 @@ export function clearActiveChange(sessionId: string, cleanupFolder: boolean = fa
   }
 }
 
-export function updateActiveChangeStatus(sessionId: string, status: ChangeStatus, lastMessage?: string): void {
+export function updateActiveChangeStatus(
+  sessionId: string,
+  status: ChangeStatus,
+  lastMessage?: string,
+): void {
   const change = activeChanges.get(sessionId);
   const ref = sessionRefs.get(sessionId);
   if (change && ref) {
@@ -139,7 +153,9 @@ export function updateActiveChangePrUrl(sessionId: string, prUrl: string): void 
  * Only returns changes consuming compute (executing, reviewing, merging).
  * Changes in pr_created state are idle and do NOT block new changes.
  */
-export function getActiveChangeForUser(userId: string): { sessionId: string; change: ActiveChangeState } | undefined {
+export function getActiveChangeForUser(
+  userId: string,
+): { sessionId: string; change: ActiveChangeState } | undefined {
   const activelyExecutingStatuses: ChangeStatus[] = ["executing", "reviewing", "merging"];
   for (const [sessionId, change] of activeChanges.entries()) {
     const ref = sessionRefs.get(sessionId);

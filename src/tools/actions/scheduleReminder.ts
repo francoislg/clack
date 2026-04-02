@@ -9,14 +9,18 @@ export function createScheduleReminderTool(ctx: QueryToolContext) {
   return tool(
     "schedule_reminder",
     "Schedule a message to be posted to a Slack channel at a future time. " +
-    "Use this when the user asks you to set a reminder or schedule a message. " +
-    "The post_at parameter must be an ISO 8601 UTC timestamp. " +
-    "Messages are limited to 120 days in the future. " +
-    "The message will be attributed to the requesting user.",
+      "Use this when the user asks you to set a reminder or schedule a message. " +
+      "The post_at parameter must be an ISO 8601 UTC timestamp. " +
+      "Messages are limited to 120 days in the future. " +
+      "The message will be attributed to the requesting user.",
     {
-      channel: z.string().describe("Channel name (e.g. '#ops' or 'ops') or channel ID (e.g. 'C0123ABCDEF')"),
+      channel: z
+        .string()
+        .describe("Channel name (e.g. '#ops' or 'ops') or channel ID (e.g. 'C0123ABCDEF')"),
       message: z.string().describe("The reminder message content"),
-      post_at: z.string().describe("ISO 8601 UTC timestamp for when to post (e.g. '2026-03-28T15:00:00Z')"),
+      post_at: z
+        .string()
+        .describe("ISO 8601 UTC timestamp for when to post (e.g. '2026-03-28T15:00:00Z')"),
     },
     async (args) => {
       if (!ctx.slackClient) {
@@ -31,7 +35,9 @@ export function createScheduleReminderTool(ctx: QueryToolContext) {
       // Parse timestamp
       const postAtDate = new Date(args.post_at);
       if (isNaN(postAtDate.getTime())) {
-        return errorResult(`Invalid timestamp: "${args.post_at}". Provide a valid ISO 8601 timestamp.`);
+        return errorResult(
+          `Invalid timestamp: "${args.post_at}". Provide a valid ISO 8601 timestamp.`,
+        );
       }
       const postAtUnix = Math.floor(postAtDate.getTime() / 1000);
 
@@ -60,10 +66,14 @@ export function createScheduleReminderTool(ctx: QueryToolContext) {
           return errorResult("The specified time is in the past. Provide a future timestamp.");
         }
         if (message.includes("time_too_far")) {
-          return errorResult("The specified time is more than 120 days in the future. Slack limits scheduled messages to 120 days.");
+          return errorResult(
+            "The specified time is more than 120 days in the future. Slack limits scheduled messages to 120 days.",
+          );
         }
         if (message.includes("channel_not_found") || message.includes("not_in_channel")) {
-          return errorResult("The bot is not a member of the specified channel. Invite the bot first.");
+          return errorResult(
+            "The bot is not a member of the specified channel. Invite the bot first.",
+          );
         }
 
         return errorResult(`Failed to schedule message: ${message}`);

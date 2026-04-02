@@ -79,6 +79,6 @@ export function createClosePRTool(ctx: WorkerToolContext) {
       } catch (error) {
         return errorResult(`Failed to close PR: ${errorMessage(error)}`);
       }
-    }
+    },
   );
 }

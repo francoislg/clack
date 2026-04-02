@@ -23,13 +23,7 @@ import {
   type ConfigFilePickerEntry,
   type ConfigFileState,
 } from "../homeTab.js";
-import {
-  addRule,
-  updateRule,
-  toggleRule,
-  deleteRule,
-  getRule,
-} from "../../autoRespond.js";
+import { addRule, updateRule, toggleRule, deleteRule, getRule } from "../../autoRespond.js";
 import {
   listInstructionFiles,
   readInstructionFile,
@@ -46,14 +40,14 @@ import { CronExpressionParser } from "cron-parser";
 /** Parse comma-separated keywords input into a trimmed array, or undefined if empty. */
 function parseKeywords(raw: string | null | undefined): string[] | undefined {
   if (!raw) return undefined;
-  const keywords = raw.split(",").map((k) => k.trim()).filter(Boolean);
+  const keywords = raw
+    .split(",")
+    .map((k) => k.trim())
+    .filter(Boolean);
   return keywords.length > 0 ? keywords : undefined;
 }
 
-async function publishHomeView(
-  client: App["client"],
-  userId: string
-): Promise<void> {
+async function publishHomeView(client: App["client"], userId: string): Promise<void> {
   // Check if owner is disabled (for claim UI)
   const roles = await loadRoles();
   let ownerDisabled = false;
@@ -99,17 +93,26 @@ function registerAddRoleHandlers(
     const currentUserId = body.user.id;
 
     if (!selectedUser) {
-      await ack({ response_action: "errors", errors: { user_select_block: "Please select a user" } });
+      await ack({
+        response_action: "errors",
+        errors: { user_select_block: "Please select a user" },
+      });
       return;
     }
     if (!(await userCanManageRoles(currentUserId))) {
-      await ack({ response_action: "errors", errors: { user_select_block: `You don't have permission to ${title.toLowerCase()}s` } });
+      await ack({
+        response_action: "errors",
+        errors: { user_select_block: `You don't have permission to ${title.toLowerCase()}s` },
+      });
       return;
     }
 
     const result = await roleFn(selectedUser);
     if (!result.success) {
-      await ack({ response_action: "errors", errors: { user_select_block: result.error || `Failed to ${title.toLowerCase()}` } });
+      await ack({
+        response_action: "errors",
+        errors: { user_select_block: result.error || `Failed to ${title.toLowerCase()}` },
+      });
       return;
     }
 
@@ -148,17 +151,26 @@ function registerRemoveRoleHandlers(
     const currentUserId = body.user.id;
 
     if (!selectedUser) {
-      await ack({ response_action: "errors", errors: { user_select_block: "Please select a user" } });
+      await ack({
+        response_action: "errors",
+        errors: { user_select_block: "Please select a user" },
+      });
       return;
     }
     if (!(await userCanManageRoles(currentUserId))) {
-      await ack({ response_action: "errors", errors: { user_select_block: `You don't have permission to ${title.toLowerCase()}s` } });
+      await ack({
+        response_action: "errors",
+        errors: { user_select_block: `You don't have permission to ${title.toLowerCase()}s` },
+      });
       return;
     }
 
     const result = await roleFn(selectedUser);
     if (!result.success) {
-      await ack({ response_action: "errors", errors: { user_select_block: result.error || `Failed to ${title.toLowerCase()}` } });
+      await ack({
+        response_action: "errors",
+        errors: { user_select_block: result.error || `Failed to ${title.toLowerCase()}` },
+      });
       return;
     }
 
@@ -218,7 +230,7 @@ export function registerHomeTabHandler(app: App): void {
         view: buildUserSelectModal(
           "Transfer Ownership",
           "transfer_ownership_modal",
-          "Select new owner"
+          "Select new owner",
         ),
       });
     } catch (error) {
@@ -261,10 +273,28 @@ export function registerHomeTabHandler(app: App): void {
   });
 
   // Role management handlers (add/remove admin & dev)
-  registerAddRoleHandlers(app, "add_admin", "add_admin_modal", "Add Admin", (userId) => setRole(userId, "admin"));
-  registerRemoveRoleHandlers(app, "remove_admin", "remove_admin_modal", "Remove Admin", "admins", (userId) => setRole(userId, "member"));
-  registerAddRoleHandlers(app, "add_dev", "add_dev_modal", "Add Dev", (userId) => setRole(userId, "dev"));
-  registerRemoveRoleHandlers(app, "remove_dev", "remove_dev_modal", "Remove Dev", "devs", (userId) => setRole(userId, "member"));
+  registerAddRoleHandlers(app, "add_admin", "add_admin_modal", "Add Admin", (userId) =>
+    setRole(userId, "admin"),
+  );
+  registerRemoveRoleHandlers(
+    app,
+    "remove_admin",
+    "remove_admin_modal",
+    "Remove Admin",
+    "admins",
+    (userId) => setRole(userId, "member"),
+  );
+  registerAddRoleHandlers(app, "add_dev", "add_dev_modal", "Add Dev", (userId) =>
+    setRole(userId, "dev"),
+  );
+  registerRemoveRoleHandlers(
+    app,
+    "remove_dev",
+    "remove_dev_modal",
+    "Remove Dev",
+    "devs",
+    (userId) => setRole(userId, "member"),
+  );
 
   // Handle Settings button
   app.action<BlockAction>("open_settings", async ({ ack, body, client }) => {
@@ -288,8 +318,10 @@ export function registerHomeTabHandler(app: App): void {
     const userId = body.user.id;
 
     // Extract preference values from modal
-    const deliveryValue = view.state.values.response_delivery_block?.response_delivery?.selected_option?.value;
-    const notifyValue = view.state.values.notify_on_response_block?.notify_on_response?.selected_option?.value;
+    const deliveryValue =
+      view.state.values.response_delivery_block?.response_delivery?.selected_option?.value;
+    const notifyValue =
+      view.state.values.notify_on_response_block?.notify_on_response?.selected_option?.value;
 
     const updates: string[] = [];
 
@@ -336,7 +368,8 @@ export function registerHomeTabHandler(app: App): void {
         isRepoDir = false;
         files = roleListing.files.map((f) => ({
           filename: f.filename,
-          sourceLabel: f.source === "customized" ? "Customized" : f.source === "custom-only" ? "Custom" : "",
+          sourceLabel:
+            f.source === "customized" ? "Customized" : f.source === "custom-only" ? "Custom" : "",
           effectiveLength: getEffectiveContentLength(`${dir}/${f.filename}`),
         }));
       } else {
@@ -407,7 +440,10 @@ export function registerHomeTabHandler(app: App): void {
     const userId = body.user.id;
 
     if (!(await userCanEditConfig(userId))) {
-      await ack({ response_action: "errors", errors: { content_block: "You don't have permission to edit configuration" } });
+      await ack({
+        response_action: "errors",
+        errors: { content_block: "You don't have permission to edit configuration" },
+      });
       return;
     }
 
@@ -448,7 +484,10 @@ export function registerHomeTabHandler(app: App): void {
     const userId = body.user.id;
 
     if (!(await userCanEditConfig(userId))) {
-      await ack({ response_action: "errors", errors: { filename_block: "You don't have permission to create files" } });
+      await ack({
+        response_action: "errors",
+        errors: { filename_block: "You don't have permission to create files" },
+      });
       return;
     }
 
@@ -465,7 +504,10 @@ export function registerHomeTabHandler(app: App): void {
     // Check for duplicate
     const existing = readInstructionFile(`${dir}/${filename}`);
     if (existing.default_content !== null || existing.custom_content !== null) {
-      await ack({ response_action: "errors", errors: { filename_block: `File "${filename}" already exists in ${dir}/` } });
+      await ack({
+        response_action: "errors",
+        errors: { filename_block: `File "${filename}" already exists in ${dir}/` },
+      });
       return;
     }
 
@@ -629,12 +671,18 @@ export function registerHomeTabHandler(app: App): void {
   // Add Rule modal submission (admin only)
   app.view<ViewSubmitAction>("ai_add_rule_modal", async ({ ack, view, body, client }) => {
     if (!(await userCanManageRoles(body.user.id))) {
-      await ack({ response_action: "errors", errors: { channels_block: "You don't have permission to manage auto-respond rules" } });
+      await ack({
+        response_action: "errors",
+        errors: { channels_block: "You don't have permission to manage auto-respond rules" },
+      });
       return;
     }
     const channels = view.state.values.channels_block.channels.selected_conversations;
     if (!channels || channels.length === 0) {
-      await ack({ response_action: "errors", errors: { channels_block: "Select at least one channel" } });
+      await ack({
+        response_action: "errors",
+        errors: { channels_block: "Select at least one channel" },
+      });
       return;
     }
     const users = view.state.values.users_block.users.selected_users;
@@ -642,7 +690,13 @@ export function registerHomeTabHandler(app: App): void {
     const keywords = parseKeywords(keywordsRaw);
     const extraContext = view.state.values.extra_context_block?.extra_context?.value;
     const preAnalysisContext = view.state.values.pre_analysis_block?.pre_analysis_context?.value;
-    await addRule(channels, users && users.length > 0 ? users : undefined, keywords, extraContext ?? undefined, preAnalysisContext ?? undefined);
+    await addRule(
+      channels,
+      users && users.length > 0 ? users : undefined,
+      keywords,
+      extraContext ?? undefined,
+      preAnalysisContext ?? undefined,
+    );
     await ack();
     await publishHomeView(client, body.user.id);
   });
@@ -650,13 +704,19 @@ export function registerHomeTabHandler(app: App): void {
   // Edit Rule modal submission (admin only)
   app.view<ViewSubmitAction>("ai_edit_rule_modal", async ({ ack, view, body, client }) => {
     if (!(await userCanManageRoles(body.user.id))) {
-      await ack({ response_action: "errors", errors: { channels_block: "You don't have permission to manage auto-respond rules" } });
+      await ack({
+        response_action: "errors",
+        errors: { channels_block: "You don't have permission to manage auto-respond rules" },
+      });
       return;
     }
     const ruleId = view.private_metadata;
     const channels = view.state.values.channels_block.channels.selected_conversations;
     if (!channels || channels.length === 0) {
-      await ack({ response_action: "errors", errors: { channels_block: "Select at least one channel" } });
+      await ack({
+        response_action: "errors",
+        errors: { channels_block: "Select at least one channel" },
+      });
       return;
     }
     const users = view.state.values.users_block.users.selected_users;
@@ -664,7 +724,14 @@ export function registerHomeTabHandler(app: App): void {
     const keywords = parseKeywords(keywordsRaw);
     const extraContext = view.state.values.extra_context_block?.extra_context?.value;
     const preAnalysisContext = view.state.values.pre_analysis_block?.pre_analysis_context?.value;
-    await updateRule(ruleId, channels, users && users.length > 0 ? users : undefined, keywords, extraContext ?? undefined, preAnalysisContext ?? undefined);
+    await updateRule(
+      ruleId,
+      channels,
+      users && users.length > 0 ? users : undefined,
+      keywords,
+      extraContext ?? undefined,
+      preAnalysisContext ?? undefined,
+    );
     await ack();
     await publishHomeView(client, body.user.id);
   });
@@ -707,7 +774,10 @@ export function registerHomeTabHandler(app: App): void {
             blocks: [
               {
                 type: "section",
-                text: { type: "mrkdwn", text: `Sent \`${filepath}\` to your DMs. Check your messages.` },
+                text: {
+                  type: "mrkdwn",
+                  text: `Sent \`${filepath}\` to your DMs. Check your messages.`,
+                },
               },
             ],
           },
@@ -775,7 +845,10 @@ export function registerHomeTabHandler(app: App): void {
             blocks: [
               {
                 type: "section",
-                text: { type: "mrkdwn", text: `Running scheduled message in <#${job.channel}>. This may take a moment.` },
+                text: {
+                  type: "mrkdwn",
+                  text: `Running scheduled message in <#${job.channel}>. This may take a moment.`,
+                },
               },
             ],
           },
@@ -832,7 +905,10 @@ export function registerHomeTabHandler(app: App): void {
       return;
     }
     if (!cronExpression) {
-      await ack({ response_action: "errors", errors: { cron_expression_block: "Provide a cron expression" } });
+      await ack({
+        response_action: "errors",
+        errors: { cron_expression_block: "Provide a cron expression" },
+      });
       return;
     }
     if (!prompt) {
@@ -843,7 +919,10 @@ export function registerHomeTabHandler(app: App): void {
     try {
       CronExpressionParser.parse(cronExpression);
     } catch {
-      await ack({ response_action: "errors", errors: { cron_expression_block: "Invalid cron expression" } });
+      await ack({
+        response_action: "errors",
+        errors: { cron_expression_block: "Invalid cron expression" },
+      });
       return;
     }
 
@@ -859,5 +938,4 @@ export function registerHomeTabHandler(app: App): void {
       logger.error("Failed to update cron job:", error);
     }
   });
-
 }

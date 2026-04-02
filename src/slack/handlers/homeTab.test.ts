@@ -10,28 +10,50 @@ import type { View } from "@slack/types";
 
 const mockLoadRoles = mock.fn<() => Promise<RolesConfig>>();
 const mockSetOwner = mock.fn<(userId: string) => Promise<void>>(async () => {});
-const mockSetRole = mock.fn<(userId: string, role: string) => Promise<{ success: boolean; error?: string }>>();
+const mockSetRole =
+  mock.fn<(userId: string, role: string) => Promise<{ success: boolean; error?: string }>>();
 const mockIsUserDisabled = mock.fn<(client: unknown, userId: string) => Promise<boolean>>();
-const mockClaimOwnershipFromDisabled = mock.fn<(client: unknown, userId: string) => Promise<{ success: boolean; error?: string }>>();
-const mockTransferOwnership = mock.fn<(client: unknown, fromId: string, toId: string) => Promise<{ success: boolean; error?: string }>>();
+const mockClaimOwnershipFromDisabled =
+  mock.fn<(client: unknown, userId: string) => Promise<{ success: boolean; error?: string }>>();
+const mockTransferOwnership =
+  mock.fn<
+    (client: unknown, fromId: string, toId: string) => Promise<{ success: boolean; error?: string }>
+  >();
 const mockHasOwner = mock.fn<() => Promise<boolean>>();
 
 const mockUserCanManageRoles = mock.fn<(userId: string) => Promise<boolean>>();
 const mockUserCanEditConfig = mock.fn<(userId: string) => Promise<boolean>>();
 
-const mockBuildHomeView = mock.fn<(opts: { userId: string; ownerDisabled?: boolean }) => Promise<View>>();
-const mockBuildUserSelectModal = mock.fn<(title: string, actionId: string, placeholder: string) => View>();
-const mockBuildRemoveUserModal = mock.fn<(title: string, actionId: string, users: string[]) => View>();
+const mockBuildHomeView =
+  mock.fn<(opts: { userId: string; ownerDisabled?: boolean }) => Promise<View>>();
+const mockBuildUserSelectModal =
+  mock.fn<(title: string, actionId: string, placeholder: string) => View>();
+const mockBuildRemoveUserModal =
+  mock.fn<(title: string, actionId: string, users: string[]) => View>();
 const mockBuildSettingsModal = mock.fn<(userId: string) => Promise<View>>();
-const mockBuildConfigFilePickerModal = mock.fn<(dir: string, files: unknown[], isRepoDir: boolean) => View>();
-const mockBuildConfigEditorModal = mock.fn<(dir: string, filename: string, content: string, fileState: string) => View>();
+const mockBuildConfigFilePickerModal =
+  mock.fn<(dir: string, files: unknown[], isRepoDir: boolean) => View>();
+const mockBuildConfigEditorModal =
+  mock.fn<(dir: string, filename: string, content: string, fileState: string) => View>();
 const mockBuildConfigCreateFileModal = mock.fn<(dir: string) => View>();
 
-const mockSetUserPreference = mock.fn<(userId: string, key: string, value: unknown) => Promise<void>>(async () => {});
-const mockSendDirectMessage = mock.fn<(client: unknown, userId: string, text: string) => Promise<void>>(async () => {});
+const mockSetUserPreference = mock.fn<
+  (userId: string, key: string, value: unknown) => Promise<void>
+>(async () => {});
+const mockSendDirectMessage = mock.fn<
+  (client: unknown, userId: string, text: string) => Promise<void>
+>(async () => {});
 
-const mockListInstructionFiles = mock.fn<() => { roles: Array<{ role: string; files: Array<{ filename: string; source: string }> }>; repos: Array<{ filename: string; hasOverride: boolean; hasDefault: boolean }> }>();
-const mockReadInstructionFile = mock.fn<(filepath: string) => { default_content: string | null; custom_content: string | null }>();
+const mockListInstructionFiles = mock.fn<
+  () => {
+    roles: Array<{ role: string; files: Array<{ filename: string; source: string }> }>;
+    repos: Array<{ filename: string; hasOverride: boolean; hasDefault: boolean }>;
+  }
+>();
+const mockReadInstructionFile =
+  mock.fn<
+    (filepath: string) => { default_content: string | null; custom_content: string | null }
+  >();
 const mockWriteInstructionFile = mock.fn<(filename: string, content: string) => void>();
 const mockDeleteInstructionFile = mock.fn<(filepath: string) => void>();
 const mockGetEffectiveContentLength = mock.fn<(filepath: string) => number>();
@@ -130,10 +152,7 @@ const { registerHomeTabHandler } = await import("./homeTab.js");
 // Helpers
 // ============================================================================
 
-type EventHandler = (args: {
-  event: { user: string };
-  client: MockClient;
-}) => Promise<void>;
+type EventHandler = (args: { event: { user: string }; client: MockClient }) => Promise<void>;
 
 type ActionHandler = (args: {
   ack: () => Promise<void>;
@@ -144,7 +163,10 @@ type ActionHandler = (args: {
 
 type ViewHandler = (args: {
   ack: (errorResp?: { response_action: string; errors: Record<string, string> }) => Promise<void>;
-  view: { state: { values: Record<string, Record<string, Record<string, unknown>>> }; private_metadata?: string };
+  view: {
+    state: { values: Record<string, Record<string, Record<string, unknown>>> };
+    private_metadata?: string;
+  };
   body: { user: { id: string } };
   client: MockClient;
 }) => Promise<void>;
@@ -267,7 +289,10 @@ function setDefaultMocks() {
   mockUserCanManageRoles.mock.mockImplementation(async () => true);
   mockUserCanEditConfig.mock.mockImplementation(async () => true);
   mockListInstructionFiles.mock.mockImplementation(() => ({ roles: [], repos: [] }));
-  mockReadInstructionFile.mock.mockImplementation(() => ({ default_content: null, custom_content: null }));
+  mockReadInstructionFile.mock.mockImplementation(() => ({
+    default_content: null,
+    custom_content: null,
+  }));
   mockWriteInstructionFile.mock.mockImplementation(() => {});
   mockDeleteInstructionFile.mock.mockImplementation(() => {});
   mockGetEffectiveContentLength.mock.mockImplementation(() => 100);
@@ -324,7 +349,10 @@ describe("app_home_opened event", () => {
 
     assert.equal(mockBuildHomeView.mock.callCount(), 1);
     assert.equal(client.views.publish.mock.callCount(), 1);
-    const publishArgs = client.views.publish.mock.calls[0].arguments[0] as { user_id: string; view: View };
+    const publishArgs = client.views.publish.mock.calls[0].arguments[0] as {
+      user_id: string;
+      view: View;
+    };
     assert.equal(publishArgs.user_id, "U001");
   });
 
@@ -335,7 +363,10 @@ describe("app_home_opened event", () => {
 
     await handler({ event: { user: "U001" }, client });
 
-    const buildArgs = mockBuildHomeView.mock.calls[0].arguments[0] as { userId: string; ownerDisabled?: boolean };
+    const buildArgs = mockBuildHomeView.mock.calls[0].arguments[0] as {
+      userId: string;
+      ownerDisabled?: boolean;
+    };
     assert.equal(buildArgs.ownerDisabled, true);
   });
 
@@ -351,7 +382,10 @@ describe("app_home_opened event", () => {
     await handler({ event: { user: "U001" }, client });
 
     assert.equal(mockIsUserDisabled.mock.callCount(), 0);
-    const buildArgs = mockBuildHomeView.mock.calls[0].arguments[0] as { userId: string; ownerDisabled?: boolean };
+    const buildArgs = mockBuildHomeView.mock.calls[0].arguments[0] as {
+      userId: string;
+      ownerDisabled?: boolean;
+    };
     assert.equal(buildArgs.ownerDisabled, false);
   });
 });
@@ -452,7 +486,9 @@ describe("transfer_ownership_modal submission", () => {
     let ackResponse: { response_action: string; errors: Record<string, string> } | undefined;
 
     await handler({
-      ack: async (resp) => { ackResponse = resp; },
+      ack: async (resp) => {
+        ackResponse = resp;
+      },
       view: {
         state: {
           values: {
@@ -480,7 +516,9 @@ describe("transfer_ownership_modal submission", () => {
     let ackResponse: { response_action: string; errors: Record<string, string> } | undefined;
 
     await handler({
-      ack: async (resp) => { ackResponse = resp; },
+      ack: async (resp) => {
+        ackResponse = resp;
+      },
       view: {
         state: {
           values: {
@@ -560,7 +598,9 @@ describe("add_admin_modal submission", () => {
     let ackResponse: { response_action: string; errors: Record<string, string> } | undefined;
 
     await handler({
-      ack: async (resp) => { ackResponse = resp; },
+      ack: async (resp) => {
+        ackResponse = resp;
+      },
       view: {
         state: {
           values: {
@@ -588,7 +628,9 @@ describe("add_admin_modal submission", () => {
     let ackResponse: { response_action: string; errors: Record<string, string> } | undefined;
 
     await handler({
-      ack: async (resp) => { ackResponse = resp; },
+      ack: async (resp) => {
+        ackResponse = resp;
+      },
       view: {
         state: {
           values: {
@@ -681,7 +723,9 @@ describe("remove_admin_modal submission", () => {
     let ackResponse: { response_action: string; errors: Record<string, string> } | undefined;
 
     await handler({
-      ack: async (resp) => { ackResponse = resp; },
+      ack: async (resp) => {
+        ackResponse = resp;
+      },
       view: {
         state: {
           values: {
@@ -773,7 +817,7 @@ describe("settings_modal submission", () => {
     });
 
     const deliveryCall = mockSetUserPreference.mock.calls.find(
-      (c) => c.arguments[1] === "reactionDelivery"
+      (c) => c.arguments[1] === "reactionDelivery",
     );
     assert.ok(deliveryCall);
     assert.equal(deliveryCall!.arguments[2], "thread");
@@ -802,7 +846,7 @@ describe("settings_modal submission", () => {
     });
 
     const notifyCall = mockSetUserPreference.mock.calls.find(
-      (c) => c.arguments[1] === "notifyOnResponse"
+      (c) => c.arguments[1] === "notifyOnResponse",
     );
     assert.ok(notifyCall);
     assert.equal(notifyCall!.arguments[2], true);
@@ -868,10 +912,13 @@ describe("view_config_dir action", () => {
   it("opens file picker modal for role directory", async () => {
     mockListInstructionFiles.mock.mockImplementation(() => ({
       roles: [
-        { role: "user", files: [
-          { filename: "identity.md", source: "default" },
-          { filename: "custom.md", source: "custom-only" },
-        ]},
+        {
+          role: "user",
+          files: [
+            { filename: "identity.md", source: "default" },
+            { filename: "custom.md", source: "custom-only" },
+          ],
+        },
       ],
       repos: [],
     }));
@@ -1005,7 +1052,12 @@ describe("config_editor_modal submission", () => {
             },
           },
         },
-        private_metadata: JSON.stringify({ dir: "user", filename: "identity.md", hasDefault: true, hasOverride: false }),
+        private_metadata: JSON.stringify({
+          dir: "user",
+          filename: "identity.md",
+          hasDefault: true,
+          hasOverride: false,
+        }),
       },
       body: { user: { id: "U001" } },
       client,
@@ -1025,7 +1077,9 @@ describe("config_editor_modal submission", () => {
     let ackResponse: { response_action: string; errors: Record<string, string> } | undefined;
 
     await handler({
-      ack: async (resp) => { ackResponse = resp; },
+      ack: async (resp) => {
+        ackResponse = resp;
+      },
       view: {
         state: {
           values: {
@@ -1071,7 +1125,10 @@ describe("create_config_file action", () => {
 
 describe("config_create_modal submission", () => {
   it("creates file and appends .md extension", async () => {
-    mockReadInstructionFile.mock.mockImplementation(() => ({ default_content: null, custom_content: null }));
+    mockReadInstructionFile.mock.mockImplementation(() => ({
+      default_content: null,
+      custom_content: null,
+    }));
     const client = makeClient();
     const handler = capturedViewHandlers.get("config_create_modal")!;
 
@@ -1097,12 +1154,17 @@ describe("config_create_modal submission", () => {
   });
 
   it("rejects duplicate filename", async () => {
-    mockReadInstructionFile.mock.mockImplementation(() => ({ default_content: "existing", custom_content: null }));
+    mockReadInstructionFile.mock.mockImplementation(() => ({
+      default_content: "existing",
+      custom_content: null,
+    }));
     const handler = capturedViewHandlers.get("config_create_modal")!;
     let ackResponse: { response_action: string; errors: Record<string, string> } | undefined;
 
     await handler({
-      ack: async (resp) => { ackResponse = resp; },
+      ack: async (resp) => {
+        ackResponse = resp;
+      },
       view: {
         state: {
           values: {
@@ -1128,7 +1190,9 @@ describe("config_create_modal submission", () => {
     let ackResponse: { response_action: string; errors: Record<string, string> } | undefined;
 
     await handler({
-      ack: async (resp) => { ackResponse = resp; },
+      ack: async (resp) => {
+        ackResponse = resp;
+      },
       view: {
         state: {
           values: {

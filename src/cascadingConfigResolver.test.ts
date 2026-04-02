@@ -35,16 +35,14 @@ function setup() {
       botToken: "xoxb-111-222-abc",
       appToken: "xapp-1-A111-222-xyz",
       signingSecret: "s3cr3t",
-    })
+    }),
   );
   mkdirSync(tmpDataDir, { recursive: true });
   writeFileSync(
     configPath,
     JSON.stringify({
-      repositories: [
-        { name: "repo", url: "https://github.com/org/repo.git", description: "Test" },
-      ],
-    })
+      repositories: [{ name: "repo", url: "https://github.com/org/repo.git", description: "Test" }],
+    }),
   );
   loadConfig(configPath, true);
 }
@@ -404,7 +402,7 @@ describe("shipped default_configuration smoke test", () => {
     // Symlink real defaults
     symlinkSync(
       resolve(projectRoot, "data/default_configuration"),
-      join(smokeDataDir, "default_configuration")
+      join(smokeDataDir, "default_configuration"),
     );
     // Empty configuration dir
     mkdirSync(join(smokeDataDir, "configuration"), { recursive: true });
@@ -413,7 +411,7 @@ describe("shipped default_configuration smoke test", () => {
     mkdirSync(authDir, { recursive: true });
     writeFileSync(
       join(authDir, "slack.json"),
-      JSON.stringify({ botToken: "xoxb-test", appToken: "xapp-test", signingSecret: "s" })
+      JSON.stringify({ botToken: "xoxb-test", appToken: "xapp-test", signingSecret: "s" }),
     );
     writeFileSync(
       join(smokeDataDir, "config.json"),
@@ -421,7 +419,7 @@ describe("shipped default_configuration smoke test", () => {
         repositories: [
           { name: "test-repo", url: "https://github.com/org/test.git", description: "Test" },
         ],
-      })
+      }),
     );
 
     process.chdir(smokeBase);
@@ -452,7 +450,10 @@ describe("shipped default_configuration smoke test", () => {
   it("user+admin chain includes admin config but not dev changes", () => {
     const result = resolveInstructions(["user", "admin"]);
     assert.ok(result.includes("propose_config_update"), "should include admin config tool");
-    assert.ok(result.includes("Information Only"), "should keep user restriction (no dev override)");
+    assert.ok(
+      result.includes("Information Only"),
+      "should keep user restriction (no dev override)",
+    );
     assert.ok(!result.includes("propose_change"), "should not include dev changes workflow");
   });
 

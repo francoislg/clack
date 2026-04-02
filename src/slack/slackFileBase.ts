@@ -1,10 +1,5 @@
 /** Shared MIME types for image files — used by both extractors. */
-export const IMAGE_MIME_TYPES = new Set([
-  "image/png",
-  "image/jpeg",
-  "image/gif",
-  "image/webp",
-]);
+export const IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
 const MAX_FILES_PER_MESSAGE = 10;
@@ -48,11 +43,14 @@ export function extractSlackFiles(
     const url_private = f.url_private;
 
     if (
-      typeof id !== "string" || !id ||
-      typeof name !== "string" || !name ||
+      typeof id !== "string" ||
+      !id ||
+      typeof name !== "string" ||
+      !name ||
       typeof mimetype !== "string" ||
       typeof size !== "number" ||
-      typeof url_private !== "string" || !url_private
+      typeof url_private !== "string" ||
+      !url_private
     ) {
       continue;
     }

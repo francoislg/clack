@@ -34,6 +34,6 @@ export function createListConfigFilesTool(_ctx: QueryToolContext) {
       }
 
       return textResult(result);
-    }
+    },
   );
 }

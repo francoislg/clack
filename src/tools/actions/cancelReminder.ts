@@ -8,7 +8,7 @@ export function createCancelReminderTool(ctx: QueryToolContext) {
   return tool(
     "cancel_reminder",
     "Cancel a pending scheduled message before it is posted. " +
-    "Requires the scheduled_message_id (from schedule_reminder or list_reminders) and the channel.",
+      "Requires the scheduled_message_id (from schedule_reminder or list_reminders) and the channel.",
     {
       channel: z.string().describe("Channel ID where the message is scheduled"),
       scheduled_message_id: z.string().describe("The scheduled message ID to cancel"),
@@ -34,7 +34,9 @@ export function createCancelReminderTool(ctx: QueryToolContext) {
         logger.error("Failed to cancel scheduled message:", error);
 
         if (message.includes("invalid_scheduled_message_id")) {
-          return errorResult("The scheduled message was not found — it may have already been posted or cancelled.");
+          return errorResult(
+            "The scheduled message was not found — it may have already been posted or cancelled.",
+          );
         }
 
         return errorResult(`Failed to cancel scheduled message: ${message}`);

@@ -224,7 +224,9 @@ describe("registerFollowupHandler", () => {
     let acked = false;
 
     await capturedHandler({
-      ack: async () => { acked = true; },
+      ack: async () => {
+        acked = true;
+      },
       body: { actions: [{ value: "raw" }] },
       client: makeClient(),
     });

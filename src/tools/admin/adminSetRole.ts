@@ -9,7 +9,11 @@ export function createAdminSetRoleTool() {
     "Set a user's role. Cascades automatically: promoting to admin removes from devs, demoting to member removes from both. Use find_user first to resolve display names to Slack user IDs.",
     {
       user: z.string().describe("Slack user ID (e.g., 'U0123ABCDEF')"),
-      role: z.enum(["admin", "dev", "member"]).describe("Target role. 'admin' promotes, 'dev' sets to dev, 'member' removes all elevated roles."),
+      role: z
+        .enum(["admin", "dev", "member"])
+        .describe(
+          "Target role. 'admin' promotes, 'dev' sets to dev, 'member' removes all elevated roles.",
+        ),
     },
     async ({ user, role }) => {
       const result = await setRole(user, role);

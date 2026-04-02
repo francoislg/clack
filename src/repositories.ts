@@ -140,7 +140,9 @@ export function startSyncScheduler(): void {
   const config = getConfig();
   const intervalMs = config.git.pullIntervalMinutes * 60 * 1000;
 
-  logger.debug(`Starting repository sync scheduler (every ${config.git.pullIntervalMinutes} minutes)`);
+  logger.debug(
+    `Starting repository sync scheduler (every ${config.git.pullIntervalMinutes} minutes)`,
+  );
 
   syncInterval = setInterval(() => {
     syncAllRepositories().catch((error) => {

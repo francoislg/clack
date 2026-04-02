@@ -7,7 +7,7 @@ import { textResult, errorResult } from "../helpers.js";
 export function createRequestUpdateTool(
   ctx: QueryToolContext,
   intentStore: IntentStore,
-  recorder: ToolCallRecorder
+  recorder: ToolCallRecorder,
 ) {
   return tool(
     "request_update",
@@ -18,12 +18,16 @@ export function createRequestUpdateTool(
     async (args) => {
       const activeChange = ctx.session.activeChange;
       if (!activeChange) {
-        recorder.record("request_update", args as Record<string, unknown>, { error: "No active change in this thread." });
+        recorder.record("request_update", args as Record<string, unknown>, {
+          error: "No active change in this thread.",
+        });
         return errorResult("No active change in this thread.");
       }
 
       if (!activeChange.worktree) {
-        recorder.record("request_update", args as Record<string, unknown>, { error: "No worktree exists for this change." });
+        recorder.record("request_update", args as Record<string, unknown>, {
+          error: "No worktree exists for this change.",
+        });
         return errorResult("No worktree exists for this change.");
       }
 
@@ -37,6 +41,6 @@ export function createRequestUpdateTool(
       recorder.record("request_update", args as Record<string, unknown>, result);
 
       return textResult(result);
-    }
+    },
   );
 }

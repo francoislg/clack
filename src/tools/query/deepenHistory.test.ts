@@ -136,7 +136,10 @@ describe("deepenHistory tool", () => {
     const ctx = makeCtx();
     const toolDef = createDeepenHistoryTool(ctx);
 
-    const result = await toolDef.handler({ repo: "nonexistent-repo", commits: undefined, full: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { repo: "nonexistent-repo", commits: undefined, full: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.ok(parsed.error);
@@ -150,7 +153,10 @@ describe("deepenHistory tool", () => {
     const ctx = makeCtx();
     const toolDef = createDeepenHistoryTool(ctx);
 
-    const result = await toolDef.handler({ repo: "my-repo", commits: undefined, full: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { repo: "my-repo", commits: undefined, full: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.ok(parsed.error);
@@ -169,7 +175,10 @@ describe("deepenHistory tool", () => {
     const ctx = makeCtx();
     const toolDef = createDeepenHistoryTool(ctx);
 
-    const result = await toolDef.handler({ repo: "my-repo", commits: undefined, full: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { repo: "my-repo", commits: undefined, full: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.ok(parsed.message.includes("full history"));
@@ -185,7 +194,9 @@ describe("deepenHistory tool", () => {
       rawCalls.push(cmdArgs);
       if (cmdArgs.includes("--is-shallow-repository")) {
         // First call: shallow; after fetch: not shallow
-        const isShallowCallCount = rawCalls.filter(c => c.includes("--is-shallow-repository")).length;
+        const isShallowCallCount = rawCalls.filter((c) =>
+          c.includes("--is-shallow-repository"),
+        ).length;
         return isShallowCallCount <= 1 ? "true\n" : "false\n";
       }
       if (cmdArgs.includes("--count")) return "200\n";
@@ -195,14 +206,17 @@ describe("deepenHistory tool", () => {
     const ctx = makeCtx();
     const toolDef = createDeepenHistoryTool(ctx);
 
-    const result = await toolDef.handler({ repo: "my-repo", commits: undefined, full: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { repo: "my-repo", commits: undefined, full: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.ok(parsed.message.includes("100"));
     assert.equal(parsed.availableCommits, 200);
 
     // Verify --deepen=100 was called
-    const deepenCall = rawCalls.find(c => c.some(a => a.startsWith("--deepen=")));
+    const deepenCall = rawCalls.find((c) => c.some((a) => a.startsWith("--deepen=")));
     assert.ok(deepenCall);
     assert.ok(deepenCall!.includes("--deepen=100"));
   });
@@ -213,7 +227,7 @@ describe("deepenHistory tool", () => {
       const cmdArgs = args as string[];
       rawCalls.push(cmdArgs);
       if (cmdArgs.includes("--is-shallow-repository")) {
-        const count = rawCalls.filter(c => c.includes("--is-shallow-repository")).length;
+        const count = rawCalls.filter((c) => c.includes("--is-shallow-repository")).length;
         return count <= 1 ? "true\n" : "true\n";
       }
       if (cmdArgs.includes("--count")) return "350\n";
@@ -223,12 +237,15 @@ describe("deepenHistory tool", () => {
     const ctx = makeCtx();
     const toolDef = createDeepenHistoryTool(ctx);
 
-    const result = await toolDef.handler({ repo: "my-repo", commits: 250, full: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { repo: "my-repo", commits: 250, full: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.ok(parsed.message.includes("250"));
 
-    const deepenCall = rawCalls.find(c => c.some(a => a.startsWith("--deepen=")));
+    const deepenCall = rawCalls.find((c) => c.some((a) => a.startsWith("--deepen=")));
     assert.ok(deepenCall);
     assert.ok(deepenCall!.includes("--deepen=250"));
   });
@@ -239,7 +256,7 @@ describe("deepenHistory tool", () => {
       const cmdArgs = args as string[];
       rawCalls.push(cmdArgs);
       if (cmdArgs.includes("--is-shallow-repository")) {
-        const count = rawCalls.filter(c => c.includes("--is-shallow-repository")).length;
+        const count = rawCalls.filter((c) => c.includes("--is-shallow-repository")).length;
         return count <= 1 ? "true\n" : "false\n";
       }
       if (cmdArgs.includes("--count")) return "1000\n";
@@ -249,14 +266,17 @@ describe("deepenHistory tool", () => {
     const ctx = makeCtx();
     const toolDef = createDeepenHistoryTool(ctx);
 
-    const result = await toolDef.handler({ repo: "my-repo", commits: undefined, full: true }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { repo: "my-repo", commits: undefined, full: true },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.ok(parsed.message.includes("unshallowed"));
     assert.equal(parsed.shallow, false);
     assert.equal(parsed.availableCommits, 1000);
 
-    const unshallowCall = rawCalls.find(c => c.includes("--unshallow"));
+    const unshallowCall = rawCalls.find((c) => c.includes("--unshallow"));
     assert.ok(unshallowCall);
   });
 
@@ -271,7 +291,10 @@ describe("deepenHistory tool", () => {
     const ctx = makeCtx();
     const toolDef = createDeepenHistoryTool(ctx);
 
-    await toolDef.handler({ repo: "my-repo", commits: undefined, full: undefined }, { sessionId: "test" });
+    await toolDef.handler(
+      { repo: "my-repo", commits: undefined, full: undefined },
+      { sessionId: "test" },
+    );
 
     assert.equal(mockSetAuthenticatedRemote.mock.callCount(), 1);
   });
@@ -284,7 +307,10 @@ describe("deepenHistory tool", () => {
     const ctx = makeCtx();
     const toolDef = createDeepenHistoryTool(ctx);
 
-    const result = await toolDef.handler({ repo: "my-repo", commits: undefined, full: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { repo: "my-repo", commits: undefined, full: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.ok(parsed.error);
@@ -301,7 +327,10 @@ describe("deepenHistory tool", () => {
     const toolDef = createDeepenHistoryTool(ctx);
 
     // Try to access a repo not in the visible list
-    const result = await toolDef.handler({ repo: "my-repo", commits: undefined, full: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { repo: "my-repo", commits: undefined, full: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.ok(parsed.error);
@@ -320,7 +349,10 @@ describe("deepenHistory tool", () => {
     const ctx = makeCtx();
     const toolDef = createDeepenHistoryTool(ctx);
 
-    const result = await toolDef.handler({ repo: "my-repo", commits: undefined, full: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { repo: "my-repo", commits: undefined, full: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed.availableCommits, 0);

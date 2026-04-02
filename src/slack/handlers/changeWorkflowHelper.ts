@@ -11,7 +11,7 @@ import { isChangesEnabledForTrigger, getChangeEnabledRepos } from "../../changes
  */
 export async function getClaudeOptions(
   userId: string,
-  triggerType: TriggerType
+  triggerType: TriggerType,
 ): Promise<AskClaudeOptions> {
   const config = getConfig();
   const role = await getRole(userId);

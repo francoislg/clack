@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 
 // ---------------------------------------------------------------------------
@@ -87,7 +87,9 @@ function makeIntentStore(): IntentStore {
   };
 }
 
-function makeRecorder(): ToolCallRecorder & { calls: Array<{ tool: string; args: unknown; result: unknown }> } {
+function makeRecorder(): ToolCallRecorder & {
+  calls: Array<{ tool: string; args: unknown; result: unknown }>;
+} {
   const calls: Array<{ tool: string; args: unknown; result: unknown }> = [];
   return {
     calls,
@@ -153,7 +155,10 @@ describe("requestUpdate tool", () => {
     const recorder = makeRecorder();
     const toolDef = createRequestUpdateTool(ctx, store, recorder);
 
-    const result = await toolDef.handler({ instructions: "Add tests for the login module" }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { instructions: "Add tests for the login module" },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.ok(parsed.ref);

@@ -92,7 +92,10 @@ describe("get_session_trace", () => {
     mockGetSession.mock.mockImplementation(async () => null);
 
     const toolDef = createGetSessionTraceTool(makeCtx());
-    const result = await toolDef.handler({ sessionId: "nonexistent", verbose: undefined, source: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { sessionId: "nonexistent", verbose: undefined, source: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.ok(parsed.error.includes("not found"));
@@ -105,7 +108,10 @@ describe("get_session_trace", () => {
     mockGetActiveChange.mock.mockImplementation(() => undefined);
 
     const toolDef = createGetSessionTraceTool(makeCtx());
-    const result = await toolDef.handler({ sessionId: "test-session", verbose: undefined, source: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { sessionId: "test-session", verbose: undefined, source: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.ok(parsed.error.includes("No SDK session ID"));
@@ -130,7 +136,10 @@ describe("get_session_trace", () => {
     mockReadFile.mock.mockImplementation(async () => jsonl);
 
     const toolDef = createGetSessionTraceTool(makeCtx());
-    const result = await toolDef.handler({ sessionId: "test-session", verbose: undefined, source: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { sessionId: "test-session", verbose: undefined, source: undefined },
+      { sessionId: "test" },
+    );
     const parsed = parseResult(result);
 
     assert.equal(parsed.sdkSessionId, "sdk-uuid-123");
@@ -154,7 +163,10 @@ describe("get_session_trace", () => {
     mockReadFile.mock.mockImplementation(async () => jsonl);
 
     const toolDef = createGetSessionTraceTool(makeCtx());
-    const result = await toolDef.handler({ sessionId: "test-session", verbose: undefined, source: "change" }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { sessionId: "test-session", verbose: undefined, source: "change" },
+      { sessionId: "test" },
+    );
     const parsed = parseResult(result);
 
     assert.equal(parsed.sdkSessionId, "change-uuid-456");
@@ -172,7 +184,10 @@ describe("get_session_trace", () => {
     });
 
     const toolDef = createGetSessionTraceTool(makeCtx());
-    const result = await toolDef.handler({ sessionId: "test-session", verbose: undefined, source: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { sessionId: "test-session", verbose: undefined, source: undefined },
+      { sessionId: "test" },
+    );
     const parsed = parseResult(result);
 
     assert.ok(parsed.error.includes("not found"));
@@ -188,13 +203,18 @@ describe("get_session_trace", () => {
     const jsonl = makeJsonlContent([
       {
         type: "assistant",
-        message: { content: [{ type: "tool_use", name: "Grep", input: { pattern: "foo", path: "/bar" } }] },
+        message: {
+          content: [{ type: "tool_use", name: "Grep", input: { pattern: "foo", path: "/bar" } }],
+        },
       },
     ]);
     mockReadFile.mock.mockImplementation(async () => jsonl);
 
     const toolDef = createGetSessionTraceTool(makeCtx());
-    const result = await toolDef.handler({ sessionId: "test-session", verbose: true, source: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { sessionId: "test-session", verbose: true, source: undefined },
+      { sessionId: "test" },
+    );
     const parsed = parseResult(result);
 
     assert.deepEqual(parsed.trace[0].toolArgs, { pattern: "foo", path: "/bar" });
@@ -210,7 +230,10 @@ describe("get_session_trace", () => {
     }));
 
     const toolDef = createGetSessionTraceTool(makeCtx());
-    const result = await toolDef.handler({ sessionId: "test-session", verbose: undefined, source: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { sessionId: "test-session", verbose: undefined, source: undefined },
+      { sessionId: "test" },
+    );
     const parsed = parseResult(result);
 
     assert.ok(parsed.error.includes("change execution trace IS available"));

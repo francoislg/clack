@@ -8,11 +8,19 @@ import type { SessionContext } from "../../sessions.js";
 // Mocks — set up before importing the module under test
 // ============================================================================
 
-const mockGetSession = mock.fn<(sessionId: string) => Promise<SessionContext | null>>(async () => null);
-const mockRestoreSessionInfo = mock.fn<(sessionId: string) => Promise<SessionInfo | undefined>>(async () => undefined);
+const mockGetSession = mock.fn<(sessionId: string) => Promise<SessionContext | null>>(
+  async () => null,
+);
+const mockRestoreSessionInfo = mock.fn<(sessionId: string) => Promise<SessionInfo | undefined>>(
+  async () => undefined,
+);
 const mockPostResponse = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
-const mockGetStructuredResponseBlocks = mock.fn<(...args: unknown[]) => Record<string, unknown>[]>(() => []);
-const mockAsSlackBlocks = mock.fn<(blocks: Record<string, unknown>[]) => unknown[]>((blocks) => blocks);
+const mockGetStructuredResponseBlocks = mock.fn<(...args: unknown[]) => Record<string, unknown>[]>(
+  () => [],
+);
+const mockAsSlackBlocks = mock.fn<(blocks: Record<string, unknown>[]) => unknown[]>(
+  (blocks) => blocks,
+);
 
 mock.module("../../sessions.js", {
   namedExports: {
@@ -187,7 +195,10 @@ describe("registerResendHandler", () => {
   });
 
   it("posts structured response with blocks when lastResponse exists", async () => {
-    const session = makeSession({ lastAnswer: "plain answer", lastResponse: { sections: [], actions: [] } as unknown as SessionContext["lastResponse"] });
+    const session = makeSession({
+      lastAnswer: "plain answer",
+      lastResponse: { sections: [], actions: [] } as unknown as SessionContext["lastResponse"],
+    });
     const sessionInfo = makeSessionInfo();
     mockGetSession.mock.mockImplementation(async () => session);
     mockRestoreSessionInfo.mock.mockImplementation(async () => sessionInfo);
@@ -239,7 +250,10 @@ describe("registerResendHandler", () => {
     });
 
     assert.equal(mockPostResponse.mock.callCount(), 1);
-    const options = mockPostResponse.mock.calls[0].arguments[2] as { blocks?: unknown[]; text: string };
+    const options = mockPostResponse.mock.calls[0].arguments[2] as {
+      blocks?: unknown[];
+      text: string;
+    };
     assert.equal(options.text, "just text");
     assert.equal(options.blocks, undefined);
   });
@@ -249,8 +263,12 @@ describe("registerResendHandler", () => {
     mockRestoreSessionInfo.mock.mockImplementation(async () => undefined);
 
     const callOrder: string[] = [];
-    const mockAck = mock.fn<() => Promise<void>>(async () => { callOrder.push("ack"); });
-    const mockRespond = mock.fn<(...args: unknown[]) => Promise<void>>(async () => { callOrder.push("respond"); });
+    const mockAck = mock.fn<() => Promise<void>>(async () => {
+      callOrder.push("ack");
+    });
+    const mockRespond = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {
+      callOrder.push("respond");
+    });
 
     await capturedHandler({
       ack: mockAck,

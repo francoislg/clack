@@ -117,7 +117,7 @@ export function validateInstructionDirs(): void {
   if (defaultUserFiles.length === 0 && customUserFiles.length === 0) {
     throw new Error(
       "No instruction files found in user/ directory of either data/configuration/ or data/default_configuration/. " +
-      "Ensure the default_configuration/user/ directory is present with at least one .md file."
+        "Ensure the default_configuration/user/ directory is present with at least one .md file.",
     );
   }
 }
@@ -205,7 +205,10 @@ export function listSingleDirFiles(dir: string): InstructionFileEntry[] {
  * Read a specific instruction file from a role directory.
  * Returns both default and custom content for comparison.
  */
-export function readRoleFile(role: string, filename: string): {
+export function readRoleFile(
+  role: string,
+  filename: string,
+): {
   default_content: string | null;
   custom_content: string | null;
 } {

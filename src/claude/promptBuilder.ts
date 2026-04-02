@@ -39,18 +39,22 @@ function formatSpeaker(msg: { userId: string; username?: string; displayName?: s
 
 function formatThreadContext(messages: SessionContext["threadContext"]): string {
   if (messages.length === 0) return "";
-  return messages.map((msg) => {
-    let line = `${formatSpeaker(msg)}: ${msg.text}`;
-    if (msg.imageFiles?.length) {
-      const tags = msg.imageFiles.map((f) => `${f.name} (file_id: ${f.id})`).join(", ");
-      line += `\n[attached images: ${tags}]`;
-    }
-    if (msg.files?.length) {
-      const tags = msg.files.map((f) => `${f.name} (file_id: ${f.id}, type: ${f.mimetype})`).join(", ");
-      line += `\n[attached files: ${tags}]`;
-    }
-    return line;
-  }).join("\n\n");
+  return messages
+    .map((msg) => {
+      let line = `${formatSpeaker(msg)}: ${msg.text}`;
+      if (msg.imageFiles?.length) {
+        const tags = msg.imageFiles.map((f) => `${f.name} (file_id: ${f.id})`).join(", ");
+        line += `\n[attached images: ${tags}]`;
+      }
+      if (msg.files?.length) {
+        const tags = msg.files
+          .map((f) => `${f.name} (file_id: ${f.id}, type: ${f.mimetype})`)
+          .join(", ");
+        line += `\n[attached files: ${tags}]`;
+      }
+      return line;
+    })
+    .join("\n\n");
 }
 
 function buildDeliveryContext(session: SessionContext): string | null {
@@ -62,46 +66,86 @@ function buildDeliveryContext(session: SessionContext): string | null {
   if (session.dmChannel && session.originChannel) {
     lines.push("- Mode: DM-first (reaction triggered, answer delivered via direct message)");
     lines.push("- The user sees your response in a private DM thread. They can reply to refine.");
-    lines.push("- The response is NOT visible in the original channel — only the user can see it in this DM.");
+    lines.push(
+      "- The response is NOT visible in the original channel — only the user can see it in this DM.",
+    );
     if (session.channelPostTs) {
       lines.push("- An answer was already shared to the original channel thread.");
     }
-    lines.push("- `post_to` shares this DM answer to the original channel thread the reaction was on. `reject` dismisses.");
-    lines.push("- You can also include `post_to` with explicit `channel` and `thread_ts` to share findings to a different thread (e.g., one the user shared via a Slack URL).");
-    lines.push("- If the user asks to share/post to the channel (not the thread), use `post_to` with `auto: true` and no `thread_ts` — this posts as a top-level channel message.");
-    lines.push("- Choose actions appropriate to your response. If your answer investigates or summarizes the thread content, include `post_to` so the user can share the findings back.");
+    lines.push(
+      "- `post_to` shares this DM answer to the original channel thread the reaction was on. `reject` dismisses.",
+    );
+    lines.push(
+      "- You can also include `post_to` with explicit `channel` and `thread_ts` to share findings to a different thread (e.g., one the user shared via a Slack URL).",
+    );
+    lines.push(
+      "- If the user asks to share/post to the channel (not the thread), use `post_to` with `auto: true` and no `thread_ts` — this posts as a top-level channel message.",
+    );
+    lines.push(
+      "- Choose actions appropriate to your response. If your answer investigates or summarizes the thread content, include `post_to` so the user can share the findings back.",
+    );
   } else if (session.assistantOriginChannelId && !session.originChannel) {
     // Assistant side-panel: private chat panel, can share to channel
     lines.push("- Mode: Assistant side-panel");
-    lines.push("- You are in the Slack assistant side-panel. The user sees your response in a private panel on the RIGHT side of their screen. On the LEFT side, they see a Slack channel.");
+    lines.push(
+      "- You are in the Slack assistant side-panel. The user sees your response in a private panel on the RIGHT side of their screen. On the LEFT side, they see a Slack channel.",
+    );
     lines.push("- The response is NOT visible in any channel — only the user can see it.");
     if (session.assistantCurrentChannelId) {
-      lines.push(`- The user is currently viewing channel ${session.assistantCurrentChannelId}. When they say "here", "this channel", "latest messages", "what's being discussed", "summarize", "what do you see", etc., they are referring to that channel.`);
-      lines.push(`- IMPORTANT: You CANNOT see the channel content unless you call \`fetch_channel_messages\` with channel ID ${session.assistantCurrentChannelId}. Always call it proactively when the user's question relates to the channel — do NOT tell the user to ask you to fetch it.`);
+      lines.push(
+        `- The user is currently viewing channel ${session.assistantCurrentChannelId}. When they say "here", "this channel", "latest messages", "what's being discussed", "summarize", "what do you see", etc., they are referring to that channel.`,
+      );
+      lines.push(
+        `- IMPORTANT: You CANNOT see the channel content unless you call \`fetch_channel_messages\` with channel ID ${session.assistantCurrentChannelId}. Always call it proactively when the user's question relates to the channel — do NOT tell the user to ask you to fetch it.`,
+      );
     }
-    lines.push("- `post_to` shares this answer to the channel the user is viewing, as a top-level message.");
-    lines.push("- You can also include `post_to` with explicit `channel` and `thread_ts` to share findings to a specific thread (e.g., one the user shared via a Slack URL).");
-    lines.push("- If the user asks to post in the channel, use `post_to` with `auto: true` — this posts immediately without a button click.");
-    lines.push("- Choose actions appropriate to your response. If your answer investigates or summarizes content from a channel or thread, include `post_to` so the user can share the findings back.");
+    lines.push(
+      "- `post_to` shares this answer to the channel the user is viewing, as a top-level message.",
+    );
+    lines.push(
+      "- You can also include `post_to` with explicit `channel` and `thread_ts` to share findings to a specific thread (e.g., one the user shared via a Slack URL).",
+    );
+    lines.push(
+      "- If the user asks to post in the channel, use `post_to` with `auto: true` — this posts immediately without a button click.",
+    );
+    lines.push(
+      "- Choose actions appropriate to your response. If your answer investigates or summarizes content from a channel or thread, include `post_to` so the user can share the findings back.",
+    );
   } else if (session.triggerType === "scheduled") {
     // Scheduled: cron-triggered, response posted as top-level channel message
     lines.push("- Mode: Scheduled message (this is an automated cron-triggered execution)");
-    lines.push("- Your response is posted as a top-level message in the target channel via submit_response.");
-    lines.push("- Do NOT include `post_to` for the target channel — submit_response already posts there top-level.");
+    lines.push(
+      "- Your response is posted as a top-level message in the target channel via submit_response.",
+    );
+    lines.push(
+      "- Do NOT include `post_to` for the target channel — submit_response already posts there top-level.",
+    );
     lines.push("- Do NOT include `accept` or `reject` actions — they have no meaning here.");
-    lines.push("- You MAY include `post_to` ONLY if you need to post to a DIFFERENT channel or thread than the target.");
+    lines.push(
+      "- You MAY include `post_to` ONLY if you need to post to a DIFFERENT channel or thread than the target.",
+    );
   } else if (session.triggerType === "autoRespond" || session.triggerType === "threadReply") {
     // Auto-respond / thread reply: automatically triggered response
     if (session.triggerType === "autoRespond") {
-      lines.push("- Mode: Auto-respond (you have been automatically tasked to respond to this message)");
-      lines.push("- Read the message carefully. It might be an alert to investigate, a question to answer, a notification to analyze, or something else entirely.");
-      lines.push("- By default, your response is posted as a thread reply on the triggering message.");
-      lines.push("- You can use `post_to` with `auto: true` to post a top-level channel message instead of (or in addition to) the thread reply.");
+      lines.push(
+        "- Mode: Auto-respond (you have been automatically tasked to respond to this message)",
+      );
+      lines.push(
+        "- Read the message carefully. It might be an alert to investigate, a question to answer, a notification to analyze, or something else entirely.",
+      );
+      lines.push(
+        "- By default, your response is posted as a thread reply on the triggering message.",
+      );
+      lines.push(
+        "- You can use `post_to` with `auto: true` to post a top-level channel message instead of (or in addition to) the thread reply.",
+      );
     } else {
       lines.push("- Mode: Thread reply (you are continuing a conversation in a thread)");
     }
     lines.push("- Do NOT include `accept` or `reject` actions — they have no meaning here.");
-    lines.push("- If the users are talking to each other and not following up on what you said, or if the conversation has moved on and you have nothing useful to add, you can use `skip_response` to decline answering silently.");
+    lines.push(
+      "- If the users are talking to each other and not following up on what you said, or if the conversation has moved on and you have nothing useful to add, you can use `skip_response` to decline answering silently.",
+    );
   } else {
     // All non-DM-first modes: response is already where the user can see it
     if (session.triggerType === "reactions") {
@@ -111,11 +155,19 @@ function buildDeliveryContext(session: SessionContext): string | null {
     } else if (session.triggerType === "mentions") {
       lines.push("- Mode: Channel mention (the user @mentioned you in a channel)");
     }
-    lines.push("- The response is already visible to the user. There is no separate destination to send it to.");
+    lines.push(
+      "- The response is already visible to the user. There is no separate destination to send it to.",
+    );
     lines.push("- Do NOT include `accept` or `reject` actions — they have no meaning here.");
-    lines.push("- By default, do NOT include `post_to` — the answer is already visible in the thread.");
-    lines.push("- Exception: if you investigated content from another thread or channel (e.g., the user shared a Slack message URL), include `post_to` with explicit `channel` and `thread_ts` so the user can share findings back to that thread.");
-    lines.push("- If the user asks to post \"in the channel\", include `post_to` with `auto: true` and no `thread_ts` — this posts the content as a top-level message in the parent channel.");
+    lines.push(
+      "- By default, do NOT include `post_to` — the answer is already visible in the thread.",
+    );
+    lines.push(
+      "- Exception: if you investigated content from another thread or channel (e.g., the user shared a Slack message URL), include `post_to` with explicit `channel` and `thread_ts` so the user can share findings back to that thread.",
+    );
+    lines.push(
+      '- If the user asks to post "in the channel", include `post_to` with `auto: true` and no `thread_ts` — this posts the content as a top-level message in the parent channel.',
+    );
   }
 
   if (session.additionalSystemPrompt) {
@@ -173,14 +225,20 @@ Use this context to understand the conversation flow and provide relevant answer
   }
 
   // GitHub MCP hint — Claude can use it for PR operations on any PR
-  parts.push("GITHUB ACCESS: You have access to GitHub via MCP. You can merge, close, comment on, or review any PR — not just ones from active changes. Use GitHub MCP tools when the user asks about PR operations.");
+  parts.push(
+    "GITHUB ACCESS: You have access to GitHub via MCP. You can merge, close, comment on, or review any PR — not just ones from active changes. Use GitHub MCP tools when the user asks about PR operations.",
+  );
 
   // Work mode hint — advisory only, does NOT change available tools
   if (options?.workMode) {
     if (session.activeChange) {
-      parts.push(`WORK MODE: The user explicitly requested this as a work task. Since there is an active change in this thread, use request_update with auto: true on the update action in submit_response. If you cannot determine what change to make, ask for clarification via submit_response.`);
+      parts.push(
+        `WORK MODE: The user explicitly requested this as a work task. Since there is an active change in this thread, use request_update with auto: true on the update action in submit_response. If you cannot determine what change to make, ask for clarification via submit_response.`,
+      );
     } else {
-      parts.push(`WORK MODE: The user explicitly requested this as a work task (not a question). Propose a code change using propose_change and set auto: true on the change action in submit_response. If you cannot determine what change to make, ask for clarification via submit_response.`);
+      parts.push(
+        `WORK MODE: The user explicitly requested this as a work task (not a question). Propose a code change using propose_change and set auto: true on the change action in submit_response. If you cannot determine what change to make, ask for clarification via submit_response.`,
+      );
     }
   }
 
@@ -189,7 +247,9 @@ Use this context to understand the conversation flow and provide relevant answer
   const tzParts = [`CURRENT DATE: ${now.toISOString().slice(0, 10)} (${now.toISOString()})`];
   if (options?.userTimezone) {
     tzParts.push(`USER TIMEZONE: ${options.userTimezone}`);
-    tzParts.push("When the user mentions relative times (e.g., \"tomorrow at 3pm\", \"in 2 hours\", \"next Monday at 9am\"), convert them to UTC using this timezone.");
+    tzParts.push(
+      'When the user mentions relative times (e.g., "tomorrow at 3pm", "in 2 hours", "next Monday at 9am"), convert them to UTC using this timezone.',
+    );
   }
   parts.push(tzParts.join("\n"));
 
@@ -210,7 +270,9 @@ Use this context to understand the conversation flow and provide relevant answer
     }
     if (hasFiles) {
       for (const [fileId, file] of options!.availableFiles!) {
-        lines.push(`- [file] ${file.name} (file_id: ${fileId}, type: ${file.mimetype}) → use view_slack_file`);
+        lines.push(
+          `- [file] ${file.name} (file_id: ${fileId}, type: ${file.mimetype}) → use view_slack_file`,
+        );
       }
     }
     parts.push(lines.join("\n"));

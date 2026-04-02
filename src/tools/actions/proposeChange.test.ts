@@ -102,7 +102,9 @@ function makeIntentStore(): IntentStore {
   };
 }
 
-function makeRecorder(): ToolCallRecorder & { calls: Array<{ tool: string; args: unknown; result: unknown }> } {
+function makeRecorder(): ToolCallRecorder & {
+  calls: Array<{ tool: string; args: unknown; result: unknown }>;
+} {
   const calls: Array<{ tool: string; args: unknown; result: unknown }> = [];
   return {
     calls,
@@ -142,11 +144,14 @@ describe("proposeChange tool", () => {
     const recorder = makeRecorder();
     const toolDef = createProposeChangeTool(ctx, store, recorder);
 
-    const result = await toolDef.handler({
-      branch: "bad-branch-name",
-      description: "fix a bug",
-      repo: "my-repo",
-    }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      {
+        branch: "bad-branch-name",
+        description: "fix a bug",
+        repo: "my-repo",
+      },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.ok(parsed.error);
@@ -161,11 +166,14 @@ describe("proposeChange tool", () => {
     const recorder = makeRecorder();
     const toolDef = createProposeChangeTool(ctx, store, recorder);
 
-    const result = await toolDef.handler({
-      branch: "clack/bugfix/my-change",
-      description: "fix a bug",
-      repo: "my-repo",
-    }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      {
+        branch: "clack/bugfix/my-change",
+        description: "fix a bug",
+        repo: "my-repo",
+      },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.ok(parsed.error.includes("Invalid branch name"));
@@ -178,11 +186,14 @@ describe("proposeChange tool", () => {
     const recorder = makeRecorder();
     const toolDef = createProposeChangeTool(ctx, store, recorder);
 
-    const result = await toolDef.handler({
-      branch: "clack/fix/my-change",
-      description: "fix something",
-      repo: "nonexistent-repo",
-    }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      {
+        branch: "clack/fix/my-change",
+        description: "fix something",
+        repo: "nonexistent-repo",
+      },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.ok(parsed.error.includes("not found"));
@@ -199,11 +210,14 @@ describe("proposeChange tool", () => {
     const recorder = makeRecorder();
     const toolDef = createProposeChangeTool(ctx, store, recorder);
 
-    const result = await toolDef.handler({
-      branch: "clack/fix/my-change",
-      description: "fix something",
-      repo: "my-repo",
-    }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      {
+        branch: "clack/fix/my-change",
+        description: "fix something",
+        repo: "my-repo",
+      },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.ok(parsed.error.includes("write access"));
@@ -220,11 +234,14 @@ describe("proposeChange tool", () => {
     const recorder = makeRecorder();
     const toolDef = createProposeChangeTool(ctx, store, recorder);
 
-    const result = await toolDef.handler({
-      branch: "clack/fix/my-change",
-      description: "fix something",
-      repo: "my-repo",
-    }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      {
+        branch: "clack/fix/my-change",
+        description: "fix something",
+        repo: "my-repo",
+      },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.ok(parsed.error.includes("other-repo"));
@@ -236,11 +253,14 @@ describe("proposeChange tool", () => {
     const recorder = makeRecorder();
     const toolDef = createProposeChangeTool(ctx, store, recorder);
 
-    const result = await toolDef.handler({
-      branch: "clack/feat/add-login",
-      description: "Add login feature",
-      repo: "my-repo",
-    }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      {
+        branch: "clack/feat/add-login",
+        description: "Add login feature",
+        repo: "my-repo",
+      },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.ok(parsed.ref);
@@ -273,11 +293,14 @@ describe("proposeChange tool", () => {
     const recorder = makeRecorder();
     const toolDef = createProposeChangeTool(ctx, store, recorder);
 
-    const result = await toolDef.handler({
-      branch: "clack/fix/existing",
-      description: "Fix something",
-      repo: "my-repo",
-    }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      {
+        branch: "clack/fix/existing",
+        description: "Fix something",
+        repo: "my-repo",
+      },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.ok(parsed.existingWorktree);
@@ -300,11 +323,14 @@ describe("proposeChange tool", () => {
     const recorder = makeRecorder();
     const toolDef = createProposeChangeTool(ctx, store, recorder);
 
-    const result = await toolDef.handler({
-      branch: "clack/fix/old",
-      description: "Old fix",
-      repo: "my-repo",
-    }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      {
+        branch: "clack/fix/old",
+        description: "Old fix",
+        repo: "my-repo",
+      },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.ok(parsed.existingWorktree);
@@ -318,11 +344,14 @@ describe("proposeChange tool", () => {
     const recorder = makeRecorder();
     const toolDef = createProposeChangeTool(ctx, store, recorder);
 
-    await toolDef.handler({
-      branch: "clack/docs/readme",
-      description: "Update readme",
-      repo: "my-repo",
-    }, { sessionId: "test" });
+    await toolDef.handler(
+      {
+        branch: "clack/docs/readme",
+        description: "Update readme",
+        repo: "my-repo",
+      },
+      { sessionId: "test" },
+    );
 
     assert.equal(recorder.calls.length, 1);
     assert.equal(recorder.calls[0].tool, "propose_change");
@@ -338,11 +367,14 @@ describe("proposeChange tool", () => {
       const recorder = makeRecorder();
       const toolDef = createProposeChangeTool(ctx, store, recorder);
 
-      const result = await toolDef.handler({
-        branch: `clack/${type}/test-branch`,
-        description: `A ${type} change`,
-        repo: "my-repo",
-      }, { sessionId: "test" });
+      const result = await toolDef.handler(
+        {
+          branch: `clack/${type}/test-branch`,
+          description: `A ${type} change`,
+          repo: "my-repo",
+        },
+        { sessionId: "test" },
+      );
 
       const parsed = parseResult(result);
       assert.ok(parsed.ref, `Expected ref for branch type "${type}"`);

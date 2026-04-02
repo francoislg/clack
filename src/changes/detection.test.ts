@@ -1,6 +1,10 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { isChangesEnabledForTrigger, findChangeEnabledRepo, getChangeEnabledRepos } from "./detection.js";
+import {
+  isChangesEnabledForTrigger,
+  findChangeEnabledRepo,
+  getChangeEnabledRepos,
+} from "./detection.js";
 import { findRepoByName } from "../config.js";
 import type { Config, RepositoryConfig } from "../config.js";
 
@@ -97,7 +101,11 @@ describe("getChangeEnabledRepos", () => {
   it("returns name and description of writable repos", () => {
     const config = makeConfig({
       repositories: [
-        makeRepo({ name: "repo-a", description: "First repo", access: { read: "member", write: "dev" } }),
+        makeRepo({
+          name: "repo-a",
+          description: "First repo",
+          access: { read: "member", write: "dev" },
+        }),
         makeRepo({ name: "repo-b", description: "Second repo", access: { read: "member" } }),
       ],
     });
@@ -133,10 +141,7 @@ describe("getChangeEnabledRepos", () => {
 
 describe("findRepoByName", () => {
   const config = makeConfig({
-    repositories: [
-      makeRepo({ name: "My-Repo" }),
-      makeRepo({ name: "other-repo" }),
-    ],
+    repositories: [makeRepo({ name: "My-Repo" }), makeRepo({ name: "other-repo" })],
   });
 
   it("finds repo by exact name", () => {

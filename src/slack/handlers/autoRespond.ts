@@ -46,11 +46,17 @@ async function resolveAutoRespondContext(
       logger.info(`Thread auto-respond: no session for thread ${channelId}:${threadTs}`);
       return null;
     }
-    logger.info(`Thread auto-respond: found session ${session.sessionId} for thread ${channelId}:${threadTs}`);
+    logger.info(
+      `Thread auto-respond: found session ${session.sessionId} for thread ${channelId}:${threadTs}`,
+    );
 
     if (session.activeChange?.status === "pr_created") {
       const text = rawText?.trim() ?? "";
-      if (/^(merge|ship it|lgtm|looks good|close|abandon|cancel|review|check comments|address feedback|approve)$/i.test(text)) {
+      if (
+        /^(merge|ship it|lgtm|looks good|close|abandon|cancel|review|check comments|address feedback|approve)$/i.test(
+          text,
+        )
+      ) {
         return null;
       }
     }
@@ -88,8 +94,15 @@ async function resolveAutoRespondContext(
     }
 
     const sharedContext = loadPreAnalysisContext();
-    const shouldRespond = await runPreAnalysis(textForAnalysis, rule.preAnalysisContext, sharedContext || undefined, recentMessages);
-    logger.debug(`Pre-analysis: channel=${channelId}, rule=${rule.id}, verdict=${shouldRespond ? "yes" : "no"}`);
+    const shouldRespond = await runPreAnalysis(
+      textForAnalysis,
+      rule.preAnalysisContext,
+      sharedContext || undefined,
+      recentMessages,
+    );
+    logger.debug(
+      `Pre-analysis: channel=${channelId}, rule=${rule.id}, verdict=${shouldRespond ? "yes" : "no"}`,
+    );
     if (!shouldRespond) return null;
   }
 
@@ -122,7 +135,8 @@ export function registerAutoRespondHandler(app: App): void {
     const messageUser = "user" in event ? (event.user as string | undefined) : undefined;
     if (messageUser === botUserId) return;
 
-    const messageBotId = "bot_id" in event ? (event as unknown as { bot_id: string }).bot_id : undefined;
+    const messageBotId =
+      "bot_id" in event ? (event as unknown as { bot_id: string }).bot_id : undefined;
     if (messageBotId && messageBotId === botId) return;
 
     // Skip @mentions — handled by mention handler
@@ -133,7 +147,14 @@ export function registerAutoRespondHandler(app: App): void {
     const threadTs = "thread_ts" in event ? (event.thread_ts as string | undefined) : undefined;
 
     const context = await resolveAutoRespondContext(
-      event.channel, event.ts, messageUser, messageBotId, rawText, threadTs, config, client,
+      event.channel,
+      event.ts,
+      messageUser,
+      messageBotId,
+      rawText,
+      threadTs,
+      config,
+      client,
     );
     if (!context) return;
 
@@ -163,7 +184,9 @@ async function respond(
   const rawText = "text" in event ? (event as unknown as { text?: string }).text : undefined;
   const messageText = rawText?.trim() || "Respond to this message";
 
-  logger.info(`Auto-respond triggered: channel=${event.channel}, trigger=${context.triggerType}, author=${context.userId}`);
+  logger.info(
+    `Auto-respond triggered: channel=${event.channel}, trigger=${context.triggerType}, author=${context.userId}`,
+  );
 
   const attachments = extractAttachments(
     "files" in event ? (event as unknown as { files?: unknown[] }).files : undefined,
@@ -182,6 +205,9 @@ async function respond(
       ...attachments,
     });
   } catch (error) {
-    logger.error(`Auto-respond failed: channel=${event.channel}, trigger=${context.triggerType}`, error);
+    logger.error(
+      `Auto-respond failed: channel=${event.channel}, trigger=${context.triggerType}`,
+      error,
+    );
   }
 }

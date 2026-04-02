@@ -8,7 +8,9 @@ import type { InFlightRequest } from "../inFlightRequests.js";
 // ============================================================================
 
 const mockProcessMessage = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
-const mockGetInFlightRequest = mock.fn<(channelId: string, messageTs: string) => InFlightRequest | undefined>(() => undefined);
+const mockGetInFlightRequest = mock.fn<
+  (channelId: string, messageTs: string) => InFlightRequest | undefined
+>(() => undefined);
 const mockDeregisterInFlightRequest = mock.fn<(channelId: string, messageTs: string) => void>();
 
 mock.module("./core.js", {
@@ -69,9 +71,7 @@ function makeClient(botUserId = "B001"): App["client"] {
   } as unknown as App["client"];
 }
 
-function makeInFlightRequest(
-  overrides: Partial<InFlightRequest> = {},
-): InFlightRequest {
+function makeInFlightRequest(overrides: Partial<InFlightRequest> = {}): InFlightRequest {
   return {
     abortController: new AbortController(),
     sessionId: "session-1",

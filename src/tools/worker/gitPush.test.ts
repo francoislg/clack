@@ -17,8 +17,7 @@ mock.module("../../changes/persistence.js", {
 
 mock.module("../../errors.js", {
   namedExports: {
-    errorMessage: (err: unknown) =>
-      err instanceof Error ? err.message : String(err),
+    errorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
   },
 });
 
@@ -69,7 +68,7 @@ function resetMocks() {
   mockPush.mock.resetCalls();
 
   mockGetAuthenticatedCloneUrl.mock.mockImplementation(
-    async () => "https://x-access-token:tok@github.com/org/my-repo.git"
+    async () => "https://x-access-token:tok@github.com/org/my-repo.git",
   );
   mockRemote.mock.mockImplementation(async () => "");
   mockPush.mock.mockImplementation(async () => "");

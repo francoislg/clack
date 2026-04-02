@@ -7,7 +7,9 @@ import { fetchThreadContext } from "../../slack/messagesApi.js";
 const SLACK_URL_PATTERN = /^https:\/\/[^/]+\.slack\.com\/archives\/([A-Z0-9]+)\/p(\d+)$/;
 const MAX_FETCH = 200;
 
-function parseSlackMessageUrl(url: string): { channelId: string; messageTs: string; threadTs?: string } | null {
+function parseSlackMessageUrl(
+  url: string,
+): { channelId: string; messageTs: string; threadTs?: string } | null {
   let urlObj: URL;
   try {
     urlObj = new URL(url);
@@ -33,7 +35,11 @@ export function createFetchSlackMessageTool(ctx: QueryToolContext) {
     "fetch_slack_message",
     "Fetch a Slack message and its thread context from a URL, with pagination support. Returns the first 5 messages by default; use page/limit to load more.",
     {
-      url: z.string().describe("Slack message URL (e.g. https://workspace.slack.com/archives/C123/p1234567890123456)"),
+      url: z
+        .string()
+        .describe(
+          "Slack message URL (e.g. https://workspace.slack.com/archives/C123/p1234567890123456)",
+        ),
       page: z.number().optional().describe("Page number, 0-indexed (default: 0)"),
       limit: z.number().optional().describe("Messages per page (default: 5)"),
     },
@@ -94,10 +100,14 @@ export function createFetchSlackMessageTool(ctx: QueryToolContext) {
           text: m.text,
           ts: m.ts,
           is_bot: m.isBot,
-          ...(m.imageFiles?.length && { images: m.imageFiles.map((f) => ({ file_id: f.id, name: f.name })) }),
-          ...(m.files?.length && { files: m.files.map((f) => ({ file_id: f.id, name: f.name, type: f.mimetype })) }),
+          ...(m.imageFiles?.length && {
+            images: m.imageFiles.map((f) => ({ file_id: f.id, name: f.name })),
+          }),
+          ...(m.files?.length && {
+            files: m.files.map((f) => ({ file_id: f.id, name: f.name, type: f.mimetype })),
+          }),
         })),
       });
-    }
+    },
   );
 }

@@ -51,24 +51,24 @@ export function createViewSlackImageTool(ctx: QueryToolContext) {
     "view_slack_image",
     "View an image uploaded in Slack. Returns the image content for visual analysis. Use this when the prompt mentions attached images or when a fetched message contains images.",
     {
-      file_id: z.string().describe("The Slack file ID from the ATTACHED IMAGES section or from a fetched message's images array"),
+      file_id: z
+        .string()
+        .describe(
+          "The Slack file ID from the ATTACHED IMAGES section or from a fetched message's images array",
+        ),
     },
     async (args) => {
       const imageFile = availableImages.get(args.file_id);
       if (!imageFile) {
         const available = [...availableImages.keys()].join(", ");
-        return errorResult(
-          `Unknown file_id "${args.file_id}". Available: ${available}`,
-        );
+        return errorResult(`Unknown file_id "${args.file_id}". Available: ${available}`);
       }
 
       // Check cache first
       const cached = await readCachedFileBase64(args.file_id);
       if (cached) {
         return {
-          content: [
-            { type: "image" as const, data: cached.data, mimeType: cached.mimeType },
-          ],
+          content: [{ type: "image" as const, data: cached.data, mimeType: cached.mimeType }],
         };
       }
 
@@ -85,13 +85,13 @@ export function createViewSlackImageTool(ctx: QueryToolContext) {
         const base64 = buffer.toString("base64");
 
         return {
-          content: [
-            { type: "image" as const, data: base64, mimeType: imageFile.mimetype },
-          ],
+          content: [{ type: "image" as const, data: base64, mimeType: imageFile.mimetype }],
         };
       } catch (error) {
         logger.error("Failed to download Slack image:", error);
-        return errorResult(`Failed to download image from Slack: ${error instanceof Error ? error.message : "unknown error"}`);
+        return errorResult(
+          `Failed to download image from Slack: ${error instanceof Error ? error.message : "unknown error"}`,
+        );
       }
     },
   );

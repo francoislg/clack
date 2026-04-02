@@ -22,11 +22,13 @@ mock.module("child_process", {
   },
 });
 
-const mockGetInstallationToken = mock.fn<() => Promise<{
-  token: string;
-  permissions: Record<string, string>;
-  expiresAt: Date;
-}>>();
+const mockGetInstallationToken = mock.fn<
+  () => Promise<{
+    token: string;
+    permissions: Record<string, string>;
+    expiresAt: Date;
+  }>
+>();
 
 mock.module("./github.js", {
   namedExports: {
@@ -46,12 +48,8 @@ mock.module("./logger.js", {
 });
 
 // Import after mocks are registered
-const {
-  mapPermissionsToToolsets,
-  loadMcpServers,
-  getConfiguredMcpServerNames,
-  resetMcpCache,
-} = await import("./mcp.js");
+const { mapPermissionsToToolsets, loadMcpServers, getConfiguredMcpServerNames, resetMcpCache } =
+  await import("./mcp.js");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -274,10 +272,9 @@ describe("loadMcpServers", () => {
     assert.ok("remote" in result);
     assert.equal(result.remote.type, "sse");
     assert.equal((result.remote as { url: string }).url, "https://example.com/mcp");
-    assert.deepEqual(
-      (result.remote as { headers: Record<string, string> }).headers,
-      { Authorization: "Bearer token123" },
-    );
+    assert.deepEqual((result.remote as { headers: Record<string, string> }).headers, {
+      Authorization: "Bearer token123",
+    });
   });
 
   it("parses an HTTP server from mcp.json", async () => {
@@ -293,9 +290,7 @@ describe("loadMcpServers", () => {
 
   it("returns undefined when mcpServers is empty", async () => {
     setExistingPaths([mcpConfigPath()]);
-    mockReadFileSync.mock.mockImplementation(() =>
-      JSON.stringify({ mcpServers: {} }),
-    );
+    mockReadFileSync.mock.mockImplementation(() => JSON.stringify({ mcpServers: {} }));
 
     const result = await loadMcpServers();
     assert.equal(result, undefined);
@@ -387,10 +382,7 @@ describe("loadMcpServers GitHub auto-injection", () => {
     const result = await loadMcpServers();
     assert.ok(result);
     // Should keep the manual config, not override it
-    assert.equal(
-      (result.github as { command: string }).command,
-      "custom-github-mcp",
-    );
+    assert.equal((result.github as { command: string }).command, "custom-github-mcp");
   });
 
   it("skips auto-injection when binary is not available", async () => {

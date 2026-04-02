@@ -40,10 +40,13 @@ describe("createCancelReminderTool", () => {
     const ctx = makeContext({ slackClient: client });
     const tool = createCancelReminderTool(ctx);
 
-    const result = await tool.handler({
-      channel: "C_OPS",
-      scheduled_message_id: "Q123",
-    }, {});
+    const result = await tool.handler(
+      {
+        channel: "C_OPS",
+        scheduled_message_id: "Q123",
+      },
+      {},
+    );
     const parsed = JSON.parse(result.content[0].text);
 
     assert.equal(parsed.ok, true);
@@ -52,17 +55,22 @@ describe("createCancelReminderTool", () => {
   });
 
   it("returns error for invalid_scheduled_message_id", async () => {
-    const deleteMsg = mock.fn(async () => { throw new Error("invalid_scheduled_message_id"); });
+    const deleteMsg = mock.fn(async () => {
+      throw new Error("invalid_scheduled_message_id");
+    });
     const client = {
       chat: { deleteScheduledMessage: deleteMsg },
     } as unknown as QueryToolContext["slackClient"];
     const ctx = makeContext({ slackClient: client });
     const tool = createCancelReminderTool(ctx);
 
-    const result = await tool.handler({
-      channel: "C_OPS",
-      scheduled_message_id: "Q_INVALID",
-    }, {});
+    const result = await tool.handler(
+      {
+        channel: "C_OPS",
+        scheduled_message_id: "Q_INVALID",
+      },
+      {},
+    );
     const parsed = JSON.parse(result.content[0].text);
 
     assert.ok(parsed.error);
@@ -73,10 +81,13 @@ describe("createCancelReminderTool", () => {
     const ctx = makeContext();
     const tool = createCancelReminderTool(ctx);
 
-    const result = await tool.handler({
-      channel: "C_OPS",
-      scheduled_message_id: "Q123",
-    }, {});
+    const result = await tool.handler(
+      {
+        channel: "C_OPS",
+        scheduled_message_id: "Q123",
+      },
+      {},
+    );
     const parsed = JSON.parse(result.content[0].text);
 
     assert.ok(parsed.error);

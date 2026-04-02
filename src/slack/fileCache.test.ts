@@ -3,13 +3,31 @@ import assert from "node:assert/strict";
 import { rmSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { getDataDir } from "../config.js";
-import { getCachedFile, cacheFile, readCachedFileBase64, readCachedFileBuffer } from "./fileCache.js";
+import {
+  getCachedFile,
+  cacheFile,
+  readCachedFileBase64,
+  readCachedFileBuffer,
+} from "./fileCache.js";
 
 const TEST_FILE_ID = "__test_file_cache__";
 
 function cleanupTestFiles() {
   const cacheDir = resolve(getDataDir(), "cache/files");
-  for (const ext of [".png", ".jpg", ".gif", ".webp", ".pdf", ".json", ".txt", ".csv", ".html", ".md", ".bin", ".meta.json"]) {
+  for (const ext of [
+    ".png",
+    ".jpg",
+    ".gif",
+    ".webp",
+    ".pdf",
+    ".json",
+    ".txt",
+    ".csv",
+    ".html",
+    ".md",
+    ".bin",
+    ".meta.json",
+  ]) {
     const p = resolve(cacheDir, `${TEST_FILE_ID}${ext}`);
     if (existsSync(p)) rmSync(p);
   }

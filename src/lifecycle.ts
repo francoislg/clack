@@ -4,7 +4,12 @@ import { config as dotenvConfig } from "dotenv";
 import { loadConfig, getConfig } from "./config.js";
 import { loadGitHubCredentials, clearGitHubTokenCache } from "./github.js";
 import { logger } from "./logger.js";
-import { initializeRepositories, syncAllRepositories, startSyncScheduler, stopSyncScheduler } from "./repositories.js";
+import {
+  initializeRepositories,
+  syncAllRepositories,
+  startSyncScheduler,
+  stopSyncScheduler,
+} from "./repositories.js";
 import { startCleanupScheduler, stopCleanupScheduler } from "./sessions.js";
 import { getSlackClient } from "./slack/app.js";
 import { ensureWorktreeDirectories } from "./worktrees.js";
@@ -140,14 +145,18 @@ export async function restartAll(): Promise<RestartSummary> {
     try {
       loadGitHubCredentials();
     } catch (error) {
-      warnings.push(`GitHub credentials reload failed: ${error instanceof Error ? error.message : String(error)}`);
+      warnings.push(
+        `GitHub credentials reload failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
 
     // Step 6: Validate instruction files
     try {
       validateInstructionFiles();
     } catch (error) {
-      warnings.push(`Instruction file validation failed: ${error instanceof Error ? error.message : String(error)}`);
+      warnings.push(
+        `Instruction file validation failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
 
     // Step 7: Initialize and sync repositories
@@ -155,7 +164,9 @@ export async function restartAll(): Promise<RestartSummary> {
       await initializeRepositories();
       await syncAllRepositories();
     } catch (error) {
-      warnings.push(`Repository sync failed: ${error instanceof Error ? error.message : String(error)}`);
+      warnings.push(
+        `Repository sync failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
 
     // Step 8: Ensure worktree directories
@@ -163,7 +174,9 @@ export async function restartAll(): Promise<RestartSummary> {
       try {
         ensureWorktreeDirectories();
       } catch (error) {
-        warnings.push(`Worktree directory setup failed: ${error instanceof Error ? error.message : String(error)}`);
+        warnings.push(
+          `Worktree directory setup failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
       }
     }
 

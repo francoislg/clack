@@ -5,8 +5,18 @@ import type { ConversationMessage } from "../claude/index.js";
 import { resolveUsers, transformUserMentions } from "./userCache.js";
 import { extractAttachments } from "./fileExtractor.js";
 
-export function extractMessageText(msg: { text?: string; attachments?: { text?: string; fallback?: string }[] }): string {
-  return msg.text || msg.attachments?.map(a => a.text || a.fallback).filter(Boolean).join("\n") || "";
+export function extractMessageText(msg: {
+  text?: string;
+  attachments?: { text?: string; fallback?: string }[];
+}): string {
+  return (
+    msg.text ||
+    msg.attachments
+      ?.map((a) => a.text || a.fallback)
+      .filter(Boolean)
+      .join("\n") ||
+    ""
+  );
 }
 
 export interface FetchThreadContextOptions {
@@ -19,7 +29,7 @@ export async function fetchThreadContext(
   channelId: string,
   threadTs: string,
   botUserId: string,
-  options: FetchThreadContextOptions = {}
+  options: FetchThreadContextOptions = {},
 ): Promise<ThreadMessage[]> {
   try {
     const result = await client.conversations.replies({
@@ -33,7 +43,12 @@ export async function fetchThreadContext(
     }
 
     const messages: ThreadMessage[] = result.messages
-      .filter((msg) => (msg.text || msg.attachments?.length || msg.files?.length) && (msg.user || msg.bot_id) && msg.ts)
+      .filter(
+        (msg) =>
+          (msg.text || msg.attachments?.length || msg.files?.length) &&
+          (msg.user || msg.bot_id) &&
+          msg.ts,
+      )
       .map((msg) => {
         return {
           text: extractMessageText(msg) || "[attachment]",
@@ -71,7 +86,7 @@ export async function fetchMessage(
   client: App["client"],
   channelId: string,
   messageTs: string,
-  threadTs?: string
+  threadTs?: string,
 ): Promise<string> {
   try {
     // If message is in a thread, use conversations.replies to fetch it
@@ -112,7 +127,7 @@ export async function fetchMessage(
 export async function hasThreadReplies(
   client: App["client"],
   channelId: string,
-  threadTs: string
+  threadTs: string,
 ): Promise<boolean> {
   try {
     const result = await client.conversations.replies({
@@ -132,7 +147,7 @@ export async function sendDirectMessage(
   client: App["client"],
   userId: string,
   text: string,
-  blocks?: object[]
+  blocks?: object[],
 ): Promise<void> {
   try {
     const conversation = await client.conversations.open({ users: userId });
@@ -158,7 +173,7 @@ export interface ErrorReportOptions {
 export async function sendErrorReport(
   client: App["client"],
   userId: string,
-  options: ErrorReportOptions
+  options: ErrorReportOptions,
 ): Promise<void> {
   const { sessionId, errorMessage, conversationTrace, analysis } = options;
 

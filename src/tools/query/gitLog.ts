@@ -21,9 +21,7 @@ export function createGitLogTool(ctx: QueryToolContext) {
       args: z
         .array(z.string())
         .optional()
-        .describe(
-          'Git log arguments (e.g., ["--oneline", "-n", "10", "--author=John"])'
-        ),
+        .describe('Git log arguments (e.g., ["--oneline", "-n", "10", "--author=John"])'),
     },
     async (input) => {
       const visibleRepos = getVisibleRepos(ctx.role, ctx.config.repositories);
@@ -31,7 +29,9 @@ export function createGitLogTool(ctx: QueryToolContext) {
 
       if (!repo) {
         const available = visibleRepos.map((r) => r.name);
-        return errorResult(`Repository "${input.repo}" not found or not accessible. Available: ${available.join(", ")}`);
+        return errorResult(
+          `Repository "${input.repo}" not found or not accessible. Available: ${available.join(", ")}`,
+        );
       }
 
       const repoPath = resolve(getRepositoriesDir(), repo.name);
@@ -44,10 +44,7 @@ export function createGitLogTool(ctx: QueryToolContext) {
         const git = simpleGit({ baseDir: repoPath });
 
         // Gather shallow clone metadata
-        const isShallowRaw = await git.raw([
-          "rev-parse",
-          "--is-shallow-repository",
-        ]);
+        const isShallowRaw = await git.raw(["rev-parse", "--is-shallow-repository"]);
         const shallow = isShallowRaw.trim() === "true";
 
         const commitCountRaw = await git.raw(["rev-list", "--count", "HEAD"]);
@@ -70,6 +67,6 @@ export function createGitLogTool(ctx: QueryToolContext) {
         logger.debug(`git_log failed for ${repo.name}: ${error}`);
         return errorResult(`git log failed: ${errorMessage(error)}`);
       }
-    }
+    },
   );
 }

@@ -67,7 +67,8 @@ interface DmCoordinates {
 // ============================================================
 
 async function setupSession(ctx: ProcessingContext): Promise<SessionContext> {
-  const { client, config, userId, channelId, messageTs, messageText, threadTs, effectiveThreadTs } = ctx;
+  const { client, config, userId, channelId, messageTs, messageText, threadTs, effectiveThreadTs } =
+    ctx;
 
   const authResult = await client.auth.test();
   const botUserId = authResult.user_id || "";
@@ -82,9 +83,7 @@ async function setupSession(ctx: ProcessingContext): Promise<SessionContext> {
     ? await transformUserMentions(client, messageText)
     : messageText;
 
-  let session = threadTs
-    ? await findSessionByThread(channelId, threadTs)
-    : null;
+  let session = threadTs ? await findSessionByThread(channelId, threadTs) : null;
 
   // Resolve user info for session attribution
   const userInfo = await getUserInfo(client, userId);
@@ -146,7 +145,10 @@ async function openDmChannel(client: App["client"], userId: string): Promise<str
  * Set up DM delivery for reaction triggers: open DM, post parent message, store coordinates.
  * Returns DM coordinates if setup succeeded, null to fall back to thread mode.
  */
-async function setupDmDelivery(ctx: ProcessingContext, session: SessionContext): Promise<DmCoordinates | null> {
+async function setupDmDelivery(
+  ctx: ProcessingContext,
+  session: SessionContext,
+): Promise<DmCoordinates | null> {
   const dmChannel = await openDmChannel(ctx.client, ctx.userId);
   if (!dmChannel) {
     logger.warn("DM delivery failed, falling back to thread mode");
@@ -205,9 +207,10 @@ async function withInFlightTracking(
   },
   fn: () => Promise<unknown>,
 ): Promise<void> {
-  const cancellableTrigger = info.triggerType === "mentions" || info.triggerType === "directMessages"
-    ? info.triggerType
-    : null;
+  const cancellableTrigger =
+    info.triggerType === "mentions" || info.triggerType === "directMessages"
+      ? info.triggerType
+      : null;
   if (cancellableTrigger) {
     registerInFlightRequest(info.channelId, info.messageTs, {
       abortController: info.abortController,
@@ -289,8 +292,12 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
     additionalSystemPrompt: params.additionalSystemPrompt,
   };
 
-  const assistantSuffix = params.assistantChannelId ? ` [assistant panel, viewing ${params.assistantChannelId}]` : "";
-  logger.debug(`Processing message from ${userId} in ${channelId} (trigger: ${triggerType}, dm: ${isDm})${assistantSuffix}`);
+  const assistantSuffix = params.assistantChannelId
+    ? ` [assistant panel, viewing ${params.assistantChannelId}]`
+    : "";
+  logger.debug(
+    `Processing message from ${userId} in ${channelId} (trigger: ${triggerType}, dm: ${isDm})${assistantSuffix}`,
+  );
 
   // 1. Set up or retrieve session
   let session = await setupSession(ctx);
@@ -346,13 +353,14 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
 
   await withInFlightTracking(
     { channelId, messageTs, triggerType, sessionId: session.sessionId, abortController },
-    () => executeAndDeliver({
-      client,
-      session,
-      sessionInfo,
-      claudeOptions: { ...claudeOptions, workMode, availableImages, availableFiles },
-      abortController,
-      silentThinking,
-    }),
+    () =>
+      executeAndDeliver({
+        client,
+        session,
+        sessionInfo,
+        claudeOptions: { ...claudeOptions, workMode, availableImages, availableFiles },
+        abortController,
+        silentThinking,
+      }),
   );
 }

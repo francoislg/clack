@@ -11,8 +11,8 @@ export function createCancelScheduledMessageTool(ctx: QueryToolContext) {
   return tool(
     "cancel_scheduled_message",
     "Cancel (delete) a scheduled message by its ID. " +
-    "Non-admin users can only cancel their own scheduled messages. " +
-    "Admins can cancel any scheduled message.",
+      "Non-admin users can only cancel their own scheduled messages. " +
+      "Admins can cancel any scheduled message.",
     {
       id: z.string().describe("The scheduled message ID to cancel"),
     },
@@ -25,7 +25,9 @@ export function createCancelScheduledMessageTool(ctx: QueryToolContext) {
       // Permission check: non-admins can only cancel their own
       const isAdmin = canManageRoles(ctx.role);
       if (!isAdmin && job.createdBy !== ctx.userId) {
-        return errorResult("You can only cancel your own scheduled messages. Ask an admin to cancel this one.");
+        return errorResult(
+          "You can only cancel your own scheduled messages. Ask an admin to cancel this one.",
+        );
       }
 
       try {

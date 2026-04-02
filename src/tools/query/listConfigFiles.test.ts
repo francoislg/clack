@@ -78,13 +78,14 @@ describe("listConfigFiles tool", () => {
   it("returns role directories with file listings", async () => {
     mockListInstructionFiles.mock.mockImplementation(() => ({
       roles: [
-        { role: "user", files: [
-          { filename: "identity.md", source: "default" },
-          { filename: "response-style.md", source: "customized" },
-        ]},
-        { role: "dev", files: [
-          { filename: "changes.md", source: "default" },
-        ]},
+        {
+          role: "user",
+          files: [
+            { filename: "identity.md", source: "default" },
+            { filename: "response-style.md", source: "customized" },
+          ],
+        },
+        { role: "dev", files: [{ filename: "changes.md", source: "default" }] },
       ],
       repos: [],
     }));
@@ -108,7 +109,11 @@ describe("listConfigFiles tool", () => {
       roles: [],
       repos: [
         { filename: "my-repo/changes_instructions.md", hasOverride: false, hasDefault: true },
-        { filename: "my-repo/worktree_setup_instructions.md", hasOverride: false, hasDefault: false },
+        {
+          filename: "my-repo/worktree_setup_instructions.md",
+          hasOverride: false,
+          hasDefault: false,
+        },
       ],
     }));
 
@@ -125,11 +130,7 @@ describe("listConfigFiles tool", () => {
 
   it("includes custom-only files", async () => {
     mockListInstructionFiles.mock.mockImplementation(() => ({
-      roles: [
-        { role: "user", files: [
-          { filename: "company.md", source: "custom-only" },
-        ]},
-      ],
+      roles: [{ role: "user", files: [{ filename: "company.md", source: "custom-only" }] }],
       repos: [],
     }));
 

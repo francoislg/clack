@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 
 // ---------------------------------------------------------------------------
@@ -17,21 +17,20 @@ mock.module("../logger.js", {
 });
 
 // Import after mocks
-const {
-  registerInFlightRequest,
-  deregisterInFlightRequest,
-  getInFlightRequest,
-} = await import("./inFlightRequests.js");
+const { registerInFlightRequest, deregisterInFlightRequest, getInFlightRequest } =
+  await import("./inFlightRequests.js");
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeRequest(overrides?: Partial<{
-  abortController: AbortController;
-  sessionId: string;
-  triggerType: "directMessages" | "mentions";
-}>) {
+function makeRequest(
+  overrides?: Partial<{
+    abortController: AbortController;
+    sessionId: string;
+    triggerType: "directMessages" | "mentions";
+  }>,
+) {
   return {
     abortController: new AbortController(),
     sessionId: "session-1",

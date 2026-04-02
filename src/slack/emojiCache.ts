@@ -8,7 +8,10 @@ export interface EmojiCacheEntry {
 }
 
 export interface EmojiCache {
-  search(query: string, limit?: number): Promise<{ emojis: EmojiCacheEntry[]; total: number; truncated: boolean }>;
+  search(
+    query: string,
+    limit?: number,
+  ): Promise<{ emojis: EmojiCacheEntry[]; total: number; truncated: boolean }>;
 }
 
 const TTL_MS = 60 * 60 * 1000; // 1 hour

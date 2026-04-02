@@ -23,6 +23,6 @@ export function createListRepositoriesTool(ctx: QueryToolContext) {
       }));
 
       return textResult(repos);
-    }
+    },
   );
 }

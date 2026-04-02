@@ -12,14 +12,10 @@ function timestamp(): string {
 }
 
 export const logger = {
-  debug: (...args: unknown[]) =>
-    shouldLog("debug") && console.log("[DEBUG]", ...args),
-  info: (...args: unknown[]) =>
-    shouldLog("info") && console.log("[INFO]", ...args),
-  warn: (...args: unknown[]) =>
-    shouldLog("warn") && console.warn("[WARN]", ...args),
-  error: (...args: unknown[]) =>
-    shouldLog("error") && console.error("[ERROR]", ...args),
+  debug: (...args: unknown[]) => shouldLog("debug") && console.log("[DEBUG]", ...args),
+  info: (...args: unknown[]) => shouldLog("info") && console.log("[INFO]", ...args),
+  warn: (...args: unknown[]) => shouldLog("warn") && console.warn("[WARN]", ...args),
+  error: (...args: unknown[]) => shouldLog("error") && console.error("[ERROR]", ...args),
   // For startup/shutdown messages with timestamps
   startup: (...args: unknown[]) => console.log(`[${timestamp()}]`, ...args),
 };

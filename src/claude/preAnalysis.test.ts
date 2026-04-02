@@ -52,9 +52,7 @@ describe("runPreAnalysis", () => {
 
   it("returns true (respond) when Claude responds with 'respond'", async () => {
     mockQuery.mock.mockImplementation(() =>
-      asyncIterableOf([
-        { type: "result", subtype: "success", result: "respond" },
-      ])
+      asyncIterableOf([{ type: "result", subtype: "success", result: "respond" }]),
     );
 
     const result = await runPreAnalysis("server is down", "Only respond to errors");
@@ -63,9 +61,7 @@ describe("runPreAnalysis", () => {
 
   it("returns false (skip) when Claude responds with 'skip'", async () => {
     mockQuery.mock.mockImplementation(() =>
-      asyncIterableOf([
-        { type: "result", subtype: "success", result: "skip" },
-      ])
+      asyncIterableOf([{ type: "result", subtype: "success", result: "skip" }]),
     );
 
     const result = await runPreAnalysis("lol", "Skip noise");
@@ -76,7 +72,7 @@ describe("runPreAnalysis", () => {
     mockQuery.mock.mockImplementation(() =>
       asyncIterableOf([
         { type: "result", subtype: "success", result: "maybe, it depends on context" },
-      ])
+      ]),
     );
 
     const result = await runPreAnalysis("some message", "Only respond to errors");
@@ -94,6 +90,8 @@ describe("runPreAnalysis", () => {
 
   it("returns true when async iterator throws (fail-open)", async () => {
     mockQuery.mock.mockImplementation(() => ({
+      // Intentionally throws before yielding to simulate a stream error
+      // eslint-disable-next-line require-yield
       async *[Symbol.asyncIterator]() {
         throw new Error("stream interrupted");
       },
@@ -105,9 +103,7 @@ describe("runPreAnalysis", () => {
 
   it("returns true when result is empty (fail-open)", async () => {
     mockQuery.mock.mockImplementation(() =>
-      asyncIterableOf([
-        { type: "result", subtype: "success", result: "" },
-      ])
+      asyncIterableOf([{ type: "result", subtype: "success", result: "" }]),
     );
 
     const result = await runPreAnalysis("message", "context");
@@ -122,7 +118,7 @@ describe("runPreAnalysis", () => {
           message: { content: [{ type: "text", text: "respond" }] },
         },
         { type: "result", subtype: "success", result: "" },
-      ])
+      ]),
     );
 
     const result = await runPreAnalysis("error message", "Only respond to errors");
@@ -133,7 +129,7 @@ describe("runPreAnalysis", () => {
     mockQuery.mock.mockImplementation(() =>
       asyncIterableOf([
         { type: "result", subtype: "success", result: "I would skip this message" },
-      ])
+      ]),
     );
 
     const result = await runPreAnalysis("lol", "Skip noise");
@@ -143,16 +139,19 @@ describe("runPreAnalysis", () => {
   it("passes systemPrompt with the preAnalysisContext to query", async () => {
     let capturedOptions: Record<string, unknown> = {};
     mockQuery.mock.mockImplementation((...args: unknown[]) => {
-      capturedOptions = ((args[0] as Record<string, unknown>).options ?? {}) as Record<string, unknown>;
-      return asyncIterableOf([
-        { type: "result", subtype: "success", result: "respond" },
-      ]);
+      capturedOptions = ((args[0] as Record<string, unknown>).options ?? {}) as Record<
+        string,
+        unknown
+      >;
+      return asyncIterableOf([{ type: "result", subtype: "success", result: "respond" }]);
     });
 
     await runPreAnalysis("test message", "Only respond to product questions");
 
     assert.ok(typeof capturedOptions.systemPrompt === "string");
-    assert.ok((capturedOptions.systemPrompt as string).includes("Only respond to product questions"));
+    assert.ok(
+      (capturedOptions.systemPrompt as string).includes("Only respond to product questions"),
+    );
     assert.equal(capturedOptions.model, "sonnet");
     assert.equal(capturedOptions.maxTurns, 1);
   });
@@ -161,9 +160,7 @@ describe("runPreAnalysis", () => {
     let capturedPrompt = "";
     mockQuery.mock.mockImplementation((...args: unknown[]) => {
       capturedPrompt = (args[0] as Record<string, unknown>).prompt as string;
-      return asyncIterableOf([
-        { type: "result", subtype: "success", result: "respond" },
-      ]);
+      return asyncIterableOf([{ type: "result", subtype: "success", result: "respond" }]);
     });
 
     await runPreAnalysis("what about today", "Skip noise", undefined, [

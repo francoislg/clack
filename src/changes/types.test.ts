@@ -22,11 +22,7 @@ import type {
 describe("changes/types", () => {
   describe("TriggerType", () => {
     it("accepts valid trigger types", () => {
-      const types: TriggerType[] = [
-        "directMessages",
-        "mentions",
-        "reactions",
-      ];
+      const types: TriggerType[] = ["directMessages", "mentions", "reactions"];
       assert.equal(types.length, 3);
     });
   });
@@ -163,12 +159,7 @@ describe("changes/types", () => {
 
   describe("FollowUpCommand", () => {
     it("accepts all valid commands", () => {
-      const commands: FollowUpCommand[] = [
-        "review",
-        "merge",
-        "update",
-        "close",
-      ];
+      const commands: FollowUpCommand[] = ["review", "merge", "update", "close"];
       assert.equal(commands.length, 4);
     });
   });
@@ -186,10 +177,7 @@ describe("changes/types", () => {
         additionalInstructions: "Also fix the typo on line 42",
       };
       assert.equal(info.command, "update");
-      assert.equal(
-        info.additionalInstructions,
-        "Also fix the typo on line 42",
-      );
+      assert.equal(info.additionalInstructions, "Also fix the typo on line 42");
     });
   });
 

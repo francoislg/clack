@@ -25,8 +25,7 @@ mock.module("../../slack/userCache.js", {
 
 mock.module("../../errors.js", {
   namedExports: {
-    errorMessage: (err: unknown) =>
-      err instanceof Error ? err.message : String(err),
+    errorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
   },
 });
 
@@ -103,7 +102,16 @@ describe("fetchChannelMessages tool", () => {
     const ctx = makeCtx({ slackClient: undefined });
     const toolDef = createFetchChannelMessagesTool(ctx);
 
-    const result = await toolDef.handler({ channel_id: "C123", limit: undefined, oldest: undefined, latest: undefined, include_threads: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      {
+        channel_id: "C123",
+        limit: undefined,
+        oldest: undefined,
+        latest: undefined,
+        include_threads: undefined,
+      },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.ok(parsed.error);
@@ -116,7 +124,16 @@ describe("fetchChannelMessages tool", () => {
     const ctx = makeCtx({ slackClient: client });
     const toolDef = createFetchChannelMessagesTool(ctx);
 
-    const result = await toolDef.handler({ channel_id: "C123", limit: undefined, oldest: undefined, latest: undefined, include_threads: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      {
+        channel_id: "C123",
+        limit: undefined,
+        oldest: undefined,
+        latest: undefined,
+        include_threads: undefined,
+      },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed.channel, "C123");
@@ -129,7 +146,16 @@ describe("fetchChannelMessages tool", () => {
     const ctx = makeCtx({ slackClient: client });
     const toolDef = createFetchChannelMessagesTool(ctx);
 
-    const result = await toolDef.handler({ channel_id: "C123", limit: undefined, oldest: undefined, latest: undefined, include_threads: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      {
+        channel_id: "C123",
+        limit: undefined,
+        oldest: undefined,
+        latest: undefined,
+        include_threads: undefined,
+      },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed.message_count, 0);
@@ -152,7 +178,16 @@ describe("fetchChannelMessages tool", () => {
     const ctx = makeCtx({ slackClient: client });
     const toolDef = createFetchChannelMessagesTool(ctx);
 
-    const result = await toolDef.handler({ channel_id: "C123", limit: undefined, oldest: undefined, latest: undefined, include_threads: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      {
+        channel_id: "C123",
+        limit: undefined,
+        oldest: undefined,
+        latest: undefined,
+        include_threads: undefined,
+      },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed.channel, "C123");
@@ -166,41 +201,84 @@ describe("fetchChannelMessages tool", () => {
 
   it("caps limit at 100", async () => {
     const client = makeSlackClient({ messages: [], has_more: false });
-    const historyFn = (client as unknown as { conversations: { history: { mock: { calls: Array<{ arguments: unknown[] }> } } } }).conversations.history;
+    const historyFn = (
+      client as unknown as {
+        conversations: { history: { mock: { calls: Array<{ arguments: unknown[] }> } } };
+      }
+    ).conversations.history;
     const ctx = makeCtx({ slackClient: client });
     const toolDef = createFetchChannelMessagesTool(ctx);
 
-    await toolDef.handler({ channel_id: "C123", limit: 500, oldest: undefined, latest: undefined, include_threads: undefined }, { sessionId: "test" });
+    await toolDef.handler(
+      {
+        channel_id: "C123",
+        limit: 500,
+        oldest: undefined,
+        latest: undefined,
+        include_threads: undefined,
+      },
+      { sessionId: "test" },
+    );
 
-    assert.equal(((historyFn as unknown as { mock: { calls: Array<{ arguments: Record<string, unknown>[] }> } }).mock.calls[0].arguments[0]).limit, 100);
+    assert.equal(
+      (historyFn as unknown as { mock: { calls: Array<{ arguments: Record<string, unknown>[] }> } })
+        .mock.calls[0].arguments[0].limit,
+      100,
+    );
   });
 
   it("uses default limit of 20", async () => {
     const client = makeSlackClient({ messages: [], has_more: false });
-    const historyFn = (client as unknown as { conversations: { history: { mock: { calls: Array<{ arguments: unknown[] }> } } } }).conversations.history;
+    const historyFn = (
+      client as unknown as {
+        conversations: { history: { mock: { calls: Array<{ arguments: unknown[] }> } } };
+      }
+    ).conversations.history;
     const ctx = makeCtx({ slackClient: client });
     const toolDef = createFetchChannelMessagesTool(ctx);
 
-    await toolDef.handler({ channel_id: "C123", limit: undefined, oldest: undefined, latest: undefined, include_threads: undefined }, { sessionId: "test" });
+    await toolDef.handler(
+      {
+        channel_id: "C123",
+        limit: undefined,
+        oldest: undefined,
+        latest: undefined,
+        include_threads: undefined,
+      },
+      { sessionId: "test" },
+    );
 
-    assert.equal(((historyFn as unknown as { mock: { calls: Array<{ arguments: Record<string, unknown>[] }> } }).mock.calls[0].arguments[0]).limit, 20);
+    assert.equal(
+      (historyFn as unknown as { mock: { calls: Array<{ arguments: Record<string, unknown>[] }> } })
+        .mock.calls[0].arguments[0].limit,
+      20,
+    );
   });
 
   it("passes oldest and latest params to API", async () => {
     const client = makeSlackClient({ messages: [], has_more: false });
-    const historyFn = (client as unknown as { conversations: { history: { mock: { calls: Array<{ arguments: unknown[] }> } } } }).conversations.history;
+    const historyFn = (
+      client as unknown as {
+        conversations: { history: { mock: { calls: Array<{ arguments: unknown[] }> } } };
+      }
+    ).conversations.history;
     const ctx = makeCtx({ slackClient: client });
     const toolDef = createFetchChannelMessagesTool(ctx);
 
-    await toolDef.handler({
-      channel_id: "C123",
-      limit: undefined,
-      oldest: "1234567890.000000",
-      latest: "1234567899.000000",
-      include_threads: undefined,
-    }, { sessionId: "test" });
+    await toolDef.handler(
+      {
+        channel_id: "C123",
+        limit: undefined,
+        oldest: "1234567890.000000",
+        latest: "1234567899.000000",
+        include_threads: undefined,
+      },
+      { sessionId: "test" },
+    );
 
-    const callArgs = (historyFn as unknown as { mock: { calls: Array<{ arguments: Record<string, unknown>[] }> } }).mock.calls[0].arguments[0];
+    const callArgs = (
+      historyFn as unknown as { mock: { calls: Array<{ arguments: Record<string, unknown>[] }> } }
+    ).mock.calls[0].arguments[0];
     assert.equal(callArgs.oldest, "1234567890.000000");
     assert.equal(callArgs.latest, "1234567899.000000");
     assert.equal(callArgs.inclusive, true);
@@ -218,7 +296,16 @@ describe("fetchChannelMessages tool", () => {
     const ctx = makeCtx({ slackClient: client });
     const toolDef = createFetchChannelMessagesTool(ctx);
 
-    const result = await toolDef.handler({ channel_id: "C123", limit: undefined, oldest: undefined, latest: undefined, include_threads: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      {
+        channel_id: "C123",
+        limit: undefined,
+        oldest: undefined,
+        latest: undefined,
+        include_threads: undefined,
+      },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     // Reversed order
@@ -238,7 +325,16 @@ describe("fetchChannelMessages tool", () => {
     const ctx = makeCtx({ slackClient: client });
     const toolDef = createFetchChannelMessagesTool(ctx);
 
-    const result = await toolDef.handler({ channel_id: "C123", limit: undefined, oldest: undefined, latest: undefined, include_threads: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      {
+        channel_id: "C123",
+        limit: undefined,
+        oldest: undefined,
+        latest: undefined,
+        include_threads: undefined,
+      },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed.message_count, 1);
@@ -254,7 +350,16 @@ describe("fetchChannelMessages tool", () => {
     const ctx = makeCtx({ slackClient: client });
     const toolDef = createFetchChannelMessagesTool(ctx);
 
-    const result = await toolDef.handler({ channel_id: "C123", limit: undefined, oldest: undefined, latest: undefined, include_threads: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      {
+        channel_id: "C123",
+        limit: undefined,
+        oldest: undefined,
+        latest: undefined,
+        include_threads: undefined,
+      },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed.has_more, true);
@@ -271,7 +376,16 @@ describe("fetchChannelMessages tool", () => {
     const ctx = makeCtx({ slackClient: client });
     const toolDef = createFetchChannelMessagesTool(ctx);
 
-    const result = await toolDef.handler({ channel_id: "C123", limit: undefined, oldest: undefined, latest: undefined, include_threads: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      {
+        channel_id: "C123",
+        limit: undefined,
+        oldest: undefined,
+        latest: undefined,
+        include_threads: undefined,
+      },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.ok(parsed.error);
@@ -285,14 +399,21 @@ describe("fetchChannelMessages tool", () => {
     mockResolveUsers.mock.mockImplementation(async () => userInfoMap);
     mockExtractMessageText.mock.mockImplementation((msg) => (msg as { text: string }).text);
 
-    const messages = [
-      { ts: "1.0", text: "threaded msg", user: "U1", reply_count: 3 },
-    ];
+    const messages = [{ ts: "1.0", text: "threaded msg", user: "U1", reply_count: 3 }];
     const client = makeSlackClient({ messages, has_more: false });
     const ctx = makeCtx({ slackClient: client });
     const toolDef = createFetchChannelMessagesTool(ctx);
 
-    const result = await toolDef.handler({ channel_id: "C123", limit: undefined, oldest: undefined, latest: undefined, include_threads: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      {
+        channel_id: "C123",
+        limit: undefined,
+        oldest: undefined,
+        latest: undefined,
+        include_threads: undefined,
+      },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed.messages[0].reply_count, 3);
@@ -306,9 +427,7 @@ describe("fetchChannelMessages tool", () => {
     mockResolveUsers.mock.mockImplementation(async () => userInfoMap);
     mockExtractMessageText.mock.mockImplementation((msg) => (msg as { text: string }).text);
 
-    const messages = [
-      { ts: "1.0", text: "parent msg", user: "U1", reply_count: 1 },
-    ];
+    const messages = [{ ts: "1.0", text: "parent msg", user: "U1", reply_count: 1 }];
     const threadReplies = {
       messages: [
         { ts: "1.0", text: "parent msg", user: "U1" }, // parent repeated
@@ -319,7 +438,16 @@ describe("fetchChannelMessages tool", () => {
     const ctx = makeCtx({ slackClient: client });
     const toolDef = createFetchChannelMessagesTool(ctx);
 
-    const result = await toolDef.handler({ channel_id: "C123", limit: undefined, oldest: undefined, latest: undefined, include_threads: true }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      {
+        channel_id: "C123",
+        limit: undefined,
+        oldest: undefined,
+        latest: undefined,
+        include_threads: true,
+      },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed.messages[0].reply_count, 1);
@@ -329,17 +457,26 @@ describe("fetchChannelMessages tool", () => {
   });
 
   it("does not fetch thread replies when include_threads is false", async () => {
-    mockResolveUsers.mock.mockImplementation(async () => new Map([["U1", { displayName: "Alice" }]]));
+    mockResolveUsers.mock.mockImplementation(
+      async () => new Map([["U1", { displayName: "Alice" }]]),
+    );
     mockExtractMessageText.mock.mockImplementation((msg) => (msg as { text: string }).text);
 
-    const messages = [
-      { ts: "1.0", text: "parent msg", user: "U1", reply_count: 5 },
-    ];
+    const messages = [{ ts: "1.0", text: "parent msg", user: "U1", reply_count: 5 }];
     const client = makeSlackClient({ messages, has_more: false });
     const ctx = makeCtx({ slackClient: client });
     const toolDef = createFetchChannelMessagesTool(ctx);
 
-    const result = await toolDef.handler({ channel_id: "C123", limit: undefined, oldest: undefined, latest: undefined, include_threads: false }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      {
+        channel_id: "C123",
+        limit: undefined,
+        oldest: undefined,
+        latest: undefined,
+        include_threads: false,
+      },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed.messages[0].reply_count, 5);
@@ -347,12 +484,12 @@ describe("fetchChannelMessages tool", () => {
   });
 
   it("handles thread fetch error gracefully", async () => {
-    mockResolveUsers.mock.mockImplementation(async () => new Map([["U1", { displayName: "Alice" }]]));
+    mockResolveUsers.mock.mockImplementation(
+      async () => new Map([["U1", { displayName: "Alice" }]]),
+    );
     mockExtractMessageText.mock.mockImplementation((msg) => (msg as { text: string }).text);
 
-    const messages = [
-      { ts: "1.0", text: "parent msg", user: "U1", reply_count: 2 },
-    ];
+    const messages = [{ ts: "1.0", text: "parent msg", user: "U1", reply_count: 2 }];
     const client = {
       conversations: {
         history: mock.fn(async () => ({ messages, has_more: false })),
@@ -364,7 +501,16 @@ describe("fetchChannelMessages tool", () => {
     const ctx = makeCtx({ slackClient: client });
     const toolDef = createFetchChannelMessagesTool(ctx);
 
-    const result = await toolDef.handler({ channel_id: "C123", limit: undefined, oldest: undefined, latest: undefined, include_threads: true }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      {
+        channel_id: "C123",
+        limit: undefined,
+        oldest: undefined,
+        latest: undefined,
+        include_threads: true,
+      },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed.messages[0].thread_error, "Failed to fetch thread replies");
@@ -379,7 +525,16 @@ describe("fetchChannelMessages tool", () => {
     const ctx = makeCtx({ slackClient: client });
     const toolDef = createFetchChannelMessagesTool(ctx);
 
-    const result = await toolDef.handler({ channel_id: "C123", limit: undefined, oldest: undefined, latest: undefined, include_threads: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      {
+        channel_id: "C123",
+        limit: undefined,
+        oldest: undefined,
+        latest: undefined,
+        include_threads: undefined,
+      },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed.messages[0].text, "[attachment]");
@@ -394,7 +549,16 @@ describe("fetchChannelMessages tool", () => {
     const ctx = makeCtx({ slackClient: client });
     const toolDef = createFetchChannelMessagesTool(ctx);
 
-    const result = await toolDef.handler({ channel_id: "C123", limit: undefined, oldest: undefined, latest: undefined, include_threads: undefined }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      {
+        channel_id: "C123",
+        limit: undefined,
+        oldest: undefined,
+        latest: undefined,
+        include_threads: undefined,
+      },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed.messages[0].user, "unknown");

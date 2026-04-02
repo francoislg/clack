@@ -19,10 +19,7 @@ describe("convertMarkdownToSlack", () => {
     });
 
     it("converts multiple bold segments consistently", () => {
-      assert.equal(
-        convertMarkdownToSlack("**first** and **second**"),
-        "_first_ and _second_"
-      );
+      assert.equal(convertMarkdownToSlack("**first** and **second**"), "_first_ and _second_");
     });
   });
 
@@ -47,10 +44,7 @@ describe("convertMarkdownToSlack", () => {
     });
 
     it("only converts headers at the start of a line", () => {
-      assert.equal(
-        convertMarkdownToSlack("text # not a header"),
-        "text # not a header"
-      );
+      assert.equal(convertMarkdownToSlack("text # not a header"), "text # not a header");
     });
 
     it("handles multiline with headers", () => {
@@ -64,14 +58,14 @@ describe("convertMarkdownToSlack", () => {
     it("converts [text](url) to <url|text>", () => {
       assert.equal(
         convertMarkdownToSlack("[click here](https://example.com)"),
-        "<https://example.com|click here>"
+        "<https://example.com|click here>",
       );
     });
 
     it("converts multiple links", () => {
       assert.equal(
         convertMarkdownToSlack("[a](http://a.com) and [b](http://b.com)"),
-        "<http://a.com|a> and <http://b.com|b>"
+        "<http://a.com|a> and <http://b.com|b>",
       );
     });
   });

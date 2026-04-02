@@ -97,6 +97,6 @@ export function createEnsurePRTool(ctx: WorkerToolContext) {
       } catch (error) {
         return errorResult(`Failed to ensure PR: ${errorMessage(error)}`);
       }
-    }
+    },
   );
 }

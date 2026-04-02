@@ -35,9 +35,10 @@ export function registerChoiceHandler(app: App): void {
     const updatedSession = (await getSession(session.sessionId))!;
 
     const claudeOptions = await getHandlerClaudeOptions(sessionInfo);
-    const effectiveWorkMode = workMode
-      && claudeOptions.changesWorkflowEnabled
-      && canRequestChanges(claudeOptions.role ?? "member");
+    const effectiveWorkMode =
+      workMode &&
+      claudeOptions.changesWorkflowEnabled &&
+      canRequestChanges(claudeOptions.role ?? "member");
 
     await executeAndDeliver({
       client,

@@ -8,7 +8,11 @@ export function createAdminReadFileTool() {
     "admin_read_file",
     "Read a core configuration file. Allowed files: config.json, mcp.json, auth/.env, configuration/tool_mapping/*.json. Pass 'configuration/tool_mapping/' to list available tool mapping files.",
     {
-      path: z.string().describe("File path relative to data/ (e.g., 'config.json', 'mcp.json', 'auth/.env', 'configuration/tool_mapping/clack.json')"),
+      path: z
+        .string()
+        .describe(
+          "File path relative to data/ (e.g., 'config.json', 'mcp.json', 'auth/.env', 'configuration/tool_mapping/clack.json')",
+        ),
     },
     async ({ path }) => {
       if (!isAllowedPath(path)) {

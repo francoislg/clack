@@ -109,13 +109,17 @@ If you can't reliably separate, write everything to \`admin/instructions.md\`.
   dedupAgainst: {
     "data/configuration/user/identity.md": "data/default_configuration/user/identity.md",
     "data/configuration/user/urls.md": "data/default_configuration/user/urls.md",
-    "data/configuration/user/response-style.md": "data/default_configuration/user/response-style.md",
-    "data/configuration/user/information-guardrails.md": "data/default_configuration/user/information-guardrails.md",
-    "data/configuration/user/submit-response.md": "data/default_configuration/user/submit-response.md",
+    "data/configuration/user/response-style.md":
+      "data/default_configuration/user/response-style.md",
+    "data/configuration/user/information-guardrails.md":
+      "data/default_configuration/user/information-guardrails.md",
+    "data/configuration/user/submit-response.md":
+      "data/default_configuration/user/submit-response.md",
     "data/configuration/user/changes.md": "data/default_configuration/user/changes.md",
     "data/configuration/dev/github.md": "data/default_configuration/dev/github.md",
     "data/configuration/dev/changes.md": "data/default_configuration/dev/changes.md",
-    "data/configuration/admin/config-updates.md": "data/default_configuration/admin/config-updates.md",
+    "data/configuration/admin/config-updates.md":
+      "data/default_configuration/admin/config-updates.md",
   },
   deleteAfter: [
     "data/configuration/instructions.md",

@@ -1,6 +1,6 @@
 import { describe, it, mock, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import type { App, BlockAction } from "@slack/bolt";
+import type { App } from "@slack/bolt";
 import type { UserRole } from "../../roles.js";
 import type { StagedChangeIntent, StagedIntent } from "../../tools/types.js";
 import type { SessionInfo } from "../activeSessions.js";
@@ -12,8 +12,12 @@ import type { ChangeResult } from "../../changes/types.js";
 // ============================================================================
 
 const mockGetRole = mock.fn<(userId: string) => Promise<UserRole>>(async () => "dev");
-const mockGetStagedIntent = mock.fn<(...args: unknown[]) => Promise<StagedIntent | null>>(async () => null);
-const mockFindSessionByThread = mock.fn<(...args: unknown[]) => Promise<SessionContext | null>>(async () => null);
+const mockGetStagedIntent = mock.fn<(...args: unknown[]) => Promise<StagedIntent | null>>(
+  async () => null,
+);
+const mockFindSessionByThread = mock.fn<(...args: unknown[]) => Promise<SessionContext | null>>(
+  async () => null,
+);
 const mockDecodeActionValue = mock.fn<(value: string) => { sessionId: string; ref?: string }>(
   () => ({ sessionId: "session-1", ref: "r1" }),
 );
@@ -133,7 +137,7 @@ function makeHandlerArgs(overrides: Record<string, unknown> = {}) {
       user: { id: "U001" },
       channel: { id: "C001" },
       actions: [{ value: "encoded-value" }],
-      ...(overrides.body as Record<string, unknown> ?? {}),
+      ...(overrides.body as Record<string, unknown>),
     },
     client,
     respond: respondFn,
@@ -333,7 +337,9 @@ describe("registerChangeActionHandler — success", () => {
     // Should ack and delete original
     assert.equal(args.ack.mock.callCount(), 1);
     assert.equal(args.respond.mock.callCount(), 1);
-    const respondCall = args.respond.mock.calls[0] as unknown as { arguments: [{ delete_original: boolean }] };
+    const respondCall = args.respond.mock.calls[0] as unknown as {
+      arguments: [{ delete_original: boolean }];
+    };
     assert.equal(respondCall.arguments[0].delete_original, true);
 
     // Should start the streamer and call startChangeWorkflow
@@ -428,7 +434,9 @@ describe("triggerChangeWorkflow", () => {
 
     // finalizeStreamedWorkflow should receive the stream channel
     assert.equal(mockFinalizeStreamedWorkflow.mock.callCount(), 1);
-    const finalizeCall = mockFinalizeStreamedWorkflow.mock.calls[0] as unknown as { arguments: unknown[] };
+    const finalizeCall = mockFinalizeStreamedWorkflow.mock.calls[0] as unknown as {
+      arguments: unknown[];
+    };
     assert.equal(finalizeCall.arguments[2], "D_DM");
     assert.equal(finalizeCall.arguments[3], "1700000099.000001");
   });

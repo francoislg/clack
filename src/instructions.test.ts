@@ -3,7 +3,11 @@ import assert from "node:assert/strict";
 import { writeFileSync, mkdirSync, rmSync, existsSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { loadConfig } from "./config.js";
-import { interpolateVariables, loadInstructions, validateInstructionFiles } from "./instructions.js";
+import {
+  interpolateVariables,
+  loadInstructions,
+  validateInstructionFiles,
+} from "./instructions.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -28,16 +32,14 @@ function setup() {
       botToken: "xoxb-111-222-abc",
       appToken: "xapp-1-A111-222-xyz",
       signingSecret: "s3cr3t",
-    })
+    }),
   );
   mkdirSync(tmpDataDir, { recursive: true });
   writeFileSync(
     configPath,
     JSON.stringify({
-      repositories: [
-        { name: "repo", url: "https://github.com/org/repo.git", description: "Test" },
-      ],
-    })
+      repositories: [{ name: "repo", url: "https://github.com/org/repo.git", description: "Test" }],
+    }),
   );
   loadConfig(configPath, true);
 }

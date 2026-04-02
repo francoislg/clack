@@ -21,7 +21,10 @@ export async function resolveChannelId(
     });
     const match = listResult.channels?.find((ch) => ch.name === channelName);
     if (!match?.id) {
-      return { ok: false, error: `Could not find channel "${channelName}". Make sure the channel exists and the bot is a member.` };
+      return {
+        ok: false,
+        error: `Could not find channel "${channelName}". Make sure the channel exists and the bot is a member.`,
+      };
     }
     return { ok: true, channelId: match.id };
   } catch (error) {

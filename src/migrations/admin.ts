@@ -77,7 +77,7 @@ export function clearMigrationErrors(): void {
 export async function handleMigrationFailure(
   migrationName: string,
   version: number,
-  error: string
+  error: string,
 ): Promise<void> {
   const errorRecord: MigrationError = {
     migrationName,
@@ -88,13 +88,11 @@ export async function handleMigrationFailure(
 
   // Try to DM admin
   const dmSent = await dmAdmin(
-    `:warning: *Migration failed: ${migrationName}* (v${version})\n\n${error}\n\nCheck the logs for details and restart Clack after resolving the issue.`
+    `:warning: *Migration failed: ${migrationName}* (v${version})\n\n${error}\n\nCheck the logs for details and restart Clack after resolving the issue.`,
   );
 
   if (!dmSent) {
-    logger.warn(
-      `Could not DM admin about migration failure. Error will be shown on home tab.`
-    );
+    logger.warn(`Could not DM admin about migration failure. Error will be shown on home tab.`);
   }
 
   // Always store for home tab banner

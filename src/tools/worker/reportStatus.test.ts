@@ -16,8 +16,7 @@ mock.module("../../slack/app.js", {
 
 mock.module("../../errors.js", {
   namedExports: {
-    errorMessage: (err: unknown) =>
-      err instanceof Error ? err.message : String(err),
+    errorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
   },
 });
 
@@ -69,10 +68,7 @@ describe("reportStatus tool", () => {
   it("posts message to Slack thread and returns success", async () => {
     const ctx = makeCtx();
     const toolDef = createReportStatusTool(ctx);
-    const result = await toolDef.handler(
-      { message: "Work is done!" },
-      { sessionId: "test" }
-    );
+    const result = await toolDef.handler({ message: "Work is done!" }, { sessionId: "test" });
 
     const parsed = parseResult(result);
     assert.equal(parsed.success, true);
@@ -90,10 +86,7 @@ describe("reportStatus tool", () => {
     mockGetSlackClient.mock.mockImplementation(() => null);
 
     const toolDef = createReportStatusTool(makeCtx());
-    const result = await toolDef.handler(
-      { message: "Status update" },
-      { sessionId: "test" }
-    );
+    const result = await toolDef.handler({ message: "Status update" }, { sessionId: "test" });
 
     const parsed = parseResult(result);
     assert.ok(parsed.error);
@@ -107,10 +100,7 @@ describe("reportStatus tool", () => {
     });
 
     const toolDef = createReportStatusTool(makeCtx());
-    const result = await toolDef.handler(
-      { message: "Hello" },
-      { sessionId: "test" }
-    );
+    const result = await toolDef.handler({ message: "Hello" }, { sessionId: "test" });
 
     const parsed = parseResult(result);
     assert.ok(parsed.error);
@@ -122,10 +112,7 @@ describe("reportStatus tool", () => {
   it("uses channelId and threadTs from context", async () => {
     const ctx = makeCtx({ channelId: "C999", threadTs: "99.99" });
     const toolDef = createReportStatusTool(ctx);
-    await toolDef.handler(
-      { message: "test" },
-      { sessionId: "test" }
-    );
+    await toolDef.handler({ message: "test" }, { sessionId: "test" });
 
     const callArgs = mockPostMessage.mock.calls[0].arguments[0] as Record<string, unknown>;
     assert.equal(callArgs.channel, "C999");
@@ -136,7 +123,7 @@ describe("reportStatus tool", () => {
     const toolDef = createReportStatusTool(makeCtx());
     await toolDef.handler(
       { message: "Build completed successfully with 0 errors" },
-      { sessionId: "test" }
+      { sessionId: "test" },
     );
 
     const callArgs = mockPostMessage.mock.calls[0].arguments[0] as Record<string, unknown>;

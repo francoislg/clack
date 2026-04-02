@@ -1,6 +1,12 @@
 import { existsSync, mkdirSync, rmSync, readdirSync, statSync } from "node:fs";
 import { resolve, join } from "node:path";
-import { getConfig, getRepositoriesDir, getWorktreesDir, getWorktreeSessionsDir, type RepositoryConfig } from "./config.js";
+import {
+  getConfig,
+  getRepositoriesDir,
+  getWorktreesDir,
+  getWorktreeSessionsDir,
+  type RepositoryConfig,
+} from "./config.js";
 import { logger } from "./logger.js";
 import { errorMessage } from "./errors.js";
 import { getGitInstance, setAuthenticatedRemote } from "./repositories.js";
@@ -25,7 +31,7 @@ export interface WorktreeInfo {
  */
 export function getExistingWorktree(
   repo: RepositoryConfig,
-  branchName: string
+  branchName: string,
 ): WorktreeInfo | null {
   const worktreesDir = getWorktreesDir();
   const repoWorktreesDir = resolve(worktreesDir, repo.name);
@@ -53,7 +59,7 @@ export function getExistingWorktree(
  */
 export async function createWorktree(
   repo: RepositoryConfig,
-  branchName: string
+  branchName: string,
 ): Promise<WorktreeInfo> {
   const reposDir = getRepositoriesDir();
   const worktreesDir = getWorktreesDir();
@@ -107,14 +113,7 @@ export async function createWorktree(
   const defaultBranch = repo.branch || "main";
 
   // Create new branch and worktree from default branch
-  await git.raw([
-    "worktree",
-    "add",
-    "-b",
-    branchName,
-    worktreePath,
-    `origin/${defaultBranch}`,
-  ]);
+  await git.raw(["worktree", "add", "-b", branchName, worktreePath, `origin/${defaultBranch}`]);
 
   // Set authenticated remote in the worktree as well (for push)
   await setAuthenticatedRemote(worktreePath, repo.url);
@@ -132,10 +131,7 @@ export async function createWorktree(
 /**
  * Remove a worktree
  */
-export async function removeWorktree(
-  repoName: string,
-  worktreePath: string
-): Promise<void> {
+export async function removeWorktree(repoName: string, worktreePath: string): Promise<void> {
   const mainRepoPath = resolve(getRepositoriesDir(), repoName);
 
   if (!existsSync(mainRepoPath)) {
@@ -173,7 +169,7 @@ export async function removeWorktree(
 export async function deleteBranch(
   repoName: string,
   branchName: string,
-  deleteRemote: boolean = false
+  deleteRemote: boolean = false,
 ): Promise<void> {
   const mainRepoPath = resolve(getRepositoriesDir(), repoName);
 
@@ -241,7 +237,9 @@ export async function cleanupStaleWorktrees(retentionHours: number = 24): Promis
         const age = now - stats.mtimeMs;
 
         if (age > retentionMs) {
-          logger.debug(`Removing stale worktree: ${worktreePath} (age: ${Math.round(age / 3600000)}h)`);
+          logger.debug(
+            `Removing stale worktree: ${worktreePath} (age: ${Math.round(age / 3600000)}h)`,
+          );
           await removeWorktree(repoName, worktreePath);
         }
       } catch (error) {

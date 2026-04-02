@@ -26,8 +26,5 @@ If the file does not exist, skip.
 If already migrated, skip.
 
 Preserve all other content and formatting exactly as-is.`,
-  files: [
-    "data/configuration/instructions.md",
-    "data/configuration/user/submit-response.md",
-  ],
+  files: ["data/configuration/instructions.md", "data/configuration/user/submit-response.md"],
 };

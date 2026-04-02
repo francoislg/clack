@@ -309,9 +309,9 @@ describe("assistant userMessage", () => {
 
   it("calls processMessage with correct parameters", async () => {
     const mockSetStatus = makeMockSetStatus();
-    const mockGetThreadContext = mock.fn<(...args: unknown[]) => Promise<unknown>>(
-      async () => ({ channel_id: "C001" }),
-    );
+    const mockGetThreadContext = mock.fn<(...args: unknown[]) => Promise<unknown>>(async () => ({
+      channel_id: "C001",
+    }));
     const client = makeClient();
 
     await capturedAssistantHandlers!.userMessage({
@@ -364,7 +364,8 @@ describe("assistant userMessage", () => {
 
   it("truncates title when text is longer than 50 characters", async () => {
     const mockSetTitle = makeMockSetTitle();
-    const longText = "This is a very long question that exceeds fifty characters in total length for sure";
+    const longText =
+      "This is a very long question that exceeds fifty characters in total length for sure";
 
     await capturedAssistantHandlers!.userMessage({
       event: {

@@ -1,14 +1,14 @@
 import type { App, BlockAction, ViewSubmitAction } from "@slack/bolt";
 import { logger } from "../../logger.js";
-import {
-  getSession,
-  updateSession,
-  setLastAnswer,
-  type SessionContext,
-} from "../../sessions.js";
+import { getSession, updateSession, setLastAnswer, type SessionContext } from "../../sessions.js";
 import type { ResponseSnapshot } from "../../tools/types.js";
 import { activeSessions, type SessionInfo } from "../activeSessions.js";
-import { getAcceptedBlocks, getStructuredAcceptedBlocks, decodeActionValue, asSlackBlocks } from "../blocks.js";
+import {
+  getAcceptedBlocks,
+  getStructuredAcceptedBlocks,
+  decodeActionValue,
+  asSlackBlocks,
+} from "../blocks.js";
 
 /**
  * Shared session resolution for DM action handlers.
@@ -19,7 +19,12 @@ async function resolveActionSession(
   client: App["client"],
   channelId: string | undefined,
   userId: string,
-): Promise<{ sessionId: string; ref?: string; session: SessionContext; sessionInfo: SessionInfo } | null> {
+): Promise<{
+  sessionId: string;
+  ref?: string;
+  session: SessionContext;
+  sessionInfo: SessionInfo;
+} | null> {
   const decoded = decodeActionValue(rawValue);
   const session = await getSession(decoded.sessionId);
   const sessionInfo = await activeSessions.restore(decoded.sessionId);
@@ -27,11 +32,13 @@ async function resolveActionSession(
   if (!session || !sessionInfo) {
     logger.error(`DM action: missing session for ${decoded.sessionId}`);
     if (channelId) {
-      await client.chat.postEphemeral({
-        channel: channelId,
-        user: userId,
-        text: "Sorry, this session has expired. Please try again.",
-      }).catch(() => {});
+      await client.chat
+        .postEphemeral({
+          channel: channelId,
+          user: userId,
+          text: "Sorry, this session has expired. Please try again.",
+        })
+        .catch(() => {});
     }
     return null;
   }
@@ -111,10 +118,7 @@ async function confirmInDm(
 // ---------------------------------------------------------------------------
 
 /** Post snapshot content to a target channel or thread. */
-async function handlePostTo(
-  body: BlockAction,
-  client: App["client"],
-): Promise<void> {
+async function handlePostTo(body: BlockAction, client: App["client"]): Promise<void> {
   const rawValue = (body.actions[0] as { value: string }).value;
   const resolved = await resolveActionSession(rawValue, client, body.channel?.id, body.user.id);
   if (!resolved) return;
@@ -122,25 +126,24 @@ async function handlePostTo(
 
   // Resolve per-button content (each button has its own content entry persisted at creation time)
   const decoded = decodeActionValue(rawValue);
-  const snapshot = decoded.snapshotId
-    ? session.snapshots?.[decoded.snapshotId]
-    : undefined;
+  const snapshot = decoded.snapshotId ? session.snapshots?.[decoded.snapshotId] : undefined;
 
   if (!snapshot) {
-    logger.error(`post_to failed: missing content entry for ${sessionId} (snapshotId: ${decoded.snapshotId ?? "none"})`);
+    logger.error(
+      `post_to failed: missing content entry for ${sessionId} (snapshotId: ${decoded.snapshotId ?? "none"})`,
+    );
     return;
   }
 
   // Resolve target channel/thread via fallback chain:
   // explicit button target > DM-first origin > assistant channel > session channel
   const { originChannel, originThreadTs } = resolveOrigin(session, sessionInfo);
-  const targetChannel = decoded.targetChannel
-    || originChannel
-    || session.assistantCurrentChannelId
-    || session.channelId;
-  const targetThreadTs = decoded.targetThreadTs
-    || originThreadTs
-    || undefined;
+  const targetChannel =
+    decoded.targetChannel ||
+    originChannel ||
+    session.assistantCurrentChannelId ||
+    session.channelId;
+  const targetThreadTs = decoded.targetThreadTs || originThreadTs || undefined;
 
   if (!targetChannel) {
     logger.error(`post_to failed: missing target channel for ${sessionId}`);
@@ -160,20 +163,19 @@ async function handlePostTo(
     const channel = session.dmChannel || session.channelId;
     const threadTs = session.dmThreadTs || session.threadTs;
     if (channel && threadTs) {
-      await client.chat.postMessage({
-        channel,
-        thread_ts: threadTs,
-        text: ":warning: Failed to post. The bot may not have access to that channel.",
-      }).catch(() => {});
+      await client.chat
+        .postMessage({
+          channel,
+          thread_ts: threadTs,
+          text: ":warning: Failed to post. The bot may not have access to that channel.",
+        })
+        .catch(() => {});
     }
   }
 }
 
 /** Accept the synthesis and post it to the original channel. */
-async function handleAcceptSynthesis(
-  body: BlockAction,
-  client: App["client"],
-): Promise<void> {
+async function handleAcceptSynthesis(body: BlockAction, client: App["client"]): Promise<void> {
   const rawValue = (body.actions[0] as { value: string }).value;
   const resolved = await resolveActionSession(rawValue, client, body.channel?.id, body.user.id);
   if (!resolved) return;
@@ -211,21 +213,20 @@ async function handleAcceptSynthesis(
 }
 
 /** Open modal to edit the synthesis before sharing. */
-async function handleEditSynthesis(
-  body: BlockAction,
-  client: App["client"],
-): Promise<void> {
+async function handleEditSynthesis(body: BlockAction, client: App["client"]): Promise<void> {
   const sessionId = (body.actions[0] as { value: string }).value;
   const session = await getSession(sessionId);
 
   if (!session?.lastAnswer) {
     logger.error(`Cannot edit synthesis: no answer for ${sessionId}`);
     if (body.channel?.id) {
-      await client.chat.postEphemeral({
-        channel: body.channel.id,
-        user: body.user.id,
-        text: "Sorry, this session has expired or has no answer to edit.",
-      }).catch(() => {});
+      await client.chat
+        .postEphemeral({
+          channel: body.channel.id,
+          user: body.user.id,
+          text: "Sorry, this session has expired or has no answer to edit.",
+        })
+        .catch(() => {});
     }
     return;
   }
@@ -305,10 +306,7 @@ async function handleEditSynthesisSubmit(
 }
 
 /** Handle rejection — user discards the answer. */
-async function handleReject(
-  body: BlockAction,
-  client: App["client"],
-): Promise<void> {
+async function handleReject(body: BlockAction, client: App["client"]): Promise<void> {
   const sessionId = (body.actions[0] as { value: string }).value;
   const session = await getSession(sessionId);
 
@@ -324,10 +322,7 @@ async function handleReject(
 }
 
 /** Update an already-posted channel message with the latest answer. */
-async function handleUpdatePost(
-  body: BlockAction,
-  client: App["client"],
-): Promise<void> {
+async function handleUpdatePost(body: BlockAction, client: App["client"]): Promise<void> {
   const rawValue = (body.actions[0] as { value: string }).value;
   const resolved = await resolveActionSession(rawValue, client, body.channel?.id, body.user.id);
   if (!resolved) return;
@@ -355,10 +350,7 @@ async function handleUpdatePost(
 }
 
 /** Post a new reply to the original thread with the latest answer. */
-async function handlePostNew(
-  body: BlockAction,
-  client: App["client"],
-): Promise<void> {
+async function handlePostNew(body: BlockAction, client: App["client"]): Promise<void> {
   const rawValue = (body.actions[0] as { value: string }).value;
   const resolved = await resolveActionSession(rawValue, client, body.channel?.id, body.user.id);
   if (!resolved) return;

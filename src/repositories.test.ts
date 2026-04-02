@@ -39,10 +39,12 @@ mock.module("simple-git", {
 });
 
 // Mock config module
-const mockGetConfig = mock.fn<() => {
-  repositories: Array<{ name: string; url: string; description: string; branch?: string }>;
-  git: { pullIntervalMinutes: number; shallowClone: boolean; cloneDepth: number };
-}>();
+const mockGetConfig = mock.fn<
+  () => {
+    repositories: Array<{ name: string; url: string; description: string; branch?: string }>;
+    git: { pullIntervalMinutes: number; shallowClone: boolean; cloneDepth: number };
+  }
+>();
 const mockGetRepositoriesDir = mock.fn<() => string>();
 
 mock.module("./config.js", {
@@ -89,7 +91,9 @@ const {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeRepo(overrides?: Partial<{ name: string; url: string; description: string; branch: string }>) {
+function makeRepo(
+  overrides?: Partial<{ name: string; url: string; description: string; branch: string }>,
+) {
   return {
     name: "test-repo",
     url: "https://github.com/org/test-repo.git",
@@ -98,12 +102,14 @@ function makeRepo(overrides?: Partial<{ name: string; url: string; description: 
   };
 }
 
-function defaultConfig(overrides?: Partial<{
-  shallowClone: boolean;
-  cloneDepth: number;
-  pullIntervalMinutes: number;
-  repositories: Array<{ name: string; url: string; description: string; branch?: string }>;
-}>) {
+function defaultConfig(
+  overrides?: Partial<{
+    shallowClone: boolean;
+    cloneDepth: number;
+    pullIntervalMinutes: number;
+    repositories: Array<{ name: string; url: string; description: string; branch?: string }>;
+  }>,
+) {
   return {
     repositories: overrides?.repositories ?? [makeRepo()],
     git: {
@@ -132,7 +138,9 @@ function resetAllMocks(): void {
   mockMkdirSync.mock.mockImplementation(() => {});
   mockGetRepositoriesDir.mock.mockImplementation(() => "/data/repositories");
   mockGetConfig.mock.mockImplementation(() => defaultConfig());
-  mockGetAuthenticatedCloneUrl.mock.mockImplementation(async (url: string) => `https://x-access-token:TOKEN@github.com/org/test-repo.git`);
+  mockGetAuthenticatedCloneUrl.mock.mockImplementation(
+    async (_url: string) => `https://x-access-token:TOKEN@github.com/org/test-repo.git`,
+  );
   mockGitClone.mock.mockImplementation(async () => {});
   mockGitFetch.mock.mockImplementation(async () => {});
   mockGitCheckout.mock.mockImplementation(async () => {});
@@ -170,16 +178,25 @@ describe("setAuthenticatedRemote", () => {
   beforeEach(resetAllMocks);
 
   it("sets the remote URL to an authenticated URL", async () => {
-    mockGetAuthenticatedCloneUrl.mock.mockImplementation(async () => "https://x-access-token:FRESH@github.com/org/repo.git");
+    mockGetAuthenticatedCloneUrl.mock.mockImplementation(
+      async () => "https://x-access-token:FRESH@github.com/org/repo.git",
+    );
 
     await setAuthenticatedRemote("/repo/path", "https://github.com/org/repo.git");
 
     assert.equal(mockGetAuthenticatedCloneUrl.mock.callCount(), 1);
-    assert.equal(mockGetAuthenticatedCloneUrl.mock.calls[0].arguments[0], "https://github.com/org/repo.git");
+    assert.equal(
+      mockGetAuthenticatedCloneUrl.mock.calls[0].arguments[0],
+      "https://github.com/org/repo.git",
+    );
 
     assert.equal(mockGitRemote.mock.callCount(), 1);
     const remoteArgs = mockGitRemote.mock.calls[0].arguments[0] as string[];
-    assert.deepEqual(remoteArgs, ["set-url", "origin", "https://x-access-token:FRESH@github.com/org/repo.git"]);
+    assert.deepEqual(remoteArgs, [
+      "set-url",
+      "origin",
+      "https://x-access-token:FRESH@github.com/org/repo.git",
+    ]);
   });
 
   it("creates a git instance with the repo path as baseDir", async () => {
@@ -202,9 +219,9 @@ describe("cloneRepository", () => {
 
   it("creates the repositories directory if it does not exist", async () => {
     // First call (reposDir) returns false, second call (repoPath) returns false
-    let callCount = 0;
+    let _callCount = 0;
     mockExistsSync.mock.mockImplementation(() => {
-      callCount++;
+      _callCount++;
       return false;
     });
 
@@ -229,7 +246,9 @@ describe("cloneRepository", () => {
   });
 
   it("clones with shallow clone options when configured", async () => {
-    mockGetConfig.mock.mockImplementation(() => defaultConfig({ shallowClone: true, cloneDepth: 5 }));
+    mockGetConfig.mock.mockImplementation(() =>
+      defaultConfig({ shallowClone: true, cloneDepth: 5 }),
+    );
 
     await cloneRepository(makeRepo());
 
@@ -268,7 +287,9 @@ describe("cloneRepository", () => {
   });
 
   it("uses the authenticated clone URL", async () => {
-    mockGetAuthenticatedCloneUrl.mock.mockImplementation(async () => "https://x-access-token:SECRET@github.com/org/test-repo.git");
+    mockGetAuthenticatedCloneUrl.mock.mockImplementation(
+      async () => "https://x-access-token:SECRET@github.com/org/test-repo.git",
+    );
 
     await cloneRepository(makeRepo());
 
@@ -367,10 +388,7 @@ describe("syncAllRepositories", () => {
   beforeEach(resetAllMocks);
 
   it("syncs all repositories from config", async () => {
-    const repos = [
-      makeRepo({ name: "repo-a" }),
-      makeRepo({ name: "repo-b" }),
-    ];
+    const repos = [makeRepo({ name: "repo-a" }), makeRepo({ name: "repo-b" })];
     mockGetConfig.mock.mockImplementation(() => defaultConfig({ repositories: repos }));
     // All repos exist
     mockExistsSync.mock.mockImplementation(() => true);
@@ -382,10 +400,7 @@ describe("syncAllRepositories", () => {
   });
 
   it("continues syncing remaining repositories when one fails", async () => {
-    const repos = [
-      makeRepo({ name: "repo-a" }),
-      makeRepo({ name: "repo-b" }),
-    ];
+    const repos = [makeRepo({ name: "repo-a" }), makeRepo({ name: "repo-b" })];
     mockGetConfig.mock.mockImplementation(() => defaultConfig({ repositories: repos }));
     mockExistsSync.mock.mockImplementation(() => true);
 
@@ -438,10 +453,7 @@ describe("initializeRepositories", () => {
   });
 
   it("clones all configured repositories", async () => {
-    const repos = [
-      makeRepo({ name: "repo-a" }),
-      makeRepo({ name: "repo-b" }),
-    ];
+    const repos = [makeRepo({ name: "repo-a" }), makeRepo({ name: "repo-b" })];
     mockGetConfig.mock.mockImplementation(() => defaultConfig({ repositories: repos }));
 
     await initializeRepositories();
@@ -450,10 +462,7 @@ describe("initializeRepositories", () => {
   });
 
   it("continues cloning when one repository fails", async () => {
-    const repos = [
-      makeRepo({ name: "repo-a" }),
-      makeRepo({ name: "repo-b" }),
-    ];
+    const repos = [makeRepo({ name: "repo-a" }), makeRepo({ name: "repo-b" })];
     mockGetConfig.mock.mockImplementation(() => defaultConfig({ repositories: repos }));
 
     let cloneCount = 0;

@@ -13,13 +13,18 @@ export function createUpdateScheduledMessageTool(ctx: QueryToolContext) {
   return tool(
     "update_scheduled_message",
     "Update an existing scheduled message. " +
-    "Non-admin users can only update their own scheduled messages. " +
-    "Only provide the fields you want to change.",
+      "Non-admin users can only update their own scheduled messages. " +
+      "Only provide the fields you want to change.",
     {
       id: z.string().describe("The scheduled message ID to update"),
       cronExpression: z.string().optional().describe("New cron expression"),
       channel: z.string().optional().describe("New target channel"),
-      prompt: z.string().optional().describe("New prompt for dynamic content generation. Should only describe WHAT to do, not HOW to deliver — the scheduler handles delivery automatically."),
+      prompt: z
+        .string()
+        .optional()
+        .describe(
+          "New prompt for dynamic content generation. Should only describe WHAT to do, not HOW to deliver — the scheduler handles delivery automatically.",
+        ),
     },
     async (args) => {
       const job = await getJob(args.id);

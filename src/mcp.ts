@@ -121,7 +121,8 @@ function isGitHubMcpServerAvailable(): boolean {
   try {
     // Use 'where' on Windows, 'which' elsewhere — just checks PATH presence
     // without executing the binary (whose --help may exit non-zero).
-    const cmd = process.platform === "win32" ? "where github-mcp-server" : "which github-mcp-server";
+    const cmd =
+      process.platform === "win32" ? "where github-mcp-server" : "which github-mcp-server";
     execSync(cmd, { stdio: "ignore" });
     binaryAvailable = true;
   } catch {
@@ -177,7 +178,9 @@ export async function loadMcpServers(): Promise<Record<string, McpServerConfig> 
     const toolsets = mapPermissionsToToolsets(permissions);
 
     if (!toolsets) {
-      logger.warn("GitHub App token has no permissions that map to MCP toolsets — skipping GitHub MCP auto-configuration");
+      logger.warn(
+        "GitHub App token has no permissions that map to MCP toolsets — skipping GitHub MCP auto-configuration",
+      );
       return staticServers;
     }
 
@@ -185,8 +188,12 @@ export async function loadMcpServers(): Promise<Record<string, McpServerConfig> 
     // Exclude tools that require PAT-level access to avoid 403s, and tools that
     // overlap with Clack's own tools (which resolve owner/repo from config correctly).
     const excludedTools = [
-      "search_pull_requests", "search_issues", "search_code",
-      "search_repositories", "search_users", "get_me",
+      "search_pull_requests",
+      "search_issues",
+      "search_code",
+      "search_repositories",
+      "search_users",
+      "get_me",
       // Clack's find_pull_requests resolves owner/repo from config — the MCP version
       // requires Claude to guess the org name, which it often gets wrong.
       "list_pull_requests",
@@ -202,7 +209,7 @@ export async function loadMcpServers(): Promise<Record<string, McpServerConfig> 
       },
     };
 
-    const result = { ...(staticServers ?? {}), github: githubMcpEntry };
+    const result = { ...staticServers, github: githubMcpEntry };
     logger.debug(`Auto-configured GitHub MCP server (toolsets: ${toolsets})`);
     return result;
   } catch (error) {
@@ -220,7 +227,11 @@ export function getConfiguredMcpServerNames(): string[] {
   const names = servers ? Object.keys(servers) : [];
 
   // Include "github" if auto-config conditions are met
-  if (!names.includes("github") && existsSync(getGitHubAuthPath()) && isGitHubMcpServerAvailable()) {
+  if (
+    !names.includes("github") &&
+    existsSync(getGitHubAuthPath()) &&
+    isGitHubMcpServerAvailable()
+  ) {
     names.push("github");
   }
 
@@ -240,9 +251,7 @@ export function resetMcpCache(): void {
  * Substitutes environment variables in config values
  * Supports ${VAR_NAME} syntax
  */
-function substituteEnvVars(
-  env?: Record<string, string>
-): Record<string, string> | undefined {
+function substituteEnvVars(env?: Record<string, string>): Record<string, string> | undefined {
   if (!env) return undefined;
 
   const result: Record<string, string> = {};
