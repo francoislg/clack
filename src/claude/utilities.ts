@@ -1,4 +1,4 @@
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import { clackQuery } from "./query.js";
 import { basename } from "node:path";
 import { logger } from "../logger.js";
 import type { ConversationMessage } from "./index.js";
@@ -30,7 +30,7 @@ ${text}`;
     let summary = "";
     let lastAssistantText = "";
 
-    for await (const message of query({
+    for await (const message of clackQuery({
       prompt,
       options: {
         cwd: process.cwd(),
@@ -100,7 +100,7 @@ Provide a concise, non-technical explanation suitable for a user who encountered
     let analysis = "";
     let lastAssistantText = "";
 
-    for await (const message of query({
+    for await (const message of clackQuery({
       prompt,
       options: {
         cwd: process.cwd(),

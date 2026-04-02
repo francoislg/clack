@@ -326,4 +326,52 @@ describe("buildPrompt", () => {
     const prompt = buildPrompt(session);
     assert.ok(prompt.includes("[attached files: report.pdf (file_id: F789, type: application/pdf)]"));
   });
+
+  // ---- delta thread context on resume ----
+  it("filters thread context to delta when resuming (sdkSessionId + lastSeenThreadTs)", () => {
+    const session = makeSession({
+      sdkSessionId: "sdk-uuid-123",
+      lastSeenThreadTs: "1234567890.000200",
+      threadContext: [
+        { userId: "U1", text: "old message", isBot: false, ts: "1234567890.000100" },
+        { userId: "U2", text: "also old", isBot: false, ts: "1234567890.000200" },
+        { userId: "U3", text: "new message from someone", isBot: false, ts: "1234567890.000300" },
+      ],
+    });
+    const prompt = buildPrompt(session);
+    assert.ok(prompt.includes("NEW THREAD MESSAGES"));
+    assert.ok(!prompt.includes("THREAD CONTEXT (previous"));
+    assert.ok(prompt.includes("new message from someone"));
+    assert.ok(!prompt.includes("old message"));
+    assert.ok(!prompt.includes("also old"));
+  });
+
+  it("uses full thread context when sdkSessionId is set but lastSeenThreadTs is missing", () => {
+    const session = makeSession({
+      sdkSessionId: "sdk-uuid-123",
+      threadContext: [
+        { userId: "U1", text: "first message", isBot: false, ts: "1234567890.000100" },
+        { userId: "U2", text: "second message", isBot: false, ts: "1234567890.000200" },
+      ],
+    });
+    const prompt = buildPrompt(session);
+    assert.ok(prompt.includes("THREAD CONTEXT (previous"));
+    assert.ok(!prompt.includes("NEW THREAD MESSAGES"));
+    assert.ok(prompt.includes("first message"));
+    assert.ok(prompt.includes("second message"));
+  });
+
+  it("omits thread context section when all messages are older than lastSeenThreadTs", () => {
+    const session = makeSession({
+      sdkSessionId: "sdk-uuid-123",
+      lastSeenThreadTs: "1234567890.000999",
+      threadContext: [
+        { userId: "U1", text: "old", isBot: false, ts: "1234567890.000100" },
+        { userId: "U2", text: "also old", isBot: false, ts: "1234567890.000200" },
+      ],
+    });
+    const prompt = buildPrompt(session);
+    assert.ok(!prompt.includes("THREAD CONTEXT"));
+    assert.ok(!prompt.includes("NEW THREAD MESSAGES"));
+  });
 });

@@ -47,8 +47,11 @@ const mockClearActiveChange = mock.fn();
 const mockGetActiveChangeForUser = mock.fn<(userId: string) => { sessionId: string; change: ActiveChangeState } | undefined>();
 const mockUpdateActiveChangeStatus = mock.fn();
 
+const mockGetActiveChange = mock.fn<(...args: unknown[]) => unknown>();
+
 mock.module("./activeState.js", {
   namedExports: {
+    getActiveChange: mockGetActiveChange,
     setActiveChange: mockSetActiveChange,
     clearActiveChange: mockClearActiveChange,
     getActiveChangeForUser: mockGetActiveChangeForUser,
@@ -318,7 +321,7 @@ describe("startChangeWorkflow", () => {
     await startChangeWorkflow(makeRequest(), makePlan(), "session-123");
 
     assert.equal(mockExecuteChange.mock.callCount(), 1);
-    const resumeContext = mockExecuteChange.mock.calls[0].arguments[4];
+    const resumeContext = (mockExecuteChange.mock.calls[0].arguments[0] as Record<string, unknown>).resumeContext;
     assert.ok(typeof resumeContext === "string");
     assert.ok(resumeContext.includes("Implementing"));
     assert.ok(resumeContext.includes("Working on changes"));
@@ -333,7 +336,7 @@ describe("startChangeWorkflow", () => {
 
     await startChangeWorkflow(makeRequest(), makePlan(), "session-123");
 
-    const resumeContext = mockExecuteChange.mock.calls[0].arguments[4];
+    const resumeContext = (mockExecuteChange.mock.calls[0].arguments[0] as Record<string, unknown>).resumeContext;
     assert.ok(typeof resumeContext === "string");
     assert.ok(resumeContext.includes("partial changes"));
   });
@@ -432,7 +435,7 @@ describe("startChangeWorkflow", () => {
 
     await startChangeWorkflow(makeRequest(), makePlan(), "session-123", onEvent);
 
-    const passedOnEvent = mockExecuteChange.mock.calls[0].arguments[5];
+    const passedOnEvent = (mockExecuteChange.mock.calls[0].arguments[0] as Record<string, unknown>).onEvent;
     assert.equal(passedOnEvent, onEvent);
   });
 
@@ -665,7 +668,7 @@ describe("handleFollowUp", () => {
       await handleFollowUp(session as SessionContext, "update", "Add error handling");
 
       assert.equal(mockExecuteChange.mock.callCount(), 1);
-      const plan = mockExecuteChange.mock.calls[0].arguments[0] as ChangePlan;
+      const plan = (mockExecuteChange.mock.calls[0].arguments[0] as Record<string, unknown>).plan as ChangePlan;
       assert.equal(plan.branchName, "feat/test-branch");
       assert.equal(plan.description, "Add error handling");
       assert.equal(plan.targetRepo, "my-repo");
@@ -681,7 +684,7 @@ describe("handleFollowUp", () => {
 
       await handleFollowUp(session as SessionContext, "update");
 
-      const plan = mockExecuteChange.mock.calls[0].arguments[0] as ChangePlan;
+      const plan = (mockExecuteChange.mock.calls[0].arguments[0] as Record<string, unknown>).plan as ChangePlan;
       assert.equal(plan.description, "Fix the auth bug");
     });
 
@@ -724,7 +727,7 @@ describe("handleFollowUp", () => {
 
       await handleFollowUp(session as SessionContext, "update", undefined, onEvent);
 
-      const passedOnEvent = mockExecuteChange.mock.calls[0].arguments[5];
+      const passedOnEvent = (mockExecuteChange.mock.calls[0].arguments[0] as Record<string, unknown>).onEvent;
       assert.equal(passedOnEvent, onEvent);
     });
   });

@@ -11,6 +11,7 @@ import type { SessionContext } from "../sessions.js";
 import { getSession } from "../sessions.js";
 import type { ActiveChangeState } from "./activeState.js";
 import {
+  getActiveChange,
   setActiveChange,
   clearActiveChange,
   getActiveChangeForUser,
@@ -115,20 +116,26 @@ export async function startChangeWorkflow(
   // Phase 2: Execution
   let execResult;
   try {
-    execResult = await executeChange(
+    execResult = await executeChange({
       plan,
       worktree,
       request,
       sessionId,
       resumeContext,
       onEvent,
-    );
+    });
   } catch (error) {
     appendExecutionLog(plan.branchName, `Execution error: ${errorMessage(error)}`);
     execResult = {
       success: false,
       error: `Execution threw exception: ${errorMessage(error)}`,
     };
+  }
+
+  // Store SDK session ID for resuming follow-ups
+  if (execResult.sdkSessionId) {
+    const ac = getActiveChange(sessionId);
+    if (ac) ac.sdkSessionId = execResult.sdkSessionId;
   }
 
   if (!execResult.success) {
@@ -227,6 +234,8 @@ export async function handleFollowUp(
         branchName: activeChange.branch,
         mcpServers: { clack: workerTools.mcpServer },
         onEvent,
+        resumeSessionId: activeChange.sdkSessionId,
+        onSessionId: (id: string) => { activeChange.sdkSessionId = id; },
       });
 
       if (result.success) {
@@ -254,14 +263,19 @@ export async function handleFollowUp(
         messageTs: session.threadTs,
       };
 
-      const updateResult = await executeChange(
+      const updateResult = await executeChange({
         plan,
-        activeChange.worktree,
-        updateRequest,
-        session.sessionId,
-        undefined,
+        worktree: activeChange.worktree,
+        request: updateRequest,
+        sessionId: session.sessionId,
         onEvent,
-      );
+        sdkSessionId: activeChange.sdkSessionId,
+      });
+
+      // Store SDK session ID for future follow-ups
+      if (updateResult.sdkSessionId) {
+        activeChange.sdkSessionId = updateResult.sdkSessionId;
+      }
 
       if (!updateResult.success) {
         // Revert to pr_created — the PR still exists and user can retry
