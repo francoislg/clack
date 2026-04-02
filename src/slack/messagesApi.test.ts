@@ -107,14 +107,15 @@ interface MockConversationsConfig {
 
 function makeClient(config: MockConversationsConfig = {}): App["client"] {
   const postMessageFn = mock.fn(async () => ({ ok: true }));
+  const repliesFn = mock.fn(async ({ channel, ts }: { channel: string; ts: string }) => {
+    if (config.throwOnReplies) throw new Error("replies_error");
+    const key = `${channel}:${ts}`;
+    return { ok: true, messages: config.replies?.[key] ?? [] };
+  });
 
   return {
     conversations: {
-      replies: async ({ channel, ts }: { channel: string; ts: string }) => {
-        if (config.throwOnReplies) throw new Error("replies_error");
-        const key = `${channel}:${ts}`;
-        return { ok: true, messages: config.replies?.[key] ?? [] };
-      },
+      replies: repliesFn,
       history: async ({ channel, latest }: { channel: string; latest: string }) => {
         if (config.throwOnHistory) throw new Error("history_error");
         const key = `${channel}:${latest}`;
@@ -254,6 +255,29 @@ describe("fetchThreadContext", () => {
     const client = makeClient({ throwOnReplies: true });
     const result = await fetchThreadContext(client, "C1", "ts1", "BOTU");
     assert.deepEqual(result, []);
+  });
+
+  it("passes custom limit to conversations.replies", async () => {
+    const client = makeClient({
+      replies: { "C1:ts1": [{ text: "hello", user: "U1", ts: "1" }] },
+    });
+    await fetchThreadContext(client, "C1", "ts1", "BOTU", { limit: 50 });
+
+    const repliesFn = client.conversations.replies as unknown as ReturnType<typeof mock.fn>;
+    assert.equal(repliesFn.mock.callCount(), 1);
+    const callArgs = repliesFn.mock.calls[0].arguments[0] as { limit: number };
+    assert.equal(callArgs.limit, 50);
+  });
+
+  it("uses default limit of 20 when not specified", async () => {
+    const client = makeClient({
+      replies: { "C1:ts1": [{ text: "hello", user: "U1", ts: "1" }] },
+    });
+    await fetchThreadContext(client, "C1", "ts1", "BOTU");
+
+    const repliesFn = client.conversations.replies as unknown as ReturnType<typeof mock.fn>;
+    const callArgs = repliesFn.mock.calls[0].arguments[0] as { limit: number };
+    assert.equal(callArgs.limit, 20);
   });
 });
 
