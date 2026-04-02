@@ -75,6 +75,8 @@ export interface SubmitResponseDeps {
   sessionId: string;
   deliver?: DeliverFn;
   persistSnapshot?: (id: string, snapshot: ResponseSnapshot) => Promise<void>;
+  /** When set, submit_response already delivers top-level to this channel — post_to targeting it is rejected. */
+  topLevelDeliveryChannel?: string;
 }
 
 function validateRefActions(
@@ -96,6 +98,7 @@ function validateRefActions(
 
 function validatePostToActions(
   actions: z.infer<typeof actionSchema>[],
+  topLevelDeliveryChannel?: string,
 ): string | null {
   for (const action of actions) {
     if (action.type !== "post_to") continue;
@@ -104,6 +107,11 @@ function validatePostToActions(
     }
     if (!action.content.trim()) {
       return `post_to action has empty content. Provide the text to post.`;
+    }
+    // In scheduled mode, submit_response already delivers top-level to the target channel.
+    // A post_to targeting the same channel without a thread would duplicate the message.
+    if (topLevelDeliveryChannel && action.channel === topLevelDeliveryChannel && !action.thread_ts) {
+      return `submit_response already posts top-level to channel ${topLevelDeliveryChannel}. Remove this post_to action — it would duplicate the message. Use post_to only for a DIFFERENT channel or a specific thread.`;
     }
   }
   return null;
@@ -127,7 +135,7 @@ function recordError(
 }
 
 export function createSubmitResponseTool(deps: SubmitResponseDeps) {
-  const { intentStore, responseCapture, recorder, sessionId, deliver, persistSnapshot } = deps;
+  const { intentStore, responseCapture, recorder, sessionId, deliver, persistSnapshot, topLevelDeliveryChannel } = deps;
   return tool(
     "submit_response",
     "Submit the final response to the user. This defines what the user sees: text sections and interactive buttons. Always call this tool to deliver your response.",
@@ -152,7 +160,7 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
         return errorResult(refError);
       }
 
-      const postToError = validatePostToActions(args.actions);
+      const postToError = validatePostToActions(args.actions, topLevelDeliveryChannel);
       if (postToError) {
         recorder.record("submit_response", args as unknown as Record<string, unknown>, { error: postToError });
         return errorResult(postToError);
