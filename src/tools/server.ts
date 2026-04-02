@@ -246,6 +246,9 @@ function buildQueryTools(ctx: QueryToolContext): ClackToolsResult {
     sessionId: ctx.session.sessionId,
     deliver: ctx.deliver,
     persistSnapshot,
+    // In scheduled mode, submit_response delivers top-level to the channel.
+    // Pass the channel so post_to validation can reject duplicates.
+    topLevelDeliveryChannel: ctx.session.triggerType === "scheduled" ? ctx.session.channelId : undefined,
   }));
 
   const toolNames = tools.map((t) => t.name);
