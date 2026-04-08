@@ -1,32 +1,6 @@
 import { describe, it, beforeEach, mock } from "node:test";
 import assert from "node:assert/strict";
-
-// ---------------------------------------------------------------------------
-// Module-level mocks — must be set up before importing the module under test
-// ---------------------------------------------------------------------------
-
-const mockReadFile = mock.fn<(path: string, encoding: string) => Promise<string>>();
-const mockWriteFile = mock.fn<(path: string, data: string) => Promise<void>>();
-const mockMkdir =
-  mock.fn<(path: string, opts: { recursive: boolean }) => Promise<string | undefined>>();
-const mockFileExists = mock.fn<(path: string) => Promise<boolean>>();
-
-mock.module("node:fs/promises", {
-  namedExports: {
-    readFile: mockReadFile,
-    writeFile: mockWriteFile,
-    mkdir: mockMkdir,
-  },
-});
-
-mock.module("./fs.js", {
-  namedExports: {
-    fileExists: mockFileExists,
-  },
-});
-
-// Import after mocks are registered
-const {
+import {
   loadRoles,
   saveRoles,
   isOwner,
@@ -39,10 +13,30 @@ const {
   claimOwnershipFromDisabled,
   transferOwnership,
   clearRolesCache,
-} = await import("./roles.js");
-
-import type { RolesConfig } from "./roles.js";
+  setRolesDeps,
+  type RolesConfig,
+  type RolesDeps,
+} from "./roles.js";
 import type { App } from "@slack/bolt";
+
+// ---------------------------------------------------------------------------
+// Mock deps
+// ---------------------------------------------------------------------------
+
+const mockReadFile = mock.fn<(path: string, encoding: string) => Promise<string>>();
+const mockWriteFile = mock.fn<(path: string, data: string) => Promise<void>>();
+const mockMkdir =
+  mock.fn<(path: string, opts: { recursive: boolean }) => Promise<string | undefined>>();
+const mockFileExists = mock.fn<(path: string) => Promise<boolean>>();
+
+function makeDeps(): RolesDeps {
+  return {
+    readFile: mockReadFile as never,
+    writeFile: mockWriteFile as never,
+    mkdir: mockMkdir as never,
+    fileExists: mockFileExists as never,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -59,6 +53,8 @@ function resetMocks(): void {
   mockFileExists.mock.mockImplementation(async () => false);
   mockWriteFile.mock.mockImplementation(async () => {});
   mockMkdir.mock.mockImplementation(async () => undefined);
+
+  setRolesDeps(makeDeps());
 }
 
 /** Configure mocks so loadRoles returns the given roles. */

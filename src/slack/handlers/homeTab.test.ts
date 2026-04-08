@@ -1,29 +1,35 @@
 import { describe, it, mock, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
-import type { RolesConfig } from "../../roles.js";
 import type { View } from "@slack/types";
+import type { HomeTabDeps } from "./homeTab.js";
+import { registerHomeTabHandler } from "./homeTab.js";
 
 // ============================================================================
-// Mocks — set up before importing the module under test
+// Mock Functions
 // ============================================================================
 
-const mockLoadRoles = mock.fn<() => Promise<RolesConfig>>();
+const mockLoadRoles =
+  mock.fn<() => Promise<{ owner: string | null; admins: string[]; devs: string[] }>>();
 const mockSetOwner = mock.fn<(userId: string) => Promise<void>>(async () => {});
 const mockSetRole =
   mock.fn<(userId: string, role: string) => Promise<{ success: boolean; error?: string }>>();
-const mockIsUserDisabled = mock.fn<(client: unknown, userId: string) => Promise<boolean>>();
+const mockIsUserDisabled = mock.fn<(client: App["client"], userId: string) => Promise<boolean>>();
 const mockClaimOwnershipFromDisabled =
-  mock.fn<(client: unknown, userId: string) => Promise<{ success: boolean; error?: string }>>();
+  mock.fn<
+    (client: App["client"], userId: string) => Promise<{ success: boolean; error?: string }>
+  >();
 const mockTransferOwnership =
   mock.fn<
-    (client: unknown, fromId: string, toId: string) => Promise<{ success: boolean; error?: string }>
+    (
+      client: App["client"],
+      fromId: string,
+      toId: string,
+    ) => Promise<{ success: boolean; error?: string }>
   >();
 const mockHasOwner = mock.fn<() => Promise<boolean>>();
-
 const mockUserCanManageRoles = mock.fn<(userId: string) => Promise<boolean>>();
 const mockUserCanEditConfig = mock.fn<(userId: string) => Promise<boolean>>();
-
 const mockBuildHomeView =
   mock.fn<(opts: { userId: string; ownerDisabled?: boolean }) => Promise<View>>();
 const mockBuildUserSelectModal =
@@ -32,18 +38,34 @@ const mockBuildRemoveUserModal =
   mock.fn<(title: string, actionId: string, users: string[]) => View>();
 const mockBuildSettingsModal = mock.fn<(userId: string) => Promise<View>>();
 const mockBuildConfigFilePickerModal =
-  mock.fn<(dir: string, files: unknown[], isRepoDir: boolean) => View>();
+  mock.fn<(dir: string, files: (string | Record<string, string>)[], isRepoDir: boolean) => View>();
 const mockBuildConfigEditorModal =
   mock.fn<(dir: string, filename: string, content: string, fileState: string) => View>();
 const mockBuildConfigCreateFileModal = mock.fn<(dir: string) => View>();
-
-const mockSetUserPreference = mock.fn<
-  (userId: string, key: string, value: unknown) => Promise<void>
+const mockBuildAutoRespondModal = mock.fn<() => View>();
+const mockBuildCronJobModal = mock.fn<() => View>();
+const mockAddRule = mock.fn<
+  (
+    channels: string[],
+    userFilters?: string[],
+    keywords?: string[],
+    extraContext?: string,
+    preAnalysisContext?: string,
+  ) => Promise<void>
 >(async () => {});
-const mockSendDirectMessage = mock.fn<
-  (client: unknown, userId: string, text: string) => Promise<void>
+const mockUpdateRule = mock.fn<
+  (
+    ruleId: string,
+    channels: string[],
+    userFilters?: string[],
+    keywords?: string[],
+    extraContext?: string,
+    preAnalysisContext?: string,
+  ) => Promise<void>
 >(async () => {});
-
+const mockToggleRule = mock.fn<(ruleId: string) => Promise<null>>(async () => null);
+const mockDeleteRule = mock.fn<(ruleId: string) => Promise<void>>(async () => {});
+const mockGetRule = mock.fn<(ruleId: string) => Promise<null>>(async () => null);
 const mockListInstructionFiles = mock.fn<
   () => {
     roles: Array<{ role: string; files: Array<{ filename: string; source: string }> }>;
@@ -57,9 +79,19 @@ const mockReadInstructionFile =
 const mockWriteInstructionFile = mock.fn<(filename: string, content: string) => void>();
 const mockDeleteInstructionFile = mock.fn<(filepath: string) => void>();
 const mockGetEffectiveContentLength = mock.fn<(filepath: string) => number>();
+const mockSetUserPreference = mock.fn<
+  (userId: string, key: string, value: string | boolean | number) => Promise<void>
+>(async () => {});
+const mockToggleJob = mock.fn<(jobId: string) => Promise<null>>(async () => null);
+const mockDeleteJob = mock.fn<(jobId: string) => Promise<void>>(async () => {});
+const mockGetJob = mock.fn<(jobId: string) => Promise<null>>(async () => null);
+const mockUpdateJob = mock.fn<
+  (jobId: string, params: Record<string, string | number>) => Promise<null>
+>(async () => null);
+const mockRunJobNow = mock.fn<(jobId: string, tz: string) => Promise<void>>(async () => {});
 
-mock.module("../../roles.js", {
-  namedExports: {
+function makeDeps(): HomeTabDeps {
+  return {
     loadRoles: mockLoadRoles,
     setOwner: mockSetOwner,
     setRole: mockSetRole,
@@ -67,86 +99,37 @@ mock.module("../../roles.js", {
     claimOwnershipFromDisabled: mockClaimOwnershipFromDisabled,
     transferOwnership: mockTransferOwnership,
     hasOwner: mockHasOwner,
-  },
-});
-
-mock.module("../../permissions.js", {
-  namedExports: {
     userCanManageRoles: mockUserCanManageRoles,
     userCanEditConfig: mockUserCanEditConfig,
-    canEditConfig: (role: string) => role === "admin" || role === "owner",
-    canRequestChanges: (role: string) => role === "dev" || role === "admin" || role === "owner",
-    canManageRoles: (role: string) => role === "admin" || role === "owner",
-    canTransferOwnership: (role: string) => role === "owner",
-  },
-});
-
-mock.module("../homeTab.js", {
-  namedExports: {
     buildHomeView: mockBuildHomeView,
     buildUserSelectModal: mockBuildUserSelectModal,
     buildRemoveUserModal: mockBuildRemoveUserModal,
     buildSettingsModal: mockBuildSettingsModal,
-    buildConfigFilePickerModal: mockBuildConfigFilePickerModal,
+    buildConfigFilePickerModal:
+      mockBuildConfigFilePickerModal as Function as HomeTabDeps["buildConfigFilePickerModal"],
     buildConfigEditorModal: mockBuildConfigEditorModal,
     buildConfigCreateFileModal: mockBuildConfigCreateFileModal,
-    buildAutoRespondModal: mock.fn(() => ({ type: "modal", blocks: [] })),
-    buildCronJobModal: mock.fn(() => ({ type: "modal", blocks: [] })),
-  },
-});
-
-mock.module("../../userPreferences.js", {
-  namedExports: { setUserPreference: mockSetUserPreference },
-});
-
-mock.module("../messagesApi.js", {
-  namedExports: { sendDirectMessage: mockSendDirectMessage },
-});
-
-mock.module("../../configurationFiles.js", {
-  namedExports: {
-    listInstructionFiles: mockListInstructionFiles,
+    buildAutoRespondModal: mockBuildAutoRespondModal,
+    buildCronJobModal: mockBuildCronJobModal,
+    addRule: mockAddRule as Function as HomeTabDeps["addRule"],
+    updateRule: mockUpdateRule as Function as HomeTabDeps["updateRule"],
+    toggleRule: mockToggleRule as Function as HomeTabDeps["toggleRule"],
+    deleteRule: mockDeleteRule as Function as HomeTabDeps["deleteRule"],
+    getRule: mockGetRule,
+    listInstructionFiles:
+      mockListInstructionFiles as () => void as HomeTabDeps["listInstructionFiles"],
     readInstructionFile: mockReadInstructionFile,
     writeInstructionFile: mockWriteInstructionFile,
     deleteInstructionFile: mockDeleteInstructionFile,
     getEffectiveContentLength: mockGetEffectiveContentLength,
-  },
-});
-
-mock.module("../../cronJobs.js", {
-  namedExports: {
-    toggleJob: mock.fn(async () => null),
-    deleteJob: mock.fn(async () => {}),
-    getJob: mock.fn(async () => null),
-    updateJob: mock.fn(async () => null),
-  },
-});
-
-mock.module("../../cronScheduler.js", {
-  namedExports: {
-    runJobNow: mock.fn(async () => {}),
-  },
-});
-
-mock.module("cron-parser", {
-  namedExports: {
-    CronExpressionParser: { parse: mock.fn(() => {}) },
-  },
-});
-
-mock.module("../../logger.js", {
-  namedExports: {
-    logger: {
-      info: () => {},
-      warn: () => {},
-      error: () => {},
-      debug: () => {},
-    },
-  },
-});
-
-// Import after mocks
-const { registerHomeTabHandler } = await import("./homeTab.js");
+    setUserPreference: mockSetUserPreference as Function as HomeTabDeps["setUserPreference"],
+    toggleJob: mockToggleJob as Function as HomeTabDeps["toggleJob"],
+    deleteJob: mockDeleteJob as Function as HomeTabDeps["deleteJob"],
+    getJob: mockGetJob,
+    updateJob: mockUpdateJob as Function as HomeTabDeps["updateJob"],
+    runJobNow: mockRunJobNow as Function as HomeTabDeps["runJobNow"],
+  };
+}
 
 // ============================================================================
 // Helpers
@@ -190,8 +173,8 @@ const capturedEventHandlers = new Map<string, EventHandler>();
 const capturedActionHandlers = new Map<string | RegExp, ActionHandler>();
 const capturedViewHandlers = new Map<string, ViewHandler>();
 
-function makeApp(): App {
-  return {
+function makeApp(deps: HomeTabDeps): App {
+  const obj = {
     event: (eventName: string, handler: EventHandler) => {
       capturedEventHandlers.set(eventName, handler);
     },
@@ -201,7 +184,10 @@ function makeApp(): App {
     view: (viewId: string, handler: ViewHandler) => {
       capturedViewHandlers.set(viewId, handler);
     },
-  } as unknown as App;
+  };
+  const app = obj as never as App;
+  registerHomeTabHandler(app, deps);
+  return app;
 }
 
 /** Find an action handler by exact string key or by matching a regex key against a string. */
@@ -264,7 +250,6 @@ function resetAllMocks() {
   mockWriteInstructionFile.mock.resetCalls();
   mockDeleteInstructionFile.mock.resetCalls();
   mockGetEffectiveContentLength.mock.resetCalls();
-  mockSendDirectMessage.mock.resetCalls();
 
   capturedEventHandlers.clear();
   capturedActionHandlers.clear();
@@ -301,9 +286,7 @@ function setDefaultMocks() {
 beforeEach(() => {
   resetAllMocks();
   setDefaultMocks();
-
-  const app = makeApp();
-  registerHomeTabHandler(app);
+  makeApp(makeDeps());
 });
 
 // ============================================================================
