@@ -44,8 +44,14 @@ The system SHALL manage a Slack chat stream for each Claude query, using `chat.s
 #### Scenario: Fallback on mid-flight stream failure
 - **WHEN** `appendStream` fails during processing
 - **THEN** the streamer enters failed state and silently stops appending
+- **AND** the keepalive timer is cleared
 - **AND** on completion, the caller detects `hasFailed` and falls back to `chat.postMessage`
 - **AND** calls `streamer.stop()` first to clear any loading state
+
+#### Scenario: Known stream expiry logged as warning
+- **WHEN** `appendStream` fails with `message_not_in_streaming_state`
+- **THEN** the error is logged at `warn` level (not `error`)
+- **AND** the streamer enters failed state as normal
 
 #### Scenario: Cancellation stops stream
 - **WHEN** a request is cancelled (e.g., via message edit)
@@ -55,11 +61,45 @@ The system SHALL manage a Slack chat stream for each Claude query, using `chat.s
 - **WHEN** processing completes (success, error, or exception)
 - **THEN** the system calls `streamer.stop()` in a `finally` block to prevent orphaned streams
 - **AND** `stop()` is idempotent -- safe to call multiple times
+- **AND** the keepalive timer is always cleared
 
 #### Scenario: Stream message deleted on skip
 - **WHEN** a response is skipped and `getMessageTs()` returns a valid timestamp
 - **THEN** the caller uses `chat.delete` with the channel and message `ts` to remove the stream message
 - **AND** the thinking indicator and all task cards disappear from Slack
+
+### Requirement: Stream Keepalive
+The system SHALL periodically send keepalive appends to prevent Slack from expiring the chat stream during idle periods.
+
+#### Scenario: Keepalive timer started after stream starts
+- **WHEN** `start()` completes successfully (initial append succeeds)
+- **THEN** a periodic keepalive timer is started at a fixed interval (15 seconds)
+
+#### Scenario: Keepalive sends current thinking task state
+- **WHEN** the keepalive timer fires and the stream is not stopped or failed
+- **THEN** the system appends a `task_update` chunk with the current thinking task ID, title, and `in_progress` status
+- **AND** this resets Slack's server-side inactivity timer
+
+#### Scenario: Keepalive skipped when stream is stopped
+- **WHEN** the keepalive timer fires after `stop()` has been called
+- **THEN** no append is sent and the timer is cleared
+
+#### Scenario: Keepalive skipped when stream has failed
+- **WHEN** the keepalive timer fires after the stream has entered failed state
+- **THEN** no append is sent and the timer is cleared
+
+#### Scenario: Keepalive timer cleared on stop
+- **WHEN** `stop()` is called (normal completion)
+- **THEN** the keepalive timer is cleared before any finalization appends
+
+#### Scenario: Keepalive timer cleared on start failure
+- **WHEN** `start()` fails (Slack API error on initial append)
+- **THEN** no keepalive timer is started
+
+#### Scenario: Keepalive failure triggers stream failed state
+- **WHEN** the keepalive append fails with an API error
+- **THEN** the streamer enters failed state (`hasFailed` returns true)
+- **AND** the keepalive timer is cleared
 
 ### Requirement: Tool Call Progress
 The system SHALL display Claude's tool calls as task cards within a plan block, updated in real-time as tools execute.

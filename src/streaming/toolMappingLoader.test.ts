@@ -2,11 +2,11 @@ import { describe, it, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync, mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
+import { truncate } from "../text.js";
 import {
   interpolateLabel,
   sanitizeArgValue,
   shortenPath,
-  truncate,
   resolveConfig,
   applyArgConfigs,
   substituteEnvVars,
