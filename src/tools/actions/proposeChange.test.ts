@@ -1,55 +1,14 @@
 import { describe, it, beforeEach, mock } from "node:test";
 import assert from "node:assert/strict";
-
-// ---------------------------------------------------------------------------
-// Module-level mocks
-// ---------------------------------------------------------------------------
-
-const mockGetExistingWorktree = mock.fn<(...args: unknown[]) => unknown>();
-const mockReadSessionState = mock.fn<(...args: unknown[]) => Promise<unknown>>();
-const mockCanWriteRepo = mock.fn<(...args: unknown[]) => boolean>();
-const mockGetWritableRepos = mock.fn<(...args: unknown[]) => unknown[]>();
-
-mock.module("../../worktrees.js", {
-  namedExports: {
-    getExistingWorktree: mockGetExistingWorktree,
-  },
-});
-
-mock.module("../../changes/persistence.js", {
-  namedExports: {
-    readSessionState: mockReadSessionState,
-  },
-});
-
-mock.module("../../repoAccess.js", {
-  namedExports: {
-    canWriteRepo: mockCanWriteRepo,
-    getWritableRepos: mockGetWritableRepos,
-  },
-});
-
-mock.module("../../logger.js", {
-  namedExports: {
-    logger: {
-      debug: () => {},
-      warn: () => {},
-      error: () => {},
-      info: () => {},
-    },
-  },
-});
-
-// Import after mocks
-const { createProposeChangeTool } = await import("./proposeChange.js");
+import { createProposeChangeTool, type ProposeChangeDeps } from "./proposeChange.js";
+import type { QueryToolContext } from "../types.js";
+import type { IntentStore, ToolCallRecorder } from "../server.js";
+import type { RepositoryConfig } from "../../config.js";
+import type { PersistedSessionState } from "../../changes/types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-import type { QueryToolContext } from "../types.js";
-import type { IntentStore, ToolCallRecorder } from "../server.js";
-import type { RepositoryConfig } from "../../config.js";
 
 function makeRepo(overrides?: Partial<RepositoryConfig>): RepositoryConfig {
   return {
@@ -57,6 +16,16 @@ function makeRepo(overrides?: Partial<RepositoryConfig>): RepositoryConfig {
     url: "https://github.com/org/my-repo.git",
     description: "Test repo",
     access: { read: "member", write: "dev" },
+    ...overrides,
+  };
+}
+
+function makeDeps(overrides?: Partial<ProposeChangeDeps>): ProposeChangeDeps {
+  return {
+    getExistingWorktree: mock.fn(() => null),
+    readSessionState: mock.fn(async () => null),
+    canWriteRepo: mock.fn(() => true),
+    getWritableRepos: mock.fn(() => [makeRepo()]),
     ...overrides,
   };
 }
@@ -89,12 +58,12 @@ function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
 }
 
 function makeIntentStore(): IntentStore {
-  const intents = new Map<string, unknown>();
+  const intents = new Map<string, ReturnType<IntentStore["resolve"]>>();
   let counter = 0;
   return {
-    stage: (intent: unknown) => {
+    stage: (intent) => {
       const ref = `ref-${++counter}`;
-      intents.set(ref, intent);
+      intents.set(ref, intent as ReturnType<IntentStore["resolve"]>);
       return ref;
     },
     resolve: (ref: string) => intents.get(ref) as ReturnType<IntentStore["resolve"]>,
@@ -103,12 +72,24 @@ function makeIntentStore(): IntentStore {
 }
 
 function makeRecorder(): ToolCallRecorder & {
-  calls: Array<{ tool: string; args: unknown; result: unknown }>;
+  calls: Array<{
+    tool: string;
+    args: { [key: string]: unknown };
+    result: { [key: string]: unknown };
+  }>;
 } {
-  const calls: Array<{ tool: string; args: unknown; result: unknown }> = [];
+  const calls: Array<{
+    tool: string;
+    args: { [key: string]: unknown };
+    result: { [key: string]: unknown };
+  }> = [];
   return {
     calls,
-    record: (tool: string, args: Record<string, unknown>, result: Record<string, unknown>) => {
+    record: (
+      tool: string,
+      args: { [key: string]: unknown },
+      result: { [key: string]: unknown },
+    ) => {
       calls.push({ tool, args, result });
     },
     getHistory: () => [],
@@ -119,30 +100,22 @@ function parseResult(result: { content: Array<{ text: string }> }) {
   return JSON.parse(result.content[0].text);
 }
 
-function resetMocks() {
-  mockGetExistingWorktree.mock.resetCalls();
-  mockReadSessionState.mock.resetCalls();
-  mockCanWriteRepo.mock.resetCalls();
-  mockGetWritableRepos.mock.resetCalls();
-
-  mockGetExistingWorktree.mock.mockImplementation(() => null);
-  mockReadSessionState.mock.mockImplementation(async () => null);
-  mockCanWriteRepo.mock.mockImplementation(() => true);
-  mockGetWritableRepos.mock.mockImplementation(() => [makeRepo()]);
-}
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 describe("proposeChange tool", () => {
-  beforeEach(resetMocks);
+  let deps: ProposeChangeDeps;
+
+  beforeEach(() => {
+    deps = makeDeps();
+  });
 
   it("rejects invalid branch name format", async () => {
     const ctx = makeCtx();
     const store = makeIntentStore();
     const recorder = makeRecorder();
-    const toolDef = createProposeChangeTool(ctx, store, recorder);
+    const toolDef = createProposeChangeTool(ctx, store, recorder, deps);
 
     const result = await toolDef.handler(
       {
@@ -164,7 +137,7 @@ describe("proposeChange tool", () => {
     const ctx = makeCtx();
     const store = makeIntentStore();
     const recorder = makeRecorder();
-    const toolDef = createProposeChangeTool(ctx, store, recorder);
+    const toolDef = createProposeChangeTool(ctx, store, recorder, deps);
 
     const result = await toolDef.handler(
       {
@@ -184,7 +157,7 @@ describe("proposeChange tool", () => {
     const ctx = makeCtx();
     const store = makeIntentStore();
     const recorder = makeRecorder();
-    const toolDef = createProposeChangeTool(ctx, store, recorder);
+    const toolDef = createProposeChangeTool(ctx, store, recorder, deps);
 
     const result = await toolDef.handler(
       {
@@ -202,13 +175,15 @@ describe("proposeChange tool", () => {
   });
 
   it("rejects when user lacks write access", async () => {
-    mockCanWriteRepo.mock.mockImplementation(() => false);
-    mockGetWritableRepos.mock.mockImplementation(() => []);
+    deps = makeDeps({
+      canWriteRepo: mock.fn(() => false),
+      getWritableRepos: mock.fn(() => []),
+    });
 
     const ctx = makeCtx();
     const store = makeIntentStore();
     const recorder = makeRecorder();
-    const toolDef = createProposeChangeTool(ctx, store, recorder);
+    const toolDef = createProposeChangeTool(ctx, store, recorder, deps);
 
     const result = await toolDef.handler(
       {
@@ -225,14 +200,16 @@ describe("proposeChange tool", () => {
   });
 
   it("shows writable repos when user lacks write access but has other repos", async () => {
-    mockCanWriteRepo.mock.mockImplementation(() => false);
     const otherRepo = makeRepo({ name: "other-repo" });
-    mockGetWritableRepos.mock.mockImplementation(() => [otherRepo]);
+    deps = makeDeps({
+      canWriteRepo: mock.fn(() => false),
+      getWritableRepos: mock.fn(() => [otherRepo]),
+    });
 
     const ctx = makeCtx();
     const store = makeIntentStore();
     const recorder = makeRecorder();
-    const toolDef = createProposeChangeTool(ctx, store, recorder);
+    const toolDef = createProposeChangeTool(ctx, store, recorder, deps);
 
     const result = await toolDef.handler(
       {
@@ -251,7 +228,7 @@ describe("proposeChange tool", () => {
     const ctx = makeCtx();
     const store = makeIntentStore();
     const recorder = makeRecorder();
-    const toolDef = createProposeChangeTool(ctx, store, recorder);
+    const toolDef = createProposeChangeTool(ctx, store, recorder, deps);
 
     const result = await toolDef.handler(
       {
@@ -277,21 +254,26 @@ describe("proposeChange tool", () => {
   });
 
   it("includes existing worktree info when worktree exists", async () => {
-    mockGetExistingWorktree.mock.mockImplementation(() => ({
-      repoName: "my-repo",
-      branchName: "clack/fix/existing",
-      worktreePath: "/tmp/worktrees/my-repo/clack-fix-existing",
-      createdAt: new Date("2025-01-01T00:00:00Z"),
-    }));
-    mockReadSessionState.mock.mockImplementation(async () => ({
-      status: "in_progress",
-      lastActivityAt: "2025-01-01T12:00:00Z",
-    }));
+    deps = makeDeps({
+      getExistingWorktree: mock.fn(() => ({
+        repoName: "my-repo",
+        branchName: "clack/fix/existing",
+        worktreePath: "/tmp/worktrees/my-repo/clack-fix-existing",
+        createdAt: new Date("2025-01-01T00:00:00Z"),
+      })),
+      readSessionState: mock.fn(
+        async () =>
+          ({
+            status: "in_progress",
+            lastActivityAt: "2025-01-01T12:00:00Z",
+          }) as never as PersistedSessionState,
+      ),
+    });
 
     const ctx = makeCtx();
     const store = makeIntentStore();
     const recorder = makeRecorder();
-    const toolDef = createProposeChangeTool(ctx, store, recorder);
+    const toolDef = createProposeChangeTool(ctx, store, recorder, deps);
 
     const result = await toolDef.handler(
       {
@@ -310,18 +292,20 @@ describe("proposeChange tool", () => {
 
   it("falls back to worktree createdAt when session state is null", async () => {
     const createdAt = new Date("2025-06-15T09:00:00Z");
-    mockGetExistingWorktree.mock.mockImplementation(() => ({
-      repoName: "my-repo",
-      branchName: "clack/fix/old",
-      worktreePath: "/tmp/worktrees/my-repo/clack-fix-old",
-      createdAt,
-    }));
-    mockReadSessionState.mock.mockImplementation(async () => null);
+    deps = makeDeps({
+      getExistingWorktree: mock.fn(() => ({
+        repoName: "my-repo",
+        branchName: "clack/fix/old",
+        worktreePath: "/tmp/worktrees/my-repo/clack-fix-old",
+        createdAt,
+      })),
+      readSessionState: mock.fn(async () => null),
+    });
 
     const ctx = makeCtx();
     const store = makeIntentStore();
     const recorder = makeRecorder();
-    const toolDef = createProposeChangeTool(ctx, store, recorder);
+    const toolDef = createProposeChangeTool(ctx, store, recorder, deps);
 
     const result = await toolDef.handler(
       {
@@ -342,7 +326,7 @@ describe("proposeChange tool", () => {
     const ctx = makeCtx();
     const store = makeIntentStore();
     const recorder = makeRecorder();
-    const toolDef = createProposeChangeTool(ctx, store, recorder);
+    const toolDef = createProposeChangeTool(ctx, store, recorder, deps);
 
     await toolDef.handler(
       {
@@ -365,7 +349,7 @@ describe("proposeChange tool", () => {
     for (const type of types) {
       const store = makeIntentStore();
       const recorder = makeRecorder();
-      const toolDef = createProposeChangeTool(ctx, store, recorder);
+      const toolDef = createProposeChangeTool(ctx, store, recorder, deps);
 
       const result = await toolDef.handler(
         {

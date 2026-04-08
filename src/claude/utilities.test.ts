@@ -1,46 +1,39 @@
 import { describe, it, beforeEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import type { ConversationMessage } from "./index.js";
-
-// ---------------------------------------------------------------------------
-// Module-level mocks — must be set up before importing the module under test
-// ---------------------------------------------------------------------------
-
-const mockQuery = mock.fn<(...args: unknown[]) => AsyncIterable<unknown>>();
-
-mock.module("@anthropic-ai/claude-agent-sdk", {
-  namedExports: {
-    query: mockQuery,
-  },
-});
-
-mock.module("../logger.js", {
-  namedExports: {
-    logger: {
-      error: () => {},
-      warn: () => {},
-      info: () => {},
-      debug: () => {},
-    },
-  },
-});
-
-// Import after mocks are registered
-const { summarizeForSlack, analyzeError } = await import("./utilities.js");
+import type { clackQuery } from "./query.js";
+import {
+  summarizeForSlack,
+  analyzeError,
+  type UtilitiesDeps,
+  defaultUtilitiesDeps,
+} from "./utilities.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Build an async iterable from an array of messages. */
-function asyncIterableOf<T>(items: T[]): AsyncIterable<T> {
+type MockClackQuery = ReturnType<typeof mock.fn<typeof clackQuery>>;
+
+let mockQuery: MockClackQuery;
+
+function makeDeps(): UtilitiesDeps {
+  return {
+    ...defaultUtilitiesDeps,
+    clackQuery: mockQuery,
+  };
+}
+
+/** Build an async iterable from an array of messages. Return typed as never so it satisfies any AsyncIterable<T> parameter. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function asyncIterableOf<T>(items: T[]): never {
   return {
     async *[Symbol.asyncIterator]() {
       for (const item of items) {
         yield item;
       }
     },
-  };
+  } as never;
 }
 
 function makeConversationMessage(
@@ -59,7 +52,7 @@ function makeConversationMessage(
 // ---------------------------------------------------------------------------
 describe("summarizeForSlack", () => {
   beforeEach(() => {
-    mockQuery.mock.resetCalls();
+    mockQuery = mock.fn<typeof clackQuery>();
   });
 
   it("returns summarized text from a successful Claude result", async () => {
@@ -79,7 +72,7 @@ describe("summarizeForSlack", () => {
       ]),
     );
 
-    const result = await summarizeForSlack("a very long text");
+    const result = await summarizeForSlack("a very long text", makeDeps());
     assert.equal(result, "Condensed summary");
   });
 
@@ -100,7 +93,7 @@ describe("summarizeForSlack", () => {
       ]),
     );
 
-    const result = await summarizeForSlack("long text");
+    const result = await summarizeForSlack("long text", makeDeps());
     assert.equal(result, "From assistant");
   });
 
@@ -124,7 +117,7 @@ describe("summarizeForSlack", () => {
       ]),
     );
 
-    const result = await summarizeForSlack("long text");
+    const result = await summarizeForSlack("long text", makeDeps());
     assert.equal(result, "Part A Part B");
   });
 
@@ -148,7 +141,7 @@ describe("summarizeForSlack", () => {
       ]),
     );
 
-    const result = await summarizeForSlack("long text");
+    const result = await summarizeForSlack("long text", makeDeps());
     assert.equal(result, "Actual text");
   });
 
@@ -175,7 +168,7 @@ describe("summarizeForSlack", () => {
       ]),
     );
 
-    const result = await summarizeForSlack("long text");
+    const result = await summarizeForSlack("long text", makeDeps());
     assert.equal(result, "Second");
   });
 
@@ -185,7 +178,7 @@ describe("summarizeForSlack", () => {
     });
 
     const input = "a".repeat(50000);
-    const result = await summarizeForSlack(input);
+    const result = await summarizeForSlack(input, makeDeps());
     assert.equal(
       result.length,
       39000 + "\n\n(truncated — full output was too long for Slack)".length,
@@ -200,7 +193,7 @@ describe("summarizeForSlack", () => {
     );
 
     const input = "x".repeat(50000);
-    const result = await summarizeForSlack(input);
+    const result = await summarizeForSlack(input, makeDeps());
     assert.ok(result.endsWith("(truncated — full output was too long for Slack)"));
   });
 
@@ -215,23 +208,26 @@ describe("summarizeForSlack", () => {
       ]),
     );
 
-    const result = await summarizeForSlack("text");
+    const result = await summarizeForSlack("text", makeDeps());
     assert.equal(result, "trimmed");
   });
 
   it("falls back to truncation when async iterator throws mid-stream", async () => {
-    mockQuery.mock.mockImplementation(() => ({
-      async *[Symbol.asyncIterator]() {
-        yield {
-          type: "assistant",
-          message: { content: [{ type: "text", text: "partial" }] },
-        };
-        throw new Error("stream interrupted");
-      },
-    }));
+    mockQuery.mock.mockImplementation(
+      () =>
+        ({
+          async *[Symbol.asyncIterator]() {
+            yield {
+              type: "assistant",
+              message: { content: [{ type: "text", text: "partial" }] },
+            };
+            throw new Error("stream interrupted");
+          },
+        }) as never,
+    );
 
     const input = "b".repeat(50000);
-    const result = await summarizeForSlack(input);
+    const result = await summarizeForSlack(input, makeDeps());
     assert.ok(result.endsWith("(truncated — full output was too long for Slack)"));
   });
 });
@@ -241,7 +237,7 @@ describe("summarizeForSlack", () => {
 // ---------------------------------------------------------------------------
 describe("analyzeError", () => {
   beforeEach(() => {
-    mockQuery.mock.resetCalls();
+    mockQuery = mock.fn<typeof clackQuery>();
   });
 
   it("returns analysis text from a successful Claude result", async () => {
@@ -261,7 +257,7 @@ describe("analyzeError", () => {
       ]),
     );
 
-    const result = await analyzeError("timeout", [makeConversationMessage()]);
+    const result = await analyzeError("timeout", [makeConversationMessage()], makeDeps());
     assert.equal(result, "The error occurred because...");
   });
 
@@ -282,7 +278,7 @@ describe("analyzeError", () => {
       ]),
     );
 
-    const result = await analyzeError("error", [makeConversationMessage()]);
+    const result = await analyzeError("error", [makeConversationMessage()], makeDeps());
     assert.equal(result, "Assistant explanation");
   });
 
@@ -297,7 +293,7 @@ describe("analyzeError", () => {
       ]),
     );
 
-    const result = await analyzeError("error", [makeConversationMessage()]);
+    const result = await analyzeError("error", [makeConversationMessage()], makeDeps());
     assert.equal(result, "Unable to analyze the error.");
   });
 
@@ -306,27 +302,30 @@ describe("analyzeError", () => {
       throw new Error("SDK failure");
     });
 
-    const result = await analyzeError("error", [makeConversationMessage()]);
+    const result = await analyzeError("error", [makeConversationMessage()], makeDeps());
     assert.equal(result, "Error analysis unavailable.");
   });
 
   it("returns 'Error analysis unavailable.' when async iterator throws", async () => {
-    mockQuery.mock.mockImplementation(() => ({
-      // Intentionally throws before yielding to simulate a stream error
-      // eslint-disable-next-line require-yield
-      async *[Symbol.asyncIterator]() {
-        throw new Error("stream interrupted");
-      },
-    }));
+    mockQuery.mock.mockImplementation(
+      () =>
+        ({
+          // Intentionally throws before yielding to simulate a stream error
+          // eslint-disable-next-line require-yield
+          async *[Symbol.asyncIterator]() {
+            throw new Error("stream interrupted");
+          },
+        }) as never,
+    );
 
-    const result = await analyzeError("error", [makeConversationMessage()]);
+    const result = await analyzeError("error", [makeConversationMessage()], makeDeps());
     assert.equal(result, "Error analysis unavailable.");
   });
 
   it("only uses the last 10 messages from the conversation trace", async () => {
     let capturedPrompt = "";
     mockQuery.mock.mockImplementation((...args: unknown[]) => {
-      capturedPrompt = (args[0] as Record<string, unknown>).prompt as string;
+      capturedPrompt = (args[0] as { prompt: string }).prompt;
       return asyncIterableOf([
         {
           type: "result",
@@ -340,7 +339,7 @@ describe("analyzeError", () => {
       makeConversationMessage({ content: `msg-${i}`, type: "assistant" }),
     );
 
-    await analyzeError("some error", trace);
+    await analyzeError("some error", trace, makeDeps());
 
     // The prompt should reference last 10 messages
     assert.ok(capturedPrompt.includes("last 10 messages"));
@@ -354,7 +353,7 @@ describe("analyzeError", () => {
   it("formats tool calls in the trace", async () => {
     let capturedPrompt = "";
     mockQuery.mock.mockImplementation((...args: unknown[]) => {
-      capturedPrompt = (args[0] as Record<string, unknown>).prompt as string;
+      capturedPrompt = (args[0] as { prompt: string }).prompt;
       return asyncIterableOf([
         {
           type: "result",
@@ -377,7 +376,7 @@ describe("analyzeError", () => {
       }),
     ];
 
-    await analyzeError("file not found", trace);
+    await analyzeError("file not found", trace, makeDeps());
 
     assert.ok(capturedPrompt.includes("Tool: read_file"));
     assert.ok(capturedPrompt.includes("/tmp/test.ts"));
@@ -387,7 +386,7 @@ describe("analyzeError", () => {
   it("includes subtype in trace formatting when present", async () => {
     let capturedPrompt = "";
     mockQuery.mock.mockImplementation((...args: unknown[]) => {
-      capturedPrompt = (args[0] as Record<string, unknown>).prompt as string;
+      capturedPrompt = (args[0] as { prompt: string }).prompt;
       return asyncIterableOf([
         {
           type: "result",
@@ -405,14 +404,14 @@ describe("analyzeError", () => {
       }),
     ];
 
-    await analyzeError("error", trace);
+    await analyzeError("error", trace, makeDeps());
     assert.ok(capturedPrompt.includes("[result:error]"));
   });
 
   it("omits subtype from trace formatting when absent", async () => {
     let capturedPrompt = "";
     mockQuery.mock.mockImplementation((...args: unknown[]) => {
-      capturedPrompt = (args[0] as Record<string, unknown>).prompt as string;
+      capturedPrompt = (args[0] as { prompt: string }).prompt;
       return asyncIterableOf([
         {
           type: "result",
@@ -430,7 +429,7 @@ describe("analyzeError", () => {
       }),
     ];
 
-    await analyzeError("error", trace);
+    await analyzeError("error", trace, makeDeps());
     assert.ok(capturedPrompt.includes("[assistant]"));
     assert.ok(!capturedPrompt.includes("[assistant:]"));
   });
@@ -438,7 +437,7 @@ describe("analyzeError", () => {
   it("omits Result line for tool calls with empty result object", async () => {
     let capturedPrompt = "";
     mockQuery.mock.mockImplementation((...args: unknown[]) => {
-      capturedPrompt = (args[0] as Record<string, unknown>).prompt as string;
+      capturedPrompt = (args[0] as { prompt: string }).prompt;
       return asyncIterableOf([
         {
           type: "result",
@@ -460,12 +459,12 @@ describe("analyzeError", () => {
       }),
     ];
 
-    await analyzeError("error", trace);
+    await analyzeError("error", trace, makeDeps());
     assert.ok(capturedPrompt.includes("Tool: list_repos"));
     // The result line should NOT appear because result is empty {}
-    const toolSection = capturedPrompt.split("Tool: list_repos")[1];
+    const toolSection = capturedPrompt.split("Tool: list_repos")[1]!;
     // Next line check: it should not have "Result:" before the next message or end
-    const beforeNextMessage = toolSection.split("\n[")[0];
+    const beforeNextMessage = toolSection.split("\n[")[0]!;
     assert.ok(!beforeNextMessage.includes("Result:"));
   });
 
@@ -480,7 +479,7 @@ describe("analyzeError", () => {
       ]),
     );
 
-    const result = await analyzeError("error", []);
+    const result = await analyzeError("error", [], makeDeps());
     assert.equal(result, "No context available");
   });
 });

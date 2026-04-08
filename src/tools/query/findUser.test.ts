@@ -1,12 +1,6 @@
 import { describe, it, beforeEach, mock } from "node:test";
 import assert from "node:assert/strict";
-
-// ---------------------------------------------------------------------------
-// Module-level mocks — none needed for this tool (no external deps beyond ctx)
-// ---------------------------------------------------------------------------
-
-// Import after mocks
-const { createFindUserTool } = await import("./findUser.js");
+import { createFindUserTool } from "./findUser.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

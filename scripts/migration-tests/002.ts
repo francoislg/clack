@@ -44,16 +44,11 @@ export const test: MigrationTest = {
         // Should have delivery context section
         if (!instructions.includes("Actions by Delivery Context"))
           return "Missing 'Actions by Delivery Context' section";
-        if (!instructions.includes("Ephemeral"))
-          return "Missing 'Ephemeral' guidance";
-        if (!instructions.includes("DM-first"))
-          return "Missing 'DM-first' guidance";
-        if (!instructions.includes("send_to_thread"))
-          return "Missing 'send_to_thread' reference";
-        if (!instructions.includes("Direct message"))
-          return "Missing 'Direct message' guidance";
-        if (!instructions.includes("Channel mention"))
-          return "Missing 'Channel mention' guidance";
+        if (!instructions.includes("Ephemeral")) return "Missing 'Ephemeral' guidance";
+        if (!instructions.includes("DM-first")) return "Missing 'DM-first' guidance";
+        if (!instructions.includes("send_to_thread")) return "Missing 'send_to_thread' reference";
+        if (!instructions.includes("Direct message")) return "Missing 'Direct message' guidance";
+        if (!instructions.includes("Channel mention")) return "Missing 'Channel mention' guidance";
 
         // Old patterns should be replaced
         if (instructions.includes("Common action patterns"))
@@ -73,8 +68,7 @@ export const test: MigrationTest = {
         if (!dev) return "dev_instructions.md missing from output";
 
         // Should have workMode: true
-        if (!dev.includes("workMode: true"))
-          return "Missing 'workMode: true' in dev_instructions";
+        if (!dev.includes("workMode: true")) return "Missing 'workMode: true' in dev_instructions";
 
         // Old text should be gone
         if (dev.includes('") so the user can quickly'))
@@ -110,8 +104,7 @@ export const test: MigrationTest = {
         const dev = output["data/configuration/dev_instructions.md"];
         if (!dev) return "dev_instructions.md missing from output";
 
-        if (!dev.includes("workMode: true"))
-          return "Missing 'workMode: true' in dev_instructions";
+        if (!dev.includes("workMode: true")) return "Missing 'workMode: true' in dev_instructions";
 
         return null;
       },
@@ -154,8 +147,7 @@ When uncertain, offer a \`choice\` action (e.g. "Fix this bug") with \`workMode:
         const dev = output["data/configuration/dev_instructions.md"];
         if (!dev) return "dev_instructions.md missing from output";
 
-        if (!dev.includes("workMode: true"))
-          return "workMode: true was removed";
+        if (!dev.includes("workMode: true")) return "workMode: true was removed";
 
         return null;
       },

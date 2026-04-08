@@ -7,22 +7,38 @@
  * - `clackQuery`   — fire-and-forget, no session persistence
  * - `clackSession` — persisted & resumable multi-turn conversations
  */
-import { query, type Options, type SDKMessage, type Query } from "@anthropic-ai/claude-agent-sdk";
+import { query as _query, type Options, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { logger } from "../logger.js";
+
+// ---------------------------------------------------------------------------
+// Dependency injection
+// ---------------------------------------------------------------------------
+
+export interface QueryDeps {
+  query: (...args: Parameters<typeof _query>) => AsyncIterable<SDKMessage>;
+}
+
+export const defaultQueryDeps: QueryDeps = {
+  query: _query,
+};
 
 /* -------------------------------------------------------------------------- */
 /*  clackQuery — ephemeral, no persistence                                    */
 /* -------------------------------------------------------------------------- */
 
-export function clackQuery(params: {
-  prompt: string;
-  options?: Omit<Options, "persistSession" | "resume" | "continue">;
-}): Query {
-  return query({
+export function clackQuery(
+  params: {
+    prompt: string;
+    options?: Omit<Options, "persistSession" | "resume" | "continue">;
+  },
+  deps: QueryDeps = defaultQueryDeps,
+): AsyncIterable<SDKMessage> {
+  return deps.query({
     prompt: params.prompt,
     options: {
       ...params.options,
       persistSession: false,
+      stderr: (data) => logger.warn(`[claude-stderr] ${data.trimEnd()}`),
     },
   });
 }
@@ -50,16 +66,19 @@ export interface ClackSessionParams {
  * the wrapper catches the error (before any messages are streamed) and falls
  * back to a fresh session.
  */
-export function clackSession(params: ClackSessionParams): AsyncIterable<SDKMessage> {
+export function clackSession(
+  params: ClackSessionParams,
+  deps: QueryDeps = defaultQueryDeps,
+): AsyncIterable<SDKMessage> {
   const { prompt, options, resumeSessionId, onSessionId } = params;
 
   // Wrap in an async generator so we can intercept the init message
   // and handle resume failures gracefully.
   async function* sessionGenerator(): AsyncGenerator<SDKMessage, void> {
-    let stream: Query;
+    let stream: AsyncIterable<SDKMessage>;
 
     try {
-      stream = query({
+      stream = deps.query({
         prompt,
         options: {
           ...options,
@@ -68,13 +87,16 @@ export function clackSession(params: ClackSessionParams): AsyncIterable<SDKMessa
         },
       });
 
-      // Attempt to pull the first message — this is where resume failures surface
-      const first = await stream.next();
-      if (first.done) return;
+      // Iterate the entire stream inside the try-catch so resume failures
+      // that surface after the init message (e.g., "No conversation found")
+      // are also caught and trigger the fallback.
+      for await (const message of stream) {
+        captureSessionId(message, onSessionId);
+        yield message;
+      }
 
-      // Intercept init message for session ID capture
-      captureSessionId(first.value, onSessionId);
-      yield first.value;
+      // Completed successfully — skip the fallback
+      return;
     } catch (error) {
       if (!resumeSessionId) throw error;
 
@@ -82,25 +104,19 @@ export function clackSession(params: ClackSessionParams): AsyncIterable<SDKMessa
       logger.warn(
         `SDK session resume failed for ${resumeSessionId}: ${error instanceof Error ? error.message : String(error)}. Falling back to fresh session.`,
       );
-
-      stream = query({
-        prompt,
-        options: {
-          ...options,
-          persistSession: true,
-          // No resume — start fresh
-        },
-      });
-
-      const first = await stream.next();
-      if (first.done) return;
-
-      captureSessionId(first.value, onSessionId);
-      yield first.value;
     }
 
-    // Stream remaining messages
+    // Fallback: start a fresh session (no resume)
+    stream = deps.query({
+      prompt,
+      options: {
+        ...options,
+        persistSession: true,
+      },
+    });
+
     for await (const message of stream) {
+      captureSessionId(message, onSessionId);
       yield message;
     }
   }

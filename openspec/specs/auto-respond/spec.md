@@ -62,10 +62,10 @@ The system SHALL evaluate incoming messages against active auto-respond rules, f
 - **THEN** the system does NOT trigger a response
 - **AND** only messages with no subtype (regular new messages) are evaluated against rules
 
-#### Scenario: Ignore thread replies
+#### Scenario: Thread replies bypass rule matching
 - **WHEN** a message event has a `thread_ts` field (indicating it is a reply in a thread)
-- **THEN** the system does NOT trigger a response
-- **AND** only top-level channel messages are evaluated against rules
+- **THEN** the system does NOT evaluate the message against auto-respond rules
+- **AND** instead follows the thread auto-respond path (session-based, see Thread Auto-Respond requirement)
 
 #### Scenario: First matching rule wins
 - **WHEN** a message matches multiple active rules (e.g., one channel-only rule and one channel+user rule)
@@ -149,6 +149,35 @@ The system SHALL support `"autoRespond"` as a trigger type throughout the proces
 - **THEN** the streamer message is deleted from the channel thread
 - **AND** no session is persisted
 - **AND** from the user's perspective, Clack never responded
+
+### Requirement: Thread Auto-Respond
+
+The system SHALL support automatic responses to thread replies in threads with existing Clack sessions, gated by pre-analysis to avoid responding to noise.
+
+#### Scenario: Thread reply in a session thread
+- **WHEN** a non-bot message arrives in a thread
+- **AND** `threadAutoRespond` is not `false` in config
+- **AND** a Clack session exists for that thread
+- **THEN** the system runs pre-analysis (see auto-respond-pre-analysis spec) to determine whether to respond
+- **AND** if pre-analysis approves, calls `processMessage()` with `triggerType` set to `"threadReply"`
+
+#### Scenario: Thread reply with no session
+- **WHEN** a message arrives in a thread that has no existing Clack session
+- **THEN** the system does NOT trigger a response
+
+#### Scenario: Thread auto-respond disabled
+- **WHEN** `threadAutoRespond` is `false` in config
+- **THEN** the system does NOT trigger responses to any thread replies
+
+#### Scenario: Bot messages in threads are ignored
+- **WHEN** a message in a thread has a `bot_id` field
+- **THEN** the system does NOT trigger a response
+
+#### Scenario: Thread processing lock
+- **WHEN** a thread reply triggers auto-respond
+- **AND** the system is already processing a response for the same thread
+- **THEN** the new message is dropped (not queued)
+- **AND** only one response is processed at a time per thread
 
 ### Requirement: Auto-Respond Error Handling
 

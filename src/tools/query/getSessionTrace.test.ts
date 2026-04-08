@@ -1,79 +1,64 @@
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
-import * as realFs from "node:fs/promises";
-
-// ---------------------------------------------------------------------------
-// Module-level mocks
-// ---------------------------------------------------------------------------
-
-const mockGetSession = mock.fn<(...args: unknown[]) => unknown>();
-const mockGetActiveChange = mock.fn<(...args: unknown[]) => unknown>();
-const mockReadFile = mock.fn<(...args: unknown[]) => unknown>();
-
-mock.module("../../sessions.js", {
-  namedExports: {
-    getSession: mockGetSession,
-  },
-});
-
-mock.module("../../changes/activeState.js", {
-  namedExports: {
-    getActiveChange: mockGetActiveChange,
-  },
-});
-
-// Spread real fs/promises and override only readFile
-mock.module("node:fs/promises", {
-  namedExports: {
-    ...realFs,
-    readFile: mockReadFile,
-  },
-});
-
-mock.module("../../config.js", {
-  namedExports: {
-    getRepositoriesDir: () => "/repos",
-  },
-});
-
-// Import after mocks
-const { createGetSessionTraceTool } = await import("./getSessionTrace.js");
+import { createGetSessionTraceTool, type GetSessionTraceDeps } from "./getSessionTrace.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-import type { QueryToolContext } from "../types.js";
+interface TestCtx {
+  mode: "query";
+  userId: string;
+  role: string;
+}
 
-function makeCtx(): QueryToolContext {
+function makeCtx(): TestCtx {
   return {
     mode: "query",
     userId: "U123",
     role: "admin",
-    session: {
-      sessionId: "sess-1",
-      channelId: "C1",
-      messageTs: "1.0",
-      threadTs: "1.0",
-      userId: "U123",
-      originalQuestion: "test",
-      threadContext: [],
-      refinements: [],
-      errors: [],
-      lastActivity: Date.now(),
-      createdAt: Date.now(),
-    },
-    config: { repositories: [] } as unknown as QueryToolContext["config"],
-    changesWorkflowEnabled: false,
-    allowScheduledMessages: false,
   };
+}
+
+function makeDeps(overrides: Partial<GetSessionTraceDeps> = {}): GetSessionTraceDeps {
+  return {
+    getSession: mock.fn(async () => null) as GetSessionTraceDeps["getSession"],
+    getActiveChange: mock.fn(() => undefined) as GetSessionTraceDeps["getActiveChange"],
+    getRepositoriesDir: () => "/repos",
+    readFile: mock.fn(async () => "") as GetSessionTraceDeps["readFile"],
+    ...overrides,
+  };
+}
+
+function callTool(
+  ctx: TestCtx,
+  deps: GetSessionTraceDeps,
+  args: { sessionId: string; verbose?: boolean; source?: "qa" | "change" },
+) {
+  const toolDef = createGetSessionTraceTool(ctx as never, deps);
+  return toolDef.handler(
+    { sessionId: args.sessionId, verbose: args.verbose, source: args.source },
+    { sessionId: "test" },
+  );
 }
 
 function parseResult(result: { content: Array<{ text: string }> }) {
   return JSON.parse(result.content[0].text);
 }
 
-function makeJsonlContent(entries: Record<string, unknown>[]): string {
+interface JsonlEntry {
+  type: string;
+  subtype?: string;
+  message?: {
+    content:
+      | string
+      | Array<{ type: string; name?: string; text?: string; input?: { [key: string]: string } }>;
+  };
+  timestamp?: string;
+  result?: string;
+}
+
+function makeJsonlContent(entries: JsonlEntry[]): string {
   return entries.map((e) => JSON.stringify(e)).join("\n");
 }
 
@@ -82,48 +67,37 @@ function makeJsonlContent(entries: Record<string, unknown>[]): string {
 // ---------------------------------------------------------------------------
 
 describe("get_session_trace", () => {
-  beforeEach(() => {
-    mockGetSession.mock.resetCalls();
-    mockGetActiveChange.mock.resetCalls();
-    mockReadFile.mock.resetCalls();
-  });
-
   it("returns error when session not found", async () => {
-    mockGetSession.mock.mockImplementation(async () => null);
-
-    const toolDef = createGetSessionTraceTool(makeCtx());
-    const result = await toolDef.handler(
-      { sessionId: "nonexistent", verbose: undefined, source: undefined },
-      { sessionId: "test" },
-    );
+    const deps = makeDeps();
+    const result = await callTool(makeCtx(), deps, { sessionId: "nonexistent" });
 
     const parsed = parseResult(result);
     assert.ok(parsed.error.includes("not found"));
   });
 
   it("returns error when no sdkSessionId on session", async () => {
-    mockGetSession.mock.mockImplementation(async () => ({
+    const getSession: GetSessionTraceDeps["getSession"] = async () => ({
       sessionId: "test-session",
-    }));
-    mockGetActiveChange.mock.mockImplementation(() => undefined);
+      channelId: "C1",
+      messageTs: "1.0",
+      threadTs: "1.0",
+      userId: "U1",
+      originalQuestion: "q",
+      threadContext: [],
+      refinements: [],
+      errors: [],
+      lastActivity: Date.now(),
+      createdAt: Date.now(),
+    });
+    const deps = makeDeps({ getSession });
 
-    const toolDef = createGetSessionTraceTool(makeCtx());
-    const result = await toolDef.handler(
-      { sessionId: "test-session", verbose: undefined, source: undefined },
-      { sessionId: "test" },
-    );
+    const result = await callTool(makeCtx(), deps, { sessionId: "test-session" });
 
     const parsed = parseResult(result);
     assert.ok(parsed.error.includes("No SDK session ID"));
   });
 
   it("returns trace for session with sdkSessionId", async () => {
-    mockGetSession.mock.mockImplementation(async () => ({
-      sessionId: "test-session",
-      sdkSessionId: "sdk-uuid-123",
-    }));
-    mockGetActiveChange.mock.mockImplementation(() => undefined);
-
     const jsonl = makeJsonlContent([
       { type: "user", message: { content: "hello" }, timestamp: "2026-01-01T00:00:00Z" },
       {
@@ -133,13 +107,27 @@ describe("get_session_trace", () => {
       },
       { type: "result", subtype: "success", result: "done", timestamp: "2026-01-01T00:00:02Z" },
     ]);
-    mockReadFile.mock.mockImplementation(async () => jsonl);
 
-    const toolDef = createGetSessionTraceTool(makeCtx());
-    const result = await toolDef.handler(
-      { sessionId: "test-session", verbose: undefined, source: undefined },
-      { sessionId: "test" },
-    );
+    const getSession: GetSessionTraceDeps["getSession"] = async () => ({
+      sessionId: "test-session",
+      sdkSessionId: "sdk-uuid-123",
+      channelId: "C1",
+      messageTs: "1.0",
+      threadTs: "1.0",
+      userId: "U1",
+      originalQuestion: "q",
+      threadContext: [],
+      refinements: [],
+      errors: [],
+      lastActivity: Date.now(),
+      createdAt: Date.now(),
+    });
+    const deps = makeDeps({
+      getSession,
+      readFile: mock.fn(async () => jsonl) as GetSessionTraceDeps["readFile"],
+    });
+
+    const result = await callTool(makeCtx(), deps, { sessionId: "test-session" });
     const parsed = parseResult(result);
 
     assert.equal(parsed.sdkSessionId, "sdk-uuid-123");
@@ -148,25 +136,40 @@ describe("get_session_trace", () => {
   });
 
   it("returns change execution trace when source is 'change'", async () => {
-    mockGetSession.mock.mockImplementation(async () => ({
-      sessionId: "test-session",
-      sdkSessionId: "qa-uuid",
-    }));
-    mockGetActiveChange.mock.mockImplementation(() => ({
-      sdkSessionId: "change-uuid-456",
-      branch: "fix/test",
-    }));
-
     const jsonl = makeJsonlContent([
       { type: "assistant", message: { content: [{ type: "text", text: "implementing..." }] } },
     ]);
-    mockReadFile.mock.mockImplementation(async () => jsonl);
 
-    const toolDef = createGetSessionTraceTool(makeCtx());
-    const result = await toolDef.handler(
-      { sessionId: "test-session", verbose: undefined, source: "change" },
-      { sessionId: "test" },
-    );
+    const getSession: GetSessionTraceDeps["getSession"] = async () => ({
+      sessionId: "test-session",
+      sdkSessionId: "qa-uuid",
+      channelId: "C1",
+      messageTs: "1.0",
+      threadTs: "1.0",
+      userId: "U1",
+      originalQuestion: "q",
+      threadContext: [],
+      refinements: [],
+      errors: [],
+      lastActivity: Date.now(),
+      createdAt: Date.now(),
+    });
+    const getActiveChange: GetSessionTraceDeps["getActiveChange"] = () => ({
+      sdkSessionId: "change-uuid-456",
+      branch: "fix/test",
+      repo: "test-repo",
+      description: "test",
+      status: "executing",
+      startedAt: new Date(),
+      lastActivityAt: new Date(),
+    });
+    const deps = makeDeps({
+      getSession,
+      getActiveChange,
+      readFile: mock.fn(async () => jsonl) as GetSessionTraceDeps["readFile"],
+    });
+
+    const result = await callTool(makeCtx(), deps, { sessionId: "test-session", source: "change" });
     const parsed = parseResult(result);
 
     assert.equal(parsed.sdkSessionId, "change-uuid-456");
@@ -174,32 +177,32 @@ describe("get_session_trace", () => {
   });
 
   it("returns error when SDK session file is missing", async () => {
-    mockGetSession.mock.mockImplementation(async () => ({
+    const getSession: GetSessionTraceDeps["getSession"] = async () => ({
       sessionId: "test-session",
       sdkSessionId: "sdk-uuid-gone",
-    }));
-    mockGetActiveChange.mock.mockImplementation(() => undefined);
-    mockReadFile.mock.mockImplementation(async () => {
-      throw new Error("ENOENT");
+      channelId: "C1",
+      messageTs: "1.0",
+      threadTs: "1.0",
+      userId: "U1",
+      originalQuestion: "q",
+      threadContext: [],
+      refinements: [],
+      errors: [],
+      lastActivity: Date.now(),
+      createdAt: Date.now(),
     });
+    const readFile: GetSessionTraceDeps["readFile"] = async () => {
+      throw new Error("ENOENT");
+    };
+    const deps = makeDeps({ getSession, readFile });
 
-    const toolDef = createGetSessionTraceTool(makeCtx());
-    const result = await toolDef.handler(
-      { sessionId: "test-session", verbose: undefined, source: undefined },
-      { sessionId: "test" },
-    );
+    const result = await callTool(makeCtx(), deps, { sessionId: "test-session" });
     const parsed = parseResult(result);
 
     assert.ok(parsed.error.includes("not found"));
   });
 
   it("includes tool args in verbose mode", async () => {
-    mockGetSession.mock.mockImplementation(async () => ({
-      sessionId: "test-session",
-      sdkSessionId: "sdk-uuid-v",
-    }));
-    mockGetActiveChange.mock.mockImplementation(() => undefined);
-
     const jsonl = makeJsonlContent([
       {
         type: "assistant",
@@ -208,32 +211,58 @@ describe("get_session_trace", () => {
         },
       },
     ]);
-    mockReadFile.mock.mockImplementation(async () => jsonl);
 
-    const toolDef = createGetSessionTraceTool(makeCtx());
-    const result = await toolDef.handler(
-      { sessionId: "test-session", verbose: true, source: undefined },
-      { sessionId: "test" },
-    );
+    const getSession: GetSessionTraceDeps["getSession"] = async () => ({
+      sessionId: "test-session",
+      sdkSessionId: "sdk-uuid-v",
+      channelId: "C1",
+      messageTs: "1.0",
+      threadTs: "1.0",
+      userId: "U1",
+      originalQuestion: "q",
+      threadContext: [],
+      refinements: [],
+      errors: [],
+      lastActivity: Date.now(),
+      createdAt: Date.now(),
+    });
+    const deps = makeDeps({
+      getSession,
+      readFile: mock.fn(async () => jsonl) as GetSessionTraceDeps["readFile"],
+    });
+
+    const result = await callTool(makeCtx(), deps, { sessionId: "test-session", verbose: true });
     const parsed = parseResult(result);
 
     assert.deepEqual(parsed.trace[0].toolArgs, { pattern: "foo", path: "/bar" });
   });
 
   it("hints about change trace when QA has no sdkSessionId but change does", async () => {
-    mockGetSession.mock.mockImplementation(async () => ({
+    const getSession: GetSessionTraceDeps["getSession"] = async () => ({
       sessionId: "test-session",
-    }));
-    mockGetActiveChange.mock.mockImplementation(() => ({
+      channelId: "C1",
+      messageTs: "1.0",
+      threadTs: "1.0",
+      userId: "U1",
+      originalQuestion: "q",
+      threadContext: [],
+      refinements: [],
+      errors: [],
+      lastActivity: Date.now(),
+      createdAt: Date.now(),
+    });
+    const getActiveChange: GetSessionTraceDeps["getActiveChange"] = () => ({
       sdkSessionId: "change-uuid",
       branch: "fix/test",
-    }));
+      repo: "test-repo",
+      description: "test",
+      status: "executing",
+      startedAt: new Date(),
+      lastActivityAt: new Date(),
+    });
+    const deps = makeDeps({ getSession, getActiveChange });
 
-    const toolDef = createGetSessionTraceTool(makeCtx());
-    const result = await toolDef.handler(
-      { sessionId: "test-session", verbose: undefined, source: undefined },
-      { sessionId: "test" },
-    );
+    const result = await callTool(makeCtx(), deps, { sessionId: "test-session" });
     const parsed = parseResult(result);
 
     assert.ok(parsed.error.includes("change execution trace IS available"));

@@ -28,6 +28,7 @@ import { createDeepenHistoryTool } from "./query/deepenHistory.js";
 import { createFindUserTool } from "./query/findUser.js";
 import { createFindEmojiTool } from "./query/findEmoji.js";
 import { createFetchSlackMessageTool } from "./query/fetchSlackMessage.js";
+import { createStopTrackingTool } from "./query/stopTracking.js";
 import { createFetchChannelMessagesTool } from "./query/fetchChannelMessages.js";
 import { createViewSlackImageTool } from "./query/viewSlackImage.js";
 import { createViewSlackFileTool } from "./query/viewSlackFile.js";
@@ -45,6 +46,7 @@ import { createCancelReminderTool } from "./actions/cancelReminder.js";
 import { createCreateScheduledMessageTool } from "./actions/createScheduledMessage.js";
 import { createCancelScheduledMessageTool } from "./actions/cancelScheduledMessage.js";
 import { createUpdateScheduledMessageTool } from "./actions/updateScheduledMessage.js";
+import { createCancelWorkerRunTool } from "./actions/cancelWorkerRun.js";
 
 // Admin tools
 import { createAdminReadFileTool } from "./admin/adminReadFile.js";
@@ -53,6 +55,8 @@ import { createAdminRestartAppTool } from "./admin/adminRestartApp.js";
 import { createAdminSetEnvTool } from "./admin/adminSetEnv.js";
 import { createAdminListEnvTool } from "./admin/adminListEnv.js";
 import { createAdminSetRoleTool } from "./admin/adminSetRole.js";
+import { createListErrorReportsTool } from "./admin/listErrorReports.js";
+import { createReadErrorReportTool } from "./admin/readErrorReport.js";
 
 // Scheduled message query tools
 import { createListRemindersTool } from "./query/listReminders.js";
@@ -133,14 +137,16 @@ export interface ResponseCapture {
   set: (payload: SubmitResponsePayload, renderedBlocks: Record<string, unknown>[]) => void;
   get: () => SubmitResponsePayload | null;
   getRenderedBlocks: () => Record<string, unknown>[] | null;
-  setSkipped: () => void;
+  setSkipped: (disengage?: boolean) => void;
   isSkipped: () => boolean;
+  isDisengaged: () => boolean;
 }
 
 export function createResponseCapture(): ResponseCapture {
   let result: SubmitResponsePayload | null = null;
   let blocks: Record<string, unknown>[] | null = null;
   let skipped = false;
+  let disengaged = false;
 
   return {
     set(payload: SubmitResponsePayload, renderedBlocks: Record<string, unknown>[]): void {
@@ -156,12 +162,17 @@ export function createResponseCapture(): ResponseCapture {
       return blocks;
     },
 
-    setSkipped(): void {
+    setSkipped(disengage?: boolean): void {
       skipped = true;
+      if (disengage) disengaged = true;
     },
 
     isSkipped(): boolean {
       return skipped;
+    },
+
+    isDisengaged(): boolean {
+      return disengaged;
     },
   };
 }
@@ -192,6 +203,7 @@ function buildQueryTools(ctx: QueryToolContext): ClackToolsResult {
     tools.push(createFetchSlackMessageTool(ctx));
     tools.push(createFetchChannelMessagesTool(ctx));
     tools.push(createUploadFileTool(ctx));
+    tools.push(createStopTrackingTool(ctx));
   }
 
   // Read-only query tools — available to all roles
@@ -220,6 +232,7 @@ function buildQueryTools(ctx: QueryToolContext): ClackToolsResult {
   if (canRequestChanges(ctx.role) && ctx.changesWorkflowEnabled) {
     tools.push(createProposeChangeTool(ctx, intentStore, recorder));
     tools.push(createRequestUpdateTool(ctx, intentStore, recorder));
+    tools.push(createCancelWorkerRunTool(ctx));
   }
 
   if (canEditConfig(ctx.role)) {
@@ -230,6 +243,8 @@ function buildQueryTools(ctx: QueryToolContext): ClackToolsResult {
     tools.push(createAdminSetEnvTool());
     tools.push(createAdminListEnvTool());
     tools.push(createAdminSetRoleTool());
+    tools.push(createListErrorReportsTool());
+    tools.push(createReadErrorReportTool());
   }
 
   // --- Scheduled message tools (no role gating, config-gated) ---
@@ -283,6 +298,7 @@ function buildQueryTools(ctx: QueryToolContext): ClackToolsResult {
     getStagedIntents: () => intentStore.getAll(),
     getToolCallHistory: () => recorder.getHistory(),
     isSkipped: () => responseCapture.isSkipped(),
+    isDisengaged: () => responseCapture.isDisengaged(),
   };
 }
 
@@ -316,6 +332,7 @@ function buildWorkerTools(ctx: WorkerToolContext): ClackToolsResult {
     getStagedIntents: () => new Map(),
     getToolCallHistory: () => [],
     isSkipped: () => false,
+    isDisengaged: () => false,
   };
 }
 

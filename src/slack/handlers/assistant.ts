@@ -1,17 +1,41 @@
-import type { App } from "@slack/bolt";
+import type { App, AssistantConfig } from "@slack/bolt";
 import { Assistant } from "@slack/bolt";
 import { getConfig } from "../../config.js";
 import { logger } from "../../logger.js";
-import { findSessionByThread, updateSession } from "../../sessions.js";
-import { extractAttachments } from "../fileExtractor.js";
-import { processMessage } from "./core.js";
+import { findSessionByThread, updateSession, type SessionContext } from "../../sessions.js";
+import { extractAttachments, type ExtractedAttachments } from "../fileExtractor.js";
+import { processMessage, type ProcessMessageParams } from "./core.js";
+
+type AssistantConstructor = new (handlers: AssistantConfig) => Assistant;
+
+export interface AssistantDeps {
+  Assistant: AssistantConstructor;
+  getConfig: () => { directMessages: { enabled: boolean } };
+  findSessionByThread: (channelId: string, threadTs: string) => Promise<SessionContext | null>;
+  updateSession: (
+    sessionId: string,
+    updates: { assistantCurrentChannelId: string },
+  ) => Promise<SessionContext | null>;
+  processMessage: (params: ProcessMessageParams) => Promise<void>;
+  extractAttachments: (files: unknown[] | undefined) => ExtractedAttachments;
+}
+
+export const defaultAssistantDeps: AssistantDeps = {
+  Assistant,
+  getConfig,
+  findSessionByThread,
+  updateSession,
+  processMessage,
+  extractAttachments,
+};
 
 /**
  * Fetch the assistant thread context (channel_id the user is viewing) by reading
  * metadata from the bot's initial message in the thread. This is more reliable than
  * Bolt's in-memory DefaultThreadContextStore which is lost on restart.
  */
-async function fetchAssistantContext(
+/** @internal Exported for testing only */
+export async function fetchAssistantContext(
   client: App["client"],
   channel: string,
   threadTs: string,
@@ -38,10 +62,12 @@ async function fetchAssistantContext(
   }
 }
 
-async function resolveContextChannelId(
+/** @internal Exported for testing only */
+export async function resolveContextChannelId(
   client: App["client"],
   msg: { channel: string; thread_ts?: string },
   getThreadContext: () => Promise<{ channel_id?: string } | undefined>,
+  deps: Pick<AssistantDeps, "findSessionByThread"> = defaultAssistantDeps,
 ): Promise<string | undefined> {
   // Try Bolt's in-memory context store first
   const threadContext = await getThreadContext();
@@ -58,16 +84,25 @@ async function resolveContextChannelId(
 
   // Last resort: check existing session
   if (msg.thread_ts) {
-    const existing = await findSessionByThread(msg.channel, msg.thread_ts);
+    const existing = await deps.findSessionByThread(msg.channel, msg.thread_ts);
     return existing?.assistantCurrentChannelId;
   }
   return undefined;
 }
 
-export function registerAssistant(app: App): void {
-  const assistant = new Assistant({
+interface AssistantEventMessage {
+  text?: string;
+  user?: string;
+  channel: string;
+  ts: string;
+  thread_ts?: string;
+  files?: unknown[];
+}
+
+export function registerAssistant(app: App, deps: AssistantDeps = defaultAssistantDeps): void {
+  const assistant = new deps.Assistant({
     threadStarted: async ({ event, say, saveThreadContext, setSuggestedPrompts }) => {
-      if (!getConfig().directMessages.enabled) return;
+      if (!deps.getConfig().directMessages.enabled) return;
       const ctx = event.assistant_thread?.context;
       logger.debug(`Assistant threadStarted: channel_id=${ctx?.channel_id ?? "none"}`);
 
@@ -94,36 +129,28 @@ export function registerAssistant(app: App): void {
       await saveThreadContext();
 
       if (channelId && event.assistant_thread?.channel_id && event.assistant_thread?.thread_ts) {
-        const session = await findSessionByThread(
+        const session = await deps.findSessionByThread(
           event.assistant_thread.channel_id,
           event.assistant_thread.thread_ts,
         );
         if (session) {
-          await updateSession(session.sessionId, { assistantCurrentChannelId: channelId });
+          await deps.updateSession(session.sessionId, { assistantCurrentChannelId: channelId });
         }
       }
     },
 
     userMessage: async ({ event, client, setStatus, setTitle, getThreadContext }) => {
-      if (!getConfig().directMessages.enabled) return;
-      const msg = event as unknown as {
-        text?: string;
-        user?: string;
-        channel: string;
-        ts: string;
-        thread_ts?: string;
-        files?: unknown[];
-      };
+      if (!deps.getConfig().directMessages.enabled) return;
+      const msg = event as never as AssistantEventMessage;
       if (!msg.user || !msg.text) return;
 
       await setStatus("Thinking...");
 
-      const contextChannelId = await resolveContextChannelId(client, msg, getThreadContext);
-      logger.info(`Assistant userMessage: contextChannelId=${contextChannelId ?? "none"}`);
+      const contextChannelId = await resolveContextChannelId(client, msg, getThreadContext, deps);
 
-      const attachments = extractAttachments(msg.files);
+      const attachments = deps.extractAttachments(msg.files);
 
-      await processMessage({
+      await deps.processMessage({
         client,
         userId: msg.user,
         channelId: msg.channel,
@@ -135,7 +162,7 @@ export function registerAssistant(app: App): void {
         ...attachments,
       });
 
-      const title = msg.text.length > 50 ? msg.text.substring(0, 47) + "..." : msg.text;
+      const title = msg.text.length > 50 ? msg.text.substring(0, 49) + "…" : msg.text;
       try {
         await setTitle(title);
       } catch (err) {

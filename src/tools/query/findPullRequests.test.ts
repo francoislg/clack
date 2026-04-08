@@ -1,54 +1,16 @@
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
-
-// ---------------------------------------------------------------------------
-// Module-level mocks
-// ---------------------------------------------------------------------------
-
-const mockGetVisibleRepos = mock.fn<(...args: unknown[]) => unknown[]>();
-
-mock.module("../../repoAccess.js", {
-  namedExports: {
-    getVisibleRepos: mockGetVisibleRepos,
-  },
-});
-
-const mockParseRepoUrl = mock.fn<(url: string) => { owner: string; repo: string }>();
-const mockGetOctokit = mock.fn<() => Promise<unknown>>();
-
-mock.module("../../github.js", {
-  namedExports: {
-    parseRepoUrl: mockParseRepoUrl,
-    getOctokit: mockGetOctokit,
-  },
-});
-
-mock.module("../../logger.js", {
-  namedExports: {
-    logger: {
-      debug: () => {},
-      warn: () => {},
-      error: () => {},
-      info: () => {},
-    },
-  },
-});
-
-mock.module("../../errors.js", {
-  namedExports: {
-    errorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
-  },
-});
-
-// Import after mocks
-const { createFindPullRequestsTool } = await import("./findPullRequests.js");
+import {
+  createFindPullRequestsTool,
+  type FindPullRequestsDeps,
+  type ListPullsParams,
+} from "./findPullRequests.js";
+import type { QueryToolContext } from "../types.js";
+import type { RepositoryConfig } from "../../config.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-import type { QueryToolContext } from "../types.js";
-import type { RepositoryConfig } from "../../config.js";
 
 function makeRepo(overrides?: Partial<RepositoryConfig>): RepositoryConfig {
   return {
@@ -86,7 +48,20 @@ function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
   };
 }
 
-function makePR(overrides?: Record<string, unknown>) {
+interface FakePR {
+  html_url: string;
+  number: number;
+  title: string;
+  head: { ref: string };
+  state: string;
+  user: { login: string } | null;
+  created_at: string;
+  updated_at: string;
+  merged_at: string | null;
+  body: string | null;
+}
+
+function makePR(overrides?: Partial<FakePR>): FakePR {
   return {
     html_url: "https://github.com/org/my-repo/pull/1",
     number: 1,
@@ -106,13 +81,16 @@ function parseResult(result: { content: Array<{ text: string }> }) {
   return JSON.parse(result.content[0].text);
 }
 
-function resetMocks() {
-  mockGetVisibleRepos.mock.resetCalls();
-  mockParseRepoUrl.mock.resetCalls();
-  mockGetOctokit.mock.resetCalls();
-
-  mockGetVisibleRepos.mock.mockImplementation(() => [makeRepo()]);
-  mockParseRepoUrl.mock.mockImplementation(() => ({ owner: "org", repo: "my-repo" }));
+function makeDeps(overrides: Partial<FindPullRequestsDeps> = {}): FindPullRequestsDeps {
+  return {
+    getVisibleRepos: mock.fn(() => [makeRepo()]) as FindPullRequestsDeps["getVisibleRepos"],
+    parseRepoUrl: mock.fn(() => ({
+      owner: "org",
+      repo: "my-repo",
+    })) as FindPullRequestsDeps["parseRepoUrl"],
+    listPulls: mock.fn(async () => ({ data: [] })) as FindPullRequestsDeps["listPulls"],
+    ...overrides,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -120,13 +98,11 @@ function resetMocks() {
 // ---------------------------------------------------------------------------
 
 describe("findPullRequests tool", () => {
-  beforeEach(resetMocks);
-
   it("returns error when repo is not found or not accessible", async () => {
-    mockGetVisibleRepos.mock.mockImplementation(() => [makeRepo()]);
+    const deps = makeDeps();
 
     const ctx = makeCtx();
-    const toolDef = createFindPullRequestsTool(ctx);
+    const toolDef = createFindPullRequestsTool(ctx, deps);
 
     const result = await toolDef.handler(
       { repo: "nonexistent", state: "open", branch: undefined, since: undefined },
@@ -153,15 +129,12 @@ describe("findPullRequests tool", () => {
       head: { ref: "fix/b" },
     });
 
-    const mockOctokit = {
-      pulls: {
-        list: mock.fn(async () => ({ data: [pr1, pr2] })),
-      },
-    };
-    mockGetOctokit.mock.mockImplementation(async () => mockOctokit);
+    const deps = makeDeps({
+      listPulls: mock.fn(async () => ({ data: [pr1, pr2] })) as FindPullRequestsDeps["listPulls"],
+    });
 
     const ctx = makeCtx();
-    const toolDef = createFindPullRequestsTool(ctx);
+    const toolDef = createFindPullRequestsTool(ctx, deps);
 
     const result = await toolDef.handler(
       { repo: "my-repo", state: "open", branch: undefined, since: undefined },
@@ -182,15 +155,14 @@ describe("findPullRequests tool", () => {
     const pr2 = makePR({ title: "Feature B", head: { ref: "feat/signup-page" } });
     const pr3 = makePR({ title: "Fix C", head: { ref: "fix/login-bug" } });
 
-    const mockOctokit = {
-      pulls: {
-        list: mock.fn(async () => ({ data: [pr1, pr2, pr3] })),
-      },
-    };
-    mockGetOctokit.mock.mockImplementation(async () => mockOctokit);
+    const deps = makeDeps({
+      listPulls: mock.fn(async () => ({
+        data: [pr1, pr2, pr3],
+      })) as FindPullRequestsDeps["listPulls"],
+    });
 
     const ctx = makeCtx();
-    const toolDef = createFindPullRequestsTool(ctx);
+    const toolDef = createFindPullRequestsTool(ctx, deps);
 
     const result = await toolDef.handler(
       { repo: "my-repo", state: "open", branch: "login", since: undefined },
@@ -203,15 +175,12 @@ describe("findPullRequests tool", () => {
   });
 
   it("returns empty array when no PRs exist", async () => {
-    const mockOctokit = {
-      pulls: {
-        list: mock.fn(async () => ({ data: [] })),
-      },
-    };
-    mockGetOctokit.mock.mockImplementation(async () => mockOctokit);
+    const deps = makeDeps({
+      listPulls: mock.fn(async () => ({ data: [] })) as FindPullRequestsDeps["listPulls"],
+    });
 
     const ctx = makeCtx();
-    const toolDef = createFindPullRequestsTool(ctx);
+    const toolDef = createFindPullRequestsTool(ctx, deps);
 
     const result = await toolDef.handler(
       { repo: "my-repo", state: "open", branch: undefined, since: undefined },
@@ -225,15 +194,12 @@ describe("findPullRequests tool", () => {
   it("returns empty array when branch filter matches no PRs", async () => {
     const pr = makePR({ head: { ref: "feat/dashboard" } });
 
-    const mockOctokit = {
-      pulls: {
-        list: mock.fn(async () => ({ data: [pr] })),
-      },
-    };
-    mockGetOctokit.mock.mockImplementation(async () => mockOctokit);
+    const deps = makeDeps({
+      listPulls: mock.fn(async () => ({ data: [pr] })) as FindPullRequestsDeps["listPulls"],
+    });
 
     const ctx = makeCtx();
-    const toolDef = createFindPullRequestsTool(ctx);
+    const toolDef = createFindPullRequestsTool(ctx, deps);
 
     const result = await toolDef.handler(
       { repo: "my-repo", state: "open", branch: "nonexistent", since: undefined },
@@ -244,13 +210,15 @@ describe("findPullRequests tool", () => {
     assert.deepEqual(parsed, []);
   });
 
-  it("returns error when GitHub API call fails", async () => {
-    mockGetOctokit.mock.mockImplementation(async () => {
-      throw new Error("GitHub API rate limit exceeded");
+  it("returns error when listPulls throws", async () => {
+    const deps = makeDeps({
+      listPulls: mock.fn(async () => {
+        throw new Error("GitHub API rate limit exceeded");
+      }) as FindPullRequestsDeps["listPulls"],
     });
 
     const ctx = makeCtx();
-    const toolDef = createFindPullRequestsTool(ctx);
+    const toolDef = createFindPullRequestsTool(ctx, deps);
 
     const result = await toolDef.handler(
       { repo: "my-repo", state: "open", branch: undefined, since: undefined },
@@ -264,18 +232,15 @@ describe("findPullRequests tool", () => {
     assert.equal(result.isError, true);
   });
 
-  it("returns error when octokit.pulls.list throws", async () => {
-    const mockOctokit = {
-      pulls: {
-        list: mock.fn(async () => {
-          throw new Error("Not found");
-        }),
-      },
-    };
-    mockGetOctokit.mock.mockImplementation(async () => mockOctokit);
+  it("returns error when listPulls throws Not found", async () => {
+    const deps = makeDeps({
+      listPulls: mock.fn(async () => {
+        throw new Error("Not found");
+      }) as FindPullRequestsDeps["listPulls"],
+    });
 
     const ctx = makeCtx();
-    const toolDef = createFindPullRequestsTool(ctx);
+    const toolDef = createFindPullRequestsTool(ctx, deps);
 
     const result = await toolDef.handler(
       { repo: "my-repo", state: "open", branch: undefined, since: undefined },
@@ -288,34 +253,28 @@ describe("findPullRequests tool", () => {
     assert.equal(result.isError, true);
   });
 
-  it("calls octokit with correct owner and repo from parseRepoUrl", async () => {
-    mockParseRepoUrl.mock.mockImplementation(() => ({ owner: "my-org", repo: "cool-project" }));
-
-    const listFn = mock.fn(async () => ({ data: [] }));
-    const mockOctokit = { pulls: { list: listFn } };
-    mockGetOctokit.mock.mockImplementation(async () => mockOctokit);
+  it("calls listPulls with correct owner and repo from parseRepoUrl", async () => {
+    const listPullsMock = mock.fn<(params: ListPullsParams) => Promise<{ data: FakePR[] }>>(
+      async () => ({ data: [] }),
+    );
+    const deps = makeDeps({
+      parseRepoUrl: mock.fn(() => ({
+        owner: "my-org",
+        repo: "cool-project",
+      })) as FindPullRequestsDeps["parseRepoUrl"],
+      listPulls: listPullsMock as FindPullRequestsDeps["listPulls"],
+    });
 
     const ctx = makeCtx();
-    const toolDef = createFindPullRequestsTool(ctx);
+    const toolDef = createFindPullRequestsTool(ctx, deps);
 
     await toolDef.handler(
       { repo: "my-repo", state: "open", branch: undefined, since: undefined },
       { sessionId: "test" },
     );
 
-    assert.equal(listFn.mock.callCount(), 1);
-    const callArgs = (
-      listFn.mock.calls[0].arguments as unknown as [
-        {
-          owner: string;
-          repo: string;
-          state: string;
-          sort: string;
-          direction: string;
-          per_page: number;
-        },
-      ]
-    )[0];
+    assert.equal(listPullsMock.mock.callCount(), 1);
+    const callArgs = listPullsMock.mock.calls[0]!.arguments[0]!;
     assert.equal(callArgs.owner, "my-org");
     assert.equal(callArgs.repo, "cool-project");
     assert.equal(callArgs.state, "open");
@@ -337,15 +296,12 @@ describe("findPullRequests tool", () => {
       body: "Implements dark mode theme",
     });
 
-    const mockOctokit = {
-      pulls: {
-        list: mock.fn(async () => ({ data: [pr] })),
-      },
-    };
-    mockGetOctokit.mock.mockImplementation(async () => mockOctokit);
+    const deps = makeDeps({
+      listPulls: mock.fn(async () => ({ data: [pr] })) as FindPullRequestsDeps["listPulls"],
+    });
 
     const ctx = makeCtx();
-    const toolDef = createFindPullRequestsTool(ctx);
+    const toolDef = createFindPullRequestsTool(ctx, deps);
 
     const result = await toolDef.handler(
       { repo: "my-repo", state: "open", branch: undefined, since: undefined },
@@ -380,12 +336,13 @@ describe("findPullRequests tool", () => {
       merged_at: null,
     });
 
-    const listFn = mock.fn(async () => ({ data: [merged, closedNotMerged] }));
-    const mockOctokit = { pulls: { list: listFn } };
-    mockGetOctokit.mock.mockImplementation(async () => mockOctokit);
+    const listPullsMock = mock.fn<(params: ListPullsParams) => Promise<{ data: FakePR[] }>>(
+      async () => ({ data: [merged, closedNotMerged] }),
+    );
+    const deps = makeDeps({ listPulls: listPullsMock as FindPullRequestsDeps["listPulls"] });
 
     const ctx = makeCtx();
-    const toolDef = createFindPullRequestsTool(ctx);
+    const toolDef = createFindPullRequestsTool(ctx, deps);
 
     const result = await toolDef.handler(
       { repo: "my-repo", state: "merged", branch: undefined, since: undefined },
@@ -393,7 +350,7 @@ describe("findPullRequests tool", () => {
     );
 
     // Should call API with state "closed" (merged is a subset of closed)
-    const callArgs = (listFn.mock.calls[0].arguments as unknown as [{ state: string }])[0];
+    const callArgs = listPullsMock.mock.calls[0]!.arguments[0]!;
     assert.equal(callArgs.state, "closed");
 
     const parsed = parseResult(result);
@@ -417,13 +374,14 @@ describe("findPullRequests tool", () => {
       merged_at: "2025-05-01T10:00:00Z",
     });
 
-    const mockOctokit = {
-      pulls: { list: mock.fn(async () => ({ data: [recentMerge, oldMerge] })) },
-    };
-    mockGetOctokit.mock.mockImplementation(async () => mockOctokit);
+    const deps = makeDeps({
+      listPulls: mock.fn(async () => ({
+        data: [recentMerge, oldMerge],
+      })) as FindPullRequestsDeps["listPulls"],
+    });
 
     const ctx = makeCtx();
-    const toolDef = createFindPullRequestsTool(ctx);
+    const toolDef = createFindPullRequestsTool(ctx, deps);
 
     const result = await toolDef.handler(
       { repo: "my-repo", state: "merged", branch: undefined, since: "2025-06-01" },
@@ -439,11 +397,14 @@ describe("findPullRequests tool", () => {
     const recent = makePR({ number: 1, title: "Recent", updated_at: "2025-06-02T10:00:00Z" });
     const old = makePR({ number: 2, title: "Old", updated_at: "2025-05-01T10:00:00Z" });
 
-    const mockOctokit = { pulls: { list: mock.fn(async () => ({ data: [recent, old] })) } };
-    mockGetOctokit.mock.mockImplementation(async () => mockOctokit);
+    const deps = makeDeps({
+      listPulls: mock.fn(async () => ({
+        data: [recent, old],
+      })) as FindPullRequestsDeps["listPulls"],
+    });
 
     const ctx = makeCtx();
-    const toolDef = createFindPullRequestsTool(ctx);
+    const toolDef = createFindPullRequestsTool(ctx, deps);
 
     const result = await toolDef.handler(
       { repo: "my-repo", state: "open", branch: undefined, since: "2025-06-01" },
@@ -458,11 +419,12 @@ describe("findPullRequests tool", () => {
   it("shows 'merged' as state for merged PRs in any state filter", async () => {
     const mergedPR = makePR({ state: "closed", merged_at: "2025-06-01T09:00:00Z" });
 
-    const mockOctokit = { pulls: { list: mock.fn(async () => ({ data: [mergedPR] })) } };
-    mockGetOctokit.mock.mockImplementation(async () => mockOctokit);
+    const deps = makeDeps({
+      listPulls: mock.fn(async () => ({ data: [mergedPR] })) as FindPullRequestsDeps["listPulls"],
+    });
 
     const ctx = makeCtx();
-    const toolDef = createFindPullRequestsTool(ctx);
+    const toolDef = createFindPullRequestsTool(ctx, deps);
 
     const result = await toolDef.handler(
       { repo: "my-repo", state: "all", branch: undefined, since: undefined },
@@ -477,11 +439,12 @@ describe("findPullRequests tool", () => {
     const longBody = "x".repeat(600);
     const pr = makePR({ body: longBody });
 
-    const mockOctokit = { pulls: { list: mock.fn(async () => ({ data: [pr] })) } };
-    mockGetOctokit.mock.mockImplementation(async () => mockOctokit);
+    const deps = makeDeps({
+      listPulls: mock.fn(async () => ({ data: [pr] })) as FindPullRequestsDeps["listPulls"],
+    });
 
     const ctx = makeCtx();
-    const toolDef = createFindPullRequestsTool(ctx);
+    const toolDef = createFindPullRequestsTool(ctx, deps);
 
     const result = await toolDef.handler(
       { repo: "my-repo", state: "open", branch: undefined, since: undefined },
@@ -495,14 +458,16 @@ describe("findPullRequests tool", () => {
   it("lists available repos in the error message", async () => {
     const repoA = makeRepo({ name: "repo-a" });
     const repoB = makeRepo({ name: "repo-b" });
-    mockGetVisibleRepos.mock.mockImplementation(() => [repoA, repoB]);
+    const deps = makeDeps({
+      getVisibleRepos: mock.fn(() => [repoA, repoB]) as FindPullRequestsDeps["getVisibleRepos"],
+    });
 
     const ctx = makeCtx({
       config: {
         repositories: [repoA, repoB],
       } as QueryToolContext["config"],
     });
-    const toolDef = createFindPullRequestsTool(ctx);
+    const toolDef = createFindPullRequestsTool(ctx, deps);
 
     const result = await toolDef.handler(
       { repo: "unknown", state: "open", branch: undefined, since: undefined },

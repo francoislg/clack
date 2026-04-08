@@ -5,9 +5,9 @@ import type { IntentStore, ResponseCapture, ToolCallRecorder } from "../server.j
 import type { DeliverFn, ResponseSnapshot, PostToAction } from "../types.js";
 import { textResult } from "../helpers.js";
 import {
-  getStructuredResponseBlocks,
-  getResponseActionBlocks,
-  validateSlackBlocks,
+  getStructuredResponseBlocks as _getStructuredResponseBlocks,
+  getResponseActionBlocks as _getResponseActionBlocks,
+  validateSlackBlocks as _validateSlackBlocks,
   asSlackBlocks,
 } from "../../slack/blocks.js";
 
@@ -120,6 +120,9 @@ export interface SubmitResponseDeps {
   topLevelDeliveryChannel?: string;
   /** When true, the skip_response parameter is available in the schema. */
   allowSkip?: boolean;
+  getStructuredResponseBlocks?: typeof _getStructuredResponseBlocks;
+  validateSlackBlocks?: typeof _validateSlackBlocks;
+  getResponseActionBlocks?: typeof _getResponseActionBlocks;
 }
 
 function validateRefActions(
@@ -205,6 +208,14 @@ const skipEnabledResponseSchema = {
       "Set to true to decline answering. Use when the conversation doesn't need a Clack response " +
         "(e.g., users talking to each other, question already answered). When true, sections and actions are not required.",
     ),
+  disengage: z
+    .boolean()
+    .optional()
+    .describe(
+      "Set to true alongside skip_response to permanently stop tracking this thread. " +
+        "Use when the conversation has clearly moved on from the original topic. " +
+        "Clack will stop evaluating future messages until re-mentioned. Requires skip_response: true.",
+    ),
   // Override sections and actions to be optional when skip is used
   sections: z
     .array(sectionSchema)
@@ -229,6 +240,9 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
     persistSnapshot,
     topLevelDeliveryChannel,
     allowSkip,
+    getStructuredResponseBlocks = _getStructuredResponseBlocks,
+    validateSlackBlocks = _validateSlackBlocks,
+    getResponseActionBlocks = _getResponseActionBlocks,
   } = deps;
 
   const schema = allowSkip ? skipEnabledResponseSchema : normalResponseSchema;
@@ -238,6 +252,17 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
     "Submit the final response to the user. This defines what the user sees: text sections and interactive buttons. Always call this tool to deliver your response.",
     schema,
     async (args) => {
+      // --- Disengage without skip is invalid ---
+      if (
+        "disengage" in args &&
+        args.disengage &&
+        !("skip_response" in args && args.skip_response)
+      ) {
+        return recordError(recorder, args, {
+          error: "disengage requires skip_response: true",
+        });
+      }
+
       // --- Skip path ---
       if ("skip_response" in args && args.skip_response) {
         // Cannot skip after a response was already delivered
@@ -252,8 +277,11 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
             error: `To skip a response, the message field must be exactly: "${SKIP_ACKNOWLEDGMENT}"`,
           });
         }
-        responseCapture.setSkipped();
-        const result = { success: true, skipped: true };
+        const wantsDisengage = "disengage" in args && args.disengage === true;
+        responseCapture.setSkipped(wantsDisengage);
+        const result = wantsDisengage
+          ? { success: true, skipped: true, disengaged: true }
+          : { success: true, skipped: true };
         recorder.record("submit_response", args as unknown as Record<string, unknown>, result);
         return textResult(result);
       }
@@ -309,10 +337,7 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
         }
       }
 
-      const renderedBlocks = getStructuredResponseBlocks(payload, sessionId) as Record<
-        string,
-        unknown
-      >[];
+      const renderedBlocks = getStructuredResponseBlocks(payload, sessionId);
       const validationErrors = validateSlackBlocks(renderedBlocks);
 
       if (validationErrors.length > 0) {

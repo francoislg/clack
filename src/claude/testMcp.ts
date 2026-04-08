@@ -1,11 +1,38 @@
-import { clackQuery } from "./query.js";
-import { getConfig } from "../config.js";
-import { errorMessage } from "../errors.js";
-import { loadMcpServers, getConfiguredMcpServerNames } from "../mcp.js";
+import { clackQuery as _clackQuery } from "./query.js";
+import { getConfig as _getConfig } from "../config.js";
+import { errorMessage as _errorMessage } from "../errors.js";
+import {
+  loadMcpServers as _loadMcpServers,
+  getConfiguredMcpServerNames as _getConfiguredMcpServerNames,
+} from "../mcp.js";
 import type { SessionContext } from "../sessions.js";
-import { buildQueryContext } from "../tools/context.js";
-import { buildClackTools } from "../tools/server.js";
+import { buildQueryContext as _buildQueryContext } from "../tools/context.js";
+import { buildClackTools as _buildClackTools } from "../tools/server.js";
 import { detectRuntime } from "./utilities.js";
+
+// ---------------------------------------------------------------------------
+// Dependency injection
+// ---------------------------------------------------------------------------
+
+export interface TestMcpDeps {
+  clackQuery: typeof _clackQuery;
+  getConfig: typeof _getConfig;
+  errorMessage: typeof _errorMessage;
+  loadMcpServers: typeof _loadMcpServers;
+  getConfiguredMcpServerNames: typeof _getConfiguredMcpServerNames;
+  buildQueryContext: typeof _buildQueryContext;
+  buildClackTools: typeof _buildClackTools;
+}
+
+export const defaultTestMcpDeps: TestMcpDeps = {
+  clackQuery: _clackQuery,
+  getConfig: _getConfig,
+  errorMessage: _errorMessage,
+  loadMcpServers: _loadMcpServers,
+  getConfiguredMcpServerNames: _getConfiguredMcpServerNames,
+  buildQueryContext: _buildQueryContext,
+  buildClackTools: _buildClackTools,
+};
 
 export interface McpServerInfo {
   name: string;
@@ -28,10 +55,10 @@ export interface McpTestResult {
  * Starts a minimal Claude query to get the init message with MCP status.
  * Also verifies that clack (in-process) tools build successfully.
  */
-export async function testMCP(): Promise<McpTestResult> {
-  const config = getConfig();
-  const externalMcpServers = await loadMcpServers();
-  const configuredServers = getConfiguredMcpServerNames();
+export async function testMCP(deps: TestMcpDeps = defaultTestMcpDeps): Promise<McpTestResult> {
+  const config = deps.getConfig();
+  const externalMcpServers = await deps.loadMcpServers();
+  const configuredServers = deps.getConfiguredMcpServerNames();
 
   // Build clack tool server with owner role to verify all tools register
   const dummySession: SessionContext = {
@@ -51,7 +78,7 @@ export async function testMCP(): Promise<McpTestResult> {
   let clackToolNames: string[] = [];
   let clackMcpServer: unknown;
   try {
-    const toolCtx = buildQueryContext({
+    const toolCtx = deps.buildQueryContext({
       userId: "test",
       role: "owner",
       session: dummySession,
@@ -59,7 +86,7 @@ export async function testMCP(): Promise<McpTestResult> {
       changesWorkflowEnabled: true,
       allowScheduledMessages: config.allowScheduledMessages ?? false,
     });
-    const clackTools = buildClackTools(toolCtx);
+    const clackTools = deps.buildClackTools(toolCtx);
     clackToolNames = clackTools.toolNames;
     clackMcpServer = clackTools.mcpServer;
   } catch (error) {
@@ -71,7 +98,7 @@ export async function testMCP(): Promise<McpTestResult> {
       tools: [],
       mcpTools: [],
       clackTools: [],
-      error: `Clack tool server failed to build: ${errorMessage(error)}`,
+      error: `Clack tool server failed to build: ${deps.errorMessage(error)}`,
     };
   }
 
@@ -100,7 +127,7 @@ export async function testMCP(): Promise<McpTestResult> {
     let mcpServerStatus: McpServerInfo[] = [];
 
     // Start a minimal query just to get the init message
-    for await (const message of clackQuery({
+    for await (const message of deps.clackQuery({
       prompt: "test",
       options: {
         cwd: process.cwd(),
@@ -169,7 +196,7 @@ export async function testMCP(): Promise<McpTestResult> {
       tools: [],
       mcpTools: [],
       clackTools: clackToolNames,
-      error: errorMessage(error),
+      error: deps.errorMessage(error),
     };
   }
 }

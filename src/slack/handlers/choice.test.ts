@@ -3,61 +3,46 @@ import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
 import type { SessionContext } from "../../sessions.js";
 import type { SessionInfo } from "../activeSessions.js";
-import type { AskClaudeOptions } from "../../claude/index.js";
+import type { AskClaudeOptions, ClaudeResponse } from "../../claude/index.js";
+import type { UserRole } from "../../roles.js";
+import { registerChoiceHandler, type ChoiceDeps } from "./choice.js";
 
 // ============================================================================
-// Mocks — set up before importing the module under test
+// Mocks
 // ============================================================================
 
 const mockGetSession = mock.fn<(id: string) => Promise<SessionContext | null>>();
-const mockAddRefinement = mock.fn<(id: string, text: string) => Promise<void>>(async () => {});
+const mockAddRefinement = mock.fn<(id: string, text: string) => Promise<SessionContext | null>>(
+  async () => null,
+);
 
-const mockDecodeActionValue = mock.fn<(v: string) => Record<string, unknown>>();
+const mockDecodeActionValue =
+  mock.fn<(v: string) => { sessionId: string; choiceValue?: string; workMode?: boolean }>();
 const mockRestoreSessionInfo = mock.fn<(id: string) => Promise<SessionInfo | undefined>>();
 
-const mockExecuteAndDeliver = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
+const mockExecuteAndDeliver =
+  mock.fn<
+    (params: {
+      client: App["client"];
+      session: SessionContext;
+      sessionInfo: SessionInfo;
+      claudeOptions: AskClaudeOptions;
+    }) => Promise<ClaudeResponse>
+  >();
 const mockGetHandlerClaudeOptions = mock.fn<(info: SessionInfo) => Promise<AskClaudeOptions>>();
-const mockCanRequestChanges = mock.fn<(...args: unknown[]) => boolean>();
+const mockCanRequestChanges = mock.fn<(role: UserRole) => boolean>();
 
-mock.module("../../sessions.js", {
-  namedExports: {
+function makeDeps(): ChoiceDeps {
+  return {
+    decodeActionValue: mockDecodeActionValue,
+    restoreSession: mockRestoreSessionInfo,
     getSession: mockGetSession,
     addRefinement: mockAddRefinement,
-  },
-});
-
-mock.module("../blocks.js", {
-  namedExports: { decodeActionValue: mockDecodeActionValue },
-});
-
-mock.module("../activeSessions.js", {
-  namedExports: { activeSessions: { restore: mockRestoreSessionInfo } },
-});
-
-mock.module("./handlerResponse.js", {
-  namedExports: {
-    executeAndDeliver: mockExecuteAndDeliver,
     getHandlerClaudeOptions: mockGetHandlerClaudeOptions,
-  },
-});
-
-mock.module("../../permissions.js", {
-  namedExports: { canRequestChanges: mockCanRequestChanges },
-});
-
-mock.module("../../logger.js", {
-  namedExports: {
-    logger: {
-      info: () => {},
-      warn: () => {},
-      error: () => {},
-      debug: () => {},
-    },
-  },
-});
-
-// Import after mocks
-const { registerChoiceHandler } = await import("./choice.js");
+    canRequestChanges: mockCanRequestChanges,
+    executeAndDeliver: mockExecuteAndDeliver,
+  };
+}
 
 // ============================================================================
 // Helpers
@@ -71,12 +56,14 @@ type ActionHandler = (args: {
 
 let capturedHandler: ActionHandler;
 
-function makeApp(): App {
-  return {
+function makeApp(deps: ChoiceDeps): App {
+  const app = {
     action: (_pattern: unknown, handler: ActionHandler) => {
       capturedHandler = handler;
     },
-  } as unknown as App;
+  } as never as App;
+  registerChoiceHandler(app, deps);
+  return app;
 }
 
 function makeClient(): App["client"] {
@@ -126,8 +113,7 @@ beforeEach(() => {
   mockCanRequestChanges.mock.mockImplementation(() => true);
 
   // Register handler
-  const app = makeApp();
-  registerChoiceHandler(app);
+  makeApp(makeDeps());
 });
 
 // ============================================================================

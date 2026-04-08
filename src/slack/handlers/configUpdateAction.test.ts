@@ -4,9 +4,13 @@ import type { App } from "@slack/bolt";
 import type { UserRole } from "../../roles.js";
 import type { StagedConfigUpdateIntent, StagedIntent } from "../../tools/types.js";
 import type { SessionInfo } from "../activeSessions.js";
+import {
+  registerConfigUpdateActionHandler,
+  type ConfigUpdateActionDeps,
+} from "./configUpdateAction.js";
 
 // ============================================================================
-// Mocks — set up before importing the module under test
+// Mocks
 // ============================================================================
 
 const mockGetRole = mock.fn<(userId: string) => Promise<UserRole>>(async () => "admin");
@@ -25,91 +29,62 @@ const mockRestoreSessionInfo = mock.fn<(sessionId: string) => Promise<SessionInf
 );
 const mockWriteInstructionFile = mock.fn<(filename: string, content: string) => void>();
 
-mock.module("../../logger.js", {
-  namedExports: {
-    logger: {
-      info: () => {},
-      warn: () => {},
-      error: () => {},
-      debug: () => {},
-    },
-  },
-});
-
-mock.module("../../roles.js", {
-  namedExports: {
+function makeDeps(): ConfigUpdateActionDeps {
+  return {
     getRole: mockGetRole,
-  },
-});
-
-mock.module("../../permissions.js", {
-  namedExports: {
     canEditConfig: (role: UserRole) => role === "admin" || role === "owner",
-  },
-});
-
-mock.module("../../sessions.js", {
-  namedExports: {
-    getStagedIntent: mockGetStagedIntent,
-  },
-});
-
-mock.module("../blocks.js", {
-  namedExports: {
     decodeActionValue: mockDecodeActionValue,
-  },
-});
-
-mock.module("../activeSessions.js", {
-  namedExports: {
-    activeSessions: { restore: mockRestoreSessionInfo },
-  },
-});
-
-mock.module("../../configurationFiles.js", {
-  namedExports: {
+    restoreSession: mockRestoreSessionInfo,
+    getStagedIntent: mockGetStagedIntent,
     writeInstructionFile: mockWriteInstructionFile,
-  },
-});
-
-mock.module("../../errors.js", {
-  namedExports: {
     errorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
-  },
-});
-
-// Import after mocks are configured
-const { registerConfigUpdateActionHandler } = await import("./configUpdateAction.js");
+  };
+}
 
 // ============================================================================
 // Helpers
 // ============================================================================
 
-function makeClient(): App["client"] {
+function makeClient() {
+  const postEphemeralFn = mock.fn<
+    (args: {
+      channel: string;
+      user?: string;
+      text: string;
+      thread_ts?: string;
+    }) => Promise<{ ok: boolean }>
+  >(async () => ({ ok: true }));
+  const postMessageFn = mock.fn<
+    (args: { text: string; channel: string; thread_ts: string }) => Promise<{ ok: boolean }>
+  >(async () => ({ ok: true }));
   return {
-    chat: {
-      postEphemeral: mock.fn(async () => ({ ok: true })),
-      postMessage: mock.fn(async () => ({ ok: true })),
-    },
-  } as unknown as App["client"];
+    obj: {
+      chat: { postEphemeral: postEphemeralFn, postMessage: postMessageFn },
+    } as never as App["client"],
+    postEphemeral: postEphemeralFn,
+    postMessage: postMessageFn,
+  };
 }
 
 /** Capture the registered action handler from `app.action(...)` */
 function captureHandler() {
   const actionFn = mock.fn();
-  const app = { action: actionFn } as unknown as App;
+  const app = { action: actionFn } as never as App;
 
-  registerConfigUpdateActionHandler(app);
+  registerConfigUpdateActionHandler(app, makeDeps());
 
   assert.equal(actionFn.mock.callCount(), 1, "should register exactly one action handler");
-  const handler = actionFn.mock.calls[0].arguments[1] as (
-    args: Record<string, unknown>,
-  ) => Promise<void>;
+  const handler = actionFn.mock.calls[0]!.arguments[1] as (args: {
+    ack: () => Promise<void>;
+    body: { user: { id: string }; channel?: { id: string }; actions: Array<{ value: string }> };
+    client: App["client"];
+    respond: (...a: unknown[]) => Promise<void>;
+  }) => Promise<void>;
   return handler;
 }
 
-function makeHandlerArgs(overrides: Record<string, unknown> = {}) {
-  const client = makeClient();
+function makeHandlerArgs() {
+  const clientBundle = makeClient();
   const respondFn = mock.fn(async () => {});
   return {
     ack: mock.fn(async () => {}),
@@ -117,11 +92,11 @@ function makeHandlerArgs(overrides: Record<string, unknown> = {}) {
       user: { id: "U001" },
       channel: { id: "C001" },
       actions: [{ value: "encoded-value" }],
-      ...(overrides.body as Record<string, unknown>),
     },
-    client,
+    client: clientBundle.obj,
+    postEphemeral: clientBundle.postEphemeral,
+    postMessage: clientBundle.postMessage,
     respond: respondFn,
-    ...overrides,
   };
 }
 
@@ -150,12 +125,12 @@ beforeEach(() => {
 describe("registerConfigUpdateActionHandler — registration", () => {
   it("registers an action handler with the correct pattern", () => {
     const actionFn = mock.fn();
-    const app = { action: actionFn } as unknown as App;
+    const app = { action: actionFn } as never as App;
 
-    registerConfigUpdateActionHandler(app);
+    registerConfigUpdateActionHandler(app, makeDeps());
 
     assert.equal(actionFn.mock.callCount(), 1);
-    const pattern = actionFn.mock.calls[0].arguments[0] as RegExp;
+    const pattern = actionFn.mock.calls[0]!.arguments[0] as RegExp;
     assert.ok(pattern instanceof RegExp);
     assert.ok(pattern.test("clack_config_update_42"));
     assert.ok(!pattern.test("clack_change_42"));
@@ -175,9 +150,9 @@ describe("registerConfigUpdateActionHandler — permissions", () => {
     await handler(args);
 
     assert.equal(args.ack.mock.callCount(), 1);
-    const postEphemeral = args.client.chat.postEphemeral as unknown as ReturnType<typeof mock.fn>;
+    const postEphemeral = args.postEphemeral;
     assert.equal(postEphemeral.mock.callCount(), 1);
-    const msgArgs = postEphemeral.mock.calls[0].arguments[0] as { text: string };
+    const msgArgs = postEphemeral.mock.calls[0]!.arguments[0] as { text: string };
     assert.ok(msgArgs.text.includes("permission"));
   });
 
@@ -189,7 +164,7 @@ describe("registerConfigUpdateActionHandler — permissions", () => {
     await handler(args);
 
     assert.equal(args.ack.mock.callCount(), 1);
-    const postEphemeral = args.client.chat.postEphemeral as unknown as ReturnType<typeof mock.fn>;
+    const postEphemeral = args.postEphemeral;
     assert.equal(postEphemeral.mock.callCount(), 1);
   });
 
@@ -208,7 +183,7 @@ describe("registerConfigUpdateActionHandler — permissions", () => {
     await handler(args);
 
     // Should not post ephemeral permission error
-    const postEphemeral = args.client.chat.postEphemeral as unknown as ReturnType<typeof mock.fn>;
+    const postEphemeral = args.postEphemeral;
     // It should either succeed or post a success ephemeral, not a permission error
     const calls = postEphemeral.mock.calls;
     for (const call of calls) {
@@ -231,7 +206,7 @@ describe("registerConfigUpdateActionHandler — permissions", () => {
     const args = makeHandlerArgs();
     await handler(args);
 
-    const postEphemeral = args.client.chat.postEphemeral as unknown as ReturnType<typeof mock.fn>;
+    const postEphemeral = args.postEphemeral;
     const calls = postEphemeral.mock.calls;
     for (const call of calls) {
       const text = (call.arguments[0] as { text: string }).text;
@@ -289,9 +264,9 @@ describe("registerConfigUpdateActionHandler — intent resolution", () => {
 
     await handler(args);
 
-    const postEphemeral = args.client.chat.postEphemeral as unknown as ReturnType<typeof mock.fn>;
+    const postEphemeral = args.postEphemeral;
     assert.equal(postEphemeral.mock.callCount(), 1);
-    const msgArgs = postEphemeral.mock.calls[0].arguments[0] as { text: string };
+    const msgArgs = postEphemeral.mock.calls[0]!.arguments[0] as { text: string };
     assert.ok(msgArgs.text.includes("expired"));
   });
 
@@ -307,9 +282,9 @@ describe("registerConfigUpdateActionHandler — intent resolution", () => {
 
     await handler(args);
 
-    const postEphemeral = args.client.chat.postEphemeral as unknown as ReturnType<typeof mock.fn>;
+    const postEphemeral = args.postEphemeral;
     assert.equal(postEphemeral.mock.callCount(), 1);
-    const msgArgs = postEphemeral.mock.calls[0].arguments[0] as { text: string };
+    const msgArgs = postEphemeral.mock.calls[0]!.arguments[0] as { text: string };
     assert.ok(msgArgs.text.includes("expired"));
   });
 });
@@ -335,14 +310,14 @@ describe("registerConfigUpdateActionHandler — success", () => {
     assert.equal(args.ack.mock.callCount(), 1);
     assert.equal(args.respond.mock.callCount(), 1);
     assert.equal(mockWriteInstructionFile.mock.callCount(), 1);
-    const writeArgs = mockWriteInstructionFile.mock.calls[0].arguments;
+    const writeArgs = mockWriteInstructionFile.mock.calls[0]!.arguments;
     assert.equal(writeArgs[0], "instructions.md");
     assert.equal(writeArgs[1], "new content");
 
     // Should post success ephemeral
-    const postEphemeral = args.client.chat.postEphemeral as unknown as ReturnType<typeof mock.fn>;
+    const postEphemeral = args.postEphemeral;
     assert.equal(postEphemeral.mock.callCount(), 1);
-    const msgArgs = postEphemeral.mock.calls[0].arguments[0] as {
+    const msgArgs = postEphemeral.mock.calls[0]!.arguments[0] as {
       text: string;
       channel: string;
       thread_ts: string;
@@ -374,9 +349,9 @@ describe("registerConfigUpdateActionHandler — write failure", () => {
 
     await handler(args);
 
-    const postEphemeral = args.client.chat.postEphemeral as unknown as ReturnType<typeof mock.fn>;
+    const postEphemeral = args.postEphemeral;
     assert.equal(postEphemeral.mock.callCount(), 1);
-    const msgArgs = postEphemeral.mock.calls[0].arguments[0] as { text: string };
+    const msgArgs = postEphemeral.mock.calls[0]!.arguments[0] as { text: string };
     assert.ok(msgArgs.text.includes("Failed to update"));
     assert.ok(msgArgs.text.includes("broken.md"));
     assert.ok(msgArgs.text.includes("write failed"));

@@ -2,10 +2,25 @@ import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
 import { textResult } from "../helpers.js";
-import { getResumableSessions } from "../../changes/persistence.js";
+import { getResumableSessions, type ResumableSession } from "../../changes/persistence.js";
 import { getVisibleRepos } from "../../repoAccess.js";
+import type { UserRole } from "../../roles.js";
+import type { RepositoryConfig } from "../../config.js";
 
-export function createFindSessionsTool(ctx: QueryToolContext) {
+export interface FindSessionsDeps {
+  getResumableSessions: () => Promise<ResumableSession[]>;
+  getVisibleRepos: (role: UserRole, repos: RepositoryConfig[]) => RepositoryConfig[];
+}
+
+export const defaultDeps: FindSessionsDeps = {
+  getResumableSessions,
+  getVisibleRepos,
+};
+
+export function createFindSessionsTool(
+  ctx: QueryToolContext,
+  deps: FindSessionsDeps = defaultDeps,
+) {
   return tool(
     "find_sessions",
     "Find resumable change sessions. These are worktrees with previous work that can be continued. Use this to check if there's an existing session before proposing a new change.",
@@ -15,9 +30,11 @@ export function createFindSessionsTool(ctx: QueryToolContext) {
     },
     async (args) => {
       const visibleRepoNames = new Set(
-        getVisibleRepos(ctx.role, ctx.config.repositories).map((r) => r.name),
+        deps.getVisibleRepos(ctx.role, ctx.config.repositories).map((r) => r.name),
       );
-      let sessions = (await getResumableSessions()).filter((s) => visibleRepoNames.has(s.repo));
+      let sessions = (await deps.getResumableSessions()).filter((s) =>
+        visibleRepoNames.has(s.repo),
+      );
 
       if (args.repo) {
         sessions = sessions.filter((s) => s.repo === args.repo);

@@ -12,7 +12,7 @@ import { errorMessage as toErrorMessage } from "../../errors.js";
 import type { AskClaudeOptions, ClaudeResponse } from "../../claude/index.js";
 import type { DeliverFn } from "../../tools/types.js";
 import { getErrorBlocksWithRetry, asSlackBlocks, type SlackBlocks } from "../blocks.js";
-import { setLastAnswer, updateSession, addError } from "../../sessions.js";
+import { setLastAnswer, updateSession, addError, setAutoResponseActive } from "../../sessions.js";
 import { askClaude } from "../../claude/index.js";
 import { analyzeError } from "../../claude/utilities.js";
 import { sendErrorReport } from "../messagesApi.js";
@@ -23,6 +23,52 @@ import { SlackStreamer } from "../../streaming/slackStreamer.js";
 import { getUserInfo } from "../userCache.js";
 import { getUserPreference } from "../../userPreferences.js";
 import { logger } from "../../logger.js";
+import { resolveChannelLabel, slackLink } from "../logContext.js";
+import { writeErrorReport } from "../../errorReports.js";
+
+export interface HandlerResponseDeps {
+  askClaude: typeof askClaude;
+  analyzeError: typeof analyzeError;
+  setLastAnswer: typeof setLastAnswer;
+  updateSession: typeof updateSession;
+  addError: typeof addError;
+  setAutoResponseActive: typeof setAutoResponseActive;
+  getErrorBlocksWithRetry: typeof getErrorBlocksWithRetry;
+  asSlackBlocks: typeof asSlackBlocks;
+  sendErrorReport: typeof sendErrorReport;
+  getConfig: typeof getConfig;
+  getClaudeOptions: typeof getClaudeOptions;
+  handleAutoExecuteActions: typeof handleAutoExecuteActions;
+  createStreamer: (opts: ConstructorParameters<typeof SlackStreamer>[0]) => SlackStreamer;
+  getUserPreference: typeof getUserPreference;
+  writeErrorReport: typeof writeErrorReport;
+  toErrorMessage: typeof toErrorMessage;
+  getUserInfo: typeof getUserInfo;
+  resolveChannelLabel: typeof resolveChannelLabel;
+  slackLink: typeof slackLink;
+}
+
+export const defaultHandlerResponseDeps: HandlerResponseDeps = {
+  askClaude,
+  analyzeError,
+  setLastAnswer,
+  updateSession,
+  addError,
+  setAutoResponseActive,
+  getErrorBlocksWithRetry,
+  asSlackBlocks,
+  sendErrorReport,
+  getConfig,
+  getClaudeOptions,
+  handleAutoExecuteActions,
+  createStreamer: (opts) => new SlackStreamer(opts),
+  getUserPreference,
+  writeErrorReport,
+  toErrorMessage,
+  getUserInfo,
+  resolveChannelLabel,
+  slackLink,
+};
 
 // ============================================================
 // EXECUTE AND DELIVER
@@ -36,6 +82,7 @@ export interface ExecuteAndDeliverParams {
   abortController?: AbortController;
   /** When true, skip SlackStreamer and post the final result directly (no thinking indicators) */
   silentThinking?: boolean;
+  deps?: HandlerResponseDeps;
 }
 
 /** Internal context shared by executeAndDeliver and its helpers. */
@@ -50,6 +97,7 @@ interface DeliveryContext {
   alreadyDelivered: boolean;
   startTime: number;
   silentThinking: boolean;
+  deps: HandlerResponseDeps;
 }
 
 /**
@@ -65,13 +113,14 @@ export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promis
     claudeOptions,
     abortController,
     silentThinking = false,
+    deps = defaultHandlerResponseDeps,
   } = params;
 
   // Derive target from sessionInfo (DM-aware)
   const targetChannel = sessionInfo.dmChannel ?? sessionInfo.channelId;
   const targetThread = sessionInfo.dmThreadTs ?? sessionInfo.threadTs;
 
-  const userInfo = await getUserInfo(client, sessionInfo.userId);
+  const userInfo = await deps.getUserInfo(client, sessionInfo.userId);
 
   // Create streamer only for interactive sessions
   let streamer: SlackStreamer | null = null;
@@ -85,7 +134,7 @@ export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promis
       streamUserId = authResult.user_id ?? streamUserId;
     }
 
-    streamer = new SlackStreamer({
+    streamer = deps.createStreamer({
       client,
       channel: targetChannel,
       threadTs: targetThread,
@@ -109,16 +158,22 @@ export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promis
     alreadyDelivered: false,
     startTime: Date.now(),
     silentThinking,
+    deps,
   };
 
   const deliver = silentThinking ? buildDirectDeliverFn(ctx) : buildDeliverFn(ctx);
 
   try {
     const user = userInfo?.displayName ?? userInfo?.username ?? sessionInfo.userId;
+    const channelLabel = await deps.resolveChannelLabel(client, sessionInfo.channelId);
+    const link = await deps.slackLink(client, sessionInfo.channelId, sessionInfo.threadTs);
+    const viewingSuffix = session.assistantCurrentChannelId
+      ? `, viewing ${await deps.resolveChannelLabel(client, session.assistantCurrentChannelId)}`
+      : "";
     logger.info(
-      `Calling Claude (user: ${user}, session: ${session.sessionId}, role: ${claudeOptions.role ?? "member"}, changesWorkflow: ${claudeOptions.changesWorkflowEnabled ?? false}${silentThinking ? ", silentThinking" : ""})`,
+      `Calling Claude for ${user} in ${channelLabel} (role: ${claudeOptions.role ?? "member"}, session: ${session.sessionId}${viewingSuffix}${silentThinking ? ", silentThinking" : ""})${link}`,
     );
-    const response = await askClaude(session, {
+    const response = await deps.askClaude(session, {
       ...claudeOptions,
       slackClient: client,
       deliver,
@@ -133,7 +188,7 @@ export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promis
     }
 
     if (response.skipped) {
-      await handleSkip(ctx);
+      await handleSkip(ctx, response);
       return response;
     }
 
@@ -192,7 +247,7 @@ function buildDeliverFn(ctx: DeliveryContext): DeliverFn {
       return { ok: true as const };
     } catch (error) {
       logger.error("Delivery failed:", error);
-      return { ok: false as const, error: toErrorMessage(error) };
+      return { ok: false as const, error: ctx.deps.toErrorMessage(error) };
     }
   };
 }
@@ -215,12 +270,12 @@ function buildDirectDeliverFn(ctx: DeliveryContext): DeliverFn {
       });
       ctx.alreadyDelivered = true;
       if (result.ts) {
-        await updateSession(ctx.session.sessionId, { responseTs: result.ts });
+        await ctx.deps.updateSession(ctx.session.sessionId, { responseTs: result.ts });
       }
       return { ok: true as const };
     } catch (error) {
       logger.error("Direct delivery failed:", error);
-      return { ok: false as const, error: toErrorMessage(error) };
+      return { ok: false as const, error: ctx.deps.toErrorMessage(error) };
     }
   };
 }
@@ -237,7 +292,7 @@ async function sendResponseNotification(ctx: DeliveryContext): Promise<void> {
   );
   if (elapsedMs < 60_000) return;
 
-  if (await getUserPreference(ctx.sessionInfo.userId, "notifyOnResponse")) {
+  if (await ctx.deps.getUserPreference(ctx.sessionInfo.userId, "notifyOnResponse")) {
     await ctx.client.chat.postMessage({
       channel: ctx.targetChannel,
       thread_ts: ctx.targetThread,
@@ -274,7 +329,7 @@ async function handleCancellation(ctx: DeliveryContext): Promise<void> {
  * Handle a skipped response: delete the streamer message so no trace remains.
  * Skips session persistence and auto-execute.
  */
-async function handleSkip(ctx: DeliveryContext): Promise<void> {
+async function handleSkip(ctx: DeliveryContext, response: ClaudeResponse): Promise<void> {
   // Stop the streamer first so the finally block's stop() becomes a no-op
   // (stop checks this.stopped internally). Must happen before chat.delete
   // to avoid the finally block attempting to finalize a deleted message.
@@ -291,13 +346,18 @@ async function handleSkip(ctx: DeliveryContext): Promise<void> {
       logger.warn("Failed to delete streamer message after skip:", error);
     }
   }
+
+  // Disengage: permanently stop tracking this thread for auto-respond
+  if (response.disengaged) {
+    await ctx.deps.setAutoResponseActive(ctx.session.sessionId, false);
+  }
 }
 
 /**
  * Handle a successful Claude response: persist state, deliver if needed, auto-execute actions.
  */
 async function handleSuccess(ctx: DeliveryContext, response: ClaudeResponse): Promise<void> {
-  await persistResponseState(ctx.session, response);
+  await persistResponseState(ctx, ctx.session, response);
 
   if (!ctx.alreadyDelivered) {
     // submit_response was NOT called — deliver raw text via stream
@@ -307,7 +367,7 @@ async function handleSuccess(ctx: DeliveryContext, response: ClaudeResponse): Pr
     }
   }
 
-  await handleAutoExecuteActions({
+  await ctx.deps.handleAutoExecuteActions({
     client: ctx.client,
     channelId: ctx.sessionInfo.channelId,
     threadTs: ctx.sessionInfo.threadTs,
@@ -331,7 +391,7 @@ async function handleError(ctx: DeliveryContext, response: ClaudeResponse): Prom
   logger.error("Claude failed:", errorMessage);
 
   try {
-    await addError(ctx.session.sessionId, errorMessage, conversationTrace);
+    await ctx.deps.addError(ctx.session.sessionId, errorMessage, conversationTrace);
   } catch (err) {
     logger.error("Failed to persist error to session:", err);
   }
@@ -343,7 +403,7 @@ async function handleError(ctx: DeliveryContext, response: ClaudeResponse): Prom
 
   // For silentThinking, suppress channel error posting — caller handles errors
   if (ctx.silentThinking) {
-    await sendErrorReportDM(ctx, errorMessage, conversationTrace);
+    await sendErrorReportDM(ctx, errorMessage, conversationTrace, response.stderrOutput);
     return;
   }
 
@@ -353,30 +413,44 @@ async function handleError(ctx: DeliveryContext, response: ClaudeResponse): Prom
   await ctx.client.chat.postMessage({
     channel: ctx.targetChannel,
     thread_ts: ctx.targetThread,
-    blocks: asSlackBlocks(getErrorBlocksWithRetry(ctx.session.sessionId)),
+    blocks: ctx.deps.asSlackBlocks(ctx.deps.getErrorBlocksWithRetry(ctx.session.sessionId)),
     text: errorText,
   });
 
-  await sendErrorReportDM(ctx, errorMessage, conversationTrace);
+  await sendErrorReportDM(ctx, errorMessage, conversationTrace, response.stderrOutput);
 }
 
 /**
- * Send an error analysis DM to the user if configured.
+ * Send an error analysis DM to the user and persist a full report to disk.
  */
 async function sendErrorReportDM(
   ctx: DeliveryContext,
   errorMessage: string,
   conversationTrace: ClaudeResponse["conversationTrace"] & unknown[],
+  stderrOutput?: string,
 ): Promise<void> {
-  const config = getConfig();
-  if (!config.slack.sendErrorsAsDM) return;
-
   try {
-    const analysis = await analyzeError(errorMessage, conversationTrace);
-    await sendErrorReport(ctx.client, ctx.sessionInfo.userId, {
+    const analysis = await ctx.deps.analyzeError(errorMessage, conversationTrace);
+
+    // Always persist to disk for later investigation
+    await ctx.deps.writeErrorReport({
       sessionId: ctx.session.sessionId,
       errorMessage,
       conversationTrace,
+      stderrOutput,
+      analysis,
+      timestamp: Date.now(),
+    });
+
+    // DM is optional
+    const config = ctx.deps.getConfig();
+    if (!config.slack.sendErrorsAsDM) return;
+
+    await ctx.deps.sendErrorReport(ctx.client, ctx.sessionInfo.userId, {
+      sessionId: ctx.session.sessionId,
+      errorMessage,
+      conversationTrace,
+      stderrOutput,
       analysis,
     });
   } catch (dmError) {
@@ -404,10 +478,11 @@ async function handleUnexpectedError(ctx: DeliveryContext, error: unknown): Prom
  * Persist the Claude response state to the session (answer, response payload, intents, tool history).
  */
 async function persistResponseState(
+  ctx: DeliveryContext,
   session: SessionContext,
   response: ClaudeResponse,
 ): Promise<void> {
-  await setLastAnswer(session.sessionId, response.answer);
+  await ctx.deps.setLastAnswer(session.sessionId, response.answer);
 
   const sessionUpdates: Partial<SessionContext> = {};
   if (response.response) {
@@ -420,7 +495,7 @@ async function persistResponseState(
     sessionUpdates.toolCallHistory = response.toolCallHistory;
   }
   if (Object.keys(sessionUpdates).length > 0) {
-    await updateSession(session.sessionId, sessionUpdates);
+    await ctx.deps.updateSession(session.sessionId, sessionUpdates);
   }
 }
 
@@ -452,6 +527,9 @@ export async function postResponse(
 /**
  * Build Claude options from session info (role + changes workflow).
  */
-export function getHandlerClaudeOptions(sessionInfo: SessionInfo): Promise<AskClaudeOptions> {
-  return getClaudeOptions(sessionInfo.userId, sessionInfo.triggerType ?? "directMessages");
+export function getHandlerClaudeOptions(
+  sessionInfo: SessionInfo,
+  deps: HandlerResponseDeps = defaultHandlerResponseDeps,
+): Promise<AskClaudeOptions> {
+  return deps.getClaudeOptions(sessionInfo.userId, sessionInfo.triggerType ?? "directMessages");
 }

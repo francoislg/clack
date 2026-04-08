@@ -20,6 +20,7 @@
 
 import { loadConfig } from "../src/config.js";
 import { runClaude } from "../src/changes/execution.js";
+import { truncate } from "../src/text.js";
 
 async function main() {
   // Load config before anything else
@@ -28,7 +29,8 @@ async function main() {
 
   // Parse arguments
   let cwd = process.cwd();
-  let prompt = "List the files in the current directory and describe what this project does in one sentence.";
+  let prompt =
+    "List the files in the current directory and describe what this project does in one sentence.";
   let systemPrompt: string | undefined;
   let timeout = 2;
   let branchName: string | undefined;
@@ -74,10 +76,10 @@ Options:
   console.log("Claude Worktree Test");
   console.log("=".repeat(60));
   console.log(`Working directory: ${cwd}`);
-  console.log(`Prompt: ${prompt.length > 100 ? prompt.substring(0, 100) + "..." : prompt}`);
+  console.log(`Prompt: ${truncate(prompt, 100)}`);
   console.log(`Prompt length: ${prompt.length} chars`);
   if (systemPrompt) {
-    console.log(`System prompt: ${systemPrompt.length > 50 ? systemPrompt.substring(0, 50) + "..." : systemPrompt}`);
+    console.log(`System prompt: ${truncate(systemPrompt, 50)}`);
   }
   console.log(`Timeout: ${timeout} minutes`);
   if (branchName) {
@@ -120,7 +122,9 @@ Options:
   console.log("--- End Response ---\n");
 
   if (branchName) {
-    console.log(`Check execution log: data/worktree-sessions/${branchName.replace(/\//g, "-")}/execution.log`);
+    console.log(
+      `Check execution log: data/worktree-sessions/${branchName.replace(/\//g, "-")}/execution.log`,
+    );
   }
 
   process.exit(result.success ? 0 : 1);

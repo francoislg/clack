@@ -6,13 +6,33 @@ import { simpleGit } from "simple-git";
 import type { QueryToolContext } from "../types.js";
 import { textResult, errorResult } from "../helpers.js";
 import { getVisibleRepos } from "../../repoAccess.js";
+import type { RepositoryConfig } from "../../config.js";
 import { getRepositoriesDir } from "../../config.js";
 import { errorMessage } from "../../errors.js";
 import { logger } from "../../logger.js";
+import type { UserRole } from "../../roles.js";
+
+export interface MinimalGit {
+  raw(args: string[]): Promise<string>;
+}
+
+export interface GitLogDeps {
+  getVisibleRepos: (role: UserRole, repos: RepositoryConfig[]) => RepositoryConfig[];
+  getRepositoriesDir: () => string;
+  existsSync: (path: string) => boolean;
+  simpleGit: (opts: { baseDir: string }) => MinimalGit;
+}
+
+export const defaultDeps: GitLogDeps = {
+  getVisibleRepos,
+  getRepositoriesDir,
+  existsSync,
+  simpleGit,
+};
 
 const MAX_OUTPUT_CHARS = 100_000;
 
-export function createGitLogTool(ctx: QueryToolContext) {
+export function createGitLogTool(ctx: QueryToolContext, deps: GitLogDeps = defaultDeps) {
   return tool(
     "git_log",
     "Run git log on a local repository clone with any supported git log arguments. Returns raw output plus shallow-clone metadata.",
@@ -24,7 +44,7 @@ export function createGitLogTool(ctx: QueryToolContext) {
         .describe('Git log arguments (e.g., ["--oneline", "-n", "10", "--author=John"])'),
     },
     async (input) => {
-      const visibleRepos = getVisibleRepos(ctx.role, ctx.config.repositories);
+      const visibleRepos = deps.getVisibleRepos(ctx.role, ctx.config.repositories);
       const repo = visibleRepos.find((r) => r.name === input.repo);
 
       if (!repo) {
@@ -34,14 +54,14 @@ export function createGitLogTool(ctx: QueryToolContext) {
         );
       }
 
-      const repoPath = resolve(getRepositoriesDir(), repo.name);
+      const repoPath = resolve(deps.getRepositoriesDir(), repo.name);
 
-      if (!existsSync(repoPath)) {
+      if (!deps.existsSync(repoPath)) {
         return errorResult(`Repository "${repo.name}" has not been cloned yet.`);
       }
 
       try {
-        const git = simpleGit({ baseDir: repoPath });
+        const git = deps.simpleGit({ baseDir: repoPath });
 
         // Gather shallow clone metadata
         const isShallowRaw = await git.raw(["rev-parse", "--is-shallow-repository"]);

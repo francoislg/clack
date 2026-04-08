@@ -3,12 +3,34 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
 import { textResult, errorResult } from "../helpers.js";
 import { readInstructionFile } from "../../configurationFiles.js";
-import { resolveInstructions, buildRoleChain } from "../../cascadingConfigResolver.js";
+import {
+  resolveInstructions,
+  buildRoleChain,
+  type RoleDir,
+} from "../../cascadingConfigResolver.js";
 import type { UserRole } from "../../roles.js";
 
 const VALID_ROLES = ["member", "dev", "admin", "owner"] as const;
 
-export function createReadConfigFileTool(_ctx: QueryToolContext) {
+export interface ReadConfigFileDeps {
+  readInstructionFile: (filepath: string) => {
+    default_content: string | null;
+    custom_content: string | null;
+  };
+  buildRoleChain: (role: UserRole, changesWorkflowEnabled: boolean) => RoleDir[];
+  resolveInstructions: (roleChain: RoleDir[]) => string;
+}
+
+export const defaultDeps: ReadConfigFileDeps = {
+  readInstructionFile,
+  buildRoleChain,
+  resolveInstructions,
+};
+
+export function createReadConfigFileTool(
+  _ctx: QueryToolContext,
+  deps: ReadConfigFileDeps = defaultDeps,
+) {
   return tool(
     "read_config_file",
     "Read an instruction file. Returns both default and custom content for comparison. " +
@@ -29,8 +51,8 @@ export function createReadConfigFileTool(_ctx: QueryToolContext) {
     async (args) => {
       // Check if this is a resolved view request (just a role name)
       if (VALID_ROLES.includes(args.file as (typeof VALID_ROLES)[number])) {
-        const roleChain = buildRoleChain(args.file as UserRole, args.changesWorkflowEnabled);
-        const resolved = resolveInstructions(roleChain);
+        const roleChain = deps.buildRoleChain(args.file as UserRole, args.changesWorkflowEnabled);
+        const resolved = deps.resolveInstructions(roleChain);
         return textResult({
           view: "resolved",
           role: args.file,
@@ -40,7 +62,7 @@ export function createReadConfigFileTool(_ctx: QueryToolContext) {
       }
 
       // Otherwise, read a specific file
-      const result = readInstructionFile(args.file);
+      const result = deps.readInstructionFile(args.file);
 
       if (result.default_content === null && result.custom_content === null) {
         return errorResult(

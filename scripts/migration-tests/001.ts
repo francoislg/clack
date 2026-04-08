@@ -106,8 +106,10 @@ export const test: MigrationTest = {
         const tools = repos.find((r) => r.name === "tools");
         if (!tools) return "Missing tools repo";
         const toolsAccess = tools.access as Record<string, string>;
-        if (toolsAccess?.read !== "dev") return `tools read should be "dev", got "${toolsAccess?.read}"`;
-        if (toolsAccess?.write !== "admin") return `tools write should be "admin", got "${toolsAccess?.write}"`;
+        if (toolsAccess?.read !== "dev")
+          return `tools read should be "dev", got "${toolsAccess?.read}"`;
+        if (toolsAccess?.write !== "admin")
+          return `tools write should be "admin", got "${toolsAccess?.write}"`;
 
         return null;
       },

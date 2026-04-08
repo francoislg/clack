@@ -1,4 +1,5 @@
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import { truncate } from "../text.js";
 import type { StreamEvent } from "../streaming/types.js";
 
 export interface ToolUseInfo {
@@ -52,7 +53,7 @@ export function extractToolErrorMessage(content: unknown): string | undefined {
 
   if (!text || !text.trim()) return undefined;
   text = text.trim();
-  return text.length > MAX_LENGTH ? text.substring(0, MAX_LENGTH) + "\u2026" : text;
+  return truncate(text, MAX_LENGTH);
 }
 
 /**

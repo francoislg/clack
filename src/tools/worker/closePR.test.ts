@@ -1,49 +1,11 @@
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
-
-// ---------------------------------------------------------------------------
-// Module-level mocks
-// ---------------------------------------------------------------------------
-
-const mockGetSession = mock.fn<(...args: unknown[]) => Promise<unknown>>();
-mock.module("../../sessions.js", {
-  namedExports: { getSession: mockGetSession },
-});
-
-const mockGetOctokit = mock.fn<() => Promise<unknown>>();
-mock.module("../../github.js", {
-  namedExports: { getOctokit: mockGetOctokit },
-});
-
-const mockParsePrUrl = mock.fn<(url: string) => unknown>();
-mock.module("../../changes/pr.js", {
-  namedExports: { parsePrUrl: mockParsePrUrl },
-});
-
-const mockAppendExecutionLog = mock.fn<(...args: unknown[]) => void>();
-mock.module("../../changes/persistence.js", {
-  namedExports: { appendExecutionLog: mockAppendExecutionLog },
-});
-
-const mockCleanupAfterPRAction = mock.fn<(...args: unknown[]) => Promise<void>>();
-mock.module("./prHelpers.js", {
-  namedExports: { cleanupAfterPRAction: mockCleanupAfterPRAction },
-});
-
-mock.module("../../errors.js", {
-  namedExports: {
-    errorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
-  },
-});
-
-// Import after mocks
-const { createClosePRTool } = await import("./closePR.js");
+import { createClosePRTool, type ClosePRDeps } from "./closePR.js";
+import type { WorkerToolContext } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-import type { WorkerToolContext } from "../types.js";
 
 function makeCtx(overrides?: Partial<WorkerToolContext>): WorkerToolContext {
   return {
@@ -55,31 +17,52 @@ function makeCtx(overrides?: Partial<WorkerToolContext>): WorkerToolContext {
     channelId: "C123",
     threadTs: "1.0",
     sessionId: "sess-1",
-    config: { repositories: [] } as unknown as WorkerToolContext["config"],
+    config: { repositories: [] } as never as WorkerToolContext["config"],
     ...overrides,
   };
 }
 
-function parseResult(result: { content: Array<{ text: string }> }) {
-  return JSON.parse(result.content[0].text);
+interface ToolResult {
+  content: Array<{ text: string }>;
+  isError?: true;
 }
 
-function resetMocks() {
-  mockGetSession.mock.resetCalls();
-  mockGetOctokit.mock.resetCalls();
-  mockParsePrUrl.mock.resetCalls();
-  mockAppendExecutionLog.mock.resetCalls();
-  mockCleanupAfterPRAction.mock.resetCalls();
+function parseResult(result: ToolResult) {
+  return JSON.parse(result.content[0]!.text);
+}
 
-  mockGetSession.mock.mockImplementation(async () => ({
+function makeDeps() {
+  const mockGetSession = mock.fn<(...args: unknown[]) => Promise<unknown>>(async () => ({
     activeChange: { prUrl: "https://github.com/org/my-repo/pull/42" },
   }));
-  mockParsePrUrl.mock.mockImplementation(() => ({
+  const mockGetOctokit = mock.fn<() => Promise<unknown>>(async () => ({
+    pulls: { update: mock.fn(async () => ({})) },
+    git: { deleteRef: mock.fn(async () => ({})) },
+  }));
+  const mockParsePrUrl = mock.fn<(url: string) => unknown>(() => ({
     owner: "org",
     repo: "my-repo",
     pullNumber: 42,
   }));
-  mockCleanupAfterPRAction.mock.mockImplementation(async () => {});
+  const mockAppendExecutionLog = mock.fn<(...args: unknown[]) => void>();
+  const mockCleanupAfterPRAction = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
+
+  const deps: ClosePRDeps = {
+    getSession: mockGetSession as never as ClosePRDeps["getSession"],
+    getOctokit: mockGetOctokit as never as ClosePRDeps["getOctokit"],
+    parsePrUrl: mockParsePrUrl as never as ClosePRDeps["parsePrUrl"],
+    appendExecutionLog: mockAppendExecutionLog as never as ClosePRDeps["appendExecutionLog"],
+    cleanupAfterPRAction: mockCleanupAfterPRAction as never as ClosePRDeps["cleanupAfterPRAction"],
+  };
+
+  return {
+    deps,
+    mockGetSession,
+    mockGetOctokit,
+    mockParsePrUrl,
+    mockAppendExecutionLog,
+    mockCleanupAfterPRAction,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -87,12 +70,11 @@ function resetMocks() {
 // ---------------------------------------------------------------------------
 
 describe("closePR tool", () => {
-  beforeEach(resetMocks);
-
   it("returns error when no session found", async () => {
+    const { deps, mockGetSession } = makeDeps();
     mockGetSession.mock.mockImplementation(async () => null);
 
-    const toolDef = createClosePRTool(makeCtx());
+    const toolDef = createClosePRTool(makeCtx(), deps);
     const result = await toolDef.handler({ delete_branch: undefined }, { sessionId: "test" });
 
     const parsed = parseResult(result);
@@ -102,9 +84,10 @@ describe("closePR tool", () => {
   });
 
   it("returns error when session has no activeChange", async () => {
+    const { deps, mockGetSession } = makeDeps();
     mockGetSession.mock.mockImplementation(async () => ({ activeChange: null }));
 
-    const toolDef = createClosePRTool(makeCtx());
+    const toolDef = createClosePRTool(makeCtx(), deps);
     const result = await toolDef.handler({ delete_branch: undefined }, { sessionId: "test" });
 
     const parsed = parseResult(result);
@@ -113,11 +96,12 @@ describe("closePR tool", () => {
   });
 
   it("returns error when activeChange has no prUrl", async () => {
+    const { deps, mockGetSession } = makeDeps();
     mockGetSession.mock.mockImplementation(async () => ({
       activeChange: { prUrl: undefined },
     }));
 
-    const toolDef = createClosePRTool(makeCtx());
+    const toolDef = createClosePRTool(makeCtx(), deps);
     const result = await toolDef.handler({ delete_branch: undefined }, { sessionId: "test" });
 
     const parsed = parseResult(result);
@@ -126,9 +110,10 @@ describe("closePR tool", () => {
   });
 
   it("returns error when PR URL cannot be parsed", async () => {
+    const { deps, mockParsePrUrl } = makeDeps();
     mockParsePrUrl.mock.mockImplementation(() => null);
 
-    const toolDef = createClosePRTool(makeCtx());
+    const toolDef = createClosePRTool(makeCtx(), deps);
     const result = await toolDef.handler({ delete_branch: undefined }, { sessionId: "test" });
 
     const parsed = parseResult(result);
@@ -138,12 +123,13 @@ describe("closePR tool", () => {
 
   it("closes PR and returns success without branch deletion", async () => {
     const mockUpdate = mock.fn(async () => ({}));
+    const { deps, mockGetOctokit, mockCleanupAfterPRAction } = makeDeps();
     mockGetOctokit.mock.mockImplementation(async () => ({
       pulls: { update: mockUpdate },
       git: { deleteRef: mock.fn() },
     }));
 
-    const toolDef = createClosePRTool(makeCtx());
+    const toolDef = createClosePRTool(makeCtx(), deps);
     const result = await toolDef.handler({ delete_branch: undefined }, { sessionId: "test" });
 
     const parsed = parseResult(result);
@@ -153,13 +139,13 @@ describe("closePR tool", () => {
 
     // Verify PR was closed
     assert.equal(mockUpdate.mock.callCount(), 1);
-    const callArgs = (
-      mockUpdate.mock.calls[0].arguments as unknown as [Record<string, unknown>]
-    )[0];
-    assert.equal(callArgs.owner, "org");
-    assert.equal(callArgs.repo, "my-repo");
-    assert.equal(callArgs.pull_number, 42);
-    assert.equal(callArgs.state, "closed");
+    const callArgs = mockUpdate.mock.calls[0]!.arguments as never as [
+      { owner: string; repo: string; pull_number: number; state: string },
+    ];
+    assert.equal(callArgs[0].owner, "org");
+    assert.equal(callArgs[0].repo, "my-repo");
+    assert.equal(callArgs[0].pull_number, 42);
+    assert.equal(callArgs[0].state, "closed");
 
     // Verify cleanup was called
     assert.equal(mockCleanupAfterPRAction.mock.callCount(), 1);
@@ -168,13 +154,14 @@ describe("closePR tool", () => {
   it("closes PR and deletes remote branch when delete_branch is true", async () => {
     const mockUpdate = mock.fn(async () => ({}));
     const mockDeleteRef = mock.fn(async () => ({}));
+    const { deps, mockGetOctokit } = makeDeps();
     mockGetOctokit.mock.mockImplementation(async () => ({
       pulls: { update: mockUpdate },
       git: { deleteRef: mockDeleteRef },
     }));
 
     const ctx = makeCtx();
-    const toolDef = createClosePRTool(ctx);
+    const toolDef = createClosePRTool(ctx, deps);
     const result = await toolDef.handler({ delete_branch: true }, { sessionId: "test" });
 
     const parsed = parseResult(result);
@@ -183,12 +170,12 @@ describe("closePR tool", () => {
 
     // Verify branch deletion was called
     assert.equal(mockDeleteRef.mock.callCount(), 1);
-    const deleteArgs = (
-      mockDeleteRef.mock.calls[0].arguments as unknown as [Record<string, unknown>]
-    )[0];
-    assert.equal(deleteArgs.owner, "org");
-    assert.equal(deleteArgs.repo, "my-repo");
-    assert.equal(deleteArgs.ref, `heads/${ctx.branchName}`);
+    const deleteArgs = mockDeleteRef.mock.calls[0]!.arguments as never as [
+      { owner: string; repo: string; ref: string },
+    ];
+    assert.equal(deleteArgs[0].owner, "org");
+    assert.equal(deleteArgs[0].repo, "my-repo");
+    assert.equal(deleteArgs[0].ref, `heads/${ctx.branchName}`);
   });
 
   it("returns warning when branch deletion fails", async () => {
@@ -196,12 +183,13 @@ describe("closePR tool", () => {
     const mockDeleteRef = mock.fn(async () => {
       throw new Error("ref not found");
     });
+    const { deps, mockGetOctokit } = makeDeps();
     mockGetOctokit.mock.mockImplementation(async () => ({
       pulls: { update: mockUpdate },
       git: { deleteRef: mockDeleteRef },
     }));
 
-    const toolDef = createClosePRTool(makeCtx());
+    const toolDef = createClosePRTool(makeCtx(), deps);
     const result = await toolDef.handler({ delete_branch: true }, { sessionId: "test" });
 
     const parsed = parseResult(result);
@@ -212,6 +200,7 @@ describe("closePR tool", () => {
   });
 
   it("returns error when pulls.update throws", async () => {
+    const { deps, mockGetOctokit } = makeDeps();
     mockGetOctokit.mock.mockImplementation(async () => ({
       pulls: {
         update: mock.fn(async () => {
@@ -220,7 +209,7 @@ describe("closePR tool", () => {
       },
     }));
 
-    const toolDef = createClosePRTool(makeCtx());
+    const toolDef = createClosePRTool(makeCtx(), deps);
     const result = await toolDef.handler({ delete_branch: undefined }, { sessionId: "test" });
 
     const parsed = parseResult(result);
@@ -231,16 +220,17 @@ describe("closePR tool", () => {
   });
 
   it("logs execution when PR is closed", async () => {
+    const { deps, mockGetOctokit, mockAppendExecutionLog } = makeDeps();
     mockGetOctokit.mock.mockImplementation(async () => ({
       pulls: { update: mock.fn(async () => ({})) },
     }));
 
     const ctx = makeCtx();
-    const toolDef = createClosePRTool(ctx);
+    const toolDef = createClosePRTool(ctx, deps);
     await toolDef.handler({ delete_branch: undefined }, { sessionId: "test" });
 
     assert.ok(mockAppendExecutionLog.mock.callCount() >= 1);
-    const firstCallArgs = mockAppendExecutionLog.mock.calls[0].arguments as [string, string];
+    const firstCallArgs = mockAppendExecutionLog.mock.calls[0]!.arguments as [string, string];
     assert.equal(firstCallArgs[0], ctx.branchName);
     assert.ok(firstCallArgs[1].includes("close_pr"));
   });

@@ -1,40 +1,22 @@
 import { describe, it, mock, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
-
-// ============================================================================
-// Mocks — set up before importing the module under test
-// ============================================================================
-
-const mockProcessMessage = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
-
-mock.module("./core.js", {
-  namedExports: { processMessage: mockProcessMessage },
-});
-
-mock.module("../../config.js", {
-  namedExports: {
-    getConfig: () => ({ mentions: { enabled: true } }),
-  },
-});
-
-mock.module("../../logger.js", {
-  namedExports: {
-    logger: {
-      info: () => {},
-      warn: () => {},
-      error: () => {},
-      debug: () => {},
-    },
-  },
-});
-
-// Import after mocks
-const { registerMentionHandler } = await import("./mention.js");
+import { registerMentionHandler, type MentionDeps } from "./mention.js";
 
 // ============================================================================
 // Helpers
 // ============================================================================
+
+const mockProcessMessage = mock.fn<(...args: never[]) => Promise<void>>(async () => {});
+
+function makeDeps(): MentionDeps {
+  return {
+    getConfig: () => ({ mentions: { enabled: true } }) as never,
+    processMessage: mockProcessMessage as never,
+    findSessionByThread: async () => null,
+    setAutoResponseActive: async () => {},
+  };
+}
 
 type EventHandler = (args: {
   event: {
@@ -54,7 +36,7 @@ function makeApp(): App {
     event: (_eventType: string, handler: EventHandler) => {
       capturedHandler = handler;
     },
-  } as unknown as App;
+  } as App;
 }
 
 function makeClient(botUserId = "B001"): App["client"] {
@@ -66,7 +48,7 @@ function makeClient(botUserId = "B001"): App["client"] {
     chat: {
       postMessage: postMessageFn,
     },
-  } as unknown as App["client"];
+  } as never;
 }
 
 beforeEach(() => {
@@ -74,7 +56,7 @@ beforeEach(() => {
 
   // Register handler
   const app = makeApp();
-  registerMentionHandler(app);
+  registerMentionHandler(app, makeDeps());
 });
 
 // ============================================================================
@@ -114,7 +96,10 @@ describe("registerMentionHandler", () => {
     });
 
     assert.equal(mockProcessMessage.mock.callCount(), 1);
-    const args = mockProcessMessage.mock.calls[0].arguments[0] as Record<string, unknown>;
+    interface ProcessMessageArg {
+      messageText: string;
+    }
+    const args = mockProcessMessage.mock.calls[0]!.arguments[0] as ProcessMessageArg;
     assert.equal(args.messageText, "what is this function?");
   });
 
@@ -131,7 +116,10 @@ describe("registerMentionHandler", () => {
       client,
     });
 
-    const args = mockProcessMessage.mock.calls[0].arguments[0] as Record<string, unknown>;
+    interface ProcessMessageArg {
+      messageText: string;
+    }
+    const args = mockProcessMessage.mock.calls[0]!.arguments[0] as ProcessMessageArg;
     assert.equal(args.messageText, "hello world");
   });
 
@@ -150,12 +138,24 @@ describe("registerMentionHandler", () => {
 
     assert.equal(mockProcessMessage.mock.callCount(), 0);
 
-    const postMessage = client.chat.postMessage as unknown as ReturnType<typeof mock.fn>;
+    interface PostMessageArg {
+      channel: string;
+      thread_ts: string;
+      text: string;
+    }
+    interface PostMessageMock {
+      (args: PostMessageArg): Promise<{ ok: boolean }>;
+      mock: {
+        callCount(): number;
+        calls: Array<{ arguments: PostMessageArg[] }>;
+      };
+    }
+    const postMessage = client.chat.postMessage as PostMessageMock;
     assert.equal(postMessage.mock.callCount(), 1);
-    const msgArgs = postMessage.mock.calls[0].arguments[0] as Record<string, unknown>;
+    const msgArgs = postMessage.mock.calls[0]!.arguments[0];
     assert.equal(msgArgs.channel, "C001");
     assert.equal(msgArgs.thread_ts, "1700000000.000001");
-    assert.ok((msgArgs.text as string).includes("include a question"));
+    assert.ok(msgArgs.text.includes("include a question"));
   });
 
   it("uses a default prompt when text is empty but in a thread", async () => {
@@ -173,8 +173,11 @@ describe("registerMentionHandler", () => {
     });
 
     assert.equal(mockProcessMessage.mock.callCount(), 1);
-    const args = mockProcessMessage.mock.calls[0].arguments[0] as Record<string, unknown>;
-    assert.ok((args.messageText as string).includes("Read the conversation above"));
+    interface ProcessMessageArg {
+      messageText: string;
+    }
+    const args = mockProcessMessage.mock.calls[0]!.arguments[0] as ProcessMessageArg;
+    assert.ok(args.messageText.includes("Read the conversation above"));
   });
 
   it("passes correct parameters to processMessage", async () => {
@@ -192,7 +195,16 @@ describe("registerMentionHandler", () => {
     });
 
     assert.equal(mockProcessMessage.mock.callCount(), 1);
-    const args = mockProcessMessage.mock.calls[0].arguments[0] as Record<string, unknown>;
+    interface ProcessMessageArg {
+      client: App["client"];
+      userId: string;
+      channelId: string;
+      messageTs: string;
+      messageText: string;
+      threadTs?: string;
+      triggerType: string;
+    }
+    const args = mockProcessMessage.mock.calls[0]!.arguments[0] as ProcessMessageArg;
     assert.equal(args.client, client);
     assert.equal(args.userId, "U123");
     assert.equal(args.channelId, "C456");
@@ -215,7 +227,10 @@ describe("registerMentionHandler", () => {
       client,
     });
 
-    const args = mockProcessMessage.mock.calls[0].arguments[0] as Record<string, unknown>;
+    interface ProcessMessageArg {
+      threadTs?: string;
+    }
+    const args = mockProcessMessage.mock.calls[0]!.arguments[0] as ProcessMessageArg;
     assert.equal(args.threadTs, undefined);
   });
 });

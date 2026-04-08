@@ -114,6 +114,8 @@ export interface Config {
   allowScheduledMessages?: boolean;
   /** Auto-respond to thread replies in existing sessions (default: true) */
   threadAutoRespond?: boolean;
+  /** Disengage thread auto-respond if the triggering message is older than this many minutes (default: 60) */
+  threadAutoRespondMaxAgeMinutes?: number;
 }
 
 const DEFAULTS: Partial<Config> = {
@@ -448,6 +450,8 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
         }
       : undefined,
     allowScheduledMessages: bool(c, "allowScheduledMessages") ?? false,
+    threadAutoRespond: bool(c, "threadAutoRespond") ?? undefined,
+    threadAutoRespondMaxAgeMinutes: num(c, "threadAutoRespondMaxAgeMinutes") ?? undefined,
   };
 
   return merged;

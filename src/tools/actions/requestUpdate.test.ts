@@ -1,31 +1,13 @@
-import { describe, it, mock } from "node:test";
+import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-
-// ---------------------------------------------------------------------------
-// Module-level mocks
-// ---------------------------------------------------------------------------
-
-mock.module("../../logger.js", {
-  namedExports: {
-    logger: {
-      debug: () => {},
-      warn: () => {},
-      error: () => {},
-      info: () => {},
-    },
-  },
-});
-
-// Import after mocks
-const { createRequestUpdateTool } = await import("./requestUpdate.js");
+import { createRequestUpdateTool } from "./requestUpdate.js";
+import type { QueryToolContext } from "../types.js";
+import type { IntentStore, ToolCallRecorder } from "../server.js";
+import type { ActiveChangeState } from "../../changes/activeState.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-import type { QueryToolContext } from "../types.js";
-import type { IntentStore, ToolCallRecorder } from "../server.js";
-import type { ActiveChangeState } from "../../changes/activeState.js";
 
 function makeActiveChange(overrides?: Partial<ActiveChangeState>): ActiveChangeState {
   return {
@@ -66,7 +48,7 @@ function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
     },
     config: {
       repositories: [],
-    } as unknown as QueryToolContext["config"],
+    } as never as QueryToolContext["config"],
     changesWorkflowEnabled: true,
     allowScheduledMessages: false,
     ...overrides,
@@ -74,12 +56,12 @@ function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
 }
 
 function makeIntentStore(): IntentStore {
-  const intents = new Map<string, unknown>();
+  const intents = new Map<string, ReturnType<IntentStore["resolve"]>>();
   let counter = 0;
   return {
-    stage: (intent: unknown) => {
+    stage: (intent) => {
       const ref = `ref-${++counter}`;
-      intents.set(ref, intent);
+      intents.set(ref, intent as ReturnType<IntentStore["resolve"]>);
       return ref;
     },
     resolve: (ref: string) => intents.get(ref) as ReturnType<IntentStore["resolve"]>,
@@ -88,12 +70,24 @@ function makeIntentStore(): IntentStore {
 }
 
 function makeRecorder(): ToolCallRecorder & {
-  calls: Array<{ tool: string; args: unknown; result: unknown }>;
+  calls: Array<{
+    tool: string;
+    args: { [key: string]: unknown };
+    result: { [key: string]: unknown };
+  }>;
 } {
-  const calls: Array<{ tool: string; args: unknown; result: unknown }> = [];
+  const calls: Array<{
+    tool: string;
+    args: { [key: string]: unknown };
+    result: { [key: string]: unknown };
+  }> = [];
   return {
     calls,
-    record: (tool: string, args: Record<string, unknown>, result: Record<string, unknown>) => {
+    record: (
+      tool: string,
+      args: { [key: string]: unknown },
+      result: { [key: string]: unknown },
+    ) => {
       calls.push({ tool, args, result });
     },
     getHistory: () => [],

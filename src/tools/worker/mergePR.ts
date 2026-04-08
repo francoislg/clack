@@ -1,16 +1,35 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
+import type { Octokit } from "@octokit/rest";
 import type { WorkerToolContext } from "../types.js";
 import { textResult, errorResult } from "../helpers.js";
 import { getOctokit } from "../../github.js";
-import { getSession } from "../../sessions.js";
+import { getSession, type SessionContext } from "../../sessions.js";
 import { appendExecutionLog } from "../../changes/persistence.js";
-import { findRepoByName } from "../../config.js";
+import { findRepoByName, type Config, type RepositoryConfig } from "../../config.js";
 import { errorMessage } from "../../errors.js";
-import { parsePrUrl } from "../../changes/pr.js";
+import { parsePrUrl, type ParsedPrUrl } from "../../changes/pr.js";
 import { cleanupAfterPRAction } from "./prHelpers.js";
 
-export function createMergePRTool(ctx: WorkerToolContext) {
+export interface MergePRDeps {
+  getSession: (sessionId: string) => Promise<SessionContext | null>;
+  getOctokit: () => Promise<Octokit>;
+  parsePrUrl: (url: string) => ParsedPrUrl | null;
+  findRepoByName: (name: string, config: Config) => RepositoryConfig | undefined;
+  appendExecutionLog: (branchName: string, message: string) => void;
+  cleanupAfterPRAction: (ctx: WorkerToolContext, logPrefix: string) => Promise<void>;
+}
+
+export const defaultMergePRDeps: MergePRDeps = {
+  getSession,
+  getOctokit,
+  parsePrUrl,
+  findRepoByName,
+  appendExecutionLog,
+  cleanupAfterPRAction,
+};
+
+export function createMergePRTool(ctx: WorkerToolContext, deps: MergePRDeps = defaultMergePRDeps) {
   return tool(
     "merge_pr",
     "Merge the pull request for this change session. Handles merge, remote branch deletion, and local cleanup.",
@@ -21,7 +40,7 @@ export function createMergePRTool(ctx: WorkerToolContext) {
     async () => {
       try {
         // Get session and active change
-        const session = await getSession(ctx.sessionId);
+        const session = await deps.getSession(ctx.sessionId);
         const activeChange = session?.activeChange;
 
         if (!session || !activeChange) {
@@ -32,7 +51,7 @@ export function createMergePRTool(ctx: WorkerToolContext) {
           return errorResult("No PR URL found — this change has no associated pull request");
         }
 
-        const parsed = parsePrUrl(activeChange.prUrl);
+        const parsed = deps.parsePrUrl(activeChange.prUrl);
         if (!parsed) {
           return errorResult(`Could not parse PR URL: ${activeChange.prUrl}`);
         }
@@ -40,11 +59,11 @@ export function createMergePRTool(ctx: WorkerToolContext) {
         const { owner, repo, pullNumber } = parsed;
 
         // Get merge strategy from repo config
-        const repoConfig = findRepoByName(ctx.repoName, ctx.config);
+        const repoConfig = deps.findRepoByName(ctx.repoName, ctx.config);
         const mergeStrategy = repoConfig?.mergeStrategy ?? "squash";
 
         // Merge the PR
-        const octokit = await getOctokit();
+        const octokit = await deps.getOctokit();
         await octokit.pulls.merge({
           owner,
           repo,
@@ -52,7 +71,10 @@ export function createMergePRTool(ctx: WorkerToolContext) {
           merge_method: mergeStrategy,
         });
 
-        appendExecutionLog(ctx.branchName, `PR merged via ${mergeStrategy}: ${activeChange.prUrl}`);
+        deps.appendExecutionLog(
+          ctx.branchName,
+          `PR merged via ${mergeStrategy}: ${activeChange.prUrl}`,
+        );
 
         // Try to delete the remote branch
         let warning: string | undefined;
@@ -62,15 +84,15 @@ export function createMergePRTool(ctx: WorkerToolContext) {
             repo,
             ref: `heads/${ctx.branchName}`,
           });
-          appendExecutionLog(ctx.branchName, `Deleted remote branch: ${ctx.branchName}`);
+          deps.appendExecutionLog(ctx.branchName, `Deleted remote branch: ${ctx.branchName}`);
         } catch (deleteError) {
           const deleteMsg = errorMessage(deleteError);
           warning = `Failed to delete remote branch ${ctx.branchName}: ${deleteMsg}`;
-          appendExecutionLog(ctx.branchName, warning);
+          deps.appendExecutionLog(ctx.branchName, warning);
         }
 
         // Cleanup local resources
-        await cleanupAfterPRAction(ctx, "merge_pr");
+        await deps.cleanupAfterPRAction(ctx, "merge_pr");
 
         const result: Record<string, unknown> = {
           success: true,

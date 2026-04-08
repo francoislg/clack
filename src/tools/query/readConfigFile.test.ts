@@ -1,81 +1,50 @@
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
-
-// ---------------------------------------------------------------------------
-// Module-level mocks
-// ---------------------------------------------------------------------------
-
-const mockReadInstructionFile =
-  mock.fn<
-    (filename: string) => { default_content: string | null; custom_content: string | null }
-  >();
-const mockBuildRoleChain = mock.fn<(role: string, changesWorkflowEnabled: boolean) => string[]>();
-const mockResolveInstructions = mock.fn<(roleChain: string[]) => string>();
-
-mock.module("../../configurationFiles.js", {
-  namedExports: {
-    readInstructionFile: mockReadInstructionFile,
-  },
-});
-
-mock.module("../../cascadingConfigResolver.js", {
-  namedExports: {
-    buildRoleChain: mockBuildRoleChain,
-    resolveInstructions: mockResolveInstructions,
-  },
-});
-
-// Import after mocks
-const { createReadConfigFileTool } = await import("./readConfigFile.js");
+import { createReadConfigFileTool, type ReadConfigFileDeps } from "./readConfigFile.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-import type { QueryToolContext } from "../types.js";
+interface TestCtx {
+  mode: "query";
+  userId: string;
+  role: string;
+}
 
-function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
+function makeCtx(): TestCtx {
   return {
     mode: "query",
     userId: "U123",
     role: "admin",
-    session: {
-      sessionId: "sess-1",
-      channelId: "C1",
-      messageTs: "1.0",
-      threadTs: "1.0",
-      userId: "U123",
-      originalQuestion: "test",
-      threadContext: [],
-      refinements: [],
-      errors: [],
-      lastActivity: Date.now(),
-      createdAt: Date.now(),
-    },
-    config: {
-      repositories: [],
-    } as unknown as QueryToolContext["config"],
-    changesWorkflowEnabled: false,
-    allowScheduledMessages: false,
+  };
+}
+
+function makeDeps(overrides: Partial<ReadConfigFileDeps> = {}): ReadConfigFileDeps {
+  return {
+    readInstructionFile: mock.fn(() => ({
+      default_content: "file content",
+      custom_content: null,
+    })) as ReadConfigFileDeps["readInstructionFile"],
+    buildRoleChain: mock.fn(() => ["user"]) as ReadConfigFileDeps["buildRoleChain"],
+    resolveInstructions: mock.fn(
+      () => "resolved content",
+    ) as ReadConfigFileDeps["resolveInstructions"],
     ...overrides,
   };
 }
 
-function parseResult(result: { content: Array<{ text: string }> }) {
-  return JSON.parse(result.content[0].text);
+function callTool(
+  ctx: TestCtx,
+  deps: ReadConfigFileDeps,
+  args: { file: string; changesWorkflowEnabled: boolean },
+) {
+  const toolDef = createReadConfigFileTool(ctx as never, deps);
+  return toolDef.handler(args, { sessionId: "test" });
 }
 
-function resetMocks() {
-  mockReadInstructionFile.mock.resetCalls();
-  mockBuildRoleChain.mock.resetCalls();
-  mockResolveInstructions.mock.resetCalls();
-
-  mockReadInstructionFile.mock.mockImplementation(() => ({
-    default_content: "file content",
-    custom_content: null,
-  }));
-  mockBuildRoleChain.mock.mockImplementation(() => ["user"]);
-  mockResolveInstructions.mock.mockImplementation(() => "resolved content");
+function parseResult(result: { content: Array<{ text: string }> }) {
+  return JSON.parse(result.content[0].text);
 }
 
 // ---------------------------------------------------------------------------
@@ -83,21 +52,18 @@ function resetMocks() {
 // ---------------------------------------------------------------------------
 
 describe("readConfigFile tool", () => {
-  beforeEach(resetMocks);
-
   it("returns error when file is not found (both null)", async () => {
-    mockReadInstructionFile.mock.mockImplementation(() => ({
-      default_content: null,
-      custom_content: null,
-    }));
+    const deps = makeDeps({
+      readInstructionFile: mock.fn(() => ({
+        default_content: null,
+        custom_content: null,
+      })) as ReadConfigFileDeps["readInstructionFile"],
+    });
 
-    const ctx = makeCtx();
-    const toolDef = createReadConfigFileTool(ctx);
-
-    const result = await toolDef.handler(
-      { file: "nonexistent.md", changesWorkflowEnabled: true },
-      { sessionId: "test" },
-    );
+    const result = await callTool(makeCtx(), deps, {
+      file: "nonexistent.md",
+      changesWorkflowEnabled: true,
+    });
 
     const parsed = parseResult(result);
     assert.ok(parsed.error);
@@ -107,18 +73,17 @@ describe("readConfigFile tool", () => {
   });
 
   it("reads a file with only default content", async () => {
-    mockReadInstructionFile.mock.mockImplementation(() => ({
-      default_content: "# Default Instructions\nBe helpful.",
-      custom_content: null,
-    }));
+    const deps = makeDeps({
+      readInstructionFile: mock.fn(() => ({
+        default_content: "# Default Instructions\nBe helpful.",
+        custom_content: null,
+      })) as ReadConfigFileDeps["readInstructionFile"],
+    });
 
-    const ctx = makeCtx();
-    const toolDef = createReadConfigFileTool(ctx);
-
-    const result = await toolDef.handler(
-      { file: "user/identity.md", changesWorkflowEnabled: true },
-      { sessionId: "test" },
-    );
+    const result = await callTool(makeCtx(), deps, {
+      file: "user/identity.md",
+      changesWorkflowEnabled: true,
+    });
 
     const parsed = parseResult(result);
     assert.equal(parsed.file, "user/identity.md");
@@ -128,18 +93,17 @@ describe("readConfigFile tool", () => {
   });
 
   it("reads a file with both default and custom content", async () => {
-    mockReadInstructionFile.mock.mockImplementation(() => ({
-      default_content: "Default instructions",
-      custom_content: "Custom instructions",
-    }));
+    const deps = makeDeps({
+      readInstructionFile: mock.fn(() => ({
+        default_content: "Default instructions",
+        custom_content: "Custom instructions",
+      })) as ReadConfigFileDeps["readInstructionFile"],
+    });
 
-    const ctx = makeCtx();
-    const toolDef = createReadConfigFileTool(ctx);
-
-    const result = await toolDef.handler(
-      { file: "user/identity.md", changesWorkflowEnabled: true },
-      { sessionId: "test" },
-    );
+    const result = await callTool(makeCtx(), deps, {
+      file: "user/identity.md",
+      changesWorkflowEnabled: true,
+    });
 
     const parsed = parseResult(result);
     assert.equal(parsed.file, "user/identity.md");
@@ -148,18 +112,17 @@ describe("readConfigFile tool", () => {
   });
 
   it("reads a file with only custom content (custom-only)", async () => {
-    mockReadInstructionFile.mock.mockImplementation(() => ({
-      default_content: null,
-      custom_content: "Custom only content",
-    }));
+    const deps = makeDeps({
+      readInstructionFile: mock.fn(() => ({
+        default_content: null,
+        custom_content: "Custom only content",
+      })) as ReadConfigFileDeps["readInstructionFile"],
+    });
 
-    const ctx = makeCtx();
-    const toolDef = createReadConfigFileTool(ctx);
-
-    const result = await toolDef.handler(
-      { file: "dev/custom-rule.md", changesWorkflowEnabled: true },
-      { sessionId: "test" },
-    );
+    const result = await callTool(makeCtx(), deps, {
+      file: "dev/custom-rule.md",
+      changesWorkflowEnabled: true,
+    });
 
     const parsed = parseResult(result);
     assert.equal(parsed.file, "dev/custom-rule.md");
@@ -169,47 +132,58 @@ describe("readConfigFile tool", () => {
   });
 
   it("calls readInstructionFile with the correct filename", async () => {
-    const ctx = makeCtx();
-    const toolDef = createReadConfigFileTool(ctx);
-
-    await toolDef.handler(
-      { file: "dev/changes.md", changesWorkflowEnabled: true },
-      { sessionId: "test" },
+    const mockReadInstructionFile = mock.fn<ReadConfigFileDeps["readInstructionFile"]>(
+      (_filepath) => ({
+        default_content: "file content",
+        custom_content: null,
+      }),
     );
+    const deps = makeDeps({ readInstructionFile: mockReadInstructionFile });
+
+    await callTool(makeCtx(), deps, {
+      file: "dev/changes.md",
+      changesWorkflowEnabled: true,
+    });
 
     assert.equal(mockReadInstructionFile.mock.callCount(), 1);
     assert.equal(mockReadInstructionFile.mock.calls[0].arguments[0], "dev/changes.md");
   });
 
   it("suggests role/filename format in error message", async () => {
-    mockReadInstructionFile.mock.mockImplementation(() => ({
-      default_content: null,
-      custom_content: null,
-    }));
+    const deps = makeDeps({
+      readInstructionFile: mock.fn(() => ({
+        default_content: null,
+        custom_content: null,
+      })) as ReadConfigFileDeps["readInstructionFile"],
+    });
 
-    const ctx = makeCtx();
-    const toolDef = createReadConfigFileTool(ctx);
-
-    const result = await toolDef.handler(
-      { file: "unknown.md", changesWorkflowEnabled: true },
-      { sessionId: "test" },
-    );
+    const result = await callTool(makeCtx(), deps, {
+      file: "unknown.md",
+      changesWorkflowEnabled: true,
+    });
 
     const parsed = parseResult(result);
     assert.ok(parsed.error.includes("user/identity.md"));
   });
 
   it("returns resolved view when file is a valid role name", async () => {
-    mockBuildRoleChain.mock.mockImplementation(() => ["user", "dev"]);
-    mockResolveInstructions.mock.mockImplementation(() => "All resolved instructions for dev");
-
-    const ctx = makeCtx();
-    const toolDef = createReadConfigFileTool(ctx);
-
-    const result = await toolDef.handler(
-      { file: "dev", changesWorkflowEnabled: true },
-      { sessionId: "test" },
+    const mockBuildRoleChain = mock.fn<ReadConfigFileDeps["buildRoleChain"]>((_role, _cwe) => [
+      "user",
+      "dev",
+    ]);
+    const mockResolveInstructions = mock.fn<ReadConfigFileDeps["resolveInstructions"]>(
+      (_chain) => "All resolved instructions for dev",
     );
+
+    const deps = makeDeps({
+      buildRoleChain: mockBuildRoleChain,
+      resolveInstructions: mockResolveInstructions,
+    });
+
+    const result = await callTool(makeCtx(), deps, {
+      file: "dev",
+      changesWorkflowEnabled: true,
+    });
 
     const parsed = parseResult(result);
     assert.equal(parsed.view, "resolved");
@@ -224,20 +198,33 @@ describe("readConfigFile tool", () => {
   });
 
   it("passes changesWorkflowEnabled to buildRoleChain for resolved view", async () => {
-    const ctx = makeCtx();
-    const toolDef = createReadConfigFileTool(ctx);
+    const mockBuildRoleChain = mock.fn<ReadConfigFileDeps["buildRoleChain"]>((_role, _cwe) => [
+      "user",
+    ]);
+    const deps = makeDeps({ buildRoleChain: mockBuildRoleChain });
 
-    await toolDef.handler({ file: "admin", changesWorkflowEnabled: false }, { sessionId: "test" });
+    await callTool(makeCtx(), deps, {
+      file: "admin",
+      changesWorkflowEnabled: false,
+    });
 
     assert.equal(mockBuildRoleChain.mock.callCount(), 1);
     assert.equal(mockBuildRoleChain.mock.calls[0].arguments[1], false);
   });
 
   it("does not call readInstructionFile for resolved view", async () => {
-    const ctx = makeCtx();
-    const toolDef = createReadConfigFileTool(ctx);
+    const mockReadInstructionFile = mock.fn<ReadConfigFileDeps["readInstructionFile"]>(
+      (_filepath) => ({
+        default_content: "file content",
+        custom_content: null,
+      }),
+    );
+    const deps = makeDeps({ readInstructionFile: mockReadInstructionFile });
 
-    await toolDef.handler({ file: "member", changesWorkflowEnabled: true }, { sessionId: "test" });
+    await callTool(makeCtx(), deps, {
+      file: "member",
+      changesWorkflowEnabled: true,
+    });
 
     assert.equal(mockReadInstructionFile.mock.callCount(), 0);
   });

@@ -132,8 +132,7 @@ export const test: MigrationTest = {
       ],
       validateFiles: (output) => {
         // Old file should be deleted
-        if (output["data/configuration/instructions.md"])
-          return "Old instructions.md still exists";
+        if (output["data/configuration/instructions.md"]) return "Old instructions.md still exists";
 
         // Key customizations should be preserved somewhere in the new files
         const allNewContent = Object.entries(output)
@@ -205,10 +204,8 @@ export const test: MigrationTest = {
         if (!allNewContent) return "No new dev/ files were created";
 
         // Core dev content must be preserved
-        if (!allNewContent.includes("propose_change"))
-          return "propose_change reference was lost";
-        if (!allNewContent.includes("auto: true"))
-          return "Auto-execute section was lost";
+        if (!allNewContent.includes("propose_change")) return "propose_change reference was lost";
+        if (!allNewContent.includes("auto: true")) return "Auto-execute section was lost";
 
         return null;
       },
@@ -231,7 +228,10 @@ export const test: MigrationTest = {
         if (!allNewContent) return "No new admin/ files were created";
 
         // Custom team-specific rules must be preserved
-        if (!allNewContent.includes("Team-Specific Rules") && !allNewContent.includes("#ops channel"))
+        if (
+          !allNewContent.includes("Team-Specific Rules") &&
+          !allNewContent.includes("#ops channel")
+        )
           return "Custom team-specific rules were lost";
 
         return null;
@@ -242,9 +242,7 @@ export const test: MigrationTest = {
       inputFiles: {
         "data/configuration/user_instructions.md": DEFAULT_USER_INSTRUCTIONS,
       },
-      additionalOutputPaths: [
-        "data/configuration/user/changes.md",
-      ],
+      additionalOutputPaths: ["data/configuration/user/changes.md"],
       validateFiles: (output) => {
         if (output["data/configuration/user_instructions.md"])
           return "Old user_instructions.md still exists";
@@ -266,9 +264,7 @@ export const test: MigrationTest = {
         if (output["data/configuration/dev_instructions.md"])
           return "Old dev_instructions.md still exists";
 
-        const devFiles = Object.keys(output).filter((k) =>
-          k.startsWith("data/configuration/dev/")
-        );
+        const devFiles = Object.keys(output).filter((k) => k.startsWith("data/configuration/dev/"));
 
         if (devFiles.length === 0) return "No new dev/ files were created";
 
@@ -292,15 +288,14 @@ export const test: MigrationTest = {
       scanDirs: ["data/configuration/dev"],
       validateFiles: (output) => {
         const devFiles = Object.entries(output).filter(([k]) =>
-          k.startsWith("data/configuration/dev/")
+          k.startsWith("data/configuration/dev/"),
         );
 
         // Check that "Deployment Checklist" appears in exactly one file
         const filesWithHomo = devFiles.filter(([, content]) =>
-          content.includes("Deployment Checklist")
+          content.includes("Deployment Checklist"),
         );
-        if (filesWithHomo.length === 0)
-          return "Deployment Checklist section was lost entirely";
+        if (filesWithHomo.length === 0) return "Deployment Checklist section was lost entirely";
         if (filesWithHomo.length > 1)
           return `Deployment Checklist is duplicated across ${filesWithHomo.length} files: ${filesWithHomo.map(([k]) => k).join(", ")}`;
 

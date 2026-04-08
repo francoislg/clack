@@ -46,8 +46,7 @@ export const test: MigrationTest = {
           return "Old 'send_to_thread' references still present";
         if (instructions.includes("Send to thread"))
           return "Old 'Send to thread' label still present";
-        if (!instructions.includes("post_to"))
-          return "Missing 'post_to' references";
+        if (!instructions.includes("post_to")) return "Missing 'post_to' references";
 
         return null;
       },
@@ -63,8 +62,7 @@ export const test: MigrationTest = {
 
         if (submitResponse.includes("send_to_thread"))
           return "Old 'send_to_thread' references still present";
-        if (!submitResponse.includes("post_to"))
-          return "Missing 'post_to' references";
+        if (!submitResponse.includes("post_to")) return "Missing 'post_to' references";
 
         return null;
       },
@@ -80,8 +78,7 @@ export const test: MigrationTest = {
 
         if (instructions.includes("send_to_thread"))
           return "send_to_thread appeared after no-op migration";
-        if (!instructions.includes("post_to"))
-          return "post_to was removed";
+        if (!instructions.includes("post_to")) return "post_to was removed";
 
         return null;
       },

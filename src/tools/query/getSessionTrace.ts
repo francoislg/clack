@@ -6,8 +6,24 @@ import { homedir } from "node:os";
 import type { QueryToolContext } from "../types.js";
 import { textResult } from "../helpers.js";
 import { getSession } from "../../sessions.js";
+import type { SessionContext } from "../../sessions.js";
 import { getActiveChange } from "../../changes/activeState.js";
+import type { ActiveChangeState } from "../../changes/activeState.js";
 import { getRepositoriesDir } from "../../config.js";
+
+export interface GetSessionTraceDeps {
+  getSession: (sessionId: string) => Promise<SessionContext | null>;
+  getActiveChange: (sessionId: string) => ActiveChangeState | undefined;
+  getRepositoriesDir: () => string;
+  readFile: (path: string, encoding: BufferEncoding) => Promise<string>;
+}
+
+export const defaultDeps: GetSessionTraceDeps = {
+  getSession,
+  getActiveChange,
+  getRepositoriesDir,
+  readFile: readFile as (path: string, encoding: BufferEncoding) => Promise<string>,
+};
 
 /**
  * Derive the SDK's cwd-slug from a directory path.
@@ -70,7 +86,10 @@ function parseJsonlLine(line: string, verbose: boolean): TraceEntry | null {
   }
 }
 
-export function createGetSessionTraceTool(_ctx: QueryToolContext) {
+export function createGetSessionTraceTool(
+  _ctx: QueryToolContext,
+  deps: GetSessionTraceDeps = defaultDeps,
+) {
   return tool(
     "get_session_trace",
     "Retrieve the SDK conversation trace for a Clack session. Shows the full message flow including tool calls and results. Admin only.",
@@ -86,7 +105,7 @@ export function createGetSessionTraceTool(_ctx: QueryToolContext) {
         .describe("Which trace to retrieve: 'qa' (default) or 'change' execution trace"),
     },
     async ({ sessionId, verbose = false, source = "qa" }) => {
-      const session = await getSession(sessionId);
+      const session = await deps.getSession(sessionId);
       if (!session) {
         return textResult({ error: `Session ${sessionId} not found` });
       }
@@ -94,7 +113,7 @@ export function createGetSessionTraceTool(_ctx: QueryToolContext) {
       // Determine which SDK session ID to use
       let sdkSessionId: string | undefined;
       if (source === "change") {
-        const activeChange = getActiveChange(sessionId);
+        const activeChange = deps.getActiveChange(sessionId);
         sdkSessionId = activeChange?.sdkSessionId;
         if (!sdkSessionId) {
           return textResult({ error: "No change execution SDK session found for this session" });
@@ -103,7 +122,7 @@ export function createGetSessionTraceTool(_ctx: QueryToolContext) {
         sdkSessionId = session.sdkSessionId;
         if (!sdkSessionId) {
           // Also report if a change session exists
-          const activeChange = getActiveChange(sessionId);
+          const activeChange = deps.getActiveChange(sessionId);
           const hint = activeChange?.sdkSessionId
             ? ` (a change execution trace IS available — use source: "change")`
             : "";
@@ -115,17 +134,17 @@ export function createGetSessionTraceTool(_ctx: QueryToolContext) {
       // Q&A sessions use cwd=repos dir. Change sessions use cwd=worktree path.
       let cwd: string;
       if (source === "change") {
-        const ac = getActiveChange(sessionId);
-        cwd = ac?.worktree?.worktreePath ?? getRepositoriesDir();
+        const ac = deps.getActiveChange(sessionId);
+        cwd = ac?.worktree?.worktreePath ?? deps.getRepositoriesDir();
       } else {
-        cwd = getRepositoriesDir();
+        cwd = deps.getRepositoriesDir();
       }
       const slug = cwdToSlug(cwd);
       const sessionFile = resolve(homedir(), ".claude", "projects", slug, `${sdkSessionId}.jsonl`);
 
       let content: string;
       try {
-        content = await readFile(sessionFile, "utf-8");
+        content = await deps.readFile(sessionFile, "utf-8");
       } catch {
         return textResult({
           error: `SDK session file not found at ${sessionFile}. The session trace may have been cleaned up.`,

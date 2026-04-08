@@ -10,6 +10,33 @@ import {
   asSlackBlocks,
 } from "../blocks.js";
 
+export interface DmActionsDeps {
+  getSession: (sessionId: string) => Promise<SessionContext | null>;
+  updateSession: (
+    sessionId: string,
+    updates: Partial<SessionContext>,
+  ) => Promise<SessionContext | null>;
+  setLastAnswer: (sessionId: string, answer: string) => Promise<SessionContext | null>;
+  restoreSession: (sessionId: string) => Promise<SessionInfo | undefined>;
+  setSessionInfo: (sessionId: string, info: SessionInfo) => void;
+  decodeActionValue: typeof decodeActionValue;
+  getAcceptedBlocks: typeof getAcceptedBlocks;
+  getStructuredAcceptedBlocks: typeof getStructuredAcceptedBlocks;
+  asSlackBlocks: typeof asSlackBlocks;
+}
+
+export const defaultDmActionsDeps: DmActionsDeps = {
+  getSession,
+  updateSession: updateSession as never,
+  setLastAnswer,
+  restoreSession: (sessionId: string) => activeSessions.restore(sessionId),
+  setSessionInfo: (sessionId, info) => activeSessions.set(sessionId, info),
+  decodeActionValue,
+  getAcceptedBlocks,
+  getStructuredAcceptedBlocks,
+  asSlackBlocks,
+};
+
 /**
  * Shared session resolution for DM action handlers.
  * Decodes action value, loads session + sessionInfo, and returns null (posting an ephemeral error) if either is missing.
@@ -19,15 +46,16 @@ async function resolveActionSession(
   client: App["client"],
   channelId: string | undefined,
   userId: string,
+  deps: DmActionsDeps,
 ): Promise<{
   sessionId: string;
   ref?: string;
   session: SessionContext;
   sessionInfo: SessionInfo;
 } | null> {
-  const decoded = decodeActionValue(rawValue);
-  const session = await getSession(decoded.sessionId);
-  const sessionInfo = await activeSessions.restore(decoded.sessionId);
+  const decoded = deps.decodeActionValue(rawValue);
+  const session = await deps.getSession(decoded.sessionId);
+  const sessionInfo = await deps.restoreSession(decoded.sessionId);
 
   if (!session || !sessionInfo) {
     logger.error(`DM action: missing session for ${decoded.sessionId}`);
@@ -55,15 +83,16 @@ export async function postAnswerToChannel(
   snapshot: ResponseSnapshot,
   targetChannel: string,
   targetThreadTs?: string,
+  deps: DmActionsDeps = defaultDmActionsDeps,
 ): Promise<{ ok: boolean; ts?: string }> {
   const blocks = snapshot.sections
-    ? getStructuredAcceptedBlocks(snapshot.sections)
-    : getAcceptedBlocks(snapshot.text);
+    ? deps.getStructuredAcceptedBlocks(snapshot.sections)
+    : deps.getAcceptedBlocks(snapshot.text);
 
   const result = await client.chat.postMessage({
     channel: targetChannel,
     ...(targetThreadTs ? { thread_ts: targetThreadTs } : {}),
-    blocks: asSlackBlocks(blocks),
+    blocks: deps.asSlackBlocks(blocks),
     text: snapshot.text,
     unfurl_links: false,
     unfurl_media: false,
@@ -84,10 +113,10 @@ export function resolveOrigin(
 }
 
 /** Build Block Kit blocks from session response sections or plain answer text. */
-function buildAnswerBlocks(session: SessionContext, answer: string) {
+function buildAnswerBlocks(session: SessionContext, answer: string, deps: DmActionsDeps) {
   return session.lastResponse?.sections
-    ? getStructuredAcceptedBlocks(session.lastResponse.sections)
-    : getAcceptedBlocks(answer);
+    ? deps.getStructuredAcceptedBlocks(session.lastResponse.sections)
+    : deps.getAcceptedBlocks(answer);
 }
 
 /** Persist channelPostTs to both session storage and in-memory sessionInfo. */
@@ -95,9 +124,10 @@ async function persistChannelPost(
   sessionId: string,
   sessionInfo: SessionInfo,
   ts: string,
+  deps: DmActionsDeps,
 ): Promise<void> {
-  await updateSession(sessionId, { channelPostTs: ts });
-  activeSessions.set(sessionId, { ...sessionInfo, channelPostTs: ts });
+  await deps.updateSession(sessionId, { channelPostTs: ts } as Partial<SessionContext>);
+  deps.setSessionInfo(sessionId, { ...sessionInfo, channelPostTs: ts });
 }
 
 /** Send a confirmation message in the DM thread, if DM coordinates exist. */
@@ -118,14 +148,24 @@ async function confirmInDm(
 // ---------------------------------------------------------------------------
 
 /** Post snapshot content to a target channel or thread. */
-async function handlePostTo(body: BlockAction, client: App["client"]): Promise<void> {
+async function handlePostTo(
+  body: BlockAction,
+  client: App["client"],
+  deps: DmActionsDeps,
+): Promise<void> {
   const rawValue = (body.actions[0] as { value: string }).value;
-  const resolved = await resolveActionSession(rawValue, client, body.channel?.id, body.user.id);
+  const resolved = await resolveActionSession(
+    rawValue,
+    client,
+    body.channel?.id,
+    body.user.id,
+    deps,
+  );
   if (!resolved) return;
   const { sessionId, session, sessionInfo } = resolved;
 
   // Resolve per-button content (each button has its own content entry persisted at creation time)
-  const decoded = decodeActionValue(rawValue);
+  const decoded = deps.decodeActionValue(rawValue);
   const snapshot = decoded.snapshotId ? session.snapshots?.[decoded.snapshotId] : undefined;
 
   if (!snapshot) {
@@ -151,10 +191,10 @@ async function handlePostTo(body: BlockAction, client: App["client"]): Promise<v
   }
 
   try {
-    const result = await postAnswerToChannel(client, snapshot, targetChannel, targetThreadTs);
+    const result = await postAnswerToChannel(client, snapshot, targetChannel, targetThreadTs, deps);
 
     if (result.ts) {
-      await persistChannelPost(sessionId, sessionInfo, result.ts);
+      await persistChannelPost(sessionId, sessionInfo, result.ts, deps);
     }
 
     await confirmInDm(client, session, ":white_check_mark: Answer shared.");
@@ -175,9 +215,19 @@ async function handlePostTo(body: BlockAction, client: App["client"]): Promise<v
 }
 
 /** Accept the synthesis and post it to the original channel. */
-async function handleAcceptSynthesis(body: BlockAction, client: App["client"]): Promise<void> {
+async function handleAcceptSynthesis(
+  body: BlockAction,
+  client: App["client"],
+  deps: DmActionsDeps,
+): Promise<void> {
   const rawValue = (body.actions[0] as { value: string }).value;
-  const resolved = await resolveActionSession(rawValue, client, body.channel?.id, body.user.id);
+  const resolved = await resolveActionSession(
+    rawValue,
+    client,
+    body.channel?.id,
+    body.user.id,
+    deps,
+  );
   if (!resolved) return;
   const { sessionId, session, sessionInfo } = resolved;
 
@@ -193,14 +243,14 @@ async function handleAcceptSynthesis(body: BlockAction, client: App["client"]): 
   const postResult = await client.chat.postMessage({
     channel: targetChannel,
     ...(originThreadTs ? { thread_ts: originThreadTs } : {}),
-    blocks: asSlackBlocks(buildAnswerBlocks(session, answer)),
+    blocks: deps.asSlackBlocks(buildAnswerBlocks(session, answer, deps)),
     text: answer,
     unfurl_links: false,
     unfurl_media: false,
   });
 
   if (postResult.ts) {
-    await persistChannelPost(sessionId, sessionInfo, postResult.ts);
+    await persistChannelPost(sessionId, sessionInfo, postResult.ts, deps);
   }
 
   await confirmInDm(
@@ -213,9 +263,13 @@ async function handleAcceptSynthesis(body: BlockAction, client: App["client"]): 
 }
 
 /** Open modal to edit the synthesis before sharing. */
-async function handleEditSynthesis(body: BlockAction, client: App["client"]): Promise<void> {
+async function handleEditSynthesis(
+  body: BlockAction,
+  client: App["client"],
+  deps: DmActionsDeps,
+): Promise<void> {
   const sessionId = (body.actions[0] as { value: string }).value;
-  const session = await getSession(sessionId);
+  const session = await deps.getSession(sessionId);
 
   if (!session?.lastAnswer) {
     logger.error(`Cannot edit synthesis: no answer for ${sessionId}`);
@@ -261,11 +315,12 @@ async function handleEditSynthesis(body: BlockAction, client: App["client"]): Pr
 async function handleEditSynthesisSubmit(
   view: ViewSubmitAction["view"],
   client: App["client"],
+  deps: DmActionsDeps,
 ): Promise<void> {
   const sessionId = view.private_metadata;
   const editedAnswer = view.state.values.synthesis_content_block.synthesis_content.value;
-  const session = await getSession(sessionId);
-  const sessionInfo = await activeSessions.restore(sessionId);
+  const session = await deps.getSession(sessionId);
+  const sessionInfo = await deps.restoreSession(sessionId);
 
   if (!session || !sessionInfo || !editedAnswer) {
     logger.error(`Cannot post edited synthesis for ${sessionId}`);
@@ -279,19 +334,19 @@ async function handleEditSynthesisSubmit(
     return;
   }
 
-  await setLastAnswer(sessionId, editedAnswer);
+  await deps.setLastAnswer(sessionId, editedAnswer);
 
   const postResult = await client.chat.postMessage({
     channel: originChannel,
     thread_ts: originThreadTs,
-    blocks: asSlackBlocks(getAcceptedBlocks(editedAnswer)),
+    blocks: deps.asSlackBlocks(deps.getAcceptedBlocks(editedAnswer)),
     text: editedAnswer,
     unfurl_links: false,
     unfurl_media: false,
   });
 
   if (postResult.ts) {
-    await persistChannelPost(sessionId, sessionInfo, postResult.ts);
+    await persistChannelPost(sessionId, sessionInfo, postResult.ts, deps);
   }
 
   if (session.dmChannel && session.dmThreadTs) {
@@ -306,9 +361,13 @@ async function handleEditSynthesisSubmit(
 }
 
 /** Handle rejection — user discards the answer. */
-async function handleReject(body: BlockAction, client: App["client"]): Promise<void> {
+async function handleReject(
+  body: BlockAction,
+  client: App["client"],
+  deps: DmActionsDeps,
+): Promise<void> {
   const sessionId = (body.actions[0] as { value: string }).value;
-  const session = await getSession(sessionId);
+  const session = await deps.getSession(sessionId);
 
   if (session?.dmChannel && session.dmThreadTs) {
     await client.chat.postMessage({
@@ -322,9 +381,19 @@ async function handleReject(body: BlockAction, client: App["client"]): Promise<v
 }
 
 /** Update an already-posted channel message with the latest answer. */
-async function handleUpdatePost(body: BlockAction, client: App["client"]): Promise<void> {
+async function handleUpdatePost(
+  body: BlockAction,
+  client: App["client"],
+  deps: DmActionsDeps,
+): Promise<void> {
   const rawValue = (body.actions[0] as { value: string }).value;
-  const resolved = await resolveActionSession(rawValue, client, body.channel?.id, body.user.id);
+  const resolved = await resolveActionSession(
+    rawValue,
+    client,
+    body.channel?.id,
+    body.user.id,
+    deps,
+  );
   if (!resolved) return;
   const { sessionId, session, sessionInfo } = resolved;
 
@@ -340,7 +409,7 @@ async function handleUpdatePost(body: BlockAction, client: App["client"]): Promi
   await client.chat.update({
     channel: originChannel,
     ts: channelPostTs,
-    blocks: asSlackBlocks(buildAnswerBlocks(session, answer)),
+    blocks: deps.asSlackBlocks(buildAnswerBlocks(session, answer, deps)),
     text: answer,
   });
 
@@ -350,9 +419,19 @@ async function handleUpdatePost(body: BlockAction, client: App["client"]): Promi
 }
 
 /** Post a new reply to the original thread with the latest answer. */
-async function handlePostNew(body: BlockAction, client: App["client"]): Promise<void> {
+async function handlePostNew(
+  body: BlockAction,
+  client: App["client"],
+  deps: DmActionsDeps,
+): Promise<void> {
   const rawValue = (body.actions[0] as { value: string }).value;
-  const resolved = await resolveActionSession(rawValue, client, body.channel?.id, body.user.id);
+  const resolved = await resolveActionSession(
+    rawValue,
+    client,
+    body.channel?.id,
+    body.user.id,
+    deps,
+  );
   if (!resolved) return;
   const { sessionId, session, sessionInfo } = resolved;
 
@@ -367,14 +446,14 @@ async function handlePostNew(body: BlockAction, client: App["client"]): Promise<
   const postResult = await client.chat.postMessage({
     channel: originChannel,
     thread_ts: originThreadTs,
-    blocks: asSlackBlocks(buildAnswerBlocks(session, answer)),
+    blocks: deps.asSlackBlocks(buildAnswerBlocks(session, answer, deps)),
     text: answer,
     unfurl_links: false,
     unfurl_media: false,
   });
 
   if (postResult.ts) {
-    await persistChannelPost(sessionId, sessionInfo, postResult.ts);
+    await persistChannelPost(sessionId, sessionInfo, postResult.ts, deps);
   }
 
   await confirmInDm(client, session, ":white_check_mark: New reply posted to the original thread.");
@@ -386,47 +465,50 @@ async function handlePostNew(body: BlockAction, client: App["client"]): Promise<
 // Registration
 // ---------------------------------------------------------------------------
 
-export function registerDmActionHandlers(app: App): void {
+export function registerDmActionHandlers(
+  app: App,
+  deps: DmActionsDeps = defaultDmActionsDeps,
+): void {
   // New action ID
   app.action<BlockAction>(/^clack_post_to_\d+$/, async ({ ack, body, client }) => {
     await ack();
-    await handlePostTo(body, client);
+    await handlePostTo(body, client, deps);
   });
 
   // Backward compat: old action ID from sessions created before rename.
   // Can be removed once all Slack messages with old buttons have expired.
   app.action<BlockAction>(/^clack_dm_send_to_thread_\d+$/, async ({ ack, body, client }) => {
     await ack();
-    await handlePostTo(body, client);
+    await handlePostTo(body, client, deps);
   });
 
   app.action<BlockAction>("clack_dm_accept_synthesis", async ({ ack, body, client }) => {
     await ack();
-    await handleAcceptSynthesis(body, client);
+    await handleAcceptSynthesis(body, client, deps);
   });
 
   app.action<BlockAction>("clack_dm_edit_synthesis", async ({ ack, body, client }) => {
     await ack();
-    await handleEditSynthesis(body, client);
+    await handleEditSynthesis(body, client, deps);
   });
 
   app.view<ViewSubmitAction>("dm_edit_synthesis_modal", async ({ ack, view, client }) => {
     await ack();
-    await handleEditSynthesisSubmit(view, client);
+    await handleEditSynthesisSubmit(view, client, deps);
   });
 
   app.action<BlockAction>("clack_dm_reject", async ({ ack, body, client }) => {
     await ack();
-    await handleReject(body, client);
+    await handleReject(body, client, deps);
   });
 
   app.action<BlockAction>("clack_dm_update_post", async ({ ack, body, client }) => {
     await ack();
-    await handleUpdatePost(body, client);
+    await handleUpdatePost(body, client, deps);
   });
 
   app.action<BlockAction>("clack_dm_post_new", async ({ ack, body, client }) => {
     await ack();
-    await handlePostNew(body, client);
+    await handlePostNew(body, client, deps);
   });
 }

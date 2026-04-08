@@ -4,59 +4,33 @@ import type { App } from "@slack/bolt";
 import type { SessionContext } from "../../sessions.js";
 import type { SessionInfo } from "../activeSessions.js";
 import type { AskClaudeOptions } from "../../claude/index.js";
-
-// ============================================================================
-// Mocks — set up before importing the module under test
-// ============================================================================
-
-const mockGetSession = mock.fn<(id: string) => Promise<SessionContext | null>>();
-const mockAddRefinement = mock.fn<(id: string, text: string) => Promise<void>>(async () => {});
-
-const mockDecodeActionValue = mock.fn<(v: string) => Record<string, unknown>>();
-const mockRestoreSessionInfo = mock.fn<(id: string) => Promise<SessionInfo | undefined>>();
-
-const mockExecuteAndDeliver = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
-const mockGetHandlerClaudeOptions = mock.fn<(info: SessionInfo) => Promise<AskClaudeOptions>>();
-
-mock.module("../../sessions.js", {
-  namedExports: {
-    getSession: mockGetSession,
-    addRefinement: mockAddRefinement,
-  },
-});
-
-mock.module("../blocks.js", {
-  namedExports: { decodeActionValue: mockDecodeActionValue },
-});
-
-mock.module("../activeSessions.js", {
-  namedExports: { activeSessions: { restore: mockRestoreSessionInfo } },
-});
-
-mock.module("./handlerResponse.js", {
-  namedExports: {
-    executeAndDeliver: mockExecuteAndDeliver,
-    getHandlerClaudeOptions: mockGetHandlerClaudeOptions,
-  },
-});
-
-mock.module("../../logger.js", {
-  namedExports: {
-    logger: {
-      info: () => {},
-      warn: () => {},
-      error: () => {},
-      debug: () => {},
-    },
-  },
-});
-
-// Import after mocks
-const { registerFollowupHandler } = await import("./followup.js");
+import { registerFollowupHandler, type FollowupDeps } from "./followup.js";
 
 // ============================================================================
 // Helpers
 // ============================================================================
+
+const mockGetSession = mock.fn<(id: string) => Promise<SessionContext | null>>();
+const mockAddRefinement = mock.fn<(id: string, text: string) => Promise<SessionContext | null>>(
+  async () => null,
+);
+
+const mockDecodeActionValue = mock.fn<(v: string) => { sessionId: string; prompt?: string }>();
+const mockRestoreSessionInfo = mock.fn<(id: string) => Promise<SessionInfo | undefined>>();
+
+const mockExecuteAndDeliver = mock.fn<(...args: never[]) => Promise<void>>(async () => {});
+const mockGetHandlerClaudeOptions = mock.fn<(info: SessionInfo) => Promise<AskClaudeOptions>>();
+
+function makeDeps(): FollowupDeps {
+  return {
+    getSession: mockGetSession,
+    addRefinement: mockAddRefinement,
+    decodeActionValue: mockDecodeActionValue as never,
+    restoreSession: mockRestoreSessionInfo,
+    executeAndDeliver: mockExecuteAndDeliver as never,
+    getHandlerClaudeOptions: mockGetHandlerClaudeOptions,
+  };
+}
 
 type ActionHandler = (args: {
   ack: () => Promise<void>;
@@ -68,14 +42,14 @@ let capturedHandler: ActionHandler;
 
 function makeApp(): App {
   return {
-    action: (_pattern: unknown, handler: ActionHandler) => {
+    action: (_pattern: never, handler: ActionHandler) => {
       capturedHandler = handler;
     },
-  } as unknown as App;
+  } as App;
 }
 
 function makeClient(): App["client"] {
-  return {} as unknown as App["client"];
+  return {} as App["client"];
 }
 
 function makeSession(overrides: Partial<SessionContext> = {}): SessionContext {
@@ -120,7 +94,7 @@ beforeEach(() => {
 
   // Register handler
   const app = makeApp();
-  registerFollowupHandler(app);
+  registerFollowupHandler(app, makeDeps());
 });
 
 // ============================================================================
@@ -207,12 +181,18 @@ describe("registerFollowupHandler", () => {
 
     // Check addRefinement was called with the prompt text
     assert.equal(mockAddRefinement.mock.callCount(), 1);
-    assert.equal(mockAddRefinement.mock.calls[0].arguments[0], "sess-1");
-    assert.equal(mockAddRefinement.mock.calls[0].arguments[1], "tell me more");
+    assert.equal(mockAddRefinement.mock.calls[0]!.arguments[0], "sess-1");
+    assert.equal(mockAddRefinement.mock.calls[0]!.arguments[1], "tell me more");
 
     // Check executeAndDeliver was called with updated session
     assert.equal(mockExecuteAndDeliver.mock.callCount(), 1);
-    const deliverArgs = mockExecuteAndDeliver.mock.calls[0].arguments[0] as Record<string, unknown>;
+    interface DeliverCallArgs {
+      client: App["client"];
+      session: SessionContext;
+      sessionInfo: SessionInfo;
+      claudeOptions: AskClaudeOptions;
+    }
+    const deliverArgs = mockExecuteAndDeliver.mock.calls[0]!.arguments[0] as DeliverCallArgs;
     assert.equal(deliverArgs.client, client);
     assert.equal(deliverArgs.session, updatedSession);
     assert.equal(deliverArgs.sessionInfo, sessionInfo);
@@ -244,6 +224,6 @@ describe("registerFollowupHandler", () => {
     });
 
     assert.equal(mockDecodeActionValue.mock.callCount(), 1);
-    assert.equal(mockDecodeActionValue.mock.calls[0].arguments[0], "encoded-json-payload");
+    assert.equal(mockDecodeActionValue.mock.calls[0]!.arguments[0], "encoded-json-payload");
   });
 });

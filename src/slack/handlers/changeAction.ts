@@ -1,15 +1,67 @@
 import type { App, BlockAction } from "@slack/bolt";
 import { errorMessage } from "../../errors.js";
 import { logger } from "../../logger.js";
-import { findSessionByThread, getStagedIntent } from "../../sessions.js";
+import { findSessionByThread, getStagedIntent, type SessionContext } from "../../sessions.js";
+import type { StagedIntent } from "../../tools/types.js";
 import { getRole } from "../../roles.js";
 import { canRequestChanges } from "../../permissions.js";
 import { decodeActionValue } from "../blocks.js";
-import { activeSessions } from "../activeSessions.js";
+import { activeSessions, type SessionInfo } from "../activeSessions.js";
 import type { StagedChangeIntent } from "../../tools/types.js";
-import type { ChangeRequest, ChangePlan, TriggerType } from "../../changes/types.js";
+import type { ChangeRequest, ChangePlan, ChangeResult, TriggerType } from "../../changes/types.js";
 import { startChangeWorkflow } from "../../changes/workflow.js";
 import { SlackStreamer, finalizeStreamedWorkflow } from "../../streaming/slackStreamer.js";
+import type { StreamEvent } from "../../streaming/types.js";
+import type { UserRole } from "../../roles.js";
+
+export interface ChangeActionDeps {
+  getRole: (userId: string) => Promise<UserRole>;
+  canRequestChanges: (role: UserRole) => boolean;
+  decodeActionValue: (value: string) => { sessionId: string; ref?: string };
+  restoreSession: (sessionId: string) => Promise<SessionInfo | undefined>;
+  getStagedIntent: (sessionId: string, ref: string) => Promise<StagedIntent | null>;
+  findSessionByThread: (channelId: string, threadTs: string) => Promise<SessionContext | null>;
+  startChangeWorkflow: (
+    request: ChangeRequest,
+    plan: ChangePlan,
+    sessionId: string,
+    onEvent: (event: StreamEvent) => void,
+  ) => Promise<ChangeResult>;
+  errorMessage: (err: unknown) => string;
+  createStreamer: (opts: {
+    client: App["client"];
+    channel: string;
+    threadTs: string;
+    userId: string;
+    thinkingTitle: string;
+  }) => {
+    start: () => Promise<boolean>;
+    stop: () => Promise<void>;
+    handleEvent: (event: StreamEvent) => void;
+    hasFailed: boolean;
+  };
+  finalizeStreamedWorkflow: (
+    streamer: ReturnType<ChangeActionDeps["createStreamer"]>,
+    client: App["client"],
+    channel: string,
+    threadTs: string,
+    result: ChangeResult,
+    context: string,
+  ) => Promise<void>;
+}
+
+export const defaultChangeActionDeps: ChangeActionDeps = {
+  getRole,
+  canRequestChanges,
+  decodeActionValue,
+  restoreSession: (sessionId: string) => activeSessions.restore(sessionId),
+  getStagedIntent,
+  findSessionByThread,
+  startChangeWorkflow,
+  errorMessage,
+  createStreamer: (opts) => new SlackStreamer(opts),
+  finalizeStreamedWorkflow: finalizeStreamedWorkflow as never,
+};
 
 /** Slack delivery context shared by change workflow triggers. */
 export interface SlackDeliveryContext {
@@ -29,11 +81,12 @@ export interface SlackDeliveryContext {
 export async function triggerChangeWorkflow(
   intent: StagedChangeIntent,
   slack: SlackDeliveryContext,
+  deps: ChangeActionDeps = defaultChangeActionDeps,
 ): Promise<void> {
   const { channelId, threadTs, userId, client } = slack;
 
   // Find the unified session for this thread
-  const session = await findSessionByThread(channelId, threadTs);
+  const session = await deps.findSessionByThread(channelId, threadTs);
   if (!session) {
     await client.chat.postMessage({
       channel: channelId,
@@ -46,7 +99,7 @@ export async function triggerChangeWorkflow(
   // Create streamer for live progress (target DM thread if provided)
   const streamChannel = slack.streamChannel ?? channelId;
   const streamThreadTs = slack.streamThreadTs ?? threadTs;
-  const streamer = new SlackStreamer({
+  const streamer = deps.createStreamer({
     client,
     channel: streamChannel,
     threadTs: streamThreadTs,
@@ -71,14 +124,14 @@ export async function triggerChangeWorkflow(
       targetRepo: intent.repo,
     };
 
-    const result = await startChangeWorkflow(
+    const result = await deps.startChangeWorkflow(
       request,
       plan,
       session.sessionId,
       streamer.handleEvent,
     );
 
-    await finalizeStreamedWorkflow(
+    await deps.finalizeStreamedWorkflow(
       streamer,
       client,
       streamChannel,
@@ -92,22 +145,25 @@ export async function triggerChangeWorkflow(
     await client.chat.postMessage({
       channel: streamChannel,
       thread_ts: streamThreadTs,
-      text: `Change request failed unexpectedly: ${errorMessage(error)}`,
+      text: `Change request failed unexpectedly: ${deps.errorMessage(error)}`,
     });
   }
 }
 
-export function registerChangeActionHandler(app: App): void {
+export function registerChangeActionHandler(
+  app: App,
+  deps: ChangeActionDeps = defaultChangeActionDeps,
+): void {
   app.action<BlockAction>(/^clack_change_\d+$/, async ({ ack, body, client, respond }) => {
     await ack();
 
     const rawValue = (body.actions[0] as { value: string }).value;
-    const { sessionId, ref } = decodeActionValue(rawValue);
+    const { sessionId, ref } = deps.decodeActionValue(rawValue);
     const userId = body.user.id;
 
     // Defense-in-depth: verify the user has dev+ role
-    const role = await getRole(userId);
-    if (!canRequestChanges(role)) {
+    const role = await deps.getRole(userId);
+    if (!deps.canRequestChanges(role)) {
       await client.chat.postEphemeral({
         channel: body.channel?.id ?? "",
         user: userId,
@@ -124,14 +180,14 @@ export function registerChangeActionHandler(app: App): void {
     // Remove the button message
     await respond({ delete_original: true });
 
-    const sessionInfo = await activeSessions.restore(sessionId);
+    const sessionInfo = await deps.restoreSession(sessionId);
     if (!sessionInfo) {
       logger.error(`Change action handler: could not restore session ${sessionId}`);
       return;
     }
 
     // Resolve the staged intent
-    const intent = await getStagedIntent(sessionId, ref);
+    const intent = await deps.getStagedIntent(sessionId, ref);
     if (!intent || intent.type !== "change") {
       logger.error(`Change action handler: could not resolve change intent ref ${ref}`);
       await client.chat.postEphemeral({
@@ -143,12 +199,16 @@ export function registerChangeActionHandler(app: App): void {
       return;
     }
 
-    await triggerChangeWorkflow(intent, {
-      channelId: sessionInfo.channelId,
-      threadTs: sessionInfo.threadTs,
-      userId,
-      client,
-      triggerType: sessionInfo.triggerType,
-    });
+    await triggerChangeWorkflow(
+      intent,
+      {
+        channelId: sessionInfo.channelId,
+        threadTs: sessionInfo.threadTs,
+        userId,
+        client,
+        triggerType: sessionInfo.triggerType,
+      },
+      deps,
+    );
   });
 }

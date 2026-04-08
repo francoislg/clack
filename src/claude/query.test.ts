@@ -1,35 +1,22 @@
 import { describe, it, beforeEach, mock } from "node:test";
 import assert from "node:assert/strict";
-
-// ---------------------------------------------------------------------------
-// Module-level mocks
-// ---------------------------------------------------------------------------
-
-const mockQuery = mock.fn<(...args: unknown[]) => unknown>();
-
-mock.module("@anthropic-ai/claude-agent-sdk", {
-  namedExports: {
-    query: mockQuery,
-  },
-});
-
-mock.module("../logger.js", {
-  namedExports: {
-    logger: {
-      error: () => {},
-      warn: () => {},
-      info: () => {},
-      debug: () => {},
-    },
-  },
-});
-
-// Import after mocks
-const { clackQuery, clackSession } = await import("./query.js");
+import type { query as sdkQuery } from "@anthropic-ai/claude-agent-sdk";
+import { clackQuery, clackSession, type QueryDeps, defaultQueryDeps } from "./query.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+type MockQuery = ReturnType<typeof mock.fn<typeof sdkQuery>>;
+
+let mockQuery: MockQuery;
+
+function makeDeps(): QueryDeps {
+  return {
+    ...defaultQueryDeps,
+    query: mockQuery,
+  };
+}
 
 function makeInitMessage(sessionId: string) {
   return {
@@ -61,13 +48,25 @@ function makeResultMessage(text: string) {
   };
 }
 
-function makeAsyncIterable<T>(items: T[]): AsyncGenerator<T, void> {
+function makeAsyncIterable<T>(items: T[]): never {
   async function* gen() {
     for (const item of items) {
       yield item;
     }
   }
-  return gen();
+  return gen() as never;
+}
+
+interface QueryCallArg {
+  prompt: string;
+  options: {
+    persistSession: boolean;
+    resume?: string;
+    model?: string;
+    cwd?: string;
+    permissionMode?: string;
+    [key: string]: unknown;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -76,20 +75,23 @@ function makeAsyncIterable<T>(items: T[]): AsyncGenerator<T, void> {
 
 describe("clackQuery", () => {
   beforeEach(() => {
-    mockQuery.mock.resetCalls();
+    mockQuery = mock.fn<typeof sdkQuery>();
   });
 
   it("sets persistSession to false", () => {
     mockQuery.mock.mockImplementation(() => makeAsyncIterable([makeResultMessage("done")]));
 
-    clackQuery({
-      prompt: "test",
-      options: { model: "sonnet" },
-    });
+    clackQuery(
+      {
+        prompt: "test",
+        options: { model: "sonnet" },
+      },
+      makeDeps(),
+    );
 
     assert.equal(mockQuery.mock.callCount(), 1);
-    const call = mockQuery.mock.calls[0];
-    const args = call.arguments[0] as { prompt: string; options: Record<string, unknown> };
+    const call = mockQuery.mock.calls[0]!;
+    const args = call.arguments[0] as QueryCallArg;
     assert.equal(args.options.persistSession, false);
     assert.equal(args.prompt, "test");
     assert.equal(args.options.model, "sonnet");
@@ -98,9 +100,9 @@ describe("clackQuery", () => {
   it("does not pass resume", () => {
     mockQuery.mock.mockImplementation(() => makeAsyncIterable([makeResultMessage("done")]));
 
-    clackQuery({ prompt: "test" });
+    clackQuery({ prompt: "test" }, makeDeps());
 
-    const args = mockQuery.mock.calls[0].arguments[0] as { options: Record<string, unknown> };
+    const args = mockQuery.mock.calls[0]!.arguments[0] as QueryCallArg;
     assert.equal(args.options.resume, undefined);
   });
 });
@@ -111,7 +113,7 @@ describe("clackQuery", () => {
 
 describe("clackSession", () => {
   beforeEach(() => {
-    mockQuery.mock.resetCalls();
+    mockQuery = mock.fn<typeof sdkQuery>();
   });
 
   it("sets persistSession to true", async () => {
@@ -120,11 +122,11 @@ describe("clackSession", () => {
     );
 
     const messages: unknown[] = [];
-    for await (const msg of clackSession({ prompt: "test" })) {
+    for await (const msg of clackSession({ prompt: "test" }, makeDeps())) {
       messages.push(msg);
     }
 
-    const args = mockQuery.mock.calls[0].arguments[0] as { options: Record<string, unknown> };
+    const args = mockQuery.mock.calls[0]!.arguments[0] as QueryCallArg;
     assert.equal(args.options.persistSession, true);
     assert.equal(messages.length, 2);
   });
@@ -135,12 +137,15 @@ describe("clackSession", () => {
     );
 
     let capturedId: string | undefined;
-    for await (const _msg of clackSession({
-      prompt: "test",
-      onSessionId: (id) => {
-        capturedId = id;
+    for await (const _msg of clackSession(
+      {
+        prompt: "test",
+        onSessionId: (id) => {
+          capturedId = id;
+        },
       },
-    })) {
+      makeDeps(),
+    )) {
       // consume
     }
 
@@ -152,14 +157,17 @@ describe("clackSession", () => {
       makeAsyncIterable([makeInitMessage("resumed-id"), makeResultMessage("done")]),
     );
 
-    for await (const _msg of clackSession({
-      prompt: "test",
-      resumeSessionId: "previous-session-id",
-    })) {
+    for await (const _msg of clackSession(
+      {
+        prompt: "test",
+        resumeSessionId: "previous-session-id",
+      },
+      makeDeps(),
+    )) {
       // consume
     }
 
-    const args = mockQuery.mock.calls[0].arguments[0] as { options: Record<string, unknown> };
+    const args = mockQuery.mock.calls[0]!.arguments[0] as QueryCallArg;
     assert.equal(args.options.resume, "previous-session-id");
   });
 
@@ -168,11 +176,11 @@ describe("clackSession", () => {
       makeAsyncIterable([makeInitMessage("fresh-id"), makeResultMessage("done")]),
     );
 
-    for await (const _msg of clackSession({ prompt: "test" })) {
+    for await (const _msg of clackSession({ prompt: "test" }, makeDeps())) {
       // consume
     }
 
-    const args = mockQuery.mock.calls[0].arguments[0] as { options: Record<string, unknown> };
+    const args = mockQuery.mock.calls[0]!.arguments[0] as QueryCallArg;
     assert.equal(args.options.resume, undefined);
   });
 
@@ -182,11 +190,7 @@ describe("clackSession", () => {
       callCount++;
       if (callCount === 1) {
         // First call (resume attempt) throws
-        const gen = async function* () {
-          throw new Error("Session file not found");
-          yield; // unreachable, satisfies generator type
-        };
-        return gen();
+        throw new Error("Session file not found");
       }
       // Second call (fresh session) succeeds
       return makeAsyncIterable([makeInitMessage("new-session-id"), makeResultMessage("done")]);
@@ -194,20 +198,23 @@ describe("clackSession", () => {
 
     let capturedId: string | undefined;
     const messages: unknown[] = [];
-    for await (const msg of clackSession({
-      prompt: "test",
-      resumeSessionId: "broken-session",
-      onSessionId: (id) => {
-        capturedId = id;
+    for await (const msg of clackSession(
+      {
+        prompt: "test",
+        resumeSessionId: "broken-session",
+        onSessionId: (id) => {
+          capturedId = id;
+        },
       },
-    })) {
+      makeDeps(),
+    )) {
       messages.push(msg);
     }
 
     // Should have been called twice: failed resume + fresh start
     assert.equal(mockQuery.mock.callCount(), 2);
     // Fresh session should not have resume
-    const secondArgs = mockQuery.mock.calls[1].arguments[0] as { options: Record<string, unknown> };
+    const secondArgs = mockQuery.mock.calls[1]!.arguments[0] as QueryCallArg;
     assert.equal(secondArgs.options.resume, undefined);
     // Should have captured the new session ID
     assert.equal(capturedId, "new-session-id");
@@ -216,16 +223,12 @@ describe("clackSession", () => {
 
   it("throws on non-resume errors (no resumeSessionId)", async () => {
     mockQuery.mock.mockImplementation(() => {
-      const gen = async function* () {
-        throw new Error("API rate limit");
-        yield;
-      };
-      return gen();
+      throw new Error("API rate limit");
     });
 
     await assert.rejects(
       async () => {
-        for await (const _msg of clackSession({ prompt: "test" })) {
+        for await (const _msg of clackSession({ prompt: "test" }, makeDeps())) {
           // consume
         }
       },
@@ -238,18 +241,21 @@ describe("clackSession", () => {
       makeAsyncIterable([makeInitMessage("id"), makeResultMessage("done")]),
     );
 
-    for await (const _msg of clackSession({
-      prompt: "test",
-      options: {
-        model: "opus",
-        cwd: "/repos",
-        permissionMode: "bypassPermissions",
+    for await (const _msg of clackSession(
+      {
+        prompt: "test",
+        options: {
+          model: "opus",
+          cwd: "/repos",
+          permissionMode: "bypassPermissions",
+        },
       },
-    })) {
+      makeDeps(),
+    )) {
       // consume
     }
 
-    const args = mockQuery.mock.calls[0].arguments[0] as { options: Record<string, unknown> };
+    const args = mockQuery.mock.calls[0]!.arguments[0] as QueryCallArg;
     assert.equal(args.options.model, "opus");
     assert.equal(args.options.cwd, "/repos");
     assert.equal(args.options.permissionMode, "bypassPermissions");

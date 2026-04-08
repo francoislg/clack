@@ -3,63 +3,37 @@ import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
 import type { SessionInfo } from "../activeSessions.js";
 import type { SessionContext } from "../../sessions.js";
+import { registerResendHandler, type ResendDeps } from "./resend.js";
+import type { SlackBlocks, asSlackBlocks } from "../blocks.js";
+import type { SubmitResponsePayload } from "../../tools/types.js";
 
 // ============================================================================
-// Mocks — set up before importing the module under test
+// Mocks
 // ============================================================================
 
-const mockGetSession = mock.fn<(sessionId: string) => Promise<SessionContext | null>>(
-  async () => null,
-);
-const mockRestoreSessionInfo = mock.fn<(sessionId: string) => Promise<SessionInfo | undefined>>(
-  async () => undefined,
-);
-const mockPostResponse = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
-const mockGetStructuredResponseBlocks = mock.fn<(...args: unknown[]) => Record<string, unknown>[]>(
-  () => [],
-);
-const mockAsSlackBlocks = mock.fn<(blocks: Record<string, unknown>[]) => unknown[]>(
-  (blocks) => blocks,
-);
+const mockGetSession = mock.fn<(sessionId: string) => Promise<SessionContext | null>>();
+const mockRestoreSessionInfo = mock.fn<(sessionId: string) => Promise<SessionInfo | undefined>>();
+const mockPostResponse =
+  mock.fn<
+    (
+      client: App["client"],
+      sessionInfo: SessionInfo,
+      options: { blocks?: SlackBlocks; text: string },
+    ) => Promise<void>
+  >();
+const mockGetStructuredResponseBlocks =
+  mock.fn<(payload: SubmitResponsePayload, sessionId: string) => Array<{ type: string }>>();
+const mockAsSlackBlocks = mock.fn<typeof asSlackBlocks>();
 
-mock.module("../../sessions.js", {
-  namedExports: {
+function makeDeps(): ResendDeps {
+  return {
     getSession: mockGetSession,
-  },
-});
-
-mock.module("../activeSessions.js", {
-  namedExports: {
-    activeSessions: { restore: mockRestoreSessionInfo },
-  },
-});
-
-mock.module("./handlerResponse.js", {
-  namedExports: {
+    restoreSession: mockRestoreSessionInfo,
     postResponse: mockPostResponse,
-  },
-});
-
-mock.module("../blocks.js", {
-  namedExports: {
     getStructuredResponseBlocks: mockGetStructuredResponseBlocks,
     asSlackBlocks: mockAsSlackBlocks,
-  },
-});
-
-mock.module("../../logger.js", {
-  namedExports: {
-    logger: {
-      info: () => {},
-      warn: () => {},
-      error: () => {},
-      debug: () => {},
-    },
-  },
-});
-
-// Import after mocks
-const { registerResendHandler } = await import("./resend.js");
+  };
+}
 
 // ============================================================================
 // Helpers
@@ -69,19 +43,21 @@ type ActionHandler = (args: {
   ack: () => Promise<void>;
   body: { actions: Array<{ value: string }>; channel?: { id: string } };
   client: App["client"];
-  respond: (msg: Record<string, unknown>) => Promise<void>;
+  respond: (msg: { replace_original?: boolean; text: string }) => Promise<void>;
 }) => Promise<void>;
 
 let capturedHandler: ActionHandler;
 let capturedActionId: string;
 
-function makeApp(): App {
-  return {
+function makeApp(deps: ResendDeps): App {
+  const app = {
     action: (actionId: string, handler: ActionHandler) => {
       capturedActionId = actionId;
       capturedHandler = handler;
     },
-  } as unknown as App;
+  } as never as App;
+  registerResendHandler(app, deps);
+  return app;
 }
 
 function makeClient(): App["client"] {
@@ -90,7 +66,7 @@ function makeClient(): App["client"] {
     chat: {
       postMessage: postMessageFn,
     },
-  } as unknown as App["client"];
+  } as never as App["client"];
 }
 
 function makeSession(overrides: Partial<SessionContext> = {}): SessionContext {
@@ -126,8 +102,7 @@ beforeEach(() => {
   mockGetStructuredResponseBlocks.mock.resetCalls();
   mockAsSlackBlocks.mock.resetCalls();
 
-  const app = makeApp();
-  registerResendHandler(app);
+  const app = makeApp(makeDeps());
 });
 
 // ============================================================================
@@ -143,7 +118,9 @@ describe("registerResendHandler", () => {
   it("responds with expired message when session is not found", async () => {
     mockGetSession.mock.mockImplementation(async () => null);
     mockRestoreSessionInfo.mock.mockImplementation(async () => undefined);
-    const mockRespond = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
+    const mockRespond = mock.fn<
+      (msg: { replace_original?: boolean; text: string }) => Promise<void>
+    >(async () => {});
     const mockAck = mock.fn<() => Promise<void>>(async () => {});
 
     await capturedHandler({
@@ -155,15 +132,17 @@ describe("registerResendHandler", () => {
 
     assert.equal(mockAck.mock.callCount(), 1);
     assert.equal(mockRespond.mock.callCount(), 1);
-    const respondArgs = mockRespond.mock.calls[0].arguments[0] as Record<string, unknown>;
-    assert.ok((respondArgs.text as string).includes("expired"));
+    const respondArgs = mockRespond.mock.calls[0].arguments[0];
+    assert.ok(respondArgs.text.includes("expired"));
     assert.equal(respondArgs.replace_original, true);
   });
 
   it("responds with expired message when sessionInfo is not found", async () => {
     mockGetSession.mock.mockImplementation(async () => makeSession());
     mockRestoreSessionInfo.mock.mockImplementation(async () => undefined);
-    const mockRespond = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
+    const mockRespond = mock.fn<
+      (msg: { replace_original?: boolean; text: string }) => Promise<void>
+    >(async () => {});
     const mockAck = mock.fn<() => Promise<void>>(async () => {});
 
     await capturedHandler({
@@ -174,14 +153,16 @@ describe("registerResendHandler", () => {
     });
 
     assert.equal(mockRespond.mock.callCount(), 1);
-    const respondArgs = mockRespond.mock.calls[0].arguments[0] as Record<string, unknown>;
-    assert.ok((respondArgs.text as string).includes("expired"));
+    const respondArgs = mockRespond.mock.calls[0].arguments[0];
+    assert.ok(respondArgs.text.includes("expired"));
   });
 
   it("responds with expired message when session has no lastAnswer", async () => {
     mockGetSession.mock.mockImplementation(async () => makeSession({ lastAnswer: undefined }));
     mockRestoreSessionInfo.mock.mockImplementation(async () => makeSessionInfo());
-    const mockRespond = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
+    const mockRespond = mock.fn<
+      (msg: { replace_original?: boolean; text: string }) => Promise<void>
+    >(async () => {});
     const mockAck = mock.fn<() => Promise<void>>(async () => {});
 
     await capturedHandler({
@@ -197,16 +178,18 @@ describe("registerResendHandler", () => {
   it("posts structured response with blocks when lastResponse exists", async () => {
     const session = makeSession({
       lastAnswer: "plain answer",
-      lastResponse: { sections: [], actions: [] } as unknown as SessionContext["lastResponse"],
+      lastResponse: { sections: [], actions: [] } as never as SessionContext["lastResponse"],
     });
     const sessionInfo = makeSessionInfo();
     mockGetSession.mock.mockImplementation(async () => session);
     mockRestoreSessionInfo.mock.mockImplementation(async () => sessionInfo);
     mockGetStructuredResponseBlocks.mock.mockImplementation(() => [{ type: "section" }]);
-    mockAsSlackBlocks.mock.mockImplementation((blocks) => blocks);
+    mockAsSlackBlocks.mock.mockImplementation(() => []);
 
     const mockAck = mock.fn<() => Promise<void>>(async () => {});
-    const mockRespond = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
+    const mockRespond = mock.fn<
+      (msg: { replace_original?: boolean; text: string }) => Promise<void>
+    >(async () => {});
     const client = makeClient();
 
     await capturedHandler({
@@ -220,16 +203,16 @@ describe("registerResendHandler", () => {
     const postArgs = mockPostResponse.mock.calls[0].arguments;
     assert.equal(postArgs[0], client);
     assert.equal(postArgs[1], sessionInfo);
-    const options = postArgs[2] as { blocks: unknown[]; text: string };
+    const options = postArgs[2];
     assert.ok(options.blocks);
     assert.equal(options.text, "plain answer");
 
     // Also posts confirmation message
-    const postMessage = client.chat.postMessage as unknown as ReturnType<typeof mock.fn>;
+    const postMessage = client.chat.postMessage as never as ReturnType<typeof mock.fn>;
     assert.equal(postMessage.mock.callCount(), 1);
-    const msgArgs = postMessage.mock.calls[0].arguments[0] as Record<string, unknown>;
+    const msgArgs = postMessage.mock.calls[0].arguments[0] as { channel: string; text: string };
     assert.equal(msgArgs.channel, "C001");
-    assert.ok((msgArgs.text as string).includes("sent again"));
+    assert.ok(msgArgs.text.includes("sent again"));
   });
 
   it("posts plain text when lastResponse is not present", async () => {
@@ -239,7 +222,9 @@ describe("registerResendHandler", () => {
     mockRestoreSessionInfo.mock.mockImplementation(async () => sessionInfo);
 
     const mockAck = mock.fn<() => Promise<void>>(async () => {});
-    const mockRespond = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
+    const mockRespond = mock.fn<
+      (msg: { replace_original?: boolean; text: string }) => Promise<void>
+    >(async () => {});
     const client = makeClient();
 
     await capturedHandler({
@@ -250,10 +235,7 @@ describe("registerResendHandler", () => {
     });
 
     assert.equal(mockPostResponse.mock.callCount(), 1);
-    const options = mockPostResponse.mock.calls[0].arguments[2] as {
-      blocks?: unknown[];
-      text: string;
-    };
+    const options = mockPostResponse.mock.calls[0].arguments[2];
     assert.equal(options.text, "just text");
     assert.equal(options.blocks, undefined);
   });
@@ -266,7 +248,9 @@ describe("registerResendHandler", () => {
     const mockAck = mock.fn<() => Promise<void>>(async () => {
       callOrder.push("ack");
     });
-    const mockRespond = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {
+    const mockRespond = mock.fn<
+      (msg: { replace_original?: boolean; text: string }) => Promise<void>
+    >(async () => {
       callOrder.push("respond");
     });
 

@@ -73,15 +73,13 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  const authUrl =
-    `https://auth.monday.com/oauth2/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`;
+  const authUrl = `https://auth.monday.com/oauth2/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`;
 
   console.log(`Listening on http://localhost:${PORT}`);
   console.log(`\nOpening browser to authorize...\n`);
 
   // Open browser (macOS/Linux/Windows)
   const cmd =
-    process.platform === "darwin" ? "open" :
-    process.platform === "win32" ? "start" : "xdg-open";
+    process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
   exec(`${cmd} "${authUrl}"`);
 });

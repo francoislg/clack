@@ -138,7 +138,7 @@ describe("extractToolErrorMessage", () => {
   it("truncates strings longer than 100 characters", () => {
     const long = "x".repeat(150);
     const result = extractToolErrorMessage(long);
-    assert.equal(result, "x".repeat(100) + "\u2026");
+    assert.equal(result, "x".repeat(99) + "\u2026");
   });
 
   it("returns undefined for empty string", () => {

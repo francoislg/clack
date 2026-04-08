@@ -3,14 +3,86 @@ import type { WebClient } from "@slack/web-api";
 import { getConfig, type Config } from "../../config.js";
 import { logger } from "../../logger.js";
 import { findMatchingRule, loadRules } from "../../autoRespond.js";
-import { runPreAnalysis } from "../../claude/preAnalysis.js";
+import { runPreAnalysis, type PreAnalysisMessage } from "../../claude/preAnalysis.js";
 import { loadPreAnalysisContext } from "../../configurationFiles.js";
-import { findSessionByThread } from "../../sessions.js";
+import { findSessionByThread, setAutoResponseActive } from "../../sessions.js";
+import { resolveUsers } from "../userCache.js";
+import { getChannelInfo } from "../channelCache.js";
+import { resolveChannelLabel, resolveUserLabel, slackLink } from "../logContext.js";
 import { extractAttachments } from "../fileExtractor.js";
 import { processMessage } from "./core.js";
 import type { TriggerType } from "../../changes/types.js";
 
 const AUTO_RESPOND_USER_ID = "auto-respond";
+
+const MENTION_PATTERN = /<@([UW][A-Z0-9]+)>/g;
+
+const THREAD_PRE_ANALYSIS_CONTEXT =
+  "This is a thread where the bot previously answered a question. Respond only to genuine follow-up questions or requests for clarification. Skip acknowledgments (thanks, got it, cool), noise (+1, emoji, lol), and conversation between other people that doesn't require the bot's input.";
+
+interface PreAnalysisEnrichment {
+  history: PreAnalysisMessage[];
+  resolvedMessageText: string;
+  messageAuthorName: string;
+}
+
+/**
+ * Resolve user mentions and build enriched message history for pre-analysis.
+ * Shared between top-level and thread reply pre-analysis paths.
+ */
+async function enrichForPreAnalysis(
+  client: WebClient,
+  rawMessages: Array<{ user?: string; bot_id?: string; text?: string; ts?: string }>,
+  currentText: string,
+  messageUser: string | undefined,
+  botUserId: string,
+  botId: string | undefined,
+  botName: string,
+): Promise<PreAnalysisEnrichment> {
+  const allUserIds = new Set<string>();
+  if (messageUser) allUserIds.add(messageUser);
+  for (const m of rawMessages) {
+    if (m.user) allUserIds.add(m.user);
+    if (m.bot_id) allUserIds.add(m.bot_id);
+    for (const match of (m.text ?? "").matchAll(MENTION_PATTERN)) {
+      allUserIds.add(match[1]);
+    }
+  }
+  for (const match of currentText.matchAll(MENTION_PATTERN)) {
+    allUserIds.add(match[1]);
+  }
+
+  const userInfoMap = await resolveUsers(client, [...allUserIds]);
+
+  const resolveMention = (_: string, id: string): string => {
+    const u = userInfoMap.get(id);
+    return `@${u?.displayName ?? u?.username ?? id}`;
+  };
+
+  const history: PreAnalysisMessage[] = rawMessages
+    .map((m) => {
+      const userId = m.user ?? m.bot_id;
+      const isBotMessage = m.user === botUserId || (m.bot_id != null && m.bot_id === botId);
+      const info = userId ? userInfoMap.get(userId) : undefined;
+      const author = isBotMessage
+        ? `${botName} (bot)`
+        : (info?.displayName ?? info?.username ?? "Unknown");
+      let text = m.text?.slice(0, 300) ?? "";
+      text = text.replace(MENTION_PATTERN, resolveMention);
+      return { author, text, isBot: isBotMessage, ts: m.ts };
+    })
+    .filter((m) => m.text);
+
+  const resolvedMessageText = currentText.replace(MENTION_PATTERN, resolveMention);
+
+  let messageAuthorName = "Unknown";
+  if (messageUser) {
+    const authorInfo = userInfoMap.get(messageUser);
+    messageAuthorName = authorInfo?.displayName ?? authorInfo?.username ?? "Unknown";
+  }
+
+  return { history, resolvedMessageText, messageAuthorName };
+}
 
 interface AutoRespondContext {
   triggerType: TriggerType;
@@ -18,11 +90,25 @@ interface AutoRespondContext {
   additionalSystemPrompt?: string;
 }
 
+export interface AutoRespondDeps {
+  findSession: typeof findSessionByThread;
+  setActive: typeof setAutoResponseActive;
+  preAnalysis: typeof runPreAnalysis;
+  loadSharedContext: typeof loadPreAnalysisContext;
+}
+
+const defaultAutoRespondDeps: AutoRespondDeps = {
+  findSession: findSessionByThread,
+  setActive: setAutoResponseActive,
+  preAnalysis: runPreAnalysis,
+  loadSharedContext: loadPreAnalysisContext,
+};
+
 /**
  * Determine whether and how the bot should auto-respond to this message.
  * Thread replies gate on session existence; top-level messages gate on rule matching.
  */
-async function resolveAutoRespondContext(
+export async function resolveAutoRespondContext(
   channelId: string,
   messageTs: string,
   messageUser: string | undefined,
@@ -31,25 +117,55 @@ async function resolveAutoRespondContext(
   threadTs: string | undefined,
   config: Config,
   client: WebClient,
+  botUserId: string,
+  botId: string | undefined,
+  deps: AutoRespondDeps = defaultAutoRespondDeps,
 ): Promise<AutoRespondContext | null> {
+  const channelInfo = await getChannelInfo(client, channelId);
+  const channelLabel = await resolveChannelLabel(client, channelId);
+  const userLabel = messageUser ? await resolveUserLabel(client, messageUser) : "unknown";
+
   if (threadTs) {
+    const threadLink = await slackLink(client, channelId, threadTs);
     if (config.threadAutoRespond === false) {
       logger.info(`Thread auto-respond disabled by config`);
       return null;
     }
     if (messageBotId) {
-      logger.info(`Thread auto-respond: skipping bot message in ${channelId}`);
+      logger.debug(`Thread auto-respond: skipping bot message in ${channelLabel}${threadLink}`);
       return null;
     }
-    const session = await findSessionByThread(channelId, threadTs);
+    const session = await deps.findSession(channelId, threadTs);
     if (!session) {
-      logger.info(`Thread auto-respond: no session for thread ${channelId}:${threadTs}`);
+      logger.debug(
+        `Thread auto-respond: no session for ${userLabel} in ${channelLabel}${threadLink}`,
+      );
       return null;
     }
+    // Skip disengaged threads without running pre-analysis
+    if (session.autoResponseActive === false) {
+      logger.debug(
+        `Thread auto-respond: disengaged session ${session.sessionId} in ${channelLabel}${threadLink}`,
+      );
+      return null;
+    }
+
+    // Disengage if the message is older than the configured age cutoff
+    const maxAgeMinutes = config.threadAutoRespondMaxAgeMinutes ?? 60;
+    const messageAgeMinutes = (Date.now() / 1000 - parseFloat(messageTs)) / 60;
+    if (messageAgeMinutes > maxAgeMinutes) {
+      logger.info(
+        `Thread auto-respond: disengaging session ${session.sessionId} — message is ${Math.round(messageAgeMinutes)}m old (max ${maxAgeMinutes}m) in ${channelLabel}${threadLink}`,
+      );
+      await deps.setActive(session.sessionId, false);
+      return null;
+    }
+
     logger.info(
-      `Thread auto-respond: found session ${session.sessionId} for thread ${channelId}:${threadTs}`,
+      `Thread auto-respond: found session ${session.sessionId} for ${userLabel} in ${channelLabel}${threadLink}`,
     );
 
+    // Change workflow commands bypass pre-analysis
     if (session.activeChange?.status === "pr_created") {
       const text = rawText?.trim() ?? "";
       if (
@@ -60,6 +176,61 @@ async function resolveAutoRespondContext(
         return null;
       }
     }
+
+    // Pre-analysis: filter noise in thread replies
+    const textForAnalysis = rawText?.trim();
+    if (!textForAnalysis) {
+      logger.debug(`Thread auto-respond: empty message, skipping${threadLink}`);
+      return null;
+    }
+
+    const botName = config.slackApp?.name ?? "Clack";
+    let enrichment: PreAnalysisEnrichment = {
+      history: [],
+      resolvedMessageText: textForAnalysis,
+      messageAuthorName: "Unknown",
+    };
+    try {
+      const replies = await client.conversations.replies({
+        channel: channelId,
+        ts: threadTs,
+        latest: messageTs,
+        inclusive: false,
+        limit: 15,
+      });
+      const threadMessages = (replies.messages ?? []).filter((m) => m.ts !== threadTs).slice(-10);
+      enrichment = await enrichForPreAnalysis(
+        client,
+        threadMessages,
+        textForAnalysis,
+        messageUser,
+        botUserId,
+        botId,
+        botName,
+      );
+    } catch (error) {
+      logger.warn("Thread pre-analysis: failed to fetch thread context", error);
+    }
+
+    const sharedContext = deps.loadSharedContext();
+    const verdict = await deps.preAnalysis(
+      enrichment.resolvedMessageText,
+      enrichment.messageAuthorName,
+      botName,
+      THREAD_PRE_ANALYSIS_CONTEXT,
+      sharedContext || undefined,
+      enrichment.history,
+      channelInfo?.name,
+    );
+    logger.debug(`Thread pre-analysis: ${channelLabel}, verdict=${verdict}${threadLink}`);
+    if (verdict === "stop") {
+      logger.info(
+        `Thread auto-respond: disengaging session ${session.sessionId} in ${channelLabel}${threadLink}`,
+      );
+      await deps.setActive(session.sessionId, false);
+      return null;
+    }
+    if (verdict !== "respond") return null;
 
     return { triggerType: "threadReply", userId: messageUser ?? "thread-reply" };
   }
@@ -77,7 +248,12 @@ async function resolveAutoRespondContext(
     const textForAnalysis = rawText?.trim();
     if (!textForAnalysis) return null;
 
-    let recentMessages: string[] = [];
+    const botName = config.slackApp?.name ?? "Clack";
+    let enrichment: PreAnalysisEnrichment = {
+      history: [],
+      resolvedMessageText: textForAnalysis,
+      messageAuthorName: "Unknown",
+    };
     try {
       const history = await client.conversations.history({
         channel: channelId,
@@ -85,25 +261,35 @@ async function resolveAutoRespondContext(
         limit: 10,
         inclusive: false,
       });
-      recentMessages = (history.messages ?? [])
-        .reverse()
-        .map((m) => m.text?.slice(0, 200) ?? "")
-        .filter(Boolean);
-    } catch {
-      // Non-fatal — proceed without context
+      const historyMessages = (history.messages ?? []).reverse();
+      enrichment = await enrichForPreAnalysis(
+        client,
+        historyMessages,
+        textForAnalysis,
+        messageUser,
+        botUserId,
+        botId,
+        botName,
+      );
+    } catch (error) {
+      logger.warn("Pre-analysis: failed to enrich message context", error);
     }
 
-    const sharedContext = loadPreAnalysisContext();
-    const shouldRespond = await runPreAnalysis(
-      textForAnalysis,
+    const sharedContext = deps.loadSharedContext();
+    const topLevelVerdict = await deps.preAnalysis(
+      enrichment.resolvedMessageText,
+      enrichment.messageAuthorName,
+      botName,
       rule.preAnalysisContext,
       sharedContext || undefined,
-      recentMessages,
+      enrichment.history,
+      channelInfo?.name,
     );
     logger.debug(
-      `Pre-analysis: channel=${channelId}, rule=${rule.id}, verdict=${shouldRespond ? "yes" : "no"}`,
+      `Pre-analysis: ${channelLabel}, rule=${rule.id}, verdict=${topLevelVerdict}${await slackLink(client, channelId, messageTs)}`,
     );
-    if (!shouldRespond) return null;
+    // Top-level messages have no session to disengage, so treat "stop" as "skip"
+    if (topLevelVerdict !== "respond") return null;
   }
 
   return {
@@ -131,6 +317,7 @@ export function registerAutoRespondHandler(app: App): void {
       botUserId = authResult.user_id;
       botId = authResult.bot_id;
     }
+    if (!botUserId) return;
 
     const messageUser = "user" in event ? (event.user as string | undefined) : undefined;
     if (messageUser === botUserId) return;
@@ -155,6 +342,8 @@ export function registerAutoRespondHandler(app: App): void {
       threadTs,
       config,
       client,
+      botUserId,
+      botId,
     );
     if (!context) return;
 
@@ -184,8 +373,11 @@ async function respond(
   const rawText = "text" in event ? (event as unknown as { text?: string }).text : undefined;
   const messageText = rawText?.trim() || "Respond to this message";
 
+  const channelLabel = await resolveChannelLabel(client, event.channel);
+  const userLabel = await resolveUserLabel(client, context.userId);
+  const link = await slackLink(client, event.channel, threadTs ?? event.ts);
   logger.info(
-    `Auto-respond triggered: channel=${event.channel}, trigger=${context.triggerType}, author=${context.userId}`,
+    `Auto-respond triggered: ${userLabel} in ${channelLabel} (${context.triggerType})${link}`,
   );
 
   const attachments = extractAttachments(
@@ -206,7 +398,7 @@ async function respond(
     });
   } catch (error) {
     logger.error(
-      `Auto-respond failed: channel=${event.channel}, trigger=${context.triggerType}`,
+      `Auto-respond failed: ${channelLabel}, trigger=${context.triggerType}${link}`,
       error,
     );
   }

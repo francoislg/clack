@@ -1,15 +1,29 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { CronExpressionParser } from "cron-parser";
+import type { App } from "@slack/bolt";
 import type { QueryToolContext } from "../types.js";
 import { textResult, errorResult, resolveChannelId } from "../helpers.js";
-import { createJob } from "../../cronJobs.js";
-import { getUserInfo } from "../../slack/userCache.js";
+import { createJob, type CronJob } from "../../cronJobs.js";
+import { getUserInfo, type UserInfo } from "../../slack/userCache.js";
 import { logger } from "../../logger.js";
 import { errorMessage } from "../../errors.js";
 import { humanReadableSchedule } from "../../cronScheduler.js";
 
-export function createCreateScheduledMessageTool(ctx: QueryToolContext) {
+export interface CreateScheduledMessageDeps {
+  getUserInfo: (client: App["client"], userId: string) => Promise<UserInfo | undefined>;
+  createJob: (params: Parameters<typeof createJob>[0]) => Promise<CronJob>;
+}
+
+export const defaultCreateScheduledMessageDeps: CreateScheduledMessageDeps = {
+  getUserInfo,
+  createJob,
+};
+
+export function createCreateScheduledMessageTool(
+  ctx: QueryToolContext,
+  deps: CreateScheduledMessageDeps = defaultCreateScheduledMessageDeps,
+) {
   return tool(
     "create_scheduled_message",
     "Create a scheduled message that runs on a cron schedule. " +
@@ -58,11 +72,11 @@ export function createCreateScheduledMessageTool(ctx: QueryToolContext) {
       const channelId = resolved.channelId;
 
       // Get creator's timezone
-      const userInfo = await getUserInfo(ctx.slackClient, ctx.userId);
+      const userInfo = await deps.getUserInfo(ctx.slackClient, ctx.userId);
       const timezone = userInfo?.tz ?? "UTC";
 
       try {
-        const job = await createJob({
+        const job = await deps.createJob({
           cronExpression: args.cronExpression,
           channel: channelId,
           prompt: args.prompt,

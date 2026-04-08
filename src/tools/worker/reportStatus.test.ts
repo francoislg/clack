@@ -1,33 +1,11 @@
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
-
-// ---------------------------------------------------------------------------
-// Module-level mocks
-// ---------------------------------------------------------------------------
-
-const mockPostMessage = mock.fn<(...args: unknown[]) => Promise<unknown>>();
-const mockGetSlackClient = mock.fn<() => unknown>();
-
-mock.module("../../slack/app.js", {
-  namedExports: {
-    getSlackClient: mockGetSlackClient,
-  },
-});
-
-mock.module("../../errors.js", {
-  namedExports: {
-    errorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
-  },
-});
-
-// Import after mocks
-const { createReportStatusTool } = await import("./reportStatus.js");
+import { createReportStatusTool, type ReportStatusDeps } from "./reportStatus.js";
+import type { WorkerToolContext } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-import type { WorkerToolContext } from "../types.js";
 
 function makeCtx(overrides?: Partial<WorkerToolContext>): WorkerToolContext {
   return {
@@ -39,23 +17,33 @@ function makeCtx(overrides?: Partial<WorkerToolContext>): WorkerToolContext {
     channelId: "C123",
     threadTs: "1.0",
     sessionId: "sess-1",
-    config: { repositories: [] } as unknown as WorkerToolContext["config"],
+    config: { repositories: [] } as never as WorkerToolContext["config"],
     ...overrides,
   };
 }
 
-function parseResult(result: { content: Array<{ text: string }> }) {
-  return JSON.parse(result.content[0].text);
+interface ToolResult {
+  content: Array<{ text: string }>;
+  isError?: true;
 }
 
-function resetMocks() {
-  mockPostMessage.mock.resetCalls();
-  mockGetSlackClient.mock.resetCalls();
+function parseResult(result: ToolResult) {
+  return JSON.parse(result.content[0]!.text);
+}
 
-  mockGetSlackClient.mock.mockImplementation(() => ({
+function makeDeps() {
+  const mockPostMessage = mock.fn<(...args: unknown[]) => Promise<unknown>>(async () => ({
+    ok: true,
+  }));
+  const mockGetSlackClient = mock.fn<() => unknown>(() => ({
     chat: { postMessage: mockPostMessage },
   }));
-  mockPostMessage.mock.mockImplementation(async () => ({ ok: true }));
+
+  const deps: ReportStatusDeps = {
+    getSlackClient: mockGetSlackClient as never as ReportStatusDeps["getSlackClient"],
+  };
+
+  return { deps, mockGetSlackClient, mockPostMessage };
 }
 
 // ---------------------------------------------------------------------------
@@ -63,11 +51,11 @@ function resetMocks() {
 // ---------------------------------------------------------------------------
 
 describe("reportStatus tool", () => {
-  beforeEach(resetMocks);
-
   it("posts message to Slack thread and returns success", async () => {
+    const { deps, mockPostMessage } = makeDeps();
+
     const ctx = makeCtx();
-    const toolDef = createReportStatusTool(ctx);
+    const toolDef = createReportStatusTool(ctx, deps);
     const result = await toolDef.handler({ message: "Work is done!" }, { sessionId: "test" });
 
     const parsed = parseResult(result);
@@ -76,16 +64,21 @@ describe("reportStatus tool", () => {
 
     // Verify postMessage was called correctly
     assert.equal(mockPostMessage.mock.callCount(), 1);
-    const callArgs = mockPostMessage.mock.calls[0].arguments[0] as Record<string, unknown>;
+    const callArgs = mockPostMessage.mock.calls[0]!.arguments[0] as {
+      channel: string;
+      thread_ts: string;
+      text: string;
+    };
     assert.equal(callArgs.channel, "C123");
     assert.equal(callArgs.thread_ts, "1.0");
     assert.equal(callArgs.text, "Work is done!");
   });
 
   it("returns error when Slack client is not available", async () => {
+    const { deps, mockGetSlackClient } = makeDeps();
     mockGetSlackClient.mock.mockImplementation(() => null);
 
-    const toolDef = createReportStatusTool(makeCtx());
+    const toolDef = createReportStatusTool(makeCtx(), deps);
     const result = await toolDef.handler({ message: "Status update" }, { sessionId: "test" });
 
     const parsed = parseResult(result);
@@ -95,11 +88,12 @@ describe("reportStatus tool", () => {
   });
 
   it("returns error when postMessage throws", async () => {
+    const { deps, mockPostMessage } = makeDeps();
     mockPostMessage.mock.mockImplementation(async () => {
       throw new Error("channel_not_found");
     });
 
-    const toolDef = createReportStatusTool(makeCtx());
+    const toolDef = createReportStatusTool(makeCtx(), deps);
     const result = await toolDef.handler({ message: "Hello" }, { sessionId: "test" });
 
     const parsed = parseResult(result);
@@ -110,23 +104,30 @@ describe("reportStatus tool", () => {
   });
 
   it("uses channelId and threadTs from context", async () => {
+    const { deps, mockPostMessage } = makeDeps();
+
     const ctx = makeCtx({ channelId: "C999", threadTs: "99.99" });
-    const toolDef = createReportStatusTool(ctx);
+    const toolDef = createReportStatusTool(ctx, deps);
     await toolDef.handler({ message: "test" }, { sessionId: "test" });
 
-    const callArgs = mockPostMessage.mock.calls[0].arguments[0] as Record<string, unknown>;
+    const callArgs = mockPostMessage.mock.calls[0]!.arguments[0] as {
+      channel: string;
+      thread_ts: string;
+    };
     assert.equal(callArgs.channel, "C999");
     assert.equal(callArgs.thread_ts, "99.99");
   });
 
   it("passes the message argument as text", async () => {
-    const toolDef = createReportStatusTool(makeCtx());
+    const { deps, mockPostMessage } = makeDeps();
+
+    const toolDef = createReportStatusTool(makeCtx(), deps);
     await toolDef.handler(
       { message: "Build completed successfully with 0 errors" },
       { sessionId: "test" },
     );
 
-    const callArgs = mockPostMessage.mock.calls[0].arguments[0] as Record<string, unknown>;
+    const callArgs = mockPostMessage.mock.calls[0]!.arguments[0] as { text: string };
     assert.equal(callArgs.text, "Build completed successfully with 0 errors");
   });
 });

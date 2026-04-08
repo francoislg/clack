@@ -1,30 +1,25 @@
 import { describe, it, beforeEach, mock } from "node:test";
 import assert from "node:assert/strict";
-
-// ---------------------------------------------------------------------------
-// Module-level mocks
-// ---------------------------------------------------------------------------
-
-const mockReadInstructionFile =
-  mock.fn<
-    (filepath: string) => { default_content: string | null; custom_content: string | null }
-  >();
-
-mock.module("../../configurationFiles.js", {
-  namedExports: {
-    readInstructionFile: mockReadInstructionFile,
-  },
-});
-
-// Import after mocks
-const { createProposeConfigUpdateTool } = await import("./proposeConfigUpdate.js");
+import {
+  createProposeConfigUpdateTool,
+  type ProposeConfigUpdateDeps,
+} from "./proposeConfigUpdate.js";
+import type { QueryToolContext } from "../types.js";
+import type { IntentStore, ToolCallRecorder } from "../server.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-import type { QueryToolContext } from "../types.js";
-import type { IntentStore, ToolCallRecorder } from "../server.js";
+function makeDeps(overrides?: Partial<ProposeConfigUpdateDeps>): ProposeConfigUpdateDeps {
+  return {
+    readInstructionFile: mock.fn(() => ({
+      default_content: null,
+      custom_content: null,
+    })),
+    ...overrides,
+  };
+}
 
 function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
   return {
@@ -46,7 +41,7 @@ function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
     },
     config: {
       repositories: [],
-    } as unknown as QueryToolContext["config"],
+    } as never as QueryToolContext["config"],
     changesWorkflowEnabled: false,
     allowScheduledMessages: false,
     ...overrides,
@@ -54,12 +49,12 @@ function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
 }
 
 function makeIntentStore(): IntentStore {
-  const intents = new Map<string, unknown>();
+  const intents = new Map<string, ReturnType<IntentStore["resolve"]>>();
   let counter = 0;
   return {
-    stage: (intent: unknown) => {
+    stage: (intent) => {
       const ref = `ref-${++counter}`;
-      intents.set(ref, intent);
+      intents.set(ref, intent as ReturnType<IntentStore["resolve"]>);
       return ref;
     },
     resolve: (ref: string) => intents.get(ref) as ReturnType<IntentStore["resolve"]>,
@@ -68,12 +63,24 @@ function makeIntentStore(): IntentStore {
 }
 
 function makeRecorder(): ToolCallRecorder & {
-  calls: Array<{ tool: string; args: unknown; result: unknown }>;
+  calls: Array<{
+    tool: string;
+    args: { [key: string]: unknown };
+    result: { [key: string]: unknown };
+  }>;
 } {
-  const calls: Array<{ tool: string; args: unknown; result: unknown }> = [];
+  const calls: Array<{
+    tool: string;
+    args: { [key: string]: unknown };
+    result: { [key: string]: unknown };
+  }> = [];
   return {
     calls,
-    record: (tool: string, args: Record<string, unknown>, result: Record<string, unknown>) => {
+    record: (
+      tool: string,
+      args: { [key: string]: unknown },
+      result: { [key: string]: unknown },
+    ) => {
       calls.push({ tool, args, result });
     },
     getHistory: () => [],
@@ -84,20 +91,16 @@ function parseResult(result: { content: Array<{ text: string }> }) {
   return JSON.parse(result.content[0].text);
 }
 
-function resetMocks() {
-  mockReadInstructionFile.mock.resetCalls();
-  mockReadInstructionFile.mock.mockImplementation(() => ({
-    default_content: null,
-    custom_content: null,
-  }));
-}
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 describe("proposeConfigUpdate tool", () => {
-  beforeEach(resetMocks);
+  let deps: ProposeConfigUpdateDeps;
+
+  beforeEach(() => {
+    deps = makeDeps();
+  });
 
   // --- Path validation ---
 
@@ -105,7 +108,7 @@ describe("proposeConfigUpdate tool", () => {
     const ctx = makeCtx();
     const store = makeIntentStore();
     const recorder = makeRecorder();
-    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder);
+    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder, deps);
 
     const result = await toolDef.handler(
       {
@@ -126,7 +129,7 @@ describe("proposeConfigUpdate tool", () => {
     const ctx = makeCtx();
     const store = makeIntentStore();
     const recorder = makeRecorder();
-    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder);
+    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder, deps);
 
     await toolDef.handler(
       {
@@ -145,7 +148,7 @@ describe("proposeConfigUpdate tool", () => {
     const ctx = makeCtx();
     const store = makeIntentStore();
     const recorder = makeRecorder();
-    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder);
+    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder, deps);
 
     const result = await toolDef.handler(
       {
@@ -165,7 +168,7 @@ describe("proposeConfigUpdate tool", () => {
     const ctx = makeCtx();
     const store = makeIntentStore();
     const recorder = makeRecorder();
-    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder);
+    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder, deps);
 
     const result = await toolDef.handler(
       {
@@ -183,15 +186,17 @@ describe("proposeConfigUpdate tool", () => {
   // --- Append operation ---
 
   it("appends to existing custom content when file has content", async () => {
-    mockReadInstructionFile.mock.mockImplementation(() => ({
-      default_content: "default stuff",
-      custom_content: "existing line 1\nexisting line 2",
-    }));
+    deps = makeDeps({
+      readInstructionFile: mock.fn(() => ({
+        default_content: "default stuff",
+        custom_content: "existing line 1\nexisting line 2",
+      })),
+    });
 
     const ctx = makeCtx();
     const store = makeIntentStore();
     const recorder = makeRecorder();
-    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder);
+    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder, deps);
 
     const result = await toolDef.handler(
       {
@@ -208,15 +213,17 @@ describe("proposeConfigUpdate tool", () => {
   });
 
   it("appends to default content when no custom exists", async () => {
-    mockReadInstructionFile.mock.mockImplementation(() => ({
-      default_content: "default content",
-      custom_content: null,
-    }));
+    deps = makeDeps({
+      readInstructionFile: mock.fn(() => ({
+        default_content: "default content",
+        custom_content: null,
+      })),
+    });
 
     const ctx = makeCtx();
     const store = makeIntentStore();
     const recorder = makeRecorder();
-    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder);
+    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder, deps);
 
     const result = await toolDef.handler(
       {
@@ -236,7 +243,7 @@ describe("proposeConfigUpdate tool", () => {
     const ctx = makeCtx();
     const store = makeIntentStore();
     const recorder = makeRecorder();
-    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder);
+    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder, deps);
 
     const result = await toolDef.handler(
       {
@@ -258,7 +265,7 @@ describe("proposeConfigUpdate tool", () => {
     const ctx = makeCtx();
     const store = makeIntentStore();
     const recorder = makeRecorder();
-    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder);
+    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder, deps);
 
     const result = await toolDef.handler(
       {
@@ -277,15 +284,17 @@ describe("proposeConfigUpdate tool", () => {
   // --- Status field ---
 
   it("returns will_overwrite_custom status when file has custom content", async () => {
-    mockReadInstructionFile.mock.mockImplementation(() => ({
-      default_content: "default",
-      custom_content: "custom",
-    }));
+    deps = makeDeps({
+      readInstructionFile: mock.fn(() => ({
+        default_content: "default",
+        custom_content: "custom",
+      })),
+    });
 
     const ctx = makeCtx();
     const store = makeIntentStore();
     const recorder = makeRecorder();
-    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder);
+    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder, deps);
 
     const result = await toolDef.handler(
       {
@@ -301,15 +310,17 @@ describe("proposeConfigUpdate tool", () => {
   });
 
   it("returns will_override_default status when file has default but no custom", async () => {
-    mockReadInstructionFile.mock.mockImplementation(() => ({
-      default_content: "default",
-      custom_content: null,
-    }));
+    deps = makeDeps({
+      readInstructionFile: mock.fn(() => ({
+        default_content: "default",
+        custom_content: null,
+      })),
+    });
 
     const ctx = makeCtx();
     const store = makeIntentStore();
     const recorder = makeRecorder();
-    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder);
+    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder, deps);
 
     const result = await toolDef.handler(
       {
@@ -328,7 +339,7 @@ describe("proposeConfigUpdate tool", () => {
     const ctx = makeCtx();
     const store = makeIntentStore();
     const recorder = makeRecorder();
-    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder);
+    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder, deps);
 
     const result = await toolDef.handler(
       {
@@ -349,7 +360,7 @@ describe("proposeConfigUpdate tool", () => {
     const ctx = makeCtx();
     const store = makeIntentStore();
     const recorder = makeRecorder();
-    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder);
+    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder, deps);
 
     const result = await toolDef.handler(
       {
@@ -374,7 +385,7 @@ describe("proposeConfigUpdate tool", () => {
     const ctx = makeCtx();
     const store = makeIntentStore();
     const recorder = makeRecorder();
-    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder);
+    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder, deps);
 
     await toolDef.handler(
       {
