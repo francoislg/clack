@@ -1,50 +1,34 @@
 import { describe, it, beforeEach, mock } from "node:test";
 import assert from "node:assert/strict";
-
-// ---------------------------------------------------------------------------
-// Module-level mocks — must be set up before importing the module under test
-// ---------------------------------------------------------------------------
-
-const mockReadFile = mock.fn<(path: string, encoding: string) => Promise<string>>();
-const mockWriteFile = mock.fn<(path: string, data: string) => Promise<void>>();
-const mockMkdir =
-  mock.fn<(path: string, opts?: { recursive: boolean }) => Promise<string | undefined>>();
-
-mock.module("node:fs/promises", {
-  namedExports: {
-    readFile: mockReadFile,
-    writeFile: mockWriteFile,
-    mkdir: mockMkdir,
-  },
-});
-
-const mockFileExists = mock.fn<(path: string) => Promise<boolean>>();
-
-mock.module("./fs.js", {
-  namedExports: {
-    fileExists: mockFileExists,
-  },
-});
-
-mock.module("./logger.js", {
-  namedExports: {
-    logger: {
-      debug: () => {},
-      info: () => {},
-      warn: () => {},
-      error: () => {},
-    },
-  },
-});
-
-const {
+import {
   loadPreferences,
   savePreferences,
   getUserPreference,
   setUserPreference,
   getReactionDelivery,
   clearPreferencesCache,
-} = await import("./userPreferences.js");
+  setUserPreferencesDeps,
+  type UserPreferencesDeps,
+} from "./userPreferences.js";
+
+// ---------------------------------------------------------------------------
+// Mock deps
+// ---------------------------------------------------------------------------
+
+const mockReadFile = mock.fn<(path: string, encoding: string) => Promise<string>>();
+const mockWriteFile = mock.fn<(path: string, data: string) => Promise<void>>();
+const mockMkdir =
+  mock.fn<(path: string, opts?: { recursive: boolean }) => Promise<string | undefined>>();
+const mockFileExists = mock.fn<(path: string) => Promise<boolean>>();
+
+function makeDeps(): UserPreferencesDeps {
+  return {
+    readFile: mockReadFile as never,
+    writeFile: mockWriteFile as never,
+    mkdir: mockMkdir as never,
+    fileExists: mockFileExists as never,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // loadPreferences
@@ -57,6 +41,7 @@ describe("loadPreferences", () => {
     mockWriteFile.mock.resetCalls();
     mockMkdir.mock.resetCalls();
     mockFileExists.mock.resetCalls();
+    setUserPreferencesDeps(makeDeps());
   });
 
   it("returns {} when file doesn't exist", async () => {
@@ -112,6 +97,7 @@ describe("savePreferences", () => {
     mockWriteFile.mock.resetCalls();
     mockMkdir.mock.resetCalls();
     mockFileExists.mock.resetCalls();
+    setUserPreferencesDeps(makeDeps());
   });
 
   it("creates state dir if it doesn't exist", async () => {
@@ -158,6 +144,7 @@ describe("getUserPreference", () => {
     mockWriteFile.mock.resetCalls();
     mockMkdir.mock.resetCalls();
     mockFileExists.mock.resetCalls();
+    setUserPreferencesDeps(makeDeps());
   });
 
   it("returns stored value for known user", async () => {
@@ -207,6 +194,7 @@ describe("setUserPreference", () => {
     mockWriteFile.mock.resetCalls();
     mockMkdir.mock.resetCalls();
     mockFileExists.mock.resetCalls();
+    setUserPreferencesDeps(makeDeps());
   });
 
   it("creates user entry if none exists", async () => {
@@ -248,6 +236,7 @@ describe("getReactionDelivery", () => {
     mockWriteFile.mock.resetCalls();
     mockMkdir.mock.resetCalls();
     mockFileExists.mock.resetCalls();
+    setUserPreferencesDeps(makeDeps());
   });
 
   it("returns stored value", async () => {
@@ -281,6 +270,7 @@ describe("clearPreferencesCache", () => {
     mockWriteFile.mock.resetCalls();
     mockMkdir.mock.resetCalls();
     mockFileExists.mock.resetCalls();
+    setUserPreferencesDeps(makeDeps());
   });
 
   it("forces next load from disk", async () => {

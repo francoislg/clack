@@ -3,6 +3,36 @@ import { resolve, join, basename } from "node:path";
 import type { SdkPluginConfig } from "@anthropic-ai/claude-agent-sdk";
 import { getDataDir } from "./config.js";
 
+// ============================================================================
+// Dependency Injection
+// ============================================================================
+
+export interface PluginsDeps {
+  existsSync: typeof existsSync;
+  readdirSync: typeof readdirSync;
+  readFileSync: typeof readFileSync;
+  statSync: typeof statSync;
+  getDataDir: typeof getDataDir;
+}
+
+export const defaultPluginsDeps: PluginsDeps = {
+  existsSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  getDataDir,
+};
+
+let deps: PluginsDeps = defaultPluginsDeps;
+
+export function setPluginsDeps(d: PluginsDeps): void {
+  deps = d;
+}
+
+export function resetPluginsDeps(): void {
+  deps = defaultPluginsDeps;
+}
+
 export interface PluginInfo {
   name: string;
   path: string;
@@ -14,23 +44,23 @@ export interface PluginInfo {
  * Returns rich metadata for display and SDK configs.
  */
 export function discoverPluginInfo(): PluginInfo[] {
-  const pluginsDir = resolve(getDataDir(), "plugins");
+  const pluginsDir = resolve(deps.getDataDir(), "plugins");
 
-  if (!existsSync(pluginsDir)) {
+  if (!deps.existsSync(pluginsDir)) {
     return [];
   }
 
-  const entries = readdirSync(pluginsDir);
+  const entries = deps.readdirSync(pluginsDir);
   const plugins: PluginInfo[] = [];
 
   for (const entry of entries) {
     const entryPath = join(pluginsDir, entry);
-    if (!statSync(entryPath).isDirectory()) continue;
+    if (!deps.statSync(entryPath).isDirectory()) continue;
 
     const pluginDir = join(entryPath, ".claude-plugin");
-    const manifestPath = existsSync(join(pluginDir, "plugin.json"))
+    const manifestPath = deps.existsSync(join(pluginDir, "plugin.json"))
       ? join(pluginDir, "plugin.json")
-      : existsSync(join(pluginDir, "marketplace.json"))
+      : deps.existsSync(join(pluginDir, "marketplace.json"))
         ? join(pluginDir, "marketplace.json")
         : null;
     if (!manifestPath) continue;
@@ -39,17 +69,17 @@ export function discoverPluginInfo(): PluginInfo[] {
     let skillCount = 0;
 
     try {
-      const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
+      const manifest = JSON.parse(deps.readFileSync(manifestPath, "utf-8"));
       name = manifest.name ?? name;
       // Count skills from manifest or from skills/ directory
       if (manifest.plugins?.[0]?.skills) {
         skillCount = manifest.plugins[0].skills.length;
       } else {
         const skillsDir = join(entryPath, "skills");
-        if (existsSync(skillsDir)) {
-          skillCount = readdirSync(skillsDir).filter((s) =>
-            statSync(join(skillsDir, s)).isDirectory(),
-          ).length;
+        if (deps.existsSync(skillsDir)) {
+          skillCount = deps
+            .readdirSync(skillsDir)
+            .filter((s) => deps.statSync(join(skillsDir, s)).isDirectory()).length;
         }
       }
     } catch {

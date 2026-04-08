@@ -5,6 +5,38 @@ import { getConfig, getRepositoriesDir, type RepositoryConfig } from "./config.j
 import { getAuthenticatedCloneUrl } from "./github.js";
 import { logger } from "./logger.js";
 
+// ============================================================================
+// Dependency Injection
+// ============================================================================
+
+export interface RepositoriesDeps {
+  existsSync: typeof existsSync;
+  mkdirSync: typeof mkdirSync;
+  simpleGit: typeof simpleGit;
+  getConfig: typeof getConfig;
+  getRepositoriesDir: typeof getRepositoriesDir;
+  getAuthenticatedCloneUrl: typeof getAuthenticatedCloneUrl;
+}
+
+export const defaultRepositoriesDeps: RepositoriesDeps = {
+  existsSync,
+  mkdirSync,
+  simpleGit,
+  getConfig,
+  getRepositoriesDir,
+  getAuthenticatedCloneUrl,
+};
+
+let deps: RepositoriesDeps = defaultRepositoriesDeps;
+
+export function setRepositoriesDeps(d: RepositoriesDeps): void {
+  deps = d;
+}
+
+export function resetRepositoriesDeps(): void {
+  deps = defaultRepositoriesDeps;
+}
+
 export function getGitInstance(baseDir?: string): SimpleGit {
   const options: Partial<SimpleGitOptions> = {};
 
@@ -12,7 +44,7 @@ export function getGitInstance(baseDir?: string): SimpleGit {
     options.baseDir = baseDir;
   }
 
-  return simpleGit(options);
+  return deps.simpleGit(options);
 }
 
 /**
@@ -21,22 +53,22 @@ export function getGitInstance(baseDir?: string): SimpleGit {
  */
 export async function setAuthenticatedRemote(repoPath: string, repoUrl: string): Promise<void> {
   const git = getGitInstance(repoPath);
-  const authenticatedUrl = await getAuthenticatedCloneUrl(repoUrl);
+  const authenticatedUrl = await deps.getAuthenticatedCloneUrl(repoUrl);
   await git.remote(["set-url", "origin", authenticatedUrl]);
 }
 
 export async function cloneRepository(repo: RepositoryConfig): Promise<void> {
-  const config = getConfig();
-  const reposDir = getRepositoriesDir();
+  const config = deps.getConfig();
+  const reposDir = deps.getRepositoriesDir();
   const repoPath = resolve(reposDir, repo.name);
 
   // Ensure repositories directory exists
-  if (!existsSync(reposDir)) {
-    mkdirSync(reposDir, { recursive: true });
+  if (!deps.existsSync(reposDir)) {
+    deps.mkdirSync(reposDir, { recursive: true });
   }
 
   // Skip if already cloned
-  if (existsSync(repoPath)) {
+  if (deps.existsSync(repoPath)) {
     logger.debug(`Repository ${repo.name} already exists at ${repoPath}`);
     return;
   }
@@ -54,15 +86,15 @@ export async function cloneRepository(repo: RepositoryConfig): Promise<void> {
     cloneOptions.push("--branch", repo.branch);
   }
 
-  const authenticatedUrl = await getAuthenticatedCloneUrl(repo.url);
+  const authenticatedUrl = await deps.getAuthenticatedCloneUrl(repo.url);
   await git.clone(authenticatedUrl, repoPath, cloneOptions);
   logger.debug(`Successfully cloned ${repo.name}`);
 }
 
 export async function syncRepository(repo: RepositoryConfig): Promise<void> {
-  const repoPath = resolve(getRepositoriesDir(), repo.name);
+  const repoPath = resolve(deps.getRepositoriesDir(), repo.name);
 
-  if (!existsSync(repoPath)) {
+  if (!deps.existsSync(repoPath)) {
     logger.debug(`Repository ${repo.name} not found, cloning instead...`);
     await cloneRepository(repo);
     return;
@@ -82,7 +114,7 @@ export async function syncRepository(repo: RepositoryConfig): Promise<void> {
 }
 
 export async function syncAllRepositories(): Promise<void> {
-  const config = getConfig();
+  const config = deps.getConfig();
   const total = config.repositories.length;
   logger.debug(`Syncing ${total} repositories...`);
 
@@ -105,12 +137,12 @@ export async function syncAllRepositories(): Promise<void> {
 }
 
 export async function initializeRepositories(): Promise<void> {
-  const config = getConfig();
-  const reposDir = getRepositoriesDir();
+  const config = deps.getConfig();
+  const reposDir = deps.getRepositoriesDir();
 
   // Ensure repositories directory exists
-  if (!existsSync(reposDir)) {
-    mkdirSync(reposDir, { recursive: true });
+  if (!deps.existsSync(reposDir)) {
+    deps.mkdirSync(reposDir, { recursive: true });
   }
 
   const total = config.repositories.length;
@@ -137,7 +169,7 @@ export async function initializeRepositories(): Promise<void> {
 let syncInterval: NodeJS.Timeout | null = null;
 
 export function startSyncScheduler(): void {
-  const config = getConfig();
+  const config = deps.getConfig();
   const intervalMs = config.git.pullIntervalMinutes * 60 * 1000;
 
   logger.debug(

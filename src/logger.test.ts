@@ -35,12 +35,21 @@ function restoreConsole() {
 // ---------------------------------------------------------------------------
 
 describe("logger", () => {
+  let savedLogLevel: string | undefined;
+
   beforeEach(() => {
+    savedLogLevel = process.env.LOG_LEVEL;
+    process.env.LOG_LEVEL = "info";
     captureConsole();
   });
 
   afterEach(() => {
     restoreConsole();
+    if (savedLogLevel === undefined) {
+      delete process.env.LOG_LEVEL;
+    } else {
+      process.env.LOG_LEVEL = savedLogLevel;
+    }
   });
 
   it("info logs to console.log with [INFO] prefix", () => {

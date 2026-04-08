@@ -1,46 +1,15 @@
 import { describe, it, mock, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
+import { registerAssistant, type AssistantDeps } from "./assistant.js";
 
 // ============================================================================
-// Mocks — set up before importing the module under test
+// Mocks
 // ============================================================================
 
 const mockProcessMessage = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
 const mockFindSessionByThread = mock.fn<(...args: unknown[]) => Promise<unknown>>(async () => null);
 const mockUpdateSession = mock.fn<(...args: unknown[]) => Promise<unknown>>(async () => null);
-
-mock.module("./core.js", {
-  namedExports: { processMessage: mockProcessMessage },
-});
-
-mock.module("../../sessions.js", {
-  namedExports: {
-    findSessionByThread: mockFindSessionByThread,
-    updateSession: mockUpdateSession,
-  },
-});
-
-mock.module("../../config.js", {
-  namedExports: {
-    getConfig: () => ({ directMessages: { enabled: true } }),
-  },
-});
-
-mock.module("../../logger.js", {
-  namedExports: {
-    logger: {
-      info: () => {},
-      warn: () => {},
-      error: () => {},
-      debug: () => {},
-    },
-  },
-});
-
-// We need to mock the Assistant constructor from @slack/bolt
-// The registerAssistant function creates a new Assistant() and calls app.assistant()
-// We'll capture the config passed to the Assistant constructor
 
 interface AssistantHandlers {
   threadStarted: (...args: unknown[]) => Promise<void>;
@@ -50,18 +19,22 @@ interface AssistantHandlers {
 
 let capturedAssistantHandlers: AssistantHandlers | null = null;
 
-mock.module("@slack/bolt", {
-  namedExports: {
-    Assistant: class MockAssistant {
-      constructor(handlers: AssistantHandlers) {
-        capturedAssistantHandlers = handlers;
-      }
-    },
-  },
-});
+class MockAssistant {
+  constructor(handlers: AssistantHandlers) {
+    capturedAssistantHandlers = handlers;
+  }
+}
 
-// Import after mocks
-const { registerAssistant } = await import("./assistant.js");
+function makeDeps(): AssistantDeps {
+  return {
+    Assistant: MockAssistant as never,
+    getConfig: () => ({ directMessages: { enabled: true } }),
+    findSessionByThread: mockFindSessionByThread as never,
+    updateSession: mockUpdateSession as never,
+    processMessage: mockProcessMessage as never,
+    extractAttachments: () => ({}),
+  };
+}
 
 // ============================================================================
 // Helpers
@@ -74,23 +47,26 @@ function makeApp(): App {
     assistant: (assistant: unknown) => {
       capturedAssistant = assistant;
     },
-  } as unknown as App;
+  } as never as App;
 }
 
-function makeClient(botUserId = "B001"): App["client"] {
+function makeClient(botUserId = "B001") {
   const postMessageFn = mock.fn(async () => ({ ok: true }));
-  const repliesFn = mock.fn(async () => ({ messages: [] }));
+  const repliesFn = mock.fn<() => Promise<{ messages: object[] }>>(async () => ({ messages: [] }));
   return {
-    auth: {
-      test: mock.fn(async () => ({ user_id: botUserId })),
-    },
-    chat: {
-      postMessage: postMessageFn,
-    },
-    conversations: {
-      replies: repliesFn,
-    },
-  } as unknown as App["client"];
+    obj: {
+      auth: {
+        test: mock.fn(async () => ({ user_id: botUserId })),
+      },
+      chat: {
+        postMessage: postMessageFn,
+      },
+      conversations: {
+        replies: repliesFn,
+      },
+    } as never as App["client"],
+    repliesFn,
+  };
 }
 
 beforeEach(() => {
@@ -101,7 +77,7 @@ beforeEach(() => {
   capturedAssistant = null;
 
   const app = makeApp();
-  registerAssistant(app);
+  registerAssistant(app, makeDeps());
 });
 
 // ============================================================================
@@ -286,7 +262,7 @@ describe("assistant userMessage", () => {
   it("skips when user is missing", async () => {
     await capturedAssistantHandlers!.userMessage({
       event: { text: "hello", channel: "D001", ts: "1700000000.000001" },
-      client: makeClient(),
+      client: makeClient().obj,
       setStatus: makeMockSetStatus(),
       setTitle: makeMockSetTitle(),
       getThreadContext: makeMockGetThreadContext(),
@@ -298,7 +274,7 @@ describe("assistant userMessage", () => {
   it("skips when text is missing", async () => {
     await capturedAssistantHandlers!.userMessage({
       event: { user: "U001", channel: "D001", ts: "1700000000.000001" },
-      client: makeClient(),
+      client: makeClient().obj,
       setStatus: makeMockSetStatus(),
       setTitle: makeMockSetTitle(),
       getThreadContext: makeMockGetThreadContext(),
@@ -312,7 +288,7 @@ describe("assistant userMessage", () => {
     const mockGetThreadContext = mock.fn<(...args: unknown[]) => Promise<unknown>>(async () => ({
       channel_id: "C001",
     }));
-    const client = makeClient();
+    const clientBundle = makeClient();
 
     await capturedAssistantHandlers!.userMessage({
       event: {
@@ -322,7 +298,7 @@ describe("assistant userMessage", () => {
         ts: "1700000000.000002",
         thread_ts: "1700000000.000001",
       },
-      client,
+      client: clientBundle.obj,
       setStatus: mockSetStatus,
       setTitle: makeMockSetTitle(),
       getThreadContext: mockGetThreadContext,
@@ -332,7 +308,7 @@ describe("assistant userMessage", () => {
     assert.equal(mockProcessMessage.mock.callCount(), 1);
 
     const args = mockProcessMessage.mock.calls[0].arguments[0] as Record<string, unknown>;
-    assert.equal(args.client, client);
+    assert.equal(args.client, clientBundle.obj);
     assert.equal(args.userId, "U001");
     assert.equal(args.channelId, "D001");
     assert.equal(args.messageTs, "1700000000.000002");
@@ -352,7 +328,7 @@ describe("assistant userMessage", () => {
         channel: "D001",
         ts: "1700000000.000001",
       },
-      client: makeClient(),
+      client: makeClient().obj,
       setStatus: makeMockSetStatus(),
       setTitle: mockSetTitle,
       getThreadContext: makeMockGetThreadContext(),
@@ -374,7 +350,7 @@ describe("assistant userMessage", () => {
         channel: "D001",
         ts: "1700000000.000001",
       },
-      client: makeClient(),
+      client: makeClient().obj,
       setStatus: makeMockSetStatus(),
       setTitle: mockSetTitle,
       getThreadContext: makeMockGetThreadContext(),
@@ -383,7 +359,7 @@ describe("assistant userMessage", () => {
     assert.equal(mockSetTitle.mock.callCount(), 1);
     const title = mockSetTitle.mock.calls[0].arguments[0] as string;
     assert.equal(title.length, 50);
-    assert.ok(title.endsWith("..."));
+    assert.ok(title.endsWith("…"));
   });
 
   it("does not crash when setTitle throws", async () => {
@@ -399,7 +375,7 @@ describe("assistant userMessage", () => {
         channel: "D001",
         ts: "1700000000.000001",
       },
-      client: makeClient(),
+      client: makeClient().obj,
       setStatus: makeMockSetStatus(),
       setTitle: mockSetTitle,
       getThreadContext: makeMockGetThreadContext(),
@@ -409,21 +385,19 @@ describe("assistant userMessage", () => {
   });
 
   it("resolves context from thread metadata when Bolt store returns nothing", async () => {
-    const client = makeClient("B001");
+    const clientBundle = makeClient("B001");
     // Simulate a bot message with metadata containing channel_id
-    (client.conversations.replies as unknown as ReturnType<typeof mock.fn>).mock.mockImplementation(
-      async () => ({
-        messages: [
-          {
-            user: "B001",
-            ts: "1700000000.000001",
-            metadata: {
-              event_payload: { channel_id: "C999" },
-            },
+    clientBundle.repliesFn.mock.mockImplementation(async () => ({
+      messages: [
+        {
+          user: "B001",
+          ts: "1700000000.000001",
+          metadata: {
+            event_payload: { channel_id: "C999" },
           },
-        ],
-      }),
-    );
+        },
+      ],
+    }));
 
     await capturedAssistantHandlers!.userMessage({
       event: {
@@ -433,7 +407,7 @@ describe("assistant userMessage", () => {
         ts: "1700000000.000002",
         thread_ts: "1700000000.000001",
       },
-      client,
+      client: clientBundle.obj,
       setStatus: makeMockSetStatus(),
       setTitle: makeMockSetTitle(),
       getThreadContext: makeMockGetThreadContext(),
@@ -444,11 +418,9 @@ describe("assistant userMessage", () => {
   });
 
   it("falls back to existing session context when metadata lookup fails", async () => {
-    const client = makeClient("B001");
+    const clientBundle = makeClient("B001");
     // No bot messages with metadata
-    (client.conversations.replies as unknown as ReturnType<typeof mock.fn>).mock.mockImplementation(
-      async () => ({ messages: [] }),
-    );
+    clientBundle.repliesFn.mock.mockImplementation(async () => ({ messages: [] }));
 
     mockFindSessionByThread.mock.mockImplementation(async () => ({
       sessionId: "session-1",
@@ -463,7 +435,7 @@ describe("assistant userMessage", () => {
         ts: "1700000000.000002",
         thread_ts: "1700000000.000001",
       },
-      client,
+      client: clientBundle.obj,
       setStatus: makeMockSetStatus(),
       setTitle: makeMockSetTitle(),
       getThreadContext: makeMockGetThreadContext(),

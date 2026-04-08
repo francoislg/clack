@@ -4,25 +4,32 @@ import type { App } from "@slack/bolt";
 import type { ClaudeResponse, AskClaudeOptions } from "../../claude/index.js";
 import type { SessionContext } from "../../sessions.js";
 import type { SessionInfo } from "../activeSessions.js";
+import {
+  executeAndDeliver,
+  postResponse,
+  getHandlerClaudeOptions,
+  type HandlerResponseDeps,
+} from "./handlerResponse.js";
 
 // ============================================================================
-// Mocks — set up before importing the module under test
+// Mocks
 // ============================================================================
 
-const mockAskClaude = mock.fn<(...args: unknown[]) => Promise<ClaudeResponse>>(async () => ({
+const mockAskClaude = mock.fn<(...args: never[]) => Promise<ClaudeResponse>>(async () => ({
   success: true,
   answer: "test answer",
 }));
 
-const mockSetLastAnswer = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
-const mockUpdateSession = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
-const mockAddError = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
+const mockSetLastAnswer = mock.fn<(...args: never[]) => Promise<void>>(async () => {});
+const mockUpdateSession = mock.fn<(...args: never[]) => Promise<void>>(async () => {});
+const mockAddError = mock.fn<(...args: never[]) => Promise<void>>(async () => {});
+const mockSetAutoResponseActive = mock.fn<(...args: never[]) => Promise<void>>(async () => {});
 
 const mockGetErrorBlocksWithRetry = mock.fn(() => [{ type: "section" }]);
-const mockAsSlackBlocks = mock.fn((blocks: unknown) => blocks);
+const mockAsSlackBlocks = mock.fn((blocks: never) => blocks);
 
-const mockSendErrorReport = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
-const mockAnalyzeError = mock.fn<(...args: unknown[]) => Promise<string>>(
+const mockSendErrorReport = mock.fn<(...args: never[]) => Promise<void>>(async () => {});
+const mockAnalyzeError = mock.fn<(...args: never[]) => Promise<string>>(
   async () => "error analysis",
 );
 
@@ -30,13 +37,14 @@ const mockGetConfig = mock.fn(() => ({
   slack: { sendErrorsAsDM: false },
 }));
 
-const mockGetClaudeOptions = mock.fn<(...args: unknown[]) => Promise<AskClaudeOptions>>(
-  async () => ({ role: "dev" as const, changesWorkflowEnabled: false }),
-);
+const mockGetClaudeOptions = mock.fn<(...args: never[]) => Promise<AskClaudeOptions>>(async () => ({
+  role: "dev" as const,
+  changesWorkflowEnabled: false,
+}));
 
-const mockHandleAutoExecuteActions = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
+const mockHandleAutoExecuteActions = mock.fn<(...args: never[]) => Promise<void>>(async () => {});
 
-const mockGetUserPreference = mock.fn<(...args: unknown[]) => Promise<unknown>>(async () => false);
+const mockGetUserPreference = mock.fn<(...args: never[]) => Promise<boolean>>(async () => false);
 
 // Track SlackStreamer instances for inspection
 let streamerHasFailed = false;
@@ -59,105 +67,44 @@ function resetStreamerInstance(overrides?: {
   mockStreamerGetMessageTs = mock.fn(() => streamerMessageTs);
 }
 
-mock.module("../../claude/index.js", {
-  namedExports: {
-    askClaude: mockAskClaude,
-  },
-});
+function makeDeps(): HandlerResponseDeps {
+  return {
+    askClaude: mockAskClaude as never,
+    analyzeError: mockAnalyzeError as never,
+    setLastAnswer: mockSetLastAnswer as never,
+    updateSession: mockUpdateSession as never,
+    addError: mockAddError as never,
+    setAutoResponseActive: mockSetAutoResponseActive as never,
+    getErrorBlocksWithRetry: mockGetErrorBlocksWithRetry as never,
+    asSlackBlocks: mockAsSlackBlocks as never,
+    sendErrorReport: mockSendErrorReport as never,
+    getConfig: mockGetConfig as never,
+    getClaudeOptions: mockGetClaudeOptions as never,
+    handleAutoExecuteActions: mockHandleAutoExecuteActions as never,
+    createStreamer: () =>
+      ({
+        start: (...args: never[]) => mockStreamerStart(...args),
+        stop: (...args: never[]) => mockStreamerStop(...args),
+        handleEvent: (...args: never[]) => mockStreamerHandleEvent(...args),
+        getMessageTs: () => mockStreamerGetMessageTs(),
+        get hasFailed() {
+          return streamerHasFailed;
+        },
+      }) as never,
+    getUserPreference: mockGetUserPreference as never,
+    writeErrorReport: mock.fn(async () => {}) as never,
+    toErrorMessage: ((error: unknown) =>
+      error instanceof Error ? error.message : String(error)) as never,
+    getUserInfo: (async () => ({
+      displayName: "TestUser",
+      username: "testuser",
+    })) as never,
+    resolveChannelLabel: (async () => "#test") as never,
+    slackLink: (async () => "") as never,
+  };
+}
 
-mock.module("../../claude/utilities.js", {
-  namedExports: {
-    analyzeError: mockAnalyzeError,
-  },
-});
-
-mock.module("../../sessions.js", {
-  namedExports: {
-    setLastAnswer: mockSetLastAnswer,
-    updateSession: mockUpdateSession,
-    addError: mockAddError,
-  },
-});
-
-mock.module("../blocks.js", {
-  namedExports: {
-    getErrorBlocksWithRetry: mockGetErrorBlocksWithRetry,
-    asSlackBlocks: mockAsSlackBlocks,
-  },
-});
-
-mock.module("../messagesApi.js", {
-  namedExports: {
-    sendErrorReport: mockSendErrorReport,
-  },
-});
-
-mock.module("../../config.js", {
-  namedExports: {
-    getConfig: mockGetConfig,
-  },
-});
-
-mock.module("./changeWorkflowHelper.js", {
-  namedExports: {
-    getClaudeOptions: mockGetClaudeOptions,
-  },
-});
-
-mock.module("./autoExecute.js", {
-  namedExports: {
-    handleAutoExecuteActions: mockHandleAutoExecuteActions,
-  },
-});
-
-mock.module("../../streaming/slackStreamer.js", {
-  namedExports: {
-    SlackStreamer: class MockSlackStreamer {
-      start(...args: unknown[]) {
-        return mockStreamerStart(...args);
-      }
-      stop(...args: unknown[]) {
-        return mockStreamerStop(...args);
-      }
-      handleEvent(...args: unknown[]) {
-        return mockStreamerHandleEvent(...args);
-      }
-      getMessageTs() {
-        return mockStreamerGetMessageTs();
-      }
-      get hasFailed() {
-        return streamerHasFailed;
-      }
-    },
-  },
-});
-
-mock.module("../../userPreferences.js", {
-  namedExports: {
-    getUserPreference: mockGetUserPreference,
-  },
-});
-
-mock.module("../../logger.js", {
-  namedExports: {
-    logger: {
-      info: () => {},
-      warn: () => {},
-      error: () => {},
-      debug: () => {},
-    },
-  },
-});
-
-mock.module("../../errors.js", {
-  namedExports: {
-    errorMessage: (error: unknown) => (error instanceof Error ? error.message : String(error)),
-  },
-});
-
-// Import after mocks are configured
-const { executeAndDeliver, postResponse, getHandlerClaudeOptions } =
-  await import("./handlerResponse.js");
+let deps: HandlerResponseDeps;
 
 // ============================================================================
 // Helpers
@@ -242,6 +189,9 @@ beforeEach(() => {
 
   // Reset streamer
   resetStreamerInstance();
+
+  // Create fresh deps
+  deps = makeDeps();
 });
 
 // ============================================================================
@@ -259,6 +209,7 @@ describe("executeAndDeliver — streaming setup", () => {
       session,
       sessionInfo,
       claudeOptions: makeClaudeOptions(),
+      deps,
     });
 
     assert.equal(mockStreamerStart.mock.callCount(), 1);
@@ -278,6 +229,7 @@ describe("executeAndDeliver — streaming setup", () => {
       session,
       sessionInfo,
       claudeOptions: makeClaudeOptions(),
+      deps,
     });
 
     // Streamer should have been created with DM channel/thread
@@ -297,6 +249,7 @@ describe("executeAndDeliver — streaming setup", () => {
       session,
       sessionInfo,
       claudeOptions: makeClaudeOptions(),
+      deps,
     });
 
     assert.equal(response.success, true);
@@ -313,6 +266,7 @@ describe("executeAndDeliver — streaming setup", () => {
       session,
       sessionInfo,
       claudeOptions: makeClaudeOptions(),
+      deps,
     });
 
     // stop() is called at least once (in finally block)
@@ -335,6 +289,7 @@ describe("executeAndDeliver — streaming setup", () => {
           session,
           sessionInfo,
           claudeOptions: makeClaudeOptions(),
+          deps,
         }),
       { message: "askClaude exploded" },
     );
@@ -364,6 +319,7 @@ describe("executeAndDeliver — success handling", () => {
       session,
       sessionInfo: makeSessionInfo(),
       claudeOptions: makeClaudeOptions(),
+      deps,
     });
 
     assert.equal(mockSetLastAnswer.mock.callCount(), 1);
@@ -388,6 +344,7 @@ describe("executeAndDeliver — success handling", () => {
       session: makeSession(),
       sessionInfo: makeSessionInfo(),
       claudeOptions: makeClaudeOptions(),
+      deps,
     });
 
     assert.equal(mockSetLastAnswer.mock.callCount(), 1);
@@ -406,6 +363,7 @@ describe("executeAndDeliver — success handling", () => {
       session: makeSession(),
       sessionInfo: makeSessionInfo(),
       claudeOptions: makeClaudeOptions(),
+      deps,
     });
 
     assert.equal(mockUpdateSession.mock.callCount(), 0);
@@ -423,6 +381,7 @@ describe("executeAndDeliver — success handling", () => {
       session: makeSession(),
       sessionInfo: makeSessionInfo(),
       claudeOptions: makeClaudeOptions(),
+      deps,
     });
 
     assert.equal(mockUpdateSession.mock.callCount(), 0);
@@ -445,6 +404,7 @@ describe("executeAndDeliver — success handling", () => {
       session: makeSession(),
       sessionInfo,
       claudeOptions: makeClaudeOptions({ role: "admin" }),
+      deps,
     });
 
     assert.equal(mockHandleAutoExecuteActions.mock.callCount(), 1);
@@ -471,6 +431,7 @@ describe("executeAndDeliver — success handling", () => {
       session: makeSession(),
       sessionInfo: makeSessionInfo(),
       claudeOptions: makeClaudeOptions(),
+      deps,
     });
 
     // The streamer.stop should be called with the answer text
@@ -504,6 +465,7 @@ describe("executeAndDeliver — success handling", () => {
       session: makeSession(),
       sessionInfo: makeSessionInfo(),
       claudeOptions: makeClaudeOptions(),
+      deps,
     });
 
     const postMessage = getPostMessageMock(client);
@@ -536,6 +498,7 @@ describe("executeAndDeliver — cancellation", () => {
       session: makeSession(),
       sessionInfo: makeSessionInfo(),
       claudeOptions: makeClaudeOptions(),
+      deps,
     });
 
     assert.equal(response.cancelled, true);
@@ -555,6 +518,7 @@ describe("executeAndDeliver — cancellation", () => {
       session: makeSession(),
       sessionInfo: makeSessionInfo(),
       claudeOptions: makeClaudeOptions(),
+      deps,
     });
 
     // streamer.stop should be called with the cancellation text
@@ -592,6 +556,7 @@ describe("executeAndDeliver — error handling", () => {
       session: makeSession(),
       sessionInfo: makeSessionInfo(),
       claudeOptions: makeClaudeOptions(),
+      deps,
     });
 
     assert.equal(mockAddError.mock.callCount(), 1);
@@ -623,6 +588,7 @@ describe("executeAndDeliver — error handling", () => {
       session: makeSession(),
       sessionInfo: makeSessionInfo(),
       claudeOptions: makeClaudeOptions(),
+      deps,
     });
 
     const postMessage = getPostMessageMock(client);
@@ -644,6 +610,7 @@ describe("executeAndDeliver — error handling", () => {
       session: makeSession(),
       sessionInfo: makeSessionInfo(),
       claudeOptions: makeClaudeOptions(),
+      deps,
     });
 
     assert.equal(mockAddError.mock.calls[0].arguments[1], "Unknown error");
@@ -666,6 +633,7 @@ describe("executeAndDeliver — error handling", () => {
       session: makeSession(),
       sessionInfo: makeSessionInfo(),
       claudeOptions: makeClaudeOptions(),
+      deps,
     });
 
     assert.equal(mockAnalyzeError.mock.callCount(), 1);
@@ -689,9 +657,10 @@ describe("executeAndDeliver — error handling", () => {
       session: makeSession(),
       sessionInfo: makeSessionInfo(),
       claudeOptions: makeClaudeOptions(),
+      deps,
     });
 
-    assert.equal(mockAnalyzeError.mock.callCount(), 0);
+    assert.equal(mockAnalyzeError.mock.callCount(), 1); // always called for disk persistence
     assert.equal(mockSendErrorReport.mock.callCount(), 0);
   });
 
@@ -717,6 +686,7 @@ describe("executeAndDeliver — error handling", () => {
       session: makeSession(),
       sessionInfo: makeSessionInfo(),
       claudeOptions: makeClaudeOptions(),
+      deps,
     });
   });
 
@@ -738,6 +708,7 @@ describe("executeAndDeliver — error handling", () => {
         dmThreadTs: "17.111",
       }),
       claudeOptions: makeClaudeOptions(),
+      deps,
     });
 
     const postMessage = getPostMessageMock(client);
@@ -769,6 +740,7 @@ describe("executeAndDeliver — unexpected errors", () => {
           session: makeSession(),
           sessionInfo: makeSessionInfo(),
           claudeOptions: makeClaudeOptions(),
+          deps,
         }),
       { message: "unexpected boom" },
     );
@@ -811,6 +783,7 @@ describe("executeAndDeliver — unexpected errors", () => {
           session: makeSession(),
           sessionInfo: makeSessionInfo(),
           claudeOptions: makeClaudeOptions(),
+          deps,
         }),
       { message: "unexpected boom" },
     );
@@ -845,6 +818,7 @@ describe("executeAndDeliver — response notification", () => {
       session: makeSession(),
       sessionInfo: makeSessionInfo(),
       claudeOptions: makeClaudeOptions(),
+      deps,
     });
 
     const postMessage = getPostMessageMock(client);
@@ -872,6 +846,7 @@ describe("executeAndDeliver — response notification", () => {
       session: makeSession(),
       sessionInfo: makeSessionInfo(),
       claudeOptions: makeClaudeOptions(),
+      deps,
     });
 
     const postMessage = getPostMessageMock(client);
@@ -903,6 +878,7 @@ describe("executeAndDeliver — deliver function", () => {
       session: makeSession(),
       sessionInfo: makeSessionInfo(),
       claudeOptions: makeClaudeOptions(),
+      deps,
     });
 
     // Can't directly inspect deliver results, but we can verify the streamer was only stopped once with content
@@ -935,6 +911,7 @@ describe("executeAndDeliver — deliver function", () => {
       session: makeSession(),
       sessionInfo: makeSessionInfo(),
       claudeOptions: makeClaudeOptions(),
+      deps,
     });
 
     const postMessage = getPostMessageMock(client);
@@ -978,6 +955,7 @@ describe("executeAndDeliver — deliver function", () => {
       session: makeSession(),
       sessionInfo: makeSessionInfo(),
       claudeOptions: makeClaudeOptions(),
+      deps,
     });
 
     assert.ok(deliverResult);
@@ -1065,7 +1043,7 @@ describe("getHandlerClaudeOptions", () => {
   it("delegates to getClaudeOptions with userId and triggerType", async () => {
     const sessionInfo = makeSessionInfo({ triggerType: "mentions" });
 
-    await getHandlerClaudeOptions(sessionInfo);
+    await getHandlerClaudeOptions(sessionInfo, deps);
 
     assert.equal(mockGetClaudeOptions.mock.callCount(), 1);
     assert.equal(mockGetClaudeOptions.mock.calls[0].arguments[0], "U001");
@@ -1075,7 +1053,7 @@ describe("getHandlerClaudeOptions", () => {
   it("defaults triggerType to directMessages when not set", async () => {
     const sessionInfo = makeSessionInfo();
 
-    await getHandlerClaudeOptions(sessionInfo);
+    await getHandlerClaudeOptions(sessionInfo, deps);
 
     assert.equal(mockGetClaudeOptions.mock.calls[0].arguments[1], "directMessages");
   });
@@ -1086,7 +1064,7 @@ describe("getHandlerClaudeOptions", () => {
       changesWorkflowEnabled: true,
     }));
 
-    const result = await getHandlerClaudeOptions(makeSessionInfo());
+    const result = await getHandlerClaudeOptions(makeSessionInfo(), deps);
 
     assert.equal(result.role, "admin");
     assert.equal(result.changesWorkflowEnabled, true);
@@ -1113,6 +1091,7 @@ describe("silentThinking mode", () => {
       sessionInfo: makeSessionInfo(),
       claudeOptions: { role: "dev" as const, changesWorkflowEnabled: false },
       silentThinking: true,
+      deps,
     });
 
     // Streamer should never have been started
@@ -1128,6 +1107,7 @@ describe("silentThinking mode", () => {
       sessionInfo: makeSessionInfo(),
       claudeOptions: { role: "dev" as const, changesWorkflowEnabled: false },
       silentThinking: true,
+      deps,
     });
 
     // askClaude should have been called with a no-op event handler
@@ -1145,6 +1125,7 @@ describe("silentThinking mode", () => {
       sessionInfo: makeSessionInfo(),
       claudeOptions: { role: "dev" as const, changesWorkflowEnabled: false },
       silentThinking: false,
+      deps,
     });
 
     // Streamer should have been started
@@ -1169,6 +1150,7 @@ describe("silentThinking mode", () => {
         session: makeSession(),
         sessionInfo: makeSessionInfo(),
         claudeOptions: { role: "dev" as const, changesWorkflowEnabled: false },
+        deps,
       });
 
       assert.equal(response.skipped, true);
@@ -1182,6 +1164,53 @@ describe("silentThinking mode", () => {
       // Session persistence and auto-execute should NOT have been called
       assert.equal(mockSetLastAnswer.mock.callCount(), 0);
       assert.equal(mockHandleAutoExecuteActions.mock.callCount(), 0);
+    });
+
+    it("calls setAutoResponseActive when response is skipped with disengage", async () => {
+      resetStreamerInstance({ messageTs: "1234.5678" });
+      mockAskClaude.mock.mockImplementationOnce(async () => ({
+        success: true,
+        skipped: true,
+        disengaged: true,
+        answer: "",
+      }));
+      mockSetAutoResponseActive.mock.resetCalls();
+
+      const client = makeClient();
+      const response = await executeAndDeliver({
+        client,
+        session: makeSession(),
+        sessionInfo: makeSessionInfo(),
+        claudeOptions: { role: "dev" as const, changesWorkflowEnabled: false },
+        deps,
+      });
+
+      assert.equal(response.skipped, true);
+      assert.equal(response.disengaged, true);
+      assert.equal(mockSetAutoResponseActive.mock.callCount(), 1);
+      assert.equal(mockSetAutoResponseActive.mock.calls[0].arguments[0], "session-1");
+      assert.equal(mockSetAutoResponseActive.mock.calls[0].arguments[1], false);
+    });
+
+    it("does NOT call setAutoResponseActive when skip without disengage", async () => {
+      resetStreamerInstance({ messageTs: "1234.5678" });
+      mockAskClaude.mock.mockImplementationOnce(async () => ({
+        success: true,
+        skipped: true,
+        answer: "",
+      }));
+      mockSetAutoResponseActive.mock.resetCalls();
+
+      const client = makeClient();
+      await executeAndDeliver({
+        client,
+        session: makeSession(),
+        sessionInfo: makeSessionInfo(),
+        claudeOptions: { role: "dev" as const, changesWorkflowEnabled: false },
+        deps,
+      });
+
+      assert.equal(mockSetAutoResponseActive.mock.callCount(), 0);
     });
 
     it("handles skip gracefully when streamer has no messageTs", async () => {
@@ -1198,6 +1227,7 @@ describe("silentThinking mode", () => {
         session: makeSession(),
         sessionInfo: makeSessionInfo(),
         claudeOptions: { role: "dev" as const, changesWorkflowEnabled: false },
+        deps,
       });
 
       assert.equal(response.skipped, true);

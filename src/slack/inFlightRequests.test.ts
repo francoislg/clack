@@ -1,24 +1,10 @@
-import { describe, it, mock } from "node:test";
+import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-
-// ---------------------------------------------------------------------------
-// Module-level mocks
-// ---------------------------------------------------------------------------
-
-mock.module("../logger.js", {
-  namedExports: {
-    logger: {
-      debug: () => {},
-      warn: () => {},
-      error: () => {},
-      info: () => {},
-    },
-  },
-});
-
-// Import after mocks
-const { registerInFlightRequest, deregisterInFlightRequest, getInFlightRequest } =
-  await import("./inFlightRequests.js");
+import {
+  registerInFlightRequest,
+  deregisterInFlightRequest,
+  getInFlightRequest,
+} from "./inFlightRequests.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

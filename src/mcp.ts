@@ -5,6 +5,32 @@ import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 import { getInstallationToken } from "./github.js";
 import { logger } from "./logger.js";
 
+// ============================================================================
+// Dependency Injection
+// ============================================================================
+
+interface ExecSyncOptions {
+  stdio?: string | NodeJS.WriteStream[];
+}
+
+export interface McpDeps {
+  existsSync: (path: string) => boolean;
+  readFileSync: (path: string, options: BufferEncoding) => string;
+  execSync: (cmd: string, opts: ExecSyncOptions) => Buffer;
+  getInstallationToken: () => Promise<{
+    token: string;
+    permissions: Record<string, string>;
+    expiresAt: Date;
+  }>;
+}
+
+export const defaultMcpDeps: McpDeps = {
+  existsSync,
+  readFileSync,
+  execSync,
+  getInstallationToken,
+};
+
 function getMcpConfigPath(): string {
   return join(process.cwd(), "data", "mcp.json");
 }
@@ -59,20 +85,22 @@ let binaryAvailable: boolean | null = null;
  * Load and cache the static MCP server config from data/mcp.json.
  * This is parsed once and reused.
  */
-function loadStaticMcpConfig(): Record<string, McpServerConfig> | undefined {
+function loadStaticMcpConfig(
+  deps: McpDeps = defaultMcpDeps,
+): Record<string, McpServerConfig> | undefined {
   if (staticConfigLoaded) {
     return cachedStaticServers;
   }
 
   staticConfigLoaded = true;
 
-  if (!existsSync(getMcpConfigPath())) {
+  if (!deps.existsSync(getMcpConfigPath())) {
     logger.debug("No MCP configuration found at data/mcp.json");
     return undefined;
   }
 
   try {
-    const raw = readFileSync(getMcpConfigPath(), "utf-8");
+    const raw = deps.readFileSync(getMcpConfigPath(), "utf-8");
     const config: McpConfig = JSON.parse(raw);
 
     if (!config.mcpServers || Object.keys(config.mcpServers).length === 0) {
@@ -113,7 +141,7 @@ function loadStaticMcpConfig(): Record<string, McpServerConfig> | undefined {
  * Check if the github-mcp-server binary is available on PATH.
  * Result is cached after first check.
  */
-function isGitHubMcpServerAvailable(): boolean {
+function isGitHubMcpServerAvailable(deps: McpDeps = defaultMcpDeps): boolean {
   if (binaryAvailable !== null) {
     return binaryAvailable;
   }
@@ -123,7 +151,7 @@ function isGitHubMcpServerAvailable(): boolean {
     // without executing the binary (whose --help may exit non-zero).
     const cmd =
       process.platform === "win32" ? "where github-mcp-server" : "which github-mcp-server";
-    execSync(cmd, { stdio: "ignore" });
+    deps.execSync(cmd, { stdio: "ignore" });
     binaryAvailable = true;
   } catch {
     binaryAvailable = false;
@@ -155,26 +183,28 @@ export function mapPermissionsToToolsets(permissions: Record<string, string>): s
  * Static config from mcp.json is cached. The GitHub MCP entry is rebuilt
  * per call to ensure a fresh token.
  */
-export async function loadMcpServers(): Promise<Record<string, McpServerConfig> | undefined> {
-  const staticServers = loadStaticMcpConfig();
+export async function loadMcpServers(
+  deps: McpDeps = defaultMcpDeps,
+): Promise<Record<string, McpServerConfig> | undefined> {
+  const staticServers = loadStaticMcpConfig(deps);
 
   // Check if we should auto-inject GitHub MCP
   const hasManualGitHub = staticServers && "github" in staticServers;
-  const hasGitHubCredentials = existsSync(getGitHubAuthPath());
+  const hasGitHubCredentials = deps.existsSync(getGitHubAuthPath());
 
   if (hasManualGitHub || !hasGitHubCredentials) {
     return staticServers;
   }
 
   // Check if the binary is available
-  if (!isGitHubMcpServerAvailable()) {
+  if (!isGitHubMcpServerAvailable(deps)) {
     logger.warn("github-mcp-server binary not found — skipping GitHub MCP auto-configuration");
     return staticServers;
   }
 
   // Generate token and derive toolsets
   try {
-    const { token, permissions } = await getInstallationToken();
+    const { token, permissions } = await deps.getInstallationToken();
     const toolsets = mapPermissionsToToolsets(permissions);
 
     if (!toolsets) {
@@ -222,15 +252,15 @@ export async function loadMcpServers(): Promise<Record<string, McpServerConfig> 
  * Returns the names of configured MCP servers (without loading/connecting).
  * Uses only the cached static config (synchronous).
  */
-export function getConfiguredMcpServerNames(): string[] {
-  const servers = loadStaticMcpConfig();
+export function getConfiguredMcpServerNames(deps: McpDeps = defaultMcpDeps): string[] {
+  const servers = loadStaticMcpConfig(deps);
   const names = servers ? Object.keys(servers) : [];
 
   // Include "github" if auto-config conditions are met
   if (
     !names.includes("github") &&
-    existsSync(getGitHubAuthPath()) &&
-    isGitHubMcpServerAvailable()
+    deps.existsSync(getGitHubAuthPath()) &&
+    isGitHubMcpServerAvailable(deps)
   ) {
     names.push("github");
   }

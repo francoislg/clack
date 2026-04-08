@@ -16,12 +16,52 @@ import { registerDmActionHandlers } from "./handlers/dmActions.js";
 import { registerMessageChangedHandler } from "./handlers/messageChanged.js";
 import { registerAutoRespondHandler } from "./handlers/autoRespond.js";
 
+export interface AppDeps {
+  App: new (config: ConstructorParameters<typeof App>[0]) => App;
+  getConfig: typeof getConfig;
+  logger: typeof logger;
+  registerNewQueryHandler: typeof registerNewQueryHandler;
+  registerRetryHandler: typeof registerRetryHandler;
+  registerResendHandler: typeof registerResendHandler;
+  registerHomeTabHandler: typeof registerHomeTabHandler;
+  registerAssistant: typeof registerAssistant;
+  registerMentionHandler: typeof registerMentionHandler;
+  registerChoiceHandler: typeof registerChoiceHandler;
+  registerFollowupHandler: typeof registerFollowupHandler;
+  registerChangeActionHandler: typeof registerChangeActionHandler;
+  registerConfigUpdateActionHandler: typeof registerConfigUpdateActionHandler;
+  registerChangeThreadActionHandlers: typeof registerChangeThreadActionHandlers;
+  registerDmActionHandlers: typeof registerDmActionHandlers;
+  registerMessageChangedHandler: typeof registerMessageChangedHandler;
+  registerAutoRespondHandler: typeof registerAutoRespondHandler;
+}
+
+export const defaultAppDeps: AppDeps = {
+  App,
+  getConfig,
+  logger,
+  registerNewQueryHandler,
+  registerRetryHandler,
+  registerResendHandler,
+  registerHomeTabHandler,
+  registerAssistant,
+  registerMentionHandler,
+  registerChoiceHandler,
+  registerFollowupHandler,
+  registerChangeActionHandler,
+  registerConfigUpdateActionHandler,
+  registerChangeThreadActionHandlers,
+  registerDmActionHandlers,
+  registerMessageChangedHandler,
+  registerAutoRespondHandler,
+};
+
 let app: App | null = null;
 
-export function createSlackApp(): App {
-  const config = getConfig();
+export function createSlackApp(deps: AppDeps = defaultAppDeps): App {
+  const config = deps.getConfig();
 
-  app = new App({
+  app = new deps.App({
     token: config.slack.botToken,
     appToken: config.slack.appToken,
     signingSecret: config.slack.signingSecret,
@@ -29,46 +69,46 @@ export function createSlackApp(): App {
   });
 
   // Home tab handler (always enabled for role management)
-  registerHomeTabHandler(app);
+  deps.registerHomeTabHandler(app);
 
   // Reaction mode handlers (always enabled)
-  registerNewQueryHandler(app);
-  registerRetryHandler(app);
-  registerResendHandler(app);
+  deps.registerNewQueryHandler(app);
+  deps.registerRetryHandler(app);
+  deps.registerResendHandler(app);
 
   // Clack tool action handlers
-  registerChoiceHandler(app);
-  registerFollowupHandler(app);
-  registerChangeActionHandler(app);
-  registerConfigUpdateActionHandler(app);
-  registerChangeThreadActionHandlers(app);
+  deps.registerChoiceHandler(app);
+  deps.registerFollowupHandler(app);
+  deps.registerChangeActionHandler(app);
+  deps.registerConfigUpdateActionHandler(app);
+  deps.registerChangeThreadActionHandlers(app);
 
   // DM reaction handlers (always enabled — DM delivery is a per-user preference)
-  registerDmActionHandlers(app);
+  deps.registerDmActionHandlers(app);
 
   // Always register all handlers — enablement is checked at invocation time
   // so that soft restarts can toggle features without reconnecting the socket.
-  registerAssistant(app);
-  registerMentionHandler(app);
-  registerMessageChangedHandler(app);
-  registerAutoRespondHandler(app);
+  deps.registerAssistant(app);
+  deps.registerMentionHandler(app);
+  deps.registerMessageChangedHandler(app);
+  deps.registerAutoRespondHandler(app);
 
   return app;
 }
 
-export async function startSlackApp(): Promise<void> {
+export async function startSlackApp(deps: AppDeps = defaultAppDeps): Promise<void> {
   if (!app) {
     throw new Error("Slack app not created. Call createSlackApp() first.");
   }
 
   await app.start();
-  logger.info("Slack app is running!");
+  deps.logger.info("Slack app is running!");
 }
 
-export async function stopSlackApp(): Promise<void> {
+export async function stopSlackApp(deps: AppDeps = defaultAppDeps): Promise<void> {
   if (app) {
     await app.stop();
-    logger.debug("Slack app stopped");
+    deps.logger.debug("Slack app stopped");
   }
 }
 
