@@ -1,9 +1,14 @@
 import type { App } from "@slack/bolt";
 import type { Block, KnownBlock, TaskUpdateChunk } from "@slack/types";
 import type { ChatStreamer } from "@slack/web-api";
-import { logger } from "../logger.js";
+import { logger as defaultLogger } from "../logger.js";
 import { getToolLabel, getToolGroup, getToolDetails } from "./toolLabels.js";
 import type { StreamEvent } from "./types.js";
+
+export interface SlackStreamerLogger {
+  warn: (...args: unknown[]) => void;
+  error: (...args: unknown[]) => void;
+}
 
 export interface SlackStreamerOptions {
   client: App["client"];
@@ -15,6 +20,8 @@ export interface SlackStreamerOptions {
   teamId?: string;
   /** Custom title for the thinking task once tools start (defaults to "Analyzing…"). */
   thinkingTitle?: string;
+  /** Logger instance for dependency injection in tests. */
+  logger?: SlackStreamerLogger;
 }
 
 /**
@@ -35,12 +42,18 @@ export class SlackStreamer {
   private userId: string | undefined;
   private teamId: string | undefined;
   private thinkingTitle: string;
+  private logger: SlackStreamerLogger;
 
   private chatStreamer: ChatStreamer | null = null;
   private thinkingFinalized = false;
   private failed = false;
   private stopped = false;
   private messageTs: string | undefined;
+  private keepaliveTimer: ReturnType<typeof setInterval> | null = null;
+  private keepaliveTick = 0;
+
+  private static readonly KEEPALIVE_INTERVAL_MS = 15_000;
+  private static readonly KEEPALIVE_DOTS = ["…", "……", "………"];
 
   private static readonly THINKING_TASK_ID = "__thinking__";
 
@@ -64,6 +77,7 @@ export class SlackStreamer {
     this.userId = opts.userId;
     this.teamId = opts.teamId;
     this.thinkingTitle = opts.thinkingTitle ?? "Analyzing…";
+    this.logger = opts.logger ?? defaultLogger;
   }
 
   /**
@@ -92,9 +106,10 @@ export class SlackStreamer {
         },
       ]);
 
+      this.startKeepalive();
       return true;
     } catch (error) {
-      logger.error("Failed to start chat stream:", error);
+      this.logger.error("Failed to start chat stream:", error);
       this.failed = true;
       return false;
     }
@@ -281,6 +296,8 @@ export class SlackStreamer {
    * Stop the stream and finalize the message.
    */
   async stop(opts?: { markdownText?: string; blocks?: (KnownBlock | Block)[] }): Promise<void> {
+    this.stopKeepalive();
+
     if (!this.chatStreamer || this.stopped) return;
 
     this.stopped = true;
@@ -324,7 +341,7 @@ export class SlackStreamer {
         ...(opts?.blocks && { blocks: opts.blocks }),
       });
     } catch (error) {
-      logger.error("Failed to stop chat stream:", error);
+      this.logger.error("Failed to stop chat stream:", error);
       this.failed = true;
     }
   }
@@ -341,8 +358,38 @@ export class SlackStreamer {
 
   // --- Private ---
 
+  private startKeepalive(): void {
+    this.keepaliveTimer = setInterval(() => {
+      if (this.failed || this.stopped) {
+        this.stopKeepalive();
+        return;
+      }
+      const dots =
+        SlackStreamer.KEEPALIVE_DOTS[this.keepaliveTick % SlackStreamer.KEEPALIVE_DOTS.length];
+      this.keepaliveTick++;
+      const rawTitle = this.thinkingFinalized ? this.thinkingTitle : "Acknowledged, working on it…";
+      const baseTitle = rawTitle.replace(/…$/, "");
+      this.append([
+        {
+          type: "task_update",
+          id: SlackStreamer.THINKING_TASK_ID,
+          title: `${baseTitle}${dots}`,
+          status: "in_progress",
+        },
+      ]);
+    }, SlackStreamer.KEEPALIVE_INTERVAL_MS);
+    this.keepaliveTimer.unref();
+  }
+
+  private stopKeepalive(): void {
+    if (this.keepaliveTimer) {
+      clearInterval(this.keepaliveTimer);
+      this.keepaliveTimer = null;
+    }
+  }
+
   private async append(chunks: TaskUpdateChunk[]): Promise<void> {
-    if (!this.chatStreamer) return;
+    if (!this.chatStreamer || this.failed) return;
     try {
       const result = await this.chatStreamer.append({ chunks });
       if (!this.messageTs && result?.ts) {
@@ -352,8 +399,20 @@ export class SlackStreamer {
       // If stop() was already called, this is a benign race — an in-flight
       // append from handleEvent resolved after the stream was finalized.
       if (this.stopped) return;
-      logger.error("Failed to append to chat stream:", error);
+
+      // Slack expires streams server-side after inactivity. This is a known
+      // condition — log as warning, not error. The fallback path handles it.
+      const slackError = (error as { data?: { error?: string } }).data?.error;
+      if (slackError === "message_not_in_streaming_state") {
+        this.logger.warn(
+          "Chat stream expired (message_not_in_streaming_state), falling back to post",
+        );
+      } else {
+        this.logger.error("Failed to append to chat stream:", error);
+      }
+
       this.failed = true;
+      this.stopKeepalive();
     }
   }
 }
@@ -367,11 +426,25 @@ export async function finalizeStreamedWorkflow(
   client: App["client"],
   channel: string,
   threadTs: string,
-  result: { success: boolean; error?: string },
+  result: {
+    success: boolean;
+    error?: string;
+    cancelled?: boolean;
+    cancelledBy?: { userId: string; reason?: string };
+  },
   label: string,
 ): Promise<void> {
   if (result.success) {
     await streamer.stop();
+  } else if (result.cancelled && result.cancelledBy) {
+    const reason = result.cancelledBy.reason ? `: ${result.cancelledBy.reason}` : "";
+    const message = `This work session was cancelled by <@${result.cancelledBy.userId}>${reason}`;
+    if (streamer.hasFailed) {
+      await streamer.stop();
+      await client.chat.postMessage({ channel, thread_ts: threadTs, text: message });
+    } else {
+      await streamer.stop({ markdownText: message });
+    }
   } else {
     const message = `${label} failed: ${result.error}`;
     if (streamer.hasFailed) {

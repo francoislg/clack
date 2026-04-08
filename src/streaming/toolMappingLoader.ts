@@ -138,9 +138,7 @@ export function shortenPath(value: string): string {
 }
 
 /** Truncate a string to `max` chars, appending "…" if truncated. */
-export function truncate(str: string, max: number): string {
-  return str.length > max ? str.substring(0, max - 1) + "…" : str;
-}
+import { truncate } from "../text.js";
 
 /**
  * Sanitize an interpolated arg value for safe Slack rendering.
