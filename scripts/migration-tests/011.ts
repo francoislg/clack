@@ -13,14 +13,17 @@ export const test: MigrationTest = {
         directMessages: { enabled: true },
         mentions: { enabled: true },
         autoRespond: { enabled: false },
-        repositories: [{ name: "app", url: "org/app", description: "App", access: { read: "member" } }],
+        repositories: [
+          { name: "app", url: "org/app", description: "App", access: { read: "member" } },
+        ],
         git: { pullIntervalMinutes: 60, shallowClone: true, cloneDepth: 1 },
         sessions: { cleanupIntervalMinutes: 5 },
         claudeCode: { model: "sonnet" },
       },
       validate: (output) => {
         if (!("allowScheduledMessages" in output)) return "allowScheduledMessages field missing";
-        if (output.allowScheduledMessages !== false) return `Expected false, got: ${output.allowScheduledMessages}`;
+        if (output.allowScheduledMessages !== false)
+          return `Expected false, got: ${output.allowScheduledMessages}`;
         return null;
       },
     },
@@ -32,14 +35,17 @@ export const test: MigrationTest = {
         mentions: { enabled: true },
         autoRespond: { enabled: false },
         allowScheduledMessages: true,
-        repositories: [{ name: "app", url: "org/app", description: "App", access: { read: "member" } }],
+        repositories: [
+          { name: "app", url: "org/app", description: "App", access: { read: "member" } },
+        ],
         git: { pullIntervalMinutes: 60, shallowClone: true, cloneDepth: 1 },
         sessions: { cleanupIntervalMinutes: 5 },
         claudeCode: { model: "sonnet" },
       },
       validate: (output) => {
         if (!("allowScheduledMessages" in output)) return "allowScheduledMessages was removed";
-        if (output.allowScheduledMessages !== true) return `Expected true (preserved), got: ${output.allowScheduledMessages}`;
+        if (output.allowScheduledMessages !== true)
+          return `Expected true (preserved), got: ${output.allowScheduledMessages}`;
         return null;
       },
     },
@@ -50,7 +56,14 @@ export const test: MigrationTest = {
         directMessages: { enabled: false },
         mentions: { enabled: true },
         autoRespond: { enabled: true },
-        repositories: [{ name: "app", url: "org/app", description: "App", access: { read: "member", write: "dev" } }],
+        repositories: [
+          {
+            name: "app",
+            url: "org/app",
+            description: "App",
+            access: { read: "member", write: "dev" },
+          },
+        ],
         git: { pullIntervalMinutes: 30, shallowClone: false, cloneDepth: 5 },
         sessions: { cleanupIntervalMinutes: 10 },
         claudeCode: { model: "opus" },
@@ -58,9 +71,11 @@ export const test: MigrationTest = {
       },
       validate: (output) => {
         if (!("allowScheduledMessages" in output)) return "allowScheduledMessages field missing";
-        if (output.allowScheduledMessages !== false) return `Expected false, got: ${output.allowScheduledMessages}`;
+        if (output.allowScheduledMessages !== false)
+          return `Expected false, got: ${output.allowScheduledMessages}`;
         const reactions = output.reactions as Record<string, unknown>;
-        if (reactions?.trigger !== "clack") return `reactions.trigger changed to ${reactions?.trigger}`;
+        if (reactions?.trigger !== "clack")
+          return `reactions.trigger changed to ${reactions?.trigger}`;
         const cw = output.changesWorkflow as Record<string, unknown>;
         if (cw?.enabled !== true) return "changesWorkflow.enabled was modified";
         const ar = output.autoRespond as Record<string, unknown>;

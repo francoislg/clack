@@ -12,6 +12,8 @@ import { logger } from "../../logger.js";
 import { activeSessions } from "../activeSessions.js";
 import { fetchThreadContext } from "../messagesApi.js";
 import { transformUserMentions, getUserInfo } from "../userCache.js";
+import { getChannelInfo } from "../channelCache.js";
+import { resolveChannelLabel, resolveUserLabel, slackLink } from "../logContext.js";
 import { getClaudeOptions } from "./changeWorkflowHelper.js";
 import { getReactionDelivery } from "../../userPreferences.js";
 import { registerInFlightRequest, deregisterInFlightRequest } from "../inFlightRequests.js";
@@ -19,6 +21,57 @@ import { storeDmCoordinates } from "../dmResponse.js";
 import { executeAndDeliver } from "./handlerResponse.js";
 import type { TriggerType } from "../../changes/types.js";
 import type { SlackImageFile, SlackFile } from "../slackFileBase.js";
+import type { AskClaudeOptions } from "../../claude/index.js";
+import type { SessionInfo } from "../activeSessions.js";
+
+export interface CoreDeps {
+  findSessionByThread: (channelId: string, threadTs: string) => Promise<SessionContext | null>;
+  createSession: (params: Parameters<typeof createSession>[0]) => Promise<SessionContext>;
+  getSession: (sessionId: string) => Promise<SessionContext | null>;
+  updateSession: (
+    sessionId: string,
+    updates: Partial<SessionContext>,
+  ) => Promise<SessionContext | null>;
+  updateThreadContext: (sessionId: string, context: unknown[]) => Promise<SessionContext | null>;
+  getConfig: () => Config;
+  setSessionInfo: (sessionId: string, info: SessionInfo) => void;
+  fetchThreadContext: typeof fetchThreadContext;
+  transformUserMentions: (client: App["client"], text: string) => Promise<string>;
+  getUserInfo: typeof getUserInfo;
+  getChannelInfo: typeof getChannelInfo;
+  resolveChannelLabel: typeof resolveChannelLabel;
+  resolveUserLabel: typeof resolveUserLabel;
+  slackLink: typeof slackLink;
+  getClaudeOptions: (userId: string, triggerType: TriggerType) => Promise<AskClaudeOptions>;
+  getReactionDelivery: (userId: string) => Promise<string>;
+  registerInFlightRequest: typeof registerInFlightRequest;
+  deregisterInFlightRequest: typeof deregisterInFlightRequest;
+  storeDmCoordinates: typeof storeDmCoordinates;
+  executeAndDeliver: typeof executeAndDeliver;
+}
+
+export const defaultCoreDeps: CoreDeps = {
+  findSessionByThread,
+  createSession,
+  getSession,
+  updateSession: updateSession as never,
+  updateThreadContext: updateThreadContext as never,
+  getConfig,
+  setSessionInfo: (sessionId, info) => activeSessions.set(sessionId, info),
+  fetchThreadContext,
+  transformUserMentions,
+  getUserInfo,
+  getChannelInfo,
+  resolveChannelLabel,
+  resolveUserLabel,
+  slackLink,
+  getClaudeOptions,
+  getReactionDelivery,
+  registerInFlightRequest,
+  deregisterInFlightRequest,
+  storeDmCoordinates,
+  executeAndDeliver,
+};
 
 export interface ProcessMessageParams {
   client: App["client"];
@@ -66,7 +119,7 @@ interface DmCoordinates {
 // SESSION SETUP
 // ============================================================
 
-async function setupSession(ctx: ProcessingContext): Promise<SessionContext> {
+async function setupSession(ctx: ProcessingContext, deps: CoreDeps): Promise<SessionContext> {
   const { client, config, userId, channelId, messageTs, messageText, threadTs, effectiveThreadTs } =
     ctx;
 
@@ -74,22 +127,23 @@ async function setupSession(ctx: ProcessingContext): Promise<SessionContext> {
   const botUserId = authResult.user_id || "";
 
   const threadContext = threadTs
-    ? await fetchThreadContext(client, channelId, threadTs, botUserId, {
+    ? await deps.fetchThreadContext(client, channelId, threadTs, botUserId, {
         fetchUserNames: config.slack.fetchAndStoreUsername,
       })
     : [];
 
   const processedMessageText = config.slack.fetchAndStoreUsername
-    ? await transformUserMentions(client, messageText)
+    ? await deps.transformUserMentions(client, messageText)
     : messageText;
 
-  let session = threadTs ? await findSessionByThread(channelId, threadTs) : null;
+  let session = threadTs ? await deps.findSessionByThread(channelId, threadTs) : null;
 
-  // Resolve user info for session attribution
-  const userInfo = await getUserInfo(client, userId);
+  // Resolve user and channel info for session attribution
+  const userInfo = await deps.getUserInfo(client, userId);
+  const channelInfo = await deps.getChannelInfo(client, channelId);
 
   if (!session) {
-    session = await createSession({
+    session = await deps.createSession({
       channelId,
       messageTs,
       threadTs: effectiveThreadTs,
@@ -100,21 +154,23 @@ async function setupSession(ctx: ProcessingContext): Promise<SessionContext> {
       displayName: userInfo?.displayName,
       triggerType: ctx.triggerType,
       additionalSystemPrompt: ctx.additionalSystemPrompt,
+      channelName: channelInfo?.name,
     });
     logger.debug(`Created session ${session.sessionId}`);
   } else {
-    await updateThreadContext(session.sessionId, threadContext);
-    const updates: Record<string, unknown> = {
+    await deps.updateThreadContext(session.sessionId, threadContext);
+    const updates: Partial<SessionContext> = {
       originalQuestion: processedMessageText,
       triggerType: ctx.triggerType,
     };
     if (!session.username && userInfo?.username) updates.username = userInfo.username;
     if (!session.displayName && userInfo?.displayName) updates.displayName = userInfo.displayName;
-    await updateSession(session.sessionId, updates);
-    session = (await getSession(session.sessionId))!;
+    if (!session.channelName && channelInfo?.name) updates.channelName = channelInfo.name;
+    await deps.updateSession(session.sessionId, updates);
+    session = (await deps.getSession(session.sessionId))!;
   }
 
-  activeSessions.set(session.sessionId, {
+  deps.setSessionInfo(session.sessionId, {
     channelId,
     threadTs: effectiveThreadTs,
     userId,
@@ -148,6 +204,7 @@ async function openDmChannel(client: App["client"], userId: string): Promise<str
 async function setupDmDelivery(
   ctx: ProcessingContext,
   session: SessionContext,
+  deps: CoreDeps,
 ): Promise<DmCoordinates | null> {
   const dmChannel = await openDmChannel(ctx.client, ctx.userId);
   if (!dmChannel) {
@@ -178,7 +235,7 @@ async function setupDmDelivery(
   const dmThreadTs = parent.ts ?? undefined;
 
   // Store DM coordinates in the session
-  await storeDmCoordinates(
+  await deps.storeDmCoordinates(
     session.sessionId,
     dmChannel,
     dmThreadTs || ctx.effectiveThreadTs,
@@ -206,13 +263,14 @@ async function withInFlightTracking(
     abortController: AbortController;
   },
   fn: () => Promise<unknown>,
+  deps: CoreDeps,
 ): Promise<void> {
   const cancellableTrigger =
     info.triggerType === "mentions" || info.triggerType === "directMessages"
       ? info.triggerType
       : null;
   if (cancellableTrigger) {
-    registerInFlightRequest(info.channelId, info.messageTs, {
+    deps.registerInFlightRequest(info.channelId, info.messageTs, {
       abortController: info.abortController,
       sessionId: info.sessionId,
       triggerType: cancellableTrigger,
@@ -222,7 +280,7 @@ async function withInFlightTracking(
     await fn();
   } finally {
     if (cancellableTrigger) {
-      deregisterInFlightRequest(info.channelId, info.messageTs);
+      deps.deregisterInFlightRequest(info.channelId, info.messageTs);
     }
   }
 }
@@ -238,15 +296,16 @@ async function withInFlightTracking(
 async function storeAssistantContext(
   session: SessionContext,
   assistantChannelId: string,
+  deps: CoreDeps,
 ): Promise<SessionContext> {
-  const currentSession = await getSession(session.sessionId);
-  const updates: Record<string, unknown> = {
+  const currentSession = await deps.getSession(session.sessionId);
+  const updates: Partial<SessionContext> = {
     assistantCurrentChannelId: assistantChannelId,
   };
   if (!currentSession?.assistantOriginChannelId) {
     updates.assistantOriginChannelId = assistantChannelId;
   }
-  const updated = await updateSession(session.sessionId, updates);
+  const updated = await deps.updateSession(session.sessionId, updates);
   return updated ?? session;
 }
 
@@ -254,7 +313,10 @@ async function storeAssistantContext(
 // MAIN ENTRY POINT
 // ============================================================
 
-export async function processMessage(params: ProcessMessageParams): Promise<void> {
+export async function processMessage(
+  params: ProcessMessageParams,
+  deps: CoreDeps = defaultCoreDeps,
+): Promise<void> {
   const {
     client,
     userId,
@@ -267,12 +329,12 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
     silentThinking = false,
   } = params;
 
-  const config = getConfig();
+  const config = deps.getConfig();
 
   // Resolve DM delivery for reaction triggers based on user preference
   let isDm = false;
   if (triggerType === "reactions") {
-    const delivery = await getReactionDelivery(userId);
+    const delivery = await deps.getReactionDelivery(userId);
     isDm = delivery === "dm";
   }
 
@@ -292,20 +354,19 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
     additionalSystemPrompt: params.additionalSystemPrompt,
   };
 
-  const assistantSuffix = params.assistantChannelId
-    ? ` [assistant panel, viewing ${params.assistantChannelId}]`
-    : "";
+  const userLabel = await deps.resolveUserLabel(client, userId);
+  const channelLabel = await deps.resolveChannelLabel(client, channelId);
   logger.debug(
-    `Processing message from ${userId} in ${channelId} (trigger: ${triggerType}, dm: ${isDm})${assistantSuffix}`,
+    `Processing message from ${userLabel} in ${channelLabel} (trigger: ${triggerType}${isDm ? ", dm" : ""})${await deps.slackLink(client, channelId, effectiveThreadTs)}`,
   );
 
   // 1. Set up or retrieve session
-  let session = await setupSession(ctx);
+  let session = await setupSession(ctx, deps);
 
   // 2. DM setup for reaction triggers (before executeAndDeliver sees sessionInfo)
   let dmCoords: DmCoordinates | null = null;
   if (isDm) {
-    dmCoords = await setupDmDelivery(ctx, session);
+    dmCoords = await setupDmDelivery(ctx, session, deps);
     if (!dmCoords) {
       isDm = false;
     }
@@ -313,7 +374,7 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
 
   // 3. Store assistant channel context on session before Claude runs
   if (params.assistantChannelId) {
-    session = await storeAssistantContext(session, params.assistantChannelId);
+    session = await storeAssistantContext(session, params.assistantChannelId, deps);
   }
 
   // 4. Update sessionInfo with DM coordinates (if set)
@@ -325,7 +386,7 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
     ...(dmCoords?.dmChannel && { dmChannel: dmCoords.dmChannel }),
     ...(dmCoords?.dmThreadTs && { dmThreadTs: dmCoords.dmThreadTs }),
   };
-  activeSessions.set(session.sessionId, sessionInfo);
+  deps.setSessionInfo(session.sessionId, sessionInfo);
 
   // 5. Collect available images + files from triggering message + thread context
   const imageMap = new Map<string, SlackImageFile>();
@@ -348,13 +409,13 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
   const availableFiles = fileMap;
 
   // 6. Build Claude options and execute
-  const claudeOptions = await getClaudeOptions(userId, triggerType);
+  const claudeOptions = await deps.getClaudeOptions(userId, triggerType);
   const abortController = new AbortController();
 
   await withInFlightTracking(
     { channelId, messageTs, triggerType, sessionId: session.sessionId, abortController },
     () =>
-      executeAndDeliver({
+      deps.executeAndDeliver({
         client,
         session,
         sessionInfo,
@@ -362,5 +423,6 @@ export async function processMessage(params: ProcessMessageParams): Promise<void
         abortController,
         silentThinking,
       }),
+    deps,
   );
 }

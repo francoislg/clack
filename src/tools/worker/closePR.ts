@@ -1,15 +1,32 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
+import type { Octokit } from "@octokit/rest";
 import type { WorkerToolContext } from "../types.js";
 import { textResult, errorResult } from "../helpers.js";
 import { getOctokit } from "../../github.js";
-import { getSession } from "../../sessions.js";
+import { getSession, type SessionContext } from "../../sessions.js";
 import { appendExecutionLog } from "../../changes/persistence.js";
 import { errorMessage } from "../../errors.js";
-import { parsePrUrl } from "../../changes/pr.js";
+import { parsePrUrl, type ParsedPrUrl } from "../../changes/pr.js";
 import { cleanupAfterPRAction } from "./prHelpers.js";
 
-export function createClosePRTool(ctx: WorkerToolContext) {
+export interface ClosePRDeps {
+  getSession: (sessionId: string) => Promise<SessionContext | null>;
+  getOctokit: () => Promise<Octokit>;
+  parsePrUrl: (url: string) => ParsedPrUrl | null;
+  appendExecutionLog: (branchName: string, message: string) => void;
+  cleanupAfterPRAction: (ctx: WorkerToolContext, logPrefix: string) => Promise<void>;
+}
+
+export const defaultClosePRDeps: ClosePRDeps = {
+  getSession,
+  getOctokit,
+  parsePrUrl,
+  appendExecutionLog,
+  cleanupAfterPRAction,
+};
+
+export function createClosePRTool(ctx: WorkerToolContext, deps: ClosePRDeps = defaultClosePRDeps) {
   return tool(
     "close_pr",
     "Close the pull request without merging. Optionally deletes the remote branch.",
@@ -18,7 +35,7 @@ export function createClosePRTool(ctx: WorkerToolContext) {
     },
     async (args) => {
       try {
-        const session = await getSession(ctx.sessionId);
+        const session = await deps.getSession(ctx.sessionId);
         const activeChange = session?.activeChange;
 
         if (!session || !activeChange) {
@@ -29,13 +46,13 @@ export function createClosePRTool(ctx: WorkerToolContext) {
           return errorResult("No PR URL found for this change.");
         }
 
-        const parsed = parsePrUrl(activeChange.prUrl);
+        const parsed = deps.parsePrUrl(activeChange.prUrl);
         if (!parsed) {
           return errorResult(`Could not parse PR URL: ${activeChange.prUrl}`);
         }
 
         const { owner, repo, pullNumber } = parsed;
-        const octokit = await getOctokit();
+        const octokit = await deps.getOctokit();
 
         // Close the PR without merging
         await octokit.pulls.update({
@@ -45,7 +62,7 @@ export function createClosePRTool(ctx: WorkerToolContext) {
           state: "closed",
         });
 
-        appendExecutionLog(ctx.branchName, `close_pr: closed PR ${activeChange.prUrl}`);
+        deps.appendExecutionLog(ctx.branchName, `close_pr: closed PR ${activeChange.prUrl}`);
 
         // Optionally delete the remote branch via GitHub API
         let branchDeleteWarning: string | undefined;
@@ -56,15 +73,18 @@ export function createClosePRTool(ctx: WorkerToolContext) {
               repo,
               ref: `heads/${ctx.branchName}`,
             });
-            appendExecutionLog(ctx.branchName, `close_pr: deleted remote branch ${ctx.branchName}`);
+            deps.appendExecutionLog(
+              ctx.branchName,
+              `close_pr: deleted remote branch ${ctx.branchName}`,
+            );
           } catch (error) {
             branchDeleteWarning = `Failed to delete remote branch: ${errorMessage(error)}`;
-            appendExecutionLog(ctx.branchName, `close_pr: warning - ${branchDeleteWarning}`);
+            deps.appendExecutionLog(ctx.branchName, `close_pr: warning - ${branchDeleteWarning}`);
           }
         }
 
         // Cleanup: update status, remove worktree and local branch, clear activeChange
-        await cleanupAfterPRAction(ctx, "close_pr");
+        await deps.cleanupAfterPRAction(ctx, "close_pr");
 
         const result: Record<string, unknown> = {
           success: true,

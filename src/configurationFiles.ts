@@ -2,6 +2,7 @@ import { writeFileSync, readFileSync, existsSync, mkdirSync, unlinkSync } from "
 import { resolve, sep } from "node:path";
 import { getConfig, getConfigurationDir, getDefaultConfigurationDir } from "./config.js";
 import { logger } from "./logger.js";
+import { interpolateVariables } from "./instructions.js";
 import {
   listRoleDirFiles,
   listSingleDirFiles,
@@ -208,5 +209,10 @@ export function loadPreAnalysisContext(): string {
   }
 
   resolved.sort((a, b) => a.filename.localeCompare(b.filename));
-  return resolved.map((r) => r.content).join("\n\n");
+  const raw = resolved.map((r) => r.content).join("\n\n");
+
+  const config = getConfig();
+  return interpolateVariables(raw, {
+    BOT_NAME: config.slackApp?.name || "Clack",
+  });
 }

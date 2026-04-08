@@ -1,75 +1,12 @@
 import { describe, it, beforeEach, mock } from "node:test";
 import assert from "node:assert/strict";
-import * as realFs from "node:fs";
-
-// ---------------------------------------------------------------------------
-// Module-level mocks
-// ---------------------------------------------------------------------------
-
-const mockExistsSync = mock.fn<(path: string) => boolean>();
-
-mock.module("node:fs", {
-  namedExports: {
-    ...realFs,
-    existsSync: mockExistsSync,
-  },
-});
-
-const mockGetVisibleRepos = mock.fn<(...args: unknown[]) => unknown[]>();
-
-mock.module("../../repoAccess.js", {
-  namedExports: {
-    getVisibleRepos: mockGetVisibleRepos,
-  },
-});
-
-const mockGetRepositoriesDir = mock.fn<() => string>();
-
-mock.module("../../config.js", {
-  namedExports: {
-    getRepositoriesDir: mockGetRepositoriesDir,
-  },
-});
-
-const mockSetAuthenticatedRemote = mock.fn<(...args: unknown[]) => Promise<void>>();
-
-mock.module("../../repositories.js", {
-  namedExports: {
-    setAuthenticatedRemote: mockSetAuthenticatedRemote,
-  },
-});
-
-mock.module("../../logger.js", {
-  namedExports: {
-    logger: {
-      debug: () => {},
-      warn: () => {},
-      error: () => {},
-      info: () => {},
-    },
-  },
-});
-
-// Mock simpleGit
-const mockGitRaw = mock.fn<(...args: unknown[]) => Promise<string>>();
-
-mock.module("simple-git", {
-  namedExports: {
-    simpleGit: () => ({
-      raw: mockGitRaw,
-    }),
-  },
-});
-
-// Import after mocks
-const { createDeepenHistoryTool } = await import("./deepenHistory.js");
+import { createDeepenHistoryTool, type DeepenHistoryDeps } from "./deepenHistory.js";
+import type { QueryToolContext } from "../types.js";
+import type { RepositoryConfig } from "../../config.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-import type { QueryToolContext } from "../types.js";
-import type { RepositoryConfig } from "../../config.js";
 
 function makeRepo(overrides?: Partial<RepositoryConfig>): RepositoryConfig {
   return {
@@ -111,17 +48,25 @@ function parseResult(result: { content: Array<{ text: string }> }) {
   return JSON.parse(result.content[0].text);
 }
 
-function resetMocks() {
-  mockExistsSync.mock.resetCalls();
-  mockGetVisibleRepos.mock.resetCalls();
-  mockGetRepositoriesDir.mock.resetCalls();
-  mockSetAuthenticatedRemote.mock.resetCalls();
-  mockGitRaw.mock.resetCalls();
+const mockGitRaw = mock.fn<(...args: unknown[]) => Promise<string>>();
 
-  mockGetRepositoriesDir.mock.mockImplementation(() => "/data/repositories");
-  mockExistsSync.mock.mockImplementation(() => true);
-  mockSetAuthenticatedRemote.mock.mockImplementation(async () => {});
-  mockGetVisibleRepos.mock.mockImplementation(() => [makeRepo()]);
+function makeSimpleGit(): DeepenHistoryDeps["simpleGit"] {
+  return (_opts: { baseDir: string }) => ({ raw: (...args: string[][]) => mockGitRaw(...args) });
+}
+
+function makeDeps(overrides: Partial<DeepenHistoryDeps> = {}): DeepenHistoryDeps {
+  return {
+    getVisibleRepos: mock.fn((_role: string, _repos: RepositoryConfig[]) => [
+      makeRepo(),
+    ]) as DeepenHistoryDeps["getVisibleRepos"],
+    getRepositoriesDir: mock.fn(
+      () => "/data/repositories",
+    ) as DeepenHistoryDeps["getRepositoriesDir"],
+    existsSync: mock.fn((_path: string) => true) as DeepenHistoryDeps["existsSync"],
+    simpleGit: makeSimpleGit(),
+    setAuthenticatedRemote: mock.fn(async () => {}) as DeepenHistoryDeps["setAuthenticatedRemote"],
+    ...overrides,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -129,12 +74,14 @@ function resetMocks() {
 // ---------------------------------------------------------------------------
 
 describe("deepenHistory tool", () => {
-  beforeEach(resetMocks);
+  beforeEach(() => {
+    mockGitRaw.mock.resetCalls();
+  });
 
   it("returns error for unknown repository", async () => {
-    mockGetVisibleRepos.mock.mockImplementation(() => [makeRepo()]);
+    const deps = makeDeps();
     const ctx = makeCtx();
-    const toolDef = createDeepenHistoryTool(ctx);
+    const toolDef = createDeepenHistoryTool(ctx, deps);
 
     const result = await toolDef.handler(
       { repo: "nonexistent-repo", commits: undefined, full: undefined },
@@ -149,9 +96,11 @@ describe("deepenHistory tool", () => {
   });
 
   it("returns error when repo has not been cloned", async () => {
-    mockExistsSync.mock.mockImplementation(() => false);
+    const deps = makeDeps({
+      existsSync: mock.fn((_path: string) => false) as DeepenHistoryDeps["existsSync"],
+    });
     const ctx = makeCtx();
-    const toolDef = createDeepenHistoryTool(ctx);
+    const toolDef = createDeepenHistoryTool(ctx, deps);
 
     const result = await toolDef.handler(
       { repo: "my-repo", commits: undefined, full: undefined },
@@ -172,8 +121,9 @@ describe("deepenHistory tool", () => {
       return "";
     });
 
+    const deps = makeDeps();
     const ctx = makeCtx();
-    const toolDef = createDeepenHistoryTool(ctx);
+    const toolDef = createDeepenHistoryTool(ctx, deps);
 
     const result = await toolDef.handler(
       { repo: "my-repo", commits: undefined, full: undefined },
@@ -203,8 +153,9 @@ describe("deepenHistory tool", () => {
       return "";
     });
 
+    const deps = makeDeps();
     const ctx = makeCtx();
-    const toolDef = createDeepenHistoryTool(ctx);
+    const toolDef = createDeepenHistoryTool(ctx, deps);
 
     const result = await toolDef.handler(
       { repo: "my-repo", commits: undefined, full: undefined },
@@ -234,8 +185,9 @@ describe("deepenHistory tool", () => {
       return "";
     });
 
+    const deps = makeDeps();
     const ctx = makeCtx();
-    const toolDef = createDeepenHistoryTool(ctx);
+    const toolDef = createDeepenHistoryTool(ctx, deps);
 
     const result = await toolDef.handler(
       { repo: "my-repo", commits: 250, full: undefined },
@@ -263,8 +215,9 @@ describe("deepenHistory tool", () => {
       return "";
     });
 
+    const deps = makeDeps();
     const ctx = makeCtx();
-    const toolDef = createDeepenHistoryTool(ctx);
+    const toolDef = createDeepenHistoryTool(ctx, deps);
 
     const result = await toolDef.handler(
       { repo: "my-repo", commits: undefined, full: true },
@@ -288,15 +241,19 @@ describe("deepenHistory tool", () => {
       return "";
     });
 
+    const mockSetAuth = mock.fn(async () => {});
+    const deps = makeDeps({
+      setAuthenticatedRemote: mockSetAuth as DeepenHistoryDeps["setAuthenticatedRemote"],
+    });
     const ctx = makeCtx();
-    const toolDef = createDeepenHistoryTool(ctx);
+    const toolDef = createDeepenHistoryTool(ctx, deps);
 
     await toolDef.handler(
       { repo: "my-repo", commits: undefined, full: undefined },
       { sessionId: "test" },
     );
 
-    assert.equal(mockSetAuthenticatedRemote.mock.callCount(), 1);
+    assert.equal(mockSetAuth.mock.callCount(), 1);
   });
 
   it("returns error when git operation fails", async () => {
@@ -304,8 +261,9 @@ describe("deepenHistory tool", () => {
       throw new Error("git fetch failed: network error");
     });
 
+    const deps = makeDeps();
     const ctx = makeCtx();
-    const toolDef = createDeepenHistoryTool(ctx);
+    const toolDef = createDeepenHistoryTool(ctx, deps);
 
     const result = await toolDef.handler(
       { repo: "my-repo", commits: undefined, full: undefined },
@@ -321,10 +279,12 @@ describe("deepenHistory tool", () => {
 
   it("only shows repos visible to the user's role", async () => {
     const adminRepo = makeRepo({ name: "admin-only", access: { read: "admin" } });
-    mockGetVisibleRepos.mock.mockImplementation(() => [adminRepo]);
+    const deps = makeDeps({
+      getVisibleRepos: mock.fn(() => [adminRepo]) as DeepenHistoryDeps["getVisibleRepos"],
+    });
 
     const ctx = makeCtx();
-    const toolDef = createDeepenHistoryTool(ctx);
+    const toolDef = createDeepenHistoryTool(ctx, deps);
 
     // Try to access a repo not in the visible list
     const result = await toolDef.handler(
@@ -346,8 +306,9 @@ describe("deepenHistory tool", () => {
       return "";
     });
 
+    const deps = makeDeps();
     const ctx = makeCtx();
-    const toolDef = createDeepenHistoryTool(ctx);
+    const toolDef = createDeepenHistoryTool(ctx, deps);
 
     const result = await toolDef.handler(
       { repo: "my-repo", commits: undefined, full: undefined },

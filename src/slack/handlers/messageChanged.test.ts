@@ -2,56 +2,35 @@ import { describe, it, mock, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
 import type { InFlightRequest } from "../inFlightRequests.js";
-
-// ============================================================================
-// Mocks — set up before importing the module under test
-// ============================================================================
-
-const mockProcessMessage = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
-const mockGetInFlightRequest = mock.fn<
-  (channelId: string, messageTs: string) => InFlightRequest | undefined
->(() => undefined);
-const mockDeregisterInFlightRequest = mock.fn<(channelId: string, messageTs: string) => void>();
-
-mock.module("./core.js", {
-  namedExports: { processMessage: mockProcessMessage },
-});
-
-mock.module("../inFlightRequests.js", {
-  namedExports: {
-    getInFlightRequest: mockGetInFlightRequest,
-    deregisterInFlightRequest: mockDeregisterInFlightRequest,
-  },
-});
-
-mock.module("../../config.js", {
-  namedExports: {
-    getConfig: () => ({ directMessages: { enabled: true }, mentions: { enabled: true } }),
-  },
-});
-
-mock.module("../../logger.js", {
-  namedExports: {
-    logger: {
-      info: () => {},
-      warn: () => {},
-      error: () => {},
-      debug: () => {},
-    },
-  },
-});
-
-// Import after mocks
-const { registerMessageChangedHandler } = await import("./messageChanged.js");
+import { registerMessageChangedHandler, type MessageChangedDeps } from "./messageChanged.js";
 
 // ============================================================================
 // Helpers
 // ============================================================================
 
-type EventHandler = (args: {
-  event: Record<string, unknown>;
-  client: App["client"];
-}) => Promise<void>;
+const mockProcessMessage = mock.fn<(...args: never[]) => Promise<void>>(async () => {});
+const mockGetInFlightRequest = mock.fn<
+  (channelId: string, messageTs: string) => InFlightRequest | undefined
+>(() => undefined);
+const mockDeregisterInFlightRequest = mock.fn<(channelId: string, messageTs: string) => void>();
+
+function makeDeps(): MessageChangedDeps {
+  return {
+    getConfig: () => ({ directMessages: { enabled: true }, mentions: { enabled: true } }) as never,
+    getInFlightRequest: mockGetInFlightRequest,
+    deregisterInFlightRequest: mockDeregisterInFlightRequest,
+    processMessage: mockProcessMessage as never,
+  };
+}
+
+interface TestMessageEvent {
+  subtype?: string;
+  channel?: string;
+  message?: { ts?: string; text?: string; user?: string };
+  previous_message?: { ts?: string; text?: string };
+}
+
+type EventHandler = (args: { event: TestMessageEvent; client: App["client"] }) => Promise<void>;
 
 let capturedHandler: EventHandler;
 
@@ -60,7 +39,7 @@ function makeApp(): App {
     event: (_eventType: string, handler: EventHandler) => {
       capturedHandler = handler;
     },
-  } as unknown as App;
+  } as App;
 }
 
 function makeClient(botUserId = "B001"): App["client"] {
@@ -68,7 +47,7 @@ function makeClient(botUserId = "B001"): App["client"] {
     auth: {
       test: mock.fn(async () => ({ user_id: botUserId })),
     },
-  } as unknown as App["client"];
+  } as never;
 }
 
 function makeInFlightRequest(overrides: Partial<InFlightRequest> = {}): InFlightRequest {
@@ -87,7 +66,7 @@ beforeEach(() => {
 
   // Re-register handler each test
   const app = makeApp();
-  registerMessageChangedHandler(app);
+  registerMessageChangedHandler(app, makeDeps());
 });
 
 // ============================================================================
@@ -192,7 +171,14 @@ describe("registerMessageChangedHandler", () => {
     });
 
     assert.equal(mockProcessMessage.mock.callCount(), 1);
-    const args = mockProcessMessage.mock.calls[0].arguments[0] as Record<string, unknown>;
+    interface ProcessMessageArg {
+      messageText: string;
+      channelId: string;
+      messageTs: string;
+      userId: string;
+      triggerType: string;
+    }
+    const args = mockProcessMessage.mock.calls[0]!.arguments[0] as ProcessMessageArg;
     assert.equal(args.messageText, "updated question");
     assert.equal(args.channelId, "C001");
     assert.equal(args.messageTs, "1700000000.000001");
@@ -256,7 +242,11 @@ describe("registerMessageChangedHandler", () => {
     });
 
     assert.equal(mockProcessMessage.mock.callCount(), 1);
-    const args = mockProcessMessage.mock.calls[0].arguments[0] as Record<string, unknown>;
+    interface ProcessMessageArg {
+      messageText: string;
+      triggerType: string;
+    }
+    const args = mockProcessMessage.mock.calls[0]!.arguments[0] as ProcessMessageArg;
     assert.equal(args.messageText, "edited DM");
     assert.equal(args.triggerType, "directMessages");
   });

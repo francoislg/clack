@@ -1,5 +1,20 @@
-import { updateSession } from "../sessions.js";
-import { activeSessions } from "./activeSessions.js";
+import { updateSession, type SessionContext } from "../sessions.js";
+import { activeSessions, type SessionInfo } from "./activeSessions.js";
+
+export interface DmResponseDeps {
+  updateSession: (
+    sessionId: string,
+    updates: Partial<SessionContext>,
+  ) => Promise<SessionContext | null>;
+  getSessionInfo: (sessionId: string) => SessionInfo | undefined;
+  setSessionInfo: (sessionId: string, info: SessionInfo) => void;
+}
+
+export const defaultDmResponseDeps: DmResponseDeps = {
+  updateSession,
+  getSessionInfo: (sessionId: string) => activeSessions.get(sessionId),
+  setSessionInfo: (sessionId: string, info: SessionInfo) => activeSessions.set(sessionId, info),
+};
 
 /** Actions for the synthesis message (before posting to channel) */
 export function getDmSynthesisActions(sessionId: string) {
@@ -72,9 +87,10 @@ export async function storeDmCoordinates(
   dmThreadTs: string,
   originChannel: string,
   originThreadTs: string,
+  deps: DmResponseDeps = defaultDmResponseDeps,
 ): Promise<void> {
   // Update persisted session
-  await updateSession(sessionId, {
+  await deps.updateSession(sessionId, {
     dmChannel,
     dmThreadTs,
     originChannel,
@@ -82,9 +98,9 @@ export async function storeDmCoordinates(
   });
 
   // Update in-memory session info
-  const currentInfo = activeSessions.get(sessionId);
+  const currentInfo = deps.getSessionInfo(sessionId);
   if (currentInfo) {
-    activeSessions.set(sessionId, {
+    deps.setSessionInfo(sessionId, {
       ...currentInfo,
       dmChannel,
       dmThreadTs,

@@ -5,7 +5,32 @@ import { textResult, errorResult } from "../helpers.js";
 import { getOctokit } from "../../github.js";
 import { errorMessage } from "../../errors.js";
 
-export function createResolveReviewThreadTool(_ctx: QueryToolContext | WorkerToolContext) {
+interface ResolveThreadResult {
+  resolveReviewThread: {
+    thread: { id: string; isResolved: boolean };
+  };
+}
+
+export interface ResolveReviewThreadDeps {
+  graphql: (query: string, variables: { threadId: string }) => Promise<ResolveThreadResult>;
+}
+
+async function defaultGraphql(
+  query: string,
+  variables: { threadId: string },
+): Promise<ResolveThreadResult> {
+  const octokit = await getOctokit();
+  return octokit.graphql<ResolveThreadResult>(query, variables);
+}
+
+export const defaultResolveReviewThreadDeps: ResolveReviewThreadDeps = {
+  graphql: defaultGraphql,
+};
+
+export function createResolveReviewThreadTool(
+  _ctx: QueryToolContext | WorkerToolContext,
+  deps: ResolveReviewThreadDeps = defaultResolveReviewThreadDeps,
+) {
   return tool(
     "resolve_review_thread",
     "Resolve a PR review thread after addressing the feedback. Takes the GraphQL node ID of the review thread (starts with PRRT_).",
@@ -14,13 +39,7 @@ export function createResolveReviewThreadTool(_ctx: QueryToolContext | WorkerToo
     },
     async (args) => {
       try {
-        const octokit = await getOctokit();
-
-        const result = await octokit.graphql<{
-          resolveReviewThread: {
-            thread: { id: string; isResolved: boolean };
-          };
-        }>(
+        const result = await deps.graphql(
           `mutation($threadId: ID!) {
             resolveReviewThread(input: { threadId: $threadId }) {
               thread { id isResolved }

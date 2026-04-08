@@ -1,67 +1,12 @@
 import { describe, it, beforeEach, mock } from "node:test";
 import assert from "node:assert/strict";
-import * as realFs from "node:fs";
-
-// ---------------------------------------------------------------------------
-// Module-level mocks
-// ---------------------------------------------------------------------------
-
-const mockExistsSync = mock.fn<(path: string) => boolean>();
-
-mock.module("node:fs", {
-  namedExports: {
-    ...realFs,
-    existsSync: mockExistsSync,
-  },
-});
-
-const mockGetVisibleRepos = mock.fn<(...args: unknown[]) => unknown[]>();
-
-mock.module("../../repoAccess.js", {
-  namedExports: {
-    getVisibleRepos: mockGetVisibleRepos,
-  },
-});
-
-const mockGetRepositoriesDir = mock.fn<() => string>();
-
-mock.module("../../config.js", {
-  namedExports: {
-    getRepositoriesDir: mockGetRepositoriesDir,
-  },
-});
-
-mock.module("../../logger.js", {
-  namedExports: {
-    logger: {
-      debug: () => {},
-      warn: () => {},
-      error: () => {},
-      info: () => {},
-    },
-  },
-});
-
-// Mock simpleGit
-const mockGitRaw = mock.fn<(...args: unknown[]) => Promise<string>>();
-
-mock.module("simple-git", {
-  namedExports: {
-    simpleGit: () => ({
-      raw: mockGitRaw,
-    }),
-  },
-});
-
-// Import after mocks
-const { createGitLogTool } = await import("./gitLog.js");
+import { createGitLogTool, type GitLogDeps } from "./gitLog.js";
+import type { QueryToolContext } from "../types.js";
+import type { RepositoryConfig } from "../../config.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-import type { QueryToolContext } from "../types.js";
-import type { RepositoryConfig } from "../../config.js";
 
 function makeRepo(overrides?: Partial<RepositoryConfig>): RepositoryConfig {
   return {
@@ -103,21 +48,29 @@ function parseResult(result: { content: Array<{ text: string }> }) {
   return JSON.parse(result.content[0].text);
 }
 
-function resetMocks() {
-  mockExistsSync.mock.resetCalls();
-  mockGetVisibleRepos.mock.resetCalls();
-  mockGetRepositoriesDir.mock.resetCalls();
-  mockGitRaw.mock.resetCalls();
+const mockGitRaw = mock.fn<(...args: unknown[]) => Promise<string>>();
 
-  mockGetRepositoriesDir.mock.mockImplementation(() => "/data/repositories");
-  mockExistsSync.mock.mockImplementation(() => true);
-  mockGetVisibleRepos.mock.mockImplementation(() => [makeRepo()]);
-  mockGitRaw.mock.mockImplementation(async (args: unknown) => {
-    const cmdArgs = args as string[];
-    if (cmdArgs.includes("--is-shallow-repository")) return "false\n";
-    if (cmdArgs.includes("--count")) return "100\n";
-    return "commit abc123\nAuthor: test\n";
-  });
+function makeSimpleGit(): GitLogDeps["simpleGit"] {
+  return (_opts: { baseDir: string }) => ({ raw: (...args: string[][]) => mockGitRaw(...args) });
+}
+
+function makeDeps(overrides: Partial<GitLogDeps> = {}): GitLogDeps {
+  return {
+    getVisibleRepos: mock.fn((_role: string, _repos: RepositoryConfig[]) => [
+      makeRepo(),
+    ]) as GitLogDeps["getVisibleRepos"],
+    getRepositoriesDir: mock.fn(() => "/data/repositories") as GitLogDeps["getRepositoriesDir"],
+    existsSync: mock.fn((_path: string) => true) as GitLogDeps["existsSync"],
+    simpleGit: makeSimpleGit(),
+    ...overrides,
+  };
+}
+
+function defaultGitRaw(args: unknown): Promise<string> {
+  const cmdArgs = args as string[];
+  if (cmdArgs.includes("--is-shallow-repository")) return Promise.resolve("false\n");
+  if (cmdArgs.includes("--count")) return Promise.resolve("100\n");
+  return Promise.resolve("commit abc123\nAuthor: test\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -125,11 +78,15 @@ function resetMocks() {
 // ---------------------------------------------------------------------------
 
 describe("gitLog tool", () => {
-  beforeEach(resetMocks);
+  beforeEach(() => {
+    mockGitRaw.mock.resetCalls();
+    mockGitRaw.mock.mockImplementation(defaultGitRaw);
+  });
 
   it("returns error for unknown repository", async () => {
+    const deps = makeDeps();
     const ctx = makeCtx();
-    const toolDef = createGitLogTool(ctx);
+    const toolDef = createGitLogTool(ctx, deps);
 
     const result = await toolDef.handler(
       { repo: "nonexistent", args: undefined },
@@ -144,10 +101,12 @@ describe("gitLog tool", () => {
   });
 
   it("returns error when repo has not been cloned", async () => {
-    mockExistsSync.mock.mockImplementation(() => false);
+    const deps = makeDeps({
+      existsSync: mock.fn((_path: string) => false) as GitLogDeps["existsSync"],
+    });
 
     const ctx = makeCtx();
-    const toolDef = createGitLogTool(ctx);
+    const toolDef = createGitLogTool(ctx, deps);
 
     const result = await toolDef.handler(
       { repo: "my-repo", args: undefined },
@@ -169,8 +128,9 @@ describe("gitLog tool", () => {
       return "";
     });
 
+    const deps = makeDeps();
     const ctx = makeCtx();
-    const toolDef = createGitLogTool(ctx);
+    const toolDef = createGitLogTool(ctx, deps);
 
     const result = await toolDef.handler(
       { repo: "my-repo", args: ["--oneline", "-n", "5"] },
@@ -186,7 +146,7 @@ describe("gitLog tool", () => {
   });
 
   it("passes user-provided args to git log", async () => {
-    const rawCalls: unknown[][] = [];
+    const rawCalls: string[][] = [];
     mockGitRaw.mock.mockImplementation(async (args: unknown) => {
       const cmdArgs = args as string[];
       rawCalls.push(cmdArgs);
@@ -195,24 +155,25 @@ describe("gitLog tool", () => {
       return "log output";
     });
 
+    const deps = makeDeps();
     const ctx = makeCtx();
-    const toolDef = createGitLogTool(ctx);
+    const toolDef = createGitLogTool(ctx, deps);
 
     await toolDef.handler(
       { repo: "my-repo", args: ["--oneline", "--author=John", "-n", "20"] },
       { sessionId: "test" },
     );
 
-    const logCall = rawCalls.find((c) => (c as string[])[0] === "log") as string[];
+    const logCall = rawCalls.find((c) => c[0] === "log");
     assert.ok(logCall);
-    assert.ok(logCall.includes("--oneline"));
-    assert.ok(logCall.includes("--author=John"));
-    assert.ok(logCall.includes("-n"));
-    assert.ok(logCall.includes("20"));
+    assert.ok(logCall!.includes("--oneline"));
+    assert.ok(logCall!.includes("--author=John"));
+    assert.ok(logCall!.includes("-n"));
+    assert.ok(logCall!.includes("20"));
   });
 
   it("uses empty args array when no args provided", async () => {
-    const rawCalls: unknown[][] = [];
+    const rawCalls: string[][] = [];
     mockGitRaw.mock.mockImplementation(async (args: unknown) => {
       const cmdArgs = args as string[];
       rawCalls.push(cmdArgs);
@@ -221,12 +182,13 @@ describe("gitLog tool", () => {
       return "log output";
     });
 
+    const deps = makeDeps();
     const ctx = makeCtx();
-    const toolDef = createGitLogTool(ctx);
+    const toolDef = createGitLogTool(ctx, deps);
 
     await toolDef.handler({ repo: "my-repo", args: undefined }, { sessionId: "test" });
 
-    const logCall = rawCalls.find((c) => (c as string[])[0] === "log") as string[];
+    const logCall = rawCalls.find((c) => c[0] === "log");
     assert.ok(logCall);
     assert.deepEqual(logCall, ["log"]);
   });
@@ -240,8 +202,9 @@ describe("gitLog tool", () => {
       return longOutput;
     });
 
+    const deps = makeDeps();
     const ctx = makeCtx();
-    const toolDef = createGitLogTool(ctx);
+    const toolDef = createGitLogTool(ctx, deps);
 
     const result = await toolDef.handler(
       { repo: "my-repo", args: undefined },
@@ -262,8 +225,9 @@ describe("gitLog tool", () => {
       return "log output";
     });
 
+    const deps = makeDeps();
     const ctx = makeCtx();
-    const toolDef = createGitLogTool(ctx);
+    const toolDef = createGitLogTool(ctx, deps);
 
     const result = await toolDef.handler(
       { repo: "my-repo", args: undefined },
@@ -280,8 +244,9 @@ describe("gitLog tool", () => {
       throw new Error("fatal: bad default revision 'HEAD'");
     });
 
+    const deps = makeDeps();
     const ctx = makeCtx();
-    const toolDef = createGitLogTool(ctx);
+    const toolDef = createGitLogTool(ctx, deps);
 
     const result = await toolDef.handler(
       { repo: "my-repo", args: undefined },
@@ -302,8 +267,9 @@ describe("gitLog tool", () => {
       return "log output";
     });
 
+    const deps = makeDeps();
     const ctx = makeCtx();
-    const toolDef = createGitLogTool(ctx);
+    const toolDef = createGitLogTool(ctx, deps);
 
     const result = await toolDef.handler(
       { repo: "my-repo", args: undefined },
@@ -316,10 +282,12 @@ describe("gitLog tool", () => {
 
   it("only allows access to repos visible to user role", async () => {
     const adminRepo = makeRepo({ name: "admin-only" });
-    mockGetVisibleRepos.mock.mockImplementation(() => [adminRepo]);
+    const deps = makeDeps({
+      getVisibleRepos: mock.fn(() => [adminRepo]) as GitLogDeps["getVisibleRepos"],
+    });
 
     const ctx = makeCtx();
-    const toolDef = createGitLogTool(ctx);
+    const toolDef = createGitLogTool(ctx, deps);
 
     const result = await toolDef.handler(
       { repo: "my-repo", args: undefined },

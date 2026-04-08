@@ -3,23 +3,22 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
-// Mock external dependencies before importing
-const mockGetUserInfo = mock.fn<(...args: unknown[]) => Promise<unknown>>();
-
-mock.module("../../slack/userCache.js", {
-  namedExports: {
-    getUserInfo: mockGetUserInfo,
-    transformUserMentions: mock.fn(),
-    getUserDisplayName: mock.fn(),
-  },
-});
-
-import { createCreateScheduledMessageTool } from "./createScheduledMessage.js";
+import {
+  createCreateScheduledMessageTool,
+  type CreateScheduledMessageDeps,
+} from "./createScheduledMessage.js";
 import type { QueryToolContext } from "../types.js";
-import { clearCronJobsCache, getJobs } from "../../cronJobs.js";
+import { clearCronJobsCache, getJobs, createJob } from "../../cronJobs.js";
 
 const originalCwd = process.cwd;
+
+function makeDeps(overrides?: Partial<CreateScheduledMessageDeps>): CreateScheduledMessageDeps {
+  return {
+    getUserInfo: mock.fn(async () => ({ userId: "U123", tz: "America/New_York" })),
+    createJob,
+    ...overrides,
+  };
+}
 
 function buildCtx(overrides: Partial<QueryToolContext> = {}): QueryToolContext {
   return {
@@ -38,15 +37,23 @@ function buildCtx(overrides: Partial<QueryToolContext> = {}): QueryToolContext {
           channels: [{ id: "C456", name: "engineering" }],
         })),
       },
-    } as unknown as QueryToolContext["slackClient"],
+    } as never as QueryToolContext["slackClient"],
     changesWorkflowEnabled: false,
     allowScheduledMessages: true,
     ...overrides,
   } as QueryToolContext;
 }
 
+interface ToolHandlerResult {
+  content: Array<{ text: string }>;
+  isError?: boolean;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function callHandler(tool: any, args: Record<string, unknown>): Promise<any> {
+function callHandler(
+  tool: any,
+  args: { channel: string; cronExpression: string; prompt: string },
+): Promise<ToolHandlerResult> {
   return tool.handler(args, { sessionId: "test" });
 }
 
@@ -58,10 +65,6 @@ describe("createScheduledMessage tool", () => {
     await mkdir(join(tempDir, "data", "state"), { recursive: true });
     process.cwd = () => tempDir;
     clearCronJobsCache();
-    mockGetUserInfo.mock.resetCalls();
-    mockGetUserInfo.mock.mockImplementation(async () => ({
-      tz: "America/New_York",
-    }));
   });
 
   afterEach(async () => {
@@ -71,7 +74,8 @@ describe("createScheduledMessage tool", () => {
 
   it("creates a dynamic scheduled message", async () => {
     const ctx = buildCtx();
-    const tool = createCreateScheduledMessageTool(ctx);
+    const deps = makeDeps();
+    const tool = createCreateScheduledMessageTool(ctx, deps);
     const result = await callHandler(tool, {
       channel: "C456",
       cronExpression: "0 9 * * *",
@@ -91,7 +95,8 @@ describe("createScheduledMessage tool", () => {
 
   it("rejects invalid cron expression", async () => {
     const ctx = buildCtx();
-    const tool = createCreateScheduledMessageTool(ctx);
+    const deps = makeDeps();
+    const tool = createCreateScheduledMessageTool(ctx, deps);
     const result = await callHandler(tool, {
       channel: "C456",
       cronExpression: "not valid",
@@ -104,7 +109,8 @@ describe("createScheduledMessage tool", () => {
 
   it("resolves channel by name", async () => {
     const ctx = buildCtx();
-    const tool = createCreateScheduledMessageTool(ctx);
+    const deps = makeDeps();
+    const tool = createCreateScheduledMessageTool(ctx, deps);
     const result = await callHandler(tool, {
       channel: "#engineering",
       cronExpression: "0 9 * * *",

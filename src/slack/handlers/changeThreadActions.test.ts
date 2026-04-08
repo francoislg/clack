@@ -1,23 +1,28 @@
-import { describe, it, mock, beforeEach } from "node:test";
+import { describe, it, mock, beforeEach, type Mock } from "node:test";
 import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
 import type { UserRole } from "../../roles.js";
 import type { StagedIntent, StagedUpdateIntent } from "../../tools/types.js";
 import type { SessionInfo } from "../activeSessions.js";
 import type { SessionContext } from "../../sessions.js";
-import type { ChangeResult } from "../../changes/types.js";
+import type { ChangeResult, FollowUpCommand } from "../../changes/types.js";
+import {
+  registerChangeThreadActionHandlers,
+  triggerFollowUp,
+  type ChangeThreadActionsDeps,
+} from "./changeThreadActions.js";
 
 // ============================================================================
-// Mocks — set up before importing the module under test
+// Mocks
 // ============================================================================
 
 const mockGetRole = mock.fn<(userId: string) => Promise<UserRole>>(async () => "dev");
-const mockGetStagedIntent = mock.fn<(...args: unknown[]) => Promise<StagedIntent | null>>(
-  async () => null,
-);
-const mockFindSessionByThread = mock.fn<(...args: unknown[]) => Promise<SessionContext | null>>(
-  async () => null,
-);
+const mockGetStagedIntent = mock.fn<
+  (sessionId: string, ref: string) => Promise<StagedIntent | null>
+>(async () => null);
+const mockFindSessionByThread = mock.fn<
+  (channelId: string, threadTs: string) => Promise<SessionContext | null>
+>(async () => null);
 const mockDecodeActionValue = mock.fn<(value: string) => { sessionId: string; ref?: string }>(
   () => ({ sessionId: "session-1", ref: "r1" }),
 );
@@ -28,126 +33,95 @@ const mockRestoreSessionInfo = mock.fn<(sessionId: string) => Promise<SessionInf
     userId: "U001",
   }),
 );
-const mockHandleFollowUp = mock.fn<(...args: unknown[]) => Promise<ChangeResult>>(async () => ({
+const mockCanRequestChanges = mock.fn<(role: UserRole) => boolean>(
+  (role) => role === "dev" || role === "admin" || role === "owner",
+);
+const mockHandleFollowUp = mock.fn<ChangeThreadActionsDeps["handleFollowUp"]>(async () => ({
   success: true,
 }));
+const mockErrorMessage = mock.fn<ChangeThreadActionsDeps["errorMessage"]>((err) =>
+  err instanceof Error ? err.message : String(err),
+);
 
 // SlackStreamer mock
 const mockStreamerStart = mock.fn(async () => true);
 const mockStreamerStop = mock.fn(async () => {});
 const mockStreamerHandleEvent = mock.fn();
-const mockFinalizeStreamedWorkflow = mock.fn(async () => {});
+const mockCreateStreamer = mock.fn(() => ({
+  start: mockStreamerStart,
+  stop: mockStreamerStop,
+  handleEvent: mockStreamerHandleEvent,
+  hasFailed: false,
+}));
+const mockFinalizeStreamedWorkflow = mock.fn<ChangeThreadActionsDeps["finalizeStreamedWorkflow"]>(
+  async () => {},
+);
 
-mock.module("../../logger.js", {
-  namedExports: {
-    logger: {
-      info: () => {},
-      warn: () => {},
-      error: () => {},
-      debug: () => {},
-    },
-  },
-});
+const mockPostEphemeralFn = mock.fn<
+  (args: {
+    channel: string;
+    user?: string;
+    text: string;
+    thread_ts?: string;
+  }) => Promise<{ ok: boolean }>
+>(async () => ({ ok: true }));
+const mockPostMessageFn = mock.fn<
+  (args: { channel: string; thread_ts: string; text: string }) => Promise<{ ok: boolean }>
+>(async () => ({ ok: true }));
 
-mock.module("../../errors.js", {
-  namedExports: {
-    errorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
-  },
-});
-
-mock.module("../../roles.js", {
-  namedExports: {
+function makeDeps(): ChangeThreadActionsDeps {
+  return {
     getRole: mockGetRole,
-  },
-});
-
-mock.module("../../permissions.js", {
-  namedExports: {
-    canRequestChanges: (role: UserRole) => role === "dev" || role === "admin" || role === "owner",
-  },
-});
-
-mock.module("../../sessions.js", {
-  namedExports: {
+    canRequestChanges: mockCanRequestChanges,
+    decodeActionValue: mockDecodeActionValue,
+    restoreSession: mockRestoreSessionInfo,
     getStagedIntent: mockGetStagedIntent,
     findSessionByThread: mockFindSessionByThread,
-  },
-});
-
-mock.module("../blocks.js", {
-  namedExports: {
-    decodeActionValue: mockDecodeActionValue,
-  },
-});
-
-mock.module("../activeSessions.js", {
-  namedExports: {
-    activeSessions: { restore: mockRestoreSessionInfo },
-  },
-});
-
-mock.module("../../changes/workflow.js", {
-  namedExports: {
     handleFollowUp: mockHandleFollowUp,
-  },
-});
-
-mock.module("../../streaming/slackStreamer.js", {
-  namedExports: {
-    SlackStreamer: class {
-      handleEvent = mockStreamerHandleEvent;
-      start = mockStreamerStart;
-      stop = mockStreamerStop;
-      hasFailed = false;
-    },
+    errorMessage: mockErrorMessage,
+    createStreamer: mockCreateStreamer,
     finalizeStreamedWorkflow: mockFinalizeStreamedWorkflow,
-  },
-});
-
-// changeAction exports SlackDeliveryContext type used by this module
-mock.module("./changeAction.js", {
-  namedExports: {},
-});
-
-// Import after mocks are configured
-const { registerChangeThreadActionHandlers, triggerFollowUp } =
-  await import("./changeThreadActions.js");
+  };
+}
 
 // ============================================================================
 // Helpers
 // ============================================================================
 
+interface HandlerArgs {
+  ack: Mock<() => Promise<void>>;
+  body: { actions: Array<{ value: string }>; user: { id: string }; channel?: { id: string } };
+  client: App["client"];
+  respond: Mock<(args: object) => Promise<void>>;
+}
+
+type ActionHandler = (args: HandlerArgs) => Promise<void>;
+
+const registeredHandlers = new Map<string, ActionHandler>();
+
+function makeApp(deps: ChangeThreadActionsDeps): App {
+  registeredHandlers.clear();
+  const app = {
+    action: (_pattern: RegExp, handler: ActionHandler) => {
+      registeredHandlers.set(_pattern.source, handler);
+    },
+  } as object as App;
+  registerChangeThreadActionHandlers(app, deps);
+  return app;
+}
+
 function makeClient(): App["client"] {
   return {
     chat: {
-      postEphemeral: mock.fn(async () => ({ ok: true })),
-      postMessage: mock.fn(async () => ({ ok: true })),
+      postEphemeral: mockPostEphemeralFn,
+      postMessage: mockPostMessageFn,
     },
-  } as unknown as App["client"];
-}
-
-/**
- * Capture all registered action handlers.
- * Returns a map of action pattern string to handler function.
- */
-function captureHandlers(): Map<string, (args: Record<string, unknown>) => Promise<void>> {
-  const actionFn = mock.fn();
-  const app = { action: actionFn } as unknown as App;
-  registerChangeThreadActionHandlers(app);
-
-  const handlers = new Map<string, (args: Record<string, unknown>) => Promise<void>>();
-  for (const call of actionFn.mock.calls) {
-    const pattern = call.arguments[0] as RegExp;
-    const handler = call.arguments[1] as (args: Record<string, unknown>) => Promise<void>;
-    handlers.set(pattern.source, handler);
-  }
-  return handlers;
+  } as object as App["client"];
 }
 
 /** Get a specific handler by its action ID prefix */
-function getHandler(prefix: string): (args: Record<string, unknown>) => Promise<void> {
-  const handlers = captureHandlers();
-  for (const [source, handler] of handlers) {
+function getHandler(prefix: string): ActionHandler {
+  for (const [source, handler] of registeredHandlers) {
     if (source.includes(prefix)) {
       return handler;
     }
@@ -155,17 +129,18 @@ function getHandler(prefix: string): (args: Record<string, unknown>) => Promise<
   throw new Error(`No handler found for prefix: ${prefix}`);
 }
 
-function makeHandlerArgs(overrides: Record<string, unknown> = {}) {
+function makeHandlerArgs(overrides: Partial<HandlerArgs> = {}): HandlerArgs {
   const client = makeClient();
   const respondFn = mock.fn(async () => {});
+  const body = {
+    user: { id: "U001" },
+    channel: { id: "C001" },
+    actions: [{ value: "encoded-value" }],
+    ...overrides.body,
+  };
   return {
     ack: mock.fn(async () => {}),
-    body: {
-      user: { id: "U001" },
-      channel: { id: "C001" },
-      actions: [{ value: "encoded-value" }],
-      ...(overrides.body as Record<string, unknown>),
-    },
+    body,
     client,
     respond: respondFn,
     ...overrides,
@@ -203,14 +178,22 @@ beforeEach(() => {
   mockFindSessionByThread.mock.resetCalls();
   mockDecodeActionValue.mock.resetCalls();
   mockRestoreSessionInfo.mock.resetCalls();
+  mockCanRequestChanges.mock.resetCalls();
   mockHandleFollowUp.mock.resetCalls();
+  mockErrorMessage.mock.resetCalls();
   mockStreamerStart.mock.resetCalls();
   mockStreamerStop.mock.resetCalls();
   mockStreamerHandleEvent.mock.resetCalls();
+  mockCreateStreamer.mock.resetCalls();
   mockFinalizeStreamedWorkflow.mock.resetCalls();
+  mockPostEphemeralFn.mock.resetCalls();
+  mockPostMessageFn.mock.resetCalls();
 
   // Reset to defaults
   mockGetRole.mock.mockImplementation(async () => "dev");
+  mockCanRequestChanges.mock.mockImplementation(
+    (role) => role === "dev" || role === "admin" || role === "owner",
+  );
   mockDecodeActionValue.mock.mockImplementation(() => ({ sessionId: "session-1", ref: "r1" }));
   mockRestoreSessionInfo.mock.mockImplementation(async () => ({
     channelId: "C001",
@@ -219,7 +202,21 @@ beforeEach(() => {
   }));
   mockHandleFollowUp.mock.mockImplementation(async () => ({ success: true }));
   mockFindSessionByThread.mock.mockImplementation(async () => makeSession());
+  mockErrorMessage.mock.mockImplementation((err) =>
+    err instanceof Error ? err.message : String(err),
+  );
+  mockStreamerStart.mock.mockImplementation(async () => true);
+  mockStreamerStop.mock.mockImplementation(async () => {});
+  mockCreateStreamer.mock.mockImplementation(() => ({
+    start: mockStreamerStart,
+    stop: mockStreamerStop,
+    handleEvent: mockStreamerHandleEvent,
+    hasFailed: false,
+  }));
   mockFinalizeStreamedWorkflow.mock.mockImplementation(async () => {});
+
+  // Register handlers
+  makeApp(makeDeps());
 });
 
 // ============================================================================
@@ -228,18 +225,11 @@ beforeEach(() => {
 
 describe("registerChangeThreadActionHandlers — registration", () => {
   it("registers four action handlers", () => {
-    const actionFn = mock.fn();
-    const app = { action: actionFn } as unknown as App;
-    registerChangeThreadActionHandlers(app);
-    assert.equal(actionFn.mock.callCount(), 4);
+    assert.equal(registeredHandlers.size, 4, "should register exactly four action handlers");
   });
 
   it("registers handlers for review, merge, update, and close", () => {
-    const actionFn = mock.fn();
-    const app = { action: actionFn } as unknown as App;
-    registerChangeThreadActionHandlers(app);
-
-    const patterns = actionFn.mock.calls.map((call) => (call.arguments[0] as RegExp).source);
+    const patterns = Array.from(registeredHandlers.keys());
     assert.ok(patterns.some((p) => p.includes("clack_review")));
     assert.ok(patterns.some((p) => p.includes("clack_merge")));
     assert.ok(patterns.some((p) => p.includes("clack_update_change")));
@@ -255,32 +245,46 @@ describe("registerChangeThreadActionHandlers — permissions", () => {
   it("blocks member role with ephemeral message (review handler)", async () => {
     const handler = getHandler("clack_review");
     mockGetRole.mock.mockImplementation(async () => "member");
+    mockCanRequestChanges.mock.mockImplementation(
+      (role) => role === "dev" || role === "admin" || role === "owner",
+    );
     const args = makeHandlerArgs();
 
     await handler(args);
 
     assert.equal(args.ack.mock.callCount(), 1);
-    const postEphemeral = args.client.chat.postEphemeral as unknown as ReturnType<typeof mock.fn>;
-    assert.equal(postEphemeral.mock.callCount(), 1);
-    const msgArgs = postEphemeral.mock.calls[0].arguments[0] as { text: string };
-    assert.ok(msgArgs.text.includes("permission"));
+    assert.equal(mockPostEphemeralFn.mock.callCount(), 1);
+    const msgArg = mockPostEphemeralFn.mock.calls[0].arguments[0];
+    assert.ok(
+      msgArg &&
+        typeof msgArg === "object" &&
+        "text" in msgArg &&
+        typeof msgArg.text === "string" &&
+        msgArg.text.includes("permission"),
+    );
   });
 
   it("allows dev role (merge handler)", async () => {
     const handler = getHandler("clack_merge");
     mockGetRole.mock.mockImplementation(async () => "dev");
 
-    const intent = { type: "merge", sessionId: "s", instructions: "" } as unknown as StagedIntent;
+    const intent: StagedIntent = { type: "merge", sessionId: "s", instructions: "" };
     mockGetStagedIntent.mock.mockImplementation(async () => intent);
 
     const args = makeHandlerArgs();
     await handler(args);
 
     // Should not get a permission error
-    const postEphemeral = args.client.chat.postEphemeral as unknown as ReturnType<typeof mock.fn>;
-    for (const call of postEphemeral.mock.calls) {
-      const text = (call.arguments[0] as { text: string }).text;
-      assert.ok(!text.includes("permission"));
+    for (const call of mockPostEphemeralFn.mock.calls) {
+      const callArg = call.arguments[0];
+      if (
+        callArg &&
+        typeof callArg === "object" &&
+        "text" in callArg &&
+        typeof callArg.text === "string"
+      ) {
+        assert.ok(!callArg.text.includes("permission"));
+      }
     }
   });
 });
@@ -331,29 +335,42 @@ describe("registerChangeThreadActionHandlers — intent resolution", () => {
 
     await handler(args);
 
-    const postEphemeral = args.client.chat.postEphemeral as unknown as ReturnType<typeof mock.fn>;
-    assert.equal(postEphemeral.mock.callCount(), 1);
-    const msgArgs = postEphemeral.mock.calls[0].arguments[0] as { text: string };
-    assert.ok(msgArgs.text.includes("expired"));
+    assert.equal(mockPostEphemeralFn.mock.callCount(), 1);
+    const msgArg = mockPostEphemeralFn.mock.calls[0].arguments[0];
+    assert.ok(
+      msgArg &&
+        typeof msgArg === "object" &&
+        "text" in msgArg &&
+        typeof msgArg.text === "string" &&
+        msgArg.text.includes("expired"),
+    );
   });
 
   it("posts ephemeral when intent type does not match expected type", async () => {
     const handler = getHandler("clack_review");
     // review handler expects type "review", but we provide "change"
-    mockGetStagedIntent.mock.mockImplementation(async () => ({
-      type: "change",
-      branch: "feat/x",
-      description: "d",
-      repo: "r",
-    }));
+    mockGetStagedIntent.mock.mockImplementation(async () => {
+      const intent: StagedIntent = {
+        type: "change",
+        branch: "feat/x",
+        description: "d",
+        repo: "r",
+      };
+      return intent;
+    });
     const args = makeHandlerArgs();
 
     await handler(args);
 
-    const postEphemeral = args.client.chat.postEphemeral as unknown as ReturnType<typeof mock.fn>;
-    assert.equal(postEphemeral.mock.callCount(), 1);
-    const msgArgs = postEphemeral.mock.calls[0].arguments[0] as { text: string };
-    assert.ok(msgArgs.text.includes("expired"));
+    assert.equal(mockPostEphemeralFn.mock.callCount(), 1);
+    const msgArg = mockPostEphemeralFn.mock.calls[0].arguments[0];
+    assert.ok(
+      msgArg &&
+        typeof msgArg === "object" &&
+        "text" in msgArg &&
+        typeof msgArg.text === "string" &&
+        msgArg.text.includes("expired"),
+    );
   });
 });
 
@@ -365,14 +382,12 @@ describe("registerChangeThreadActionHandlers — no active change", () => {
   it("posts ephemeral when session has no active change", async () => {
     const handler = getHandler("clack_review");
     // Return a valid intent so we get past the intent check
-    mockGetStagedIntent.mock.mockImplementation(
-      async () =>
-        ({
-          type: "review",
-          sessionId: "s1",
-          instructions: "",
-        }) as unknown as StagedIntent,
-    );
+    const intent: StagedIntent = {
+      type: "review",
+      sessionId: "s1",
+      instructions: "",
+    };
+    mockGetStagedIntent.mock.mockImplementation(async () => intent);
     // Session with no activeChange
     mockFindSessionByThread.mock.mockImplementation(async () =>
       makeSession({ activeChange: undefined }),
@@ -381,31 +396,39 @@ describe("registerChangeThreadActionHandlers — no active change", () => {
 
     await handler(args);
 
-    const postEphemeral = args.client.chat.postEphemeral as unknown as ReturnType<typeof mock.fn>;
-    assert.equal(postEphemeral.mock.callCount(), 1);
-    const msgArgs = postEphemeral.mock.calls[0].arguments[0] as { text: string };
-    assert.ok(msgArgs.text.includes("No active change"));
+    assert.equal(mockPostEphemeralFn.mock.callCount(), 1);
+    const msgArg = mockPostEphemeralFn.mock.calls[0].arguments[0];
+    assert.ok(
+      msgArg &&
+        typeof msgArg === "object" &&
+        "text" in msgArg &&
+        typeof msgArg.text === "string" &&
+        msgArg.text.includes("No active change"),
+    );
   });
 
   it("posts ephemeral when findSessionByThread returns null", async () => {
     const handler = getHandler("clack_merge");
-    mockGetStagedIntent.mock.mockImplementation(
-      async () =>
-        ({
-          type: "merge",
-          sessionId: "s1",
-          instructions: "",
-        }) as unknown as StagedIntent,
-    );
+    const intent: StagedIntent = {
+      type: "merge",
+      sessionId: "s1",
+      instructions: "",
+    };
+    mockGetStagedIntent.mock.mockImplementation(async () => intent);
     mockFindSessionByThread.mock.mockImplementation(async () => null);
     const args = makeHandlerArgs();
 
     await handler(args);
 
-    const postEphemeral = args.client.chat.postEphemeral as unknown as ReturnType<typeof mock.fn>;
-    assert.equal(postEphemeral.mock.callCount(), 1);
-    const msgArgs = postEphemeral.mock.calls[0].arguments[0] as { text: string };
-    assert.ok(msgArgs.text.includes("No active change"));
+    assert.equal(mockPostEphemeralFn.mock.callCount(), 1);
+    const msgArg = mockPostEphemeralFn.mock.calls[0].arguments[0];
+    assert.ok(
+      msgArg &&
+        typeof msgArg === "object" &&
+        "text" in msgArg &&
+        typeof msgArg.text === "string" &&
+        msgArg.text.includes("No active change"),
+    );
   });
 });
 
@@ -418,14 +441,12 @@ describe("registerChangeThreadActionHandlers — successful review", () => {
     const handler = getHandler("clack_review");
     const session = makeSession();
 
-    mockGetStagedIntent.mock.mockImplementation(
-      async () =>
-        ({
-          type: "review",
-          sessionId: "s1",
-          instructions: "",
-        }) as unknown as StagedIntent,
-    );
+    const intent: StagedIntent = {
+      type: "review",
+      sessionId: "s1",
+      instructions: "",
+    };
+    mockGetStagedIntent.mock.mockImplementation(async () => intent);
     mockFindSessionByThread.mock.mockImplementation(async () => session);
 
     const args = makeHandlerArgs();
@@ -433,10 +454,14 @@ describe("registerChangeThreadActionHandlers — successful review", () => {
 
     assert.equal(args.ack.mock.callCount(), 1);
     assert.equal(args.respond.mock.callCount(), 1);
-    const respondCall = args.respond.mock.calls[0] as unknown as {
-      arguments: [{ delete_original: boolean }];
-    };
-    assert.equal(respondCall.arguments[0].delete_original, true);
+    const respondCall = args.respond.mock.calls[0];
+    const respondArg = respondCall.arguments[0];
+    assert.ok(
+      respondArg &&
+        typeof respondArg === "object" &&
+        "delete_original" in respondArg &&
+        respondArg.delete_original === true,
+    );
 
     assert.equal(mockHandleFollowUp.mock.callCount(), 1);
     const followUpArgs = mockHandleFollowUp.mock.calls[0].arguments;
@@ -482,14 +507,12 @@ describe("registerChangeThreadActionHandlers — close", () => {
     const handler = getHandler("clack_close");
     const session = makeSession();
 
-    mockGetStagedIntent.mock.mockImplementation(
-      async () =>
-        ({
-          type: "close",
-          sessionId: "s1",
-          instructions: "",
-        }) as unknown as StagedIntent,
-    );
+    const intent: StagedIntent = {
+      type: "close",
+      sessionId: "s1",
+      instructions: "",
+    };
+    mockGetStagedIntent.mock.mockImplementation(async () => intent);
     mockFindSessionByThread.mock.mockImplementation(async () => session);
 
     const args = makeHandlerArgs();
@@ -511,12 +534,18 @@ describe("triggerFollowUp", () => {
     const session = makeSession();
     const client = makeClient();
 
-    await triggerFollowUp(session, "review", undefined, {
-      channelId: "C001",
-      threadTs: "1700000000.000001",
-      userId: "U001",
-      client,
-    });
+    await triggerFollowUp(
+      session,
+      "review",
+      undefined,
+      {
+        channelId: "C001",
+        threadTs: "1700000000.000001",
+        userId: "U001",
+        client,
+      },
+      makeDeps(),
+    );
 
     assert.equal(mockStreamerStart.mock.callCount(), 1);
     assert.equal(mockHandleFollowUp.mock.callCount(), 1);
@@ -533,12 +562,18 @@ describe("triggerFollowUp", () => {
     const session = makeSession();
     const client = makeClient();
 
-    await triggerFollowUp(session, "update", "fix the bug", {
-      channelId: "C001",
-      threadTs: "1700000000.000001",
-      userId: "U001",
-      client,
-    });
+    await triggerFollowUp(
+      session,
+      "update",
+      "fix the bug",
+      {
+        channelId: "C001",
+        threadTs: "1700000000.000001",
+        userId: "U001",
+        client,
+      },
+      makeDeps(),
+    );
 
     const followUpArgs = mockHandleFollowUp.mock.calls[0].arguments;
     assert.equal(followUpArgs[1], "update");
@@ -549,39 +584,51 @@ describe("triggerFollowUp", () => {
     const session = makeSession();
     const client = makeClient();
 
-    await triggerFollowUp(session, "merge", undefined, {
-      channelId: "C001",
-      threadTs: "1700000000.000001",
-      userId: "U001",
-      client,
-      streamChannel: "D_DM",
-      streamThreadTs: "1700000099.000001",
-    });
+    await triggerFollowUp(
+      session,
+      "merge",
+      undefined,
+      {
+        channelId: "C001",
+        threadTs: "1700000000.000001",
+        userId: "U001",
+        client,
+        streamChannel: "D_DM",
+        streamThreadTs: "1700000099.000001",
+      },
+      makeDeps(),
+    );
 
     assert.equal(mockFinalizeStreamedWorkflow.mock.callCount(), 1);
-    const finalizeCall = mockFinalizeStreamedWorkflow.mock.calls[0] as unknown as {
-      arguments: unknown[];
-    };
-    assert.equal(finalizeCall.arguments[2], "D_DM");
-    assert.equal(finalizeCall.arguments[3], "1700000099.000001");
+    const finalizeCall = mockFinalizeStreamedWorkflow.mock.calls[0];
+    const channel = finalizeCall.arguments[2];
+    const threadTs = finalizeCall.arguments[3];
+    assert.equal(channel, "D_DM");
+    assert.equal(threadTs, "1700000099.000001");
   });
 
   it("falls back to channelId when streamChannel is not provided", async () => {
     const session = makeSession();
     const client = makeClient();
 
-    await triggerFollowUp(session, "review", undefined, {
-      channelId: "C001",
-      threadTs: "1700000000.000001",
-      userId: "U001",
-      client,
-    });
+    await triggerFollowUp(
+      session,
+      "review",
+      undefined,
+      {
+        channelId: "C001",
+        threadTs: "1700000000.000001",
+        userId: "U001",
+        client,
+      },
+      makeDeps(),
+    );
 
-    const finalizeCall = mockFinalizeStreamedWorkflow.mock.calls[0] as unknown as {
-      arguments: unknown[];
-    };
-    assert.equal(finalizeCall.arguments[2], "C001");
-    assert.equal(finalizeCall.arguments[3], "1700000000.000001");
+    const finalizeCall = mockFinalizeStreamedWorkflow.mock.calls[0];
+    const channel = finalizeCall.arguments[2];
+    const threadTs = finalizeCall.arguments[3];
+    assert.equal(channel, "C001");
+    assert.equal(threadTs, "1700000000.000001");
   });
 
   it("handles workflow error by stopping streamer and posting error message", async () => {
@@ -592,19 +639,36 @@ describe("triggerFollowUp", () => {
     const session = makeSession();
     const client = makeClient();
 
-    await triggerFollowUp(session, "review", undefined, {
-      channelId: "C001",
-      threadTs: "1700000000.000001",
-      userId: "U001",
-      client,
-    });
+    await triggerFollowUp(
+      session,
+      "review",
+      undefined,
+      {
+        channelId: "C001",
+        threadTs: "1700000000.000001",
+        userId: "U001",
+        client,
+      },
+      makeDeps(),
+    );
 
     assert.equal(mockStreamerStop.mock.callCount(), 1);
-    const postMessage = client.chat.postMessage as unknown as ReturnType<typeof mock.fn>;
-    assert.equal(postMessage.mock.callCount(), 1);
-    const msgArgs = postMessage.mock.calls[0].arguments[0] as { text: string };
-    assert.ok(msgArgs.text.includes("failed unexpectedly"));
-    assert.ok(msgArgs.text.includes("follow-up exploded"));
+    assert.equal(mockPostMessageFn.mock.callCount(), 1);
+    const msgArg = mockPostMessageFn.mock.calls[0].arguments[0];
+    assert.ok(
+      msgArg &&
+        typeof msgArg === "object" &&
+        "text" in msgArg &&
+        typeof msgArg.text === "string" &&
+        msgArg.text.includes("failed unexpectedly"),
+    );
+    assert.ok(
+      msgArg &&
+        typeof msgArg === "object" &&
+        "text" in msgArg &&
+        typeof msgArg.text === "string" &&
+        msgArg.text.includes("follow-up exploded"),
+    );
   });
 
   it("posts error to stream channel when DM context fails", async () => {
@@ -615,21 +679,25 @@ describe("triggerFollowUp", () => {
     const session = makeSession();
     const client = makeClient();
 
-    await triggerFollowUp(session, "review", undefined, {
-      channelId: "C001",
-      threadTs: "1700000000.000001",
-      userId: "U001",
-      client,
-      streamChannel: "D_DM",
-      streamThreadTs: "1700000099.000001",
-    });
+    await triggerFollowUp(
+      session,
+      "review",
+      undefined,
+      {
+        channelId: "C001",
+        threadTs: "1700000000.000001",
+        userId: "U001",
+        client,
+        streamChannel: "D_DM",
+        streamThreadTs: "1700000099.000001",
+      },
+      makeDeps(),
+    );
 
-    const postMessage = client.chat.postMessage as unknown as ReturnType<typeof mock.fn>;
-    const msgArgs = postMessage.mock.calls[0].arguments[0] as {
-      channel: string;
-      thread_ts: string;
-    };
-    assert.equal(msgArgs.channel, "D_DM");
-    assert.equal(msgArgs.thread_ts, "1700000099.000001");
+    const msgArg = mockPostMessageFn.mock.calls[0].arguments[0];
+    if (msgArg && typeof msgArg === "object" && "channel" in msgArg && "thread_ts" in msgArg) {
+      assert.equal(msgArg.channel, "D_DM");
+      assert.equal(msgArg.thread_ts, "1700000099.000001");
+    }
   });
 });

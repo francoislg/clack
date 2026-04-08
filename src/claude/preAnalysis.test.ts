@@ -1,94 +1,163 @@
 import { describe, it, beforeEach, mock } from "node:test";
 import assert from "node:assert/strict";
-
-// ---------------------------------------------------------------------------
-// Module-level mocks — must be set up before importing the module under test
-// ---------------------------------------------------------------------------
-
-const mockQuery = mock.fn<(...args: unknown[]) => AsyncIterable<unknown>>();
-
-mock.module("@anthropic-ai/claude-agent-sdk", {
-  namedExports: {
-    query: mockQuery,
-  },
-});
-
-mock.module("../logger.js", {
-  namedExports: {
-    logger: {
-      error: () => {},
-      warn: () => {},
-      info: () => {},
-      debug: () => {},
-    },
-  },
-});
-
-// Import after mocks are registered
-const { runPreAnalysis } = await import("./preAnalysis.js");
+import { runPreAnalysis, type PreAnalysisDeps, defaultPreAnalysisDeps } from "./preAnalysis.js";
+import type { clackQuery } from "./query.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Build an async iterable from an array of messages. */
-function asyncIterableOf<T>(items: T[]): AsyncIterable<T> {
+type MockClackQuery = ReturnType<typeof mock.fn<typeof clackQuery>>;
+
+let mockQuery: MockClackQuery;
+
+function makeDeps(): PreAnalysisDeps {
+  return {
+    ...defaultPreAnalysisDeps,
+    clackQuery: mockQuery,
+  };
+}
+
+/** Build an async iterable from an array of messages. Return typed as never so it satisfies any AsyncIterable<T> parameter. */
+function asyncIterableOf<T>(items: T[]): never {
   return {
     async *[Symbol.asyncIterator]() {
       for (const item of items) {
         yield item;
       }
     },
+  } as never;
+}
+
+interface QueryCallArg {
+  prompt: string;
+  options?: {
+    systemPrompt?: string;
+    model?: string;
+    maxTurns?: number;
+    [key: string]: unknown;
   };
 }
 
 // ---------------------------------------------------------------------------
-// runPreAnalysis — fail-open design: only "skip" causes a skip
+// runPreAnalysis — fail-closed design: errors and ambiguity cause a skip
 // ---------------------------------------------------------------------------
 describe("runPreAnalysis", () => {
   beforeEach(() => {
-    mockQuery.mock.resetCalls();
+    mockQuery = mock.fn<typeof clackQuery>();
   });
 
-  it("returns true (respond) when Claude responds with 'respond'", async () => {
+  it("returns 'respond' when Claude responds with 'respond'", async () => {
     mockQuery.mock.mockImplementation(() =>
       asyncIterableOf([{ type: "result", subtype: "success", result: "respond" }]),
     );
 
-    const result = await runPreAnalysis("server is down", "Only respond to errors");
-    assert.equal(result, true);
+    const result = await runPreAnalysis(
+      "server is down",
+      "Alice",
+      "Clack",
+      "Only respond to errors",
+      undefined,
+      undefined,
+      undefined,
+      makeDeps(),
+    );
+    assert.equal(result, "respond");
   });
 
-  it("returns false (skip) when Claude responds with 'skip'", async () => {
+  it("returns 'skip' when Claude responds with 'skip'", async () => {
     mockQuery.mock.mockImplementation(() =>
       asyncIterableOf([{ type: "result", subtype: "success", result: "skip" }]),
     );
 
-    const result = await runPreAnalysis("lol", "Skip noise");
-    assert.equal(result, false);
+    const result = await runPreAnalysis(
+      "lol",
+      "Alice",
+      "Clack",
+      "Skip noise",
+      undefined,
+      undefined,
+      undefined,
+      makeDeps(),
+    );
+    assert.equal(result, "skip");
   });
 
-  it("returns true for ambiguous response (fail-open)", async () => {
+  it("returns 'stop' when Claude responds with 'stop'", async () => {
+    mockQuery.mock.mockImplementation(() =>
+      asyncIterableOf([{ type: "result", subtype: "success", result: "stop" }]),
+    );
+
+    const result = await runPreAnalysis(
+      "let's grab lunch",
+      "Alice",
+      "Clack",
+      "Skip noise",
+      undefined,
+      undefined,
+      undefined,
+      makeDeps(),
+    );
+    assert.equal(result, "stop");
+  });
+
+  it("returns 'skip' when result subtype is not success (fail-closed)", async () => {
+    mockQuery.mock.mockImplementation(() =>
+      asyncIterableOf([{ type: "result", subtype: "error", result: "respond" }]),
+    );
+
+    const result = await runPreAnalysis(
+      "server is down",
+      "Alice",
+      "Clack",
+      "Only respond to errors",
+      undefined,
+      undefined,
+      undefined,
+      makeDeps(),
+    );
+    assert.equal(result, "skip");
+  });
+
+  it("returns false for ambiguous response (fail-closed)", async () => {
     mockQuery.mock.mockImplementation(() =>
       asyncIterableOf([
         { type: "result", subtype: "success", result: "maybe, it depends on context" },
       ]),
     );
 
-    const result = await runPreAnalysis("some message", "Only respond to errors");
-    assert.equal(result, true);
+    const result = await runPreAnalysis(
+      "some message",
+      "Alice",
+      "Clack",
+      "Only respond to errors",
+      undefined,
+      undefined,
+      undefined,
+      makeDeps(),
+    );
+    assert.equal(result, "skip");
   });
 
-  it("returns true when query throws (fail-open)", async () => {
+  it("returns false when query throws (fail-closed)", async () => {
     mockQuery.mock.mockImplementation(() => {
       throw new Error("SDK failure");
     });
 
-    const result = await runPreAnalysis("message", "context");
-    assert.equal(result, true);
+    const result = await runPreAnalysis(
+      "message",
+      "Alice",
+      "Clack",
+      "context",
+      undefined,
+      undefined,
+      undefined,
+      makeDeps(),
+    );
+    assert.equal(result, "skip");
   });
 
-  it("returns true when async iterator throws (fail-open)", async () => {
+  it("returns false when async iterator throws (fail-closed)", async () => {
     mockQuery.mock.mockImplementation(() => ({
       // Intentionally throws before yielding to simulate a stream error
       // eslint-disable-next-line require-yield
@@ -97,17 +166,35 @@ describe("runPreAnalysis", () => {
       },
     }));
 
-    const result = await runPreAnalysis("message", "context");
-    assert.equal(result, true);
+    const result = await runPreAnalysis(
+      "message",
+      "Alice",
+      "Clack",
+      "context",
+      undefined,
+      undefined,
+      undefined,
+      makeDeps(),
+    );
+    assert.equal(result, "skip");
   });
 
-  it("returns true when result is empty (fail-open)", async () => {
+  it("returns false when result is empty (fail-closed)", async () => {
     mockQuery.mock.mockImplementation(() =>
       asyncIterableOf([{ type: "result", subtype: "success", result: "" }]),
     );
 
-    const result = await runPreAnalysis("message", "context");
-    assert.equal(result, true);
+    const result = await runPreAnalysis(
+      "message",
+      "Alice",
+      "Clack",
+      "context",
+      undefined,
+      undefined,
+      undefined,
+      makeDeps(),
+    );
+    assert.equal(result, "skip");
   });
 
   it("falls back to lastAssistantText when result.result is empty", async () => {
@@ -121,8 +208,17 @@ describe("runPreAnalysis", () => {
       ]),
     );
 
-    const result = await runPreAnalysis("error message", "Only respond to errors");
-    assert.equal(result, true);
+    const result = await runPreAnalysis(
+      "error message",
+      "Alice",
+      "Clack",
+      "Only respond to errors",
+      undefined,
+      undefined,
+      undefined,
+      makeDeps(),
+    );
+    assert.equal(result, "respond");
   });
 
   it("detects 'skip' in verbose response", async () => {
@@ -132,45 +228,114 @@ describe("runPreAnalysis", () => {
       ]),
     );
 
-    const result = await runPreAnalysis("lol", "Skip noise");
-    assert.equal(result, false);
+    const result = await runPreAnalysis(
+      "lol",
+      "Alice",
+      "Clack",
+      "Skip noise",
+      undefined,
+      undefined,
+      undefined,
+      makeDeps(),
+    );
+    assert.equal(result, "skip");
   });
 
-  it("passes systemPrompt with the preAnalysisContext to query", async () => {
-    let capturedOptions: Record<string, unknown> = {};
+  it("passes systemPrompt with preAnalysisContext and bot name to query", async () => {
+    let capturedOptions: QueryCallArg["options"];
     mockQuery.mock.mockImplementation((...args: unknown[]) => {
-      capturedOptions = ((args[0] as Record<string, unknown>).options ?? {}) as Record<
-        string,
-        unknown
-      >;
+      capturedOptions = (args[0] as QueryCallArg).options;
       return asyncIterableOf([{ type: "result", subtype: "success", result: "respond" }]);
     });
 
-    await runPreAnalysis("test message", "Only respond to product questions");
-
-    assert.ok(typeof capturedOptions.systemPrompt === "string");
-    assert.ok(
-      (capturedOptions.systemPrompt as string).includes("Only respond to product questions"),
+    await runPreAnalysis(
+      "test message",
+      "Alice",
+      "Clack",
+      "Only respond to product questions",
+      undefined,
+      undefined,
+      undefined,
+      makeDeps(),
     );
-    assert.equal(capturedOptions.model, "sonnet");
-    assert.equal(capturedOptions.maxTurns, 1);
+
+    assert.ok(typeof capturedOptions?.systemPrompt === "string");
+    const systemPrompt = capturedOptions!.systemPrompt!;
+    assert.ok(systemPrompt.includes("Only respond to product questions"));
+    assert.ok(systemPrompt.includes("Clack"));
+    assert.ok(systemPrompt.includes("When in doubt, SKIP"));
+    assert.equal(capturedOptions!.model, "sonnet");
+    assert.equal(capturedOptions!.maxTurns, 1);
   });
 
-  it("includes recent messages in the prompt when provided", async () => {
+  it("includes attributed recent messages and author in the prompt", async () => {
     let capturedPrompt = "";
     mockQuery.mock.mockImplementation((...args: unknown[]) => {
-      capturedPrompt = (args[0] as Record<string, unknown>).prompt as string;
+      capturedPrompt = (args[0] as QueryCallArg).prompt;
       return asyncIterableOf([{ type: "result", subtype: "success", result: "respond" }]);
     });
 
-    await runPreAnalysis("what about today", "Skip noise", undefined, [
-      "Bot: Here's your daily update!",
-      "User: thanks",
-    ]);
+    await runPreAnalysis(
+      "what about today",
+      "Bob",
+      "Clack",
+      "Skip noise",
+      undefined,
+      [
+        { author: "Clack (bot)", text: "Here's your daily update!", isBot: true },
+        { author: "Alice", text: "thanks", isBot: false },
+      ],
+      undefined,
+      makeDeps(),
+    );
 
     assert.ok(capturedPrompt.includes("RECENT CHANNEL HISTORY"));
-    assert.ok(capturedPrompt.includes("Here's your daily update!"));
+    assert.ok(capturedPrompt.includes("[Clack (bot)]: Here's your daily update!"));
+    assert.ok(capturedPrompt.includes("[Alice]: thanks"));
     assert.ok(capturedPrompt.includes("MESSAGE TO CLASSIFY"));
+    assert.ok(capturedPrompt.includes("From: Bob"));
     assert.ok(capturedPrompt.includes("what about today"));
+  });
+
+  it("includes channel name in the prompt when provided", async () => {
+    let capturedPrompt = "";
+    mockQuery.mock.mockImplementation((...args: unknown[]) => {
+      capturedPrompt = (args[0] as QueryCallArg).prompt;
+      return asyncIterableOf([{ type: "result", subtype: "success", result: "respond" }]);
+    });
+
+    await runPreAnalysis(
+      "test message",
+      "Alice",
+      "Clack",
+      "context",
+      undefined,
+      undefined,
+      "security-compliance",
+      makeDeps(),
+    );
+
+    assert.ok(capturedPrompt.includes("Channel: #security-compliance"));
+  });
+
+  it("omits channel name from the prompt when not provided", async () => {
+    let capturedPrompt = "";
+    mockQuery.mock.mockImplementation((...args: unknown[]) => {
+      capturedPrompt = (args[0] as QueryCallArg).prompt;
+      return asyncIterableOf([{ type: "result", subtype: "success", result: "respond" }]);
+    });
+
+    await runPreAnalysis(
+      "test message",
+      "Alice",
+      "Clack",
+      "context",
+      undefined,
+      undefined,
+      undefined,
+      makeDeps(),
+    );
+
+    assert.ok(!capturedPrompt.includes("Channel:"));
   });
 });

@@ -1,11 +1,57 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
+import type { RepositoryConfig } from "../../config.js";
+import type { UserRole } from "../../roles.js";
 import { textResult, errorResult } from "../helpers.js";
 import { getVisibleRepos } from "../../repoAccess.js";
 import { getOctokit, parseRepoUrl } from "../../github.js";
 import { logger } from "../../logger.js";
 import { errorMessage } from "../../errors.js";
+
+interface PullRequestData {
+  html_url: string;
+  number: number;
+  title: string;
+  head: { ref: string };
+  state: string;
+  user: { login: string } | null;
+  created_at: string;
+  updated_at: string;
+  merged_at: string | null;
+  body: string | null;
+}
+
+export interface ListPullsParams {
+  owner: string;
+  repo: string;
+  state: "open" | "closed" | "all";
+  sort: string;
+  direction: string;
+  per_page: number;
+}
+
+export interface FindPullRequestsDeps {
+  getVisibleRepos: (role: UserRole, repositories: RepositoryConfig[]) => RepositoryConfig[];
+  parseRepoUrl: (url: string) => { owner: string; repo: string };
+  listPulls: (params: ListPullsParams) => Promise<{ data: PullRequestData[] }>;
+}
+
+async function defaultListPulls(params: ListPullsParams): Promise<{ data: PullRequestData[] }> {
+  const octokit = await getOctokit();
+  const { sort, direction, ...rest } = params;
+  return octokit.pulls.list({
+    ...rest,
+    sort: sort as "created" | "updated" | "popularity" | "long-running",
+    direction: direction as "asc" | "desc",
+  });
+}
+
+export const defaultFindPullRequestsDeps: FindPullRequestsDeps = {
+  getVisibleRepos,
+  parseRepoUrl,
+  listPulls: defaultListPulls,
+};
 
 const STATE_ENUM = z
   .enum(["open", "closed", "merged", "all"])
@@ -13,7 +59,10 @@ const STATE_ENUM = z
     "Required. PR state filter: 'open' for open PRs, 'merged' for merged PRs, 'closed' for closed (including merged), 'all' for everything.",
   );
 
-export function createFindPullRequestsTool(ctx: QueryToolContext) {
+export function createFindPullRequestsTool(
+  ctx: QueryToolContext,
+  deps: FindPullRequestsDeps = defaultFindPullRequestsDeps,
+) {
   return tool(
     "find_pull_requests",
     "Find pull requests on a repository via GitHub. Supports filtering by state (open, closed, merged, all), branch, and date.",
@@ -33,7 +82,7 @@ export function createFindPullRequestsTool(ctx: QueryToolContext) {
         ),
     },
     async (args) => {
-      const visibleRepos = getVisibleRepos(ctx.role, ctx.config.repositories);
+      const visibleRepos = deps.getVisibleRepos(ctx.role, ctx.config.repositories);
       const repo = visibleRepos.find(
         (r) => r.name === args.repo || r.url.includes(args.repo) || args.repo.includes(r.name),
       );
@@ -46,13 +95,12 @@ export function createFindPullRequestsTool(ctx: QueryToolContext) {
       }
 
       try {
-        const { owner, repo: repoName } = parseRepoUrl(repo.url);
-        const octokit = await getOctokit();
+        const { owner, repo: repoName } = deps.parseRepoUrl(repo.url);
 
         // "merged" is a client-side filter on closed PRs
         const apiState = args.state === "merged" ? "closed" : args.state;
 
-        const { data: pulls } = await octokit.pulls.list({
+        const { data: pulls } = await deps.listPulls({
           owner,
           repo: repoName,
           state: apiState,

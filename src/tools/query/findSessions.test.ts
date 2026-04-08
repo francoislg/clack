@@ -1,41 +1,38 @@
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
-
-// ---------------------------------------------------------------------------
-// Module-level mocks
-// ---------------------------------------------------------------------------
-
-const mockGetResumableSessions = mock.fn<() => Promise<unknown[]>>();
-
-mock.module("../../changes/persistence.js", {
-  namedExports: {
-    getResumableSessions: mockGetResumableSessions,
-  },
-});
-
-const mockGetVisibleRepos = mock.fn<(...args: unknown[]) => unknown[]>();
-
-mock.module("../../repoAccess.js", {
-  namedExports: {
-    getVisibleRepos: mockGetVisibleRepos,
-  },
-});
-
-// Import after mocks
-const { createFindSessionsTool } = await import("./findSessions.js");
+import { createFindSessionsTool, type FindSessionsDeps } from "./findSessions.js";
+import type { QueryToolContext } from "../types.js";
+import type { RepositoryConfig } from "../../config.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-import type { QueryToolContext } from "../types.js";
-import type { RepositoryConfig } from "../../config.js";
+interface SessionOverrides {
+  branchName?: string;
+  repo?: string;
+  description?: string;
+  phase?: string;
+  lastMessage?: string;
+  startedAt?: string;
+  secretField?: string;
+}
 
 function makeRepo(overrides?: Partial<RepositoryConfig>): RepositoryConfig {
   return {
     name: "my-repo",
     url: "https://github.com/org/my-repo.git",
     description: "Test repo",
+    ...overrides,
+  };
+}
+
+function makeDeps(overrides: Partial<FindSessionsDeps> = {}): FindSessionsDeps {
+  return {
+    getResumableSessions: mock.fn(async () => []) as FindSessionsDeps["getResumableSessions"],
+    getVisibleRepos: mock.fn((_role, _repos) => [
+      makeRepo(),
+    ]) as FindSessionsDeps["getVisibleRepos"],
     ...overrides,
   };
 }
@@ -71,7 +68,7 @@ function parseResult(result: { content: Array<{ text: string }> }) {
   return JSON.parse(result.content[0].text);
 }
 
-function makeSession(overrides?: Record<string, unknown>) {
+function makeSession(overrides?: SessionOverrides) {
   return {
     branchName: "clack/fix/some-bug",
     repo: "my-repo",
@@ -83,24 +80,15 @@ function makeSession(overrides?: Record<string, unknown>) {
   };
 }
 
-function resetMocks() {
-  mockGetResumableSessions.mock.resetCalls();
-  mockGetVisibleRepos.mock.resetCalls();
-
-  mockGetVisibleRepos.mock.mockImplementation(() => [makeRepo()]);
-  mockGetResumableSessions.mock.mockImplementation(async () => []);
-}
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 describe("findSessions tool", () => {
-  beforeEach(resetMocks);
-
   it("returns empty array when no sessions exist", async () => {
+    const deps = makeDeps();
     const ctx = makeCtx();
-    const toolDef = createFindSessionsTool(ctx);
+    const toolDef = createFindSessionsTool(ctx, deps);
 
     const result = await toolDef.handler(
       { repo: undefined, branch: undefined },
@@ -113,10 +101,13 @@ describe("findSessions tool", () => {
 
   it("returns sessions for visible repos", async () => {
     const session = makeSession();
-    mockGetResumableSessions.mock.mockImplementation(async () => [session]);
-
+    const deps = makeDeps({
+      getResumableSessions: mock.fn(async () => [
+        session,
+      ]) as FindSessionsDeps["getResumableSessions"],
+    });
     const ctx = makeCtx();
-    const toolDef = createFindSessionsTool(ctx);
+    const toolDef = createFindSessionsTool(ctx, deps);
 
     const result = await toolDef.handler(
       { repo: undefined, branch: undefined },
@@ -136,10 +127,14 @@ describe("findSessions tool", () => {
   it("filters out sessions for repos not visible to user", async () => {
     const visibleSession = makeSession({ repo: "my-repo" });
     const hiddenSession = makeSession({ repo: "secret-repo", branchName: "clack/feat/hidden" });
-    mockGetResumableSessions.mock.mockImplementation(async () => [visibleSession, hiddenSession]);
-
+    const deps = makeDeps({
+      getResumableSessions: mock.fn(async () => [
+        visibleSession,
+        hiddenSession,
+      ]) as FindSessionsDeps["getResumableSessions"],
+    });
     const ctx = makeCtx();
-    const toolDef = createFindSessionsTool(ctx);
+    const toolDef = createFindSessionsTool(ctx, deps);
 
     const result = await toolDef.handler(
       { repo: undefined, branch: undefined },
@@ -154,18 +149,23 @@ describe("findSessions tool", () => {
   it("filters by repo name", async () => {
     const session1 = makeSession({ repo: "my-repo" });
     const session2 = makeSession({ repo: "other-repo", branchName: "clack/feat/other" });
-    mockGetResumableSessions.mock.mockImplementation(async () => [session1, session2]);
-    mockGetVisibleRepos.mock.mockImplementation(() => [
-      makeRepo(),
-      makeRepo({ name: "other-repo" }),
-    ]);
+    const deps = makeDeps({
+      getResumableSessions: mock.fn(async () => [
+        session1,
+        session2,
+      ]) as FindSessionsDeps["getResumableSessions"],
+      getVisibleRepos: mock.fn((_role, _repos) => [
+        makeRepo(),
+        makeRepo({ name: "other-repo" }),
+      ]) as FindSessionsDeps["getVisibleRepos"],
+    });
 
     const ctx = makeCtx({
       config: {
         repositories: [makeRepo(), makeRepo({ name: "other-repo" })],
       } as QueryToolContext["config"],
     });
-    const toolDef = createFindSessionsTool(ctx);
+    const toolDef = createFindSessionsTool(ctx, deps);
 
     const result = await toolDef.handler(
       { repo: "my-repo", branch: undefined },
@@ -180,10 +180,14 @@ describe("findSessions tool", () => {
   it("filters by branch name with partial match", async () => {
     const session1 = makeSession({ branchName: "clack/fix/login-bug" });
     const session2 = makeSession({ branchName: "clack/feat/signup-flow" });
-    mockGetResumableSessions.mock.mockImplementation(async () => [session1, session2]);
-
+    const deps = makeDeps({
+      getResumableSessions: mock.fn(async () => [
+        session1,
+        session2,
+      ]) as FindSessionsDeps["getResumableSessions"],
+    });
     const ctx = makeCtx();
-    const toolDef = createFindSessionsTool(ctx);
+    const toolDef = createFindSessionsTool(ctx, deps);
 
     const result = await toolDef.handler(
       { repo: undefined, branch: "login" },
@@ -199,18 +203,24 @@ describe("findSessions tool", () => {
     const session1 = makeSession({ repo: "my-repo", branchName: "clack/fix/login" });
     const session2 = makeSession({ repo: "my-repo", branchName: "clack/feat/signup" });
     const session3 = makeSession({ repo: "other-repo", branchName: "clack/fix/login-other" });
-    mockGetResumableSessions.mock.mockImplementation(async () => [session1, session2, session3]);
-    mockGetVisibleRepos.mock.mockImplementation(() => [
-      makeRepo(),
-      makeRepo({ name: "other-repo" }),
-    ]);
+    const deps = makeDeps({
+      getResumableSessions: mock.fn(async () => [
+        session1,
+        session2,
+        session3,
+      ]) as FindSessionsDeps["getResumableSessions"],
+      getVisibleRepos: mock.fn((_role, _repos) => [
+        makeRepo(),
+        makeRepo({ name: "other-repo" }),
+      ]) as FindSessionsDeps["getVisibleRepos"],
+    });
 
     const ctx = makeCtx({
       config: {
         repositories: [makeRepo(), makeRepo({ name: "other-repo" })],
       } as QueryToolContext["config"],
     });
-    const toolDef = createFindSessionsTool(ctx);
+    const toolDef = createFindSessionsTool(ctx, deps);
 
     const result = await toolDef.handler(
       { repo: "my-repo", branch: "login" },
@@ -225,10 +235,13 @@ describe("findSessions tool", () => {
 
   it("does not leak extra session fields beyond the mapped properties", async () => {
     const session = makeSession({ secretField: "should-not-appear" });
-    mockGetResumableSessions.mock.mockImplementation(async () => [session]);
-
+    const deps = makeDeps({
+      getResumableSessions: mock.fn(async () => [
+        session,
+      ]) as FindSessionsDeps["getResumableSessions"],
+    });
     const ctx = makeCtx();
-    const toolDef = createFindSessionsTool(ctx);
+    const toolDef = createFindSessionsTool(ctx, deps);
 
     const result = await toolDef.handler(
       { repo: undefined, branch: undefined },

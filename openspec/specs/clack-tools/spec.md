@@ -151,6 +151,20 @@ The system SHALL register admin env tools (`admin_set_env`, `admin_list_env`) fo
 - **AND** the user has member or dev role
 - **THEN** `admin_set_env` and `admin_list_env` are NOT registered
 
+### Requirement: Admin Role Tool Registration
+
+The system SHALL register `admin_set_role` for users with admin or owner role.
+
+#### Scenario: Admin role tool registered for admin users
+- **WHEN** the tool server is built in query mode
+- **AND** the user has admin or owner role
+- **THEN** `admin_set_role` is registered
+
+#### Scenario: Admin role tool not registered for non-admin users
+- **WHEN** the tool server is built in query mode
+- **AND** the user has member or dev role
+- **THEN** `admin_set_role` is NOT registered
+
 ### Requirement: Query Tools
 
 The system SHALL provide read-only query tools for discovering system state.
@@ -378,6 +392,13 @@ The system SHALL provide action tools that validate intent and return staged ref
 - **WHEN** the tool returns an error
 - **THEN** Claude receives the error message in the tool response
 - **AND** Claude can call the tool again with corrected parameters
+
+#### Scenario: cancel_worker_run registered alongside change tools
+
+- **WHEN** the tool server is built in query mode
+- **AND** the user has dev+ role and changes workflow is enabled
+- **THEN** `cancel_worker_run` is registered alongside `propose_change` and `request_update`
+- **AND** accepts optional `target_user_id` (admin/owner only) and optional `reason`
 
 ### Requirement: create_scheduled_message Tool
 

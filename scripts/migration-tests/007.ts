@@ -45,18 +45,17 @@ export const test: MigrationTest = {
         if (!instructions) return "instructions.md missing from output";
 
         // Should have content rule
-        if (!instructions.includes("content rule"))
-          return "Missing 'content rule' section";
+        if (!instructions.includes("content rule")) return "Missing 'content rule' section";
         if (!instructions.includes("requires a `content` field"))
           return "Missing content field requirement";
-        if (!instructions.includes("each button's `content` should contain only that option's text"))
+        if (
+          !instructions.includes("each button's `content` should contain only that option's text")
+        )
           return "Missing per-button content guidance";
 
         // Old snapshot rule should be gone
-        if (instructions.includes("snapshot rule"))
-          return "Old 'snapshot rule' still present";
-        if (instructions.includes("snapshotId"))
-          return "Old 'snapshotId' reference still present";
+        if (instructions.includes("snapshot rule")) return "Old 'snapshot rule' still present";
+        if (instructions.includes("snapshotId")) return "Old 'snapshotId' reference still present";
 
         // Response framing should be updated
         if (instructions.includes("Only `sections` content is shared when the user clicks"))
@@ -77,8 +76,7 @@ export const test: MigrationTest = {
         if (!instructions) return "instructions.md missing from output";
 
         // Should still have content rule
-        if (!instructions.includes("content rule"))
-          return "content rule was removed";
+        if (!instructions.includes("content rule")) return "content rule was removed";
         if (!instructions.includes("not included when sharing via `send_to_thread`"))
           return "Updated response framing was removed";
 

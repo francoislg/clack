@@ -45,8 +45,8 @@ async function main(): Promise<void> {
 
   if (!prompt) {
     console.error("Usage:");
-    console.error("  npm run ask \"Your question here\"");
-    console.error("  npm run ask --session <session-id> \"Follow-up question\"");
+    console.error('  npm run ask "Your question here"');
+    console.error('  npm run ask --session <session-id> "Follow-up question"');
     process.exit(1);
   }
 

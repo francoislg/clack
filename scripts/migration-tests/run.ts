@@ -12,7 +12,15 @@
  *   npx tsx scripts/migration-tests/run.ts --full-only  # run only full-path test
  */
 
-import { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, readdirSync, statSync } from "node:fs";
+import {
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  rmSync,
+  existsSync,
+  readdirSync,
+  statSync,
+} from "node:fs";
 import { resolve, join, dirname, relative } from "node:path";
 import { executeMigration } from "../../src/migrations/engine.js";
 import { getPendingMigrations } from "../../src/migrations/engine.js";
@@ -30,8 +38,21 @@ import { test as test008 } from "./008.js";
 import { test as test009 } from "./009.js";
 import { test as test010 } from "./010.js";
 import { test as test011 } from "./011.js";
+import { test as test012 } from "./012.js";
 
-const allTests: MigrationTest[] = [test001, test002, test003, test004, test005, test007, test008, test009, test010, test011];
+const allTests: MigrationTest[] = [
+  test001,
+  test002,
+  test003,
+  test004,
+  test005,
+  test007,
+  test008,
+  test009,
+  test010,
+  test011,
+  test012,
+];
 
 // --- Config ---
 
@@ -84,11 +105,8 @@ function scanMdFiles(dir: string, baseDir: string): string[] {
 }
 
 /** Run async tasks with bounded concurrency. */
-async function parallel<T>(
-  tasks: (() => Promise<T>)[],
-  concurrency: number
-): Promise<T[]> {
-  const results: T[] = new Array(tasks.length);
+async function parallel<T>(tasks: (() => Promise<T>)[], concurrency: number): Promise<T[]> {
+  const results: T[] = Array.from({ length: tasks.length });
   let nextIndex = 0;
 
   async function worker(): Promise<void> {
@@ -98,10 +116,7 @@ async function parallel<T>(
     }
   }
 
-  const workers = Array.from(
-    { length: Math.min(concurrency, tasks.length) },
-    () => worker()
-  );
+  const workers = Array.from({ length: Math.min(concurrency, tasks.length) }, () => worker());
   await Promise.all(workers);
   return results;
 }
@@ -141,7 +156,12 @@ function buildTestTasks(testsToRun: MigrationTest[]): (() => Promise<TestResult>
             const error = testCase.validate(output);
             return { name: testCase.name, version, passed: !error, error: error ?? undefined };
           } catch (err) {
-            return { name: testCase.name, version, passed: false, error: `Migration threw: ${err}` };
+            return {
+              name: testCase.name,
+              version,
+              passed: false,
+              error: `Migration threw: ${err}`,
+            };
           }
         });
       }
@@ -172,7 +192,7 @@ function buildTestTasks(testsToRun: MigrationTest[]): (() => Promise<TestResult>
                 Object.entries(migration.dedupAgainst).map(([output, def]) => [
                   join(testDir, output),
                   def, // default files stay at their real paths
-                ])
+                ]),
               )
             : undefined;
 
@@ -209,7 +229,12 @@ function buildTestTasks(testsToRun: MigrationTest[]): (() => Promise<TestResult>
             const error = testCase.validateFiles(outputFiles);
             return { name: testCase.name, version, passed: !error, error: error ?? undefined };
           } catch (err) {
-            return { name: testCase.name, version, passed: false, error: `Migration threw: ${err}` };
+            return {
+              name: testCase.name,
+              version,
+              passed: false,
+              error: `Migration threw: ${err}`,
+            };
           }
         });
       }
@@ -279,14 +304,24 @@ function validateFinalState(config: Record<string, unknown>): string | null {
   if (ar.enabled !== false) return `autoRespond.enabled should be false, got: ${ar.enabled}`;
 
   // After migration 011: allowScheduledMessages added with false
-  if (!("allowScheduledMessages" in config)) return "allowScheduledMessages field missing after migration 011";
-  if (config.allowScheduledMessages !== false) return `allowScheduledMessages should be false, got: ${config.allowScheduledMessages}`;
+  if (!("allowScheduledMessages" in config))
+    return "allowScheduledMessages field missing after migration 011";
+  if (config.allowScheduledMessages !== false)
+    return `allowScheduledMessages should be false, got: ${config.allowScheduledMessages}`;
+
+  // After migration 012: threadAutoRespondMaxAgeMinutes added with 60
+  if (!("threadAutoRespondMaxAgeMinutes" in config))
+    return "threadAutoRespondMaxAgeMinutes field missing after migration 012";
+  if (config.threadAutoRespondMaxAgeMinutes !== 60)
+    return `threadAutoRespondMaxAgeMinutes should be 60, got: ${config.threadAutoRespondMaxAgeMinutes}`;
 
   return null;
 }
 
 async function runFullPathTest(): Promise<boolean> {
-  console.log(`\n=== Full Migration Path: v0 → v${migrations[migrations.length - 1]?.version ?? 0} ===\n`);
+  console.log(
+    `\n=== Full Migration Path: v0 → v${migrations[migrations.length - 1]?.version ?? 0} ===\n`,
+  );
 
   if (migrations.length === 0) {
     console.log("  No migrations registered. Skipping.");
@@ -299,7 +334,7 @@ async function runFullPathTest(): Promise<boolean> {
   // Only run config-based migrations in the full path (file-based ones operate
   // on user override files that don't exist in a fresh install)
   const configMigrations = getPendingMigrations(0, migrations).filter((m) =>
-    m.files.some((f) => f.endsWith("config.json"))
+    m.files.some((f) => f.endsWith("config.json")),
   );
 
   console.log(`  Starting config: ${configPath}`);
@@ -329,7 +364,9 @@ async function runFullPathTest(): Promise<boolean> {
     return false;
   }
 
-  console.log(`\n  PASS — migrated from v0 to v${configMigrations[configMigrations.length - 1].version}`);
+  console.log(
+    `\n  PASS — migrated from v0 to v${configMigrations[configMigrations.length - 1].version}`,
+  );
   return true;
 }
 
@@ -351,9 +388,7 @@ async function main(): Promise<void> {
 
   // 1. Individual migration tests (parallelized)
   if (!fullOnly) {
-    const testsToRun = onlyVersion
-      ? allTests.filter((t) => t.version === onlyVersion)
-      : allTests;
+    const testsToRun = onlyVersion ? allTests.filter((t) => t.version === onlyVersion) : allTests;
 
     if (testsToRun.length === 0 && onlyVersion) {
       console.error(`No test file found for migration version ${onlyVersion}`);

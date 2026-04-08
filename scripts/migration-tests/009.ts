@@ -12,7 +12,9 @@ export const test: MigrationTest = {
         reactions: { trigger: "robot_face" },
         directMessages: { enabled: true },
         mentions: { enabled: true },
-        repositories: [{ name: "app", url: "org/app", description: "App", access: { read: "member" } }],
+        repositories: [
+          { name: "app", url: "org/app", description: "App", access: { read: "member" } },
+        ],
         git: { pullIntervalMinutes: 60, shallowClone: true, cloneDepth: 1 },
         sessions: { timeoutMinutes: 1440, cleanupIntervalMinutes: 5 },
         claudeCode: { model: "sonnet" },
@@ -31,7 +33,9 @@ export const test: MigrationTest = {
         directMessages: { enabled: true },
         mentions: { enabled: true },
         autoRespond: { enabled: true },
-        repositories: [{ name: "app", url: "org/app", description: "App", access: { read: "member" } }],
+        repositories: [
+          { name: "app", url: "org/app", description: "App", access: { read: "member" } },
+        ],
         git: { pullIntervalMinutes: 60, shallowClone: true, cloneDepth: 1 },
         sessions: { timeoutMinutes: 1440, cleanupIntervalMinutes: 5 },
         claudeCode: { model: "sonnet" },
@@ -49,7 +53,14 @@ export const test: MigrationTest = {
         reactions: { trigger: "clack", thinking: { type: "emoji", emoji: "clack-loading" } },
         directMessages: { enabled: false },
         mentions: { enabled: true },
-        repositories: [{ name: "app", url: "org/app", description: "App", access: { read: "member", write: "dev" } }],
+        repositories: [
+          {
+            name: "app",
+            url: "org/app",
+            description: "App",
+            access: { read: "member", write: "dev" },
+          },
+        ],
         git: { pullIntervalMinutes: 30, shallowClone: false, cloneDepth: 5 },
         sessions: { timeoutMinutes: 3600, cleanupIntervalMinutes: 10 },
         claudeCode: { model: "opus" },
@@ -60,7 +71,8 @@ export const test: MigrationTest = {
         if (!ar) return "autoRespond field missing";
         if (ar.enabled !== false) return `Expected enabled: false, got: ${ar.enabled}`;
         const reactions = output.reactions as Record<string, unknown>;
-        if (reactions?.trigger !== "clack") return `reactions.trigger changed to ${reactions?.trigger}`;
+        if (reactions?.trigger !== "clack")
+          return `reactions.trigger changed to ${reactions?.trigger}`;
         const cw = output.changesWorkflow as Record<string, unknown>;
         if (cw?.enabled !== true) return "changesWorkflow.enabled was modified";
         const git = output.git as Record<string, unknown>;

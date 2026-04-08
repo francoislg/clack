@@ -42,6 +42,14 @@ function formatThreadContext(messages: SessionContext["threadContext"]): string 
   return messages
     .map((msg) => {
       let line = `${formatSpeaker(msg)}: ${msg.text}`;
+      if (msg.attachments?.length) {
+        const parts = msg.attachments
+          .map((a) => [a.pretext, a.title, a.text || a.fallback].filter(Boolean).join(" — "))
+          .filter(Boolean);
+        if (parts.length) {
+          line += `\n[attachments: ${parts.join("; ")}]`;
+        }
+      }
       if (msg.imageFiles?.length) {
         const tags = msg.imageFiles.map((f) => `${f.name} (file_id: ${f.id})`).join(", ");
         line += `\n[attached images: ${tags}]`;
@@ -61,6 +69,10 @@ function buildDeliveryContext(session: SessionContext): string | null {
   if (!session.triggerType) return null;
 
   const lines: string[] = ["DELIVERY CONTEXT:"];
+
+  if (session.channelName && session.triggerType !== "directMessages") {
+    lines.push(`- Channel: #${session.channelName}`);
+  }
 
   // DM-first: session has DM coordinates and an origin channel
   if (session.dmChannel && session.originChannel) {
@@ -92,8 +104,11 @@ function buildDeliveryContext(session: SessionContext): string | null {
     );
     lines.push("- The response is NOT visible in any channel — only the user can see it.");
     if (session.assistantCurrentChannelId) {
+      const channelRef = session.channelName
+        ? `#${session.channelName}`
+        : session.assistantCurrentChannelId;
       lines.push(
-        `- The user is currently viewing channel ${session.assistantCurrentChannelId}. When they say "here", "this channel", "latest messages", "what's being discussed", "summarize", "what do you see", etc., they are referring to that channel.`,
+        `- The user is currently viewing channel ${channelRef}. When they say "here", "this channel", "latest messages", "what's being discussed", "summarize", "what do you see", etc., they are referring to that channel.`,
       );
       lines.push(
         `- IMPORTANT: You CANNOT see the channel content unless you call \`fetch_channel_messages\` with channel ID ${session.assistantCurrentChannelId}. Always call it proactively when the user's question relates to the channel — do NOT tell the user to ask you to fetch it.`,
@@ -144,7 +159,10 @@ function buildDeliveryContext(session: SessionContext): string | null {
     }
     lines.push("- Do NOT include `accept` or `reject` actions — they have no meaning here.");
     lines.push(
-      "- If the users are talking to each other and not following up on what you said, or if the conversation has moved on and you have nothing useful to add, you can use `skip_response` to decline answering silently.",
+      "- If this specific message doesn't need your input but the thread might still be relevant, use `skip_response` to stay silent while remaining engaged.",
+    );
+    lines.push(
+      "- If the conversation has clearly moved on from the original topic and you are no longer needed in this thread, use `skip_response` with `disengage: true` to permanently stop tracking. You will not be invoked again in this thread unless someone @mentions you.",
     );
   } else {
     // All non-DM-first modes: response is already where the user can see it
@@ -244,7 +262,10 @@ Use this context to understand the conversation flow and provide relevant answer
 
   // Current date/time and user timezone — for time-aware responses
   const now = new Date();
-  const tzParts = [`CURRENT DATE: ${now.toISOString().slice(0, 10)} (${now.toISOString()})`];
+  const dayOfWeek = now.toLocaleDateString("en-US", { weekday: "long" });
+  const tzParts = [
+    `CURRENT DATE: ${dayOfWeek}, ${now.toISOString().slice(0, 10)} (${now.toISOString()})`,
+  ];
   if (options?.userTimezone) {
     tzParts.push(`USER TIMEZONE: ${options.userTimezone}`);
     tzParts.push(

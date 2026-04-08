@@ -5,36 +5,54 @@ import { decodeActionValue } from "../blocks.js";
 import { activeSessions } from "../activeSessions.js";
 import { executeAndDeliver, getHandlerClaudeOptions } from "./handlerResponse.js";
 
-export function registerFollowupHandler(app: App): void {
+export interface FollowupDeps {
+  getSession: typeof getSession;
+  addRefinement: typeof addRefinement;
+  decodeActionValue: typeof decodeActionValue;
+  restoreSession: typeof activeSessions.restore;
+  executeAndDeliver: typeof executeAndDeliver;
+  getHandlerClaudeOptions: typeof getHandlerClaudeOptions;
+}
+
+export const defaultFollowupDeps: FollowupDeps = {
+  getSession,
+  addRefinement,
+  decodeActionValue,
+  restoreSession: activeSessions.restore.bind(activeSessions),
+  executeAndDeliver,
+  getHandlerClaudeOptions,
+};
+
+export function registerFollowupHandler(app: App, deps: FollowupDeps = defaultFollowupDeps): void {
   app.action<BlockAction>(/^clack_followup_\d+$/, async ({ ack, body, client }) => {
     await ack();
 
     const rawValue = (body.actions[0] as { value: string }).value;
-    const { sessionId, prompt } = decodeActionValue(rawValue);
+    const { sessionId, prompt } = deps.decodeActionValue(rawValue);
 
     if (!prompt) {
       logger.error("Followup handler: missing prompt");
       return;
     }
 
-    const sessionInfo = await activeSessions.restore(sessionId);
+    const sessionInfo = await deps.restoreSession(sessionId);
     if (!sessionInfo) {
       logger.error(`Followup handler: could not restore session ${sessionId}`);
       return;
     }
 
-    const session = await getSession(sessionId);
+    const session = await deps.getSession(sessionId);
     if (!session) {
       logger.error(`Followup handler: session ${sessionId} not found`);
       return;
     }
 
     // Inject the followup prompt as a refinement
-    await addRefinement(session.sessionId, prompt);
-    const updatedSession = (await getSession(session.sessionId))!;
+    await deps.addRefinement(session.sessionId, prompt);
+    const updatedSession = (await deps.getSession(session.sessionId))!;
 
-    const claudeOptions = await getHandlerClaudeOptions(sessionInfo);
-    await executeAndDeliver({
+    const claudeOptions = await deps.getHandlerClaudeOptions(sessionInfo);
+    await deps.executeAndDeliver({
       client,
       session: updatedSession,
       sessionInfo,

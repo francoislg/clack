@@ -2,32 +2,19 @@ import { describe, it, beforeEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import type { IntentStore, ResponseCapture, ToolCallRecorder } from "../server.js";
 import type { StagedIntent, ResponseSnapshot } from "../types.js";
+import { createSubmitResponseTool, type SubmitResponseDeps } from "./submitResponse.js";
 
 // ---------------------------------------------------------------------------
-// Module-level mocks — must be set up before importing the module under test
+// Block function mocks — injected via SubmitResponseDeps
 // ---------------------------------------------------------------------------
 
-const mockGetStructuredResponseBlocks =
-  mock.fn<(...args: unknown[]) => Record<string, unknown>[]>();
-const mockValidateSlackBlocks =
-  mock.fn<
-    (
-      ...args: unknown[]
-    ) => { field: string; message: string; currentLength: number; limit: number }[]
-  >();
-const mockGetResponseActionBlocks = mock.fn<(...args: unknown[]) => Record<string, unknown>[]>();
-const mockAsSlackBlocks = mock.fn<(...args: unknown[]) => unknown>();
+type StructuredBlocksFn = NonNullable<SubmitResponseDeps["getStructuredResponseBlocks"]>;
+type ValidateBlocksFn = NonNullable<SubmitResponseDeps["validateSlackBlocks"]>;
+type ActionBlocksFn = NonNullable<SubmitResponseDeps["getResponseActionBlocks"]>;
 
-mock.module("../../slack/blocks.js", {
-  namedExports: {
-    getStructuredResponseBlocks: mockGetStructuredResponseBlocks,
-    validateSlackBlocks: mockValidateSlackBlocks,
-    getResponseActionBlocks: mockGetResponseActionBlocks,
-    asSlackBlocks: mockAsSlackBlocks,
-  },
-});
-
-const { createSubmitResponseTool } = await import("./submitResponse.js");
+const mockGetStructuredResponseBlocks = mock.fn<StructuredBlocksFn>();
+const mockValidateSlackBlocks = mock.fn<ValidateBlocksFn>();
+const mockGetResponseActionBlocks = mock.fn<ActionBlocksFn>();
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -58,8 +45,9 @@ function makeDeps(
     set: mock.fn<(payload: unknown, blocks: unknown) => void>(),
     get: mock.fn<() => null>(() => null),
     getRenderedBlocks: mock.fn<() => null>(() => null),
-    setSkipped: mock.fn<() => void>(),
+    setSkipped: mock.fn<(disengage?: boolean) => void>(),
     isSkipped: mock.fn<() => boolean>(() => false),
+    isDisengaged: mock.fn<() => boolean>(() => false),
     ...overrides.responseCapture,
   };
 
@@ -80,6 +68,9 @@ function makeDeps(
     deliver: overrides.deliver,
     persistSnapshot: overrides.persistSnapshot,
     allowSkip: overrides.allowSkip,
+    getStructuredResponseBlocks: mockGetStructuredResponseBlocks,
+    validateSlackBlocks: mockValidateSlackBlocks,
+    getResponseActionBlocks: mockGetResponseActionBlocks,
   };
 }
 
@@ -96,7 +87,6 @@ function resetBlockMocks() {
   mockGetStructuredResponseBlocks.mock.resetCalls();
   mockValidateSlackBlocks.mock.resetCalls();
   mockGetResponseActionBlocks.mock.resetCalls();
-  mockAsSlackBlocks.mock.resetCalls();
 
   // Defaults: valid blocks, no errors
   mockGetStructuredResponseBlocks.mock.mockImplementation(() => [
@@ -104,7 +94,6 @@ function resetBlockMocks() {
   ]);
   mockValidateSlackBlocks.mock.mockImplementation(() => []);
   mockGetResponseActionBlocks.mock.mockImplementation(() => []);
-  mockAsSlackBlocks.mock.mockImplementation((blocks: unknown) => blocks);
 }
 
 // ---------------------------------------------------------------------------
@@ -140,6 +129,7 @@ describe("createSubmitResponseTool", () => {
           getRenderedBlocks: () => null,
           setSkipped: () => {},
           isSkipped: () => false,
+          isDisengaged: () => false,
         },
       });
 
@@ -415,6 +405,7 @@ describe("createSubmitResponseTool", () => {
           getRenderedBlocks: () => null,
           setSkipped: () => {},
           isSkipped: () => false,
+          isDisengaged: () => false,
         },
       });
 
@@ -469,7 +460,6 @@ describe("createSubmitResponseTool", () => {
       mockGetResponseActionBlocks.mock.mockImplementation(() => [
         { type: "actions", elements: [] },
       ]);
-      mockAsSlackBlocks.mock.mockImplementation((b: unknown) => b);
 
       let receivedBlocks: unknown;
       const deps = makeDeps({
@@ -556,6 +546,7 @@ describe("createSubmitResponseTool", () => {
           getRenderedBlocks: () => null,
           setSkipped: () => {},
           isSkipped: () => false,
+          isDisengaged: () => false,
         },
       });
 
@@ -628,6 +619,7 @@ describe("createSubmitResponseTool", () => {
           getRenderedBlocks: () => null,
           setSkipped: () => {},
           isSkipped: () => false,
+          isDisengaged: () => false,
         },
       });
 
@@ -651,6 +643,7 @@ describe("createSubmitResponseTool", () => {
           getRenderedBlocks: () => null,
           setSkipped: () => {},
           isSkipped: () => false,
+          isDisengaged: () => false,
         },
       });
 
@@ -722,6 +715,59 @@ describe("createSubmitResponseTool", () => {
       });
 
       assert.equal(deliver.mock.callCount(), 0);
+    });
+
+    it("accepts skip with disengage and returns disengaged flag", async () => {
+      const deps = makeDeps({ allowSkip: true });
+      const result = await callToolRaw(deps, {
+        skip_response: true,
+        disengage: true,
+        message:
+          "I acknowledge that responding to this would serve no purpose, so I am skipping it.",
+      });
+
+      const parsed = JSON.parse(result.content[0].text);
+      assert.equal(parsed.success, true);
+      assert.equal(parsed.skipped, true);
+      assert.equal(parsed.disengaged, true);
+    });
+
+    it("rejects disengage without skip_response", async () => {
+      const deps = makeDeps({ allowSkip: true });
+      const result = await callToolRaw(deps, {
+        disengage: true,
+        message: "test",
+        sections: [{ body: "Hello" }],
+        actions: [],
+      });
+
+      assert.equal(result.isError, true);
+      const text = result.content[0].text;
+      assert.ok(text.includes("disengage requires skip_response: true"));
+    });
+
+    it("passes disengage flag to setSkipped", async () => {
+      const setSkippedFn = mock.fn<(disengage?: boolean) => void>();
+      const deps = makeDeps({
+        allowSkip: true,
+        responseCapture: {
+          set: mock.fn<(payload: unknown, blocks: unknown) => void>(),
+          get: mock.fn<() => null>(() => null),
+          getRenderedBlocks: mock.fn<() => null>(() => null),
+          setSkipped: setSkippedFn,
+          isSkipped: mock.fn<() => boolean>(() => false),
+          isDisengaged: mock.fn<() => boolean>(() => false),
+        },
+      });
+      await callToolRaw(deps, {
+        skip_response: true,
+        disengage: true,
+        message:
+          "I acknowledge that responding to this would serve no purpose, so I am skipping it.",
+      });
+
+      assert.equal(setSkippedFn.mock.callCount(), 1);
+      assert.equal(setSkippedFn.mock.calls[0].arguments[0], true);
     });
 
     it("normal flow unchanged when allowSkip is true but skip_response is absent", async () => {

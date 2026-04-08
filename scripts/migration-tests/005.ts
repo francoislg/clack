@@ -54,17 +54,14 @@ export const test: MigrationTest = {
         if (!dev.includes("## Checking Pull Request Reviews"))
           return "Missing '## Checking Pull Request Reviews' section";
 
-        if (!dev.includes("pull_request_read"))
-          return "Missing pull_request_read tool reference";
+        if (!dev.includes("pull_request_read")) return "Missing pull_request_read tool reference";
 
-        if (!dev.includes("get_comments"))
-          return "Missing get_comments method reference";
+        if (!dev.includes("get_comments")) return "Missing get_comments method reference";
 
         if (!dev.includes("get_review_comments"))
           return "Missing get_review_comments method reference";
 
-        if (!dev.includes("Do NOT rely on"))
-          return "Missing warning about get_reviews limitation";
+        if (!dev.includes("Do NOT rely on")) return "Missing warning about get_reviews limitation";
 
         if (!dev.includes("resolve_review_thread"))
           return "Missing resolve_review_thread tool reference";
@@ -79,8 +76,7 @@ export const test: MigrationTest = {
         if (!dev.includes("You have developer permissions"))
           return "Original Code Changes content was removed";
 
-        if (!dev.includes("## GitHub MCP Tools"))
-          return "GitHub MCP Tools section was removed";
+        if (!dev.includes("## GitHub MCP Tools")) return "GitHub MCP Tools section was removed";
 
         return null;
       },
@@ -99,11 +95,9 @@ export const test: MigrationTest = {
 
         // Should not have duplicate sections
         const matches = dev.match(/## Checking Pull Request Reviews/g);
-        if (matches && matches.length > 1)
-          return "PR review section was duplicated";
+        if (matches && matches.length > 1) return "PR review section was duplicated";
 
-        if (!dev.includes("## Code Changes"))
-          return "Code Changes section was removed";
+        if (!dev.includes("## Code Changes")) return "Code Changes section was removed";
 
         return null;
       },
@@ -120,15 +114,13 @@ export const test: MigrationTest = {
         if (!dev.includes("## Checking Pull Request Reviews"))
           return "Missing '## Checking Pull Request Reviews' section";
 
-        if (!dev.includes("pull_request_read"))
-          return "Missing pull_request_read tool reference";
+        if (!dev.includes("pull_request_read")) return "Missing pull_request_read tool reference";
 
         if (!dev.includes("resolve_review_thread"))
           return "Missing resolve_review_thread tool reference";
 
         // Original content should be preserved
-        if (!dev.includes("## GitHub MCP Tools"))
-          return "GitHub MCP Tools section was removed";
+        if (!dev.includes("## GitHub MCP Tools")) return "GitHub MCP Tools section was removed";
 
         return null;
       },

@@ -1,37 +1,14 @@
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
-
-// ---------------------------------------------------------------------------
-// Module-level mocks
-// ---------------------------------------------------------------------------
-
-const mockGetOctokit = mock.fn<() => Promise<unknown>>();
-
-mock.module("../../github.js", {
-  namedExports: {
-    getOctokit: mockGetOctokit,
-  },
-});
-
-mock.module("../../logger.js", {
-  namedExports: {
-    logger: {
-      debug: () => {},
-      warn: () => {},
-      error: () => {},
-      info: () => {},
-    },
-  },
-});
-
-// Import after mocks
-const { createResolveReviewThreadTool } = await import("./resolveReviewThread.js");
+import {
+  createResolveReviewThreadTool,
+  type ResolveReviewThreadDeps,
+} from "./resolveReviewThread.js";
+import type { QueryToolContext } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-import type { QueryToolContext } from "../types.js";
 
 function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
   return {
@@ -53,7 +30,7 @@ function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
     },
     config: {
       repositories: [],
-    } as unknown as QueryToolContext["config"],
+    } as never as QueryToolContext["config"],
     changesWorkflowEnabled: false,
     allowScheduledMessages: false,
     ...overrides,
@@ -64,15 +41,15 @@ function parseResult(result: { content: Array<{ text: string }> }) {
   return JSON.parse(result.content[0].text);
 }
 
-const mockGraphql = mock.fn<(...args: unknown[]) => Promise<unknown>>();
-
-function resetMocks() {
-  mockGetOctokit.mock.resetCalls();
-  mockGraphql.mock.resetCalls();
-
-  mockGetOctokit.mock.mockImplementation(async () => ({
-    graphql: mockGraphql,
-  }));
+function makeDeps(overrides: Partial<ResolveReviewThreadDeps> = {}): ResolveReviewThreadDeps {
+  return {
+    graphql: mock.fn(async () => ({
+      resolveReviewThread: {
+        thread: { id: "PRRT_default", isResolved: true },
+      },
+    })) as ResolveReviewThreadDeps["graphql"],
+    ...overrides,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -80,17 +57,17 @@ function resetMocks() {
 // ---------------------------------------------------------------------------
 
 describe("resolveReviewThread tool", () => {
-  beforeEach(resetMocks);
-
   it("resolves a thread successfully", async () => {
-    mockGraphql.mock.mockImplementation(async () => ({
-      resolveReviewThread: {
-        thread: { id: "PRRT_abc123", isResolved: true },
-      },
-    }));
+    const deps = makeDeps({
+      graphql: mock.fn(async () => ({
+        resolveReviewThread: {
+          thread: { id: "PRRT_abc123", isResolved: true },
+        },
+      })) as ResolveReviewThreadDeps["graphql"],
+    });
 
     const ctx = makeCtx();
-    const toolDef = createResolveReviewThreadTool(ctx);
+    const toolDef = createResolveReviewThreadTool(ctx, deps);
 
     const result = await toolDef.handler({ threadId: "PRRT_abc123" }, { sessionId: "test" });
 
@@ -102,30 +79,33 @@ describe("resolveReviewThread tool", () => {
   });
 
   it("passes the threadId to the GraphQL mutation", async () => {
-    mockGraphql.mock.mockImplementation(async () => ({
+    const graphqlMock = mock.fn<ResolveReviewThreadDeps["graphql"]>(async () => ({
       resolveReviewThread: {
         thread: { id: "PRRT_xyz789", isResolved: true },
       },
     }));
+    const deps = makeDeps({ graphql: graphqlMock });
 
     const ctx = makeCtx();
-    const toolDef = createResolveReviewThreadTool(ctx);
+    const toolDef = createResolveReviewThreadTool(ctx, deps);
 
     await toolDef.handler({ threadId: "PRRT_xyz789" }, { sessionId: "test" });
 
-    assert.equal(mockGraphql.mock.callCount(), 1);
-    const callArgs = mockGraphql.mock.calls[0].arguments;
+    assert.equal(graphqlMock.mock.callCount(), 1);
+    const callArgs = graphqlMock.mock.calls[0]!.arguments;
     // First arg is the mutation string, second is the variables
-    assert.equal((callArgs[1] as { threadId: string }).threadId, "PRRT_xyz789");
+    assert.equal(callArgs[1]!.threadId, "PRRT_xyz789");
   });
 
-  it("returns error when getOctokit fails", async () => {
-    mockGetOctokit.mock.mockImplementation(async () => {
-      throw new Error("GitHub App not configured");
+  it("returns error when graphql throws", async () => {
+    const deps = makeDeps({
+      graphql: mock.fn(async () => {
+        throw new Error("GitHub App not configured");
+      }) as ResolveReviewThreadDeps["graphql"],
     });
 
     const ctx = makeCtx();
-    const toolDef = createResolveReviewThreadTool(ctx);
+    const toolDef = createResolveReviewThreadTool(ctx, deps);
 
     const result = await toolDef.handler({ threadId: "PRRT_abc123" }, { sessionId: "test" });
 
@@ -136,13 +116,15 @@ describe("resolveReviewThread tool", () => {
     assert.equal(result.isError, true);
   });
 
-  it("returns error when GraphQL mutation fails", async () => {
-    mockGraphql.mock.mockImplementation(async () => {
-      throw new Error("Could not resolve thread: insufficient permissions");
+  it("returns error when GraphQL mutation fails with insufficient permissions", async () => {
+    const deps = makeDeps({
+      graphql: mock.fn(async () => {
+        throw new Error("Could not resolve thread: insufficient permissions");
+      }) as ResolveReviewThreadDeps["graphql"],
     });
 
     const ctx = makeCtx();
-    const toolDef = createResolveReviewThreadTool(ctx);
+    const toolDef = createResolveReviewThreadTool(ctx, deps);
 
     const result = await toolDef.handler({ threadId: "PRRT_invalid" }, { sessionId: "test" });
 
@@ -154,12 +136,14 @@ describe("resolveReviewThread tool", () => {
   });
 
   it("returns error when non-Error is thrown", async () => {
-    mockGraphql.mock.mockImplementation(async () => {
-      throw "string error";
+    const deps = makeDeps({
+      graphql: mock.fn(async () => {
+        throw "string error";
+      }) as ResolveReviewThreadDeps["graphql"],
     });
 
     const ctx = makeCtx();
-    const toolDef = createResolveReviewThreadTool(ctx);
+    const toolDef = createResolveReviewThreadTool(ctx, deps);
 
     const result = await toolDef.handler({ threadId: "PRRT_abc123" }, { sessionId: "test" });
 
@@ -169,35 +153,37 @@ describe("resolveReviewThread tool", () => {
     assert.equal(result.isError, true);
   });
 
-  it("calls getOctokit each time to get fresh auth", async () => {
-    mockGraphql.mock.mockImplementation(async () => ({
+  it("calls graphql each time for fresh auth", async () => {
+    const graphqlMock = mock.fn<ResolveReviewThreadDeps["graphql"]>(async () => ({
       resolveReviewThread: {
         thread: { id: "PRRT_1", isResolved: true },
       },
     }));
+    const deps = makeDeps({ graphql: graphqlMock });
 
     const ctx = makeCtx();
-    const toolDef = createResolveReviewThreadTool(ctx);
+    const toolDef = createResolveReviewThreadTool(ctx, deps);
 
     await toolDef.handler({ threadId: "PRRT_1" }, { sessionId: "test" });
     await toolDef.handler({ threadId: "PRRT_2" }, { sessionId: "test" });
 
-    assert.equal(mockGetOctokit.mock.callCount(), 2);
+    assert.equal(graphqlMock.mock.callCount(), 2);
   });
 
   it("uses the GraphQL mutation query string", async () => {
-    mockGraphql.mock.mockImplementation(async () => ({
+    const graphqlMock = mock.fn<ResolveReviewThreadDeps["graphql"]>(async () => ({
       resolveReviewThread: {
         thread: { id: "PRRT_1", isResolved: true },
       },
     }));
+    const deps = makeDeps({ graphql: graphqlMock });
 
     const ctx = makeCtx();
-    const toolDef = createResolveReviewThreadTool(ctx);
+    const toolDef = createResolveReviewThreadTool(ctx, deps);
 
     await toolDef.handler({ threadId: "PRRT_1" }, { sessionId: "test" });
 
-    const mutationStr = mockGraphql.mock.calls[0].arguments[0] as string;
+    const mutationStr = graphqlMock.mock.calls[0]!.arguments[0]!;
     assert.ok(mutationStr.includes("resolveReviewThread"));
     assert.ok(mutationStr.includes("mutation"));
     assert.ok(mutationStr.includes("$threadId"));

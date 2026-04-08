@@ -8,93 +8,104 @@ import type {
   StagedChangeIntent,
   StagedConfigUpdateIntent,
   StagedUpdateIntent,
+  ResponseSnapshot,
 } from "../../tools/types.js";
 import type { UserRole } from "../../roles.js";
 import type { SessionContext } from "../../sessions.js";
+import type { SessionInfo } from "../activeSessions.js";
+import type { SlackDeliveryContext } from "./changeAction.js";
+import { handleAutoExecuteActions, type AutoExecuteDeps } from "./autoExecute.js";
 
 // ============================================================================
-// Mocks — set up before importing the module under test
+// Mocks
 // ============================================================================
+
+interface PostMessageArgs {
+  channel: string;
+  thread_ts?: string;
+  text: string;
+}
+
+interface PostMessageMock {
+  mock: {
+    callCount(): number;
+    calls: Array<{ arguments: [PostMessageArgs] }>;
+    resetCalls(): void;
+    mockImplementation(fn: (args: PostMessageArgs) => Promise<{ ok: boolean }>): void;
+  };
+  (args: PostMessageArgs): Promise<{ ok: boolean }>;
+}
 
 const mockWriteInstructionFile = mock.fn<(filename: string, content: string) => void>();
-const mockTriggerChangeWorkflow = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
-const mockTriggerFollowUp = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
-const mockFindSessionByThread = mock.fn<(...args: unknown[]) => Promise<SessionContext | null>>(
+const mockTriggerChangeWorkflow = mock.fn<
+  (intent: StagedChangeIntent, slack: SlackDeliveryContext) => Promise<void>
+>(async () => {});
+const mockTriggerFollowUp = mock.fn<
+  (
+    session: SessionContext,
+    command: string,
+    instructions: string | undefined,
+    slack: SlackDeliveryContext,
+  ) => Promise<void>
+>(async () => {});
+const mockFindSessionByThread = mock.fn<
+  (channelId: string, threadTs: string) => Promise<SessionContext | null>
+>(async () => null);
+const mockGetSession = mock.fn<(sessionId: string) => Promise<SessionContext | null>>(
   async () => null,
 );
-const mockGetSession = mock.fn<(...args: unknown[]) => Promise<SessionContext | null>>(
-  async () => null,
-);
+const mockUpdateSession = mock.fn<
+  (sessionId: string, updates: { responseTs: string }) => Promise<SessionContext | null>
+>(async () => null);
 const mockPostAnswerToChannel = mock.fn<
-  (...args: unknown[]) => Promise<{ ok: boolean; ts?: string }>
+  (
+    client: App["client"],
+    snapshot: ResponseSnapshot,
+    targetChannel: string,
+    targetThreadTs?: string,
+  ) => Promise<{ ok: boolean; ts?: string }>
 >(async () => ({ ok: true }));
-const mockResolveOrigin = mock.fn(() => ({ originChannel: undefined, originThreadTs: undefined }));
-const mockActiveSessions = { restore: mock.fn(async () => null) };
-
-mock.module("../../configurationFiles.js", {
-  namedExports: {
-    writeInstructionFile: mockWriteInstructionFile,
-  },
-});
-
-mock.module("./changeAction.js", {
-  namedExports: {
-    triggerChangeWorkflow: mockTriggerChangeWorkflow,
-  },
-});
-
-mock.module("./changeThreadActions.js", {
-  namedExports: {
-    triggerFollowUp: mockTriggerFollowUp,
-  },
-});
-
-mock.module("./dmActions.js", {
-  namedExports: {
-    postAnswerToChannel: mockPostAnswerToChannel,
-    resolveOrigin: mockResolveOrigin,
-  },
-});
-
-mock.module("../../sessions.js", {
-  namedExports: {
-    findSessionByThread: mockFindSessionByThread,
-    getSession: mockGetSession,
-    updateSession: mock.fn(async () => null),
-  },
-});
-
-mock.module("../activeSessions.js", {
-  namedExports: {
-    activeSessions: mockActiveSessions,
-  },
-});
-
-mock.module("../../logger.js", {
-  namedExports: {
-    logger: {
-      info: () => {},
-      warn: () => {},
-      error: () => {},
-      debug: () => {},
-    },
-  },
-});
-
-// Import after mocks are configured
-const { handleAutoExecuteActions } = await import("./autoExecute.js");
+const mockResolveOrigin = mock.fn<
+  (
+    session: SessionContext,
+    sessionInfo: SessionInfo,
+  ) => { originChannel: string | undefined; originThreadTs: string | undefined }
+>(() => ({ originChannel: undefined, originThreadTs: undefined }));
+const mockRestoreSession = mock.fn<(sessionId: string) => Promise<SessionInfo | null>>(
+  async () => null,
+);
+const mockActiveSessions = {
+  restore: mock.fn<(sessionId: string) => Promise<SessionInfo | null>>(async () => null),
+};
+const mockPostMessageFn = mock.fn<(args: PostMessageArgs) => Promise<{ ok: boolean }>>(
+  async () => ({ ok: true }),
+);
 
 // ============================================================================
 // Helpers
 // ============================================================================
 
 function makeClient(): App["client"] {
-  const postMessageFn = mock.fn(async () => ({ ok: true }));
   return {
     chat: {
-      postMessage: postMessageFn,
+      postMessage: mockPostMessageFn,
     },
-  } as unknown as App["client"];
+  } as object as App["client"];
+}
+
+function makeDeps(): AutoExecuteDeps {
+  return {
+    canRequestChanges: (role: UserRole) => role !== "member",
+    triggerChangeWorkflow: mockTriggerChangeWorkflow,
+    triggerFollowUp: mockTriggerFollowUp,
+    postAnswerToChannel: mockPostAnswerToChannel,
+    resolveOrigin: mockResolveOrigin,
+    writeInstructionFile: mockWriteInstructionFile,
+    findSessionByThread: mockFindSessionByThread,
+    getSession: mockGetSession,
+    updateSession: mockUpdateSession,
+    restoreSession: mockActiveSessions.restore,
+  };
 }
 
 function makeBaseParams(overrides: Partial<Parameters<typeof handleAutoExecuteActions>[0]> = {}) {
@@ -134,6 +145,8 @@ beforeEach(() => {
   mockPostAnswerToChannel.mock.resetCalls();
   mockResolveOrigin.mock.resetCalls();
   mockActiveSessions.restore.mock.resetCalls();
+  mockPostMessageFn.mock.resetCalls();
+  mockPostMessageFn.mock.mockImplementation(async () => ({ ok: true }));
 });
 
 // ============================================================================
@@ -146,7 +159,7 @@ describe("handleAutoExecuteActions — early returns", () => {
       response: { success: true, answer: "hello" },
     });
 
-    await handleAutoExecuteActions(params);
+    await handleAutoExecuteActions(params, makeDeps());
     assert.equal(mockTriggerChangeWorkflow.mock.callCount(), 0);
     assert.equal(mockWriteInstructionFile.mock.callCount(), 0);
   });
@@ -164,7 +177,7 @@ describe("handleAutoExecuteActions — early returns", () => {
       },
     });
 
-    await handleAutoExecuteActions(params);
+    await handleAutoExecuteActions(params, makeDeps());
     assert.equal(mockTriggerChangeWorkflow.mock.callCount(), 0);
   });
 
@@ -177,7 +190,7 @@ describe("handleAutoExecuteActions — early returns", () => {
       },
     });
 
-    await handleAutoExecuteActions(params);
+    await handleAutoExecuteActions(params, makeDeps());
     assert.equal(mockTriggerChangeWorkflow.mock.callCount(), 0);
   });
 
@@ -195,7 +208,7 @@ describe("handleAutoExecuteActions — early returns", () => {
       ),
     });
 
-    await handleAutoExecuteActions(params);
+    await handleAutoExecuteActions(params, makeDeps());
     assert.equal(mockTriggerChangeWorkflow.mock.callCount(), 0);
   });
 
@@ -213,7 +226,7 @@ describe("handleAutoExecuteActions — early returns", () => {
       ),
     });
 
-    await handleAutoExecuteActions(params);
+    await handleAutoExecuteActions(params, makeDeps());
     // post_to is handled separately, should not trigger change/config workflows
     assert.equal(mockTriggerChangeWorkflow.mock.callCount(), 0);
     assert.equal(mockWriteInstructionFile.mock.callCount(), 0);
@@ -240,7 +253,7 @@ describe("handleAutoExecuteActions — permission checks", () => {
       ),
     });
 
-    await handleAutoExecuteActions(params);
+    await handleAutoExecuteActions(params, makeDeps());
     assert.equal(mockTriggerChangeWorkflow.mock.callCount(), 0);
   });
 
@@ -259,7 +272,7 @@ describe("handleAutoExecuteActions — permission checks", () => {
       ),
     });
 
-    await handleAutoExecuteActions(params);
+    await handleAutoExecuteActions(params, makeDeps());
     assert.equal(mockTriggerChangeWorkflow.mock.callCount(), 1);
   });
 
@@ -278,7 +291,7 @@ describe("handleAutoExecuteActions — permission checks", () => {
       ),
     });
 
-    await handleAutoExecuteActions(params);
+    await handleAutoExecuteActions(params, makeDeps());
     assert.equal(mockTriggerChangeWorkflow.mock.callCount(), 1);
   });
 
@@ -297,7 +310,7 @@ describe("handleAutoExecuteActions — permission checks", () => {
       ),
     });
 
-    await handleAutoExecuteActions(params);
+    await handleAutoExecuteActions(params, makeDeps());
     assert.equal(mockTriggerChangeWorkflow.mock.callCount(), 1);
   });
 });
@@ -315,7 +328,7 @@ describe("handleAutoExecuteActions — intent resolution", () => {
       ),
     });
 
-    await handleAutoExecuteActions(params);
+    await handleAutoExecuteActions(params, makeDeps());
     assert.equal(mockTriggerChangeWorkflow.mock.callCount(), 0);
   });
 });
@@ -343,14 +356,14 @@ describe("handleAutoExecuteActions — config_update", () => {
       ),
     });
 
-    await handleAutoExecuteActions(params);
+    await handleAutoExecuteActions(params, makeDeps());
 
     assert.equal(mockWriteInstructionFile.mock.callCount(), 1);
     const writeArgs = mockWriteInstructionFile.mock.calls[0].arguments;
     assert.equal(writeArgs[0], "instructions.md");
     assert.equal(writeArgs[1], "new content");
 
-    const postMessage = client.chat.postMessage as unknown as ReturnType<typeof mock.fn>;
+    const postMessage = mockPostMessageFn;
     assert.equal(postMessage.mock.callCount(), 1);
     const msgArgs = postMessage.mock.calls[0].arguments[0] as {
       channel: string;
@@ -384,11 +397,11 @@ describe("handleAutoExecuteActions — config_update", () => {
       ),
     });
 
-    await handleAutoExecuteActions(params);
+    await handleAutoExecuteActions(params, makeDeps());
 
-    const postMessage = client.chat.postMessage as unknown as ReturnType<typeof mock.fn>;
+    const postMessage = mockPostMessageFn;
     assert.equal(postMessage.mock.callCount(), 1);
-    const msgArgs = postMessage.mock.calls[0].arguments[0] as { text: string };
+    const msgArgs = postMessage.mock.calls[0].arguments[0] as PostMessageArgs;
     assert.ok(msgArgs.text.includes("Failed to update"));
     assert.ok(msgArgs.text.includes("broken.md"));
     assert.ok(msgArgs.text.includes("write failed"));
@@ -414,12 +427,12 @@ describe("handleAutoExecuteActions — change intent", () => {
       ),
     });
 
-    await handleAutoExecuteActions(params);
+    await handleAutoExecuteActions(params, makeDeps());
 
     assert.equal(mockTriggerChangeWorkflow.mock.callCount(), 1);
     const args = mockTriggerChangeWorkflow.mock.calls[0].arguments;
     assert.deepEqual(args[0], changeIntent);
-    const slackCtx = args[1] as Record<string, unknown>;
+    const slackCtx = args[1] as SlackDeliveryContext;
     assert.equal(slackCtx.channelId, "C001");
     assert.equal(slackCtx.threadTs, "1700000000.000001");
     assert.equal(slackCtx.userId, "U001");
@@ -440,12 +453,9 @@ describe("handleAutoExecuteActions — change intent", () => {
       ),
     });
 
-    await handleAutoExecuteActions(params);
+    await handleAutoExecuteActions(params, makeDeps());
 
-    const slackCtx = mockTriggerChangeWorkflow.mock.calls[0].arguments[1] as Record<
-      string,
-      unknown
-    >;
+    const slackCtx = mockTriggerChangeWorkflow.mock.calls[0].arguments[1] as SlackDeliveryContext;
     assert.equal(slackCtx.triggerType, "mentions");
   });
 
@@ -465,12 +475,9 @@ describe("handleAutoExecuteActions — change intent", () => {
       ),
     });
 
-    await handleAutoExecuteActions(params);
+    await handleAutoExecuteActions(params, makeDeps());
 
-    const slackCtx = mockTriggerChangeWorkflow.mock.calls[0].arguments[1] as Record<
-      string,
-      unknown
-    >;
+    const slackCtx = mockTriggerChangeWorkflow.mock.calls[0].arguments[1] as SlackDeliveryContext;
     assert.equal(slackCtx.streamChannel, "D_DM");
     assert.equal(slackCtx.streamThreadTs, "1700000099.000001");
   });
@@ -489,12 +496,9 @@ describe("handleAutoExecuteActions — change intent", () => {
       ),
     });
 
-    await handleAutoExecuteActions(params);
+    await handleAutoExecuteActions(params, makeDeps());
 
-    const slackCtx = mockTriggerChangeWorkflow.mock.calls[0].arguments[1] as Record<
-      string,
-      unknown
-    >;
+    const slackCtx = mockTriggerChangeWorkflow.mock.calls[0].arguments[1] as SlackDeliveryContext;
     assert.equal("streamChannel" in slackCtx, false);
     assert.equal("streamThreadTs" in slackCtx, false);
   });
@@ -542,7 +546,7 @@ describe("handleAutoExecuteActions — update intent", () => {
       ),
     });
 
-    await handleAutoExecuteActions(params);
+    await handleAutoExecuteActions(params, makeDeps());
 
     assert.equal(mockTriggerFollowUp.mock.callCount(), 1);
     const args = mockTriggerFollowUp.mock.calls[0].arguments;
@@ -567,7 +571,7 @@ describe("handleAutoExecuteActions — update intent", () => {
       ),
     });
 
-    await handleAutoExecuteActions(params);
+    await handleAutoExecuteActions(params, makeDeps());
 
     assert.equal(mockTriggerFollowUp.mock.callCount(), 0);
   });
@@ -602,7 +606,7 @@ describe("handleAutoExecuteActions — update intent", () => {
       ),
     });
 
-    await handleAutoExecuteActions(params);
+    await handleAutoExecuteActions(params, makeDeps());
 
     assert.equal(mockTriggerFollowUp.mock.callCount(), 0);
   });
@@ -646,9 +650,9 @@ describe("handleAutoExecuteActions — update intent", () => {
       ),
     });
 
-    await handleAutoExecuteActions(params);
+    await handleAutoExecuteActions(params, makeDeps());
 
-    const slackCtx = mockTriggerFollowUp.mock.calls[0].arguments[3] as Record<string, unknown>;
+    const slackCtx = mockTriggerFollowUp.mock.calls[0].arguments[3] as SlackDeliveryContext;
     assert.equal(slackCtx.streamChannel, "D_DM");
     assert.equal(slackCtx.streamThreadTs, "17.99");
   });
@@ -680,11 +684,11 @@ describe("handleAutoExecuteActions — error handling", () => {
     });
 
     // Should not throw
-    await handleAutoExecuteActions(params);
+    await handleAutoExecuteActions(params, makeDeps());
 
-    const postMessage = client.chat.postMessage as unknown as ReturnType<typeof mock.fn>;
+    const postMessage = mockPostMessageFn;
     assert.equal(postMessage.mock.callCount(), 1);
-    const msgArgs = postMessage.mock.calls[0].arguments[0] as { text: string };
+    const msgArgs = postMessage.mock.calls[0].arguments[0] as PostMessageArgs;
     assert.ok(msgArgs.text.includes("Auto-execute failed"));
     assert.ok(msgArgs.text.includes("workflow exploded"));
   });
@@ -702,11 +706,9 @@ describe("handleAutoExecuteActions — error handling", () => {
     };
     const client = makeClient();
     // Make postMessage also throw
-    (client.chat.postMessage as unknown as ReturnType<typeof mock.fn>).mock.mockImplementation(
-      async () => {
-        throw new Error("slack down");
-      },
-    );
+    mockPostMessageFn.mock.mockImplementation(async () => {
+      throw new Error("slack down");
+    });
 
     const params = makeBaseParams({
       client,
@@ -717,7 +719,7 @@ describe("handleAutoExecuteActions — error handling", () => {
     });
 
     // Should not throw — best-effort error reporting
-    await handleAutoExecuteActions(params);
+    await handleAutoExecuteActions(params, makeDeps());
   });
 });
 
@@ -751,7 +753,7 @@ describe("handleAutoExecuteActions — multiple actions", () => {
       ),
     });
 
-    await handleAutoExecuteActions(params);
+    await handleAutoExecuteActions(params, makeDeps());
 
     assert.equal(mockTriggerChangeWorkflow.mock.callCount(), 1);
     assert.equal(mockWriteInstructionFile.mock.callCount(), 1);
@@ -783,7 +785,7 @@ describe("handleAutoExecuteActions — multiple actions", () => {
       ),
     });
 
-    await handleAutoExecuteActions(params);
+    await handleAutoExecuteActions(params, makeDeps());
 
     assert.equal(mockTriggerChangeWorkflow.mock.callCount(), 1);
     const calledIntent = mockTriggerChangeWorkflow.mock.calls[0].arguments[0] as StagedChangeIntent;
@@ -836,7 +838,7 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
       ),
     });
 
-    await handleAutoExecuteActions(params);
+    await handleAutoExecuteActions(params, makeDeps());
 
     assert.equal(mockPostAnswerToChannel.mock.callCount(), 1);
     const args = mockPostAnswerToChannel.mock.calls[0].arguments;
@@ -879,7 +881,7 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
       ),
     });
 
-    await handleAutoExecuteActions(params);
+    await handleAutoExecuteActions(params, makeDeps());
 
     assert.equal(mockPostAnswerToChannel.mock.callCount(), 0);
   });
@@ -920,7 +922,7 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
       ),
     });
 
-    await handleAutoExecuteActions(params);
+    await handleAutoExecuteActions(params, makeDeps());
 
     assert.equal(mockPostAnswerToChannel.mock.callCount(), 1);
     const args = mockPostAnswerToChannel.mock.calls[0].arguments;
@@ -969,7 +971,7 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
       ),
     });
 
-    await handleAutoExecuteActions(params);
+    await handleAutoExecuteActions(params, makeDeps());
 
     assert.equal(mockPostAnswerToChannel.mock.callCount(), 1);
     const args = mockPostAnswerToChannel.mock.calls[0].arguments;
@@ -1017,7 +1019,7 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
       ),
     });
 
-    await handleAutoExecuteActions(params);
+    await handleAutoExecuteActions(params, makeDeps());
 
     // Both should execute
     assert.equal(mockPostAnswerToChannel.mock.callCount(), 1);
@@ -1039,7 +1041,7 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
       ),
     });
 
-    await handleAutoExecuteActions(params);
+    await handleAutoExecuteActions(params, makeDeps());
 
     assert.equal(mockPostAnswerToChannel.mock.callCount(), 0);
   });
@@ -1080,7 +1082,7 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
       ),
     });
 
-    await handleAutoExecuteActions(params);
+    await handleAutoExecuteActions(params, makeDeps());
 
     assert.equal(mockPostAnswerToChannel.mock.callCount(), 0);
   });
@@ -1121,11 +1123,11 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
       ),
     });
 
-    await handleAutoExecuteActions(params);
+    await handleAutoExecuteActions(params, makeDeps());
 
-    const postMessage = client.chat.postMessage as unknown as ReturnType<typeof mock.fn>;
+    const postMessage = mockPostMessageFn;
     assert.equal(postMessage.mock.callCount(), 1);
-    const msgArgs = postMessage.mock.calls[0].arguments[0] as { text: string };
+    const msgArgs = postMessage.mock.calls[0].arguments[0] as PostMessageArgs;
     assert.ok(msgArgs.text.includes("Failed to post"));
     assert.ok(msgArgs.text.includes("channel_not_found"));
   });

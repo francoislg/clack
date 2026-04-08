@@ -14,8 +14,14 @@ import type { Manifest } from "@slack/web-api/dist/types/request/manifest.js";
 // Extract BotScope and ManifestEvent types from Manifest (they're not exported directly)
 // Extended with `string` to support newer API fields not yet in @slack/web-api types (e.g. assistant:write)
 type ArrayElement<T> = T extends readonly (infer U)[] ? U : T extends (infer U)[] ? U : never;
-type BotScope = ArrayElement<NonNullable<NonNullable<NonNullable<Manifest["oauth_config"]>["scopes"]>["bot"]>> | (string & {});
-type ManifestEvent = ArrayElement<NonNullable<NonNullable<Manifest["settings"]>["event_subscriptions"]>["bot_events"]> | (string & {});
+type BotScope =
+  | ArrayElement<NonNullable<NonNullable<NonNullable<Manifest["oauth_config"]>["scopes"]>["bot"]>>
+  | (string & {});
+type ManifestEvent =
+  | ArrayElement<
+      NonNullable<NonNullable<Manifest["settings"]>["event_subscriptions"]>["bot_events"]
+    >
+  | (string & {});
 
 interface SlackAppConfig {
   name?: string;
@@ -57,10 +63,12 @@ const DEFAULTS: Required<SlackAppConfig> = {
 // Core scopes - always needed for basic reaction functionality and role management
 const CORE_SCOPES: BotScope[] = [
   "channels:history",
+  "channels:read", // Needed for conversations.info (channel name resolution)
   "emoji:read", // Needed for find_emoji tool (custom emoji lookup)
   "files:read", // Needed for downloading images uploaded in Slack messages
   "files:write", // Needed for uploading files to Slack (upload_file tool, Chat to Edit)
   "groups:history",
+  "groups:read", // Needed for conversations.info (private channel name resolution)
   "chat:write",
   "reactions:read",
   "reactions:write",
@@ -95,7 +103,10 @@ function validateSlackAppConfig(config: SlackAppConfig): void {
   }
 
   if (config.backgroundColor !== undefined) {
-    if (typeof config.backgroundColor !== "string" || !/^#[0-9A-Fa-f]{6}$/.test(config.backgroundColor)) {
+    if (
+      typeof config.backgroundColor !== "string" ||
+      !/^#[0-9A-Fa-f]{6}$/.test(config.backgroundColor)
+    ) {
       throw new Error("slackApp.backgroundColor must be a hex color (e.g., #4A154B)");
     }
   }
@@ -123,7 +134,7 @@ function buildScopes(features: ConfigFeatures): BotScope[] {
   const scopes: BotScope[] = [...CORE_SCOPES];
 
   if (features.directMessages) {
-    scopes.push("im:history", "mpim:history", "assistant:write");
+    scopes.push("im:history", "im:read", "mpim:history", "mpim:read", "assistant:write");
   }
 
   if (features.mentions) {
@@ -169,7 +180,9 @@ function generateManifest(config: PartialConfig): Manifest {
 
   // Type assertion: @slack/web-api types lag behind the Slack API (missing assistant_view, assistant:write, etc.)
   type ManifestBotScopes = NonNullable<NonNullable<Manifest["oauth_config"]>["scopes"]>["bot"];
-  type ManifestBotEvents = NonNullable<NonNullable<Manifest["settings"]>["event_subscriptions"]>["bot_events"];
+  type ManifestBotEvents = NonNullable<
+    NonNullable<Manifest["settings"]>["event_subscriptions"]
+  >["bot_events"];
 
   const manifest: Manifest = {
     display_information: {

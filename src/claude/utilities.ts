@@ -1,7 +1,19 @@
-import { clackQuery } from "./query.js";
+import { clackQuery as _clackQuery } from "./query.js";
 import { basename } from "node:path";
 import { logger } from "../logger.js";
 import type { ConversationMessage } from "./index.js";
+
+// ---------------------------------------------------------------------------
+// Dependency injection
+// ---------------------------------------------------------------------------
+
+export interface UtilitiesDeps {
+  clackQuery: typeof _clackQuery;
+}
+
+export const defaultUtilitiesDeps: UtilitiesDeps = {
+  clackQuery: _clackQuery,
+};
 
 /**
  * Detect the JavaScript runtime from process.execPath and return
@@ -18,7 +30,10 @@ export function detectRuntime(): "node" | "bun" | "deno" {
  * Summarize text that was too long for Slack using a quick Claude call.
  * Returns a condensed version, or a hard-truncated fallback if the call fails.
  */
-export async function summarizeForSlack(text: string): Promise<string> {
+export async function summarizeForSlack(
+  text: string,
+  deps: UtilitiesDeps = defaultUtilitiesDeps,
+): Promise<string> {
   const maxChars = 39000; // Slack message limit is ~40k; leave headroom
 
   const prompt = `The following text needs to be posted to Slack but is too long. Condense it to fit within ${maxChars} characters while preserving the most important information. Keep the same general structure and tone. Output ONLY the condensed text, nothing else.
@@ -30,7 +45,7 @@ ${text}`;
     let summary = "";
     let lastAssistantText = "";
 
-    for await (const message of clackQuery({
+    for await (const message of deps.clackQuery({
       prompt,
       options: {
         cwd: process.cwd(),
@@ -81,6 +96,7 @@ ${text}`;
 export async function analyzeError(
   errorMessage: string,
   conversationTrace: ConversationMessage[],
+  deps: UtilitiesDeps = defaultUtilitiesDeps,
 ): Promise<string> {
   // Format trace for analysis (last 10 messages)
   const recentTrace = conversationTrace.slice(-10);
@@ -110,7 +126,7 @@ Provide a concise, non-technical explanation suitable for a user who encountered
     let analysis = "";
     let lastAssistantText = "";
 
-    for await (const message of clackQuery({
+    for await (const message of deps.clackQuery({
       prompt,
       options: {
         cwd: process.cwd(),

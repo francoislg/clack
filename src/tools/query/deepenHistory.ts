@@ -6,14 +6,39 @@ import { simpleGit } from "simple-git";
 import type { QueryToolContext } from "../types.js";
 import { textResult, errorResult } from "../helpers.js";
 import { getVisibleRepos } from "../../repoAccess.js";
+import type { RepositoryConfig } from "../../config.js";
 import { getRepositoriesDir } from "../../config.js";
 import { setAuthenticatedRemote } from "../../repositories.js";
 import { errorMessage } from "../../errors.js";
 import { logger } from "../../logger.js";
+import type { UserRole } from "../../roles.js";
+
+export interface MinimalGit {
+  raw(args: string[]): Promise<string>;
+}
+
+export interface DeepenHistoryDeps {
+  getVisibleRepos: (role: UserRole, repos: RepositoryConfig[]) => RepositoryConfig[];
+  getRepositoriesDir: () => string;
+  existsSync: (path: string) => boolean;
+  simpleGit: (opts: { baseDir: string }) => MinimalGit;
+  setAuthenticatedRemote: (repoPath: string, repoUrl: string) => Promise<void>;
+}
+
+export const defaultDeps: DeepenHistoryDeps = {
+  getVisibleRepos,
+  getRepositoriesDir,
+  existsSync,
+  simpleGit,
+  setAuthenticatedRemote,
+};
 
 const DEFAULT_DEEPEN_COMMITS = 100;
 
-export function createDeepenHistoryTool(ctx: QueryToolContext) {
+export function createDeepenHistoryTool(
+  ctx: QueryToolContext,
+  deps: DeepenHistoryDeps = defaultDeps,
+) {
   return tool(
     "deepen_history",
     "Fetch additional commit history for a shallow-cloned repository. Use after git_log indicates the repo is shallow and you need more history.",
@@ -26,7 +51,7 @@ export function createDeepenHistoryTool(ctx: QueryToolContext) {
       full: z.boolean().optional().describe("Set to true to fetch the entire history (unshallow)"),
     },
     async (input) => {
-      const visibleRepos = getVisibleRepos(ctx.role, ctx.config.repositories);
+      const visibleRepos = deps.getVisibleRepos(ctx.role, ctx.config.repositories);
       const repo = visibleRepos.find((r) => r.name === input.repo);
 
       if (!repo) {
@@ -36,14 +61,14 @@ export function createDeepenHistoryTool(ctx: QueryToolContext) {
         );
       }
 
-      const repoPath = resolve(getRepositoriesDir(), repo.name);
+      const repoPath = resolve(deps.getRepositoriesDir(), repo.name);
 
-      if (!existsSync(repoPath)) {
+      if (!deps.existsSync(repoPath)) {
         return errorResult(`Repository "${repo.name}" has not been cloned yet.`);
       }
 
       try {
-        const git = simpleGit({ baseDir: repoPath });
+        const git = deps.simpleGit({ baseDir: repoPath });
 
         // Check if repo is shallow
         const isShallowRaw = await git.raw(["rev-parse", "--is-shallow-repository"]);
@@ -61,7 +86,7 @@ export function createDeepenHistoryTool(ctx: QueryToolContext) {
         }
 
         // Refresh authenticated remote before fetching
-        await setAuthenticatedRemote(repoPath, repo.url);
+        await deps.setAuthenticatedRemote(repoPath, repo.url);
 
         // Deepen or unshallow
         if (input.full) {

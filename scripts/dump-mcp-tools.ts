@@ -13,6 +13,7 @@
 import { readFileSync, existsSync } from "fs";
 import { join, resolve } from "path";
 import { spawn } from "child_process";
+import { truncate } from "../src/text.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -51,9 +52,7 @@ interface ToolSchema {
 // Env var substitution (matches src/mcp.ts behavior)
 // ---------------------------------------------------------------------------
 
-function substituteEnvVars(
-  obj?: Record<string, string>,
-): Record<string, string> | undefined {
+function substituteEnvVars(obj?: Record<string, string>): Record<string, string> | undefined {
   if (!obj) return undefined;
   const result: Record<string, string> = {};
   // Load .env file if present
@@ -79,9 +78,7 @@ function substituteEnvVars(
 // Stdio MCP client (minimal JSON-RPC over stdin/stdout)
 // ---------------------------------------------------------------------------
 
-async function connectStdio(
-  config: McpStdioConfig,
-): Promise<ToolSchema[]> {
+async function connectStdio(config: McpStdioConfig): Promise<ToolSchema[]> {
   return new Promise((resolve, reject) => {
     const env = { ...process.env, ...substituteEnvVars(config.env) };
     const child = spawn(config.command, config.args ?? [], {
@@ -114,7 +111,7 @@ async function connectStdio(
       }
     });
 
-    child.stderr.on("data", (chunk: Buffer) => {
+    child.stderr.on("data", (_chunk: Buffer) => {
       // Some servers print init messages to stderr; ignore
     });
 
@@ -156,9 +153,7 @@ async function connectStdio(
 // HTTP/SSE MCP client (Streamable HTTP transport)
 // ---------------------------------------------------------------------------
 
-async function connectHttp(
-  config: McpRemoteConfig,
-): Promise<ToolSchema[]> {
+async function connectHttp(config: McpRemoteConfig): Promise<ToolSchema[]> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     Accept: "application/json, text/event-stream",
@@ -211,7 +206,7 @@ async function connectHttp(
     throw new Error("No tools/list result in SSE stream");
   } else {
     // JSON response
-    const msg = await response.json() as { result?: { tools?: ToolSchema[] } };
+    const msg = (await response.json()) as { result?: { tools?: ToolSchema[] } };
     if (msg.result?.tools) return msg.result.tools;
     throw new Error(`Unexpected response: ${JSON.stringify(msg)}`);
   }
@@ -266,10 +261,7 @@ async function main() {
 
           console.log(`\n  ${tool.name}(${params})`);
           if (tool.description) {
-            const desc =
-              tool.description.length > 100
-                ? tool.description.substring(0, 97) + "..."
-                : tool.description;
+            const desc = truncate(tool.description, 100);
             console.log(`    ${desc}`);
           }
         }

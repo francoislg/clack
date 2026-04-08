@@ -1,36 +1,36 @@
 import { describe, it, beforeEach, mock } from "node:test";
 import assert from "node:assert/strict";
+import type { SessionContext } from "../sessions.js";
+import type { SessionInfo } from "./activeSessions.js";
+import {
+  getDmSynthesisActions,
+  getDmPostAcceptActions,
+  storeDmCoordinates,
+  type DmResponseDeps,
+} from "./dmResponse.js";
 
 // ============================================================================
-// Mock setup — must come before importing the module under test
+// Mocks
 // ============================================================================
 
-const mockUpdateSession = mock.fn<(id: string, updates: Record<string, unknown>) => Promise<null>>(
-  async () => null,
-);
+const mockUpdateSession = mock.fn<
+  (id: string, updates: Partial<SessionContext>) => Promise<SessionContext | null>
+>(async () => null);
 
-mock.module("../sessions.js", {
-  namedExports: {
-    updateSession: mockUpdateSession,
-  },
-});
-
-let sessionInfoStore: Map<string, Record<string, unknown>>;
+let sessionInfoStore: Map<string, SessionInfo>;
 
 const mockGetSessionInfo = mock.fn((id: string) => sessionInfoStore.get(id));
-const mockSetSessionInfo = mock.fn((id: string, info: Record<string, unknown>) => {
+const mockSetSessionInfo = mock.fn((id: string, info: SessionInfo) => {
   sessionInfoStore.set(id, info);
 });
 
-mock.module("./activeSessions.js", {
-  namedExports: {
-    activeSessions: { get: mockGetSessionInfo, set: mockSetSessionInfo },
-  },
-});
-
-// Import after mocks
-const { getDmSynthesisActions, getDmPostAcceptActions, storeDmCoordinates } =
-  await import("./dmResponse.js");
+function makeDeps(): DmResponseDeps {
+  return {
+    updateSession: mockUpdateSession,
+    getSessionInfo: mockGetSessionInfo,
+    setSessionInfo: mockSetSessionInfo,
+  };
+}
 
 // ============================================================================
 // Helpers
@@ -82,7 +82,8 @@ describe("getDmSynthesisActions", () => {
     const blocks = getDmSynthesisActions("sess-1");
     const elements = blocks[0].elements;
     assert.equal(elements[0].style, "primary");
-    assert.equal((elements[1] as Record<string, unknown>).style, undefined);
+    const elem1 = elements[1] as { style?: string };
+    assert.equal(elem1.style, undefined);
     assert.equal(elements[2].style, "danger");
   });
 
@@ -141,7 +142,8 @@ describe("getDmPostAcceptActions", () => {
     const blocks = getDmPostAcceptActions("sess-1");
     const elements = blocks[0].elements;
     assert.equal(elements[0].style, "primary");
-    assert.equal((elements[1] as Record<string, unknown>).style, undefined);
+    const elem1 = elements[1] as { style?: string };
+    assert.equal(elem1.style, undefined);
     assert.equal(elements[2].style, "danger");
   });
 
@@ -168,7 +170,8 @@ describe("getDmPostAcceptActions", () => {
 
 describe("storeDmCoordinates", () => {
   it("calls updateSession with the DM coordinate fields", async () => {
-    await storeDmCoordinates("sess-1", "D100", "1700.001", "C200", "1700.002");
+    const deps = makeDeps();
+    await storeDmCoordinates("sess-1", "D100", "1700.001", "C200", "1700.002", deps);
 
     assert.equal(mockUpdateSession.mock.callCount(), 1);
     const [sessionId, updates] = mockUpdateSession.mock.calls[0].arguments;
@@ -182,13 +185,14 @@ describe("storeDmCoordinates", () => {
   });
 
   it("updates in-memory session info when it exists", async () => {
+    const deps = makeDeps();
     sessionInfoStore.set("sess-1", {
       channelId: "C200",
       threadTs: "1700.002",
       userId: "U001",
     });
 
-    await storeDmCoordinates("sess-1", "D100", "1700.001", "C200", "1700.002");
+    await storeDmCoordinates("sess-1", "D100", "1700.001", "C200", "1700.002", deps);
 
     assert.equal(mockSetSessionInfo.mock.callCount(), 1);
     const [id, info] = mockSetSessionInfo.mock.calls[0].arguments;
@@ -204,20 +208,23 @@ describe("storeDmCoordinates", () => {
   });
 
   it("does not call activeSessions.set when session info is not in memory", async () => {
-    // sessionInfoStore is empty — activeSessions.get will return undefined
+    const deps = makeDeps();
+    // sessionInfoStore is empty — getSessionInfo will return undefined
 
-    await storeDmCoordinates("sess-1", "D100", "1700.001", "C200", "1700.002");
+    await storeDmCoordinates("sess-1", "D100", "1700.001", "C200", "1700.002", deps);
 
     assert.equal(mockSetSessionInfo.mock.callCount(), 0);
   });
 
   it("still calls updateSession even when session info is not in memory", async () => {
-    await storeDmCoordinates("sess-1", "D100", "1700.001", "C200", "1700.002");
+    const deps = makeDeps();
+    await storeDmCoordinates("sess-1", "D100", "1700.001", "C200", "1700.002", deps);
 
     assert.equal(mockUpdateSession.mock.callCount(), 1);
   });
 
   it("preserves existing session info fields when merging", async () => {
+    const deps = makeDeps();
     sessionInfoStore.set("sess-1", {
       channelId: "C200",
       threadTs: "1700.002",
@@ -226,7 +233,7 @@ describe("storeDmCoordinates", () => {
       channelPostTs: "1700.999",
     });
 
-    await storeDmCoordinates("sess-1", "D100", "1700.001", "C200", "1700.002");
+    await storeDmCoordinates("sess-1", "D100", "1700.001", "C200", "1700.002", deps);
 
     const [, info] = mockSetSessionInfo.mock.calls[0].arguments;
     assert.equal(info.triggerType, "reactions");

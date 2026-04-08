@@ -24,8 +24,7 @@ export const test: MigrationTest = {
         const dev = output["data/configuration/dev_instructions.md"];
         if (!dev) return "dev_instructions.md missing from output";
 
-        if (!dev.includes("## GitHub MCP Tools"))
-          return "Missing '## GitHub MCP Tools' section";
+        if (!dev.includes("## GitHub MCP Tools")) return "Missing '## GitHub MCP Tools' section";
 
         if (!dev.includes("create_pull_request_review"))
           return "Missing create_pull_request_review tool reference";
@@ -62,16 +61,13 @@ You have developer permissions and can propose code changes.
         const dev = output["data/configuration/dev_instructions.md"];
         if (!dev) return "dev_instructions.md missing from output";
 
-        if (!dev.includes("## GitHub MCP Tools"))
-          return "GitHub MCP Tools section was removed";
+        if (!dev.includes("## GitHub MCP Tools")) return "GitHub MCP Tools section was removed";
 
         // Should not have duplicate sections
         const matches = dev.match(/## GitHub MCP Tools/g);
-        if (matches && matches.length > 1)
-          return "GitHub MCP Tools section was duplicated";
+        if (matches && matches.length > 1) return "GitHub MCP Tools section was duplicated";
 
-        if (!dev.includes("## Code Changes"))
-          return "Code Changes section was removed";
+        if (!dev.includes("## Code Changes")) return "Code Changes section was removed";
 
         return null;
       },

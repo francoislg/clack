@@ -89,10 +89,8 @@ export const test: MigrationTest = {
         const admin = output["data/configuration/admin_instructions.md"];
         if (!admin) return "admin_instructions.md missing from output";
 
-        if (!admin.includes("### Auto-execute"))
-          return "Missing '### Auto-execute' section";
-        if (!admin.includes("config_update"))
-          return "Missing 'config_update' in auto-execute list";
+        if (!admin.includes("### Auto-execute")) return "Missing '### Auto-execute' section";
+        if (!admin.includes("config_update")) return "Missing 'config_update' in auto-execute list";
 
         return null;
       },
@@ -138,14 +136,12 @@ You can set \`auto: true\` on any ref-based action (\`change\`, \`config_update\
 
         if (!admin.includes("### Auto-execute"))
           return "Auto-execute section was removed from admin";
-        if (!admin.includes("config_update"))
-          return "config_update was removed from admin";
+        if (!admin.includes("config_update")) return "config_update was removed from admin";
 
         const dev = output["data/configuration/dev_instructions.md"];
         if (!dev) return "dev_instructions.md missing from output";
 
-        if (!dev.includes("config_update"))
-          return "config_update was removed from dev";
+        if (!dev.includes("config_update")) return "config_update was removed from dev";
 
         return null;
       },

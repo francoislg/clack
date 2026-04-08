@@ -7,10 +7,22 @@ import { readInstructionFile } from "../../configurationFiles.js";
 
 const KNOWN_ROLE_DIRS = ["user", "dev", "admin", "owner"];
 
+export interface ProposeConfigUpdateDeps {
+  readInstructionFile: (filepath: string) => {
+    default_content: string | null;
+    custom_content: string | null;
+  };
+}
+
+export const defaultProposeConfigUpdateDeps: ProposeConfigUpdateDeps = {
+  readInstructionFile,
+};
+
 export function createProposeConfigUpdateTool(
   _ctx: QueryToolContext,
   intentStore: IntentStore,
   recorder: ToolCallRecorder,
+  deps: ProposeConfigUpdateDeps = defaultProposeConfigUpdateDeps,
 ) {
   return tool(
     "propose_config_update",
@@ -60,7 +72,7 @@ export function createProposeConfigUpdateTool(
         finalContent = args.content;
       } else {
         // Append: read current content and append
-        const current = readInstructionFile(args.file);
+        const current = deps.readInstructionFile(args.file);
         const currentContent = current.custom_content ?? current.default_content;
         if (currentContent) {
           finalContent = currentContent.trimEnd() + "\n\n" + args.content;
@@ -76,7 +88,7 @@ export function createProposeConfigUpdateTool(
         content: finalContent,
       });
 
-      const current = readInstructionFile(args.file);
+      const current = deps.readInstructionFile(args.file);
       const status =
         current.custom_content !== null
           ? "will_overwrite_custom"

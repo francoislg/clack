@@ -4,6 +4,20 @@ import { logger } from "../../logger.js";
 import { getInFlightRequest, deregisterInFlightRequest } from "../inFlightRequests.js";
 import { processMessage } from "./core.js";
 
+export interface MessageChangedDeps {
+  getConfig: typeof getConfig;
+  getInFlightRequest: typeof getInFlightRequest;
+  deregisterInFlightRequest: typeof deregisterInFlightRequest;
+  processMessage: typeof processMessage;
+}
+
+export const defaultMessageChangedDeps: MessageChangedDeps = {
+  getConfig,
+  getInFlightRequest,
+  deregisterInFlightRequest,
+  processMessage,
+};
+
 let cachedBotUserId: string | undefined;
 
 async function getBotUserId(client: App["client"]): Promise<string> {
@@ -50,6 +64,7 @@ interface MessageChangedEvent {
 async function handleMessageChanged(
   msg: MessageChangedEvent,
   client: App["client"],
+  deps: MessageChangedDeps,
 ): Promise<void> {
   const { channel } = msg;
   const messageTs = msg.message?.ts;
@@ -61,7 +76,7 @@ async function handleMessageChanged(
   if (newText === (msg.previous_message?.text ?? "")) return;
 
   // Look up in-flight request — if not found, Claude already finished
-  const inFlight = getInFlightRequest(channel, messageTs);
+  const inFlight = deps.getInFlightRequest(channel, messageTs);
   if (!inFlight) return;
 
   logger.info(
@@ -69,7 +84,7 @@ async function handleMessageChanged(
   );
 
   // Deregister before aborting to prevent race conditions
-  deregisterInFlightRequest(channel, messageTs);
+  deps.deregisterInFlightRequest(channel, messageTs);
   inFlight.abortController.abort();
 
   // Determine whether to restart with the edited text
@@ -78,7 +93,7 @@ async function handleMessageChanged(
     logger.info(
       `Restarting ${inFlight.triggerType} request with edited text (session: ${inFlight.sessionId})`,
     );
-    await processMessage({
+    await deps.processMessage({
       client,
       userId: msg.message!.user!,
       channelId: channel,
@@ -91,13 +106,16 @@ async function handleMessageChanged(
   }
 }
 
-export function registerMessageChangedHandler(app: App): void {
+export function registerMessageChangedHandler(
+  app: App,
+  deps: MessageChangedDeps = defaultMessageChangedDeps,
+): void {
   app.event("message", async ({ event, client }) => {
-    const config = getConfig();
+    const config = deps.getConfig();
     if (!config.directMessages.enabled && !config.mentions.enabled) return;
 
     const msg = event as MessageChangedEvent;
     if (msg.subtype !== "message_changed") return;
-    await handleMessageChanged(msg, client);
+    await handleMessageChanged(msg, client, deps);
   });
 }

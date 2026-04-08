@@ -46,7 +46,11 @@ export interface ClaudeResponse {
   cancelled?: boolean;
   /** True when Claude chose to skip the response via submit_response skip_response flag */
   skipped?: boolean;
+  /** True when Claude chose to disengage from the thread (skip + stop tracking) */
+  disengaged?: boolean;
   conversationTrace?: ConversationMessage[];
+  /** Captured stderr output from the Claude Code process */
+  stderrOutput?: string;
   /** Structured response from submit_response tool */
   response?: SubmitResponsePayload;
   /** Pre-rendered and validated Slack blocks from submit_response */
@@ -213,6 +217,7 @@ function buildSuccessResponse(
     return {
       success: true,
       skipped: true,
+      disengaged: clackTools.isDisengaged() || undefined,
       answer: "",
       conversationTrace,
     };
@@ -263,6 +268,7 @@ function handleQueryError(
   error: unknown,
   sessionId: string,
   conversationTrace: ConversationMessage[],
+  stderrOutput: string,
   abortController?: AbortController,
 ): ClaudeResponse {
   // Detect cancellation via AbortController
@@ -281,11 +287,15 @@ function handleQueryError(
   }
 
   logger.error("Claude Agent SDK error:", error);
+  if (stderrOutput) {
+    logger.warn(`Claude stderr output:\n${stderrOutput}`);
+  }
   return {
     success: false,
     answer: "",
     error: `Claude Agent SDK error: ${errorMessage(error)}`,
     conversationTrace,
+    stderrOutput: stderrOutput || undefined,
   };
 }
 
@@ -299,6 +309,7 @@ export async function askClaude(
   logger.debug(`Querying Claude via Agent SDK for session ${session.sessionId}...`);
 
   const conversationTrace: ConversationMessage[] = [];
+  const stderrLines: string[] = [];
 
   try {
     let answer = "";
@@ -326,6 +337,7 @@ export async function askClaude(
         tools: ["Read", "Glob", "Grep", "Skill"],
         plugins: discoverPlugins(),
         mcpServers,
+        stderr: (data) => stderrLines.push(data),
         ...(options?.abortController && { abortController: options.abortController }),
       },
     })) {
@@ -370,6 +382,13 @@ export async function askClaude(
 
     return buildSuccessResponse(answer, conversationTrace, clackTools);
   } catch (error) {
-    return handleQueryError(error, session.sessionId, conversationTrace, options?.abortController);
+    const stderrOutput = stderrLines.join("");
+    return handleQueryError(
+      error,
+      session.sessionId,
+      conversationTrace,
+      stderrOutput,
+      options?.abortController,
+    );
   }
 }

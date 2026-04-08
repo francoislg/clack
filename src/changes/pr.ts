@@ -3,6 +3,18 @@ import { errorMessage } from "../errors.js";
 import { logger } from "../logger.js";
 
 // ============================================================================
+// Dependency Injection
+// ============================================================================
+
+export interface PrDeps {
+  getOctokit: typeof getOctokit;
+}
+
+export const defaultPrDeps: PrDeps = {
+  getOctokit,
+};
+
+// ============================================================================
 // PR URL Parsing
 // ============================================================================
 
@@ -35,6 +47,7 @@ export type PRState = "OPEN" | "MERGED" | "CLOSED";
  */
 export async function fetchPRReviewContext(
   prUrl: string,
+  deps: PrDeps = defaultPrDeps,
 ): Promise<{ ok: true; context: string } | { ok: false; error: string }> {
   try {
     const parsed = parsePrUrl(prUrl);
@@ -42,7 +55,7 @@ export async function fetchPRReviewContext(
       return { ok: false, error: `Invalid PR URL: ${prUrl}` };
     }
     const { owner, repo, pullNumber: pull_number } = parsed;
-    const octokit = await getOctokit();
+    const octokit = await deps.getOctokit();
 
     const [{ data: comments }, { data: reviews }] = await Promise.all([
       octokit.pulls.listReviewComments({ owner, repo, pull_number }),
@@ -78,7 +91,10 @@ export async function fetchPRReviewContext(
  * Get the current status of a PR using the GitHub API.
  * Returns null on error.
  */
-export async function getPRStatus(prUrl: string): Promise<{ state: PRState } | null> {
+export async function getPRStatus(
+  prUrl: string,
+  deps: PrDeps = defaultPrDeps,
+): Promise<{ state: PRState } | null> {
   try {
     const parsed = parsePrUrl(prUrl);
     if (!parsed) {
@@ -86,7 +102,7 @@ export async function getPRStatus(prUrl: string): Promise<{ state: PRState } | n
       return null;
     }
     const { owner, repo, pullNumber: pull_number } = parsed;
-    const octokit = await getOctokit();
+    const octokit = await deps.getOctokit();
     const { data } = await octokit.pulls.get({ owner, repo, pull_number });
 
     if (data.merged) {

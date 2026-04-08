@@ -3,7 +3,28 @@ import { getRole } from "../../roles.js";
 import { canRequestChanges } from "../../permissions.js";
 import type { AskClaudeOptions } from "../../claude/index.js";
 import type { TriggerType } from "../../changes/types.js";
+import type { UserRole } from "../../roles.js";
+import type { Config } from "../../config.js";
 import { isChangesEnabledForTrigger, getChangeEnabledRepos } from "../../changes/detection.js";
+
+export interface ChangeWorkflowHelperDeps {
+  getConfig: () => Config;
+  getRole: (userId: string) => Promise<UserRole>;
+  canRequestChanges: (role: UserRole) => boolean;
+  isChangesEnabledForTrigger: (triggerType: TriggerType, config: Config) => boolean;
+  getChangeEnabledRepos: (
+    config: Config,
+    role: UserRole,
+  ) => Array<{ name: string; description: string }>;
+}
+
+export const defaultChangeWorkflowHelperDeps: ChangeWorkflowHelperDeps = {
+  getConfig,
+  getRole,
+  canRequestChanges,
+  isChangesEnabledForTrigger,
+  getChangeEnabledRepos,
+};
 
 /**
  * Get Claude options for a user and trigger type.
@@ -12,18 +33,19 @@ import { isChangesEnabledForTrigger, getChangeEnabledRepos } from "../../changes
 export async function getClaudeOptions(
   userId: string,
   triggerType: TriggerType,
+  deps: ChangeWorkflowHelperDeps = defaultChangeWorkflowHelperDeps,
 ): Promise<AskClaudeOptions> {
-  const config = getConfig();
-  const role = await getRole(userId);
+  const config = deps.getConfig();
+  const role = await deps.getRole(userId);
 
-  const changesEnabled = isChangesEnabledForTrigger(triggerType, config);
-  const isChangeCapable = changesEnabled && canRequestChanges(role);
+  const changesEnabled = deps.isChangesEnabledForTrigger(triggerType, config);
+  const isChangeCapable = changesEnabled && deps.canRequestChanges(role);
 
   if (!isChangeCapable) {
     return { role, changesWorkflowEnabled: false };
   }
 
-  const availableRepos = getChangeEnabledRepos(config, role);
+  const availableRepos = deps.getChangeEnabledRepos(config, role);
   if (availableRepos.length === 0) {
     return { role, changesWorkflowEnabled: false };
   }

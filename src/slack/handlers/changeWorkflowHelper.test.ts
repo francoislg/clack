@@ -1,60 +1,28 @@
 import { describe, it, mock, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import type { UserRole } from "../../roles.js";
-
-// ============================================================================
-// Mocks — set up before importing the module under test
-// ============================================================================
-
-const mockGetConfig = mock.fn<() => Record<string, unknown>>();
-const mockGetRole = mock.fn<(userId: string) => Promise<UserRole>>();
-const mockIsChangesEnabledForTrigger = mock.fn<(...args: unknown[]) => boolean>();
-const mockGetChangeEnabledRepos =
-  mock.fn<(...args: unknown[]) => Array<{ name: string; description: string }>>();
-const mockCanRequestChanges = mock.fn<(role: UserRole) => boolean>();
-
-mock.module("../../config.js", {
-  namedExports: { getConfig: mockGetConfig },
-});
-
-mock.module("../../roles.js", {
-  namedExports: { getRole: mockGetRole },
-});
-
-mock.module("../../permissions.js", {
-  namedExports: { canRequestChanges: mockCanRequestChanges },
-});
-
-mock.module("../../changes/detection.js", {
-  namedExports: {
-    isChangesEnabledForTrigger: mockIsChangesEnabledForTrigger,
-    getChangeEnabledRepos: mockGetChangeEnabledRepos,
-  },
-});
-
-// Import after mocks
-const { getClaudeOptions } = await import("./changeWorkflowHelper.js");
+import type { Config } from "../../config.js";
+import type { TriggerType } from "../../changes/types.js";
+import { getClaudeOptions, type ChangeWorkflowHelperDeps } from "./changeWorkflowHelper.js";
 
 // ============================================================================
 // Helpers
 // ============================================================================
 
-beforeEach(() => {
-  mockGetConfig.mock.resetCalls();
-  mockGetRole.mock.resetCalls();
-  mockIsChangesEnabledForTrigger.mock.resetCalls();
-  mockGetChangeEnabledRepos.mock.resetCalls();
-  mockCanRequestChanges.mock.resetCalls();
-
-  // Defaults
-  mockGetConfig.mock.mockImplementation(() => ({}));
-  mockGetRole.mock.mockImplementation(async () => "dev" as UserRole);
-  mockIsChangesEnabledForTrigger.mock.mockImplementation(() => true);
-  mockCanRequestChanges.mock.mockImplementation(() => true);
-  mockGetChangeEnabledRepos.mock.mockImplementation(() => [
-    { name: "org/repo", description: "desc" },
-  ]);
-});
+function makeDeps(overrides: Partial<ChangeWorkflowHelperDeps> = {}): ChangeWorkflowHelperDeps {
+  return {
+    getConfig: mock.fn<() => Config>(() => ({}) as never),
+    getRole: mock.fn<(userId: string) => Promise<UserRole>>(async () => "dev"),
+    canRequestChanges: mock.fn<(role: UserRole) => boolean>(() => true),
+    isChangesEnabledForTrigger: mock.fn<(triggerType: TriggerType, config: Config) => boolean>(
+      () => true,
+    ),
+    getChangeEnabledRepos: mock.fn<
+      (config: Config, role: UserRole) => Array<{ name: string; description: string }>
+    >(() => [{ name: "org/repo", description: "desc" }]),
+    ...overrides,
+  };
+}
 
 // ============================================================================
 // Tests
@@ -62,81 +30,109 @@ beforeEach(() => {
 
 describe("getClaudeOptions", () => {
   it("returns changesWorkflowEnabled true when all conditions are met", async () => {
-    const result = await getClaudeOptions("U001", "mentions");
+    const deps = makeDeps();
+    const result = await getClaudeOptions("U001", "mentions", deps);
 
     assert.equal(result.changesWorkflowEnabled, true);
     assert.equal(result.role, "dev");
   });
 
   it("returns changesWorkflowEnabled false when trigger is not enabled", async () => {
-    mockIsChangesEnabledForTrigger.mock.mockImplementation(() => false);
+    const deps = makeDeps({
+      isChangesEnabledForTrigger: mock.fn(() => false),
+    });
 
-    const result = await getClaudeOptions("U001", "mentions");
+    const result = await getClaudeOptions("U001", "mentions", deps);
 
     assert.equal(result.changesWorkflowEnabled, false);
   });
 
   it("returns changesWorkflowEnabled false when user cannot request changes", async () => {
-    mockCanRequestChanges.mock.mockImplementation(() => false);
+    const deps = makeDeps({
+      canRequestChanges: mock.fn(() => false),
+    });
 
-    const result = await getClaudeOptions("U001", "mentions");
+    const result = await getClaudeOptions("U001", "mentions", deps);
 
     assert.equal(result.changesWorkflowEnabled, false);
   });
 
   it("returns changesWorkflowEnabled false when no repos are available", async () => {
-    mockGetChangeEnabledRepos.mock.mockImplementation(() => []);
+    const deps = makeDeps({
+      getChangeEnabledRepos: mock.fn(() => []),
+    });
 
-    const result = await getClaudeOptions("U001", "mentions");
+    const result = await getClaudeOptions("U001", "mentions", deps);
 
     assert.equal(result.changesWorkflowEnabled, false);
   });
 
   it("passes the config to isChangesEnabledForTrigger", async () => {
-    const fakeConfig = { changesWorkflow: { enabled: true } };
-    mockGetConfig.mock.mockImplementation(() => fakeConfig);
+    const fakeConfig = { changesWorkflow: { enabled: true } } as never;
+    const mockIsChangesEnabled = mock.fn<(triggerType: TriggerType, config: Config) => boolean>(
+      () => true,
+    );
+    const deps = makeDeps({
+      getConfig: mock.fn(() => fakeConfig),
+      isChangesEnabledForTrigger: mockIsChangesEnabled,
+    });
 
-    await getClaudeOptions("U001", "directMessages");
+    await getClaudeOptions("U001", "directMessages", deps);
 
-    assert.equal(mockIsChangesEnabledForTrigger.mock.callCount(), 1);
-    assert.equal(mockIsChangesEnabledForTrigger.mock.calls[0].arguments[0], "directMessages");
-    assert.equal(mockIsChangesEnabledForTrigger.mock.calls[0].arguments[1], fakeConfig);
+    assert.equal(mockIsChangesEnabled.mock.callCount(), 1);
+    assert.equal(mockIsChangesEnabled.mock.calls[0]!.arguments[0], "directMessages");
+    assert.equal(mockIsChangesEnabled.mock.calls[0]!.arguments[1], fakeConfig);
   });
 
   it("resolves the role for the given userId", async () => {
-    mockGetRole.mock.mockImplementation(async () => "admin" as UserRole);
+    const mockGetRole = mock.fn<(userId: string) => Promise<UserRole>>(async () => "admin");
+    const deps = makeDeps({ getRole: mockGetRole });
 
-    const result = await getClaudeOptions("U_ADMIN", "reactions");
+    const result = await getClaudeOptions("U_ADMIN", "reactions", deps);
 
     assert.equal(result.role, "admin");
     assert.equal(mockGetRole.mock.callCount(), 1);
-    assert.equal(mockGetRole.mock.calls[0].arguments[0], "U_ADMIN");
+    assert.equal(mockGetRole.mock.calls[0]!.arguments[0], "U_ADMIN");
   });
 
   it("passes role and config to getChangeEnabledRepos", async () => {
-    const fakeConfig = { repositories: [] };
-    mockGetConfig.mock.mockImplementation(() => fakeConfig);
-    mockGetRole.mock.mockImplementation(async () => "owner" as UserRole);
+    const fakeConfig = { repositories: [] } as never;
+    const mockGetChangeEnabledRepos = mock.fn<
+      (config: Config, role: UserRole) => Array<{ name: string; description: string }>
+    >(() => [{ name: "r", description: "d" }]);
+    const deps = makeDeps({
+      getConfig: mock.fn(() => fakeConfig),
+      getRole: mock.fn(async () => "owner" as UserRole),
+      getChangeEnabledRepos: mockGetChangeEnabledRepos,
+    });
 
-    await getClaudeOptions("U001", "mentions");
+    await getClaudeOptions("U001", "mentions", deps);
 
     assert.equal(mockGetChangeEnabledRepos.mock.callCount(), 1);
-    assert.equal(mockGetChangeEnabledRepos.mock.calls[0].arguments[0], fakeConfig);
-    assert.equal(mockGetChangeEnabledRepos.mock.calls[0].arguments[1], "owner");
+    assert.equal(mockGetChangeEnabledRepos.mock.calls[0]!.arguments[0], fakeConfig);
+    assert.equal(mockGetChangeEnabledRepos.mock.calls[0]!.arguments[1], "owner");
   });
 
   it("does not call getChangeEnabledRepos when changes are disabled", async () => {
-    mockIsChangesEnabledForTrigger.mock.mockImplementation(() => false);
+    const mockGetChangeEnabledRepos = mock.fn(() => []);
+    const deps = makeDeps({
+      isChangesEnabledForTrigger: mock.fn(() => false),
+      getChangeEnabledRepos: mockGetChangeEnabledRepos,
+    });
 
-    await getClaudeOptions("U001", "mentions");
+    await getClaudeOptions("U001", "mentions", deps);
 
     assert.equal(mockGetChangeEnabledRepos.mock.callCount(), 0);
   });
 
   it("does not call getChangeEnabledRepos when user lacks permission", async () => {
-    mockCanRequestChanges.mock.mockImplementation(() => false);
+    const mockGetChangeEnabledRepos = mock.fn(() => []);
+    const deps = makeDeps({
+      canRequestChanges: mock.fn(() => false),
+      getChangeEnabledRepos: mockGetChangeEnabledRepos,
+    });
 
-    await getClaudeOptions("U001", "mentions");
+    await getClaudeOptions("U001", "mentions", deps);
 
     assert.equal(mockGetChangeEnabledRepos.mock.callCount(), 0);
   });

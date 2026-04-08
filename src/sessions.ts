@@ -16,6 +16,26 @@ import type { ChangeStatus, TriggerType } from "./changes/types.js";
 import type { ActiveChangeState } from "./changes/activeState.js";
 import { getActiveChange, clearActiveChange } from "./changes/activeState.js";
 
+export interface SlackAttachmentField {
+  title?: string;
+  value?: string;
+}
+
+export interface SlackAttachment {
+  text?: string;
+  fallback?: string;
+  title?: string;
+  pretext?: string;
+  author_name?: string;
+  fields?: SlackAttachmentField[];
+}
+
+/** Minimal block shape accepted from both @slack/types KnownBlock and auto-generated response types.
+ *  The full block structure is preserved at runtime for JSON serialization in tool output. */
+export interface SlackBlock {
+  type: string;
+}
+
 export interface ThreadMessage {
   text: string;
   userId: string;
@@ -23,6 +43,10 @@ export interface ThreadMessage {
   ts: string;
   username?: string;
   displayName?: string;
+  /** Raw blocks from the Slack message (preserved for tool output) */
+  blocks?: SlackBlock[];
+  /** Legacy attachments from the Slack message */
+  attachments?: SlackAttachment[];
   /** Uploaded image files attached to this message */
   imageFiles?: SlackImageFile[];
   /** Non-image file attachments (PDFs, text files, etc.) */
@@ -56,6 +80,8 @@ export interface SessionContext {
   imageFiles?: SlackImageFile[];
   /** How the session was triggered */
   triggerType?: TriggerType;
+  /** Resolved channel name (e.g., "backend-dev") */
+  channelName?: string;
   /** Additional system prompt injected into the delivery context */
   additionalSystemPrompt?: string;
   /** DM-first delivery: the DM channel ID */
@@ -83,6 +109,9 @@ export interface SessionContext {
   lastSeenThreadTs?: string;
   /** Active change execution state (runtime-only, not persisted) */
   activeChange?: ActiveChangeState;
+  /** Whether this session is actively tracked for auto-respond thread replies.
+   *  Defaults to true. Set to false to disengage from thread tracking. */
+  autoResponseActive?: boolean;
 }
 
 function generateSessionId(channelId: string, messageTs: string, userId: string): string {
@@ -162,6 +191,7 @@ export interface CreateSessionOptions {
   displayName?: string;
   triggerType?: SessionContext["triggerType"];
   additionalSystemPrompt?: string;
+  channelName?: string;
 }
 
 export async function createSession(opts: CreateSessionOptions): Promise<SessionContext> {
@@ -189,10 +219,12 @@ export async function createSession(opts: CreateSessionOptions): Promise<Session
     threadContext: opts.threadContext ?? [],
     triggerType: opts.triggerType,
     additionalSystemPrompt: opts.additionalSystemPrompt,
+    channelName: opts.channelName,
     refinements: [],
     errors: [],
     lastActivity: now,
     createdAt: now,
+    autoResponseActive: true,
   };
 
   // Write to disk (strip runtime fields)
@@ -239,6 +271,8 @@ export async function getSession(sessionId: string): Promise<SessionContext | nu
     if (!session.errors) session.errors = [];
     if (!session.refinements) session.refinements = [];
     if (!session.threadContext) session.threadContext = [];
+    // Default autoResponseActive to true for pre-existing sessions
+    if (session.autoResponseActive === undefined) session.autoResponseActive = true;
 
     // Merge active change state from dedicated module
     const ac = getActiveChange(sessionId);
@@ -383,6 +417,10 @@ export async function updateSession(
   }
 
   return updated;
+}
+
+export async function setAutoResponseActive(sessionId: string, active: boolean): Promise<void> {
+  await updateSession(sessionId, { autoResponseActive: active });
 }
 
 export async function addRefinement(

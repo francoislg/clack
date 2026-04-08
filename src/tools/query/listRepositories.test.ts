@@ -1,29 +1,18 @@
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
-
-// ---------------------------------------------------------------------------
-// Module-level mocks
-// ---------------------------------------------------------------------------
-
-const mockGetVisibleRepos = mock.fn<(...args: unknown[]) => unknown[]>();
-const mockCanWriteRepo = mock.fn<(...args: unknown[]) => boolean>();
-
-mock.module("../../repoAccess.js", {
-  namedExports: {
-    getVisibleRepos: mockGetVisibleRepos,
-    canWriteRepo: mockCanWriteRepo,
-  },
-});
-
-// Import after mocks
-const { createListRepositoriesTool } = await import("./listRepositories.js");
+import { createListRepositoriesTool, type ListRepositoriesDeps } from "./listRepositories.js";
+import type { RepositoryConfig } from "../../config.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-import type { QueryToolContext } from "../types.js";
-import type { RepositoryConfig } from "../../config.js";
+interface TestCtx {
+  mode: "query";
+  userId: string;
+  role: string;
+  config: { repositories: RepositoryConfig[] };
+}
 
 function makeRepo(overrides?: Partial<RepositoryConfig>): RepositoryConfig {
   return {
@@ -34,43 +23,38 @@ function makeRepo(overrides?: Partial<RepositoryConfig>): RepositoryConfig {
   };
 }
 
-function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
+function makeDeps(overrides: Partial<ListRepositoriesDeps> = {}): ListRepositoriesDeps {
   return {
-    mode: "query",
-    userId: "U123",
-    role: "dev",
-    session: {
-      sessionId: "sess-1",
-      channelId: "C1",
-      messageTs: "1.0",
-      threadTs: "1.0",
-      userId: "U123",
-      originalQuestion: "test",
-      threadContext: [],
-      refinements: [],
-      errors: [],
-      lastActivity: Date.now(),
-      createdAt: Date.now(),
-    },
-    config: {
-      repositories: [makeRepo()],
-    } as QueryToolContext["config"],
-    changesWorkflowEnabled: false,
-    allowScheduledMessages: false,
+    getVisibleRepos: mock.fn(() => [makeRepo()]) as ListRepositoriesDeps["getVisibleRepos"],
+    canWriteRepo: mock.fn(() => true) as ListRepositoriesDeps["canWriteRepo"],
     ...overrides,
   };
 }
 
-function parseResult(result: { content: Array<{ text: string }> }) {
-  return JSON.parse(result.content[0].text);
+function makeCtx(overrides?: Partial<TestCtx>): TestCtx {
+  return {
+    mode: "query",
+    userId: "U123",
+    role: "dev",
+    config: { repositories: [makeRepo()] },
+    ...overrides,
+  };
 }
 
-function resetMocks() {
-  mockGetVisibleRepos.mock.resetCalls();
-  mockCanWriteRepo.mock.resetCalls();
+function callTool(
+  ctx: TestCtx,
+  deps: ListRepositoriesDeps,
+  args: { includeChangeSupport?: boolean } = {},
+) {
+  const toolDef = createListRepositoriesTool(ctx as never, deps);
+  return toolDef.handler(
+    { includeChangeSupport: args.includeChangeSupport },
+    { sessionId: "test" },
+  );
+}
 
-  mockGetVisibleRepos.mock.mockImplementation(() => [makeRepo()]);
-  mockCanWriteRepo.mock.mockImplementation(() => true);
+function parseResult(result: { content: Array<{ text: string }> }) {
+  return JSON.parse(result.content[0].text);
 }
 
 // ---------------------------------------------------------------------------
@@ -78,16 +62,9 @@ function resetMocks() {
 // ---------------------------------------------------------------------------
 
 describe("listRepositories tool", () => {
-  beforeEach(resetMocks);
-
   it("returns visible repos with name, description, and canChange", async () => {
-    const ctx = makeCtx();
-    const toolDef = createListRepositoriesTool(ctx);
-
-    const result = await toolDef.handler(
-      { includeChangeSupport: undefined },
-      { sessionId: "test" },
-    );
+    const deps = makeDeps();
+    const result = await callTool(makeCtx(), deps);
 
     const parsed = parseResult(result);
     assert.equal(parsed.length, 1);
@@ -97,48 +74,35 @@ describe("listRepositories tool", () => {
   });
 
   it("returns canChange=false when user lacks write access", async () => {
-    mockCanWriteRepo.mock.mockImplementation(() => false);
+    const deps = makeDeps({
+      canWriteRepo: mock.fn(() => false) as ListRepositoriesDeps["canWriteRepo"],
+    });
 
-    const ctx = makeCtx();
-    const toolDef = createListRepositoriesTool(ctx);
-
-    const result = await toolDef.handler(
-      { includeChangeSupport: undefined },
-      { sessionId: "test" },
-    );
+    const result = await callTool(makeCtx(), deps);
 
     const parsed = parseResult(result);
     assert.equal(parsed[0].canChange, false);
   });
 
   it("includes canChange by default", async () => {
-    const ctx = makeCtx();
-    const toolDef = createListRepositoriesTool(ctx);
-
-    const result = await toolDef.handler(
-      { includeChangeSupport: undefined },
-      { sessionId: "test" },
-    );
+    const deps = makeDeps();
+    const result = await callTool(makeCtx(), deps);
 
     const parsed = parseResult(result);
     assert.ok("canChange" in parsed[0]);
   });
 
   it("includes canChange when includeChangeSupport=true", async () => {
-    const ctx = makeCtx();
-    const toolDef = createListRepositoriesTool(ctx);
-
-    const result = await toolDef.handler({ includeChangeSupport: true }, { sessionId: "test" });
+    const deps = makeDeps();
+    const result = await callTool(makeCtx(), deps, { includeChangeSupport: true });
 
     const parsed = parseResult(result);
     assert.ok("canChange" in parsed[0]);
   });
 
   it("excludes canChange when includeChangeSupport=false", async () => {
-    const ctx = makeCtx();
-    const toolDef = createListRepositoriesTool(ctx);
-
-    const result = await toolDef.handler({ includeChangeSupport: false }, { sessionId: "test" });
+    const deps = makeDeps();
+    const result = await callTool(makeCtx(), deps, { includeChangeSupport: false });
 
     const parsed = parseResult(result);
     assert.equal(parsed[0].canChange, undefined);
@@ -146,15 +110,11 @@ describe("listRepositories tool", () => {
   });
 
   it("returns empty array when no repos are visible", async () => {
-    mockGetVisibleRepos.mock.mockImplementation(() => []);
+    const deps = makeDeps({
+      getVisibleRepos: mock.fn(() => []) as ListRepositoriesDeps["getVisibleRepos"],
+    });
 
-    const ctx = makeCtx();
-    const toolDef = createListRepositoriesTool(ctx);
-
-    const result = await toolDef.handler(
-      { includeChangeSupport: undefined },
-      { sessionId: "test" },
-    );
+    const result = await callTool(makeCtx(), deps);
 
     const parsed = parseResult(result);
     assert.deepEqual(parsed, []);
@@ -166,15 +126,11 @@ describe("listRepositories tool", () => {
       makeRepo({ name: "repo-b", description: "Second repo" }),
       makeRepo({ name: "repo-c", description: "Third repo" }),
     ];
-    mockGetVisibleRepos.mock.mockImplementation(() => repos);
+    const deps = makeDeps({
+      getVisibleRepos: mock.fn(() => repos) as ListRepositoriesDeps["getVisibleRepos"],
+    });
 
-    const ctx = makeCtx();
-    const toolDef = createListRepositoriesTool(ctx);
-
-    const result = await toolDef.handler(
-      { includeChangeSupport: undefined },
-      { sessionId: "test" },
-    );
+    const result = await callTool(makeCtx(), deps);
 
     const parsed = parseResult(result);
     assert.equal(parsed.length, 3);
@@ -184,10 +140,16 @@ describe("listRepositories tool", () => {
   });
 
   it("calls getVisibleRepos with role and config repos", async () => {
-    const ctx = makeCtx({ role: "admin" });
-    const toolDef = createListRepositoriesTool(ctx);
+    const mockGetVisibleRepos = mock.fn<ListRepositoriesDeps["getVisibleRepos"]>(
+      (_role, _repos) => [makeRepo()],
+    );
+    const deps = makeDeps({ getVisibleRepos: mockGetVisibleRepos });
 
-    await toolDef.handler({ includeChangeSupport: undefined }, { sessionId: "test" });
+    const result = await callTool(makeCtx({ role: "admin" }), deps);
+
+    // Verify results are correct (confirms the function was called)
+    const parsed = parseResult(result);
+    assert.equal(parsed.length, 1);
 
     assert.equal(mockGetVisibleRepos.mock.callCount(), 1);
     assert.equal(mockGetVisibleRepos.mock.calls[0].arguments[0], "admin");

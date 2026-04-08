@@ -181,6 +181,55 @@ describe("buildPrompt", () => {
     assert.ok(!prompt.includes("DELIVERY CONTEXT"));
   });
 
+  // ---- channel name ----
+  it("includes channel name for non-DM triggers", () => {
+    const session = makeSession({
+      triggerType: "mentions",
+      channelName: "backend-dev",
+    });
+    const prompt = buildPrompt(session);
+    assert.ok(prompt.includes("Channel: #backend-dev"));
+  });
+
+  it("excludes channel name for direct messages", () => {
+    const session = makeSession({
+      triggerType: "directMessages",
+      channelName: "some-dm-channel",
+    });
+    const prompt = buildPrompt(session);
+    assert.ok(!prompt.includes("Channel: #"));
+  });
+
+  it("omits channel name line when channelName is undefined", () => {
+    const session = makeSession({
+      triggerType: "mentions",
+    });
+    const prompt = buildPrompt(session);
+    assert.ok(!prompt.includes("Channel: #"));
+  });
+
+  it("uses channel name instead of ID in assistant panel context", () => {
+    const session = makeSession({
+      triggerType: "mentions",
+      assistantOriginChannelId: "C789",
+      assistantCurrentChannelId: "C999",
+      channelName: "general",
+    });
+    const prompt = buildPrompt(session);
+    assert.ok(prompt.includes("viewing channel #general"));
+    assert.ok(!prompt.includes("viewing channel C999"));
+  });
+
+  it("falls back to channel ID in assistant panel when name unavailable", () => {
+    const session = makeSession({
+      triggerType: "mentions",
+      assistantOriginChannelId: "C789",
+      assistantCurrentChannelId: "C999",
+    });
+    const prompt = buildPrompt(session);
+    assert.ok(prompt.includes("viewing channel C999"));
+  });
+
   // ---- active change ----
   it("includes active change context when present", () => {
     const session = makeSession({
