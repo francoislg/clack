@@ -6,7 +6,7 @@ import { canEditConfig, canRequestChanges } from "./permissions.js";
 
 /** Known role directory names in cascade order (lowest to highest) */
 const ALL_ROLE_DIRS = ["user", "dev", "admin", "owner"] as const;
-type RoleDir = (typeof ALL_ROLE_DIRS)[number];
+export type RoleDir = (typeof ALL_ROLE_DIRS)[number];
 
 /**
  * Build the role chain based on user role and changesWorkflow state.

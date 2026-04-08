@@ -1,6 +1,42 @@
 import { resolve, sep } from "node:path";
-import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { getDataDir, validateConfig, loadSlackAuth } from "../../config.js";
+import {
+  existsSync as _existsSync,
+  readdirSync as _readdirSync,
+  readFileSync as _readFileSync,
+  writeFileSync as _writeFileSync,
+  mkdirSync as _mkdirSync,
+} from "node:fs";
+import {
+  getDataDir as _getDataDir,
+  validateConfig as _validateConfig,
+  loadSlackAuth as _loadSlackAuth,
+} from "../../config.js";
+
+// ---------------------------------------------------------------------------
+// Dependency injection
+// ---------------------------------------------------------------------------
+
+export interface AllowlistDeps {
+  getDataDir: typeof _getDataDir;
+  validateConfig: typeof _validateConfig;
+  loadSlackAuth: typeof _loadSlackAuth;
+  existsSync: typeof _existsSync;
+  readdirSync: typeof _readdirSync;
+  readFileSync: typeof _readFileSync;
+  writeFileSync: typeof _writeFileSync;
+  mkdirSync: typeof _mkdirSync;
+}
+
+export const defaultAllowlistDeps: AllowlistDeps = {
+  getDataDir: _getDataDir,
+  validateConfig: _validateConfig,
+  loadSlackAuth: _loadSlackAuth,
+  existsSync: _existsSync,
+  readdirSync: _readdirSync,
+  readFileSync: _readFileSync,
+  writeFileSync: _writeFileSync,
+  mkdirSync: _mkdirSync,
+};
 
 // ---------------------------------------------------------------------------
 // Allowed file paths (relative to data/)
@@ -26,8 +62,11 @@ export function getAllowedPaths(): string[] {
 // Resolve to absolute path within data/
 // ---------------------------------------------------------------------------
 
-export function resolveDataPath(relativePath: string): string {
-  const dataDir = getDataDir();
+export function resolveDataPath(
+  relativePath: string,
+  deps: AllowlistDeps = defaultAllowlistDeps,
+): string {
+  const dataDir = deps.getDataDir();
   const absolute = resolve(dataDir, relativePath);
   // Safety: ensure resolved path is inside data directory
   if (!absolute.startsWith(dataDir + sep) && absolute !== dataDir) {
@@ -45,9 +84,13 @@ export interface ValidationResult {
   error?: string;
 }
 
-export function validateContent(path: string, content: string): ValidationResult {
+export function validateContent(
+  path: string,
+  content: string,
+  deps: AllowlistDeps = defaultAllowlistDeps,
+): ValidationResult {
   if (path === "config.json") {
-    return validateConfigJson(content);
+    return validateConfigJson(content, deps);
   }
   if (path === "mcp.json") {
     return validateMcpJson(content);
@@ -58,7 +101,7 @@ export function validateContent(path: string, content: string): ValidationResult
   return { valid: false, error: `No validator for path: ${path}` };
 }
 
-function validateConfigJson(content: string): ValidationResult {
+function validateConfigJson(content: string, deps: AllowlistDeps): ValidationResult {
   let parsed: unknown;
   try {
     parsed = JSON.parse(content);
@@ -67,8 +110,8 @@ function validateConfigJson(content: string): ValidationResult {
   }
 
   try {
-    const slackAuth = loadSlackAuth();
-    validateConfig(parsed, slackAuth);
+    const slackAuth = deps.loadSlackAuth();
+    deps.validateConfig(parsed, slackAuth);
     return { valid: true };
   } catch (e) {
     return {
@@ -111,18 +154,21 @@ function validateJson(content: string): ValidationResult {
 // File operations
 // ---------------------------------------------------------------------------
 
-export function readDataFile(relativePath: string): {
+export function readDataFile(
+  relativePath: string,
+  deps: AllowlistDeps = defaultAllowlistDeps,
+): {
   content: string | null;
   isDirectory: boolean;
 } {
-  const absolute = resolveDataPath(relativePath);
+  const absolute = resolveDataPath(relativePath, deps);
 
   // Directory listing for tool_mapping
   if (relativePath === TOOL_MAPPING_GLOB || relativePath.endsWith("/")) {
-    if (!existsSync(absolute)) {
+    if (!deps.existsSync(absolute)) {
       return { content: "Directory does not exist yet.", isDirectory: true };
     }
-    const files = readdirSync(absolute).filter((f) => f.endsWith(".json"));
+    const files = deps.readdirSync(absolute).filter((f) => f.endsWith(".json"));
     return {
       content:
         files.length === 0
@@ -132,23 +178,27 @@ export function readDataFile(relativePath: string): {
     };
   }
 
-  if (!existsSync(absolute)) {
+  if (!deps.existsSync(absolute)) {
     return { content: null, isDirectory: false };
   }
 
-  return { content: readFileSync(absolute, "utf-8"), isDirectory: false };
+  return { content: deps.readFileSync(absolute, "utf-8") as string, isDirectory: false };
 }
 
-export function writeDataFile(relativePath: string, content: string): void {
-  const absolute = resolveDataPath(relativePath);
+export function writeDataFile(
+  relativePath: string,
+  content: string,
+  deps: AllowlistDeps = defaultAllowlistDeps,
+): void {
+  const absolute = resolveDataPath(relativePath, deps);
 
   // Create parent directories if needed
   const parentDir = resolve(absolute, "..");
-  if (!existsSync(parentDir)) {
-    mkdirSync(parentDir, { recursive: true });
+  if (!deps.existsSync(parentDir)) {
+    deps.mkdirSync(parentDir, { recursive: true });
   }
 
-  writeFileSync(absolute, content, "utf-8");
+  deps.writeFileSync(absolute, content, "utf-8");
 }
 
 export function getFormatHint(path: string): string {

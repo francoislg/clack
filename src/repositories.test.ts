@@ -1,26 +1,32 @@
 import { describe, it, beforeEach, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
+import {
+  getGitInstance,
+  setAuthenticatedRemote,
+  cloneRepository,
+  syncRepository,
+  syncAllRepositories,
+  initializeRepositories,
+  startSyncScheduler,
+  stopSyncScheduler,
+  setRepositoriesDeps,
+  resetRepositoriesDeps,
+  type RepositoriesDeps,
+} from "./repositories.js";
 
 // ---------------------------------------------------------------------------
-// Module-level mocks — must be set up before importing the module under test
+// Mocks
 // ---------------------------------------------------------------------------
 
 const mockExistsSync = mock.fn<(path: string) => boolean>();
 const mockMkdirSync = mock.fn<(path: string, opts?: { recursive: boolean }) => void>();
 
-mock.module("node:fs", {
-  namedExports: {
-    existsSync: mockExistsSync,
-    mkdirSync: mockMkdirSync,
-  },
-});
-
 // Mock simple-git: simpleGit() returns a mock git instance
-const mockGitClone = mock.fn<(...args: unknown[]) => Promise<void>>();
-const mockGitFetch = mock.fn<(...args: unknown[]) => Promise<void>>();
-const mockGitCheckout = mock.fn<(...args: unknown[]) => Promise<void>>();
-const mockGitReset = mock.fn<(...args: unknown[]) => Promise<void>>();
-const mockGitRemote = mock.fn<(...args: unknown[]) => Promise<void>>();
+const mockGitClone = mock.fn<(url: string, path: string, opts?: string[]) => Promise<void>>();
+const mockGitFetch = mock.fn<(remote: string, branch: string) => Promise<void>>();
+const mockGitCheckout = mock.fn<(opts: string[]) => Promise<void>>();
+const mockGitReset = mock.fn<(opts: string[]) => Promise<void>>();
+const mockGitRemote = mock.fn<(opts: string[]) => Promise<void>>();
 
 const mockGitInstance = {
   clone: mockGitClone,
@@ -30,13 +36,9 @@ const mockGitInstance = {
   remote: mockGitRemote,
 };
 
-const mockSimpleGit = mock.fn((_opts?: unknown) => mockGitInstance);
-
-mock.module("simple-git", {
-  namedExports: {
-    simpleGit: mockSimpleGit,
-  },
-});
+interface SimpleGitOptions {
+  baseDir?: string;
+}
 
 // Mock config module
 const mockGetConfig = mock.fn<
@@ -47,45 +49,23 @@ const mockGetConfig = mock.fn<
 >();
 const mockGetRepositoriesDir = mock.fn<() => string>();
 
-mock.module("./config.js", {
-  namedExports: {
-    getConfig: mockGetConfig,
-    getRepositoriesDir: mockGetRepositoriesDir,
-  },
-});
-
 // Mock github module
 const mockGetAuthenticatedCloneUrl = mock.fn<(url: string) => Promise<string>>();
 
-mock.module("./github.js", {
-  namedExports: {
+const mockSimpleGit = mock.fn<(opts?: SimpleGitOptions) => typeof mockGitInstance>(
+  () => mockGitInstance,
+);
+
+function makeDeps(): RepositoriesDeps {
+  return {
+    existsSync: mockExistsSync as RepositoriesDeps["existsSync"],
+    mkdirSync: mockMkdirSync as Function as RepositoriesDeps["mkdirSync"],
+    simpleGit: mockSimpleGit as Function as RepositoriesDeps["simpleGit"],
+    getConfig: mockGetConfig as () => void as RepositoriesDeps["getConfig"],
+    getRepositoriesDir: mockGetRepositoriesDir,
     getAuthenticatedCloneUrl: mockGetAuthenticatedCloneUrl,
-  },
-});
-
-// Mock logger (no-op)
-mock.module("./logger.js", {
-  namedExports: {
-    logger: {
-      debug: () => {},
-      info: () => {},
-      warn: () => {},
-      error: () => {},
-    },
-  },
-});
-
-// Import after mocks
-const {
-  getGitInstance,
-  setAuthenticatedRemote,
-  cloneRepository,
-  syncRepository,
-  syncAllRepositories,
-  initializeRepositories,
-  startSyncScheduler,
-  stopSyncScheduler,
-} = await import("./repositories.js");
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -146,6 +126,8 @@ function resetAllMocks(): void {
   mockGitCheckout.mock.mockImplementation(async () => {});
   mockGitReset.mock.mockImplementation(async () => {});
   mockGitRemote.mock.mockImplementation(async () => {});
+
+  resetRepositoriesDeps();
 }
 
 // ---------------------------------------------------------------------------
@@ -156,16 +138,18 @@ describe("getGitInstance", () => {
   beforeEach(resetAllMocks);
 
   it("calls simpleGit with empty options when no baseDir provided", () => {
+    setRepositoriesDeps(makeDeps());
     getGitInstance();
     assert.equal(mockSimpleGit.mock.callCount(), 1);
-    const args = mockSimpleGit.mock.calls[0].arguments[0] as Record<string, unknown>;
+    const args = mockSimpleGit.mock.calls[0].arguments[0] as SimpleGitOptions;
     assert.equal(args.baseDir, undefined);
   });
 
   it("calls simpleGit with baseDir when provided", () => {
+    setRepositoriesDeps(makeDeps());
     getGitInstance("/some/path");
     assert.equal(mockSimpleGit.mock.callCount(), 1);
-    const args = mockSimpleGit.mock.calls[0].arguments[0] as Record<string, unknown>;
+    const args = mockSimpleGit.mock.calls[0].arguments[0] as SimpleGitOptions;
     assert.equal(args.baseDir, "/some/path");
   });
 });
@@ -181,6 +165,7 @@ describe("setAuthenticatedRemote", () => {
     mockGetAuthenticatedCloneUrl.mock.mockImplementation(
       async () => "https://x-access-token:FRESH@github.com/org/repo.git",
     );
+    setRepositoriesDeps(makeDeps());
 
     await setAuthenticatedRemote("/repo/path", "https://github.com/org/repo.git");
 
@@ -191,7 +176,7 @@ describe("setAuthenticatedRemote", () => {
     );
 
     assert.equal(mockGitRemote.mock.callCount(), 1);
-    const remoteArgs = mockGitRemote.mock.calls[0].arguments[0] as string[];
+    const remoteArgs = mockGitRemote.mock.calls[0].arguments[0];
     assert.deepEqual(remoteArgs, [
       "set-url",
       "origin",
@@ -200,11 +185,12 @@ describe("setAuthenticatedRemote", () => {
   });
 
   it("creates a git instance with the repo path as baseDir", async () => {
+    setRepositoriesDeps(makeDeps());
     await setAuthenticatedRemote("/my/repo", "https://github.com/org/repo.git");
 
     // simpleGit should be called with baseDir = /my/repo
     const call = mockSimpleGit.mock.calls.find(
-      (c) => (c.arguments[0] as Record<string, unknown>)?.baseDir === "/my/repo",
+      (c) => (c.arguments[0] as SimpleGitOptions)?.baseDir === "/my/repo",
     );
     assert.ok(call, "Expected simpleGit to be called with baseDir /my/repo");
   });
@@ -224,6 +210,7 @@ describe("cloneRepository", () => {
       _callCount++;
       return false;
     });
+    setRepositoriesDeps(makeDeps());
 
     await cloneRepository(makeRepo());
 
@@ -239,6 +226,7 @@ describe("cloneRepository", () => {
       // First call: reposDir (doesn't matter), Second call: repoPath exists
       return callCount >= 2;
     });
+    setRepositoriesDeps(makeDeps());
 
     await cloneRepository(makeRepo());
 
@@ -249,6 +237,7 @@ describe("cloneRepository", () => {
     mockGetConfig.mock.mockImplementation(() =>
       defaultConfig({ shallowClone: true, cloneDepth: 5 }),
     );
+    setRepositoriesDeps(makeDeps());
 
     await cloneRepository(makeRepo());
 
@@ -261,6 +250,7 @@ describe("cloneRepository", () => {
 
   it("clones without shallow options when shallowClone is false", async () => {
     mockGetConfig.mock.mockImplementation(() => defaultConfig({ shallowClone: false }));
+    setRepositoriesDeps(makeDeps());
 
     await cloneRepository(makeRepo());
 
@@ -270,6 +260,7 @@ describe("cloneRepository", () => {
   });
 
   it("includes --branch option when repo has a branch configured", async () => {
+    setRepositoriesDeps(makeDeps());
     await cloneRepository(makeRepo({ branch: "develop" }));
 
     assert.equal(mockGitClone.mock.callCount(), 1);
@@ -279,6 +270,7 @@ describe("cloneRepository", () => {
   });
 
   it("does not include --branch option when no branch configured", async () => {
+    setRepositoriesDeps(makeDeps());
     await cloneRepository(makeRepo());
 
     assert.equal(mockGitClone.mock.callCount(), 1);
@@ -290,19 +282,21 @@ describe("cloneRepository", () => {
     mockGetAuthenticatedCloneUrl.mock.mockImplementation(
       async () => "https://x-access-token:SECRET@github.com/org/test-repo.git",
     );
+    setRepositoriesDeps(makeDeps());
 
     await cloneRepository(makeRepo());
 
     assert.equal(mockGitClone.mock.callCount(), 1);
-    const url = mockGitClone.mock.calls[0].arguments[0] as string;
+    const url = mockGitClone.mock.calls[0].arguments[0];
     assert.equal(url, "https://x-access-token:SECRET@github.com/org/test-repo.git");
   });
 
   it("clones to the correct repo path", async () => {
+    setRepositoriesDeps(makeDeps());
     await cloneRepository(makeRepo({ name: "my-project" }));
 
     assert.equal(mockGitClone.mock.callCount(), 1);
-    const repoPath = mockGitClone.mock.calls[0].arguments[1] as string;
+    const repoPath = mockGitClone.mock.calls[0].arguments[1];
     assert.ok(repoPath.endsWith("/my-project"));
   });
 });
@@ -318,6 +312,7 @@ describe("syncRepository", () => {
     // existsSync returns false for repoPath (first call in syncRepository)
     // then also for subsequent calls in cloneRepository
     mockExistsSync.mock.mockImplementation(() => false);
+    setRepositoriesDeps(makeDeps());
 
     await syncRepository(makeRepo());
 
@@ -333,6 +328,7 @@ describe("syncRepository", () => {
       callCount++;
       return callCount === 1; // First call in syncRepository: repo exists
     });
+    setRepositoriesDeps(makeDeps());
 
     await syncRepository(makeRepo());
 
@@ -343,6 +339,7 @@ describe("syncRepository", () => {
 
   it("uses the repo branch or defaults to main", async () => {
     mockExistsSync.mock.mockImplementation(() => true);
+    setRepositoriesDeps(makeDeps());
 
     await syncRepository(makeRepo({ branch: "develop" }));
 
@@ -352,16 +349,17 @@ describe("syncRepository", () => {
     assert.equal(fetchArgs[1], "develop");
 
     // checkout should force-checkout the branch
-    const checkoutArgs = mockGitCheckout.mock.calls[0].arguments[0] as string[];
+    const checkoutArgs = mockGitCheckout.mock.calls[0].arguments[0];
     assert.deepEqual(checkoutArgs, ["-f", "develop"]);
 
     // reset should target origin/<branch>
-    const resetArgs = mockGitReset.mock.calls[0].arguments[0] as string[];
+    const resetArgs = mockGitReset.mock.calls[0].arguments[0];
     assert.deepEqual(resetArgs, ["--hard", "origin/develop"]);
   });
 
   it("defaults to main branch when no branch specified", async () => {
     mockExistsSync.mock.mockImplementation(() => true);
+    setRepositoriesDeps(makeDeps());
 
     await syncRepository(makeRepo());
 
@@ -371,6 +369,7 @@ describe("syncRepository", () => {
 
   it("refreshes the authenticated remote before fetching", async () => {
     mockExistsSync.mock.mockImplementation(() => true);
+    setRepositoriesDeps(makeDeps());
 
     await syncRepository(makeRepo());
 
@@ -392,6 +391,7 @@ describe("syncAllRepositories", () => {
     mockGetConfig.mock.mockImplementation(() => defaultConfig({ repositories: repos }));
     // All repos exist
     mockExistsSync.mock.mockImplementation(() => true);
+    setRepositoriesDeps(makeDeps());
 
     await syncAllRepositories();
 
@@ -410,6 +410,7 @@ describe("syncAllRepositories", () => {
       fetchCount++;
       if (fetchCount === 1) throw new Error("Network error");
     });
+    setRepositoriesDeps(makeDeps());
 
     // Should not throw
     await syncAllRepositories();
@@ -420,6 +421,7 @@ describe("syncAllRepositories", () => {
 
   it("handles empty repository list", async () => {
     mockGetConfig.mock.mockImplementation(() => defaultConfig({ repositories: [] }));
+    setRepositoriesDeps(makeDeps());
 
     await syncAllRepositories();
 
@@ -436,6 +438,7 @@ describe("initializeRepositories", () => {
 
   it("creates the repositories directory if it does not exist", async () => {
     mockGetConfig.mock.mockImplementation(() => defaultConfig({ repositories: [] }));
+    setRepositoriesDeps(makeDeps());
 
     await initializeRepositories();
 
@@ -446,6 +449,7 @@ describe("initializeRepositories", () => {
   it("skips mkdir when the repositories directory already exists", async () => {
     mockExistsSync.mock.mockImplementation(() => true);
     mockGetConfig.mock.mockImplementation(() => defaultConfig({ repositories: [] }));
+    setRepositoriesDeps(makeDeps());
 
     await initializeRepositories();
 
@@ -455,6 +459,7 @@ describe("initializeRepositories", () => {
   it("clones all configured repositories", async () => {
     const repos = [makeRepo({ name: "repo-a" }), makeRepo({ name: "repo-b" })];
     mockGetConfig.mock.mockImplementation(() => defaultConfig({ repositories: repos }));
+    setRepositoriesDeps(makeDeps());
 
     await initializeRepositories();
 
@@ -470,6 +475,7 @@ describe("initializeRepositories", () => {
       cloneCount++;
       if (cloneCount === 1) throw new Error("Clone failed");
     });
+    setRepositoriesDeps(makeDeps());
 
     await initializeRepositories();
 
@@ -491,6 +497,7 @@ describe("startSyncScheduler", () => {
 
   it("starts a scheduler based on config interval", () => {
     mockGetConfig.mock.mockImplementation(() => defaultConfig({ pullIntervalMinutes: 30 }));
+    setRepositoriesDeps(makeDeps());
 
     // Should not throw
     startSyncScheduler();
@@ -510,6 +517,7 @@ describe("stopSyncScheduler", () => {
 
   it("stops the scheduler when running", () => {
     mockGetConfig.mock.mockImplementation(() => defaultConfig({ pullIntervalMinutes: 60 }));
+    setRepositoriesDeps(makeDeps());
     startSyncScheduler();
     stopSyncScheduler();
     // Calling again should be safe

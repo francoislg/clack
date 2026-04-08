@@ -25,6 +25,68 @@ import { clearAutoRespondCache } from "./autoRespond.js";
 import { clearCronJobsCache } from "./cronJobs.js";
 
 // ---------------------------------------------------------------------------
+// Dependency Injection
+// ---------------------------------------------------------------------------
+
+export interface LifecycleDeps {
+  dotenvConfig: typeof dotenvConfig;
+  loadConfig: typeof loadConfig;
+  getConfig: typeof getConfig;
+  loadGitHubCredentials: typeof loadGitHubCredentials;
+  clearGitHubTokenCache: typeof clearGitHubTokenCache;
+  logger: typeof logger;
+  initializeRepositories: typeof initializeRepositories;
+  syncAllRepositories: typeof syncAllRepositories;
+  startSyncScheduler: typeof startSyncScheduler;
+  stopSyncScheduler: typeof stopSyncScheduler;
+  startCleanupScheduler: typeof startCleanupScheduler;
+  stopCleanupScheduler: typeof stopCleanupScheduler;
+  getSlackClient: typeof getSlackClient;
+  ensureWorktreeDirectories: typeof ensureWorktreeDirectories;
+  startCompletionMonitor: typeof startCompletionMonitor;
+  stopCompletionMonitor: typeof stopCompletionMonitor;
+  validateInstructionFiles: typeof validateInstructionFiles;
+  startConfigWatcher: typeof startConfigWatcher;
+  startCronScheduler: typeof startCronScheduler;
+  stopCronScheduler: typeof stopCronScheduler;
+  resetMcpCache: typeof resetMcpCache;
+  resetToolMappingCache: typeof resetToolMappingCache;
+  clearRolesCache: typeof clearRolesCache;
+  clearPreferencesCache: typeof clearPreferencesCache;
+  clearAutoRespondCache: typeof clearAutoRespondCache;
+  clearCronJobsCache: typeof clearCronJobsCache;
+}
+
+export const defaultLifecycleDeps: LifecycleDeps = {
+  dotenvConfig,
+  loadConfig,
+  getConfig,
+  loadGitHubCredentials,
+  clearGitHubTokenCache,
+  logger,
+  initializeRepositories,
+  syncAllRepositories,
+  startSyncScheduler,
+  stopSyncScheduler,
+  startCleanupScheduler,
+  stopCleanupScheduler,
+  getSlackClient,
+  ensureWorktreeDirectories,
+  startCompletionMonitor,
+  stopCompletionMonitor,
+  validateInstructionFiles,
+  startConfigWatcher,
+  startCronScheduler,
+  stopCronScheduler,
+  resetMcpCache,
+  resetToolMappingCache,
+  clearRolesCache,
+  clearPreferencesCache,
+  clearAutoRespondCache,
+  clearCronJobsCache,
+};
+
+// ---------------------------------------------------------------------------
 // State — stop handles for the current generation of schedulers/watchers
 // ---------------------------------------------------------------------------
 
@@ -35,47 +97,47 @@ let restartInProgress = false;
 // Cache Resets
 // ---------------------------------------------------------------------------
 
-function resetAllCaches(): void {
-  resetMcpCache();
-  resetToolMappingCache();
-  clearRolesCache();
-  clearPreferencesCache();
-  clearGitHubTokenCache();
-  clearAutoRespondCache();
-  clearCronJobsCache();
+function resetAllCaches(deps: LifecycleDeps = defaultLifecycleDeps): void {
+  deps.resetMcpCache();
+  deps.resetToolMappingCache();
+  deps.clearRolesCache();
+  deps.clearPreferencesCache();
+  deps.clearGitHubTokenCache();
+  deps.clearAutoRespondCache();
+  deps.clearCronJobsCache();
 }
 
 // ---------------------------------------------------------------------------
 // Scheduler Start/Stop
 // ---------------------------------------------------------------------------
 
-function startSchedulers(): void {
-  const config = getConfig();
+function startSchedulers(deps: LifecycleDeps = defaultLifecycleDeps): void {
+  const config = deps.getConfig();
 
-  startSyncScheduler();
-  startCleanupScheduler();
+  deps.startSyncScheduler();
+  deps.startCleanupScheduler();
 
   if (config.claudeCode.watchMcpConfig) {
-    stopConfigWatcherFn = startConfigWatcher();
+    stopConfigWatcherFn = deps.startConfigWatcher();
   }
 
-  startCompletionMonitor();
+  deps.startCompletionMonitor();
 
   if (config.allowScheduledMessages) {
-    const client = getSlackClient();
+    const client = deps.getSlackClient();
     if (client) {
-      startCronScheduler(client);
+      deps.startCronScheduler(client);
     }
   }
 }
 
-function stopSchedulers(): void {
+function stopSchedulers(deps: LifecycleDeps = defaultLifecycleDeps): void {
   stopConfigWatcherFn?.();
   stopConfigWatcherFn = undefined;
-  stopCronScheduler();
-  stopCompletionMonitor();
-  stopSyncScheduler();
-  stopCleanupScheduler();
+  deps.stopCronScheduler();
+  deps.stopCompletionMonitor();
+  deps.stopSyncScheduler();
+  deps.stopCleanupScheduler();
 }
 
 // ---------------------------------------------------------------------------
@@ -91,16 +153,16 @@ export interface RestartSummary {
  * Start all schedulers and watchers after the Bolt app is running.
  * Called once from index.ts during boot.
  */
-export function startAll(): void {
-  startSchedulers();
+export function startAll(deps: LifecycleDeps = defaultLifecycleDeps): void {
+  startSchedulers(deps);
 }
 
 /**
  * Stop all schedulers and watchers during shutdown.
  * Does NOT stop the Bolt app — that is handled separately.
  */
-export function stopAll(): void {
-  stopSchedulers();
+export function stopAll(deps: LifecycleDeps = defaultLifecycleDeps): void {
+  stopSchedulers(deps);
 }
 
 /**
@@ -118,7 +180,9 @@ export function stopAll(): void {
  * 8. Ensure worktree directories
  * 9. Restart all schedulers and watchers
  */
-export async function restartAll(): Promise<RestartSummary> {
+export async function restartAll(
+  deps: LifecycleDeps = defaultLifecycleDeps,
+): Promise<RestartSummary> {
   if (restartInProgress) {
     throw new Error("A restart is already in progress");
   }
@@ -129,21 +193,21 @@ export async function restartAll(): Promise<RestartSummary> {
 
     // Step 1: Reload env vars
     const envPath = join(process.cwd(), "data", "auth", ".env");
-    dotenvConfig({ path: envPath, override: true });
+    deps.dotenvConfig({ path: envPath, override: true });
 
     // Step 2: Reload config — abort on failure (no side effects yet)
-    loadConfig(undefined, true);
-    const config = getConfig();
+    deps.loadConfig(undefined, true);
+    const config = deps.getConfig();
 
     // Step 3: Stop all schedulers and watchers
-    stopSchedulers();
+    stopSchedulers(deps);
 
     // Step 4: Reset all caches
-    resetAllCaches();
+    resetAllCaches(deps);
 
     // Step 5: Reload GitHub credentials
     try {
-      loadGitHubCredentials();
+      deps.loadGitHubCredentials();
     } catch (error) {
       warnings.push(
         `GitHub credentials reload failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -152,7 +216,7 @@ export async function restartAll(): Promise<RestartSummary> {
 
     // Step 6: Validate instruction files
     try {
-      validateInstructionFiles();
+      deps.validateInstructionFiles();
     } catch (error) {
       warnings.push(
         `Instruction file validation failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -161,8 +225,8 @@ export async function restartAll(): Promise<RestartSummary> {
 
     // Step 7: Initialize and sync repositories
     try {
-      await initializeRepositories();
-      await syncAllRepositories();
+      await deps.initializeRepositories();
+      await deps.syncAllRepositories();
     } catch (error) {
       warnings.push(
         `Repository sync failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -172,7 +236,7 @@ export async function restartAll(): Promise<RestartSummary> {
     // Step 8: Ensure worktree directories
     if (config.changesWorkflow?.enabled) {
       try {
-        ensureWorktreeDirectories();
+        deps.ensureWorktreeDirectories();
       } catch (error) {
         warnings.push(
           `Worktree directory setup failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -181,13 +245,13 @@ export async function restartAll(): Promise<RestartSummary> {
     }
 
     // Step 9: Restart all schedulers and watchers
-    startSchedulers();
+    startSchedulers(deps);
 
     for (const w of warnings) {
-      logger.warn(`Restart warning: ${w}`);
+      deps.logger.warn(`Restart warning: ${w}`);
     }
 
-    logger.info("Soft restart complete");
+    deps.logger.info("Soft restart complete");
 
     return {
       repoCount: config.repositories.length,

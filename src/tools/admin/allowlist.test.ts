@@ -1,32 +1,38 @@
 import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
+import type { SlackAuthConfig } from "../../config.js";
+import {
+  isAllowedPath,
+  validateContent,
+  getAllowedPaths,
+  type AllowlistDeps,
+  defaultAllowlistDeps,
+} from "./allowlist.js";
 
 // ============================================================================
-// Mocks
+// Helpers
 // ============================================================================
 
-mock.module("../../config.js", {
-  namedExports: {
+function makeDeps(overrides: Partial<AllowlistDeps> = {}): AllowlistDeps {
+  // validateConfig only checks for thrown errors in allowlist, return value is unused
+  const validateConfig = mock.fn((_config: unknown, _auth: SlackAuthConfig) => {
+    // no-op: does not throw = valid
+  });
+  return {
+    ...defaultAllowlistDeps,
     getDataDir: () => "/tmp/test-data",
-    validateConfig: mock.fn((_config: unknown, _auth: unknown) => ({})),
-    loadSlackAuth: mock.fn(() => ({
-      botToken: "xoxb-test",
-      appToken: "xapp-test",
-      signingSecret: "secret",
-    })),
-    getConfig: () => ({}),
-    loadConfig: () => ({}),
-    getRepositoriesDir: () => "/tmp/test-data/repositories",
-    getSessionsDir: () => "/tmp/test-data/sessions",
-    getWorktreesDir: () => "/tmp/test-data/worktrees",
-    getConfigurationDir: () => "/tmp/test-data/configuration",
-    getDefaultConfigurationDir: () => "/tmp/test-data/default_configuration",
-    getWorktreeSessionsDir: () => "/tmp/test-data/worktree-sessions",
-    findRepoByName: () => undefined,
-  },
-});
-
-const { isAllowedPath, validateContent, getAllowedPaths } = await import("./allowlist.js");
+    // The allowlist only checks whether validateConfig throws, not its return value
+    validateConfig: validateConfig as never as AllowlistDeps["validateConfig"],
+    loadSlackAuth: mock.fn(
+      (): SlackAuthConfig => ({
+        botToken: "xoxb-test",
+        appToken: "xapp-test",
+        signingSecret: "secret",
+      }),
+    ),
+    ...overrides,
+  };
+}
 
 // ============================================================================
 // Tests
@@ -86,38 +92,45 @@ describe("getAllowedPaths", () => {
 
 describe("validateContent", () => {
   it("validates valid mcp.json", () => {
-    const result = validateContent("mcp.json", JSON.stringify({ mcpServers: {} }));
+    const deps = makeDeps();
+    const result = validateContent("mcp.json", JSON.stringify({ mcpServers: {} }), deps);
     assert.ok(result.valid);
   });
 
   it("rejects mcp.json without mcpServers", () => {
-    const result = validateContent("mcp.json", JSON.stringify({ foo: "bar" }));
+    const deps = makeDeps();
+    const result = validateContent("mcp.json", JSON.stringify({ foo: "bar" }), deps);
     assert.ok(!result.valid);
     assert.ok(result.error?.includes("mcpServers"));
   });
 
   it("rejects invalid JSON for mcp.json", () => {
-    const result = validateContent("mcp.json", "not json");
+    const deps = makeDeps();
+    const result = validateContent("mcp.json", "not json", deps);
     assert.ok(!result.valid);
     assert.ok(result.error?.includes("Invalid JSON"));
   });
 
   it("rejects auth/.env (no validator)", () => {
-    const result = validateContent("auth/.env", "KEY=value\n");
+    const deps = makeDeps();
+    const result = validateContent("auth/.env", "KEY=value\n", deps);
     assert.ok(!result.valid);
     assert.ok(result.error?.includes("No validator"));
   });
 
   it("validates valid tool_mapping JSON", () => {
+    const deps = makeDeps();
     const result = validateContent(
       "configuration/tool_mapping/test.json",
       JSON.stringify({ tools: [] }),
+      deps,
     );
     assert.ok(result.valid);
   });
 
   it("rejects invalid JSON for tool_mapping", () => {
-    const result = validateContent("configuration/tool_mapping/test.json", "{broken");
+    const deps = makeDeps();
+    const result = validateContent("configuration/tool_mapping/test.json", "{broken", deps);
     assert.ok(!result.valid);
   });
 });

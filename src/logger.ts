@@ -1,10 +1,10 @@
-type LogLevel = "debug" | "info" | "warn" | "error";
+type LogLevel = "debug" | "info" | "warn" | "error" | "silent";
 
-const LOG_LEVEL = (process.env.LOG_LEVEL || "info").toLowerCase() as LogLevel;
-const LEVELS: Record<LogLevel, number> = { debug: 0, info: 1, warn: 2, error: 3 };
+const LEVELS: Record<LogLevel, number> = { debug: 0, info: 1, warn: 2, error: 3, silent: 4 };
 
 function shouldLog(level: LogLevel): boolean {
-  return LEVELS[level] >= LEVELS[LOG_LEVEL];
+  const logLevel = (process.env.LOG_LEVEL || "info").toLowerCase() as LogLevel;
+  return LEVELS[level] >= (LEVELS[logLevel] ?? 1);
 }
 
 function timestamp(): string {

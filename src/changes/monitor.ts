@@ -8,6 +8,40 @@ import type { ActiveChangeState } from "./activeState.js";
 import { getActiveWorkers, updateActiveChangeStatus, clearActiveChange } from "./activeState.js";
 
 // ============================================================================
+// Dependency Injection
+// ============================================================================
+
+export interface MonitorDeps {
+  getConfig: typeof getConfig;
+  removeWorktree: typeof removeWorktree;
+  getPRStatus: typeof getPRStatus;
+  getSession: typeof getSession;
+  getActiveWorkers: typeof getActiveWorkers;
+  updateActiveChangeStatus: typeof updateActiveChangeStatus;
+  clearActiveChange: typeof clearActiveChange;
+}
+
+export const defaultMonitorDeps: MonitorDeps = {
+  getConfig,
+  removeWorktree,
+  getPRStatus,
+  getSession,
+  getActiveWorkers,
+  updateActiveChangeStatus,
+  clearActiveChange,
+};
+
+let deps: MonitorDeps = defaultMonitorDeps;
+
+export function setMonitorDeps(d: MonitorDeps): void {
+  deps = d;
+}
+
+export function resetMonitorDeps(): void {
+  deps = defaultMonitorDeps;
+}
+
+// ============================================================================
 // Session Completion Monitoring
 // ============================================================================
 
@@ -29,7 +63,7 @@ export async function checkSessionCompletion(
     return { action: "none" };
   }
 
-  const status = await getPRStatus(activeChange.prUrl);
+  const status = await deps.getPRStatus(activeChange.prUrl);
   if (!status) {
     // Error getting status - don't take action
     return { action: "none" };
@@ -59,12 +93,12 @@ async function cleanupSession(
 
   // Update status based on how it was completed
   const newStatus = action === "merged" ? "completed" : "failed";
-  updateActiveChangeStatus(sessionId, newStatus, `PR ${action} externally`);
+  deps.updateActiveChangeStatus(sessionId, newStatus, `PR ${action} externally`);
 
   // Remove the worktree
   if (activeChange.worktree) {
     try {
-      await removeWorktree(activeChange.worktree.repoName, activeChange.worktree.worktreePath);
+      await deps.removeWorktree(activeChange.worktree.repoName, activeChange.worktree.worktreePath);
       logger.debug(`Removed worktree for session ${sessionId}`);
     } catch (error) {
       logger.warn(`Failed to remove worktree for session ${sessionId}: ${errorMessage(error)}`);
@@ -75,7 +109,7 @@ async function cleanupSession(
   // For merged PRs, also clean up the session folder
   // For closed PRs, preserve the session folder for debugging
   const cleanupFolder = action === "merged";
-  clearActiveChange(sessionId, cleanupFolder);
+  deps.clearActiveChange(sessionId, cleanupFolder);
 
   logger.info(`Session ${sessionId} cleaned up (action: ${action})`);
 }
@@ -84,7 +118,7 @@ async function cleanupSession(
  * Run a completion check for all active sessions with PRs
  */
 export async function runCompletionCheck(): Promise<void> {
-  const workers = getActiveWorkers();
+  const workers = deps.getActiveWorkers();
   let checked = 0;
   let cleaned = 0;
 
@@ -97,7 +131,7 @@ export async function runCompletionCheck(): Promise<void> {
     checked++;
 
     // Get the full session to access activeChange
-    const session = await getSession(worker.id);
+    const session = await deps.getSession(worker.id);
     if (!session?.activeChange) {
       continue;
     }
@@ -109,7 +143,7 @@ export async function runCompletionCheck(): Promise<void> {
     }
 
     // Re-fetch session to ensure it still has an active change
-    const currentSession = await getSession(worker.id);
+    const currentSession = await deps.getSession(worker.id);
     if (!currentSession?.activeChange) {
       logger.debug(`Session ${worker.id} no longer has active change, skipping cleanup`);
       continue;
@@ -135,7 +169,7 @@ let monitorInterval: NodeJS.Timeout | null = null;
  * Start the completion monitor scheduler
  */
 export function startCompletionMonitor(): void {
-  const config = getConfig();
+  const config = deps.getConfig();
   const intervalMinutes = config.changesWorkflow?.monitoringIntervalMinutes ?? 15;
 
   // Skip if monitoring is disabled

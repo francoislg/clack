@@ -1,14 +1,15 @@
 import { describe, it, mock, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
+import { registerNewQueryHandler, type NewQueryDeps } from "./newQuery.js";
 
 // ============================================================================
-// Mocks — set up before importing the module under test
+// Helpers
 // ============================================================================
 
-const mockProcessMessage = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
+const mockProcessMessage = mock.fn<(...args: never[]) => Promise<void>>(async () => {});
 const mockIsDev = mock.fn<(userId: string) => Promise<boolean>>(async () => false);
-const mockExtractMessageText = mock.fn<(msg: Record<string, unknown>) => string>(() => "");
+const mockExtractMessageText = mock.fn<(msg: never) => string>(() => "");
 
 // Config mock — needs to return a config object with reactions shape
 const mockConfig = {
@@ -19,45 +20,14 @@ const mockConfig = {
 };
 const mockGetConfig = mock.fn(() => mockConfig);
 
-mock.module("./core.js", {
-  namedExports: { processMessage: mockProcessMessage },
-});
-
-mock.module("../../config.js", {
-  namedExports: { getConfig: mockGetConfig },
-});
-
-mock.module("../../roles.js", {
-  namedExports: { isDev: mockIsDev },
-});
-
-mock.module("../messagesApi.js", {
-  namedExports: { extractMessageText: mockExtractMessageText },
-});
-
-mock.module("../blocks.js", {
-  namedExports: {
-    getErrorBlocks: (msg: string) => [{ type: "section", text: { type: "mrkdwn", text: msg } }],
-  },
-});
-
-mock.module("../../logger.js", {
-  namedExports: {
-    logger: {
-      info: () => {},
-      warn: () => {},
-      error: () => {},
-      debug: () => {},
-    },
-  },
-});
-
-// Import after mocks
-const { registerNewQueryHandler } = await import("./newQuery.js");
-
-// ============================================================================
-// Helpers
-// ============================================================================
+function makeDeps(): NewQueryDeps {
+  return {
+    getConfig: mockGetConfig as never,
+    processMessage: mockProcessMessage as never,
+    isDev: mockIsDev,
+    extractMessageText: mockExtractMessageText as never,
+  };
+}
 
 type EventHandler = (args: {
   event: {
@@ -75,27 +45,31 @@ function makeApp(): App {
     event: (_eventType: string, handler: EventHandler) => {
       capturedHandler = handler;
     },
-  } as unknown as App;
+  } as App;
 }
 
-function makeClient(): App["client"] {
-  const postEphemeralFn = mock.fn(async () => ({ ok: true }));
-  const repliesFn = mock.fn(async () => ({
-    messages: [
-      { ts: "1700000000.000001", text: "original message", thread_ts: "1700000000.000001" },
-    ],
-  }));
-  const historyFn = mock.fn(async () => ({ messages: [] }));
+const mockRepliesFn = mock.fn(async () => ({
+  messages: [{ ts: "1700000000.000001", text: "original message", thread_ts: "1700000000.000001" }],
+}));
+const mockHistoryFn = mock.fn(async () => ({ messages: [] as object[] }));
+const mockPostEphemeralFn = mock.fn<
+  (args: { channel: string; user: string; text?: string }) => Promise<{ ok: boolean }>
+>(async () => ({ ok: true }));
 
+function makeClient(): App["client"] {
   return {
+    auth: {
+      test: mock.fn(async () => ({ url: "https://test.slack.com/" })),
+    },
     conversations: {
-      replies: repliesFn,
-      history: historyFn,
+      replies: mockRepliesFn,
+      history: mockHistoryFn,
+      info: mock.fn(async () => ({ ok: false })),
     },
     chat: {
-      postEphemeral: postEphemeralFn,
+      postEphemeral: mockPostEphemeralFn,
     },
-  } as unknown as App["client"];
+  } as object as App["client"];
 }
 
 beforeEach(() => {
@@ -103,6 +77,15 @@ beforeEach(() => {
   mockIsDev.mock.resetCalls();
   mockExtractMessageText.mock.resetCalls();
   mockGetConfig.mock.resetCalls();
+  mockRepliesFn.mock.resetCalls();
+  mockHistoryFn.mock.resetCalls();
+  mockPostEphemeralFn.mock.resetCalls();
+  mockRepliesFn.mock.mockImplementation(async () => ({
+    messages: [
+      { ts: "1700000000.000001", text: "original message", thread_ts: "1700000000.000001" },
+    ],
+  }));
+  mockHistoryFn.mock.mockImplementation(async () => ({ messages: [] }));
 
   // Reset config to defaults
   mockConfig.reactions.trigger = "robot_face";
@@ -110,12 +93,12 @@ beforeEach(() => {
 
   // Default: extractMessageText returns the text
   mockExtractMessageText.mock.mockImplementation(
-    (msg: Record<string, unknown>) => (msg.text as string) || "",
+    (msg: never) => ((msg as { text?: string }).text as string) || "",
   );
 
   // Register handler
   const app = makeApp();
-  registerNewQueryHandler(app);
+  registerNewQueryHandler(app, makeDeps());
 });
 
 // ============================================================================
@@ -171,7 +154,15 @@ describe("registerNewQueryHandler", () => {
     });
 
     assert.equal(mockProcessMessage.mock.callCount(), 1);
-    const args = mockProcessMessage.mock.calls[0].arguments[0] as Record<string, unknown>;
+    interface ProcessMessageArg {
+      userId: string;
+      channelId: string;
+      messageTs: string;
+      messageText: string;
+      triggerType: string;
+      workMode: boolean;
+    }
+    const args = mockProcessMessage.mock.calls[0]!.arguments[0] as ProcessMessageArg;
     assert.equal(args.userId, "U001");
     assert.equal(args.channelId, "C001");
     assert.equal(args.messageTs, "1700000000.000001");
@@ -184,11 +175,9 @@ describe("registerNewQueryHandler", () => {
     const client = makeClient();
     // Make replies return empty text
     mockExtractMessageText.mock.mockImplementation(() => "");
-    (client.conversations.replies as unknown as ReturnType<typeof mock.fn>).mock.mockImplementation(
-      async () => ({
-        messages: [{ ts: "1700000000.000001", text: "", thread_ts: "1700000000.000001" }],
-      }),
-    );
+    mockRepliesFn.mock.mockImplementation(async () => ({
+      messages: [{ ts: "1700000000.000001", text: "", thread_ts: "1700000000.000001" }],
+    }));
 
     await capturedHandler({
       event: {
@@ -200,9 +189,13 @@ describe("registerNewQueryHandler", () => {
     });
 
     assert.equal(mockProcessMessage.mock.callCount(), 0);
-    const postEphemeral = client.chat.postEphemeral as unknown as ReturnType<typeof mock.fn>;
+    const postEphemeral = mockPostEphemeralFn;
     assert.equal(postEphemeral.mock.callCount(), 1);
-    const args = postEphemeral.mock.calls[0].arguments[0] as Record<string, unknown>;
+    interface PostEphemeralArg {
+      channel: string;
+      user: string;
+    }
+    const args = postEphemeral.mock.calls[0]!.arguments[0] as PostEphemeralArg;
     assert.equal(args.channel, "C001");
     assert.equal(args.user, "U001");
   });
@@ -210,16 +203,12 @@ describe("registerNewQueryHandler", () => {
   it("falls back to conversations.history when replies fails", async () => {
     const client = makeClient();
     // Make replies throw, history return the message
-    (client.conversations.replies as unknown as ReturnType<typeof mock.fn>).mock.mockImplementation(
-      async () => {
-        throw new Error("not found");
-      },
-    );
-    (client.conversations.history as unknown as ReturnType<typeof mock.fn>).mock.mockImplementation(
-      async () => ({
-        messages: [{ ts: "1700000000.000001", text: "found via history" }],
-      }),
-    );
+    mockRepliesFn.mock.mockImplementation(async () => {
+      throw new Error("not found");
+    });
+    mockHistoryFn.mock.mockImplementation(async () => ({
+      messages: [{ ts: "1700000000.000001", text: "found via history" }],
+    }));
     mockExtractMessageText.mock.mockImplementation(() => "found via history");
 
     await capturedHandler({
@@ -232,7 +221,10 @@ describe("registerNewQueryHandler", () => {
     });
 
     assert.equal(mockProcessMessage.mock.callCount(), 1);
-    const args = mockProcessMessage.mock.calls[0].arguments[0] as Record<string, unknown>;
+    interface ProcessMessageArg {
+      messageText: string;
+    }
+    const args = mockProcessMessage.mock.calls[0]!.arguments[0] as ProcessMessageArg;
     assert.equal(args.messageText, "found via history");
   });
 });
@@ -245,7 +237,7 @@ describe("registerNewQueryHandler — changes workflow trigger", () => {
 
     // Re-register with updated config
     const app = makeApp();
-    registerNewQueryHandler(app);
+    registerNewQueryHandler(app, makeDeps());
 
     const client = makeClient();
 
@@ -259,7 +251,10 @@ describe("registerNewQueryHandler — changes workflow trigger", () => {
     });
 
     assert.equal(mockProcessMessage.mock.callCount(), 1);
-    const args = mockProcessMessage.mock.calls[0].arguments[0] as Record<string, unknown>;
+    interface ProcessMessageArg {
+      workMode: boolean;
+    }
+    const args = mockProcessMessage.mock.calls[0]!.arguments[0] as ProcessMessageArg;
     assert.equal(args.workMode, true);
   });
 
@@ -269,7 +264,7 @@ describe("registerNewQueryHandler — changes workflow trigger", () => {
     mockExtractMessageText.mock.mockImplementation(() => "build the feature");
 
     const app = makeApp();
-    registerNewQueryHandler(app);
+    registerNewQueryHandler(app, makeDeps());
 
     const client = makeClient();
 
@@ -283,7 +278,10 @@ describe("registerNewQueryHandler — changes workflow trigger", () => {
     });
 
     assert.equal(mockProcessMessage.mock.callCount(), 1);
-    const args = mockProcessMessage.mock.calls[0].arguments[0] as Record<string, unknown>;
+    interface ProcessMessageArg {
+      workMode: boolean;
+    }
+    const args = mockProcessMessage.mock.calls[0]!.arguments[0] as ProcessMessageArg;
     assert.equal(args.workMode, false);
   });
 
@@ -292,7 +290,7 @@ describe("registerNewQueryHandler — changes workflow trigger", () => {
     mockExtractMessageText.mock.mockImplementation(() => "build it");
 
     const app = makeApp();
-    registerNewQueryHandler(app);
+    registerNewQueryHandler(app, makeDeps());
 
     const client = makeClient();
 

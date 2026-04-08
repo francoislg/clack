@@ -1,53 +1,11 @@
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
-
-// ---------------------------------------------------------------------------
-// Module-level mocks
-// ---------------------------------------------------------------------------
-
-const mockGetOctokit = mock.fn<() => Promise<unknown>>();
-const mockParseRepoUrl = mock.fn<(url: string) => { owner: string; repo: string }>();
-
-mock.module("../../github.js", {
-  namedExports: {
-    getOctokit: mockGetOctokit,
-    parseRepoUrl: mockParseRepoUrl,
-  },
-});
-
-const mockFindRepoByName = mock.fn<(...args: unknown[]) => unknown>();
-mock.module("../../config.js", {
-  namedExports: { findRepoByName: mockFindRepoByName },
-});
-
-const mockUpdateActiveChangePrUrl = mock.fn<(...args: unknown[]) => void>();
-const mockUpdateActiveChangeStatus = mock.fn<(...args: unknown[]) => void>();
-mock.module("../../changes/activeState.js", {
-  namedExports: {
-    updateActiveChangePrUrl: mockUpdateActiveChangePrUrl,
-    updateActiveChangeStatus: mockUpdateActiveChangeStatus,
-  },
-});
-
-const mockAppendExecutionLog = mock.fn<(...args: unknown[]) => void>();
-mock.module("../../changes/persistence.js", {
-  namedExports: { appendExecutionLog: mockAppendExecutionLog },
-});
-
-mock.module("../../errors.js", {
-  namedExports: {
-    errorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
-  },
-});
-
-// Import after mocks
-const { createEnsurePRTool } = await import("./ensurePR.js");
+import { createEnsurePRTool, type EnsurePRDeps } from "./ensurePR.js";
+import type { WorkerToolContext } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-import type { WorkerToolContext } from "../types.js";
 
 function makeCtx(overrides?: Partial<WorkerToolContext>): WorkerToolContext {
   return {
@@ -63,32 +21,57 @@ function makeCtx(overrides?: Partial<WorkerToolContext>): WorkerToolContext {
       repositories: [
         { name: "my-repo", url: "https://github.com/org/my-repo.git", branch: "main" },
       ],
-    } as unknown as WorkerToolContext["config"],
+    } as never as WorkerToolContext["config"],
     ...overrides,
   };
 }
 
-function parseResult(result: { content: Array<{ text: string }> }) {
-  return JSON.parse(result.content[0].text);
+interface ToolResult {
+  content: Array<{ text: string }>;
+  isError?: true;
 }
 
-function resetMocks() {
-  mockGetOctokit.mock.resetCalls();
-  mockParseRepoUrl.mock.resetCalls();
-  mockFindRepoByName.mock.resetCalls();
-  mockUpdateActiveChangePrUrl.mock.resetCalls();
-  mockUpdateActiveChangeStatus.mock.resetCalls();
-  mockAppendExecutionLog.mock.resetCalls();
+function parseResult(result: ToolResult) {
+  return JSON.parse(result.content[0]!.text);
+}
 
-  mockFindRepoByName.mock.mockImplementation(() => ({
+function makeDeps() {
+  const mockGetOctokit = mock.fn<() => Promise<unknown>>(async () => ({
+    pulls: { list: mock.fn(async () => ({ data: [] })), create: mock.fn() },
+  }));
+  const mockParseRepoUrl = mock.fn<(url: string) => { owner: string; repo: string }>(() => ({
+    owner: "org",
+    repo: "my-repo",
+  }));
+  const mockFindRepoByName = mock.fn<(...args: unknown[]) => unknown>(() => ({
     name: "my-repo",
     url: "https://github.com/org/my-repo.git",
     branch: "main",
   }));
-  mockParseRepoUrl.mock.mockImplementation(() => ({
-    owner: "org",
-    repo: "my-repo",
-  }));
+  const mockUpdateActiveChangePrUrl = mock.fn<(...args: unknown[]) => void>();
+  const mockUpdateActiveChangeStatus = mock.fn<(...args: unknown[]) => void>();
+  const mockAppendExecutionLog = mock.fn<(...args: unknown[]) => void>();
+
+  const deps: EnsurePRDeps = {
+    getOctokit: mockGetOctokit as never as EnsurePRDeps["getOctokit"],
+    parseRepoUrl: mockParseRepoUrl as never as EnsurePRDeps["parseRepoUrl"],
+    findRepoByName: mockFindRepoByName as never as EnsurePRDeps["findRepoByName"],
+    updateActiveChangePrUrl:
+      mockUpdateActiveChangePrUrl as never as EnsurePRDeps["updateActiveChangePrUrl"],
+    updateActiveChangeStatus:
+      mockUpdateActiveChangeStatus as never as EnsurePRDeps["updateActiveChangeStatus"],
+    appendExecutionLog: mockAppendExecutionLog as never as EnsurePRDeps["appendExecutionLog"],
+  };
+
+  return {
+    deps,
+    mockGetOctokit,
+    mockParseRepoUrl,
+    mockFindRepoByName,
+    mockUpdateActiveChangePrUrl,
+    mockUpdateActiveChangeStatus,
+    mockAppendExecutionLog,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -96,12 +79,11 @@ function resetMocks() {
 // ---------------------------------------------------------------------------
 
 describe("ensurePR tool", () => {
-  beforeEach(resetMocks);
-
   it("returns error when repository not found in config", async () => {
+    const { deps, mockFindRepoByName } = makeDeps();
     mockFindRepoByName.mock.mockImplementation(() => undefined);
 
-    const toolDef = createEnsurePRTool(makeCtx());
+    const toolDef = createEnsurePRTool(makeCtx(), deps);
     const result = await toolDef.handler(
       { title: "Test PR", summary: "Fix things" },
       { sessionId: "test" },
@@ -115,13 +97,15 @@ describe("ensurePR tool", () => {
 
   it("returns existing PR when one is already open", async () => {
     const mockList = mock.fn(async () => ({
-      data: [{ html_url: "https://github.com/org/my-repo/pull/10" }],
+      data: [{ number: 10, html_url: "https://github.com/org/my-repo/pull/10" }],
     }));
+    const { deps, mockGetOctokit, mockUpdateActiveChangePrUrl, mockUpdateActiveChangeStatus } =
+      makeDeps();
     mockGetOctokit.mock.mockImplementation(async () => ({
-      pulls: { list: mockList, create: mock.fn() },
+      pulls: { list: mockList, create: mock.fn(), update: mock.fn() },
     }));
 
-    const toolDef = createEnsurePRTool(makeCtx());
+    const toolDef = createEnsurePRTool(makeCtx(), deps);
     const result = await toolDef.handler(
       { title: "Test PR", summary: "Fix things" },
       { sessionId: "test" },
@@ -135,7 +119,7 @@ describe("ensurePR tool", () => {
     // Verify session state was updated
     assert.equal(mockUpdateActiveChangePrUrl.mock.callCount(), 1);
     assert.equal(mockUpdateActiveChangeStatus.mock.callCount(), 1);
-    const statusArgs = mockUpdateActiveChangeStatus.mock.calls[0].arguments as [string, string];
+    const statusArgs = mockUpdateActiveChangeStatus.mock.calls[0]!.arguments as [string, string];
     assert.equal(statusArgs[1], "pr_created");
   });
 
@@ -144,12 +128,13 @@ describe("ensurePR tool", () => {
     const mockCreate = mock.fn(async () => ({
       data: { html_url: "https://github.com/org/my-repo/pull/99" },
     }));
+    const { deps, mockGetOctokit } = makeDeps();
     mockGetOctokit.mock.mockImplementation(async () => ({
       pulls: { list: mockList, create: mockCreate },
     }));
 
     const ctx = makeCtx();
-    const toolDef = createEnsurePRTool(ctx);
+    const toolDef = createEnsurePRTool(ctx, deps);
     const result = await toolDef.handler(
       { title: "My PR", summary: "Changes" },
       { sessionId: "test" },
@@ -162,15 +147,15 @@ describe("ensurePR tool", () => {
 
     // Verify create was called with correct args
     assert.equal(mockCreate.mock.callCount(), 1);
-    const createArgs = (
-      mockCreate.mock.calls[0].arguments as unknown as [Record<string, unknown>]
-    )[0];
-    assert.equal(createArgs.owner, "org");
-    assert.equal(createArgs.repo, "my-repo");
-    assert.equal(createArgs.title, "My PR");
-    assert.equal(createArgs.body, "Changes");
-    assert.equal(createArgs.head, ctx.branchName);
-    assert.equal(createArgs.base, "main");
+    const createArgs = mockCreate.mock.calls[0]!.arguments as never as [
+      { owner: string; repo: string; title: string; body: string; head: string; base: string },
+    ];
+    assert.equal(createArgs[0].owner, "org");
+    assert.equal(createArgs[0].repo, "my-repo");
+    assert.equal(createArgs[0].title, "My PR");
+    assert.equal(createArgs[0].body, "Changes");
+    assert.equal(createArgs[0].head, ctx.branchName);
+    assert.equal(createArgs[0].base, "main");
   });
 
   it("handles 422 race condition by re-listing PRs", async () => {
@@ -188,11 +173,12 @@ describe("ensurePR tool", () => {
       error.status = 422;
       throw error;
     });
+    const { deps, mockGetOctokit } = makeDeps();
     mockGetOctokit.mock.mockImplementation(async () => ({
       pulls: { list: mockList, create: mockCreate },
     }));
 
-    const toolDef = createEnsurePRTool(makeCtx());
+    const toolDef = createEnsurePRTool(makeCtx(), deps);
     const result = await toolDef.handler(
       { title: "Race PR", summary: "Race" },
       { sessionId: "test" },
@@ -214,11 +200,12 @@ describe("ensurePR tool", () => {
       error.status = 422;
       throw error;
     });
+    const { deps, mockGetOctokit } = makeDeps();
     mockGetOctokit.mock.mockImplementation(async () => ({
       pulls: { list: mockList, create: mockCreate },
     }));
 
-    const toolDef = createEnsurePRTool(makeCtx());
+    const toolDef = createEnsurePRTool(makeCtx(), deps);
     const result = await toolDef.handler(
       { title: "Fail PR", summary: "Fail" },
       { sessionId: "test" },
@@ -237,11 +224,12 @@ describe("ensurePR tool", () => {
       error.status = 500;
       throw error;
     });
+    const { deps, mockGetOctokit } = makeDeps();
     mockGetOctokit.mock.mockImplementation(async () => ({
       pulls: { list: mockList, create: mockCreate },
     }));
 
-    const toolDef = createEnsurePRTool(makeCtx());
+    const toolDef = createEnsurePRTool(makeCtx(), deps);
     const result = await toolDef.handler(
       { title: "Error PR", summary: "Error" },
       { sessionId: "test" },
@@ -254,6 +242,7 @@ describe("ensurePR tool", () => {
   });
 
   it("uses default branch 'main' when repo config has no branch", async () => {
+    const { deps, mockFindRepoByName, mockGetOctokit } = makeDeps();
     mockFindRepoByName.mock.mockImplementation(() => ({
       name: "my-repo",
       url: "https://github.com/org/my-repo.git",
@@ -268,13 +257,11 @@ describe("ensurePR tool", () => {
       pulls: { list: mockList, create: mockCreate },
     }));
 
-    const toolDef = createEnsurePRTool(makeCtx());
+    const toolDef = createEnsurePRTool(makeCtx(), deps);
     await toolDef.handler({ title: "PR", summary: "S" }, { sessionId: "test" });
 
-    const createArgs = (
-      mockCreate.mock.calls[0].arguments as unknown as [Record<string, unknown>]
-    )[0];
-    assert.equal(createArgs.base, "main");
+    const createArgs = mockCreate.mock.calls[0]!.arguments as never as [{ base: string }];
+    assert.equal(createArgs[0].base, "main");
   });
 
   it("logs execution when PR is created", async () => {
@@ -282,16 +269,17 @@ describe("ensurePR tool", () => {
     const mockCreate = mock.fn(async () => ({
       data: { html_url: "https://github.com/org/my-repo/pull/5" },
     }));
+    const { deps, mockGetOctokit, mockAppendExecutionLog } = makeDeps();
     mockGetOctokit.mock.mockImplementation(async () => ({
       pulls: { list: mockList, create: mockCreate },
     }));
 
     const ctx = makeCtx();
-    const toolDef = createEnsurePRTool(ctx);
+    const toolDef = createEnsurePRTool(ctx, deps);
     await toolDef.handler({ title: "PR", summary: "S" }, { sessionId: "test" });
 
     assert.ok(mockAppendExecutionLog.mock.callCount() >= 1);
-    const logArgs = mockAppendExecutionLog.mock.calls[0].arguments as [string, string];
+    const logArgs = mockAppendExecutionLog.mock.calls[0]!.arguments as [string, string];
     assert.equal(logArgs[0], ctx.branchName);
     assert.ok(logArgs[1].includes("ensure_pr"));
   });
@@ -300,16 +288,19 @@ describe("ensurePR tool", () => {
     const mockList = mock.fn(async () => ({
       data: [{ html_url: "https://github.com/org/my-repo/pull/1" }],
     }));
+    const { deps, mockGetOctokit } = makeDeps();
     mockGetOctokit.mock.mockImplementation(async () => ({
       pulls: { list: mockList },
     }));
 
     const ctx = makeCtx();
-    const toolDef = createEnsurePRTool(ctx);
+    const toolDef = createEnsurePRTool(ctx, deps);
     await toolDef.handler({ title: "PR", summary: "S" }, { sessionId: "test" });
 
-    const listArgs = (mockList.mock.calls[0].arguments as unknown as [Record<string, unknown>])[0];
-    assert.equal(listArgs.head, `org:${ctx.branchName}`);
-    assert.equal(listArgs.state, "open");
+    const listArgs = mockList.mock.calls[0]!.arguments as never as [
+      { head: string; state: string },
+    ];
+    assert.equal(listArgs[0].head, `org:${ctx.branchName}`);
+    assert.equal(listArgs[0].state, "open");
   });
 });

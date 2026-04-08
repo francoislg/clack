@@ -3,6 +3,34 @@ import { resolve } from "node:path";
 import { logger } from "./logger.js";
 import { fileExists } from "./fs.js";
 
+// ============================================================================
+// Dependency Injection
+// ============================================================================
+
+export interface UserPreferencesDeps {
+  readFile: typeof readFile;
+  writeFile: typeof writeFile;
+  mkdir: typeof mkdir;
+  fileExists: typeof fileExists;
+}
+
+export const defaultUserPreferencesDeps: UserPreferencesDeps = {
+  readFile,
+  writeFile,
+  mkdir,
+  fileExists,
+};
+
+let deps: UserPreferencesDeps = defaultUserPreferencesDeps;
+
+export function setUserPreferencesDeps(d: UserPreferencesDeps): void {
+  deps = d;
+}
+
+export function resetUserPreferencesDeps(): void {
+  deps = defaultUserPreferencesDeps;
+}
+
 export type ReactionDelivery = "dm" | "thread";
 
 export interface UserPreferences {
@@ -36,13 +64,13 @@ export async function loadPreferences(): Promise<PreferencesMap> {
 
   const prefsPath = getPreferencesPath();
 
-  if (!(await fileExists(prefsPath))) {
+  if (!(await deps.fileExists(prefsPath))) {
     cachedPreferences = {};
     return cachedPreferences;
   }
 
   try {
-    const content = await readFile(prefsPath, "utf-8");
+    const content = await deps.readFile(prefsPath, "utf-8");
     cachedPreferences = JSON.parse(content) as PreferencesMap;
     return cachedPreferences;
   } catch (error) {
@@ -56,11 +84,11 @@ export async function savePreferences(prefs: PreferencesMap): Promise<void> {
   const stateDir = getStateDir();
   const prefsPath = getPreferencesPath();
 
-  if (!(await fileExists(stateDir))) {
-    await mkdir(stateDir, { recursive: true });
+  if (!(await deps.fileExists(stateDir))) {
+    await deps.mkdir(stateDir, { recursive: true });
   }
 
-  await writeFile(prefsPath, JSON.stringify(prefs, null, 2));
+  await deps.writeFile(prefsPath, JSON.stringify(prefs, null, 2));
   cachedPreferences = prefs;
   logger.debug("User preferences saved");
 }
