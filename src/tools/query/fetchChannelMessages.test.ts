@@ -1,50 +1,47 @@
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
-
-// ---------------------------------------------------------------------------
-// Module-level mocks
-// ---------------------------------------------------------------------------
-
-const mockExtractMessageText = mock.fn<(msg: unknown) => string>();
-
-mock.module("../../slack/messagesApi.js", {
-  namedExports: {
-    extractMessageText: mockExtractMessageText,
-  },
-});
-
-const mockResolveUsers = mock.fn<(...args: unknown[]) => Promise<Map<string, unknown>>>();
-const mockTransformUserMentions = mock.fn<(...args: unknown[]) => Promise<string>>();
-
-mock.module("../../slack/userCache.js", {
-  namedExports: {
-    resolveUsers: mockResolveUsers,
-    transformUserMentions: mockTransformUserMentions,
-  },
-});
-
-mock.module("../../errors.js", {
-  namedExports: {
-    errorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
-  },
-});
-
-// Import after mocks
-const { createFetchChannelMessagesTool } = await import("./fetchChannelMessages.js");
+import {
+  createFetchChannelMessagesTool,
+  type FetchChannelMessagesDeps,
+} from "./fetchChannelMessages.js";
+import type { QueryToolContext } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-import type { QueryToolContext } from "../types.js";
+function makeDeps(overrides: Partial<FetchChannelMessagesDeps> = {}): FetchChannelMessagesDeps {
+  return {
+    extractMessageText: mock.fn((msg) => {
+      const m = msg as never as { text?: string };
+      return m.text ?? "";
+    }) as FetchChannelMessagesDeps["extractMessageText"],
+    resolveUsers: mock.fn(async () => new Map()) as FetchChannelMessagesDeps["resolveUsers"],
+    transformUserMentions: mock.fn(
+      async (_client, text) => text as string,
+    ) as FetchChannelMessagesDeps["transformUserMentions"],
+    getChannelInfo: mock.fn(async () => ({
+      id: "C123",
+      name: "general",
+    })) as FetchChannelMessagesDeps["getChannelInfo"],
+    ...overrides,
+  };
+}
 
-function makeSlackClient(historyResult?: unknown, repliesResult?: unknown) {
+interface MockSlackClient {
+  conversations: {
+    history: ReturnType<typeof mock.fn>;
+    replies: ReturnType<typeof mock.fn>;
+  };
+}
+
+function makeSlackClient(historyResult?: never, repliesResult?: never): MockSlackClient {
   return {
     conversations: {
       history: mock.fn(async () => historyResult ?? { messages: [], has_more: false }),
       replies: mock.fn(async () => repliesResult ?? { messages: [] }),
     },
-  } as unknown as NonNullable<QueryToolContext["slackClient"]>;
+  };
 }
 
 function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
@@ -67,7 +64,7 @@ function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
     },
     config: {
       repositories: [],
-    } as unknown as QueryToolContext["config"],
+    } as never as QueryToolContext["config"],
     changesWorkflowEnabled: false,
     allowScheduledMessages: false,
     ...overrides,
@@ -78,17 +75,13 @@ function parseResult(result: { content: Array<{ text: string }> }) {
   return JSON.parse(result.content[0].text);
 }
 
-function resetMocks() {
-  mockExtractMessageText.mock.resetCalls();
-  mockResolveUsers.mock.resetCalls();
-  mockTransformUserMentions.mock.resetCalls();
-
-  mockExtractMessageText.mock.mockImplementation((msg) => {
-    const m = msg as { text?: string };
-    return m.text ?? "";
-  });
-  mockResolveUsers.mock.mockImplementation(async () => new Map());
-  mockTransformUserMentions.mock.mockImplementation(async (_client, text) => text as string);
+function historyCallArgs(client: MockSlackClient, callIndex = 0) {
+  return client.conversations.history.mock.calls[callIndex].arguments[0] as {
+    limit: number;
+    oldest?: string;
+    latest?: string;
+    inclusive?: boolean;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -96,11 +89,9 @@ function resetMocks() {
 // ---------------------------------------------------------------------------
 
 describe("fetchChannelMessages tool", () => {
-  beforeEach(resetMocks);
-
   it("returns error when slackClient is not available", async () => {
     const ctx = makeCtx({ slackClient: undefined });
-    const toolDef = createFetchChannelMessagesTool(ctx);
+    const toolDef = createFetchChannelMessagesTool(ctx, makeDeps());
 
     const result = await toolDef.handler(
       {
@@ -120,9 +111,9 @@ describe("fetchChannelMessages tool", () => {
   });
 
   it("returns empty messages when channel has no messages", async () => {
-    const client = makeSlackClient({ messages: [], has_more: false });
-    const ctx = makeCtx({ slackClient: client });
-    const toolDef = createFetchChannelMessagesTool(ctx);
+    const client = makeSlackClient({ messages: [], has_more: false } as never);
+    const ctx = makeCtx({ slackClient: client as never });
+    const toolDef = createFetchChannelMessagesTool(ctx, makeDeps());
 
     const result = await toolDef.handler(
       {
@@ -142,9 +133,9 @@ describe("fetchChannelMessages tool", () => {
   });
 
   it("returns empty messages when messages is undefined", async () => {
-    const client = makeSlackClient({ messages: undefined });
-    const ctx = makeCtx({ slackClient: client });
-    const toolDef = createFetchChannelMessagesTool(ctx);
+    const client = makeSlackClient({ messages: undefined } as never);
+    const ctx = makeCtx({ slackClient: client as never });
+    const toolDef = createFetchChannelMessagesTool(ctx, makeDeps());
 
     const result = await toolDef.handler(
       {
@@ -163,20 +154,23 @@ describe("fetchChannelMessages tool", () => {
 
   it("fetches and formats messages correctly", async () => {
     const userInfoMap = new Map([
-      ["U1", { displayName: "Alice", username: "alice" }],
-      ["U2", { displayName: "Bob", username: "bob" }],
+      ["U1", { userId: "U1", displayName: "Alice", username: "alice" }],
+      ["U2", { userId: "U2", displayName: "Bob", username: "bob" }],
     ]);
-    mockResolveUsers.mock.mockImplementation(async () => userInfoMap);
-    mockTransformUserMentions.mock.mockImplementation(async (_client, text) => text as string);
-    mockExtractMessageText.mock.mockImplementation((msg) => (msg as { text: string }).text);
+    const deps = makeDeps({
+      resolveUsers: mock.fn(async () => userInfoMap) as FetchChannelMessagesDeps["resolveUsers"],
+      extractMessageText: mock.fn(
+        (msg) => (msg as never as { text: string }).text,
+      ) as FetchChannelMessagesDeps["extractMessageText"],
+    });
 
     const messages = [
       { ts: "1234567890.000002", text: "Second message", user: "U2" },
       { ts: "1234567890.000001", text: "First message", user: "U1" },
     ];
-    const client = makeSlackClient({ messages, has_more: false });
-    const ctx = makeCtx({ slackClient: client });
-    const toolDef = createFetchChannelMessagesTool(ctx);
+    const client = makeSlackClient({ messages, has_more: false } as never);
+    const ctx = makeCtx({ slackClient: client as never });
+    const toolDef = createFetchChannelMessagesTool(ctx, deps);
 
     const result = await toolDef.handler(
       {
@@ -200,14 +194,9 @@ describe("fetchChannelMessages tool", () => {
   });
 
   it("caps limit at 100", async () => {
-    const client = makeSlackClient({ messages: [], has_more: false });
-    const historyFn = (
-      client as unknown as {
-        conversations: { history: { mock: { calls: Array<{ arguments: unknown[] }> } } };
-      }
-    ).conversations.history;
-    const ctx = makeCtx({ slackClient: client });
-    const toolDef = createFetchChannelMessagesTool(ctx);
+    const client = makeSlackClient({ messages: [], has_more: false } as never);
+    const ctx = makeCtx({ slackClient: client as never });
+    const toolDef = createFetchChannelMessagesTool(ctx, makeDeps());
 
     await toolDef.handler(
       {
@@ -220,22 +209,13 @@ describe("fetchChannelMessages tool", () => {
       { sessionId: "test" },
     );
 
-    assert.equal(
-      (historyFn as unknown as { mock: { calls: Array<{ arguments: Record<string, unknown>[] }> } })
-        .mock.calls[0].arguments[0].limit,
-      100,
-    );
+    assert.equal(historyCallArgs(client).limit, 100);
   });
 
   it("uses default limit of 20", async () => {
-    const client = makeSlackClient({ messages: [], has_more: false });
-    const historyFn = (
-      client as unknown as {
-        conversations: { history: { mock: { calls: Array<{ arguments: unknown[] }> } } };
-      }
-    ).conversations.history;
-    const ctx = makeCtx({ slackClient: client });
-    const toolDef = createFetchChannelMessagesTool(ctx);
+    const client = makeSlackClient({ messages: [], has_more: false } as never);
+    const ctx = makeCtx({ slackClient: client as never });
+    const toolDef = createFetchChannelMessagesTool(ctx, makeDeps());
 
     await toolDef.handler(
       {
@@ -248,22 +228,13 @@ describe("fetchChannelMessages tool", () => {
       { sessionId: "test" },
     );
 
-    assert.equal(
-      (historyFn as unknown as { mock: { calls: Array<{ arguments: Record<string, unknown>[] }> } })
-        .mock.calls[0].arguments[0].limit,
-      20,
-    );
+    assert.equal(historyCallArgs(client).limit, 20);
   });
 
   it("passes oldest and latest params to API", async () => {
-    const client = makeSlackClient({ messages: [], has_more: false });
-    const historyFn = (
-      client as unknown as {
-        conversations: { history: { mock: { calls: Array<{ arguments: unknown[] }> } } };
-      }
-    ).conversations.history;
-    const ctx = makeCtx({ slackClient: client });
-    const toolDef = createFetchChannelMessagesTool(ctx);
+    const client = makeSlackClient({ messages: [], has_more: false } as never);
+    const ctx = makeCtx({ slackClient: client as never });
+    const toolDef = createFetchChannelMessagesTool(ctx, makeDeps());
 
     await toolDef.handler(
       {
@@ -276,25 +247,26 @@ describe("fetchChannelMessages tool", () => {
       { sessionId: "test" },
     );
 
-    const callArgs = (
-      historyFn as unknown as { mock: { calls: Array<{ arguments: Record<string, unknown>[] }> } }
-    ).mock.calls[0].arguments[0];
+    const callArgs = historyCallArgs(client);
     assert.equal(callArgs.oldest, "1234567890.000000");
     assert.equal(callArgs.latest, "1234567899.000000");
     assert.equal(callArgs.inclusive, true);
   });
 
   it("marks bot messages correctly", async () => {
-    mockResolveUsers.mock.mockImplementation(async () => new Map());
-    mockExtractMessageText.mock.mockImplementation((msg) => (msg as { text: string }).text);
+    const deps = makeDeps({
+      extractMessageText: mock.fn(
+        (msg) => (msg as never as { text: string }).text,
+      ) as FetchChannelMessagesDeps["extractMessageText"],
+    });
 
     const messages = [
       { ts: "1.0", text: "bot message", bot_id: "B1" },
       { ts: "2.0", text: "user message", user: "U1" },
     ];
-    const client = makeSlackClient({ messages, has_more: false });
-    const ctx = makeCtx({ slackClient: client });
-    const toolDef = createFetchChannelMessagesTool(ctx);
+    const client = makeSlackClient({ messages, has_more: false } as never);
+    const ctx = makeCtx({ slackClient: client as never });
+    const toolDef = createFetchChannelMessagesTool(ctx, deps);
 
     const result = await toolDef.handler(
       {
@@ -314,16 +286,19 @@ describe("fetchChannelMessages tool", () => {
   });
 
   it("skips messages without ts", async () => {
-    mockResolveUsers.mock.mockImplementation(async () => new Map());
-    mockExtractMessageText.mock.mockImplementation((msg) => (msg as { text: string }).text ?? "");
+    const deps = makeDeps({
+      extractMessageText: mock.fn(
+        (msg) => (msg as never as { text?: string }).text ?? "",
+      ) as FetchChannelMessagesDeps["extractMessageText"],
+    });
 
     const messages = [
       { text: "no ts here", user: "U1" },
       { ts: "1.0", text: "valid", user: "U2" },
     ];
-    const client = makeSlackClient({ messages, has_more: false });
-    const ctx = makeCtx({ slackClient: client });
-    const toolDef = createFetchChannelMessagesTool(ctx);
+    const client = makeSlackClient({ messages, has_more: false } as never);
+    const ctx = makeCtx({ slackClient: client as never });
+    const toolDef = createFetchChannelMessagesTool(ctx, deps);
 
     const result = await toolDef.handler(
       {
@@ -342,13 +317,14 @@ describe("fetchChannelMessages tool", () => {
   });
 
   it("includes has_more flag from API response", async () => {
-    mockResolveUsers.mock.mockImplementation(async () => new Map());
-    mockExtractMessageText.mock.mockImplementation(() => "msg");
+    const deps = makeDeps({
+      extractMessageText: mock.fn(() => "msg") as FetchChannelMessagesDeps["extractMessageText"],
+    });
 
     const messages = [{ ts: "1.0", text: "msg", user: "U1" }];
-    const client = makeSlackClient({ messages, has_more: true });
-    const ctx = makeCtx({ slackClient: client });
-    const toolDef = createFetchChannelMessagesTool(ctx);
+    const client = makeSlackClient({ messages, has_more: true } as never);
+    const ctx = makeCtx({ slackClient: client as never });
+    const toolDef = createFetchChannelMessagesTool(ctx, deps);
 
     const result = await toolDef.handler(
       {
@@ -366,15 +342,16 @@ describe("fetchChannelMessages tool", () => {
   });
 
   it("returns error when API call fails", async () => {
-    const client = {
+    const client: MockSlackClient = {
       conversations: {
         history: mock.fn(async () => {
           throw new Error("channel_not_found");
         }),
+        replies: mock.fn(async () => ({ messages: [] })),
       },
-    } as unknown as NonNullable<QueryToolContext["slackClient"]>;
-    const ctx = makeCtx({ slackClient: client });
-    const toolDef = createFetchChannelMessagesTool(ctx);
+    };
+    const ctx = makeCtx({ slackClient: client as never });
+    const toolDef = createFetchChannelMessagesTool(ctx, makeDeps());
 
     const result = await toolDef.handler(
       {
@@ -395,14 +372,18 @@ describe("fetchChannelMessages tool", () => {
   });
 
   it("includes reply_count on messages that have thread replies", async () => {
-    const userInfoMap = new Map([["U1", { displayName: "Alice" }]]);
-    mockResolveUsers.mock.mockImplementation(async () => userInfoMap);
-    mockExtractMessageText.mock.mockImplementation((msg) => (msg as { text: string }).text);
+    const userInfoMap = new Map([["U1", { userId: "U1", displayName: "Alice" }]]);
+    const deps = makeDeps({
+      resolveUsers: mock.fn(async () => userInfoMap) as FetchChannelMessagesDeps["resolveUsers"],
+      extractMessageText: mock.fn(
+        (msg) => (msg as never as { text: string }).text,
+      ) as FetchChannelMessagesDeps["extractMessageText"],
+    });
 
     const messages = [{ ts: "1.0", text: "threaded msg", user: "U1", reply_count: 3 }];
-    const client = makeSlackClient({ messages, has_more: false });
-    const ctx = makeCtx({ slackClient: client });
-    const toolDef = createFetchChannelMessagesTool(ctx);
+    const client = makeSlackClient({ messages, has_more: false } as never);
+    const ctx = makeCtx({ slackClient: client as never });
+    const toolDef = createFetchChannelMessagesTool(ctx, deps);
 
     const result = await toolDef.handler(
       {
@@ -421,11 +402,15 @@ describe("fetchChannelMessages tool", () => {
 
   it("fetches thread replies when include_threads is true", async () => {
     const userInfoMap = new Map([
-      ["U1", { displayName: "Alice" }],
-      ["U2", { displayName: "Bob" }],
+      ["U1", { userId: "U1", displayName: "Alice" }],
+      ["U2", { userId: "U2", displayName: "Bob" }],
     ]);
-    mockResolveUsers.mock.mockImplementation(async () => userInfoMap);
-    mockExtractMessageText.mock.mockImplementation((msg) => (msg as { text: string }).text);
+    const deps = makeDeps({
+      resolveUsers: mock.fn(async () => userInfoMap) as FetchChannelMessagesDeps["resolveUsers"],
+      extractMessageText: mock.fn(
+        (msg) => (msg as never as { text: string }).text,
+      ) as FetchChannelMessagesDeps["extractMessageText"],
+    });
 
     const messages = [{ ts: "1.0", text: "parent msg", user: "U1", reply_count: 1 }];
     const threadReplies = {
@@ -434,9 +419,9 @@ describe("fetchChannelMessages tool", () => {
         { ts: "1.1", text: "reply text", user: "U2" }, // actual reply
       ],
     };
-    const client = makeSlackClient({ messages, has_more: false }, threadReplies);
-    const ctx = makeCtx({ slackClient: client });
-    const toolDef = createFetchChannelMessagesTool(ctx);
+    const client = makeSlackClient({ messages, has_more: false } as never, threadReplies as never);
+    const ctx = makeCtx({ slackClient: client as never });
+    const toolDef = createFetchChannelMessagesTool(ctx, deps);
 
     const result = await toolDef.handler(
       {
@@ -457,15 +442,19 @@ describe("fetchChannelMessages tool", () => {
   });
 
   it("does not fetch thread replies when include_threads is false", async () => {
-    mockResolveUsers.mock.mockImplementation(
-      async () => new Map([["U1", { displayName: "Alice" }]]),
-    );
-    mockExtractMessageText.mock.mockImplementation((msg) => (msg as { text: string }).text);
+    const deps = makeDeps({
+      resolveUsers: mock.fn(
+        async () => new Map([["U1", { userId: "U1", displayName: "Alice" }]]),
+      ) as FetchChannelMessagesDeps["resolveUsers"],
+      extractMessageText: mock.fn(
+        (msg) => (msg as never as { text: string }).text,
+      ) as FetchChannelMessagesDeps["extractMessageText"],
+    });
 
     const messages = [{ ts: "1.0", text: "parent msg", user: "U1", reply_count: 5 }];
-    const client = makeSlackClient({ messages, has_more: false });
-    const ctx = makeCtx({ slackClient: client });
-    const toolDef = createFetchChannelMessagesTool(ctx);
+    const client = makeSlackClient({ messages, has_more: false } as never);
+    const ctx = makeCtx({ slackClient: client as never });
+    const toolDef = createFetchChannelMessagesTool(ctx, deps);
 
     const result = await toolDef.handler(
       {
@@ -484,22 +473,26 @@ describe("fetchChannelMessages tool", () => {
   });
 
   it("handles thread fetch error gracefully", async () => {
-    mockResolveUsers.mock.mockImplementation(
-      async () => new Map([["U1", { displayName: "Alice" }]]),
-    );
-    mockExtractMessageText.mock.mockImplementation((msg) => (msg as { text: string }).text);
+    const deps = makeDeps({
+      resolveUsers: mock.fn(
+        async () => new Map([["U1", { userId: "U1", displayName: "Alice" }]]),
+      ) as FetchChannelMessagesDeps["resolveUsers"],
+      extractMessageText: mock.fn(
+        (msg) => (msg as never as { text: string }).text,
+      ) as FetchChannelMessagesDeps["extractMessageText"],
+    });
 
     const messages = [{ ts: "1.0", text: "parent msg", user: "U1", reply_count: 2 }];
-    const client = {
+    const client: MockSlackClient = {
       conversations: {
         history: mock.fn(async () => ({ messages, has_more: false })),
         replies: mock.fn(async () => {
           throw new Error("thread_not_found");
         }),
       },
-    } as unknown as NonNullable<QueryToolContext["slackClient"]>;
-    const ctx = makeCtx({ slackClient: client });
-    const toolDef = createFetchChannelMessagesTool(ctx);
+    };
+    const ctx = makeCtx({ slackClient: client as never });
+    const toolDef = createFetchChannelMessagesTool(ctx, deps);
 
     const result = await toolDef.handler(
       {
@@ -517,13 +510,14 @@ describe("fetchChannelMessages tool", () => {
   });
 
   it("falls back to [attachment] when extractMessageText returns empty", async () => {
-    mockResolveUsers.mock.mockImplementation(async () => new Map());
-    mockExtractMessageText.mock.mockImplementation(() => "");
+    const deps = makeDeps({
+      extractMessageText: mock.fn(() => "") as FetchChannelMessagesDeps["extractMessageText"],
+    });
 
     const messages = [{ ts: "1.0", user: "U1" }];
-    const client = makeSlackClient({ messages, has_more: false });
-    const ctx = makeCtx({ slackClient: client });
-    const toolDef = createFetchChannelMessagesTool(ctx);
+    const client = makeSlackClient({ messages, has_more: false } as never);
+    const ctx = makeCtx({ slackClient: client as never });
+    const toolDef = createFetchChannelMessagesTool(ctx, deps);
 
     const result = await toolDef.handler(
       {
@@ -541,13 +535,14 @@ describe("fetchChannelMessages tool", () => {
   });
 
   it("uses 'unknown' for user when no user or bot_id", async () => {
-    mockResolveUsers.mock.mockImplementation(async () => new Map());
-    mockExtractMessageText.mock.mockImplementation(() => "text");
+    const deps = makeDeps({
+      extractMessageText: mock.fn(() => "text") as FetchChannelMessagesDeps["extractMessageText"],
+    });
 
     const messages = [{ ts: "1.0", text: "text" }];
-    const client = makeSlackClient({ messages, has_more: false });
-    const ctx = makeCtx({ slackClient: client });
-    const toolDef = createFetchChannelMessagesTool(ctx);
+    const client = makeSlackClient({ messages, has_more: false } as never);
+    const ctx = makeCtx({ slackClient: client as never });
+    const toolDef = createFetchChannelMessagesTool(ctx, deps);
 
     const result = await toolDef.handler(
       {
@@ -562,5 +557,60 @@ describe("fetchChannelMessages tool", () => {
 
     const parsed = parseResult(result);
     assert.equal(parsed.messages[0].user, "unknown");
+  });
+
+  it("includes channel_name in result when resolved", async () => {
+    const deps = makeDeps({
+      getChannelInfo: mock.fn(async () => ({
+        id: "C123",
+        name: "backend-dev",
+      })) as FetchChannelMessagesDeps["getChannelInfo"],
+      extractMessageText: mock.fn(() => "text") as FetchChannelMessagesDeps["extractMessageText"],
+    });
+
+    const messages = [{ ts: "1.0", text: "text", user: "U1" }];
+    const client = makeSlackClient({ messages, has_more: false } as never);
+    const ctx = makeCtx({ slackClient: client as never });
+    const toolDef = createFetchChannelMessagesTool(ctx, deps);
+
+    const result = await toolDef.handler(
+      {
+        channel_id: "C123",
+        limit: undefined,
+        oldest: undefined,
+        latest: undefined,
+        include_threads: undefined,
+      },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseResult(result);
+    assert.equal(parsed.channel_name, "backend-dev");
+  });
+
+  it("omits channel_name when resolution fails", async () => {
+    const deps = makeDeps({
+      getChannelInfo: mock.fn(async () => undefined) as FetchChannelMessagesDeps["getChannelInfo"],
+      extractMessageText: mock.fn(() => "text") as FetchChannelMessagesDeps["extractMessageText"],
+    });
+
+    const messages = [{ ts: "1.0", text: "text", user: "U1" }];
+    const client = makeSlackClient({ messages, has_more: false } as never);
+    const ctx = makeCtx({ slackClient: client as never });
+    const toolDef = createFetchChannelMessagesTool(ctx, deps);
+
+    const result = await toolDef.handler(
+      {
+        channel_id: "C123",
+        limit: undefined,
+        oldest: undefined,
+        latest: undefined,
+        include_threads: undefined,
+      },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseResult(result);
+    assert.equal(parsed.channel_name, undefined);
   });
 });

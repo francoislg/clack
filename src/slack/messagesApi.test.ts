@@ -90,6 +90,204 @@ describe("extractMessageText", () => {
   it("returns empty string for empty attachments array", () => {
     assert.equal(extractMessageText({ attachments: [] }), "");
   });
+
+  // --- Blocks extraction ---
+
+  it("extracts text from section blocks when no msg.text", () => {
+    assert.equal(
+      extractMessageText({
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "section content" } }],
+      }),
+      "section content",
+    );
+  });
+
+  it("extracts text from section fields", () => {
+    assert.equal(
+      extractMessageText({
+        blocks: [
+          {
+            type: "section",
+            text: { type: "mrkdwn", text: "title" },
+            fields: [
+              { type: "mrkdwn", text: "*Key:*" },
+              { type: "plain_text", text: "Value" },
+            ],
+          },
+        ],
+      }),
+      "title\n*Key:*\nValue",
+    );
+  });
+
+  it("extracts text from header blocks", () => {
+    assert.equal(
+      extractMessageText({
+        blocks: [{ type: "header", text: { type: "plain_text", text: "Header!" } }],
+      }),
+      "Header!",
+    );
+  });
+
+  it("extracts text from rich_text blocks", () => {
+    assert.equal(
+      extractMessageText({
+        blocks: [
+          {
+            type: "rich_text",
+            elements: [
+              {
+                type: "rich_text_section",
+                elements: [
+                  { type: "text", text: "Hello " },
+                  { type: "text", text: "world" },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+      "Hello world",
+    );
+  });
+
+  it("extracts mentions from rich_text blocks", () => {
+    assert.equal(
+      extractMessageText({
+        blocks: [
+          {
+            type: "rich_text",
+            elements: [
+              {
+                type: "rich_text_section",
+                elements: [
+                  { type: "text", text: "Hey " },
+                  { type: "user", user_id: "U123" },
+                  { type: "text", text: " in " },
+                  { type: "channel", channel_id: "C456" },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+      "Hey <@U123> in <#C456>",
+    );
+  });
+
+  it("extracts text from rich_text_list", () => {
+    assert.equal(
+      extractMessageText({
+        blocks: [
+          {
+            type: "rich_text",
+            elements: [
+              {
+                type: "rich_text_list",
+                style: "bullet",
+                elements: [
+                  { type: "rich_text_section", elements: [{ type: "text", text: "item one" }] },
+                  { type: "rich_text_section", elements: [{ type: "text", text: "item two" }] },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+      "• item one\n• item two",
+    );
+  });
+
+  it("extracts text from rich_text_preformatted", () => {
+    assert.equal(
+      extractMessageText({
+        blocks: [
+          {
+            type: "rich_text",
+            elements: [
+              {
+                type: "rich_text_preformatted",
+                elements: [{ type: "text", text: "code here" }],
+              },
+            ],
+          },
+        ],
+      }),
+      "```\ncode here\n```",
+    );
+  });
+
+  it("extracts text from context blocks", () => {
+    assert.equal(
+      extractMessageText({
+        blocks: [
+          {
+            type: "context",
+            elements: [
+              { type: "mrkdwn", text: "context info" },
+              { type: "plain_text", text: "more context" },
+            ],
+          },
+        ],
+      }),
+      "context info more context",
+    );
+  });
+
+  it("joins text from multiple blocks", () => {
+    assert.equal(
+      extractMessageText({
+        blocks: [
+          { type: "header", text: { type: "plain_text", text: "Title" } },
+          { type: "section", text: { type: "mrkdwn", text: "Body" } },
+        ],
+      }),
+      "Title\nBody",
+    );
+  });
+
+  it("skips divider blocks", () => {
+    assert.equal(
+      extractMessageText({
+        blocks: [
+          { type: "section", text: { type: "mrkdwn", text: "before" } },
+          { type: "divider" },
+          { type: "section", text: { type: "mrkdwn", text: "after" } },
+        ],
+      }),
+      "before\nafter",
+    );
+  });
+
+  it("prefers blocks over msg.text when blocks have content", () => {
+    assert.equal(
+      extractMessageText({
+        text: "plain text",
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "block text" } }],
+      }),
+      "block text",
+    );
+  });
+
+  it("falls back to msg.text when blocks yield no text", () => {
+    assert.equal(
+      extractMessageText({
+        text: "fallback",
+        blocks: [{ type: "divider" }],
+      }),
+      "fallback",
+    );
+  });
+
+  it("falls back to attachments when blocks have no text", () => {
+    assert.equal(
+      extractMessageText({
+        blocks: [{ type: "divider" }],
+        attachments: [{ text: "attachment text" }],
+      }),
+      "attachment text",
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -124,7 +322,8 @@ interface MockConversationsConfig {
 }
 
 function makeClient(config: MockConversationsConfig = {}): App["client"] {
-  const postMessageFn = mock.fn(async () => ({ ok: true }));
+  const postMessageFn = mock.fn(async () => ({ ok: true, ts: "msg-ts" }));
+  const filesUploadV2Fn = mock.fn(async () => ({ ok: true }));
   const repliesFn = mock.fn(async ({ channel, ts }: { channel: string; ts: string }) => {
     if (config.throwOnReplies) throw new Error("replies_error");
     const key = `${channel}:${ts}`;
@@ -147,6 +346,7 @@ function makeClient(config: MockConversationsConfig = {}): App["client"] {
     chat: {
       postMessage: postMessageFn,
     },
+    filesUploadV2: filesUploadV2Fn,
     users: {
       info: async () => ({ ok: false }),
     },
@@ -496,10 +696,9 @@ describe("sendErrorReport", () => {
     assert.ok(call.blocks.length > 0);
   });
 
-  it("truncates long message content in trace to 200 chars", async () => {
+  it("uploads error report as a threaded file reply", async () => {
     const client = makeClient({ openChannel: "DM_CHAN" });
-    const longContent = "x".repeat(300);
-    const trace: ConversationMessage[] = [{ type: "user", content: longContent, timestamp: 1 }];
+    const trace: ConversationMessage[] = [{ type: "user", content: "help me", timestamp: 1 }];
 
     await sendErrorReport(client, "U1", {
       sessionId: "sess-1",
@@ -508,74 +707,37 @@ describe("sendErrorReport", () => {
       analysis: "analysis",
     });
 
-    const postMessage = client.chat.postMessage as unknown as ReturnType<typeof mock.fn>;
-    const call = postMessage.mock.calls[0].arguments[0] as {
-      blocks: Array<{ text?: { text?: string } }>;
+    const filesUpload = client.filesUploadV2 as unknown as ReturnType<typeof mock.fn>;
+    assert.equal(filesUpload.mock.callCount(), 1);
+    const call = filesUpload.mock.calls[0].arguments[0] as {
+      channel_id: string;
+      thread_ts: string;
+      filename: string;
+      content: string;
     };
-    // The trace section is the last block — find it by checking for the trace content
-    const traceBlock = call.blocks.find((b) => b.text?.text?.includes("Conversation Trace"));
-    assert.ok(traceBlock);
-    assert.ok(traceBlock.text!.text!.includes("..."));
-    assert.ok(!traceBlock.text!.text!.includes("x".repeat(300)));
+    assert.equal(call.channel_id, "DM_CHAN");
+    assert.equal(call.thread_ts, "msg-ts");
+    assert.ok(call.filename.includes("sess-1"));
+    const parsed = JSON.parse(call.content);
+    assert.equal(parsed.sessionId, "sess-1");
+    assert.equal(parsed.conversationTrace.length, 1);
   });
 
-  it("includes only the last 10 messages from trace", async () => {
+  it("includes stderr in uploaded report when present", async () => {
     const client = makeClient({ openChannel: "DM_CHAN" });
-    const trace: ConversationMessage[] = Array.from({ length: 15 }, (_, i) => ({
-      type: "user",
-      content: `msg-${i}`,
-      timestamp: i,
-    }));
 
     await sendErrorReport(client, "U1", {
       sessionId: "sess-1",
       errorMessage: "err",
-      conversationTrace: trace,
+      conversationTrace: [],
+      stderrOutput: "some stderr",
       analysis: "analysis",
     });
 
-    const postMessage = client.chat.postMessage as unknown as ReturnType<typeof mock.fn>;
-    const call = postMessage.mock.calls[0].arguments[0] as {
-      blocks: Array<{ text?: { text?: string } }>;
-    };
-    const traceBlock = call.blocks.find((b) => b.text?.text?.includes("Conversation Trace"));
-    assert.ok(traceBlock);
-    // Should say "last 10 messages"
-    assert.ok(traceBlock.text!.text!.includes("last 10"));
-    // Should include msg-5 through msg-14 (last 10)
-    assert.ok(traceBlock.text!.text!.includes("msg-5"));
-    assert.ok(traceBlock.text!.text!.includes("msg-14"));
-    // Should NOT include msg-4
-    assert.ok(!traceBlock.text!.text!.includes("msg-4"));
-  });
-
-  it("includes tool call info in trace when present", async () => {
-    const client = makeClient({ openChannel: "DM_CHAN" });
-    const trace: ConversationMessage[] = [
-      {
-        type: "tool",
-        subtype: "result",
-        content: "done",
-        timestamp: 1,
-        toolCall: { tool: "list_repositories", args: {}, result: {} },
-      },
-    ];
-
-    await sendErrorReport(client, "U1", {
-      sessionId: "sess-1",
-      errorMessage: "err",
-      conversationTrace: trace,
-      analysis: "analysis",
-    });
-
-    const postMessage = client.chat.postMessage as unknown as ReturnType<typeof mock.fn>;
-    const call = postMessage.mock.calls[0].arguments[0] as {
-      blocks: Array<{ text?: { text?: string } }>;
-    };
-    const traceBlock = call.blocks.find((b) => b.text?.text?.includes("Conversation Trace"));
-    assert.ok(traceBlock);
-    assert.ok(traceBlock.text!.text!.includes("list_repositories"));
-    assert.ok(traceBlock.text!.text!.includes("tool:result"));
+    const filesUpload = client.filesUploadV2 as unknown as ReturnType<typeof mock.fn>;
+    const call = filesUpload.mock.calls[0].arguments[0] as { content: string };
+    const parsed = JSON.parse(call.content);
+    assert.equal(parsed.stderrOutput, "some stderr");
   });
 
   it("does not throw on API error", async () => {

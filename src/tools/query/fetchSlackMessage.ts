@@ -3,11 +3,22 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
 import { textResult, errorResult } from "../helpers.js";
 import { fetchThreadContext } from "../../slack/messagesApi.js";
+import { getChannelInfo } from "../../slack/channelCache.js";
+
+export interface FetchSlackMessageDeps {
+  fetchThreadContext: typeof fetchThreadContext;
+  getChannelInfo: typeof getChannelInfo;
+}
+
+export const defaultFetchSlackMessageDeps: FetchSlackMessageDeps = {
+  fetchThreadContext,
+  getChannelInfo,
+};
 
 const SLACK_URL_PATTERN = /^https:\/\/[^/]+\.slack\.com\/archives\/([A-Z0-9]+)\/p(\d+)$/;
 const MAX_FETCH = 200;
 
-function parseSlackMessageUrl(
+export function parseSlackMessageUrl(
   url: string,
 ): { channelId: string; messageTs: string; threadTs?: string } | null {
   let urlObj: URL;
@@ -30,7 +41,10 @@ function parseSlackMessageUrl(
   return { channelId, messageTs, threadTs };
 }
 
-export function createFetchSlackMessageTool(ctx: QueryToolContext) {
+export function createFetchSlackMessageTool(
+  ctx: QueryToolContext,
+  deps: FetchSlackMessageDeps = defaultFetchSlackMessageDeps,
+) {
   return tool(
     "fetch_slack_message",
     "Fetch a Slack message and its thread context from a URL, with pagination support. Returns the first 5 messages by default; use page/limit to load more.",
@@ -64,7 +78,7 @@ export function createFetchSlackMessageTool(ctx: QueryToolContext) {
 
       // Use threadTs as parent if this is a reply URL, otherwise the message itself is the parent
       const parentTs = threadTs ?? messageTs;
-      const messages = await fetchThreadContext(ctx.slackClient, channelId, parentTs, "", {
+      const messages = await deps.fetchThreadContext(ctx.slackClient, channelId, parentTs, "", {
         fetchUserNames: true,
         limit: fetchCount,
       });
@@ -88,8 +102,13 @@ export function createFetchSlackMessageTool(ctx: QueryToolContext) {
         }
       }
 
+      const channelInfo = ctx.slackClient
+        ? await deps.getChannelInfo(ctx.slackClient, channelId)
+        : undefined;
+
       return textResult({
         channel: channelId,
+        ...(channelInfo && { channel_name: channelInfo.name }),
         thread_ts: parentTs,
         message_count: pageMessages.length,
         page,
@@ -100,6 +119,8 @@ export function createFetchSlackMessageTool(ctx: QueryToolContext) {
           text: m.text,
           ts: m.ts,
           is_bot: m.isBot,
+          ...(m.blocks?.length && { blocks: m.blocks }),
+          ...(m.attachments?.length && { attachments: m.attachments }),
           ...(m.imageFiles?.length && {
             images: m.imageFiles.map((f) => ({ file_id: f.id, name: f.name })),
           }),

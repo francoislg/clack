@@ -2,17 +2,33 @@ import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
 import { textResult, errorResult } from "../helpers.js";
-import { extractMessageText } from "../../slack/messagesApi.js";
+import { extractMessageText, type SlackMessage } from "../../slack/messagesApi.js";
 import { extractImageFiles } from "../../slack/imageExtractor.js";
 import { extractFiles } from "../../slack/fileExtractor.js";
 import type { SlackFile } from "../../slack/slackFileBase.js";
 import { resolveUsers, transformUserMentions } from "../../slack/userCache.js";
+import { getChannelInfo } from "../../slack/channelCache.js";
 import { errorMessage } from "../../errors.js";
 
 type SlackClient = NonNullable<QueryToolContext["slackClient"]>;
 type UserInfoMap = Awaited<ReturnType<typeof resolveUsers>>;
 
+export interface FetchChannelMessagesDeps {
+  extractMessageText: (msg: SlackMessage) => string;
+  resolveUsers: typeof resolveUsers;
+  transformUserMentions: typeof transformUserMentions;
+  getChannelInfo: typeof getChannelInfo;
+}
+
+export const defaultFetchChannelMessagesDeps: FetchChannelMessagesDeps = {
+  extractMessageText,
+  resolveUsers,
+  transformUserMentions,
+  getChannelInfo,
+};
+
 async function resolveReplyUserName(
+  deps: FetchChannelMessagesDeps,
   client: SlackClient,
   replyUserId: string | undefined,
   userInfoMap: UserInfoMap,
@@ -20,12 +36,13 @@ async function resolveReplyUserName(
   if (!replyUserId) return "unknown";
   const cached = userInfoMap.get(replyUserId);
   if (cached) return cached.displayName ?? cached.username ?? replyUserId;
-  const extraMap = await resolveUsers(client, [replyUserId]);
+  const extraMap = await deps.resolveUsers(client, [replyUserId]);
   const extra = extraMap.get(replyUserId);
   return extra?.displayName ?? extra?.username ?? replyUserId;
 }
 
 async function fetchThreadReplies(
+  deps: FetchChannelMessagesDeps,
   client: SlackClient,
   channelId: string,
   parentTs: string,
@@ -46,8 +63,11 @@ async function fetchThreadReplies(
     for (const reply of threadResult.messages.slice(1)) {
       const replyUserId = reply.user || reply.bot_id;
       replies.push({
-        user: await resolveReplyUserName(client, replyUserId, userInfoMap),
-        text: await transformUserMentions(client, extractMessageText(reply) || "[attachment]"),
+        user: await resolveReplyUserName(deps, client, replyUserId, userInfoMap),
+        text: await deps.transformUserMentions(
+          client,
+          deps.extractMessageText(reply as SlackMessage) || "[attachment]",
+        ),
         ts: reply.ts,
         is_bot: reply.bot_id !== undefined,
       });
@@ -59,16 +79,9 @@ async function fetchThreadReplies(
 }
 
 async function formatMessage(
+  deps: FetchChannelMessagesDeps,
   client: SlackClient,
-  msg: {
-    ts?: string;
-    text?: string;
-    user?: string;
-    bot_id?: string;
-    reply_count?: number;
-    attachments?: { text?: string; fallback?: string }[];
-    files?: unknown[];
-  },
+  msg: SlackMessage,
   channelId: string,
   userInfoMap: UserInfoMap,
   includeThreads: boolean,
@@ -79,7 +92,10 @@ async function formatMessage(
 
   const userId = msg.user || msg.bot_id;
   const userInfo = userId ? userInfoMap.get(userId) : undefined;
-  const text = await transformUserMentions(client, extractMessageText(msg) || "[attachment]");
+  const text = await deps.transformUserMentions(
+    client,
+    deps.extractMessageText(msg) || "[attachment]",
+  );
 
   // Extract and register images and files
   const imageFiles = extractImageFiles(msg.files);
@@ -92,6 +108,17 @@ async function formatMessage(
     text,
     ts: msg.ts,
     is_bot: msg.bot_id !== undefined,
+    ...(msg.blocks?.length && { blocks: msg.blocks }),
+    ...(msg.attachments?.length && {
+      attachments: msg.attachments.map((a) => ({
+        ...(a.text && { text: a.text }),
+        ...(a.fallback && { fallback: a.fallback }),
+        ...(a.title && { title: a.title }),
+        ...(a.pretext && { pretext: a.pretext }),
+        ...(a.author_name && { author_name: a.author_name }),
+        ...(a.fields?.length && { fields: a.fields }),
+      })),
+    }),
     ...(imageFiles.length > 0 && {
       images: imageFiles.map((f) => ({ file_id: f.id, name: f.name })),
     }),
@@ -104,7 +131,7 @@ async function formatMessage(
     entry.reply_count = msg.reply_count;
 
     if (includeThreads) {
-      const result = await fetchThreadReplies(client, channelId, msg.ts, userInfoMap);
+      const result = await fetchThreadReplies(deps, client, channelId, msg.ts, userInfoMap);
       if ("error" in result) {
         entry.thread_error = result.error;
       } else if (result.replies.length > 0) {
@@ -116,7 +143,10 @@ async function formatMessage(
   return entry;
 }
 
-export function createFetchChannelMessagesTool(ctx: QueryToolContext) {
+export function createFetchChannelMessagesTool(
+  ctx: QueryToolContext,
+  deps: FetchChannelMessagesDeps = defaultFetchChannelMessagesDeps,
+) {
   return tool(
     "fetch_channel_messages",
     "Fetch recent messages from a Slack channel. Use this when you need to read what's being discussed in a channel — for example, when a user in an assistant thread asks about messages in the channel they're viewing.",
@@ -154,18 +184,26 @@ export function createFetchChannelMessagesTool(ctx: QueryToolContext) {
           inclusive: true,
         });
 
+        const channelInfo = await deps.getChannelInfo(client, args.channel_id);
+
         if (!result.messages || result.messages.length === 0) {
-          return textResult({ channel: args.channel_id, messages: [], message_count: 0 });
+          return textResult({
+            channel: args.channel_id,
+            ...(channelInfo && { channel_name: channelInfo.name }),
+            messages: [],
+            message_count: 0,
+          });
         }
 
         const userIds = result.messages
           .map((msg) => msg.user || msg.bot_id)
           .filter((id): id is string => !!id);
-        const userInfoMap = await resolveUsers(client, userIds);
+        const userInfoMap = await deps.resolveUsers(client, userIds);
 
         const messages = [];
         for (const msg of [...result.messages].reverse()) {
           const entry = await formatMessage(
+            deps,
             client,
             msg,
             args.channel_id,
@@ -179,6 +217,7 @@ export function createFetchChannelMessagesTool(ctx: QueryToolContext) {
 
         return textResult({
           channel: args.channel_id,
+          ...(channelInfo && { channel_name: channelInfo.name }),
           message_count: messages.length,
           has_more: result.has_more ?? false,
           messages,
