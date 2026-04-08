@@ -4,6 +4,34 @@ import type { App } from "@slack/bolt";
 import { logger } from "./logger.js";
 import { fileExists } from "./fs.js";
 
+// ============================================================================
+// Dependency Injection
+// ============================================================================
+
+export interface RolesDeps {
+  readFile: typeof readFile;
+  writeFile: typeof writeFile;
+  mkdir: typeof mkdir;
+  fileExists: typeof fileExists;
+}
+
+export const defaultRolesDeps: RolesDeps = {
+  readFile,
+  writeFile,
+  mkdir,
+  fileExists,
+};
+
+let deps: RolesDeps = defaultRolesDeps;
+
+export function setRolesDeps(d: RolesDeps): void {
+  deps = d;
+}
+
+export function resetRolesDeps(): void {
+  deps = defaultRolesDeps;
+}
+
 export interface RolesConfig {
   owner: string | null;
   admins: string[];
@@ -35,13 +63,13 @@ export async function loadRoles(): Promise<RolesConfig> {
 
   const rolesPath = getRolesPath();
 
-  if (!(await fileExists(rolesPath))) {
+  if (!(await deps.fileExists(rolesPath))) {
     cachedRoles = { ...DEFAULT_ROLES };
     return cachedRoles;
   }
 
   try {
-    const content = await readFile(rolesPath, "utf-8");
+    const content = await deps.readFile(rolesPath, "utf-8");
     const parsed = JSON.parse(content) as Partial<RolesConfig>;
 
     // Ensure all fields exist with defaults
@@ -64,11 +92,11 @@ export async function saveRoles(roles: RolesConfig): Promise<void> {
   const rolesPath = getRolesPath();
 
   // Ensure state directory exists
-  if (!(await fileExists(stateDir))) {
-    await mkdir(stateDir, { recursive: true });
+  if (!(await deps.fileExists(stateDir))) {
+    await deps.mkdir(stateDir, { recursive: true });
   }
 
-  await writeFile(rolesPath, JSON.stringify(roles, null, 2));
+  await deps.writeFile(rolesPath, JSON.stringify(roles, null, 2));
   cachedRoles = roles;
   logger.debug("Roles saved successfully");
 }

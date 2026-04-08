@@ -12,24 +12,88 @@ import { discoverPluginInfo } from "../plugins.js";
 import { getRules, type AutoRespondRule } from "../autoRespond.js";
 import { getJobs, getJobsByUser, type CronJob } from "../cronJobs.js";
 import { humanReadableSchedule } from "../cronScheduler.js";
+import { truncate } from "../text.js";
+import type { ActiveWorker } from "../changes/activeState.js";
+import type { InstructionFileListing } from "../configurationFiles.js";
+import type { Config, RepositoryConfig } from "../config.js";
+import type { PluginInfo } from "../plugins.js";
+import type { MigrationError } from "../migrations/types.js";
+import type { RolesConfig } from "../roles.js";
+import type { UserPreferences } from "../userPreferences.js";
+
+// ============================================================================
+// Dependency Injection
+// ============================================================================
+
+export interface HomeTabDeps {
+  getConfig: () => Config;
+  getConfiguredMcpServerNames: () => string[];
+  getRole: (userId: string) => Promise<UserRole>;
+  hasOwner: () => Promise<boolean>;
+  loadRoles: () => Promise<RolesConfig>;
+  canEditConfig: (role: UserRole) => boolean;
+  canManageRoles: (role: UserRole) => boolean;
+  canRequestChanges: (role: UserRole) => boolean;
+  getActiveWorkers: () => ActiveWorker[];
+  listInstructionFiles: () => InstructionFileListing;
+  getReactionDelivery: (userId: string) => Promise<string>;
+  getUserPreference: <K extends keyof UserPreferences>(
+    userId: string,
+    key: K,
+  ) => Promise<UserPreferences[K]>;
+  getVisibleRepos: (role: UserRole, repos: RepositoryConfig[]) => RepositoryConfig[];
+  canWriteRepo: (role: UserRole, repo: RepositoryConfig) => boolean;
+  getMigrationErrors: () => MigrationError[];
+  discoverPluginInfo: () => PluginInfo[];
+  getRules: () => Promise<AutoRespondRule[]>;
+  getJobs: () => Promise<CronJob[]>;
+  getJobsByUser: (userId: string) => Promise<CronJob[]>;
+  humanReadableSchedule: (cronExpression: string, timezone: string) => string;
+}
+
+export const defaultHomeTabDeps: HomeTabDeps = {
+  getConfig,
+  getConfiguredMcpServerNames,
+  getRole,
+  hasOwner,
+  loadRoles,
+  canEditConfig,
+  canManageRoles,
+  canRequestChanges,
+  getActiveWorkers,
+  listInstructionFiles,
+  getReactionDelivery,
+  getUserPreference,
+  getVisibleRepos,
+  canWriteRepo,
+  getMigrationErrors,
+  discoverPluginInfo,
+  getRules,
+  getJobs,
+  getJobsByUser,
+  humanReadableSchedule,
+};
 
 interface HomeViewOptions {
   userId: string;
   ownerDisabled?: boolean;
 }
 
-export async function buildHomeView(options: HomeViewOptions): Promise<View> {
+export async function buildHomeView(
+  options: HomeViewOptions,
+  deps: HomeTabDeps = defaultHomeTabDeps,
+): Promise<View> {
   const { userId, ownerDisabled } = options;
-  const role = await getRole(userId);
-  const userIsAdmin = canManageRoles(role);
-  const userCanEdit = canEditConfig(role);
-  const userIsDev = canRequestChanges(role);
-  const hasAnOwner = await hasOwner();
+  const role = await deps.getRole(userId);
+  const userIsAdmin = deps.canManageRoles(role);
+  const userCanEdit = deps.canEditConfig(role);
+  const userIsDev = deps.canRequestChanges(role);
+  const hasAnOwner = await deps.hasOwner();
 
   const blocks: (KnownBlock | Block)[] = [];
 
   // Migration error banner (shown to all, extra guidance for admins)
-  const migrationErrors = getMigrationErrors();
+  const migrationErrors = deps.getMigrationErrors();
   if (migrationErrors.length > 0) {
     blocks.push(...buildMigrationBanner(migrationErrors, userIsAdmin));
   }
@@ -48,33 +112,33 @@ export async function buildHomeView(options: HomeViewOptions): Promise<View> {
 
   // Role management section (only for admins/owner)
   if (userIsAdmin) {
-    blocks.push(...(await buildRoleManagementSection(userId, role)));
+    blocks.push(...(await buildRoleManagementSection(userId, role, deps)));
   }
 
   // Auto-respond section (admin only)
   if (userIsAdmin) {
-    blocks.push(...(await buildAutoRespondSection()));
+    blocks.push(...(await buildAutoRespondSection(deps)));
   }
 
   // Scheduled messages section (admins see all, others see own)
-  const scheduledBlocks = await buildScheduledMessagesSection(userId, userIsAdmin);
+  const scheduledBlocks = await buildScheduledMessagesSection(userId, userIsAdmin, deps);
   if (scheduledBlocks.length > 0) {
     blocks.push(...scheduledBlocks);
   }
 
   // Configuration & preferences section (config editing for admins, preferences for all)
-  blocks.push(...buildConfigurationSection(userCanEdit));
+  blocks.push(...buildConfigurationSection(userCanEdit, deps));
 
   // Active workers section (only for devs and higher)
   if (userIsDev) {
-    blocks.push(...buildActiveWorkersSection());
+    blocks.push(...buildActiveWorkersSection(deps));
   }
 
   // Status section (visible to all)
-  blocks.push(...buildStatusSection(role));
+  blocks.push(...buildStatusSection(role, deps));
 
   // Help section (visible to all)
-  blocks.push(...buildHelpSection());
+  blocks.push(...buildHelpSection(deps));
 
   // Spacer to prevent Slack client from cutting off the last block
   // (known Slack bug: bottom UI chrome clips the last blocks of App Home views)
@@ -175,8 +239,9 @@ function buildClaimOwnershipSection(ownerDisabled: boolean): KnownBlock[] {
 export async function buildRoleManagementSection(
   userId: string,
   role: UserRole,
+  deps: HomeTabDeps = defaultHomeTabDeps,
 ): Promise<KnownBlock[]> {
-  const roles = await loadRoles();
+  const roles = await deps.loadRoles();
   const blocks: KnownBlock[] = [];
 
   blocks.push({
@@ -305,7 +370,10 @@ const roleEmojis: Record<string, string> = {
   "pre-analysis": ":brain:",
 };
 
-export function buildConfigurationSection(showEditButtons: boolean): KnownBlock[] {
+export function buildConfigurationSection(
+  showEditButtons: boolean,
+  deps: HomeTabDeps = defaultHomeTabDeps,
+): KnownBlock[] {
   const blocks: KnownBlock[] = [];
 
   blocks.push({
@@ -320,7 +388,7 @@ export function buildConfigurationSection(showEditButtons: boolean): KnownBlock[
   const buttons: object[] = [];
 
   if (showEditButtons) {
-    const listing = listInstructionFiles();
+    const listing = deps.listInstructionFiles();
 
     const customLabels: Record<string, string> = {
       "pre-analysis": "Pre-Analysis Context",
@@ -387,10 +455,13 @@ function formatAccessTag(role: UserRole): string {
   return role === "member" ? "all" : `${role}+`;
 }
 
-export function buildStatusSection(role: UserRole): KnownBlock[] {
-  const config = getConfig();
-  const mcpServers = getConfiguredMcpServerNames();
-  const showAccessTags = canRequestChanges(role); // dev+
+export function buildStatusSection(
+  role: UserRole,
+  deps: HomeTabDeps = defaultHomeTabDeps,
+): KnownBlock[] {
+  const config = deps.getConfig();
+  const mcpServers = deps.getConfiguredMcpServerNames();
+  const showAccessTags = deps.canRequestChanges(role); // dev+
 
   const blocks: KnownBlock[] = [
     {
@@ -404,13 +475,13 @@ export function buildStatusSection(role: UserRole): KnownBlock[] {
   ];
 
   // Repositories (filtered by role)
-  const visibleRepos = getVisibleRepos(role, config.repositories);
+  const visibleRepos = deps.getVisibleRepos(role, config.repositories);
   const repoList = visibleRepos
     .map((r) => {
       let line = `• *${r.name}*: ${r.description}`;
       if (showAccessTags) {
         const readTag = formatAccessTag(r.access?.read ?? "member");
-        if (canWriteRepo(role, r)) {
+        if (deps.canWriteRepo(role, r)) {
           const writeTag = formatAccessTag(r.access!.write!);
           line += `\n   _read: ${readTag} · write: ${writeTag}_`;
         } else {
@@ -441,7 +512,7 @@ export function buildStatusSection(role: UserRole): KnownBlock[] {
   }
 
   // Plugins
-  const plugins = discoverPluginInfo();
+  const plugins = deps.discoverPluginInfo();
   if (plugins.length > 0) {
     const pluginList = plugins
       .map((p) => `• *${p.name}*${p.skillCount > 0 ? ` (${p.skillCount} skills)` : ""}`)
@@ -477,8 +548,8 @@ export function buildStatusSection(role: UserRole): KnownBlock[] {
   return blocks;
 }
 
-export function buildActiveWorkersSection(): KnownBlock[] {
-  const workers = getActiveWorkers();
+export function buildActiveWorkersSection(deps: HomeTabDeps = defaultHomeTabDeps): KnownBlock[] {
+  const workers = deps.getActiveWorkers();
   const blocks: KnownBlock[] = [];
 
   blocks.push({
@@ -505,6 +576,7 @@ export function buildActiveWorkersSection(): KnownBlock[] {
       executing: ":hammer_and_wrench:",
       reviewing: ":eyes:",
       merging: ":rocket:",
+      cancelled: ":no_entry_sign:",
     };
 
     for (const worker of workers) {
@@ -539,8 +611,8 @@ export function buildActiveWorkersSection(): KnownBlock[] {
   return blocks;
 }
 
-export function buildHelpSection(): KnownBlock[] {
-  const config = getConfig();
+export function buildHelpSection(deps: HomeTabDeps = defaultHomeTabDeps): KnownBlock[] {
+  const config = deps.getConfig();
 
   const triggerInstructions: string[] = [];
 
@@ -593,9 +665,12 @@ export function buildHelpSection(): KnownBlock[] {
 
 // Settings section and modal
 
-export async function buildSettingsModal(userId: string): Promise<View> {
-  const delivery = await getReactionDelivery(userId);
-  const notifyOnResponse = await getUserPreference(userId, "notifyOnResponse");
+export async function buildSettingsModal(
+  userId: string,
+  deps: HomeTabDeps = defaultHomeTabDeps,
+): Promise<View> {
+  const delivery = await deps.getReactionDelivery(userId);
+  const notifyOnResponse = await deps.getUserPreference(userId, "notifyOnResponse");
 
   const dmOption = {
     text: { type: "plain_text" as const, text: "Direct Message" },
@@ -807,7 +882,7 @@ export function buildConfigFilePickerModal(
   }
 
   const titleText = `${dir}/ Instructions`;
-  const truncatedTitle = titleText.length > 24 ? titleText.slice(0, 23) + "\u2026" : titleText;
+  const truncatedTitle = truncate(titleText, 24);
 
   return {
     type: "modal",
@@ -909,7 +984,7 @@ export function buildConfigEditorModal(
 
   // Title truncation (24 char limit)
   const titleText = `${dir}/${filename}`;
-  const truncatedTitle = titleText.length > 24 ? titleText.slice(0, 23) + "\u2026" : titleText;
+  const truncatedTitle = truncate(titleText, 24);
 
   return {
     type: "modal",
@@ -1055,9 +1130,11 @@ export function buildRemoveUserModal(title: string, actionId: string, users: str
 // Auto-Respond Section
 // ============================================================================
 
-async function buildAutoRespondSection(): Promise<(KnownBlock | Block)[]> {
+async function buildAutoRespondSection(
+  deps: HomeTabDeps = defaultHomeTabDeps,
+): Promise<(KnownBlock | Block)[]> {
   const blocks: (KnownBlock | Block)[] = [];
-  const rules = await getRules();
+  const rules = await deps.getRules();
 
   blocks.push({ type: "divider" });
   blocks.push({
@@ -1248,8 +1325,9 @@ export function buildAutoRespondModal(rule?: AutoRespondRule): View {
 async function buildScheduledMessagesSection(
   userId: string,
   isAdmin: boolean,
+  deps: HomeTabDeps = defaultHomeTabDeps,
 ): Promise<(KnownBlock | Block)[]> {
-  const jobs = isAdmin ? await getJobs() : await getJobsByUser(userId);
+  const jobs = isAdmin ? await deps.getJobs() : await deps.getJobsByUser(userId);
   if (jobs.length === 0) return [];
 
   const blocks: (KnownBlock | Block)[] = [];
@@ -1261,7 +1339,7 @@ async function buildScheduledMessagesSection(
   });
 
   for (const job of jobs) {
-    const schedule = humanReadableSchedule(job.cronExpression, job.timezone);
+    const schedule = deps.humanReadableSchedule(job.cronExpression, job.timezone);
     const statusLabel = !job.enabled
       ? " _(paused)_"
       : job.lastRunStatus === "error"

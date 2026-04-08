@@ -80,47 +80,39 @@ The system SHALL allow ownership to be claimed and transferred with appropriate 
 - **THEN** the admin becomes the new owner
 - **AND** previous owner is removed from all roles
 
-### Requirement: Admin Management
+### Requirement: Unified Role Assignment
 
-The system SHALL allow admins and owner to manage admin roles.
+The system SHALL provide a single `setRole` function that sets a user's role with automatic cascading based on the role hierarchy.
 
-#### Scenario: Add admin
-- **GIVEN** the current user is owner or admin
-- **AND** the target user is not already an admin
-- **WHEN** admin adds target as admin
-- **THEN** target is added to the admins array
-- **AND** roles.json is updated
+#### Scenario: Set role to admin
+- **WHEN** `setRole(userId, "admin")` is called
+- **AND** the user is not the owner
+- **THEN** the user is added to the admins list (if not already present)
+- **AND** the user is removed from the devs list (if present)
+- **AND** returns `{ success: true }`
 
-#### Scenario: Remove admin
-- **GIVEN** the current user is owner or admin
-- **AND** the target is an admin (not owner)
-- **WHEN** admin removes target
-- **THEN** target is removed from admins array
-- **AND** roles.json is updated
+#### Scenario: Set role to dev
+- **WHEN** `setRole(userId, "dev")` is called
+- **AND** the user is not the owner
+- **THEN** the user is added to the devs list (if not already present)
+- **AND** the user is removed from the admins list (if present)
+- **AND** returns `{ success: true }`
 
-#### Scenario: Cannot remove owner via admin removal
-- **GIVEN** the target user is the owner
-- **WHEN** attempting to remove them as admin
-- **THEN** the action is blocked
-- **AND** an error message indicates owner cannot be removed
+#### Scenario: Set role to member
+- **WHEN** `setRole(userId, "member")` is called
+- **AND** the user is not the owner
+- **THEN** the user is removed from both admins and devs lists
+- **AND** returns `{ success: true }`
 
-### Requirement: Dev Management
+#### Scenario: Idempotent assignment
+- **WHEN** `setRole(userId, role)` is called
+- **AND** the user already has the target role
+- **THEN** returns `{ success: true }` without making changes
 
-The system SHALL allow admins to manage dev roles.
-
-#### Scenario: Add dev
-- **GIVEN** the current user is owner or admin
-- **AND** the target user is not already a dev
-- **WHEN** admin adds target as dev
-- **THEN** target is added to the devs array
-- **AND** roles.json is updated
-
-#### Scenario: Remove dev
-- **GIVEN** the current user is owner or admin
-- **AND** the target is in the devs array
-- **WHEN** admin removes target
-- **THEN** target is removed from devs array
-- **AND** roles.json is updated
+#### Scenario: Reject role change for owner
+- **WHEN** `setRole(userId, role)` is called
+- **AND** the user is the owner
+- **THEN** returns `{ success: false, error: "..." }` indicating the owner's role cannot be changed
 
 ### Requirement: Disabled User Detection
 

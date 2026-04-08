@@ -37,6 +37,84 @@ import { toggleJob, deleteJob, getJob, updateJob } from "../../cronJobs.js";
 import { runJobNow } from "../../cronScheduler.js";
 import { CronExpressionParser } from "cron-parser";
 
+// ============================================================================
+// Dependency Injection
+// ============================================================================
+
+export interface HomeTabDeps {
+  loadRoles: typeof loadRoles;
+  setOwner: typeof setOwner;
+  setRole: typeof setRole;
+  isUserDisabled: typeof isUserDisabled;
+  claimOwnershipFromDisabled: typeof claimOwnershipFromDisabled;
+  transferOwnership: typeof transferOwnership;
+  hasOwner: typeof hasOwner;
+  userCanManageRoles: typeof userCanManageRoles;
+  userCanEditConfig: typeof userCanEditConfig;
+  buildHomeView: typeof buildHomeView;
+  buildUserSelectModal: typeof buildUserSelectModal;
+  buildRemoveUserModal: typeof buildRemoveUserModal;
+  buildSettingsModal: typeof buildSettingsModal;
+  buildConfigFilePickerModal: typeof buildConfigFilePickerModal;
+  buildConfigEditorModal: typeof buildConfigEditorModal;
+  buildConfigCreateFileModal: typeof buildConfigCreateFileModal;
+  buildAutoRespondModal: typeof buildAutoRespondModal;
+  buildCronJobModal: typeof buildCronJobModal;
+  addRule: typeof addRule;
+  updateRule: typeof updateRule;
+  toggleRule: typeof toggleRule;
+  deleteRule: typeof deleteRule;
+  getRule: typeof getRule;
+  listInstructionFiles: typeof listInstructionFiles;
+  readInstructionFile: typeof readInstructionFile;
+  writeInstructionFile: typeof writeInstructionFile;
+  deleteInstructionFile: typeof deleteInstructionFile;
+  getEffectiveContentLength: typeof getEffectiveContentLength;
+  setUserPreference: typeof setUserPreference;
+  toggleJob: typeof toggleJob;
+  deleteJob: typeof deleteJob;
+  getJob: typeof getJob;
+  updateJob: typeof updateJob;
+  runJobNow: typeof runJobNow;
+}
+
+export const defaultHomeTabDeps: HomeTabDeps = {
+  loadRoles,
+  setOwner,
+  setRole,
+  isUserDisabled,
+  claimOwnershipFromDisabled,
+  transferOwnership,
+  hasOwner,
+  userCanManageRoles,
+  userCanEditConfig,
+  buildHomeView,
+  buildUserSelectModal,
+  buildRemoveUserModal,
+  buildSettingsModal,
+  buildConfigFilePickerModal,
+  buildConfigEditorModal,
+  buildConfigCreateFileModal,
+  buildAutoRespondModal,
+  buildCronJobModal,
+  addRule,
+  updateRule,
+  toggleRule,
+  deleteRule,
+  getRule,
+  listInstructionFiles,
+  readInstructionFile,
+  writeInstructionFile,
+  deleteInstructionFile,
+  getEffectiveContentLength,
+  setUserPreference,
+  toggleJob,
+  deleteJob,
+  getJob,
+  updateJob,
+  runJobNow,
+};
+
 /** Parse comma-separated keywords input into a trimmed array, or undefined if empty. */
 function parseKeywords(raw: string | null | undefined): string[] | undefined {
   if (!raw) return undefined;
@@ -47,16 +125,20 @@ function parseKeywords(raw: string | null | undefined): string[] | undefined {
   return keywords.length > 0 ? keywords : undefined;
 }
 
-async function publishHomeView(client: App["client"], userId: string): Promise<void> {
+async function publishHomeView(
+  client: App["client"],
+  userId: string,
+  deps: HomeTabDeps = defaultHomeTabDeps,
+): Promise<void> {
   // Check if owner is disabled (for claim UI)
-  const roles = await loadRoles();
+  const roles = await deps.loadRoles();
   let ownerDisabled = false;
 
   if (roles.owner) {
-    ownerDisabled = await isUserDisabled(client, roles.owner);
+    ownerDisabled = await deps.isUserDisabled(client, roles.owner);
   }
 
-  const view = await buildHomeView({ userId, ownerDisabled });
+  const view = await deps.buildHomeView({ userId, ownerDisabled });
 
   await client.views.publish({
     user_id: userId,
@@ -75,13 +157,14 @@ function registerAddRoleHandlers(
   modalId: string,
   title: string,
   roleFn: (userId: string) => Promise<RoleResult>,
+  deps: HomeTabDeps = defaultHomeTabDeps,
 ) {
   app.action<BlockAction>(buttonId, async ({ ack, body, client }) => {
     await ack();
     try {
       await client.views.open({
         trigger_id: body.trigger_id,
-        view: buildUserSelectModal(title, modalId, `Select user to ${title.toLowerCase()}`),
+        view: deps.buildUserSelectModal(title, modalId, `Select user to ${title.toLowerCase()}`),
       });
     } catch (error) {
       logger.error(`Failed to open ${title} modal:`, error);
@@ -99,7 +182,7 @@ function registerAddRoleHandlers(
       });
       return;
     }
-    if (!(await userCanManageRoles(currentUserId))) {
+    if (!(await deps.userCanManageRoles(currentUserId))) {
       await ack({
         response_action: "errors",
         errors: { user_select_block: `You don't have permission to ${title.toLowerCase()}s` },
@@ -117,7 +200,7 @@ function registerAddRoleHandlers(
     }
 
     await ack();
-    await publishHomeView(client, currentUserId);
+    await publishHomeView(client, currentUserId, deps);
   });
 }
 
@@ -131,15 +214,16 @@ function registerRemoveRoleHandlers(
   title: string,
   listKey: "admins" | "devs",
   roleFn: (userId: string) => Promise<RoleResult>,
+  deps: HomeTabDeps = defaultHomeTabDeps,
 ) {
   app.action<BlockAction>(buttonId, async ({ ack, body, client }) => {
     await ack();
     try {
-      const roles = await loadRoles();
+      const roles = await deps.loadRoles();
       if (roles[listKey].length === 0) return;
       await client.views.open({
         trigger_id: body.trigger_id,
-        view: buildRemoveUserModal(title, modalId, roles[listKey]),
+        view: deps.buildRemoveUserModal(title, modalId, roles[listKey]),
       });
     } catch (error) {
       logger.error(`Failed to open ${title} modal:`, error);
@@ -157,7 +241,7 @@ function registerRemoveRoleHandlers(
       });
       return;
     }
-    if (!(await userCanManageRoles(currentUserId))) {
+    if (!(await deps.userCanManageRoles(currentUserId))) {
       await ack({
         response_action: "errors",
         errors: { user_select_block: `You don't have permission to ${title.toLowerCase()}s` },
@@ -175,16 +259,16 @@ function registerRemoveRoleHandlers(
     }
 
     await ack();
-    await publishHomeView(client, currentUserId);
+    await publishHomeView(client, currentUserId, deps);
   });
 }
 
-export function registerHomeTabHandler(app: App): void {
+export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHomeTabDeps): void {
   // Handle Home tab opened event
   app.event("app_home_opened", async ({ event, client }) => {
     try {
       logger.debug(`Home tab opened by user ${event.user}`);
-      await publishHomeView(client, event.user);
+      await publishHomeView(client, event.user, deps);
     } catch (error) {
       logger.error("Failed to publish home view:", error);
     }
@@ -197,15 +281,15 @@ export function registerHomeTabHandler(app: App): void {
     const userId = body.user.id;
 
     try {
-      const hasAnOwner = await hasOwner();
+      const hasAnOwner = await deps.hasOwner();
 
       if (!hasAnOwner) {
         // No owner, claim directly
-        await setOwner(userId);
+        await deps.setOwner(userId);
         logger.info(`User ${userId} claimed ownership (first owner)`);
       } else {
         // Owner exists, try to claim from disabled owner
-        const result = await claimOwnershipFromDisabled(client, userId);
+        const result = await deps.claimOwnershipFromDisabled(client, userId);
         if (!result.success) {
           logger.warn(`User ${userId} failed to claim ownership: ${result.error}`);
           // Could show an error message here
@@ -214,7 +298,7 @@ export function registerHomeTabHandler(app: App): void {
       }
 
       // Refresh the home view
-      await publishHomeView(client, userId);
+      await publishHomeView(client, userId, deps);
     } catch (error) {
       logger.error("Failed to claim ownership:", error);
     }
@@ -227,7 +311,7 @@ export function registerHomeTabHandler(app: App): void {
     try {
       await client.views.open({
         trigger_id: body.trigger_id,
-        view: buildUserSelectModal(
+        view: deps.buildUserSelectModal(
           "Transfer Ownership",
           "transfer_ownership_modal",
           "Select new owner",
@@ -253,7 +337,7 @@ export function registerHomeTabHandler(app: App): void {
       return;
     }
 
-    const result = await transferOwnership(client, currentUserId, selectedUser);
+    const result = await deps.transferOwnership(client, currentUserId, selectedUser);
 
     if (!result.success) {
       await ack({
@@ -268,13 +352,18 @@ export function registerHomeTabHandler(app: App): void {
     await ack();
 
     // Refresh home views for both users
-    await publishHomeView(client, currentUserId);
-    await publishHomeView(client, selectedUser);
+    await publishHomeView(client, currentUserId, deps);
+    await publishHomeView(client, selectedUser, deps);
   });
 
   // Role management handlers (add/remove admin & dev)
-  registerAddRoleHandlers(app, "add_admin", "add_admin_modal", "Add Admin", (userId) =>
-    setRole(userId, "admin"),
+  registerAddRoleHandlers(
+    app,
+    "add_admin",
+    "add_admin_modal",
+    "Add Admin",
+    (userId) => deps.setRole(userId, "admin"),
+    deps,
   );
   registerRemoveRoleHandlers(
     app,
@@ -282,10 +371,16 @@ export function registerHomeTabHandler(app: App): void {
     "remove_admin_modal",
     "Remove Admin",
     "admins",
-    (userId) => setRole(userId, "member"),
+    (userId) => deps.setRole(userId, "member"),
+    deps,
   );
-  registerAddRoleHandlers(app, "add_dev", "add_dev_modal", "Add Dev", (userId) =>
-    setRole(userId, "dev"),
+  registerAddRoleHandlers(
+    app,
+    "add_dev",
+    "add_dev_modal",
+    "Add Dev",
+    (userId) => deps.setRole(userId, "dev"),
+    deps,
   );
   registerRemoveRoleHandlers(
     app,
@@ -293,7 +388,8 @@ export function registerHomeTabHandler(app: App): void {
     "remove_dev_modal",
     "Remove Dev",
     "devs",
-    (userId) => setRole(userId, "member"),
+    (userId) => deps.setRole(userId, "member"),
+    deps,
   );
 
   // Handle Settings button
@@ -303,7 +399,7 @@ export function registerHomeTabHandler(app: App): void {
     const userId = body.user.id;
 
     try {
-      const view = await buildSettingsModal(userId);
+      const view = await deps.buildSettingsModal(userId);
       await client.views.open({
         trigger_id: body.trigger_id,
         view,
@@ -326,12 +422,12 @@ export function registerHomeTabHandler(app: App): void {
     const updates: string[] = [];
 
     if (deliveryValue === "dm" || deliveryValue === "thread") {
-      await setUserPreference(userId, "reactionDelivery", deliveryValue as ReactionDelivery);
+      await deps.setUserPreference(userId, "reactionDelivery", deliveryValue as ReactionDelivery);
       updates.push(`reactionDelivery=${deliveryValue}`);
     }
 
     if (notifyValue === "true" || notifyValue === "false") {
-      await setUserPreference(userId, "notifyOnResponse", notifyValue === "true");
+      await deps.setUserPreference(userId, "notifyOnResponse", notifyValue === "true");
       updates.push(`notifyOnResponse=${notifyValue}`);
     }
 
@@ -342,7 +438,7 @@ export function registerHomeTabHandler(app: App): void {
     await ack();
 
     // Refresh the Home Tab
-    await publishHomeView(client, userId);
+    await publishHomeView(client, userId, deps);
   });
 
   // =========================================================================
@@ -357,7 +453,7 @@ export function registerHomeTabHandler(app: App): void {
       const dir = (action as { value?: string }).value;
       if (!dir) return;
 
-      const listing = listInstructionFiles();
+      const listing = deps.listInstructionFiles();
 
       // Check if this is a role directory or repo directory
       const roleListing = listing.roles.find((r) => r.role === dir);
@@ -370,7 +466,7 @@ export function registerHomeTabHandler(app: App): void {
           filename: f.filename,
           sourceLabel:
             f.source === "customized" ? "Customized" : f.source === "custom-only" ? "Custom" : "",
-          effectiveLength: getEffectiveContentLength(`${dir}/${f.filename}`),
+          effectiveLength: deps.getEffectiveContentLength(`${dir}/${f.filename}`),
         }));
       } else {
         isRepoDir = true;
@@ -381,14 +477,14 @@ export function registerHomeTabHandler(app: App): void {
           return {
             filename,
             sourceLabel,
-            effectiveLength: getEffectiveContentLength(f.filename),
+            effectiveLength: deps.getEffectiveContentLength(f.filename),
           };
         });
       }
 
       await client.views.open({
         trigger_id: body.trigger_id,
-        view: buildConfigFilePickerModal(dir, files, isRepoDir),
+        view: deps.buildConfigFilePickerModal(dir, files, isRepoDir),
       });
     } catch (error) {
       logger.error("Failed to open config file picker:", error);
@@ -407,7 +503,7 @@ export function registerHomeTabHandler(app: App): void {
       if (parts.length !== 2) return;
       const [dir, filename] = parts;
 
-      const { default_content, custom_content } = readInstructionFile(filepath);
+      const { default_content, custom_content } = deps.readInstructionFile(filepath);
 
       let fileState: ConfigFileState;
       let content: string;
@@ -428,7 +524,7 @@ export function registerHomeTabHandler(app: App): void {
 
       await client.views.push({
         trigger_id: body.trigger_id,
-        view: buildConfigEditorModal(dir, filename, content, fileState),
+        view: deps.buildConfigEditorModal(dir, filename, content, fileState),
       });
     } catch (error) {
       logger.error("Failed to open config editor:", error);
@@ -439,7 +535,7 @@ export function registerHomeTabHandler(app: App): void {
   app.view<ViewSubmitAction>("config_editor_modal", async ({ ack, view, body, client }) => {
     const userId = body.user.id;
 
-    if (!(await userCanEditConfig(userId))) {
+    if (!(await deps.userCanEditConfig(userId))) {
       await ack({
         response_action: "errors",
         errors: { content_block: "You don't have permission to edit configuration" },
@@ -452,10 +548,10 @@ export function registerHomeTabHandler(app: App): void {
     const content = view.state.values.content_block.file_content.value ?? "";
 
     try {
-      writeInstructionFile(`${dir}/${filename}`, content);
+      deps.writeInstructionFile(`${dir}/${filename}`, content);
       logger.info(`User ${userId} saved config file ${dir}/${filename}`);
       await ack();
-      await publishHomeView(client, userId);
+      await publishHomeView(client, userId, deps);
     } catch (error) {
       logger.error(`Failed to save config file ${dir}/${filename}:`, error);
       await ack({ response_action: "errors", errors: { content_block: "Failed to save file" } });
@@ -472,7 +568,7 @@ export function registerHomeTabHandler(app: App): void {
 
       await client.views.push({
         trigger_id: body.trigger_id,
-        view: buildConfigCreateFileModal(dir),
+        view: deps.buildConfigCreateFileModal(dir),
       });
     } catch (error) {
       logger.error("Failed to open create config file modal:", error);
@@ -483,7 +579,7 @@ export function registerHomeTabHandler(app: App): void {
   app.view<ViewSubmitAction>("config_create_modal", async ({ ack, view, body, client }) => {
     const userId = body.user.id;
 
-    if (!(await userCanEditConfig(userId))) {
+    if (!(await deps.userCanEditConfig(userId))) {
       await ack({
         response_action: "errors",
         errors: { filename_block: "You don't have permission to create files" },
@@ -502,7 +598,7 @@ export function registerHomeTabHandler(app: App): void {
     }
 
     // Check for duplicate
-    const existing = readInstructionFile(`${dir}/${filename}`);
+    const existing = deps.readInstructionFile(`${dir}/${filename}`);
     if (existing.default_content !== null || existing.custom_content !== null) {
       await ack({
         response_action: "errors",
@@ -512,10 +608,10 @@ export function registerHomeTabHandler(app: App): void {
     }
 
     try {
-      writeInstructionFile(`${dir}/${filename}`, content);
+      deps.writeInstructionFile(`${dir}/${filename}`, content);
       logger.info(`User ${userId} created config file ${dir}/${filename}`);
       await ack();
-      await publishHomeView(client, userId);
+      await publishHomeView(client, userId, deps);
     } catch (error) {
       logger.error(`Failed to create config file ${dir}/${filename}:`, error);
       await ack({ response_action: "errors", errors: { filename_block: "Failed to create file" } });
@@ -529,7 +625,7 @@ export function registerHomeTabHandler(app: App): void {
     const userId = body.user.id;
 
     try {
-      if (!(await userCanEditConfig(userId))) {
+      if (!(await deps.userCanEditConfig(userId))) {
         return;
       }
 
@@ -541,9 +637,9 @@ export function registerHomeTabHandler(app: App): void {
       const [dir, filename] = parts;
 
       // Check if a default exists before deleting
-      const { default_content } = readInstructionFile(filepath);
+      const { default_content } = deps.readInstructionFile(filepath);
 
-      deleteInstructionFile(filepath);
+      deps.deleteInstructionFile(filepath);
       logger.info(`User ${userId} deleted config file ${filepath}`);
 
       const viewId = (body as unknown as { view?: { id: string } }).view?.id;
@@ -553,7 +649,7 @@ export function registerHomeTabHandler(app: App): void {
         // Default exists — update the modal to show default content
         await client.views.update({
           view_id: viewId,
-          view: buildConfigEditorModal(dir, filename, default_content, "default-only"),
+          view: deps.buildConfigEditorModal(dir, filename, default_content, "default-only"),
         });
       } else {
         // Custom-only file deleted — close stacked modal by clearing it
@@ -573,7 +669,7 @@ export function registerHomeTabHandler(app: App): void {
         });
       }
 
-      await publishHomeView(client, userId);
+      await publishHomeView(client, userId, deps);
     } catch (error) {
       logger.error("Failed to delete config file:", error);
     }
@@ -587,10 +683,10 @@ export function registerHomeTabHandler(app: App): void {
   app.action<BlockAction>("ai_add_rule", async ({ ack, body, client }) => {
     await ack();
     try {
-      if (!(await userCanManageRoles(body.user.id))) return;
+      if (!(await deps.userCanManageRoles(body.user.id))) return;
       await client.views.open({
         trigger_id: body.trigger_id,
-        view: buildAutoRespondModal(),
+        view: deps.buildAutoRespondModal(),
       });
     } catch (error) {
       logger.error("Failed to open add auto-respond rule modal:", error);
@@ -601,13 +697,13 @@ export function registerHomeTabHandler(app: App): void {
   app.action<BlockAction>(/^ai_edit_rule:/, async ({ ack, body, client, action }) => {
     await ack();
     try {
-      if (!(await userCanManageRoles(body.user.id))) return;
+      if (!(await deps.userCanManageRoles(body.user.id))) return;
       const ruleId = (action as { action_id: string }).action_id.split(":")[1];
-      const rule = await getRule(ruleId);
+      const rule = await deps.getRule(ruleId);
       if (!rule) return;
       await client.views.open({
         trigger_id: body.trigger_id,
-        view: buildAutoRespondModal(rule),
+        view: deps.buildAutoRespondModal(rule),
       });
     } catch (error) {
       logger.error("Failed to open edit auto-respond rule modal:", error);
@@ -618,20 +714,20 @@ export function registerHomeTabHandler(app: App): void {
   app.action<BlockAction>(/^ai_toggle_rule:/, async ({ ack, body, client, action }) => {
     await ack();
     try {
-      if (!(await userCanManageRoles(body.user.id))) return;
+      if (!(await deps.userCanManageRoles(body.user.id))) return;
       const ruleId = (action as { action_id: string }).action_id.split(":")[1];
-      const updated = await toggleRule(ruleId);
+      const updated = await deps.toggleRule(ruleId);
       // Refresh the modal to reflect the new state
       if (updated) {
         const viewId = (body as unknown as { view?: { id: string } }).view?.id;
         if (viewId) {
           await client.views.update({
             view_id: viewId,
-            view: buildAutoRespondModal(updated),
+            view: deps.buildAutoRespondModal(updated),
           });
         }
       }
-      await publishHomeView(client, body.user.id);
+      await publishHomeView(client, body.user.id, deps);
     } catch (error) {
       logger.error("Failed to toggle auto-respond rule:", error);
     }
@@ -641,9 +737,9 @@ export function registerHomeTabHandler(app: App): void {
   app.action<BlockAction>(/^ai_delete_rule:/, async ({ ack, body, client, action }) => {
     await ack();
     try {
-      if (!(await userCanManageRoles(body.user.id))) return;
+      if (!(await deps.userCanManageRoles(body.user.id))) return;
       const ruleId = (action as { action_id: string }).action_id.split(":")[1];
-      await deleteRule(ruleId);
+      await deps.deleteRule(ruleId);
       // Close the modal by replacing it with a brief confirmation
       const viewId = (body as unknown as { view?: { id: string } }).view?.id;
       if (viewId) {
@@ -662,7 +758,7 @@ export function registerHomeTabHandler(app: App): void {
           },
         });
       }
-      await publishHomeView(client, body.user.id);
+      await publishHomeView(client, body.user.id, deps);
     } catch (error) {
       logger.error("Failed to delete auto-respond rule:", error);
     }
@@ -670,7 +766,7 @@ export function registerHomeTabHandler(app: App): void {
 
   // Add Rule modal submission (admin only)
   app.view<ViewSubmitAction>("ai_add_rule_modal", async ({ ack, view, body, client }) => {
-    if (!(await userCanManageRoles(body.user.id))) {
+    if (!(await deps.userCanManageRoles(body.user.id))) {
       await ack({
         response_action: "errors",
         errors: { channels_block: "You don't have permission to manage auto-respond rules" },
@@ -690,7 +786,7 @@ export function registerHomeTabHandler(app: App): void {
     const keywords = parseKeywords(keywordsRaw);
     const extraContext = view.state.values.extra_context_block?.extra_context?.value;
     const preAnalysisContext = view.state.values.pre_analysis_block?.pre_analysis_context?.value;
-    await addRule(
+    await deps.addRule(
       channels,
       users && users.length > 0 ? users : undefined,
       keywords,
@@ -698,12 +794,12 @@ export function registerHomeTabHandler(app: App): void {
       preAnalysisContext ?? undefined,
     );
     await ack();
-    await publishHomeView(client, body.user.id);
+    await publishHomeView(client, body.user.id, deps);
   });
 
   // Edit Rule modal submission (admin only)
   app.view<ViewSubmitAction>("ai_edit_rule_modal", async ({ ack, view, body, client }) => {
-    if (!(await userCanManageRoles(body.user.id))) {
+    if (!(await deps.userCanManageRoles(body.user.id))) {
       await ack({
         response_action: "errors",
         errors: { channels_block: "You don't have permission to manage auto-respond rules" },
@@ -724,7 +820,7 @@ export function registerHomeTabHandler(app: App): void {
     const keywords = parseKeywords(keywordsRaw);
     const extraContext = view.state.values.extra_context_block?.extra_context?.value;
     const preAnalysisContext = view.state.values.pre_analysis_block?.pre_analysis_context?.value;
-    await updateRule(
+    await deps.updateRule(
       ruleId,
       channels,
       users && users.length > 0 ? users : undefined,
@@ -733,7 +829,7 @@ export function registerHomeTabHandler(app: App): void {
       preAnalysisContext ?? undefined,
     );
     await ack();
-    await publishHomeView(client, body.user.id);
+    await publishHomeView(client, body.user.id, deps);
   });
 
   // Handle "Chat to Edit" button — open DM with file content and close modal
@@ -745,7 +841,7 @@ export function registerHomeTabHandler(app: App): void {
       if (!filepath) return;
 
       const userId = body.user.id;
-      const { default_content, custom_content } = readInstructionFile(filepath);
+      const { default_content, custom_content } = deps.readInstructionFile(filepath);
       const content = custom_content ?? default_content ?? "";
 
       // Open DM and upload the file, then send an intro message
@@ -793,11 +889,11 @@ export function registerHomeTabHandler(app: App): void {
     await ack();
     try {
       const jobId = (action as { action_id: string }).action_id.split(":")[1];
-      const job = await getJob(jobId);
+      const job = await deps.getJob(jobId);
       if (!job) return;
       await client.views.open({
         trigger_id: body.trigger_id,
-        view: buildCronJobModal(job),
+        view: deps.buildCronJobModal(job),
       });
     } catch (error) {
       logger.error("Failed to open edit cron job modal:", error);
@@ -809,17 +905,17 @@ export function registerHomeTabHandler(app: App): void {
     await ack();
     try {
       const jobId = (action as { action_id: string }).action_id.split(":")[1];
-      const updated = await toggleJob(jobId);
+      const updated = await deps.toggleJob(jobId);
       if (updated) {
         const viewId = (body as unknown as { view?: { id: string } }).view?.id;
         if (viewId) {
           await client.views.update({
             view_id: viewId,
-            view: buildCronJobModal(updated),
+            view: deps.buildCronJobModal(updated),
           });
         }
       }
-      await publishHomeView(client, body.user.id);
+      await publishHomeView(client, body.user.id, deps);
     } catch (error) {
       logger.error("Failed to toggle cron job:", error);
     }
@@ -830,7 +926,7 @@ export function registerHomeTabHandler(app: App): void {
     await ack();
     try {
       const jobId = (action as { action_id: string }).action_id.split(":")[1];
-      const job = await getJob(jobId);
+      const job = await deps.getJob(jobId);
       if (!job) return;
 
       // Close the modal with a confirmation message
@@ -856,7 +952,7 @@ export function registerHomeTabHandler(app: App): void {
       }
 
       // Execute in background — don't block the modal interaction
-      runJobNow(job, client).catch((error) => {
+      deps.runJobNow(job, client).catch((error) => {
         logger.error(`Failed to run cron job ${jobId} on demand:`, error);
       });
     } catch (error) {
@@ -869,7 +965,7 @@ export function registerHomeTabHandler(app: App): void {
     await ack();
     try {
       const jobId = (action as { action_id: string }).action_id.split(":")[1];
-      await deleteJob(jobId);
+      await deps.deleteJob(jobId);
       const viewId = (body as unknown as { view?: { id: string } }).view?.id;
       if (viewId) {
         await client.views.update({
@@ -887,7 +983,7 @@ export function registerHomeTabHandler(app: App): void {
           },
         });
       }
-      await publishHomeView(client, body.user.id);
+      await publishHomeView(client, body.user.id, deps);
     } catch (error) {
       logger.error("Failed to delete cron job:", error);
     }
@@ -928,12 +1024,12 @@ export function registerHomeTabHandler(app: App): void {
 
     await ack();
     try {
-      await updateJob(jobId, {
+      await deps.updateJob(jobId, {
         channel,
         cronExpression,
         prompt,
       });
-      await publishHomeView(client, body.user.id);
+      await publishHomeView(client, body.user.id, deps);
     } catch (error) {
       logger.error("Failed to update cron job:", error);
     }
