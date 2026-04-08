@@ -63,6 +63,8 @@ USER clack
 
 # Set HOME for Claude Code
 ENV HOME=/home/clack
+# Store Claude Code sessions inside /app/data so they survive container restarts
+ENV CLAUDE_CONFIG_DIR=/app/data/.claude
 
 # Configure git for the clack user (needed by Claude Code for push operations)
 RUN git config --global user.name "Clack" && \

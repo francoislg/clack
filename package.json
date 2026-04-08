@@ -11,7 +11,7 @@
     "start": "node dist/index.js",
     "start:logfile": "mkdir -p logs && node dist/index.js 2>&1 | tee \"logs/clack-$(date +%Y%m%d-%H%M%S).log\"",
     "dev": "tsc --watch & node --watch dist/index.js",
-    "test": "node --import tsx --experimental-test-module-mocks --test 'src/**/*.test.ts'",
+    "test": "LOG_LEVEL=silent node --import tsx --experimental-test-module-mocks --test --test-force-exit 'src/**/*.test.ts'",
     "ask": "npx tsx scripts/askClaude.ts",
     "manifest": "npx tsx scripts/generate-manifest.ts",
     "docker-setup": "bash scripts/docker-setup.sh",
