@@ -10,10 +10,12 @@ data/mcp.json
 data/*.md
 data/repositories/
 data/sessions/
+data/error-reports/
 data/worktrees/
 data/worktree-sessions/
 data/state/
 data/cache/
+data/.claude/
 data/auth/*
 !data/auth/.gitkeep
 !data/auth/slack.example.json
@@ -59,3 +61,5 @@ coverage/
 # Desloppify
 .desloppify/
 scorecard.png
+
+.systematic/
