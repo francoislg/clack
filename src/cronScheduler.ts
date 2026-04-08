@@ -3,6 +3,7 @@ import type { App } from "@slack/bolt";
 import { getEnabledJobs, updateJobRunStatus, deleteJob, type CronJob } from "./cronJobs.js";
 import { processMessage } from "./slack/handlers/core.js";
 import { logger } from "./logger.js";
+import { resolveChannelLabel, slackLink } from "./slack/logContext.js";
 
 // ============================================================================
 // State
@@ -114,7 +115,12 @@ async function executeJob(job: CronJob): Promise<void> {
   }
 
   runningJobs.add(job.id);
-  logger.info(`Cron job ${job.id} executing (channel: ${job.channel})`);
+  const channelLabel = slackClient
+    ? await resolveChannelLabel(slackClient, job.channel)
+    : job.channel;
+  logger.info(
+    `Cron job ${job.id} executing in ${channelLabel}${await slackLink(slackClient, job.channel)}`,
+  );
 
   try {
     await executeDynamicJob(job, slackClient);
@@ -146,7 +152,10 @@ async function executeJob(job: CronJob): Promise<void> {
 }
 
 export async function runJobNow(job: CronJob, client: App["client"]): Promise<void> {
-  logger.info(`Cron job ${job.id} executing manually (channel: ${job.channel})`);
+  const channelLabel = await resolveChannelLabel(client, job.channel);
+  logger.info(
+    `Cron job ${job.id} executing manually in ${channelLabel}${await slackLink(client, job.channel)}`,
+  );
   await executeDynamicJob(job, client);
 }
 

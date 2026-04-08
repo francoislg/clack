@@ -1,27 +1,23 @@
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
-
-// ---------------------------------------------------------------------------
-// Module-level mocks
-// ---------------------------------------------------------------------------
-
-const mockFetchThreadContext = mock.fn<(...args: unknown[]) => Promise<unknown[]>>();
-
-mock.module("../../slack/messagesApi.js", {
-  namedExports: {
-    fetchThreadContext: mockFetchThreadContext,
-  },
-});
-
-// Import after mocks
-const { createFetchSlackMessageTool } = await import("./fetchSlackMessage.js");
+import { createFetchSlackMessageTool, type FetchSlackMessageDeps } from "./fetchSlackMessage.js";
+import type { QueryToolContext } from "../types.js";
+import type { SlackImageFile } from "../../slack/slackFileBase.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-import type { QueryToolContext } from "../types.js";
-import type { SlackImageFile } from "../../slack/slackFileBase.js";
+function makeDeps(overrides: Partial<FetchSlackMessageDeps> = {}): FetchSlackMessageDeps {
+  return {
+    fetchThreadContext: mock.fn(async () => []) as FetchSlackMessageDeps["fetchThreadContext"],
+    getChannelInfo: mock.fn(async () => ({
+      id: "C0123ABC",
+      name: "general",
+    })) as FetchSlackMessageDeps["getChannelInfo"],
+    ...overrides,
+  };
+}
 
 function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
   return {
@@ -43,10 +39,10 @@ function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
     },
     config: {
       repositories: [],
-    } as unknown as QueryToolContext["config"],
+    } as never as QueryToolContext["config"],
     changesWorkflowEnabled: false,
     allowScheduledMessages: false,
-    slackClient: {} as NonNullable<QueryToolContext["slackClient"]>,
+    slackClient: {} as never as NonNullable<QueryToolContext["slackClient"]>,
     availableImages: new Map(),
     availableFiles: new Map(),
     ...overrides,
@@ -67,23 +63,16 @@ function makeThreadMessages(count: number) {
   }));
 }
 
-function resetMocks() {
-  mockFetchThreadContext.mock.resetCalls();
-  mockFetchThreadContext.mock.mockImplementation(async () => []);
-}
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 describe("fetchSlackMessage tool", () => {
-  beforeEach(resetMocks);
-
   // --- URL parsing ---
 
   it("returns error for invalid URL format", async () => {
     const ctx = makeCtx();
-    const toolDef = createFetchSlackMessageTool(ctx);
+    const toolDef = createFetchSlackMessageTool(ctx, makeDeps());
 
     const result = await toolDef.handler(
       { url: "not-a-url", page: undefined, limit: undefined },
@@ -98,7 +87,7 @@ describe("fetchSlackMessage tool", () => {
 
   it("returns error for non-Slack URL", async () => {
     const ctx = makeCtx();
-    const toolDef = createFetchSlackMessageTool(ctx);
+    const toolDef = createFetchSlackMessageTool(ctx, makeDeps());
 
     const result = await toolDef.handler(
       { url: "https://example.com/page", page: undefined, limit: undefined },
@@ -113,7 +102,7 @@ describe("fetchSlackMessage tool", () => {
 
   it("returns error for slack.com URL without workspace subdomain", async () => {
     const ctx = makeCtx();
-    const toolDef = createFetchSlackMessageTool(ctx);
+    const toolDef = createFetchSlackMessageTool(ctx, makeDeps());
 
     const result = await toolDef.handler(
       {
@@ -134,7 +123,7 @@ describe("fetchSlackMessage tool", () => {
 
   it("returns error when slackClient is not available", async () => {
     const ctx = makeCtx({ slackClient: undefined });
-    const toolDef = createFetchSlackMessageTool(ctx);
+    const toolDef = createFetchSlackMessageTool(ctx, makeDeps());
 
     const result = await toolDef.handler(
       {
@@ -155,10 +144,14 @@ describe("fetchSlackMessage tool", () => {
 
   it("fetches thread with default pagination of 5 messages", async () => {
     const messages = makeThreadMessages(8);
-    mockFetchThreadContext.mock.mockImplementation(async () => messages.slice(0, 6)); // 6 = (0+1)*5+1
+    const deps = makeDeps({
+      fetchThreadContext: mock.fn(async () =>
+        messages.slice(0, 6),
+      ) as FetchSlackMessageDeps["fetchThreadContext"], // 6 = (0+1)*5+1
+    });
 
     const ctx = makeCtx();
-    const toolDef = createFetchSlackMessageTool(ctx);
+    const toolDef = createFetchSlackMessageTool(ctx, deps);
 
     const result = await toolDef.handler(
       {
@@ -182,10 +175,14 @@ describe("fetchSlackMessage tool", () => {
 
   it("returns has_more false when thread has fewer messages than limit", async () => {
     const messages = makeThreadMessages(3);
-    mockFetchThreadContext.mock.mockImplementation(async () => messages);
+    const deps = makeDeps({
+      fetchThreadContext: mock.fn(
+        async () => messages,
+      ) as FetchSlackMessageDeps["fetchThreadContext"],
+    });
 
     const ctx = makeCtx();
-    const toolDef = createFetchSlackMessageTool(ctx);
+    const toolDef = createFetchSlackMessageTool(ctx, deps);
 
     const result = await toolDef.handler(
       {
@@ -205,10 +202,14 @@ describe("fetchSlackMessage tool", () => {
 
   it("fetches custom page and limit", async () => {
     const messages = makeThreadMessages(25);
-    mockFetchThreadContext.mock.mockImplementation(async () => messages.slice(0, 21)); // (1+1)*10+1
+    const deps = makeDeps({
+      fetchThreadContext: mock.fn(async () =>
+        messages.slice(0, 21),
+      ) as FetchSlackMessageDeps["fetchThreadContext"], // (1+1)*10+1
+    });
 
     const ctx = makeCtx();
-    const toolDef = createFetchSlackMessageTool(ctx);
+    const toolDef = createFetchSlackMessageTool(ctx, deps);
 
     const result = await toolDef.handler(
       {
@@ -231,10 +232,14 @@ describe("fetchSlackMessage tool", () => {
 
   it("detects has_more when thread is longer than page", async () => {
     const messages = makeThreadMessages(6); // exactly limit+1
-    mockFetchThreadContext.mock.mockImplementation(async () => messages);
+    const deps = makeDeps({
+      fetchThreadContext: mock.fn(
+        async () => messages,
+      ) as FetchSlackMessageDeps["fetchThreadContext"],
+    });
 
     const ctx = makeCtx();
-    const toolDef = createFetchSlackMessageTool(ctx);
+    const toolDef = createFetchSlackMessageTool(ctx, deps);
 
     const result = await toolDef.handler(
       {
@@ -252,10 +257,14 @@ describe("fetchSlackMessage tool", () => {
 
   it("returns has_more false when exactly at limit", async () => {
     const messages = makeThreadMessages(5);
-    mockFetchThreadContext.mock.mockImplementation(async () => messages);
+    const deps = makeDeps({
+      fetchThreadContext: mock.fn(
+        async () => messages,
+      ) as FetchSlackMessageDeps["fetchThreadContext"],
+    });
 
     const ctx = makeCtx();
-    const toolDef = createFetchSlackMessageTool(ctx);
+    const toolDef = createFetchSlackMessageTool(ctx, deps);
 
     const result = await toolDef.handler(
       {
@@ -275,10 +284,14 @@ describe("fetchSlackMessage tool", () => {
 
   it("returns single message for standalone message URL", async () => {
     const messages = makeThreadMessages(1);
-    mockFetchThreadContext.mock.mockImplementation(async () => messages);
+    const deps = makeDeps({
+      fetchThreadContext: mock.fn(
+        async () => messages,
+      ) as FetchSlackMessageDeps["fetchThreadContext"],
+    });
 
     const ctx = makeCtx();
-    const toolDef = createFetchSlackMessageTool(ctx);
+    const toolDef = createFetchSlackMessageTool(ctx, deps);
 
     const result = await toolDef.handler(
       {
@@ -299,10 +312,15 @@ describe("fetchSlackMessage tool", () => {
 
   it("uses thread_ts from URL as parent ts", async () => {
     const messages = makeThreadMessages(3);
-    mockFetchThreadContext.mock.mockImplementation(async () => messages);
+    const fetchThreadContextFn = mock.fn<FetchSlackMessageDeps["fetchThreadContext"]>(
+      async () => messages,
+    );
+    const deps = makeDeps({
+      fetchThreadContext: fetchThreadContextFn,
+    });
 
     const ctx = makeCtx();
-    const toolDef = createFetchSlackMessageTool(ctx);
+    const toolDef = createFetchSlackMessageTool(ctx, deps);
 
     const result = await toolDef.handler(
       {
@@ -317,17 +335,19 @@ describe("fetchSlackMessage tool", () => {
     assert.equal(parsed.thread_ts, "1111111111.000000");
 
     // Verify fetchThreadContext was called with the thread_ts, not the message ts
-    const callArgs = mockFetchThreadContext.mock.calls[0].arguments as unknown[];
+    const callArgs = fetchThreadContextFn.mock.calls[0].arguments;
     assert.equal(callArgs[2], "1111111111.000000");
   });
 
   // --- Empty result ---
 
   it("returns error when thread fetch returns empty", async () => {
-    mockFetchThreadContext.mock.mockImplementation(async () => []);
+    const deps = makeDeps({
+      fetchThreadContext: mock.fn(async () => []) as FetchSlackMessageDeps["fetchThreadContext"],
+    });
 
     const ctx = makeCtx();
-    const toolDef = createFetchSlackMessageTool(ctx);
+    const toolDef = createFetchSlackMessageTool(ctx, deps);
 
     const result = await toolDef.handler(
       {
@@ -348,7 +368,7 @@ describe("fetchSlackMessage tool", () => {
 
   it("returns error when requested range exceeds max fetch cap", async () => {
     const ctx = makeCtx();
-    const toolDef = createFetchSlackMessageTool(ctx);
+    const toolDef = createFetchSlackMessageTool(ctx, makeDeps());
 
     const result = await toolDef.handler(
       {
@@ -366,10 +386,14 @@ describe("fetchSlackMessage tool", () => {
   });
 
   it("allows request exactly at max fetch cap boundary", async () => {
-    mockFetchThreadContext.mock.mockImplementation(async () => makeThreadMessages(1));
+    const deps = makeDeps({
+      fetchThreadContext: mock.fn(async () =>
+        makeThreadMessages(1),
+      ) as FetchSlackMessageDeps["fetchThreadContext"],
+    });
 
     const ctx = makeCtx();
-    const toolDef = createFetchSlackMessageTool(ctx);
+    const toolDef = createFetchSlackMessageTool(ctx, deps);
 
     // (0+1)*200 = 200 — exactly at cap, should succeed
     const result = await toolDef.handler(
@@ -386,7 +410,7 @@ describe("fetchSlackMessage tool", () => {
 
   it("rejects request just over max fetch cap boundary", async () => {
     const ctx = makeCtx();
-    const toolDef = createFetchSlackMessageTool(ctx);
+    const toolDef = createFetchSlackMessageTool(ctx, makeDeps());
 
     // (1+1)*101 = 202 — just over cap
     const result = await toolDef.handler(
@@ -408,10 +432,14 @@ describe("fetchSlackMessage tool", () => {
 
   it("returns empty page when page exceeds thread length", async () => {
     const messages = makeThreadMessages(3);
-    mockFetchThreadContext.mock.mockImplementation(async () => messages);
+    const deps = makeDeps({
+      fetchThreadContext: mock.fn(
+        async () => messages,
+      ) as FetchSlackMessageDeps["fetchThreadContext"],
+    });
 
     const ctx = makeCtx();
-    const toolDef = createFetchSlackMessageTool(ctx);
+    const toolDef = createFetchSlackMessageTool(ctx, deps);
 
     const result = await toolDef.handler(
       {
@@ -447,11 +475,15 @@ describe("fetchSlackMessage tool", () => {
         imageFiles: [imageFile],
       },
     ];
-    mockFetchThreadContext.mock.mockImplementation(async () => messages);
+    const deps = makeDeps({
+      fetchThreadContext: mock.fn(
+        async () => messages,
+      ) as FetchSlackMessageDeps["fetchThreadContext"],
+    });
 
     const availableImages = new Map<string, SlackImageFile>();
     const ctx = makeCtx({ availableImages });
-    const toolDef = createFetchSlackMessageTool(ctx);
+    const toolDef = createFetchSlackMessageTool(ctx, deps);
 
     const result = await toolDef.handler(
       {
@@ -485,11 +517,15 @@ describe("fetchSlackMessage tool", () => {
         files: [file],
       },
     ];
-    mockFetchThreadContext.mock.mockImplementation(async () => messages);
+    const deps = makeDeps({
+      fetchThreadContext: mock.fn(
+        async () => messages,
+      ) as FetchSlackMessageDeps["fetchThreadContext"],
+    });
 
     const availableFiles = new Map();
     const ctx = makeCtx({ availableFiles });
-    const toolDef = createFetchSlackMessageTool(ctx);
+    const toolDef = createFetchSlackMessageTool(ctx, deps);
 
     const result = await toolDef.handler(
       {
@@ -539,11 +575,15 @@ describe("fetchSlackMessage tool", () => {
         imageFiles: [page1Image],
       },
     ];
-    mockFetchThreadContext.mock.mockImplementation(async () => messages);
+    const deps = makeDeps({
+      fetchThreadContext: mock.fn(
+        async () => messages,
+      ) as FetchSlackMessageDeps["fetchThreadContext"],
+    });
 
     const availableImages = new Map<string, SlackImageFile>();
     const ctx = makeCtx({ availableImages });
-    const toolDef = createFetchSlackMessageTool(ctx);
+    const toolDef = createFetchSlackMessageTool(ctx, deps);
 
     // Request page 1 with limit 1 — only message at index 1 should be in the page
     await toolDef.handler(
@@ -564,10 +604,14 @@ describe("fetchSlackMessage tool", () => {
 
   it("falls back to username when displayName is absent", async () => {
     const messages = [{ text: "Hello", userId: "U1", ts: "1.0", isBot: false, username: "bob" }];
-    mockFetchThreadContext.mock.mockImplementation(async () => messages);
+    const deps = makeDeps({
+      fetchThreadContext: mock.fn(
+        async () => messages,
+      ) as FetchSlackMessageDeps["fetchThreadContext"],
+    });
 
     const ctx = makeCtx();
-    const toolDef = createFetchSlackMessageTool(ctx);
+    const toolDef = createFetchSlackMessageTool(ctx, deps);
 
     const result = await toolDef.handler(
       {
@@ -584,10 +628,14 @@ describe("fetchSlackMessage tool", () => {
 
   it("falls back to userId when displayName and username are absent", async () => {
     const messages = [{ text: "Hello", userId: "U1", ts: "1.0", isBot: false }];
-    mockFetchThreadContext.mock.mockImplementation(async () => messages);
+    const deps = makeDeps({
+      fetchThreadContext: mock.fn(
+        async () => messages,
+      ) as FetchSlackMessageDeps["fetchThreadContext"],
+    });
 
     const ctx = makeCtx();
-    const toolDef = createFetchSlackMessageTool(ctx);
+    const toolDef = createFetchSlackMessageTool(ctx, deps);
 
     const result = await toolDef.handler(
       {
@@ -622,10 +670,14 @@ describe("fetchSlackMessage tool", () => {
         imageFiles: [imageFile],
       },
     ];
-    mockFetchThreadContext.mock.mockImplementation(async () => messages);
+    const deps = makeDeps({
+      fetchThreadContext: mock.fn(
+        async () => messages,
+      ) as FetchSlackMessageDeps["fetchThreadContext"],
+    });
 
     const ctx = makeCtx({ availableImages: undefined, availableFiles: undefined });
-    const toolDef = createFetchSlackMessageTool(ctx);
+    const toolDef = createFetchSlackMessageTool(ctx, deps);
 
     const result = await toolDef.handler(
       {
@@ -646,10 +698,14 @@ describe("fetchSlackMessage tool", () => {
 
   it("omits images and files keys when message has no attachments", async () => {
     const messages = makeThreadMessages(1);
-    mockFetchThreadContext.mock.mockImplementation(async () => messages);
+    const deps = makeDeps({
+      fetchThreadContext: mock.fn(
+        async () => messages,
+      ) as FetchSlackMessageDeps["fetchThreadContext"],
+    });
 
     const ctx = makeCtx();
-    const toolDef = createFetchSlackMessageTool(ctx);
+    const toolDef = createFetchSlackMessageTool(ctx, deps);
 
     const result = await toolDef.handler(
       {
@@ -668,10 +724,13 @@ describe("fetchSlackMessage tool", () => {
   // --- fetchThreadContext call verification ---
 
   it("passes correct limit to fetchThreadContext for default params", async () => {
-    mockFetchThreadContext.mock.mockImplementation(async () => makeThreadMessages(1));
+    const fetchThreadContextFn = mock.fn<FetchSlackMessageDeps["fetchThreadContext"]>(async () =>
+      makeThreadMessages(1),
+    );
+    const deps = makeDeps({ fetchThreadContext: fetchThreadContextFn });
 
     const ctx = makeCtx();
-    const toolDef = createFetchSlackMessageTool(ctx);
+    const toolDef = createFetchSlackMessageTool(ctx, deps);
 
     await toolDef.handler(
       {
@@ -682,17 +741,20 @@ describe("fetchSlackMessage tool", () => {
       { sessionId: "test" },
     );
 
-    const callArgs = mockFetchThreadContext.mock.calls[0].arguments as unknown[];
-    const options = callArgs[4] as { limit: number };
+    const callArgs = fetchThreadContextFn.mock.calls[0].arguments;
+    const options = callArgs[4];
     // (0+1)*5+1 = 6
-    assert.equal(options.limit, 6);
+    assert.equal(options?.limit, 6);
   });
 
   it("passes correct limit to fetchThreadContext for custom page/limit", async () => {
-    mockFetchThreadContext.mock.mockImplementation(async () => makeThreadMessages(1));
+    const fetchThreadContextFn = mock.fn<FetchSlackMessageDeps["fetchThreadContext"]>(async () =>
+      makeThreadMessages(1),
+    );
+    const deps = makeDeps({ fetchThreadContext: fetchThreadContextFn });
 
     const ctx = makeCtx();
-    const toolDef = createFetchSlackMessageTool(ctx);
+    const toolDef = createFetchSlackMessageTool(ctx, deps);
 
     await toolDef.handler(
       {
@@ -703,9 +765,60 @@ describe("fetchSlackMessage tool", () => {
       { sessionId: "test" },
     );
 
-    const callArgs = mockFetchThreadContext.mock.calls[0].arguments as unknown[];
-    const options = callArgs[4] as { limit: number };
+    const callArgs = fetchThreadContextFn.mock.calls[0].arguments;
+    const options = callArgs[4];
     // (2+1)*10+1 = 31
-    assert.equal(options.limit, 31);
+    assert.equal(options?.limit, 31);
+  });
+
+  it("includes channel_name in result when resolved", async () => {
+    const deps = makeDeps({
+      getChannelInfo: mock.fn(async () => ({
+        id: "C0123ABC",
+        name: "backend-dev",
+      })) as FetchSlackMessageDeps["getChannelInfo"],
+      fetchThreadContext: mock.fn(async () =>
+        makeThreadMessages(1),
+      ) as FetchSlackMessageDeps["fetchThreadContext"],
+    });
+
+    const ctx = makeCtx();
+    const toolDef = createFetchSlackMessageTool(ctx, deps);
+
+    const result = await toolDef.handler(
+      {
+        url: "https://workspace.slack.com/archives/C0123ABC/p1234567890123456",
+        page: undefined,
+        limit: undefined,
+      },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseResult(result);
+    assert.equal(parsed.channel_name, "backend-dev");
+  });
+
+  it("omits channel_name when resolution fails", async () => {
+    const deps = makeDeps({
+      getChannelInfo: mock.fn(async () => undefined) as FetchSlackMessageDeps["getChannelInfo"],
+      fetchThreadContext: mock.fn(async () =>
+        makeThreadMessages(1),
+      ) as FetchSlackMessageDeps["fetchThreadContext"],
+    });
+
+    const ctx = makeCtx();
+    const toolDef = createFetchSlackMessageTool(ctx, deps);
+
+    const result = await toolDef.handler(
+      {
+        url: "https://workspace.slack.com/archives/C0123ABC/p1234567890123456",
+        page: undefined,
+        limit: undefined,
+      },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseResult(result);
+    assert.equal(parsed.channel_name, undefined);
   });
 });
