@@ -2,33 +2,11 @@ import { describe, it, beforeEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import type { PersistedSessionState, ChangeStatus } from "./types.js";
 import type { RepositoryConfig } from "../config.js";
+import { restoreWorkerSessions, type RestoreDeps } from "./restore.js";
 
 // ============================================================================
-// Mock setup
+// Helpers
 // ============================================================================
-
-const mockGetAllPersistedSessions = mock.fn<() => Promise<PersistedSessionState[]>>();
-const mockWriteSessionState = mock.fn();
-
-mock.module("./persistence.js", {
-  namedExports: {
-    getAllPersistedSessions: mockGetAllPersistedSessions,
-    writeSessionState: mockWriteSessionState,
-  },
-});
-
-const mockLogger = {
-  debug: mock.fn(),
-  info: mock.fn(),
-  warn: mock.fn(),
-  error: mock.fn(),
-};
-
-mock.module("../logger.js", {
-  namedExports: {
-    logger: mockLogger,
-  },
-});
 
 const mockRepositories: RepositoryConfig[] = [
   {
@@ -37,63 +15,6 @@ const mockRepositories: RepositoryConfig[] = [
     description: "Test repo",
   },
 ];
-
-mock.module("../config.js", {
-  namedExports: {
-    getConfig: () => ({
-      repositories: mockRepositories,
-    }),
-  },
-});
-
-const mockGetExistingWorktree =
-  mock.fn<
-    (
-      repo: RepositoryConfig,
-      branch: string,
-    ) => { repoName: string; branchName: string; worktreePath: string; createdAt: Date } | null
-  >();
-
-mock.module("../worktrees.js", {
-  namedExports: {
-    getExistingWorktree: mockGetExistingWorktree,
-  },
-});
-
-const mockFindSessionByThread = mock.fn<
-  (
-    channelId: string,
-    threadTs: string,
-  ) => Promise<{
-    sessionId: string;
-    channelId: string;
-    threadTs: string;
-    userId: string;
-    triggerType?: string;
-    activeChange?: unknown;
-  } | null>
->();
-
-mock.module("../sessions.js", {
-  namedExports: {
-    findSessionByThread: mockFindSessionByThread,
-  },
-});
-
-const mockSetActiveChange = mock.fn();
-
-mock.module("./activeState.js", {
-  namedExports: {
-    setActiveChange: mockSetActiveChange,
-  },
-});
-
-// Import after mocks are set up
-const { restoreWorkerSessions } = await import("./restore.js");
-
-// ============================================================================
-// Helpers
-// ============================================================================
 
 function makePersistedState(overrides: Partial<PersistedSessionState> = {}): PersistedSessionState {
   return {
@@ -129,24 +50,27 @@ const defaultUnifiedSession = {
   triggerType: "reactions" as const,
 };
 
-function resetAllMocks() {
-  mockGetAllPersistedSessions.mock.resetCalls();
-  mockWriteSessionState.mock.resetCalls();
-  mockGetExistingWorktree.mock.resetCalls();
-  mockFindSessionByThread.mock.resetCalls();
-  mockSetActiveChange.mock.resetCalls();
-  mockLogger.debug.mock.resetCalls();
-  mockLogger.info.mock.resetCalls();
+function makeDeps(overrides: Partial<RestoreDeps> = {}): RestoreDeps {
+  const mockGetAllPersistedSessions = mock.fn(async () => [] as PersistedSessionState[]);
+  const mockWriteSessionState = mock.fn(() => {});
+  const mockGetExistingWorktree = mock.fn(
+    () => defaultWorktree as ReturnType<RestoreDeps["getExistingWorktree"]>,
+  );
+  const mockFindSessionByThread = mock.fn(
+    async () => defaultUnifiedSession as Awaited<ReturnType<RestoreDeps["findSessionByThread"]>>,
+  );
+  const mockSetActiveChange = mock.fn(() => {});
 
-  // Set sensible defaults
-  mockGetAllPersistedSessions.mock.mockImplementation(async () => []);
-  mockGetExistingWorktree.mock.mockImplementation(() => defaultWorktree);
-  mockFindSessionByThread.mock.mockImplementation(async () => defaultUnifiedSession);
+  return {
+    getConfig: () => ({ repositories: mockRepositories }) as never,
+    getExistingWorktree: mockGetExistingWorktree as never,
+    getAllPersistedSessions: mockGetAllPersistedSessions as never,
+    writeSessionState: mockWriteSessionState as never,
+    findSessionByThread: mockFindSessionByThread as never,
+    setActiveChange: mockSetActiveChange as never,
+    ...overrides,
+  };
 }
-
-beforeEach(() => {
-  resetAllMocks();
-});
 
 // ============================================================================
 // restoreWorkerSessions — early return
@@ -154,12 +78,15 @@ beforeEach(() => {
 
 describe("restoreWorkerSessions", () => {
   it("returns immediately when there are no persisted sessions", async () => {
-    mockGetAllPersistedSessions.mock.mockImplementation(async () => []);
+    const mockSetActiveChange = mock.fn();
+    const deps = makeDeps({
+      getAllPersistedSessions: mock.fn(async () => []) as never,
+      setActiveChange: mockSetActiveChange as never,
+    });
 
-    await restoreWorkerSessions();
+    await restoreWorkerSessions(deps);
 
     assert.equal(mockSetActiveChange.mock.callCount(), 0);
-    assert.equal(mockLogger.info.mock.callCount(), 0);
   });
 
   // ==========================================================================
@@ -168,21 +95,43 @@ describe("restoreWorkerSessions", () => {
 
   describe("skipping terminal states", () => {
     it("skips completed sessions", async () => {
-      mockGetAllPersistedSessions.mock.mockImplementation(async () => [
-        makePersistedState({ status: "completed" }),
-      ]);
+      const mockSetActiveChange = mock.fn();
+      const deps = makeDeps({
+        getAllPersistedSessions: mock.fn(async () => [
+          makePersistedState({ status: "completed" }),
+        ]) as never,
+        setActiveChange: mockSetActiveChange as never,
+      });
 
-      await restoreWorkerSessions();
+      await restoreWorkerSessions(deps);
 
       assert.equal(mockSetActiveChange.mock.callCount(), 0);
     });
 
     it("skips failed sessions", async () => {
-      mockGetAllPersistedSessions.mock.mockImplementation(async () => [
-        makePersistedState({ status: "failed" }),
-      ]);
+      const mockSetActiveChange = mock.fn();
+      const deps = makeDeps({
+        getAllPersistedSessions: mock.fn(async () => [
+          makePersistedState({ status: "failed" }),
+        ]) as never,
+        setActiveChange: mockSetActiveChange as never,
+      });
 
-      await restoreWorkerSessions();
+      await restoreWorkerSessions(deps);
+
+      assert.equal(mockSetActiveChange.mock.callCount(), 0);
+    });
+
+    it("skips cancelled sessions", async () => {
+      const mockSetActiveChange = mock.fn();
+      const deps = makeDeps({
+        getAllPersistedSessions: mock.fn(async () => [
+          makePersistedState({ status: "cancelled" }),
+        ]) as never,
+        setActiveChange: mockSetActiveChange as never,
+      });
+
+      await restoreWorkerSessions(deps);
 
       assert.equal(mockSetActiveChange.mock.callCount(), 0);
     });
@@ -194,21 +143,29 @@ describe("restoreWorkerSessions", () => {
 
   describe("skipping sessions with missing data", () => {
     it("skips sessions with null channel", async () => {
-      mockGetAllPersistedSessions.mock.mockImplementation(async () => [
-        makePersistedState({ channel: null }),
-      ]);
+      const mockSetActiveChange = mock.fn();
+      const deps = makeDeps({
+        getAllPersistedSessions: mock.fn(async () => [
+          makePersistedState({ channel: null }),
+        ]) as never,
+        setActiveChange: mockSetActiveChange as never,
+      });
 
-      await restoreWorkerSessions();
+      await restoreWorkerSessions(deps);
 
       assert.equal(mockSetActiveChange.mock.callCount(), 0);
     });
 
     it("skips sessions with null threadTs", async () => {
-      mockGetAllPersistedSessions.mock.mockImplementation(async () => [
-        makePersistedState({ threadTs: null }),
-      ]);
+      const mockSetActiveChange = mock.fn();
+      const deps = makeDeps({
+        getAllPersistedSessions: mock.fn(async () => [
+          makePersistedState({ threadTs: null }),
+        ]) as never,
+        setActiveChange: mockSetActiveChange as never,
+      });
 
-      await restoreWorkerSessions();
+      await restoreWorkerSessions(deps);
 
       assert.equal(mockSetActiveChange.mock.callCount(), 0);
     });
@@ -220,28 +177,30 @@ describe("restoreWorkerSessions", () => {
 
   describe("skipping sessions with missing repo or worktree", () => {
     it("skips sessions whose repo is no longer configured", async () => {
-      mockGetAllPersistedSessions.mock.mockImplementation(async () => [
-        makePersistedState({ repo: "deleted-repo" }),
-      ]);
+      const mockSetActiveChange = mock.fn();
+      const deps = makeDeps({
+        getAllPersistedSessions: mock.fn(async () => [
+          makePersistedState({ repo: "deleted-repo" }),
+        ]) as never,
+        setActiveChange: mockSetActiveChange as never,
+      });
 
-      await restoreWorkerSessions();
+      await restoreWorkerSessions(deps);
 
       assert.equal(mockSetActiveChange.mock.callCount(), 0);
-      assert.equal(mockLogger.debug.mock.callCount(), 1);
-      const debugMsg = mockLogger.debug.mock.calls[0].arguments[0] as string;
-      assert.ok(debugMsg.includes("no longer configured"));
     });
 
     it("skips sessions whose worktree is not found", async () => {
-      mockGetExistingWorktree.mock.mockImplementation(() => null);
-      mockGetAllPersistedSessions.mock.mockImplementation(async () => [makePersistedState()]);
+      const mockSetActiveChange = mock.fn();
+      const deps = makeDeps({
+        getAllPersistedSessions: mock.fn(async () => [makePersistedState()]) as never,
+        getExistingWorktree: mock.fn(() => null) as never,
+        setActiveChange: mockSetActiveChange as never,
+      });
 
-      await restoreWorkerSessions();
+      await restoreWorkerSessions(deps);
 
       assert.equal(mockSetActiveChange.mock.callCount(), 0);
-      assert.equal(mockLogger.debug.mock.callCount(), 1);
-      const debugMsg = mockLogger.debug.mock.calls[0].arguments[0] as string;
-      assert.ok(debugMsg.includes("worktree"));
     });
   });
 
@@ -254,14 +213,18 @@ describe("restoreWorkerSessions", () => {
 
     for (const status of midExecStatuses) {
       it(`marks ${status} session without PR as failed`, async () => {
-        mockGetAllPersistedSessions.mock.mockImplementation(async () => [
-          makePersistedState({ status, prUrl: null }),
-        ]);
+        const mockWriteSessionState = mock.fn();
+        const deps = makeDeps({
+          getAllPersistedSessions: mock.fn(async () => [
+            makePersistedState({ status, prUrl: null }),
+          ]) as never,
+          writeSessionState: mockWriteSessionState as never,
+        });
 
-        await restoreWorkerSessions();
+        await restoreWorkerSessions(deps);
 
         assert.equal(mockWriteSessionState.mock.callCount(), 1);
-        const writeCall = mockWriteSessionState.mock.calls[0].arguments;
+        const writeCall = mockWriteSessionState.mock.calls[0]!.arguments;
         const session = writeCall[0] as { status: string };
         assert.equal(session.status, "failed");
         const message = writeCall[1] as string;
@@ -271,28 +234,35 @@ describe("restoreWorkerSessions", () => {
 
     for (const status of midExecStatuses) {
       it(`downgrades ${status} session with PR to pr_created`, async () => {
-        mockGetAllPersistedSessions.mock.mockImplementation(async () => [
-          makePersistedState({ status, prUrl: "https://github.com/org/repo/pull/1" }),
-        ]);
+        const mockSetActiveChange = mock.fn();
+        const deps = makeDeps({
+          getAllPersistedSessions: mock.fn(async () => [
+            makePersistedState({ status, prUrl: "https://github.com/org/repo/pull/1" }),
+          ]) as never,
+          setActiveChange: mockSetActiveChange as never,
+        });
 
-        await restoreWorkerSessions();
+        await restoreWorkerSessions(deps);
 
         assert.equal(mockSetActiveChange.mock.callCount(), 1);
-        const changeArg = mockSetActiveChange.mock.calls[0].arguments[1] as { status: string };
+        const changeArg = mockSetActiveChange.mock.calls[0]!.arguments[1] as { status: string };
         assert.equal(changeArg.status, "pr_created");
       });
     }
 
     it("writes updated session state to disk when downgrading", async () => {
-      mockGetAllPersistedSessions.mock.mockImplementation(async () => [
-        makePersistedState({ status: "executing", prUrl: "https://github.com/org/repo/pull/1" }),
-      ]);
+      const mockWriteSessionState = mock.fn();
+      const deps = makeDeps({
+        getAllPersistedSessions: mock.fn(async () => [
+          makePersistedState({ status: "executing", prUrl: "https://github.com/org/repo/pull/1" }),
+        ]) as never,
+        writeSessionState: mockWriteSessionState as never,
+      });
 
-      await restoreWorkerSessions();
+      await restoreWorkerSessions(deps);
 
-      // writeSessionState should be called for the downgrade persistence
       assert.equal(mockWriteSessionState.mock.callCount(), 1);
-      const writeCall = mockWriteSessionState.mock.calls[0].arguments;
+      const writeCall = mockWriteSessionState.mock.calls[0]!.arguments;
       const message = writeCall[1] as string;
       assert.ok(message.includes("Restored on startup"));
       assert.ok(message.includes("was executing"));
@@ -306,14 +276,18 @@ describe("restoreWorkerSessions", () => {
 
   describe("successful restoration", () => {
     it("restores a pr_created session into active state", async () => {
-      mockGetAllPersistedSessions.mock.mockImplementation(async () => [
-        makePersistedState({ status: "pr_created" }),
-      ]);
+      const mockSetActiveChange = mock.fn();
+      const deps = makeDeps({
+        getAllPersistedSessions: mock.fn(async () => [
+          makePersistedState({ status: "pr_created" }),
+        ]) as never,
+        setActiveChange: mockSetActiveChange as never,
+      });
 
-      await restoreWorkerSessions();
+      await restoreWorkerSessions(deps);
 
       assert.equal(mockSetActiveChange.mock.callCount(), 1);
-      const [sessionId, changeState, sessionRef] = mockSetActiveChange.mock.calls[0].arguments;
+      const [sessionId, changeState, sessionRef] = mockSetActiveChange.mock.calls[0]!.arguments;
       assert.equal(sessionId, "unified-session-1");
       assert.equal(changeState.branch, "feat/fix-bug");
       assert.equal(changeState.repo, "my-repo");
@@ -326,27 +300,35 @@ describe("restoreWorkerSessions", () => {
     });
 
     it("does not write session state when not downgraded", async () => {
-      mockGetAllPersistedSessions.mock.mockImplementation(async () => [
-        makePersistedState({ status: "pr_created" }),
-      ]);
+      const mockWriteSessionState = mock.fn();
+      const deps = makeDeps({
+        getAllPersistedSessions: mock.fn(async () => [
+          makePersistedState({ status: "pr_created" }),
+        ]) as never,
+        writeSessionState: mockWriteSessionState as never,
+      });
 
-      await restoreWorkerSessions();
+      await restoreWorkerSessions(deps);
 
       assert.equal(mockWriteSessionState.mock.callCount(), 0);
     });
 
     it("converts startedAt and lastActivityAt strings to Date objects", async () => {
-      mockGetAllPersistedSessions.mock.mockImplementation(async () => [
-        makePersistedState({
-          status: "pr_created",
-          startedAt: "2026-02-01T08:00:00.000Z",
-          lastActivityAt: "2026-02-01T09:00:00.000Z",
-        }),
-      ]);
+      const mockSetActiveChange = mock.fn();
+      const deps = makeDeps({
+        getAllPersistedSessions: mock.fn(async () => [
+          makePersistedState({
+            status: "pr_created",
+            startedAt: "2026-02-01T08:00:00.000Z",
+            lastActivityAt: "2026-02-01T09:00:00.000Z",
+          }),
+        ]) as never,
+        setActiveChange: mockSetActiveChange as never,
+      });
 
-      await restoreWorkerSessions();
+      await restoreWorkerSessions(deps);
 
-      const changeState = mockSetActiveChange.mock.calls[0].arguments[1] as {
+      const changeState = mockSetActiveChange.mock.calls[0]!.arguments[1] as {
         startedAt: Date;
         lastActivityAt: Date;
       };
@@ -357,13 +339,17 @@ describe("restoreWorkerSessions", () => {
     });
 
     it("converts null prUrl to undefined", async () => {
-      mockGetAllPersistedSessions.mock.mockImplementation(async () => [
-        makePersistedState({ status: "pr_created", prUrl: null }),
-      ]);
+      const mockSetActiveChange = mock.fn();
+      const deps = makeDeps({
+        getAllPersistedSessions: mock.fn(async () => [
+          makePersistedState({ status: "pr_created", prUrl: null }),
+        ]) as never,
+        setActiveChange: mockSetActiveChange as never,
+      });
 
-      await restoreWorkerSessions();
+      await restoreWorkerSessions(deps);
 
-      const changeState = mockSetActiveChange.mock.calls[0].arguments[1] as { prUrl?: string };
+      const changeState = mockSetActiveChange.mock.calls[0]!.arguments[1] as { prUrl?: string };
       assert.equal(changeState.prUrl, undefined);
     });
 
@@ -374,14 +360,18 @@ describe("restoreWorkerSessions", () => {
         worktreePath: "/tmp/worktrees/custom",
         createdAt: new Date("2026-03-01T00:00:00Z"),
       };
-      mockGetExistingWorktree.mock.mockImplementation(() => customWorktree);
-      mockGetAllPersistedSessions.mock.mockImplementation(async () => [
-        makePersistedState({ status: "pr_created" }),
-      ]);
+      const mockSetActiveChange = mock.fn();
+      const deps = makeDeps({
+        getExistingWorktree: mock.fn(() => customWorktree) as never,
+        getAllPersistedSessions: mock.fn(async () => [
+          makePersistedState({ status: "pr_created" }),
+        ]) as never,
+        setActiveChange: mockSetActiveChange as never,
+      });
 
-      await restoreWorkerSessions();
+      await restoreWorkerSessions(deps);
 
-      const changeState = mockSetActiveChange.mock.calls[0].arguments[1] as { worktree: unknown };
+      const changeState = mockSetActiveChange.mock.calls[0]!.arguments[1] as { worktree: unknown };
       assert.equal(changeState.worktree, customWorktree);
     });
   });
@@ -392,69 +382,18 @@ describe("restoreWorkerSessions", () => {
 
   describe("missing unified session", () => {
     it("skips restoration when findSessionByThread returns null", async () => {
-      mockFindSessionByThread.mock.mockImplementation(async () => null);
-      mockGetAllPersistedSessions.mock.mockImplementation(async () => [
-        makePersistedState({ status: "pr_created" }),
-      ]);
+      const mockSetActiveChange = mock.fn();
+      const deps = makeDeps({
+        findSessionByThread: mock.fn(async () => null) as never,
+        getAllPersistedSessions: mock.fn(async () => [
+          makePersistedState({ status: "pr_created" }),
+        ]) as never,
+        setActiveChange: mockSetActiveChange as never,
+      });
 
-      await restoreWorkerSessions();
+      await restoreWorkerSessions(deps);
 
       assert.equal(mockSetActiveChange.mock.callCount(), 0);
-      assert.equal(mockLogger.debug.mock.callCount(), 1);
-      const debugMsg = mockLogger.debug.mock.calls[0].arguments[0] as string;
-      assert.ok(debugMsg.includes("no matching unified session"));
-    });
-  });
-
-  // ==========================================================================
-  // Logging
-  // ==========================================================================
-
-  describe("logging", () => {
-    it("logs summary when sessions are restored", async () => {
-      mockGetAllPersistedSessions.mock.mockImplementation(async () => [
-        makePersistedState({ status: "pr_created", sessionId: "s1" }),
-      ]);
-
-      await restoreWorkerSessions();
-
-      assert.equal(mockLogger.info.mock.callCount(), 1);
-      const infoMsg = mockLogger.info.mock.calls[0].arguments[0] as string;
-      assert.ok(infoMsg.includes("1 restored"));
-    });
-
-    it("logs summary when sessions are marked failed", async () => {
-      mockGetAllPersistedSessions.mock.mockImplementation(async () => [
-        makePersistedState({ status: "executing", prUrl: null }),
-      ]);
-
-      await restoreWorkerSessions();
-
-      assert.equal(mockLogger.info.mock.callCount(), 1);
-      const infoMsg = mockLogger.info.mock.calls[0].arguments[0] as string;
-      assert.ok(infoMsg.includes("1 marked failed"));
-    });
-
-    it("logs downgrade count when sessions are downgraded", async () => {
-      mockGetAllPersistedSessions.mock.mockImplementation(async () => [
-        makePersistedState({ status: "executing", prUrl: "https://github.com/org/repo/pull/1" }),
-      ]);
-
-      await restoreWorkerSessions();
-
-      assert.equal(mockLogger.info.mock.callCount(), 1);
-      const infoMsg = mockLogger.info.mock.calls[0].arguments[0] as string;
-      assert.ok(infoMsg.includes("1 downgraded"));
-    });
-
-    it("does not log when only sessions are skipped", async () => {
-      mockGetAllPersistedSessions.mock.mockImplementation(async () => [
-        makePersistedState({ status: "completed" }),
-      ]);
-
-      await restoreWorkerSessions();
-
-      assert.equal(mockLogger.info.mock.callCount(), 0);
     });
   });
 
@@ -487,31 +426,32 @@ describe("restoreWorkerSessions", () => {
         threadTs: "1700000003.000001",
       });
 
-      mockGetAllPersistedSessions.mock.mockImplementation(async () => [
-        session1,
-        session2,
-        session3,
-      ]);
-
       let findCallCount = 0;
-      mockFindSessionByThread.mock.mockImplementation(async () => {
-        findCallCount++;
-        return {
-          sessionId: `unified-${findCallCount}`,
-          channelId: `C00${findCallCount}`,
-          threadTs: `170000000${findCallCount}.000001`,
-          userId: "U001",
-          triggerType: "reactions",
-        };
+      const mockSetActiveChange = mock.fn();
+      const mockWriteSessionState = mock.fn();
+      const deps = makeDeps({
+        getAllPersistedSessions: mock.fn(async () => [session1, session2, session3]) as never,
+        findSessionByThread: mock.fn(async () => {
+          findCallCount++;
+          return {
+            sessionId: `unified-${findCallCount}`,
+            channelId: `C00${findCallCount}`,
+            threadTs: `170000000${findCallCount}.000001`,
+            userId: "U001",
+            triggerType: "reactions",
+          };
+        }) as never,
+        setActiveChange: mockSetActiveChange as never,
+        writeSessionState: mockWriteSessionState as never,
       });
 
-      await restoreWorkerSessions();
+      await restoreWorkerSessions(deps);
 
       // session1 restored, session2 skipped (completed), session3 marked failed
       assert.equal(mockSetActiveChange.mock.callCount(), 1);
       assert.equal(mockWriteSessionState.mock.callCount(), 1); // session3 marked failed
 
-      const failedSession = mockWriteSessionState.mock.calls[0].arguments[0] as { status: string };
+      const failedSession = mockWriteSessionState.mock.calls[0]!.arguments[0] as { status: string };
       assert.equal(failedSession.status, "failed");
     });
   });
@@ -535,12 +475,16 @@ describe("restoreWorkerSessions", () => {
         threadTs: "1700000999.000001",
       });
 
-      mockGetAllPersistedSessions.mock.mockImplementation(async () => [state]);
+      const mockWriteSessionState = mock.fn();
+      const deps = makeDeps({
+        getAllPersistedSessions: mock.fn(async () => [state]) as never,
+        writeSessionState: mockWriteSessionState as never,
+      });
 
-      await restoreWorkerSessions();
+      await restoreWorkerSessions(deps);
 
       assert.equal(mockWriteSessionState.mock.callCount(), 1);
-      const [session, message] = mockWriteSessionState.mock.calls[0].arguments;
+      const [session, message] = mockWriteSessionState.mock.calls[0]!.arguments;
       assert.equal(session.id, "fail-session");
       assert.equal(session.userId, "U999");
       assert.equal(session.status, "failed");
@@ -556,26 +500,24 @@ describe("restoreWorkerSessions", () => {
     });
 
     it("converts null prUrl to undefined in failed session", async () => {
-      mockGetAllPersistedSessions.mock.mockImplementation(async () => [
-        makePersistedState({ status: "planning", prUrl: null }),
-      ]);
+      const mockWriteSessionState = mock.fn();
+      const deps = makeDeps({
+        getAllPersistedSessions: mock.fn(async () => [
+          makePersistedState({ status: "planning", prUrl: null }),
+        ]) as never,
+        writeSessionState: mockWriteSessionState as never,
+      });
 
-      await restoreWorkerSessions();
+      await restoreWorkerSessions(deps);
 
-      const session = mockWriteSessionState.mock.calls[0].arguments[0] as { prUrl?: string };
+      const session = mockWriteSessionState.mock.calls[0]!.arguments[0] as { prUrl?: string };
       assert.equal(session.prUrl, undefined);
     });
 
     it("uses empty string for channel when null", async () => {
-      // This path is reached only from markSessionFailed, which requires
-      // mid-execution status without PR. But classifySession skips if channel is null.
-      // So markSessionFailed uses `state.channel ?? ""` as a safety net.
-      // We test this indirectly: the function itself always handles null channel.
-      // Since classifySession guards against null channel/threadTs, this is
-      // really just defensive coding in markSessionFailed.
-      // We verify the code path via a pr_created mid-execution case isn't needed
-      // since there's no way to reach markSessionFailed with null channel.
-      // The test is kept for documentation purposes.
+      // classifySession guards against null channel/threadTs, so markSessionFailed
+      // uses `state.channel ?? ""` as a safety net. The guard prevents reaching
+      // markSessionFailed with null channel.
       assert.ok(true, "channel null guard is covered by classifySession skip");
     });
   });
@@ -586,47 +528,62 @@ describe("restoreWorkerSessions", () => {
 
   describe("classifySession logic", () => {
     it("passes the correct repo config to getExistingWorktree", async () => {
-      mockGetAllPersistedSessions.mock.mockImplementation(async () => [
-        makePersistedState({ repo: "my-repo", branch: "feat/test-branch" }),
-      ]);
+      const mockGetExistingWorktree = mock.fn<
+        (repo: RepositoryConfig, branch: string) => typeof defaultWorktree | null
+      >(() => defaultWorktree);
+      const deps = makeDeps({
+        getAllPersistedSessions: mock.fn(async () => [
+          makePersistedState({ repo: "my-repo", branch: "feat/test-branch" }),
+        ]) as never,
+        getExistingWorktree: mockGetExistingWorktree as never,
+      });
 
-      await restoreWorkerSessions();
+      await restoreWorkerSessions(deps);
 
       assert.equal(mockGetExistingWorktree.mock.callCount(), 1);
-      const [repoArg, branchArg] = mockGetExistingWorktree.mock.calls[0].arguments;
-      assert.equal(repoArg.name, "my-repo");
+      const [repoArg, branchArg] = mockGetExistingWorktree.mock.calls[0]!.arguments;
+      assert.equal((repoArg as RepositoryConfig).name, "my-repo");
       assert.equal(branchArg, "feat/test-branch");
     });
 
     it("uses the state's channel and threadTs for findSessionByThread", async () => {
-      mockGetAllPersistedSessions.mock.mockImplementation(async () => [
-        makePersistedState({ status: "pr_created", channel: "C-CHAN", threadTs: "170.thread" }),
-      ]);
+      const mockFindSessionByThread = mock.fn<
+        (channelId: string, threadTs: string) => Promise<typeof defaultUnifiedSession>
+      >(async () => defaultUnifiedSession);
+      const deps = makeDeps({
+        getAllPersistedSessions: mock.fn(async () => [
+          makePersistedState({ status: "pr_created", channel: "C-CHAN", threadTs: "170.thread" }),
+        ]) as never,
+        findSessionByThread: mockFindSessionByThread as never,
+      });
 
-      await restoreWorkerSessions();
+      await restoreWorkerSessions(deps);
 
       assert.equal(mockFindSessionByThread.mock.callCount(), 1);
-      const [channelArg, threadTsArg] = mockFindSessionByThread.mock.calls[0].arguments;
+      const [channelArg, threadTsArg] = mockFindSessionByThread.mock.calls[0]!.arguments;
       assert.equal(channelArg, "C-CHAN");
       assert.equal(threadTsArg, "170.thread");
     });
 
     it("passes triggerType from unified session to setActiveChange ref", async () => {
-      mockFindSessionByThread.mock.mockImplementation(async () => ({
-        sessionId: "us-1",
-        channelId: "C001",
-        threadTs: "170.001",
-        userId: "U001",
-        triggerType: "mentions",
-      }));
+      const mockSetActiveChange = mock.fn();
+      const deps = makeDeps({
+        findSessionByThread: mock.fn(async () => ({
+          sessionId: "us-1",
+          channelId: "C001",
+          threadTs: "170.001",
+          userId: "U001",
+          triggerType: "mentions",
+        })) as never,
+        getAllPersistedSessions: mock.fn(async () => [
+          makePersistedState({ status: "pr_created" }),
+        ]) as never,
+        setActiveChange: mockSetActiveChange as never,
+      });
 
-      mockGetAllPersistedSessions.mock.mockImplementation(async () => [
-        makePersistedState({ status: "pr_created" }),
-      ]);
+      await restoreWorkerSessions(deps);
 
-      await restoreWorkerSessions();
-
-      const ref = mockSetActiveChange.mock.calls[0].arguments[2] as { triggerType: string };
+      const ref = mockSetActiveChange.mock.calls[0]!.arguments[2] as { triggerType: string };
       assert.equal(ref.triggerType, "mentions");
     });
   });

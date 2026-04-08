@@ -1,32 +1,28 @@
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import type { ChangeSession, ChangeStatus, PersistedSessionState } from "./types.js";
+import {
+  getSessionFolderPath,
+  createSessionFolder,
+  writeSessionState,
+  appendExecutionLog,
+  readSessionState,
+  removeSessionFolder,
+  statusToPhase,
+  getAllPersistedSessions,
+  getResumableSessions,
+  cleanupStaleSessionFolders,
+  setPersistenceDeps,
+  type PersistenceDeps,
+} from "./persistence.js";
 
 // ============================================================================
-// Mock setup
+// Fake filesystem state
 // ============================================================================
 
 let mockWorktreeSessionsDir = "/tmp/test-worktree-sessions";
 
-mock.module("../config.js", {
-  namedExports: {
-    getWorktreeSessionsDir: () => mockWorktreeSessionsDir,
-  },
-});
-
-mock.module("../logger.js", {
-  namedExports: {
-    logger: {
-      debug: () => {},
-      info: () => {},
-      warn: () => {},
-      error: () => {},
-    },
-  },
-});
-
-// Track all filesystem calls
 let fsState: {
   existingPaths: Set<string>;
   files: Map<string, string>;
@@ -61,19 +57,19 @@ function resetFsState() {
 
 resetFsState();
 
-mock.module("node:fs", {
-  namedExports: {
+function makeDeps(): PersistenceDeps {
+  return {
     existsSync: (p: string) => fsState.existingPaths.has(p),
     mkdirSync: (p: string, _opts?: unknown) => {
       fsState.mkdirCalls.push(p);
       fsState.existingPaths.add(p);
     },
     writeFileSync: (p: string, content: string) => {
-      fsState.writeCalls.push({ path: p, content });
-      fsState.files.set(p, content);
+      fsState.writeCalls.push({ path: p, content: content as string });
+      fsState.files.set(p, content as string);
     },
     appendFileSync: (p: string, content: string) => {
-      fsState.appendCalls.push({ path: p, content });
+      fsState.appendCalls.push({ path: p, content: content as string });
     },
     rmSync: (p: string, opts?: unknown) => {
       if (fsState.rmShouldThrow) {
@@ -82,50 +78,32 @@ mock.module("node:fs", {
       fsState.rmSyncCalls.push({ path: p, opts });
       fsState.existingPaths.delete(p);
     },
-  },
-});
-
-mock.module("node:fs/promises", {
-  namedExports: {
-    readFile: async (p: string, _encoding?: string) => {
+    readFile: (async (p: string, _encoding?: string) => {
       if (fsState.readFileFn) {
         return fsState.readFileFn(p);
       }
       const content = fsState.files.get(p);
       if (content !== undefined) return content;
       throw new Error(`ENOENT: no such file: ${p}`);
-    },
-    readdir: async (_p: string) => {
+    }) as PersistenceDeps["readFile"],
+    readdir: (async (_p: string) => {
       return fsState.readdirResult;
-    },
-    stat: async (p: string) => {
+    }) as PersistenceDeps["readdir"],
+    stat: (async (p: string) => {
       const result = fsState.statResults.get(p);
       if (result) return result;
       throw new Error(`ENOENT: no such file or directory: ${p}`);
-    },
-    rm: async (p: string, opts?: unknown) => {
+    }) as PersistenceDeps["stat"],
+    rm: (async (p: string, opts?: unknown) => {
       if (fsState.rmAsyncShouldThrow) {
         throw new Error("rm failed");
       }
       fsState.rmCalls.push({ path: p, opts });
       fsState.existingPaths.delete(p);
-    },
-  },
-});
-
-// Import after mocks are set up
-const {
-  getSessionFolderPath,
-  createSessionFolder,
-  writeSessionState,
-  appendExecutionLog,
-  readSessionState,
-  removeSessionFolder,
-  statusToPhase,
-  getAllPersistedSessions,
-  getResumableSessions,
-  cleanupStaleSessionFolders,
-} = await import("./persistence.js");
+    }) as PersistenceDeps["rm"],
+    getWorktreeSessionsDir: () => mockWorktreeSessionsDir,
+  } as PersistenceDeps;
+}
 
 // ============================================================================
 // Helpers
@@ -179,6 +157,7 @@ function makePersistedState(overrides: Partial<PersistedSessionState> = {}): Per
 beforeEach(() => {
   resetFsState();
   mockWorktreeSessionsDir = "/tmp/test-worktree-sessions";
+  setPersistenceDeps(makeDeps());
 });
 
 // ============================================================================
@@ -194,6 +173,7 @@ describe("statusToPhase", () => {
     assert.equal(statusToPhase("merging"), "Merging");
     assert.equal(statusToPhase("completed"), "Completed");
     assert.equal(statusToPhase("failed"), "Failed");
+    assert.equal(statusToPhase("cancelled"), "Cancelled");
   });
 
   it("returns the raw status for unknown values", () => {

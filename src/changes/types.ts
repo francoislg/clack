@@ -39,6 +39,7 @@ export interface ChangeSession {
   lastActivityAt: Date;
   channel: string;
   threadTs: string;
+  cancelledBy?: { userId: string; reason?: string };
 }
 
 export type ChangeStatus =
@@ -48,13 +49,16 @@ export type ChangeStatus =
   | "reviewing"
   | "merging"
   | "completed"
-  | "failed";
+  | "failed"
+  | "cancelled";
 
 export interface ChangeResult {
   success: boolean;
   prUrl?: string;
   error?: string;
   summary?: string;
+  cancelled?: boolean;
+  cancelledBy?: { userId: string; reason?: string };
 }
 
 export type FollowUpCommand = "review" | "merge" | "update" | "close";
@@ -79,6 +83,7 @@ export interface WriteableSessionState {
   lastActivityAt: Date;
   channel: string;
   threadTs: string;
+  cancelledBy?: { userId: string; reason?: string };
 }
 
 // ============================================================================
@@ -99,6 +104,7 @@ export interface PersistedSessionState {
   lastMessage: string;
   channel: string | null;
   threadTs: string | null;
+  cancelledBy?: { userId: string; reason?: string };
 }
 
 // ============================================================================

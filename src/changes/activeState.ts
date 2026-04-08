@@ -9,6 +9,37 @@ import {
 } from "./persistence.js";
 
 // ============================================================================
+// Dependency Injection
+// ============================================================================
+
+export interface ActiveStateDeps {
+  writeSessionState: typeof writeSessionState;
+  createSessionFolder: typeof createSessionFolder;
+  appendExecutionLog: typeof appendExecutionLog;
+  removeSessionFolder: typeof removeSessionFolder;
+  statusToPhase: typeof statusToPhase;
+}
+
+export const defaultActiveStateDeps: ActiveStateDeps = {
+  writeSessionState,
+  createSessionFolder,
+  appendExecutionLog,
+  removeSessionFolder,
+  statusToPhase,
+};
+
+/** Module-level deps, overridable for testing */
+let deps: ActiveStateDeps = defaultActiveStateDeps;
+
+export function setActiveStateDeps(d: ActiveStateDeps): void {
+  deps = d;
+}
+
+export function resetActiveStateDeps(): void {
+  deps = defaultActiveStateDeps;
+}
+
+// ============================================================================
 // Types
 // ============================================================================
 
@@ -23,6 +54,10 @@ export interface ActiveChangeState {
   lastActivityAt: Date;
   /** SDK session ID for resuming change executions across follow-ups */
   sdkSessionId?: string;
+  /** Runtime-only: AbortController for cancelling the current execution */
+  abortController?: AbortController;
+  /** Runtime-only: set by cancel tool before abort, checked by workflow after execution returns */
+  cancelledBy?: { userId: string; reason?: string };
 }
 
 export interface ActiveWorker {
@@ -87,6 +122,7 @@ function buildChangeSessionForPersistence(
     lastActivityAt: change.lastActivityAt,
     channel: ref.channelId,
     threadTs: ref.threadTs,
+    ...(change.cancelledBy && { cancelledBy: change.cancelledBy }),
   };
 }
 
@@ -106,8 +142,8 @@ export function setActiveChange(
   activeChanges.set(sessionId, change);
   sessionRefs.set(sessionId, ref);
   const cs = buildChangeSessionForPersistence(sessionId, change, ref);
-  createSessionFolder(cs);
-  appendExecutionLog(change.branch, "Phase: starting");
+  deps.createSessionFolder(cs);
+  deps.appendExecutionLog(change.branch, "Phase: starting");
 }
 
 export function clearActiveChange(sessionId: string, cleanupFolder: boolean = false): void {
@@ -115,7 +151,7 @@ export function clearActiveChange(sessionId: string, cleanupFolder: boolean = fa
   activeChanges.delete(sessionId);
   sessionRefs.delete(sessionId);
   if (cleanupFolder && change) {
-    removeSessionFolder(change.branch);
+    deps.removeSessionFolder(change.branch);
   }
 }
 
@@ -131,8 +167,8 @@ export function updateActiveChangeStatus(
     change.lastActivityAt = new Date();
     const message = lastMessage ?? `Status changed to: ${status}`;
     const cs = buildChangeSessionForPersistence(sessionId, change, ref);
-    writeSessionState(cs, message);
-    appendExecutionLog(change.branch, `Phase: ${statusToPhase(status)}`);
+    deps.writeSessionState(cs, message);
+    deps.appendExecutionLog(change.branch, `Phase: ${deps.statusToPhase(status)}`);
   }
 }
 
@@ -143,8 +179,8 @@ export function updateActiveChangePrUrl(sessionId: string, prUrl: string): void 
     change.prUrl = prUrl;
     change.lastActivityAt = new Date();
     const cs = buildChangeSessionForPersistence(sessionId, change, ref);
-    writeSessionState(cs, `PR created: ${prUrl}`);
-    appendExecutionLog(change.branch, `PR URL: ${prUrl}`);
+    deps.writeSessionState(cs, `PR created: ${prUrl}`);
+    deps.appendExecutionLog(change.branch, `PR URL: ${prUrl}`);
   }
 }
 
