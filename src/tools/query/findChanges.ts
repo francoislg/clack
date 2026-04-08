@@ -2,10 +2,22 @@ import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
 import { textResult } from "../helpers.js";
-import { getActiveWorkers } from "../../changes/activeState.js";
+import { getActiveWorkers, type ActiveWorker } from "../../changes/activeState.js";
 import { getVisibleRepos } from "../../repoAccess.js";
+import type { UserRole } from "../../roles.js";
+import type { RepositoryConfig } from "../../config.js";
 
-export function createFindChangesTool(ctx: QueryToolContext) {
+export interface FindChangesDeps {
+  getActiveWorkers: () => ActiveWorker[];
+  getVisibleRepos: (role: UserRole, repos: RepositoryConfig[]) => RepositoryConfig[];
+}
+
+export const defaultDeps: FindChangesDeps = {
+  getActiveWorkers,
+  getVisibleRepos,
+};
+
+export function createFindChangesTool(ctx: QueryToolContext, deps: FindChangesDeps = defaultDeps) {
   return tool(
     "find_changes",
     "Find active change sessions (currently in-progress). These are changes being executed, reviewed, or merged right now.",
@@ -20,15 +32,16 @@ export function createFindChangesTool(ctx: QueryToolContext) {
           "merging",
           "completed",
           "failed",
+          "cancelled",
         ])
         .optional()
         .describe("Filter by status"),
     },
     async (args) => {
       const visibleRepoNames = new Set(
-        getVisibleRepos(ctx.role, ctx.config.repositories).map((r) => r.name),
+        deps.getVisibleRepos(ctx.role, ctx.config.repositories).map((r) => r.name),
       );
-      let workers = getActiveWorkers().filter((w) => visibleRepoNames.has(w.repo));
+      let workers = deps.getActiveWorkers().filter((w) => visibleRepoNames.has(w.repo));
 
       if (args.repo) {
         workers = workers.filter((w) => w.repo === args.repo);

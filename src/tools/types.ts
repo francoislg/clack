@@ -73,7 +73,7 @@ export type ToolBuildContext = QueryToolContext | WorkerToolContext;
 // Staged Intents
 // ============================================================================
 
-export type StagedIntentType = "change" | "config_update" | "update";
+export type StagedIntentType = "change" | "config_update" | "update" | "review" | "merge" | "close";
 
 export interface StagedChangeIntent {
   type: "change";
@@ -98,7 +98,31 @@ export interface StagedUpdateIntent {
   instructions: string;
 }
 
-export type StagedIntent = StagedChangeIntent | StagedConfigUpdateIntent | StagedUpdateIntent;
+export interface StagedReviewIntent {
+  type: "review";
+  sessionId: string;
+  instructions: string;
+}
+
+export interface StagedMergeIntent {
+  type: "merge";
+  sessionId: string;
+  instructions: string;
+}
+
+export interface StagedCloseIntent {
+  type: "close";
+  sessionId: string;
+  instructions: string;
+}
+
+export type StagedIntent =
+  | StagedChangeIntent
+  | StagedConfigUpdateIntent
+  | StagedUpdateIntent
+  | StagedReviewIntent
+  | StagedMergeIntent
+  | StagedCloseIntent;
 
 // ============================================================================
 // submit_response Payload
@@ -212,4 +236,5 @@ export interface ClackToolsResult {
   getStagedIntents: () => Map<string, StagedIntent>;
   getToolCallHistory: () => ToolCallRecord[];
   isSkipped: () => boolean;
+  isDisengaged: () => boolean;
 }

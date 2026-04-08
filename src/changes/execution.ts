@@ -15,6 +15,7 @@ import { buildWorkerContext } from "../tools/context.js";
 import { buildClackTools } from "../tools/server.js";
 import { discoverPlugins } from "../plugins.js";
 import type { StreamEvent } from "../streaming/types.js";
+import { truncate } from "../text.js";
 
 /**
  * Run Claude via the Agent SDK with the given prompt and options
@@ -32,6 +33,8 @@ export async function runClaude(options: {
   onEvent?: (event: StreamEvent) => void | Promise<void>;
   resumeSessionId?: string;
   onSessionId?: (sessionId: string) => void;
+  /** External AbortController for cancellation support. If omitted, one is created internally. */
+  abortController?: AbortController;
 }): Promise<{ success: boolean; text: string; error?: string; lastMessage?: string }> {
   // Validate prompt early - catch empty prompts with a clear error
   if (!options.prompt || options.prompt.trim().length === 0) {
@@ -62,9 +65,13 @@ export async function runClaude(options: {
   log?.(`Prompt length: ${options.prompt.length} chars`);
   log?.(`Timeout: ${timeoutMs / 60000} minutes`);
 
-  // Timeout via AbortController
-  const abortController = new AbortController();
-  const timeoutId = setTimeout(() => abortController.abort(), timeoutMs);
+  // Timeout via AbortController (use caller-provided controller for external cancellation support)
+  const abortController = options.abortController ?? new AbortController();
+  let timedOut = false;
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    abortController.abort();
+  }, timeoutMs);
 
   // Heartbeat logging
   let lastOutputTime = Date.now();
@@ -129,9 +136,7 @@ export async function runClaude(options: {
       // Worker-specific: accumulate assistant text and log it
       if (parsed.assistantText) {
         finalText += parsed.assistantText + "\n";
-        log?.(
-          `Event: assistant text: ${parsed.assistantText.substring(0, 200).replace(/\n/g, " ")}...`,
-        );
+        log?.(`Event: assistant text: ${truncate(parsed.assistantText.replace(/\n/g, " "), 200)}`);
       }
 
       // Handle result
@@ -162,18 +167,27 @@ export async function runClaude(options: {
     clearTimeout(timeoutId);
     clearInterval(heartbeatInterval);
 
-    // Detect timeout: either a standard AbortError or the SDK's "aborted by user"
+    // Detect abort: either a standard AbortError or the SDK's "aborted by user"
     // message when our AbortController signal has fired
     const isAbortError = error instanceof Error && error.name === "AbortError";
     const isSignalAbort =
       abortController.signal.aborted && error instanceof Error && /aborted/i.test(error.message);
 
     if (isAbortError || isSignalAbort) {
-      log?.(`Timeout: Execution timed out after ${timeoutMs / 60000} minutes`);
+      if (timedOut) {
+        log?.(`Timeout: Execution timed out after ${timeoutMs / 60000} minutes`);
+        return {
+          success: false,
+          text: finalText.trim(),
+          error: `Execution timed out after ${timeoutMs / 60000} minutes`,
+          lastMessage: lastProgressMessage,
+        };
+      }
+      log?.("Cancelled: Execution was cancelled by user");
       return {
         success: false,
         text: finalText.trim(),
-        error: `Execution timed out after ${timeoutMs / 60000} minutes`,
+        error: "Execution cancelled",
         lastMessage: lastProgressMessage,
       };
     }
@@ -239,10 +253,15 @@ const EXECUTION_SYSTEM_PROMPT = `You are an autonomous code change agent. Your j
 Instructions:
 1. Analyze the codebase to understand the context
 2. Implement the requested changes
-3. Run tests if the repository instructions specify how
+3. Before committing, run quality checks:
+   - Look for test/lint/format commands in package.json scripts, Makefile, or CI config
+   - Run any available test suite (e.g. npm test, yarn test, make test)
+   - Run any available linter (e.g. npm run lint, yarn lint)
+   - Run any available formatter (e.g. npm run format, yarn format)
+   - If tests fail, fix the failures before proceeding — do not commit broken code
 4. Commit your changes with a descriptive commit message
 5. Push the branch using the git_push tool
-6. Create a pull request using the ensure_pr tool
+6. Create or update the pull request using the ensure_pr tool
 7. Report your final status using the report_status tool
 
 Important:
@@ -265,10 +284,21 @@ export interface ExecuteChangeOptions {
   resumeContext?: string;
   onEvent?: (event: StreamEvent) => void | Promise<void>;
   sdkSessionId?: string;
+  /** External AbortController for cancellation support */
+  abortController?: AbortController;
 }
 
 export async function executeChange(opts: ExecuteChangeOptions): Promise<ExecutionResult> {
-  const { plan, worktree, request, sessionId, resumeContext, onEvent, sdkSessionId } = opts;
+  const {
+    plan,
+    worktree,
+    request,
+    sessionId,
+    resumeContext,
+    onEvent,
+    sdkSessionId,
+    abortController,
+  } = opts;
   const config = getConfig();
 
   // Build the allowed tools list
@@ -340,6 +370,7 @@ Follow the workflow steps in the system prompt. Report your final status using t
     branchName: plan.branchName,
     mcpServers: { clack: workerTools.mcpServer },
     onEvent,
+    abortController,
     resumeSessionId: sdkSessionId,
     onSessionId: (id) => {
       capturedSdkSessionId = id;

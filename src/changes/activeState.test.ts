@@ -1,17 +1,6 @@
 import { describe, it, beforeEach, mock } from "node:test";
 import assert from "node:assert/strict";
 
-// Mock persistence module before importing activeState
-mock.module("./persistence.js", {
-  namedExports: {
-    writeSessionState: () => {},
-    createSessionFolder: () => {},
-    appendExecutionLog: () => {},
-    removeSessionFolder: () => {},
-    statusToPhase: (status: string) => status,
-  },
-});
-
 import {
   getActiveChange,
   setActiveChange,
@@ -21,12 +10,25 @@ import {
   getActiveChangeForUser,
   getActiveWorkers,
   getActiveChangeBranches,
+  setActiveStateDeps,
+  type ActiveStateDeps,
+  type ActiveChangeState,
+  type SessionRef,
 } from "./activeState.js";
-import type { ActiveChangeState, SessionRef } from "./activeState.js";
 
 // ============================================================================
 // Helpers
 // ============================================================================
+
+function makeDeps(): ActiveStateDeps {
+  return {
+    writeSessionState: mock.fn(() => {}),
+    createSessionFolder: mock.fn(() => {}),
+    appendExecutionLog: mock.fn(() => {}),
+    removeSessionFolder: mock.fn(() => {}),
+    statusToPhase: (status: string) => status,
+  };
+}
 
 function makeChange(overrides: Partial<ActiveChangeState> = {}): ActiveChangeState {
   return {
@@ -51,6 +53,7 @@ function makeRef(overrides: Partial<SessionRef> = {}): SessionRef {
 
 // Clean up shared state between tests
 beforeEach(() => {
+  setActiveStateDeps(makeDeps());
   clearActiveChange("session-1");
   clearActiveChange("session-2");
   clearActiveChange("session-3");

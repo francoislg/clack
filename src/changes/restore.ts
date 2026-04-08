@@ -6,6 +6,28 @@ import type { ChangeStatus, PersistedSessionState, WriteableSessionState } from 
 import { findSessionByThread } from "../sessions.js";
 import { setActiveChange } from "./activeState.js";
 
+// ============================================================================
+// Dependency Injection
+// ============================================================================
+
+export interface RestoreDeps {
+  getConfig: typeof getConfig;
+  getExistingWorktree: typeof getExistingWorktree;
+  getAllPersistedSessions: typeof getAllPersistedSessions;
+  writeSessionState: typeof writeSessionState;
+  findSessionByThread: typeof findSessionByThread;
+  setActiveChange: typeof setActiveChange;
+}
+
+export const defaultRestoreDeps: RestoreDeps = {
+  getConfig,
+  getExistingWorktree,
+  getAllPersistedSessions,
+  writeSessionState,
+  findSessionByThread,
+  setActiveChange,
+};
+
 /**
  * Statuses that indicate a session was mid-execution when the process died.
  * These are non-terminal but the agent is gone after restart.
@@ -29,8 +51,10 @@ type RestorationOutcome =
 function classifySession(
   state: PersistedSessionState,
   ctx: RestorationContext,
+  restoreDeps: RestoreDeps,
 ): RestorationOutcome {
-  if (state.status === "completed" || state.status === "failed") return { action: "skip" };
+  if (state.status === "completed" || state.status === "failed" || state.status === "cancelled")
+    return { action: "skip" };
   if (!state.channel || !state.threadTs) return { action: "skip" };
 
   const repo = ctx.reposByName.get(state.repo);
@@ -39,7 +63,7 @@ function classifySession(
     return { action: "skip" };
   }
 
-  const worktree = getExistingWorktree(repo, state.branch);
+  const worktree = restoreDeps.getExistingWorktree(repo, state.branch);
   if (!worktree) {
     logger.debug(`Skipping session ${state.sessionId}: worktree for "${state.branch}" not found`);
     return { action: "skip" };
@@ -66,11 +90,11 @@ function classifySession(
  * - Worktree gone or repo removed: Skip
  * - No matching unified session: Skip (session was cleaned up)
  */
-export async function restoreWorkerSessions(): Promise<void> {
-  const states = await getAllPersistedSessions();
+export async function restoreWorkerSessions(deps: RestoreDeps = defaultRestoreDeps): Promise<void> {
+  const states = await deps.getAllPersistedSessions();
   if (states.length === 0) return;
 
-  const config = getConfig();
+  const config = deps.getConfig();
   const ctx: RestorationContext = {
     reposByName: new Map(config.repositories.map((r) => [r.name, r])),
   };
@@ -81,14 +105,14 @@ export async function restoreWorkerSessions(): Promise<void> {
   let markedFailed = 0;
 
   for (const state of states) {
-    const outcome = classifySession(state, ctx);
+    const outcome = classifySession(state, ctx, deps);
 
     if (outcome.action === "skip") {
       skipped++;
       continue;
     }
     if (outcome.action === "fail") {
-      markSessionFailed(state);
+      markSessionFailed(state, deps);
       markedFailed++;
       continue;
     }
@@ -97,7 +121,7 @@ export async function restoreWorkerSessions(): Promise<void> {
     const wasDowngraded = effectiveStatus !== state.status;
     if (wasDowngraded) downgraded++;
 
-    const unifiedSession = await findSessionByThread(state.channel!, state.threadTs!);
+    const unifiedSession = await deps.findSessionByThread(state.channel!, state.threadTs!);
     if (!unifiedSession) {
       logger.debug(
         `Skipping session ${state.sessionId}: no matching unified session for ${state.channel}:${state.threadTs}`,
@@ -106,7 +130,7 @@ export async function restoreWorkerSessions(): Promise<void> {
       continue;
     }
 
-    setActiveChange(
+    deps.setActiveChange(
       unifiedSession.sessionId,
       {
         branch: state.branch,
@@ -138,7 +162,7 @@ export async function restoreWorkerSessions(): Promise<void> {
         channel: state.channel!,
         threadTs: state.threadTs!,
       };
-      writeSessionState(
+      deps.writeSessionState(
         restoredState,
         `Restored on startup (was ${state.status}, downgraded to ${effectiveStatus})`,
       );
@@ -158,7 +182,7 @@ export async function restoreWorkerSessions(): Promise<void> {
  * Mark a mid-execution session (no PR) as failed on disk.
  * The worktree is preserved for manual re-request.
  */
-function markSessionFailed(state: PersistedSessionState): void {
+function markSessionFailed(state: PersistedSessionState, deps: RestoreDeps): void {
   const failedState: WriteableSessionState = {
     id: state.sessionId,
     userId: state.userId,
@@ -175,5 +199,5 @@ function markSessionFailed(state: PersistedSessionState): void {
     threadTs: state.threadTs ?? "",
   };
 
-  writeSessionState(failedState, "Marked failed on startup: agent interrupted without PR");
+  deps.writeSessionState(failedState, "Marked failed on startup: agent interrupted without PR");
 }

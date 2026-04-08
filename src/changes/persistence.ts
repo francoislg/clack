@@ -11,19 +11,60 @@ import type {
 } from "./types.js";
 
 // ============================================================================
+// Dependency Injection
+// ============================================================================
+
+export interface PersistenceDeps {
+  existsSync: typeof existsSync;
+  writeFileSync: typeof writeFileSync;
+  mkdirSync: typeof mkdirSync;
+  appendFileSync: typeof appendFileSync;
+  rmSync: typeof rmSync;
+  readFile: typeof readFile;
+  readdir: typeof readdir;
+  stat: typeof stat;
+  rm: typeof rm;
+  getWorktreeSessionsDir: typeof getWorktreeSessionsDir;
+}
+
+export const defaultPersistenceDeps: PersistenceDeps = {
+  existsSync,
+  writeFileSync,
+  mkdirSync,
+  appendFileSync,
+  rmSync,
+  readFile,
+  readdir,
+  stat,
+  rm,
+  getWorktreeSessionsDir,
+};
+
+/** Module-level deps, overridable for testing */
+let deps: PersistenceDeps = defaultPersistenceDeps;
+
+export function setPersistenceDeps(d: PersistenceDeps): void {
+  deps = d;
+}
+
+export function resetPersistenceDeps(): void {
+  deps = defaultPersistenceDeps;
+}
+
+// ============================================================================
 // Session Folder Management
 // ============================================================================
 
 export function getSessionFolderPath(branchName: string): string {
   // Sanitize branch name for filesystem (replace / with -)
   const safeName = branchName.replace(/\//g, "-");
-  return join(getWorktreeSessionsDir(), safeName);
+  return join(deps.getWorktreeSessionsDir(), safeName);
 }
 
 function ensureSessionsDir(): void {
-  const dir = getWorktreeSessionsDir();
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
+  const dir = deps.getWorktreeSessionsDir();
+  if (!deps.existsSync(dir)) {
+    deps.mkdirSync(dir, { recursive: true });
   }
 }
 
@@ -31,8 +72,8 @@ export function createSessionFolder(session: ChangeSession): void {
   ensureSessionsDir();
   const folderPath = getSessionFolderPath(session.plan.branchName);
 
-  if (!existsSync(folderPath)) {
-    mkdirSync(folderPath, { recursive: true });
+  if (!deps.existsSync(folderPath)) {
+    deps.mkdirSync(folderPath, { recursive: true });
   }
 
   // Write initial state
@@ -42,8 +83,8 @@ export function createSessionFolder(session: ChangeSession): void {
 export function writeSessionState(session: WriteableSessionState, lastMessage: string): void {
   const folderPath = getSessionFolderPath(session.plan.branchName);
 
-  if (!existsSync(folderPath)) {
-    mkdirSync(folderPath, { recursive: true });
+  if (!deps.existsSync(folderPath)) {
+    deps.mkdirSync(folderPath, { recursive: true });
   }
 
   const state: PersistedSessionState = {
@@ -60,24 +101,25 @@ export function writeSessionState(session: WriteableSessionState, lastMessage: s
     lastMessage: lastMessage.substring(0, 500), // Limit message length
     channel: session.channel,
     threadTs: session.threadTs,
+    ...(session.cancelledBy && { cancelledBy: session.cancelledBy }),
   };
 
   const statePath = join(folderPath, "state.json");
-  writeFileSync(statePath, JSON.stringify(state, null, 2));
+  deps.writeFileSync(statePath, JSON.stringify(state, null, 2));
 }
 
 export function appendExecutionLog(branchName: string, message: string): void {
   const folderPath = getSessionFolderPath(branchName);
 
-  if (!existsSync(folderPath)) {
-    mkdirSync(folderPath, { recursive: true });
+  if (!deps.existsSync(folderPath)) {
+    deps.mkdirSync(folderPath, { recursive: true });
   }
 
   const logPath = join(folderPath, "execution.log");
   const timestamp = new Date().toISOString();
   const entry = `[${timestamp}] ${message}\n`;
 
-  appendFileSync(logPath, entry);
+  deps.appendFileSync(logPath, entry);
 }
 
 function isValidSessionState(parsed: unknown): parsed is PersistedSessionState {
@@ -104,7 +146,7 @@ export async function readSessionState(branchName: string): Promise<PersistedSes
   const statePath = join(folderPath, "state.json");
 
   try {
-    const content = await readFile(statePath, "utf-8");
+    const content = await deps.readFile(statePath, "utf-8");
     const state = parseSessionState(content);
     if (!state) {
       logger.warn(`Corrupt session state file ${statePath}: missing required fields`);
@@ -119,9 +161,9 @@ export async function readSessionState(branchName: string): Promise<PersistedSes
 export function removeSessionFolder(branchName: string): void {
   const folderPath = getSessionFolderPath(branchName);
 
-  if (existsSync(folderPath)) {
+  if (deps.existsSync(folderPath)) {
     try {
-      rmSync(folderPath, { recursive: true });
+      deps.rmSync(folderPath, { recursive: true });
       logger.debug(`Removed session folder: ${folderPath}`);
     } catch (err) {
       logger.warn(`Failed to remove session folder ${folderPath}: ${err}`);
@@ -145,6 +187,8 @@ export function statusToPhase(status: ChangeStatus): string {
       return "Completed";
     case "failed":
       return "Failed";
+    case "cancelled":
+      return "Cancelled";
     default:
       return status;
   }
@@ -159,30 +203,30 @@ export function statusToPhase(status: ChangeStatus): string {
  * Returns every parseable state.json found in worktree-sessions/.
  */
 export async function getAllPersistedSessions(): Promise<PersistedSessionState[]> {
-  const sessionsDir = getWorktreeSessionsDir();
+  const sessionsDir = deps.getWorktreeSessionsDir();
 
-  if (!existsSync(sessionsDir)) {
+  if (!deps.existsSync(sessionsDir)) {
     return [];
   }
 
   const sessions: PersistedSessionState[] = [];
 
   try {
-    const folders = await readdir(sessionsDir);
+    const folders = await deps.readdir(sessionsDir);
 
     for (const folder of folders) {
       const folderPath = join(sessionsDir, folder);
       const statePath = join(folderPath, "state.json");
 
       try {
-        if (!(await stat(folderPath)).isDirectory()) continue;
+        if (!(await deps.stat(folderPath)).isDirectory()) continue;
       } catch (err) {
         logger.debug(`Could not stat session folder "${folder}": ${err}`);
         continue;
       }
 
       try {
-        const content = await readFile(statePath, "utf-8");
+        const content = await deps.readFile(statePath, "utf-8");
         const state = parseSessionState(content);
         if (state) sessions.push(state);
       } catch (err) {
@@ -214,16 +258,16 @@ export interface ResumableSession {
  * Get all sessions that can be resumed (have existing worktrees and state)
  */
 export async function getResumableSessions(): Promise<ResumableSession[]> {
-  const sessionsDir = getWorktreeSessionsDir();
+  const sessionsDir = deps.getWorktreeSessionsDir();
 
-  if (!existsSync(sessionsDir)) {
+  if (!deps.existsSync(sessionsDir)) {
     return [];
   }
 
   const resumable: ResumableSession[] = [];
 
   try {
-    const folders = await readdir(sessionsDir);
+    const folders = await deps.readdir(sessionsDir);
 
     for (const folder of folders) {
       const folderPath = join(sessionsDir, folder);
@@ -231,14 +275,14 @@ export async function getResumableSessions(): Promise<ResumableSession[]> {
 
       // Skip if not a directory
       try {
-        if (!(await stat(folderPath)).isDirectory()) continue;
+        if (!(await deps.stat(folderPath)).isDirectory()) continue;
       } catch (err) {
         logger.debug(`Could not stat session folder "${folder}": ${err}`);
         continue;
       }
 
       try {
-        const content = await readFile(statePath, "utf-8");
+        const content = await deps.readFile(statePath, "utf-8");
         const state = parseSessionState(content);
         if (!state) continue;
 
@@ -307,9 +351,11 @@ function shouldCleanupSession(
     case "merging":
       return { action: "skip", reason: `in-progress session: ${folder}` };
 
-    // Failed sessions kept for debugging — never auto-cleaned
+    // Failed/cancelled sessions kept for debugging — never auto-cleaned
     case "failed":
       return { action: "skip", reason: `failed session (kept for debugging): ${folder}` };
+    case "cancelled":
+      return { action: "skip", reason: `cancelled session (kept for resumption): ${folder}` };
 
     // PR waiting for user action — keep
     case "pr_created":
@@ -331,7 +377,7 @@ async function tryRemoveFolder(
   label: string,
 ): Promise<boolean> {
   try {
-    await rm(folderPath, { recursive: true });
+    await deps.rm(folderPath, { recursive: true });
     logger.debug(`Cleaned up ${label} session folder: ${folder}`);
     return true;
   } catch (err) {
@@ -342,7 +388,7 @@ async function tryRemoveFolder(
 
 async function tryReadState(statePath: string): Promise<PersistedSessionState | null> {
   try {
-    const content = await readFile(statePath, "utf-8");
+    const content = await deps.readFile(statePath, "utf-8");
     return parseSessionState(content);
   } catch (err) {
     logger.debug(`Could not read state file "${statePath}": ${err}`);
@@ -356,7 +402,7 @@ async function isFolderOlderThan(
   now: number,
 ): Promise<boolean> {
   try {
-    const folderStat = await stat(folderPath);
+    const folderStat = await deps.stat(folderPath);
     return now - folderStat.mtimeMs >= retentionMs;
   } catch (err) {
     logger.debug(`Could not stat folder "${folderPath}", assuming old enough to clean: ${err}`);
@@ -377,9 +423,9 @@ export async function cleanupStaleSessionFolders(
   retentionHours: number = 24,
   activeBranches?: Set<string>,
 ): Promise<void> {
-  const sessionsDir = getWorktreeSessionsDir();
+  const sessionsDir = deps.getWorktreeSessionsDir();
 
-  if (!existsSync(sessionsDir)) {
+  if (!deps.existsSync(sessionsDir)) {
     return;
   }
 
@@ -388,14 +434,14 @@ export async function cleanupStaleSessionFolders(
   let cleaned = 0;
 
   try {
-    const folders = await readdir(sessionsDir);
+    const folders = await deps.readdir(sessionsDir);
 
     for (const folder of folders) {
       const folderPath = join(sessionsDir, folder);
 
       // Skip if not a directory
       try {
-        if (!(await stat(folderPath)).isDirectory()) continue;
+        if (!(await deps.stat(folderPath)).isDirectory()) continue;
       } catch (err) {
         logger.debug(`Could not stat folder "${folder}" during cleanup: ${err}`);
         continue;
