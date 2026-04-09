@@ -24,6 +24,7 @@ interface PreAnalysisEnrichment {
   history: PreAnalysisMessage[];
   resolvedMessageText: string;
   messageAuthorName: string;
+  historyUnavailable?: boolean;
 }
 
 /**
@@ -82,6 +83,44 @@ async function enrichForPreAnalysis(
   }
 
   return { history, resolvedMessageText, messageAuthorName };
+}
+
+type RawMessage = { user?: string; bot_id?: string; text?: string; ts?: string };
+
+/**
+ * Fetch messages, enrich them for pre-analysis, and return the result.
+ * Falls back to default enrichment (no history) if fetching fails.
+ */
+async function fetchEnrichedContext(
+  client: WebClient,
+  fetchMessages: () => Promise<RawMessage[]>,
+  textForAnalysis: string,
+  messageUser: string | undefined,
+  botUserId: string,
+  botId: string | undefined,
+  botName: string,
+  warnLabel: string,
+): Promise<PreAnalysisEnrichment> {
+  const defaultEnrichment: PreAnalysisEnrichment = {
+    history: [],
+    resolvedMessageText: textForAnalysis,
+    messageAuthorName: "Unknown",
+  };
+  try {
+    const messages = await fetchMessages();
+    return await enrichForPreAnalysis(
+      client,
+      messages,
+      textForAnalysis,
+      messageUser,
+      botUserId,
+      botId,
+      botName,
+    );
+  } catch (error) {
+    logger.warn(warnLabel, error);
+    return { ...defaultEnrichment, historyUnavailable: true };
+  }
 }
 
 interface AutoRespondContext {
@@ -165,7 +204,7 @@ export async function resolveAutoRespondContext(
       `Thread auto-respond: found session ${session.sessionId} for ${userLabel} in ${channelLabel}${threadLink}`,
     );
 
-    // Change workflow commands bypass pre-analysis
+    // Skip workflow command messages — they're handled by dedicated change handlers
     if (session.activeChange?.status === "pr_created") {
       const text = rawText?.trim() ?? "";
       if (
@@ -185,39 +224,35 @@ export async function resolveAutoRespondContext(
     }
 
     const botName = config.slackApp?.name ?? "Clack";
-    let enrichment: PreAnalysisEnrichment = {
-      history: [],
-      resolvedMessageText: textForAnalysis,
-      messageAuthorName: "Unknown",
-    };
-    try {
-      const replies = await client.conversations.replies({
-        channel: channelId,
-        ts: threadTs,
-        latest: messageTs,
-        inclusive: false,
-        limit: 15,
-      });
-      const threadMessages = (replies.messages ?? []).filter((m) => m.ts !== threadTs).slice(-10);
-      enrichment = await enrichForPreAnalysis(
-        client,
-        threadMessages,
-        textForAnalysis,
-        messageUser,
-        botUserId,
-        botId,
-        botName,
-      );
-    } catch (error) {
-      logger.warn("Thread pre-analysis: failed to fetch thread context", error);
-    }
+    const enrichment = await fetchEnrichedContext(
+      client,
+      async () => {
+        const replies = await client.conversations.replies({
+          channel: channelId,
+          ts: threadTs,
+          latest: messageTs,
+          inclusive: false,
+          limit: 15,
+        });
+        return (replies.messages ?? []).filter((m) => m.ts !== threadTs).slice(-10);
+      },
+      textForAnalysis,
+      messageUser,
+      botUserId,
+      botId,
+      botName,
+      "Thread pre-analysis: failed to fetch thread context",
+    );
 
     const sharedContext = deps.loadSharedContext();
+    const threadPreAnalysisContext = enrichment.historyUnavailable
+      ? `${THREAD_PRE_ANALYSIS_CONTEXT} Note: message history could not be retrieved.`
+      : THREAD_PRE_ANALYSIS_CONTEXT;
     const verdict = await deps.preAnalysis(
       enrichment.resolvedMessageText,
       enrichment.messageAuthorName,
       botName,
-      THREAD_PRE_ANALYSIS_CONTEXT,
+      threadPreAnalysisContext,
       sharedContext || undefined,
       enrichment.history,
       channelInfo?.name,
@@ -249,38 +284,34 @@ export async function resolveAutoRespondContext(
     if (!textForAnalysis) return null;
 
     const botName = config.slackApp?.name ?? "Clack";
-    let enrichment: PreAnalysisEnrichment = {
-      history: [],
-      resolvedMessageText: textForAnalysis,
-      messageAuthorName: "Unknown",
-    };
-    try {
-      const history = await client.conversations.history({
-        channel: channelId,
-        latest: messageTs,
-        limit: 10,
-        inclusive: false,
-      });
-      const historyMessages = (history.messages ?? []).reverse();
-      enrichment = await enrichForPreAnalysis(
-        client,
-        historyMessages,
-        textForAnalysis,
-        messageUser,
-        botUserId,
-        botId,
-        botName,
-      );
-    } catch (error) {
-      logger.warn("Pre-analysis: failed to enrich message context", error);
-    }
+    const enrichment = await fetchEnrichedContext(
+      client,
+      async () => {
+        const history = await client.conversations.history({
+          channel: channelId,
+          latest: messageTs,
+          limit: 10,
+          inclusive: false,
+        });
+        return (history.messages ?? []).reverse();
+      },
+      textForAnalysis,
+      messageUser,
+      botUserId,
+      botId,
+      botName,
+      "Pre-analysis: failed to enrich message context",
+    );
 
     const sharedContext = deps.loadSharedContext();
+    const rulePreAnalysisContext = enrichment.historyUnavailable
+      ? `${rule.preAnalysisContext} Note: message history could not be retrieved.`
+      : rule.preAnalysisContext;
     const topLevelVerdict = await deps.preAnalysis(
       enrichment.resolvedMessageText,
       enrichment.messageAuthorName,
       botName,
-      rule.preAnalysisContext,
+      rulePreAnalysisContext,
       sharedContext || undefined,
       enrichment.history,
       channelInfo?.name,
@@ -319,7 +350,7 @@ export function registerAutoRespondHandler(app: App): void {
     }
     if (!botUserId) return;
 
-    const messageUser = "user" in event ? (event.user as string | undefined) : undefined;
+    const messageUser = "user" in event && typeof event.user === "string" ? event.user : undefined;
     if (messageUser === botUserId) return;
 
     const messageBotId =
@@ -327,11 +358,12 @@ export function registerAutoRespondHandler(app: App): void {
     if (messageBotId && messageBotId === botId) return;
 
     // Skip @mentions — handled by mention handler
-    const rawText = "text" in event ? (event.text as string | undefined) : undefined;
+    const rawText = "text" in event && typeof event.text === "string" ? event.text : undefined;
     if (rawText && botUserId && rawText.includes(`<@${botUserId}>`)) return;
 
     const config = getConfig();
-    const threadTs = "thread_ts" in event ? (event.thread_ts as string | undefined) : undefined;
+    const threadTs =
+      "thread_ts" in event && typeof event.thread_ts === "string" ? event.thread_ts : undefined;
 
     const context = await resolveAutoRespondContext(
       event.channel,

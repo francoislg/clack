@@ -1,6 +1,7 @@
 import { clackSession } from "../claude/query.js";
 import { readFileSync } from "node:fs";
 import { getConfig, findRepoByName } from "../config.js";
+import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 import { errorMessage } from "../errors.js";
 import { resolveInstructionFile } from "../instructions.js";
 import { logger } from "../logger.js";
@@ -17,6 +18,16 @@ import { discoverPlugins } from "../plugins.js";
 import type { StreamEvent } from "../streaming/types.js";
 import { truncate } from "../text.js";
 
+export interface RunClaudeDeps {
+  clackSession: typeof clackSession;
+  getConfig: typeof getConfig;
+}
+
+export const defaultRunClaudeDeps: RunClaudeDeps = {
+  clackSession,
+  getConfig,
+};
+
 /**
  * Run Claude via the Agent SDK with the given prompt and options
  */
@@ -26,7 +37,7 @@ export async function runClaude(options: {
   systemPrompt?: string;
   allowedTools?: string[];
   disallowedTools?: string[];
-  mcpServers?: Record<string, unknown>;
+  mcpServers?: Record<string, McpServerConfig>;
   timeout?: number;
   branchName?: string;
   onProgress?: (message: string) => void;
@@ -35,6 +46,8 @@ export async function runClaude(options: {
   onSessionId?: (sessionId: string) => void;
   /** External AbortController for cancellation support. If omitted, one is created internally. */
   abortController?: AbortController;
+  /** Dependencies for testing — leave unset in production. */
+  _deps?: RunClaudeDeps;
 }): Promise<{ success: boolean; text: string; error?: string; lastMessage?: string }> {
   // Validate prompt early - catch empty prompts with a clear error
   if (!options.prompt || options.prompt.trim().length === 0) {
@@ -45,7 +58,8 @@ export async function runClaude(options: {
     };
   }
 
-  const config = getConfig();
+  const deps = options._deps ?? defaultRunClaudeDeps;
+  const config = deps.getConfig();
   const timeoutMs = (options.timeout ?? config.changesWorkflow?.timeoutMinutes ?? 10) * 60 * 1000;
 
   // Set git author to the bot name so commits are attributed to Clack, not the host user
@@ -92,7 +106,7 @@ export async function runClaude(options: {
   const parser = new ClaudeMessageParser(options.onEvent);
 
   try {
-    for await (const message of clackSession({
+    for await (const message of deps.clackSession({
       prompt: options.prompt,
       resumeSessionId: options.resumeSessionId,
       onSessionId: options.onSessionId,
@@ -149,7 +163,9 @@ export async function runClaude(options: {
         } else {
           resultError = parser.result.error;
         }
-        log?.(`Event: result (subtype: ${(message as Record<string, unknown>).subtype})`);
+        log?.(
+          `Event: result (subtype: ${"subtype" in message ? String(message.subtype) : "unknown"})`,
+        );
       } else if (message.type === "system" && "subtype" in message && message.subtype === "init") {
         const sessionId =
           "session_id" in message ? String(message.session_id).substring(0, 8) : "unknown";
