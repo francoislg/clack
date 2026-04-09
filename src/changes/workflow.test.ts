@@ -8,6 +8,8 @@ import type { RepositoryConfig, Config as AppConfig } from "../config.js";
 import type { StreamEvent } from "../streaming/types.js";
 import type { ToolBuildContext } from "../tools/types.js";
 import type { ExecuteChangeOptions } from "./execution.js";
+import { createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
+import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
 import { startChangeWorkflow, handleFollowUp, type WorkflowDeps } from "./workflow.js";
 
 // ============================================================================
@@ -88,7 +90,8 @@ interface WorkerContextParams {
 }
 
 const mockBuildWorkerContext = mock.fn<(params: WorkerContextParams) => ToolBuildContext>();
-const mockBuildClackTools = mock.fn<(context: ToolBuildContext) => { mcpServer: object }>();
+const mockBuildClackTools =
+  mock.fn<(context: ToolBuildContext) => { mcpServer: McpSdkServerConfigWithInstance }>();
 const mockFetchPRReviewContext =
   mock.fn<
     (prUrl: string) => Promise<{ ok: true; context: string } | { ok: false; error: string }>
@@ -262,7 +265,9 @@ function resetMocks(): void {
     return undefined;
   });
   mockBuildWorkerContext.mock.mockImplementation(() => ({}) as ToolBuildContext);
-  mockBuildClackTools.mock.mockImplementation(() => ({ mcpServer: {} }));
+  mockBuildClackTools.mock.mockImplementation(() => ({
+    mcpServer: createSdkMcpServer({ name: "test" }),
+  }));
 }
 
 beforeEach(resetMocks);
@@ -841,6 +846,28 @@ describe("handleFollowUp", () => {
       const arg = mockExecuteChange.mock.calls[0].arguments[0] as ExecuteChangeCallArg;
       const passedOnEvent = arg.onEvent;
       assert.equal(passedOnEvent, onEvent);
+    });
+
+    it("returns cancelled result when activeChange has cancelledBy set", async () => {
+      const session = makeSessionContext({
+        activeChange: makeActiveChangeState({
+          status: "pr_created",
+          cancelledBy: { userId: "U999", reason: "No longer needed" },
+        }),
+      });
+      mockExecuteChange.mock.mockImplementation(async () => ({
+        success: false,
+        error: "Execution aborted",
+      }));
+
+      const result = await handleFollowUp(session, "update", undefined, undefined, makeDeps());
+
+      assert.equal(result.success, false);
+      assert.equal(result.cancelled, true);
+      assert.deepEqual(result.cancelledBy, { userId: "U999", reason: "No longer needed" });
+      const lastCall =
+        mockUpdateActiveChangeStatus.mock.calls[mockUpdateActiveChangeStatus.mock.callCount() - 1];
+      assert.equal(lastCall.arguments[1], "cancelled");
     });
   });
 

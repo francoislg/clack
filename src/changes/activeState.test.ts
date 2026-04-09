@@ -92,6 +92,13 @@ describe("setActiveChange / getActiveChange", () => {
     assert.equal(getActiveChange("session-1")?.branch, "feat/a");
     assert.equal(getActiveChange("session-2")?.branch, "feat/b");
   });
+
+  it("stores and retrieves abortController with active change", () => {
+    const ac = new AbortController();
+    setActiveChange("session-1", makeChange({ abortController: ac }), makeRef());
+    const change = getActiveChange("session-1");
+    assert.equal(change?.abortController, ac);
+  });
 });
 
 // ============================================================================

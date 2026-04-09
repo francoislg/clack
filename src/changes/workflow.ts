@@ -33,6 +33,10 @@ import { fetchPRReviewContext } from "./pr.js";
 import type { StreamEvent } from "../streaming/types.js";
 import { errorMessage } from "../errors.js";
 import type { Config as AppConfig, RepositoryConfig } from "../config.js";
+import type {
+  McpServerConfig,
+  McpSdkServerConfigWithInstance,
+} from "@anthropic-ai/claude-agent-sdk";
 
 // ============================================================================
 // Dependency Injection
@@ -45,7 +49,7 @@ interface RunClaudeInWorktreeOptions {
   allowedTools: string[];
   disallowedTools: string[];
   branchName: string;
-  mcpServers: { clack: object };
+  mcpServers: { clack: McpServerConfig };
   onEvent?: (event: StreamEvent) => void | Promise<void>;
   abortController?: AbortController;
   timeout?: number;
@@ -65,7 +69,7 @@ interface WorkerContextParams {
 }
 
 interface ClackToolsResult {
-  mcpServer: object;
+  mcpServer: McpSdkServerConfigWithInstance;
 }
 
 export interface WorkflowDeps {
@@ -129,6 +133,27 @@ export const defaultWorkflowDeps: WorkflowDeps = {
   fetchPRReviewContext,
   getSession,
 };
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+function buildCancelledResult(
+  activeChange: ActiveChangeState,
+  deps: Pick<WorkflowDeps, "updateActiveChangeStatus">,
+  sessionId: string,
+  sourceError: string | undefined,
+  fallback: string,
+): ChangeResult | null {
+  if (!activeChange.cancelledBy) return null;
+  deps.updateActiveChangeStatus(sessionId, "cancelled");
+  return {
+    success: false,
+    cancelled: true,
+    cancelledBy: activeChange.cancelledBy,
+    error: sourceError ?? fallback,
+  };
+}
 
 // ============================================================================
 // Main Workflow Orchestration
@@ -256,15 +281,14 @@ export async function startChangeWorkflow(
   }
 
   if (!execResult.success) {
-    if (activeChange.cancelledBy) {
-      deps.updateActiveChangeStatus(sessionId, "cancelled");
-      return {
-        success: false,
-        cancelled: true,
-        cancelledBy: activeChange.cancelledBy,
-        error: execResult.error ?? "Execution cancelled",
-      };
-    }
+    const cancelledResult = buildCancelledResult(
+      activeChange,
+      deps,
+      sessionId,
+      execResult.error,
+      "Execution cancelled",
+    );
+    if (cancelledResult) return cancelledResult;
     deps.updateActiveChangeStatus(sessionId, "failed");
     return {
       success: false,
@@ -385,15 +409,14 @@ export async function handleFollowUp(
           deps.updateActiveChangeStatus(session.sessionId, "pr_created");
           return { success: true, summary: "Review feedback addressed" };
         }
-        if (activeChange.cancelledBy) {
-          deps.updateActiveChangeStatus(session.sessionId, "cancelled");
-          return {
-            success: false,
-            cancelled: true,
-            cancelledBy: activeChange.cancelledBy,
-            error: result.error ?? "Review cancelled",
-          };
-        }
+        const cancelledReview = buildCancelledResult(
+          activeChange,
+          deps,
+          session.sessionId,
+          result.error,
+          "Review cancelled",
+        );
+        if (cancelledReview) return cancelledReview;
         // Revert to pr_created — the PR still exists and user can retry
         deps.updateActiveChangeStatus(session.sessionId, "pr_created");
         return { success: false, error: result.error ?? "Review failed" };
@@ -431,15 +454,14 @@ export async function handleFollowUp(
         }
 
         if (!updateResult.success) {
-          if (activeChange.cancelledBy) {
-            deps.updateActiveChangeStatus(session.sessionId, "cancelled");
-            return {
-              success: false,
-              cancelled: true,
-              cancelledBy: activeChange.cancelledBy,
-              error: updateResult.error ?? "Update cancelled",
-            };
-          }
+          const cancelledUpdate = buildCancelledResult(
+            activeChange,
+            deps,
+            session.sessionId,
+            updateResult.error,
+            "Update cancelled",
+          );
+          if (cancelledUpdate) return cancelledUpdate;
           // Revert to pr_created — the PR still exists and user can retry
           deps.updateActiveChangeStatus(session.sessionId, "pr_created");
           return { success: false, error: updateResult.error };
@@ -479,15 +501,14 @@ export async function handleFollowUp(
           };
         }
 
-        if (activeChange.cancelledBy) {
-          deps.updateActiveChangeStatus(session.sessionId, "cancelled");
-          return {
-            success: false,
-            cancelled: true,
-            cancelledBy: activeChange.cancelledBy,
-            error: result.error ?? "Merge cancelled",
-          };
-        }
+        const cancelledMerge = buildCancelledResult(
+          activeChange,
+          deps,
+          session.sessionId,
+          result.error,
+          "Merge cancelled",
+        );
+        if (cancelledMerge) return cancelledMerge;
         return {
           success: false,
           error: result.error ?? "Merge failed",
@@ -520,15 +541,14 @@ export async function handleFollowUp(
           };
         }
 
-        if (activeChange.cancelledBy) {
-          deps.updateActiveChangeStatus(session.sessionId, "cancelled");
-          return {
-            success: false,
-            cancelled: true,
-            cancelledBy: activeChange.cancelledBy,
-            error: result.error ?? "Close cancelled",
-          };
-        }
+        const cancelledClose = buildCancelledResult(
+          activeChange,
+          deps,
+          session.sessionId,
+          result.error,
+          "Close cancelled",
+        );
+        if (cancelledClose) return cancelledClose;
         return {
           success: false,
           error: result.error ?? "Close failed",

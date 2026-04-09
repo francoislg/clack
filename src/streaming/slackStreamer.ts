@@ -139,10 +139,7 @@ export class SlackStreamer {
             if (this.openGroup.count === 0) {
               this.openGroup = null;
             } else {
-              const title =
-                this.openGroup.count > 1
-                  ? `${this.openGroup.title} (${this.openGroup.count})`
-                  : this.openGroup.title;
+              const title = this.groupTitle(this.openGroup.title);
               this.append([
                 {
                   type: "task_update",
@@ -179,10 +176,7 @@ export class SlackStreamer {
               const chunk: TaskUpdateChunk = {
                 type: "task_update",
                 id: existingSlackId,
-                title:
-                  this.openGroup.count > 1
-                    ? `${this.openGroup.title} (${this.openGroup.count})`
-                    : label,
+                title: this.groupTitle(label),
                 status: "in_progress",
               };
               if (group.itemDetail)
@@ -220,7 +214,7 @@ export class SlackStreamer {
           const chunk: TaskUpdateChunk = {
             type: "task_update",
             id: this.openGroup.slackId,
-            title: `${this.openGroup.title} (${this.openGroup.count})`,
+            title: this.groupTitle(this.openGroup.title),
             status: "in_progress",
           };
           // Only append itemDetail when we have real args (skip generic placeholders)
@@ -263,10 +257,7 @@ export class SlackStreamer {
         if (this.openGroup?.slackId === slackId) {
           this.openGroup.pending--;
           const done = this.openGroup.pending === 0;
-          const title =
-            this.openGroup.count > 1
-              ? `${this.openGroup.title} (${this.openGroup.count})`
-              : this.openGroup.title;
+          const title = this.groupTitle(this.openGroup.title);
           this.append([
             { type: "task_update", id: slackId, title, status: done ? "complete" : "in_progress" },
           ]);
@@ -358,6 +349,13 @@ export class SlackStreamer {
 
   // --- Private ---
 
+  private groupTitle(fallback: string): string {
+    if (!this.openGroup) return fallback;
+    return this.openGroup.count > 1
+      ? `${this.openGroup.title} (${this.openGroup.count})`
+      : fallback;
+  }
+
   private startKeepalive(): void {
     this.keepaliveTimer = setInterval(() => {
       if (this.failed || this.stopped) {
@@ -402,7 +400,10 @@ export class SlackStreamer {
 
       // Slack expires streams server-side after inactivity. This is a known
       // condition — log as warning, not error. The fallback path handles it.
-      const slackError = (error as { data?: { error?: string } }).data?.error;
+      const slackError =
+        typeof error === "object" && error !== null && "data" in error
+          ? (error as { data?: { error?: string } }).data?.error
+          : undefined;
       if (slackError === "message_not_in_streaming_state") {
         this.logger.warn(
           "Chat stream expired (message_not_in_streaming_state), falling back to post",
