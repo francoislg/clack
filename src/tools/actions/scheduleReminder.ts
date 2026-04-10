@@ -8,7 +8,7 @@ import { logger } from "../../logger.js";
 export function createScheduleReminderTool(ctx: QueryToolContext) {
   return tool(
     "schedule_reminder",
-    "Schedule a message to be posted to a Slack channel at a future time. " +
+    "Schedule a message to be posted to a Slack channel or DM at a future time. " +
       "Use this when the user asks you to set a reminder or schedule a message. " +
       "The post_at parameter must be an ISO 8601 UTC timestamp. " +
       "Messages are limited to 120 days in the future. " +
@@ -16,7 +16,10 @@ export function createScheduleReminderTool(ctx: QueryToolContext) {
     {
       channel: z
         .string()
-        .describe("Channel name (e.g. '#ops' or 'ops') or channel ID (e.g. 'C0123ABCDEF')"),
+        .describe(
+          "Channel name (e.g. '#ops' or 'ops'), channel ID (e.g. 'C0123ABCDEF'), " +
+            "DM channel ID (e.g. 'D0123ABCDEF'), or user ID to open a DM (e.g. 'U0123ABCDEF')",
+        ),
       message: z.string().describe("The reminder message content"),
       post_at: z
         .string()
@@ -72,7 +75,8 @@ export function createScheduleReminderTool(ctx: QueryToolContext) {
         }
         if (message.includes("channel_not_found") || message.includes("not_in_channel")) {
           return errorResult(
-            "The bot is not a member of the specified channel. Invite the bot first.",
+            "Channel not found or bot is not a member. For channels, invite the bot first. " +
+              "For DMs, ensure the user ID is correct.",
           );
         }
 

@@ -2,15 +2,25 @@ import type { WebClient } from "@slack/web-api";
 import { errorMessage } from "../errors.js";
 
 /**
+ * True when the input looks like a Slack channel/user ID that can be passed directly
+ * to the Slack API without a name lookup.
+ * C = public/private channel, G = group DM (legacy), D = DM channel,
+ * U = user ID (caller must convert to DM channel via conversations.open).
+ */
+export function looksLikeSlackId(input: string): boolean {
+  return /^[CGDU][A-Z0-9_]+$/.test(input);
+}
+
+/**
  * Resolve a channel name or ID to a channel ID.
- * If the input looks like a Slack channel ID (starts with C/G), returns it directly.
+ * If the input looks like a Slack channel ID (starts with C/G/D/U), returns it directly.
  * Otherwise, strips a leading # and searches conversations by name.
  */
 export async function resolveChannelId(
   client: WebClient,
   channelInput: string,
 ): Promise<{ ok: true; channelId: string } | { ok: false; error: string }> {
-  if (/^[CG][A-Z0-9_]+$/.test(channelInput)) {
+  if (looksLikeSlackId(channelInput)) {
     return { ok: true, channelId: channelInput };
   }
   const channelName = channelInput.replace(/^#/, "");
