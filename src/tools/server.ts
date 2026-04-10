@@ -55,12 +55,14 @@ import { createAdminRestartAppTool } from "./admin/adminRestartApp.js";
 import { createAdminSetEnvTool } from "./admin/adminSetEnv.js";
 import { createAdminListEnvTool } from "./admin/adminListEnv.js";
 import { createAdminSetRoleTool } from "./admin/adminSetRole.js";
+import { createAdminDeleteMessageTool } from "./admin/adminDeleteMessage.js";
 import { createListErrorReportsTool } from "./admin/listErrorReports.js";
 import { createReadErrorReportTool } from "./admin/readErrorReport.js";
 
 // Scheduled message query tools
 import { createListRemindersTool } from "./query/listReminders.js";
 import { createListScheduledMessagesTool } from "./query/listScheduledMessages.js";
+import { createFindRecentInteractionsTool } from "./query/findRecentInteractions.js";
 
 // Presentation tool
 import { createSubmitResponseTool } from "./presentation/submitResponse.js";
@@ -207,6 +209,7 @@ function buildQueryTools(ctx: QueryToolContext): ClackToolsResult {
   }
 
   // Read-only query tools — available to all roles
+  tools.push(createFindRecentInteractionsTool(ctx));
   tools.push(createFindSessionsTool(ctx));
   tools.push(createFindChangesTool(ctx));
   tools.push(createFindPullRequestsTool(ctx));
@@ -245,6 +248,9 @@ function buildQueryTools(ctx: QueryToolContext): ClackToolsResult {
     tools.push(createAdminSetRoleTool());
     tools.push(createListErrorReportsTool());
     tools.push(createReadErrorReportTool());
+    if (ctx.slackClient) {
+      tools.push(createAdminDeleteMessageTool(ctx));
+    }
   }
 
   // --- Scheduled message tools (no role gating, config-gated) ---

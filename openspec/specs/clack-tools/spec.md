@@ -84,12 +84,13 @@ The system SHALL register tools based solely on the user's role, workflow config
 #### Scenario: Member user tool set
 
 - **WHEN** the user has the member role in query mode
-- **THEN** the tool server registers query tools (`list_repositories`, `git_log`, `deepen_history`, `find_sessions`, `find_changes`, `find_pull_requests`, `resolve_review_thread`) and `submit_response`
+- **THEN** the tool server registers query tools (`list_repositories`, `git_log`, `deepen_history`, `find_sessions`, `find_changes`, `find_pull_requests`, `find_recent_interactions`, `resolve_review_thread`) and `submit_response`
 - **AND** registers `find_user`, `find_emoji`, and `upload_file` if a Slack client is available in the context
 - **AND** registers `schedule_reminder`, `list_reminders`, and `cancel_reminder` if `allowScheduledMessages` is enabled and a Slack client is available
 - **AND** does NOT register change action tools (`propose_change`, `propose_config_update`)
 - **AND** does NOT register admin config tools (`admin_read_file`, `admin_write_file`, `admin_restart_app`)
 - **AND** does NOT register admin env tools (`admin_set_env`, `admin_list_env`)
+- **AND** does NOT register `admin_delete_message`
 
 #### Scenario: Dev user tool set
 
@@ -100,6 +101,7 @@ The system SHALL register tools based solely on the user's role, workflow config
 - **AND** registers these tools regardless of whether the thread has an active change
 - **AND** does NOT register admin config tools (`admin_read_file`, `admin_write_file`, `admin_restart_app`)
 - **AND** does NOT register admin env tools (`admin_set_env`, `admin_list_env`)
+- **AND** does NOT register `admin_delete_message`
 
 #### Scenario: Admin user tool set
 
@@ -108,6 +110,7 @@ The system SHALL register tools based solely on the user's role, workflow config
 - **THEN** it additionally registers `propose_config_update`, `list_config_files`, and `read_config_file`
 - **AND** registers `admin_read_file`, `admin_write_file`, and `admin_restart_app`
 - **AND** registers `admin_set_env` and `admin_list_env`
+- **AND** registers `admin_delete_message` when a Slack client is available in the context
 - **AND** registers scheduled message tools if `allowScheduledMessages` is enabled and a Slack client is available
 
 #### Scenario: Dev instructions include auto-execute guidance
@@ -121,7 +124,7 @@ The system SHALL register tools based solely on the user's role, workflow config
 
 - **WHEN** the tool server is built with mode `"worker"`
 - **THEN** it registers `git_push`, `ensure_pr`, `merge_pr`, `close_pr`, and `report_status`
-- **AND** does NOT register query, action, presentation, scheduled message, admin config, or admin env tools
+- **AND** does NOT register query tools (including `find_recent_interactions`), action, presentation, scheduled message, admin config, admin env, or `admin_delete_message` tools
 
 ### Requirement: Admin Config Tool Registration
 
@@ -215,6 +218,17 @@ The system SHALL provide read-only query tools for discovering system state.
 #### Scenario: list_config_files tool
 - **WHEN** Claude calls `list_config_files`
 - **THEN** the tool returns the list of known instruction files with filename and status (customized, default, or not created)
+
+### Requirement: find_recent_interactions Tool Registration
+The system SHALL register the `find_recent_interactions` tool in the query tool set, available to all user roles.
+
+#### Scenario: Tool available to all roles
+- **WHEN** `buildQueryTools` assembles the tool list
+- **THEN** `find_recent_interactions` is included regardless of the user's role (member, dev, admin, owner)
+
+#### Scenario: Tool not available in worker mode
+- **WHEN** `buildWorkerTools` assembles the tool list
+- **THEN** `find_recent_interactions` is NOT included (worker mode has no need for session history)
 
 ### Requirement: find_pull_requests Query Tool
 

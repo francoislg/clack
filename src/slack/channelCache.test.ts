@@ -76,4 +76,22 @@ describe("channelCache", () => {
     const info = await getChannelInfo(client, "CBAD");
     assert.equal(info, undefined);
   });
+
+  it("captures is_private=true from the Slack API", async () => {
+    const client = makeClient({
+      ok: true,
+      channel: { name: "secret-room", is_private: true },
+    });
+    const info = await getChannelInfo(client, "C777");
+    assert.deepEqual(info, { id: "C777", name: "secret-room", isPrivate: true });
+  });
+
+  it("captures is_private=false from the Slack API", async () => {
+    const client = makeClient({
+      ok: true,
+      channel: { name: "town-square", is_private: false },
+    });
+    const info = await getChannelInfo(client, "C888");
+    assert.deepEqual(info, { id: "C888", name: "town-square", isPrivate: false });
+  });
 });
