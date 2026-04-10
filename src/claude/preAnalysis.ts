@@ -52,6 +52,7 @@ export async function runPreAnalysis(
   sharedContext?: string,
   recentMessages?: PreAnalysisMessage[],
   channelName?: string,
+  slackLink?: string,
   deps: PreAnalysisDeps = defaultPreAnalysisDeps,
 ): Promise<PreAnalysisResult> {
   const contextSection = sharedContext
@@ -114,7 +115,7 @@ OUTPUT FORMAT: The single word "skip", "respond", or "stop". Nothing else.`;
           .trim()
           .toLowerCase();
         logger.info(
-          `Pre-analysis result: text="${resultText}", message="${truncate(messageText, 50)}"`,
+          `Pre-analysis result: text="${resultText}", message="${truncate(messageText, 50)}"${slackLink ?? ""}`,
         );
         if (message.subtype !== "success") return "skip";
         if (resultText.includes("respond")) return "respond";

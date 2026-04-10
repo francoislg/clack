@@ -60,6 +60,7 @@ describe("runPreAnalysis", () => {
       undefined,
       undefined,
       undefined,
+      undefined,
       makeDeps(),
     );
     assert.equal(result, "respond");
@@ -75,6 +76,7 @@ describe("runPreAnalysis", () => {
       "Alice",
       "Clack",
       "Skip noise",
+      undefined,
       undefined,
       undefined,
       undefined,
@@ -96,6 +98,7 @@ describe("runPreAnalysis", () => {
       undefined,
       undefined,
       undefined,
+      undefined,
       makeDeps(),
     );
     assert.equal(result, "stop");
@@ -111,6 +114,7 @@ describe("runPreAnalysis", () => {
       "Alice",
       "Clack",
       "Only respond to errors",
+      undefined,
       undefined,
       undefined,
       undefined,
@@ -134,6 +138,7 @@ describe("runPreAnalysis", () => {
       undefined,
       undefined,
       undefined,
+      undefined,
       makeDeps(),
     );
     assert.equal(result, "skip");
@@ -149,6 +154,7 @@ describe("runPreAnalysis", () => {
       "Alice",
       "Clack",
       "context",
+      undefined,
       undefined,
       undefined,
       undefined,
@@ -174,6 +180,7 @@ describe("runPreAnalysis", () => {
       undefined,
       undefined,
       undefined,
+      undefined,
       makeDeps(),
     );
     assert.equal(result, "skip");
@@ -189,6 +196,7 @@ describe("runPreAnalysis", () => {
       "Alice",
       "Clack",
       "context",
+      undefined,
       undefined,
       undefined,
       undefined,
@@ -216,6 +224,7 @@ describe("runPreAnalysis", () => {
       undefined,
       undefined,
       undefined,
+      undefined,
       makeDeps(),
     );
     assert.equal(result, "respond");
@@ -236,6 +245,7 @@ describe("runPreAnalysis", () => {
       undefined,
       undefined,
       undefined,
+      undefined,
       makeDeps(),
     );
     assert.equal(result, "skip");
@@ -253,6 +263,7 @@ describe("runPreAnalysis", () => {
       "Alice",
       "Clack",
       "Only respond to product questions",
+      undefined,
       undefined,
       undefined,
       undefined,
@@ -286,6 +297,7 @@ describe("runPreAnalysis", () => {
         { author: "Alice", text: "thanks", isBot: false },
       ],
       undefined,
+      undefined,
       makeDeps(),
     );
 
@@ -312,6 +324,7 @@ describe("runPreAnalysis", () => {
       undefined,
       undefined,
       "security-compliance",
+      undefined,
       makeDeps(),
     );
 
@@ -330,6 +343,7 @@ describe("runPreAnalysis", () => {
       "Alice",
       "Clack",
       "context",
+      undefined,
       undefined,
       undefined,
       undefined,

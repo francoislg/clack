@@ -139,6 +139,20 @@ describe("resolveAutoRespondContext — auto-respond tracking", () => {
     assert.equal(setActive.mock.callCount(), 0);
   });
 
+  it("does not respond on 'skip' verdict", async () => {
+    const setActive = mock.fn(async () => {});
+    const deps = makeDeps({
+      findSession: async () => session({ autoResponseActive: true }),
+      preAnalysis: async () => "skip",
+      setActive,
+    });
+
+    const result = await call(deps, "thanks!");
+
+    assert.equal(result, null);
+    assert.equal(setActive.mock.callCount(), 0);
+  });
+
   it("defaults autoResponseActive to true when field is absent (backward compat)", async () => {
     const preAnalysis = mock.fn(async () => "respond" as const);
     const deps = makeDeps({
