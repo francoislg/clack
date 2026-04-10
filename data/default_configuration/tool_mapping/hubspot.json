@@ -1,0 +1,38 @@
+{
+  "default": "Checking HubSpot",
+  "group": "Checking HubSpot",
+  "argOptions": {
+    "query": { "truncate": 40 },
+    "label": { "truncate": 40 },
+    "description": { "truncate": 60 }
+  },
+  "tools": {
+    "hubspot-get-user-details": "Checking HubSpot identity",
+    "hubspot-get-link": "Generating HubSpot link for portal {portalId}",
+
+    "hubspot-list-objects": "Listing {objectType} records",
+    "hubspot-search-objects": "Searching {objectType} for \"{query|…}\"",
+    "hubspot-batch-read-objects": "Reading {objectType} records",
+    "hubspot-batch-create-objects": "Creating {objectType} records",
+    "hubspot-batch-update-objects": "Updating {objectType} records",
+
+    "hubspot-list-properties": "Listing properties on {objectType}",
+    "hubspot-get-property": "Reading property {propertyName} on {objectType}",
+    "hubspot-create-property": "Creating property {name} on {objectType}",
+    "hubspot-update-property": "Updating property {propertyName} on {objectType}",
+
+    "hubspot-list-associations": "Listing {toObjectType} associations for {objectType} {objectId}",
+    "hubspot-get-association-definitions": "Reading {fromObjectType}→{toObjectType} association definitions",
+    "hubspot-batch-create-associations": "Creating {fromObjectType}→{toObjectType} associations",
+
+    "hubspot-get-engagement": "Reading engagement {engagementId}",
+    "hubspot-create-engagement": "Creating {type} engagement",
+    "hubspot-update-engagement": "Updating engagement {engagementId}",
+
+    "hubspot-get-schemas": "Listing custom schemas",
+
+    "hubspot-list-workflows": "Listing workflows",
+    "hubspot-get-workflow": "Reading workflow {flowId}"
+  },
+  "hidden": ["hubspot-generate-feedback-link"]
+}
