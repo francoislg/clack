@@ -13,6 +13,6 @@ docker stop "$CONTAINER_NAME" 2>/dev/null || true
 docker rm "$CONTAINER_NAME" 2>/dev/null || true
 
 echo "Starting ${CONTAINER_NAME}..."
-docker run -d --name "$CONTAINER_NAME" -v "${SCRIPT_DIR}/data:/app/data" "$IMAGE_NAME"
+docker run -d --name "$CONTAINER_NAME" --restart unless-stopped -v "${SCRIPT_DIR}/data:/app/data" "$IMAGE_NAME"
 
 echo "Done. Logs: docker logs -f ${CONTAINER_NAME}"
