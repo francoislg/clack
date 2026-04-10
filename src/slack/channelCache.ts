@@ -5,6 +5,8 @@ export interface ChannelInfo {
   id: string;
   name: string;
   isDm?: boolean;
+  /** True if the channel is private. Undefined for DMs. */
+  isPrivate?: boolean;
 }
 
 const channelCache = new Map<string, ChannelInfo>();
@@ -42,6 +44,9 @@ export async function getChannelInfo(
       id: channelId,
       name: result.channel.name ?? channelId,
     };
+    if (typeof result.channel.is_private === "boolean") {
+      channelInfo.isPrivate = result.channel.is_private;
+    }
 
     channelCache.set(channelId, channelInfo);
     logger.debug(`Cached channel info for ${channelId}: #${channelInfo.name}`);
