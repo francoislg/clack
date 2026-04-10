@@ -160,9 +160,11 @@ export async function resolveAutoRespondContext(
   botId: string | undefined,
   deps: AutoRespondDeps = defaultAutoRespondDeps,
 ): Promise<AutoRespondContext | null> {
-  const channelInfo = await getChannelInfo(client, channelId);
-  const channelLabel = await resolveChannelLabel(client, channelId);
-  const userLabel = messageUser ? await resolveUserLabel(client, messageUser) : "unknown";
+  const [channelInfo, channelLabel, userLabel] = await Promise.all([
+    getChannelInfo(client, channelId),
+    resolveChannelLabel(client, channelId),
+    messageUser ? resolveUserLabel(client, messageUser) : Promise.resolve("unknown"),
+  ]);
 
   if (threadTs) {
     const threadLink = await slackLink(client, channelId, threadTs);
@@ -212,6 +214,9 @@ export async function resolveAutoRespondContext(
           text,
         )
       ) {
+        logger.debug(
+          `Thread auto-respond: skipping workflow command in ${channelLabel}${threadLink}`,
+        );
         return null;
       }
     }
@@ -256,6 +261,7 @@ export async function resolveAutoRespondContext(
       sharedContext || undefined,
       enrichment.history,
       channelInfo?.name,
+      threadLink,
     );
     logger.debug(`Thread pre-analysis: ${channelLabel}, verdict=${verdict}${threadLink}`);
     if (verdict === "stop") {
@@ -307,6 +313,7 @@ export async function resolveAutoRespondContext(
     const rulePreAnalysisContext = enrichment.historyUnavailable
       ? `${rule.preAnalysisContext} Note: message history could not be retrieved.`
       : rule.preAnalysisContext;
+    const messageLink = await slackLink(client, channelId, messageTs);
     const topLevelVerdict = await deps.preAnalysis(
       enrichment.resolvedMessageText,
       enrichment.messageAuthorName,
@@ -315,9 +322,10 @@ export async function resolveAutoRespondContext(
       sharedContext || undefined,
       enrichment.history,
       channelInfo?.name,
+      messageLink,
     );
     logger.debug(
-      `Pre-analysis: ${channelLabel}, rule=${rule.id}, verdict=${topLevelVerdict}${await slackLink(client, channelId, messageTs)}`,
+      `Pre-analysis: ${channelLabel}, rule=${rule.id}, verdict=${topLevelVerdict}${messageLink}`,
     );
     // Top-level messages have no session to disengage, so treat "stop" as "skip"
     if (topLevelVerdict !== "respond") return null;
