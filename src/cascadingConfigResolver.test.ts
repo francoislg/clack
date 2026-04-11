@@ -1,6 +1,7 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { writeFileSync, mkdirSync, rmSync, existsSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 import { loadConfig } from "./config.js";
 import {
@@ -15,7 +16,7 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
-const tmpBase = resolve("/private/tmp", `cascade-test-${process.pid}`);
+const tmpBase = resolve(tmpdir(), `cascade-test-${process.pid}`);
 const tmpDataDir = join(tmpBase, "data");
 const tmpAuthDir = join(tmpDataDir, "auth");
 const configPath = join(tmpDataDir, "config.json");
@@ -390,7 +391,7 @@ describe("shipped default_configuration smoke test", () => {
   // We use the project root (where data/default_configuration lives) but provide
   // an empty configuration/ so no custom files interfere.
   const projectRoot = resolve(import.meta.dirname, "..");
-  const smokeBase = resolve("/private/tmp", `cascade-smoke-${process.pid}`);
+  const smokeBase = resolve(tmpdir(), `cascade-smoke-${process.pid}`);
 
   beforeEach(() => {
     // Create a data dir that symlinks default_configuration and has empty configuration

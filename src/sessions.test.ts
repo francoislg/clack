@@ -1,6 +1,7 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, rmSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
   parseSessionId,
@@ -114,7 +115,7 @@ describe("hasErrors", () => {
 // clobbering writer A's changes.
 // ---------------------------------------------------------------------------
 describe("updateSession concurrency", () => {
-  const tmpBase = resolve("/private/tmp", `sessions-test-${process.pid}`);
+  const tmpBase = resolve(tmpdir(), `sessions-test-${process.pid}`);
   const sessionsDir = join(tmpBase, "data", "sessions");
   const originalCwd = process.cwd();
 

@@ -1,6 +1,7 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, rmSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 import {
   canEditConfig,
@@ -101,7 +102,7 @@ describe("permission matrix", () => {
 // userId-based (async) permission wrappers
 // ---------------------------------------------------------------------------
 
-const tmpBase = resolve("/private/tmp", `permissions-test-${process.pid}`);
+const tmpBase = resolve(tmpdir(), `permissions-test-${process.pid}`);
 const stateDir = join(tmpBase, "data", "state");
 
 describe("userCanEditConfig", () => {
