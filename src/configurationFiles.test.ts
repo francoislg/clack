@@ -1,6 +1,7 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { writeFileSync, mkdirSync, rmSync, existsSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 import { loadConfig } from "./config.js";
 import {
@@ -15,7 +16,7 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
-const tmpBase = resolve("/private/tmp", `configfiles-test-${process.pid}`);
+const tmpBase = resolve(tmpdir(), `configfiles-test-${process.pid}`);
 const tmpDataDir = join(tmpBase, "data");
 const tmpAuthDir = join(tmpDataDir, "auth");
 const configPath = join(tmpDataDir, "config.json");

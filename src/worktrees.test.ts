@@ -1,6 +1,7 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync, realpathSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 import { getExistingWorktree, type WorktreeInfo } from "./worktrees.js";
 import type { RepositoryConfig } from "./config.js";
@@ -9,7 +10,9 @@ import type { RepositoryConfig } from "./config.js";
 // Helpers
 // ---------------------------------------------------------------------------
 
-const tmpBase = resolve("/private/tmp", `worktrees-test-${process.pid}`);
+// Realpath tmpdir() so the path matches process.cwd() after chdir on macOS
+// (where /var/folders/... resolves to /private/var/folders/...).
+const tmpBase = resolve(realpathSync(tmpdir()), `worktrees-test-${process.pid}`);
 const tmpDataDir = join(tmpBase, "data");
 const tmpWorktreesDir = join(tmpDataDir, "worktrees");
 
