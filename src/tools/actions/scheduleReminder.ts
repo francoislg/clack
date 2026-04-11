@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
-import { textResult, errorResult, resolveChannelId } from "../helpers.js";
+import { textResult, errorResult } from "../helpers.js";
+import { resolveChannelId } from "../../slack/channelResolver.js";
 import { errorMessage } from "../../errors.js";
 import { logger } from "../../logger.js";
 
@@ -18,7 +19,8 @@ export function createScheduleReminderTool(ctx: QueryToolContext) {
         .string()
         .describe(
           "Channel name (e.g. '#ops' or 'ops'), channel ID (e.g. 'C0123ABCDEF'), " +
-            "DM channel ID (e.g. 'D0123ABCDEF'), or user ID to open a DM (e.g. 'U0123ABCDEF')",
+            "DM channel ID (e.g. 'D0123ABCDEF'), or your own user ID to DM yourself " +
+            "(e.g. 'U0123ABCDEF'). Third-party user IDs are not allowed.",
         ),
       message: z.string().describe("The reminder message content"),
       post_at: z
@@ -31,7 +33,10 @@ export function createScheduleReminderTool(ctx: QueryToolContext) {
       }
 
       // Resolve channel
-      const resolved = await resolveChannelId(ctx.slackClient, args.channel);
+      const resolved = await resolveChannelId(
+        { client: ctx.slackClient, userId: ctx.userId },
+        args.channel,
+      );
       if (!resolved.ok) return errorResult(resolved.error);
       const channelId = resolved.channelId;
 

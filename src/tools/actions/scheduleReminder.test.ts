@@ -1,5 +1,6 @@
 import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
+import { WebClient } from "@slack/web-api";
 import { createScheduleReminderTool } from "./scheduleReminder.js";
 import type { QueryToolContext } from "../types.js";
 
@@ -166,5 +167,49 @@ describe("createScheduleReminderTool", () => {
 
     assert.ok(parsed.error);
     assert.ok(result.isError);
+  });
+
+  it("normalizes the requester's own user ID to a DM channel", async () => {
+    const client = new WebClient();
+    mock.method(client.conversations, "open", async () => ({
+      ok: true,
+      channel: { id: "D_SELF" },
+    }));
+    const scheduleSpy = mock.method(client.chat, "scheduleMessage", async () => ({
+      ok: true,
+      scheduled_message_id: "Q_SELF",
+    }));
+
+    const ctx = makeContext({ slackClient: client });
+    const tool = createScheduleReminderTool(ctx);
+
+    const result = await tool.handler(scheduleArgs({ channel: "U123" }), {});
+    const parsed = JSON.parse(result.content[0].text);
+
+    assert.equal(parsed.ok, true);
+    assert.equal(parsed.channel, "D_SELF");
+    assert.equal(scheduleSpy.mock.callCount(), 1);
+    const args = scheduleSpy.mock.calls[0].arguments[0];
+    assert.equal(args?.channel, "D_SELF");
+  });
+
+  it("rejects a third-party user ID without scheduling", async () => {
+    const client = new WebClient();
+    const openSpy = mock.method(client.conversations, "open", async () => ({
+      ok: true,
+      channel: { id: "D_OTHER" },
+    }));
+    const scheduleSpy = mock.method(client.chat, "scheduleMessage", async () => ({ ok: true }));
+
+    const ctx = makeContext({ slackClient: client });
+    const tool = createScheduleReminderTool(ctx);
+
+    const result = await tool.handler(scheduleArgs({ channel: "U999" }), {});
+    const parsed = JSON.parse(result.content[0].text);
+
+    assert.ok(parsed.error);
+    assert.match(parsed.error, /can only DM the requesting user/);
+    assert.equal(openSpy.mock.callCount(), 0, "should not open a DM with a third party");
+    assert.equal(scheduleSpy.mock.callCount(), 0);
   });
 });

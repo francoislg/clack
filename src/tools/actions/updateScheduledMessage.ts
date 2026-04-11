@@ -2,7 +2,8 @@ import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { CronExpressionParser } from "cron-parser";
 import type { QueryToolContext } from "../types.js";
-import { textResult, errorResult, resolveChannelId } from "../helpers.js";
+import { textResult, errorResult } from "../helpers.js";
+import { resolveChannelId } from "../../slack/channelResolver.js";
 import { getJob, updateJob } from "../../cronJobs.js";
 import { canManageRoles } from "../../permissions.js";
 import { humanReadableSchedule } from "../../cronScheduler.js";
@@ -50,7 +51,10 @@ export function createUpdateScheduledMessageTool(ctx: QueryToolContext) {
       // Resolve channel if provided
       let channelId = args.channel;
       if (channelId && ctx.slackClient) {
-        const resolved = await resolveChannelId(ctx.slackClient, channelId);
+        const resolved = await resolveChannelId(
+          { client: ctx.slackClient, userId: ctx.userId },
+          channelId,
+        );
         if (!resolved.ok) return errorResult(resolved.error);
         channelId = resolved.channelId;
       }

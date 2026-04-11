@@ -13,6 +13,7 @@ import { activeSessions } from "../activeSessions.js";
 import { fetchThreadContext } from "../messagesApi.js";
 import { transformUserMentions, getUserInfo } from "../userCache.js";
 import { getChannelInfo } from "../channelCache.js";
+import { openDmChannel } from "../channelResolver.js";
 import { resolveChannelLabel, resolveUserLabel, slackLink } from "../logContext.js";
 import { getClaudeOptions } from "./changeWorkflowHelper.js";
 import { getReactionDelivery } from "../../userPreferences.js";
@@ -183,19 +184,6 @@ async function setupSession(ctx: ProcessingContext, deps: CoreDeps): Promise<Ses
 // ============================================================
 // DM SETUP (reaction DM-first mode)
 // ============================================================
-
-/**
- * Open a DM conversation and return the channel ID, or null on failure.
- */
-async function openDmChannel(client: App["client"], userId: string): Promise<string | null> {
-  try {
-    const result = await client.conversations.open({ users: userId });
-    return result.channel?.id ?? null;
-  } catch (error) {
-    logger.error("Failed to open DM channel:", error);
-    return null;
-  }
-}
 
 /**
  * Set up DM delivery for reaction triggers: open DM, post parent message, store coordinates.

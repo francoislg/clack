@@ -35,6 +35,7 @@ import { setUserPreference } from "../../userPreferences.js";
 import type { ReactionDelivery } from "../../userPreferences.js";
 import { toggleJob, deleteJob, getJob, updateJob } from "../../cronJobs.js";
 import { runJobNow } from "../../cronScheduler.js";
+import { openDmChannel } from "../channelResolver.js";
 import { CronExpressionParser } from "cron-parser";
 
 // ============================================================================
@@ -845,8 +846,7 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
       const content = custom_content ?? default_content ?? "";
 
       // Open DM and upload the file, then send an intro message
-      const conversation = await client.conversations.open({ users: userId });
-      const dmChannelId = conversation.channel?.id;
+      const dmChannelId = await openDmChannel(client, userId);
       if (!dmChannelId) return;
 
       const filename = filepath.split("/").pop() ?? filepath;
