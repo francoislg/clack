@@ -1,6 +1,16 @@
-import { describe, it } from "node:test";
+import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { parseSessionId, hasErrors } from "./sessions.js";
+import { existsSync, mkdirSync, rmSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
+import { join, resolve } from "node:path";
+import {
+  parseSessionId,
+  hasErrors,
+  createSession,
+  updateSession,
+  addRefinement,
+  getSession,
+  getSessionPath,
+} from "./sessions.js";
 import type { SessionContext } from "./sessions.js";
 
 describe("parseSessionId", () => {
@@ -90,5 +100,127 @@ describe("hasErrors", () => {
       ],
     };
     assert.equal(hasErrors(session), true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Concurrent updateSession — regression tests for context.json corruption.
+//
+// Prior to the per-session async mutex + atomic writeFile, two overlapping
+// updateSession calls on the same session could race at the filesystem level:
+// the shorter write would truncate the file while the longer write was still
+// flushing, leaving valid JSON followed by trailing garbage from the earlier
+// payload. Lost updates were also possible — writer B reading stale state and
+// clobbering writer A's changes.
+// ---------------------------------------------------------------------------
+describe("updateSession concurrency", () => {
+  const tmpBase = resolve("/private/tmp", `sessions-test-${process.pid}`);
+  const sessionsDir = join(tmpBase, "data", "sessions");
+  const originalCwd = process.cwd();
+
+  beforeEach(() => {
+    if (existsSync(tmpBase)) {
+      rmSync(tmpBase, { recursive: true });
+    }
+    mkdirSync(sessionsDir, { recursive: true });
+    process.chdir(tmpBase);
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    if (existsSync(tmpBase)) {
+      rmSync(tmpBase, { recursive: true });
+    }
+  });
+
+  it("serializes concurrent addRefinement calls without losing updates", async () => {
+    const session = await createSession({
+      channelId: "C111",
+      messageTs: "1000.0001",
+      threadTs: "1000.0001",
+      userId: "UAAA",
+      originalQuestion: "concurrent refinements",
+    });
+
+    const N = 20;
+    await Promise.all(
+      Array.from({ length: N }, (_, i) => addRefinement(session.sessionId, `r${i}`)),
+    );
+
+    const final = await getSession(session.sessionId);
+    assert.ok(final);
+    assert.equal(
+      final.refinements.length,
+      N,
+      "all refinements should be present — no lost updates",
+    );
+    const seen = new Set(final.refinements);
+    for (let i = 0; i < N; i++) {
+      assert.ok(seen.has(`r${i}`), `refinement r${i} should be present`);
+    }
+  });
+
+  it("never leaves context.json half-written under concurrent large updates", async () => {
+    const session = await createSession({
+      channelId: "C222",
+      messageTs: "2000.0002",
+      threadTs: "2000.0002",
+      userId: "UBBB",
+      originalQuestion: "concurrent large writes",
+    });
+
+    const bigPayload = "x".repeat(8000);
+    await Promise.all(
+      Array.from({ length: 20 }, (_, i) =>
+        updateSession(session.sessionId, {
+          lastAnswer: `${bigPayload}-${i}`,
+        }),
+      ),
+    );
+
+    const contextPath = join(getSessionPath(session.sessionId), "context.json");
+    const raw = readFileSync(contextPath, "utf-8");
+    // Must parse cleanly — no trailing garbage from racing writers
+    const parsed = JSON.parse(raw) as { lastAnswer?: string };
+    assert.ok(parsed.lastAnswer?.startsWith(bigPayload));
+  });
+
+  it("quarantines a corrupt context.json on read so callers stop re-logging it", async () => {
+    // Create a fresh session dir manually (bypassing createSession) so the
+    // in-memory cache never sees it — otherwise getSession would hit the
+    // cache and never touch disk.
+    const freshId = "C444-4000-0004-UDDD-4444444444444";
+    const freshDir = join(sessionsDir, freshId);
+    mkdirSync(freshDir, { recursive: true });
+    const validJson = JSON.stringify({
+      sessionId: freshId,
+      channelId: "C444",
+      messageTs: "4000.0004",
+      threadTs: "4000.0004",
+      userId: "UDDD",
+      originalQuestion: "corruption quarantine",
+    });
+    // Simulate a partial write: valid JSON followed by stale trailing bytes
+    // (exactly the shape of the bug report).
+    writeFileSync(join(freshDir, "context.json"), validJson + "undefined garbage", "utf-8");
+
+    const result = await getSession(freshId);
+    assert.equal(result, null, "corrupt session should return null");
+
+    const files = readdirSync(freshDir);
+    assert.equal(
+      files.some((f) => f.startsWith("context.json.corrupt-")),
+      true,
+      "corrupt file should be quarantined with a .corrupt-{ts} suffix",
+    );
+    assert.equal(
+      files.includes("context.json"),
+      false,
+      "original context.json should be moved aside",
+    );
+
+    // Second read should silently return null with no additional rename.
+    const second = await getSession(freshId);
+    assert.equal(second, null);
   });
 });
