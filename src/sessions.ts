@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile, rm, readdir } from "node:fs/promises";
+import { mkdir, readFile, writeFile, rename, rm, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { getConfig, getSessionsDir } from "./config.js";
 import { logger } from "./logger.js";
@@ -163,15 +163,43 @@ const sessionCache = new Map<string, SessionContext>();
 /** Thread-to-session index for O(1) lookups: "channel:threadTs" → sessionId */
 const threadIndex = new Map<string, string>();
 
+/** Per-session write locks — serialize read-merge-write cycles for the same sessionId
+ *  so concurrent callers can't clobber each other or race at the filesystem level. */
+const sessionLocks = new Map<string, Promise<unknown>>();
+
+function withSessionLock<T>(sessionId: string, fn: () => Promise<T>): Promise<T> {
+  const prev = sessionLocks.get(sessionId) ?? Promise.resolve();
+  const next = prev.then(fn, fn);
+  sessionLocks.set(sessionId, next);
+  next.finally(() => {
+    if (sessionLocks.get(sessionId) === next) sessionLocks.delete(sessionId);
+  });
+  return next;
+}
+
+/** Write context.json atomically: write to a tmp sibling, then rename into place.
+ *  rename() is atomic on POSIX, so readers always see either the old or new file —
+ *  never a half-written one, even if the process crashes mid-write. */
+async function writeContextAtomic(sessionId: string, data: PersistableSession): Promise<void> {
+  const final = getContextPath(sessionId);
+  const tmp = `${final}.tmp`;
+  await writeFile(tmp, JSON.stringify(data, null, 2));
+  await rename(tmp, final);
+}
+
 function getThreadKey(channelId: string, threadTs: string): string {
   return `${channelId}:${threadTs}`;
 }
+
+/** SessionContext fields that are actually persisted to disk.
+ *  Excludes runtime-only state held in memory or sourced from Slack on each turn. */
+type PersistableSession = Omit<SessionContext, "activeChange" | "threadContext">;
 
 /**
  * Strip runtime-only and Slack-derived fields before persisting to disk.
  * These fields are held in the session cache and don't need to survive restarts.
  */
-function stripRuntimeFields(session: SessionContext): Record<string, unknown> {
+function stripRuntimeFields(session: SessionContext): PersistableSession {
   const { activeChange: _activeChange, threadContext: _threadContext, ...persistable } = session;
   return persistable;
 }
@@ -228,7 +256,7 @@ export async function createSession(opts: CreateSessionOptions): Promise<Session
   };
 
   // Write to disk (strip runtime fields)
-  await writeFile(getContextPath(sessionId), JSON.stringify(stripRuntimeFields(context), null, 2));
+  await writeContextAtomic(sessionId, stripRuntimeFields(context));
 
   // Populate caches and index
   sessionCache.set(sessionId, context);
@@ -293,7 +321,12 @@ export async function getSession(sessionId: string): Promise<SessionContext | nu
 
     return session;
   } catch (error) {
-    logger.error(`Failed to read session ${sessionId}:`, error);
+    logger.error(`Failed to read session ${sessionId}, quarantining:`, error);
+    try {
+      await rename(contextPath, `${contextPath}.corrupt-${Date.now()}`);
+    } catch (renameErr) {
+      logger.warn(`Failed to quarantine corrupt session ${sessionId}: ${renameErr}`);
+    }
     return null;
   }
 }
@@ -392,7 +425,12 @@ export async function findSessionByDmThread(
   return null;
 }
 
-export async function updateSession(
+/**
+ * Unlocked body of updateSession — callers MUST hold the session lock.
+ * Reads the latest state via getSession (cache-first, populated by the previous
+ * lock holder), merges updates, writes atomically, and updates the cache.
+ */
+async function updateSessionUnlocked(
   sessionId: string,
   updates: Partial<SessionContext>,
 ): Promise<SessionContext | null> {
@@ -405,10 +443,7 @@ export async function updateSession(
     lastActivity: Date.now(),
   };
 
-  // Persist to disk (strip runtime fields)
-  await writeFile(getContextPath(sessionId), JSON.stringify(stripRuntimeFields(updated), null, 2));
-
-  // Update cache
+  await writeContextAtomic(sessionId, stripRuntimeFields(updated));
   sessionCache.set(sessionId, updated);
 
   // Index responseTs so findSessionByThread can find this session by the posted message
@@ -419,19 +454,27 @@ export async function updateSession(
   return updated;
 }
 
+export function updateSession(
+  sessionId: string,
+  updates: Partial<SessionContext>,
+): Promise<SessionContext | null> {
+  return withSessionLock(sessionId, () => updateSessionUnlocked(sessionId, updates));
+}
+
 export async function setAutoResponseActive(sessionId: string, active: boolean): Promise<void> {
   await updateSession(sessionId, { autoResponseActive: active });
 }
 
-export async function addRefinement(
+export function addRefinement(
   sessionId: string,
   refinement: string,
 ): Promise<SessionContext | null> {
-  const session = await getSession(sessionId);
-  if (!session) return null;
-
-  return updateSession(sessionId, {
-    refinements: [...session.refinements, refinement],
+  return withSessionLock(sessionId, async () => {
+    const session = await getSession(sessionId);
+    if (!session) return null;
+    return updateSessionUnlocked(sessionId, {
+      refinements: [...session.refinements, refinement],
+    });
   });
 }
 
@@ -446,22 +489,24 @@ export function setLastAnswer(sessionId: string, answer: string): Promise<Sessio
   return updateSession(sessionId, { lastAnswer: answer });
 }
 
-export async function addError(
+export function addError(
   sessionId: string,
   errorMessage: string,
   conversationTrace: ConversationMessage[],
 ): Promise<SessionContext | null> {
-  const session = await getSession(sessionId);
-  if (!session) return null;
+  return withSessionLock(sessionId, async () => {
+    const session = await getSession(sessionId);
+    if (!session) return null;
 
-  const errorRecord: ErrorRecord = {
-    timestamp: Date.now(),
-    errorMessage,
-    conversationTrace,
-  };
+    const errorRecord: ErrorRecord = {
+      timestamp: Date.now(),
+      errorMessage,
+      conversationTrace,
+    };
 
-  return updateSession(sessionId, {
-    errors: [...session.errors, errorRecord],
+    return updateSessionUnlocked(sessionId, {
+      errors: [...session.errors, errorRecord],
+    });
   });
 }
 
