@@ -4,6 +4,8 @@ import { getEnabledJobs, updateJobRunStatus, deleteJob, type CronJob } from "./c
 import { processMessage } from "./slack/handlers/core.js";
 import { logger } from "./logger.js";
 import { resolveChannelLabel, slackLink } from "./slack/logContext.js";
+import { openDmChannel } from "./slack/channelResolver.js";
+import { errorMessage as toErrorMessage } from "./errors.js";
 
 // ============================================================================
 // State
@@ -141,7 +143,7 @@ async function executeJob(job: CronJob): Promise<void> {
     // Dynamic jobs already notify via handleError in silentThinking mode; only notify here for static jobs
     if (!job.prompt) {
       try {
-        await notifyCreatorOfError(job, slackClient, error);
+        await notifyCreatorOfError(job, slackClient, toErrorMessage(error));
       } catch (e) {
         logger.error("Failed to notify creator:", e);
       }
@@ -256,22 +258,20 @@ function parseDayOfWeek(field: string): string[] {
 // Error Notification
 // ============================================================================
 
-async function notifyCreatorOfError(
+export async function notifyCreatorOfError(
   job: CronJob,
   client: App["client"],
-  error: unknown,
+  errorMessage: string,
 ): Promise<void> {
-  const errorMessage = error instanceof Error ? error.message : String(error);
+  const dmChannelId = await openDmChannel(client, job.createdBy);
+  if (!dmChannelId) return;
 
   try {
-    const dm = await client.conversations.open({ users: job.createdBy });
-    if (dm.channel?.id) {
-      const schedule = humanReadableSchedule(job.cronExpression, job.timezone);
-      await client.chat.postMessage({
-        channel: dm.channel.id,
-        text: `⚠️ Your scheduled message to <#${job.channel}> (${schedule}) failed:\n\`\`\`${errorMessage}\`\`\`\nIt will try again at the next scheduled time.`,
-      });
-    }
+    const schedule = humanReadableSchedule(job.cronExpression, job.timezone);
+    await client.chat.postMessage({
+      channel: dmChannelId,
+      text: `⚠️ Your scheduled message to <#${job.channel}> (${schedule}) failed:\n\`\`\`${errorMessage}\`\`\`\nIt will try again at the next scheduled time.`,
+    });
   } catch (dmError) {
     logger.error(`Failed to DM creator ${job.createdBy} about cron error:`, dmError);
   }

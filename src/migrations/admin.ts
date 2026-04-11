@@ -1,5 +1,6 @@
 import { loadRoles } from "../roles.js";
 import { getSlackClient } from "../slack/app.js";
+import { openDmChannel } from "../slack/channelResolver.js";
 import { logger } from "../logger.js";
 import type { MigrationError } from "./types.js";
 
@@ -37,18 +38,17 @@ export async function dmAdmin(message: string): Promise<boolean> {
     return false;
   }
 
-  try {
-    const dm = await client.conversations.open({ users: adminId });
-    if (!dm.channel?.id) {
-      logger.warn("Could not open DM channel with admin");
-      return false;
-    }
+  const channelId = await openDmChannel(client, adminId);
+  if (!channelId) {
+    logger.warn("Could not open DM channel with admin");
+    return false;
+  }
 
+  try {
     await client.chat.postMessage({
-      channel: dm.channel.id,
+      channel: channelId,
       text: message,
     });
-
     return true;
   } catch (error) {
     logger.warn("Failed to DM admin:", error);

@@ -6,6 +6,7 @@ import type { ThreadMessage, SlackAttachment, SlackBlock } from "../sessions.js"
 import type { ConversationMessage } from "../claude/index.js";
 import { resolveUsers, transformUserMentions } from "./userCache.js";
 import { extractAttachments } from "./fileExtractor.js";
+import { openDmChannel } from "./channelResolver.js";
 
 export type SlackMessage = NonNullable<ConversationsRepliesResponse["messages"]>[number];
 
@@ -291,15 +292,14 @@ export async function sendDirectMessage(
   text: string,
   blocks?: object[],
 ): Promise<void> {
+  const channelId = await openDmChannel(client, userId);
+  if (!channelId) return;
   try {
-    const conversation = await client.conversations.open({ users: userId });
-    if (conversation.channel?.id) {
-      await client.chat.postMessage({
-        channel: conversation.channel.id,
-        text,
-        ...(blocks && { blocks }),
-      });
-    }
+    await client.chat.postMessage({
+      channel: channelId,
+      text,
+      ...(blocks && { blocks }),
+    });
   } catch (error) {
     logger.error("Failed to send direct message:", error);
   }
@@ -361,11 +361,10 @@ export async function sendErrorReport(
     },
   ];
 
-  try {
-    const conversation = await client.conversations.open({ users: userId });
-    if (!conversation.channel?.id) return;
-    const channelId = conversation.channel.id;
+  const channelId = await openDmChannel(client, userId);
+  if (!channelId) return;
 
+  try {
     const msg = await client.chat.postMessage({
       channel: channelId,
       text: "Error Report - An error occurred while processing your request.",

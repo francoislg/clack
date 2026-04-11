@@ -1,6 +1,8 @@
-import { describe, it } from "node:test";
+import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
-import { humanReadableSchedule, matchesCron } from "./cronScheduler.js";
+import { WebClient } from "@slack/web-api";
+import { humanReadableSchedule, matchesCron, notifyCreatorOfError } from "./cronScheduler.js";
+import type { CronJob } from "./cronJobs.js";
 
 describe("cronScheduler", () => {
   describe("humanReadableSchedule", () => {
@@ -64,6 +66,62 @@ describe("cronScheduler", () => {
     it("fires when no lastRunAt is set", () => {
       const now = new Date("2026-03-31T09:00:30Z");
       assert.equal(matchesCron("0 9 * * *", now, "UTC", undefined), true);
+    });
+  });
+
+  describe("notifyCreatorOfError", () => {
+    const job: CronJob = {
+      id: "job-1",
+      cronExpression: "0 9 * * *",
+      channel: "C456",
+      prompt: "test",
+      createdBy: "U123",
+      createdAt: new Date().toISOString(),
+      enabled: true,
+      timezone: "UTC",
+    };
+
+    it("skips posting when the DM channel cannot be opened", async () => {
+      const client = new WebClient();
+      mock.method(client.conversations, "open", async () => ({ ok: false }));
+      const postSpy = mock.method(client.chat, "postMessage", async () => ({ ok: true }));
+
+      await notifyCreatorOfError(job, client, "boom");
+
+      assert.equal(
+        postSpy.mock.callCount(),
+        0,
+        "postMessage should not be called when DM open fails",
+      );
+    });
+
+    it("skips posting when conversations.open throws", async () => {
+      const client = new WebClient();
+      mock.method(client.conversations, "open", async () => {
+        throw new Error("user_not_found");
+      });
+      const postSpy = mock.method(client.chat, "postMessage", async () => ({ ok: true }));
+
+      await notifyCreatorOfError(job, client, "boom");
+
+      assert.equal(postSpy.mock.callCount(), 0);
+    });
+
+    it("posts to the resolved DM channel when open succeeds", async () => {
+      const client = new WebClient();
+      mock.method(client.conversations, "open", async () => ({
+        ok: true,
+        channel: { id: "D789" },
+      }));
+      const postSpy = mock.method(client.chat, "postMessage", async () => ({ ok: true }));
+
+      await notifyCreatorOfError(job, client, "something went wrong");
+
+      assert.equal(postSpy.mock.callCount(), 1);
+      const args = postSpy.mock.calls[0].arguments[0];
+      assert.equal(args?.channel, "D789");
+      const text = args && "text" in args ? (args.text ?? "") : "";
+      assert.match(text, /something went wrong/);
     });
   });
 });

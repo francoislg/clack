@@ -1,46 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { textResult, errorResult, looksLikeSlackId } from "./helpers.js";
-
-describe("looksLikeSlackId", () => {
-  it("accepts public/private channel IDs (C prefix)", () => {
-    assert.equal(looksLikeSlackId("C0123ABCDEF"), true);
-  });
-
-  it("accepts legacy group DM IDs (G prefix)", () => {
-    assert.equal(looksLikeSlackId("G0123ABCDEF"), true);
-  });
-
-  it("accepts DM channel IDs (D prefix)", () => {
-    assert.equal(looksLikeSlackId("D0123ABCDEF"), true);
-  });
-
-  it("accepts user IDs (U prefix)", () => {
-    assert.equal(looksLikeSlackId("U0123ABCDEF"), true);
-  });
-
-  it("rejects plain channel names", () => {
-    assert.equal(looksLikeSlackId("general"), false);
-    assert.equal(looksLikeSlackId("#general"), false);
-  });
-
-  it("rejects lowercase IDs", () => {
-    assert.equal(looksLikeSlackId("c0123abcdef"), false);
-  });
-
-  it("rejects IDs with unsupported prefixes", () => {
-    assert.equal(looksLikeSlackId("X0123ABCDEF"), false);
-    assert.equal(looksLikeSlackId("B0123ABCDEF"), false);
-  });
-
-  it("rejects empty string", () => {
-    assert.equal(looksLikeSlackId(""), false);
-  });
-
-  it("rejects single-character prefix only", () => {
-    assert.equal(looksLikeSlackId("C"), false);
-  });
-});
+import { textResult, errorResult } from "./helpers.js";
 
 describe("textResult", () => {
   it("serializes an object to JSON", () => {

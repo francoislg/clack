@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { WebClient } from "@slack/web-api";
 import {
   createCreateScheduledMessageTool,
   type CreateScheduledMessageDeps,
@@ -120,5 +121,56 @@ describe("createScheduledMessage tool", () => {
     const parsed = JSON.parse(result.content[0].text);
     assert.equal(parsed.ok, true);
     assert.equal(parsed.channel, "C456");
+  });
+
+  it("normalizes the requester's own user ID to a DM channel", async () => {
+    const client = new WebClient();
+    mock.method(client.conversations, "open", async () => ({
+      ok: true,
+      channel: { id: "D_SELF" },
+    }));
+
+    const ctx = buildCtx({ slackClient: client });
+    const deps = makeDeps();
+    const tool = createCreateScheduledMessageTool(ctx, deps);
+
+    const result = await callHandler(tool, {
+      channel: "U123",
+      cronExpression: "0 9 * * *",
+      prompt: "daily self-DM",
+    });
+
+    const parsed = JSON.parse(result.content[0].text);
+    assert.equal(parsed.ok, true);
+    assert.equal(parsed.channel, "D_SELF");
+
+    const jobs = await getJobs();
+    assert.equal(jobs.length, 1);
+    assert.equal(jobs[0].channel, "D_SELF", "stored channel should be the D-id, not the U-id");
+  });
+
+  it("rejects a third-party user ID and creates no job", async () => {
+    const client = new WebClient();
+    const openSpy = mock.method(client.conversations, "open", async () => ({
+      ok: true,
+      channel: { id: "D_OTHER" },
+    }));
+
+    const ctx = buildCtx({ slackClient: client });
+    const deps = makeDeps();
+    const tool = createCreateScheduledMessageTool(ctx, deps);
+
+    const result = await callHandler(tool, {
+      channel: "U999",
+      cronExpression: "0 9 * * *",
+      prompt: "malicious dm",
+    });
+
+    assert.equal(result.isError, true);
+    assert.match(result.content[0].text, /can only DM the requesting user/);
+    assert.equal(openSpy.mock.callCount(), 0, "should not open a DM with a third party");
+
+    const jobs = await getJobs();
+    assert.equal(jobs.length, 0, "no job should be created when the target is rejected");
   });
 });

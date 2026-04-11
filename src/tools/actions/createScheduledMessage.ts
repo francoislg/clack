@@ -3,7 +3,8 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { CronExpressionParser } from "cron-parser";
 import type { App } from "@slack/bolt";
 import type { QueryToolContext } from "../types.js";
-import { textResult, errorResult, resolveChannelId } from "../helpers.js";
+import { textResult, errorResult } from "../helpers.js";
+import { resolveChannelId } from "../../slack/channelResolver.js";
 import { createJob, type CronJob } from "../../cronJobs.js";
 import { getUserInfo, type UserInfo } from "../../slack/userCache.js";
 import { logger } from "../../logger.js";
@@ -38,7 +39,11 @@ export function createCreateScheduledMessageTool(
     {
       channel: z
         .string()
-        .describe("Channel name (e.g. '#ops' or 'ops') or channel ID (e.g. 'C0123ABCDEF')"),
+        .describe(
+          "Channel name (e.g. '#ops' or 'ops'), channel ID (e.g. 'C0123ABCDEF'), " +
+            "DM channel ID (e.g. 'D0123ABCDEF'), or your own user ID to DM yourself " +
+            "(e.g. 'U0123ABCDEF'). Third-party user IDs are not allowed.",
+        ),
       cronExpression: z
         .string()
         .describe(
@@ -67,7 +72,10 @@ export function createCreateScheduledMessageTool(
       }
 
       // Resolve channel
-      const resolved = await resolveChannelId(ctx.slackClient, args.channel);
+      const resolved = await resolveChannelId(
+        { client: ctx.slackClient, userId: ctx.userId },
+        args.channel,
+      );
       if (!resolved.ok) return errorResult(resolved.error);
       const channelId = resolved.channelId;
 
