@@ -1,5 +1,6 @@
 import type { App } from "@slack/bolt";
 import { logger } from "../logger.js";
+import { buildWildcardMatcher } from "./wildcardMatcher.js";
 
 export interface SlackUserEntry {
   userId: string;
@@ -56,18 +57,6 @@ export function createUsersCache(client: App["client"]): UsersCache {
     return cached;
   }
 
-  function buildMatcher(query: string): (value: string) => boolean {
-    if (query.includes("*")) {
-      // Convert wildcard pattern to regex: escape regex chars, replace * with .*
-      const escaped = query.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
-      const pattern = new RegExp(`^${escaped.replace(/\*/g, ".*")}$`, "i");
-      return (value) => pattern.test(value);
-    }
-    // Default: case-insensitive substring
-    const lower = query.toLowerCase();
-    return (value) => value.toLowerCase().includes(lower);
-  }
-
   function matchesUser(
     user: SlackUserEntry,
     queries: string[],
@@ -85,7 +74,7 @@ export function createUsersCache(client: App["client"]): UsersCache {
   return {
     async search(queries: string[], limit = 10): Promise<SlackUserEntry[]> {
       const users = await fetchAll();
-      const matchers = queries.map(buildMatcher);
+      const matchers = queries.map(buildWildcardMatcher);
       const seen = new Set<string>();
       const results: SlackUserEntry[] = [];
 
