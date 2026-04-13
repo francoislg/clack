@@ -18,6 +18,12 @@ import type { InstructionFileListing } from "../configurationFiles.js";
 import type { Config, RepositoryConfig } from "../config.js";
 import type { PluginInfo } from "../plugins.js";
 import type { MigrationError } from "../migrations/types.js";
+import { getLoadedPlugins } from "../plugins/state.js";
+
+export interface ClackPluginSummary {
+  name: string;
+  toolCount: number;
+}
 import type { RolesConfig } from "../roles.js";
 import type { UserPreferences } from "../userPreferences.js";
 
@@ -45,6 +51,7 @@ export interface HomeTabDeps {
   canWriteRepo: (role: UserRole, repo: RepositoryConfig) => boolean;
   getMigrationErrors: () => MigrationError[];
   discoverPluginInfo: () => PluginInfo[];
+  getLoadedClackPlugins: () => ClackPluginSummary[];
   getRules: () => Promise<AutoRespondRule[]>;
   getJobs: () => Promise<CronJob[]>;
   getJobsByUser: (userId: string) => Promise<CronJob[]>;
@@ -68,6 +75,8 @@ export const defaultHomeTabDeps: HomeTabDeps = {
   canWriteRepo,
   getMigrationErrors,
   discoverPluginInfo,
+  getLoadedClackPlugins: () =>
+    getLoadedPlugins().results.map((r) => ({ name: r.name, toolCount: r.tools.length })),
   getRules,
   getJobs,
   getJobsByUser,
@@ -511,17 +520,30 @@ export function buildStatusSection(
     });
   }
 
-  // Plugins
-  const plugins = deps.discoverPluginInfo();
-  if (plugins.length > 0) {
-    const pluginList = plugins
+  // SDK Skill Plugins (Claude Code skill packs from data/skill-plugins/)
+  const skillPlugins = deps.discoverPluginInfo();
+  if (skillPlugins.length > 0) {
+    const pluginList = skillPlugins
       .map((p) => `• *${p.name}*${p.skillCount > 0 ? ` (${p.skillCount} skills)` : ""}`)
       .join("\n");
     blocks.push({
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `:jigsaw: *Plugins:*\n${pluginList}`,
+        text: `:jigsaw: *Skill Plugins:*\n${pluginList}`,
+      },
+    });
+  }
+
+  // Clack Plugins (loaded via plugins config)
+  const clackPlugins = deps.getLoadedClackPlugins();
+  if (clackPlugins.length > 0) {
+    const pluginList = clackPlugins.map((p) => `• *${p.name}* (${p.toolCount} tools)`).join("\n");
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `:electric_plug: *Plugins:*\n${pluginList}`,
       },
     });
   }

@@ -10,6 +10,7 @@ import {
   validateInstructionDirs,
   listRoleDirFiles,
   readRoleFile,
+  type VirtualDefaults,
 } from "./cascadingConfigResolver.js";
 
 // ---------------------------------------------------------------------------
@@ -470,5 +471,109 @@ describe("shipped default_configuration smoke test", () => {
     assert.ok(result.includes("submit_response"), "user content present");
     assert.ok(result.includes("propose_change"), "dev content present");
     assert.ok(result.includes("propose_config_update"), "admin content present");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Virtual Defaults (plugin integration)
+// ---------------------------------------------------------------------------
+
+describe("resolveInstructions with virtualDefaults", () => {
+  beforeEach(setup);
+  afterEach(() => process.chdir(originalCwd));
+
+  it("includes virtual default when no disk files exist", () => {
+    writeDefault("user", "identity.md", "core identity");
+
+    const virtualDefaults: VirtualDefaults = new Map([
+      ["user", new Map([["trivia__instructions.md", "Trivia instructions here"]])],
+    ]);
+
+    const result = resolveInstructions(["user"], virtualDefaults);
+    assert.ok(result.includes("core identity"));
+    assert.ok(result.includes("Trivia instructions here"));
+  });
+
+  it("disk custom override wins over virtual default", () => {
+    writeDefault("user", "identity.md", "core identity");
+    writeCustom("user", "trivia__instructions.md", "Admin override of trivia");
+
+    const virtualDefaults: VirtualDefaults = new Map([
+      ["user", new Map([["trivia__instructions.md", "Plugin default"]])],
+    ]);
+
+    const result = resolveInstructions(["user"], virtualDefaults);
+    assert.ok(result.includes("Admin override of trivia"));
+    assert.ok(!result.includes("Plugin default"));
+  });
+
+  it("virtual default overrides disk default for same filename", () => {
+    writeDefault("user", "trivia__instructions.md", "Old disk default");
+
+    const virtualDefaults: VirtualDefaults = new Map([
+      ["user", new Map([["trivia__instructions.md", "Plugin virtual default"]])],
+    ]);
+
+    const result = resolveInstructions(["user"], virtualDefaults);
+    assert.ok(result.includes("Plugin virtual default"));
+    assert.ok(!result.includes("Old disk default"));
+  });
+
+  it("resolution order: disk default → virtual → disk custom per role tier", () => {
+    writeDefault("user", "shared.md", "disk default user");
+
+    const virtualDefaults: VirtualDefaults = new Map([
+      ["user", new Map([["shared.md", "virtual user"]])],
+      ["dev", new Map([["shared.md", "virtual dev"]])],
+    ]);
+
+    // user chain only: virtual user wins over disk default user
+    const userResult = resolveInstructions(["user"], virtualDefaults);
+    assert.ok(userResult.includes("virtual user"));
+
+    // user+dev chain: virtual dev wins (higher role tier)
+    const devResult = resolveInstructions(["user", "dev"], virtualDefaults);
+    assert.ok(devResult.includes("virtual dev"));
+    assert.ok(!devResult.includes("virtual user"));
+  });
+
+  it("works normally when virtualDefaults is undefined", () => {
+    writeDefault("user", "identity.md", "core identity");
+
+    const result = resolveInstructions(["user"], undefined);
+    assert.ok(result.includes("core identity"));
+  });
+});
+
+describe("listRoleDirFiles with virtualDefaults", () => {
+  beforeEach(setup);
+  afterEach(() => process.chdir(originalCwd));
+
+  it("includes virtual files with source 'plugin'", () => {
+    writeDefault("user", "identity.md", "core");
+
+    const virtualDefaults: VirtualDefaults = new Map([
+      ["user", new Map([["trivia__instructions.md", "Trivia content"]])],
+    ]);
+
+    const result = listRoleDirFiles(virtualDefaults);
+    const userDir = result.find((r) => r.role === "user")!;
+    const triviaFile = userDir.files.find((f) => f.filename === "trivia__instructions.md");
+    assert.ok(triviaFile);
+    assert.equal(triviaFile.source, "plugin");
+  });
+
+  it("marks plugin file as 'plugin-customized' when admin override exists", () => {
+    writeCustom("user", "trivia__instructions.md", "Custom override");
+
+    const virtualDefaults: VirtualDefaults = new Map([
+      ["user", new Map([["trivia__instructions.md", "Plugin default"]])],
+    ]);
+
+    const result = listRoleDirFiles(virtualDefaults);
+    const userDir = result.find((r) => r.role === "user")!;
+    const triviaFile = userDir.files.find((f) => f.filename === "trivia__instructions.md");
+    assert.ok(triviaFile);
+    assert.equal(triviaFile.source, "plugin-customized");
   });
 });

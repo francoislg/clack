@@ -64,7 +64,7 @@ describe("discoverPluginInfo", () => {
   });
 
   it("returns empty array when plugins directory is empty", () => {
-    mockExistsSync.mock.mockImplementation((p: string) => p === "/fake/data/plugins");
+    mockExistsSync.mock.mockImplementation((p: string) => p === "/fake/data/skill-plugins");
     mockReaddirSync.mock.mockImplementation(() => []);
     setPluginsDeps(makeDeps());
 
@@ -73,7 +73,7 @@ describe("discoverPluginInfo", () => {
   });
 
   it("skips non-directory entries in plugins/", () => {
-    mockExistsSync.mock.mockImplementation((p: string) => p === "/fake/data/plugins");
+    mockExistsSync.mock.mockImplementation((p: string) => p === "/fake/data/skill-plugins");
     mockReaddirSync.mock.mockImplementation(() => ["somefile.txt"]);
     mockStatSync.mock.mockImplementation(() => ({ isDirectory: () => false }));
     setPluginsDeps(makeDeps());
@@ -87,11 +87,11 @@ describe("discoverPluginInfo", () => {
     mockExistsSync.mock.mockImplementation((p: string) => {
       calls.push(p);
       // Only the plugins dir itself exists, not plugin.json or marketplace.json
-      return p === "/fake/data/plugins";
+      return p === "/fake/data/skill-plugins";
     });
     mockReaddirSync.mock.mockImplementation(() => ["my-plugin"]);
     mockStatSync.mock.mockImplementation((p: string) => ({
-      isDirectory: () => p === "/fake/data/plugins/my-plugin",
+      isDirectory: () => p === "/fake/data/skill-plugins/my-plugin",
     }));
     setPluginsDeps(makeDeps());
 
@@ -101,13 +101,13 @@ describe("discoverPluginInfo", () => {
 
   it("discovers a plugin with plugin.json manifest", () => {
     const existingPaths = new Set([
-      "/fake/data/plugins",
-      "/fake/data/plugins/awesome/.claude-plugin/plugin.json",
+      "/fake/data/skill-plugins",
+      "/fake/data/skill-plugins/awesome/.claude-plugin/plugin.json",
     ]);
     mockExistsSync.mock.mockImplementation((p: string) => existingPaths.has(p));
     mockReaddirSync.mock.mockImplementation(() => ["awesome"]);
     mockStatSync.mock.mockImplementation((p: string) => ({
-      isDirectory: () => p === "/fake/data/plugins/awesome",
+      isDirectory: () => p === "/fake/data/skill-plugins/awesome",
     }));
     mockReadFileSync.mock.mockImplementation(() => JSON.stringify({ name: "Awesome Plugin" }));
     setPluginsDeps(makeDeps());
@@ -115,19 +115,19 @@ describe("discoverPluginInfo", () => {
     const result = discoverPluginInfo();
     assert.equal(result.length, 1);
     assert.equal(result[0].name, "Awesome Plugin");
-    assert.equal(result[0].path, "/fake/data/plugins/awesome");
+    assert.equal(result[0].path, "/fake/data/skill-plugins/awesome");
     assert.equal(result[0].skillCount, 0);
   });
 
   it("discovers a plugin with marketplace.json manifest", () => {
     const existingPaths = new Set([
-      "/fake/data/plugins",
-      "/fake/data/plugins/market/.claude-plugin/marketplace.json",
+      "/fake/data/skill-plugins",
+      "/fake/data/skill-plugins/market/.claude-plugin/marketplace.json",
     ]);
     mockExistsSync.mock.mockImplementation((p: string) => existingPaths.has(p));
     mockReaddirSync.mock.mockImplementation(() => ["market"]);
     mockStatSync.mock.mockImplementation((p: string) => ({
-      isDirectory: () => p === "/fake/data/plugins/market",
+      isDirectory: () => p === "/fake/data/skill-plugins/market",
     }));
     mockReadFileSync.mock.mockImplementation(() => JSON.stringify({ name: "Market Plugin" }));
     setPluginsDeps(makeDeps());
@@ -139,14 +139,14 @@ describe("discoverPluginInfo", () => {
 
   it("prefers plugin.json over marketplace.json", () => {
     const existingPaths = new Set([
-      "/fake/data/plugins",
-      "/fake/data/plugins/both/.claude-plugin/plugin.json",
-      "/fake/data/plugins/both/.claude-plugin/marketplace.json",
+      "/fake/data/skill-plugins",
+      "/fake/data/skill-plugins/both/.claude-plugin/plugin.json",
+      "/fake/data/skill-plugins/both/.claude-plugin/marketplace.json",
     ]);
     mockExistsSync.mock.mockImplementation((p: string) => existingPaths.has(p));
     mockReaddirSync.mock.mockImplementation(() => ["both"]);
     mockStatSync.mock.mockImplementation((p: string) => ({
-      isDirectory: () => p === "/fake/data/plugins/both",
+      isDirectory: () => p === "/fake/data/skill-plugins/both",
     }));
     mockReadFileSync.mock.mockImplementation(() => JSON.stringify({ name: "Plugin JSON Name" }));
     setPluginsDeps(makeDeps());
@@ -160,13 +160,13 @@ describe("discoverPluginInfo", () => {
 
   it("uses directory name as fallback when manifest has no name", () => {
     const existingPaths = new Set([
-      "/fake/data/plugins",
-      "/fake/data/plugins/fallback-name/.claude-plugin/plugin.json",
+      "/fake/data/skill-plugins",
+      "/fake/data/skill-plugins/fallback-name/.claude-plugin/plugin.json",
     ]);
     mockExistsSync.mock.mockImplementation((p: string) => existingPaths.has(p));
     mockReaddirSync.mock.mockImplementation(() => ["fallback-name"]);
     mockStatSync.mock.mockImplementation((p: string) => ({
-      isDirectory: () => p === "/fake/data/plugins/fallback-name",
+      isDirectory: () => p === "/fake/data/skill-plugins/fallback-name",
     }));
     mockReadFileSync.mock.mockImplementation(() => JSON.stringify({}));
     setPluginsDeps(makeDeps());
@@ -178,13 +178,13 @@ describe("discoverPluginInfo", () => {
 
   it("counts skills from manifest plugins[0].skills", () => {
     const existingPaths = new Set([
-      "/fake/data/plugins",
-      "/fake/data/plugins/skilled/.claude-plugin/plugin.json",
+      "/fake/data/skill-plugins",
+      "/fake/data/skill-plugins/skilled/.claude-plugin/plugin.json",
     ]);
     mockExistsSync.mock.mockImplementation((p: string) => existingPaths.has(p));
     mockReaddirSync.mock.mockImplementation(() => ["skilled"]);
     mockStatSync.mock.mockImplementation((p: string) => ({
-      isDirectory: () => p === "/fake/data/plugins/skilled",
+      isDirectory: () => p === "/fake/data/skill-plugins/skilled",
     }));
     mockReadFileSync.mock.mockImplementation(() =>
       JSON.stringify({
@@ -201,9 +201,9 @@ describe("discoverPluginInfo", () => {
 
   it("counts skills from skills/ directory when not in manifest", () => {
     const existingPaths = new Set([
-      "/fake/data/plugins",
-      "/fake/data/plugins/dir-skills/.claude-plugin/plugin.json",
-      "/fake/data/plugins/dir-skills/skills",
+      "/fake/data/skill-plugins",
+      "/fake/data/skill-plugins/dir-skills/.claude-plugin/plugin.json",
+      "/fake/data/skill-plugins/dir-skills/skills",
     ]);
     mockExistsSync.mock.mockImplementation((p: string) => existingPaths.has(p));
 
@@ -218,7 +218,7 @@ describe("discoverPluginInfo", () => {
     mockStatSync.mock.mockImplementation((p: string) => {
       _statCallCount++;
       // The plugin entry itself and skill subdirs
-      if (p === "/fake/data/plugins/dir-skills") return { isDirectory: () => true };
+      if (p === "/fake/data/skill-plugins/dir-skills") return { isDirectory: () => true };
       if (p.endsWith("skill-one")) return { isDirectory: () => true };
       if (p.endsWith("skill-two")) return { isDirectory: () => true };
       if (p.endsWith("not-a-dir")) return { isDirectory: () => false };
@@ -234,13 +234,13 @@ describe("discoverPluginInfo", () => {
 
   it("uses defaults when manifest JSON is invalid", () => {
     const existingPaths = new Set([
-      "/fake/data/plugins",
-      "/fake/data/plugins/broken/.claude-plugin/plugin.json",
+      "/fake/data/skill-plugins",
+      "/fake/data/skill-plugins/broken/.claude-plugin/plugin.json",
     ]);
     mockExistsSync.mock.mockImplementation((p: string) => existingPaths.has(p));
     mockReaddirSync.mock.mockImplementation(() => ["broken"]);
     mockStatSync.mock.mockImplementation((p: string) => ({
-      isDirectory: () => p === "/fake/data/plugins/broken",
+      isDirectory: () => p === "/fake/data/skill-plugins/broken",
     }));
     mockReadFileSync.mock.mockImplementation(() => "{ not valid json }}}");
     setPluginsDeps(makeDeps());
@@ -253,9 +253,9 @@ describe("discoverPluginInfo", () => {
 
   it("discovers multiple plugins", () => {
     const existingPaths = new Set([
-      "/fake/data/plugins",
-      "/fake/data/plugins/alpha/.claude-plugin/plugin.json",
-      "/fake/data/plugins/beta/.claude-plugin/marketplace.json",
+      "/fake/data/skill-plugins",
+      "/fake/data/skill-plugins/alpha/.claude-plugin/plugin.json",
+      "/fake/data/skill-plugins/beta/.claude-plugin/marketplace.json",
     ]);
     mockExistsSync.mock.mockImplementation((p: string) => existingPaths.has(p));
 
@@ -265,7 +265,8 @@ describe("discoverPluginInfo", () => {
       return ["alpha", "beta"];
     });
     mockStatSync.mock.mockImplementation((p: string) => ({
-      isDirectory: () => p === "/fake/data/plugins/alpha" || p === "/fake/data/plugins/beta",
+      isDirectory: () =>
+        p === "/fake/data/skill-plugins/alpha" || p === "/fake/data/skill-plugins/beta",
     }));
     mockReadFileSync.mock.mockImplementation((p: string) => {
       if (p.includes("alpha")) return JSON.stringify({ name: "Alpha" });
@@ -297,13 +298,13 @@ describe("discoverPlugins", () => {
 
   it("returns SDK-compatible plugin configs with type and path", () => {
     const existingPaths = new Set([
-      "/fake/data/plugins",
-      "/fake/data/plugins/my-plugin/.claude-plugin/plugin.json",
+      "/fake/data/skill-plugins",
+      "/fake/data/skill-plugins/my-plugin/.claude-plugin/plugin.json",
     ]);
     mockExistsSync.mock.mockImplementation((p: string) => existingPaths.has(p));
     mockReaddirSync.mock.mockImplementation(() => ["my-plugin"]);
     mockStatSync.mock.mockImplementation((p: string) => ({
-      isDirectory: () => p === "/fake/data/plugins/my-plugin",
+      isDirectory: () => p === "/fake/data/skill-plugins/my-plugin",
     }));
     mockReadFileSync.mock.mockImplementation(() => JSON.stringify({ name: "My Plugin" }));
     setPluginsDeps(makeDeps());
@@ -311,6 +312,6 @@ describe("discoverPlugins", () => {
     const result = discoverPlugins();
     assert.equal(result.length, 1);
     assert.equal(result[0].type, "local");
-    assert.equal(result[0].path, "/fake/data/plugins/my-plugin");
+    assert.equal(result[0].path, "/fake/data/skill-plugins/my-plugin");
   });
 });

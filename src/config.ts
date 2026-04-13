@@ -116,6 +116,8 @@ export interface Config {
   threadAutoRespond?: boolean;
   /** Disengage thread auto-respond if the triggering message is older than this many minutes (default: 60) */
   threadAutoRespondMaxAgeMinutes?: number;
+  /** List of Clack plugin names to load at startup */
+  plugins?: string[];
 }
 
 const DEFAULTS: Partial<Config> = {

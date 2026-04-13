@@ -8,6 +8,8 @@ import { initializeRepositories, syncAllRepositories } from "./repositories.js";
 import { createSlackApp, startSlackApp, stopSlackApp } from "./slack/app.js";
 import { ensureWorktreeDirectories, cleanupWorktrees } from "./worktrees.js";
 import { discoverPluginInfo } from "./plugins.js";
+import { loadPlugins } from "./plugins/registry.js";
+import { setLoadedPlugins } from "./plugins/state.js";
 import { restoreWorkerSessions } from "./changes/restore.js";
 import { cleanupStaleSessionFolders } from "./changes/persistence.js";
 import { getActiveChangeBranches } from "./changes/activeState.js";
@@ -56,6 +58,17 @@ async function main(): Promise<void> {
   } catch (error) {
     logger.error("Instruction file validation failed:", error);
     process.exit(1);
+  }
+
+  // Step 1.8: Load Clack plugins
+  const pluginNames = getConfig().plugins;
+  if (pluginNames && pluginNames.length > 0) {
+    const loaded = await loadPlugins(pluginNames);
+    setLoadedPlugins(loaded);
+    if (loaded.results.length > 0) {
+      const summary = loaded.results.map((r) => `${r.name} (${r.tools.length} tools)`).join(", ");
+      logger.info(`Clack plugins loaded: ${summary}`);
+    }
   }
 
   // Step 2: Test MCP connections and clack tools

@@ -21,6 +21,7 @@ import {
   buildConfigEditorModal,
   buildConfigCreateFileModal,
   type HomeTabDeps,
+  type ClackPluginSummary,
 } from "./homeTab.js";
 import type { AutoRespondRule } from "../autoRespond.js";
 import type { CronJob } from "../cronJobs.js";
@@ -48,6 +49,7 @@ const mockGetVisibleRepos =
 const mockCanWriteRepo = mock.fn<(role: UserRole, repo: RepositoryConfig) => boolean>();
 const mockGetMigrationErrors = mock.fn<() => MigrationError[]>();
 const mockDiscoverPluginInfo = mock.fn<() => PluginInfo[]>();
+const mockGetLoadedClackPlugins = mock.fn<() => ClackPluginSummary[]>();
 const mockGetRules = mock.fn<() => Promise<AutoRespondRule[]>>();
 const mockGetJobs = mock.fn<() => Promise<CronJob[]>>();
 const mockGetJobsByUser = mock.fn<(userId: string) => Promise<CronJob[]>>();
@@ -71,6 +73,7 @@ function makeDeps(): HomeTabDeps {
     canWriteRepo: mockCanWriteRepo,
     getMigrationErrors: mockGetMigrationErrors,
     discoverPluginInfo: mockDiscoverPluginInfo,
+    getLoadedClackPlugins: mockGetLoadedClackPlugins,
     getRules: mockGetRules,
     getJobs: mockGetJobs,
     getJobsByUser: mockGetJobsByUser,
@@ -164,6 +167,7 @@ function resetAllMocks() {
   mockCanWriteRepo.mock.resetCalls();
   mockGetMigrationErrors.mock.resetCalls();
   mockDiscoverPluginInfo.mock.resetCalls();
+  mockGetLoadedClackPlugins.mock.resetCalls();
   mockGetRules.mock.resetCalls();
   mockGetJobs.mock.resetCalls();
   mockGetJobsByUser.mock.resetCalls();
@@ -191,6 +195,7 @@ function setDefaultMocks(role: UserRole = "member") {
   mockCanWriteRepo.mock.mockImplementation(() => false);
   mockGetMigrationErrors.mock.mockImplementation(() => []);
   mockDiscoverPluginInfo.mock.mockImplementation(() => []);
+  mockGetLoadedClackPlugins.mock.mockImplementation(() => []);
   mockGetRules.mock.mockImplementation(async () => []);
   mockGetJobs.mock.mockImplementation(async () => []);
   mockGetJobsByUser.mock.mockImplementation(async () => []);
@@ -698,25 +703,45 @@ describe("buildStatusSection", () => {
     assert.equal(mcpBlock, undefined);
   });
 
-  it("shows plugins when discovered", () => {
+  it("shows skill plugins when discovered", () => {
     const deps = makeDeps();
     mockDiscoverPluginInfo.mock.mockImplementation(() => [
       { name: "my-plugin", path: "/some/path", skillCount: 3 },
     ]);
     const blocks = buildStatusSection("member", deps);
     const texts = getSectionTexts(blocks);
-    const pluginBlock = texts.find((t) => t.includes("Plugins"));
+    const pluginBlock = texts.find((t) => t.includes("Skill Plugins"));
     assert.ok(pluginBlock);
     assert.ok(pluginBlock.includes("my-plugin"));
     assert.ok(pluginBlock.includes("3 skills"));
   });
 
-  it("does not show plugins section when none found", () => {
+  it("does not show skill plugins section when none found", () => {
     const deps = makeDeps();
     mockDiscoverPluginInfo.mock.mockImplementation(() => []);
     const blocks = buildStatusSection("member", deps);
     const texts = getSectionTexts(blocks);
-    const pluginBlock = texts.find((t) => t.includes("Plugins"));
+    const pluginBlock = texts.find((t) => t.includes("Skill Plugins"));
+    assert.equal(pluginBlock, undefined);
+  });
+
+  it("shows clack plugins when loaded", () => {
+    const deps = makeDeps();
+    mockGetLoadedClackPlugins.mock.mockImplementation(() => [{ name: "trivia", toolCount: 5 }]);
+    const blocks = buildStatusSection("member", deps);
+    const texts = getSectionTexts(blocks);
+    const pluginBlock = texts.find((t) => t.includes(":electric_plug:"));
+    assert.ok(pluginBlock);
+    assert.ok(pluginBlock.includes("trivia"));
+    assert.ok(pluginBlock.includes("5 tools"));
+  });
+
+  it("does not show clack plugins section when none loaded", () => {
+    const deps = makeDeps();
+    mockGetLoadedClackPlugins.mock.mockImplementation(() => []);
+    const blocks = buildStatusSection("member", deps);
+    const texts = getSectionTexts(blocks);
+    const pluginBlock = texts.find((t) => t.includes(":electric_plug:"));
     assert.equal(pluginBlock, undefined);
   });
 

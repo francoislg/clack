@@ -7,7 +7,9 @@ import {
   buildRoleChain,
   resolveInstructions,
   validateInstructionDirs,
+  type VirtualDefaults,
 } from "./cascadingConfigResolver.js";
+import { getLoadedPlugins } from "./plugins/state.js";
 
 export interface LoadInstructionsOptions {
   /** Whether changesWorkflow is enabled for this trigger */
@@ -46,16 +48,31 @@ export function interpolateVariables(content: string, variables: Record<string, 
   return content.replace(/\{(\w+)\}/g, (_match, key) => variables[key] ?? "");
 }
 
-/**
- * Load and compose the system prompt from instruction files.
- * Uses the CascadingConfigResolver to resolve role-based instruction files,
- * then interpolates variables.
- */
+/** Build virtual defaults map from loaded plugins */
+function buildVirtualDefaults(): VirtualDefaults | undefined {
+  const { results } = getLoadedPlugins();
+  if (results.length === 0) return undefined;
+
+  const virtualDefaults: VirtualDefaults = new Map();
+  for (const plugin of results) {
+    for (const instruction of plugin.instructions) {
+      let roleMap = virtualDefaults.get(instruction.role);
+      if (!roleMap) {
+        roleMap = new Map();
+        virtualDefaults.set(instruction.role, roleMap);
+      }
+      roleMap.set(instruction.filename, instruction.content);
+    }
+  }
+  return virtualDefaults;
+}
+
 export function loadInstructions(role: UserRole, options: LoadInstructionsOptions): string {
   const roleChain = buildRoleChain(role, options.changesWorkflowEnabled);
   logger.debug(`Loading instructions for role '${role}' with chain: [${roleChain.join(", ")}]`);
 
-  let content = resolveInstructions(roleChain);
+  const virtualDefaults = buildVirtualDefaults();
+  let content = resolveInstructions(roleChain, virtualDefaults);
 
   // Interpolate variables after concatenation
   content = interpolateVariables(content, options.variables);

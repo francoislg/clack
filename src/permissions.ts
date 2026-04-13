@@ -26,6 +26,14 @@ export function canTransferOwnership(role: UserRole): boolean {
   return role === "owner";
 }
 
+/** Role hierarchy for comparison (higher index = more powerful) */
+const ROLE_HIERARCHY: UserRole[] = ["member", "dev", "admin", "owner"];
+
+/** Check whether a user's role meets or exceeds a minimum role threshold */
+export function meetsMinimumRole(userRole: UserRole, minRole: UserRole): boolean {
+  return ROLE_HIERARCHY.indexOf(userRole) >= ROLE_HIERARCHY.indexOf(minRole);
+}
+
 // ---- userId-based wrappers ----
 
 export async function userCanEditConfig(userId: string): Promise<boolean> {
