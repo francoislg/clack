@@ -673,7 +673,7 @@ describe("fetchChannelMessages tool", () => {
     const parsed = parseResult(result);
     assert.equal(parsed.messages[0].reactions.length, 1);
     assert.equal(parsed.messages[0].reactions[0].emoji, "thumbsup");
-    assert.deepEqual(parsed.messages[0].reactions[0].users, ["Bob", "Charlie"]);
+    assert.deepEqual(parsed.messages[0].reactions[0].users, ["Bob (U2)", "Charlie (U3)"]);
   });
 
   it("omits reactions key when message has no reactions", async () => {

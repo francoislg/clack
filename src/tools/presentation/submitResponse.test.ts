@@ -336,6 +336,91 @@ describe("createSubmitResponseTool", () => {
     });
   });
 
+  describe("staged intent coverage", () => {
+    it("returns error when a staged change intent is not included in actions", async () => {
+      const deps = makeDeps({
+        intentStore: {
+          stage: () => "ref-1",
+          resolve: (ref: string) =>
+            ref === "ref-1"
+              ? { type: "change" as const, branch: "feat/x", description: "do stuff", repo: "r" }
+              : undefined,
+          getAll: () =>
+            new Map<string, StagedIntent>([
+              ["ref-1", { type: "change", branch: "feat/x", description: "do stuff", repo: "r" }],
+            ]),
+        },
+      });
+
+      const result = await callTool(deps, {
+        sections: [{ body: "I'll set that up for you" }],
+        actions: [],
+      });
+
+      assert.equal("isError" in result && result.isError, true);
+      const parsed = JSON.parse(result.content[0].text);
+      assert.ok(parsed.error.includes("staged"));
+      assert.ok(parsed.error.includes("ref-1"));
+    });
+
+    it("passes when all staged ref-action intents are included in actions", async () => {
+      const deps = makeDeps({
+        intentStore: {
+          stage: () => "ref-1",
+          resolve: (ref: string) =>
+            ref === "ref-1"
+              ? { type: "change" as const, branch: "feat/x", description: "do stuff", repo: "r" }
+              : undefined,
+          getAll: () =>
+            new Map<string, StagedIntent>([
+              ["ref-1", { type: "change", branch: "feat/x", description: "do stuff", repo: "r" }],
+            ]),
+        },
+      });
+
+      const result = await callTool(deps, {
+        sections: [{ body: "Here's the change" }],
+        actions: [{ type: "change", ref: "ref-1" }],
+      });
+
+      const parsed = JSON.parse(result.content[0].text);
+      assert.equal(parsed.success, true);
+    });
+
+    it("ignores non-ref intent types like review and merge", async () => {
+      const deps = makeDeps({
+        intentStore: {
+          stage: () => "ref-1",
+          resolve: () => undefined,
+          getAll: () =>
+            new Map<string, StagedIntent>([
+              ["ref-1", { type: "review", sessionId: "s1", instructions: "review it" }],
+              ["ref-2", { type: "merge", sessionId: "s2", instructions: "merge it" }],
+            ]),
+        },
+      });
+
+      const result = await callTool(deps, {
+        sections: [{ body: "Done" }],
+        actions: [],
+      });
+
+      const parsed = JSON.parse(result.content[0].text);
+      assert.equal(parsed.success, true);
+    });
+
+    it("passes when no intents are staged", async () => {
+      const deps = makeDeps();
+      const result = await callTool(deps, {
+        sections: [{ body: "Simple answer" }],
+        actions: [],
+      });
+
+      const parsed = JSON.parse(result.content[0].text);
+      assert.equal(parsed.success, true);
+    });
+  });
+
   describe("response too long", () => {
     it("returns error when display text exceeds 10000 chars", async () => {
       const deps = makeDeps();

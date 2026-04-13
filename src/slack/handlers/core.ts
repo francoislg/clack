@@ -133,9 +133,12 @@ async function setupSession(ctx: ProcessingContext, deps: CoreDeps): Promise<Ses
       })
     : [];
 
-  const processedMessageText = config.slack.fetchAndStoreUsername
-    ? await deps.transformUserMentions(client, messageText)
-    : messageText;
+  // Skip mention resolution for scheduled triggers — their "message text" is a prompt,
+  // not a real Slack message, and may contain example mention syntax like <@U123>.
+  const processedMessageText =
+    config.slack.fetchAndStoreUsername && ctx.triggerType !== "scheduled"
+      ? await deps.transformUserMentions(client, messageText)
+      : messageText;
 
   let session = threadTs ? await deps.findSessionByThread(channelId, threadTs) : null;
 

@@ -768,9 +768,9 @@ describe("fetchSlackMessage tool", () => {
     const parsed = parseResult(result);
     assert.equal(parsed.messages[0].reactions.length, 2);
     assert.equal(parsed.messages[0].reactions[0].emoji, "thumbsup");
-    assert.deepEqual(parsed.messages[0].reactions[0].users, ["Bob", "Charlie"]);
+    assert.deepEqual(parsed.messages[0].reactions[0].users, ["Bob (U2)", "Charlie (U3)"]);
     assert.equal(parsed.messages[0].reactions[1].emoji, "eyes");
-    assert.deepEqual(parsed.messages[0].reactions[1].users, ["Dave"]);
+    assert.deepEqual(parsed.messages[0].reactions[1].users, ["Dave (U4)"]);
   });
 
   it("omits reactions key when message has no reactions", async () => {

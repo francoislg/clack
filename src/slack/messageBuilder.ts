@@ -199,12 +199,14 @@ export function resolveReactionUsernames(
       const info = userInfoMap.get(id);
       return info?.displayName ?? info?.username ?? id;
     });
+    r.isBot = r.userIds.map((id) => userInfoMap.get(id)?.isBot ?? false);
   }
 }
 
 export interface ToolReactionEntry {
   emoji: string;
   users: string[];
+  bot_users?: string[];
 }
 
 export interface ToolMessageEntry {
@@ -238,10 +240,23 @@ export function threadMessageToToolOutput(m: ThreadMessage): ToolMessageEntry {
       })),
     }),
     ...(m.reactions?.length && {
-      reactions: m.reactions.map((r) => ({
-        emoji: r.emoji,
-        users: r.usernames ?? r.userIds,
-      })),
+      reactions: m.reactions.map((r) => {
+        const users: string[] = [];
+        const botUsers: string[] = [];
+        for (let i = 0; i < r.userIds.length; i++) {
+          const label = r.usernames?.[i] ? `${r.usernames[i]} (${r.userIds[i]})` : r.userIds[i];
+          if (r.isBot?.[i]) {
+            botUsers.push(label);
+          } else {
+            users.push(label);
+          }
+        }
+        return {
+          emoji: r.emoji,
+          users,
+          ...(botUsers.length > 0 && { bot_users: botUsers }),
+        };
+      }),
     }),
   };
 }
