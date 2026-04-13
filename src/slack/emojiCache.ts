@@ -1,5 +1,6 @@
 import type { App } from "@slack/bolt";
 import { logger } from "../logger.js";
+import { buildWildcardMatcher } from "./wildcardMatcher.js";
 
 export interface EmojiCacheEntry {
   name: string;
@@ -54,20 +55,10 @@ export function createEmojiCache(client: App["client"]): EmojiCache {
     return cached;
   }
 
-  function buildMatcher(query: string): (value: string) => boolean {
-    if (query.includes("*")) {
-      const escaped = query.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
-      const pattern = new RegExp(`^${escaped.replace(/\*/g, ".*")}$`, "i");
-      return (value) => pattern.test(value);
-    }
-    const lower = query.toLowerCase();
-    return (value) => value.toLowerCase().includes(lower);
-  }
-
   return {
     async search(query: string, limit = 25) {
       const emojis = await fetchAll();
-      const match = buildMatcher(query);
+      const match = buildWildcardMatcher(query);
       const matched: EmojiCacheEntry[] = [];
 
       for (const emoji of emojis) {
