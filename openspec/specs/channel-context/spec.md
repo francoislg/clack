@@ -85,3 +85,9 @@ The system SHALL include the resolved channel name in MCP tool results that retu
 - **WHEN** channel name resolution fails during a tool call
 - **THEN** the `channel_name` field is omitted from the result
 - **AND** the tool call succeeds with the channel ID only
+
+#### Scenario: fetch_channel_messages includes reactions
+- **WHEN** `fetch_channel_messages` returns messages
+- **AND** a message has reactions
+- **THEN** the message includes a `reactions` array with emoji name and resolved usernames
+- **AND** reactions are omitted from messages that have no reactions

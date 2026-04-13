@@ -1,8 +1,8 @@
 import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
+import { extractMessageText } from "./messageBuilder.js";
 import {
-  extractMessageText,
   fetchThreadContext,
   fetchMessage,
   hasThreadReplies,
@@ -96,7 +96,12 @@ describe("extractMessageText", () => {
   it("extracts text from section blocks when no msg.text", () => {
     assert.equal(
       extractMessageText({
-        blocks: [{ type: "section", text: { type: "mrkdwn", text: "section content" } }],
+        blocks: [
+          {
+            type: "section",
+            text: { type: "mrkdwn", text: "section content" },
+          },
+        ],
       }),
       "section content",
     );
@@ -186,8 +191,14 @@ describe("extractMessageText", () => {
                 type: "rich_text_list",
                 style: "bullet",
                 elements: [
-                  { type: "rich_text_section", elements: [{ type: "text", text: "item one" }] },
-                  { type: "rich_text_section", elements: [{ type: "text", text: "item two" }] },
+                  {
+                    type: "rich_text_section",
+                    elements: [{ type: "text", text: "item one" }],
+                  },
+                  {
+                    type: "rich_text_section",
+                    elements: [{ type: "text", text: "item two" }],
+                  },
                 ],
               },
             ],
@@ -340,7 +351,10 @@ function makeClient(config: MockConversationsConfig = {}): App["client"] {
       },
       open: async () => {
         if (config.throwOnOpen) throw new Error("open_error");
-        return { ok: true, channel: config.openChannel ? { id: config.openChannel } : undefined };
+        return {
+          ok: true,
+          channel: config.openChannel ? { id: config.openChannel } : undefined,
+        };
       },
     },
     chat: {
@@ -421,7 +435,11 @@ describe("fetchThreadContext", () => {
     const client = makeClient({
       replies: {
         "C1:ts1": [
-          { user: "U1", ts: "1" } as { text?: string; user?: string; ts?: string },
+          { user: "U1", ts: "1" } as {
+            text?: string;
+            user?: string;
+            ts?: string;
+          },
           { text: "valid", user: "U2", ts: "2" },
         ],
       },
@@ -435,7 +453,11 @@ describe("fetchThreadContext", () => {
     const client = makeClient({
       replies: {
         "C1:ts1": [
-          { text: "no user", ts: "1" } as { text?: string; user?: string; ts?: string },
+          { text: "no user", ts: "1" } as {
+            text?: string;
+            user?: string;
+            ts?: string;
+          },
           { text: "valid", user: "U1", ts: "2" },
         ],
       },
@@ -448,7 +470,11 @@ describe("fetchThreadContext", () => {
     const client = makeClient({
       replies: {
         "C1:ts1": [
-          { text: "no ts", user: "U1" } as { text?: string; user?: string; ts?: string },
+          { text: "no ts", user: "U1" } as {
+            text?: string;
+            user?: string;
+            ts?: string;
+          },
           { text: "valid", user: "U2", ts: "2" },
         ],
       },
@@ -566,7 +592,13 @@ describe("fetchMessage", () => {
   it("extracts text from attachments in fetched message", async () => {
     const client = makeClient({
       history: {
-        "C1:msg1": [{ attachments: [{ text: "attachment text" }], user: "U1", ts: "msg1" }],
+        "C1:msg1": [
+          {
+            attachments: [{ text: "attachment text" }],
+            user: "U1",
+            ts: "msg1",
+          },
+        ],
       },
     });
     const result = await fetchMessage(client, "C1", "msg1");
@@ -622,7 +654,10 @@ describe("sendDirectMessage", () => {
 
     const postMessage = client.chat.postMessage as unknown as ReturnType<typeof mock.fn>;
     assert.equal(postMessage.mock.callCount(), 1);
-    const call = postMessage.mock.calls[0].arguments[0] as { channel: string; text: string };
+    const call = postMessage.mock.calls[0].arguments[0] as {
+      channel: string;
+      text: string;
+    };
     assert.equal(call.channel, "DM_CHAN");
     assert.equal(call.text, "hello");
   });

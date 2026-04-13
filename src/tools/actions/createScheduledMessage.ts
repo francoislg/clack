@@ -32,6 +32,10 @@ export function createCreateScheduledMessageTool(
       "If the user's request is ambiguous (e.g., 'send this regularly' without specifying when), " +
       "ask clarifying questions first before calling this tool. " +
       "The cronExpression uses standard 5-field cron syntax (minute hour day-of-month month day-of-week). " +
+      "IMPORTANT: The cron expression must be in the USER'S LOCAL timezone, NOT UTC. " +
+      "The system automatically handles timezone conversion. For example, if the user says " +
+      "'every day at 9am' and they are in America/New_York, use '0 9 * * *' (not '0 13 * * *'). " +
+      "Do NOT convert times to UTC for cron expressions. " +
       "Provide a prompt describing what Claude should do each time the schedule fires. " +
       "IMPORTANT: The prompt should only describe WHAT to do, not HOW to deliver the result. " +
       "The scheduler automatically handles delivery via submit_response — do NOT include " +
@@ -47,7 +51,8 @@ export function createCreateScheduledMessageTool(
       cronExpression: z
         .string()
         .describe(
-          "5-field cron expression (e.g. '0 9 * * *' for daily at 9am, '0 9 * * 1' for Mondays at 9am)",
+          "5-field cron expression in the user's LOCAL timezone — do NOT convert to UTC " +
+            "(e.g. '0 9 * * *' for daily at 9am local, '0 9 * * 1' for Mondays at 9am local)",
         ),
       prompt: z
         .string()
@@ -115,7 +120,9 @@ export function createCreateScheduledMessageTool(
 
 function getNextRun(cronExpression: string, timezone: string): string {
   try {
-    const interval = CronExpressionParser.parse(cronExpression, { tz: timezone });
+    const interval = CronExpressionParser.parse(cronExpression, {
+      tz: timezone,
+    });
     return interval.next().toDate().toISOString();
   } catch {
     return "unknown";

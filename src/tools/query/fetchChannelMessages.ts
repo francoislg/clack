@@ -2,9 +2,14 @@ import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
 import { textResult, errorResult } from "../helpers.js";
-import { extractMessageText, type SlackMessage } from "../../slack/messagesApi.js";
-import { extractImageFiles } from "../../slack/imageExtractor.js";
-import { extractFiles } from "../../slack/fileExtractor.js";
+import {
+  buildThreadMessage,
+  extractMessageText,
+  resolveReactionUsernames,
+  threadMessageToToolOutput,
+  type SlackMessage,
+  type ToolMessageEntry,
+} from "../../slack/messageBuilder.js";
 import type { SlackFile } from "../../slack/slackFileBase.js";
 import { resolveUsers, transformUserMentions } from "../../slack/userCache.js";
 import { getChannelInfo } from "../../slack/channelCache.js";
@@ -13,15 +18,28 @@ import { errorMessage } from "../../errors.js";
 type SlackClient = NonNullable<QueryToolContext["slackClient"]>;
 type UserInfoMap = Awaited<ReturnType<typeof resolveUsers>>;
 
+interface ReplyEntry {
+  user: string;
+  text: string;
+  ts: string | undefined;
+  is_bot: boolean;
+}
+
+interface MessageEntry extends ToolMessageEntry {
+  reply_count?: number;
+  thread_replies?: ReplyEntry[];
+  thread_error?: string;
+}
+
 export interface FetchChannelMessagesDeps {
-  extractMessageText: (msg: SlackMessage) => string;
+  buildThreadMessage: typeof buildThreadMessage;
   resolveUsers: typeof resolveUsers;
   transformUserMentions: typeof transformUserMentions;
   getChannelInfo: typeof getChannelInfo;
 }
 
 export const defaultFetchChannelMessagesDeps: FetchChannelMessagesDeps = {
-  extractMessageText,
+  buildThreadMessage,
   resolveUsers,
   transformUserMentions,
   getChannelInfo,
@@ -47,7 +65,7 @@ async function fetchThreadReplies(
   channelId: string,
   parentTs: string,
   userInfoMap: UserInfoMap,
-): Promise<{ replies: Record<string, unknown>[] } | { error: string }> {
+): Promise<{ replies: ReplyEntry[] } | { error: string }> {
   try {
     const threadResult = await client.conversations.replies({
       channel: channelId,
@@ -59,15 +77,12 @@ async function fetchThreadReplies(
       return { replies: [] };
     }
 
-    const replies = [];
+    const replies: ReplyEntry[] = [];
     for (const reply of threadResult.messages.slice(1)) {
       const replyUserId = reply.user || reply.bot_id;
       replies.push({
         user: await resolveReplyUserName(deps, client, replyUserId, userInfoMap),
-        text: await deps.transformUserMentions(
-          client,
-          deps.extractMessageText(reply as SlackMessage) || "[attachment]",
-        ),
+        text: await deps.transformUserMentions(client, extractMessageText(reply) || "[attachment]"),
         ts: reply.ts,
         is_bot: reply.bot_id !== undefined,
       });
@@ -87,50 +102,39 @@ async function formatMessage(
   includeThreads: boolean,
   availableImages?: Map<string, import("../../slack/slackFileBase.js").SlackImageFile>,
   availableFiles?: Map<string, SlackFile>,
-): Promise<Record<string, unknown> | null> {
-  if (!msg.ts) return null;
+): Promise<MessageEntry | null> {
+  // botUserId not available in tool context — bot detection relies on bot_id field
+  const threadMsg = deps.buildThreadMessage(msg, "");
+  if (!threadMsg) return null;
 
-  const userId = msg.user || msg.bot_id;
-  const userInfo = userId ? userInfoMap.get(userId) : undefined;
-  const text = await deps.transformUserMentions(
-    client,
-    deps.extractMessageText(msg) || "[attachment]",
-  );
+  // Resolve username for this message's author
+  const userInfo = userInfoMap.get(threadMsg.userId);
+  if (userInfo) {
+    threadMsg.username = userInfo.username;
+    threadMsg.displayName = userInfo.displayName;
+  }
 
-  // Extract and register images and files
-  const imageFiles = extractImageFiles(msg.files);
-  for (const img of imageFiles) availableImages?.set(img.id, img);
-  const files = extractFiles(msg.files);
-  for (const f of files) availableFiles?.set(f.id, f);
+  if (threadMsg.reactions) {
+    resolveReactionUsernames(threadMsg.reactions, userInfoMap);
+  }
 
-  const entry: Record<string, unknown> = {
-    user: userInfo?.displayName ?? userInfo?.username ?? userId ?? "unknown",
-    text,
-    ts: msg.ts,
-    is_bot: msg.bot_id !== undefined,
-    ...(msg.blocks?.length && { blocks: msg.blocks }),
-    ...(msg.attachments?.length && {
-      attachments: msg.attachments.map((a) => ({
-        ...(a.text && { text: a.text }),
-        ...(a.fallback && { fallback: a.fallback }),
-        ...(a.title && { title: a.title }),
-        ...(a.pretext && { pretext: a.pretext }),
-        ...(a.author_name && { author_name: a.author_name }),
-        ...(a.fields?.length && { fields: a.fields }),
-      })),
-    }),
-    ...(imageFiles.length > 0 && {
-      images: imageFiles.map((f) => ({ file_id: f.id, name: f.name })),
-    }),
-    ...(files.length > 0 && {
-      files: files.map((f) => ({ file_id: f.id, name: f.name, type: f.mimetype })),
-    }),
-  };
+  // Transform <@USERID> mentions in message text
+  threadMsg.text = await deps.transformUserMentions(client, threadMsg.text);
+
+  // Register images and files in context maps
+  if (threadMsg.imageFiles) {
+    for (const img of threadMsg.imageFiles) availableImages?.set(img.id, img);
+  }
+  if (threadMsg.files) {
+    for (const f of threadMsg.files) availableFiles?.set(f.id, f);
+  }
+
+  const entry: MessageEntry = { ...threadMessageToToolOutput(threadMsg) };
 
   if (msg.reply_count && msg.reply_count > 0) {
     entry.reply_count = msg.reply_count;
 
-    if (includeThreads) {
+    if (includeThreads && msg.ts) {
       const result = await fetchThreadReplies(deps, client, channelId, msg.ts, userInfoMap);
       if ("error" in result) {
         entry.thread_error = result.error;
@@ -195,10 +199,17 @@ export function createFetchChannelMessagesTool(
           });
         }
 
-        const userIds = result.messages
-          .map((msg) => msg.user || msg.bot_id)
-          .filter((id): id is string => !!id);
-        const userInfoMap = await deps.resolveUsers(client, userIds);
+        const allUserIds: string[] = [];
+        for (const msg of result.messages) {
+          const authorId = msg.user || msg.bot_id;
+          if (authorId) allUserIds.push(authorId);
+          if (msg.reactions) {
+            for (const r of msg.reactions) {
+              if (r.users) allUserIds.push(...r.users);
+            }
+          }
+        }
+        const userInfoMap = await deps.resolveUsers(client, allUserIds);
 
         const messages = [];
         for (const msg of [...result.messages].reverse()) {

@@ -126,7 +126,11 @@ describe("runPreAnalysis", () => {
   it("returns false for ambiguous response (fail-closed)", async () => {
     mockQuery.mock.mockImplementation(() =>
       asyncIterableOf([
-        { type: "result", subtype: "success", result: "maybe, it depends on context" },
+        {
+          type: "result",
+          subtype: "success",
+          result: "maybe, it depends on context",
+        },
       ]),
     );
 
@@ -233,7 +237,11 @@ describe("runPreAnalysis", () => {
   it("detects 'skip' in verbose response", async () => {
     mockQuery.mock.mockImplementation(() =>
       asyncIterableOf([
-        { type: "result", subtype: "success", result: "I would skip this message" },
+        {
+          type: "result",
+          subtype: "success",
+          result: "I would skip this message",
+        },
       ]),
     );
 
@@ -275,6 +283,7 @@ describe("runPreAnalysis", () => {
     assert.ok(systemPrompt.includes("Only respond to product questions"));
     assert.ok(systemPrompt.includes("Clack"));
     assert.ok(systemPrompt.includes("When in doubt, SKIP"));
+    assert.ok(systemPrompt.includes("STOP"));
     assert.equal(capturedOptions!.model, "sonnet");
     assert.equal(capturedOptions!.maxTurns, 1);
   });
@@ -293,7 +302,11 @@ describe("runPreAnalysis", () => {
       "Skip noise",
       undefined,
       [
-        { author: "Clack (bot)", text: "Here's your daily update!", isBot: true },
+        {
+          author: "Clack (bot)",
+          text: "Here's your daily update!",
+          isBot: true,
+        },
         { author: "Alice", text: "thanks", isBot: false },
       ],
       undefined,

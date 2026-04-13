@@ -565,7 +565,13 @@ describe("fetchSlackMessage tool", () => {
         displayName: "A",
         imageFiles: [page0Image],
       },
-      { text: "Msg 1", userId: "U1", ts: "1.0", isBot: false, displayName: "B" },
+      {
+        text: "Msg 1",
+        userId: "U1",
+        ts: "1.0",
+        isBot: false,
+        displayName: "B",
+      },
       {
         text: "Msg 2",
         userId: "U2",
@@ -676,7 +682,10 @@ describe("fetchSlackMessage tool", () => {
       ) as FetchSlackMessageDeps["fetchThreadContext"],
     });
 
-    const ctx = makeCtx({ availableImages: undefined, availableFiles: undefined });
+    const ctx = makeCtx({
+      availableImages: undefined,
+      availableFiles: undefined,
+    });
     const toolDef = createFetchSlackMessageTool(ctx, deps);
 
     const result = await toolDef.handler(
@@ -719,6 +728,72 @@ describe("fetchSlackMessage tool", () => {
     const parsed = parseResult(result);
     assert.equal("images" in parsed.messages[0], false);
     assert.equal("files" in parsed.messages[0], false);
+  });
+
+  it("includes reactions in output when message has reactions", async () => {
+    const messages = [
+      {
+        text: "Deploy?",
+        userId: "U1",
+        ts: "1.0",
+        isBot: false,
+        displayName: "Alice",
+        reactions: [
+          {
+            emoji: "thumbsup",
+            userIds: ["U2", "U3"],
+            usernames: ["Bob", "Charlie"],
+          },
+          { emoji: "eyes", userIds: ["U4"], usernames: ["Dave"] },
+        ],
+      },
+    ];
+    const deps = makeDeps({
+      fetchThreadContext: mock.fn(
+        async () => messages,
+      ) as FetchSlackMessageDeps["fetchThreadContext"],
+    });
+
+    const ctx = makeCtx();
+    const toolDef = createFetchSlackMessageTool(ctx, deps);
+    const result = await toolDef.handler(
+      {
+        url: "https://workspace.slack.com/archives/C0123ABC/p1234567890123456",
+        page: undefined,
+        limit: undefined,
+      },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseResult(result);
+    assert.equal(parsed.messages[0].reactions.length, 2);
+    assert.equal(parsed.messages[0].reactions[0].emoji, "thumbsup");
+    assert.deepEqual(parsed.messages[0].reactions[0].users, ["Bob", "Charlie"]);
+    assert.equal(parsed.messages[0].reactions[1].emoji, "eyes");
+    assert.deepEqual(parsed.messages[0].reactions[1].users, ["Dave"]);
+  });
+
+  it("omits reactions key when message has no reactions", async () => {
+    const messages = makeThreadMessages(1);
+    const deps = makeDeps({
+      fetchThreadContext: mock.fn(
+        async () => messages,
+      ) as FetchSlackMessageDeps["fetchThreadContext"],
+    });
+
+    const ctx = makeCtx();
+    const toolDef = createFetchSlackMessageTool(ctx, deps);
+    const result = await toolDef.handler(
+      {
+        url: "https://workspace.slack.com/archives/C0123ABC/p1234567890123456",
+        page: undefined,
+        limit: undefined,
+      },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseResult(result);
+    assert.equal("reactions" in parsed.messages[0], false);
   });
 
   // --- fetchThreadContext call verification ---

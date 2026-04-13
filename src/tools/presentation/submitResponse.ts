@@ -196,6 +196,13 @@ const normalResponseSchema = {
     .describe(
       "Interactive buttons for the user to click. Use an empty array for casual/conversational responses that don't need actions.",
     ),
+  reactions: z
+    .array(z.string())
+    .optional()
+    .describe(
+      "Emoji reactions to add to the posted response message (e.g., ['white_check_mark', 'thumbsup']). " +
+        "Names without colons. Invalid emojis are silently ignored.",
+    ),
 };
 
 // Schema with skip_response support
@@ -295,7 +302,9 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
         });
       }
       if (!actions) {
-        return recordError(recorder, args, { error: "actions is required when not skipping." });
+        return recordError(recorder, args, {
+          error: "actions is required when not skipping.",
+        });
       }
 
       const refError = validateRefActions(actions, intentStore);
@@ -331,7 +340,10 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
           if (action.type === "post_to") {
             const contentId = randomBytes(6).toString("hex");
             const content = action.content;
-            await persistSnapshot(contentId, { text: content, sections: [{ body: content }] });
+            await persistSnapshot(contentId, {
+              text: content,
+              sections: [{ body: content }],
+            });
             (action as PostToAction)._snapshotId = contentId;
           }
         }
@@ -347,11 +359,17 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
         });
       }
 
+      const reactions =
+        "reactions" in args && Array.isArray(args.reactions) ? args.reactions : undefined;
+
       if (deliver) {
         const actionBlocks = getResponseActionBlocks(payload.actions, sessionId);
         const deliveryResult = await deliver({
           markdownText: displayText,
-          ...(actionBlocks.length > 0 && { blocks: asSlackBlocks(actionBlocks) }),
+          ...(actionBlocks.length > 0 && {
+            blocks: asSlackBlocks(actionBlocks),
+          }),
+          ...(reactions?.length && { reactions }),
         });
 
         if (!deliveryResult.ok) {

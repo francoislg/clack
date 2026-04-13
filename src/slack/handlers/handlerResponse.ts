@@ -212,6 +212,30 @@ export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promis
 // ============================================================
 
 /**
+ * Add emoji reactions to a posted message. Failures are logged as warnings
+ * but never affect the delivery result. already_reacted is silently ignored.
+ */
+async function addDeliveryReactions(
+  client: App["client"],
+  channel: string,
+  timestamp: string,
+  reactions: string[],
+): Promise<void> {
+  await Promise.all(
+    reactions.map(async (emoji) => {
+      try {
+        await client.reactions.add({ channel, timestamp, name: emoji });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!msg.includes("already_reacted")) {
+          logger.warn(`Failed to add reaction :${emoji}: — ${msg}`);
+        }
+      }
+    }),
+  );
+}
+
+/**
  * Build the DeliverFn that Claude's submit_response tool calls.
  * Tries the streamer first, falls back to chat.postMessage.
  */
@@ -222,6 +246,8 @@ function buildDeliverFn(ctx: DeliveryContext): DeliverFn {
     }
 
     try {
+      let ts: string | undefined;
+
       if (ctx.streamer && !ctx.streamer.hasFailed) {
         await ctx.streamer.stop({
           markdownText: opts.markdownText,
@@ -229,22 +255,30 @@ function buildDeliverFn(ctx: DeliveryContext): DeliverFn {
         });
 
         if (!ctx.streamer.hasFailed) {
+          ts = ctx.streamer.getMessageTs();
           ctx.alreadyDelivered = true;
           await sendResponseNotification(ctx);
-          return { ok: true as const };
+          if (opts.reactions?.length && ts) {
+            await addDeliveryReactions(ctx.client, ctx.targetChannel, ts, opts.reactions);
+          }
+          return { ok: true as const, ts };
         }
         // Stop failed — fall through to chat.postMessage fallback
       }
 
       // Fallback: post via chat.postMessage
-      await ctx.client.chat.postMessage({
+      const result = await ctx.client.chat.postMessage({
         channel: ctx.targetChannel,
         thread_ts: ctx.targetThread,
         text: opts.markdownText,
         ...(opts.blocks && { blocks: opts.blocks }),
       });
+      ts = result.ts;
       ctx.alreadyDelivered = true;
-      return { ok: true as const };
+      if (opts.reactions?.length && ts) {
+        await addDeliveryReactions(ctx.client, ctx.targetChannel, ts, opts.reactions);
+      }
+      return { ok: true as const, ts };
     } catch (error) {
       logger.error("Delivery failed:", error);
       return { ok: false as const, error: ctx.deps.toErrorMessage(error) };
@@ -269,10 +303,14 @@ function buildDirectDeliverFn(ctx: DeliveryContext): DeliverFn {
         ...(opts.blocks && { blocks: opts.blocks }),
       });
       ctx.alreadyDelivered = true;
-      if (result.ts) {
-        await ctx.deps.updateSession(ctx.session.sessionId, { responseTs: result.ts });
+      const ts = result.ts;
+      if (ts) {
+        await ctx.deps.updateSession(ctx.session.sessionId, { responseTs: ts });
       }
-      return { ok: true as const };
+      if (opts.reactions?.length && ts) {
+        await addDeliveryReactions(ctx.client, ctx.targetChannel, ts, opts.reactions);
+      }
+      return { ok: true as const, ts };
     } catch (error) {
       logger.error("Direct delivery failed:", error);
       return { ok: false as const, error: ctx.deps.toErrorMessage(error) };

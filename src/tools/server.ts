@@ -33,6 +33,8 @@ import { createFetchChannelMessagesTool } from "./query/fetchChannelMessages.js"
 import { createViewSlackImageTool } from "./query/viewSlackImage.js";
 import { createViewSlackFileTool } from "./query/viewSlackFile.js";
 import { createUploadFileTool } from "./query/uploadFile.js";
+import { createAddReactionTool } from "./query/addReaction.js";
+import { createRemoveReactionTool } from "./query/removeReaction.js";
 import { createGetSessionTraceTool } from "./query/getSessionTrace.js";
 import { createUsersCache } from "../slack/usersCache.js";
 import { createEmojiCache } from "../slack/emojiCache.js";
@@ -206,6 +208,8 @@ function buildQueryTools(ctx: QueryToolContext): ClackToolsResult {
     tools.push(createFetchChannelMessagesTool(ctx));
     tools.push(createUploadFileTool(ctx));
     tools.push(createStopTrackingTool(ctx));
+    tools.push(createAddReactionTool(ctx));
+    tools.push(createRemoveReactionTool(ctx));
   }
 
   // Read-only query tools — available to all roles

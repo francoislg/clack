@@ -28,8 +28,9 @@ function makeDeps(
     sessionId: string;
     deliver: (opts: {
       markdownText: string;
-      blocks?: unknown[];
-    }) => Promise<{ ok: true } | { ok: false; error: string }>;
+      blocks?: object[];
+      reactions?: string[];
+    }) => Promise<{ ok: true; ts?: string } | { ok: false; error: string }>;
     persistSnapshot: (id: string, snapshot: ResponseSnapshot) => Promise<void>;
     allowSkip: boolean;
   }> = {},
@@ -74,13 +75,30 @@ function makeDeps(
   };
 }
 
+interface ToolAction {
+  type: string;
+  label?: string;
+  prompt?: string;
+  value?: string;
+  ref?: string;
+  auto?: boolean;
+  content?: string;
+  channel?: string;
+  thread_ts?: string;
+}
+
+interface CallToolArgs {
+  message?: string;
+  sections: { title?: string; body: string }[];
+  actions: ToolAction[];
+  reactions?: string[];
+}
+
 /** Call the tool's handler directly. */
-async function callTool(
-  deps: ReturnType<typeof makeDeps>,
-  args: { message?: string; sections: { title?: string; body: string }[]; actions: unknown[] },
-) {
+async function callTool(deps: ReturnType<typeof makeDeps>, args: CallToolArgs) {
   const toolDef = createSubmitResponseTool(deps);
-  return toolDef.handler(args as never, {});
+  // Tool handler expects the zod-inferred type; the test args structurally match
+  return toolDef.handler(Object.assign(Object.create(null), args), {});
 }
 
 function resetBlockMocks() {
@@ -230,7 +248,11 @@ describe("createSubmitResponseTool", () => {
       const deps = makeDeps({
         intentStore: {
           stage: () => "ref-1",
-          resolve: () => ({ type: "update" as const, sessionId: "s1", instructions: "do stuff" }),
+          resolve: () => ({
+            type: "update" as const,
+            sessionId: "s1",
+            instructions: "do stuff",
+          }),
           getAll: () => new Map(),
         },
       });
@@ -369,7 +391,12 @@ describe("createSubmitResponseTool", () => {
   describe("block validation errors", () => {
     it("returns error when validateSlackBlocks reports violations", async () => {
       mockValidateSlackBlocks.mock.mockImplementation(() => [
-        { field: "section[0].text", message: "text too long", currentLength: 4000, limit: 3000 },
+        {
+          field: "section[0].text",
+          message: "text too long",
+          currentLength: 4000,
+          limit: 3000,
+        },
       ]);
 
       const deps = makeDeps();
@@ -498,7 +525,10 @@ describe("createSubmitResponseTool", () => {
 
     it("returns error when delivery fails", async () => {
       const deps = makeDeps({
-        deliver: async () => ({ ok: false as const, error: "channel_not_found" }),
+        deliver: async () => ({
+          ok: false as const,
+          error: "channel_not_found",
+        }),
       });
 
       const result = await callTool(deps, {
@@ -556,6 +586,54 @@ describe("createSubmitResponseTool", () => {
       });
 
       assert.equal(setCalls.length, 1);
+    });
+
+    it("passes reactions through to deliver callback", async () => {
+      let receivedReactions: string[] | undefined;
+      const deps = makeDeps({
+        deliver: async (opts) => {
+          receivedReactions = opts.reactions;
+          return { ok: true as const };
+        },
+      });
+
+      await callTool(deps, {
+        sections: [{ body: "With reactions" }],
+        actions: [],
+        reactions: ["thumbsup", "eyes"],
+      });
+
+      assert.deepEqual(receivedReactions, ["thumbsup", "eyes"]);
+    });
+
+    it("does not include reactions key in deliver when not provided", async () => {
+      let hasReactionsKey = false;
+      const deps = makeDeps({
+        deliver: async (opts) => {
+          hasReactionsKey = "reactions" in opts;
+          return { ok: true as const };
+        },
+      });
+
+      await callTool(deps, {
+        sections: [{ body: "No reactions" }],
+        actions: [],
+      });
+
+      assert.equal(hasReactionsKey, false);
+    });
+
+    it("ignores reactions when no deliver callback is configured", async () => {
+      const deps = makeDeps();
+
+      const result = await callTool(deps, {
+        sections: [{ body: "No deliver" }],
+        actions: [],
+        reactions: ["thumbsup"],
+      });
+
+      const parsed = JSON.parse(result.content[0].text);
+      assert.equal(parsed.success, true);
     });
   });
 

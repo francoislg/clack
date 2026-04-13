@@ -18,7 +18,7 @@ const AUTO_RESPOND_USER_ID = "auto-respond";
 const MENTION_PATTERN = /<@([UW][A-Z0-9]+)>/g;
 
 const THREAD_PRE_ANALYSIS_CONTEXT =
-  "This is a thread where the bot previously answered a question. Respond only to genuine follow-up questions or requests for clarification. Skip acknowledgments (thanks, got it, cool), noise (+1, emoji, lol), and conversation between other people that doesn't require the bot's input.";
+  "This is a thread where the bot previously answered a question. Respond only to genuine follow-up questions or requests for clarification. Skip acknowledgments (thanks, got it, cool), noise (+1, emoji, lol), and conversation between other people that doesn't require the bot's input. STOP monitoring if the conversation has clearly moved to unrelated topics, the user indicated they're done, or several messages passed with no follow-up questions — but only when confident the thread is truly finished.";
 
 interface PreAnalysisEnrichment {
   history: PreAnalysisMessage[];
@@ -33,7 +33,12 @@ interface PreAnalysisEnrichment {
  */
 async function enrichForPreAnalysis(
   client: WebClient,
-  rawMessages: Array<{ user?: string; bot_id?: string; text?: string; ts?: string }>,
+  rawMessages: Array<{
+    user?: string;
+    bot_id?: string;
+    text?: string;
+    ts?: string;
+  }>,
   currentText: string,
   messageUser: string | undefined,
   botUserId: string,
@@ -85,7 +90,12 @@ async function enrichForPreAnalysis(
   return { history, resolvedMessageText, messageAuthorName };
 }
 
-type RawMessage = { user?: string; bot_id?: string; text?: string; ts?: string };
+type RawMessage = {
+  user?: string;
+  bot_id?: string;
+  text?: string;
+  ts?: string;
+};
 
 /**
  * Fetch messages, enrich them for pre-analysis, and return the result.
@@ -273,7 +283,10 @@ export async function resolveAutoRespondContext(
     }
     if (verdict !== "respond") return null;
 
-    return { triggerType: "threadReply", userId: messageUser ?? "thread-reply" };
+    return {
+      triggerType: "threadReply",
+      userId: messageUser ?? "thread-reply",
+    };
   }
 
   // Top-level: rule matching + pre-analysis
