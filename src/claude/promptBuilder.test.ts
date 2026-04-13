@@ -98,7 +98,9 @@ describe("buildPrompt", () => {
       ],
     });
     const prompt = buildPrompt(session);
-    assert.ok(prompt.includes("[reactions: :thumbsup: by @Bob, @Charlie; :eyes: by @Dave]"));
+    assert.ok(
+      prompt.includes("[reactions: :thumbsup: by @Bob (U1), @Charlie (U2); :eyes: by @Dave (U3)]"),
+    );
   });
 
   it("falls back to user IDs when reaction usernames are not resolved", () => {
@@ -117,6 +119,74 @@ describe("buildPrompt", () => {
     });
     const prompt = buildPrompt(session);
     assert.ok(prompt.includes("[reactions: :rocket: by U1, U2]"));
+  });
+
+  it("handles partially resolved reaction usernames", () => {
+    const session = makeSession({
+      threadContext: [
+        {
+          userId: "U123",
+          username: "alice",
+          displayName: "Alice",
+          text: "Partial resolution",
+          isBot: false,
+          ts: "1234567890.000100",
+          reactions: [{ emoji: "thumbsup", userIds: ["U1", "U2"], usernames: ["Bob"] }],
+        },
+      ],
+    });
+    const prompt = buildPrompt(session);
+    assert.ok(prompt.includes("[reactions: :thumbsup: by @Bob (U1), U2]"));
+  });
+
+  it("separates bot reactions from human reactions", () => {
+    const session = makeSession({
+      threadContext: [
+        {
+          userId: "U123",
+          username: "alice",
+          displayName: "Alice",
+          text: "Trivia question",
+          isBot: false,
+          ts: "1234567890.000100",
+          reactions: [
+            {
+              emoji: "+1",
+              userIds: ["UBOT", "U1"],
+              usernames: ["Clack", "Bob"],
+              isBot: [true, false],
+            },
+          ],
+        },
+      ],
+    });
+    const prompt = buildPrompt(session);
+    assert.ok(prompt.includes("[reactions: :+1: by @Bob (U1) (bot: @Clack (UBOT))]"));
+  });
+
+  it("shows only bot label when all reactors are bots", () => {
+    const session = makeSession({
+      threadContext: [
+        {
+          userId: "U123",
+          username: "alice",
+          displayName: "Alice",
+          text: "Auto-reacted",
+          isBot: false,
+          ts: "1234567890.000100",
+          reactions: [
+            {
+              emoji: "white_check_mark",
+              userIds: ["UBOT"],
+              usernames: ["Clack"],
+              isBot: [true],
+            },
+          ],
+        },
+      ],
+    });
+    const prompt = buildPrompt(session);
+    assert.ok(prompt.includes("[reactions: :white_check_mark: (bot: @Clack (UBOT))]"));
   });
 
   it("does not add reactions line when message has no reactions", () => {

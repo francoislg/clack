@@ -40,6 +40,8 @@ export interface MessageReaction {
   emoji: string;
   userIds: string[];
   usernames?: string[];
+  /** Whether each user is a bot (parallel to userIds) */
+  isBot?: boolean[];
 }
 
 export interface ThreadMessage {

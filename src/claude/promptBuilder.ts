@@ -62,8 +62,22 @@ function formatThreadContext(messages: SessionContext["threadContext"]): string 
       }
       if (msg.reactions?.length) {
         const parts = msg.reactions.map((r) => {
-          const users = r.usernames ? r.usernames.map((u) => `@${u}`) : r.userIds;
-          return `:${r.emoji}: by ${users.join(", ")}`;
+          const humanUsers: string[] = [];
+          const botUsers: string[] = [];
+          for (let i = 0; i < r.userIds.length; i++) {
+            const label = r.usernames?.[i] ? `@${r.usernames[i]} (${r.userIds[i]})` : r.userIds[i];
+            if (r.isBot?.[i]) {
+              botUsers.push(label);
+            } else {
+              humanUsers.push(label);
+            }
+          }
+          let desc = `:${r.emoji}:`;
+          if (humanUsers.length > 0) desc += ` by ${humanUsers.join(", ")}`;
+          if (botUsers.length > 0) desc += ` (bot: ${botUsers.join(", ")})`;
+          if (humanUsers.length === 0 && botUsers.length === 0)
+            desc += ` by ${r.userIds.join(", ")}`;
+          return desc;
         });
         line += `\n[reactions: ${parts.join("; ")}]`;
       }
@@ -77,8 +91,12 @@ function buildDeliveryContext(session: SessionContext): string | null {
 
   const lines: string[] = ["DELIVERY CONTEXT:"];
 
-  if (session.channelName && session.triggerType !== "directMessages") {
-    lines.push(`- Channel: #${session.channelName}`);
+  if (session.triggerType !== "directMessages") {
+    if (session.channelName) {
+      lines.push(`- Channel: #${session.channelName} (ID: ${session.channelId})`);
+    } else {
+      lines.push(`- Channel ID: ${session.channelId}`);
+    }
   }
 
   // DM-first: session has DM coordinates and an origin channel

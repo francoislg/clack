@@ -167,6 +167,33 @@ function validatePostToActions(
   return null;
 }
 
+function validateStagedIntentsCoverage(
+  actions: z.infer<typeof actionSchema>[],
+  intentStore: IntentStore,
+): string | null {
+  const allIntents = intentStore.getAll();
+  if (allIntents.size === 0) return null;
+
+  const actionRefs = new Set<string>();
+  for (const action of actions) {
+    if ("ref" in action && action.ref) {
+      actionRefs.add(action.ref);
+    }
+  }
+
+  for (const [ref, intent] of allIntents) {
+    // Only check intent types that must appear as response actions
+    if (!REF_ACTION_TYPES.has(intent.type)) continue;
+    if (!actionRefs.has(ref)) {
+      return (
+        `You staged a "${intent.type}" intent (ref: ${ref}) but didn't include it in the response actions. ` +
+        `Either add it as an action button or, if you changed your mind, explain why in your response instead.`
+      );
+    }
+  }
+  return null;
+}
+
 function buildTexts(sections: z.infer<typeof sectionSchema>[], message?: string) {
   const answerText = sections
     .map((s) => (s.title ? `**${s.title}**\n${s.body}` : s.body))
@@ -256,7 +283,7 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
 
   return tool(
     "submit_response",
-    "Submit the final response to the user. This defines what the user sees: text sections and interactive buttons. Always call this tool to deliver your response.",
+    "Submit the final response to the user. IMPORTANT: calling this tool ENDS the conversation — you cannot take any further actions afterward. If your response mentions doing something (e.g., 'Let me set that up', 'I'll create a PR'), you MUST have already called the relevant tools BEFORE calling submit_response. Never promise future actions in your response text — either do them first or don't mention them. This defines what the user sees: text sections and interactive buttons. Always call this tool to deliver your response.",
     schema,
     async (args) => {
       // --- Disengage without skip is invalid ---
@@ -315,6 +342,11 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
       const postToError = validatePostToActions(actions, topLevelDeliveryChannel);
       if (postToError) {
         return recordError(recorder, args, { error: postToError });
+      }
+
+      const intentCoverageError = validateStagedIntentsCoverage(actions, intentStore);
+      if (intentCoverageError) {
+        return recordError(recorder, args, { error: intentCoverageError });
       }
 
       const message = "message" in args ? args.message : undefined;
