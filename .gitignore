@@ -50,6 +50,7 @@ npm-debug.log*
 
 # User-managed plugins
 data/plugins/*/
+data/skill-plugins/*/
 
 # User-editable configuration overrides
 data/configuration/

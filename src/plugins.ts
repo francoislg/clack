@@ -40,11 +40,11 @@ export interface PluginInfo {
 }
 
 /**
- * Scan data/plugins/ for valid plugin directories.
+ * Scan data/skill-plugins/ for valid SDK skill pack directories.
  * Returns rich metadata for display and SDK configs.
  */
 export function discoverPluginInfo(): PluginInfo[] {
-  const pluginsDir = resolve(deps.getDataDir(), "plugins");
+  const pluginsDir = resolve(deps.getDataDir(), "skill-plugins");
 
   if (!deps.existsSync(pluginsDir)) {
     return [];

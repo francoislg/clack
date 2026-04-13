@@ -8,6 +8,7 @@ import {
   canRequestChanges,
   canManageRoles,
   canTransferOwnership,
+  meetsMinimumRole,
   userCanEditConfig,
   userCanManageRoles,
 } from "./permissions.js";
@@ -65,6 +66,32 @@ describe("canTransferOwnership", () => {
     assert.equal(canTransferOwnership("admin"), false);
     assert.equal(canTransferOwnership("dev"), false);
     assert.equal(canTransferOwnership("member"), false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// meetsMinimumRole — role hierarchy comparison
+// ---------------------------------------------------------------------------
+
+describe("meetsMinimumRole", () => {
+  const roles: UserRole[] = ["member", "dev", "admin", "owner"];
+
+  it("same role always meets its own threshold", () => {
+    for (const role of roles) {
+      assert.equal(meetsMinimumRole(role, role), true, `${role} should meet ${role}`);
+    }
+  });
+
+  it("higher roles meet lower thresholds", () => {
+    assert.equal(meetsMinimumRole("owner", "member"), true);
+    assert.equal(meetsMinimumRole("admin", "dev"), true);
+    assert.equal(meetsMinimumRole("dev", "member"), true);
+  });
+
+  it("lower roles do not meet higher thresholds", () => {
+    assert.equal(meetsMinimumRole("member", "dev"), false);
+    assert.equal(meetsMinimumRole("dev", "admin"), false);
+    assert.equal(meetsMinimumRole("admin", "owner"), false);
   });
 });
 

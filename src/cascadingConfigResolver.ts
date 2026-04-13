@@ -58,15 +58,28 @@ export function scanMdFiles(dirPath: string): string[] {
  * Empty files (whitespace-only) suppress the instruction.
  * Results are concatenated in alphabetical order by filename.
  */
-export function resolveInstructions(roleChain: RoleDir[]): string {
+/** Virtual default files contributed by plugins: role → filename → content */
+export type VirtualDefaults = Map<string, Map<string, string>>;
+
+export function resolveInstructions(
+  roleChain: RoleDir[],
+  virtualDefaults?: VirtualDefaults,
+): string {
   const defaultDir = getDefaultConfigurationDir();
   const configDir = getConfigurationDir();
 
-  // 1. Discover all unique filenames across all relevant role directories
+  // 1. Discover all unique filenames across disk directories and virtual defaults
   const allFilenames = new Set<string>();
   for (const role of roleChain) {
     for (const filename of scanMdFiles(resolve(defaultDir, role))) {
       allFilenames.add(filename);
+    }
+    // Include virtual default filenames from plugins
+    const virtualForRole = virtualDefaults?.get(role);
+    if (virtualForRole) {
+      for (const filename of virtualForRole.keys()) {
+        allFilenames.add(filename);
+      }
     }
     for (const filename of scanMdFiles(resolve(configDir, role))) {
       allFilenames.add(filename);
@@ -74,18 +87,26 @@ export function resolveInstructions(roleChain: RoleDir[]): string {
   }
 
   // 2. For each filename, resolve through the interleaved cascade
+  //    Order per role: disk default → plugin virtual default → disk custom
   const resolvedContents: Array<{ filename: string; content: string }> = [];
 
   for (const filename of allFilenames) {
     let resolvedContent: string | null = null;
 
     for (const role of roleChain) {
-      // Default first, then custom — within each role level
+      // Disk default first
       const defaultPath = resolve(defaultDir, role, filename);
       if (existsSync(defaultPath)) {
         resolvedContent = readFileSync(defaultPath, "utf-8");
       }
 
+      // Plugin virtual default (between disk default and disk custom)
+      const virtualContent = virtualDefaults?.get(role)?.get(filename);
+      if (virtualContent !== undefined) {
+        resolvedContent = virtualContent;
+      }
+
+      // Disk custom override wins
       const customPath = resolve(configDir, role, filename);
       if (existsSync(customPath)) {
         resolvedContent = readFileSync(customPath, "utf-8");
@@ -128,7 +149,7 @@ export function validateInstructionDirs(): void {
  */
 export interface InstructionFileEntry {
   filename: string;
-  source: "default" | "customized" | "custom-only";
+  source: "default" | "customized" | "custom-only" | "plugin" | "plugin-customized";
 }
 
 export interface RoleDirListing {
@@ -136,7 +157,7 @@ export interface RoleDirListing {
   files: InstructionFileEntry[];
 }
 
-export function listRoleDirFiles(): RoleDirListing[] {
+export function listRoleDirFiles(virtualDefaults?: VirtualDefaults): RoleDirListing[] {
   const defaultDir = getDefaultConfigurationDir();
   const configDir = getConfigurationDir();
 
@@ -145,17 +166,23 @@ export function listRoleDirFiles(): RoleDirListing[] {
   for (const role of ALL_ROLE_DIRS) {
     const defaultFiles = new Set(scanMdFiles(resolve(defaultDir, role)));
     const customFiles = new Set(scanMdFiles(resolve(configDir, role)));
+    const virtualFiles = virtualDefaults?.get(role) ?? new Map<string, string>();
 
     // Union of all filenames
-    const allFiles = new Set([...defaultFiles, ...customFiles]);
+    const allFiles = new Set([...defaultFiles, ...customFiles, ...virtualFiles.keys()]);
     if (allFiles.size === 0) continue;
 
     const files: InstructionFileEntry[] = [];
     for (const filename of [...allFiles].sort()) {
       const hasDefault = defaultFiles.has(filename);
       const hasCustom = customFiles.has(filename);
+      const hasVirtual = virtualFiles.has(filename);
 
-      if (hasCustom && hasDefault) {
+      if (hasVirtual && hasCustom) {
+        files.push({ filename, source: "plugin-customized" });
+      } else if (hasVirtual) {
+        files.push({ filename, source: "plugin" });
+      } else if (hasCustom && hasDefault) {
         files.push({ filename, source: "customized" });
       } else if (hasCustom) {
         files.push({ filename, source: "custom-only" });

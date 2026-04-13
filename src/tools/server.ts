@@ -12,6 +12,9 @@ import type {
   QueryToolContext,
   WorkerToolContext,
 } from "./types.js";
+import { meetsMinimumRole } from "../permissions.js";
+import { getLoadedPlugins } from "../plugins/state.js";
+import { logger } from "../logger.js";
 import { updateSession, getSession } from "../sessions.js";
 import { canRequestChanges, canEditConfig } from "../permissions.js";
 
@@ -34,10 +37,12 @@ import { createViewSlackImageTool } from "./query/viewSlackImage.js";
 import { createViewSlackFileTool } from "./query/viewSlackFile.js";
 import { createUploadFileTool } from "./query/uploadFile.js";
 import { createAddReactionTool } from "./query/addReaction.js";
+import { createFindChannelTool } from "./query/findChannel.js";
 import { createRemoveReactionTool } from "./query/removeReaction.js";
 import { createGetSessionTraceTool } from "./query/getSessionTrace.js";
 import { createUsersCache } from "../slack/usersCache.js";
 import { createEmojiCache } from "../slack/emojiCache.js";
+import { createChannelsCache } from "../slack/channelsCache.js";
 
 // Action tools
 import { createProposeChangeTool } from "./actions/proposeChange.js";
@@ -210,6 +215,8 @@ function buildQueryTools(ctx: QueryToolContext): ClackToolsResult {
     tools.push(createStopTrackingTool(ctx));
     tools.push(createAddReactionTool(ctx));
     tools.push(createRemoveReactionTool(ctx));
+    const channelsCache = createChannelsCache(ctx.slackClient);
+    tools.push(createFindChannelTool(channelsCache));
   }
 
   // Read-only query tools — available to all roles
@@ -266,6 +273,22 @@ function buildQueryTools(ctx: QueryToolContext): ClackToolsResult {
     tools.push(createListScheduledMessagesTool(ctx));
     tools.push(createCancelScheduledMessageTool(ctx));
     tools.push(createUpdateScheduledMessageTool(ctx));
+  }
+
+  // --- Plugin tools (gated by minRole) ---
+  const pluginResults = getLoadedPlugins().results;
+  const coreToolNames = new Set(tools.map((t) => t.name));
+  for (const plugin of pluginResults) {
+    for (const registered of plugin.tools) {
+      if (!meetsMinimumRole(ctx.role, registered.minRole)) continue;
+      if (coreToolNames.has(registered.name)) {
+        logger.warn(
+          `Plugin "${plugin.name}" tool "${registered.name}" conflicts with a core tool — skipping`,
+        );
+        continue;
+      }
+      registered.pushTo(tools);
+    }
   }
 
   // --- Presentation tool ---
