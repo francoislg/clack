@@ -110,15 +110,18 @@ let deps: HandlerResponseDeps;
 // Helpers
 // ============================================================================
 
+let mockPostMessage: ReturnType<typeof mock.fn>;
+let mockChatDelete: ReturnType<typeof mock.fn>;
+let mockReactionsAdd: ReturnType<typeof mock.fn>;
+
 function makeClient(): App["client"] {
-  const postMessageFn = mock.fn(async () => ({ ok: true }));
-  const deleteFn = mock.fn(async () => ({ ok: true }));
-  return {
-    chat: {
-      postMessage: postMessageFn,
-      delete: deleteFn,
-    },
-  } as unknown as App["client"];
+  mockPostMessage = mock.fn(async () => ({ ok: true }));
+  mockChatDelete = mock.fn(async () => ({ ok: true }));
+  mockReactionsAdd = mock.fn(async () => ({ ok: true }));
+  return Object.assign(Object.create(null), {
+    chat: { postMessage: mockPostMessage, delete: mockChatDelete },
+    reactions: { add: mockReactionsAdd },
+  });
 }
 
 function makeSession(overrides: Partial<SessionContext> = {}): SessionContext {
@@ -308,7 +311,14 @@ describe("executeAndDeliver — success handling", () => {
       success: true,
       answer: "the answer",
       response: { sections: [], actions: [] },
-      stagedIntents: { r1: { type: "change" as const, branch: "b", description: "d", repo: "r" } },
+      stagedIntents: {
+        r1: {
+          type: "change" as const,
+          branch: "b",
+          description: "d",
+          repo: "r",
+        },
+      },
       toolCallHistory: [{ tool: "list_repositories", args: {}, result: {}, timestamp: 1 }],
     }));
 
@@ -964,6 +974,149 @@ describe("executeAndDeliver — deliver function", () => {
   });
 });
 
+type DeliverOpts = { markdownText: string; reactions?: string[] };
+type DeliverResult = Promise<{ ok: true; ts?: string } | { ok: false; error: string }>;
+
+describe("executeAndDeliver — delivery reactions", () => {
+  it("adds reactions after successful delivery via streamer", async () => {
+    resetStreamerInstance({ messageTs: "1700000000.000100" });
+
+    mockAskClaude.mock.mockImplementation(async (...args: Parameters<typeof mockAskClaude>) => {
+      const opts = args[1] as { deliver: (o: DeliverOpts) => DeliverResult };
+      await opts.deliver({
+        markdownText: "content",
+        reactions: ["thumbsup", "eyes"],
+      });
+      return { success: true, answer: "done" };
+    });
+
+    const client = makeClient();
+    await executeAndDeliver({
+      client,
+      session: makeSession(),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: makeClaudeOptions(),
+      deps,
+    });
+
+    const reactionsAdd = mockReactionsAdd;
+    assert.equal(reactionsAdd.mock.callCount(), 2);
+    const firstCall = reactionsAdd.mock.calls[0].arguments[0] as {
+      name: string;
+    };
+    assert.equal(firstCall.name, "thumbsup");
+    const secondCall = reactionsAdd.mock.calls[1].arguments[0] as {
+      name: string;
+    };
+    assert.equal(secondCall.name, "eyes");
+  });
+
+  it("adds reactions after fallback delivery via chat.postMessage", async () => {
+    resetStreamerInstance({ hasFailed: true });
+
+    mockAskClaude.mock.mockImplementation(async (...args: Parameters<typeof mockAskClaude>) => {
+      const opts = args[1] as { deliver: (o: DeliverOpts) => DeliverResult };
+      await opts.deliver({
+        markdownText: "content",
+        reactions: ["white_check_mark"],
+      });
+      return { success: true, answer: "done" };
+    });
+
+    const client = makeClient();
+    // Ensure postMessage returns a ts so reactions can target the message
+    mockPostMessage.mock.mockImplementation(async () => ({
+      ok: true,
+      ts: "1700000000.000200",
+    }));
+
+    await executeAndDeliver({
+      client,
+      session: makeSession(),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: makeClaudeOptions(),
+      deps,
+    });
+
+    const reactionsAdd = mockReactionsAdd;
+    assert.equal(reactionsAdd.mock.callCount(), 1);
+    const call = reactionsAdd.mock.calls[0].arguments[0] as { name: string };
+    assert.equal(call.name, "white_check_mark");
+  });
+
+  it("does not fail delivery when reaction add throws", async () => {
+    mockAskClaude.mock.mockImplementation(async (...args: Parameters<typeof mockAskClaude>) => {
+      const opts = args[1] as { deliver: (o: DeliverOpts) => DeliverResult };
+      const result = await opts.deliver({
+        markdownText: "content",
+        reactions: ["invalid_emoji"],
+      });
+      return { success: true, answer: "done", deliverOk: result.ok };
+    });
+
+    const client = makeClient();
+    mockReactionsAdd.mock.mockImplementation(async () => {
+      throw new Error("invalid_name");
+    });
+
+    const response = await executeAndDeliver({
+      client,
+      session: makeSession(),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: makeClaudeOptions(),
+      deps,
+    });
+
+    assert.equal(response.success, true);
+  });
+
+  it("silently ignores already_reacted errors", async () => {
+    mockAskClaude.mock.mockImplementation(async (...args: Parameters<typeof mockAskClaude>) => {
+      const opts = args[1] as { deliver: (o: DeliverOpts) => DeliverResult };
+      await opts.deliver({
+        markdownText: "content",
+        reactions: ["thumbsup"],
+      });
+      return { success: true, answer: "done" };
+    });
+
+    const client = makeClient();
+    mockReactionsAdd.mock.mockImplementation(async () => {
+      throw new Error("already_reacted");
+    });
+
+    const response = await executeAndDeliver({
+      client,
+      session: makeSession(),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: makeClaudeOptions(),
+      deps,
+    });
+
+    assert.equal(response.success, true);
+  });
+
+  it("does not call reactions.add when reactions array is empty", async () => {
+    mockAskClaude.mock.mockImplementation(async (...args: Parameters<typeof mockAskClaude>) => {
+      const opts = args[1] as { deliver: (o: DeliverOpts) => DeliverResult };
+      await opts.deliver({ markdownText: "content", reactions: [] });
+      return { success: true, answer: "done" };
+    });
+
+    const client = makeClient();
+    await executeAndDeliver({
+      client,
+      session: makeSession(),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: makeClaudeOptions(),
+      deps,
+    });
+
+    const reactionsAdd = mockReactionsAdd;
+    assert.equal(reactionsAdd.mock.callCount(), 0);
+  });
+});
+
 // ============================================================================
 // postResponse
 // ============================================================================
@@ -1009,7 +1162,10 @@ describe("postResponse", () => {
     const client = makeClient();
     const sessionInfo = makeSessionInfo();
     const blocks = [
-      { type: "section" as const, text: { type: "mrkdwn" as const, text: "block text" } },
+      {
+        type: "section" as const,
+        text: { type: "mrkdwn" as const, text: "block text" },
+      },
     ];
 
     await postResponse(client, sessionInfo, {
@@ -1018,7 +1174,9 @@ describe("postResponse", () => {
     });
 
     const postMessage = getPostMessageMock(client);
-    const call = postMessage.mock.calls[0].arguments[0] as { blocks?: unknown[] };
+    const call = postMessage.mock.calls[0].arguments[0] as {
+      blocks?: unknown[];
+    };
     assert.ok(call.blocks);
     assert.equal(call.blocks.length, 1);
   });
@@ -1159,7 +1317,10 @@ describe("silentThinking mode", () => {
       const deleteCall = (client.chat.delete as unknown as ReturnType<typeof mock.fn>).mock
         .calls[0];
       assert.ok(deleteCall);
-      assert.deepStrictEqual(deleteCall.arguments[0], { channel: "C001", ts: "1234.5678" });
+      assert.deepStrictEqual(deleteCall.arguments[0], {
+        channel: "C001",
+        ts: "1234.5678",
+      });
 
       // Session persistence and auto-execute should NOT have been called
       assert.equal(mockSetLastAnswer.mock.callCount(), 0);

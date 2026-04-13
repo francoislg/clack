@@ -3,6 +3,7 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
 import { textResult, errorResult } from "../helpers.js";
 import { fetchThreadContext } from "../../slack/messagesApi.js";
+import { threadMessageToToolOutput } from "../../slack/messageBuilder.js";
 import { getChannelInfo } from "../../slack/channelCache.js";
 
 export interface FetchSlackMessageDeps {
@@ -78,6 +79,7 @@ export function createFetchSlackMessageTool(
 
       // Use threadTs as parent if this is a reply URL, otherwise the message itself is the parent
       const parentTs = threadTs ?? messageTs;
+      // botUserId not available in tool context — bot detection relies on bot_id field
       const messages = await deps.fetchThreadContext(ctx.slackClient, channelId, parentTs, "", {
         fetchUserNames: true,
         limit: fetchCount,
@@ -114,20 +116,7 @@ export function createFetchSlackMessageTool(
         page,
         limit,
         has_more: hasMore,
-        messages: pageMessages.map((m) => ({
-          user: m.displayName ?? m.username ?? m.userId,
-          text: m.text,
-          ts: m.ts,
-          is_bot: m.isBot,
-          ...(m.blocks?.length && { blocks: m.blocks }),
-          ...(m.attachments?.length && { attachments: m.attachments }),
-          ...(m.imageFiles?.length && {
-            images: m.imageFiles.map((f) => ({ file_id: f.id, name: f.name })),
-          }),
-          ...(m.files?.length && {
-            files: m.files.map((f) => ({ file_id: f.id, name: f.name, type: f.mimetype })),
-          }),
-        })),
+        messages: pageMessages.map(threadMessageToToolOutput),
       });
     },
   );

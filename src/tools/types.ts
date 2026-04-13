@@ -14,7 +14,8 @@ import type { SlackImageFile, SlackFile } from "../slack/slackFileBase.js";
 export type DeliverFn = (opts: {
   markdownText: string;
   blocks?: (KnownBlock | Block)[];
-}) => Promise<{ ok: true } | { ok: false; error: string }>;
+  reactions?: string[];
+}) => Promise<{ ok: true; ts?: string } | { ok: false; error: string }>;
 
 // ============================================================================
 // Tool Context (discriminated union)

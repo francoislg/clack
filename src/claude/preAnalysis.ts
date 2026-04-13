@@ -72,7 +72,7 @@ A Slack bot named "${botName}" monitors this channel. Your job: decide if ${botN
 - "skip" — this specific message doesn't need a response, but the thread may still be relevant
 - "stop" — the conversation has clearly moved on from the original topic and ${botName} is no longer needed in this thread
 
-When in doubt, SKIP. It is better to miss a message than to intrude on a conversation between people.
+When in doubt, SKIP — it is better to miss a message than to intrude. However, if the conversation has shifted to unrelated topics or users have clearly finished with the original question, STOP.
 
 ${contextSection}
 

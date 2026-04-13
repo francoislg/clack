@@ -18,7 +18,10 @@ export function createUpdateScheduledMessageTool(ctx: QueryToolContext) {
       "Only provide the fields you want to change.",
     {
       id: z.string().describe("The scheduled message ID to update"),
-      cronExpression: z.string().optional().describe("New cron expression"),
+      cronExpression: z
+        .string()
+        .optional()
+        .describe("New cron expression in the user's LOCAL timezone — do NOT convert to UTC"),
       channel: z.string().optional().describe("New target channel"),
       prompt: z
         .string()

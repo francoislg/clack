@@ -28,6 +28,13 @@ The system SHALL provide an in-process MCP tool server using the Agent SDK's `cr
 - **THEN** tool handlers close over the provided context (query or worker)
 - **AND** tool handlers do NOT require Claude to pass context as tool parameters
 
+#### Scenario: Reaction tools registered when Slack client available
+
+- **WHEN** the tool server is built in query mode
+- **AND** a Slack client is available in the context
+- **THEN** the tool server registers the `add_reaction` and `remove_reaction` tools
+- **AND** both tools are available to all roles (no role gating)
+
 ### Requirement: Tool Context
 
 The system SHALL provide active change information as prompt context, not as tool gating criteria.
@@ -299,6 +306,7 @@ The system SHALL provide a `fetch_slack_message` query tool that fetches a Slack
 - **THEN** each message includes: user display name, text, timestamp, and bot flag
 - **AND** `<@USERID>` mentions in message text are resolved to readable display names
 - **AND** images and files attached to messages are registered in `ctx.availableImages` and `ctx.availableFiles`
+- **AND** reactions are included as a structured array with emoji name and resolved usernames, omitted when no reactions exist
 - **AND** the response includes `channel`, `thread_ts`, `message_count`, `page`, `limit`, and `has_more`
 
 #### Scenario: Page beyond thread length

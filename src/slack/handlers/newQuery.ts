@@ -4,7 +4,7 @@ import { logger } from "../../logger.js";
 import { getErrorBlocks } from "../blocks.js";
 import { isDev } from "../../roles.js";
 import { resolveChannelLabel, resolveUserLabel, slackLink } from "../logContext.js";
-import { extractMessageText } from "../messagesApi.js";
+import { extractMessageText } from "../messageBuilder.js";
 import { extractAttachments, type ExtractedAttachments } from "../fileExtractor.js";
 import { processMessage } from "./core.js";
 
@@ -37,7 +37,12 @@ async function fetchViaReplies(
   deps: NewQueryDeps,
 ): Promise<ResolvedMessage | null> {
   try {
-    const result = await client.conversations.replies({ channel, ts, inclusive: true, limit: 1 });
+    const result = await client.conversations.replies({
+      channel,
+      ts,
+      inclusive: true,
+      limit: 1,
+    });
     const msg = result.messages?.[0];
     if (msg?.ts === ts) {
       logger.debug("Found message via conversations.replies (parent message)");

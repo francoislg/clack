@@ -27,6 +27,8 @@
     "view_slack_image": "Viewing image {file_id}",
     "view_slack_file": "Viewing file {file_id}",
     "upload_file": "Uploading {filename}",
+    "add_reaction": "Adding :{emoji}: reaction",
+    "remove_reaction": "Removing :{emoji}: reaction",
     "resolve_review_thread": "Resolving review thread",
     "propose_change": "Proposing change {repo}",
     "request_update": "Requesting update",

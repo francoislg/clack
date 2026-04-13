@@ -36,6 +36,12 @@ export interface SlackBlock {
   type: string;
 }
 
+export interface MessageReaction {
+  emoji: string;
+  userIds: string[];
+  usernames?: string[];
+}
+
 export interface ThreadMessage {
   text: string;
   userId: string;
@@ -51,6 +57,8 @@ export interface ThreadMessage {
   imageFiles?: SlackImageFile[];
   /** Non-image file attachments (PDFs, text files, etc.) */
   files?: SlackFile[];
+  /** Emoji reactions on this message */
+  reactions?: MessageReaction[];
 }
 
 export interface SessionContext {

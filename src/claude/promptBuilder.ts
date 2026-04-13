@@ -60,6 +60,13 @@ function formatThreadContext(messages: SessionContext["threadContext"]): string 
           .join(", ");
         line += `\n[attached files: ${tags}]`;
       }
+      if (msg.reactions?.length) {
+        const parts = msg.reactions.map((r) => {
+          const users = r.usernames ? r.usernames.map((u) => `@${u}`) : r.userIds;
+          return `:${r.emoji}: by ${users.join(", ")}`;
+        });
+        line += `\n[reactions: ${parts.join("; ")}]`;
+      }
       return line;
     })
     .join("\n\n");

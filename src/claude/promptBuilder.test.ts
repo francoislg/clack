@@ -76,6 +76,66 @@ describe("buildPrompt", () => {
     assert.ok(prompt.includes("[attached images: screenshot.png (file_id: F001)]"));
   });
 
+  it("annotates thread messages that have reactions with usernames", () => {
+    const session = makeSession({
+      threadContext: [
+        {
+          userId: "U123",
+          username: "alice",
+          displayName: "Alice",
+          text: "Should we deploy?",
+          isBot: false,
+          ts: "1234567890.000100",
+          reactions: [
+            {
+              emoji: "thumbsup",
+              userIds: ["U1", "U2"],
+              usernames: ["Bob", "Charlie"],
+            },
+            { emoji: "eyes", userIds: ["U3"], usernames: ["Dave"] },
+          ],
+        },
+      ],
+    });
+    const prompt = buildPrompt(session);
+    assert.ok(prompt.includes("[reactions: :thumbsup: by @Bob, @Charlie; :eyes: by @Dave]"));
+  });
+
+  it("falls back to user IDs when reaction usernames are not resolved", () => {
+    const session = makeSession({
+      threadContext: [
+        {
+          userId: "U123",
+          username: "alice",
+          displayName: "Alice",
+          text: "Check this",
+          isBot: false,
+          ts: "1234567890.000100",
+          reactions: [{ emoji: "rocket", userIds: ["U1", "U2"] }],
+        },
+      ],
+    });
+    const prompt = buildPrompt(session);
+    assert.ok(prompt.includes("[reactions: :rocket: by U1, U2]"));
+  });
+
+  it("does not add reactions line when message has no reactions", () => {
+    const session = makeSession({
+      threadContext: [
+        {
+          userId: "U123",
+          username: "alice",
+          displayName: "Alice",
+          text: "No reactions here",
+          isBot: false,
+          ts: "1234567890.000100",
+        },
+      ],
+    });
+    const prompt = buildPrompt(session);
+    assert.ok(!prompt.includes("[reactions:"));
+  });
+
   it("omits thread context section when empty", () => {
     const prompt = buildPrompt(makeSession());
     assert.ok(!prompt.includes("THREAD CONTEXT"));
@@ -399,7 +459,10 @@ describe("buildPrompt", () => {
         },
       ],
     ]);
-    const prompt = buildPrompt(makeSession(), { availableImages, availableFiles });
+    const prompt = buildPrompt(makeSession(), {
+      availableImages,
+      availableFiles,
+    });
     assert.ok(prompt.includes("ATTACHED FILES:"));
     assert.ok(prompt.includes("[image] photo.jpg"));
     assert.ok(prompt.includes("[file] data.csv"));
@@ -453,9 +516,24 @@ describe("buildPrompt", () => {
       sdkSessionId: "sdk-uuid-123",
       lastSeenThreadTs: "1234567890.000200",
       threadContext: [
-        { userId: "U1", text: "old message", isBot: false, ts: "1234567890.000100" },
-        { userId: "U2", text: "also old", isBot: false, ts: "1234567890.000200" },
-        { userId: "U3", text: "new message from someone", isBot: false, ts: "1234567890.000300" },
+        {
+          userId: "U1",
+          text: "old message",
+          isBot: false,
+          ts: "1234567890.000100",
+        },
+        {
+          userId: "U2",
+          text: "also old",
+          isBot: false,
+          ts: "1234567890.000200",
+        },
+        {
+          userId: "U3",
+          text: "new message from someone",
+          isBot: false,
+          ts: "1234567890.000300",
+        },
       ],
     });
     const prompt = buildPrompt(session);
@@ -470,8 +548,18 @@ describe("buildPrompt", () => {
     const session = makeSession({
       sdkSessionId: "sdk-uuid-123",
       threadContext: [
-        { userId: "U1", text: "first message", isBot: false, ts: "1234567890.000100" },
-        { userId: "U2", text: "second message", isBot: false, ts: "1234567890.000200" },
+        {
+          userId: "U1",
+          text: "first message",
+          isBot: false,
+          ts: "1234567890.000100",
+        },
+        {
+          userId: "U2",
+          text: "second message",
+          isBot: false,
+          ts: "1234567890.000200",
+        },
       ],
     });
     const prompt = buildPrompt(session);
@@ -487,7 +575,12 @@ describe("buildPrompt", () => {
       lastSeenThreadTs: "1234567890.000999",
       threadContext: [
         { userId: "U1", text: "old", isBot: false, ts: "1234567890.000100" },
-        { userId: "U2", text: "also old", isBot: false, ts: "1234567890.000200" },
+        {
+          userId: "U2",
+          text: "also old",
+          isBot: false,
+          ts: "1234567890.000200",
+        },
       ],
     });
     const prompt = buildPrompt(session);
