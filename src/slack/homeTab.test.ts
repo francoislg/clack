@@ -730,7 +730,7 @@ describe("buildStatusSection", () => {
     mockGetLoadedClackPlugins.mock.mockImplementation(() => [{ name: "trivia", toolCount: 5 }]);
     const blocks = buildStatusSection("member", deps);
     const texts = getSectionTexts(blocks);
-    const pluginBlock = texts.find((t) => t.includes(":electric_plug:"));
+    const pluginBlock = texts.find((t) => t.includes(":package:"));
     assert.ok(pluginBlock);
     assert.ok(pluginBlock.includes("trivia"));
     assert.ok(pluginBlock.includes("5 tools"));
@@ -741,7 +741,7 @@ describe("buildStatusSection", () => {
     mockGetLoadedClackPlugins.mock.mockImplementation(() => []);
     const blocks = buildStatusSection("member", deps);
     const texts = getSectionTexts(blocks);
-    const pluginBlock = texts.find((t) => t.includes(":electric_plug:"));
+    const pluginBlock = texts.find((t) => t.includes(":package:"));
     assert.equal(pluginBlock, undefined);
   });
 

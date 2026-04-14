@@ -543,7 +543,7 @@ export function buildStatusSection(
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `:electric_plug: *Plugins:*\n${pluginList}`,
+        text: `:package: *Plugins:*\n${pluginList}`,
       },
     });
   }

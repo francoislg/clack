@@ -21,11 +21,21 @@ async function writeJsonString(path: string, json: string): Promise<void> {
 }
 
 export function createFileDataLayer(dataDir: string): TriviaDataLayer {
+  const categoriesPath = join(dataDir, "categories.json");
   const questionsPath = join(dataDir, "questions.json");
   const usersPath = join(dataDir, "users.json");
   const answersPath = join(dataDir, "answers.json");
 
   return {
+    async loadCategories(): Promise<string[]> {
+      return readJsonFile<string[]>(categoriesPath, []);
+    },
+
+    async saveCategories(categories: string[]): Promise<void> {
+      await ensureDir(dataDir);
+      await writeJsonString(categoriesPath, JSON.stringify(categories, null, 2));
+    },
+
     async loadQuestions(): Promise<TriviaQuestion[]> {
       return readJsonFile<TriviaQuestion[]>(questionsPath, []);
     },
@@ -34,6 +44,15 @@ export function createFileDataLayer(dataDir: string): TriviaDataLayer {
       await ensureDir(dataDir);
       const questions = await this.loadQuestions();
       questions.push(q);
+      await writeJsonString(questionsPath, JSON.stringify(questions, null, 2));
+    },
+
+    async updateQuestion(id: string, updates: Partial<TriviaQuestion>): Promise<void> {
+      await ensureDir(dataDir);
+      const questions = await this.loadQuestions();
+      const idx = questions.findIndex((q) => q.id === id);
+      if (idx === -1) return;
+      questions[idx] = { ...questions[idx], ...updates };
       await writeJsonString(questionsPath, JSON.stringify(questions, null, 2));
     },
 
@@ -76,6 +95,14 @@ function readSdkJson<T>(sdk: ClackSdk, path: string, fallback: T): Promise<T> {
 
 export function createSdkDataLayer(sdk: ClackSdk): TriviaDataLayer {
   return {
+    async loadCategories(): Promise<string[]> {
+      return readSdkJson<string[]>(sdk, "categories.json", []);
+    },
+
+    async saveCategories(categories: string[]): Promise<void> {
+      await sdk.writeFile("categories.json", JSON.stringify(categories, null, 2));
+    },
+
     async loadQuestions(): Promise<TriviaQuestion[]> {
       return readSdkJson<TriviaQuestion[]>(sdk, "questions.json", []);
     },
@@ -83,6 +110,14 @@ export function createSdkDataLayer(sdk: ClackSdk): TriviaDataLayer {
     async saveQuestion(q: TriviaQuestion): Promise<void> {
       const questions = await this.loadQuestions();
       questions.push(q);
+      await sdk.writeFile("questions.json", JSON.stringify(questions, null, 2));
+    },
+
+    async updateQuestion(id: string, updates: Partial<TriviaQuestion>): Promise<void> {
+      const questions = await this.loadQuestions();
+      const idx = questions.findIndex((q) => q.id === id);
+      if (idx === -1) return;
+      questions[idx] = { ...questions[idx], ...updates };
       await sdk.writeFile("questions.json", JSON.stringify(questions, null, 2));
     },
 
@@ -115,16 +150,28 @@ export function createSdkDataLayer(sdk: ClackSdk): TriviaDataLayer {
 // ============================================================================
 
 export function createInMemoryDataLayer(): TriviaDataLayer {
+  let categories: string[] = [];
   const questions: TriviaQuestion[] = [];
   const users = new Map<string, TriviaUser>();
   const answers: SubmittedAnswer[] = [];
 
   return {
+    async loadCategories() {
+      return [...categories];
+    },
+    async saveCategories(c) {
+      categories = [...c];
+    },
     async loadQuestions() {
       return [...questions];
     },
     async saveQuestion(q) {
       questions.push(q);
+    },
+    async updateQuestion(id, updates) {
+      const idx = questions.findIndex((q) => q.id === id);
+      if (idx === -1) return;
+      questions[idx] = { ...questions[idx], ...updates };
     },
     async loadUsers() {
       return new Map(users);

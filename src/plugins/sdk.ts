@@ -4,14 +4,27 @@ import { join, normalize, isAbsolute } from "node:path";
 import type { SdkMcpToolDefinition, AnyZodRawShape } from "@anthropic-ai/claude-agent-sdk";
 import type { UserRole } from "../roles.js";
 import type { RoleDir } from "../cascadingConfigResolver.js";
+import type { ToolEntryObject } from "../streaming/toolMappingLoader.js";
 
 // ============================================================================
 // Types
 // ============================================================================
 
+/** Tool mapping entry — same format as tool_mapping JSON config entries. */
+export type ToolMapping = string | ToolEntryObject;
+
 export interface ClackSdk {
   addInstruction(role: RoleDir, filename: string, content: string): void;
-  registerTool<T extends AnyZodRawShape>(minRole: UserRole, tool: SdkMcpToolDefinition<T>): void;
+  /**
+   * Register an MCP tool with a minimum role requirement and a Slack task card mapping.
+   * @param mapping — Display label for Slack task cards. Either a template string with `{argName}` interpolation,
+   *   or an object with `label`, optional `group`, and optional `itemDetail`.
+   */
+  registerTool<T extends AnyZodRawShape>(
+    minRole: UserRole,
+    tool: SdkMcpToolDefinition<T>,
+    mapping: ToolMapping,
+  ): void;
   readFile(path: string): Promise<string | null>;
   writeFile(path: string, content: string): Promise<void>;
 }
@@ -39,6 +52,8 @@ export interface PluginLoadResult {
   name: string;
   instructions: RegisteredInstruction[];
   tools: RegisteredTool[];
+  /** Tool name → mapping entry for Slack task cards. */
+  toolMappings: Map<string, ToolMapping>;
 }
 
 // ============================================================================
@@ -68,6 +83,7 @@ export function createClackSdk(
 } {
   const instructions: RegisteredInstruction[] = [];
   const tools: RegisteredTool[] = [];
+  const toolMappings = new Map<string, ToolMapping>();
   const pluginDataDir = join(dataDir, pluginName);
 
   const sdk: ClackSdk = {
@@ -79,6 +95,7 @@ export function createClackSdk(
     registerTool<T extends AnyZodRawShape>(
       minRole: UserRole,
       toolDef: SdkMcpToolDefinition<T>,
+      mapping: ToolMapping,
     ): void {
       tools.push({
         name: toolDef.name,
@@ -87,6 +104,7 @@ export function createClackSdk(
         // This avoids storing it with an incompatible generic type.
         pushTo: (target) => target.push(toolDef as SdkMcpToolDefinition<AnyZodRawShape>),
       });
+      toolMappings.set(toolDef.name, mapping);
     },
 
     async readFile(path: string): Promise<string | null> {
@@ -112,6 +130,6 @@ export function createClackSdk(
 
   return {
     sdk,
-    harvest: () => ({ name: pluginName, instructions, tools }),
+    harvest: () => ({ name: pluginName, instructions, tools, toolMappings }),
   };
 }

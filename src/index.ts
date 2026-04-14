@@ -65,10 +65,6 @@ async function main(): Promise<void> {
   if (pluginNames && pluginNames.length > 0) {
     const loaded = await loadPlugins(pluginNames);
     setLoadedPlugins(loaded);
-    if (loaded.results.length > 0) {
-      const summary = loaded.results.map((r) => `${r.name} (${r.tools.length} tools)`).join(", ");
-      logger.info(`Clack plugins loaded: ${summary}`);
-    }
   }
 
   // Step 2: Test MCP connections and clack tools

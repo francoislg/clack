@@ -2,7 +2,6 @@
 
 ## Purpose
 In-process MCP tool server providing query, action, and presentation tools to Claude during Slack bot queries. Tools are built per-query with closure-captured context and gated by user role.
-
 ## Requirements
 ### Requirement: In-Process MCP Tool Server
 
@@ -86,52 +85,41 @@ The system SHALL provide active change information as prompt context, not as too
 
 ### Requirement: Role-Based Tool Gating
 
-The system SHALL register tools based solely on the user's role, workflow configuration, and feature flags. Active change state is prompt context, not a tool gating mechanism.
+The system SHALL register tools based on the user's role, workflow configuration, feature flags, and active plugins. Plugin-registered tools are included when the user's role meets the declared minimum.
 
 #### Scenario: Member user tool set
-
 - **WHEN** the user has the member role in query mode
-- **THEN** the tool server registers query tools (`list_repositories`, `git_log`, `deepen_history`, `find_sessions`, `find_changes`, `find_pull_requests`, `find_recent_interactions`, `resolve_review_thread`) and `submit_response`
-- **AND** registers `find_user`, `find_emoji`, and `upload_file` if a Slack client is available in the context
-- **AND** registers `schedule_reminder`, `list_reminders`, and `cancel_reminder` if `allowScheduledMessages` is enabled and a Slack client is available
-- **AND** does NOT register change action tools (`propose_change`, `propose_config_update`)
-- **AND** does NOT register admin config tools (`admin_read_file`, `admin_write_file`, `admin_restart_app`)
-- **AND** does NOT register admin env tools (`admin_set_env`, `admin_list_env`)
-- **AND** does NOT register `admin_delete_message`
+- **THEN** the tool server registers core query tools and `submit_response`
+- **AND** registers `find_user`, `find_emoji`, and `upload_file` if a Slack client is available
+- **AND** registers scheduling tools if `allowScheduledMessages` is enabled and a Slack client is available
+- **AND** registers plugin tools where the declared minimum role is `member`
+- **AND** does NOT register plugin tools with a higher minimum role
 
-#### Scenario: Dev user tool set
-
+#### Scenario: Dev user tool set with plugins
 - **GIVEN** the changes workflow is enabled for the trigger type
+- **AND** a plugin has registered tools with minimum role `dev`
 - **WHEN** the user has the dev role (or higher) in query mode
-- **THEN** the tool server registers all query tools, `propose_change`, and `submit_response`
-- **AND** registers scheduled message tools if `allowScheduledMessages` is enabled and a Slack client is available
-- **AND** registers these tools regardless of whether the thread has an active change
-- **AND** does NOT register admin config tools (`admin_read_file`, `admin_write_file`, `admin_restart_app`)
-- **AND** does NOT register admin env tools (`admin_set_env`, `admin_list_env`)
-- **AND** does NOT register `admin_delete_message`
+- **THEN** the tool server registers all core query tools, change tools, and `submit_response`
+- **AND** registers plugin tools with minimum role `member` or `dev`
+- **AND** does NOT register plugin tools with minimum role `admin` or `owner`
 
-#### Scenario: Admin user tool set
-
-- **GIVEN** the user has the admin or owner role
-- **WHEN** the tool server is built in query mode
-- **THEN** it additionally registers `propose_config_update`, `list_config_files`, and `read_config_file`
-- **AND** registers `admin_read_file`, `admin_write_file`, and `admin_restart_app`
-- **AND** registers `admin_set_env` and `admin_list_env`
-- **AND** registers `admin_delete_message` when a Slack client is available in the context
-- **AND** registers scheduled message tools if `allowScheduledMessages` is enabled and a Slack client is available
-
-#### Scenario: Dev instructions include auto-execute guidance
-
-- **GIVEN** the user has the dev role (or higher)
-- **WHEN** Claude receives dev instructions
-- **THEN** the instructions include guidance on when to use `auto: true` on ref-based actions
-- **AND** Claude uses `auto: true` for clear directives and omits it for ambiguous intent
-
-#### Scenario: Worker mode tool set
-
+#### Scenario: Plugin tools not included in worker mode
 - **WHEN** the tool server is built with mode `"worker"`
-- **THEN** it registers `git_push`, `ensure_pr`, `merge_pr`, `close_pr`, and `report_status`
-- **AND** does NOT register query tools (including `find_recent_interactions`), action, presentation, scheduled message, admin config, admin env, or `admin_delete_message` tools
+- **THEN** it registers only core worker tools (`git_push`, `ensure_pr`, `merge_pr`, `close_pr`, `report_status`)
+- **AND** does NOT register any plugin tools
+- **AND** plugin tool registration is strictly query-mode only
+
+#### Scenario: Plugin tools included alongside core tools
+- **GIVEN** plugins have registered tools
+- **WHEN** the tool server is built in query mode
+- **THEN** plugin tools are appended after core tools in the tools array
+- **AND** all tools (core and plugin) are passed to `createSdkMcpServer()` together
+
+#### Scenario: Duplicate tool name from plugin
+- **GIVEN** a plugin registers a tool with the same name as a core tool
+- **WHEN** the tool server is built
+- **THEN** the system logs a warning about the duplicate
+- **AND** the core tool is kept and the plugin tool is dropped (core tools take precedence)
 
 ### Requirement: Admin Config Tool Registration
 
@@ -528,3 +516,61 @@ The system SHALL maintain a per-query Map of staged intents for reference resolu
 - **WHEN** the query completes
 - **THEN** staged intents referenced in the final `submit_response` are serialized into the session
 - **AND** button handlers can resolve refs even after the query closure is garbage collected
+
+### Requirement: stop_tracking Query Tool
+
+The system SHALL provide a `stop_tracking` query tool that deactivates auto-respond tracking for a thread identified by a Slack message URL.
+
+#### Scenario: Tool registered when Slack client available
+
+- **WHEN** the tool server is built in query mode
+- **AND** a Slack client is available in the context
+- **THEN** the `stop_tracking` tool is registered for all roles
+
+#### Scenario: Tool not registered in worker mode
+
+- **WHEN** the tool server is built in worker mode
+- **THEN** the `stop_tracking` tool is NOT registered
+
+#### Scenario: Stop tracking by URL
+
+- **WHEN** Claude calls `stop_tracking` with a `url` parameter containing a valid Slack message URL
+- **THEN** the tool parses the URL to extract channel ID and thread timestamp
+- **AND** calls `findSessionByThread(channelId, threadTs)` to locate the session
+- **AND** sets `autoResponseActive = false` on the session
+- **AND** persists the updated session to disk
+- **AND** returns `{ success: true, channel: channelId, thread_ts: threadTs, session_id: sessionId }`
+
+#### Scenario: No session found
+
+- **WHEN** Claude calls `stop_tracking` with a URL that does not correspond to a tracked thread
+- **THEN** the tool returns an error: `"No tracked session found for that thread"`
+
+#### Scenario: Invalid URL format
+
+- **WHEN** Claude calls `stop_tracking` with a URL that does not match the Slack message URL pattern
+- **THEN** the tool returns an error indicating invalid URL format
+
+#### Scenario: Permission denied for non-admin
+
+- **WHEN** a user calls `stop_tracking` targeting a session they did not create
+- **AND** the user does not have admin or owner role
+- **THEN** the tool returns an error: `"You can only stop tracking threads you started, or ask an admin"`
+
+#### Scenario: Admin can stop any thread
+
+- **WHEN** a user with admin or owner role calls `stop_tracking`
+- **THEN** the tool sets `autoResponseActive = false` regardless of who created the session
+
+#### Scenario: Tool not registered without Slack client
+
+- **WHEN** the tool server is built in query mode
+- **AND** no Slack client is available in the context
+- **THEN** the `stop_tracking` tool is NOT registered
+
+#### Scenario: Already disengaged thread
+
+- **WHEN** Claude calls `stop_tracking` on a thread where `autoResponseActive` is already `false`
+- **THEN** the tool returns success (idempotent)
+- **AND** does not modify the session
+
