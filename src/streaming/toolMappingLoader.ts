@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from "fs";
 import { resolve, basename } from "path";
 import { getDefaultConfigurationDir, getConfigurationDir } from "../config.js";
+import { getLoadedPlugins } from "../plugins/state.js";
 import { logger } from "../logger.js";
 
 // ---------------------------------------------------------------------------
@@ -364,6 +365,16 @@ export function loadToolMappings(): Map<string, ResolvedToolMapping> {
     } catch (err) {
       logger.warn(`Skipping malformed tool mapping config ${file}: ${err}`);
     }
+  }
+
+  // Merge plugin tool mappings into the "clack" mapping (plugin tools are served by clack's MCP server)
+  for (const plugin of getLoadedPlugins().results) {
+    if (plugin.toolMappings.size === 0) continue;
+    if (!mappings.has("clack")) mappings.set("clack", resolveConfig({}, "clack"));
+    const clackMapping = mappings.get("clack")!;
+    const resolved = resolveConfig({ tools: Object.fromEntries(plugin.toolMappings) }, "clack");
+    for (const [k, v] of resolved.labels) clackMapping.labels.set(k, v);
+    for (const [k, v] of resolved.toolGroups) clackMapping.toolGroups.set(k, v);
   }
 
   cachedMappings = mappings;

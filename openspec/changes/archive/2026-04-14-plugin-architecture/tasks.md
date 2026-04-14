@@ -58,4 +58,4 @@
 
 - [x] 8.1 Type-check passes (`npx tsc --noEmit`)
 - [x] 8.2 All tests pass (`npm test`) — 2161 tests, 0 failures
-- [ ] 8.3 Manual test: add `"plugins": ["trivia"]` to config.json, verify trivia tools appear and are gated by role, verify trivia instructions are in the prompt, verify Home Tab shows both "Skill Plugins:" and "Plugins:" sections, verify admin can override `trivia__instructions.md` in `configuration/`
+- [x] 8.3 Manual test: add `"plugins": ["trivia"]` to config.json, verify trivia tools appear and are gated by role, verify trivia instructions are in the prompt, verify Home Tab shows both "Skill Plugins:" and "Plugins:" sections, verify admin can override `trivia__instructions.md` in `configuration/`

@@ -221,18 +221,16 @@ async function addDeliveryReactions(
   timestamp: string,
   reactions: string[],
 ): Promise<void> {
-  await Promise.all(
-    reactions.map(async (emoji) => {
-      try {
-        await client.reactions.add({ channel, timestamp, name: emoji });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (!msg.includes("already_reacted")) {
-          logger.warn(`Failed to add reaction :${emoji}: — ${msg}`);
-        }
+  for (const emoji of reactions) {
+    try {
+      await client.reactions.add({ channel, timestamp, name: emoji });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!msg.includes("already_reacted")) {
+        logger.warn(`Failed to add reaction :${emoji}: — ${msg}`);
       }
-    }),
-  );
+    }
+  }
 }
 
 /**

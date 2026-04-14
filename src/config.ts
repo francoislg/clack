@@ -454,6 +454,7 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
     allowScheduledMessages: bool(c, "allowScheduledMessages") ?? false,
     threadAutoRespond: bool(c, "threadAutoRespond") ?? undefined,
     threadAutoRespondMaxAgeMinutes: num(c, "threadAutoRespondMaxAgeMinutes") ?? undefined,
+    plugins: strArray(c, "plugins"),
   };
 
   return merged;

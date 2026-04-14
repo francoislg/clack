@@ -97,10 +97,11 @@ describe("ClackSdk", () => {
         },
         async () => ({ content: [{ type: "text" as const, text: "ok" }] }),
       );
-      sdk.registerTool("member", testTool);
+      sdk.registerTool("member", testTool, "Running test tool {input}");
       const result = harvest();
       assert.equal(result.tools.length, 1);
       assert.equal(result.tools[0].minRole, "member");
+      assert.equal(result.toolMappings.get("test_tool"), "Running test tool {input}");
     });
   });
 

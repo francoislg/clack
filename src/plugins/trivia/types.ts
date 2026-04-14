@@ -1,10 +1,12 @@
 export interface TriviaQuestion {
   id: string;
-  topic: string;
+  category: string;
   statement: string;
   isTrue: boolean;
   emojis: string[];
   createdAt: number;
+  postedAt?: number;
+  messageLink?: string;
 }
 
 export interface TriviaUser {
@@ -22,8 +24,11 @@ export interface SubmittedAnswer {
 }
 
 export interface TriviaDataLayer {
+  loadCategories(): Promise<string[]>;
+  saveCategories(categories: string[]): Promise<void>;
   loadQuestions(): Promise<TriviaQuestion[]>;
   saveQuestion(q: TriviaQuestion): Promise<void>;
+  updateQuestion(id: string, updates: Partial<TriviaQuestion>): Promise<void>;
   loadUsers(): Promise<Map<string, TriviaUser>>;
   saveUser(u: TriviaUser): Promise<void>;
   loadAnswers(): Promise<SubmittedAnswer[]>;

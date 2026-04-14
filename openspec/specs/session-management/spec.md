@@ -19,26 +19,33 @@ The system SHALL create a unique session for each triggered reaction.
 
 ### Requirement: Session State Persistence
 
-The system SHALL persist session state to the filesystem, including structured tool interaction data, DM delivery coordinates, and the SDK session ID for conversation resumption. Thread conversation history (questions, answers, refinements) is derived from Slack on each request and is NOT persisted. Aborted sessions SHALL retain their state for reuse on restart.
+The system SHALL persist session state to the filesystem, including structured tool interaction data, DM delivery coordinates, the SDK session ID for conversation resumption, and the auto-respond tracking flag. Thread conversation history (questions, answers, refinements) is derived from Slack on each request and is NOT persisted. Aborted sessions SHALL retain their state for reuse on restart.
 
 #### Scenario: Context file structure
 
 - **WHEN** a session is created or updated
 - **THEN** the system writes `data/sessions/{session-id}/context.json`
-- **AND** includes: sessionId, channelId, messageTs, threadTs, userId, username, displayName, errors, createdAt, lastActivity
+- **AND** includes: sessionId, channelId, messageTs, threadTs, userId, username, displayName, errors, createdAt, lastActivity, autoResponseActive
 - **AND** includes `username` and `displayName` for the requesting user when `fetchUserNames` is enabled
 - **AND** includes `sdkSessionId` when an SDK session has been established for this session
 - **AND** does NOT persist `refinements`, `lastAnswer`, or `threadContext` (these are fetched from Slack on each request)
 - **AND** the context does NOT include `isEphemeral`
 - **AND** delivery mode is derived from `triggerType` and whether `dmChannel` is set
-- **AND** the `triggerType` field accepts `"directMessages"`, `"mentions"`, `"reactions"`, or `"autoRespond"`
+- **AND** the `triggerType` field accepts `"directMessages"`, `"mentions"`, `"reactions"`, `"autoRespond"`, or `"threadReply"`
 
 #### Scenario: Session reused after abort
+
 - **WHEN** a Claude invocation is aborted due to a message edit
 - **AND** processing is restarted with updated text
 - **THEN** `processMessage()` finds the existing session via `findSessionByThread()`
 - **AND** updates the session's `originalQuestion` with the new text
 - **AND** does NOT create a duplicate session
+
+#### Scenario: Auto-respond tracking field defaults on load
+
+- **WHEN** a session is loaded from disk
+- **AND** the `autoResponseActive` field is absent (session created before this feature)
+- **THEN** the system treats the session as if `autoResponseActive` is `true`
 
 #### Scenario: Tool call history persisted
 
@@ -346,3 +353,4 @@ The system SHALL support sessions with a synthetic user identity for auto-respon
 - **THEN** the regex MAY fail to extract the userId (since `"auto-respond"` does not match the `U[A-Z0-9]+` pattern)
 - **AND** this is a known limitation affecting only the last-resort session restoration fallback
 - **AND** the primary restoration path (loading from disk via session ID) is unaffected
+

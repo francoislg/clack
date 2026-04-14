@@ -2,12 +2,10 @@
 
 ## Purpose
 Allow Claude to gracefully decline responding in auto-respond and thread-reply contexts via a `skip_response` flag on `submit_response`, with safeguard validation, message cleanup, and trigger gating.
-
 ## Requirements
-
 ### Requirement: Skip Response Safeguard Validation
 
-The `submit_response` tool SHALL validate a skip request by requiring an exact acknowledgment message, rejecting with an instructive error if the message doesn't match.
+The `submit_response` tool SHALL validate a skip request by requiring an exact acknowledgment message, rejecting with an instructive error if the message doesn't match. When `disengage` is also set, the tool SHALL additionally signal the session to deactivate tracking.
 
 #### Scenario: Skip with correct acknowledgment
 
@@ -17,6 +15,19 @@ The `submit_response` tool SHALL validate a skip request by requiring an exact a
 - **AND** does NOT render blocks or validate sections
 - **AND** sets the skipped flag on ResponseCapture
 - **AND** returns `{ success: true, skipped: true }` to Claude
+
+#### Scenario: Skip with disengage
+
+- **WHEN** Claude calls `submit_response` with `skip_response: true`, `disengage: true`, and the correct acknowledgment message
+- **THEN** the tool accepts the skip
+- **AND** sets the skipped flag on ResponseCapture
+- **AND** sets the disengaged flag on ResponseCapture
+- **AND** returns `{ success: true, skipped: true, disengaged: true }` to Claude
+
+#### Scenario: Disengage without skip is rejected
+
+- **WHEN** Claude calls `submit_response` with `disengage: true` but `skip_response` is not `true`
+- **THEN** the tool rejects with an error: `"disengage requires skip_response: true"`
 
 #### Scenario: Skip with wrong or missing message
 
@@ -63,13 +74,20 @@ When a skip is accepted, the system SHALL delete the streamer's message from Sla
 
 ### Requirement: Skip Response Session Handling
 
-The system SHALL skip session persistence and auto-execute when a response is skipped.
+The system SHALL skip session persistence and auto-execute when a response is skipped, and additionally deactivate tracking when disengaged.
 
 #### Scenario: No session persistence on skip
 
-- **WHEN** a response is skipped
+- **WHEN** a response is skipped (without disengage)
 - **THEN** `persistResponseState()` is NOT called
 - **AND** no `lastAnswer`, `lastResponse`, `stagedIntents`, or `toolCallHistory` are written to the session
+
+#### Scenario: Session tracking deactivated on disengage
+
+- **WHEN** a response is skipped with `disengage: true`
+- **THEN** `autoResponseActive` is set to `false` on the session
+- **AND** only the `autoResponseActive` field is persisted to `context.json` via a targeted session update (this is NOT a `persistResponseState` call)
+- **AND** no response state (`lastAnswer`, `lastResponse`, `stagedIntents`, `toolCallHistory`) is written
 
 #### Scenario: No auto-execute on skip
 
@@ -78,22 +96,25 @@ The system SHALL skip session persistence and auto-execute when a response is sk
 
 ### Requirement: Skip Response Trigger Gating
 
-The `skip_response` parameter SHALL only be available in the `submit_response` schema when the session's trigger type allows skipping.
+The `skip_response` and `disengage` parameters SHALL only be available in the `submit_response` schema when the session's trigger type allows skipping.
 
-#### Scenario: skip_response available for autoRespond
+#### Scenario: skip_response and disengage available for autoRespond
 
 - **WHEN** the session's trigger type is `"autoRespond"`
 - **THEN** the `submit_response` tool schema includes the `skip_response` boolean parameter
+- **AND** the schema includes the `disengage` boolean parameter
 
-#### Scenario: skip_response available for threadReply
+#### Scenario: skip_response and disengage available for threadReply
 
 - **WHEN** the session's trigger type is `"threadReply"`
 - **THEN** the `submit_response` tool schema includes the `skip_response` boolean parameter
+- **AND** the schema includes the `disengage` boolean parameter
 
 #### Scenario: skip_response not available for explicit triggers
 
 - **WHEN** the session's trigger type is `"reactions"`, `"directMessages"`, `"mentions"`, `"scheduled"`, or any other explicit trigger
 - **THEN** the `submit_response` tool schema does NOT include the `skip_response` parameter
+- **AND** does NOT include the `disengage` parameter
 
 ### Requirement: Skip Response Prompt Guidance
 
@@ -104,3 +125,4 @@ The system SHALL include prompt guidance for auto-respond sessions telling Claud
 - **WHEN** the delivery context prompt is built for a session with triggerType `"autoRespond"` or `"threadReply"`
 - **THEN** the prompt includes guidance that Claude can use `skip_response` when users are talking to each other and not following up on what Clack said
 - **AND** the prompt does NOT include the exact safeguard acknowledgment string
+
