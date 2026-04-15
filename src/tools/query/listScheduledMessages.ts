@@ -44,6 +44,8 @@ export function createListScheduledMessagesTool(ctx: QueryToolContext) {
         createdBy: j.createdBy,
         lastRunAt: j.lastRunAt ?? null,
         lastRunStatus: j.lastRunStatus ?? null,
+        requiredTools: j.requiredTools ?? null,
+        plugin: j.plugin ?? null,
       }));
 
       return textResult({

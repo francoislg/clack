@@ -173,4 +173,51 @@ describe("createScheduledMessage tool", () => {
     const jobs = await getJobs();
     assert.equal(jobs.length, 0, "no job should be created when the target is rejected");
   });
+
+  it("rejects invalid requiredTools with a validation error listing the bad entries", async () => {
+    const ctx = buildCtx();
+    const deps = makeDeps();
+    const tool = createCreateScheduledMessageTool(ctx, deps);
+    const result: ToolHandlerResult = await tool.handler(
+      {
+        channel: "C456",
+        cronExpression: "0 9 * * *",
+        prompt: "test",
+        requiredTools: ["mcp__clack__not_a_real_tool", "bare_name_missing_prefix"],
+        oneShot: undefined,
+        plugin: undefined,
+      },
+      { sessionId: "test" },
+    );
+
+    assert.equal(result.isError, true);
+    assert.match(result.content[0].text, /Invalid requiredTools/);
+    assert.match(result.content[0].text, /mcp__clack__not_a_real_tool/);
+    assert.match(result.content[0].text, /bare_name_missing_prefix/);
+    const jobs = await getJobs();
+    assert.equal(jobs.length, 0, "invalid requiredTools should prevent the job from being saved");
+  });
+
+  it("accepts valid requiredTools and saves the job", async () => {
+    const ctx = buildCtx();
+    const deps = makeDeps();
+    const tool = createCreateScheduledMessageTool(ctx, deps);
+    const result: ToolHandlerResult = await tool.handler(
+      {
+        channel: "C456",
+        cronExpression: "0 9 * * *",
+        prompt: "test",
+        requiredTools: ["mcp__clack__fetch_channel_messages"],
+        oneShot: undefined,
+        plugin: undefined,
+      },
+      { sessionId: "test" },
+    );
+
+    const parsed = JSON.parse(result.content[0].text);
+    assert.equal(parsed.ok, true);
+    const jobs = await getJobs();
+    assert.equal(jobs.length, 1);
+    assert.deepEqual(jobs[0].requiredTools, ["mcp__clack__fetch_channel_messages"]);
+  });
 });

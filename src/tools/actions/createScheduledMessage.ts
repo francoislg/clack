@@ -10,6 +10,7 @@ import { getUserInfo, type UserInfo } from "../../slack/userCache.js";
 import { logger } from "../../logger.js";
 import { errorMessage } from "../../errors.js";
 import { humanReadableSchedule } from "../../cronScheduler.js";
+import { validateRequiredToolNames, formatRequiredToolNameError } from "../toolNameValidator.js";
 
 export interface CreateScheduledMessageDeps {
   getUserInfo: (client: App["client"], userId: string) => Promise<UserInfo | undefined>;
@@ -61,6 +62,25 @@ export function createCreateScheduledMessageTool(
         .boolean()
         .optional()
         .describe("If true, the scheduled message fires once and is automatically deleted."),
+      requiredTools: z
+        .array(z.string())
+        .optional()
+        .describe(
+          "Fully-qualified MCP tool names (e.g. 'mcp__trivia__submit_answers') that MUST be " +
+            "called during this run before the final response is delivered. If any listed tool " +
+            "is not called, submit_response returns an error and Claude retries. Use when a " +
+            "scheduled job has a required side-effect (like submitting answers). " +
+            "Omit for normal jobs.",
+        ),
+      plugin: z
+        .string()
+        .optional()
+        .describe(
+          "Name of a loaded Clack plugin this scheduled job is associated with (e.g. 'trivia'). " +
+            "When set, the plugin's declared scheduled-run default required tools are " +
+            "automatically unioned with `requiredTools` at trigger time. Use this for " +
+            "plugin-driven jobs (e.g. trivia) instead of listing the plugin's tools manually.",
+        ),
     },
     async (args) => {
       if (!ctx.slackClient) {
@@ -74,6 +94,12 @@ export function createCreateScheduledMessageTool(
         return errorResult(
           `Invalid cron expression "${args.cronExpression}": ${errorMessage(error)}. Use 5-field format: minute hour day-of-month month day-of-week`,
         );
+      }
+
+      // Validate requiredTools names against known clack core tools and loaded plugins.
+      if (args.requiredTools && args.requiredTools.length > 0) {
+        const err = formatRequiredToolNameError(validateRequiredToolNames(args.requiredTools));
+        if (err) return errorResult(err);
       }
 
       // Resolve channel
@@ -96,6 +122,8 @@ export function createCreateScheduledMessageTool(
           createdBy: ctx.userId,
           timezone,
           oneShot: args.oneShot,
+          requiredTools: args.requiredTools,
+          plugin: args.plugin,
         });
 
         const schedule = humanReadableSchedule(args.cronExpression, timezone);
