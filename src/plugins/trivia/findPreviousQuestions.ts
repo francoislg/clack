@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
-import { textResult, errorResult } from "../../tools/helpers.js";
+import { textResult } from "../../tools/helpers.js";
 import type { TriviaDataLayer } from "./types.js";
 
 export function createFindPreviousQuestionsTool(data: TriviaDataLayer) {
@@ -16,12 +16,15 @@ export function createFindPreviousQuestionsTool(data: TriviaDataLayer) {
         .string()
         .optional()
         .describe("Search in statement text (case-insensitive substring match)"),
+      limit: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe("Maximum number of questions to return (default 20, most recent first)"),
     },
     async (args) => {
-      if (!args.category && !args.text) {
-        return errorResult("Must provide at least one of 'category' or 'text'.");
-      }
-
+      const limit = args.limit ?? 20;
       const questions = await data.loadQuestions();
 
       const filtered = questions.filter((q) => {
@@ -30,7 +33,9 @@ export function createFindPreviousQuestionsTool(data: TriviaDataLayer) {
         return true;
       });
 
-      return textResult({ questions: filtered, count: filtered.length });
+      const sorted = filtered.sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);
+
+      return textResult({ questions: sorted, count: sorted.length, total: filtered.length });
     },
   );
 }
