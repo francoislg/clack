@@ -7,6 +7,7 @@ import { resolveChannelId } from "../../slack/channelResolver.js";
 import { getJob, updateJob } from "../../cronJobs.js";
 import { canManageRoles } from "../../permissions.js";
 import { humanReadableSchedule } from "../../cronScheduler.js";
+import { validateRequiredToolNames, formatRequiredToolNameError } from "../toolNameValidator.js";
 import { logger } from "../../logger.js";
 import { errorMessage } from "../../errors.js";
 
@@ -28,6 +29,20 @@ export function createUpdateScheduledMessageTool(ctx: QueryToolContext) {
         .optional()
         .describe(
           "New prompt for dynamic content generation. Should only describe WHAT to do, not HOW to deliver — the scheduler handles delivery automatically.",
+        ),
+      requiredTools: z
+        .array(z.string())
+        .optional()
+        .describe(
+          "Replace the list of required MCP tool names (e.g. 'mcp__trivia__submit_answers'). " +
+            "Pass an empty array to clear the requirement. Omit to leave unchanged.",
+        ),
+      plugin: z
+        .string()
+        .optional()
+        .describe(
+          "Name of a loaded Clack plugin this job is associated with. Pass an empty string " +
+            "to clear. Omit to leave unchanged.",
         ),
     },
     async (args) => {
@@ -51,6 +66,13 @@ export function createUpdateScheduledMessageTool(ctx: QueryToolContext) {
         }
       }
 
+      // Validate requiredTools names if provided. An empty array clears the requirement and
+      // doesn't need validation.
+      if (args.requiredTools && args.requiredTools.length > 0) {
+        const err = formatRequiredToolNameError(validateRequiredToolNames(args.requiredTools));
+        if (err) return errorResult(err);
+      }
+
       // Resolve channel if provided
       let channelId = args.channel;
       if (channelId && ctx.slackClient) {
@@ -67,6 +89,8 @@ export function createUpdateScheduledMessageTool(ctx: QueryToolContext) {
           ...(args.cronExpression && { cronExpression: args.cronExpression }),
           ...(channelId && { channel: channelId }),
           ...(args.prompt !== undefined && { prompt: args.prompt }),
+          ...(args.requiredTools !== undefined && { requiredTools: args.requiredTools }),
+          ...(args.plugin !== undefined && { plugin: args.plugin }),
         });
 
         if (!updated) {
