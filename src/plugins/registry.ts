@@ -26,6 +26,12 @@ export async function loadPlugins(pluginNames: string[]): Promise<LoadedPlugins>
 
   for (const name of pluginNames) {
     try {
+      if (name === "clack") {
+        logger.warn(
+          `Plugin name "clack" is reserved for the core MCP server — skipping plugin "${name}"`,
+        );
+        continue;
+      }
       const pluginFn = BUILTIN_PLUGINS[name];
       if (!pluginFn) {
         logger.warn(`Unknown plugin "${name}" — skipping (not found in built-in registry)`);

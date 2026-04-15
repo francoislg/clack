@@ -1,3 +1,4 @@
+import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
 import { clackQuery as _clackQuery } from "./query.js";
 import { getConfig as _getConfig } from "../config.js";
 import { errorMessage as _errorMessage } from "../errors.js";
@@ -8,6 +9,7 @@ import {
 import type { SessionContext } from "../sessions.js";
 import { buildQueryContext as _buildQueryContext } from "../tools/context.js";
 import { buildClackTools as _buildClackTools } from "../tools/server.js";
+import type { QueryToolContext, ClackQueryToolsResult } from "../tools/types.js";
 import { detectRuntime } from "./utilities.js";
 
 // ---------------------------------------------------------------------------
@@ -21,7 +23,8 @@ export interface TestMcpDeps {
   loadMcpServers: typeof _loadMcpServers;
   getConfiguredMcpServerNames: typeof _getConfiguredMcpServerNames;
   buildQueryContext: typeof _buildQueryContext;
-  buildClackTools: typeof _buildClackTools;
+  // testMCP only uses query mode; narrow the signature so test mocks can supply the query shape.
+  buildClackTools: (ctx: QueryToolContext) => ClackQueryToolsResult;
 }
 
 export const defaultTestMcpDeps: TestMcpDeps = {
@@ -76,7 +79,7 @@ export async function testMCP(deps: TestMcpDeps = defaultTestMcpDeps): Promise<M
   };
 
   let clackToolNames: string[] = [];
-  let clackMcpServer: unknown;
+  let clackMcpServers: Record<string, McpSdkServerConfigWithInstance> = {};
   try {
     const toolCtx = deps.buildQueryContext({
       userId: "test",
@@ -88,7 +91,7 @@ export async function testMCP(deps: TestMcpDeps = defaultTestMcpDeps): Promise<M
     });
     const clackTools = deps.buildClackTools(toolCtx);
     clackToolNames = clackTools.toolNames;
-    clackMcpServer = clackTools.mcpServer;
+    clackMcpServers = clackTools.mcpServers;
   } catch (error) {
     return {
       success: false,
@@ -116,11 +119,11 @@ export async function testMCP(deps: TestMcpDeps = defaultTestMcpDeps): Promise<M
 
   const abortController = new AbortController();
 
-  // Merge clack tools with external MCP servers for the test query
+  // Merge clack + per-plugin tool servers with external MCP servers for the test query
   const mcpServers = {
     ...externalMcpServers,
-    clack: clackMcpServer,
-  } as Record<string, unknown>;
+    ...clackMcpServers,
+  };
 
   try {
     let tools: string[] = [];

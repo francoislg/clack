@@ -10,7 +10,7 @@ import type { SessionInfo } from "../activeSessions.js";
 import type { SessionContext } from "../../sessions.js";
 import { errorMessage as toErrorMessage } from "../../errors.js";
 import type { AskClaudeOptions, ClaudeResponse } from "../../claude/index.js";
-import type { DeliverFn } from "../../tools/types.js";
+import type { DeliverFn, ToolCallRecord } from "../../tools/types.js";
 import { getErrorBlocksWithRetry, asSlackBlocks, type SlackBlocks } from "../blocks.js";
 import { setLastAnswer, updateSession, addError, setAutoResponseActive } from "../../sessions.js";
 import { askClaude } from "../../claude/index.js";
@@ -173,11 +173,20 @@ export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promis
     logger.info(
       `Calling Claude for ${user} in ${channelLabel} (role: ${claudeOptions.role ?? "member"}, session: ${session.sessionId}${viewingSuffix}${silentThinking ? ", silentThinking" : ""})${link}`,
     );
+    const liveToolHistory: ToolCallRecord[] = [];
     const response = await deps.askClaude(session, {
       ...claudeOptions,
       slackClient: client,
       deliver,
       onEvent: streamer?.handleEvent ?? (() => {}),
+      onToolCall: async (record) => {
+        liveToolHistory.push(record);
+        try {
+          await deps.updateSession(session.sessionId, { toolCallHistory: [...liveToolHistory] });
+        } catch (err) {
+          logger.warn(`Failed to persist live tool call to session: ${toErrorMessage(err)}`);
+        }
+      },
       abortController,
       userTimezone: userInfo?.tz,
     });
@@ -432,6 +441,19 @@ async function handleError(ctx: DeliveryContext, response: ClaudeResponse): Prom
     logger.error("Failed to persist error to session:", err);
   }
 
+  // Preserve the recorder history on the session even on failure — otherwise silent/scheduled
+  // runs lose the only record of what tools actually returned. The error-report file captures
+  // this too, but the session file is the natural first place to look.
+  if (response.toolCallHistory && response.toolCallHistory.length > 0) {
+    try {
+      await ctx.deps.updateSession(ctx.session.sessionId, {
+        toolCallHistory: response.toolCallHistory,
+      });
+    } catch (err) {
+      logger.error("Failed to persist toolCallHistory to session:", err);
+    }
+  }
+
   const isPlatformLimit = /usage limit|limit reached/i.test(errorMessage);
   const errorText = isPlatformLimit
     ? errorMessage
@@ -439,7 +461,13 @@ async function handleError(ctx: DeliveryContext, response: ClaudeResponse): Prom
 
   // For silentThinking, suppress channel error posting — caller handles errors
   if (ctx.silentThinking) {
-    await sendErrorReportDM(ctx, errorMessage, conversationTrace, response.stderrOutput);
+    await sendErrorReportDM(
+      ctx,
+      errorMessage,
+      conversationTrace,
+      response.stderrOutput,
+      response.toolCallHistory,
+    );
     return;
   }
 
@@ -453,7 +481,13 @@ async function handleError(ctx: DeliveryContext, response: ClaudeResponse): Prom
     text: errorText,
   });
 
-  await sendErrorReportDM(ctx, errorMessage, conversationTrace, response.stderrOutput);
+  await sendErrorReportDM(
+    ctx,
+    errorMessage,
+    conversationTrace,
+    response.stderrOutput,
+    response.toolCallHistory,
+  );
 }
 
 /**
@@ -464,6 +498,7 @@ async function sendErrorReportDM(
   errorMessage: string,
   conversationTrace: ClaudeResponse["conversationTrace"] & unknown[],
   stderrOutput?: string,
+  toolCallHistory?: ClaudeResponse["toolCallHistory"],
 ): Promise<void> {
   try {
     const analysis = await ctx.deps.analyzeError(errorMessage, conversationTrace);
@@ -473,6 +508,7 @@ async function sendErrorReportDM(
       sessionId: ctx.session.sessionId,
       errorMessage,
       conversationTrace,
+      toolCallHistory,
       stderrOutput,
       analysis,
       timestamp: Date.now(),

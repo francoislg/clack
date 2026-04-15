@@ -1,6 +1,7 @@
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { truncate } from "../text.js";
 import type { StreamEvent } from "../streaming/types.js";
+import type { ToolCallRecord } from "../tools/types.js";
 
 export interface ToolUseInfo {
   id: string;
@@ -11,6 +12,12 @@ export interface ToolUseInfo {
 export interface ParsedMessage {
   toolUses: ToolUseInfo[];
   assistantText: string | null;
+  /**
+   * Tool calls whose `tool_result` arrived during this message, paired with the matching
+   * `tool_use` args from an earlier message. One entry per completed call. Populated for ALL
+   * tools the SDK dispatches (built-ins, clack MCP, plugin MCP, external MCP).
+   */
+  completedToolCalls: ToolCallRecord[];
 }
 
 export interface ParsedResult {
@@ -61,11 +68,59 @@ export function extractToolErrorMessage(content: unknown): string | undefined {
  * structured tool/text info. Used by both askClaude (query mode) and
  * runClaude (worker mode) to ensure identical tool event handling.
  */
+interface PendingToolUse {
+  name: string;
+  args: ToolUseInfo["args"];
+  startedAt: number;
+}
+
+interface ToolResultTextBlock {
+  type: "text";
+  text: string;
+}
+
+interface ToolResultOtherBlock {
+  type: string;
+  text?: string;
+}
+
+type ToolResultContent = string | Array<ToolResultTextBlock | ToolResultOtherBlock>;
+
+// Cap per-record serialized size so image blocks or large binary tool_results don't bloat
+// session files. Text results routinely exceed 10k; tool_call recorder is for debugging shape,
+// not preserving every byte. 100k is generous for text, aggressive enough to skip binaries.
+const TOOL_RESULT_MAX_CHARS = 100_000;
+
+/**
+ * Normalize a tool_result block's content field into a string for record storage.
+ * tool_result content can be a plain string or an array of content blocks (text/image).
+ * Truncates to TOOL_RESULT_MAX_CHARS to avoid bloating session files on large/binary results.
+ */
+function stringifyToolResultContent(content: ToolResultContent | null | undefined): string {
+  if (content == null) return "";
+  const raw = typeof content === "string" ? content : joinContentBlocks(content);
+  if (raw.length <= TOOL_RESULT_MAX_CHARS) return raw;
+  return `${raw.slice(0, TOOL_RESULT_MAX_CHARS)}… [truncated — ${raw.length - TOOL_RESULT_MAX_CHARS} chars elided]`;
+}
+
+function joinContentBlocks(blocks: Array<ToolResultTextBlock | ToolResultOtherBlock>): string {
+  const parts: string[] = [];
+  for (const block of blocks) {
+    if (block && typeof block === "object" && "text" in block && typeof block.text === "string") {
+      parts.push(block.text);
+    } else {
+      parts.push(JSON.stringify(block));
+    }
+  }
+  return parts.join("\n");
+}
+
 export class ClaudeMessageParser {
   private emittedToolIds = new Set<string>();
   private _lastAssistantText = "";
   private _result: ParsedResult | null = null;
   private onEvent?: (event: StreamEvent) => void | Promise<void>;
+  private pendingToolUses = new Map<string, PendingToolUse>();
 
   constructor(onEvent?: (event: StreamEvent) => void | Promise<void>) {
     this.onEvent = onEvent;
@@ -80,7 +135,7 @@ export class ClaudeMessageParser {
   }
 
   async process(message: SDKMessage): Promise<ParsedMessage> {
-    const parsed: ParsedMessage = { toolUses: [], assistantText: null };
+    const parsed: ParsedMessage = { toolUses: [], assistantText: null, completedToolCalls: [] };
 
     // 1. tool_progress — emit tool_start early with empty args if not already seen
     if (message.type === "tool_progress" && this.onEvent) {
@@ -105,6 +160,13 @@ export class ClaudeMessageParser {
           const taskId = block.id;
 
           parsed.toolUses.push({ id: taskId, name: toolName, args: toolArgs });
+          if (taskId) {
+            this.pendingToolUses.set(taskId, {
+              name: toolName,
+              args: toolArgs,
+              startedAt: Date.now(),
+            });
+          }
 
           if (this.onEvent && taskId) {
             if (!this.emittedToolIds.has(taskId)) {
@@ -122,18 +184,33 @@ export class ClaudeMessageParser {
       parsed.assistantText = this._lastAssistantText;
     }
 
-    // 3. user — extract tool_result blocks and emit tool_end
-    if (message.type === "user" && this.onEvent) {
+    // 3. user — extract tool_result blocks, pair with pending tool_use, emit tool_end
+    if (message.type === "user") {
       const content = message.message.content;
       if (Array.isArray(content)) {
         for (const block of content) {
           if (typeof block === "object" && block.type === "tool_result") {
-            const errorMessage =
-              block.is_error === true ? extractToolErrorMessage(block.content) : undefined;
+            const isError = block.is_error === true;
+            const rawContent = block.content as ToolResultContent | null | undefined;
+            const resultText = stringifyToolResultContent(rawContent);
+
+            const pending = this.pendingToolUses.get(block.tool_use_id);
+            if (pending) {
+              this.pendingToolUses.delete(block.tool_use_id);
+              parsed.completedToolCalls.push({
+                tool: pending.name,
+                args: pending.args,
+                result: isError ? { error: resultText } : { content: resultText },
+                timestamp: pending.startedAt,
+              });
+            }
+
+            if (!this.onEvent) continue;
+            const errorMessage = isError ? extractToolErrorMessage(block.content) : undefined;
             await this.onEvent({
               type: "tool_end",
               taskId: block.tool_use_id,
-              error: block.is_error === true,
+              error: isError,
               errorMessage,
             });
           }

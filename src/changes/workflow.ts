@@ -9,7 +9,7 @@ import type {
   ExecutionResult,
 } from "./types.js";
 import type { ExecuteChangeOptions } from "./execution.js";
-import type { ToolBuildContext } from "../tools/types.js";
+import type { WorkerToolContext, ClackWorkerToolsResult } from "../tools/types.js";
 import type { SessionContext } from "../sessions.js";
 import { getSession } from "../sessions.js";
 import type { ActiveChangeState } from "./activeState.js";
@@ -68,10 +68,6 @@ interface WorkerContextParams {
   config: AppConfig;
 }
 
-interface ClackToolsResult {
-  mcpServer: McpSdkServerConfigWithInstance;
-}
-
 export interface WorkflowDeps {
   getConfig: () => AppConfig;
   findRepoByName: (name: string, config: AppConfig) => RepositoryConfig | undefined;
@@ -104,8 +100,9 @@ export interface WorkflowDeps {
     branch: string,
     onEvent?: (event: StreamEvent) => void | Promise<void>,
   ) => Promise<void>;
-  buildWorkerContext: (params: WorkerContextParams) => ToolBuildContext;
-  buildClackTools: (context: ToolBuildContext) => ClackToolsResult;
+  buildWorkerContext: typeof buildWorkerContext;
+  // Workflow only uses worker-mode build. Narrow the type so test mocks only need the worker shape.
+  buildClackTools: (ctx: WorkerToolContext) => ClackWorkerToolsResult;
   fetchPRReviewContext: (
     prUrl: string,
   ) => Promise<{ ok: true; context: string } | { ok: false; error: string }>;

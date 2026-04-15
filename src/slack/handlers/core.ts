@@ -94,6 +94,11 @@ export interface ProcessMessageParams {
   additionalSystemPrompt?: string;
   /** When true, skip streaming UX and post the final result directly */
   silentThinking?: boolean;
+  /**
+   * Fully-qualified MCP tool names (e.g., `mcp__trivia__submit_answers`) that must be called during
+   * this run before `submit_response` will be accepted. Populated by callers like the cron scheduler.
+   */
+  requiredTools?: string[];
 }
 
 interface ProcessingContext {
@@ -109,6 +114,7 @@ interface ProcessingContext {
   /** When true, hints Claude to propose a change with auto-execute */
   readonly workMode: boolean;
   readonly additionalSystemPrompt?: string;
+  readonly requiredTools?: string[];
 }
 
 interface DmCoordinates {
@@ -343,6 +349,7 @@ export async function processMessage(
     triggerType,
     workMode,
     additionalSystemPrompt: params.additionalSystemPrompt,
+    requiredTools: params.requiredTools,
   };
 
   const userLabel = await deps.resolveUserLabel(client, userId);
@@ -410,7 +417,13 @@ export async function processMessage(
         client,
         session,
         sessionInfo,
-        claudeOptions: { ...claudeOptions, workMode, availableImages, availableFiles },
+        claudeOptions: {
+          ...claudeOptions,
+          workMode,
+          availableImages,
+          availableFiles,
+          requiredTools: ctx.requiredTools,
+        },
         abortController,
         silentThinking,
       }),

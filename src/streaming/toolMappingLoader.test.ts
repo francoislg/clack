@@ -1,6 +1,9 @@
 import { describe, it, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync, mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
+import { setLoadedPlugins } from "../plugins/state.js";
+import { createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
+import type { PluginLoadResult } from "../plugins/sdk.js";
 import { resolve } from "node:path";
 import { truncate } from "../text.js";
 import {
@@ -757,5 +760,94 @@ describe("loadToolMappings error handling", () => {
     const mapping = mappings.get("_test_malformed");
     assert.ok(mapping, "User config should be loaded");
     assert.equal(mapping.labels.get("TestTool"), "Test label");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// loadToolMappings — plugin mappings keyed by plugin server name
+// ---------------------------------------------------------------------------
+
+describe("loadToolMappings plugin integration", () => {
+  function stubPluginLoadResult(name: string, toolMappings: Map<string, string>): PluginLoadResult {
+    return {
+      name,
+      instructions: [],
+      tools: [],
+      toolMappings,
+      mcpServer: createSdkMcpServer({ name, version: "1.0.0", tools: [] }),
+      scheduledRequiredTools: [],
+    };
+  }
+
+  afterEach(() => {
+    setLoadedPlugins({ results: [] });
+    resetToolMappingCache();
+  });
+
+  it("plugin tool mappings are accessible under the plugin server name", () => {
+    const toolMappings = new Map<string, string>([
+      ["submit_answers", "Submitting {questionId}"],
+      ["save_question", "Saving question"],
+    ]);
+    setLoadedPlugins({ results: [stubPluginLoadResult("trivia", toolMappings)] });
+
+    resetToolMappingCache();
+    const mappings = loadToolMappings();
+
+    const triviaMapping = mappings.get("trivia");
+    assert.ok(triviaMapping, "plugin mapping entry should exist under plugin name");
+    assert.equal(triviaMapping.labels.get("submit_answers"), "Submitting {questionId}");
+    assert.equal(triviaMapping.labels.get("save_question"), "Saving question");
+  });
+
+  it("plugin mappings do not leak into the clack entry", () => {
+    const toolMappings = new Map<string, string>([["submit_answers", "Submitting answers"]]);
+    setLoadedPlugins({ results: [stubPluginLoadResult("trivia", toolMappings)] });
+
+    resetToolMappingCache();
+    const mappings = loadToolMappings();
+
+    const clackMapping = mappings.get("clack");
+    // clack mapping may or may not exist (depends on shipped config) — but it must not contain
+    // the plugin tool's label under the clack key.
+    if (clackMapping) {
+      assert.equal(
+        clackMapping.labels.get("submit_answers"),
+        undefined,
+        "plugin tool label must not leak into clack mapping",
+      );
+    }
+  });
+
+  it("file-based plugin config fills precedence over programmatic mappings", () => {
+    // File-based config for the plugin lives under the plugin name
+    mkdirSync(USER_TOOL_MAPPING_DIR, { recursive: true });
+    const pluginFileConfig = resolve(USER_TOOL_MAPPING_DIR, "trivia.json");
+    writeFileSync(
+      pluginFileConfig,
+      JSON.stringify({
+        tools: { submit_answers: "File-based label" },
+      }),
+    );
+
+    try {
+      const toolMappings = new Map<string, string>([
+        ["submit_answers", "Programmatic label"],
+        ["save_question", "Programmatic save"],
+      ]);
+      setLoadedPlugins({ results: [stubPluginLoadResult("trivia", toolMappings)] });
+
+      resetToolMappingCache();
+      const mappings = loadToolMappings();
+
+      const triviaMapping = mappings.get("trivia");
+      assert.ok(triviaMapping);
+      // File-based config wins for the tool it defines
+      assert.equal(triviaMapping.labels.get("submit_answers"), "File-based label");
+      // Programmatic entry fills in for the tool the file doesn't cover
+      assert.equal(triviaMapping.labels.get("save_question"), "Programmatic save");
+    } finally {
+      if (existsSync(pluginFileConfig)) rmSync(pluginFileConfig);
+    }
   });
 });

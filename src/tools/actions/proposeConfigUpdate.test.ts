@@ -5,7 +5,7 @@ import {
   type ProposeConfigUpdateDeps,
 } from "./proposeConfigUpdate.js";
 import type { QueryToolContext } from "../types.js";
-import type { IntentStore, ToolCallRecorder } from "../server.js";
+import type { IntentStore } from "../server.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -62,31 +62,6 @@ function makeIntentStore(): IntentStore {
   };
 }
 
-function makeRecorder(): ToolCallRecorder & {
-  calls: Array<{
-    tool: string;
-    args: { [key: string]: unknown };
-    result: { [key: string]: unknown };
-  }>;
-} {
-  const calls: Array<{
-    tool: string;
-    args: { [key: string]: unknown };
-    result: { [key: string]: unknown };
-  }> = [];
-  return {
-    calls,
-    record: (
-      tool: string,
-      args: { [key: string]: unknown },
-      result: { [key: string]: unknown },
-    ) => {
-      calls.push({ tool, args, result });
-    },
-    getHistory: () => [],
-  };
-}
-
 function parseResult(result: { content: Array<{ text: string }> }) {
   return JSON.parse(result.content[0].text);
 }
@@ -107,8 +82,7 @@ describe("proposeConfigUpdate tool", () => {
   it("returns error for file without role/ prefix", async () => {
     const ctx = makeCtx();
     const store = makeIntentStore();
-    const recorder = makeRecorder();
-    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder, deps);
+    const toolDef = createProposeConfigUpdateTool(ctx, store, deps);
 
     const result = await toolDef.handler(
       {
@@ -128,10 +102,9 @@ describe("proposeConfigUpdate tool", () => {
   it("records the error in the recorder for invalid path", async () => {
     const ctx = makeCtx();
     const store = makeIntentStore();
-    const recorder = makeRecorder();
-    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder, deps);
+    const toolDef = createProposeConfigUpdateTool(ctx, store, deps);
 
-    await toolDef.handler(
+    const result = await toolDef.handler(
       {
         file: "bad-path",
         content: "content",
@@ -140,15 +113,13 @@ describe("proposeConfigUpdate tool", () => {
       { sessionId: "test" },
     );
 
-    assert.equal(recorder.calls.length, 1);
-    assert.ok((recorder.calls[0].result as { error: string }).error);
+    assert.equal(result.isError, true);
   });
 
   it("accepts valid role/filename paths", async () => {
     const ctx = makeCtx();
     const store = makeIntentStore();
-    const recorder = makeRecorder();
-    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder, deps);
+    const toolDef = createProposeConfigUpdateTool(ctx, store, deps);
 
     const result = await toolDef.handler(
       {
@@ -167,8 +138,7 @@ describe("proposeConfigUpdate tool", () => {
   it("accepts repo/filename paths", async () => {
     const ctx = makeCtx();
     const store = makeIntentStore();
-    const recorder = makeRecorder();
-    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder, deps);
+    const toolDef = createProposeConfigUpdateTool(ctx, store, deps);
 
     const result = await toolDef.handler(
       {
@@ -195,8 +165,7 @@ describe("proposeConfigUpdate tool", () => {
 
     const ctx = makeCtx();
     const store = makeIntentStore();
-    const recorder = makeRecorder();
-    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder, deps);
+    const toolDef = createProposeConfigUpdateTool(ctx, store, deps);
 
     const result = await toolDef.handler(
       {
@@ -222,8 +191,7 @@ describe("proposeConfigUpdate tool", () => {
 
     const ctx = makeCtx();
     const store = makeIntentStore();
-    const recorder = makeRecorder();
-    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder, deps);
+    const toolDef = createProposeConfigUpdateTool(ctx, store, deps);
 
     const result = await toolDef.handler(
       {
@@ -242,8 +210,7 @@ describe("proposeConfigUpdate tool", () => {
   it("uses content as-is when file has no existing content (append)", async () => {
     const ctx = makeCtx();
     const store = makeIntentStore();
-    const recorder = makeRecorder();
-    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder, deps);
+    const toolDef = createProposeConfigUpdateTool(ctx, store, deps);
 
     const result = await toolDef.handler(
       {
@@ -264,8 +231,7 @@ describe("proposeConfigUpdate tool", () => {
   it("replaces content completely when operation is replace", async () => {
     const ctx = makeCtx();
     const store = makeIntentStore();
-    const recorder = makeRecorder();
-    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder, deps);
+    const toolDef = createProposeConfigUpdateTool(ctx, store, deps);
 
     const result = await toolDef.handler(
       {
@@ -293,8 +259,7 @@ describe("proposeConfigUpdate tool", () => {
 
     const ctx = makeCtx();
     const store = makeIntentStore();
-    const recorder = makeRecorder();
-    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder, deps);
+    const toolDef = createProposeConfigUpdateTool(ctx, store, deps);
 
     const result = await toolDef.handler(
       {
@@ -319,8 +284,7 @@ describe("proposeConfigUpdate tool", () => {
 
     const ctx = makeCtx();
     const store = makeIntentStore();
-    const recorder = makeRecorder();
-    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder, deps);
+    const toolDef = createProposeConfigUpdateTool(ctx, store, deps);
 
     const result = await toolDef.handler(
       {
@@ -338,8 +302,7 @@ describe("proposeConfigUpdate tool", () => {
   it("returns will_create_new status when file has no content", async () => {
     const ctx = makeCtx();
     const store = makeIntentStore();
-    const recorder = makeRecorder();
-    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder, deps);
+    const toolDef = createProposeConfigUpdateTool(ctx, store, deps);
 
     const result = await toolDef.handler(
       {
@@ -359,8 +322,7 @@ describe("proposeConfigUpdate tool", () => {
   it("stages intent with correct type and file", async () => {
     const ctx = makeCtx();
     const store = makeIntentStore();
-    const recorder = makeRecorder();
-    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder, deps);
+    const toolDef = createProposeConfigUpdateTool(ctx, store, deps);
 
     const result = await toolDef.handler(
       {
@@ -379,27 +341,6 @@ describe("proposeConfigUpdate tool", () => {
     assert.equal((staged as { content: string }).content, "my content");
   });
 
-  // --- Recorder ---
-
-  it("records the tool call on success", async () => {
-    const ctx = makeCtx();
-    const store = makeIntentStore();
-    const recorder = makeRecorder();
-    const toolDef = createProposeConfigUpdateTool(ctx, store, recorder, deps);
-
-    await toolDef.handler(
-      {
-        file: "user/identity.md",
-        content: "content",
-        operation: "replace",
-      },
-      { sessionId: "test" },
-    );
-
-    assert.equal(recorder.calls.length, 1);
-    assert.equal(recorder.calls[0].tool, "propose_config_update");
-    const resultData = recorder.calls[0].result as { ref: string; file: string; status: string };
-    assert.ok(resultData.ref);
-    assert.equal(resultData.file, "user/identity.md");
-  });
+  // Recording is handled uniformly by `wrapToolForRecording` in buildQueryTools — see
+  // server.test.ts `wrapToolForRecording` describe block for coverage.
 });

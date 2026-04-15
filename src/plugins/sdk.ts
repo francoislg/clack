@@ -1,7 +1,12 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, normalize, isAbsolute } from "node:path";
-import type { SdkMcpToolDefinition, AnyZodRawShape } from "@anthropic-ai/claude-agent-sdk";
+import {
+  createSdkMcpServer,
+  type SdkMcpToolDefinition,
+  type AnyZodRawShape,
+  type McpSdkServerConfigWithInstance,
+} from "@anthropic-ai/claude-agent-sdk";
 import type { UserRole } from "../roles.js";
 import type { RoleDir } from "../cascadingConfigResolver.js";
 import type { ToolEntryObject } from "../streaming/toolMappingLoader.js";
@@ -25,6 +30,12 @@ export interface ClackSdk {
     tool: SdkMcpToolDefinition<T>,
     mapping: ToolMapping,
   ): void;
+  /**
+   * Declare bare tool names that scheduled runs LINKED to this plugin (via the cron job's
+   * `plugin` field) must invoke before `submit_response` delivers. The names are prefixed
+   * to their full MCP form (`mcp__<plugin>__<tool>`) by the runtime.
+   */
+  requireToolsForScheduled(tools: string[]): void;
   readFile(path: string): Promise<string | null>;
   writeFile(path: string, content: string): Promise<void>;
 }
@@ -54,6 +65,14 @@ export interface PluginLoadResult {
   tools: RegisteredTool[];
   /** Tool name → mapping entry for Slack task cards. */
   toolMappings: Map<string, ToolMapping>;
+  /** Dedicated MCP server hosting this plugin's tools, namespaced under the plugin's name. */
+  mcpServer: McpSdkServerConfigWithInstance;
+  /**
+   * Bare tool names that scheduled runs linked to this plugin (via `CronJob.plugin`) must
+   * invoke before `submit_response` delivers. The cron scheduler prefixes each to the full
+   * MCP form (`mcp__<plugin>__<tool>`) at trigger time.
+   */
+  scheduledRequiredTools: string[];
 }
 
 // ============================================================================
@@ -84,6 +103,7 @@ export function createClackSdk(
   const instructions: RegisteredInstruction[] = [];
   const tools: RegisteredTool[] = [];
   const toolMappings = new Map<string, ToolMapping>();
+  const scheduledRequiredTools: string[] = [];
   const pluginDataDir = join(dataDir, pluginName);
 
   const sdk: ClackSdk = {
@@ -105,6 +125,14 @@ export function createClackSdk(
         pushTo: (target) => target.push(toolDef as SdkMcpToolDefinition<AnyZodRawShape>),
       });
       toolMappings.set(toolDef.name, mapping);
+    },
+
+    requireToolsForScheduled(toolNames: string[]): void {
+      for (const name of toolNames) {
+        if (!scheduledRequiredTools.includes(name)) {
+          scheduledRequiredTools.push(name);
+        }
+      }
     },
 
     async readFile(path: string): Promise<string | null> {
@@ -130,6 +158,26 @@ export function createClackSdk(
 
   return {
     sdk,
-    harvest: () => ({ name: pluginName, instructions, tools, toolMappings }),
+    harvest: () => {
+      // Materialize the plugin tool definitions into a heterogeneous array for the MCP server.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const toolDefs: SdkMcpToolDefinition<any>[] = [];
+      for (const registered of tools) {
+        registered.pushTo(toolDefs);
+      }
+      const mcpServer = createSdkMcpServer({
+        name: pluginName,
+        version: "1.0.0",
+        tools: toolDefs,
+      });
+      return {
+        name: pluginName,
+        instructions,
+        tools,
+        toolMappings,
+        mcpServer,
+        scheduledRequiredTools,
+      };
+    },
   };
 }

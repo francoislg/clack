@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
-import type { IntentStore, ToolCallRecorder } from "../server.js";
+import type { IntentStore } from "../server.js";
 import { textResult, errorResult } from "../helpers.js";
 import { readInstructionFile } from "../../configurationFiles.js";
 
@@ -21,7 +21,6 @@ export const defaultProposeConfigUpdateDeps: ProposeConfigUpdateDeps = {
 export function createProposeConfigUpdateTool(
   _ctx: QueryToolContext,
   intentStore: IntentStore,
-  recorder: ToolCallRecorder,
   deps: ProposeConfigUpdateDeps = defaultProposeConfigUpdateDeps,
 ) {
   return tool(
@@ -52,9 +51,6 @@ export function createProposeConfigUpdateTool(
       const parts = args.file.split("/");
       if (parts.length !== 2 || !parts[0] || !parts[1]) {
         const errMsg = `Invalid file path "${args.file}". Use {role}/{filename} format (e.g., 'user/identity.md'). Valid role directories: ${KNOWN_ROLE_DIRS.join(", ")}`;
-        recorder.record("propose_config_update", args as Record<string, unknown>, {
-          error: errMsg,
-        });
         return errorResult(errMsg);
       }
 
@@ -96,10 +92,7 @@ export function createProposeConfigUpdateTool(
             ? "will_override_default"
             : "will_create_new";
 
-      const result = { ref, file: args.file, status };
-      recorder.record("propose_config_update", args as Record<string, unknown>, result);
-
-      return textResult(result);
+      return textResult({ ref, file: args.file, status });
     },
   );
 }

@@ -21,6 +21,17 @@ export interface CronJob {
   oneShot?: boolean;
   lastRunAt?: string;
   lastRunStatus?: "success" | "error";
+  /**
+   * Fully-qualified MCP tool names (e.g., `mcp__trivia__submit_answers`) that must be called during
+   * this dynamic job's run before `submit_response` will be accepted. Ignored for static jobs.
+   */
+  requiredTools?: string[];
+  /**
+   * Name of a loaded Clack plugin this job is associated with. At trigger time, the plugin's
+   * declared `scheduledRequiredTools` are prefixed to their full MCP form and unioned into the
+   * effective `requiredTools` passed to `processMessage`.
+   */
+  plugin?: string;
 }
 
 interface CronJobState {
@@ -114,6 +125,8 @@ export interface CreateCronJobParams {
   createdBy: string;
   timezone: string;
   oneShot?: boolean;
+  requiredTools?: string[];
+  plugin?: string;
 }
 
 export async function createJob(params: CreateCronJobParams): Promise<CronJob> {
@@ -128,6 +141,10 @@ export async function createJob(params: CreateCronJobParams): Promise<CronJob> {
     enabled: true,
     timezone: params.timezone,
     ...(params.oneShot && { oneShot: true }),
+    ...(params.requiredTools && params.requiredTools.length > 0
+      ? { requiredTools: params.requiredTools }
+      : {}),
+    ...(params.plugin ? { plugin: params.plugin } : {}),
   };
   jobs.push(job);
   await saveState({ jobs });
@@ -152,6 +169,10 @@ export interface UpdateCronJobParams {
   prompt?: string;
   timezone?: string;
   oneShot?: boolean;
+  /** Pass an empty array to clear; undefined leaves the field unchanged. */
+  requiredTools?: string[];
+  /** Pass empty string to clear; undefined leaves the field unchanged. */
+  plugin?: string;
 }
 
 export async function updateJob(
@@ -167,6 +188,12 @@ export async function updateJob(
   if (params.prompt !== undefined) job.prompt = params.prompt;
   if (params.timezone !== undefined) job.timezone = params.timezone;
   if (params.oneShot !== undefined) job.oneShot = params.oneShot || undefined;
+  if (params.requiredTools !== undefined) {
+    job.requiredTools = params.requiredTools.length > 0 ? params.requiredTools : undefined;
+  }
+  if (params.plugin !== undefined) {
+    job.plugin = params.plugin.length > 0 ? params.plugin : undefined;
+  }
 
   await saveState({ jobs });
   logger.info(`Cron job ${jobId} updated`);

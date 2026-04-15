@@ -607,6 +607,59 @@ describe("executeAndDeliver — error handling", () => {
     assert.ok(!call.text.includes("crashed"));
   });
 
+  it("persists toolCallHistory to the session on Claude failure", async () => {
+    const history = [
+      { tool: "mcp__trivia__submit_answers", args: { n: 1 }, result: { ok: true }, timestamp: 1 },
+    ];
+    mockAskClaude.mock.mockImplementation(async () => ({
+      success: false,
+      answer: "",
+      error: "boom",
+      conversationTrace: [],
+      toolCallHistory: history,
+    }));
+
+    await executeAndDeliver({
+      client: makeClient(),
+      session: makeSession(),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: makeClaudeOptions(),
+      deps,
+    });
+
+    const historyUpdate = mockUpdateSession.mock.calls.find((c) => {
+      const updates = c.arguments[1] as Partial<SessionContext>;
+      return Array.isArray(updates.toolCallHistory);
+    });
+    assert.ok(historyUpdate, "expected a session update carrying toolCallHistory");
+    const updates = historyUpdate.arguments[1] as Partial<SessionContext>;
+    assert.deepEqual(updates.toolCallHistory, history);
+  });
+
+  it("does not call updateSession with toolCallHistory on error when history is empty", async () => {
+    mockAskClaude.mock.mockImplementation(async () => ({
+      success: false,
+      answer: "",
+      error: "boom",
+      conversationTrace: [],
+      toolCallHistory: [],
+    }));
+
+    await executeAndDeliver({
+      client: makeClient(),
+      session: makeSession(),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: makeClaudeOptions(),
+      deps,
+    });
+
+    const historyUpdate = mockUpdateSession.mock.calls.find((c) => {
+      const updates = c.arguments[1] as Partial<SessionContext>;
+      return updates.toolCallHistory !== undefined;
+    });
+    assert.equal(historyUpdate, undefined);
+  });
+
   it("uses 'Unknown error' when error field is empty", async () => {
     mockAskClaude.mock.mockImplementation(async () => ({
       success: false,

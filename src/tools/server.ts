@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
-import type { SdkMcpToolDefinition } from "@anthropic-ai/claude-agent-sdk";
+import type { SdkMcpToolDefinition, AnyZodRawShape } from "@anthropic-ai/claude-agent-sdk";
 
 import type {
   StagedIntent,
@@ -8,6 +8,8 @@ import type {
   SubmitResponsePayload,
   ResponseSnapshot,
   ClackToolsResult,
+  ClackQueryToolsResult,
+  ClackWorkerToolsResult,
   ToolBuildContext,
   QueryToolContext,
   WorkerToolContext,
@@ -15,6 +17,8 @@ import type {
 import { meetsMinimumRole } from "../permissions.js";
 import { getLoadedPlugins } from "../plugins/state.js";
 import { logger } from "../logger.js";
+import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
+import { asSlackBlocks } from "../slack/blocks.js";
 import { updateSession, getSession } from "../sessions.js";
 import { canRequestChanges, canEditConfig } from "../permissions.js";
 
@@ -138,6 +142,39 @@ export function createToolCallRecorder(): ToolCallRecorder {
   };
 }
 
+/**
+ * Wrap a tool handler so every invocation is recorded under its full MCP-visible name
+ * (`mcp__<server>__<tool>`). Used for both clack core tools and plugin tools so the recorder
+ * sees a uniform history — this is what the `submit_response` required-tools gate reads.
+ * The wrapper forwards the original return value on success and, on exception, records the
+ * error outcome and rethrows so the SDK sees the original error. Exported for direct unit
+ * testing.
+ */
+export function wrapToolForRecording<Schema extends AnyZodRawShape>(
+  toolDef: SdkMcpToolDefinition<Schema>,
+  fullName: string,
+  recorder: ToolCallRecorder,
+): SdkMcpToolDefinition<Schema> {
+  const originalHandler = toolDef.handler;
+  return {
+    ...toolDef,
+    handler: async (args, extra) => {
+      try {
+        const result = await originalHandler(args, extra);
+        recorder.record(fullName, { ...args }, { ...result });
+        return result;
+      } catch (err) {
+        recorder.record(
+          fullName,
+          { ...args },
+          { error: err instanceof Error ? err.message : String(err) },
+        );
+        throw err;
+      }
+    },
+  };
+}
+
 // ============================================================================
 // Response Capture
 // ============================================================================
@@ -190,7 +227,7 @@ export function createResponseCapture(): ResponseCapture {
 // Build Clack Tools (MCP Server)
 // ============================================================================
 
-function buildQueryTools(ctx: QueryToolContext): ClackToolsResult {
+function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
   const intentStore = createIntentStore();
   const recorder = createToolCallRecorder();
   const responseCapture = createResponseCapture();
@@ -244,13 +281,13 @@ function buildQueryTools(ctx: QueryToolContext): ClackToolsResult {
 
   // --- Action tools (role-only gating, no session state checks) ---
   if (canRequestChanges(ctx.role) && ctx.changesWorkflowEnabled) {
-    tools.push(createProposeChangeTool(ctx, intentStore, recorder));
-    tools.push(createRequestUpdateTool(ctx, intentStore, recorder));
+    tools.push(createProposeChangeTool(ctx, intentStore));
+    tools.push(createRequestUpdateTool(ctx, intentStore));
     tools.push(createCancelWorkerRunTool(ctx));
   }
 
   if (canEditConfig(ctx.role)) {
-    tools.push(createProposeConfigUpdateTool(ctx, intentStore, recorder));
+    tools.push(createProposeConfigUpdateTool(ctx, intentStore));
     tools.push(createAdminReadFileTool());
     tools.push(createAdminWriteFileTool());
     tools.push(createAdminRestartAppTool());
@@ -275,20 +312,32 @@ function buildQueryTools(ctx: QueryToolContext): ClackToolsResult {
     tools.push(createUpdateScheduledMessageTool(ctx));
   }
 
-  // --- Plugin tools (gated by minRole) ---
+  // --- Plugin tools: one dedicated MCP server per plugin, with handlers wrapped to auto-record.
+  // Tools live in their own namespace (`mcp__<plugin>__<tool>`), so plugin-vs-core and
+  // plugin-vs-plugin name collisions are structurally impossible.
+  const pluginMcpServers: Record<string, McpSdkServerConfigWithInstance> = {};
+  const pluginToolFullNames: string[] = [];
   const pluginResults = getLoadedPlugins().results;
-  const coreToolNames = new Set(tools.map((t) => t.name));
   for (const plugin of pluginResults) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const pluginTools: SdkMcpToolDefinition<any>[] = [];
     for (const registered of plugin.tools) {
       if (!meetsMinimumRole(ctx.role, registered.minRole)) continue;
-      if (coreToolNames.has(registered.name)) {
-        logger.warn(
-          `Plugin "${plugin.name}" tool "${registered.name}" conflicts with a core tool — skipping`,
-        );
-        continue;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const collected: SdkMcpToolDefinition<any>[] = [];
+      registered.pushTo(collected);
+      for (const toolDef of collected) {
+        const fullName = `mcp__${plugin.name}__${toolDef.name}`;
+        pluginToolFullNames.push(fullName);
+        pluginTools.push(wrapToolForRecording(toolDef, fullName, recorder));
       }
-      registered.pushTo(tools);
     }
+    if (pluginTools.length === 0) continue;
+    pluginMcpServers[plugin.name] = createSdkMcpServer({
+      name: plugin.name,
+      version: "1.0.0",
+      tools: pluginTools,
+    });
   }
 
   // --- Presentation tool ---
@@ -312,22 +361,60 @@ function buildQueryTools(ctx: QueryToolContext): ClackToolsResult {
       topLevelDeliveryChannel: triggerType === "scheduled" ? ctx.session.channelId : undefined,
       // Skip is only available for auto-respond and thread-reply triggers
       allowSkip: triggerType === "autoRespond" || triggerType === "threadReply",
+      requiredTools: ctx.requiredTools,
     }),
   );
 
-  const toolNames = tools.map((t) => t.name);
+  const coreToolNames = tools.map((t) => t.name);
+  const toolNames = [...coreToolNames, ...pluginToolFullNames];
 
-  const mcpServer = createSdkMcpServer({
+  // Wrap every clack core tool so its invocation lands in the recorder under its full MCP name
+  // (`mcp__clack__<tool>`). This gives `submit_response`'s required-tools gate a uniform view of
+  // all tools — built-ins, action tools, plugin tools — without relying on each handler to
+  // self-record. `submit_response` is skipped because its handler already records itself and
+  // the gate needs to observe prior calls when it runs.
+  const wrappedCoreTools = tools.map((tool) =>
+    tool.name === "submit_response"
+      ? tool
+      : wrapToolForRecording(tool, `mcp__clack__${tool.name}`, recorder),
+  );
+
+  // Diagnostic warning: surface requiredTools entries that don't match any available tool.
+  // The gate will still block delivery for these names, but a warning helps the operator
+  // catch typos and misconfiguration early.
+  if (ctx.requiredTools && ctx.requiredTools.length > 0) {
+    const availableFullNames = new Set<string>([
+      ...coreToolNames.map((n) => `mcp__clack__${n}`),
+      ...pluginToolFullNames,
+    ]);
+    const unknown = ctx.requiredTools.filter((n) => !availableFullNames.has(n));
+    if (unknown.length > 0) {
+      logger.warn(
+        `Session requiredTools reference unknown tool name(s): ${unknown.join(", ")}. ` +
+          `The submit_response gate will block delivery until these are called — verify spelling and plugin activation.`,
+      );
+    }
+  }
+
+  const clackMcpServer = createSdkMcpServer({
     name: "clack",
     version: "1.0.0",
-    tools,
+    tools: wrappedCoreTools,
   });
 
+  const mcpServers: Record<string, McpSdkServerConfigWithInstance> = {
+    clack: clackMcpServer,
+    ...pluginMcpServers,
+  };
+
   return {
-    mcpServer,
+    mcpServers,
     toolNames,
     getResult: () => responseCapture.get(),
-    getRenderedBlocks: () => responseCapture.getRenderedBlocks(),
+    getRenderedBlocks: () => {
+      const blocks = responseCapture.getRenderedBlocks();
+      return blocks ? asSlackBlocks(blocks) : null;
+    },
     getStagedIntents: () => intentStore.getAll(),
     getToolCallHistory: () => recorder.getHistory(),
     isSkipped: () => responseCapture.isSkipped(),
@@ -335,7 +422,7 @@ function buildQueryTools(ctx: QueryToolContext): ClackToolsResult {
   };
 }
 
-function buildWorkerTools(ctx: WorkerToolContext): ClackToolsResult {
+function buildWorkerTools(ctx: WorkerToolContext): ClackWorkerToolsResult {
   // Tool factories return different SdkMcpToolDefinition<T> generics; `any` required for the heterogeneous array
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const tools: SdkMcpToolDefinition<any>[] = [];
@@ -373,6 +460,9 @@ function buildWorkerTools(ctx: WorkerToolContext): ClackToolsResult {
  * Build a fresh clack MCP tool server.
  * Dispatches to query or worker tool set based on the context mode.
  */
+export function buildClackTools(ctx: QueryToolContext): ClackQueryToolsResult;
+export function buildClackTools(ctx: WorkerToolContext): ClackWorkerToolsResult;
+export function buildClackTools(ctx: ToolBuildContext): ClackToolsResult;
 export function buildClackTools(ctx: ToolBuildContext): ClackToolsResult {
   if (ctx.mode === "query") {
     return buildQueryTools(ctx);
