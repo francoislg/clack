@@ -367,14 +367,31 @@ export function loadToolMappings(): Map<string, ResolvedToolMapping> {
     }
   }
 
-  // Merge plugin tool mappings into the "clack" mapping (plugin tools are served by clack's MCP server)
+  // Plugin tool mappings: one ResolvedToolMapping per plugin, keyed by the plugin's server name.
+  // Plugin tools are served by each plugin's dedicated MCP server (`mcp__<plugin>__<tool>`),
+  // so their mappings live under the plugin name (not merged into `clack`).
+  // A file-based config at `data/configuration/tool_mapping/<plugin>.json` takes precedence over
+  // programmatic mappings per the existing two-tier rules — programmatic entries fill in only for
+  // tools not covered by the effective (user-override) file.
   for (const plugin of getLoadedPlugins().results) {
     if (plugin.toolMappings.size === 0) continue;
-    if (!mappings.has("clack")) mappings.set("clack", resolveConfig({}, "clack"));
-    const clackMapping = mappings.get("clack")!;
-    const resolved = resolveConfig({ tools: Object.fromEntries(plugin.toolMappings) }, "clack");
-    for (const [k, v] of resolved.labels) clackMapping.labels.set(k, v);
-    for (const [k, v] of resolved.toolGroups) clackMapping.toolGroups.set(k, v);
+    const programmaticConfig = resolveConfig(
+      { tools: Object.fromEntries(plugin.toolMappings) },
+      plugin.name,
+    );
+    const existing = mappings.get(plugin.name);
+    if (!existing) {
+      mappings.set(plugin.name, programmaticConfig);
+      continue;
+    }
+    // File-based config exists — it takes precedence. Fill in programmatic entries only for
+    // tool names the file-based config does not cover.
+    for (const [toolName, label] of programmaticConfig.labels) {
+      if (!existing.labels.has(toolName)) existing.labels.set(toolName, label);
+    }
+    for (const [toolName, group] of programmaticConfig.toolGroups) {
+      if (!existing.toolGroups.has(toolName)) existing.toolGroups.set(toolName, group);
+    }
   }
 
   cachedMappings = mappings;

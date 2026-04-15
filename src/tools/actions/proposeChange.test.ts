@@ -2,7 +2,7 @@ import { describe, it, beforeEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import { createProposeChangeTool, type ProposeChangeDeps } from "./proposeChange.js";
 import type { QueryToolContext } from "../types.js";
-import type { IntentStore, ToolCallRecorder } from "../server.js";
+import type { IntentStore } from "../server.js";
 import type { RepositoryConfig } from "../../config.js";
 import type { PersistedSessionState } from "../../changes/types.js";
 
@@ -71,31 +71,6 @@ function makeIntentStore(): IntentStore {
   };
 }
 
-function makeRecorder(): ToolCallRecorder & {
-  calls: Array<{
-    tool: string;
-    args: { [key: string]: unknown };
-    result: { [key: string]: unknown };
-  }>;
-} {
-  const calls: Array<{
-    tool: string;
-    args: { [key: string]: unknown };
-    result: { [key: string]: unknown };
-  }> = [];
-  return {
-    calls,
-    record: (
-      tool: string,
-      args: { [key: string]: unknown },
-      result: { [key: string]: unknown },
-    ) => {
-      calls.push({ tool, args, result });
-    },
-    getHistory: () => [],
-  };
-}
-
 function parseResult(result: { content: Array<{ text: string }> }) {
   return JSON.parse(result.content[0].text);
 }
@@ -114,8 +89,7 @@ describe("proposeChange tool", () => {
   it("rejects invalid branch name format", async () => {
     const ctx = makeCtx();
     const store = makeIntentStore();
-    const recorder = makeRecorder();
-    const toolDef = createProposeChangeTool(ctx, store, recorder, deps);
+    const toolDef = createProposeChangeTool(ctx, store, deps);
 
     const result = await toolDef.handler(
       {
@@ -130,14 +104,12 @@ describe("proposeChange tool", () => {
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("Invalid branch name"));
     assert.equal(result.isError, true);
-    assert.equal(recorder.calls.length, 1);
   });
 
   it("rejects branch with wrong type prefix", async () => {
     const ctx = makeCtx();
     const store = makeIntentStore();
-    const recorder = makeRecorder();
-    const toolDef = createProposeChangeTool(ctx, store, recorder, deps);
+    const toolDef = createProposeChangeTool(ctx, store, deps);
 
     const result = await toolDef.handler(
       {
@@ -156,8 +128,7 @@ describe("proposeChange tool", () => {
   it("rejects unknown repository", async () => {
     const ctx = makeCtx();
     const store = makeIntentStore();
-    const recorder = makeRecorder();
-    const toolDef = createProposeChangeTool(ctx, store, recorder, deps);
+    const toolDef = createProposeChangeTool(ctx, store, deps);
 
     const result = await toolDef.handler(
       {
@@ -182,8 +153,7 @@ describe("proposeChange tool", () => {
 
     const ctx = makeCtx();
     const store = makeIntentStore();
-    const recorder = makeRecorder();
-    const toolDef = createProposeChangeTool(ctx, store, recorder, deps);
+    const toolDef = createProposeChangeTool(ctx, store, deps);
 
     const result = await toolDef.handler(
       {
@@ -208,8 +178,7 @@ describe("proposeChange tool", () => {
 
     const ctx = makeCtx();
     const store = makeIntentStore();
-    const recorder = makeRecorder();
-    const toolDef = createProposeChangeTool(ctx, store, recorder, deps);
+    const toolDef = createProposeChangeTool(ctx, store, deps);
 
     const result = await toolDef.handler(
       {
@@ -227,8 +196,7 @@ describe("proposeChange tool", () => {
   it("stages intent and returns ref on valid input", async () => {
     const ctx = makeCtx();
     const store = makeIntentStore();
-    const recorder = makeRecorder();
-    const toolDef = createProposeChangeTool(ctx, store, recorder, deps);
+    const toolDef = createProposeChangeTool(ctx, store, deps);
 
     const result = await toolDef.handler(
       {
@@ -272,8 +240,7 @@ describe("proposeChange tool", () => {
 
     const ctx = makeCtx();
     const store = makeIntentStore();
-    const recorder = makeRecorder();
-    const toolDef = createProposeChangeTool(ctx, store, recorder, deps);
+    const toolDef = createProposeChangeTool(ctx, store, deps);
 
     const result = await toolDef.handler(
       {
@@ -304,8 +271,7 @@ describe("proposeChange tool", () => {
 
     const ctx = makeCtx();
     const store = makeIntentStore();
-    const recorder = makeRecorder();
-    const toolDef = createProposeChangeTool(ctx, store, recorder, deps);
+    const toolDef = createProposeChangeTool(ctx, store, deps);
 
     const result = await toolDef.handler(
       {
@@ -325,10 +291,9 @@ describe("proposeChange tool", () => {
   it("records the tool call on success", async () => {
     const ctx = makeCtx();
     const store = makeIntentStore();
-    const recorder = makeRecorder();
-    const toolDef = createProposeChangeTool(ctx, store, recorder, deps);
+    const toolDef = createProposeChangeTool(ctx, store, deps);
 
-    await toolDef.handler(
+    const result = await toolDef.handler(
       {
         branch: "clack/docs/readme",
         description: "Update readme",
@@ -337,9 +302,9 @@ describe("proposeChange tool", () => {
       { sessionId: "test" },
     );
 
-    assert.equal(recorder.calls.length, 1);
-    assert.equal(recorder.calls[0].tool, "propose_change");
-    assert.equal((recorder.calls[0].result as { repo: string }).repo, "my-repo");
+    const parsed = parseResult(result);
+    assert.equal(parsed.repo, "my-repo");
+    assert.ok(parsed.ref, "should return a staged ref");
   });
 
   it("accepts all valid branch type prefixes", async () => {
@@ -348,8 +313,7 @@ describe("proposeChange tool", () => {
 
     for (const type of types) {
       const store = makeIntentStore();
-      const recorder = makeRecorder();
-      const toolDef = createProposeChangeTool(ctx, store, recorder, deps);
+      const toolDef = createProposeChangeTool(ctx, store, deps);
 
       const result = await toolDef.handler(
         {

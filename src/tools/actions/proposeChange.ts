@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
-import type { IntentStore, ToolCallRecorder } from "../server.js";
+import type { IntentStore } from "../server.js";
 import { textResult, errorResult } from "../helpers.js";
 import { getExistingWorktree, type WorktreeInfo } from "../../worktrees.js";
 import { readSessionState } from "../../changes/persistence.js";
@@ -30,7 +30,6 @@ export const defaultProposeChangeDeps: ProposeChangeDeps = {
 export function createProposeChangeTool(
   ctx: QueryToolContext,
   intentStore: IntentStore,
-  recorder: ToolCallRecorder,
   deps: ProposeChangeDeps = defaultProposeChangeDeps,
 ) {
   return tool(
@@ -46,12 +45,9 @@ export function createProposeChangeTool(
       repo: z.string().describe("Repository name to make the change in"),
     },
     async (args) => {
-      const argsRecord = args as Record<string, unknown>;
-
       // Validate branch convention
       if (!BRANCH_PATTERN.test(args.branch)) {
         const errMsg = `Invalid branch name "${args.branch}". Must follow convention: clack/{type}/{name} where type is one of: ${BRANCH_TYPES.join(", ")}`;
-        recorder.record("propose_change", argsRecord, { error: errMsg });
         return errorResult(errMsg);
       }
 
@@ -60,7 +56,6 @@ export function createProposeChangeTool(
       if (!repo) {
         const availableRepos = ctx.config.repositories.map((r) => r.name);
         const errMsg = `Repository "${args.repo}" not found. Available repositories: ${availableRepos.join(", ")}`;
-        recorder.record("propose_change", argsRecord, { error: errMsg });
         return errorResult(errMsg);
       }
 
@@ -69,7 +64,6 @@ export function createProposeChangeTool(
           .getWritableRepos(ctx.role, ctx.config.repositories)
           .map((r) => r.name);
         const errMsg = `You do not have write access to "${args.repo}".${writableRepos.length > 0 ? ` Repos you can change: ${writableRepos.join(", ")}` : " No repos have change support for your role."}`;
-        recorder.record("propose_change", argsRecord, { error: errMsg });
         return errorResult(errMsg);
       }
 
@@ -100,8 +94,6 @@ export function createProposeChangeTool(
         repo: args.repo,
         existingWorktree: existingWorktreeInfo,
       };
-
-      recorder.record("propose_change", argsRecord, result);
 
       return textResult(result);
     },

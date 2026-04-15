@@ -1,5 +1,6 @@
 import type { App } from "@slack/bolt";
 import type { Block, KnownBlock } from "@slack/types";
+import type { SlackBlocks } from "../slack/blocks.js";
 import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
 import type { UserRole } from "../roles.js";
 import type { SessionContext } from "../sessions.js";
@@ -44,6 +45,12 @@ export interface QueryToolContext {
   availableImages?: Map<string, SlackImageFile>;
   /** Available Slack files (non-image: PDFs, text, etc.) keyed by file ID */
   availableFiles?: Map<string, SlackFile>;
+  /**
+   * Fully-qualified MCP tool names (e.g., `mcp__trivia__submit_answers`) that must be called
+   * during this run before `submit_response` will be accepted. Populated by callers like the
+   * cron scheduler when a job declares `requiredTools`.
+   */
+  requiredTools?: string[];
 }
 
 /** Worker context — used by change execution and follow-up flows */
@@ -229,13 +236,25 @@ export interface ContinuationRecord {
 // Tool Server Result
 // ============================================================================
 
-export interface ClackToolsResult {
-  mcpServer: McpSdkServerConfigWithInstance;
+interface ClackToolsResultBase {
   toolNames: string[];
   getResult: () => SubmitResponsePayload | null;
-  getRenderedBlocks: () => Record<string, unknown>[] | null;
+  /** Slack Block Kit blocks rendered for the response (null until a response is captured). */
+  getRenderedBlocks: () => SlackBlocks | null;
   getStagedIntents: () => Map<string, StagedIntent>;
   getToolCallHistory: () => ToolCallRecord[];
   isSkipped: () => boolean;
   isDisengaged: () => boolean;
 }
+
+/** Query-mode result: map of MCP servers (one `clack` core server plus one per loaded plugin). */
+export interface ClackQueryToolsResult extends ClackToolsResultBase {
+  mcpServers: Record<string, McpSdkServerConfigWithInstance>;
+}
+
+/** Worker-mode result: single MCP server (no plugin tools in worker mode). */
+export interface ClackWorkerToolsResult extends ClackToolsResultBase {
+  mcpServer: McpSdkServerConfigWithInstance;
+}
+
+export type ClackToolsResult = ClackQueryToolsResult | ClackWorkerToolsResult;

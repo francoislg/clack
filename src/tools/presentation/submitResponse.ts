@@ -120,6 +120,11 @@ export interface SubmitResponseDeps {
   topLevelDeliveryChannel?: string;
   /** When true, the skip_response parameter is available in the schema. */
   allowSkip?: boolean;
+  /**
+   * Fully-qualified MCP tool names that must appear in the recorder's history before delivery
+   * is accepted. Enforced by a gate at the top of the handler.
+   */
+  requiredTools?: string[];
   getStructuredResponseBlocks?: typeof _getStructuredResponseBlocks;
   validateSlackBlocks?: typeof _validateSlackBlocks;
   getResponseActionBlocks?: typeof _getResponseActionBlocks;
@@ -274,6 +279,7 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
     persistSnapshot,
     topLevelDeliveryChannel,
     allowSkip,
+    requiredTools,
     getStructuredResponseBlocks = _getStructuredResponseBlocks,
     validateSlackBlocks = _validateSlackBlocks,
     getResponseActionBlocks = _getResponseActionBlocks,
@@ -286,6 +292,20 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
     "Submit the final response to the user. IMPORTANT: calling this tool ENDS the conversation — you cannot take any further actions afterward. If your response mentions doing something (e.g., 'Let me set that up', 'I'll create a PR'), you MUST have already called the relevant tools BEFORE calling submit_response. Never promise future actions in your response text — either do them first or don't mention them. This defines what the user sees: text sections and interactive buttons. Always call this tool to deliver your response.",
     schema,
     async (args) => {
+      // --- Required tools gate: refuse delivery until every required tool has been recorded ---
+      if (requiredTools && requiredTools.length > 0) {
+        const history = recorder.getHistory();
+        const called = new Set(history.map((e) => e.tool));
+        const missing = requiredTools.filter((name) => !called.has(name));
+        if (missing.length > 0) {
+          return recordError(recorder, args, {
+            error:
+              `Cannot submit response yet. The following required tool(s) have not been called during this run: ${missing.join(", ")}. ` +
+              `Call them before submitting.`,
+          });
+        }
+      }
+
       // --- Disengage without skip is invalid ---
       if (
         "disengage" in args &&

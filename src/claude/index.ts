@@ -19,6 +19,7 @@ import type {
 } from "../tools/types.js";
 import type { StreamEvent } from "../streaming/types.js";
 import type { SlackImageFile, SlackFile } from "../slack/slackFileBase.js";
+import type { SlackBlocks } from "../slack/blocks.js";
 import { buildQueryContext } from "../tools/context.js";
 import { buildClackTools } from "../tools/server.js";
 import { discoverPlugins } from "../plugins.js";
@@ -54,7 +55,7 @@ export interface ClaudeResponse {
   /** Structured response from submit_response tool */
   response?: SubmitResponsePayload;
   /** Pre-rendered and validated Slack blocks from submit_response */
-  renderedBlocks?: Record<string, unknown>[];
+  renderedBlocks?: SlackBlocks;
   /** Staged intents from action tools (serializable for session persistence) */
   stagedIntents?: Record<string, StagedIntent>;
   /** Tool call history from this query */
@@ -80,6 +81,17 @@ export interface AskClaudeOptions {
   availableFiles?: Map<string, SlackFile>;
   /** User's IANA timezone (e.g., "America/New_York") for time-aware prompts */
   userTimezone?: string;
+  /**
+   * Fully-qualified MCP tool names that must be called during this run before `submit_response`
+   * will be accepted (e.g., `mcp__trivia__submit_answers`). Threaded into the query context.
+   */
+  requiredTools?: string[];
+  /**
+   * Fires once per completed tool call (when its `tool_result` arrives from the SDK stream).
+   * Populated for ALL tools the SDK dispatches — built-ins, clack MCP, plugin MCP, external MCP.
+   * Use this to persist tool calls to the session incrementally for live debugging.
+   */
+  onToolCall?: (record: ToolCallRecord) => void | Promise<void>;
 }
 
 function summarizeContentBlocks(content: unknown[]): string {
@@ -149,13 +161,14 @@ async function buildQuerySetup(
     deliver: options?.deliver,
     availableImages: options?.availableImages,
     availableFiles: options?.availableFiles,
+    requiredTools: options?.requiredTools,
   });
   const clackTools = buildClackTools(toolCtx);
 
-  // Merge external MCP servers with the clack tool server
+  // Merge external MCP servers with the clack + per-plugin tool servers
   const mcpServers: Record<string, McpServerConfig> = {
     ...externalMcpServers,
-    clack: clackTools.mcpServer as McpServerConfig,
+    ...(clackTools.mcpServers as Record<string, McpServerConfig>),
   };
 
   return {
@@ -187,15 +200,17 @@ function recordTraceEntry(
   return entry;
 }
 
+function optionalHistory(history: ToolCallRecord[]): ToolCallRecord[] | undefined {
+  return history.length > 0 ? history : undefined;
+}
+
 function buildToolResults(clackTools: ClackToolsResult): {
   structuredResponse: SubmitResponsePayload | undefined;
-  renderedBlocks: Record<string, unknown>[] | undefined;
+  renderedBlocks: SlackBlocks | undefined;
   stagedIntents: Record<string, StagedIntent>;
-  toolCallHistory: ToolCallRecord[];
 } {
   const structuredResponse = clackTools.getResult() ?? undefined;
   const renderedBlocks = clackTools.getRenderedBlocks() ?? undefined;
-  const toolCallHistory = clackTools.getToolCallHistory();
 
   // Convert Map to plain object for serialization
   const stagedIntents: Record<string, StagedIntent> = {};
@@ -203,13 +218,14 @@ function buildToolResults(clackTools: ClackToolsResult): {
     stagedIntents[ref] = intent;
   }
 
-  return { structuredResponse, renderedBlocks, stagedIntents, toolCallHistory };
+  return { structuredResponse, renderedBlocks, stagedIntents };
 }
 
 function buildSuccessResponse(
   answer: string,
   conversationTrace: ConversationMessage[],
   clackTools: ClackToolsResult,
+  streamToolHistory: ToolCallRecord[],
 ): ClaudeResponse {
   // Skip check must come before structuredResponse — when skipped,
   // responseCapture.get() returns null so structuredResponse is absent.
@@ -220,12 +236,12 @@ function buildSuccessResponse(
       disengaged: clackTools.isDisengaged() || undefined,
       answer: "",
       conversationTrace,
+      toolCallHistory: optionalHistory(streamToolHistory),
     };
   }
 
-  const { structuredResponse, renderedBlocks, stagedIntents, toolCallHistory } =
-    buildToolResults(clackTools);
-  const optionalToolHistory = toolCallHistory.length > 0 ? toolCallHistory : undefined;
+  const { structuredResponse, renderedBlocks, stagedIntents } = buildToolResults(clackTools);
+  const optionalToolHistory = optionalHistory(streamToolHistory);
   const optionalIntents = Object.keys(stagedIntents).length > 0 ? stagedIntents : undefined;
 
   // If submit_response was called, use the structured response
@@ -269,8 +285,10 @@ function handleQueryError(
   sessionId: string,
   conversationTrace: ConversationMessage[],
   stderrOutput: string,
+  streamToolHistory: ToolCallRecord[],
   abortController?: AbortController,
 ): ClaudeResponse {
+  const toolHistory = optionalHistory(streamToolHistory);
   // Detect cancellation via AbortController
   const isAbortError = error instanceof Error && error.name === "AbortError";
   const isSignalAbort =
@@ -283,6 +301,7 @@ function handleQueryError(
       cancelled: true,
       answer: "",
       conversationTrace,
+      toolCallHistory: toolHistory,
     };
   }
 
@@ -296,6 +315,7 @@ function handleQueryError(
     error: `Claude Agent SDK error: ${errorMessage(error)}`,
     conversationTrace,
     stderrOutput: stderrOutput || undefined,
+    toolCallHistory: toolHistory,
   };
 }
 
@@ -310,6 +330,7 @@ export async function askClaude(
 
   const conversationTrace: ConversationMessage[] = [];
   const stderrLines: string[] = [];
+  const streamToolHistory: ToolCallRecord[] = [];
 
   try {
     let answer = "";
@@ -345,6 +366,17 @@ export async function askClaude(
 
       conversationTrace.push(recordTraceEntry(message, parsed));
 
+      for (const completed of parsed.completedToolCalls) {
+        streamToolHistory.push(completed);
+        // Fire-and-forget: we don't want a slow `updateSession` (disk contention, etc.) to stall
+        // the SDK stream. Errors are logged, not surfaced to callers.
+        if (options?.onToolCall) {
+          void Promise.resolve(options.onToolCall(completed)).catch((err) => {
+            logger.warn(`onToolCall handler threw: ${errorMessage(err)}`);
+          });
+        }
+      }
+
       // Handle result
       if (parser.result) {
         if (parser.result.success) {
@@ -355,6 +387,7 @@ export async function askClaude(
             answer: "",
             error: `Claude query failed: ${parser.result.error}`,
             conversationTrace,
+            toolCallHistory: optionalHistory(streamToolHistory),
           };
         }
       }
@@ -370,6 +403,7 @@ export async function askClaude(
         answer: "",
         error: platformError,
         conversationTrace,
+        toolCallHistory: optionalHistory(streamToolHistory),
       };
     }
 
@@ -380,7 +414,7 @@ export async function askClaude(
       );
     }
 
-    return buildSuccessResponse(answer, conversationTrace, clackTools);
+    return buildSuccessResponse(answer, conversationTrace, clackTools, streamToolHistory);
   } catch (error) {
     const stderrOutput = stderrLines.join("");
     return handleQueryError(
@@ -388,6 +422,7 @@ export async function askClaude(
       session.sessionId,
       conversationTrace,
       stderrOutput,
+      streamToolHistory,
       options?.abortController,
     );
   }

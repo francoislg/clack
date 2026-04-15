@@ -33,6 +33,7 @@ function makeDeps(
     }) => Promise<{ ok: true; ts?: string } | { ok: false; error: string }>;
     persistSnapshot: (id: string, snapshot: ResponseSnapshot) => Promise<void>;
     allowSkip: boolean;
+    requiredTools: string[];
   }> = {},
 ) {
   const intentStore: IntentStore = {
@@ -69,6 +70,7 @@ function makeDeps(
     deliver: overrides.deliver,
     persistSnapshot: overrides.persistSnapshot,
     allowSkip: overrides.allowSkip,
+    requiredTools: overrides.requiredTools,
     getStructuredResponseBlocks: mockGetStructuredResponseBlocks,
     validateSlackBlocks: mockValidateSlackBlocks,
     getResponseActionBlocks: mockGetResponseActionBlocks,
@@ -944,6 +946,130 @@ describe("createSubmitResponseTool", () => {
       assert.equal(parsed.success, true);
       assert.equal(parsed.skipped, undefined);
       assert.equal(parsed.sectionsCount, 1);
+    });
+  });
+
+  describe("required tools gate", () => {
+    it("no required tools — delivery proceeds", async () => {
+      const deps = makeDeps({ requiredTools: [] });
+      const result = await callTool(deps, {
+        sections: [{ body: "Hello" }],
+        actions: [],
+      });
+      const parsed = JSON.parse(result.content[0].text);
+      assert.equal(parsed.success, true);
+    });
+
+    it("all required tools called — delivery proceeds", async () => {
+      const deps = makeDeps({
+        requiredTools: ["mcp__trivia__submit_answers"],
+        recorder: {
+          record: mock.fn<ToolCallRecorder["record"]>(),
+          getHistory: () => [
+            {
+              tool: "mcp__trivia__submit_answers",
+              args: {},
+              result: { success: true },
+              timestamp: 1,
+            },
+          ],
+        },
+      });
+      const result = await callTool(deps, {
+        sections: [{ body: "Hello" }],
+        actions: [],
+      });
+      const parsed = JSON.parse(result.content[0].text);
+      assert.equal(parsed.success, true);
+    });
+
+    it("missing required tool — returns error and does not deliver", async () => {
+      const deliverFn =
+        mock.fn<
+          (opts: {
+            markdownText: string;
+            blocks?: object[];
+            reactions?: string[];
+          }) => Promise<{ ok: true; ts?: string } | { ok: false; error: string }>
+        >();
+      const deps = makeDeps({
+        requiredTools: ["mcp__trivia__submit_answers"],
+        deliver: deliverFn,
+      });
+      const result = await callTool(deps, {
+        sections: [{ body: "Hello" }],
+        actions: [],
+      });
+
+      assert.equal(result.isError, true);
+      assert.ok(result.content[0].text.includes("mcp__trivia__submit_answers"));
+      assert.ok(result.content[0].text.includes("have not been called"));
+      assert.equal(deliverFn.mock.callCount(), 0);
+    });
+
+    it("partially missing — lists only missing names", async () => {
+      const deps = makeDeps({
+        requiredTools: ["mcp__trivia__submit_answers", "mcp__trivia__save_question"],
+        recorder: {
+          record: mock.fn<ToolCallRecorder["record"]>(),
+          getHistory: () => [
+            { tool: "mcp__trivia__submit_answers", args: {}, result: {}, timestamp: 1 },
+          ],
+        },
+      });
+      const result = await callTool(deps, {
+        sections: [{ body: "Hello" }],
+        actions: [],
+      });
+
+      assert.equal(result.isError, true);
+      const text = result.content[0].text;
+      assert.ok(text.includes("mcp__trivia__save_question"));
+      assert.ok(
+        !text.includes("mcp__trivia__submit_answers,"),
+        "should not list already-called tool",
+      );
+    });
+
+    it("required tool called but errored still counts — delivery proceeds", async () => {
+      const deps = makeDeps({
+        requiredTools: ["mcp__trivia__submit_answers"],
+        recorder: {
+          record: mock.fn<ToolCallRecorder["record"]>(),
+          getHistory: () => [
+            {
+              tool: "mcp__trivia__submit_answers",
+              args: {},
+              result: { error: "something broke" },
+              timestamp: 1,
+            },
+          ],
+        },
+      });
+      const result = await callTool(deps, {
+        sections: [{ body: "Hello" }],
+        actions: [],
+      });
+      const parsed = JSON.parse(result.content[0].text);
+      assert.equal(parsed.success, true);
+    });
+
+    it("gate blocks even when skip_response is true", async () => {
+      const deps = makeDeps({
+        allowSkip: true,
+        requiredTools: ["mcp__trivia__submit_answers"],
+      });
+      const toolDef = createSubmitResponseTool(deps);
+      const result = await toolDef.handler(
+        Object.assign(Object.create(null), {
+          skip_response: true,
+          message:
+            "I acknowledge that responding to this would serve no purpose, so I am skipping it.",
+        }),
+        {},
+      );
+      assert.equal(result.isError, true);
+      assert.ok(result.content[0].text.includes("mcp__trivia__submit_answers"));
     });
   });
 });

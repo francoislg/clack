@@ -111,5 +111,47 @@ describe("ClackSdk", () => {
       const result = harvest();
       assert.equal(result.name, "my-plugin");
     });
+
+    it("produces an MCP server named after the plugin", () => {
+      const { harvest } = makeSdk("weather");
+      const result = harvest();
+      assert.equal(result.mcpServer.name, "weather");
+      assert.equal(result.mcpServer.type, "sdk");
+    });
+
+    it("records scheduled required tools via requireToolsForScheduled", () => {
+      const { sdk, harvest } = makeSdk("trivia");
+      sdk.requireToolsForScheduled(["submit_answers"]);
+      const result = harvest();
+      assert.deepEqual(result.scheduledRequiredTools, ["submit_answers"]);
+    });
+
+    it("deduplicates scheduled required tools across multiple calls", () => {
+      const { sdk, harvest } = makeSdk("trivia");
+      sdk.requireToolsForScheduled(["submit_answers"]);
+      sdk.requireToolsForScheduled(["submit_answers", "save_question"]);
+      const result = harvest();
+      assert.deepEqual(result.scheduledRequiredTools, ["submit_answers", "save_question"]);
+    });
+
+    it("defaults scheduledRequiredTools to an empty array when none declared", () => {
+      const { harvest } = makeSdk("weather");
+      const result = harvest();
+      assert.deepEqual(result.scheduledRequiredTools, []);
+    });
+
+    it("includes registered tools in the MCP server instance", () => {
+      const { sdk, harvest } = makeSdk("weather");
+      const forecast = tool("forecast", "Get a forecast", { city: z.string() }, async () => ({
+        content: [{ type: "text" as const, text: "sunny" }],
+      }));
+      sdk.registerTool("member", forecast, "Checking weather in {city}");
+      const result = harvest();
+      // The SDK wraps tools into a server; the `tools` field from harvest still exposes the
+      // registered-tool shape for the host to assemble / wrap / role-gate as it sees fit.
+      assert.equal(result.tools.length, 1);
+      assert.equal(result.tools[0].name, "forecast");
+      assert.equal(result.mcpServer.name, "weather");
+    });
   });
 });

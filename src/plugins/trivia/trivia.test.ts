@@ -433,7 +433,10 @@ describe("trivia plugin", () => {
 
     it("searches by category only", async () => {
       const tool = createFindPreviousQuestionsTool(data);
-      const result = await tool.handler({ category: "Science", text: undefined }, SESSION);
+      const result = await tool.handler(
+        { category: "Science", text: undefined, limit: undefined },
+        SESSION,
+      );
       const parsed = parseResult(result);
 
       assert.equal(parsed.count, 2);
@@ -442,7 +445,10 @@ describe("trivia plugin", () => {
 
     it("searches by text only", async () => {
       const tool = createFindPreviousQuestionsTool(data);
-      const result = await tool.handler({ category: undefined, text: "boils" }, SESSION);
+      const result = await tool.handler(
+        { category: undefined, text: "boils", limit: undefined },
+        SESSION,
+      );
       const parsed = parseResult(result);
 
       assert.equal(parsed.count, 1);
@@ -451,7 +457,10 @@ describe("trivia plugin", () => {
 
     it("searches by both category and text (AND)", async () => {
       const tool = createFindPreviousQuestionsTool(data);
-      const result = await tool.handler({ category: "Science", text: "Earth" }, SESSION);
+      const result = await tool.handler(
+        { category: "Science", text: "Earth", limit: undefined },
+        SESSION,
+      );
       const parsed = parseResult(result);
 
       assert.equal(parsed.count, 1);
@@ -460,7 +469,10 @@ describe("trivia plugin", () => {
 
     it("returns no results when both filters exclude all questions", async () => {
       const tool = createFindPreviousQuestionsTool(data);
-      const result = await tool.handler({ category: "Science", text: "Rome" }, SESSION);
+      const result = await tool.handler(
+        { category: "Science", text: "Rome", limit: undefined },
+        SESSION,
+      );
       const parsed = parseResult(result);
 
       assert.equal(parsed.count, 0);
@@ -469,7 +481,10 @@ describe("trivia plugin", () => {
 
     it("is case-insensitive for category", async () => {
       const tool = createFindPreviousQuestionsTool(data);
-      const result = await tool.handler({ category: "science", text: undefined }, SESSION);
+      const result = await tool.handler(
+        { category: "science", text: undefined, limit: undefined },
+        SESSION,
+      );
       const parsed = parseResult(result);
 
       assert.equal(parsed.count, 2);
@@ -477,19 +492,25 @@ describe("trivia plugin", () => {
 
     it("is case-insensitive for text", async () => {
       const tool = createFindPreviousQuestionsTool(data);
-      const result = await tool.handler({ category: undefined, text: "EARTH" }, SESSION);
+      const result = await tool.handler(
+        { category: undefined, text: "EARTH", limit: undefined },
+        SESSION,
+      );
       const parsed = parseResult(result);
 
       assert.equal(parsed.count, 1);
     });
 
-    it("errors when neither category nor text provided", async () => {
+    it("returns all questions when neither category nor text is provided (up to limit)", async () => {
       const tool = createFindPreviousQuestionsTool(data);
-      const result = await tool.handler({ category: undefined, text: undefined }, SESSION);
+      const result = await tool.handler(
+        { category: undefined, text: undefined, limit: undefined },
+        SESSION,
+      );
       const parsed = parseResult(result);
 
-      assert.ok(parsed.error);
-      assert.ok(parsed.error.includes("at least one"));
+      assert.equal(parsed.error, undefined);
+      assert.ok(parsed.count >= 1);
     });
   });
 

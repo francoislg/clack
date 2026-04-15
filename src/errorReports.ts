@@ -4,11 +4,18 @@ import { getDataDir } from "./config.js";
 import { logger } from "./logger.js";
 import { fileExists } from "./fs.js";
 import type { ConversationMessage } from "./claude/index.js";
+import type { ToolCallRecord } from "./tools/types.js";
 
 export interface ErrorReport {
   sessionId: string;
   errorMessage: string;
   conversationTrace: ConversationMessage[];
+  /**
+   * Real tool call history from the per-session recorder, with actual args and results.
+   * The `conversationTrace` stores `result: {}` placeholders; this field carries the real
+   * tool return values needed to diagnose tool-loop failures.
+   */
+  toolCallHistory?: ToolCallRecord[];
   stderrOutput?: string;
   analysis?: string;
   timestamp: number;

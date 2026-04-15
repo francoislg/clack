@@ -497,7 +497,121 @@ describe("ClaudeMessageParser", () => {
       const parsed = await parser.process(
         toolProgress({ tool_use_id: "tu_1", tool_name: "read_file" }),
       );
-      assert.deepEqual(parsed, { toolUses: [], assistantText: null });
+      assert.deepEqual(parsed, { toolUses: [], assistantText: null, completedToolCalls: [] });
+    });
+  });
+
+  describe("completedToolCalls", () => {
+    it("pairs a tool_result with its prior tool_use and emits a completed record", async () => {
+      await parser.process(
+        assistantMsg([
+          { type: "tool_use", id: "tu_1", name: "Read", input: { path: "/tmp/f.ts" } },
+        ]),
+      );
+
+      const parsed = await parser.process(
+        userMsg([{ type: "tool_result", tool_use_id: "tu_1", content: "hello world" }]),
+      );
+
+      assert.equal(parsed.completedToolCalls.length, 1);
+      const rec = parsed.completedToolCalls[0];
+      assert.equal(rec.tool, "Read");
+      assert.deepEqual(rec.args, { path: "/tmp/f.ts" });
+      assert.deepEqual(rec.result, { content: "hello world" });
+    });
+
+    it("records an error outcome when is_error is true", async () => {
+      await parser.process(
+        assistantMsg([{ type: "tool_use", id: "tu_2", name: "Bash", input: { command: "ls" } }]),
+      );
+
+      const parsed = await parser.process(
+        userMsg([
+          {
+            type: "tool_result",
+            tool_use_id: "tu_2",
+            content: "command failed",
+            is_error: true,
+          },
+        ]),
+      );
+
+      assert.equal(parsed.completedToolCalls.length, 1);
+      assert.deepEqual(parsed.completedToolCalls[0].result, { error: "command failed" });
+    });
+
+    it("normalizes array content (e.g., MCP tool text blocks) into a string", async () => {
+      await parser.process(
+        assistantMsg([
+          { type: "tool_use", id: "tu_3", name: "mcp__trivia__submit_answers", input: { n: 1 } },
+        ]),
+      );
+
+      const parsed = await parser.process(
+        userMsg([
+          {
+            type: "tool_result",
+            tool_use_id: "tu_3",
+            content: [
+              { type: "text", text: "line 1" },
+              { type: "text", text: "line 2" },
+            ],
+          },
+        ]),
+      );
+
+      assert.equal(parsed.completedToolCalls.length, 1);
+      assert.deepEqual(parsed.completedToolCalls[0].result, { content: "line 1\nline 2" });
+    });
+
+    it("emits nothing for a tool_result whose tool_use was never seen", async () => {
+      const parsed = await parser.process(
+        userMsg([{ type: "tool_result", tool_use_id: "unknown_id", content: "x" }]),
+      );
+      assert.equal(parsed.completedToolCalls.length, 0);
+    });
+
+    it("handles multiple tool_uses in one assistant message, paired across messages", async () => {
+      await parser.process(
+        assistantMsg([
+          { type: "tool_use", id: "tu_a", name: "Read", input: { path: "a.ts" } },
+          { type: "tool_use", id: "tu_b", name: "Grep", input: { pattern: "foo" } },
+        ]),
+      );
+
+      const parsedA = await parser.process(
+        userMsg([{ type: "tool_result", tool_use_id: "tu_a", content: "contents-a" }]),
+      );
+      const parsedB = await parser.process(
+        userMsg([{ type: "tool_result", tool_use_id: "tu_b", content: "match-b" }]),
+      );
+
+      assert.equal(parsedA.completedToolCalls.length, 1);
+      assert.equal(parsedA.completedToolCalls[0].tool, "Read");
+      assert.deepEqual(parsedA.completedToolCalls[0].result, { content: "contents-a" });
+
+      assert.equal(parsedB.completedToolCalls.length, 1);
+      assert.equal(parsedB.completedToolCalls[0].tool, "Grep");
+      assert.deepEqual(parsedB.completedToolCalls[0].result, { content: "match-b" });
+    });
+
+    it("truncates results larger than the size cap with an elision marker", async () => {
+      const big = "x".repeat(150_000);
+      await parser.process(
+        assistantMsg([{ type: "tool_use", id: "tu_big", name: "BigTool", input: {} }]),
+      );
+
+      const parsed = await parser.process(
+        userMsg([{ type: "tool_result", tool_use_id: "tu_big", content: big }]),
+      );
+
+      assert.equal(parsed.completedToolCalls.length, 1);
+      const result = parsed.completedToolCalls[0].result as { content: string };
+      assert.ok(
+        result.content.length < big.length,
+        "result content should be shorter than original",
+      );
+      assert.match(result.content, /truncated/);
     });
   });
 });

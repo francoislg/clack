@@ -6,6 +6,7 @@ import { logger } from "./logger.js";
 import { resolveChannelLabel, slackLink } from "./slack/logContext.js";
 import { openDmChannel } from "./slack/channelResolver.js";
 import { errorMessage as toErrorMessage } from "./errors.js";
+import { getLoadedPlugins } from "./plugins/state.js";
 
 // ============================================================================
 // State
@@ -164,6 +165,8 @@ export async function runJobNow(job: CronJob, client: App["client"]): Promise<vo
 async function executeDynamicJob(job: CronJob, client: App["client"]): Promise<void> {
   const messageTs = `${Date.now() / 1000}`;
 
+  const effectiveRequiredTools = computeEffectiveRequiredTools(job);
+
   await processMessage({
     client,
     userId: job.createdBy,
@@ -173,7 +176,32 @@ async function executeDynamicJob(job: CronJob, client: App["client"]): Promise<v
     triggerType: "scheduled",
     silentThinking: true,
     additionalSystemPrompt: buildAttribution(job),
+    requiredTools: effectiveRequiredTools,
   });
+}
+
+/**
+ * Union of the job's explicit `requiredTools` and — if `job.plugin` names a loaded plugin — that
+ * plugin's declared `scheduledRequiredTools`, prefixed to their full MCP form. Deduplicated.
+ * Logs a warning if `job.plugin` is set but no plugin with that name is currently loaded.
+ */
+export function computeEffectiveRequiredTools(job: CronJob): string[] | undefined {
+  const explicit = job.requiredTools ?? [];
+  let pluginDefaults: string[] = [];
+
+  if (job.plugin) {
+    const loaded = getLoadedPlugins().results.find((p) => p.name === job.plugin);
+    if (loaded) {
+      pluginDefaults = loaded.scheduledRequiredTools.map((bare) => `mcp__${job.plugin}__${bare}`);
+    } else {
+      logger.warn(
+        `Cron job ${job.id}: plugin "${job.plugin}" is not loaded; plugin defaults not applied.`,
+      );
+    }
+  }
+
+  const merged = Array.from(new Set([...explicit, ...pluginDefaults]));
+  return merged.length > 0 ? merged : undefined;
 }
 
 // ============================================================================

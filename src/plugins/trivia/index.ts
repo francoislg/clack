@@ -73,4 +73,7 @@ export const triviaPlugin: ClackPlugin = async (sdk: ClackSdk) => {
   );
   sdk.registerTool("owner", createSubmitAnswersTool(data), "Submitting trivia answers");
   sdk.registerTool("member", createRetrieveScoresTool(data), "Retrieving trivia scores");
+
+  // Scheduled trivia runs must submit answers before delivery.
+  sdk.requireToolsForScheduled(["submit_answers"]);
 };

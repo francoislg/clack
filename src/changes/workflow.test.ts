@@ -6,7 +6,7 @@ import type { SessionContext } from "../sessions.js";
 import type { WorktreeInfo } from "../worktrees.js";
 import type { RepositoryConfig, Config as AppConfig } from "../config.js";
 import type { StreamEvent } from "../streaming/types.js";
-import type { ToolBuildContext } from "../tools/types.js";
+import type { WorkerToolContext, ClackWorkerToolsResult } from "../tools/types.js";
 import type { ExecuteChangeOptions } from "./execution.js";
 import { createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
 import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
@@ -89,9 +89,8 @@ interface WorkerContextParams {
   config: AppConfig;
 }
 
-const mockBuildWorkerContext = mock.fn<(params: WorkerContextParams) => ToolBuildContext>();
-const mockBuildClackTools =
-  mock.fn<(context: ToolBuildContext) => { mcpServer: McpSdkServerConfigWithInstance }>();
+const mockBuildWorkerContext = mock.fn<(params: WorkerContextParams) => WorkerToolContext>();
+const mockBuildClackTools = mock.fn<(context: WorkerToolContext) => ClackWorkerToolsResult>();
 const mockFetchPRReviewContext =
   mock.fn<
     (prUrl: string) => Promise<{ ok: true; context: string } | { ok: false; error: string }>
@@ -264,9 +263,16 @@ function resetMocks(): void {
     }
     return undefined;
   });
-  mockBuildWorkerContext.mock.mockImplementation(() => ({}) as ToolBuildContext);
+  mockBuildWorkerContext.mock.mockImplementation(() => ({}) as WorkerToolContext);
   mockBuildClackTools.mock.mockImplementation(() => ({
     mcpServer: createSdkMcpServer({ name: "test" }),
+    toolNames: [],
+    getResult: () => null,
+    getRenderedBlocks: () => null,
+    getStagedIntents: () => new Map(),
+    getToolCallHistory: () => [],
+    isSkipped: () => false,
+    isDisengaged: () => false,
   }));
 }
 

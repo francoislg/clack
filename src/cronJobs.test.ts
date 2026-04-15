@@ -64,6 +64,50 @@ describe("cronJobs", () => {
 
       assert.equal(job.oneShot, true);
     });
+
+    it("persists requiredTools on the job", async () => {
+      const job = await createJob({
+        cronExpression: "0 9 * * *",
+        channel: "C123",
+        prompt: "Run trivia",
+        createdBy: "U456",
+        timezone: "UTC",
+        requiredTools: ["mcp__trivia__submit_answers"],
+      });
+
+      assert.deepEqual(job.requiredTools, ["mcp__trivia__submit_answers"]);
+
+      // Round-trip through disk: clear cache and re-read
+      clearCronJobsCache();
+      const loaded = await getJob(job.id);
+      assert.ok(loaded);
+      assert.deepEqual(loaded.requiredTools, ["mcp__trivia__submit_answers"]);
+    });
+
+    it("omits requiredTools field when not supplied (backwards compatible)", async () => {
+      const job = await createJob({
+        cronExpression: "0 9 * * *",
+        channel: "C123",
+        prompt: "Summarize PRs",
+        createdBy: "U456",
+        timezone: "UTC",
+      });
+
+      assert.equal(job.requiredTools, undefined);
+    });
+
+    it("omits requiredTools when supplied as empty array", async () => {
+      const job = await createJob({
+        cronExpression: "0 9 * * *",
+        channel: "C123",
+        prompt: "Summarize PRs",
+        createdBy: "U456",
+        timezone: "UTC",
+        requiredTools: [],
+      });
+
+      assert.equal(job.requiredTools, undefined);
+    });
   });
 
   describe("getJobs", () => {
