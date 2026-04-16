@@ -27,9 +27,9 @@ export interface CronJob {
    */
   requiredTools?: string[];
   /**
-   * Name of a loaded Clack plugin this job is associated with. At trigger time, the plugin's
-   * declared `scheduledRequiredTools` are prefixed to their full MCP form and unioned into the
-   * effective `requiredTools` passed to `processMessage`.
+   * Name of a loaded Clack plugin this job is associated with. Currently informational —
+   * the cron scheduler does not derive required-tools from this field (see
+   * `computeEffectiveRequiredTools`); `requiredTools` above is the single source of truth.
    */
   plugin?: string;
 }

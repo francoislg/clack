@@ -36,7 +36,6 @@ function stubPlugin(
     tools: tools.map((t) => makeRegisteredPluginTool(t)),
     toolMappings: new Map(),
     mcpServer: createSdkMcpServer({ name, version: "1.0.0", tools }),
-    scheduledRequiredTools: [],
   };
 }
 

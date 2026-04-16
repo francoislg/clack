@@ -30,12 +30,6 @@ export interface ClackSdk {
     tool: SdkMcpToolDefinition<T>,
     mapping: ToolMapping,
   ): void;
-  /**
-   * Declare bare tool names that scheduled runs LINKED to this plugin (via the cron job's
-   * `plugin` field) must invoke before `submit_response` delivers. The names are prefixed
-   * to their full MCP form (`mcp__<plugin>__<tool>`) by the runtime.
-   */
-  requireToolsForScheduled(tools: string[]): void;
   readFile(path: string): Promise<string | null>;
   writeFile(path: string, content: string): Promise<void>;
 }
@@ -67,12 +61,6 @@ export interface PluginLoadResult {
   toolMappings: Map<string, ToolMapping>;
   /** Dedicated MCP server hosting this plugin's tools, namespaced under the plugin's name. */
   mcpServer: McpSdkServerConfigWithInstance;
-  /**
-   * Bare tool names that scheduled runs linked to this plugin (via `CronJob.plugin`) must
-   * invoke before `submit_response` delivers. The cron scheduler prefixes each to the full
-   * MCP form (`mcp__<plugin>__<tool>`) at trigger time.
-   */
-  scheduledRequiredTools: string[];
 }
 
 // ============================================================================
@@ -103,7 +91,6 @@ export function createClackSdk(
   const instructions: RegisteredInstruction[] = [];
   const tools: RegisteredTool[] = [];
   const toolMappings = new Map<string, ToolMapping>();
-  const scheduledRequiredTools: string[] = [];
   const pluginDataDir = join(dataDir, pluginName);
 
   const sdk: ClackSdk = {
@@ -125,14 +112,6 @@ export function createClackSdk(
         pushTo: (target) => target.push(toolDef as SdkMcpToolDefinition<AnyZodRawShape>),
       });
       toolMappings.set(toolDef.name, mapping);
-    },
-
-    requireToolsForScheduled(toolNames: string[]): void {
-      for (const name of toolNames) {
-        if (!scheduledRequiredTools.includes(name)) {
-          scheduledRequiredTools.push(name);
-        }
-      }
     },
 
     async readFile(path: string): Promise<string | null> {
@@ -176,7 +155,6 @@ export function createClackSdk(
         tools,
         toolMappings,
         mcpServer,
-        scheduledRequiredTools,
       };
     },
   };

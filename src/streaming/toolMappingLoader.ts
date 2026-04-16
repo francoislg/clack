@@ -13,6 +13,8 @@ export interface ToolEntryObject {
   label: string;
   group?: string;
   itemDetail?: string;
+  /** Suppress this tool's invocations from the Slack streaming task-card UI. */
+  hidden?: boolean;
 }
 
 export interface ArgConfig {
@@ -261,6 +263,9 @@ export function resolveConfig(config: ToolMappingConfig, filename: string): Reso
         if (entry.group) {
           toolGroups.set(toolName, { groupKey: entry.group, itemDetail: entry.itemDetail });
         }
+        if (entry.hidden) {
+          hidden.add(toolName);
+        }
       }
     }
   }
@@ -391,6 +396,9 @@ export function loadToolMappings(): Map<string, ResolvedToolMapping> {
     }
     for (const [toolName, group] of programmaticConfig.toolGroups) {
       if (!existing.toolGroups.has(toolName)) existing.toolGroups.set(toolName, group);
+    }
+    for (const toolName of programmaticConfig.hidden) {
+      existing.hidden.add(toolName);
     }
   }
 
