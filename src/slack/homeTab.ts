@@ -1,6 +1,7 @@
 import type { View, KnownBlock, Block } from "@slack/types";
 import { getConfig } from "../config.js";
 import { getConfiguredMcpServerNames } from "../mcp.js";
+import { getFailedMcpServers } from "../mcpStatus.js";
 import { loadRoles, getRole, hasOwner, type UserRole } from "../roles.js";
 import { canEditConfig, canManageRoles, canRequestChanges } from "../permissions.js";
 import { getActiveWorkers } from "../changes/activeState.js";
@@ -34,6 +35,7 @@ import type { UserPreferences } from "../userPreferences.js";
 export interface HomeTabDeps {
   getConfig: () => Config;
   getConfiguredMcpServerNames: () => string[];
+  getFailedMcpServers: () => Set<string>;
   getRole: (userId: string) => Promise<UserRole>;
   hasOwner: () => Promise<boolean>;
   loadRoles: () => Promise<RolesConfig>;
@@ -61,6 +63,7 @@ export interface HomeTabDeps {
 export const defaultHomeTabDeps: HomeTabDeps = {
   getConfig,
   getConfiguredMcpServerNames,
+  getFailedMcpServers,
   getRole,
   hasOwner,
   loadRoles,
@@ -511,11 +514,15 @@ export function buildStatusSection(
 
   // MCP Servers
   if (mcpServers.length > 0) {
+    const failed = deps.getFailedMcpServers();
+    const rendered = mcpServers
+      .map((name) => (failed.has(name) ? `${name} :warning:` : name))
+      .join(", ");
     blocks.push({
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `:electric_plug: *MCP Servers:* ${mcpServers.join(", ")}`,
+        text: `:electric_plug: *MCP Servers:* ${rendered}`,
       },
     });
   }
