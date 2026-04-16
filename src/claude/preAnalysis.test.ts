@@ -282,8 +282,10 @@ describe("runPreAnalysis", () => {
     const systemPrompt = capturedOptions!.systemPrompt!;
     assert.ok(systemPrompt.includes("Only respond to product questions"));
     assert.ok(systemPrompt.includes("Clack"));
-    assert.ok(systemPrompt.includes("When in doubt, SKIP"));
-    assert.ok(systemPrompt.includes("STOP"));
+    assert.ok(systemPrompt.includes("prefer skip"));
+    assert.ok(systemPrompt.includes("prefer respond"));
+    assert.ok(systemPrompt.includes("thank-you"));
+    assert.ok(systemPrompt.includes("stop"));
     assert.equal(capturedOptions!.model, "sonnet");
     assert.equal(capturedOptions!.maxTurns, 1);
   });
