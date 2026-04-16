@@ -7,9 +7,13 @@ import {
   type AnyZodRawShape,
   type McpSdkServerConfigWithInstance,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { UserRole } from "../roles.js";
+import type { App } from "@slack/bolt";
+import { loadRoles, type UserRole } from "../roles.js";
 import type { RoleDir } from "../cascadingConfigResolver.js";
 import type { ToolEntryObject } from "../streaming/toolMappingLoader.js";
+import { openDmChannel } from "../slack/channelResolver.js";
+import { getSlackClient as defaultGetSlackClient } from "../slack/app.js";
+import { logger } from "../logger.js";
 
 // ============================================================================
 // Types
@@ -32,6 +36,16 @@ export interface ClackSdk {
   ): void;
   readFile(path: string): Promise<string | null>;
   writeFile(path: string, content: string): Promise<void>;
+  /**
+   * Send a DM to the deployment owner (the user with the `owner` role).
+   *
+   * Resolved server-side: the owner ID is read from roles, the DM channel is opened
+   * via `conversations.open`, and the message is posted via `chat.postMessage`. The
+   * recipient is decided here (not by Claude) — this is the safe path for plugins
+   * that need to notify the owner without exposing user-targeted DMing as a tool
+   * surface to Claude.
+   */
+  dmOwner(text: string): Promise<{ ok: true } | { ok: false; error: string }>;
 }
 
 export type ClackPlugin = (sdk: ClackSdk) => Promise<void>;
@@ -81,9 +95,23 @@ function validateRelativePath(path: string): void {
 // SDK Factory
 // ============================================================================
 
+export interface ClackSdkDeps {
+  /** Lazy getter — plugins load before the Slack client is connected, so this is called at tool-invocation time. */
+  getSlackClient: () => App["client"] | null;
+  loadRoles: typeof loadRoles;
+  openDmChannel: typeof openDmChannel;
+}
+
+export const defaultClackSdkDeps: ClackSdkDeps = {
+  getSlackClient: defaultGetSlackClient,
+  loadRoles,
+  openDmChannel,
+};
+
 export function createClackSdk(
   pluginName: string,
   dataDir: string,
+  deps: ClackSdkDeps = defaultClackSdkDeps,
 ): {
   sdk: ClackSdk;
   harvest: () => PluginLoadResult;
@@ -132,6 +160,38 @@ export function createClackSdk(
         await mkdir(parentDir, { recursive: true });
       }
       await writeFile(fullPath, content, "utf-8");
+    },
+
+    async dmOwner(text: string): Promise<{ ok: true } | { ok: false; error: string }> {
+      const client = deps.getSlackClient();
+      if (!client) {
+        const error = "Slack client is not connected";
+        logger.warn(`[plugin:${pluginName}] dmOwner failed: ${error}`);
+        return { ok: false, error };
+      }
+
+      const roles = await deps.loadRoles();
+      if (!roles.owner) {
+        const error = "No owner is configured (set one via the Home Tab)";
+        logger.warn(`[plugin:${pluginName}] dmOwner failed: ${error}`);
+        return { ok: false, error };
+      }
+
+      const dmChannelId = await deps.openDmChannel(client, roles.owner);
+      if (!dmChannelId) {
+        const error = `Could not open a DM with the owner (${roles.owner})`;
+        logger.warn(`[plugin:${pluginName}] dmOwner failed: ${error}`);
+        return { ok: false, error };
+      }
+
+      try {
+        await client.chat.postMessage({ channel: dmChannelId, text });
+        return { ok: true };
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        logger.error(`[plugin:${pluginName}] dmOwner postMessage failed: ${error}`);
+        return { ok: false, error };
+      }
     },
   };
 

@@ -6,6 +6,7 @@ import { logger } from "./logger.js";
 import { resolveChannelLabel, slackLink } from "./slack/logContext.js";
 import { openDmChannel } from "./slack/channelResolver.js";
 import { errorMessage as toErrorMessage } from "./errors.js";
+import { isSlackAccessError } from "./slackErrors.js";
 
 // ============================================================================
 // State
@@ -140,13 +141,14 @@ async function executeJob(job: CronJob): Promise<void> {
     } catch (e) {
       logger.error("Failed to update job status:", e);
     }
-    // Dynamic jobs already notify via handleError in silentThinking mode; only notify here for static jobs
-    if (!job.prompt) {
-      try {
-        await notifyCreatorOfError(job, slackClient, toErrorMessage(error));
-      } catch (e) {
-        logger.error("Failed to notify creator:", e);
-      }
+    // Errors caught here are unhandled by executeAndDeliver (e.g. delivery
+    // failures like channel_not_found). Handled Claude errors don't throw, so
+    // they take their own DM-report path and never reach this catch — meaning
+    // notifying here can't double-notify.
+    try {
+      await notifyCreatorOfError(job, slackClient, toErrorMessage(error));
+    } catch (e) {
+      logger.error("Failed to notify creator:", e);
     }
   } finally {
     runningJobs.delete(job.id);
@@ -269,11 +271,34 @@ export async function notifyCreatorOfError(
 
   try {
     const schedule = humanReadableSchedule(job.cronExpression, job.timezone);
-    await client.chat.postMessage({
-      channel: dmChannelId,
-      text: `⚠️ Your scheduled message to <#${job.channel}> (${schedule}) failed:\n\`\`\`${errorMessage}\`\`\`\nIt will try again at the next scheduled time.`,
-    });
+    const text = buildCreatorErrorText(job, schedule, errorMessage);
+    await client.chat.postMessage({ channel: dmChannelId, text });
   } catch (dmError) {
     logger.error(`Failed to DM creator ${job.createdBy} about cron error:`, dmError);
   }
+}
+
+function buildCreatorErrorText(job: CronJob, schedule: string, errorMessage: string): string {
+  const isDmTarget = job.channel.startsWith("D");
+  const target = isDmTarget ? `the DM channel \`${job.channel}\`` : `<#${job.channel}>`;
+
+  if (isSlackAccessError(errorMessage)) {
+    if (isDmTarget) {
+      return (
+        `⚠️ Your scheduled message (${schedule}) failed because Clack can't access ${target}. ` +
+        `This usually means it's a DM Clack isn't part of. Update the schedule to target a ` +
+        `channel Clack is in, or recreate it. It will try again at the next scheduled time.`
+      );
+    }
+    return (
+      `⚠️ Your scheduled message to ${target} (${schedule}) failed because Clack isn't a ` +
+      `member of the channel. Invite it with \`/invite @Clack\` and the next run will succeed.`
+    );
+  }
+
+  return (
+    `⚠️ Your scheduled message to ${target} (${schedule}) failed:\n` +
+    `\`\`\`${errorMessage}\`\`\`\n` +
+    `It will try again at the next scheduled time.`
+  );
 }

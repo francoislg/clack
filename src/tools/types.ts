@@ -16,6 +16,13 @@ export type DeliverFn = (opts: {
   markdownText: string;
   blocks?: (KnownBlock | Block)[];
   reactions?: string[];
+  /**
+   * When true, deliver as a top-level channel message (no `thread_ts`) instead of a thread
+   * reply. Used when the response is an announcement-style post that should go to the channel
+   * directly. The streamer message (if any) is deleted before posting to avoid cruft in the
+   * thread.
+   */
+  postTopLevel?: boolean;
 }) => Promise<{ ok: true; ts?: string } | { ok: false; error: string }>;
 
 // ============================================================================

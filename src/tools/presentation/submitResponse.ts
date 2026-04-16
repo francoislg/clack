@@ -4,6 +4,7 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { IntentStore, ResponseCapture, ToolCallRecorder } from "../server.js";
 import type { DeliverFn, ResponseSnapshot, PostToAction } from "../types.js";
 import { textResult } from "../helpers.js";
+import { DISMISSAL_PHRASES_INLINE } from "../../claude/dismissalPhrases.js";
 import {
   getStructuredResponseBlocks as _getStructuredResponseBlocks,
   getResponseActionBlocks as _getResponseActionBlocks,
@@ -118,8 +119,21 @@ export interface SubmitResponseDeps {
   persistSnapshot?: (id: string, snapshot: ResponseSnapshot) => Promise<void>;
   /** When set, submit_response already delivers top-level to this channel — post_to targeting it is rejected. */
   topLevelDeliveryChannel?: string;
+  /**
+   * The session's channel ID. When `allowPostTopLevel` is enabled and Claude sets
+   * `post_top_level: true`, this is the channel the response is posted to (no `thread_ts`),
+   * and any `post_to` action targeting it without a `thread_ts` is rejected as a duplicate.
+   */
+  sessionChannelId?: string;
   /** When true, the skip_response parameter is available in the schema. */
   allowSkip?: boolean;
+  /** When true, the disengage parameter is available in the schema. */
+  allowDisengage?: boolean;
+  /**
+   * When true, the `post_top_level` parameter is available in the schema. Claude can set it
+   * per-response to route the reply as a top-level channel message instead of a thread reply.
+   */
+  allowPostTopLevel?: boolean;
   /**
    * Fully-qualified MCP tool names that must appear in the recorder's history before delivery
    * is accepted. Enforced by a gate at the top of the handler.
@@ -237,7 +251,44 @@ const normalResponseSchema = {
     ),
 };
 
-// Schema with skip_response support
+const disengageField = z
+  .boolean()
+  .optional()
+  .describe(
+    "Set to true to permanently stop tracking this thread after this turn. " +
+      "Canonical triggers: a conversation-ending acknowledgement or dismissal from the user — " +
+      `short sign-offs (${DISMISSAL_PHRASES_INLINE}) ` +
+      "or cases where the conversation has clearly moved on from the original topic. " +
+      "Err on the side of disengaging: a false positive just costs one @mention to re-engage, " +
+      "while a false negative means the bot keeps auto-replying to a thread where nobody wants it. " +
+      "When setting disengage: true with a normal response, keep the reply short and avoid phrases " +
+      'like "just holler!" or "let me know anytime" — those contradict the disengage signal. ' +
+      "May be combined with a normal response (reply and disengage in the same turn) " +
+      "OR with skip_response: true (decline to answer and disengage). " +
+      "Clack will stop evaluating future messages in this thread until someone @mentions the bot again.",
+  );
+
+const postTopLevelField = z
+  .boolean()
+  .optional()
+  .describe(
+    "Set to true to deliver this response as a top-level channel message instead of a thread reply. " +
+      "Use when the response should go directly into the channel (e.g., when an auto-respond rule's " +
+      "extra context says to post directly to the channel, or when the answer is an announcement-style " +
+      "summary meant to be seen by channel members browsing the channel). " +
+      "When set, the thinking indicator in the thread is removed and the final message is posted " +
+      "to the channel with no thread_ts. Ignored when skip_response is true (nothing to post). " +
+      "Do NOT combine with a `post_to` action targeting the same channel without a thread_ts — " +
+      "that would duplicate the message and will be rejected.",
+  );
+
+// Schema with disengage-only support (no skip_response)
+const disengageEnabledResponseSchema = {
+  ...normalResponseSchema,
+  disengage: disengageField,
+};
+
+// Schema with skip_response support (also includes disengage)
 const skipEnabledResponseSchema = {
   ...normalResponseSchema,
   skip_response: z
@@ -247,14 +298,7 @@ const skipEnabledResponseSchema = {
       "Set to true to decline answering. Use when the conversation doesn't need a Clack response " +
         "(e.g., users talking to each other, question already answered). When true, sections and actions are not required.",
     ),
-  disengage: z
-    .boolean()
-    .optional()
-    .describe(
-      "Set to true alongside skip_response to permanently stop tracking this thread. " +
-        "Use when the conversation has clearly moved on from the original topic. " +
-        "Clack will stop evaluating future messages until re-mentioned. Requires skip_response: true.",
-    ),
+  disengage: disengageField,
   // Override sections and actions to be optional when skip is used
   sections: z
     .array(sectionSchema)
@@ -269,6 +313,23 @@ const skipEnabledResponseSchema = {
     ),
 };
 
+// Schema variants with post_top_level added. We build them as distinct objects rather than
+// dynamic merges so zod's type inference stays precise at the tool boundary.
+const normalResponseSchemaWithPostTopLevel = {
+  ...normalResponseSchema,
+  post_top_level: postTopLevelField,
+};
+
+const disengageEnabledResponseSchemaWithPostTopLevel = {
+  ...disengageEnabledResponseSchema,
+  post_top_level: postTopLevelField,
+};
+
+const skipEnabledResponseSchemaWithPostTopLevel = {
+  ...skipEnabledResponseSchema,
+  post_top_level: postTopLevelField,
+};
+
 export function createSubmitResponseTool(deps: SubmitResponseDeps) {
   const {
     intentStore,
@@ -278,14 +339,27 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
     deliver,
     persistSnapshot,
     topLevelDeliveryChannel,
+    sessionChannelId,
     allowSkip,
+    allowDisengage,
+    allowPostTopLevel,
     requiredTools,
     getStructuredResponseBlocks = _getStructuredResponseBlocks,
     validateSlackBlocks = _validateSlackBlocks,
     getResponseActionBlocks = _getResponseActionBlocks,
   } = deps;
 
-  const schema = allowSkip ? skipEnabledResponseSchema : normalResponseSchema;
+  const schema = allowSkip
+    ? allowPostTopLevel
+      ? skipEnabledResponseSchemaWithPostTopLevel
+      : skipEnabledResponseSchema
+    : allowDisengage
+      ? allowPostTopLevel
+        ? disengageEnabledResponseSchemaWithPostTopLevel
+        : disengageEnabledResponseSchema
+      : allowPostTopLevel
+        ? normalResponseSchemaWithPostTopLevel
+        : normalResponseSchema;
 
   return tool(
     "submit_response",
@@ -306,17 +380,6 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
         }
       }
 
-      // --- Disengage without skip is invalid ---
-      if (
-        "disengage" in args &&
-        args.disengage &&
-        !("skip_response" in args && args.skip_response)
-      ) {
-        return recordError(recorder, args, {
-          error: "disengage requires skip_response: true",
-        });
-      }
-
       // --- Skip path ---
       if ("skip_response" in args && args.skip_response) {
         // Cannot skip after a response was already delivered
@@ -332,7 +395,10 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
           });
         }
         const wantsDisengage = "disengage" in args && args.disengage === true;
-        responseCapture.setSkipped(wantsDisengage);
+        responseCapture.setSkipped();
+        if (wantsDisengage) {
+          responseCapture.setDisengaged();
+        }
         const result = wantsDisengage
           ? { success: true, skipped: true, disengaged: true }
           : { success: true, skipped: true };
@@ -354,12 +420,19 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
         });
       }
 
+      const wantsPostTopLevel = "post_top_level" in args && args.post_top_level === true;
+
+      // When the response itself is posted top-level to the session's channel, guard against
+      // a duplicate `post_to` action targeting that same channel.
+      const effectiveTopLevelChannel =
+        topLevelDeliveryChannel ?? (wantsPostTopLevel ? sessionChannelId : undefined);
+
       const refError = validateRefActions(actions, intentStore);
       if (refError) {
         return recordError(recorder, args, { error: refError });
       }
 
-      const postToError = validatePostToActions(actions, topLevelDeliveryChannel);
+      const postToError = validatePostToActions(actions, effectiveTopLevelChannel);
       if (postToError) {
         return recordError(recorder, args, { error: postToError });
       }
@@ -422,6 +495,7 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
             blocks: asSlackBlocks(actionBlocks),
           }),
           ...(reactions?.length && { reactions }),
+          ...(wantsPostTopLevel && { postTopLevel: true }),
         });
 
         if (!deliveryResult.ok) {
@@ -434,11 +508,18 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
 
       responseCapture.set(payload, renderedBlocks);
 
+      const wantsDisengage = "disengage" in args && args.disengage === true;
+      if (wantsDisengage) {
+        responseCapture.setDisengaged();
+      }
+
       const result = {
         success: true,
         delivered: !!deliver,
         sectionsCount: sections.length,
         actionsCount: actions.length,
+        ...(wantsDisengage && { disengaged: true }),
+        ...(wantsPostTopLevel && { postedTopLevel: true }),
       };
       recorder.record("submit_response", args as unknown as Record<string, unknown>, result);
 

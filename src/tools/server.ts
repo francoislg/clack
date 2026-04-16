@@ -20,6 +20,7 @@ import { logger } from "../logger.js";
 import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
 import { asSlackBlocks } from "../slack/blocks.js";
 import { updateSession, getSession } from "../sessions.js";
+import type { SessionContext } from "../sessions.js";
 import { canRequestChanges, canEditConfig } from "../permissions.js";
 
 // Query tools
@@ -183,7 +184,8 @@ export interface ResponseCapture {
   set: (payload: SubmitResponsePayload, renderedBlocks: Record<string, unknown>[]) => void;
   get: () => SubmitResponsePayload | null;
   getRenderedBlocks: () => Record<string, unknown>[] | null;
-  setSkipped: (disengage?: boolean) => void;
+  setSkipped: () => void;
+  setDisengaged: () => void;
   isSkipped: () => boolean;
   isDisengaged: () => boolean;
 }
@@ -208,9 +210,12 @@ export function createResponseCapture(): ResponseCapture {
       return blocks;
     },
 
-    setSkipped(disengage?: boolean): void {
+    setSkipped(): void {
       skipped = true;
-      if (disengage) disengaged = true;
+    },
+
+    setDisengaged(): void {
+      disengaged = true;
     },
 
     isSkipped(): boolean {
@@ -221,6 +226,43 @@ export function createResponseCapture(): ResponseCapture {
       return disengaged;
     },
   };
+}
+
+// ============================================================================
+// Trigger-type gating for submit_response schema features
+// ============================================================================
+
+type TriggerType = SessionContext["triggerType"];
+
+/** Skip is meaningful only for triggers where the system expects optional silence. */
+export function shouldAllowSkip(triggerType: TriggerType): boolean {
+  return triggerType === "autoRespond" || triggerType === "threadReply";
+}
+
+/**
+ * Disengage is meaningful wherever `autoResponseActive` has runtime effect — the skippable
+ * triggers plus channel mentions, where a user can dismiss Clack ("thanks, you're done")
+ * and expect the thread to stop getting auto-respond replies.
+ */
+export function shouldAllowDisengage(triggerType: TriggerType): boolean {
+  return (
+    triggerType === "autoRespond" || triggerType === "threadReply" || triggerType === "mentions"
+  );
+}
+
+/**
+ * Post-top-level is meaningful for triggers that have a surrounding channel where the
+ * response could plausibly go top-level instead of in a thread. Excludes DMs (no channel
+ * top-level) and scheduled (already posts top-level by design — uses the separate
+ * `topLevelDeliveryChannel` mechanism).
+ */
+export function shouldAllowPostTopLevel(triggerType: TriggerType): boolean {
+  return (
+    triggerType === "autoRespond" ||
+    triggerType === "threadReply" ||
+    triggerType === "mentions" ||
+    triggerType === "reactions"
+  );
 }
 
 // ============================================================================
@@ -359,8 +401,10 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
       // In scheduled mode, submit_response delivers top-level to the channel.
       // Pass the channel so post_to validation can reject duplicates.
       topLevelDeliveryChannel: triggerType === "scheduled" ? ctx.session.channelId : undefined,
-      // Skip is only available for auto-respond and thread-reply triggers
-      allowSkip: triggerType === "autoRespond" || triggerType === "threadReply",
+      sessionChannelId: ctx.session.channelId,
+      allowSkip: shouldAllowSkip(triggerType),
+      allowDisengage: shouldAllowDisengage(triggerType),
+      allowPostTopLevel: shouldAllowPostTopLevel(triggerType),
       requiredTools: ctx.requiredTools,
     }),
   );

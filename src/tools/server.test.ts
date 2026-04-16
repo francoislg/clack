@@ -3,7 +3,14 @@ import assert from "node:assert/strict";
 import { z } from "zod";
 import { tool, createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
 import type { SdkMcpToolDefinition, AnyZodRawShape } from "@anthropic-ai/claude-agent-sdk";
-import { buildClackTools, createToolCallRecorder, wrapToolForRecording } from "./server.js";
+import {
+  buildClackTools,
+  createToolCallRecorder,
+  wrapToolForRecording,
+  shouldAllowSkip,
+  shouldAllowDisengage,
+  shouldAllowPostTopLevel,
+} from "./server.js";
 import type { QueryToolContext } from "./types.js";
 import type { Config } from "../config.js";
 import type { SessionContext } from "../sessions.js";
@@ -245,5 +252,63 @@ describe("buildClackTools — query mode", () => {
     } finally {
       warnFn.mock.restore();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Trigger-type gating
+// ---------------------------------------------------------------------------
+
+describe("shouldAllowSkip", () => {
+  it("allows skip for autoRespond and threadReply", () => {
+    assert.equal(shouldAllowSkip("autoRespond"), true);
+    assert.equal(shouldAllowSkip("threadReply"), true);
+  });
+
+  it("denies skip for mentions, directMessages, reactions, scheduled", () => {
+    assert.equal(shouldAllowSkip("mentions"), false);
+    assert.equal(shouldAllowSkip("directMessages"), false);
+    assert.equal(shouldAllowSkip("reactions"), false);
+    assert.equal(shouldAllowSkip("scheduled"), false);
+  });
+
+  it("denies skip for undefined triggerType", () => {
+    assert.equal(shouldAllowSkip(undefined), false);
+  });
+});
+
+describe("shouldAllowDisengage", () => {
+  it("allows disengage for autoRespond, threadReply, and mentions", () => {
+    assert.equal(shouldAllowDisengage("autoRespond"), true);
+    assert.equal(shouldAllowDisengage("threadReply"), true);
+    assert.equal(shouldAllowDisengage("mentions"), true);
+  });
+
+  it("denies disengage for directMessages, reactions, scheduled", () => {
+    assert.equal(shouldAllowDisengage("directMessages"), false);
+    assert.equal(shouldAllowDisengage("reactions"), false);
+    assert.equal(shouldAllowDisengage("scheduled"), false);
+  });
+
+  it("denies disengage for undefined triggerType", () => {
+    assert.equal(shouldAllowDisengage(undefined), false);
+  });
+});
+
+describe("shouldAllowPostTopLevel", () => {
+  it("allows for autoRespond, threadReply, mentions, reactions", () => {
+    assert.equal(shouldAllowPostTopLevel("autoRespond"), true);
+    assert.equal(shouldAllowPostTopLevel("threadReply"), true);
+    assert.equal(shouldAllowPostTopLevel("mentions"), true);
+    assert.equal(shouldAllowPostTopLevel("reactions"), true);
+  });
+
+  it("denies for directMessages and scheduled", () => {
+    assert.equal(shouldAllowPostTopLevel("directMessages"), false);
+    assert.equal(shouldAllowPostTopLevel("scheduled"), false);
+  });
+
+  it("denies for undefined triggerType", () => {
+    assert.equal(shouldAllowPostTopLevel(undefined), false);
   });
 });

@@ -324,6 +324,45 @@ describe("buildPrompt", () => {
     assert.ok(!prompt.includes("find_recent_interactions"));
   });
 
+  // ---- disengage guidance ----
+  it("includes dismissal-phrase disengage guidance for autoRespond", () => {
+    const session = makeSession({ triggerType: "autoRespond" });
+    const prompt = buildPrompt(session);
+    assert.ok(prompt.includes("disengage: true"));
+    assert.ok(prompt.includes("thanks Clack"));
+    assert.ok(prompt.includes("reply *and* stop tracking"));
+  });
+
+  it("includes dismissal-phrase disengage guidance for threadReply", () => {
+    const session = makeSession({ triggerType: "threadReply" });
+    const prompt = buildPrompt(session);
+    assert.ok(prompt.includes("disengage: true"));
+    assert.ok(prompt.includes("thanks Clack"));
+    assert.ok(prompt.includes("reply *and* stop tracking"));
+  });
+
+  it("includes mention-specific disengage guidance for mentions", () => {
+    const session = makeSession({ triggerType: "mentions" });
+    const prompt = buildPrompt(session);
+    assert.ok(prompt.includes("disengage: true"));
+    assert.ok(prompt.includes("thanks Clack"));
+    assert.ok(prompt.includes("natural pattern"));
+  });
+
+  it("omits disengage guidance for reactions", () => {
+    const session = makeSession({ triggerType: "reactions" });
+    const prompt = buildPrompt(session);
+    assert.ok(!prompt.includes("disengage: true"));
+    assert.ok(!prompt.includes("thanks Clack"));
+  });
+
+  it("omits disengage guidance for directMessages", () => {
+    const session = makeSession({ triggerType: "directMessages" });
+    const prompt = buildPrompt(session);
+    assert.ok(!prompt.includes("disengage: true"));
+    assert.ok(!prompt.includes("thanks Clack"));
+  });
+
   it("omits delivery context when triggerType is undefined", () => {
     const prompt = buildPrompt(makeSession());
     assert.ok(!prompt.includes("DELIVERY CONTEXT"));
