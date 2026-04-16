@@ -1,41 +1,8 @@
 import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 import { WebClient } from "@slack/web-api";
-import {
-  computeEffectiveRequiredTools,
-  humanReadableSchedule,
-  matchesCron,
-  notifyCreatorOfError,
-} from "./cronScheduler.js";
+import { humanReadableSchedule, matchesCron, notifyCreatorOfError } from "./cronScheduler.js";
 import type { CronJob } from "./cronJobs.js";
-import { setLoadedPlugins } from "./plugins/state.js";
-import { createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
-import type { PluginLoadResult } from "./plugins/sdk.js";
-
-function stubPlugin(name: string, scheduledRequiredTools: string[]): PluginLoadResult {
-  return {
-    name,
-    instructions: [],
-    tools: [],
-    toolMappings: new Map(),
-    mcpServer: createSdkMcpServer({ name, version: "1.0.0", tools: [] }),
-    scheduledRequiredTools,
-  };
-}
-
-function job(partial: Partial<CronJob>): CronJob {
-  return {
-    id: "job-1",
-    cronExpression: "0 9 * * *",
-    channel: "C1",
-    prompt: "do things",
-    createdBy: "U1",
-    createdAt: "2026-04-13T00:00:00Z",
-    enabled: true,
-    timezone: "UTC",
-    ...partial,
-  };
-}
 
 describe("cronScheduler", () => {
   describe("humanReadableSchedule", () => {
@@ -155,58 +122,6 @@ describe("cronScheduler", () => {
       assert.equal(args?.channel, "D789");
       const text = args && "text" in args ? (args.text ?? "") : "";
       assert.match(text, /something went wrong/);
-    });
-  });
-
-  describe("computeEffectiveRequiredTools", () => {
-    it("returns undefined when neither explicit nor plugin defaults", () => {
-      setLoadedPlugins({ results: [] });
-      assert.equal(computeEffectiveRequiredTools(job({})), undefined);
-    });
-
-    it("returns explicit tools when only explicit are set", () => {
-      setLoadedPlugins({ results: [] });
-      assert.deepEqual(
-        computeEffectiveRequiredTools(job({ requiredTools: ["mcp__trivia__save_question"] })),
-        ["mcp__trivia__save_question"],
-      );
-    });
-
-    it("adds plugin defaults prefixed to full MCP name when plugin is linked and loaded", () => {
-      setLoadedPlugins({ results: [stubPlugin("trivia", ["submit_answers"])] });
-      assert.deepEqual(computeEffectiveRequiredTools(job({ plugin: "trivia" })), [
-        "mcp__trivia__submit_answers",
-      ]);
-    });
-
-    it("unions explicit and plugin defaults", () => {
-      setLoadedPlugins({ results: [stubPlugin("trivia", ["submit_answers"])] });
-      assert.deepEqual(
-        computeEffectiveRequiredTools(
-          job({ plugin: "trivia", requiredTools: ["mcp__trivia__save_question"] }),
-        ),
-        ["mcp__trivia__save_question", "mcp__trivia__submit_answers"],
-      );
-    });
-
-    it("deduplicates when explicit already includes the plugin default", () => {
-      setLoadedPlugins({ results: [stubPlugin("trivia", ["submit_answers"])] });
-      assert.deepEqual(
-        computeEffectiveRequiredTools(
-          job({ plugin: "trivia", requiredTools: ["mcp__trivia__submit_answers"] }),
-        ),
-        ["mcp__trivia__submit_answers"],
-      );
-    });
-
-    it("does not apply plugin defaults when cron has no plugin link", () => {
-      setLoadedPlugins({ results: [stubPlugin("trivia", ["submit_answers"])] });
-      assert.equal(computeEffectiveRequiredTools(job({})), undefined);
-    });
-
-    it("logs warning and applies no defaults when plugin is unknown", () => {
-      setLoadedPlugins({ results: [] });
-      assert.equal(computeEffectiveRequiredTools(job({ plugin: "not-loaded" })), undefined);
     });
   });
 });

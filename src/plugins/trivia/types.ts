@@ -13,6 +13,7 @@ export interface TriviaUser {
   userId: string;
   displayName: string;
   joinedAt: number;
+  cheatAttempts?: number;
 }
 
 export interface SubmittedAnswer {
@@ -21,6 +22,14 @@ export interface SubmittedAnswer {
   answer: boolean;
   correct: boolean;
   timestamp: number;
+}
+
+export interface CheatReport {
+  cheaterUserId: string;
+  questionId: string;
+  reason: string;
+  evidence?: string;
+  detectedAt: string;
 }
 
 export interface TriviaDataLayer {
@@ -33,4 +42,6 @@ export interface TriviaDataLayer {
   saveUser(u: TriviaUser): Promise<void>;
   loadAnswers(): Promise<SubmittedAnswer[]>;
   saveAnswer(a: SubmittedAnswer): Promise<void>;
+  loadCheats(): Promise<CheatReport[]>;
+  saveCheat(report: CheatReport): Promise<{ totalAttempts: number }>;
 }

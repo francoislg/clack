@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync, mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { setLoadedPlugins } from "../plugins/state.js";
 import { createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
-import type { PluginLoadResult } from "../plugins/sdk.js";
+import type { PluginLoadResult, ToolMapping } from "../plugins/sdk.js";
 import { resolve } from "node:path";
 import { truncate } from "../text.js";
 import {
@@ -483,6 +483,33 @@ describe("resolveConfig", () => {
     assert.equal(resolved.hidden.size, 2);
   });
 
+  it("adds tool entries with hidden: true to the hidden set", () => {
+    const resolved = resolveConfig(
+      {
+        tools: {
+          visible_tool: { label: "Visible" },
+          hidden_tool: { label: "Hidden fallback", hidden: true },
+        },
+      },
+      "test",
+    );
+    assert.equal(resolved.hidden.has("hidden_tool"), true);
+    assert.equal(resolved.hidden.has("visible_tool"), false);
+    assert.equal(resolved.labels.get("hidden_tool"), "Hidden fallback");
+  });
+
+  it("merges entry-level hidden with config-level hidden array", () => {
+    const resolved = resolveConfig(
+      {
+        hidden: ["foo"],
+        tools: { bar: { label: "Bar", hidden: true } },
+      },
+      "test",
+    );
+    assert.ok(resolved.hidden.has("foo"));
+    assert.ok(resolved.hidden.has("bar"));
+  });
+
   it("sets defaultLabel from 'default' field", () => {
     const resolved = resolveConfig({ default: "Checking Sentry" }, "test");
     assert.equal(resolved.defaultLabel, "Checking Sentry");
@@ -768,14 +795,16 @@ describe("loadToolMappings error handling", () => {
 // ---------------------------------------------------------------------------
 
 describe("loadToolMappings plugin integration", () => {
-  function stubPluginLoadResult(name: string, toolMappings: Map<string, string>): PluginLoadResult {
+  function stubPluginLoadResult(
+    name: string,
+    toolMappings: Map<string, ToolMapping>,
+  ): PluginLoadResult {
     return {
       name,
       instructions: [],
       tools: [],
       toolMappings,
       mcpServer: createSdkMcpServer({ name, version: "1.0.0", tools: [] }),
-      scheduledRequiredTools: [],
     };
   }
 

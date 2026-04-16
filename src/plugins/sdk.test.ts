@@ -119,27 +119,6 @@ describe("ClackSdk", () => {
       assert.equal(result.mcpServer.type, "sdk");
     });
 
-    it("records scheduled required tools via requireToolsForScheduled", () => {
-      const { sdk, harvest } = makeSdk("trivia");
-      sdk.requireToolsForScheduled(["submit_answers"]);
-      const result = harvest();
-      assert.deepEqual(result.scheduledRequiredTools, ["submit_answers"]);
-    });
-
-    it("deduplicates scheduled required tools across multiple calls", () => {
-      const { sdk, harvest } = makeSdk("trivia");
-      sdk.requireToolsForScheduled(["submit_answers"]);
-      sdk.requireToolsForScheduled(["submit_answers", "save_question"]);
-      const result = harvest();
-      assert.deepEqual(result.scheduledRequiredTools, ["submit_answers", "save_question"]);
-    });
-
-    it("defaults scheduledRequiredTools to an empty array when none declared", () => {
-      const { harvest } = makeSdk("weather");
-      const result = harvest();
-      assert.deepEqual(result.scheduledRequiredTools, []);
-    });
-
     it("includes registered tools in the MCP server instance", () => {
       const { sdk, harvest } = makeSdk("weather");
       const forecast = tool("forecast", "Get a forecast", { city: z.string() }, async () => ({

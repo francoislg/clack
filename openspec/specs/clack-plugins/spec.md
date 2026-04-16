@@ -56,45 +56,28 @@ The plugin integration layer SHALL ensure every plugin tool invocation is record
 - **THEN** the wrapper records an entry with an error outcome and the original args
 - **AND** rethrows the exception so the Agent SDK sees the original error
 
-### Requirement: Plugin-Declared Default Required Tools for Scheduled Runs
+### Requirement: Plugin Tool Mapping Supports Hidden Flag
 
-Plugins SHALL be able to declare a list of bare tool names that scheduled runs linked to the plugin must invoke. The declared names are prefixed to their full MCP form (`mcp__<plugin>__<tool>`) and merged into the effective `requiredTools` list at trigger time.
+The `ToolEntryObject` form of a plugin tool mapping SHALL support an optional `hidden: boolean` field. When `true`, the tool's invocations SHALL be suppressed from the Slack streaming task-card UI while still executing server-side normally.
 
-#### Scenario: SDK exposes `requireToolsForScheduled`
+This SHALL be plumbed into the existing streaming hidden-tools mechanism: tools whose mapping specifies `hidden: true` are merged into the resolved hidden list at tool-mapping load time.
 
-- **WHEN** a plugin calls `sdk.requireToolsForScheduled(["submit_answers"])`
-- **THEN** the SDK stores the list on the plugin load result
-- **AND** the list is exposed on `PluginLoadResult.scheduledRequiredTools` (or equivalent field)
+#### Scenario: Plugin registers a hidden tool
 
-#### Scenario: Declared defaults applied when cron job links to the plugin
+- **WHEN** a plugin calls `sdk.registerTool("member", toolDef, { label: "…", hidden: true })`
+- **THEN** the tool is registered and callable
+- **AND** invocations of the tool do not render a task card in the Slack streaming UI
 
-- **GIVEN** plugin `trivia` declared `requireToolsForScheduled(["submit_answers"])`
-- **AND** a cron job has `plugin: "trivia"` (no explicit `requiredTools`)
-- **WHEN** the cron fires
-- **THEN** the effective `requiredTools` passed to `processMessage` includes `mcp__trivia__submit_answers`
+#### Scenario: Hidden flag is optional
 
-#### Scenario: Explicit `requiredTools` unions with plugin defaults
+- **WHEN** a plugin calls `sdk.registerTool("member", toolDef, "Some label")` or passes an object without `hidden`
+- **THEN** the tool behaves as a visible tool (current behavior unchanged)
 
-- **GIVEN** plugin `trivia` declared `requireToolsForScheduled(["submit_answers"])`
-- **AND** a cron job has `plugin: "trivia"` and `requiredTools: ["mcp__trivia__save_question"]`
-- **WHEN** the cron fires
-- **THEN** the effective `requiredTools` includes BOTH `mcp__trivia__submit_answers` AND `mcp__trivia__save_question`
-- **AND** duplicates are deduplicated
+#### Scenario: Hidden tool still records a ToolCallRecorder entry
 
-#### Scenario: Defaults do not apply when cron has no plugin link
-
-- **GIVEN** plugin `trivia` declared `requireToolsForScheduled(["submit_answers"])`
-- **AND** a cron job does NOT set the `plugin` field
-- **WHEN** the cron fires
-- **THEN** `mcp__trivia__submit_answers` is NOT added to the effective `requiredTools`
-- **AND** trivia's declaration does not leak into the job
-
-#### Scenario: Unknown plugin name in cron job
-
-- **GIVEN** a cron job has `plugin: "not-loaded"` (no such plugin is active)
-- **WHEN** the cron fires
-- **THEN** no plugin defaults are applied (the job runs with only its explicit `requiredTools`, if any)
-- **AND** the system logs a warning identifying the unknown plugin name
+- **WHEN** a hidden tool is invoked
+- **THEN** the session's `ToolCallRecorder` still captures the call
+- **AND** the entry is available via session-transcript tools such as `find_sessions`
 
 ### Requirement: No Plugin-vs-Plugin Name Collision
 

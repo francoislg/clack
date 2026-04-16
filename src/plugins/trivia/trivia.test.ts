@@ -1,6 +1,6 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { createInMemoryDataLayer } from "./data.js";
+import { createInMemoryDataLayer } from "./testHelpers.js";
 import { createAddCategoriesTool } from "./addCategories.js";
 import { createRemoveCategoriesTool } from "./removeCategories.js";
 import { createGetIdeasTool } from "./getIdeas.js";
