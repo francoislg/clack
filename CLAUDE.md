@@ -7,7 +7,7 @@
 ## Tech Stack
 
 - **Language:** TypeScript 5.7 (strict mode), ES2022 target, ESM (`"type": "module"`)
-- **Runtime:** Node.js 18+
+- **Runtime:** Node.js 20+ (Dockerfile pins `node:22-alpine`; some MCP deps like `@google-cloud/observability-mcp` require Node 20)
 - **Build:** `tsc` → `dist/` (no bundler)
 - **Slack:** `@slack/bolt` v4 (Socket Mode)
 - **AI:** `@anthropic-ai/claude-agent-sdk` (runs Claude Code CLI)

@@ -1,0 +1,22 @@
+{
+  "default": "Checking GCP observability",
+  "group": "Checking GCP observability",
+  "argOptions": {
+    "filter": { "truncate": 50 }
+  },
+  "tools": {
+    "list_log_entries": "Reading logs {filter|(recent)}",
+    "list_log_names": "Listing log names",
+    "list_buckets": "Listing log buckets",
+    "list_views": "Listing log views",
+    "list_sinks": "Listing log sinks",
+    "list_log_scopes": "Listing log scopes",
+    "list_metric_descriptors": "Listing metric descriptors",
+    "list_time_series": "Reading metric {filter|time series}",
+    "list_alert_policies": "Listing alert policies",
+    "list_alerts": "Listing alerts",
+    "list_traces": "Reading traces {filter|(recent)}",
+    "get_trace": "Reading trace {traceId|…}",
+    "list_group_stats": "Listing error groups"
+  }
+}
