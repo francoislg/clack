@@ -123,5 +123,56 @@ describe("cronScheduler", () => {
       const text = args && "text" in args ? (args.text ?? "") : "";
       assert.match(text, /something went wrong/);
     });
+
+    it("suggests inviting Clack when channel_not_found on a regular channel", async () => {
+      const client = new WebClient();
+      mock.method(client.conversations, "open", async () => ({
+        ok: true,
+        channel: { id: "D789" },
+      }));
+      const postSpy = mock.method(client.chat, "postMessage", async () => ({ ok: true }));
+
+      await notifyCreatorOfError(job, client, "An API error occurred: channel_not_found");
+
+      const args = postSpy.mock.calls[0].arguments[0];
+      const text = args && "text" in args ? (args.text ?? "") : "";
+      assert.match(text, /<#C456>/);
+      assert.match(text, /isn't a member/);
+      assert.match(text, /\/invite @Clack/);
+      assert.doesNotMatch(text, /channel_not_found/);
+    });
+
+    it("explains DM inaccessibility when channel_not_found on a DM target", async () => {
+      const client = new WebClient();
+      mock.method(client.conversations, "open", async () => ({
+        ok: true,
+        channel: { id: "D789" },
+      }));
+      const postSpy = mock.method(client.chat, "postMessage", async () => ({ ok: true }));
+
+      const dmJob: CronJob = { ...job, channel: "D0AHVHZTZ9G" };
+      await notifyCreatorOfError(dmJob, client, "An API error occurred: channel_not_found");
+
+      const args = postSpy.mock.calls[0].arguments[0];
+      const text = args && "text" in args ? (args.text ?? "") : "";
+      assert.match(text, /`D0AHVHZTZ9G`/);
+      assert.match(text, /DM Clack isn't part of/);
+      assert.doesNotMatch(text, /\/invite/);
+    });
+
+    it("also treats not_in_channel as an access error", async () => {
+      const client = new WebClient();
+      mock.method(client.conversations, "open", async () => ({
+        ok: true,
+        channel: { id: "D789" },
+      }));
+      const postSpy = mock.method(client.chat, "postMessage", async () => ({ ok: true }));
+
+      await notifyCreatorOfError(job, client, "not_in_channel");
+
+      const args = postSpy.mock.calls[0].arguments[0];
+      const text = args && "text" in args ? (args.text ?? "") : "";
+      assert.match(text, /\/invite @Clack/);
+    });
   });
 });

@@ -33,6 +33,10 @@ function makeDeps(
     }) => Promise<{ ok: true; ts?: string } | { ok: false; error: string }>;
     persistSnapshot: (id: string, snapshot: ResponseSnapshot) => Promise<void>;
     allowSkip: boolean;
+    allowDisengage: boolean;
+    allowPostTopLevel: boolean;
+    sessionChannelId: string;
+    topLevelDeliveryChannel: string;
     requiredTools: string[];
   }> = {},
 ) {
@@ -47,7 +51,8 @@ function makeDeps(
     set: mock.fn<(payload: unknown, blocks: unknown) => void>(),
     get: mock.fn<() => null>(() => null),
     getRenderedBlocks: mock.fn<() => null>(() => null),
-    setSkipped: mock.fn<(disengage?: boolean) => void>(),
+    setSkipped: mock.fn<() => void>(),
+    setDisengaged: mock.fn<() => void>(),
     isSkipped: mock.fn<() => boolean>(() => false),
     isDisengaged: mock.fn<() => boolean>(() => false),
     ...overrides.responseCapture,
@@ -70,6 +75,10 @@ function makeDeps(
     deliver: overrides.deliver,
     persistSnapshot: overrides.persistSnapshot,
     allowSkip: overrides.allowSkip,
+    allowDisengage: overrides.allowDisengage,
+    allowPostTopLevel: overrides.allowPostTopLevel,
+    sessionChannelId: overrides.sessionChannelId,
+    topLevelDeliveryChannel: overrides.topLevelDeliveryChannel,
     requiredTools: overrides.requiredTools,
     getStructuredResponseBlocks: mockGetStructuredResponseBlocks,
     validateSlackBlocks: mockValidateSlackBlocks,
@@ -100,6 +109,26 @@ interface CallToolArgs {
 async function callTool(deps: ReturnType<typeof makeDeps>, args: CallToolArgs) {
   const toolDef = createSubmitResponseTool(deps);
   // Tool handler expects the zod-inferred type; the test args structurally match
+  return toolDef.handler(Object.assign(Object.create(null), args), {});
+}
+
+/**
+ * Superset of fields across every submit_response schema variant. Tests that exercise
+ * variant-only fields (skip_response, disengage, post_top_level) use this to pass args
+ * without needing to construct the exact inferred zod type.
+ */
+interface CallToolRawArgs {
+  message?: string;
+  sections?: { title?: string; body: string }[];
+  actions?: ToolAction[];
+  reactions?: string[];
+  skip_response?: boolean;
+  disengage?: boolean;
+  post_top_level?: boolean;
+}
+
+async function callToolRawTopLevel(deps: ReturnType<typeof makeDeps>, args: CallToolRawArgs) {
+  const toolDef = createSubmitResponseTool(deps);
   return toolDef.handler(Object.assign(Object.create(null), args), {});
 }
 
@@ -148,6 +177,7 @@ describe("createSubmitResponseTool", () => {
           get: () => null,
           getRenderedBlocks: () => null,
           setSkipped: () => {},
+          setDisengaged: () => {},
           isSkipped: () => false,
           isDisengaged: () => false,
         },
@@ -518,6 +548,7 @@ describe("createSubmitResponseTool", () => {
           get: () => null,
           getRenderedBlocks: () => null,
           setSkipped: () => {},
+          setDisengaged: () => {},
           isSkipped: () => false,
           isDisengaged: () => false,
         },
@@ -662,6 +693,7 @@ describe("createSubmitResponseTool", () => {
           get: () => null,
           getRenderedBlocks: () => null,
           setSkipped: () => {},
+          setDisengaged: () => {},
           isSkipped: () => false,
           isDisengaged: () => false,
         },
@@ -783,6 +815,7 @@ describe("createSubmitResponseTool", () => {
           get: () => null,
           getRenderedBlocks: () => null,
           setSkipped: () => {},
+          setDisengaged: () => {},
           isSkipped: () => false,
           isDisengaged: () => false,
         },
@@ -807,6 +840,7 @@ describe("createSubmitResponseTool", () => {
           get: () => null,
           getRenderedBlocks: () => null,
           setSkipped: () => {},
+          setDisengaged: () => {},
           isSkipped: () => false,
           isDisengaged: () => false,
         },
@@ -897,31 +931,37 @@ describe("createSubmitResponseTool", () => {
       assert.equal(parsed.disengaged, true);
     });
 
-    it("rejects disengage without skip_response", async () => {
-      const deps = makeDeps({ allowSkip: true });
-      const result = await callToolRaw(deps, {
-        disengage: true,
-        message: "test",
-        sections: [{ body: "Hello" }],
-        actions: [],
-      });
-
-      assert.equal(result.isError, true);
-      const text = result.content[0].text;
-      assert.ok(text.includes("disengage requires skip_response: true"));
-    });
-
-    it("passes disengage flag to setSkipped", async () => {
-      const setSkippedFn = mock.fn<(disengage?: boolean) => void>();
+    it("accepts disengage without skip_response (normal response + disengage)", async () => {
+      const setDisengagedFn = mock.fn<() => void>();
       const deps = makeDeps({
         allowSkip: true,
         responseCapture: {
-          set: mock.fn<(payload: unknown, blocks: unknown) => void>(),
-          get: mock.fn<() => null>(() => null),
-          getRenderedBlocks: mock.fn<() => null>(() => null),
+          ...makeDeps().responseCapture,
+          setDisengaged: setDisengagedFn,
+        },
+      });
+      const result = await callToolRaw(deps, {
+        disengage: true,
+        sections: [{ body: "You're welcome!" }],
+        actions: [],
+      });
+
+      assert.notEqual(result.isError, true);
+      const parsed = JSON.parse(result.content[0].text);
+      assert.equal(parsed.success, true);
+      assert.equal(parsed.disengaged, true);
+      assert.equal(setDisengagedFn.mock.callCount(), 1);
+    });
+
+    it("calls both setSkipped and setDisengaged on skip + disengage", async () => {
+      const setSkippedFn = mock.fn<() => void>();
+      const setDisengagedFn = mock.fn<() => void>();
+      const deps = makeDeps({
+        allowSkip: true,
+        responseCapture: {
+          ...makeDeps().responseCapture,
           setSkipped: setSkippedFn,
-          isSkipped: mock.fn<() => boolean>(() => false),
-          isDisengaged: mock.fn<() => boolean>(() => false),
+          setDisengaged: setDisengagedFn,
         },
       });
       await callToolRaw(deps, {
@@ -932,7 +972,28 @@ describe("createSubmitResponseTool", () => {
       });
 
       assert.equal(setSkippedFn.mock.callCount(), 1);
-      assert.equal(setSkippedFn.mock.calls[0].arguments[0], true);
+      assert.equal(setDisengagedFn.mock.callCount(), 1);
+    });
+
+    it("calls only setSkipped on skip without disengage", async () => {
+      const setSkippedFn = mock.fn<() => void>();
+      const setDisengagedFn = mock.fn<() => void>();
+      const deps = makeDeps({
+        allowSkip: true,
+        responseCapture: {
+          ...makeDeps().responseCapture,
+          setSkipped: setSkippedFn,
+          setDisengaged: setDisengagedFn,
+        },
+      });
+      await callToolRaw(deps, {
+        skip_response: true,
+        message:
+          "I acknowledge that responding to this would serve no purpose, so I am skipping it.",
+      });
+
+      assert.equal(setSkippedFn.mock.callCount(), 1);
+      assert.equal(setDisengagedFn.mock.callCount(), 0);
     });
 
     it("normal flow unchanged when allowSkip is true but skip_response is absent", async () => {
@@ -946,6 +1007,213 @@ describe("createSubmitResponseTool", () => {
       assert.equal(parsed.success, true);
       assert.equal(parsed.skipped, undefined);
       assert.equal(parsed.sectionsCount, 1);
+    });
+
+    it("delivery_failed on normal+disengage path does not mark capture as disengaged", async () => {
+      const setDisengagedFn = mock.fn<() => void>();
+      const failingDeliver = mock.fn(async () => ({ ok: false as const, error: "network down" }));
+      const deps = makeDeps({
+        allowSkip: true,
+        deliver: failingDeliver,
+        responseCapture: {
+          ...makeDeps().responseCapture,
+          setDisengaged: setDisengagedFn,
+        },
+      });
+      const result = await callToolRaw(deps, {
+        disengage: true,
+        sections: [{ body: "You're welcome!" }],
+        actions: [],
+      });
+
+      assert.equal(result.isError, true);
+      const parsed = JSON.parse(result.content[0].text);
+      assert.equal(parsed.error, "delivery_failed");
+      assert.equal(setDisengagedFn.mock.callCount(), 0);
+    });
+
+    it("normal+disengage is idempotent when capture is already disengaged", async () => {
+      const setDisengagedFn = mock.fn<() => void>();
+      const deps = makeDeps({
+        allowSkip: true,
+        responseCapture: {
+          ...makeDeps().responseCapture,
+          setDisengaged: setDisengagedFn,
+          isDisengaged: () => true,
+        },
+      });
+      const result = await callToolRaw(deps, {
+        disengage: true,
+        sections: [{ body: "Got it" }],
+        actions: [],
+      });
+
+      assert.notEqual(result.isError, true);
+      const parsed = JSON.parse(result.content[0].text);
+      assert.equal(parsed.success, true);
+      assert.equal(parsed.disengaged, true);
+    });
+
+    it("allowDisengage without allowSkip exposes disengage on normal response", async () => {
+      const setDisengagedFn = mock.fn<() => void>();
+      const deps = makeDeps({
+        allowDisengage: true,
+        responseCapture: {
+          ...makeDeps().responseCapture,
+          setDisengaged: setDisengagedFn,
+        },
+      });
+      const result = await callToolRaw(deps, {
+        disengage: true,
+        sections: [{ body: "Thanks, talk later." }],
+        actions: [],
+      });
+
+      assert.notEqual(result.isError, true);
+      const parsed = JSON.parse(result.content[0].text);
+      assert.equal(parsed.success, true);
+      assert.equal(parsed.disengaged, true);
+      assert.equal(setDisengagedFn.mock.callCount(), 1);
+    });
+
+    it("allowDisengage without allowSkip still blocks disengage on delivery failure", async () => {
+      const setDisengagedFn = mock.fn<() => void>();
+      const failingDeliver = mock.fn(async () => ({ ok: false as const, error: "network down" }));
+      const deps = makeDeps({
+        allowDisengage: true,
+        deliver: failingDeliver,
+        responseCapture: {
+          ...makeDeps().responseCapture,
+          setDisengaged: setDisengagedFn,
+        },
+      });
+      const result = await callToolRaw(deps, {
+        disengage: true,
+        sections: [{ body: "done" }],
+        actions: [],
+      });
+
+      assert.equal(result.isError, true);
+      assert.equal(setDisengagedFn.mock.callCount(), 0);
+    });
+  });
+
+  describe("post_top_level", () => {
+    it("passes postTopLevel: true to deliver when allowed and set", async () => {
+      const deliverCalls: { postTopLevel?: boolean }[] = [];
+      const deliver = async (opts: {
+        markdownText: string;
+        postTopLevel?: boolean;
+      }): Promise<{ ok: true; ts?: string } | { ok: false; error: string }> => {
+        deliverCalls.push({ postTopLevel: opts.postTopLevel });
+        return { ok: true, ts: "9999.0001" };
+      };
+      const deps = makeDeps({
+        allowPostTopLevel: true,
+        sessionChannelId: "C_SESSION",
+        deliver,
+      });
+      const result = await callToolRawTopLevel(deps, {
+        post_top_level: true,
+        sections: [{ body: "Broadcast this" }],
+        actions: [],
+      });
+
+      assert.notEqual(result.isError, true);
+      assert.equal(deliverCalls.length, 1);
+      assert.equal(deliverCalls[0].postTopLevel, true);
+      const parsed = JSON.parse(result.content[0].text);
+      assert.equal(parsed.success, true);
+      assert.equal(parsed.postedTopLevel, true);
+    });
+
+    it("omits postTopLevel on deliver when allowed but not set", async () => {
+      const deliverCalls: { postTopLevel?: boolean }[] = [];
+      const deliver = async (opts: {
+        markdownText: string;
+        postTopLevel?: boolean;
+      }): Promise<{ ok: true; ts?: string } | { ok: false; error: string }> => {
+        deliverCalls.push({ postTopLevel: opts.postTopLevel });
+        return { ok: true };
+      };
+      const deps = makeDeps({
+        allowPostTopLevel: true,
+        sessionChannelId: "C_SESSION",
+        deliver,
+      });
+      await callTool(deps, {
+        sections: [{ body: "normal" }],
+        actions: [],
+      });
+
+      assert.equal(deliverCalls.length, 1);
+      assert.equal(deliverCalls[0].postTopLevel, undefined);
+    });
+
+    it("rejects post_to targeting the session channel without thread_ts when post_top_level is true", async () => {
+      const deps = makeDeps({
+        allowPostTopLevel: true,
+        sessionChannelId: "C_SESSION",
+      });
+      const result = await callToolRawTopLevel(deps, {
+        post_top_level: true,
+        sections: [{ body: "answer" }],
+        actions: [
+          {
+            type: "post_to",
+            auto: true,
+            channel: "C_SESSION",
+            content: "duplicate broadcast",
+          },
+        ],
+      });
+
+      assert.equal(result.isError, true);
+      const text = result.content[0].text;
+      assert.ok(text.includes("duplicate"), `expected duplicate-rejection error, got: ${text}`);
+    });
+
+    it("allows post_to to a DIFFERENT channel when post_top_level is true", async () => {
+      const deps = makeDeps({
+        allowPostTopLevel: true,
+        sessionChannelId: "C_SESSION",
+      });
+      const result = await callToolRawTopLevel(deps, {
+        post_top_level: true,
+        sections: [{ body: "answer" }],
+        actions: [
+          {
+            type: "post_to",
+            auto: true,
+            channel: "C_OTHER",
+            content: "cross-channel broadcast",
+          },
+        ],
+      });
+
+      assert.notEqual(result.isError, true);
+    });
+
+    it("allows post_to to the same channel WITH thread_ts when post_top_level is true", async () => {
+      const deps = makeDeps({
+        allowPostTopLevel: true,
+        sessionChannelId: "C_SESSION",
+      });
+      const result = await callToolRawTopLevel(deps, {
+        post_top_level: true,
+        sections: [{ body: "answer" }],
+        actions: [
+          {
+            type: "post_to",
+            auto: true,
+            channel: "C_SESSION",
+            thread_ts: "1234.5678",
+            content: "reply to a specific thread in the same channel",
+          },
+        ],
+      });
+
+      assert.notEqual(result.isError, true);
     });
   });
 

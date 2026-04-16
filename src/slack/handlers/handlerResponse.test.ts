@@ -1427,6 +1427,51 @@ describe("silentThinking mode", () => {
       assert.equal(mockSetAutoResponseActive.mock.callCount(), 0);
     });
 
+    it("calls setAutoResponseActive when normal response has disengaged: true", async () => {
+      resetStreamerInstance({ messageTs: "1234.5678" });
+      mockAskClaude.mock.mockImplementationOnce(async () => ({
+        success: true,
+        disengaged: true,
+        answer: "You're welcome!",
+      }));
+      mockSetAutoResponseActive.mock.resetCalls();
+
+      const client = makeClient();
+      const response = await executeAndDeliver({
+        client,
+        session: makeSession(),
+        sessionInfo: makeSessionInfo(),
+        claudeOptions: { role: "dev" as const, changesWorkflowEnabled: false },
+        deps,
+      });
+
+      assert.equal(response.success, true);
+      assert.equal(response.disengaged, true);
+      assert.equal(mockSetAutoResponseActive.mock.callCount(), 1);
+      assert.equal(mockSetAutoResponseActive.mock.calls[0].arguments[0], "session-1");
+      assert.equal(mockSetAutoResponseActive.mock.calls[0].arguments[1], false);
+    });
+
+    it("does NOT call setAutoResponseActive on success without disengaged", async () => {
+      resetStreamerInstance({ messageTs: "1234.5678" });
+      mockAskClaude.mock.mockImplementationOnce(async () => ({
+        success: true,
+        answer: "regular answer",
+      }));
+      mockSetAutoResponseActive.mock.resetCalls();
+
+      const client = makeClient();
+      await executeAndDeliver({
+        client,
+        session: makeSession(),
+        sessionInfo: makeSessionInfo(),
+        claudeOptions: { role: "dev" as const, changesWorkflowEnabled: false },
+        deps,
+      });
+
+      assert.equal(mockSetAutoResponseActive.mock.callCount(), 0);
+    });
+
     it("handles skip gracefully when streamer has no messageTs", async () => {
       resetStreamerInstance({ messageTs: undefined });
       mockAskClaude.mock.mockImplementationOnce(async () => ({

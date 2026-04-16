@@ -3,6 +3,7 @@ import { loadInstructions } from "../instructions.js";
 import type { UserRole } from "../roles.js";
 import type { SessionContext } from "../sessions.js";
 import type { SlackImageFile, SlackFile } from "../slack/slackFileBase.js";
+import { DISMISSAL_PHRASES_INLINE } from "./dismissalPhrases.js";
 /** Subset of AskClaudeOptions needed for prompt construction. */
 export interface PromptOptions {
   role?: UserRole;
@@ -177,17 +178,26 @@ function buildDeliveryContext(session: SessionContext): string | null {
         "- By default, your response is posted as a thread reply on the triggering message.",
       );
       lines.push(
-        "- You can use `post_to` with `auto: true` to post a top-level channel message instead of (or in addition to) the thread reply.",
+        "- If the auto-respond rule's extra context says to post directly to the channel (or if the answer is broadcast-style content meant for channel members), set `post_top_level: true` on submit_response. This delivers the response as a top-level channel message instead of a thread reply and deletes the thinking indicator. Use this instead of a `post_to` action for the simple top-level case — they would duplicate each other.",
+      );
+      lines.push(
+        "- Reserve `post_to` for posting to a DIFFERENT channel or thread (cross-channel broadcasts, notifying another team, sharing findings elsewhere). A `post_to` targeting the same channel as `post_top_level` without a `thread_ts` is rejected as a duplicate.",
       );
     } else {
       lines.push("- Mode: Thread reply (you are continuing a conversation in a thread)");
     }
     lines.push("- Do NOT include `accept` or `reject` actions — they have no meaning here.");
     lines.push(
-      "- If this specific message doesn't need your input but the thread might still be relevant, use `skip_response` to stay silent while remaining engaged.",
+      "- If this specific message doesn't need your input but the thread might still be relevant, use `skip_response` to stay silent while remaining engaged (temporary silence, you stay tracked).",
     );
     lines.push(
-      "- If the conversation has clearly moved on from the original topic and you are no longer needed in this thread, use `skip_response` with `disengage: true` to permanently stop tracking. You will not be invoked again in this thread unless someone @mentions you.",
+      `- If the user's message reads as a conversation-ending acknowledgement or dismissal, set \`disengage: true\`. This covers short sign-offs (${DISMISSAL_PHRASES_INLINE}) and also cases where the conversation has clearly moved on. Err on the side of disengaging — the user can always @mention you to re-engage, so a false positive costs one @mention, while a false negative means you keep replying to a thread where nobody wants you.`,
+    );
+    lines.push(
+      '- When you do disengage, keep the reply short and don\'t end with phrases like "just holler!" or "let me know anytime" — those contradict the disengage signal and confuse the user.',
+    );
+    lines.push(
+      "- `disengage: true` may accompany either a normal response (reply *and* stop tracking) or `skip_response: true` (decline to answer *and* stop tracking).",
     );
   } else {
     // All non-DM-first modes: response is already where the user can see it
@@ -217,6 +227,14 @@ function buildDeliveryContext(session: SessionContext): string | null {
     lines.push(
       '- If the user asks to post "in the channel", include `post_to` with `auto: true` and no `thread_ts` — this posts the content as a top-level message in the parent channel.',
     );
+    if (session.triggerType === "mentions") {
+      lines.push(
+        `- If the user's message reads as a conversation-ending acknowledgement or dismissal, set \`disengage: true\` on your response to permanently stop auto-responding in this thread. This covers short sign-offs (${DISMISSAL_PHRASES_INLINE}). Err on the side of disengaging — the user can @mention you to re-engage, so a false positive is cheap. A normal reply + \`disengage: true\` is the natural pattern (reply and stop tracking in the same turn).`,
+      );
+      lines.push(
+        '- When you do disengage, keep the reply short and don\'t end with phrases like "just holler!" or "let me know anytime" — those contradict the disengage signal and confuse the user.',
+      );
+    }
   }
 
   if (session.additionalSystemPrompt) {

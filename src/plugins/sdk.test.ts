@@ -1,16 +1,25 @@
-import { describe, it } from "node:test";
+import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdtempSync } from "node:fs";
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
-import { createClackSdk } from "./sdk.js";
+import { WebClient } from "@slack/web-api";
+import { createClackSdk, type ClackSdkDeps } from "./sdk.js";
+import type { RolesConfig } from "../roles.js";
+
+const EMPTY_ROLES: RolesConfig = { owner: null, admins: [], devs: [] };
 
 describe("ClackSdk", () => {
-  function makeSdk(pluginName = "test-plugin") {
+  function makeSdk(pluginName = "test-plugin", deps?: Partial<ClackSdkDeps>) {
     const dataDir = mkdtempSync(join(tmpdir(), "clack-sdk-test-"));
-    return createClackSdk(pluginName, dataDir);
+    const fullDeps: ClackSdkDeps = {
+      getSlackClient: deps?.getSlackClient ?? (() => null),
+      loadRoles: deps?.loadRoles ?? (async () => EMPTY_ROLES),
+      openDmChannel: deps?.openDmChannel ?? (async () => null),
+    };
+    return createClackSdk(pluginName, dataDir, fullDeps);
   }
 
   describe("path traversal validation", () => {
@@ -131,6 +140,79 @@ describe("ClackSdk", () => {
       assert.equal(result.tools.length, 1);
       assert.equal(result.tools[0].name, "forecast");
       assert.equal(result.mcpServer.name, "weather");
+    });
+  });
+
+  describe("dmOwner", () => {
+    it("posts to the resolved DM channel for the configured owner", async () => {
+      const client = new WebClient();
+      const postSpy = mock.method(client.chat, "postMessage", async () => ({
+        ok: true,
+        ts: "123.456",
+      }));
+      const { sdk } = makeSdk("trivia", {
+        getSlackClient: () => client,
+        loadRoles: async () => ({ owner: "U_OWNER", admins: [], devs: [] }),
+        openDmChannel: async () => "D_OWNER",
+      });
+
+      const result = await sdk.dmOwner("Hello owner");
+
+      assert.deepEqual(result, { ok: true });
+      assert.equal(postSpy.mock.callCount(), 1);
+      const args = postSpy.mock.calls[0].arguments[0];
+      assert.equal(args?.channel, "D_OWNER");
+      const text = args && "text" in args ? (args.text ?? "") : "";
+      assert.equal(text, "Hello owner");
+    });
+
+    it("fails cleanly when the Slack client is not connected", async () => {
+      const { sdk } = makeSdk("trivia", { getSlackClient: () => null });
+      const result = await sdk.dmOwner("hi");
+      assert.equal(result.ok, false);
+      if (!result.ok) assert.match(result.error, /not connected/);
+    });
+
+    it("fails cleanly when no owner is configured", async () => {
+      const client = new WebClient();
+      const postSpy = mock.method(client.chat, "postMessage", async () => ({ ok: true }));
+      const { sdk } = makeSdk("trivia", {
+        getSlackClient: () => client,
+        loadRoles: async () => EMPTY_ROLES,
+      });
+      const result = await sdk.dmOwner("hi");
+      assert.equal(result.ok, false);
+      if (!result.ok) assert.match(result.error, /No owner is configured/);
+      assert.equal(postSpy.mock.callCount(), 0);
+    });
+
+    it("fails cleanly when the DM channel cannot be opened", async () => {
+      const client = new WebClient();
+      const postSpy = mock.method(client.chat, "postMessage", async () => ({ ok: true }));
+      const { sdk } = makeSdk("trivia", {
+        getSlackClient: () => client,
+        loadRoles: async () => ({ owner: "U_OWNER", admins: [], devs: [] }),
+        openDmChannel: async () => null,
+      });
+      const result = await sdk.dmOwner("hi");
+      assert.equal(result.ok, false);
+      if (!result.ok) assert.match(result.error, /Could not open a DM/);
+      assert.equal(postSpy.mock.callCount(), 0);
+    });
+
+    it("returns the error string when chat.postMessage throws", async () => {
+      const client = new WebClient();
+      mock.method(client.chat, "postMessage", async () => {
+        throw new Error("channel_not_found");
+      });
+      const { sdk } = makeSdk("trivia", {
+        getSlackClient: () => client,
+        loadRoles: async () => ({ owner: "U_OWNER", admins: [], devs: [] }),
+        openDmChannel: async () => "D_OWNER",
+      });
+      const result = await sdk.dmOwner("hi");
+      assert.equal(result.ok, false);
+      if (!result.ok) assert.match(result.error, /channel_not_found/);
     });
   });
 });

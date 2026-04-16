@@ -12,7 +12,13 @@ import { errorMessage as toErrorMessage } from "../../errors.js";
 import type { AskClaudeOptions, ClaudeResponse } from "../../claude/index.js";
 import type { DeliverFn, ToolCallRecord } from "../../tools/types.js";
 import { getErrorBlocksWithRetry, asSlackBlocks, type SlackBlocks } from "../blocks.js";
-import { setLastAnswer, updateSession, addError, setAutoResponseActive } from "../../sessions.js";
+import {
+  setLastAnswer,
+  updateSession,
+  addError,
+  setAutoResponseActive,
+  createSession,
+} from "../../sessions.js";
 import { askClaude } from "../../claude/index.js";
 import { analyzeError } from "../../claude/utilities.js";
 import { sendErrorReport } from "../messagesApi.js";
@@ -33,6 +39,8 @@ export interface HandlerResponseDeps {
   updateSession: typeof updateSession;
   addError: typeof addError;
   setAutoResponseActive: typeof setAutoResponseActive;
+  /** Optional: when present, top-level posts create a follow-up session tied to the new thread. */
+  createSession?: typeof createSession;
   getErrorBlocksWithRetry: typeof getErrorBlocksWithRetry;
   asSlackBlocks: typeof asSlackBlocks;
   sendErrorReport: typeof sendErrorReport;
@@ -55,6 +63,7 @@ export const defaultHandlerResponseDeps: HandlerResponseDeps = {
   updateSession,
   addError,
   setAutoResponseActive,
+  createSession,
   getErrorBlocksWithRetry,
   asSlackBlocks,
   sendErrorReport,
@@ -255,6 +264,61 @@ function buildDeliverFn(ctx: DeliveryContext): DeliverFn {
     try {
       let ts: string | undefined;
 
+      // Top-level delivery: streamer is thread-bound, so delete its message and post fresh
+      // to the channel with no thread_ts.
+      if (opts.postTopLevel) {
+        if (ctx.streamer) {
+          await ctx.streamer.stop();
+          const streamerTs = ctx.streamer.getMessageTs();
+          if (streamerTs) {
+            try {
+              await ctx.client.chat.delete({
+                channel: ctx.targetChannel,
+                ts: streamerTs,
+              });
+            } catch (err) {
+              logger.warn("Failed to delete streamer message before top-level post:", err);
+            }
+          }
+        }
+        const result = await ctx.client.chat.postMessage({
+          channel: ctx.targetChannel,
+          text: opts.markdownText,
+          ...(opts.blocks && { blocks: opts.blocks }),
+        });
+        ts = result.ts;
+        ctx.alreadyDelivered = true;
+        // A top-level post is a new conversational context — replies to it belong to a
+        // thread Clack just created, not the parent thread that triggered the bot. Create
+        // a fresh session for that new thread so future replies get their own pre-analysis,
+        // their own disengage state, and their own history, while inheriting "similar
+        // context" from the parent (channel, channelName, auto-respond rule's extraContext).
+        // Silently log on failure — losing the follow-up session is a UX regression, not a
+        // correctness failure, so delivery should still succeed.
+        if (ts && ctx.deps.createSession) {
+          try {
+            await ctx.deps.createSession({
+              channelId: ctx.targetChannel,
+              messageTs: ts,
+              threadTs: ts,
+              userId: ctx.session.userId,
+              originalQuestion: opts.markdownText.slice(0, 500),
+              triggerType: "autoRespond",
+              additionalSystemPrompt: ctx.session.additionalSystemPrompt,
+              channelName: ctx.session.channelName,
+              username: ctx.session.username,
+              displayName: ctx.session.displayName,
+            });
+          } catch (err) {
+            logger.warn("Failed to create follow-up session for top-level post:", err);
+          }
+        }
+        if (opts.reactions?.length && ts) {
+          await addDeliveryReactions(ctx.client, ctx.targetChannel, ts, opts.reactions);
+        }
+        return { ok: true as const, ts };
+      }
+
       if (ctx.streamer && !ctx.streamer.hasFailed) {
         await ctx.streamer.stop({
           markdownText: opts.markdownText,
@@ -394,7 +458,11 @@ async function handleSkip(ctx: DeliveryContext, response: ClaudeResponse): Promi
 
   // Disengage: permanently stop tracking this thread for auto-respond
   if (response.disengaged) {
-    await ctx.deps.setAutoResponseActive(ctx.session.sessionId, false);
+    try {
+      await ctx.deps.setAutoResponseActive(ctx.session.sessionId, false);
+    } catch (err) {
+      logger.error("Failed to persist disengage state on skip:", err);
+    }
   }
 }
 
@@ -409,6 +477,19 @@ async function handleSuccess(ctx: DeliveryContext, response: ClaudeResponse): Pr
     await deliverViaStreamerOrFallback(ctx, response.answer);
     if (ctx.streamer && !ctx.streamer.hasFailed) {
       await sendResponseNotification(ctx);
+    }
+  }
+
+  // Disengage: permanently stop tracking this thread for auto-respond.
+  // Only reached after successful delivery (delivery_failed returns before buildSuccessResponse),
+  // so a failed delivery never persists disengagement. Swallow any persistence error
+  // so handleAutoExecuteActions still runs — losing the disengage state is less bad
+  // than dropping the user's staged intents.
+  if (response.disengaged) {
+    try {
+      await ctx.deps.setAutoResponseActive(ctx.session.sessionId, false);
+    } catch (err) {
+      logger.error("Failed to persist disengage state on success:", err);
     }
   }
 
