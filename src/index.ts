@@ -16,6 +16,9 @@ import { getActiveChangeBranches } from "./changes/activeState.js";
 import { validateInstructionFiles } from "./instructions.js";
 import { runBlockingMigrations, runEnhancementMigrations } from "./migrations/boot.js";
 import { startAll, stopAll } from "./lifecycle.js";
+import { setFailedMcpServers } from "./mcpStatus.js";
+import { diagnoseMcpServer, type DiagnosableConfig } from "./mcpDiagnose.js";
+import { loadMcpServers } from "./mcp.js";
 
 // Load environment variables from .env files (later files don't override earlier ones)
 dotenvConfig({ path: join(process.cwd(), ".env") });
@@ -80,10 +83,14 @@ async function main(): Promise<void> {
         logger.info(`MCP servers connected: ${serverNames} (${mcpResult.mcpTools.length} tools)`);
       }
       if (mcpResult.failedServers.length > 0) {
+        const configs = (await loadMcpServers()) ?? {};
         for (const server of mcpResult.failedServers) {
-          logger.warn(`MCP server failed: ${server.name} (${server.status})`);
+          const cfg = configs[server.name] as DiagnosableConfig | undefined;
+          const detail = cfg ? await diagnoseMcpServer(cfg) : "no config found";
+          logger.warn(`MCP server failed: ${server.name} (${server.status}) — ${detail}`);
         }
       }
+      setFailedMcpServers(mcpResult.failedServers.map((s) => s.name));
     }
     if (!mcpResult.success) {
       logger.warn(`MCP test issue: ${mcpResult.error}`);

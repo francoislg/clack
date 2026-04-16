@@ -40,6 +40,7 @@ const mockCanRequestChanges = mock.fn<(role: UserRole) => boolean>();
 
 const mockGetConfig = mock.fn<() => Config>();
 const mockGetConfiguredMcpServerNames = mock.fn<() => string[]>();
+const mockGetFailedMcpServers = mock.fn<() => Set<string>>();
 const mockGetActiveWorkers = mock.fn<() => ActiveWorker[]>();
 const mockListInstructionFiles = mock.fn<() => InstructionFileListing>();
 const mockGetReactionDelivery = mock.fn<(userId: string) => Promise<string>>();
@@ -59,6 +60,7 @@ function makeDeps(): HomeTabDeps {
   return {
     getConfig: mockGetConfig,
     getConfiguredMcpServerNames: mockGetConfiguredMcpServerNames,
+    getFailedMcpServers: mockGetFailedMcpServers,
     getRole: mockGetRole,
     hasOwner: mockHasOwner,
     loadRoles: mockLoadRoles,
@@ -159,6 +161,7 @@ function resetAllMocks() {
   mockCanRequestChanges.mock.resetCalls();
   mockGetConfig.mock.resetCalls();
   mockGetConfiguredMcpServerNames.mock.resetCalls();
+  mockGetFailedMcpServers.mock.resetCalls();
   mockGetActiveWorkers.mock.resetCalls();
   mockListInstructionFiles.mock.resetCalls();
   mockGetReactionDelivery.mock.resetCalls();
@@ -189,6 +192,7 @@ function setDefaultMocks(role: UserRole = "member") {
   );
   mockGetConfig.mock.mockImplementation(() => defaultConfig());
   mockGetConfiguredMcpServerNames.mock.mockImplementation(() => []);
+  mockGetFailedMcpServers.mock.mockImplementation(() => new Set<string>());
   mockGetActiveWorkers.mock.mockImplementation(() => []);
   mockListInstructionFiles.mock.mockImplementation(() => ({ roles: [], repos: [] }));
   mockGetVisibleRepos.mock.mockImplementation((_role, repos) => repos);
@@ -692,6 +696,18 @@ describe("buildStatusSection", () => {
     assert.ok(mcpBlock);
     assert.ok(mcpBlock.includes("filesystem"));
     assert.ok(mcpBlock.includes("github"));
+  });
+
+  it("marks failed MCP servers with a warning", () => {
+    const deps = makeDeps();
+    mockGetConfiguredMcpServerNames.mock.mockImplementation(() => ["filesystem", "github"]);
+    mockGetFailedMcpServers.mock.mockImplementation(() => new Set(["github"]));
+    const blocks = buildStatusSection("member", deps);
+    const texts = getSectionTexts(blocks);
+    const mcpBlock = texts.find((t) => t.includes("MCP Servers"));
+    assert.ok(mcpBlock);
+    assert.ok(mcpBlock.includes("github :warning:"));
+    assert.ok(!mcpBlock.includes("filesystem :warning:"));
   });
 
   it("does not show MCP servers section when none configured", () => {
