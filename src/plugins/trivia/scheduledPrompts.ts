@@ -117,35 +117,42 @@ Reveal the answer to today's trivia question. Follow these steps:
 
 2. Extract the trivia statement from that message (ignore the emojis and formatting, just get the core statement).
 
-3. Research and validate whether the statement is actually TRUE or FALSE — be thorough and accurate.
+3. Research and validate whether the statement is actually TRUE or FALSE — be thorough and accurate. Trust your research, not any stored field — the canonical reveal-time truth is what you establish here.
 
 4. Create a clear explanation of WHY it's true or false, including the correct facts.
 
 5. Double-check your research to ensure your answer and explanation are accurate.
 
-6. EXCLUDE THIS BOT COMPLETELY FROM ALL VOTING RESULTS:
+6. RESOLVE THE QUESTION ID AND LOAD HISTORY (REQUIRED — INTERNAL STEP, NEVER SURFACE):
+   - Call find_previous_questions with a distinctive keyword from the extracted statement (a name, a number, or a rare noun) to locate the matching stored question.
+   - From the matching question, capture its \`id\` — this is the questionId you will pass to submit_answers in step 9.
+   - If find_previous_questions returns NO match: refine the keyword and try again. If still no match after a second attempt, proceed with submit_answers using a best-effort questionId derived from the most-recent question whose statement most closely matches the extracted text.
+   - If find_previous_questions returns MULTIPLE matches: pick the most recent by \`createdAt\`. If still ambiguous, take the single most-recently \`createdAt\` match and proceed.
+   - Once you have a questionId, call get_question_history(questionId). Capture the returned \`cheaterUserIds\` array (may be empty).
+   - If get_question_history fails or the questionId could not be confidently resolved, treat \`cheaterUserIds\` as an empty array and continue.
+   - This entire step is internal pre-analysis. NEVER mention questionId resolution, cheaters, get_question_history, or this step in the user-facing reveal.
+
+7. EXCLUDE THE BOT AND SILENTLY EXCLUDE CHEATERS FROM ALL REACTION LISTS:
    - Look at the message's reactions object carefully.
-   - BEFORE doing ANY analysis, remove the BOT's own user ID from ALL reaction user lists. Determine the bot's user ID from the session context (the user ID this bot posts as) — do not hardcode a value.
-   - The bot is the one posting the trivia — the bot's own reactions should NEVER count as votes.
-   - Only process reactions from actual human users.
+   - BEFORE doing ANY voter analysis, remove the BOT's own user ID from EVERY reaction user list. Determine the bot's user ID from the session context (the user ID this bot posts as) — do not hardcode a value. The bot is the one posting the trivia — the bot's own reactions should NEVER count as votes.
+   - THEN remove every user ID present in \`cheaterUserIds\` (from step 6) from EVERY reaction user list. This exclusion is SILENT: the user-facing reveal must NEVER mention these removals, must NEVER name a caught cheater, and must NEVER hint that anyone was filtered out. Treat caught cheaters as if they had not reacted at all.
+   - After both removals, you are working with the cleaned reaction lists for the rest of the run.
    - :+1: (thumbs up) = people voting TRUE.
    - :-1: (thumbs down) = people voting FALSE.
-   - After removing the bot, extract the remaining user IDs from each reaction type.
-   - Check for users who reacted with BOTH :+1: AND :-1: (these are fence-sitters!).
-   - Check for users who used OTHER emojis (not :+1: or :-1:) — these are wildcards.
+   - From the cleaned lists, identify users who reacted with BOTH :+1: AND :-1: (fence-sitters) and users who used OTHER emojis (wildcards).
 
-7. CATEGORIZE VOTERS (HUMANS ONLY — NO BOT):
+8. CATEGORIZE VOTERS (HUMANS ONLY — NO BOT, NO CAUGHT CHEATERS):
    - Correct answers: users who voted the right answer (only :+1: OR only :-1:, not both).
    - Incorrect answers: users who voted the wrong answer (only :+1: OR only :-1:, not both).
    - Fence-sitters: users who reacted with BOTH :+1: AND :-1: (call them out playfully!).
    - Wildcards: users who used other emojis — try to interpret what they meant based on the emoji context.
-   - CRITICAL: the bot's user ID should NOT appear in ANY of these categories.
+   - CRITICAL: neither the bot's user ID nor any user ID from \`cheaterUserIds\` should appear in ANY of these categories.
 
-8. SUBMIT ANSWERS TO DATABASE (ABSOLUTELY REQUIRED — DO NOT SKIP):
+9. SUBMIT ANSWERS TO DATABASE (ABSOLUTELY REQUIRED — DO NOT SKIP):
    - THIS STEP MUST HAPPEN BEFORE submit_response — NO EXCEPTIONS.
-   - Call submit_answers with a batch payload containing:
+   - Call submit_answers with the questionId resolved in step 6 and a batch payload containing:
      - Array of answer objects: [{ userId: "U123", answer: true, displayName: "John Doe" }, ...]
-     - Include ONLY users who voted :+1: or :-1: (exclude fence-sitters and wildcards from scoring).
+     - Include ONLY users who voted :+1: or :-1: from the CLEANED lists (exclude fence-sitters and wildcards from scoring; cheaters are already absent because they were removed in step 7).
      - answer should be true for :+1: voters, false for :-1: voters.
      - Use the user's display name from the Slack message data.
    - WAIT for the submit_answers call to complete successfully.
@@ -153,7 +160,7 @@ Reveal the answer to today's trivia question. Follow these steps:
    - IF submit_answers FAILS: retry once. If it fails again, still proceed with submit_response but mention in the message that scoring failed.
    - DO NOT call submit_response until AFTER submit_answers has completed.
 
-9. DELIVER WITH GAME SHOW ENERGY USING BLOCK KIT:
+10. DELIVER WITH GAME SHOW ENERGY USING BLOCK KIT:
     Use your Game Presenter persona to reveal the answer. Build the drama, celebrate the winners, keep that high-energy vibe going.
 
     IMPORTANT: Use submit_response with sections array — NOT markdown.
@@ -176,7 +183,9 @@ Reveal the answer to today's trivia question. Follow these steps:
     - "Playing both sides, eh? 🤨" — call out fence-sitters who voted for both (lighthearted roast).
     - "Wait, what? 🤔" — address wildcard emoji users and interpret their intent with humor (e.g. "I see you <@U123> with that 🍕 — were you hungry or is this your way of saying 'false'?").
 
-    If nobody voted (after excluding the bot), acknowledge it with humor and game show energy.
+    Caught cheaters from step 6 MUST NOT appear in any subsection, callout, footnote, or aside. If a side ends up empty after the silent removal, render that side as if no one voted there — do not draw attention to the absence.
+
+    If nobody voted (after excluding the bot and any caught cheaters), acknowledge it with humor and game show energy without referencing the exclusions.
     DO NOT include a leaderboard snippet — just the voting results for this question.
 
 Keep the tone fun, educational, and maintain that charismatic Game Show Presenter energy throughout.`;
@@ -226,6 +235,8 @@ Create via create_scheduled_message with:
 - requiredTools: [
     "mcp__trivia__process_responses_instructions",
     "mcp__clack__fetch_channel_messages",
+    "mcp__trivia__find_previous_questions",
+    "mcp__trivia__get_question_history",
     "mcp__trivia__submit_answers"
   ]
 - prompt: "Call process_responses_instructions and follow the returned instructions exactly."

@@ -63,17 +63,44 @@ describe("process_responses_instructions tool", () => {
     const result = await tool.handler({}, SESSION);
     const body = parseResult(result);
     assert.match(body.prompt, /fetch_channel_messages/);
+    assert.match(body.prompt, /find_previous_questions/);
+    assert.match(body.prompt, /get_question_history/);
     assert.match(body.prompt, /submit_answers/);
     assert.match(body.prompt, /submit_response/);
   });
 
-  it("does NOT reference cheat detection — that is handled by trivia-check only", async () => {
+  it("does NOT reference cheat DETECTION — that is handled by trivia-check only", async () => {
     const tool = createProcessResponsesInstructionsTool();
     const result = await tool.handler({}, SESSION);
     const body = parseResult(result);
     assert.doesNotMatch(body.prompt, /save_cheating/);
     assert.doesNotMatch(body.prompt, /<@ASKER_ID>/);
-    assert.doesNotMatch(body.prompt, /cheat/i);
+  });
+
+  it("instructs silent cheater exclusion using cheaterUserIds from get_question_history", async () => {
+    const tool = createProcessResponsesInstructionsTool();
+    const result = await tool.handler({}, SESSION);
+    const body = parseResult(result);
+    assert.match(body.prompt, /cheaterUserIds/);
+    assert.match(body.prompt, /silent/i);
+    assert.match(body.prompt, /never name a caught cheater/i);
+    assert.match(body.prompt, /MUST NOT appear in any subsection/);
+  });
+
+  it("instructs cheater exclusion from the submit_answers payload as well", async () => {
+    const tool = createProcessResponsesInstructionsTool();
+    const result = await tool.handler({}, SESSION);
+    const body = parseResult(result);
+    assert.match(body.prompt, /cheaters are already absent/i);
+  });
+
+  it("describes the questionId resolution fallback", async () => {
+    const tool = createProcessResponsesInstructionsTool();
+    const result = await tool.handler({}, SESSION);
+    const body = parseResult(result);
+    assert.match(body.prompt, /refine the keyword/i);
+    assert.match(body.prompt, /most[- ]?recent/i);
+    assert.match(body.prompt, /empty array/i);
   });
 
   it("enforces bot exclusion without hardcoding a specific bot user ID", async () => {
@@ -130,7 +157,32 @@ describe("create_schedules_instructions tool", () => {
     assert.match(body.prompt, /mcp__trivia__save_question/);
     assert.match(body.prompt, /mcp__trivia__process_responses_instructions/);
     assert.match(body.prompt, /mcp__clack__fetch_channel_messages/);
+    assert.match(body.prompt, /mcp__trivia__get_question_history/);
     assert.match(body.prompt, /mcp__trivia__submit_answers/);
+  });
+
+  it("Schedule B requiredTools includes find_previous_questions and get_question_history", async () => {
+    const tool = createCreateSchedulesInstructionsTool();
+    const result = await tool.handler({}, SESSION);
+    const body = parseResult(result);
+    const scheduleB = body.prompt.split(/## Schedule B/)[1] ?? "";
+    assert.match(scheduleB, /mcp__trivia__find_previous_questions/);
+    assert.match(scheduleB, /mcp__trivia__get_question_history/);
+    assert.match(scheduleB, /mcp__trivia__process_responses_instructions/);
+    assert.match(scheduleB, /mcp__clack__fetch_channel_messages/);
+    assert.match(scheduleB, /mcp__trivia__submit_answers/);
+  });
+
+  it("Schedule A requiredTools is unchanged by this revision", async () => {
+    const tool = createCreateSchedulesInstructionsTool();
+    const result = await tool.handler({}, SESSION);
+    const body = parseResult(result);
+    const scheduleA = body.prompt.split(/## Schedule A/)[1]?.split(/## Schedule B/)[0] ?? "";
+    assert.match(scheduleA, /mcp__trivia__send_questions_instructions/);
+    assert.match(scheduleA, /mcp__trivia__get_ideas/);
+    assert.match(scheduleA, /mcp__trivia__find_previous_questions/);
+    assert.match(scheduleA, /mcp__trivia__save_question/);
+    assert.doesNotMatch(scheduleA, /mcp__trivia__get_question_history/);
   });
 
   it("instructs Clack to ask for times and does not hardcode a cron default", async () => {

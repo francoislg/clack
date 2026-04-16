@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { createInMemoryDataLayer } from "./testHelpers.js";
 import { createSaveCheatingTool } from "./saveCheating.js";
+import type { ClackSdk } from "../sdk.js";
 
 const SESSION = { sessionId: "test" };
 
@@ -9,10 +10,34 @@ function parseResult(result: { content: { text: string }[] }) {
   return JSON.parse(result.content[0].text);
 }
 
+interface FakeSdkOptions {
+  dmOwnerResult?: { ok: true } | { ok: false; error: string };
+}
+
+function makeFakeSdk(opts: FakeSdkOptions = {}): {
+  sdk: ClackSdk;
+  dmOwnerCalls: string[];
+} {
+  const dmOwnerCalls: string[] = [];
+  const result = opts.dmOwnerResult ?? { ok: true as const };
+  const sdk: ClackSdk = {
+    addInstruction: () => {},
+    registerTool: () => {},
+    readFile: async () => null,
+    writeFile: async () => {},
+    dmOwner: async (text: string) => {
+      dmOwnerCalls.push(text);
+      return result;
+    },
+  };
+  return { sdk, dmOwnerCalls };
+}
+
 describe("save_cheating tool", () => {
-  it("first cheat initializes cheatAttempts counter to 1", async () => {
+  it("first cheat initializes cheatAttempts counter to 1 and DMs the owner", async () => {
     const data = createInMemoryDataLayer();
-    const tool = createSaveCheatingTool(data);
+    const { sdk, dmOwnerCalls } = makeFakeSdk();
+    const tool = createSaveCheatingTool(data, sdk);
 
     const result = await tool.handler(
       {
@@ -27,7 +52,7 @@ describe("save_cheating tool", () => {
     const body = parseResult(result);
     assert.equal(body.saved, true);
     assert.equal(body.totalAttempts, 1);
-    assert.equal(body.notifyOwner, true);
+    assert.equal(body.ownerNotified, true);
 
     const users = await data.loadUsers();
     assert.equal(users.get("U123")?.cheatAttempts, 1);
@@ -36,11 +61,40 @@ describe("save_cheating tool", () => {
     assert.equal(cheats.length, 1);
     assert.equal(cheats[0].cheaterUserId, "U123");
     assert.equal(cheats[0].questionId, "q1");
+
+    assert.equal(dmOwnerCalls.length, 1);
+    assert.match(dmOwnerCalls[0], /Trivia cheat report/);
+    assert.match(dmOwnerCalls[0], /<@U123>/);
+    assert.match(dmOwnerCalls[0], /total attempts: 1/);
+    assert.match(dmOwnerCalls[0], /q1/);
+    assert.match(dmOwnerCalls[0], /how tall is mount everest/);
+  });
+
+  it("reports an owner-notification failure without losing the saved report", async () => {
+    const data = createInMemoryDataLayer();
+    const { sdk } = makeFakeSdk({
+      dmOwnerResult: { ok: false, error: "No owner is configured (set one via the Home Tab)" },
+    });
+    const tool = createSaveCheatingTool(data, sdk);
+
+    const result = await tool.handler(
+      { cheaterUserId: "U1", questionId: "q1", reason: "caught", evidence: undefined },
+      SESSION,
+    );
+
+    const body = parseResult(result);
+    assert.equal(body.saved, true);
+    assert.equal(body.ownerNotified, false);
+    assert.match(body.ownerNotificationError, /owner is configured/);
+
+    const cheats = await data.loadCheats();
+    assert.equal(cheats.length, 1);
   });
 
   it("subsequent cheats increment the counter", async () => {
     const data = createInMemoryDataLayer();
-    const tool = createSaveCheatingTool(data);
+    const { sdk } = makeFakeSdk();
+    const tool = createSaveCheatingTool(data, sdk);
 
     await tool.handler(
       { cheaterUserId: "U123", questionId: "q1", reason: "first offense", evidence: undefined },
@@ -63,7 +117,8 @@ describe("save_cheating tool", () => {
 
   it("appends each report in order", async () => {
     const data = createInMemoryDataLayer();
-    const tool = createSaveCheatingTool(data);
+    const { sdk } = makeFakeSdk();
+    const tool = createSaveCheatingTool(data, sdk);
 
     await tool.handler(
       { cheaterUserId: "U1", questionId: "q1", reason: "first", evidence: undefined },
@@ -86,9 +141,10 @@ describe("save_cheating tool", () => {
     );
   });
 
-  it("rejects empty reason", async () => {
+  it("rejects empty reason and does not DM the owner", async () => {
     const data = createInMemoryDataLayer();
-    const tool = createSaveCheatingTool(data);
+    const { sdk, dmOwnerCalls } = makeFakeSdk();
+    const tool = createSaveCheatingTool(data, sdk);
 
     const result = await tool.handler(
       { cheaterUserId: "U1", questionId: "q1", reason: "  ", evidence: undefined },
@@ -100,6 +156,7 @@ describe("save_cheating tool", () => {
 
     const cheats = await data.loadCheats();
     assert.equal(cheats.length, 0);
+    assert.equal(dmOwnerCalls.length, 0);
   });
 
   it("preserves existing user fields when incrementing counter", async () => {
@@ -109,7 +166,8 @@ describe("save_cheating tool", () => {
       displayName: "Alice",
       joinedAt: 1_700_000_000_000,
     });
-    const tool = createSaveCheatingTool(data);
+    const { sdk } = makeFakeSdk();
+    const tool = createSaveCheatingTool(data, sdk);
 
     await tool.handler(
       { cheaterUserId: "U99", questionId: "q1", reason: "caught", evidence: undefined },
