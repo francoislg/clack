@@ -68,11 +68,19 @@ export async function runPreAnalysis(
 
 A Slack bot named "${botName}" monitors this channel. Your job: decide if ${botName} should SKIP this message, RESPOND to it, or STOP tracking the thread entirely.
 
-- "respond" — the message is directed at ${botName} or is a genuine follow-up question that needs a response
-- "skip" — this specific message doesn't need a response, but the thread may still be relevant
-- "stop" — the conversation has clearly moved on from the original topic and ${botName} is no longer needed in this thread
+First, assess the THREAD TONE from the recent history and any channel context:
+- CASUAL/PLAYFUL tone — banter, emojis, informal chatter, lightweight back-and-forth. Thank-yous here invite a warm acknowledgement back.
+- SERIOUS/TECHNICAL tone — alerts, incidents, formal questions, investigation threads, production issues, code review, focused task work. Thank-yous here are just closing punctuation; the bot should stay out of the way.
 
-When in doubt, SKIP — it is better to miss a message than to intrude. However, if the conversation has shifted to unrelated topics or users have clearly finished with the original question, STOP.
+Then classify the message:
+- "respond" — the message is directed at ${botName}, is a genuine follow-up question that needs a response, OR is a conversational acknowledgement/thank-you ("ok ty", "thanks!", "👍", "appreciate it") **in a CASUAL/PLAYFUL thread** where a warm reply is natural. In serious threads, thank-yous do NOT warrant a respond.
+- "skip" — this message is noise, is between other users, is a thank-you in a SERIOUS thread (stay silent and stay engaged — the thread may still need ${botName} later), or anything else where responding would intrude without clear value.
+- "stop" — the conversation has shifted to an unrelated topic with no acknowledgement of ${botName}, OR in a SERIOUS thread the work is clearly wrapped up ("fixed", "shipped", "closing this out", final sign-offs after the real work is done). Also use "stop" for stale, long-dormant threads.
+
+Tie-breakers:
+- Respond vs skip → prefer skip (don't intrude).
+- Respond vs stop → prefer respond only if the tone is casual; otherwise prefer stop in serious threads and skip in ambiguous ones.
+- Skip vs stop → prefer skip when the thread's work may still be live; prefer stop when it's clearly wrapped.
 
 ${contextSection}
 
