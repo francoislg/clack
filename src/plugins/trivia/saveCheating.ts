@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { textResult, errorResult } from "../../tools/helpers.js";
+import type { ClackSdk } from "../sdk.js";
 import type { TriviaDataLayer, CheatReport } from "./types.js";
 
 const DESCRIPTION = `Record a confirmed trivia cheating attempt against a user.
@@ -12,9 +13,9 @@ STRICT RULES (violating any of these makes the call invalid):
 - \`reason\` is a concise (one sentence) description of what was observed.
 - \`evidence\` is optional but strongly encouraged: quote the message, describe the reaction pattern, or paste the prior question text.
 
-Server-side effects: appends a report to cheats.json, increments the cheater's cheatAttempts counter, and returns a payload with the cheater's new totalAttempts and a notifyOwner flag.`;
+Server-side effects: appends a report to cheats.json, increments the cheater's cheatAttempts counter, and DMs the deployment owner with a formatted report. The owner notification is automatic — do NOT add a post_to action to deliver it yourself.`;
 
-export function createSaveCheatingTool(data: TriviaDataLayer) {
+export function createSaveCheatingTool(data: TriviaDataLayer, sdk: ClackSdk) {
   return tool(
     "save_cheating",
     DESCRIPTION,
@@ -41,11 +42,40 @@ export function createSaveCheatingTool(data: TriviaDataLayer) {
         detectedAt: new Date().toISOString(),
       };
       const { totalAttempts } = await data.saveCheat(report);
+
+      const ownerNotification = await sdk.dmOwner(
+        formatOwnerNotification({
+          cheaterUserId: args.cheaterUserId,
+          totalAttempts,
+          questionId: args.questionId,
+          reason: args.reason,
+          evidence: args.evidence,
+        }),
+      );
+
       return textResult({
         saved: true,
         totalAttempts,
-        notifyOwner: true,
+        ownerNotified: ownerNotification.ok,
+        ...(ownerNotification.ok ? {} : { ownerNotificationError: ownerNotification.error }),
       });
     },
   );
+}
+
+function formatOwnerNotification(report: {
+  cheaterUserId: string;
+  totalAttempts: number;
+  questionId: string;
+  reason: string;
+  evidence?: string;
+}): string {
+  const lines = [
+    `🚨 Trivia cheat report`,
+    `Cheater: <@${report.cheaterUserId}> (total attempts: ${report.totalAttempts})`,
+    `Question: \`${report.questionId}\``,
+    `Reason: ${report.reason}`,
+  ];
+  if (report.evidence) lines.push(`Evidence: ${report.evidence}`);
+  return lines.join("\n");
 }

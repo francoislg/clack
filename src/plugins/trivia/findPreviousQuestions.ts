@@ -1,7 +1,27 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { textResult } from "../../tools/helpers.js";
-import type { TriviaDataLayer } from "./types.js";
+import type { TriviaDataLayer, TriviaQuestion } from "./types.js";
+
+// The response intentionally omits `isTrue` — the answer key is not search-safe
+// and is reachable only via the admin-tier `get_question_history` tool.
+type SearchResultQuestion = Pick<
+  TriviaQuestion,
+  "id" | "category" | "statement" | "emojis" | "createdAt" | "postedAt" | "messageLink"
+>;
+
+function toSearchResult(q: TriviaQuestion): SearchResultQuestion {
+  const result: SearchResultQuestion = {
+    id: q.id,
+    category: q.category,
+    statement: q.statement,
+    emojis: q.emojis,
+    createdAt: q.createdAt,
+  };
+  if (q.postedAt !== undefined) result.postedAt = q.postedAt;
+  if (q.messageLink !== undefined) result.messageLink = q.messageLink;
+  return result;
+}
 
 export function createFindPreviousQuestionsTool(data: TriviaDataLayer) {
   return tool(
@@ -33,7 +53,10 @@ export function createFindPreviousQuestionsTool(data: TriviaDataLayer) {
         return true;
       });
 
-      const sorted = filtered.sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);
+      const sorted = filtered
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .slice(0, limit)
+        .map(toSearchResult);
 
       return textResult({ questions: sorted, count: sorted.length, total: filtered.length });
     },

@@ -6,6 +6,7 @@ import { createRemoveCategoriesTool } from "./removeCategories.js";
 import { createGetIdeasTool } from "./getIdeas.js";
 import { createSaveQuestionTool } from "./saveQuestion.js";
 import { createFindPreviousQuestionsTool } from "./findPreviousQuestions.js";
+import { createGetQuestionHistoryTool } from "./getQuestionHistory.js";
 import { createSubmitAnswersTool } from "./submitAnswers.js";
 import { createRetrieveScoresTool } from "./retrieveScores.js";
 import { createSaveCheatingTool } from "./saveCheating.js";
@@ -34,11 +35,12 @@ export const triviaPlugin: ClackPlugin = async (sdk: ClackSdk) => {
     createFindPreviousQuestionsTool(data),
     "Searching past trivia questions",
   );
+  sdk.registerTool("admin", createGetQuestionHistoryTool(data), "Loading trivia question history");
   sdk.registerTool("owner", createSubmitAnswersTool(data), "Submitting trivia answers");
   sdk.registerTool("member", createRetrieveScoresTool(data), "Retrieving trivia scores");
 
   // Hidden from Slack task cards — the recorded user must not see this fire.
-  sdk.registerTool("member", createSaveCheatingTool(data), {
+  sdk.registerTool("member", createSaveCheatingTool(data, sdk), {
     label: "Reviewing response",
     hidden: true,
   });
