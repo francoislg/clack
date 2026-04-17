@@ -332,7 +332,13 @@ export class SlackStreamer {
         ...(opts?.blocks && { blocks: opts.blocks }),
       });
     } catch (error) {
-      this.logger.error("Failed to stop chat stream:", error);
+      if (getSlackErrorCode(error) === "message_not_in_streaming_state") {
+        this.logger.warn(
+          "Chat stream expired (message_not_in_streaming_state) before stop, falling back to post",
+        );
+      } else {
+        this.logger.error("Failed to stop chat stream:", error);
+      }
       this.failed = true;
     }
   }
@@ -400,11 +406,7 @@ export class SlackStreamer {
 
       // Slack expires streams server-side after inactivity. This is a known
       // condition — log as warning, not error. The fallback path handles it.
-      const slackError =
-        typeof error === "object" && error !== null && "data" in error
-          ? (error as { data?: { error?: string } }).data?.error
-          : undefined;
-      if (slackError === "message_not_in_streaming_state") {
+      if (getSlackErrorCode(error) === "message_not_in_streaming_state") {
         this.logger.warn(
           "Chat stream expired (message_not_in_streaming_state), falling back to post",
         );
@@ -416,6 +418,11 @@ export class SlackStreamer {
       this.stopKeepalive();
     }
   }
+}
+
+function getSlackErrorCode<E>(error: E): string | undefined {
+  if (typeof error !== "object" || error === null || !("data" in error)) return undefined;
+  return (error as { data?: { error?: string } }).data?.error;
 }
 
 /**
