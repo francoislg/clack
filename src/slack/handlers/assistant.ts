@@ -4,6 +4,7 @@ import { getConfig } from "../../config.js";
 import { logger } from "../../logger.js";
 import { findSessionByThread, updateSession, type SessionContext } from "../../sessions.js";
 import { extractAttachments, type ExtractedAttachments } from "../fileExtractor.js";
+import { PerThreadContextStore } from "./assistantContextStore.js";
 import { processMessage, type ProcessMessageParams } from "./core.js";
 
 type AssistantConstructor = new (handlers: AssistantConfig) => Assistant;
@@ -101,6 +102,7 @@ interface AssistantEventMessage {
 
 export function registerAssistant(app: App, deps: AssistantDeps = defaultAssistantDeps): void {
   const assistant = new deps.Assistant({
+    threadContextStore: new PerThreadContextStore(),
     threadStarted: async ({ event, say, saveThreadContext, setSuggestedPrompts }) => {
       if (!deps.getConfig().directMessages.enabled) return;
       const ctx = event.assistant_thread?.context;
