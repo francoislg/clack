@@ -9,11 +9,13 @@ import { createSubmitResponseTool, type SubmitResponseDeps } from "./submitRespo
 // ---------------------------------------------------------------------------
 
 type StructuredBlocksFn = NonNullable<SubmitResponseDeps["getStructuredResponseBlocks"]>;
-type ValidateBlocksFn = NonNullable<SubmitResponseDeps["validateSlackBlocks"]>;
+type ValidateBlocksFn = NonNullable<SubmitResponseDeps["validateBlocks"]>;
+type ValidateButtonLabelsFn = NonNullable<SubmitResponseDeps["validateActionButtonLabels"]>;
 type ActionBlocksFn = NonNullable<SubmitResponseDeps["getResponseActionBlocks"]>;
 
 const mockGetStructuredResponseBlocks = mock.fn<StructuredBlocksFn>();
-const mockValidateSlackBlocks = mock.fn<ValidateBlocksFn>();
+const mockValidateBlocks = mock.fn<ValidateBlocksFn>();
+const mockValidateActionButtonLabels = mock.fn<ValidateButtonLabelsFn>();
 const mockGetResponseActionBlocks = mock.fn<ActionBlocksFn>();
 
 // ---------------------------------------------------------------------------
@@ -27,8 +29,7 @@ function makeDeps(
     recorder: ToolCallRecorder;
     sessionId: string;
     deliver: (opts: {
-      markdownText: string;
-      blocks?: object[];
+      blocks: object[];
       reactions?: string[];
     }) => Promise<{ ok: true; ts?: string } | { ok: false; error: string }>;
     persistSnapshot: (id: string, snapshot: ResponseSnapshot) => Promise<void>;
@@ -59,10 +60,7 @@ function makeDeps(
   };
 
   const recorder: ToolCallRecorder = {
-    record:
-      mock.fn<
-        (tool: string, args: Record<string, unknown>, result: Record<string, unknown>) => void
-      >(),
+    record: mock.fn<(tool: string, args: object, result: object) => void>(),
     getHistory: mock.fn<() => []>(() => []),
     ...overrides.recorder,
   };
@@ -81,7 +79,8 @@ function makeDeps(
     topLevelDeliveryChannel: overrides.topLevelDeliveryChannel,
     requiredTools: overrides.requiredTools,
     getStructuredResponseBlocks: mockGetStructuredResponseBlocks,
-    validateSlackBlocks: mockValidateSlackBlocks,
+    validateBlocks: mockValidateBlocks,
+    validateActionButtonLabels: mockValidateActionButtonLabels,
     getResponseActionBlocks: mockGetResponseActionBlocks,
   };
 }
@@ -93,6 +92,7 @@ interface ToolAction {
   value?: string;
   ref?: string;
   auto?: boolean;
+  blocks?: unknown[];
   content?: string;
   channel?: string;
   thread_ts?: string;
@@ -100,7 +100,8 @@ interface ToolAction {
 
 interface CallToolArgs {
   message?: string;
-  sections: { title?: string; body: string }[];
+  blocks?: unknown[];
+  sections?: { title?: string; body: string }[];
   actions: ToolAction[];
   reactions?: string[];
 }
@@ -119,6 +120,7 @@ async function callTool(deps: ReturnType<typeof makeDeps>, args: CallToolArgs) {
  */
 interface CallToolRawArgs {
   message?: string;
+  blocks?: unknown[];
   sections?: { title?: string; body: string }[];
   actions?: ToolAction[];
   reactions?: string[];
@@ -134,14 +136,16 @@ async function callToolRawTopLevel(deps: ReturnType<typeof makeDeps>, args: Call
 
 function resetBlockMocks() {
   mockGetStructuredResponseBlocks.mock.resetCalls();
-  mockValidateSlackBlocks.mock.resetCalls();
+  mockValidateBlocks.mock.resetCalls();
+  mockValidateActionButtonLabels.mock.resetCalls();
   mockGetResponseActionBlocks.mock.resetCalls();
 
   // Defaults: valid blocks, no errors
   mockGetStructuredResponseBlocks.mock.mockImplementation(() => [
     { type: "section", text: { type: "mrkdwn", text: "test" } },
   ]);
-  mockValidateSlackBlocks.mock.mockImplementation(() => []);
+  mockValidateBlocks.mock.mockImplementation(() => []);
+  mockValidateActionButtonLabels.mock.mockImplementation(() => []);
   mockGetResponseActionBlocks.mock.mockImplementation(() => []);
 }
 
@@ -153,17 +157,17 @@ describe("createSubmitResponseTool", () => {
   beforeEach(resetBlockMocks);
 
   describe("successful submission", () => {
-    it("returns success result with section and action counts", async () => {
+    it("returns success result with blocks and action counts", async () => {
       const deps = makeDeps();
       const result = await callTool(deps, {
-        sections: [{ body: "Hello world" }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Hello world" } }],
         actions: [],
       });
 
       const parsed = JSON.parse(result.content[0].text);
       assert.equal(parsed.success, true);
       assert.equal(parsed.delivered, false);
-      assert.equal(parsed.sectionsCount, 1);
+      assert.equal(parsed.blocksCount, 1);
       assert.equal(parsed.actionsCount, 0);
     });
 
@@ -184,13 +188,16 @@ describe("createSubmitResponseTool", () => {
       });
 
       await callTool(deps, {
-        sections: [{ body: "Answer text" }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Answer text" } }],
         actions: [],
       });
 
       assert.equal(setCalls.length, 1);
-      const [payload] = setCalls[0] as [{ sections: { body: string }[] }];
-      assert.equal(payload.sections[0].body, "Answer text");
+      const [payload] = setCalls[0] as [
+        { blocks: { type: string; text?: { type: string; text: string } }[] },
+      ];
+      assert.equal(payload.blocks[0].type, "section");
+      assert.equal(payload.blocks[0].text?.text, "Answer text");
     });
 
     it("records the tool call on success", async () => {
@@ -205,7 +212,7 @@ describe("createSubmitResponseTool", () => {
       });
 
       await callTool(deps, {
-        sections: [{ body: "ok" }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "ok" } }],
         actions: [],
       });
 
@@ -219,7 +226,7 @@ describe("createSubmitResponseTool", () => {
       const deps = makeDeps();
       const result = await callTool(deps, {
         message: "Here you go:",
-        sections: [{ body: "The content" }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "The content" } }],
         actions: [],
       });
 
@@ -227,10 +234,16 @@ describe("createSubmitResponseTool", () => {
       assert.equal(parsed.success, true);
     });
 
-    it("handles sections with titles", async () => {
+    it("handles a header block plus a section", async () => {
       const deps = makeDeps();
       const result = await callTool(deps, {
-        sections: [{ title: "Summary", body: "Some summary text" }],
+        blocks: [
+          { type: "header", text: { type: "plain_text", text: "Summary" } },
+          {
+            type: "section",
+            text: { type: "mrkdwn", text: "Some summary text" },
+          },
+        ],
         actions: [],
       });
 
@@ -243,7 +256,12 @@ describe("createSubmitResponseTool", () => {
     it("returns error for unknown ref in change action", async () => {
       const deps = makeDeps();
       const result = await callTool(deps, {
-        sections: [{ body: "Change proposed" }],
+        blocks: [
+          {
+            type: "section",
+            text: { type: "mrkdwn", text: "Change proposed" },
+          },
+        ],
         actions: [{ type: "change", ref: "bad-ref" }],
       });
 
@@ -255,7 +273,7 @@ describe("createSubmitResponseTool", () => {
     it("returns error for unknown ref in config_update action", async () => {
       const deps = makeDeps();
       const result = await callTool(deps, {
-        sections: [{ body: "Config update" }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Config update" } }],
         actions: [{ type: "config_update", ref: "missing-ref" }],
       });
 
@@ -267,7 +285,7 @@ describe("createSubmitResponseTool", () => {
     it("returns error for unknown ref in update action", async () => {
       const deps = makeDeps();
       const result = await callTool(deps, {
-        sections: [{ body: "Update" }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Update" } }],
         actions: [{ type: "update", ref: "nope" }],
       });
 
@@ -290,7 +308,7 @@ describe("createSubmitResponseTool", () => {
       });
 
       const result = await callTool(deps, {
-        sections: [{ body: "Mismatch" }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Mismatch" } }],
         actions: [{ type: "change", ref: "ref-1" }],
       });
 
@@ -315,7 +333,7 @@ describe("createSubmitResponseTool", () => {
       });
 
       const result = await callTool(deps, {
-        sections: [{ body: "Change it" }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Change it" } }],
         actions: [{ type: "change", ref: "ref-1" }],
       });
 
@@ -326,7 +344,7 @@ describe("createSubmitResponseTool", () => {
     it("does not validate refs for followup actions", async () => {
       const deps = makeDeps();
       const result = await callTool(deps, {
-        sections: [{ body: "Follow up" }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Follow up" } }],
         actions: [{ type: "followup", label: "More", prompt: "Tell me more" }],
       });
 
@@ -337,7 +355,7 @@ describe("createSubmitResponseTool", () => {
     it("does not validate refs for choice actions", async () => {
       const deps = makeDeps();
       const result = await callTool(deps, {
-        sections: [{ body: "Pick one" }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Pick one" } }],
         actions: [{ type: "choice", label: "Option A", value: "a" }],
       });
 
@@ -357,7 +375,7 @@ describe("createSubmitResponseTool", () => {
       });
 
       await callTool(deps, {
-        sections: [{ body: "bad" }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "bad" } }],
         actions: [{ type: "change", ref: "bad-ref" }],
       });
 
@@ -375,17 +393,35 @@ describe("createSubmitResponseTool", () => {
           stage: () => "ref-1",
           resolve: (ref: string) =>
             ref === "ref-1"
-              ? { type: "change" as const, branch: "feat/x", description: "do stuff", repo: "r" }
+              ? {
+                  type: "change" as const,
+                  branch: "feat/x",
+                  description: "do stuff",
+                  repo: "r",
+                }
               : undefined,
           getAll: () =>
             new Map<string, StagedIntent>([
-              ["ref-1", { type: "change", branch: "feat/x", description: "do stuff", repo: "r" }],
+              [
+                "ref-1",
+                {
+                  type: "change",
+                  branch: "feat/x",
+                  description: "do stuff",
+                  repo: "r",
+                },
+              ],
             ]),
         },
       });
 
       const result = await callTool(deps, {
-        sections: [{ body: "I'll set that up for you" }],
+        blocks: [
+          {
+            type: "section",
+            text: { type: "mrkdwn", text: "I'll set that up for you" },
+          },
+        ],
         actions: [],
       });
 
@@ -401,17 +437,35 @@ describe("createSubmitResponseTool", () => {
           stage: () => "ref-1",
           resolve: (ref: string) =>
             ref === "ref-1"
-              ? { type: "change" as const, branch: "feat/x", description: "do stuff", repo: "r" }
+              ? {
+                  type: "change" as const,
+                  branch: "feat/x",
+                  description: "do stuff",
+                  repo: "r",
+                }
               : undefined,
           getAll: () =>
             new Map<string, StagedIntent>([
-              ["ref-1", { type: "change", branch: "feat/x", description: "do stuff", repo: "r" }],
+              [
+                "ref-1",
+                {
+                  type: "change",
+                  branch: "feat/x",
+                  description: "do stuff",
+                  repo: "r",
+                },
+              ],
             ]),
         },
       });
 
       const result = await callTool(deps, {
-        sections: [{ body: "Here's the change" }],
+        blocks: [
+          {
+            type: "section",
+            text: { type: "mrkdwn", text: "Here's the change" },
+          },
+        ],
         actions: [{ type: "change", ref: "ref-1" }],
       });
 
@@ -433,7 +487,7 @@ describe("createSubmitResponseTool", () => {
       });
 
       const result = await callTool(deps, {
-        sections: [{ body: "Done" }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Done" } }],
         actions: [],
       });
 
@@ -444,7 +498,7 @@ describe("createSubmitResponseTool", () => {
     it("passes when no intents are staged", async () => {
       const deps = makeDeps();
       const result = await callTool(deps, {
-        sections: [{ body: "Simple answer" }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Simple answer" } }],
         actions: [],
       });
 
@@ -458,7 +512,7 @@ describe("createSubmitResponseTool", () => {
       const deps = makeDeps();
       const longBody = "x".repeat(10001);
       const result = await callTool(deps, {
-        sections: [{ body: longBody }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: longBody } }],
         actions: [],
       });
 
@@ -473,7 +527,7 @@ describe("createSubmitResponseTool", () => {
       // message + section body + formatting exceeds limit
       const result = await callTool(deps, {
         message: "a".repeat(5000),
-        sections: [{ body: "b".repeat(5001) }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "b".repeat(5001) } }],
         actions: [],
       });
 
@@ -495,7 +549,12 @@ describe("createSubmitResponseTool", () => {
       });
 
       await callTool(deps, {
-        sections: [{ body: "x".repeat(10001) }],
+        blocks: [
+          {
+            type: "section",
+            text: { type: "mrkdwn", text: "x".repeat(10001) },
+          },
+        ],
         actions: [],
       });
 
@@ -507,7 +566,7 @@ describe("createSubmitResponseTool", () => {
 
   describe("block validation errors", () => {
     it("returns error when validateSlackBlocks reports violations", async () => {
-      mockValidateSlackBlocks.mock.mockImplementation(() => [
+      mockValidateBlocks.mock.mockImplementation(() => [
         {
           field: "section[0].text",
           message: "text too long",
@@ -518,7 +577,7 @@ describe("createSubmitResponseTool", () => {
 
       const deps = makeDeps();
       const result = await callTool(deps, {
-        sections: [{ body: "ok" }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "ok" } }],
         actions: [],
       });
 
@@ -530,7 +589,7 @@ describe("createSubmitResponseTool", () => {
     });
 
     it("does not deliver or capture when blocks are invalid", async () => {
-      mockValidateSlackBlocks.mock.mockImplementation(() => [
+      mockValidateBlocks.mock.mockImplementation(() => [
         { field: "blocks", message: "too many", currentLength: 60, limit: 50 },
       ]);
 
@@ -555,7 +614,7 @@ describe("createSubmitResponseTool", () => {
       });
 
       await callTool(deps, {
-        sections: [{ body: "ok" }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "ok" } }],
         actions: [],
       });
 
@@ -575,7 +634,12 @@ describe("createSubmitResponseTool", () => {
       });
 
       const result = await callTool(deps, {
-        sections: [{ body: "Delivered answer" }],
+        blocks: [
+          {
+            type: "section",
+            text: { type: "mrkdwn", text: "Delivered answer" },
+          },
+        ],
         actions: [],
       });
 
@@ -584,21 +648,21 @@ describe("createSubmitResponseTool", () => {
       assert.equal(deliverCalls.length, 1);
     });
 
-    it("passes markdownText to deliver", async () => {
-      let receivedText = "";
+    it("passes rendered blocks to deliver", async () => {
+      let receivedBlocks: object[] = [];
       const deps = makeDeps({
-        deliver: async (opts: { markdownText: string }) => {
-          receivedText = opts.markdownText;
+        deliver: async (opts: { blocks: object[] }) => {
+          receivedBlocks = opts.blocks;
           return { ok: true as const };
         },
       });
 
       await callTool(deps, {
-        sections: [{ body: "The answer" }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "The answer" } }],
         actions: [],
       });
 
-      assert.equal(receivedText, "The answer");
+      assert.ok(receivedBlocks.length > 0);
     });
 
     it("includes blocks in deliver when action blocks are present", async () => {
@@ -608,37 +672,38 @@ describe("createSubmitResponseTool", () => {
 
       let receivedBlocks: unknown;
       const deps = makeDeps({
-        deliver: async (opts: { markdownText: string; blocks?: unknown[] }) => {
+        deliver: async (opts: { blocks: object[] }) => {
           receivedBlocks = opts.blocks;
           return { ok: true as const };
         },
       });
 
       await callTool(deps, {
-        sections: [{ body: "With actions" }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "With actions" } }],
         actions: [{ type: "followup", label: "More", prompt: "more" }],
       });
 
       assert.ok(Array.isArray(receivedBlocks));
     });
 
-    it("does not include blocks key when no action blocks", async () => {
+    it("still delivers the response blocks even when no action blocks are present", async () => {
       mockGetResponseActionBlocks.mock.mockImplementation(() => []);
 
-      let receivedOpts: Record<string, unknown> = {};
+      let receivedBlocks: object[] | undefined;
       const deps = makeDeps({
-        deliver: async (opts) => {
-          receivedOpts = opts as Record<string, unknown>;
+        deliver: async (opts: { blocks: object[] }) => {
+          receivedBlocks = opts.blocks;
           return { ok: true as const };
         },
       });
 
       await callTool(deps, {
-        sections: [{ body: "No actions" }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "No actions" } }],
         actions: [],
       });
 
-      assert.equal("blocks" in receivedOpts, false);
+      // The `blocks` key carries the full response rendering (no longer gated on action buttons).
+      assert.ok(Array.isArray(receivedBlocks));
     });
 
     it("returns error when delivery fails", async () => {
@@ -650,7 +715,7 @@ describe("createSubmitResponseTool", () => {
       });
 
       const result = await callTool(deps, {
-        sections: [{ body: "Will fail" }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Will fail" } }],
         actions: [],
       });
 
@@ -673,7 +738,7 @@ describe("createSubmitResponseTool", () => {
       });
 
       await callTool(deps, {
-        sections: [{ body: "Fail" }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Fail" } }],
         actions: [],
       });
 
@@ -700,7 +765,7 @@ describe("createSubmitResponseTool", () => {
       });
 
       await callTool(deps, {
-        sections: [{ body: "No deliver" }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "No deliver" } }],
         actions: [],
       });
 
@@ -717,7 +782,7 @@ describe("createSubmitResponseTool", () => {
       });
 
       await callTool(deps, {
-        sections: [{ body: "With reactions" }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "With reactions" } }],
         actions: [],
         reactions: ["thumbsup", "eyes"],
       });
@@ -735,7 +800,7 @@ describe("createSubmitResponseTool", () => {
       });
 
       await callTool(deps, {
-        sections: [{ body: "No reactions" }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "No reactions" } }],
         actions: [],
       });
 
@@ -746,7 +811,7 @@ describe("createSubmitResponseTool", () => {
       const deps = makeDeps();
 
       const result = await callTool(deps, {
-        sections: [{ body: "No deliver" }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "No deliver" } }],
         actions: [],
         reactions: ["thumbsup"],
       });
@@ -766,7 +831,7 @@ describe("createSubmitResponseTool", () => {
       });
 
       const result = await callTool(deps, {
-        sections: [{ body: "No buttons" }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "No buttons" } }],
         actions: [],
       });
 
@@ -784,19 +849,36 @@ describe("createSubmitResponseTool", () => {
       });
 
       await callTool(deps, {
-        sections: [{ body: "Option 1" }, { body: "Option 2" }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Options" } }],
         actions: [
-          { type: "post_to", content: "Option 1 text", label: "Send 1" },
-          { type: "post_to", content: "Option 2 text", label: "Send 2" },
+          {
+            type: "post_to",
+            blocks: [
+              {
+                type: "section",
+                text: { type: "mrkdwn", text: "Option 1 text" },
+              },
+            ],
+            label: "Send 1",
+          },
+          {
+            type: "post_to",
+            blocks: [
+              {
+                type: "section",
+                text: { type: "mrkdwn", text: "Option 2 text" },
+              },
+            ],
+            label: "Send 2",
+          },
         ],
       });
 
       assert.equal(snapshots.length, 2);
       assert.equal(snapshots[0].snapshot.text, "Option 1 text");
       assert.equal(snapshots[1].snapshot.text, "Option 2 text");
-      // Each snapshot should have the content as a single section
-      assert.equal(snapshots[0].snapshot.sections[0].body, "Option 1 text");
-      assert.equal(snapshots[1].snapshot.sections[0].body, "Option 2 text");
+      assert.equal(snapshots[0].snapshot.blocks.length, 1);
+      assert.equal(snapshots[1].snapshot.blocks.length, 1);
       // IDs should be unique
       assert.notEqual(snapshots[0].id, snapshots[1].id);
     });
@@ -822,8 +904,13 @@ describe("createSubmitResponseTool", () => {
       });
 
       await callTool(deps, {
-        sections: [{ body: "Answer" }],
-        actions: [{ type: "post_to", content: "Share this" }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Answer" } }],
+        actions: [
+          {
+            type: "post_to",
+            blocks: [{ type: "section", text: { type: "mrkdwn", text: "Share this" } }],
+          },
+        ],
       });
 
       const [payload] = setCalls[0] as [{ actions: { _snapshotId?: string }[] }];
@@ -847,8 +934,13 @@ describe("createSubmitResponseTool", () => {
       });
 
       await callTool(deps, {
-        sections: [{ body: "no persist" }],
-        actions: [{ type: "post_to", content: "text" }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "no persist" } }],
+        actions: [
+          {
+            type: "post_to",
+            blocks: [{ type: "section", text: { type: "mrkdwn", text: "text" } }],
+          },
+        ],
       });
 
       const [payload] = setCalls[0] as [{ actions: { _snapshotId?: string }[] }];
@@ -942,7 +1034,12 @@ describe("createSubmitResponseTool", () => {
       });
       const result = await callToolRaw(deps, {
         disengage: true,
-        sections: [{ body: "You're welcome!" }],
+        blocks: [
+          {
+            type: "section",
+            text: { type: "mrkdwn", text: "You're welcome!" },
+          },
+        ],
         actions: [],
       });
 
@@ -999,19 +1096,22 @@ describe("createSubmitResponseTool", () => {
     it("normal flow unchanged when allowSkip is true but skip_response is absent", async () => {
       const deps = makeDeps({ allowSkip: true });
       const result = await callTool(deps, {
-        sections: [{ body: "Hello" }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Hello" } }],
         actions: [],
       });
 
       const parsed = JSON.parse(result.content[0].text);
       assert.equal(parsed.success, true);
       assert.equal(parsed.skipped, undefined);
-      assert.equal(parsed.sectionsCount, 1);
+      assert.equal(parsed.blocksCount, 1);
     });
 
     it("delivery_failed on normal+disengage path does not mark capture as disengaged", async () => {
       const setDisengagedFn = mock.fn<() => void>();
-      const failingDeliver = mock.fn(async () => ({ ok: false as const, error: "network down" }));
+      const failingDeliver = mock.fn(async () => ({
+        ok: false as const,
+        error: "network down",
+      }));
       const deps = makeDeps({
         allowSkip: true,
         deliver: failingDeliver,
@@ -1022,7 +1122,12 @@ describe("createSubmitResponseTool", () => {
       });
       const result = await callToolRaw(deps, {
         disengage: true,
-        sections: [{ body: "You're welcome!" }],
+        blocks: [
+          {
+            type: "section",
+            text: { type: "mrkdwn", text: "You're welcome!" },
+          },
+        ],
         actions: [],
       });
 
@@ -1044,7 +1149,7 @@ describe("createSubmitResponseTool", () => {
       });
       const result = await callToolRaw(deps, {
         disengage: true,
-        sections: [{ body: "Got it" }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Got it" } }],
         actions: [],
       });
 
@@ -1065,7 +1170,12 @@ describe("createSubmitResponseTool", () => {
       });
       const result = await callToolRaw(deps, {
         disengage: true,
-        sections: [{ body: "Thanks, talk later." }],
+        blocks: [
+          {
+            type: "section",
+            text: { type: "mrkdwn", text: "Thanks, talk later." },
+          },
+        ],
         actions: [],
       });
 
@@ -1078,7 +1188,10 @@ describe("createSubmitResponseTool", () => {
 
     it("allowDisengage without allowSkip still blocks disengage on delivery failure", async () => {
       const setDisengagedFn = mock.fn<() => void>();
-      const failingDeliver = mock.fn(async () => ({ ok: false as const, error: "network down" }));
+      const failingDeliver = mock.fn(async () => ({
+        ok: false as const,
+        error: "network down",
+      }));
       const deps = makeDeps({
         allowDisengage: true,
         deliver: failingDeliver,
@@ -1089,7 +1202,7 @@ describe("createSubmitResponseTool", () => {
       });
       const result = await callToolRaw(deps, {
         disengage: true,
-        sections: [{ body: "done" }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "done" } }],
         actions: [],
       });
 
@@ -1102,7 +1215,7 @@ describe("createSubmitResponseTool", () => {
     it("passes postTopLevel: true to deliver when allowed and set", async () => {
       const deliverCalls: { postTopLevel?: boolean }[] = [];
       const deliver = async (opts: {
-        markdownText: string;
+        blocks: object[];
         postTopLevel?: boolean;
       }): Promise<{ ok: true; ts?: string } | { ok: false; error: string }> => {
         deliverCalls.push({ postTopLevel: opts.postTopLevel });
@@ -1115,7 +1228,7 @@ describe("createSubmitResponseTool", () => {
       });
       const result = await callToolRawTopLevel(deps, {
         post_top_level: true,
-        sections: [{ body: "Broadcast this" }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Broadcast this" } }],
         actions: [],
       });
 
@@ -1130,7 +1243,7 @@ describe("createSubmitResponseTool", () => {
     it("omits postTopLevel on deliver when allowed but not set", async () => {
       const deliverCalls: { postTopLevel?: boolean }[] = [];
       const deliver = async (opts: {
-        markdownText: string;
+        blocks: object[];
         postTopLevel?: boolean;
       }): Promise<{ ok: true; ts?: string } | { ok: false; error: string }> => {
         deliverCalls.push({ postTopLevel: opts.postTopLevel });
@@ -1142,7 +1255,7 @@ describe("createSubmitResponseTool", () => {
         deliver,
       });
       await callTool(deps, {
-        sections: [{ body: "normal" }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "normal" } }],
         actions: [],
       });
 
@@ -1157,13 +1270,18 @@ describe("createSubmitResponseTool", () => {
       });
       const result = await callToolRawTopLevel(deps, {
         post_top_level: true,
-        sections: [{ body: "answer" }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "answer" } }],
         actions: [
           {
             type: "post_to",
             auto: true,
             channel: "C_SESSION",
-            content: "duplicate broadcast",
+            blocks: [
+              {
+                type: "section",
+                text: { type: "mrkdwn", text: "duplicate broadcast" },
+              },
+            ],
           },
         ],
       });
@@ -1180,13 +1298,18 @@ describe("createSubmitResponseTool", () => {
       });
       const result = await callToolRawTopLevel(deps, {
         post_top_level: true,
-        sections: [{ body: "answer" }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "answer" } }],
         actions: [
           {
             type: "post_to",
             auto: true,
             channel: "C_OTHER",
-            content: "cross-channel broadcast",
+            blocks: [
+              {
+                type: "section",
+                text: { type: "mrkdwn", text: "cross-channel broadcast" },
+              },
+            ],
           },
         ],
       });
@@ -1201,14 +1324,22 @@ describe("createSubmitResponseTool", () => {
       });
       const result = await callToolRawTopLevel(deps, {
         post_top_level: true,
-        sections: [{ body: "answer" }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "answer" } }],
         actions: [
           {
             type: "post_to",
             auto: true,
             channel: "C_SESSION",
             thread_ts: "1234.5678",
-            content: "reply to a specific thread in the same channel",
+            blocks: [
+              {
+                type: "section",
+                text: {
+                  type: "mrkdwn",
+                  text: "reply to a specific thread in the same channel",
+                },
+              },
+            ],
           },
         ],
       });
@@ -1221,7 +1352,7 @@ describe("createSubmitResponseTool", () => {
     it("no required tools — delivery proceeds", async () => {
       const deps = makeDeps({ requiredTools: [] });
       const result = await callTool(deps, {
-        sections: [{ body: "Hello" }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Hello" } }],
         actions: [],
       });
       const parsed = JSON.parse(result.content[0].text);
@@ -1244,7 +1375,7 @@ describe("createSubmitResponseTool", () => {
         },
       });
       const result = await callTool(deps, {
-        sections: [{ body: "Hello" }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Hello" } }],
         actions: [],
       });
       const parsed = JSON.parse(result.content[0].text);
@@ -1255,8 +1386,7 @@ describe("createSubmitResponseTool", () => {
       const deliverFn =
         mock.fn<
           (opts: {
-            markdownText: string;
-            blocks?: object[];
+            blocks: object[];
             reactions?: string[];
           }) => Promise<{ ok: true; ts?: string } | { ok: false; error: string }>
         >();
@@ -1265,7 +1395,7 @@ describe("createSubmitResponseTool", () => {
         deliver: deliverFn,
       });
       const result = await callTool(deps, {
-        sections: [{ body: "Hello" }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Hello" } }],
         actions: [],
       });
 
@@ -1281,12 +1411,17 @@ describe("createSubmitResponseTool", () => {
         recorder: {
           record: mock.fn<ToolCallRecorder["record"]>(),
           getHistory: () => [
-            { tool: "mcp__trivia__submit_answers", args: {}, result: {}, timestamp: 1 },
+            {
+              tool: "mcp__trivia__submit_answers",
+              args: {},
+              result: {},
+              timestamp: 1,
+            },
           ],
         },
       });
       const result = await callTool(deps, {
-        sections: [{ body: "Hello" }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Hello" } }],
         actions: [],
       });
 
@@ -1315,7 +1450,7 @@ describe("createSubmitResponseTool", () => {
         },
       });
       const result = await callTool(deps, {
-        sections: [{ body: "Hello" }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Hello" } }],
         actions: [],
       });
       const parsed = JSON.parse(result.content[0].text);

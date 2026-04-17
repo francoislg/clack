@@ -1,16 +1,18 @@
-import type { KnownBlock, Block } from "@slack/types";
-import { convertMarkdownToSlack, splitForSlack } from "../claude/formatting.js";
-import type { SubmitResponsePayload, Action, ResponseSection } from "../tools/types.js";
+import type {
+  KnownBlock,
+  Block as SlackRawBlock,
+  ActionsBlock,
+  Button,
+  DividerBlock,
+  SectionBlock,
+} from "@slack/types";
+import type { Block } from "./blockSchema.js";
+import { prepareBlocks } from "./blockPrepare.js";
+import type { BlockValidationError } from "./blockValidate.js";
+import type { SubmitResponsePayload, Action } from "../tools/types.js";
 
 /** Slack Block Kit block array type — used by all block builders */
-export type SlackBlocks = (KnownBlock | Block)[];
-
-function answerSections(answer: string) {
-  return splitForSlack(convertMarkdownToSlack(answer)).map((chunk) => ({
-    type: "section" as const,
-    text: { type: "mrkdwn" as const, text: chunk },
-  }));
-}
+export type SlackBlocks = (KnownBlock | SlackRawBlock)[];
 
 // ============================================================================
 // Structured Response Rendering (new path — from submit_response tool)
@@ -61,6 +63,31 @@ function encodeActionValue(sessionId: string, action: Action): string {
   }
 }
 
+/** Wire shape produced by encodeActionValue; all fields optional at the wire level. */
+interface EncodedActionValue {
+  s?: string;
+  r?: string;
+  v?: string;
+  p?: string;
+  h?: string;
+  w?: boolean;
+  c?: string;
+  t?: string;
+  sn?: string;
+}
+
+function tryParseEncodedActionValue(value: string): EncodedActionValue | null {
+  try {
+    const raw = JSON.parse(value);
+    if (typeof raw === "object" && raw !== null && !Array.isArray(raw)) {
+      return raw;
+    }
+  } catch {
+    // Not JSON — fall through
+  }
+  return null;
+}
+
 /** Decode a button value to extract sessionId */
 export function decodeActionValue(value: string): {
   sessionId: string;
@@ -73,59 +100,34 @@ export function decodeActionValue(value: string): {
   targetThreadTs?: string;
   snapshotId?: string;
 } {
-  // Try JSON first
-  try {
-    const parsed: unknown = JSON.parse(value);
-    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-      const obj = parsed as Record<string, unknown>;
-      if (typeof obj.s === "string") {
-        return {
-          sessionId: obj.s,
-          ref: typeof obj.r === "string" ? obj.r : undefined,
-          choiceValue: typeof obj.v === "string" ? obj.v : undefined,
-          prompt: typeof obj.p === "string" ? obj.p : undefined,
-          hint: typeof obj.h === "string" ? obj.h : undefined,
-          workMode: obj.w === true ? true : undefined,
-          targetChannel: typeof obj.c === "string" ? obj.c : undefined,
-          targetThreadTs: typeof obj.t === "string" ? obj.t : undefined,
-          snapshotId: typeof obj.sn === "string" ? obj.sn : undefined,
-        };
-      }
-    }
-  } catch {
-    // Not JSON — plain sessionId (backward compat)
+  const obj = tryParseEncodedActionValue(value);
+  if (obj && typeof obj.s === "string") {
+    return {
+      sessionId: obj.s,
+      ref: typeof obj.r === "string" ? obj.r : undefined,
+      choiceValue: typeof obj.v === "string" ? obj.v : undefined,
+      prompt: typeof obj.p === "string" ? obj.p : undefined,
+      hint: typeof obj.h === "string" ? obj.h : undefined,
+      workMode: obj.w === true ? true : undefined,
+      targetChannel: typeof obj.c === "string" ? obj.c : undefined,
+      targetThreadTs: typeof obj.t === "string" ? obj.t : undefined,
+      snapshotId: typeof obj.sn === "string" ? obj.sn : undefined,
+    };
   }
   return { sessionId: value };
 }
 
-/** Render sections from SubmitResponsePayload into Slack blocks */
-function renderSections(sections: ResponseSection[]) {
-  const blocks: Record<string, unknown>[] = [];
-  for (const section of sections) {
-    const text = section.title ? `*${section.title}*\n${section.body}` : section.body;
-    // Split long sections to fit Slack limits
-    const chunks = splitForSlack(convertMarkdownToSlack(text));
-    for (const chunk of chunks) {
-      blocks.push({
-        type: "section" as const,
-        text: { type: "mrkdwn" as const, text: chunk },
-      });
-    }
-  }
-  return blocks;
-}
-
 /** Map an Action to a Slack button element */
-function actionToButton(action: Action, sessionId: string, index: number) {
+function actionToButton(action: Action, sessionId: string, index: number): Button {
   const label = ("label" in action && action.label) || DEFAULT_LABELS[action.type] || action.type;
   const style = ACTION_STYLES[action.type];
 
   // Append index to action_id to guarantee uniqueness within a message.
   // Handlers use regex matching (e.g. /^clack_followup/) to route all variants.
-  const button: Record<string, unknown> = {
-    type: "button" as const,
+  const button: Button = {
+    type: "button",
     text: {
-      type: "plain_text" as const,
+      type: "plain_text",
       text: label,
       emoji: true,
     },
@@ -141,47 +143,20 @@ function actionToButton(action: Action, sessionId: string, index: number) {
 }
 
 /**
- * Build Slack blocks from a structured SubmitResponsePayload.
- * This is the new rendering path — Claude controls sections and actions.
+ * Bridge cast at the Slack API boundary for places that still build block
+ * arrays as record-shaped values. New code should type blocks properly and
+ * pass them directly.
  */
-/**
- * Cast block builder output to the Slack API block array type.
- * Our block builders use Record<string, unknown> for flexibility; Slack's API
- * expects (KnownBlock | Block)[]. This centralizes the boundary cast.
- */
-export function asSlackBlocks(blocks: Record<string, unknown>[]): SlackBlocks {
-  return blocks as unknown as SlackBlocks;
-}
-
-export function getStructuredResponseBlocks(payload: SubmitResponsePayload, sessionId: string) {
-  const blocks: Record<string, unknown>[] = [];
-
-  // Prepend conversational preamble if present (shown to user, excluded from post_to)
-  if (payload.message) {
-    const messageChunks = splitForSlack(convertMarkdownToSlack(payload.message));
-    for (const chunk of messageChunks) {
-      blocks.push({
-        type: "section" as const,
-        text: { type: "mrkdwn" as const, text: chunk },
-      });
-    }
-  }
-
-  blocks.push(...renderSections(payload.sections));
-
-  const actionBlocks = getResponseActionBlocks(payload.actions, sessionId);
-  if (actionBlocks.length === 0) {
-    return blocks;
-  }
-
-  return [...blocks, { type: "divider" as const }, ...actionBlocks];
+export function asSlackBlocks(blocks: SlackBlocks): SlackBlocks {
+  return blocks;
 }
 
 /**
- * Build only the action button blocks for a response (no answer sections).
- * Used by streaming to append buttons without duplicating the answer text.
+ * Build only the action button blocks for a response (no answer content).
+ * Used by streaming to append buttons without duplicating the answer text,
+ * and by the main renderer to append buttons after content blocks.
  */
-export function getResponseActionBlocks(actions: Action[], sessionId: string) {
+export function getResponseActionBlocks(actions: Action[], sessionId: string): ActionsBlock[] {
   // Filter out auto-executed actions — they fire immediately, no button needed
   const buttonActions = actions.filter(
     (a) => !("auto" in a && (a as { auto?: boolean }).auto === true),
@@ -198,130 +173,131 @@ export function getResponseActionBlocks(actions: Action[], sessionId: string) {
   }
 
   let globalIndex = 0;
-  return actionChunks.map((chunk) => ({
-    type: "actions" as const,
-    elements: chunk.map((action) => actionToButton(action, sessionId, globalIndex++)),
-  }));
-}
-
-/**
- * Build Slack blocks for the accepted (public) response from structured sections.
- */
-export function getStructuredAcceptedBlocks(sections: ResponseSection[]) {
-  return renderSections(sections);
-}
-
-export function getAcceptedBlocks(answer: string) {
-  return answerSections(answer);
-}
-
-export function getErrorBlocks(message: string) {
-  return [
-    {
-      type: "section" as const,
-      text: {
-        type: "mrkdwn" as const,
-        text: `:x: ${message}`,
-      },
-    },
-  ];
-}
-
-export function getErrorBlocksWithRetry(sessionId: string) {
-  return [
-    {
-      type: "section" as const,
-      text: {
-        type: "mrkdwn" as const,
-        text: ":warning: Claude seems to have crashed, maybe try again?",
-      },
-    },
-    {
-      type: "actions" as const,
-      elements: [
-        {
-          type: "button" as const,
-          text: {
-            type: "plain_text" as const,
-            text: "🔄 Try Again",
-            emoji: true,
-          },
-          action_id: "clack_retry",
-          value: sessionId,
-        },
-      ],
-    },
-  ];
+  return actionChunks.map(
+    (chunk): ActionsBlock => ({
+      type: "actions",
+      elements: chunk.map((action) => actionToButton(action, sessionId, globalIndex++)),
+    }),
+  );
 }
 
 // ============================================================================
-// Block Validation
+// Claude-authored block rendering (new path — blocks-based)
 // ============================================================================
 
-const SLACK_SECTION_TEXT_LIMIT = 3000;
-const SLACK_BUTTON_LABEL_LIMIT = 75;
-const SLACK_MAX_BLOCKS = 50;
-
-export interface BlockValidationError {
-  field: string;
-  message: string;
-  currentLength: number;
-  limit: number;
-}
-
 /**
- * Validate rendered Slack blocks against known Block Kit constraints.
- * Returns an empty array if valid, or an array of errors describing each violation.
+ * Build the Slack Block Kit output for a submit_response payload:
+ *   - Prepend `message` preamble as a section block (if present).
+ *   - Include Claude-authored `blocks` (after markdown conversion + splits).
+ *   - Append action buttons with a divider separator.
+ *
+ * Validation is the caller's responsibility and should run on this output
+ * (so the 50-block total includes action blocks).
  */
-export function validateSlackBlocks(blocks: Record<string, unknown>[]): BlockValidationError[] {
-  const errors: BlockValidationError[] = [];
+export function getStructuredResponseBlocks(
+  payload: SubmitResponsePayload,
+  sessionId: string,
+): SlackBlocks {
+  const out: SlackBlocks = [];
 
-  // Check total block count
-  if (blocks.length > SLACK_MAX_BLOCKS) {
-    errors.push({
-      field: "blocks",
-      message: `Total block count (${blocks.length}) exceeds the ${SLACK_MAX_BLOCKS}-block limit. Reduce the number of sections.`,
-      currentLength: blocks.length,
-      limit: SLACK_MAX_BLOCKS,
-    });
+  if (payload.message) {
+    const preamble: SectionBlock = {
+      type: "section",
+      text: { type: "mrkdwn", text: payload.message },
+    };
+    out.push(preamble);
   }
 
-  let sectionIndex = 0;
-  let actionsBlockIndex = 0;
+  for (const b of prepareBlocks(payload.blocks)) {
+    out.push(b);
+  }
 
-  for (const block of blocks) {
-    if (block.type === "section") {
-      const textObj = block.text as { text?: string } | undefined;
-      const text = textObj?.text ?? "";
-      if (text.length > SLACK_SECTION_TEXT_LIMIT) {
+  const actionBlocks = getResponseActionBlocks(payload.actions, sessionId);
+  if (actionBlocks.length === 0) {
+    return out;
+  }
+
+  const divider: DividerBlock = { type: "divider" };
+  return [...out, divider, ...actionBlocks];
+}
+
+/**
+ * Build blocks for the accepted (shareable, post_to) payload — just the
+ * authored blocks after markdown conversion + splitting. Excludes the
+ * conversational `message` preamble by contract.
+ */
+export function getStructuredAcceptedBlocks(blocks: Block[]): SlackBlocks {
+  return prepareBlocks(blocks);
+}
+
+export function getErrorBlocks(message: string): SlackBlocks {
+  const block: SectionBlock = {
+    type: "section",
+    text: {
+      type: "mrkdwn",
+      text: `:x: ${message}`,
+    },
+  };
+  return [block];
+}
+
+export function getErrorBlocksWithRetry(sessionId: string): SlackBlocks {
+  const section: SectionBlock = {
+    type: "section",
+    text: {
+      type: "mrkdwn",
+      text: ":warning: Claude seems to have crashed, maybe try again?",
+    },
+  };
+  const actions: ActionsBlock = {
+    type: "actions",
+    elements: [
+      {
+        type: "button",
+        text: {
+          type: "plain_text",
+          text: "🔄 Try Again",
+          emoji: true,
+        },
+        action_id: "clack_retry",
+        value: sessionId,
+      },
+    ],
+  };
+  return [section, actions];
+}
+
+// ============================================================================
+// Button-label validation (kept here since action-button rendering lives here)
+// ============================================================================
+
+const SLACK_BUTTON_LABEL_LIMIT = 75;
+
+/** Re-exported for callers that only need the button-label validator. */
+export type ButtonLabelValidationError = BlockValidationError;
+
+/**
+ * Validate action-button labels against Slack's 75-char limit. Returns an
+ * empty array if valid. Call after `getResponseActionBlocks` builds the
+ * action blocks, since label length is determined at that point.
+ */
+export function validateActionButtonLabels(
+  actionBlocks: ActionsBlock[],
+): ButtonLabelValidationError[] {
+  const errors: ButtonLabelValidationError[] = [];
+  actionBlocks.forEach((block, bi) => {
+    block.elements.forEach((el, ei) => {
+      if (el.type !== "button") return;
+      const label = el.text.text;
+      if (label.length > SLACK_BUTTON_LABEL_LIMIT) {
         errors.push({
-          field: `section[${sectionIndex}]`,
-          message: `Section text (${text.length} chars) exceeds the ${SLACK_SECTION_TEXT_LIMIT}-char limit. Shorten the content.`,
-          currentLength: text.length,
-          limit: SLACK_SECTION_TEXT_LIMIT,
+          field: `actions[${bi}].button[${ei}]`,
+          message: `Button label "${label}" (${label.length} chars) exceeds the ${SLACK_BUTTON_LABEL_LIMIT}-char limit.`,
+          currentLength: label.length,
+          limit: SLACK_BUTTON_LABEL_LIMIT,
         });
       }
-      sectionIndex++;
-    } else if (block.type === "actions") {
-      const elements = (block.elements ?? []) as Record<string, unknown>[];
-      for (let i = 0; i < elements.length; i++) {
-        const el = elements[i];
-        if (el.type === "button") {
-          const textObj = el.text as { text?: string } | undefined;
-          const label = textObj?.text ?? "";
-          if (label.length > SLACK_BUTTON_LABEL_LIMIT) {
-            errors.push({
-              field: `actions[${actionsBlockIndex}].button[${i}]`,
-              message: `Button label "${label}" (${label.length} chars) exceeds the ${SLACK_BUTTON_LABEL_LIMIT}-char limit.`,
-              currentLength: label.length,
-              limit: SLACK_BUTTON_LABEL_LIMIT,
-            });
-          }
-        }
-      }
-      actionsBlockIndex++;
-    }
-  }
-
+    });
+  });
   return errors;
 }

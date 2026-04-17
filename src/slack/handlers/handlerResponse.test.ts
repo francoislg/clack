@@ -4,6 +4,7 @@ import type { App } from "@slack/bolt";
 import type { ClaudeResponse, AskClaudeOptions } from "../../claude/index.js";
 import type { SessionContext } from "../../sessions.js";
 import type { SessionInfo } from "../activeSessions.js";
+import type { SlackBlocks } from "../blocks.js";
 import {
   executeAndDeliver,
   postResponse,
@@ -158,8 +159,8 @@ function makeClaudeOptions(overrides: Partial<AskClaudeOptions> = {}): AskClaude
   };
 }
 
-function getPostMessageMock(client: App["client"]) {
-  return client.chat.postMessage as unknown as ReturnType<typeof mock.fn>;
+function getPostMessageMock(_client: App["client"]) {
+  return mockPostMessage;
 }
 
 beforeEach(() => {
@@ -310,7 +311,7 @@ describe("executeAndDeliver — success handling", () => {
     mockAskClaude.mock.mockImplementation(async () => ({
       success: true,
       answer: "the answer",
-      response: { sections: [], actions: [] },
+      response: { blocks: [], actions: [] },
       stagedIntents: {
         r1: {
           type: "change" as const,
@@ -444,16 +445,15 @@ describe("executeAndDeliver — success handling", () => {
       deps,
     });
 
-    // The streamer.stop should be called with the answer text
+    // When submit_response wasn't called, the internal fallback uses markdownText
     const stopCalls = mockStreamerStop.mock.calls;
-    // At least one stop call should have markdownText
     const deliveryStopCall = stopCalls.find(
-      (c: { arguments: unknown[] }) =>
+      (c) =>
         c.arguments[0] &&
         typeof c.arguments[0] === "object" &&
-        "markdownText" in (c.arguments[0] as Record<string, unknown>),
+        "markdownText" in (c.arguments[0] as { markdownText?: string }),
     );
-    assert.ok(deliveryStopCall, "streamer.stop should be called with markdownText");
+    assert.ok(deliveryStopCall, "streamer.stop should be called with markdownText (fallback path)");
     assert.equal(
       (deliveryStopCall.arguments[0] as { markdownText: string }).markdownText,
       "raw answer text",
@@ -609,7 +609,12 @@ describe("executeAndDeliver — error handling", () => {
 
   it("persists toolCallHistory to the session on Claude failure", async () => {
     const history = [
-      { tool: "mcp__trivia__submit_answers", args: { n: 1 }, result: { ok: true }, timestamp: 1 },
+      {
+        tool: "mcp__trivia__submit_answers",
+        args: { n: 1 },
+        result: { ok: true },
+        timestamp: 1,
+      },
     ];
     mockAskClaude.mock.mockImplementation(async () => ({
       success: false,
@@ -832,11 +837,9 @@ describe("executeAndDeliver — unexpected errors", () => {
     });
 
     const client = makeClient();
-    (client.chat.postMessage as unknown as ReturnType<typeof mock.fn>).mock.mockImplementation(
-      async () => {
-        throw new Error("slack also down");
-      },
-    );
+    mockPostMessage.mock.mockImplementation(async () => {
+      throw new Error("slack also down");
+    });
 
     // The original error should still be thrown, not the fallback error
     await assert.rejects(
@@ -867,10 +870,17 @@ describe("executeAndDeliver — response notification", () => {
     // Simulate the deliver function being called (submit_response was called)
     mockAskClaude.mock.mockImplementation(async (...args: unknown[]) => {
       const opts = args[1] as Record<string, unknown>;
-      const deliver = opts.deliver as (opts: { markdownText: string }) => Promise<{ ok: boolean }>;
+      const deliver = opts.deliver as (opts: { blocks: object[] }) => Promise<{ ok: boolean }>;
       // Advance time by 61s before deliver — sendResponseNotification checks elapsed time
       t.mock.timers.tick(61_000);
-      await deliver({ markdownText: "delivered answer" });
+      await deliver({
+        blocks: [
+          {
+            type: "section",
+            text: { type: "mrkdwn", text: "delivered answer" },
+          },
+        ],
+      });
       return { success: true, answer: "delivered answer" };
     });
 
@@ -897,8 +907,15 @@ describe("executeAndDeliver — response notification", () => {
 
     mockAskClaude.mock.mockImplementation(async (...args: unknown[]) => {
       const opts = args[1] as Record<string, unknown>;
-      const deliver = opts.deliver as (opts: { markdownText: string }) => Promise<{ ok: boolean }>;
-      await deliver({ markdownText: "delivered answer" });
+      const deliver = opts.deliver as (opts: { blocks: object[] }) => Promise<{ ok: boolean }>;
+      await deliver({
+        blocks: [
+          {
+            type: "section",
+            text: { type: "mrkdwn", text: "delivered answer" },
+          },
+        ],
+      });
       return { success: true, answer: "delivered answer" };
     });
 
@@ -929,10 +946,14 @@ describe("executeAndDeliver — deliver function", () => {
     mockAskClaude.mock.mockImplementation(async (...args: unknown[]) => {
       const opts = args[1] as Record<string, unknown>;
       const deliver = opts.deliver as (opts: {
-        markdownText: string;
+        blocks: object[];
       }) => Promise<{ ok: boolean; error?: string }>;
-      await deliver({ markdownText: "first" });
-      await deliver({ markdownText: "second" });
+      await deliver({
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "first" } }],
+      });
+      await deliver({
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "second" } }],
+      });
       return { success: true, answer: "done" };
     });
 
@@ -944,13 +965,13 @@ describe("executeAndDeliver — deliver function", () => {
       deps,
     });
 
-    // Can't directly inspect deliver results, but we can verify the streamer was only stopped once with content
+    // Verify the streamer was only stopped once with blocks content
     const stopCalls = mockStreamerStop.mock.calls;
     const contentStops = stopCalls.filter(
-      (c: { arguments: unknown[] }) =>
+      (c) =>
         c.arguments[0] &&
         typeof c.arguments[0] === "object" &&
-        "markdownText" in (c.arguments[0] as Record<string, unknown>),
+        "blocks" in (c.arguments[0] as { blocks?: object[] }),
     );
     // Only one content delivery via streamer (the first call)
     assert.equal(contentStops.length, 1);
@@ -962,8 +983,15 @@ describe("executeAndDeliver — deliver function", () => {
 
     mockAskClaude.mock.mockImplementation(async (...args: unknown[]) => {
       const opts = args[1] as Record<string, unknown>;
-      const deliver = opts.deliver as (opts: { markdownText: string }) => Promise<{ ok: boolean }>;
-      await deliver({ markdownText: "fallback content" });
+      const deliver = opts.deliver as (opts: { blocks: object[] }) => Promise<{ ok: boolean }>;
+      await deliver({
+        blocks: [
+          {
+            type: "section",
+            text: { type: "mrkdwn", text: "fallback content" },
+          },
+        ],
+      });
       return { success: true, answer: "fallback content" };
     });
 
@@ -994,22 +1022,22 @@ describe("executeAndDeliver — deliver function", () => {
     // then succeed on subsequent calls (fallback delivery in handleSuccess)
     let callCount = 0;
     const client = makeClient();
-    (client.chat.postMessage as unknown as ReturnType<typeof mock.fn>).mock.mockImplementation(
-      async () => {
-        callCount++;
-        if (callCount === 1) {
-          throw new Error("slack is down");
-        }
-        return { ok: true };
-      },
-    );
+    mockPostMessage.mock.mockImplementation(async () => {
+      callCount++;
+      if (callCount === 1) {
+        throw new Error("slack is down");
+      }
+      return { ok: true };
+    });
 
     mockAskClaude.mock.mockImplementation(async (...args: unknown[]) => {
       const opts = args[1] as Record<string, unknown>;
       const deliver = opts.deliver as (opts: {
-        markdownText: string;
+        blocks: object[];
       }) => Promise<{ ok: boolean; error?: string }>;
-      deliverResult = await deliver({ markdownText: "will fail" });
+      deliverResult = await deliver({
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "will fail" } }],
+      });
       return { success: true, answer: "done" };
     });
 
@@ -1027,7 +1055,7 @@ describe("executeAndDeliver — deliver function", () => {
   });
 });
 
-type DeliverOpts = { markdownText: string; reactions?: string[] };
+type DeliverOpts = { blocks: object[]; reactions?: string[] };
 type DeliverResult = Promise<{ ok: true; ts?: string } | { ok: false; error: string }>;
 
 describe("executeAndDeliver — delivery reactions", () => {
@@ -1037,7 +1065,7 @@ describe("executeAndDeliver — delivery reactions", () => {
     mockAskClaude.mock.mockImplementation(async (...args: Parameters<typeof mockAskClaude>) => {
       const opts = args[1] as { deliver: (o: DeliverOpts) => DeliverResult };
       await opts.deliver({
-        markdownText: "content",
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "content" } }],
         reactions: ["thumbsup", "eyes"],
       });
       return { success: true, answer: "done" };
@@ -1070,7 +1098,7 @@ describe("executeAndDeliver — delivery reactions", () => {
     mockAskClaude.mock.mockImplementation(async (...args: Parameters<typeof mockAskClaude>) => {
       const opts = args[1] as { deliver: (o: DeliverOpts) => DeliverResult };
       await opts.deliver({
-        markdownText: "content",
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "content" } }],
         reactions: ["white_check_mark"],
       });
       return { success: true, answer: "done" };
@@ -1101,7 +1129,7 @@ describe("executeAndDeliver — delivery reactions", () => {
     mockAskClaude.mock.mockImplementation(async (...args: Parameters<typeof mockAskClaude>) => {
       const opts = args[1] as { deliver: (o: DeliverOpts) => DeliverResult };
       const result = await opts.deliver({
-        markdownText: "content",
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "content" } }],
         reactions: ["invalid_emoji"],
       });
       return { success: true, answer: "done", deliverOk: result.ok };
@@ -1127,7 +1155,7 @@ describe("executeAndDeliver — delivery reactions", () => {
     mockAskClaude.mock.mockImplementation(async (...args: Parameters<typeof mockAskClaude>) => {
       const opts = args[1] as { deliver: (o: DeliverOpts) => DeliverResult };
       await opts.deliver({
-        markdownText: "content",
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "content" } }],
         reactions: ["thumbsup"],
       });
       return { success: true, answer: "done" };
@@ -1152,7 +1180,10 @@ describe("executeAndDeliver — delivery reactions", () => {
   it("does not call reactions.add when reactions array is empty", async () => {
     mockAskClaude.mock.mockImplementation(async (...args: Parameters<typeof mockAskClaude>) => {
       const opts = args[1] as { deliver: (o: DeliverOpts) => DeliverResult };
-      await opts.deliver({ markdownText: "content", reactions: [] });
+      await opts.deliver({
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "content" } }],
+        reactions: [],
+      });
       return { success: true, answer: "done" };
     });
 
@@ -1223,7 +1254,7 @@ describe("postResponse", () => {
 
     await postResponse(client, sessionInfo, {
       text: "fallback",
-      blocks: blocks as unknown[] as import("../blocks.js").SlackBlocks,
+      blocks: blocks satisfies SlackBlocks,
     });
 
     const postMessage = getPostMessageMock(client);
@@ -1367,8 +1398,7 @@ describe("silentThinking mode", () => {
       assert.equal(response.skipped, true);
 
       // chat.delete should have been called with the streamer's ts
-      const deleteCall = (client.chat.delete as unknown as ReturnType<typeof mock.fn>).mock
-        .calls[0];
+      const deleteCall = mockChatDelete.mock.calls[0];
       assert.ok(deleteCall);
       assert.deepStrictEqual(deleteCall.arguments[0], {
         channel: "C001",
@@ -1491,10 +1521,7 @@ describe("silentThinking mode", () => {
 
       assert.equal(response.skipped, true);
       // chat.delete should NOT have been called
-      assert.equal(
-        (client.chat.delete as unknown as ReturnType<typeof mock.fn>).mock.callCount(),
-        0,
-      );
+      assert.equal(mockChatDelete.mock.callCount(), 0);
     });
   });
 });

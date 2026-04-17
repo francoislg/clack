@@ -39,6 +39,7 @@ import { test as test009 } from "./009.js";
 import { test as test010 } from "./010.js";
 import { test as test011 } from "./011.js";
 import { test as test012 } from "./012.js";
+import { test as test014 } from "./014.js";
 
 const allTests: MigrationTest[] = [
   test001,
@@ -52,6 +53,7 @@ const allTests: MigrationTest[] = [
   test010,
   test011,
   test012,
+  test014,
 ];
 
 // --- Config ---

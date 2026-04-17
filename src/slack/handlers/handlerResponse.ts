@@ -12,6 +12,8 @@ import { errorMessage as toErrorMessage } from "../../errors.js";
 import type { AskClaudeOptions, ClaudeResponse } from "../../claude/index.js";
 import type { DeliverFn, ToolCallRecord } from "../../tools/types.js";
 import { getErrorBlocksWithRetry, asSlackBlocks, type SlackBlocks } from "../blocks.js";
+import { extractDisplayText } from "../blockText.js";
+import type { Block } from "../blockSchema.js";
 import {
   setLastAnswer,
   updateSession,
@@ -252,6 +254,17 @@ async function addDeliveryReactions(
 }
 
 /**
+ * Extract a plain-text notification string from rendered blocks.
+ * Used as the `text:` parameter in `chat.postMessage` — Slack displays it in
+ * push notifications and as a screen-reader fallback (never shown inline when
+ * blocks are present). Truncated to 500 chars to keep notifications short.
+ */
+function notificationText(blocks: SlackBlocks): string {
+  const text = extractDisplayText(blocks as Block[]);
+  return text.length > 500 ? text.slice(0, 497) + "..." : text;
+}
+
+/**
  * Build the DeliverFn that Claude's submit_response tool calls.
  * Tries the streamer first, falls back to chat.postMessage.
  */
@@ -281,10 +294,11 @@ function buildDeliverFn(ctx: DeliveryContext): DeliverFn {
             }
           }
         }
+        const fallbackText = notificationText(opts.blocks);
         const result = await ctx.client.chat.postMessage({
           channel: ctx.targetChannel,
-          text: opts.markdownText,
-          ...(opts.blocks && { blocks: opts.blocks }),
+          text: fallbackText,
+          blocks: opts.blocks,
         });
         ts = result.ts;
         ctx.alreadyDelivered = true;
@@ -302,7 +316,7 @@ function buildDeliverFn(ctx: DeliveryContext): DeliverFn {
               messageTs: ts,
               threadTs: ts,
               userId: ctx.session.userId,
-              originalQuestion: opts.markdownText.slice(0, 500),
+              originalQuestion: fallbackText.slice(0, 500),
               triggerType: "autoRespond",
               additionalSystemPrompt: ctx.session.additionalSystemPrompt,
               channelName: ctx.session.channelName,
@@ -320,10 +334,7 @@ function buildDeliverFn(ctx: DeliveryContext): DeliverFn {
       }
 
       if (ctx.streamer && !ctx.streamer.hasFailed) {
-        await ctx.streamer.stop({
-          markdownText: opts.markdownText,
-          ...(opts.blocks && { blocks: opts.blocks }),
-        });
+        await ctx.streamer.stop({ blocks: opts.blocks });
 
         if (!ctx.streamer.hasFailed) {
           ts = ctx.streamer.getMessageTs();
@@ -341,8 +352,8 @@ function buildDeliverFn(ctx: DeliveryContext): DeliverFn {
       const result = await ctx.client.chat.postMessage({
         channel: ctx.targetChannel,
         thread_ts: ctx.targetThread,
-        text: opts.markdownText,
-        ...(opts.blocks && { blocks: opts.blocks }),
+        text: notificationText(opts.blocks),
+        blocks: opts.blocks,
       });
       ts = result.ts;
       ctx.alreadyDelivered = true;
@@ -370,8 +381,8 @@ function buildDirectDeliverFn(ctx: DeliveryContext): DeliverFn {
     try {
       const result = await ctx.client.chat.postMessage({
         channel: ctx.targetChannel,
-        text: opts.markdownText,
-        ...(opts.blocks && { blocks: opts.blocks }),
+        text: notificationText(opts.blocks),
+        blocks: opts.blocks,
       });
       ctx.alreadyDelivered = true;
       const ts = result.ts;

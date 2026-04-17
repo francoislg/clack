@@ -170,7 +170,7 @@ describe("handleAutoExecuteActions — early returns", () => {
         success: true,
         answer: "hello",
         response: {
-          sections: [],
+          blocks: [],
           actions: [{ type: "change", ref: "r1", auto: true }],
         },
         // no stagedIntents
@@ -186,7 +186,9 @@ describe("handleAutoExecuteActions — early returns", () => {
       response: {
         success: true,
         answer: "hello",
-        stagedIntents: { r1: { type: "change", branch: "b", description: "d", repo: "r" } },
+        stagedIntents: {
+          r1: { type: "change", branch: "b", description: "d", repo: "r" },
+        },
       },
     });
 
@@ -203,7 +205,7 @@ describe("handleAutoExecuteActions — early returns", () => {
     };
     const params = makeBaseParams({
       response: makeResponseWithActions(
-        { sections: [], actions: [{ type: "change", ref: "r1" }] },
+        { blocks: [], actions: [{ type: "change", ref: "r1" }] },
         { r1: changeIntent },
       ),
     });
@@ -216,10 +218,19 @@ describe("handleAutoExecuteActions — early returns", () => {
     const params = makeBaseParams({
       response: makeResponseWithActions(
         {
-          sections: [],
+          blocks: [],
           actions: [
             // post_to with auto but no ref — handled by post_to auto-execute, not ref-based loop
-            { type: "post_to", auto: true, content: "auto content" },
+            {
+              type: "post_to",
+              auto: true,
+              blocks: [
+                {
+                  type: "section",
+                  text: { type: "mrkdwn", text: "auto content" },
+                },
+              ],
+            },
           ],
         },
         {},
@@ -248,7 +259,7 @@ describe("handleAutoExecuteActions — permission checks", () => {
     const params = makeBaseParams({
       role: "member",
       response: makeResponseWithActions(
-        { sections: [], actions: [{ type: "change", ref: "r1", auto: true }] },
+        { blocks: [], actions: [{ type: "change", ref: "r1", auto: true }] },
         { r1: changeIntent },
       ),
     });
@@ -267,7 +278,7 @@ describe("handleAutoExecuteActions — permission checks", () => {
     const params = makeBaseParams({
       role: "dev",
       response: makeResponseWithActions(
-        { sections: [], actions: [{ type: "change", ref: "r1", auto: true }] },
+        { blocks: [], actions: [{ type: "change", ref: "r1", auto: true }] },
         { r1: changeIntent },
       ),
     });
@@ -286,7 +297,7 @@ describe("handleAutoExecuteActions — permission checks", () => {
     const params = makeBaseParams({
       role: "admin",
       response: makeResponseWithActions(
-        { sections: [], actions: [{ type: "change", ref: "r1", auto: true }] },
+        { blocks: [], actions: [{ type: "change", ref: "r1", auto: true }] },
         { r1: changeIntent },
       ),
     });
@@ -305,7 +316,7 @@ describe("handleAutoExecuteActions — permission checks", () => {
     const params = makeBaseParams({
       role: "owner",
       response: makeResponseWithActions(
-        { sections: [], actions: [{ type: "change", ref: "r1", auto: true }] },
+        { blocks: [], actions: [{ type: "change", ref: "r1", auto: true }] },
         { r1: changeIntent },
       ),
     });
@@ -323,8 +334,18 @@ describe("handleAutoExecuteActions — intent resolution", () => {
   it("skips action when intent ref cannot be resolved", async () => {
     const params = makeBaseParams({
       response: makeResponseWithActions(
-        { sections: [], actions: [{ type: "change", ref: "missing-ref", auto: true }] },
-        { "other-ref": { type: "change", branch: "b", description: "d", repo: "r" } },
+        {
+          blocks: [],
+          actions: [{ type: "change", ref: "missing-ref", auto: true }],
+        },
+        {
+          "other-ref": {
+            type: "change",
+            branch: "b",
+            description: "d",
+            repo: "r",
+          },
+        },
       ),
     });
 
@@ -349,8 +370,14 @@ describe("handleAutoExecuteActions — config_update", () => {
       client,
       response: makeResponseWithActions(
         {
-          sections: [],
-          actions: [{ type: "config_update", ref: "c1", auto: true } as unknown as Action],
+          blocks: [],
+          actions: [
+            {
+              type: "config_update",
+              ref: "c1",
+              auto: true,
+            } as unknown as Action,
+          ],
         },
         { c1: configIntent },
       ),
@@ -390,8 +417,14 @@ describe("handleAutoExecuteActions — config_update", () => {
       client,
       response: makeResponseWithActions(
         {
-          sections: [],
-          actions: [{ type: "config_update", ref: "c1", auto: true } as unknown as Action],
+          blocks: [],
+          actions: [
+            {
+              type: "config_update",
+              ref: "c1",
+              auto: true,
+            } as unknown as Action,
+          ],
         },
         { c1: configIntent },
       ),
@@ -422,7 +455,7 @@ describe("handleAutoExecuteActions — change intent", () => {
     };
     const params = makeBaseParams({
       response: makeResponseWithActions(
-        { sections: [], actions: [{ type: "change", ref: "r1", auto: true }] },
+        { blocks: [], actions: [{ type: "change", ref: "r1", auto: true }] },
         { r1: changeIntent },
       ),
     });
@@ -448,7 +481,7 @@ describe("handleAutoExecuteActions — change intent", () => {
     const params = makeBaseParams({
       triggerType: "mentions",
       response: makeResponseWithActions(
-        { sections: [], actions: [{ type: "change", ref: "r1", auto: true }] },
+        { blocks: [], actions: [{ type: "change", ref: "r1", auto: true }] },
         { r1: changeIntent },
       ),
     });
@@ -470,7 +503,7 @@ describe("handleAutoExecuteActions — change intent", () => {
       dmChannel: "D_DM",
       dmThreadTs: "1700000099.000001",
       response: makeResponseWithActions(
-        { sections: [], actions: [{ type: "change", ref: "r1", auto: true }] },
+        { blocks: [], actions: [{ type: "change", ref: "r1", auto: true }] },
         { r1: changeIntent },
       ),
     });
@@ -491,7 +524,7 @@ describe("handleAutoExecuteActions — change intent", () => {
     };
     const params = makeBaseParams({
       response: makeResponseWithActions(
-        { sections: [], actions: [{ type: "change", ref: "r1", auto: true }] },
+        { blocks: [], actions: [{ type: "change", ref: "r1", auto: true }] },
         { r1: changeIntent },
       ),
     });
@@ -541,7 +574,7 @@ describe("handleAutoExecuteActions — update intent", () => {
 
     const params = makeBaseParams({
       response: makeResponseWithActions(
-        { sections: [], actions: [{ type: "update", ref: "u1", auto: true }] },
+        { blocks: [], actions: [{ type: "update", ref: "u1", auto: true }] },
         { u1: updateIntent },
       ),
     });
@@ -566,7 +599,7 @@ describe("handleAutoExecuteActions — update intent", () => {
 
     const params = makeBaseParams({
       response: makeResponseWithActions(
-        { sections: [], actions: [{ type: "update", ref: "u1", auto: true }] },
+        { blocks: [], actions: [{ type: "update", ref: "u1", auto: true }] },
         { u1: updateIntent },
       ),
     });
@@ -601,7 +634,7 @@ describe("handleAutoExecuteActions — update intent", () => {
 
     const params = makeBaseParams({
       response: makeResponseWithActions(
-        { sections: [], actions: [{ type: "update", ref: "u1", auto: true }] },
+        { blocks: [], actions: [{ type: "update", ref: "u1", auto: true }] },
         { u1: updateIntent },
       ),
     });
@@ -645,7 +678,7 @@ describe("handleAutoExecuteActions — update intent", () => {
       dmChannel: "D_DM",
       dmThreadTs: "17.99",
       response: makeResponseWithActions(
-        { sections: [], actions: [{ type: "update", ref: "u1", auto: true }] },
+        { blocks: [], actions: [{ type: "update", ref: "u1", auto: true }] },
         { u1: updateIntent },
       ),
     });
@@ -678,7 +711,7 @@ describe("handleAutoExecuteActions — error handling", () => {
     const params = makeBaseParams({
       client,
       response: makeResponseWithActions(
-        { sections: [], actions: [{ type: "change", ref: "r1", auto: true }] },
+        { blocks: [], actions: [{ type: "change", ref: "r1", auto: true }] },
         { r1: changeIntent },
       ),
     });
@@ -713,7 +746,7 @@ describe("handleAutoExecuteActions — error handling", () => {
     const params = makeBaseParams({
       client,
       response: makeResponseWithActions(
-        { sections: [], actions: [{ type: "change", ref: "r1", auto: true }] },
+        { blocks: [], actions: [{ type: "change", ref: "r1", auto: true }] },
         { r1: changeIntent },
       ),
     });
@@ -743,10 +776,14 @@ describe("handleAutoExecuteActions — multiple actions", () => {
     const params = makeBaseParams({
       response: makeResponseWithActions(
         {
-          sections: [],
+          blocks: [],
           actions: [
             { type: "change", ref: "r1", auto: true },
-            { type: "config_update", ref: "c1", auto: true } as unknown as Action,
+            {
+              type: "config_update",
+              ref: "c1",
+              auto: true,
+            } as unknown as Action,
           ],
         },
         { r1: changeIntent, c1: configIntent },
@@ -775,7 +812,7 @@ describe("handleAutoExecuteActions — multiple actions", () => {
     const params = makeBaseParams({
       response: makeResponseWithActions(
         {
-          sections: [],
+          blocks: [],
           actions: [
             { type: "change", ref: "r1" }, // no auto
             { type: "change", ref: "r2", auto: true }, // auto
@@ -812,7 +849,15 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
       lastActivity: Date.now(),
       createdAt: Date.now(),
       snapshots: {
-        snap1: { text: "Channel post content", sections: [{ body: "Channel post content" }] },
+        snap1: {
+          text: "Channel post content",
+          blocks: [
+            {
+              type: "section",
+              text: { type: "mrkdwn", text: "Channel post content" },
+            },
+          ],
+        },
       },
     } as unknown as SessionContext;
 
@@ -824,12 +869,25 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
       client,
       response: makeResponseWithActions(
         {
-          sections: [{ body: "Thread response" }],
+          blocks: [
+            {
+              type: "section",
+              text: { type: "mrkdwn", text: "Thread response" },
+            },
+          ],
           actions: [
             {
               type: "post_to" as const,
               auto: true,
-              content: "Channel post content",
+              blocks: [
+                {
+                  type: "section" as const,
+                  text: {
+                    type: "mrkdwn" as const,
+                    text: "Channel post content",
+                  },
+                },
+              ],
               _snapshotId: "snap1",
             },
           ],
@@ -844,7 +902,12 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
     const args = mockPostAnswerToChannel.mock.calls[0].arguments;
     assert.deepEqual(args[1], {
       text: "Channel post content",
-      sections: [{ body: "Channel post content" }],
+      blocks: [
+        {
+          type: "section",
+          text: { type: "mrkdwn", text: "Channel post content" },
+        },
+      ],
     });
     assert.equal(args[2], "C001"); // session channel
     assert.equal(args[3], undefined); // no thread_ts = top-level
@@ -872,9 +935,19 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
       triggerType: "directMessages",
       response: makeResponseWithActions(
         {
-          sections: [{ body: "Response" }],
+          blocks: [{ type: "section", text: { type: "mrkdwn", text: "Response" } }],
           actions: [
-            { type: "post_to" as const, auto: true, content: "content", _snapshotId: "snap1" },
+            {
+              type: "post_to" as const,
+              auto: true,
+              blocks: [
+                {
+                  type: "section" as const,
+                  text: { type: "mrkdwn" as const, text: "content" },
+                },
+              ],
+              _snapshotId: "snap1",
+            },
           ],
         },
         {},
@@ -901,7 +974,12 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
       createdAt: Date.now(),
       assistantOriginChannelId: "C_PANEL",
       assistantCurrentChannelId: "C_VIEWED",
-      snapshots: { snap1: { text: "content", sections: [{ body: "content" }] } },
+      snapshots: {
+        snap1: {
+          text: "content",
+          blocks: [{ type: "section", text: { type: "mrkdwn", text: "content" } }],
+        },
+      },
     } as unknown as SessionContext;
 
     mockGetSession.mock.mockImplementation(async () => fakeSession);
@@ -913,9 +991,19 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
       triggerType: "directMessages",
       response: makeResponseWithActions(
         {
-          sections: [{ body: "Response" }],
+          blocks: [{ type: "section", text: { type: "mrkdwn", text: "Response" } }],
           actions: [
-            { type: "post_to" as const, auto: true, content: "content", _snapshotId: "snap1" },
+            {
+              type: "post_to" as const,
+              auto: true,
+              blocks: [
+                {
+                  type: "section" as const,
+                  text: { type: "mrkdwn" as const, text: "content" },
+                },
+              ],
+              _snapshotId: "snap1",
+            },
           ],
         },
         {},
@@ -943,7 +1031,15 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
       lastActivity: Date.now(),
       createdAt: Date.now(),
       snapshots: {
-        snap1: { text: "Cross-post content", sections: [{ body: "Cross-post content" }] },
+        snap1: {
+          text: "Cross-post content",
+          blocks: [
+            {
+              type: "section",
+              text: { type: "mrkdwn", text: "Cross-post content" },
+            },
+          ],
+        },
       },
     } as unknown as SessionContext;
 
@@ -955,12 +1051,22 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
       client,
       response: makeResponseWithActions(
         {
-          sections: [{ body: "Thread response" }],
+          blocks: [
+            {
+              type: "section",
+              text: { type: "mrkdwn", text: "Thread response" },
+            },
+          ],
           actions: [
             {
               type: "post_to" as const,
               auto: true,
-              content: "Cross-post content",
+              blocks: [
+                {
+                  type: "section" as const,
+                  text: { type: "mrkdwn" as const, text: "Cross-post content" },
+                },
+              ],
               _snapshotId: "snap1",
               channel: "C999",
               thread_ts: "1700099.000",
@@ -992,7 +1098,12 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
       errors: [],
       lastActivity: Date.now(),
       createdAt: Date.now(),
-      snapshots: { snap1: { text: "content", sections: [{ body: "content" }] } },
+      snapshots: {
+        snap1: {
+          text: "content",
+          blocks: [{ type: "section", text: { type: "mrkdwn", text: "content" } }],
+        },
+      },
     } as unknown as SessionContext;
 
     mockGetSession.mock.mockImplementation(async () => fakeSession);
@@ -1009,9 +1120,19 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
       client,
       response: makeResponseWithActions(
         {
-          sections: [{ body: "Response" }],
+          blocks: [{ type: "section", text: { type: "mrkdwn", text: "Response" } }],
           actions: [
-            { type: "post_to" as const, auto: true, content: "content", _snapshotId: "snap1" },
+            {
+              type: "post_to" as const,
+              auto: true,
+              blocks: [
+                {
+                  type: "section" as const,
+                  text: { type: "mrkdwn" as const, text: "content" },
+                },
+              ],
+              _snapshotId: "snap1",
+            },
             { type: "change", ref: "r1", auto: true },
           ],
         },
@@ -1032,9 +1153,19 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
     const params = makeBaseParams({
       response: makeResponseWithActions(
         {
-          sections: [{ body: "Response" }],
+          blocks: [{ type: "section", text: { type: "mrkdwn", text: "Response" } }],
           actions: [
-            { type: "post_to" as const, auto: true, content: "content", _snapshotId: "snap1" },
+            {
+              type: "post_to" as const,
+              auto: true,
+              blocks: [
+                {
+                  type: "section" as const,
+                  text: { type: "mrkdwn" as const, text: "content" },
+                },
+              ],
+              _snapshotId: "snap1",
+            },
           ],
         },
         {},
@@ -1068,12 +1199,17 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
     const params = makeBaseParams({
       response: makeResponseWithActions(
         {
-          sections: [{ body: "Response" }],
+          blocks: [{ type: "section", text: { type: "mrkdwn", text: "Response" } }],
           actions: [
             {
               type: "post_to" as const,
               auto: true,
-              content: "content",
+              blocks: [
+                {
+                  type: "section" as const,
+                  text: { type: "mrkdwn" as const, text: "content" },
+                },
+              ],
               _snapshotId: "missing-snap",
             },
           ],
@@ -1100,7 +1236,12 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
       errors: [],
       lastActivity: Date.now(),
       createdAt: Date.now(),
-      snapshots: { snap1: { text: "content", sections: [{ body: "content" }] } },
+      snapshots: {
+        snap1: {
+          text: "content",
+          blocks: [{ type: "section", text: { type: "mrkdwn", text: "content" } }],
+        },
+      },
     } as unknown as SessionContext;
 
     mockGetSession.mock.mockImplementation(async () => fakeSession);
@@ -1114,9 +1255,19 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
       client,
       response: makeResponseWithActions(
         {
-          sections: [{ body: "Response" }],
+          blocks: [{ type: "section", text: { type: "mrkdwn", text: "Response" } }],
           actions: [
-            { type: "post_to" as const, auto: true, content: "content", _snapshotId: "snap1" },
+            {
+              type: "post_to" as const,
+              auto: true,
+              blocks: [
+                {
+                  type: "section" as const,
+                  text: { type: "mrkdwn" as const, text: "content" },
+                },
+              ],
+              _snapshotId: "snap1",
+            },
           ],
         },
         {},
