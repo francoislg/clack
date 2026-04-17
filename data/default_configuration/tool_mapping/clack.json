@@ -21,7 +21,7 @@
     "find_user": "Looking up user {query}",
     "find_emoji": "Looking up emoji \"{query}\"",
     "list_config_files": "Listing config files",
-    "read_config_file": "Reading config {path}",
+    "read_config_file": "Reading config {file}",
     "fetch_channel_messages": "Reading messages in <#{channel_id}>",
     "fetch_slack_message": "Reading <{url}|Slack message>",
     "view_slack_image": "Viewing image {file_id}",
