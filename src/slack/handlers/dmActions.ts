@@ -3,12 +3,24 @@ import { logger } from "../../logger.js";
 import { getSession, updateSession, setLastAnswer, type SessionContext } from "../../sessions.js";
 import type { ResponseSnapshot } from "../../tools/types.js";
 import { activeSessions, type SessionInfo } from "../activeSessions.js";
-import {
-  getAcceptedBlocks,
-  getStructuredAcceptedBlocks,
-  decodeActionValue,
-  asSlackBlocks,
-} from "../blocks.js";
+import { getStructuredAcceptedBlocks, decodeActionValue, asSlackBlocks } from "../blocks.js";
+import type { Block } from "../blockSchema.js";
+import type { SectionBlock } from "@slack/types";
+
+/** Fallback for callers that only have a plain-text answer (no structured blocks). */
+function textToBlocks(text: string): Block[] {
+  const section: SectionBlock = { type: "section", text: { type: "mrkdwn", text } };
+  return [section];
+}
+
+/**
+ * True if the persisted snapshot matches the current `ResponseSnapshot` shape
+ * (has a `blocks` array). Legacy snapshots persisted before the Block Kit
+ * migration had a `sections: [{body, title?}]` shape and lack `blocks`.
+ */
+function isCurrentSnapshot(snapshot: Partial<ResponseSnapshot>): snapshot is ResponseSnapshot {
+  return Array.isArray(snapshot.blocks);
+}
 
 export interface DmActionsDeps {
   getSession: (sessionId: string) => Promise<SessionContext | null>;
@@ -20,7 +32,6 @@ export interface DmActionsDeps {
   restoreSession: (sessionId: string) => Promise<SessionInfo | undefined>;
   setSessionInfo: (sessionId: string, info: SessionInfo) => void;
   decodeActionValue: typeof decodeActionValue;
-  getAcceptedBlocks: typeof getAcceptedBlocks;
   getStructuredAcceptedBlocks: typeof getStructuredAcceptedBlocks;
   asSlackBlocks: typeof asSlackBlocks;
 }
@@ -32,7 +43,6 @@ export const defaultDmActionsDeps: DmActionsDeps = {
   restoreSession: (sessionId: string) => activeSessions.restore(sessionId),
   setSessionInfo: (sessionId, info) => activeSessions.set(sessionId, info),
   decodeActionValue,
-  getAcceptedBlocks,
   getStructuredAcceptedBlocks,
   asSlackBlocks,
 };
@@ -85,9 +95,7 @@ export async function postAnswerToChannel(
   targetThreadTs?: string,
   deps: DmActionsDeps = defaultDmActionsDeps,
 ): Promise<{ ok: boolean; ts?: string }> {
-  const blocks = snapshot.sections
-    ? deps.getStructuredAcceptedBlocks(snapshot.sections)
-    : deps.getAcceptedBlocks(snapshot.text);
+  const blocks = deps.getStructuredAcceptedBlocks(snapshot.blocks);
 
   const result = await client.chat.postMessage({
     channel: targetChannel,
@@ -112,11 +120,10 @@ export function resolveOrigin(
   };
 }
 
-/** Build Block Kit blocks from session response sections or plain answer text. */
+/** Build Block Kit blocks from session response blocks, or a single-section fallback from plain answer text. */
 function buildAnswerBlocks(session: SessionContext, answer: string, deps: DmActionsDeps) {
-  return session.lastResponse?.sections
-    ? deps.getStructuredAcceptedBlocks(session.lastResponse.sections)
-    : deps.getAcceptedBlocks(answer);
+  const sourceBlocks = session.lastResponse?.blocks ?? textToBlocks(answer);
+  return deps.getStructuredAcceptedBlocks(sourceBlocks);
 }
 
 /** Persist channelPostTs to both session storage and in-memory sessionInfo. */
@@ -171,6 +178,20 @@ async function handlePostTo(
   if (!snapshot) {
     logger.error(
       `post_to failed: missing content entry for ${sessionId} (snapshotId: ${decoded.snapshotId ?? "none"})`,
+    );
+    return;
+  }
+
+  // Legacy snapshots (persisted before the Block Kit migration) lack `blocks`.
+  // Tell the user the link expired rather than crashing at post time.
+  if (!isCurrentSnapshot(snapshot)) {
+    logger.warn(
+      `post_to: legacy snapshot shape for ${sessionId} (snapshotId: ${decoded.snapshotId ?? "none"}) — telling user it expired`,
+    );
+    await confirmInDm(
+      client,
+      session,
+      ":warning: This button is from an older response and can no longer be posted. Ask Clack again to get a fresh copy.",
     );
     return;
   }
@@ -339,7 +360,7 @@ async function handleEditSynthesisSubmit(
   const postResult = await client.chat.postMessage({
     channel: originChannel,
     thread_ts: originThreadTs,
-    blocks: deps.asSlackBlocks(deps.getAcceptedBlocks(editedAnswer)),
+    blocks: deps.asSlackBlocks(deps.getStructuredAcceptedBlocks(textToBlocks(editedAnswer))),
     text: editedAnswer,
     unfurl_links: false,
     unfurl_media: false,

@@ -2,20 +2,17 @@ import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { IntentStore, ResponseCapture, ToolCallRecorder } from "../server.js";
-import type { DeliverFn, ResponseSnapshot, PostToAction } from "../types.js";
+import type { DeliverFn, ResponseSnapshot, SubmitResponsePayload } from "../types.js";
 import { textResult } from "../helpers.js";
 import { DISMISSAL_PHRASES_INLINE } from "../../claude/dismissalPhrases.js";
 import {
   getStructuredResponseBlocks as _getStructuredResponseBlocks,
   getResponseActionBlocks as _getResponseActionBlocks,
-  validateSlackBlocks as _validateSlackBlocks,
-  asSlackBlocks,
+  validateActionButtonLabels as _validateActionButtonLabels,
 } from "../../slack/blocks.js";
-
-const sectionSchema = z.object({
-  title: z.string().optional().describe("Optional bold section title"),
-  body: z.string().describe("Section body text (supports Slack mrkdwn)"),
-});
+import { BlockSchema, type Block } from "../../slack/blockSchema.js";
+import { validateBlocks as _validateBlocks } from "../../slack/blockValidate.js";
+import { extractDisplayText } from "../../slack/blockText.js";
 
 // Action schemas for submit_response
 const followupActionSchema = z.object({
@@ -58,10 +55,11 @@ const postToActionSchema = z.object({
     .describe(
       "Explicit target thread timestamp. Omit for a top-level channel post (e.g., 'in the channel').",
     ),
-  content: z
-    .string()
+  blocks: z
+    .array(BlockSchema)
+    .min(1)
     .describe(
-      "The exact text to post. Each post_to action posts only its own content. When presenting multiple options, put each option's text in its own action's content field.",
+      "The exact Block Kit payload to post. Each post_to action posts only its own blocks. When presenting multiple options, each action's blocks hold only that option's content.",
     ),
 });
 
@@ -140,7 +138,8 @@ export interface SubmitResponseDeps {
    */
   requiredTools?: string[];
   getStructuredResponseBlocks?: typeof _getStructuredResponseBlocks;
-  validateSlackBlocks?: typeof _validateSlackBlocks;
+  validateBlocks?: typeof _validateBlocks;
+  validateActionButtonLabels?: typeof _validateActionButtonLabels;
   getResponseActionBlocks?: typeof _getResponseActionBlocks;
 }
 
@@ -170,8 +169,8 @@ function validatePostToActions(
     if (action.auto && !action.channel) {
       return `post_to with auto: true requires an explicit channel ID. Provide the target channel (e.g., "C0APQ9JU865"). Use list_repositories or check the conversation context for channel IDs.`;
     }
-    if (!action.content.trim()) {
-      return `post_to action has empty content. Provide the text to post.`;
+    if (action.blocks.length === 0) {
+      return `post_to action has empty blocks. Provide at least one block to post.`;
     }
     // In scheduled mode, submit_response already delivers top-level to the target channel.
     // A post_to targeting the same channel without a thread would duplicate the message.
@@ -213,10 +212,8 @@ function validateStagedIntentsCoverage(
   return null;
 }
 
-function buildTexts(sections: z.infer<typeof sectionSchema>[], message?: string) {
-  const answerText = sections
-    .map((s) => (s.title ? `**${s.title}**\n${s.body}` : s.body))
-    .join("\n\n");
+function buildTexts(blocks: readonly Block[], message?: string) {
+  const answerText = extractDisplayText(blocks);
   const displayText = message ? `${message}\n\n${answerText}` : answerText;
   return { answerText, displayText };
 }
@@ -224,6 +221,24 @@ function buildTexts(sections: z.infer<typeof sectionSchema>[], message?: string)
 function recordError(recorder: ToolCallRecorder, args: unknown, errData: Record<string, unknown>) {
   recorder.record("submit_response", args as Record<string, unknown>, errData);
   return { ...textResult(errData), isError: true as const };
+}
+
+interface SubmitResponseSuccessResult {
+  success: true;
+  skipped?: true;
+  disengaged?: true;
+  postedTopLevel?: true;
+  delivered?: boolean;
+  blocksCount?: number;
+  actionsCount?: number;
+}
+
+function recordSuccess<TArgs extends object>(
+  recorder: ToolCallRecorder,
+  args: TArgs,
+  result: SubmitResponseSuccessResult,
+): void {
+  recorder.record("submit_response", args, result);
 }
 
 // Schema for the normal response path
@@ -234,9 +249,14 @@ const normalResponseSchema = {
     .describe(
       "Short conversational preamble shown to the user but NOT included when sharing via post_to. " +
         "Use for meta-commentary like 'Here is the updated version:' or 'I adjusted the tone:'. " +
-        "Put the actual shareable content in sections.",
+        "Put the actual shareable content in blocks.",
     ),
-  sections: z.array(sectionSchema).min(1).describe("Response sections shown to the user"),
+  blocks: z
+    .array(BlockSchema)
+    .min(1)
+    .describe(
+      "Slack Block Kit blocks (Clack's curated subset: divider, header, section, context, image) shown to the user. Default to a single section block with mrkdwn text; add structure only when the content genuinely has structure.",
+    ),
   actions: z
     .array(actionSchema)
     .describe(
@@ -296,15 +316,15 @@ const skipEnabledResponseSchema = {
     .optional()
     .describe(
       "Set to true to decline answering. Use when the conversation doesn't need a Clack response " +
-        "(e.g., users talking to each other, question already answered). When true, sections and actions are not required.",
+        "(e.g., users talking to each other, question already answered). When true, blocks and actions are not required.",
     ),
   disengage: disengageField,
-  // Override sections and actions to be optional when skip is used
-  sections: z
-    .array(sectionSchema)
+  // Override blocks and actions to be optional when skip is used
+  blocks: z
+    .array(BlockSchema)
     .min(1)
     .optional()
-    .describe("Response sections shown to the user (not required when skip_response is true)"),
+    .describe("Slack Block Kit blocks shown to the user (not required when skip_response is true)"),
   actions: z
     .array(actionSchema)
     .optional()
@@ -345,7 +365,8 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
     allowPostTopLevel,
     requiredTools,
     getStructuredResponseBlocks = _getStructuredResponseBlocks,
-    validateSlackBlocks = _validateSlackBlocks,
+    validateBlocks = _validateBlocks,
+    validateActionButtonLabels = _validateActionButtonLabels,
     getResponseActionBlocks = _getResponseActionBlocks,
   } = deps;
 
@@ -399,25 +420,48 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
         if (wantsDisengage) {
           responseCapture.setDisengaged();
         }
-        const result = wantsDisengage
+        const result: SubmitResponseSuccessResult = wantsDisengage
           ? { success: true, skipped: true, disengaged: true }
           : { success: true, skipped: true };
-        recorder.record("submit_response", args as unknown as Record<string, unknown>, result);
+        recordSuccess(recorder, args, result);
         return textResult(result);
       }
 
       // --- Normal response path ---
-      const sections = "sections" in args ? args.sections : undefined;
+      const blocks: Block[] | undefined =
+        "blocks" in args && Array.isArray(args.blocks) ? (args.blocks as Block[]) : undefined;
       const actions = "actions" in args ? args.actions : undefined;
-      if (!sections || sections.length === 0) {
+      if (!blocks || blocks.length === 0) {
         return recordError(recorder, args, {
-          error: "sections is required with at least 1 item when not skipping.",
+          error: "blocks is required with at least 1 item when not skipping.",
         });
       }
       if (!actions) {
         return recordError(recorder, args, {
           error: "actions is required when not skipping.",
         });
+      }
+
+      // Validate the source blocks (friendly error with field path, current length, limit).
+      const blockErrors = validateBlocks(blocks);
+      if (blockErrors.length > 0) {
+        return recordError(recorder, args, {
+          error: "invalid_blocks",
+          details: blockErrors.map((e) => `${e.field}: ${e.message}`),
+        });
+      }
+
+      // Validate the blocks attached to each post_to action the same way.
+      for (let i = 0; i < actions.length; i++) {
+        const action = actions[i];
+        if (action.type !== "post_to") continue;
+        const postToErrors = validateBlocks(action.blocks);
+        if (postToErrors.length > 0) {
+          return recordError(recorder, args, {
+            error: "invalid_blocks",
+            details: postToErrors.map((e) => `actions[${i}].${e.field}: ${e.message}`),
+          });
+        }
       }
 
       const wantsPostTopLevel = "post_top_level" in args && args.post_top_level === true;
@@ -443,13 +487,13 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
       }
 
       const message = "message" in args ? args.message : undefined;
-      const payload = {
+      const payload: SubmitResponsePayload = {
         ...(message && { message }),
-        sections,
+        blocks,
         actions,
       };
 
-      const { displayText } = buildTexts(sections, message);
+      const { displayText } = buildTexts(blocks, message);
 
       const SLACK_MESSAGE_TEXT_LIMIT = 10000;
       if (displayText.length > SLACK_MESSAGE_TEXT_LIMIT) {
@@ -459,28 +503,30 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
         });
       }
 
-      // Persist per-button content for each post_to action
+      // Persist per-button blocks for each post_to action
       if (persistSnapshot) {
         for (const action of payload.actions) {
           if (action.type === "post_to") {
-            const contentId = randomBytes(6).toString("hex");
-            const content = action.content;
-            await persistSnapshot(contentId, {
-              text: content,
-              sections: [{ body: content }],
+            const snapshotId = randomBytes(6).toString("hex");
+            const snapshotText = extractDisplayText(action.blocks);
+            await persistSnapshot(snapshotId, {
+              text: snapshotText,
+              blocks: action.blocks,
             });
-            (action as PostToAction)._snapshotId = contentId;
+            action._snapshotId = snapshotId;
           }
         }
       }
 
       const renderedBlocks = getStructuredResponseBlocks(payload, sessionId);
-      const validationErrors = validateSlackBlocks(renderedBlocks);
 
-      if (validationErrors.length > 0) {
+      // Validate action-button labels (Slack's 75-char limit) on the rendered buttons.
+      const actionBlocksForValidation = getResponseActionBlocks(payload.actions, sessionId);
+      const buttonLabelErrors = validateActionButtonLabels(actionBlocksForValidation);
+      if (buttonLabelErrors.length > 0) {
         return recordError(recorder, args, {
           error: "invalid_blocks",
-          details: validationErrors.map((e) => `${e.field}: ${e.message}`),
+          details: buttonLabelErrors.map((e) => `${e.field}: ${e.message}`),
         });
       }
 
@@ -488,12 +534,8 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
         "reactions" in args && Array.isArray(args.reactions) ? args.reactions : undefined;
 
       if (deliver) {
-        const actionBlocks = getResponseActionBlocks(payload.actions, sessionId);
         const deliveryResult = await deliver({
-          markdownText: displayText,
-          ...(actionBlocks.length > 0 && {
-            blocks: asSlackBlocks(actionBlocks),
-          }),
+          blocks: renderedBlocks,
           ...(reactions?.length && { reactions }),
           ...(wantsPostTopLevel && { postTopLevel: true }),
         });
@@ -513,15 +555,15 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
         responseCapture.setDisengaged();
       }
 
-      const result = {
+      const result: SubmitResponseSuccessResult = {
         success: true,
         delivered: !!deliver,
-        sectionsCount: sections.length,
+        blocksCount: blocks.length,
         actionsCount: actions.length,
-        ...(wantsDisengage && { disengaged: true }),
-        ...(wantsPostTopLevel && { postedTopLevel: true }),
+        ...(wantsDisengage && { disengaged: true as const }),
+        ...(wantsPostTopLevel && { postedTopLevel: true as const }),
       };
-      recorder.record("submit_response", args as unknown as Record<string, unknown>, result);
+      recordSuccess(recorder, args, result);
 
       return textResult(result);
     },

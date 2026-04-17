@@ -20,6 +20,7 @@ import type {
 import type { StreamEvent } from "../streaming/types.js";
 import type { SlackImageFile, SlackFile } from "../slack/slackFileBase.js";
 import type { SlackBlocks } from "../slack/blocks.js";
+import { extractDisplayText } from "../slack/blockText.js";
 import { buildQueryContext } from "../tools/context.js";
 import { buildClackTools } from "../tools/server.js";
 import { discoverPlugins } from "../plugins.js";
@@ -246,9 +247,7 @@ function buildSuccessResponse(
 
   // If submit_response was called, use the structured response
   if (structuredResponse) {
-    const answerText = structuredResponse.sections
-      .map((s) => (s.title ? `**${s.title}**\n${s.body}` : s.body))
-      .join("\n\n");
+    const answerText = extractDisplayText(structuredResponse.blocks);
 
     return {
       success: true,

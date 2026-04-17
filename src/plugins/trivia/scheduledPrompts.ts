@@ -62,11 +62,11 @@ ${QUESTION_FLOW_STEPS}
 9. FORMAT THE MESSAGE USING BLOCK KIT:
    Use your Game Presenter persona! Add excitement, build anticipation, make it feel like a real game show moment.
 
-   IMPORTANT: Use submit_response with sections array — NOT markdown or plain text.
+   IMPORTANT: Use submit_response with a \`blocks\` array (Clack's curated subset: divider, header, section, context, image). Default to a single section block — only add structure when the content genuinely has structure.
 
-   Structure your response with a single section (no title needed for the question itself):
-   - Use plain text with emojis (no markdown bold/italic, no ## headers).
-   - Keep it punchy and energetic.
+   Compose one section block whose text is \`{ type: "mrkdwn", text: "..." }\`:
+   - Use plain text with emojis (Slack mrkdwn allows *bold* and _italic_ but keep it minimal and punchy).
+   - Keep it energetic.
    - Include the statement.
    - ALWAYS mention 👍 (TRUE) first, then 👎 (FALSE) — this order matters.
 
@@ -163,21 +163,22 @@ Reveal the answer to today's trivia question. Follow these steps:
 10. DELIVER WITH GAME SHOW ENERGY USING BLOCK KIT:
     Use your Game Presenter persona to reveal the answer. Build the drama, celebrate the winners, keep that high-energy vibe going.
 
-    IMPORTANT: Use submit_response with sections array — NOT markdown.
+    IMPORTANT: Use submit_response with a \`blocks\` array (Clack's curated subset: divider, header, section, context, image). Use block structure to pace the reveal — a header announces the answer, a section explains why, and a second section lists the voting results.
 
-    Structure your response as two sections with titles and bodies:
-    - First section: the correct answer with dramatic emphasis and explanation.
-    - Second section: titled "Voting Results" with all voter categories.
+    Compose your response as the following block sequence:
+    1. A \`header\` block whose plain_text announces the correct answer with dramatic emphasis (e.g. "🎯 THE ANSWER IS TRUE!").
+    2. A \`section\` block (mrkdwn) explaining WHY the statement is true/false with the correct facts.
+    3. A \`header\` block with plain_text "🎪 VOTING RESULTS".
+    4. A \`section\` block (mrkdwn) grouping the four voter categories below, using Slack mrkdwn bullet points (\`•\`).
 
-    In the content:
+    In the mrkdwn text:
     - Use emojis liberally for visual impact.
     - Mention users with <@USERID> format (e.g. <@U09FSR0REUQ>).
-    - Use bullet points (•) for lists.
+    - Use Slack mrkdwn (\`*bold*\`, \`_italic_\`) sparingly — emoji and energy do most of the work.
     - Keep paragraphs short and punchy.
-    - NO markdown headers (##, ###) — use section titles instead.
-    - NO bold/italic markdown (**text**, *text*) — just plain text with emojis.
+    - Header text is \`plain_text\`, so emojis render but \`*asterisks*\` do not.
 
-    Include these labelled subsections inside the Voting Results section:
+    Inside the voting-results section, label four sub-groups (on separate lines within the same section):
     - "Nailed it! 🎉" — celebrate correct voters (mention them like <@U123>) with enthusiastic praise.
     - "Not quite! 💪" — acknowledge incorrect voters with encouragement and game show charm.
     - "Playing both sides, eh? 🤨" — call out fence-sitters who voted for both (lighthearted roast).

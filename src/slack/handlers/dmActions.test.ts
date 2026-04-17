@@ -11,46 +11,29 @@ import { postAnswerToChannel, resolveOrigin, registerDmActionHandlers } from "./
 // Type definitions for mocks
 // ============================================================================
 
-interface DecodeResult {
-  sessionId: string;
-  ref?: string;
-  snapshotId?: string;
-  targetChannel?: string;
-  targetThreadTs?: string;
-}
-
-interface BlockList {
-  type: string;
-  text?: { type: string; text: string };
-}
-
 // ============================================================================
 // Mocks
 // ============================================================================
 
-const mockGetSession = mock.fn<(id: string) => Promise<SessionContext | null>>();
-const mockUpdateSession =
-  mock.fn<(id: string, updates: Partial<SessionContext>) => Promise<SessionContext | null>>();
-const mockSetLastAnswer = mock.fn<(id: string, answer: string) => Promise<SessionContext | null>>();
-const mockRestoreSession = mock.fn<(id: string) => Promise<SessionInfo | undefined>>();
-const mockSetSessionInfo = mock.fn<(id: string, info: SessionInfo) => void>();
-const mockDecodeActionValue = mock.fn<(v: string) => DecodeResult>();
-const mockGetAcceptedBlocks = mock.fn<(text: string) => BlockList[]>();
-const mockGetStructuredAcceptedBlocks =
-  mock.fn<(sections: ResponseSnapshot["sections"]) => BlockList[]>();
-const mockAsSlackBlocks = mock.fn<(blocks: BlockList[]) => BlockList[]>();
+const mockGetSession = mock.fn<DmActionsDeps["getSession"]>();
+const mockUpdateSession = mock.fn<DmActionsDeps["updateSession"]>();
+const mockSetLastAnswer = mock.fn<DmActionsDeps["setLastAnswer"]>();
+const mockRestoreSession = mock.fn<DmActionsDeps["restoreSession"]>();
+const mockSetSessionInfo = mock.fn<DmActionsDeps["setSessionInfo"]>();
+const mockDecodeActionValue = mock.fn<DmActionsDeps["decodeActionValue"]>();
+const mockGetStructuredAcceptedBlocks = mock.fn<DmActionsDeps["getStructuredAcceptedBlocks"]>();
+const mockAsSlackBlocks = mock.fn<DmActionsDeps["asSlackBlocks"]>();
 
 function makeDeps(): DmActionsDeps {
   return {
     getSession: mockGetSession,
-    updateSession: mockUpdateSession as never,
+    updateSession: mockUpdateSession,
     setLastAnswer: mockSetLastAnswer,
     restoreSession: mockRestoreSession,
     setSessionInfo: mockSetSessionInfo,
-    decodeActionValue: mockDecodeActionValue as never,
-    getAcceptedBlocks: mockGetAcceptedBlocks as never,
-    getStructuredAcceptedBlocks: mockGetStructuredAcceptedBlocks as never,
-    asSlackBlocks: mockAsSlackBlocks as never,
+    decodeActionValue: mockDecodeActionValue,
+    getStructuredAcceptedBlocks: mockGetStructuredAcceptedBlocks,
+    asSlackBlocks: mockAsSlackBlocks,
   };
 }
 
@@ -91,10 +74,17 @@ function makeApp(deps: DmActionsDeps): App {
   return app;
 }
 
+let mockPostMessage: ReturnType<typeof mock.fn>;
+
 function makeChatApi(): App["client"]["chat"] {
-  const postMessageFn = mock.fn<() => Promise<{ ts?: string }>>(async () => ({ ts: "1700.999" }));
+  const postMessageFn = mock.fn<() => Promise<{ ts?: string }>>(async () => ({
+    ts: "1700.999",
+  }));
+  mockPostMessage = postMessageFn;
   const postEphemeralFn = mock.fn<() => Promise<{ ok?: boolean }>>(async () => ({ ok: true }));
-  const updateFn = mock.fn<() => Promise<{ ok?: boolean }>>(async () => ({ ok: true }));
+  const updateFn = mock.fn<() => Promise<{ ok?: boolean }>>(async () => ({
+    ok: true,
+  }));
 
   return {
     postMessage: postMessageFn,
@@ -139,7 +129,7 @@ function makeSessionInfo(overrides: Partial<SessionInfo> = {}): SessionInfo {
 function makeSnapshot(overrides: Partial<ResponseSnapshot> = {}): ResponseSnapshot {
   return {
     text: "Answer text",
-    sections: [],
+    blocks: [],
     ...overrides,
   };
 }
@@ -151,13 +141,9 @@ beforeEach(() => {
   mockRestoreSession.mock.resetCalls();
   mockSetSessionInfo.mock.resetCalls();
   mockDecodeActionValue.mock.resetCalls();
-  mockGetAcceptedBlocks.mock.resetCalls();
   mockGetStructuredAcceptedBlocks.mock.resetCalls();
   mockAsSlackBlocks.mock.resetCalls();
 
-  mockGetAcceptedBlocks.mock.mockImplementation(() => [
-    { type: "section", text: { type: "mrkdwn", text: "answer" } },
-  ]);
   mockGetStructuredAcceptedBlocks.mock.mockImplementation(() => [
     { type: "section", text: { type: "mrkdwn", text: "answer" } },
   ]);
@@ -170,21 +156,26 @@ beforeEach(() => {
 // ============================================================================
 
 describe("postAnswerToChannel", () => {
-  it("posts message with plain text snapshot", async () => {
+  it("posts message with empty-blocks snapshot", async () => {
     const deps = makeDeps();
     const client = makeClient();
-    const snapshot = makeSnapshot({ text: "My answer", sections: undefined });
+    const snapshot = makeSnapshot({ text: "My answer", blocks: [] });
 
     await postAnswerToChannel(client, snapshot, "C100", undefined, deps);
 
-    assert.equal(mockGetAcceptedBlocks.mock.callCount(), 1);
+    assert.equal(mockGetStructuredAcceptedBlocks.mock.callCount(), 1);
   });
 
-  it("posts message with structured snapshot sections", async () => {
+  it("posts message with structured snapshot blocks", async () => {
     const deps = makeDeps();
     const client = makeClient();
-    const sections = [{ body: "Section 1" }];
-    const snapshot = makeSnapshot({ text: "answer", sections });
+    const blocks = [
+      {
+        type: "section" as const,
+        text: { type: "mrkdwn" as const, text: "Section 1" },
+      },
+    ];
+    const snapshot = makeSnapshot({ text: "answer", blocks });
 
     await postAnswerToChannel(client, snapshot, "C100", undefined, deps);
 
@@ -209,7 +200,10 @@ describe("postAnswerToChannel", () => {
 
 describe("resolveOrigin", () => {
   it("returns originChannel and originThreadTs from session when available", () => {
-    const session = makeSession({ originChannel: "C200", originThreadTs: "1700.002" });
+    const session = makeSession({
+      originChannel: "C200",
+      originThreadTs: "1700.002",
+    });
     const sessionInfo = makeSessionInfo();
 
     const result = resolveOrigin(session, sessionInfo);
@@ -219,8 +213,14 @@ describe("resolveOrigin", () => {
   });
 
   it("falls back to sessionInfo when session fields are undefined", () => {
-    const session = makeSession({ originChannel: undefined, originThreadTs: undefined });
-    const sessionInfo = makeSessionInfo({ originChannel: "C300", originThreadTs: "1700.003" });
+    const session = makeSession({
+      originChannel: undefined,
+      originThreadTs: undefined,
+    });
+    const sessionInfo = makeSessionInfo({
+      originChannel: "C300",
+      originThreadTs: "1700.003",
+    });
 
     const result = resolveOrigin(session, sessionInfo);
 
@@ -229,8 +229,14 @@ describe("resolveOrigin", () => {
   });
 
   it("prefers session over sessionInfo when both have values", () => {
-    const session = makeSession({ originChannel: "C200", originThreadTs: "1700.002" });
-    const sessionInfo = makeSessionInfo({ originChannel: "C300", originThreadTs: "1700.003" });
+    const session = makeSession({
+      originChannel: "C200",
+      originThreadTs: "1700.002",
+    });
+    const sessionInfo = makeSessionInfo({
+      originChannel: "C300",
+      originThreadTs: "1700.003",
+    });
 
     const result = resolveOrigin(session, sessionInfo);
 
@@ -298,5 +304,123 @@ describe("registerDmActionHandlers", () => {
     makeApp(deps);
 
     assert.ok(capturedBlockHandlers.has("clack_dm_post_new"));
+  });
+});
+
+// ============================================================================
+// handlePostTo — legacy snapshot guard
+// ============================================================================
+
+describe("handlePostTo — legacy snapshot guard", () => {
+  function makeBlockAction(value: string): BlockAction {
+    return {
+      type: "block_actions",
+      trigger_id: "t1",
+      user: { id: "U001", username: "user", name: "user", team_id: "T1" },
+      channel: { id: "C001", name: "general" },
+      actions: [
+        {
+          type: "button",
+          action_id: "clack_post_to_0",
+          value,
+          block_id: "b",
+          action_ts: "1",
+        },
+      ],
+    } as BlockAction;
+  }
+
+  it("sends expiration DM when snapshot has legacy sections shape (no blocks)", async () => {
+    const deps = makeDeps();
+    makeApp(deps);
+
+    // Simulate legacy persisted data: snapshots saved before the Block Kit
+    // migration have { text, sections } but no `blocks` field. At runtime the
+    // JSON loader returns whatever was on disk, so `blocks` is absent.
+    const session = makeSession({ dmChannel: "D_DM", dmThreadTs: "17.01" });
+    Object.assign(session, { snapshots: { snap1: { text: "old answer" } } });
+    const sessionInfo = makeSessionInfo();
+
+    mockDecodeActionValue.mock.mockImplementation(() => ({
+      sessionId: "sess-1",
+      snapshotId: "snap1",
+    }));
+    mockGetSession.mock.mockImplementation(async () => session);
+    mockRestoreSession.mock.mockImplementation(async () => sessionInfo);
+
+    const client = makeClient();
+    const handler = capturedBlockHandlers.get("^clack_post_to_\\d+$")!;
+    await handler({
+      ack: async () => {},
+      body: makeBlockAction("sess-1"),
+      client,
+    });
+
+    // Should NOT have called getStructuredAcceptedBlocks (no post attempted)
+    assert.equal(mockGetStructuredAcceptedBlocks.mock.callCount(), 0);
+
+    // Should have sent the expiration DM via postMessage (confirmInDm path)
+    const postCalls = mockPostMessage.mock.calls;
+    assert.ok(postCalls.length >= 1, "expected at least one postMessage call");
+    const lastCall = postCalls[postCalls.length - 1].arguments[0] as {
+      text: string;
+    };
+    assert.ok(
+      lastCall.text.includes("older response"),
+      `expected expiration message, got: ${lastCall.text}`,
+    );
+  });
+
+  it("proceeds normally when snapshot has current blocks shape", async () => {
+    const deps = makeDeps();
+    makeApp(deps);
+
+    const currentSnapshot = makeSnapshot({
+      text: "current answer",
+      blocks: [{ type: "section", text: { type: "mrkdwn", text: "current answer" } }],
+    });
+    const session = makeSession({
+      snapshots: { snap1: currentSnapshot },
+      originChannel: "C100",
+      originThreadTs: "17.02",
+    } as Partial<SessionContext>);
+    const sessionInfo = makeSessionInfo();
+
+    mockDecodeActionValue.mock.mockImplementation(() => ({
+      sessionId: "sess-1",
+      snapshotId: "snap1",
+    }));
+    mockGetSession.mock.mockImplementation(async () => session);
+    mockRestoreSession.mock.mockImplementation(async () => sessionInfo);
+
+    const client = makeClient();
+    const handler = capturedBlockHandlers.get("^clack_post_to_\\d+$")!;
+    await handler({
+      ack: async () => {},
+      body: makeBlockAction("sess-1"),
+      client,
+    });
+
+    // Should have called getStructuredAcceptedBlocks (post went through)
+    assert.equal(mockGetStructuredAcceptedBlocks.mock.callCount(), 1);
+  });
+});
+
+// ============================================================================
+// isCurrentSnapshot
+// ============================================================================
+
+describe("isCurrentSnapshot (via postAnswerToChannel)", () => {
+  it("treats a snapshot with blocks as current", async () => {
+    const deps = makeDeps();
+    const client = makeClient();
+    const snapshot = makeSnapshot({
+      text: "answer",
+      blocks: [{ type: "section", text: { type: "mrkdwn", text: "answer" } }],
+    });
+
+    await postAnswerToChannel(client, snapshot, "C100", undefined, deps);
+
+    assert.equal(mockGetStructuredAcceptedBlocks.mock.callCount(), 1);
   });
 });

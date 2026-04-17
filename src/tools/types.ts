@@ -1,6 +1,7 @@
 import type { App } from "@slack/bolt";
-import type { Block, KnownBlock } from "@slack/types";
+import type { Block as SlackRawBlock, KnownBlock } from "@slack/types";
 import type { SlackBlocks } from "../slack/blocks.js";
+import type { Block } from "../slack/blockSchema.js";
 import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
 import type { UserRole } from "../roles.js";
 import type { SessionContext } from "../sessions.js";
@@ -13,8 +14,7 @@ import type { SlackImageFile, SlackFile } from "../slack/slackFileBase.js";
 
 /** Callback for delivering a response to Slack (via streamer or fallback). */
 export type DeliverFn = (opts: {
-  markdownText: string;
-  blocks?: (KnownBlock | Block)[];
+  blocks: (KnownBlock | SlackRawBlock)[];
   reactions?: string[];
   /**
    * When true, deliver as a top-level channel message (no `thread_ts`) instead of a thread
@@ -143,15 +143,15 @@ export type StagedIntent =
 // submit_response Payload
 // ============================================================================
 
-export interface ResponseSection {
-  title?: string;
-  body: string;
-}
-
-/** Snapshot of a response, saved at delivery time for stable cross-posting */
+/**
+ * Snapshot of a response, saved at delivery time for stable cross-posting.
+ * The `blocks` array is the canonical shareable payload (Slack Block Kit in
+ * Clack's curated subset). `text` is a plain-string fallback used as the
+ * `text:` parameter on `chat.postMessage` for notifications and accessibility.
+ */
 export interface ResponseSnapshot {
   text: string;
-  sections: ResponseSection[];
+  blocks: Block[];
 }
 
 // Continuation actions
@@ -178,8 +178,12 @@ export interface PostToAction {
   channel?: string;
   /** Explicit target thread timestamp. Omit for top-level channel post. */
   thread_ts?: string;
-  /** The exact text to post. Each post_to action posts only its own content. */
-  content: string;
+  /**
+   * Shareable Block Kit payload posted when the user clicks the button. When
+   * presenting multiple post_to options, each action carries only its own
+   * option's blocks.
+   */
+  blocks: Block[];
   /** Internal: resolved content entry ID set by submit_response before delivery (not from Claude) */
   _snapshotId?: string;
 }
@@ -218,7 +222,13 @@ export type ActionType = Action["type"];
 export interface SubmitResponsePayload {
   /** Conversational preamble shown to user but excluded from snapshots and post_to */
   message?: string;
-  sections: ResponseSection[];
+  /**
+   * Claude-authored Slack Block Kit blocks (curated subset validated by
+   * BlockSchema in `src/slack/blockSchema.ts`). Rendered above by Clack
+   * (prepended by the `message` preamble if present) and followed by
+   * action-button blocks generated from `actions`.
+   */
+  blocks: Block[];
   actions: Action[];
 }
 
@@ -228,8 +238,8 @@ export interface SubmitResponsePayload {
 
 export interface ToolCallRecord {
   tool: string;
-  args: Record<string, unknown>;
-  result: Record<string, unknown>;
+  args: object;
+  result: object;
   timestamp: number;
 }
 

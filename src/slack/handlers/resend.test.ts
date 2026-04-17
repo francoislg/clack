@@ -178,7 +178,7 @@ describe("registerResendHandler", () => {
   it("posts structured response with blocks when lastResponse exists", async () => {
     const session = makeSession({
       lastAnswer: "plain answer",
-      lastResponse: { sections: [], actions: [] } as never as SessionContext["lastResponse"],
+      lastResponse: { blocks: [], actions: [] } satisfies SessionContext["lastResponse"],
     });
     const sessionInfo = makeSessionInfo();
     mockGetSession.mock.mockImplementation(async () => session);

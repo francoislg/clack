@@ -19,6 +19,7 @@ import { getLoadedPlugins } from "../plugins/state.js";
 import { logger } from "../logger.js";
 import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
 import { asSlackBlocks } from "../slack/blocks.js";
+import type { SlackBlocks } from "../slack/blocks.js";
 import { updateSession, getSession } from "../sessions.js";
 import type { SessionContext } from "../sessions.js";
 import { canRequestChanges, canEditConfig } from "../permissions.js";
@@ -125,7 +126,7 @@ export function createIntentStore(): IntentStore {
 // ============================================================================
 
 export interface ToolCallRecorder {
-  record: (tool: string, args: Record<string, unknown>, result: Record<string, unknown>) => void;
+  record: (tool: string, args: object, result: object) => void;
   getHistory: () => ToolCallRecord[];
 }
 
@@ -133,7 +134,7 @@ export function createToolCallRecorder(): ToolCallRecorder {
   const history: ToolCallRecord[] = [];
 
   return {
-    record(tool: string, args: Record<string, unknown>, result: Record<string, unknown>): void {
+    record(tool: string, args: object, result: object): void {
       history.push({ tool, args, result, timestamp: Date.now() });
     },
 
@@ -181,9 +182,9 @@ export function wrapToolForRecording<Schema extends AnyZodRawShape>(
 // ============================================================================
 
 export interface ResponseCapture {
-  set: (payload: SubmitResponsePayload, renderedBlocks: Record<string, unknown>[]) => void;
+  set: (payload: SubmitResponsePayload, renderedBlocks: SlackBlocks) => void;
   get: () => SubmitResponsePayload | null;
-  getRenderedBlocks: () => Record<string, unknown>[] | null;
+  getRenderedBlocks: () => SlackBlocks | null;
   setSkipped: () => void;
   setDisengaged: () => void;
   isSkipped: () => boolean;
@@ -192,12 +193,12 @@ export interface ResponseCapture {
 
 export function createResponseCapture(): ResponseCapture {
   let result: SubmitResponsePayload | null = null;
-  let blocks: Record<string, unknown>[] | null = null;
+  let blocks: SlackBlocks | null = null;
   let skipped = false;
   let disengaged = false;
 
   return {
-    set(payload: SubmitResponsePayload, renderedBlocks: Record<string, unknown>[]): void {
+    set(payload: SubmitResponsePayload, renderedBlocks: SlackBlocks): void {
       result = payload;
       blocks = renderedBlocks;
     },
@@ -206,7 +207,7 @@ export function createResponseCapture(): ResponseCapture {
       return result;
     },
 
-    getRenderedBlocks(): Record<string, unknown>[] | null {
+    getRenderedBlocks(): SlackBlocks | null {
       return blocks;
     },
 

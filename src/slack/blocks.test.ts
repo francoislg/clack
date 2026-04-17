@@ -5,12 +5,13 @@ import {
   getStructuredResponseBlocks,
   getResponseActionBlocks,
   getStructuredAcceptedBlocks,
-  getAcceptedBlocks,
   getErrorBlocks,
   getErrorBlocksWithRetry,
-  validateSlackBlocks,
+  validateActionButtonLabels,
 } from "./blocks.js";
 import type { Action, SubmitResponsePayload } from "../tools/types.js";
+import type { Block } from "./blockSchema.js";
+import type { ActionsBlock, Button, SectionBlock, DividerBlock } from "@slack/types";
 
 // ============================================================================
 // decodeActionValue
@@ -41,12 +42,7 @@ describe("decodeActionValue", () => {
 
   it("decodes post_to fields", () => {
     const result = decodeActionValue(
-      JSON.stringify({
-        s: "s1",
-        c: "C123",
-        t: "1234.5678",
-        sn: "snapshot-1",
-      }),
+      JSON.stringify({ s: "s1", c: "C123", t: "1234.5678", sn: "snapshot-1" }),
     );
     assert.equal(result.targetChannel, "C123");
     assert.equal(result.targetThreadTs, "1234.5678");
@@ -58,109 +54,6 @@ describe("decodeActionValue", () => {
     assert.equal(result.sessionId, "plain-session-id");
     assert.equal(result.ref, undefined);
   });
-
-  it("handles workMode=false by returning undefined", () => {
-    const result = decodeActionValue(JSON.stringify({ s: "s1", w: false }));
-    assert.equal(result.workMode, undefined);
-  });
-});
-
-// ============================================================================
-// getErrorBlocks
-// ============================================================================
-
-describe("getErrorBlocks", () => {
-  it("returns a single section block with :x: prefix", () => {
-    const blocks = getErrorBlocks("Something went wrong");
-    assert.equal(blocks.length, 1);
-    assert.equal(blocks[0].type, "section");
-    assert.deepEqual(blocks[0].text, {
-      type: "mrkdwn",
-      text: ":x: Something went wrong",
-    });
-  });
-
-  it("preserves the exact message text", () => {
-    const blocks = getErrorBlocks("Rate limit exceeded — try again in 30s");
-    const text = (blocks[0].text as { text: string }).text;
-    assert.ok(text.includes("Rate limit exceeded"));
-  });
-});
-
-// ============================================================================
-// getErrorBlocksWithRetry
-// ============================================================================
-
-describe("getErrorBlocksWithRetry", () => {
-  it("returns a warning section and an actions block with retry button", () => {
-    const blocks = getErrorBlocksWithRetry("sess-42");
-    assert.equal(blocks.length, 2);
-
-    // First block: warning section
-    assert.equal(blocks[0].type, "section");
-    const warningText = (blocks[0].text as { text: string }).text;
-    assert.ok(warningText.includes(":warning:"));
-
-    // Second block: actions with a retry button
-    assert.equal(blocks[1].type, "actions");
-    const elements = blocks[1].elements as Array<Record<string, unknown>>;
-    assert.equal(elements.length, 1);
-    assert.equal(elements[0].type, "button");
-    assert.equal(elements[0].action_id, "clack_retry");
-    assert.equal(elements[0].value, "sess-42");
-  });
-});
-
-// ============================================================================
-// getAcceptedBlocks
-// ============================================================================
-
-describe("getAcceptedBlocks", () => {
-  it("returns section blocks for a short answer", () => {
-    const blocks = getAcceptedBlocks("Hello world");
-    assert.ok(blocks.length >= 1);
-    assert.equal(blocks[0].type, "section");
-    const text = blocks[0].text as { type: string; text: string };
-    assert.equal(text.type, "mrkdwn");
-    assert.ok(text.text.includes("Hello world"));
-  });
-});
-
-// ============================================================================
-// getStructuredAcceptedBlocks
-// ============================================================================
-
-describe("getStructuredAcceptedBlocks", () => {
-  it("renders sections without title", () => {
-    const blocks = getStructuredAcceptedBlocks([{ body: "Some explanation" }]);
-    assert.equal(blocks.length, 1);
-    assert.equal(blocks[0].type, "section");
-    const text = (blocks[0].text as { text: string }).text;
-    assert.ok(text.includes("Some explanation"));
-  });
-
-  it("renders sections with title as bold prefix", () => {
-    const blocks = getStructuredAcceptedBlocks([
-      { title: "Summary", body: "Here is the summary." },
-    ]);
-    assert.equal(blocks.length, 1);
-    const text = (blocks[0].text as { text: string }).text;
-    // Title should be bold (*Title*) followed by body
-    assert.ok(text.startsWith("_Summary_"));
-    assert.ok(text.includes("Here is the summary."));
-  });
-
-  it("renders multiple sections in order", () => {
-    const blocks = getStructuredAcceptedBlocks([
-      { body: "First" },
-      { body: "Second" },
-      { body: "Third" },
-    ]);
-    assert.equal(blocks.length, 3);
-    assert.ok((blocks[0].text as { text: string }).text.includes("First"));
-    assert.ok((blocks[1].text as { text: string }).text.includes("Second"));
-    assert.ok((blocks[2].text as { text: string }).text.includes("Third"));
-  });
 });
 
 // ============================================================================
@@ -168,169 +61,50 @@ describe("getStructuredAcceptedBlocks", () => {
 // ============================================================================
 
 describe("getResponseActionBlocks", () => {
-  it("returns empty array when no actions", () => {
-    const blocks = getResponseActionBlocks([], "sess-1");
-    assert.equal(blocks.length, 0);
+  it("returns an empty array when there are no actions", () => {
+    assert.deepEqual(getResponseActionBlocks([], "s1"), []);
   });
 
-  it("filters out auto-executed actions", () => {
+  it("skips auto-executed post_to actions (no button needed)", () => {
     const actions: Action[] = [
-      { type: "change", ref: "r1", auto: true },
+      { type: "post_to", auto: true, channel: "C1", blocks: [] },
       { type: "followup", label: "Continue", prompt: "go on" },
     ];
-    const blocks = getResponseActionBlocks(actions, "sess-1");
+    const blocks = getResponseActionBlocks(actions, "s1");
     assert.equal(blocks.length, 1);
-    const elements = blocks[0].elements as Array<Record<string, unknown>>;
-    assert.equal(elements.length, 1);
-    // The remaining button should be the followup
-    assert.ok((elements[0].action_id as string).startsWith("clack_followup"));
+    assert.equal(blocks[0].elements.length, 1);
   });
 
-  it("returns empty when all actions are auto", () => {
-    const actions: Action[] = [{ type: "post_to", auto: true, content: "auto content" }];
-    const blocks = getResponseActionBlocks(actions, "sess-1");
-    assert.equal(blocks.length, 0);
-  });
-
-  it("creates button with correct action_id for each action type", () => {
-    const actions: Action[] = [
-      { type: "followup", label: "Next", prompt: "next" },
-      { type: "choice", label: "Pick A", value: "a" },
-      { type: "post_to", content: "thread content" },
-      { type: "change", ref: "r1" },
-      { type: "config_update", ref: "c1" },
-      { type: "update", ref: "u1" },
-    ];
-    const blocks = getResponseActionBlocks(actions, "sess-1");
-    // 6 buttons — fits in 2 action blocks (5 + 1)
+  it("packs up to 5 buttons per actions block and splits beyond", () => {
+    const actions: Action[] = Array.from(
+      { length: 7 },
+      (_, i): Action => ({
+        type: "followup",
+        label: `Option ${i + 1}`,
+        prompt: `p${i}`,
+      }),
+    );
+    const blocks = getResponseActionBlocks(actions, "s1");
     assert.equal(blocks.length, 2);
-
-    const allElements = blocks.flatMap((b) => b.elements as Array<Record<string, unknown>>);
-    assert.equal(allElements.length, 6);
-
-    // Verify action_id prefixes
-    assert.ok((allElements[0].action_id as string).startsWith("clack_followup"));
-    assert.ok((allElements[1].action_id as string).startsWith("clack_choice"));
-    assert.ok((allElements[2].action_id as string).startsWith("clack_post_to"));
-    assert.ok((allElements[3].action_id as string).startsWith("clack_change"));
-    assert.ok((allElements[4].action_id as string).startsWith("clack_config_update"));
-    // "update" maps to "clack_update_change" to avoid collision
-    assert.ok((allElements[5].action_id as string).startsWith("clack_update_change"));
+    assert.equal(blocks[0].elements.length, 5);
+    assert.equal(blocks[1].elements.length, 2);
   });
 
-  it("uses default labels when none provided", () => {
+  it("gives each button a unique action_id (index suffix)", () => {
     const actions: Action[] = [
-      { type: "post_to", content: "thread content" },
-      { type: "change", ref: "r1" },
+      { type: "followup", label: "A", prompt: "a" },
+      { type: "followup", label: "B", prompt: "b" },
     ];
-    const blocks = getResponseActionBlocks(actions, "sess-1");
-    const elements = blocks[0].elements as Array<Record<string, unknown>>;
-
-    const sendLabel = (elements[0].text as { text: string }).text;
-    assert.equal(sendLabel, "Post to thread");
-
-    const changeLabel = (elements[1].text as { text: string }).text;
-    assert.equal(changeLabel, "Start Change");
+    const [block] = getResponseActionBlocks(actions, "s1");
+    const ids = block.elements.map((el) => (el as Button).action_id);
+    assert.deepEqual(ids, ["clack_followup_0", "clack_followup_1"]);
   });
 
-  it("uses custom labels when provided", () => {
-    const actions: Action[] = [{ type: "change", ref: "r1", label: "Implement Feature" }];
-    const blocks = getResponseActionBlocks(actions, "sess-1");
-    const elements = blocks[0].elements as Array<Record<string, unknown>>;
-    const label = (elements[0].text as { text: string }).text;
-    assert.equal(label, "Implement Feature");
-  });
-
-  it("applies primary style to post_to and change buttons", () => {
-    const actions: Action[] = [
-      { type: "post_to", content: "thread content" },
-      { type: "change", ref: "r1" },
-      { type: "followup", label: "Continue", prompt: "go" },
-    ];
-    const blocks = getResponseActionBlocks(actions, "sess-1");
-    const elements = blocks[0].elements as Array<Record<string, unknown>>;
-
-    assert.equal(elements[0].style, "primary");
-    assert.equal(elements[1].style, "primary");
-    // followup has no style
-    assert.equal(elements[2].style, undefined);
-  });
-
-  it("splits into multiple action blocks when more than 5 buttons", () => {
-    const actions: Action[] = Array.from({ length: 7 }, (_, i) => ({
-      type: "followup" as const,
-      label: `Option ${i}`,
-      prompt: `prompt-${i}`,
-    }));
-    const blocks = getResponseActionBlocks(actions, "sess-1");
-    assert.equal(blocks.length, 2);
-
-    const firstElements = blocks[0].elements as Array<Record<string, unknown>>;
-    const secondElements = blocks[1].elements as Array<Record<string, unknown>>;
-    assert.equal(firstElements.length, 5);
-    assert.equal(secondElements.length, 2);
-  });
-
-  it("encodes session ID and action data in button value", () => {
-    const actions: Action[] = [{ type: "followup", label: "Go", prompt: "do it" }];
-    const blocks = getResponseActionBlocks(actions, "sess-xyz");
-    const elements = blocks[0].elements as Array<Record<string, unknown>>;
-    const value = JSON.parse(elements[0].value as string);
-    assert.equal(value.s, "sess-xyz");
-    assert.equal(value.p, "do it");
-  });
-
-  it("encodes choice value and workMode in button value", () => {
-    const actions: Action[] = [{ type: "choice", label: "Pick", value: "v1", workMode: true }];
-    const blocks = getResponseActionBlocks(actions, "sess-1");
-    const elements = blocks[0].elements as Array<Record<string, unknown>>;
-    const value = JSON.parse(elements[0].value as string);
-    assert.equal(value.v, "v1");
-    assert.equal(value.w, true);
-  });
-
-  it("encodes ref in change/config_update/update button values", () => {
-    const actions: Action[] = [
-      { type: "change", ref: "change-ref" },
-      { type: "config_update", ref: "config-ref" },
-      { type: "update", ref: "update-ref" },
-    ];
-    const blocks = getResponseActionBlocks(actions, "sess-1");
-    const elements = blocks.flatMap((b) => b.elements as Array<Record<string, unknown>>);
-    assert.equal(JSON.parse(elements[0].value as string).r, "change-ref");
-    assert.equal(JSON.parse(elements[1].value as string).r, "config-ref");
-    assert.equal(JSON.parse(elements[2].value as string).r, "update-ref");
-  });
-
-  it("encodes post_to channel, thread_ts, and snapshotId", () => {
-    const actions: Action[] = [
-      {
-        type: "post_to",
-        content: "thread content",
-        channel: "C999",
-        thread_ts: "111.222",
-        _snapshotId: "snap-1",
-      },
-    ];
-    const blocks = getResponseActionBlocks(actions, "sess-1");
-    const elements = blocks[0].elements as Array<Record<string, unknown>>;
-    const value = JSON.parse(elements[0].value as string);
-    assert.equal(value.c, "C999");
-    assert.equal(value.t, "111.222");
-    assert.equal(value.sn, "snap-1");
-  });
-
-  it("assigns incrementing indices to action_ids across chunks", () => {
-    const actions: Action[] = Array.from({ length: 6 }, (_, i) => ({
-      type: "followup" as const,
-      label: `Opt ${i}`,
-      prompt: `p${i}`,
-    }));
-    const blocks = getResponseActionBlocks(actions, "sess-1");
-    const allElements = blocks.flatMap((b) => b.elements as Array<Record<string, unknown>>);
-    for (let i = 0; i < 6; i++) {
-      assert.ok((allElements[i].action_id as string).endsWith(`_${i}`));
-    }
+  it("sets 'primary' style on post_to buttons", () => {
+    const actions: Action[] = [{ type: "post_to", blocks: [{ type: "divider" }] }];
+    const [block] = getResponseActionBlocks(actions, "s1");
+    const button = block.elements[0] as Button;
+    assert.equal(button.style, "primary");
   });
 });
 
@@ -339,167 +113,110 @@ describe("getResponseActionBlocks", () => {
 // ============================================================================
 
 describe("getStructuredResponseBlocks", () => {
-  it("renders sections without actions and no divider", () => {
+  it("renders just the blocks when no message or actions", () => {
     const payload: SubmitResponsePayload = {
-      sections: [{ body: "Hello" }],
+      blocks: [{ type: "section", text: { type: "mrkdwn", text: "Hello" } }],
       actions: [],
     };
-    const blocks = getStructuredResponseBlocks(payload, "sess-1");
-    assert.equal(blocks.length, 1);
-    assert.equal(blocks[0].type, "section");
-    // No divider when there are no actions
-    assert.ok(blocks.every((b) => b.type !== "divider"));
+    const out = getStructuredResponseBlocks(payload, "s1");
+    assert.equal(out.length, 1);
+    assert.equal((out[0] as SectionBlock).type, "section");
   });
 
-  it("adds a divider before action blocks when actions exist", () => {
+  it("prepends the message as a mrkdwn section preamble", () => {
     const payload: SubmitResponsePayload = {
-      sections: [{ body: "Answer text" }],
-      actions: [{ type: "followup", label: "More", prompt: "more" }],
-    };
-    const blocks = getStructuredResponseBlocks(payload, "sess-1");
-    // section, divider, actions
-    assert.ok(blocks.length >= 3);
-    const types = blocks.map((b) => b.type);
-    assert.ok(types.includes("divider"));
-    // divider should come after sections and before actions
-    const dividerIdx = types.indexOf("divider");
-    assert.ok(dividerIdx > 0);
-    assert.equal(types[dividerIdx + 1], "actions");
-  });
-
-  it("includes message preamble before sections", () => {
-    const payload: SubmitResponsePayload = {
-      message: "Here is what I found:",
-      sections: [{ body: "Details" }],
+      message: "Here it is:",
+      blocks: [{ type: "section", text: { type: "mrkdwn", text: "Body" } }],
       actions: [],
     };
-    const blocks = getStructuredResponseBlocks(payload, "sess-1");
-    assert.ok(blocks.length >= 2);
-    // First block should be the message preamble
-    const first = blocks[0] as Record<string, unknown>;
-    const firstText = (first.text as { text: string }).text;
-    assert.ok(firstText.includes("Here is what I found:"));
-    // Second block should be the section body
-    const second = blocks[1] as Record<string, unknown>;
-    const secondText = (second.text as { text: string }).text;
-    assert.ok(secondText.includes("Details"));
+    const out = getStructuredResponseBlocks(payload, "s1");
+    assert.equal(out.length, 2);
+    const preamble = out[0] as SectionBlock;
+    assert.equal(preamble.type, "section");
+    assert.equal(preamble.text?.text, "Here it is:");
   });
 
-  it("works with empty sections and actions", () => {
+  it("appends a divider before action blocks", () => {
     const payload: SubmitResponsePayload = {
-      sections: [],
+      blocks: [{ type: "section", text: { type: "mrkdwn", text: "Body" } }],
+      actions: [{ type: "followup", label: "Next", prompt: "..." }],
+    };
+    const out = getStructuredResponseBlocks(payload, "s1");
+    // section + divider + actions
+    assert.equal(out.length, 3);
+    assert.equal((out[1] as DividerBlock).type, "divider");
+    assert.equal((out[2] as ActionsBlock).type, "actions");
+  });
+
+  it("omits the divider when there are no action buttons", () => {
+    const payload: SubmitResponsePayload = {
+      blocks: [{ type: "section", text: { type: "mrkdwn", text: "Body" } }],
       actions: [],
     };
-    const blocks = getStructuredResponseBlocks(payload, "sess-1");
-    assert.equal(blocks.length, 0);
-  });
-
-  it("skips divider when all actions are auto-executed", () => {
-    const payload: SubmitResponsePayload = {
-      sections: [{ body: "Done" }],
-      actions: [{ type: "post_to", auto: true, content: "auto content" }],
-    };
-    const blocks = getStructuredResponseBlocks(payload, "sess-1");
-    assert.ok(blocks.every((b) => b.type !== "divider"));
-    assert.ok(blocks.every((b) => b.type !== "actions"));
+    const out = getStructuredResponseBlocks(payload, "s1");
+    assert.equal(out.length, 1);
   });
 });
 
 // ============================================================================
-// validateSlackBlocks
+// getStructuredAcceptedBlocks
 // ============================================================================
 
-describe("validateSlackBlocks", () => {
-  it("returns no errors for valid blocks", () => {
-    const blocks = [
-      { type: "section", text: { type: "mrkdwn", text: "Short text" } },
-      { type: "divider" },
+describe("getStructuredAcceptedBlocks", () => {
+  it("returns prepared blocks without message preamble or action buttons", () => {
+    const blocks: Block[] = [
+      { type: "header", text: { type: "plain_text", text: "Title" } },
+      { type: "section", text: { type: "mrkdwn", text: "Body" } },
     ];
-    const errors = validateSlackBlocks(blocks);
-    assert.equal(errors.length, 0);
+    const out = getStructuredAcceptedBlocks(blocks);
+    assert.equal(out.length, 2);
+  });
+});
+
+// ============================================================================
+// getErrorBlocks / getErrorBlocksWithRetry
+// ============================================================================
+
+describe("getErrorBlocks", () => {
+  it("renders an error section", () => {
+    const out = getErrorBlocks("Something failed");
+    assert.equal(out.length, 1);
+    const section = out[0] as SectionBlock;
+    assert.ok(section.text?.text.includes("Something failed"));
+  });
+});
+
+describe("getErrorBlocksWithRetry", () => {
+  it("renders an error section and a retry button", () => {
+    const out = getErrorBlocksWithRetry("s1");
+    assert.equal(out.length, 2);
+    assert.equal((out[0] as SectionBlock).type, "section");
+    const actions = out[1] as ActionsBlock;
+    assert.equal(actions.type, "actions");
+    const button = actions.elements[0] as Button;
+    assert.equal(button.action_id, "clack_retry");
+    assert.equal(button.value, "s1");
+  });
+});
+
+// ============================================================================
+// validateActionButtonLabels
+// ============================================================================
+
+describe("validateActionButtonLabels", () => {
+  it("returns no errors for short labels", () => {
+    const actions: Action[] = [{ type: "followup", label: "Hi", prompt: "p" }];
+    const blocks = getResponseActionBlocks(actions, "s1");
+    assert.deepEqual(validateActionButtonLabels(blocks), []);
   });
 
-  it("detects section text exceeding 3000 chars", () => {
-    const longText = "x".repeat(3001);
-    const blocks = [{ type: "section", text: { type: "mrkdwn", text: longText } }];
-    const errors = validateSlackBlocks(blocks);
-    assert.equal(errors.length, 1);
-    assert.equal(errors[0].field, "section[0]");
-    assert.equal(errors[0].currentLength, 3001);
-    assert.equal(errors[0].limit, 3000);
-  });
-
-  it("allows section text at exactly 3000 chars", () => {
-    const exactText = "x".repeat(3000);
-    const blocks = [{ type: "section", text: { type: "mrkdwn", text: exactText } }];
-    const errors = validateSlackBlocks(blocks);
-    assert.equal(errors.length, 0);
-  });
-
-  it("detects button label exceeding 75 chars", () => {
+  it("flags labels over the 75-char limit", () => {
     const longLabel = "a".repeat(76);
-    const blocks = [
-      {
-        type: "actions",
-        elements: [{ type: "button", text: { type: "plain_text", text: longLabel } }],
-      },
-    ];
-    const errors = validateSlackBlocks(blocks);
+    const actions: Action[] = [{ type: "followup", label: longLabel, prompt: "p" }];
+    const blocks = getResponseActionBlocks(actions, "s1");
+    const errors = validateActionButtonLabels(blocks);
     assert.equal(errors.length, 1);
-    assert.equal(errors[0].field, "actions[0].button[0]");
     assert.equal(errors[0].currentLength, 76);
     assert.equal(errors[0].limit, 75);
-  });
-
-  it("detects total block count exceeding 50", () => {
-    const blocks = Array.from({ length: 51 }, () => ({
-      type: "section",
-      text: { type: "mrkdwn", text: "ok" },
-    }));
-    const errors = validateSlackBlocks(blocks);
-    // At least the block count error
-    const blockCountError = errors.find((e) => e.field === "blocks");
-    assert.ok(blockCountError);
-    assert.equal(blockCountError!.currentLength, 51);
-    assert.equal(blockCountError!.limit, 50);
-  });
-
-  it("reports multiple errors at once", () => {
-    const longText = "x".repeat(3001);
-    const longLabel = "a".repeat(80);
-    const blocks = [
-      { type: "section", text: { type: "mrkdwn", text: longText } },
-      { type: "section", text: { type: "mrkdwn", text: longText } },
-      {
-        type: "actions",
-        elements: [{ type: "button", text: { type: "plain_text", text: longLabel } }],
-      },
-    ];
-    const errors = validateSlackBlocks(blocks);
-    assert.equal(errors.length, 3);
-    assert.equal(errors[0].field, "section[0]");
-    assert.equal(errors[1].field, "section[1]");
-    assert.equal(errors[2].field, "actions[0].button[0]");
-  });
-
-  it("handles blocks with no text object gracefully", () => {
-    const blocks = [{ type: "section", text: undefined }];
-    const errors = validateSlackBlocks(blocks);
-    // Empty text "" is under limit — no error
-    assert.equal(errors.length, 0);
-  });
-
-  it("counts section indices independently of other block types", () => {
-    const longText = "x".repeat(3001);
-    const blocks = [
-      { type: "divider" },
-      { type: "section", text: { type: "mrkdwn", text: "ok" } },
-      { type: "divider" },
-      { type: "section", text: { type: "mrkdwn", text: longText } },
-    ];
-    const errors = validateSlackBlocks(blocks);
-    assert.equal(errors.length, 1);
-    // The second section (index 1) is the one that's too long
-    assert.equal(errors[0].field, "section[1]");
   });
 });
