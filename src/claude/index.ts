@@ -354,7 +354,7 @@ export async function askClaude(
         systemPrompt,
         model,
         permissionMode: "bypassPermissions",
-        tools: ["Read", "Glob", "Grep", "Skill"],
+        tools: ["Read", "Glob", "Grep", "Skill", "WebSearch"],
         plugins: discoverPlugins(),
         mcpServers,
         stderr: (data) => stderrLines.push(data),
