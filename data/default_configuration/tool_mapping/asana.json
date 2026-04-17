@@ -1,0 +1,57 @@
+{
+  "default": "Checking Asana",
+  "group": "Checking Asana",
+  "argOptions": {
+    "text": { "truncate": 40 },
+    "name_pattern": { "truncate": 40 },
+    "name": { "truncate": 40 }
+  },
+  "tools": {
+    "asana_list_workspaces": "Listing Asana workspaces",
+
+    "asana_search_projects": "Searching projects for \"{name_pattern|…}\"",
+    "asana_search_tasks": "Searching tasks for \"{text|…}\"",
+
+    "asana_get_project": "Reading <https://app.asana.com/0/{project_id}|project {project_id}>",
+    "asana_get_project_sections": "Reading sections in <https://app.asana.com/0/{project_id}|project {project_id}>",
+    "asana_get_project_status": "Reading project status {project_status_gid}",
+    "asana_get_project_statuses": "Reading statuses for <https://app.asana.com/0/{project_gid}|project {project_gid}>",
+    "asana_get_project_task_counts": "Counting tasks in <https://app.asana.com/0/{project_id}|project {project_id}>",
+    "asana_create_project": "Creating project {name}",
+    "asana_update_project": "Updating project {project_id}",
+    "asana_create_project_status": "Posting status on <https://app.asana.com/0/{project_gid}|project {project_gid}>",
+    "asana_delete_project_status": "Deleting project status {project_status_gid}",
+
+    "asana_get_task": "Reading <https://app.asana.com/0/0/{task_id}|task {task_id}>",
+    "asana_get_multiple_tasks_by_gid": "Reading tasks",
+    "asana_get_tasks_for_project": "Reading tasks in <https://app.asana.com/0/{project_id}|project {project_id}>",
+    "asana_get_tasks_for_tag": "Reading tasks for tag {tag_gid}",
+    "asana_get_my_tasks": "Reading my tasks",
+    "asana_get_subtasks": "Reading subtasks of <https://app.asana.com/0/0/{task_gid}|task {task_gid}>",
+    "asana_get_task_stories": "Reading comments on <https://app.asana.com/0/0/{task_id}|task {task_id}>",
+    "asana_create_task": "Creating task {name}",
+    "asana_create_subtask": "Creating subtask {name} on task {parent_task_id}",
+    "asana_update_task": "Updating <https://app.asana.com/0/0/{task_id}|task {task_id}>",
+    "asana_delete_task": "Deleting task {task_id}",
+    "asana_set_parent_for_task": "Setting parent for task {task_id}",
+    "asana_create_task_story": "Commenting on <https://app.asana.com/0/0/{task_id}|task {task_id}>",
+    "asana_add_project_to_task": "Adding task {task_id} to project {project_id}",
+    "asana_remove_project_from_task": "Removing task {task_id} from project {project_id}",
+    "asana_add_task_to_section": "Moving task {task_id} to section {section_id}",
+    "asana_add_task_dependencies": "Setting dependencies for task {task_id}",
+    "asana_add_task_dependents": "Setting dependents for task {task_id}",
+
+    "asana_create_section": "Creating section {name} in project {project_id}",
+    "asana_update_section": "Renaming section {section_id}",
+    "asana_delete_section": "Deleting section {section_id}",
+
+    "asana_get_tag": "Reading tag {tag_gid}",
+    "asana_get_tags_for_task": "Reading tags on task {task_gid}",
+    "asana_get_tags_for_workspace": "Listing tags in workspace {workspace_gid}",
+    "asana_create_tag_for_workspace": "Creating tag {name} in workspace {workspace_gid}",
+    "asana_update_tag": "Updating tag {tag_gid}",
+    "asana_delete_tag": "Deleting tag {tag_gid}",
+    "asana_add_tag_to_task": "Adding tag {tag_gid} to task {task_gid}",
+    "asana_remove_tag_from_task": "Removing tag {tag_gid} from task {task_gid}"
+  }
+}
