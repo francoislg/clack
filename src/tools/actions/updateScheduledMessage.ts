@@ -7,6 +7,7 @@ import { resolveChannelId } from "../../slack/channelResolver.js";
 import { getJob, updateJob } from "../../cronJobs.js";
 import { canManageRoles } from "../../permissions.js";
 import { humanReadableSchedule } from "../../cronScheduler.js";
+import { isValidTimezone } from "../../timezone.js";
 import { validateRequiredToolNames, formatRequiredToolNameError } from "../toolNameValidator.js";
 import { logger } from "../../logger.js";
 import { errorMessage } from "../../errors.js";
@@ -22,7 +23,15 @@ export function createUpdateScheduledMessageTool(ctx: QueryToolContext) {
       cronExpression: z
         .string()
         .optional()
-        .describe("New cron expression in the user's LOCAL timezone — do NOT convert to UTC"),
+        .describe(
+          "New cron expression, interpreted in the job's timezone (pass `timezone` here to change it) — do NOT convert to UTC",
+        ),
+      timezone: z
+        .string()
+        .optional()
+        .describe(
+          "New IANA timezone the cron expression is expressed in (e.g. 'America/New_York', 'UTC'). Omit to keep unchanged.",
+        ),
       channel: z.string().optional().describe("New target channel"),
       prompt: z
         .string()
@@ -66,6 +75,12 @@ export function createUpdateScheduledMessageTool(ctx: QueryToolContext) {
         }
       }
 
+      if (args.timezone !== undefined && !isValidTimezone(args.timezone)) {
+        return errorResult(
+          `Invalid timezone "${args.timezone}". Pass an IANA name like "America/New_York" or "UTC".`,
+        );
+      }
+
       // Validate requiredTools names if provided. An empty array clears the requirement and
       // doesn't need validation.
       if (args.requiredTools && args.requiredTools.length > 0) {
@@ -87,6 +102,7 @@ export function createUpdateScheduledMessageTool(ctx: QueryToolContext) {
       try {
         const updated = await updateJob(args.id, {
           ...(args.cronExpression && { cronExpression: args.cronExpression }),
+          ...(args.timezone !== undefined && { timezone: args.timezone }),
           ...(channelId && { channel: channelId }),
           ...(args.prompt !== undefined && { prompt: args.prompt }),
           ...(args.requiredTools !== undefined && { requiredTools: args.requiredTools }),

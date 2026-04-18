@@ -15,7 +15,6 @@ const originalCwd = process.cwd;
 
 function makeDeps(overrides?: Partial<CreateScheduledMessageDeps>): CreateScheduledMessageDeps {
   return {
-    getUserInfo: mock.fn(async () => ({ userId: "U123", tz: "America/New_York" })),
     createJob,
     ...overrides,
   };
@@ -50,12 +49,26 @@ interface ToolHandlerResult {
   isError?: boolean;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function callHandler(
-  tool: any,
-  args: { channel: string; cronExpression: string; prompt: string },
-): Promise<ToolHandlerResult> {
-  return tool.handler(args, { sessionId: "test" });
+interface CallArgs {
+  channel: string;
+  cronExpression: string;
+  prompt: string;
+  timezone?: string;
+}
+
+type CreateTool = ReturnType<typeof createCreateScheduledMessageTool>;
+
+function callHandler(tool: CreateTool, args: CallArgs): Promise<ToolHandlerResult> {
+  return tool.handler(
+    {
+      timezone: "America/New_York",
+      oneShot: undefined,
+      requiredTools: undefined,
+      plugin: undefined,
+      ...args,
+    },
+    { sessionId: "test" },
+  );
 }
 
 describe("createScheduledMessage tool", () => {
@@ -182,6 +195,7 @@ describe("createScheduledMessage tool", () => {
       {
         channel: "C456",
         cronExpression: "0 9 * * *",
+        timezone: "America/New_York",
         prompt: "test",
         requiredTools: ["mcp__clack__not_a_real_tool", "bare_name_missing_prefix"],
         oneShot: undefined,
@@ -206,6 +220,7 @@ describe("createScheduledMessage tool", () => {
       {
         channel: "C456",
         cronExpression: "0 9 * * *",
+        timezone: "America/New_York",
         prompt: "test",
         requiredTools: ["mcp__clack__fetch_channel_messages"],
         oneShot: undefined,
