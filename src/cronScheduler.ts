@@ -2,6 +2,7 @@ import { CronExpressionParser } from "cron-parser";
 import type { App } from "@slack/bolt";
 import { getEnabledJobs, updateJobRunStatus, deleteJob, type CronJob } from "./cronJobs.js";
 import { processMessage } from "./slack/handlers/core.js";
+import { findSessionByMessage } from "./sessions.js";
 import { logger } from "./logger.js";
 import { resolveChannelLabel, slackLink } from "./slack/logContext.js";
 import { openDmChannel } from "./slack/channelResolver.js";
@@ -126,9 +127,9 @@ async function executeJob(job: CronJob): Promise<void> {
   );
 
   try {
-    await executeDynamicJob(job, slackClient);
+    const responseTs = await executeDynamicJob(job, slackClient);
 
-    await updateJobRunStatus(job.id, "success");
+    await updateJobRunStatus(job.id, "success", responseTs);
 
     if (job.oneShot) {
       await deleteJob(job.id);
@@ -160,10 +161,11 @@ export async function runJobNow(job: CronJob, client: App["client"]): Promise<vo
   logger.info(
     `Cron job ${job.id} executing manually in ${channelLabel}${await slackLink(client, job.channel)}`,
   );
-  await executeDynamicJob(job, client);
+  const responseTs = await executeDynamicJob(job, client);
+  await updateJobRunStatus(job.id, "success", responseTs);
 }
 
-async function executeDynamicJob(job: CronJob, client: App["client"]): Promise<void> {
+async function executeDynamicJob(job: CronJob, client: App["client"]): Promise<string | undefined> {
   const messageTs = `${Date.now() / 1000}`;
 
   await processMessage({
@@ -177,6 +179,10 @@ async function executeDynamicJob(job: CronJob, client: App["client"]): Promise<v
     additionalSystemPrompt: buildAttribution(job),
     requiredTools: job.requiredTools,
   });
+
+  // Read back the session to capture the Slack message timestamp
+  const session = await findSessionByMessage(job.channel, messageTs, job.createdBy);
+  return session?.responseTs;
 }
 
 // ============================================================================

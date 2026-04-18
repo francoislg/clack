@@ -53,6 +53,7 @@ export const CLACK_CORE_TOOL_NAMES: readonly string[] = [
   "cancel_reminder",
   "create_scheduled_message",
   "list_scheduled_messages",
+  "get_scheduled_message_runs",
   "cancel_scheduled_message",
   "update_scheduled_message",
   // Presentation

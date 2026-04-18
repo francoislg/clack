@@ -8,6 +8,13 @@ import { fileExists } from "./fs.js";
 // Types
 // ============================================================================
 
+export interface CronRun {
+  executedAt: string;
+  status: "success" | "error";
+  /** Slack message timestamp — absent when delivery failed */
+  responseTs?: string;
+}
+
 export interface CronJob {
   id: string;
   cronExpression: string;
@@ -32,6 +39,8 @@ export interface CronJob {
    * `computeEffectiveRequiredTools`); `requiredTools` above is the single source of truth.
    */
   plugin?: string;
+  /** Recent execution history (most recent last, capped at {@link MAX_RUNS}) */
+  runs?: CronRun[];
 }
 
 interface CronJobState {
@@ -214,13 +223,19 @@ export async function deleteJob(jobId: string): Promise<boolean> {
 export async function updateJobRunStatus(
   jobId: string,
   status: "success" | "error",
+  responseTs?: string,
 ): Promise<void> {
   const jobs = await loadJobs();
   const job = jobs.find((j) => j.id === jobId);
   if (!job) return;
 
-  job.lastRunAt = new Date().toISOString();
+  const now = new Date().toISOString();
+  job.lastRunAt = now;
   job.lastRunStatus = status;
+
+  if (!job.runs) job.runs = [];
+  job.runs.push({ executedAt: now, status, ...(responseTs ? { responseTs } : {}) });
+
   await saveState({ jobs });
 }
 
