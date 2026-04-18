@@ -240,5 +240,59 @@ describe("cronJobs", () => {
       assert.equal(updated?.lastRunStatus, "success");
       assert.ok(updated?.lastRunAt);
     });
+
+    it("records a run with responseTs", async () => {
+      const job = await createJob({
+        cronExpression: "0 9 * * *",
+        channel: "C1",
+        prompt: "Test",
+        createdBy: "U1",
+        timezone: "UTC",
+      });
+
+      await updateJobRunStatus(job.id, "success", "1234567890.123456");
+
+      const updated = await getJob(job.id);
+      assert.equal(updated?.runs?.length, 1);
+      assert.equal(updated?.runs?.[0].status, "success");
+      assert.equal(updated?.runs?.[0].responseTs, "1234567890.123456");
+      assert.ok(updated?.runs?.[0].executedAt);
+    });
+
+    it("records a run without responseTs on error", async () => {
+      const job = await createJob({
+        cronExpression: "0 9 * * *",
+        channel: "C1",
+        prompt: "Test",
+        createdBy: "U1",
+        timezone: "UTC",
+      });
+
+      await updateJobRunStatus(job.id, "error");
+
+      const updated = await getJob(job.id);
+      assert.equal(updated?.runs?.length, 1);
+      assert.equal(updated?.runs?.[0].status, "error");
+      assert.equal(updated?.runs?.[0].responseTs, undefined);
+    });
+
+    it("accumulates all runs without cap", async () => {
+      const job = await createJob({
+        cronExpression: "0 9 * * *",
+        channel: "C1",
+        prompt: "Test",
+        createdBy: "U1",
+        timezone: "UTC",
+      });
+
+      for (let i = 0; i < 25; i++) {
+        await updateJobRunStatus(job.id, "success", `ts-${i}`);
+      }
+
+      const updated = await getJob(job.id);
+      assert.equal(updated?.runs?.length, 25);
+      assert.equal(updated?.runs?.[0].responseTs, "ts-0");
+      assert.equal(updated?.runs?.[24].responseTs, "ts-24");
+    });
   });
 });
