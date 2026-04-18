@@ -1,24 +1,21 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { CronExpressionParser } from "cron-parser";
-import type { App } from "@slack/bolt";
 import type { QueryToolContext } from "../types.js";
 import { textResult, errorResult } from "../helpers.js";
 import { resolveChannelId } from "../../slack/channelResolver.js";
 import { createJob, type CronJob } from "../../cronJobs.js";
-import { getUserInfo, type UserInfo } from "../../slack/userCache.js";
+import { isValidTimezone } from "../../timezone.js";
 import { logger } from "../../logger.js";
 import { errorMessage } from "../../errors.js";
 import { humanReadableSchedule } from "../../cronScheduler.js";
 import { validateRequiredToolNames, formatRequiredToolNameError } from "../toolNameValidator.js";
 
 export interface CreateScheduledMessageDeps {
-  getUserInfo: (client: App["client"], userId: string) => Promise<UserInfo | undefined>;
   createJob: (params: Parameters<typeof createJob>[0]) => Promise<CronJob>;
 }
 
 export const defaultCreateScheduledMessageDeps: CreateScheduledMessageDeps = {
-  getUserInfo,
   createJob,
 };
 
@@ -32,11 +29,9 @@ export function createCreateScheduledMessageTool(
       "Use this when the user asks to schedule recurring messages or one-time future messages. " +
       "If the user's request is ambiguous (e.g., 'send this regularly' without specifying when), " +
       "ask clarifying questions first before calling this tool. " +
-      "The cronExpression uses standard 5-field cron syntax (minute hour day-of-month month day-of-week). " +
-      "IMPORTANT: The cron expression must be in the USER'S LOCAL timezone, NOT UTC. " +
-      "The system automatically handles timezone conversion. For example, if the user says " +
-      "'every day at 9am' and they are in America/New_York, use '0 9 * * *' (not '0 13 * * *'). " +
-      "Do NOT convert times to UTC for cron expressions. " +
+      "The cronExpression uses standard 5-field cron syntax (minute hour day-of-month month day-of-week) " +
+      "and is interpreted in the timezone you pass as `timezone` — do NOT convert to UTC. " +
+      "For example, '0 9 * * *' with timezone 'America/New_York' means 9:00 AM every day in New York. " +
       "Provide a prompt describing what Claude should do each time the schedule fires. " +
       "IMPORTANT: The prompt should only describe WHAT to do, not HOW to deliver the result. " +
       "The scheduler automatically handles delivery via submit_response — do NOT include " +
@@ -52,8 +47,15 @@ export function createCreateScheduledMessageTool(
       cronExpression: z
         .string()
         .describe(
-          "5-field cron expression in the user's LOCAL timezone — do NOT convert to UTC " +
-            "(e.g. '0 9 * * *' for daily at 9am local, '0 9 * * 1' for Mondays at 9am local)",
+          "5-field cron expression, interpreted in the `timezone` you pass — do NOT convert to UTC " +
+            "(e.g. '0 9 * * *' for daily at 9am in the given timezone, '0 9 * * 1' for Mondays at 9am)",
+        ),
+      timezone: z
+        .string()
+        .describe(
+          "IANA timezone name the cron expression is expressed in (e.g. 'America/New_York', " +
+            "'Europe/London', 'UTC'). Pass the user's local timezone — shown in the system " +
+            "prompt as USER TIMEZONE — unless they explicitly asked for a different zone.",
         ),
       prompt: z
         .string()
@@ -96,6 +98,12 @@ export function createCreateScheduledMessageTool(
         );
       }
 
+      if (!isValidTimezone(args.timezone)) {
+        return errorResult(
+          `Invalid timezone "${args.timezone}". Pass an IANA name like "America/New_York" or "UTC".`,
+        );
+      }
+
       // Validate requiredTools names against known clack core tools and loaded plugins.
       if (args.requiredTools && args.requiredTools.length > 0) {
         const err = formatRequiredToolNameError(validateRequiredToolNames(args.requiredTools));
@@ -110,24 +118,20 @@ export function createCreateScheduledMessageTool(
       if (!resolved.ok) return errorResult(resolved.error);
       const channelId = resolved.channelId;
 
-      // Get creator's timezone
-      const userInfo = await deps.getUserInfo(ctx.slackClient, ctx.userId);
-      const timezone = userInfo?.tz ?? "UTC";
-
       try {
         const job = await deps.createJob({
           cronExpression: args.cronExpression,
           channel: channelId,
           prompt: args.prompt,
           createdBy: ctx.userId,
-          timezone,
+          timezone: args.timezone,
           oneShot: args.oneShot,
           requiredTools: args.requiredTools,
           plugin: args.plugin,
         });
 
-        const schedule = humanReadableSchedule(args.cronExpression, timezone);
-        const nextRun = getNextRun(args.cronExpression, timezone);
+        const schedule = humanReadableSchedule(args.cronExpression, args.timezone);
+        const nextRun = getNextRun(args.cronExpression, args.timezone);
 
         return textResult({
           ok: true,
