@@ -33,10 +33,7 @@ import { fetchPRReviewContext } from "./pr.js";
 import type { StreamEvent } from "../streaming/types.js";
 import { errorMessage } from "../errors.js";
 import type { Config as AppConfig, RepositoryConfig } from "../config.js";
-import type {
-  McpServerConfig,
-  McpSdkServerConfigWithInstance,
-} from "@anthropic-ai/claude-agent-sdk";
+import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 
 // ============================================================================
 // Dependency Injection
@@ -55,17 +52,6 @@ interface RunClaudeInWorktreeOptions {
   timeout?: number;
   resumeSessionId?: string;
   onSessionId?: (id: string) => void;
-}
-
-interface WorkerContextParams {
-  worktreePath: string;
-  branchName: string;
-  repoName: string;
-  repoUrl: string;
-  channelId: string;
-  threadTs: string;
-  sessionId: string;
-  config: AppConfig;
 }
 
 export interface WorkflowDeps {
@@ -321,6 +307,7 @@ export async function handleFollowUp(
   additionalInstructions?: string,
   onEvent?: (event: StreamEvent) => void | Promise<void>,
   deps: WorkflowDeps = defaultWorkflowDeps,
+  userFeedback?: string,
 ): Promise<ChangeResult> {
   const activeChange = session.activeChange;
   if (!activeChange) {
@@ -435,6 +422,16 @@ export async function handleFollowUp(
           messageTs: session.threadTs,
         };
 
+        // The worker resumes its prior SDK session and remembers its previous decisions.
+        // Without seeing why the user is asking again, it tends to defend those decisions.
+        // The verbatim user feedback flips the framing from "new task" to "user is correcting me".
+        const resumeContext = userFeedback
+          ? `IMPORTANT — User feedback that triggered this update:
+"${userFeedback}"
+
+The instructions above were generated from the user's full Slack thread context (which you cannot see) and reflect this feedback. They may correct conclusions you reached in your previous turn — defer to them rather than your prior reasoning. If the prior turn concluded a file shouldn't change and the user is now asking you to change it, the user wins.`
+          : undefined;
+
         const updateResult = await deps.executeChange({
           plan,
           worktree: activeChange.worktree,
@@ -443,6 +440,7 @@ export async function handleFollowUp(
           onEvent,
           sdkSessionId: activeChange.sdkSessionId,
           abortController,
+          ...(resumeContext && { resumeContext }),
         });
 
         // Store SDK session ID for future follow-ups

@@ -32,6 +32,8 @@ export interface AutoExecuteDeps {
     command: string,
     instructions: string | undefined,
     slack: SlackDeliveryContext,
+    deps?: unknown,
+    userFeedback?: string,
   ) => Promise<void>;
   postAnswerToChannel: (
     client: App["client"],
@@ -179,15 +181,22 @@ export async function handleAutoExecuteActions(
           }
 
           logger.info(`Auto-executing update follow-up action`);
-          await deps.triggerFollowUp(session, "update", intent.instructions, {
-            channelId,
-            threadTs,
-            userId,
-            client,
-            ...(dmChannel && dmThreadTs
-              ? { streamChannel: dmChannel, streamThreadTs: dmThreadTs }
-              : {}),
-          });
+          await deps.triggerFollowUp(
+            session,
+            "update",
+            intent.instructions,
+            {
+              channelId,
+              threadTs,
+              userId,
+              client,
+              ...(dmChannel && dmThreadTs
+                ? { streamChannel: dmChannel, streamThreadTs: dmThreadTs }
+                : {}),
+            },
+            undefined,
+            intent.userFeedback,
+          );
           break;
         }
 

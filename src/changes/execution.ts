@@ -1,5 +1,6 @@
 import { clackSession } from "../claude/query.js";
 import { readFileSync } from "node:fs";
+import { simpleGit } from "simple-git";
 import { getConfig, findRepoByName } from "../config.js";
 import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 import { errorMessage } from "../errors.js";
@@ -350,12 +351,17 @@ Original request: "${request.message}"
 
 Work in this branch: ${plan.branchName}`;
 
+  if (plan.plan) {
+    prompt += `
+
+Detailed plan from the originating conversation (you do not have access to that conversation directly — treat this plan as authoritative for the user's intent, including any file lists, strategies, or trade-offs already agreed upon):
+${plan.plan}`;
+  }
+
   if (resumeContext) {
     prompt += `
 
-IMPORTANT - Resuming previous session:
-${resumeContext}
-Check git status and git log to understand what was already done. Continue from where the previous session left off.`;
+${resumeContext}`;
   }
 
   prompt += `
@@ -375,6 +381,11 @@ Follow the workflow steps in the system prompt. Report your final status using t
     config,
   });
   const workerTools = buildClackTools(workerCtx);
+
+  // Snapshot HEAD before the worker runs so we can detect "success but no commits"
+  // (the failure mode where the worker reports success via report_status without
+  // calling git_push, and the workflow has no other signal that nothing happened).
+  const headBefore = await readBranchHead(worktree.worktreePath);
 
   let capturedSdkSessionId: string | undefined;
   const result = await runClaudeInWorktree(worktree.repoName, {
@@ -401,11 +412,35 @@ Follow the workflow steps in the system prompt. Report your final status using t
     };
   }
 
+  const headAfter = await readBranchHead(worktree.worktreePath);
+  if (headBefore && headAfter && headBefore === headAfter) {
+    appendExecutionLog(
+      plan.branchName,
+      "Worker reported success but no new commits were made — treating as no-op",
+    );
+    return {
+      success: false,
+      error:
+        "Worker completed without making any commits. See its status messages above for what it decided. Reply in the thread to ask it to actually implement the change.",
+      sdkSessionId: capturedSdkSessionId,
+    };
+  }
+
   return {
     success: true,
     summary: "Changes implemented",
     sdkSessionId: capturedSdkSessionId,
   };
+}
+
+async function readBranchHead(worktreePath: string): Promise<string | undefined> {
+  try {
+    const git = simpleGit(worktreePath);
+    return (await git.revparse(["HEAD"])).trim();
+  } catch (err) {
+    logger.warn(`Could not read HEAD of ${worktreePath}: ${errorMessage(err)}`);
+    return undefined;
+  }
 }
 
 /**

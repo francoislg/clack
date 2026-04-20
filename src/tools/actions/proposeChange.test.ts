@@ -96,6 +96,7 @@ describe("proposeChange tool", () => {
         branch: "bad-branch-name",
         description: "fix a bug",
         repo: "my-repo",
+        plan: undefined,
       },
       { sessionId: "test" },
     );
@@ -116,6 +117,7 @@ describe("proposeChange tool", () => {
         branch: "clack/bugfix/my-change",
         description: "fix a bug",
         repo: "my-repo",
+        plan: undefined,
       },
       { sessionId: "test" },
     );
@@ -135,6 +137,7 @@ describe("proposeChange tool", () => {
         branch: "clack/fix/my-change",
         description: "fix something",
         repo: "nonexistent-repo",
+        plan: undefined,
       },
       { sessionId: "test" },
     );
@@ -160,6 +163,7 @@ describe("proposeChange tool", () => {
         branch: "clack/fix/my-change",
         description: "fix something",
         repo: "my-repo",
+        plan: undefined,
       },
       { sessionId: "test" },
     );
@@ -185,6 +189,7 @@ describe("proposeChange tool", () => {
         branch: "clack/fix/my-change",
         description: "fix something",
         repo: "my-repo",
+        plan: undefined,
       },
       { sessionId: "test" },
     );
@@ -203,6 +208,7 @@ describe("proposeChange tool", () => {
         branch: "clack/feat/add-login",
         description: "Add login feature",
         repo: "my-repo",
+        plan: undefined,
       },
       { sessionId: "test" },
     );
@@ -219,6 +225,51 @@ describe("proposeChange tool", () => {
     const staged = store.resolve(parsed.ref);
     assert.ok(staged);
     assert.equal(staged!.type, "change");
+  });
+
+  it("forwards plan into the staged intent when provided", async () => {
+    const ctx = makeCtx();
+    const store = makeIntentStore();
+    const toolDef = createProposeChangeTool(ctx, store, deps);
+
+    const detailedPlan = "1. Migrate file A using strategy X\n2. Migrate file B using strategy Y";
+    const result = await toolDef.handler(
+      {
+        branch: "clack/feat/add-login",
+        description: "Add login feature",
+        repo: "my-repo",
+        plan: detailedPlan,
+      },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseResult(result);
+    assert.equal(parsed.plan, detailedPlan);
+
+    const staged = store.resolve(parsed.ref) as { plan?: string };
+    assert.equal(staged.plan, detailedPlan);
+  });
+
+  it("omits plan from the staged intent when not provided", async () => {
+    const ctx = makeCtx();
+    const store = makeIntentStore();
+    const toolDef = createProposeChangeTool(ctx, store, deps);
+
+    const result = await toolDef.handler(
+      {
+        branch: "clack/feat/add-login",
+        description: "Add login feature",
+        repo: "my-repo",
+        plan: undefined,
+      },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseResult(result);
+    assert.equal(parsed.plan, undefined);
+
+    const staged = store.resolve(parsed.ref) as { plan?: string };
+    assert.ok(!("plan" in staged));
   });
 
   it("includes existing worktree info when worktree exists", async () => {
@@ -247,6 +298,7 @@ describe("proposeChange tool", () => {
         branch: "clack/fix/existing",
         description: "Fix something",
         repo: "my-repo",
+        plan: undefined,
       },
       { sessionId: "test" },
     );
@@ -278,6 +330,7 @@ describe("proposeChange tool", () => {
         branch: "clack/fix/old",
         description: "Old fix",
         repo: "my-repo",
+        plan: undefined,
       },
       { sessionId: "test" },
     );
@@ -298,6 +351,7 @@ describe("proposeChange tool", () => {
         branch: "clack/docs/readme",
         description: "Update readme",
         repo: "my-repo",
+        plan: undefined,
       },
       { sessionId: "test" },
     );
@@ -320,6 +374,7 @@ describe("proposeChange tool", () => {
           branch: `clack/${type}/test-branch`,
           description: `A ${type} change`,
           repo: "my-repo",
+          plan: undefined,
         },
         { sessionId: "test" },
       );
