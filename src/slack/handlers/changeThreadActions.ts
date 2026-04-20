@@ -26,6 +26,8 @@ export interface ChangeThreadActionsDeps {
     command: FollowUpCommand,
     additionalInstructions: string | undefined,
     onEvent: (event: StreamEvent) => void,
+    deps?: never,
+    userFeedback?: string,
   ) => Promise<ChangeResult>;
   errorMessage: (err: unknown) => string;
   createStreamer: (opts: {
@@ -73,6 +75,7 @@ export async function triggerFollowUp(
   additionalInstructions: string | undefined,
   slack: SlackDeliveryContext,
   deps: ChangeThreadActionsDeps = defaultChangeThreadActionsDeps,
+  userFeedback?: string,
 ): Promise<void> {
   const { channelId, threadTs, userId, client } = slack;
 
@@ -95,6 +98,8 @@ export async function triggerFollowUp(
       command,
       additionalInstructions,
       streamer.handleEvent,
+      undefined,
+      userFeedback,
     );
 
     await deps.finalizeStreamedWorkflow(
@@ -180,8 +185,9 @@ function registerFollowUpActionHandler(
         return;
       }
 
-      // Extract additional instructions for update commands
+      // Extract additional instructions and user feedback for update commands
       const additionalInstructions = intent.type === "update" ? intent.instructions : undefined;
+      const userFeedback = intent.type === "update" ? intent.userFeedback : undefined;
 
       await triggerFollowUp(
         session,
@@ -194,6 +200,7 @@ function registerFollowUpActionHandler(
           client,
         },
         deps,
+        userFeedback,
       );
     },
   );

@@ -88,7 +88,10 @@ describe("requestUpdate tool", () => {
     const store = makeIntentStore();
     const toolDef = createRequestUpdateTool(ctx, store);
 
-    const result = await toolDef.handler({ instructions: "Fix the tests" }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { instructions: "Fix the tests", userFeedback: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.ok(parsed.error);
@@ -106,7 +109,10 @@ describe("requestUpdate tool", () => {
     const store = makeIntentStore();
     const toolDef = createRequestUpdateTool(ctx, store);
 
-    const result = await toolDef.handler({ instructions: "Fix the tests" }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { instructions: "Fix the tests", userFeedback: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.ok(parsed.error);
@@ -120,7 +126,7 @@ describe("requestUpdate tool", () => {
     const toolDef = createRequestUpdateTool(ctx, store);
 
     const result = await toolDef.handler(
-      { instructions: "Add tests for the login module" },
+      { instructions: "Add tests for the login module", userFeedback: undefined },
       { sessionId: "test" },
     );
 
@@ -134,6 +140,41 @@ describe("requestUpdate tool", () => {
     const staged = store.resolve(parsed.ref);
     assert.ok(staged);
     assert.equal(staged!.type, "update");
+  });
+
+  it("forwards userFeedback into the staged intent", async () => {
+    const ctx = makeCtx();
+    const store = makeIntentStore();
+    const toolDef = createRequestUpdateTool(ctx, store);
+
+    const feedback = "you missed the login form, please fix it";
+    const result = await toolDef.handler(
+      { instructions: "Add login form validation", userFeedback: feedback },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseResult(result);
+    assert.equal(parsed.userFeedback, feedback);
+
+    const staged = store.resolve(parsed.ref) as { userFeedback?: string };
+    assert.equal(staged.userFeedback, feedback);
+  });
+
+  it("omits userFeedback from the staged intent when not provided", async () => {
+    const ctx = makeCtx();
+    const store = makeIntentStore();
+    const toolDef = createRequestUpdateTool(ctx, store);
+
+    const result = await toolDef.handler(
+      { instructions: "Add login form validation", userFeedback: undefined },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseResult(result);
+    assert.equal(parsed.userFeedback, undefined);
+
+    const staged = store.resolve(parsed.ref) as { userFeedback?: string };
+    assert.ok(!("userFeedback" in staged));
   });
 
   // Recording is handled uniformly by `wrapToolForRecording` in buildQueryTools — see
@@ -150,7 +191,10 @@ describe("requestUpdate tool", () => {
     const store = makeIntentStore();
     const toolDef = createRequestUpdateTool(ctx, store);
 
-    const result = await toolDef.handler({ instructions: "Update styles" }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { instructions: "Update styles", userFeedback: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseResult(result);
     assert.equal(parsed.sessionId, "custom-session-42");

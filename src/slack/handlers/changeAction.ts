@@ -122,6 +122,7 @@ export async function triggerChangeWorkflow(
       branchName: intent.branch,
       description: intent.description,
       targetRepo: intent.repo,
+      ...(intent.plan && { plan: intent.plan }),
     };
 
     const result = await deps.startChangeWorkflow(

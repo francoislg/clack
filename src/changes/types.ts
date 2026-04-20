@@ -25,6 +25,12 @@ export interface ChangePlan {
   branchName: string;
   description: string;
   targetRepo: string;
+  /**
+   * Detailed implementation plan from the originating Slack conversation,
+   * if one was discussed. Forwarded into the worker prompt so the worker
+   * doesn't have to re-derive the strategy from `description` alone.
+   */
+  plan?: string;
 }
 
 export interface ChangeSession {

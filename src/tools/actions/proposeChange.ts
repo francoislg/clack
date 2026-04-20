@@ -43,6 +43,12 @@ export function createProposeChangeTool(
         ),
       description: z.string().describe("Brief description of the change to make"),
       repo: z.string().describe("Repository name to make the change in"),
+      plan: z
+        .string()
+        .optional()
+        .describe(
+          "Detailed implementation plan from the conversation — file list, approach, edge cases, anything you've worked out with the user. Include this whenever the discussion produced more detail than fits in `description`. The worker sees only what you stage here; it does NOT see the Slack thread, so any nuance you omit will be re-derived (or lost) by the worker.",
+        ),
     },
     async (args) => {
       // Validate branch convention
@@ -84,6 +90,7 @@ export function createProposeChangeTool(
         branch: args.branch,
         description: args.description,
         repo: args.repo,
+        ...(args.plan && { plan: args.plan }),
         existingWorktree: existingWorktreeInfo,
       });
 
@@ -92,6 +99,7 @@ export function createProposeChangeTool(
         branch: args.branch,
         description: args.description,
         repo: args.repo,
+        ...(args.plan && { plan: args.plan }),
         existingWorktree: existingWorktreeInfo,
       };
 

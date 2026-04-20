@@ -95,6 +95,13 @@ export interface StagedChangeIntent {
   branch: string;
   description: string;
   repo: string;
+  /**
+   * Detailed implementation plan built up during the Slack conversation.
+   * Forwarded to the worker so it doesn't have to re-derive intent from
+   * `description` alone. Optional — only set when the conversation contains
+   * non-trivial plan detail (file list, strategy, edge cases).
+   */
+  plan?: string;
   existingWorktree?: {
     status: string;
     lastActivity: string;
@@ -111,6 +118,13 @@ export interface StagedUpdateIntent {
   type: "update";
   sessionId: string;
   instructions: string;
+  /**
+   * Verbatim user message that motivated this update. Forwarded to the worker
+   * as social context so it understands these instructions are a *correction*
+   * to its prior decisions — not a fresh request that conflicts with them.
+   * Optional — recommended whenever the update reacts to user feedback.
+   */
+  userFeedback?: string;
 }
 
 export interface StagedReviewIntent {
