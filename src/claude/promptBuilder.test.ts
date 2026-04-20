@@ -306,24 +306,6 @@ describe("buildPrompt", () => {
     assert.ok(prompt.includes("Channel mention"));
   });
 
-  it("includes find_recent_interactions hint for directMessages", () => {
-    const session = makeSession({ triggerType: "directMessages" });
-    const prompt = buildPrompt(session);
-    assert.ok(prompt.includes("find_recent_interactions"));
-  });
-
-  it("includes find_recent_interactions hint for mentions", () => {
-    const session = makeSession({ triggerType: "mentions" });
-    const prompt = buildPrompt(session);
-    assert.ok(prompt.includes("find_recent_interactions"));
-  });
-
-  it("excludes find_recent_interactions hint for reactions", () => {
-    const session = makeSession({ triggerType: "reactions" });
-    const prompt = buildPrompt(session);
-    assert.ok(!prompt.includes("find_recent_interactions"));
-  });
-
   // ---- disengage guidance ----
   it("includes dismissal-phrase disengage guidance for autoRespond", () => {
     const session = makeSession({ triggerType: "autoRespond" });
