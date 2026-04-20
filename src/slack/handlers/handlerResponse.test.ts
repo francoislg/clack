@@ -489,6 +489,61 @@ describe("executeAndDeliver — success handling", () => {
     assert.equal(call.channel, "C001");
     assert.equal(call.thread_ts, "1700000000.000001");
   });
+
+  it("warns when actionable intents are staged but submit_response was not called", async () => {
+    mockAskClaude.mock.mockImplementation(async () => ({
+      success: true,
+      answer: "I've submitted the update request",
+      stagedIntents: {
+        r1: {
+          type: "update" as const,
+          sessionId: "session-1",
+          instructions: "do the thing",
+        },
+      },
+    }));
+
+    const client = makeClient();
+
+    await executeAndDeliver({
+      client,
+      session: makeSession(),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: makeClaudeOptions(),
+      deps,
+    });
+
+    const postMessage = getPostMessageMock(client);
+    const warning = postMessage.mock.calls
+      .map((c) => c.arguments[0] as { text?: string })
+      .find((m) => m.text?.includes("didn't deliver"));
+    assert.ok(warning, "expected an orphan-intent warning to be posted");
+    assert.match(warning!.text!, /update/);
+  });
+
+  it("does not warn when no actionable intents are staged", async () => {
+    mockAskClaude.mock.mockImplementation(async () => ({
+      success: true,
+      answer: "plain answer",
+      stagedIntents: {},
+    }));
+
+    const client = makeClient();
+
+    await executeAndDeliver({
+      client,
+      session: makeSession(),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: makeClaudeOptions(),
+      deps,
+    });
+
+    const postMessage = getPostMessageMock(client);
+    const warning = postMessage.mock.calls
+      .map((c) => c.arguments[0] as { text?: string })
+      .find((m) => m.text?.includes("didn't deliver"));
+    assert.equal(warning, undefined);
+  });
 });
 
 // ============================================================================

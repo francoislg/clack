@@ -489,6 +489,11 @@ async function handleSuccess(ctx: DeliveryContext, response: ClaudeResponse): Pr
     if (ctx.streamer && !ctx.streamer.hasFailed) {
       await sendResponseNotification(ctx);
     }
+    // When the turn ends without submit_response but actionable intents are staged,
+    // those intents are orphans: handleAutoExecuteActions only fires actions from a
+    // submit_response payload. Warn explicitly instead of silently dropping them so
+    // the user knows a retry is needed.
+    await warnOnOrphanStagedIntents(ctx, response);
   }
 
   // Disengage: permanently stop tracking this thread for auto-respond.
@@ -516,6 +521,31 @@ async function handleSuccess(ctx: DeliveryContext, response: ClaudeResponse): Pr
     dmThreadTs: ctx.sessionInfo.dmThreadTs,
     triggerType: ctx.sessionInfo.triggerType,
   });
+}
+
+const ORPHANABLE_INTENT_TYPES = new Set(["change", "update", "config_update"]);
+
+async function warnOnOrphanStagedIntents(
+  ctx: DeliveryContext,
+  response: ClaudeResponse,
+): Promise<void> {
+  const intents = response.stagedIntents;
+  if (!intents) return;
+  const orphanTypes = Object.values(intents)
+    .map((i) => i.type)
+    .filter((t) => ORPHANABLE_INTENT_TYPES.has(t));
+  if (orphanTypes.length === 0) return;
+
+  const list = Array.from(new Set(orphanTypes)).join(", ");
+  try {
+    await ctx.client.chat.postMessage({
+      channel: ctx.sessionInfo.channelId,
+      thread_ts: ctx.sessionInfo.threadTs,
+      text: `I prepared a \`${list}\` action but didn't deliver it. Nothing was actually triggered. Please ask again to retry.`,
+    });
+  } catch (err) {
+    logger.error("Failed to post orphan-intent warning:", err);
+  }
 }
 
 /**

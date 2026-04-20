@@ -205,14 +205,8 @@ function buildDeliveryContext(session: SessionContext): string | null {
       lines.push("- Mode: Thread (reaction triggered, answer posted in the channel thread)");
     } else if (session.triggerType === "directMessages") {
       lines.push("- Mode: Direct message (the user is chatting with you in a DM)");
-      lines.push(
-        "- If the user references something you previously said or sent, or if you are unsure what they are referring to, call `find_recent_interactions` before responding.",
-      );
     } else if (session.triggerType === "mentions") {
       lines.push("- Mode: Channel mention (the user @mentioned you in a channel)");
-      lines.push(
-        "- If the user references something you previously said or sent, or if you are unsure what they are referring to, call `find_recent_interactions` before responding.",
-      );
     }
     lines.push(
       "- The response is already visible to the user. There is no separate destination to send it to.",
