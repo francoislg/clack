@@ -50,10 +50,11 @@ export class SlackStreamer {
   private stopped = false;
   private messageTs: string | undefined;
   private keepaliveTimer: ReturnType<typeof setInterval> | null = null;
-  private keepaliveTick = 0;
+  private lastEventAt = 0;
+  private lastKeepaliveTickAt = 0;
 
   private static readonly KEEPALIVE_INTERVAL_MS = 15_000;
-  private static readonly KEEPALIVE_DOTS = ["…", "……", "………"];
+  private static readonly VISIBLE_PROGRESS_THRESHOLD_MS = 30_000;
 
   private static readonly THINKING_TASK_ID = "__thinking__";
 
@@ -69,6 +70,15 @@ export class SlackStreamer {
   private taskSlack = new Map<string, string>();
   /** Tracks individual task labels for non-grouped tools. */
   private taskLabels = new Map<string, string>();
+  /**
+   * Tracks every in-progress Slack task for per-task keepalive decoration.
+   * Keyed by Slack task ID. `baseTitle` is snapshotted lazily on the first
+   * decoration tick so re-emits with real args land before the snapshot.
+   */
+  private activeTasks = new Map<
+    string,
+    { startedAt: number; baseTitle: string | undefined; isGroup: boolean; tickCount: number }
+  >();
 
   constructor(opts: SlackStreamerOptions) {
     this.client = opts.client;
@@ -106,6 +116,9 @@ export class SlackStreamer {
         },
       ]);
 
+      const now = Date.now();
+      this.lastEventAt = now;
+      this.lastKeepaliveTickAt = now;
       this.startKeepalive();
       return true;
     } catch (error) {
@@ -122,6 +135,8 @@ export class SlackStreamer {
   handleEvent = (event: StreamEvent): void => {
     if (this.failed || this.stopped || !this.chatStreamer) return;
 
+    this.lastEventAt = Date.now();
+
     switch (event.type) {
       case "tool_start": {
         const label = getToolLabel(event.toolName, event.toolArgs);
@@ -133,11 +148,16 @@ export class SlackStreamer {
         if (existingSlackId && hasArgs && label === null) {
           this.taskSlack.delete(event.taskId);
           this.taskLabels.delete(event.taskId);
+          // Standalone dropped via conditionalHidden — clean up active-task tracking
+          if (this.openGroup?.slackId !== existingSlackId) {
+            this.activeTasks.delete(existingSlackId);
+          }
           if (this.openGroup?.slackId === existingSlackId) {
             this.openGroup.pending--;
             this.openGroup.count--;
             if (this.openGroup.count === 0) {
               this.openGroup = null;
+              this.activeTasks.delete(existingSlackId);
             } else {
               const title = this.groupTitle(this.openGroup.title);
               this.append([
@@ -210,6 +230,7 @@ export class SlackStreamer {
           this.openGroup.count++;
           this.openGroup.pending++;
           this.taskSlack.set(event.taskId, this.openGroup.slackId);
+          // activeTasks entry for this group already exists; do not reset startedAt
 
           const chunk: TaskUpdateChunk = {
             type: "task_update",
@@ -227,6 +248,12 @@ export class SlackStreamer {
             : null;
           this.taskSlack.set(event.taskId, event.taskId);
           this.taskLabels.set(event.taskId, label);
+          this.activeTasks.set(event.taskId, {
+            startedAt: this.lastEventAt,
+            baseTitle: undefined,
+            isGroup: group !== null,
+            tickCount: 0,
+          });
 
           const chunk: TaskUpdateChunk = {
             type: "task_update",
@@ -261,12 +288,14 @@ export class SlackStreamer {
           this.append([
             { type: "task_update", id: slackId, title, status: done ? "complete" : "in_progress" },
           ]);
+          if (done) this.activeTasks.delete(slackId);
           break;
         }
 
         // Standalone task
         const label = this.taskLabels.get(event.taskId) ?? "Task";
         this.taskLabels.delete(event.taskId);
+        this.activeTasks.delete(slackId);
         const task: TaskUpdateChunk = {
           type: "task_update",
           id: slackId,
@@ -335,9 +364,10 @@ export class SlackStreamer {
       if (getSlackErrorCode(error) === "message_not_in_streaming_state") {
         this.logger.warn(
           "Chat stream expired (message_not_in_streaming_state) before stop, falling back to post",
+          this.streamDiagnostics(),
         );
       } else {
-        this.logger.error("Failed to stop chat stream:", error);
+        this.logger.error("Failed to stop chat stream:", error, this.streamDiagnostics());
       }
       this.failed = true;
     }
@@ -368,21 +398,64 @@ export class SlackStreamer {
         this.stopKeepalive();
         return;
       }
-      const dots =
-        SlackStreamer.KEEPALIVE_DOTS[this.keepaliveTick % SlackStreamer.KEEPALIVE_DOTS.length];
-      this.keepaliveTick++;
-      const rawTitle = this.thinkingFinalized ? this.thinkingTitle : "Acknowledged, working on it…";
-      const baseTitle = rawTitle.replace(/…$/, "");
-      this.append([
-        {
+      this.lastKeepaliveTickAt = Date.now();
+
+      // No active tasks → fall back to pinging the thinking task so
+      // pre-first-tool dead zones (worktree setup, SDK init) stay alive.
+      if (this.activeTasks.size === 0) {
+        this.append([
+          {
+            type: "task_update",
+            id: SlackStreamer.THINKING_TASK_ID,
+            title: this.thinkingFinalized ? this.thinkingTitle : "Acknowledged, working on it…",
+            status: "in_progress",
+          },
+        ]);
+        return;
+      }
+
+      // Decorate every in-progress task that has been running long enough.
+      const now = this.lastKeepaliveTickAt;
+      const chunks: TaskUpdateChunk[] = [];
+      for (const [slackId, entry] of this.activeTasks) {
+        const elapsed = now - entry.startedAt;
+        if (elapsed < SlackStreamer.VISIBLE_PROGRESS_THRESHOLD_MS) continue;
+
+        const base = this.currentBaseTitle(slackId, entry);
+        if (!base) continue;
+        entry.baseTitle = base;
+
+        chunks.push({
           type: "task_update",
-          id: SlackStreamer.THINKING_TASK_ID,
-          title: `${baseTitle}${dots}`,
+          id: slackId,
+          title: `${base} :stopwatch: ${fmtElapsed(elapsed)}`,
           status: "in_progress",
-        },
-      ]);
+          details: entry.tickCount === 0 ? "\n ." : " .",
+        });
+        entry.tickCount++;
+      }
+
+      if (chunks.length > 0) this.append(chunks);
     }, SlackStreamer.KEEPALIVE_INTERVAL_MS);
     this.keepaliveTimer.unref();
+  }
+
+  /**
+   * Resolve the "base" title to decorate at tick time.
+   * Groups re-derive on every tick so the `(N)` count stays current.
+   * Standalones read from `taskLabels` (snapshotted lazily via `entry.baseTitle`).
+   */
+  private currentBaseTitle(
+    slackId: string,
+    entry: { isGroup: boolean; baseTitle: string | undefined },
+  ): string | undefined {
+    if (entry.isGroup && this.openGroup?.slackId === slackId) {
+      return this.openGroup.count > 1
+        ? `${this.openGroup.title} (${this.openGroup.count})`
+        : this.openGroup.title;
+    }
+    if (entry.baseTitle) return entry.baseTitle;
+    return this.taskLabels.get(slackId);
   }
 
   private stopKeepalive(): void {
@@ -409,20 +482,49 @@ export class SlackStreamer {
       if (getSlackErrorCode(error) === "message_not_in_streaming_state") {
         this.logger.warn(
           "Chat stream expired (message_not_in_streaming_state), falling back to post",
+          this.streamDiagnostics(),
         );
       } else {
-        this.logger.error("Failed to append to chat stream:", error);
+        this.logger.error("Failed to append to chat stream:", error, this.streamDiagnostics());
       }
 
       this.failed = true;
       this.stopKeepalive();
     }
   }
+
+  private streamDiagnostics(): {
+    msSinceLastTick: number;
+    msSinceLastEvent: number;
+    activeTaskCount: number;
+  } {
+    const now = Date.now();
+    return {
+      msSinceLastTick: this.lastKeepaliveTickAt === 0 ? -1 : now - this.lastKeepaliveTickAt,
+      msSinceLastEvent: this.lastEventAt === 0 ? -1 : now - this.lastEventAt,
+      activeTaskCount: this.activeTasks.size,
+    };
+  }
 }
 
 function getSlackErrorCode<E>(error: E): string | undefined {
   if (typeof error !== "object" || error === null || !("data" in error)) return undefined;
   return (error as { data?: { error?: string } }).data?.error;
+}
+
+/**
+ * Format a duration for keepalive decoration.
+ * - `< 60s`: `"45s"`
+ * - `60s`–`599s`: `"1m 5s"`
+ * - `>= 600s`: `"15m"` (seconds dropped once minutes ≥ 10)
+ */
+export function fmtElapsed(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes >= 10) return `${minutes}m`;
+  return `${minutes}m ${seconds}s`;
 }
 
 /**

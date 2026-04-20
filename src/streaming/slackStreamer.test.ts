@@ -2,17 +2,48 @@ import { describe, it, beforeEach, mock, type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
 import type { TaskUpdateChunk } from "@slack/types";
-import { SlackStreamer, finalizeStreamedWorkflow } from "./slackStreamer.js";
+import {
+  SlackStreamer,
+  finalizeStreamedWorkflow,
+  fmtElapsed,
+  type SlackStreamerLogger,
+} from "./slackStreamer.js";
 import type { StreamEvent } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Shared mock logger — injected via SlackStreamerOptions.logger
 // ---------------------------------------------------------------------------
 
-const mockLogger = {
-  warn: mock.fn(() => {}),
-  error: mock.fn(() => {}),
-};
+type LoggerCall = readonly unknown[];
+
+interface LoggerRecorder {
+  warnCalls: LoggerCall[];
+  errorCalls: LoggerCall[];
+  logger: SlackStreamerLogger;
+  reset(): void;
+}
+
+function makeLoggerRecorder(): LoggerRecorder {
+  const recorder: LoggerRecorder = {
+    warnCalls: [],
+    errorCalls: [],
+    logger: {
+      warn: (...args) => {
+        recorder.warnCalls.push(args);
+      },
+      error: (...args) => {
+        recorder.errorCalls.push(args);
+      },
+    },
+    reset() {
+      recorder.warnCalls.length = 0;
+      recorder.errorCalls.length = 0;
+    },
+  };
+  return recorder;
+}
+
+const mockLogger = makeLoggerRecorder();
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -86,7 +117,7 @@ describe("SlackStreamer.start", () => {
       channel: "C_CHAN",
       threadTs: "1234.5678",
       teamId: "T_TEAM",
-      logger: mockLogger,
+      logger: mockLogger.logger,
     });
 
     const result = await streamer.start();
@@ -109,7 +140,7 @@ describe("SlackStreamer.start", () => {
       channel: "C_CHAN",
       threadTs: "1234.5678",
       teamId: "T_TEAM",
-      logger: mockLogger,
+      logger: mockLogger.logger,
     });
 
     const result = await streamer.start();
@@ -126,7 +157,7 @@ describe("SlackStreamer.start", () => {
       channel: "C_CHAN",
       threadTs: "1234.5678",
       // no teamId provided
-      logger: mockLogger,
+      logger: mockLogger.logger,
     });
 
     const result = await streamer.start();
@@ -142,7 +173,7 @@ describe("SlackStreamer.start", () => {
       channel: "C_CHAN",
       threadTs: "1234.5678",
       teamId: "T_TEAM",
-      logger: mockLogger,
+      logger: mockLogger.logger,
     });
 
     assert.equal(streamer.getMessageTs(), undefined);
@@ -157,7 +188,7 @@ describe("SlackStreamer.start", () => {
       channel: "C_CHAN",
       threadTs: "1234.5678",
       teamId: "T_TEAM",
-      logger: mockLogger,
+      logger: mockLogger.logger,
     });
 
     await streamer.start();
@@ -181,7 +212,7 @@ describe("SlackStreamer.handleEvent — tool_start", () => {
       channel: "C_CHAN",
       threadTs: "1234.5678",
       teamId: "T_TEAM",
-      logger: mockLogger,
+      logger: mockLogger.logger,
     });
     await streamer.start();
     // Reset to ignore the initial thinking append
@@ -381,7 +412,7 @@ describe("SlackStreamer.handleEvent — tool_end", () => {
       channel: "C_CHAN",
       threadTs: "1234.5678",
       teamId: "T_TEAM",
-      logger: mockLogger,
+      logger: mockLogger.logger,
     });
     await streamer.start();
     mockStreamerObj.append.mock.resetCalls();
@@ -488,7 +519,7 @@ describe("SlackStreamer.handleEvent — text", () => {
       channel: "C_CHAN",
       threadTs: "1234.5678",
       teamId: "T_TEAM",
-      logger: mockLogger,
+      logger: mockLogger.logger,
     });
     await streamer.start();
     mockStreamerObj.append.mock.resetCalls();
@@ -512,7 +543,7 @@ describe("SlackStreamer.stop", () => {
       channel: "C_CHAN",
       threadTs: "1234.5678",
       teamId: "T_TEAM",
-      logger: mockLogger,
+      logger: mockLogger.logger,
     });
     await streamer.start();
     mockStreamerObj.append.mock.resetCalls();
@@ -536,7 +567,7 @@ describe("SlackStreamer.stop", () => {
       channel: "C_CHAN",
       threadTs: "1234.5678",
       teamId: "T_TEAM",
-      logger: mockLogger,
+      logger: mockLogger.logger,
     });
     await streamer.start();
 
@@ -565,7 +596,7 @@ describe("SlackStreamer.stop", () => {
       channel: "C_CHAN",
       threadTs: "1234.5678",
       teamId: "T_TEAM",
-      logger: mockLogger,
+      logger: mockLogger.logger,
     });
     await streamer.start();
 
@@ -584,7 +615,7 @@ describe("SlackStreamer.stop", () => {
       channel: "C_CHAN",
       threadTs: "1234.5678",
       teamId: "T_TEAM",
-      logger: mockLogger,
+      logger: mockLogger.logger,
     });
     await streamer.start();
 
@@ -603,7 +634,7 @@ describe("SlackStreamer.stop", () => {
       channel: "C_CHAN",
       threadTs: "1234.5678",
       teamId: "T_TEAM",
-      logger: mockLogger,
+      logger: mockLogger.logger,
     });
     await streamer.start();
 
@@ -620,7 +651,7 @@ describe("SlackStreamer.stop", () => {
       channel: "C_CHAN",
       threadTs: "1234.5678",
       teamId: "T_TEAM",
-      logger: mockLogger,
+      logger: mockLogger.logger,
     });
 
     // Should not throw
@@ -640,7 +671,7 @@ describe("SlackStreamer.stop", () => {
       channel: "C_CHAN",
       threadTs: "1234.5678",
       teamId: "T_TEAM",
-      logger: mockLogger,
+      logger: mockLogger.logger,
     });
     await streamer.start();
     // start's append should have failed, marking it as failed
@@ -658,7 +689,7 @@ describe("SlackStreamer.stop", () => {
       channel: "C_CHAN",
       threadTs: "1234.5678",
       teamId: "T_TEAM",
-      logger: mockLogger,
+      logger: mockLogger.logger,
     });
     await streamer.start();
 
@@ -689,7 +720,7 @@ describe("SlackStreamer.stop", () => {
       channel: "C_CHAN",
       threadTs: "1234.5678",
       teamId: "T_TEAM",
-      logger: mockLogger,
+      logger: mockLogger.logger,
     });
     await streamer.start();
 
@@ -722,7 +753,7 @@ describe("SlackStreamer.hasFailed", () => {
       client: makeClient(),
       channel: "C_CHAN",
       threadTs: "1234.5678",
-      logger: mockLogger,
+      logger: mockLogger.logger,
     });
     assert.equal(streamer.hasFailed, false);
   });
@@ -739,7 +770,7 @@ describe("SlackStreamer.hasFailed", () => {
       channel: "C_CHAN",
       threadTs: "1234.5678",
       teamId: "T_TEAM",
-      logger: mockLogger,
+      logger: mockLogger.logger,
     });
 
     await streamer.start(); // append will fail
@@ -760,7 +791,7 @@ describe("finalizeStreamedWorkflow", () => {
       channel: "C_CHAN",
       threadTs: "1234.5678",
       teamId: "T_TEAM",
-      logger: mockLogger,
+      logger: mockLogger.logger,
     });
     await streamer.start();
     mockStreamerObj.append.mock.resetCalls();
@@ -785,7 +816,7 @@ describe("finalizeStreamedWorkflow", () => {
       channel: "C_CHAN",
       threadTs: "1234.5678",
       teamId: "T_TEAM",
-      logger: mockLogger,
+      logger: mockLogger.logger,
     });
     await streamer.start();
 
@@ -816,7 +847,7 @@ describe("finalizeStreamedWorkflow", () => {
       channel: "C_CHAN",
       threadTs: "1234.5678",
       teamId: "T_TEAM",
-      logger: mockLogger,
+      logger: mockLogger.logger,
     });
     await streamer.start(); // This will fail and mark hasFailed = true
 
@@ -858,7 +889,7 @@ describe("SlackStreamer keepalive", () => {
       channel: "C_CHAN",
       threadTs: "1234.5678",
       teamId: "T_TEAM",
-      logger: mockLogger,
+      logger: mockLogger.logger,
     });
 
     await streamer.start();
@@ -890,7 +921,7 @@ describe("SlackStreamer keepalive", () => {
       channel: "C_CHAN",
       threadTs: "1234.5678",
       teamId: "T_TEAM",
-      logger: mockLogger,
+      logger: mockLogger.logger,
     });
 
     await streamer.start();
@@ -914,7 +945,7 @@ describe("SlackStreamer keepalive", () => {
       channel: "C_CHAN",
       threadTs: "1234.5678",
       teamId: "T_TEAM",
-      logger: mockLogger,
+      logger: mockLogger.logger,
     });
 
     await streamer.start();
@@ -938,7 +969,7 @@ describe("SlackStreamer keepalive", () => {
       channel: "C_CHAN",
       threadTs: "1234.5678",
       teamId: "T_TEAM",
-      logger: mockLogger,
+      logger: mockLogger.logger,
     });
 
     await streamer.start();
@@ -977,7 +1008,7 @@ describe("SlackStreamer keepalive", () => {
       channel: "C_CHAN",
       threadTs: "1234.5678",
       teamId: "T_TEAM",
-      logger: mockLogger,
+      logger: mockLogger.logger,
     });
 
     await streamer.start();
@@ -988,8 +1019,8 @@ describe("SlackStreamer keepalive", () => {
     t.mock.timers.tick(60_000);
   });
 
-  it("uses finalized thinking title in keepalive after tool starts", async (t: TestContext) => {
-    t.mock.timers.enable({ apis: ["setInterval"] });
+  it("does not decorate tasks that finish before the 30s threshold", async (t: TestContext) => {
+    t.mock.timers.enable({ apis: ["setInterval", "Date"] });
 
     const mockStreamerObj = makeMockChatStreamer();
     const client = makeClient({ chatStreamer: mockStreamerObj });
@@ -998,29 +1029,284 @@ describe("SlackStreamer keepalive", () => {
       channel: "C_CHAN",
       threadTs: "1234.5678",
       teamId: "T_TEAM",
-      logger: mockLogger,
+      logger: mockLogger.logger,
     });
 
     await streamer.start();
 
-    // Trigger a tool to finalize thinking
     streamer.handleEvent({
       type: "tool_start",
-      taskId: "task-1",
-      toolName: "mcp__clack__list_repositories",
-      toolArgs: {},
+      taskId: "task-fast",
+      toolName: "Read",
+      toolArgs: { file_path: "foo.ts" },
     });
 
     mockStreamerObj.append.mock.resetCalls();
 
-    // Advance to keepalive
+    // Tick at 15s — task is under threshold, so no decoration emitted
     t.mock.timers.tick(15_000);
 
-    const lastCall = mockStreamerObj.append.mock.calls.at(-1);
-    const chunks = (lastCall!.arguments[0] as { chunks: TaskUpdateChunk[] }).chunks;
-    assert.equal(chunks[0].title, "Analyzing\u2026");
+    // Complete the task before 30s
+    streamer.handleEvent({ type: "tool_end", taskId: "task-fast" });
+
+    // No keepalive decoration should have appended for this task
+    const chunks = getAppendedChunks(mockStreamerObj);
+    const decorated = chunks.filter((c) => c.title?.includes(":stopwatch:"));
+    assert.equal(decorated.length, 0);
 
     await streamer.stop();
+  });
+
+  it("decorates a long-running standalone task with timer and appending dots", async (t: TestContext) => {
+    t.mock.timers.enable({ apis: ["setInterval", "Date"] });
+
+    const mockStreamerObj = makeMockChatStreamer();
+    const client = makeClient({ chatStreamer: mockStreamerObj });
+    const streamer = new SlackStreamer({
+      client,
+      channel: "C_CHAN",
+      threadTs: "1234.5678",
+      teamId: "T_TEAM",
+      logger: mockLogger.logger,
+    });
+
+    await streamer.start();
+
+    streamer.handleEvent({
+      type: "tool_start",
+      taskId: "task-slow",
+      toolName: "Read",
+      toolArgs: { file_path: "foo.ts" },
+    });
+
+    mockStreamerObj.append.mock.resetCalls();
+
+    // Tick 1: 15s — under threshold, no decoration
+    t.mock.timers.tick(15_000);
+    let chunks = getAppendedChunks(mockStreamerObj);
+    assert.equal(chunks.filter((c) => c.title?.includes(":stopwatch:")).length, 0);
+
+    // Tick 2: 30s — at threshold, first decoration
+    t.mock.timers.tick(15_000);
+    chunks = getAppendedChunks(mockStreamerObj);
+    const firstDecoration = chunks.filter((c) => c.title?.includes(":stopwatch:"));
+    assert.equal(firstDecoration.length, 1);
+    assert.equal(firstDecoration[0].id, "task-slow");
+    assert.match(firstDecoration[0].title!, /:stopwatch: 30s$/);
+    assert.equal(firstDecoration[0].details, "\n .");
+
+    // Tick 3: 45s — second decoration, appends single dot
+    t.mock.timers.tick(15_000);
+    chunks = getAppendedChunks(mockStreamerObj);
+    const allDecorations = chunks.filter((c) => c.title?.includes(":stopwatch:"));
+    assert.equal(allDecorations.length, 2);
+    assert.match(allDecorations[1].title!, /:stopwatch: 45s$/);
+    assert.equal(allDecorations[1].details, " .");
+
+    await streamer.stop();
+  });
+
+  it("decorates parallel tasks independently based on each startedAt", async (t: TestContext) => {
+    t.mock.timers.enable({ apis: ["setInterval", "Date"] });
+
+    const mockStreamerObj = makeMockChatStreamer();
+    const client = makeClient({ chatStreamer: mockStreamerObj });
+    const streamer = new SlackStreamer({
+      client,
+      channel: "C_CHAN",
+      threadTs: "1234.5678",
+      teamId: "T_TEAM",
+      logger: mockLogger.logger,
+    });
+
+    await streamer.start();
+
+    // Task A starts at t=0
+    streamer.handleEvent({
+      type: "tool_start",
+      taskId: "task-A",
+      toolName: "Read",
+      toolArgs: { file_path: "a.ts" },
+    });
+
+    // Task B starts later so it's under threshold when A crosses it
+    t.mock.timers.tick(20_000);
+    streamer.handleEvent({
+      type: "tool_start",
+      taskId: "task-B",
+      toolName: "Grep",
+      toolArgs: { pattern: "foo" },
+    });
+
+    mockStreamerObj.append.mock.resetCalls();
+
+    // Tick: now at 30s. A has been running 30s (past threshold); B has been running 10s (under).
+    t.mock.timers.tick(10_000);
+
+    const chunks = getAppendedChunks(mockStreamerObj);
+    const decorated = chunks.filter((c) => c.title?.includes(":stopwatch:"));
+    assert.equal(decorated.length, 1);
+    assert.equal(decorated[0].id, "task-A");
+
+    await streamer.stop();
+  });
+
+  it("decorates a grouped task with the current group title including count suffix", async (t: TestContext) => {
+    t.mock.timers.enable({ apis: ["setInterval", "Date"] });
+
+    const mockStreamerObj = makeMockChatStreamer();
+    const client = makeClient({ chatStreamer: mockStreamerObj });
+    const streamer = new SlackStreamer({
+      client,
+      channel: "C_CHAN",
+      threadTs: "1234.5678",
+      teamId: "T_TEAM",
+      logger: mockLogger.logger,
+    });
+
+    await streamer.start();
+
+    // Start a grouped tool (Read group)
+    streamer.handleEvent({
+      type: "tool_start",
+      taskId: "group-1",
+      toolName: "Read",
+      toolArgs: { file_path: "a.ts" },
+    });
+    // Second item joins the group
+    streamer.handleEvent({
+      type: "tool_start",
+      taskId: "group-2",
+      toolName: "Read",
+      toolArgs: { file_path: "b.ts" },
+    });
+
+    mockStreamerObj.append.mock.resetCalls();
+
+    // Advance through two ticks — first is under threshold, second decorates
+    t.mock.timers.tick(15_000);
+    t.mock.timers.tick(15_000);
+
+    let chunks = getAppendedChunks(mockStreamerObj);
+    let decorated = chunks.filter((c) => c.title?.includes(":stopwatch:"));
+    assert.equal(decorated.length, 1);
+    // Group title "Searching codebase" with count (2)
+    assert.match(decorated[0].title!, /\(2\) :stopwatch:/);
+
+    // Add a third item and tick again — count should update to (3)
+    streamer.handleEvent({
+      type: "tool_start",
+      taskId: "group-3",
+      toolName: "Read",
+      toolArgs: { file_path: "c.ts" },
+    });
+    mockStreamerObj.append.mock.resetCalls();
+
+    t.mock.timers.tick(15_000);
+    chunks = getAppendedChunks(mockStreamerObj);
+    decorated = chunks.filter((c) => c.title?.includes(":stopwatch:"));
+    assert.equal(decorated.length, 1);
+    assert.match(decorated[0].title!, /\(3\) :stopwatch:/);
+
+    await streamer.stop();
+  });
+
+  it("does not reset startedAt when a tool joins an existing group", async (t: TestContext) => {
+    t.mock.timers.enable({ apis: ["setInterval", "Date"] });
+
+    const mockStreamerObj = makeMockChatStreamer();
+    const client = makeClient({ chatStreamer: mockStreamerObj });
+    const streamer = new SlackStreamer({
+      client,
+      channel: "C_CHAN",
+      threadTs: "1234.5678",
+      teamId: "T_TEAM",
+      logger: mockLogger.logger,
+    });
+
+    await streamer.start();
+
+    streamer.handleEvent({
+      type: "tool_start",
+      taskId: "group-1",
+      toolName: "Read",
+      toolArgs: { file_path: "a.ts" },
+    });
+
+    // Advance 25s, then add a second item to the group
+    t.mock.timers.tick(25_000);
+    streamer.handleEvent({
+      type: "tool_start",
+      taskId: "group-2",
+      toolName: "Read",
+      toolArgs: { file_path: "b.ts" },
+    });
+
+    mockStreamerObj.append.mock.resetCalls();
+
+    // Advance 5 more seconds to reach 30s total — should still decorate
+    t.mock.timers.tick(5_000);
+
+    const chunks = getAppendedChunks(mockStreamerObj);
+    const decorated = chunks.filter((c) => c.title?.includes(":stopwatch:"));
+    assert.equal(decorated.length, 1, "group should decorate at 30s total, not restart timer");
+    assert.match(decorated[0].title!, /:stopwatch: 30s$/);
+
+    await streamer.stop();
+  });
+
+  it("still pings the thinking task when no tasks are active", async (t: TestContext) => {
+    t.mock.timers.enable({ apis: ["setInterval", "Date"] });
+
+    const mockStreamerObj = makeMockChatStreamer();
+    const client = makeClient({ chatStreamer: mockStreamerObj });
+    const streamer = new SlackStreamer({
+      client,
+      channel: "C_CHAN",
+      threadTs: "1234.5678",
+      teamId: "T_TEAM",
+      logger: mockLogger.logger,
+    });
+
+    await streamer.start();
+    mockStreamerObj.append.mock.resetCalls();
+
+    // Tick with no active tasks
+    t.mock.timers.tick(15_000);
+
+    const chunks = getAppendedChunks(mockStreamerObj);
+    assert.equal(chunks.length, 1);
+    assert.equal(chunks[0].id, "__thinking__");
+    assert.equal(chunks[0].status, "in_progress");
+
+    await streamer.stop();
+  });
+});
+
+describe("fmtElapsed", () => {
+  it("formats sub-minute durations as seconds", () => {
+    assert.equal(fmtElapsed(0), "0s");
+    assert.equal(fmtElapsed(1_000), "1s");
+    assert.equal(fmtElapsed(45_000), "45s");
+    assert.equal(fmtElapsed(59_999), "59s");
+  });
+
+  it("formats sub-10-minute durations with minutes and seconds", () => {
+    assert.equal(fmtElapsed(60_000), "1m 0s");
+    assert.equal(fmtElapsed(65_000), "1m 5s");
+    assert.equal(fmtElapsed(125_000), "2m 5s");
+    assert.equal(fmtElapsed(599_000), "9m 59s");
+  });
+
+  it("drops seconds once minutes >= 10", () => {
+    assert.equal(fmtElapsed(600_000), "10m");
+    assert.equal(fmtElapsed(900_000), "15m");
+    assert.equal(fmtElapsed(930_000), "15m"); // 15m 30s → "15m"
+    assert.equal(fmtElapsed(3_600_000), "60m");
+  });
+
+  it("clamps negative input to 0s", () => {
+    assert.equal(fmtElapsed(-1_000), "0s");
   });
 });
 
@@ -1037,12 +1323,11 @@ describe("SlackStreamer error classification", () => {
       channel: "C_CHAN",
       threadTs: "1234.5678",
       teamId: "T_TEAM",
-      logger: mockLogger,
+      logger: mockLogger.logger,
     });
 
     await streamer.start();
-    mockLogger.warn.mock.resetCalls();
-    mockLogger.error.mock.resetCalls();
+    mockLogger.reset();
 
     // Make append throw the specific Slack error
     const slackError = Object.assign(new Error("message_not_in_streaming_state"), {
@@ -1067,18 +1352,25 @@ describe("SlackStreamer error classification", () => {
     assert.equal(streamer.hasFailed, true);
 
     // Should have logged as warn, not error
-    const warnCalls = mockLogger.warn.mock.calls as unknown as { arguments: unknown[] }[];
-    const warnMessages = warnCalls.map((c) => c.arguments[0] as string);
-    assert.ok(
-      warnMessages.some((m) => m.includes("message_not_in_streaming_state")),
-      "Expected a warn log about message_not_in_streaming_state",
+    const expiredWarn = mockLogger.warnCalls.find(
+      (c) => typeof c[0] === "string" && c[0].includes("message_not_in_streaming_state"),
     );
+    assert.ok(expiredWarn, "Expected a warn log about message_not_in_streaming_state");
 
-    // error logger should NOT have been called for this specific error
-    const errorCalls = mockLogger.error.mock.calls as unknown as { arguments: unknown[] }[];
-    const errorMessages = errorCalls.map((c) => c.arguments[0] as string);
-    assert.ok(
-      !errorMessages.some((m) => m.includes("Failed to append")),
+    // Warn log should carry diagnostic fields as the second argument
+    const diag = expiredWarn[1];
+    assert.ok(diag && typeof diag === "object", "Expected diagnostic object on warn call");
+    assert.ok("msSinceLastTick" in diag && typeof diag.msSinceLastTick === "number");
+    assert.ok("msSinceLastEvent" in diag && typeof diag.msSinceLastEvent === "number");
+    assert.ok("activeTaskCount" in diag && typeof diag.activeTaskCount === "number");
+
+    // error logger should NOT have been called for 'Failed to append' for this specific error
+    const failedAppendError = mockLogger.errorCalls.find(
+      (c) => typeof c[0] === "string" && c[0].includes("Failed to append"),
+    );
+    assert.equal(
+      failedAppendError,
+      undefined,
       "Should not log 'Failed to append' at error level for stream expiry",
     );
   });
@@ -1091,12 +1383,11 @@ describe("SlackStreamer error classification", () => {
       channel: "C_CHAN",
       threadTs: "1234.5678",
       teamId: "T_TEAM",
-      logger: mockLogger,
+      logger: mockLogger.logger,
     });
 
     await streamer.start();
-    mockLogger.warn.mock.resetCalls();
-    mockLogger.error.mock.resetCalls();
+    mockLogger.reset();
 
     // Make append throw a generic error (not stream expiry)
     mockStreamerObj.append.mock.mockImplementation(async () => {
@@ -1114,11 +1405,9 @@ describe("SlackStreamer error classification", () => {
 
     assert.equal(streamer.hasFailed, true);
 
-    const errorCalls = mockLogger.error.mock.calls as unknown as { arguments: unknown[] }[];
-    const errorMessages = errorCalls.map((c) => c.arguments[0] as string);
-    assert.ok(
-      errorMessages.some((m) => m.includes("Failed to append")),
-      "Generic errors should still be logged at error level",
+    const failedAppendError = mockLogger.errorCalls.find(
+      (c) => typeof c[0] === "string" && c[0].includes("Failed to append"),
     );
+    assert.ok(failedAppendError, "Generic errors should still be logged at error level");
   });
 });
