@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import type { Config } from "../../config.js";
 import type { SessionContext } from "../../sessions.js";
 import { resolveAutoRespondContext, type AutoRespondDeps } from "./autoRespond.js";
+import type { runPreAnalysis } from "../../claude/preAnalysis.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -59,7 +60,11 @@ function makeDeps(overrides: Partial<AutoRespondDeps> = {}): AutoRespondDeps {
   };
 }
 
-function call(deps: AutoRespondDeps, text = "follow-up question?") {
+function call(
+  deps: AutoRespondDeps,
+  text: string | undefined = "follow-up question?",
+  rawFiles?: unknown[],
+) {
   const now = (Date.now() / 1000).toFixed(6);
   const threadTs = (Date.now() / 1000 - 1).toFixed(6);
   return resolveAutoRespondContext(
@@ -74,6 +79,7 @@ function call(deps: AutoRespondDeps, text = "follow-up question?") {
     "U_BOT",
     "B_BOT",
     deps,
+    rawFiles,
   );
 }
 
@@ -165,5 +171,72 @@ describe("resolveAutoRespondContext — auto-respond tracking", () => {
     // Should proceed to pre-analysis (not skip as disengaged)
     assert.ok(result !== null);
     assert.equal(preAnalysis.mock.callCount(), 1);
+  });
+
+  it("runs pre-analysis for image-only thread reply using synthesized image metadata", async () => {
+    const preAnalysis = mock.fn<typeof runPreAnalysis>(async () => "respond" as const);
+    const deps = makeDeps({
+      findSession: async () => session({ autoResponseActive: true }),
+      preAnalysis,
+    });
+
+    const rawFiles = [
+      {
+        id: "F1",
+        name: "screenshot.png",
+        mimetype: "image/png",
+        size: 1024,
+        url_private: "https://files.slack.com/F1",
+      },
+    ];
+
+    const result = await call(deps, "", rawFiles);
+
+    assert.ok(result !== null);
+    assert.equal(result?.triggerType, "threadReply");
+    assert.equal(preAnalysis.mock.callCount(), 1);
+    // First arg is the resolved message text — should be the synthesized placeholder
+    const messageArg = preAnalysis.mock.calls[0].arguments[0];
+    assert.ok(messageArg.includes("[attached images:"));
+    assert.ok(messageArg.includes("screenshot.png"));
+    assert.ok(messageArg.includes("F1"));
+  });
+
+  it("disengages on 'stop' verdict for image-only thread reply", async () => {
+    const setActive = mock.fn(async (_id: string, _active: boolean) => {});
+    const deps = makeDeps({
+      findSession: async () => session({ autoResponseActive: true }),
+      preAnalysis: async () => "stop",
+      setActive,
+    });
+
+    const rawFiles = [
+      {
+        id: "F2",
+        name: "meme.jpg",
+        mimetype: "image/jpeg",
+        size: 1024,
+        url_private: "https://files.slack.com/F2",
+      },
+    ];
+
+    const result = await call(deps, "", rawFiles);
+
+    assert.equal(result, null);
+    assert.equal(setActive.mock.callCount(), 1);
+    assert.equal(setActive.mock.calls[0].arguments[1], false);
+  });
+
+  it("skips thread reply with no text and no images (no pre-analysis call)", async () => {
+    const preAnalysis = mock.fn(async () => "respond" as const);
+    const deps = makeDeps({
+      findSession: async () => session({ autoResponseActive: true }),
+      preAnalysis,
+    });
+
+    const result = await call(deps, "");
+
+    assert.equal(result, null);
+    assert.equal(preAnalysis.mock.callCount(), 0);
   });
 });
