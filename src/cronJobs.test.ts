@@ -11,6 +11,7 @@ import {
   getJobsByUser,
   toggleJob,
   deleteJob,
+  updateJob,
   updateJobRunStatus,
   clearCronJobsCache,
 } from "./cronJobs.js";
@@ -107,6 +108,112 @@ describe("cronJobs", () => {
       });
 
       assert.equal(job.requiredTools, undefined);
+    });
+
+    it("persists skipConditions when supplied", async () => {
+      const job = await createJob({
+        cronExpression: "0 9 * * *",
+        channel: "C123",
+        prompt: "Summarize PRs",
+        createdBy: "U456",
+        timezone: "UTC",
+        skipConditions: "Skip if no merged PRs in the last 24 hours.",
+      });
+
+      assert.equal(job.skipConditions, "Skip if no merged PRs in the last 24 hours.");
+
+      clearCronJobsCache();
+      const loaded = await getJob(job.id);
+      assert.ok(loaded);
+      assert.equal(loaded.skipConditions, "Skip if no merged PRs in the last 24 hours.");
+    });
+
+    it("omits skipConditions when not supplied (backwards compatible)", async () => {
+      const job = await createJob({
+        cronExpression: "0 9 * * *",
+        channel: "C123",
+        prompt: "Summarize PRs",
+        createdBy: "U456",
+        timezone: "UTC",
+      });
+
+      assert.equal(job.skipConditions, undefined);
+    });
+
+    it("omits skipConditions when supplied as empty string", async () => {
+      const job = await createJob({
+        cronExpression: "0 9 * * *",
+        channel: "C123",
+        prompt: "Summarize PRs",
+        createdBy: "U456",
+        timezone: "UTC",
+        skipConditions: "",
+      });
+
+      assert.equal(job.skipConditions, undefined);
+    });
+  });
+
+  describe("updateJob (skipConditions)", () => {
+    it("sets skipConditions on an existing job", async () => {
+      const job = await createJob({
+        cronExpression: "0 9 * * *",
+        channel: "C123",
+        prompt: "Summarize PRs",
+        createdBy: "U456",
+        timezone: "UTC",
+      });
+
+      const updated = await updateJob(job.id, { skipConditions: "Skip on weekends." });
+
+      assert.ok(updated);
+      assert.equal(updated.skipConditions, "Skip on weekends.");
+    });
+
+    it("replaces an existing skipConditions value", async () => {
+      const job = await createJob({
+        cronExpression: "0 9 * * *",
+        channel: "C123",
+        prompt: "Summarize PRs",
+        createdBy: "U456",
+        timezone: "UTC",
+        skipConditions: "Old conditions",
+      });
+
+      const updated = await updateJob(job.id, { skipConditions: "New conditions" });
+
+      assert.equal(updated?.skipConditions, "New conditions");
+    });
+
+    it("clears skipConditions when passed empty string", async () => {
+      const job = await createJob({
+        cronExpression: "0 9 * * *",
+        channel: "C123",
+        prompt: "Summarize PRs",
+        createdBy: "U456",
+        timezone: "UTC",
+        skipConditions: "Skip sometimes",
+      });
+
+      const updated = await updateJob(job.id, { skipConditions: "" });
+
+      assert.equal(updated?.skipConditions, undefined);
+    });
+
+    it("leaves skipConditions unchanged when undefined", async () => {
+      const job = await createJob({
+        cronExpression: "0 9 * * *",
+        channel: "C123",
+        prompt: "Summarize PRs",
+        createdBy: "U456",
+        timezone: "UTC",
+        skipConditions: "Keep me",
+      });
+
+      const updated = await updateJob(job.id, { prompt: "New prompt" });
+
+      assert.equal(updated?.skipConditions, "Keep me");
+      assert.equal(updated?.prompt, "New prompt");
     });
   });
 
@@ -274,6 +381,41 @@ describe("cronJobs", () => {
       assert.equal(updated?.runs?.length, 1);
       assert.equal(updated?.runs?.[0].status, "error");
       assert.equal(updated?.runs?.[0].responseTs, undefined);
+    });
+
+    it("records a skipped run without responseTs", async () => {
+      const job = await createJob({
+        cronExpression: "0 9 * * *",
+        channel: "C1",
+        prompt: "Test",
+        createdBy: "U1",
+        timezone: "UTC",
+      });
+
+      await updateJobRunStatus(job.id, "skipped");
+
+      const updated = await getJob(job.id);
+      assert.equal(updated?.lastRunStatus, "skipped");
+      assert.equal(updated?.runs?.length, 1);
+      assert.equal(updated?.runs?.[0].status, "skipped");
+      assert.equal(updated?.runs?.[0].responseTs, undefined);
+    });
+
+    it("replaces prior error status when a skipped run occurs", async () => {
+      const job = await createJob({
+        cronExpression: "0 9 * * *",
+        channel: "C1",
+        prompt: "Test",
+        createdBy: "U1",
+        timezone: "UTC",
+      });
+
+      await updateJobRunStatus(job.id, "error");
+      await updateJobRunStatus(job.id, "skipped");
+
+      const updated = await getJob(job.id);
+      assert.equal(updated?.lastRunStatus, "skipped");
+      assert.equal(updated?.runs?.length, 2);
     });
 
     it("accumulates all runs without cap", async () => {

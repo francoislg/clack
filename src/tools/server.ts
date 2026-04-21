@@ -242,6 +242,17 @@ export function shouldAllowSkip(triggerType: TriggerType): boolean {
 }
 
 /**
+ * Decide whether to expose `skip_response` on `submit_response` for this run.
+ * Combines the default policy (`shouldAllowSkip`) with a per-job opt-in for scheduled runs
+ * that declare `skipConditions`. Extracted for testability — the override itself is trivial,
+ * but it's worth pinning behavior explicitly because the schema changes based on the result.
+ */
+export function computeAllowSkip(triggerType: TriggerType, skipConditions?: string): boolean {
+  if (shouldAllowSkip(triggerType)) return true;
+  return triggerType === "scheduled" && !!skipConditions && skipConditions.length > 0;
+}
+
+/**
  * Disengage is meaningful wherever `autoResponseActive` has runtime effect — the skippable
  * triggers plus channel mentions, where a user can dismiss Clack ("thanks, you're done")
  * and expect the thread to stop getting auto-respond replies.
@@ -405,7 +416,7 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
       // Pass the channel so post_to validation can reject duplicates.
       topLevelDeliveryChannel: triggerType === "scheduled" ? ctx.session.channelId : undefined,
       sessionChannelId: ctx.session.channelId,
-      allowSkip: shouldAllowSkip(triggerType),
+      allowSkip: computeAllowSkip(triggerType, ctx.skipConditions),
       allowDisengage: shouldAllowDisengage(triggerType),
       allowPostTopLevel: shouldAllowPostTopLevel(triggerType),
       requiredTools: ctx.requiredTools,

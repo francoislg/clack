@@ -10,6 +10,7 @@ import {
   shouldAllowSkip,
   shouldAllowDisengage,
   shouldAllowPostTopLevel,
+  computeAllowSkip,
 } from "./server.js";
 import type { QueryToolContext } from "./types.js";
 import type { Config } from "../config.js";
@@ -274,6 +275,30 @@ describe("shouldAllowSkip", () => {
 
   it("denies skip for undefined triggerType", () => {
     assert.equal(shouldAllowSkip(undefined), false);
+  });
+});
+
+describe("computeAllowSkip", () => {
+  it("inherits shouldAllowSkip defaults for autoRespond and threadReply", () => {
+    assert.equal(computeAllowSkip("autoRespond"), true);
+    assert.equal(computeAllowSkip("threadReply"), true);
+  });
+
+  it("allows skip for scheduled runs when skipConditions is set", () => {
+    assert.equal(computeAllowSkip("scheduled", "Skip if no merged PRs"), true);
+  });
+
+  it("denies skip for scheduled runs without skipConditions", () => {
+    assert.equal(computeAllowSkip("scheduled"), false);
+    assert.equal(computeAllowSkip("scheduled", ""), false);
+    assert.equal(computeAllowSkip("scheduled", undefined), false);
+  });
+
+  it("denies skip for other triggers even with skipConditions set", () => {
+    // skipConditions is scheduled-only; a stray value on another trigger must not enable skip
+    assert.equal(computeAllowSkip("mentions", "Skip if X"), false);
+    assert.equal(computeAllowSkip("directMessages", "Skip if X"), false);
+    assert.equal(computeAllowSkip("reactions", "Skip if X"), false);
   });
 });
 

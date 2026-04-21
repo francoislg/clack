@@ -48,6 +48,7 @@ export function createListScheduledMessagesTool(ctx: QueryToolContext) {
           lastRunStatus: j.lastRunStatus ?? null,
           requiredTools: j.requiredTools ?? null,
           plugin: j.plugin ?? null,
+          skipConditions: j.skipConditions ?? null,
           totalRuns: (j.runs ?? []).length,
           recentRuns: await formatRuns(j, ctx),
         })),

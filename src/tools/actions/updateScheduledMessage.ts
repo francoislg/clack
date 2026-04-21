@@ -53,6 +53,13 @@ export function createUpdateScheduledMessageTool(ctx: QueryToolContext) {
           "Name of a loaded Clack plugin this job is associated with. Pass an empty string " +
             "to clear. Omit to leave unchanged.",
         ),
+      skipConditions: z
+        .string()
+        .optional()
+        .describe(
+          "Free-form conditions under which this run should skip posting (evaluated by Claude " +
+            "at each run). Pass an empty string to clear. Omit to leave unchanged.",
+        ),
     },
     async (args) => {
       const job = await getJob(args.id);
@@ -107,6 +114,7 @@ export function createUpdateScheduledMessageTool(ctx: QueryToolContext) {
           ...(args.prompt !== undefined && { prompt: args.prompt }),
           ...(args.requiredTools !== undefined && { requiredTools: args.requiredTools }),
           ...(args.plugin !== undefined && { plugin: args.plugin }),
+          ...(args.skipConditions !== undefined && { skipConditions: args.skipConditions }),
         });
 
         if (!updated) {

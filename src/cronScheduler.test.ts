@@ -1,8 +1,15 @@
 import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 import { WebClient } from "@slack/web-api";
-import { humanReadableSchedule, matchesCron, notifyCreatorOfError } from "./cronScheduler.js";
+import {
+  executeJob,
+  humanReadableSchedule,
+  matchesCron,
+  notifyCreatorOfError,
+  type CronSchedulerDeps,
+} from "./cronScheduler.js";
 import type { CronJob } from "./cronJobs.js";
+import type { ClaudeResponse } from "./claude/index.js";
 
 describe("cronScheduler", () => {
   describe("humanReadableSchedule", () => {
@@ -173,6 +180,114 @@ describe("cronScheduler", () => {
       const args = postSpy.mock.calls[0].arguments[0];
       const text = args && "text" in args ? (args.text ?? "") : "";
       assert.match(text, /\/invite @Clack/);
+    });
+  });
+
+  describe("executeJob (skip outcome)", () => {
+    function fakeClient(): WebClient {
+      const client = new WebClient();
+      mock.method(client.auth, "test", async () => ({ ok: true, url: "https://t.slack.com/" }));
+      mock.method(client.conversations, "info", async () => ({
+        ok: true,
+        channel: { id: "C456", name: "ops", is_im: false },
+      }));
+      return client;
+    }
+
+    function baseJob(overrides: Partial<CronJob> = {}): CronJob {
+      return {
+        id: "job-skip-1",
+        cronExpression: "0 9 * * *",
+        channel: "C456",
+        prompt: "Summarize PRs",
+        createdBy: "U123",
+        createdAt: new Date().toISOString(),
+        enabled: true,
+        timezone: "UTC",
+        ...overrides,
+      };
+    }
+
+    function makeDeps(responseOverride: Partial<ClaudeResponse> = {}): {
+      deps: CronSchedulerDeps;
+      calls: {
+        processMessage: Parameters<CronSchedulerDeps["processMessage"]>[0][];
+        updateJobRunStatus: Parameters<CronSchedulerDeps["updateJobRunStatus"]>[];
+        deleteJob: Parameters<CronSchedulerDeps["deleteJob"]>[];
+        notifyCreatorOfError: Parameters<CronSchedulerDeps["notifyCreatorOfError"]>[];
+      };
+    } {
+      const calls = {
+        processMessage: [] as Parameters<CronSchedulerDeps["processMessage"]>[0][],
+        updateJobRunStatus: [] as Parameters<CronSchedulerDeps["updateJobRunStatus"]>[],
+        deleteJob: [] as Parameters<CronSchedulerDeps["deleteJob"]>[],
+        notifyCreatorOfError: [] as Parameters<CronSchedulerDeps["notifyCreatorOfError"]>[],
+      };
+      const deps: CronSchedulerDeps = {
+        processMessage: async (params) => {
+          calls.processMessage.push(params);
+          return {
+            success: true,
+            answer: "",
+            ...responseOverride,
+          };
+        },
+        updateJobRunStatus: async (...args) => {
+          calls.updateJobRunStatus.push(args);
+        },
+        deleteJob: async (...args) => {
+          calls.deleteJob.push(args);
+          return true;
+        },
+        notifyCreatorOfError: async (...args) => {
+          calls.notifyCreatorOfError.push(args);
+        },
+      };
+      return { deps, calls };
+    }
+
+    it("records 'skipped' and does NOT DM creator when Claude skips", async () => {
+      const { deps, calls } = makeDeps({ skipped: true });
+      const client = fakeClient();
+
+      await executeJob(baseJob({ skipConditions: "Skip on weekends" }), client, deps);
+
+      assert.equal(calls.updateJobRunStatus.length, 1);
+      assert.equal(calls.updateJobRunStatus[0][0], "job-skip-1");
+      assert.equal(calls.updateJobRunStatus[0][1], "skipped");
+      assert.equal(calls.updateJobRunStatus[0][2], undefined, "skipped runs have no responseTs");
+      assert.equal(calls.notifyCreatorOfError.length, 0, "skip is intentional, not an error");
+    });
+
+    it("passes job.skipConditions to processMessage", async () => {
+      const { deps, calls } = makeDeps({ skipped: false });
+      const client = fakeClient();
+
+      await executeJob(baseJob({ skipConditions: "Skip if nothing changed" }), client, deps);
+
+      assert.equal(calls.processMessage.length, 1);
+      assert.equal(calls.processMessage[0].skipConditions, "Skip if nothing changed");
+      assert.equal(calls.processMessage[0].triggerType, "scheduled");
+    });
+
+    it("cleans up one-shot jobs after a skipped run", async () => {
+      const { deps, calls } = makeDeps({ skipped: true });
+      const client = fakeClient();
+
+      await executeJob(baseJob({ oneShot: true, skipConditions: "Skip always" }), client, deps);
+
+      assert.equal(calls.deleteJob.length, 1);
+      assert.equal(calls.deleteJob[0][0], "job-skip-1");
+    });
+
+    it("records 'success' with responseTs on normal (non-skipped) runs", async () => {
+      const { deps, calls } = makeDeps({ skipped: false });
+      const client = fakeClient();
+
+      await executeJob(baseJob(), client, deps);
+
+      assert.equal(calls.updateJobRunStatus[0][1], "success");
+      // responseTs comes from findSessionByMessage which returns undefined without a real session
     });
   });
 });

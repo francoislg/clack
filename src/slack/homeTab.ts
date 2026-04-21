@@ -1379,7 +1379,9 @@ async function buildScheduledMessagesSection(
       ? " _(paused)_"
       : job.lastRunStatus === "error"
         ? " :warning:"
-        : "";
+        : job.lastRunStatus === "skipped"
+          ? " _(last run skipped)_"
+          : "";
     const typeLabel = job.oneShot ? " · _one-time_" : "";
     const creator = isAdmin && job.createdBy !== userId ? ` · <@${job.createdBy}>` : "";
 
@@ -1395,9 +1397,28 @@ async function buildScheduledMessagesSection(
         action_id: `cron_edit_job:${job.id}`,
       },
     });
+
+    if (job.skipConditions) {
+      blocks.push({
+        type: "context",
+        elements: [
+          {
+            type: "mrkdwn",
+            text: `Skip conditions: ${truncateSkipConditions(job.skipConditions)}`,
+          },
+        ],
+      });
+    }
   }
 
   return blocks;
+}
+
+const SKIP_CONDITIONS_DISPLAY_LIMIT = 120;
+
+function truncateSkipConditions(value: string): string {
+  if (value.length <= SKIP_CONDITIONS_DISPLAY_LIMIT) return value;
+  return `${value.slice(0, SKIP_CONDITIONS_DISPLAY_LIMIT - 1)}…`;
 }
 
 export function buildCronJobModal(job?: CronJob): View {
@@ -1447,6 +1468,26 @@ export function buildCronJobModal(job?: CronJob): View {
           type: "plain_text",
           text: "What should Claude do? e.g. Summarize merged PRs from today",
         },
+      },
+    },
+    {
+      type: "input",
+      block_id: "cron_skip_conditions_block",
+      label: { type: "plain_text", text: "Skip conditions (optional)" },
+      optional: true,
+      element: {
+        type: "plain_text_input",
+        action_id: "skip_conditions",
+        multiline: true,
+        ...(job?.skipConditions && { initial_value: job.skipConditions }),
+        placeholder: {
+          type: "plain_text",
+          text: "e.g. Skip if no PRs were merged in the last 24 hours",
+        },
+      },
+      hint: {
+        type: "plain_text",
+        text: "When set, Claude evaluates these before each run and may skip posting. Leave empty to always post.",
       },
     },
     {

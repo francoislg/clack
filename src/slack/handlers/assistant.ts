@@ -5,7 +5,7 @@ import { logger } from "../../logger.js";
 import { findSessionByThread, updateSession, type SessionContext } from "../../sessions.js";
 import { extractAttachments, type ExtractedAttachments } from "../fileExtractor.js";
 import { PerThreadContextStore } from "./assistantContextStore.js";
-import { processMessage, type ProcessMessageParams } from "./core.js";
+import { processMessage } from "./core.js";
 import { matchesInlineStopEmoji } from "../stopEmoji.js";
 import { stopThread, type StopResult } from "../stopPipeline.js";
 
@@ -28,7 +28,7 @@ export interface AssistantDeps {
     triggeredByUserId: string,
     reason: string,
   ) => Promise<StopResult>;
-  processMessage: (params: ProcessMessageParams) => Promise<void>;
+  processMessage: typeof processMessage;
   extractAttachments: (files: unknown[] | undefined) => ExtractedAttachments;
 }
 

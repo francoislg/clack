@@ -22,7 +22,7 @@ import { storeDmCoordinates } from "../dmResponse.js";
 import { executeAndDeliver } from "./handlerResponse.js";
 import type { TriggerType } from "../../changes/types.js";
 import type { SlackImageFile, SlackFile } from "../slackFileBase.js";
-import type { AskClaudeOptions } from "../../claude/index.js";
+import type { AskClaudeOptions, ClaudeResponse } from "../../claude/index.js";
 import type { SessionInfo } from "../activeSessions.js";
 
 export interface CoreDeps {
@@ -99,6 +99,12 @@ export interface ProcessMessageParams {
    * this run before `submit_response` will be accepted. Populated by callers like the cron scheduler.
    */
   requiredTools?: string[];
+  /**
+   * Free-form conditions to evaluate at the start of a scheduled run. When non-empty, the prompt
+   * builder injects a pre-check section and the `submit_response` tool schema exposes
+   * `skip_response` so Claude can decline delivery. Only meaningful for `triggerType: "scheduled"`.
+   */
+  skipConditions?: string;
 }
 
 interface ProcessingContext {
@@ -115,6 +121,7 @@ interface ProcessingContext {
   readonly workMode: boolean;
   readonly additionalSystemPrompt?: string;
   readonly requiredTools?: string[];
+  readonly skipConditions?: string;
 }
 
 interface DmCoordinates {
@@ -319,7 +326,7 @@ async function storeAssistantContext(
 export async function processMessage(
   params: ProcessMessageParams,
   deps: CoreDeps = defaultCoreDeps,
-): Promise<void> {
+): Promise<ClaudeResponse> {
   const {
     client,
     userId,
@@ -356,6 +363,7 @@ export async function processMessage(
     workMode,
     additionalSystemPrompt: params.additionalSystemPrompt,
     requiredTools: params.requiredTools,
+    skipConditions: params.skipConditions,
   };
 
   const userLabel = await deps.resolveUserLabel(client, userId);
@@ -416,7 +424,7 @@ export async function processMessage(
   const claudeOptions = await deps.getClaudeOptions(userId, triggerType);
   const abortController = new AbortController();
 
-  await withInFlightTracking(
+  return withInFlightTracking(
     {
       channelId,
       messageTs,
@@ -436,6 +444,7 @@ export async function processMessage(
           availableImages,
           availableFiles,
           requiredTools: ctx.requiredTools,
+          skipConditions: ctx.skipConditions,
         },
         abortController,
         silentThinking,

@@ -10,8 +10,8 @@ import { fileExists } from "./fs.js";
 
 export interface CronRun {
   executedAt: string;
-  status: "success" | "error";
-  /** Slack message timestamp — absent when delivery failed */
+  status: "success" | "error" | "skipped";
+  /** Slack message timestamp — absent when delivery failed or was skipped */
   responseTs?: string;
 }
 
@@ -27,7 +27,7 @@ export interface CronJob {
   timezone: string;
   oneShot?: boolean;
   lastRunAt?: string;
-  lastRunStatus?: "success" | "error";
+  lastRunStatus?: "success" | "error" | "skipped";
   /**
    * Fully-qualified MCP tool names (e.g., `mcp__trivia__submit_answers`) that must be called during
    * this dynamic job's run before `submit_response` will be accepted. Ignored for static jobs.
@@ -39,6 +39,13 @@ export interface CronJob {
    * `computeEffectiveRequiredTools`); `requiredTools` above is the single source of truth.
    */
   plugin?: string;
+  /**
+   * Free-form text listing conditions under which this scheduled run should skip posting.
+   * When set, the scheduled session's prompt injects a pre-check instruction and the
+   * `submit_response` tool schema exposes `skip_response` so Claude can decline delivery.
+   * Ignored for static jobs (no Claude session exists to evaluate them).
+   */
+  skipConditions?: string;
   /** Recent execution history (most recent last, capped at {@link MAX_RUNS}) */
   runs?: CronRun[];
 }
@@ -136,6 +143,7 @@ export interface CreateCronJobParams {
   oneShot?: boolean;
   requiredTools?: string[];
   plugin?: string;
+  skipConditions?: string;
 }
 
 export async function createJob(params: CreateCronJobParams): Promise<CronJob> {
@@ -154,6 +162,7 @@ export async function createJob(params: CreateCronJobParams): Promise<CronJob> {
       ? { requiredTools: params.requiredTools }
       : {}),
     ...(params.plugin ? { plugin: params.plugin } : {}),
+    ...(params.skipConditions ? { skipConditions: params.skipConditions } : {}),
   };
   jobs.push(job);
   await saveState({ jobs });
@@ -182,6 +191,8 @@ export interface UpdateCronJobParams {
   requiredTools?: string[];
   /** Pass empty string to clear; undefined leaves the field unchanged. */
   plugin?: string;
+  /** Pass empty string to clear; undefined leaves the field unchanged. */
+  skipConditions?: string;
 }
 
 export async function updateJob(
@@ -203,6 +214,9 @@ export async function updateJob(
   if (params.plugin !== undefined) {
     job.plugin = params.plugin.length > 0 ? params.plugin : undefined;
   }
+  if (params.skipConditions !== undefined) {
+    job.skipConditions = params.skipConditions.length > 0 ? params.skipConditions : undefined;
+  }
 
   await saveState({ jobs });
   logger.info(`Cron job ${jobId} updated`);
@@ -222,7 +236,7 @@ export async function deleteJob(jobId: string): Promise<boolean> {
 
 export async function updateJobRunStatus(
   jobId: string,
-  status: "success" | "error",
+  status: "success" | "error" | "skipped",
   responseTs?: string,
 ): Promise<void> {
   const jobs = await loadJobs();
