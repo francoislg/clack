@@ -294,6 +294,16 @@ export async function resolveAutoRespondContext(
     }
     if (verdict !== "respond") return null;
 
+    // A stop reaction can fire during pre-analysis (a multi-second Claude call) and
+    // flip autoResponseActive on disk. Re-read to catch a disengage in that window.
+    const latest = await deps.findSession(channelId, threadTs);
+    if (latest?.autoResponseActive === false) {
+      logger.info(
+        `Thread auto-respond: session ${latest.sessionId} was disengaged during pre-analysis in ${channelLabel}${threadLink}`,
+      );
+      return null;
+    }
+
     return {
       triggerType: "threadReply",
       userId: messageUser ?? "thread-reply",

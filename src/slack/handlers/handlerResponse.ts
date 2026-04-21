@@ -437,11 +437,25 @@ async function deliverViaStreamerOrFallback(ctx: DeliveryContext, text: string):
 }
 
 /**
- * Handle a cancelled response: deliver the cancellation message if not already delivered.
+ * Handle a cancelled response: delete the streamer message so the thread shows
+ * no trace of the cancelled run. If a message was already delivered (rare — the
+ * streamer has committed a partial reply), leave it alone.
  */
 async function handleCancellation(ctx: DeliveryContext): Promise<void> {
-  if (!ctx.alreadyDelivered) {
-    await deliverViaStreamerOrFallback(ctx, "_Request cancelled._");
+  if (ctx.alreadyDelivered) return;
+
+  await ctx.streamer?.stop();
+
+  const messageTs = ctx.streamer?.getMessageTs();
+  if (messageTs) {
+    try {
+      await ctx.client.chat.delete({
+        channel: ctx.targetChannel,
+        ts: messageTs,
+      });
+    } catch (error) {
+      logger.warn("Failed to delete streamer message after cancellation:", error);
+    }
   }
 }
 

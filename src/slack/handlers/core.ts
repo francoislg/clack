@@ -254,11 +254,11 @@ async function setupDmDelivery(
 // IN-FLIGHT REQUEST TRACKING
 // ============================================================
 
-type InFlightRequestTrigger = "directMessages" | "mentions" | "reactions";
-
 /**
  * Register an in-flight request for cancellation support, execute the callback,
- * and deregister when done. Covers mentions, DMs, and reactions.
+ * and deregister when done. Every Claude query — regardless of trigger type — is
+ * cancellable; `stopThread` finds requests by channel + thread, so it doesn't
+ * care which surface started the run.
  */
 async function withInFlightTracking<T>(
   info: {
@@ -272,26 +272,16 @@ async function withInFlightTracking<T>(
   fn: () => Promise<T>,
   deps: CoreDeps,
 ): Promise<T> {
-  const cancellableTrigger: InFlightRequestTrigger | null =
-    info.triggerType === "mentions" ||
-    info.triggerType === "directMessages" ||
-    info.triggerType === "reactions"
-      ? info.triggerType
-      : null;
-  if (cancellableTrigger) {
-    deps.registerInFlightRequest(info.channelId, info.messageTs, {
-      abortController: info.abortController,
-      sessionId: info.sessionId,
-      triggerType: cancellableTrigger,
-      threadTs: info.threadTs,
-    });
-  }
+  deps.registerInFlightRequest(info.channelId, info.messageTs, {
+    abortController: info.abortController,
+    sessionId: info.sessionId,
+    triggerType: info.triggerType,
+    threadTs: info.threadTs,
+  });
   try {
     return await fn();
   } finally {
-    if (cancellableTrigger) {
-      deps.deregisterInFlightRequest(info.channelId, info.messageTs);
-    }
+    deps.deregisterInFlightRequest(info.channelId, info.messageTs);
   }
 }
 
