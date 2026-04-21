@@ -3,6 +3,19 @@ import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
 import { registerAssistant, type AssistantDeps } from "./assistant.js";
 
+interface CapturedProcessArgs {
+  client: App["client"];
+  userId: string;
+  channelId: string;
+  messageTs: string;
+  messageText: string;
+  threadTs?: string;
+  triggerType: string;
+  assistantChannelId?: string;
+  imageFiles?: Array<{ id: string; name: string; mimetype: string }>;
+  files?: Array<{ id: string; name: string; mimetype: string }>;
+}
+
 // ============================================================================
 // Mocks
 // ============================================================================
@@ -33,8 +46,15 @@ function makeDeps(): AssistantDeps {
     updateSession: mockUpdateSession as never,
     processMessage: mockProcessMessage as never,
     extractAttachments: () => ({}),
+    stopThread: mockAssistantStopThread,
   };
 }
+
+const mockAssistantStopThread = mock.fn<AssistantDeps["stopThread"]>(async () => ({
+  queryAborted: 0,
+  workerAborted: false,
+  sessionDisengaged: false,
+}));
 
 // ============================================================================
 // Helpers
@@ -271,7 +291,7 @@ describe("assistant userMessage", () => {
     assert.equal(mockProcessMessage.mock.callCount(), 0);
   });
 
-  it("skips when text is missing", async () => {
+  it("skips when text and files are both missing", async () => {
     await capturedAssistantHandlers!.userMessage({
       event: { user: "U001", channel: "D001", ts: "1700000000.000001" },
       client: makeClient().obj,
@@ -281,6 +301,47 @@ describe("assistant userMessage", () => {
     });
 
     assert.equal(mockProcessMessage.mock.callCount(), 0);
+  });
+
+  it("processes an image-only DM with the image fallback prompt", async () => {
+    const clientBundle = makeClient();
+
+    // Register a fresh app whose extractAttachments returns image files
+    const app = makeApp();
+    registerAssistant(app, {
+      ...makeDeps(),
+      extractAttachments: () => ({
+        imageFiles: [
+          {
+            id: "F1",
+            name: "screenshot.png",
+            mimetype: "image/png",
+            size: 1024,
+            url_private: "https://files.slack.com/F1",
+          },
+        ],
+      }),
+    });
+
+    await capturedAssistantHandlers!.userMessage({
+      event: {
+        user: "U001",
+        channel: "D001",
+        ts: "1700000000.000002",
+        files: [{ id: "F1", mimetype: "image/png" }],
+      },
+      client: clientBundle.obj,
+      setStatus: makeMockSetStatus(),
+      setTitle: makeMockSetTitle(),
+      getThreadContext: makeMockGetThreadContext(),
+    });
+
+    assert.equal(mockProcessMessage.mock.callCount(), 1);
+    const args = mockProcessMessage.mock.calls[0].arguments[0] as CapturedProcessArgs;
+    assert.equal(args.messageText, "Answer based on the attached image(s).");
+    assert.ok(args.imageFiles);
+    assert.equal(args.imageFiles.length, 1);
+    assert.equal(args.imageFiles[0].id, "F1");
   });
 
   it("calls processMessage with correct parameters", async () => {
@@ -307,7 +368,7 @@ describe("assistant userMessage", () => {
     assert.equal(mockSetStatus.mock.callCount(), 1);
     assert.equal(mockProcessMessage.mock.callCount(), 1);
 
-    const args = mockProcessMessage.mock.calls[0].arguments[0] as Record<string, unknown>;
+    const args = mockProcessMessage.mock.calls[0].arguments[0] as CapturedProcessArgs;
     assert.equal(args.client, clientBundle.obj);
     assert.equal(args.userId, "U001");
     assert.equal(args.channelId, "D001");
@@ -413,7 +474,7 @@ describe("assistant userMessage", () => {
       getThreadContext: makeMockGetThreadContext(),
     });
 
-    const args = mockProcessMessage.mock.calls[0].arguments[0] as Record<string, unknown>;
+    const args = mockProcessMessage.mock.calls[0].arguments[0] as CapturedProcessArgs;
     assert.equal(args.assistantChannelId, "C999");
   });
 
@@ -441,7 +502,113 @@ describe("assistant userMessage", () => {
       getThreadContext: makeMockGetThreadContext(),
     });
 
-    const args = mockProcessMessage.mock.calls[0].arguments[0] as Record<string, unknown>;
+    const args = mockProcessMessage.mock.calls[0].arguments[0] as CapturedProcessArgs;
     assert.equal(args.assistantChannelId, "C888");
+  });
+});
+
+// ============================================================================
+// Inline stop-emoji detection (userMessage path)
+// ============================================================================
+
+function makeStopDeps(stopEmoji: string | null = "octagonal_sign"): AssistantDeps {
+  const base = makeDeps();
+  return {
+    ...base,
+    getConfig: () => ({
+      directMessages: { enabled: true },
+      reactions: { stop: stopEmoji },
+    }),
+  };
+}
+
+const stubStatus = async (_s: string): Promise<void> => {};
+const stubTitle = async (_t: string): Promise<void> => {};
+const stubThreadCtx = async (): Promise<undefined> => undefined;
+
+describe("assistant userMessage — inline stop emoji", () => {
+  beforeEach(() => {
+    mockAssistantStopThread.mock.resetCalls();
+    mockProcessMessage.mock.resetCalls();
+    capturedAssistantHandlers = null;
+    capturedAssistant = null;
+    const app = makeApp();
+    registerAssistant(app, makeStopDeps());
+  });
+
+  it("stops when a DM thread message is just the Unicode stop emoji", async () => {
+    await capturedAssistantHandlers!.userMessage({
+      event: {
+        user: "U001",
+        channel: "D001",
+        text: "\u{1F6D1}",
+        ts: "1700000000.000002",
+        thread_ts: "1700000000.000001",
+      },
+      client: makeClient().obj,
+      setStatus: stubStatus,
+      setTitle: stubTitle,
+      getThreadContext: stubThreadCtx,
+    });
+    assert.equal(mockAssistantStopThread.mock.callCount(), 1);
+    assert.equal(mockProcessMessage.mock.callCount(), 0);
+    const args = mockAssistantStopThread.mock.calls[0]?.arguments;
+    assert.equal(args?.[0], "D001");
+    assert.equal(args?.[1], "1700000000.000001");
+    assert.equal(args?.[2], "U001");
+    assert.equal(args?.[3], "stopped via inline emoji");
+  });
+
+  it("stops when a DM message is the colon shortcode form", async () => {
+    await capturedAssistantHandlers!.userMessage({
+      event: {
+        user: "U001",
+        channel: "D001",
+        text: ":octagonal_sign: wait",
+        ts: "1700000000.000001",
+      },
+      client: makeClient().obj,
+      setStatus: stubStatus,
+      setTitle: stubTitle,
+      getThreadContext: stubThreadCtx,
+    });
+    assert.equal(mockAssistantStopThread.mock.callCount(), 1);
+    assert.equal(mockProcessMessage.mock.callCount(), 0);
+  });
+
+  it("does NOT stop on long messages containing the emoji", async () => {
+    await capturedAssistantHandlers!.userMessage({
+      event: {
+        user: "U001",
+        channel: "D001",
+        text: `\u{1F6D1} ${"x".repeat(70)}`,
+        ts: "1700000000.000001",
+      },
+      client: makeClient().obj,
+      setStatus: stubStatus,
+      setTitle: stubTitle,
+      getThreadContext: stubThreadCtx,
+    });
+    assert.equal(mockAssistantStopThread.mock.callCount(), 0);
+    assert.equal(mockProcessMessage.mock.callCount(), 1);
+  });
+
+  it("does NOT stop when config.reactions.stop is null", async () => {
+    const app = makeApp();
+    registerAssistant(app, makeStopDeps(null));
+    await capturedAssistantHandlers!.userMessage({
+      event: {
+        user: "U001",
+        channel: "D001",
+        text: "\u{1F6D1}",
+        ts: "1700000000.000001",
+      },
+      client: makeClient().obj,
+      setStatus: stubStatus,
+      setTitle: stubTitle,
+      getThreadContext: stubThreadCtx,
+    });
+    assert.equal(mockAssistantStopThread.mock.callCount(), 0);
+    assert.equal(mockProcessMessage.mock.callCount(), 1);
   });
 });

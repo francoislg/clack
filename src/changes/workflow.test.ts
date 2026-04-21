@@ -854,7 +854,10 @@ describe("handleFollowUp", () => {
       assert.equal(passedOnEvent, onEvent);
     });
 
-    it("returns cancelled result when activeChange has cancelledBy set", async () => {
+    it("returns cancelled result and reverts to pr_created when update is cancelled on an existing PR", async () => {
+      // Cancellation during `update` on an existing PR should revert status to
+      // pr_created (the PR still exists and the user can retry). The result
+      // still carries cancelled: true so the streamer shows the cancellation banner.
       const session = makeSessionContext({
         activeChange: makeActiveChangeState({
           status: "pr_created",
@@ -873,7 +876,7 @@ describe("handleFollowUp", () => {
       assert.deepEqual(result.cancelledBy, { userId: "U999", reason: "No longer needed" });
       const lastCall =
         mockUpdateActiveChangeStatus.mock.calls[mockUpdateActiveChangeStatus.mock.callCount() - 1];
-      assert.equal(lastCall.arguments[1], "cancelled");
+      assert.equal(lastCall.arguments[1], "pr_created");
     });
   });
 

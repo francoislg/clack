@@ -276,11 +276,11 @@ describe("processMessage — in-flight request registration", () => {
     assert.equal(mockRegisterInFlightRequest.mock.callCount(), 1);
   });
 
-  it("does NOT register in-flight request for reactions", async () => {
+  it("registers in-flight request for reactions", async () => {
     const deps = makeDeps();
     await processMessage(makeParams({ triggerType: "reactions" }), deps);
 
-    assert.equal(mockRegisterInFlightRequest.mock.callCount(), 0);
+    assert.equal(mockRegisterInFlightRequest.mock.callCount(), 1);
   });
 
   it("deregisters in-flight request after executeAndDeliver completes", async () => {
@@ -303,7 +303,7 @@ describe("processMessage — in-flight request registration", () => {
     assert.equal(mockDeregisterInFlightRequest.mock.callCount(), 1);
   });
 
-  it("does NOT deregister for reactions even if executeAndDeliver throws", async () => {
+  it("deregisters for reactions even if executeAndDeliver throws", async () => {
     mockExecuteAndDeliver.mock.mockImplementation(async () => {
       throw new Error("boom");
     });
@@ -313,6 +313,6 @@ describe("processMessage — in-flight request registration", () => {
       message: "boom",
     });
 
-    assert.equal(mockDeregisterInFlightRequest.mock.callCount(), 0);
+    assert.equal(mockDeregisterInFlightRequest.mock.callCount(), 1);
   });
 });

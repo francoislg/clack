@@ -43,6 +43,8 @@ No ESLint configured — rely on TypeScript strict mode for correctness.
 
 Each mode is independently configured with its own thinking indicator and Changes Workflow toggle.
 
+**Stop reaction** (`config.reactions.stop`, default `octagonal_sign` / 🛑) — reacting with the configured emoji on any message in a thread, OR typing it inline in a short message (≤60 chars), cancels any in-flight Claude work for the thread and silences auto-respond for that thread. Clicking any change-thread action button re-engages the thread. Set `config.reactions.stop` to `null` or an empty string to disable.
+
 ### Two Processing Modes
 
 1. **Query mode** — `processMessage()` in `src/slack/handlers/core.ts` orchestrates Q&A sessions. Claude calls tools from `src/tools/query/` and `src/tools/actions/`, then must call `submit_response` to deliver its answer.

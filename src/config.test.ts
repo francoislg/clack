@@ -289,6 +289,75 @@ describe("loadConfig", () => {
     assert.equal(cfg.directMessages.changesWorkflow?.enabled, true);
   });
 
+  it("parses reactions.stop when provided", () => {
+    writeSlackAuth();
+    writeConfig(
+      minimalConfig({
+        reactions: { trigger: "robot_face", stop: "clack-stop" },
+      }),
+    );
+
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.reactions.stop, "clack-stop");
+  });
+
+  it("coerces empty string to null for reactions.stop (feature disabled)", () => {
+    writeSlackAuth();
+    writeConfig(
+      minimalConfig({
+        reactions: { trigger: "robot_face", stop: "" },
+      }),
+    );
+
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.reactions.stop, null);
+  });
+
+  it("preserves reactions.stop: null as disabled", () => {
+    writeSlackAuth();
+    writeConfig(
+      minimalConfig({
+        reactions: { trigger: "robot_face", stop: null },
+      }),
+    );
+
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.reactions.stop, null);
+  });
+
+  it("rejects reactions.stop with colons", () => {
+    writeSlackAuth();
+    writeConfig(
+      minimalConfig({
+        reactions: { trigger: "robot_face", stop: ":octagonal_sign:" },
+      }),
+    );
+
+    assert.throws(() => loadConfig(configPath, true), /without colons or whitespace/);
+  });
+
+  it("rejects reactions.stop with whitespace", () => {
+    writeSlackAuth();
+    writeConfig(
+      minimalConfig({
+        reactions: { trigger: "robot_face", stop: "octagonal sign" },
+      }),
+    );
+
+    assert.throws(() => loadConfig(configPath, true), /without colons or whitespace/);
+  });
+
+  it("rejects reactions.stop that is not a string or null", () => {
+    writeSlackAuth();
+    writeConfig(
+      minimalConfig({
+        reactions: { trigger: "robot_face", stop: 42 },
+      }),
+    );
+
+    assert.throws(() => loadConfig(configPath, true), /must be a string or null/);
+  });
+
   it("parses repository with access control and merge strategy", () => {
     writeSlackAuth();
     writeConfig({

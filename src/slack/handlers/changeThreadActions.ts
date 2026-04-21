@@ -1,7 +1,12 @@
 import type { App, BlockAction } from "@slack/bolt";
 import { errorMessage } from "../../errors.js";
 import { logger } from "../../logger.js";
-import { findSessionByThread, getStagedIntent, type SessionContext } from "../../sessions.js";
+import {
+  findSessionByThread,
+  getStagedIntent,
+  setAutoResponseActive,
+  type SessionContext,
+} from "../../sessions.js";
 import type { StagedIntent } from "../../tools/types.js";
 import { getRole } from "../../roles.js";
 import { canRequestChanges } from "../../permissions.js";
@@ -30,6 +35,7 @@ export interface ChangeThreadActionsDeps {
     userFeedback?: string,
   ) => Promise<ChangeResult>;
   errorMessage: (err: unknown) => string;
+  setAutoResponseActive: (sessionId: string, active: boolean) => Promise<void>;
   createStreamer: (opts: {
     client: App["client"];
     channel: string;
@@ -61,6 +67,7 @@ export const defaultChangeThreadActionsDeps: ChangeThreadActionsDeps = {
   findSessionByThread,
   handleFollowUp,
   errorMessage,
+  setAutoResponseActive,
   createStreamer: (opts) => new SlackStreamer(opts),
   finalizeStreamedWorkflow: finalizeStreamedWorkflow as never,
 };
@@ -78,6 +85,16 @@ export async function triggerFollowUp(
   userFeedback?: string,
 ): Promise<void> {
   const { channelId, threadTs, userId, client } = slack;
+
+  // Re-engage the thread if it was silenced by a stop gesture. Mirrors the
+  // @mention re-engagement: clicking a change-thread button signals the user
+  // wants to keep working and expects Clack to respond in this thread again.
+  if (session.autoResponseActive === false) {
+    logger.info(
+      `Re-engaging session ${session.sessionId} via change-thread button click in ${channelId}`,
+    );
+    await deps.setAutoResponseActive(session.sessionId, true);
+  }
 
   // Create streamer for live progress (target DM thread if provided)
   const streamChannel = slack.streamChannel ?? channelId;

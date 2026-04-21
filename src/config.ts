@@ -79,6 +79,8 @@ export interface ReactionsChangesWorkflowConfig extends TriggerChangesWorkflowCo
 
 export interface ReactionsConfig {
   trigger: string;
+  /** Stop reaction emoji name (without colons). Null/empty disables the stop feature. */
+  stop?: string | null;
   thinking?: ThinkingFeedbackConfig;
   changesWorkflow?: ReactionsChangesWorkflowConfig;
 }
@@ -128,6 +130,7 @@ const DEFAULTS: Partial<Config> = {
   },
   reactions: {
     trigger: "robot_face",
+    stop: "octagonal_sign",
     thinking: {
       type: "message",
     },
@@ -248,6 +251,27 @@ function parseTriggerChangesWorkflow(
 ): TriggerChangesWorkflowConfig | undefined {
   if (!raw) return undefined;
   return { enabled: bool(raw, "enabled") ?? false };
+}
+
+interface ReactionsRaw {
+  stop?: unknown;
+}
+
+function parseStopReaction(raw: ReactionsRaw | undefined): string | null | undefined {
+  if (!raw) return undefined;
+  if (!("stop" in raw)) return undefined;
+  const val = raw.stop;
+  if (val === null) return null;
+  if (typeof val !== "string") {
+    throw new Error("Config 'reactions.stop' must be a string or null");
+  }
+  if (val.length === 0) return null;
+  if (val.includes(":") || /\s/.test(val)) {
+    throw new Error(
+      "Config 'reactions.stop' must be an emoji name without colons or whitespace (e.g., 'octagonal_sign', not ':octagonal_sign:')",
+    );
+  }
+  return val;
 }
 
 const VALID_MERGE_STRATEGIES = ["squash", "merge", "rebase"] as const;
@@ -401,6 +425,7 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
     },
     reactions: {
       trigger: (reactionsRaw && str(reactionsRaw, "trigger")) || DEFAULTS.reactions!.trigger,
+      stop: parseStopReaction(reactionsRaw),
       thinking: parseThinking(
         reactionsRaw && section(reactionsRaw, "thinking"),
         DEFAULTS.reactions!.thinking,

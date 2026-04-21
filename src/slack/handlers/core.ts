@@ -247,23 +247,28 @@ async function setupDmDelivery(
 // IN-FLIGHT REQUEST TRACKING
 // ============================================================
 
+type InFlightRequestTrigger = "directMessages" | "mentions" | "reactions";
+
 /**
- * Register an in-flight request for cancellation support (mentions and DMs only),
- * execute the callback, and deregister when done.
+ * Register an in-flight request for cancellation support, execute the callback,
+ * and deregister when done. Covers mentions, DMs, and reactions.
  */
-async function withInFlightTracking(
+async function withInFlightTracking<T>(
   info: {
     channelId: string;
     messageTs: string;
+    threadTs: string;
     triggerType: TriggerType;
     sessionId: string;
     abortController: AbortController;
   },
-  fn: () => Promise<unknown>,
+  fn: () => Promise<T>,
   deps: CoreDeps,
-): Promise<void> {
-  const cancellableTrigger =
-    info.triggerType === "mentions" || info.triggerType === "directMessages"
+): Promise<T> {
+  const cancellableTrigger: InFlightRequestTrigger | null =
+    info.triggerType === "mentions" ||
+    info.triggerType === "directMessages" ||
+    info.triggerType === "reactions"
       ? info.triggerType
       : null;
   if (cancellableTrigger) {
@@ -271,10 +276,11 @@ async function withInFlightTracking(
       abortController: info.abortController,
       sessionId: info.sessionId,
       triggerType: cancellableTrigger,
+      threadTs: info.threadTs,
     });
   }
   try {
-    await fn();
+    return await fn();
   } finally {
     if (cancellableTrigger) {
       deps.deregisterInFlightRequest(info.channelId, info.messageTs);
@@ -411,7 +417,14 @@ export async function processMessage(
   const abortController = new AbortController();
 
   await withInFlightTracking(
-    { channelId, messageTs, triggerType, sessionId: session.sessionId, abortController },
+    {
+      channelId,
+      messageTs,
+      threadTs: effectiveThreadTs,
+      triggerType,
+      sessionId: session.sessionId,
+      abortController,
+    },
     () =>
       deps.executeAndDeliver({
         client,
