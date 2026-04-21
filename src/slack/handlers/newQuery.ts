@@ -160,7 +160,10 @@ export function registerNewQueryHandler(app: App, deps: NewQueryDeps = defaultNe
 
     const resolved = await resolveReactedMessage(client, channel, ts, deps);
 
-    if (!resolved?.text) {
+    const hasText = !!resolved?.text;
+    const hasImages = !!resolved?.imageFiles?.length;
+
+    if (!hasText && !hasImages) {
       await client.chat.postEphemeral({
         channel,
         user: userId,
@@ -175,17 +178,21 @@ export function registerNewQueryHandler(app: App, deps: NewQueryDeps = defaultNe
 
     const workMode = isWorkTrigger ? await deps.isDev(userId) : false;
 
+    const messageText = hasText
+      ? resolved!.text
+      : "A user reacted to this message. Look at the attached image(s) and the surrounding conversation to determine what they're asking, then respond.";
+
     await deps.processMessage({
       client,
       userId,
       channelId: channel,
       messageTs: ts,
-      messageText: resolved.text,
-      threadTs: resolved.threadTs,
+      messageText,
+      threadTs: resolved?.threadTs,
       triggerType: "reactions",
       workMode,
-      ...(resolved.imageFiles && { imageFiles: resolved.imageFiles }),
-      ...(resolved.files && { files: resolved.files }),
+      ...(resolved?.imageFiles && { imageFiles: resolved.imageFiles }),
+      ...(resolved?.files && { files: resolved.files }),
     });
   });
 }

@@ -171,9 +171,9 @@ describe("registerNewQueryHandler", () => {
     assert.equal(args.workMode, false);
   });
 
-  it("posts ephemeral error when message text cannot be resolved", async () => {
+  it("posts ephemeral error when message has no text and no files", async () => {
     const client = makeClient();
-    // Make replies return empty text
+    // Make replies return empty text and no files
     mockExtractMessageText.mock.mockImplementation(() => "");
     mockRepliesFn.mock.mockImplementation(async () => ({
       messages: [{ ts: "1700000000.000001", text: "", thread_ts: "1700000000.000001" }],
@@ -198,6 +198,50 @@ describe("registerNewQueryHandler", () => {
     const args = postEphemeral.mock.calls[0]!.arguments[0] as PostEphemeralArg;
     assert.equal(args.channel, "C001");
     assert.equal(args.user, "U001");
+  });
+
+  it("processes reaction on image-only message with the reaction-specific fallback", async () => {
+    const client = makeClient();
+    mockExtractMessageText.mock.mockImplementation(() => "");
+    mockRepliesFn.mock.mockImplementation(async () => ({
+      messages: [
+        {
+          ts: "1700000000.000001",
+          text: "",
+          thread_ts: "1700000000.000001",
+          files: [
+            {
+              id: "F1",
+              name: "screenshot.png",
+              mimetype: "image/png",
+              size: 1024,
+              url_private: "https://files.slack.com/F1",
+            },
+          ],
+        },
+      ],
+    }));
+
+    await capturedHandler({
+      event: {
+        reaction: "robot_face",
+        user: "U001",
+        item: { type: "message", channel: "C001", ts: "1700000000.000001" },
+      },
+      client,
+    });
+
+    assert.equal(mockProcessMessage.mock.callCount(), 1);
+    assert.equal(mockPostEphemeralFn.mock.callCount(), 0);
+    interface ProcessMessageArg {
+      messageText: string;
+      imageFiles?: Array<{ id: string }>;
+    }
+    const args = mockProcessMessage.mock.calls[0]!.arguments[0] as ProcessMessageArg;
+    assert.ok(args.messageText.includes("A user reacted to this message"));
+    assert.ok(args.messageText.includes("attached image"));
+    assert.equal(args.imageFiles?.length, 1);
+    assert.equal(args.imageFiles?.[0].id, "F1");
   });
 
   it("falls back to conversations.history when replies fails", async () => {
