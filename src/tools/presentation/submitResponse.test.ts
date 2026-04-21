@@ -1186,6 +1186,43 @@ describe("createSubmitResponseTool", () => {
       assert.equal(setDisengagedFn.mock.callCount(), 1);
     });
 
+    it("allowSkip without allowDisengage omits disengage from the schema (scheduled-with-skipConditions case)", () => {
+      const deps = makeDeps({ allowSkip: true, allowDisengage: false });
+      const toolDef = createSubmitResponseTool(deps);
+      const shapeKeys = Object.keys(toolDef.inputSchema);
+
+      assert.ok(shapeKeys.includes("skip_response"), "skip_response should be exposed");
+      assert.equal(
+        shapeKeys.includes("disengage"),
+        false,
+        "disengage must NOT be exposed when allowDisengage is false",
+      );
+    });
+
+    it("allowSkip with allowDisengage keeps both skip_response and disengage in the schema", () => {
+      const deps = makeDeps({ allowSkip: true, allowDisengage: true });
+      const toolDef = createSubmitResponseTool(deps);
+      const shapeKeys = Object.keys(toolDef.inputSchema);
+
+      assert.ok(shapeKeys.includes("skip_response"));
+      assert.ok(shapeKeys.includes("disengage"));
+    });
+
+    it("skip-only schema accepts a skip response without a disengage field", async () => {
+      const deps = makeDeps({ allowSkip: true, allowDisengage: false });
+      const result = await callToolRaw(deps, {
+        skip_response: true,
+        message:
+          "I acknowledge that responding to this would serve no purpose, so I am skipping it.",
+      });
+
+      assert.notEqual(result.isError, true);
+      const parsed = JSON.parse(result.content[0].text);
+      assert.equal(parsed.success, true);
+      assert.equal(parsed.skipped, true);
+      assert.equal(parsed.disengaged, undefined);
+    });
+
     it("allowDisengage without allowSkip still blocks disengage on delivery failure", async () => {
       const setDisengagedFn = mock.fn<() => void>();
       const failingDeliver = mock.fn(async () => ({

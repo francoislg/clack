@@ -338,7 +338,10 @@ describe("registerMentionHandler", () => {
 // Inline stop-emoji detection
 // ============================================================================
 
-const mockInlineProcess = mock.fn<MentionDeps["processMessage"]>(async () => {});
+const mockInlineProcess = mock.fn<MentionDeps["processMessage"]>(async () => ({
+  success: true,
+  answer: "",
+}));
 
 function makeStopDeps(stopEmoji: string | null = "octagonal_sign"): MentionDeps {
   return {

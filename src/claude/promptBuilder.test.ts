@@ -678,4 +678,55 @@ describe("buildPrompt", () => {
     assert.ok(!prompt.includes("THREAD CONTEXT"));
     assert.ok(!prompt.includes("NEW THREAD MESSAGES"));
   });
+
+  // ---- skip evaluation section for scheduled runs ----
+  describe("skip evaluation section", () => {
+    const SAFEGUARD_ACK =
+      "I acknowledge that responding to this would serve no purpose, so I am skipping it.";
+
+    it("renders skip evaluation block for scheduled runs with skipConditions", () => {
+      const session = makeSession({ triggerType: "scheduled" });
+      const prompt = buildPrompt(session, {
+        skipConditions: "Skip if no PRs were merged in the last 24 hours.",
+      });
+
+      assert.ok(prompt.includes("SKIP EVALUATION"));
+      assert.ok(prompt.includes("Skip if no PRs were merged in the last 24 hours."));
+      assert.ok(prompt.includes("skip_response: true"));
+    });
+
+    it("does NOT embed the safeguard acknowledgment string in the prompt", () => {
+      const session = makeSession({ triggerType: "scheduled" });
+      const prompt = buildPrompt(session, { skipConditions: "Skip on weekends." });
+
+      assert.ok(
+        !prompt.includes(SAFEGUARD_ACK),
+        "the tool schema enforces the ack — it must not appear in the prompt",
+      );
+    });
+
+    it("omits skip evaluation when skipConditions is absent", () => {
+      const session = makeSession({ triggerType: "scheduled" });
+      const prompt = buildPrompt(session);
+
+      assert.ok(!prompt.includes("SKIP EVALUATION"));
+    });
+
+    it("omits skip evaluation when skipConditions is empty string", () => {
+      const session = makeSession({ triggerType: "scheduled" });
+      const prompt = buildPrompt(session, { skipConditions: "" });
+
+      assert.ok(!prompt.includes("SKIP EVALUATION"));
+    });
+
+    it("omits skip evaluation for non-scheduled triggers even when skipConditions is set", () => {
+      const session = makeSession({ triggerType: "mentions" });
+      const prompt = buildPrompt(session, { skipConditions: "Skip if X" });
+
+      assert.ok(
+        !prompt.includes("SKIP EVALUATION"),
+        "skipConditions is scheduled-only — other triggers should never see the section",
+      );
+    });
+  });
 });

@@ -12,6 +12,13 @@ export interface PromptOptions {
   availableImages?: Map<string, SlackImageFile>;
   availableFiles?: Map<string, SlackFile>;
   userTimezone?: string;
+  /**
+   * Free-form operator-supplied conditions for a scheduled run. When non-empty and the session's
+   * trigger is `"scheduled"`, the prompt includes a pre-check section instructing Claude to
+   * evaluate these conditions before anything else and call `submit_response` with
+   * `skip_response: true` when any apply.
+   */
+  skipConditions?: string;
 }
 
 export function buildSystemPrompt(options?: PromptOptions): string {
@@ -263,6 +270,24 @@ Use this context to understand the conversation flow and provide relevant answer
   const deliveryContext = buildDeliveryContext(session);
   if (deliveryContext) {
     parts.push(deliveryContext);
+  }
+
+  // Skip evaluation — only for scheduled runs that opted in via `skipConditions`.
+  // Rendered before the main task so Claude evaluates conditions first.
+  if (
+    session.triggerType === "scheduled" &&
+    options?.skipConditions &&
+    options.skipConditions.length > 0
+  ) {
+    parts.push(
+      [
+        "SKIP EVALUATION (run this FIRST before any other work):",
+        "The operator has supplied skip conditions for this scheduled run. Evaluate each one — if ANY applies, decline to post by calling `submit_response` with `skip_response: true` and the required acknowledgment message. If NONE applies, proceed with the main task below as normal.",
+        "",
+        "Skip conditions:",
+        options.skipConditions,
+      ].join("\n"),
+    );
   }
 
   // Active change context — derived from the unified session's runtime state

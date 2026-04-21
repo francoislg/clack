@@ -1,43 +1,4 @@
-# cron-messages Specification
-
-## Purpose
-Scheduled message system allowing users to create cron-based recurring or one-shot messages in Slack channels, executed either as dynamic Claude-powered sessions or static message posts, with tick-based scheduling, concurrency guards, and error notification.
-
-## Requirements
-### Requirement: Channel Input Resolution for Scheduled Message Creation
-
-The `create_scheduled_message` tool SHALL resolve its `channel` argument via the shared `resolveChannelId` helper before persisting a cron job, guaranteeing that the stored `channel` field is always a posting-capable Slack channel ID (never a raw user ID).
-
-#### Scenario: Channel name resolved before persistence
-
-- **WHEN** Claude calls `create_scheduled_message` with a channel name (e.g., `#ops` or `ops`)
-- **THEN** the tool delegates resolution to the shared `resolveChannelId` helper
-- **AND** the resolved channel ID is stored on the cron job's `channel` field
-- **AND** the raw name is NOT stored
-
-#### Scenario: Channel ID passthrough
-
-- **WHEN** Claude provides a channel ID (`C…`, `G…`, or `D…`)
-- **THEN** the tool stores it directly on the cron job's `channel` field
-
-#### Scenario: Self-DM user ID normalized
-
-- **WHEN** Claude provides a user ID (`U…`) equal to the requesting user
-- **THEN** the tool opens a DM via `openDmChannel` before creating the cron job
-- **AND** stores the resulting `D…` channel ID on the cron job's `channel` field
-- **AND** the raw user ID is NEVER stored
-
-#### Scenario: Third-party user ID rejected
-
-- **WHEN** Claude provides a user ID (`U…`) that does NOT match the requesting user
-- **THEN** the tool returns an error explaining that only self-DMs are supported
-- **AND** no cron job is created
-
-#### Scenario: Resolution failure blocks creation
-
-- **WHEN** channel resolution fails (e.g., channel not found, DM open error)
-- **THEN** the tool returns the resolution error to Claude
-- **AND** no cron job is created
+## MODIFIED Requirements
 
 ### Requirement: Cron Job Data Model
 
@@ -65,65 +26,6 @@ The system SHALL persist scheduled messages as cron jobs in `data/state/cron-job
 - **AND** update the in-memory cache atomically
 - **AND** include `requiredTools` in the serialized form when present
 - **AND** include `skipConditions` in the serialized form when present (omitted when unset or empty string)
-
-### Requirement: Cron Job CRUD Operations
-
-The system SHALL provide functions to create, read, update, and delete cron jobs.
-
-#### Scenario: Create a cron job
-- **WHEN** `createCronJob()` is called with valid parameters
-- **THEN** the system SHALL generate a UUID, store the job, and return it
-- **AND** persist to disk
-
-#### Scenario: List cron jobs
-- **WHEN** `listCronJobs()` is called
-- **THEN** the system SHALL return all jobs from the in-memory cache
-- **AND** optionally filter by `createdBy` or `channel`
-
-#### Scenario: Toggle cron job
-- **WHEN** `toggleCronJob(id)` is called
-- **THEN** the system SHALL flip the job's `enabled` flag
-- **AND** persist to disk
-
-#### Scenario: Delete cron job
-- **WHEN** `deleteCronJob(id)` is called
-- **THEN** the system SHALL remove the job from cache and disk
-
-### Requirement: Tick-Based Scheduler
-
-The system SHALL run a scheduler that checks cron expressions against the current time every 60 seconds.
-
-#### Scenario: Scheduler starts on boot
-- **WHEN** the application starts
-- **THEN** the system SHALL load all cron jobs from disk
-- **AND** start a 60-second interval timer
-
-#### Scenario: Scheduler stops on shutdown
-- **WHEN** the application shuts down
-- **THEN** the system SHALL clear the interval timer
-
-#### Scenario: Tick evaluates all enabled jobs
-- **WHEN** the 60-second tick fires
-- **THEN** the system SHALL iterate all enabled jobs
-- **AND** for each job, evaluate whether `cronExpression` matches the current time in the job's `timezone`
-- **AND** trigger execution for matching jobs
-
-#### Scenario: Cron expression matching uses cron-parser
-- **WHEN** evaluating whether a job should fire
-- **THEN** the system SHALL use the `cron-parser` library to determine if the cron expression matches the current minute in the job's timezone
-
-### Requirement: Concurrency Guard
-
-The system SHALL prevent overlapping executions of the same cron job.
-
-#### Scenario: Skip job if already running
-- **WHEN** a tick fires for a job that is currently executing
-- **THEN** the system SHALL skip that job for this tick
-- **AND** log a warning
-
-#### Scenario: Clear running flag on completion
-- **WHEN** a job execution completes (success or failure)
-- **THEN** the system SHALL clear the running flag for that job
 
 ### Requirement: Cron Job Execution
 
@@ -200,6 +102,8 @@ The system SHALL notify the creator on execution failure without retrying on the
 - **WHEN** a dynamic job completes with a skipped response
 - **THEN** the system SHALL NOT DM the creator
 - **AND** the job's `lastRunStatus` SHALL be `"skipped"` (not `"error"`)
+
+## ADDED Requirements
 
 ### Requirement: Skip Conditions Field
 

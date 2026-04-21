@@ -58,6 +58,12 @@ export interface QueryToolContext {
    * cron scheduler when a job declares `requiredTools`.
    */
   requiredTools?: string[];
+  /**
+   * Free-form skip conditions for a scheduled run. When non-empty on a `scheduled` trigger,
+   * `submit_response` exposes the `skip_response` parameter so Claude can decline delivery.
+   * Ignored for non-scheduled triggers.
+   */
+  skipConditions?: string;
 }
 
 /** Worker context — used by change execution and follow-up flows */

@@ -308,29 +308,43 @@ const disengageEnabledResponseSchema = {
   disengage: disengageField,
 };
 
-// Schema with skip_response support (also includes disengage)
+const skipResponseField = z
+  .boolean()
+  .optional()
+  .describe(
+    "Set to true to decline answering. Use when the conversation doesn't need a Clack response " +
+      "(e.g., users talking to each other, question already answered). When true, blocks and actions are not required.",
+  );
+
+const skipOptionalBlocks = z
+  .array(BlockSchema)
+  .min(1)
+  .optional()
+  .describe("Slack Block Kit blocks shown to the user (not required when skip_response is true)");
+
+const skipOptionalActions = z
+  .array(actionSchema)
+  .optional()
+  .describe("Interactive buttons for the user to click (not required when skip_response is true)");
+
+// Schema with skip_response AND disengage — used by autoRespond / threadReply triggers where
+// both signals are meaningful (tracked conversations).
 const skipEnabledResponseSchema = {
   ...normalResponseSchema,
-  skip_response: z
-    .boolean()
-    .optional()
-    .describe(
-      "Set to true to decline answering. Use when the conversation doesn't need a Clack response " +
-        "(e.g., users talking to each other, question already answered). When true, blocks and actions are not required.",
-    ),
+  skip_response: skipResponseField,
   disengage: disengageField,
-  // Override blocks and actions to be optional when skip is used
-  blocks: z
-    .array(BlockSchema)
-    .min(1)
-    .optional()
-    .describe("Slack Block Kit blocks shown to the user (not required when skip_response is true)"),
-  actions: z
-    .array(actionSchema)
-    .optional()
-    .describe(
-      "Interactive buttons for the user to click (not required when skip_response is true)",
-    ),
+  blocks: skipOptionalBlocks,
+  actions: skipOptionalActions,
+};
+
+// Schema with skip_response only (no disengage) — used by scheduled runs that opted in via
+// `skipConditions`. Disengage is meaningless for scheduled triggers because there is no
+// tracked conversation to deactivate.
+const skipOnlyResponseSchema = {
+  ...normalResponseSchema,
+  skip_response: skipResponseField,
+  blocks: skipOptionalBlocks,
+  actions: skipOptionalActions,
 };
 
 // Schema variants with post_top_level added. We build them as distinct objects rather than
@@ -347,6 +361,11 @@ const disengageEnabledResponseSchemaWithPostTopLevel = {
 
 const skipEnabledResponseSchemaWithPostTopLevel = {
   ...skipEnabledResponseSchema,
+  post_top_level: postTopLevelField,
+};
+
+const skipOnlyResponseSchemaWithPostTopLevel = {
+  ...skipOnlyResponseSchema,
   post_top_level: postTopLevelField,
 };
 
@@ -371,9 +390,13 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
   } = deps;
 
   const schema = allowSkip
-    ? allowPostTopLevel
-      ? skipEnabledResponseSchemaWithPostTopLevel
-      : skipEnabledResponseSchema
+    ? allowDisengage
+      ? allowPostTopLevel
+        ? skipEnabledResponseSchemaWithPostTopLevel
+        : skipEnabledResponseSchema
+      : allowPostTopLevel
+        ? skipOnlyResponseSchemaWithPostTopLevel
+        : skipOnlyResponseSchema
     : allowDisengage
       ? allowPostTopLevel
         ? disengageEnabledResponseSchemaWithPostTopLevel

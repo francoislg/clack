@@ -995,6 +995,8 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
     const channel = view.state.values.cron_channel_block.channel.selected_conversation;
     const cronExpression = view.state.values.cron_expression_block.cron_expression.value;
     const prompt = view.state.values.cron_prompt_block.prompt.value;
+    const skipConditions =
+      view.state.values.cron_skip_conditions_block?.skip_conditions.value ?? "";
 
     if (!channel) {
       await ack({ response_action: "errors", errors: { cron_channel_block: "Select a channel" } });
@@ -1028,6 +1030,8 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
         channel,
         cronExpression,
         prompt,
+        // Empty string clears; a non-empty string sets.
+        skipConditions,
       });
       await publishHomeView(client, body.user.id, deps);
     } catch (error) {

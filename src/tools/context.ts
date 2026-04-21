@@ -17,6 +17,7 @@ export interface BuildQueryContextParams {
   availableImages?: Map<string, SlackImageFile>;
   availableFiles?: Map<string, SlackFile>;
   requiredTools?: string[];
+  skipConditions?: string;
 }
 
 export function buildQueryContext(params: BuildQueryContextParams): QueryToolContext {

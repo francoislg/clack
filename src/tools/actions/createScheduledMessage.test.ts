@@ -54,6 +54,7 @@ interface CallArgs {
   cronExpression: string;
   prompt: string;
   timezone?: string;
+  skipConditions?: string;
 }
 
 type CreateTool = ReturnType<typeof createCreateScheduledMessageTool>;
@@ -65,6 +66,7 @@ function callHandler(tool: CreateTool, args: CallArgs): Promise<ToolHandlerResul
       oneShot: undefined,
       requiredTools: undefined,
       plugin: undefined,
+      skipConditions: undefined,
       ...args,
     },
     { sessionId: "test" },
@@ -200,6 +202,7 @@ describe("createScheduledMessage tool", () => {
         requiredTools: ["mcp__clack__not_a_real_tool", "bare_name_missing_prefix"],
         oneShot: undefined,
         plugin: undefined,
+        skipConditions: undefined,
       },
       { sessionId: "test" },
     );
@@ -225,6 +228,7 @@ describe("createScheduledMessage tool", () => {
         requiredTools: ["mcp__clack__fetch_channel_messages"],
         oneShot: undefined,
         plugin: undefined,
+        skipConditions: undefined,
       },
       { sessionId: "test" },
     );
@@ -234,5 +238,38 @@ describe("createScheduledMessage tool", () => {
     const jobs = await getJobs();
     assert.equal(jobs.length, 1);
     assert.deepEqual(jobs[0].requiredTools, ["mcp__clack__fetch_channel_messages"]);
+  });
+
+  it("persists skipConditions when supplied", async () => {
+    const ctx = buildCtx();
+    const deps = makeDeps();
+    const tool = createCreateScheduledMessageTool(ctx, deps);
+    const result = await callHandler(tool, {
+      channel: "C456",
+      cronExpression: "0 9 * * *",
+      prompt: "Summarize merged PRs",
+      skipConditions: "Skip if no PRs were merged in the last 24 hours.",
+    });
+
+    const parsed = JSON.parse(result.content[0].text);
+    assert.equal(parsed.ok, true);
+
+    const jobs = await getJobs();
+    assert.equal(jobs.length, 1);
+    assert.equal(jobs[0].skipConditions, "Skip if no PRs were merged in the last 24 hours.");
+  });
+
+  it("omits skipConditions when not supplied", async () => {
+    const ctx = buildCtx();
+    const deps = makeDeps();
+    const tool = createCreateScheduledMessageTool(ctx, deps);
+    await callHandler(tool, {
+      channel: "C456",
+      cronExpression: "0 9 * * *",
+      prompt: "no conditions",
+    });
+
+    const jobs = await getJobs();
+    assert.equal(jobs[0].skipConditions, undefined);
   });
 });

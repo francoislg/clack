@@ -83,6 +83,16 @@ export function createCreateScheduledMessageTool(
             "automatically unioned with `requiredTools` at trigger time. Use this for " +
             "plugin-driven jobs (e.g. trivia) instead of listing the plugin's tools manually.",
         ),
+      skipConditions: z
+        .string()
+        .optional()
+        .describe(
+          "Free-form operator-supplied conditions under which this run should skip posting. " +
+            "When set, Claude evaluates these before doing anything else at each run and may " +
+            "call `submit_response` with `skip_response: true` to decline delivery. Useful when " +
+            "the scheduled task's relevance depends on external state (e.g., 'Skip if no PRs " +
+            "were merged in the last 24 hours.'). Written in plain language; evaluated by Claude.",
+        ),
     },
     async (args) => {
       if (!ctx.slackClient) {
@@ -128,6 +138,7 @@ export function createCreateScheduledMessageTool(
           oneShot: args.oneShot,
           requiredTools: args.requiredTools,
           plugin: args.plugin,
+          skipConditions: args.skipConditions,
         });
 
         const schedule = humanReadableSchedule(args.cronExpression, args.timezone);

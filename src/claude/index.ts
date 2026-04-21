@@ -88,6 +88,12 @@ export interface AskClaudeOptions {
    */
   requiredTools?: string[];
   /**
+   * Free-form skip conditions for scheduled runs. When non-empty, the prompt builder injects
+   * a pre-check section and `submit_response` exposes `skip_response`. Ignored for non-scheduled
+   * triggers.
+   */
+  skipConditions?: string;
+  /**
    * Fires once per completed tool call (when its `tool_result` arrives from the SDK stream).
    * Populated for ALL tools the SDK dispatches — built-ins, clack MCP, plugin MCP, external MCP.
    * Use this to persist tool calls to the session incrementally for live debugging.
@@ -163,6 +169,7 @@ async function buildQuerySetup(
     availableImages: options?.availableImages,
     availableFiles: options?.availableFiles,
     requiredTools: options?.requiredTools,
+    skipConditions: options?.skipConditions,
   });
   const clackTools = buildClackTools(toolCtx);
 

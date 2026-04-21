@@ -20,6 +20,7 @@ import {
   buildConfigFilePickerModal,
   buildConfigEditorModal,
   buildConfigCreateFileModal,
+  buildCronJobModal,
   type HomeTabDeps,
   type ClackPluginSummary,
 } from "./homeTab.js";
@@ -1114,5 +1115,147 @@ describe("buildConfigCreateFileModal", () => {
     const blocks = modal.blocks as KnownBlock[];
     const inputs = blocks.filter((b) => b.type === "input");
     assert.ok(inputs.length > 0);
+  });
+});
+
+// ============================================================================
+// Home Tab — skipConditions on scheduled messages
+// ============================================================================
+
+describe("buildHomeView — Scheduled Messages skipConditions", () => {
+  function baseJob(overrides: Partial<CronJob> = {}): CronJob {
+    return {
+      id: "job-1",
+      cronExpression: "0 9 * * *",
+      channel: "C456",
+      prompt: "Summarize PRs",
+      createdBy: "U001",
+      createdAt: new Date().toISOString(),
+      enabled: true,
+      timezone: "UTC",
+      ...overrides,
+    };
+  }
+
+  function findContextTexts(view: View): string[] {
+    const blocks = view.blocks as KnownBlock[];
+    const texts: string[] = [];
+    for (const block of blocks) {
+      if (block.type === "context") {
+        for (const el of block.elements) {
+          if (el.type === "mrkdwn") {
+            texts.push(el.text);
+          }
+        }
+      }
+    }
+    return texts;
+  }
+
+  it("renders a context line with skipConditions when set on a job", async () => {
+    setDefaultMocks("member");
+    mockGetJobsByUser.mock.mockImplementation(async () => [
+      baseJob({ skipConditions: "Skip on weekends" }),
+    ]);
+
+    const deps = makeDeps();
+    const view = await buildHomeView({ userId: "U001" }, deps);
+    const texts = findContextTexts(view);
+    assert.ok(
+      texts.some((t) => t.includes("Skip conditions:") && t.includes("Skip on weekends")),
+      `expected skip-conditions context line, got: ${JSON.stringify(texts)}`,
+    );
+  });
+
+  it("omits the skipConditions context line when the field is not set", async () => {
+    setDefaultMocks("member");
+    mockGetJobsByUser.mock.mockImplementation(async () => [baseJob()]);
+
+    const deps = makeDeps();
+    const view = await buildHomeView({ userId: "U001" }, deps);
+    const texts = findContextTexts(view);
+    assert.ok(
+      !texts.some((t) => t.includes("Skip conditions:")),
+      "no skip-conditions line should render when skipConditions is absent",
+    );
+  });
+
+  it("truncates long skipConditions with an ellipsis", async () => {
+    setDefaultMocks("member");
+    const longCondition = "x".repeat(200);
+    mockGetJobsByUser.mock.mockImplementation(async () => [
+      baseJob({ skipConditions: longCondition }),
+    ]);
+
+    const deps = makeDeps();
+    const view = await buildHomeView({ userId: "U001" }, deps);
+    const texts = findContextTexts(view);
+    const line = texts.find((t) => t.includes("Skip conditions:"));
+    assert.ok(line);
+    assert.ok(line.endsWith("…"), "long values should end with an ellipsis");
+    // Header "Skip conditions: " is 17 chars; content is capped at 120 chars total incl. ellipsis
+    assert.ok(line.length < 17 + 200, "line should be shorter than the raw condition");
+  });
+
+  it("renders a distinct 'last run skipped' indicator for skipped status", async () => {
+    setDefaultMocks("member");
+    mockGetJobsByUser.mock.mockImplementation(async () => [baseJob({ lastRunStatus: "skipped" })]);
+
+    const deps = makeDeps();
+    const view = await buildHomeView({ userId: "U001" }, deps);
+    const blocks = view.blocks as KnownBlock[];
+    const sections = blocks.filter((b) => b.type === "section");
+    const jobLine = sections.find(
+      (s) => s.text?.type === "mrkdwn" && s.text.text.includes("last run skipped"),
+    );
+    assert.ok(jobLine, "should render a 'last run skipped' indicator");
+  });
+});
+
+describe("buildCronJobModal — skipConditions input", () => {
+  function jobWith(overrides: Partial<CronJob> = {}): CronJob {
+    return {
+      id: "job-1",
+      cronExpression: "0 9 * * *",
+      channel: "C456",
+      prompt: "Summarize PRs",
+      createdBy: "U001",
+      createdAt: new Date().toISOString(),
+      enabled: true,
+      timezone: "UTC",
+      ...overrides,
+    };
+  }
+
+  function findSkipConditionsInput(view: View): KnownBlock | undefined {
+    const blocks = view.blocks as KnownBlock[];
+    return blocks.find((b) => "block_id" in b && b.block_id === "cron_skip_conditions_block");
+  }
+
+  it("includes a skipConditions input in the modal", () => {
+    const modal = buildCronJobModal(jobWith());
+    const input = findSkipConditionsInput(modal);
+    assert.ok(input, "modal should include the skipConditions input block");
+    if (input.type === "input" && "multiline" in input.element) {
+      assert.equal(input.element.multiline, true, "should be multi-line");
+    }
+  });
+
+  it("pre-fills the input with the stored skipConditions value", () => {
+    const modal = buildCronJobModal(jobWith({ skipConditions: "Skip if nothing changed" }));
+    const input = findSkipConditionsInput(modal);
+    assert.ok(input);
+    if (input.type === "input" && "initial_value" in input.element) {
+      assert.equal(input.element.initial_value, "Skip if nothing changed");
+    }
+  });
+
+  it("leaves the input empty when the job has no skipConditions", () => {
+    const modal = buildCronJobModal(jobWith());
+    const input = findSkipConditionsInput(modal);
+    assert.ok(input);
+    if (input.type === "input" && "initial_value" in input.element) {
+      assert.equal(input.element.initial_value, undefined);
+    }
   });
 });

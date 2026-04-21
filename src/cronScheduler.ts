@@ -10,6 +10,21 @@ import { errorMessage as toErrorMessage } from "./errors.js";
 import { isSlackAccessError } from "./slackErrors.js";
 
 // ============================================================================
+// Injectable deps (for tests; production uses module-level imports)
+// ============================================================================
+
+export interface CronSchedulerDeps {
+  processMessage: typeof processMessage;
+  updateJobRunStatus: typeof updateJobRunStatus;
+  deleteJob: typeof deleteJob;
+  notifyCreatorOfError: (
+    job: CronJob,
+    client: App["client"],
+    errorMessage: string,
+  ) => Promise<void>;
+}
+
+// ============================================================================
 // State
 // ============================================================================
 
@@ -64,8 +79,12 @@ async function tick(): Promise<void> {
     }
 
     if (matchesCron(job.cronExpression, now, job.timezone, job.lastRunAt)) {
+      if (!slackClient) {
+        logger.error(`Cron job ${job.id}: no Slack client available`);
+        continue;
+      }
       // Fire and forget — errors handled inside executeJob
-      executeJob(job).catch((error) => {
+      executeJob(job, slackClient).catch((error) => {
         logger.error(`Cron job ${job.id} unexpected error:`, error);
       });
     }
@@ -112,33 +131,42 @@ export function matchesCron(
 // Job Execution
 // ============================================================================
 
-async function executeJob(job: CronJob): Promise<void> {
-  if (!slackClient) {
-    logger.error(`Cron job ${job.id}: no Slack client available`);
-    return;
-  }
+const defaultDeps: CronSchedulerDeps = {
+  processMessage,
+  updateJobRunStatus,
+  deleteJob,
+  notifyCreatorOfError,
+};
 
+export async function executeJob(
+  job: CronJob,
+  client: App["client"],
+  deps: CronSchedulerDeps = defaultDeps,
+): Promise<void> {
   runningJobs.add(job.id);
-  const channelLabel = slackClient
-    ? await resolveChannelLabel(slackClient, job.channel)
-    : job.channel;
+  const channelLabel = await resolveChannelLabel(client, job.channel);
   logger.info(
-    `Cron job ${job.id} executing in ${channelLabel}${await slackLink(slackClient, job.channel)}`,
+    `Cron job ${job.id} executing in ${channelLabel}${await slackLink(client, job.channel)}`,
   );
 
   try {
-    const responseTs = await executeDynamicJob(job, slackClient);
+    const outcome = await executeDynamicJob(job, client, deps);
 
-    await updateJobRunStatus(job.id, "success", responseTs);
+    if (outcome.skipped) {
+      await deps.updateJobRunStatus(job.id, "skipped");
+      logger.info(`Cron job ${job.id} skipped by Claude (skipConditions matched)`);
+    } else {
+      await deps.updateJobRunStatus(job.id, "success", outcome.responseTs);
+    }
 
     if (job.oneShot) {
-      await deleteJob(job.id);
+      await deps.deleteJob(job.id);
       logger.info(`Cron job ${job.id} deleted (one-shot)`);
     }
   } catch (error) {
     logger.error(`Cron job ${job.id} failed:`, error);
     try {
-      await updateJobRunStatus(job.id, "error");
+      await deps.updateJobRunStatus(job.id, "error");
     } catch (e) {
       logger.error("Failed to update job status:", e);
     }
@@ -147,7 +175,7 @@ async function executeJob(job: CronJob): Promise<void> {
     // they take their own DM-report path and never reach this catch — meaning
     // notifying here can't double-notify.
     try {
-      await notifyCreatorOfError(job, slackClient, toErrorMessage(error));
+      await deps.notifyCreatorOfError(job, client, toErrorMessage(error));
     } catch (e) {
       logger.error("Failed to notify creator:", e);
     }
@@ -161,14 +189,27 @@ export async function runJobNow(job: CronJob, client: App["client"]): Promise<vo
   logger.info(
     `Cron job ${job.id} executing manually in ${channelLabel}${await slackLink(client, job.channel)}`,
   );
-  const responseTs = await executeDynamicJob(job, client);
-  await updateJobRunStatus(job.id, "success", responseTs);
+  const outcome = await executeDynamicJob(job, client, defaultDeps);
+  if (outcome.skipped) {
+    await updateJobRunStatus(job.id, "skipped");
+  } else {
+    await updateJobRunStatus(job.id, "success", outcome.responseTs);
+  }
 }
 
-async function executeDynamicJob(job: CronJob, client: App["client"]): Promise<string | undefined> {
+interface JobOutcome {
+  skipped: boolean;
+  responseTs?: string;
+}
+
+async function executeDynamicJob(
+  job: CronJob,
+  client: App["client"],
+  deps: CronSchedulerDeps,
+): Promise<JobOutcome> {
   const messageTs = `${Date.now() / 1000}`;
 
-  await processMessage({
+  const response = await deps.processMessage({
     client,
     userId: job.createdBy,
     channelId: job.channel,
@@ -178,11 +219,16 @@ async function executeDynamicJob(job: CronJob, client: App["client"]): Promise<s
     silentThinking: true,
     additionalSystemPrompt: buildAttribution(job),
     requiredTools: job.requiredTools,
+    skipConditions: job.skipConditions,
   });
+
+  if (response.skipped) {
+    return { skipped: true };
+  }
 
   // Read back the session to capture the Slack message timestamp
   const session = await findSessionByMessage(job.channel, messageTs, job.createdBy);
-  return session?.responseTs;
+  return { skipped: false, responseTs: session?.responseTs };
 }
 
 // ============================================================================
