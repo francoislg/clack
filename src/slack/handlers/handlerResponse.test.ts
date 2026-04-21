@@ -571,33 +571,67 @@ describe("executeAndDeliver — cancellation", () => {
     assert.equal(mockSetLastAnswer.mock.callCount(), 0);
   });
 
-  it("delivers cancellation message when not already delivered", async () => {
+  it("deletes the streamer message when cancelled instead of posting a cancellation notice", async () => {
+    resetStreamerInstance({ messageTs: "1700000000.000002" });
+    deps = makeDeps();
+
     mockAskClaude.mock.mockImplementation(async () => ({
       success: false,
       answer: "",
       cancelled: true,
     }));
 
+    const client = makeClient();
     await executeAndDeliver({
-      client: makeClient(),
+      client,
       session: makeSession(),
       sessionInfo: makeSessionInfo(),
       claudeOptions: makeClaudeOptions(),
       deps,
     });
 
-    // streamer.stop should be called with the cancellation text
-    const stopCalls = mockStreamerStop.mock.calls;
-    const cancelStopCall = stopCalls.find(
-      (c: { arguments: unknown[] }) =>
-        c.arguments[0] &&
-        typeof c.arguments[0] === "object" &&
-        "markdownText" in (c.arguments[0] as Record<string, unknown>),
-    );
-    assert.ok(cancelStopCall, "streamer.stop should be called with cancellation text");
-    assert.ok(
-      (cancelStopCall.arguments[0] as { markdownText: string }).markdownText.includes("cancelled"),
-    );
+    // No "_Request cancelled._" (or any other markdownText) should be posted via the streamer.
+    let textualStopCalls = 0;
+    for (const call of mockStreamerStop.mock.calls) {
+      const arg = call.arguments[0];
+      if (arg != null && typeof arg === "object" && "markdownText" in arg) {
+        textualStopCalls += 1;
+      }
+    }
+    assert.equal(textualStopCalls, 0, "streamer.stop should not be called with any text");
+
+    // The streamer's Slack message should be deleted.
+    assert.equal(mockChatDelete.mock.callCount(), 1);
+    assert.deepEqual(mockChatDelete.mock.calls[0].arguments[0], {
+      channel: "C001",
+      ts: "1700000000.000002",
+    });
+
+    // No fallback chat.postMessage either.
+    assert.equal(mockPostMessage.mock.callCount(), 0);
+  });
+
+  it("skips delete when the streamer never posted a message", async () => {
+    resetStreamerInstance({ messageTs: undefined });
+    deps = makeDeps();
+
+    mockAskClaude.mock.mockImplementation(async () => ({
+      success: false,
+      answer: "",
+      cancelled: true,
+    }));
+
+    const client = makeClient();
+    await executeAndDeliver({
+      client,
+      session: makeSession(),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: makeClaudeOptions(),
+      deps,
+    });
+
+    assert.equal(mockChatDelete.mock.callCount(), 0);
+    assert.equal(mockPostMessage.mock.callCount(), 0);
   });
 });
 

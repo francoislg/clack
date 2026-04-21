@@ -239,4 +239,20 @@ describe("resolveAutoRespondContext — auto-respond tracking", () => {
     assert.equal(result, null);
     assert.equal(preAnalysis.mock.callCount(), 0);
   });
+
+  it("bails when a stop reaction disengages the session during pre-analysis", async () => {
+    let callCount = 0;
+    const findSession = mock.fn(async () => {
+      callCount += 1;
+      return session({ autoResponseActive: callCount === 1 });
+    });
+    const preAnalysis = mock.fn(async () => "respond" as const);
+    const deps = makeDeps({ findSession, preAnalysis });
+
+    const result = await call(deps);
+
+    assert.equal(result, null);
+    assert.equal(preAnalysis.mock.callCount(), 1, "pre-analysis should have run once");
+    assert.equal(findSession.mock.callCount(), 2, "session should be re-read after pre-analysis");
+  });
 });

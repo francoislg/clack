@@ -1,9 +1,10 @@
 import { logger } from "../logger.js";
+import type { TriggerType } from "../changes/types.js";
 
 export interface InFlightRequest {
   abortController: AbortController;
   sessionId: string;
-  triggerType: "directMessages" | "mentions" | "reactions";
+  triggerType: TriggerType;
   /** The thread this request belongs to. For top-level (non-threaded) triggering messages, equals the message's own ts. */
   threadTs: string;
 }
