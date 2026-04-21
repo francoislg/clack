@@ -55,6 +55,7 @@ function makeInFlightRequest(overrides: Partial<InFlightRequest> = {}): InFlight
     abortController: new AbortController(),
     sessionId: "session-1",
     triggerType: "mentions",
+    threadTs: "thread-default",
     ...overrides,
   };
 }

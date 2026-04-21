@@ -67,6 +67,7 @@ const mockRegisterChangeThreadActionHandlers = mock.fn(() => {});
 const mockRegisterDmActionHandlers = mock.fn(() => {});
 const mockRegisterMessageChangedHandler = mock.fn(() => {});
 const mockRegisterAutoRespondHandler = mock.fn(() => {});
+const mockRegisterStopReactionHandler = mock.fn(() => {});
 
 function makeDeps(): AppDeps {
   return {
@@ -87,6 +88,7 @@ function makeDeps(): AppDeps {
     registerDmActionHandlers: mockRegisterDmActionHandlers,
     registerMessageChangedHandler: mockRegisterMessageChangedHandler,
     registerAutoRespondHandler: mockRegisterAutoRespondHandler,
+    registerStopReactionHandler: mockRegisterStopReactionHandler,
   };
 }
 

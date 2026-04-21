@@ -15,6 +15,7 @@ import { registerChangeThreadActionHandlers } from "./handlers/changeThreadActio
 import { registerDmActionHandlers } from "./handlers/dmActions.js";
 import { registerMessageChangedHandler } from "./handlers/messageChanged.js";
 import { registerAutoRespondHandler } from "./handlers/autoRespond.js";
+import { registerStopReactionHandler } from "./handlers/stopReaction.js";
 
 export interface AppDeps {
   App: new (config: ConstructorParameters<typeof App>[0]) => App;
@@ -34,6 +35,7 @@ export interface AppDeps {
   registerDmActionHandlers: typeof registerDmActionHandlers;
   registerMessageChangedHandler: typeof registerMessageChangedHandler;
   registerAutoRespondHandler: typeof registerAutoRespondHandler;
+  registerStopReactionHandler: typeof registerStopReactionHandler;
 }
 
 export const defaultAppDeps: AppDeps = {
@@ -54,6 +56,7 @@ export const defaultAppDeps: AppDeps = {
   registerDmActionHandlers,
   registerMessageChangedHandler,
   registerAutoRespondHandler,
+  registerStopReactionHandler,
 };
 
 let app: App | null = null;
@@ -73,6 +76,7 @@ export function createSlackApp(deps: AppDeps = defaultAppDeps): App {
 
   // Reaction mode handlers (always enabled)
   deps.registerNewQueryHandler(app);
+  deps.registerStopReactionHandler(app);
   deps.registerRetryHandler(app);
   deps.registerResendHandler(app);
 

@@ -10,7 +10,10 @@ import { resolveUsers } from "../userCache.js";
 import { getChannelInfo } from "../channelCache.js";
 import { resolveChannelLabel, resolveUserLabel, slackLink } from "../logContext.js";
 import { extractAttachments } from "../fileExtractor.js";
+import { buildImageOnlyPreAnalysisText } from "../imageFormatting.js";
 import { processMessage } from "./core.js";
+import { matchesInlineStopEmoji } from "../stopEmoji.js";
+import { stopThread } from "../stopPipeline.js";
 import type { TriggerType } from "../../changes/types.js";
 
 const AUTO_RESPOND_USER_ID = "auto-respond";
@@ -169,6 +172,7 @@ export async function resolveAutoRespondContext(
   botUserId: string,
   botId: string | undefined,
   deps: AutoRespondDeps = defaultAutoRespondDeps,
+  rawFiles?: unknown[],
 ): Promise<AutoRespondContext | null> {
   const [channelInfo, channelLabel, userLabel] = await Promise.all([
     getChannelInfo(client, channelId),
@@ -231,11 +235,18 @@ export async function resolveAutoRespondContext(
       }
     }
 
-    // Pre-analysis: filter noise in thread replies
-    const textForAnalysis = rawText?.trim();
+    // Pre-analysis: filter noise in thread replies. When text is empty but the
+    // message carries image uploads, synthesize a textual placeholder so
+    // pre-analysis can still classify based on thread history.
+    let textForAnalysis = rawText?.trim();
     if (!textForAnalysis) {
-      logger.debug(`Thread auto-respond: empty message, skipping${threadLink}`);
-      return null;
+      const { imageFiles } = extractAttachments(rawFiles);
+      if (imageFiles?.length) {
+        textForAnalysis = buildImageOnlyPreAnalysisText(imageFiles);
+      } else {
+        logger.debug(`Thread auto-respond: empty message, skipping${threadLink}`);
+        return null;
+      }
     }
 
     const botName = config.slackApp?.name ?? "Clack";
@@ -386,6 +397,17 @@ export function registerAutoRespondHandler(app: App): void {
     const threadTs =
       "thread_ts" in event && typeof event.thread_ts === "string" ? event.thread_ts : undefined;
 
+    // Inline stop-emoji short-circuit: dispatched before pre-analysis and rule matching.
+    if (messageUser && matchesInlineStopEmoji(rawText, config.reactions?.stop)) {
+      const targetThread = threadTs || event.ts;
+      logger.info(
+        `Inline stop emoji in thread reply from ${messageUser} in ${event.channel} (thread ${targetThread})`,
+      );
+      await stopThread(event.channel, targetThread, messageUser, "stopped via inline emoji");
+      return;
+    }
+    const rawFiles = "files" in event && Array.isArray(event.files) ? event.files : undefined;
+
     const context = await resolveAutoRespondContext(
       event.channel,
       event.ts,
@@ -397,6 +419,8 @@ export function registerAutoRespondHandler(app: App): void {
       client,
       botUserId,
       botId,
+      undefined,
+      rawFiles,
     );
     if (!context) return;
 
@@ -417,24 +441,38 @@ export function registerAutoRespondHandler(app: App): void {
   });
 }
 
+interface RespondEvent {
+  channel: string;
+  ts: string;
+  text?: string;
+  files?: unknown[];
+}
+
 async function respond(
-  event: { channel: string; ts: string },
+  event: RespondEvent,
   client: App["client"],
   context: AutoRespondContext,
   threadTs: string | undefined,
 ): Promise<void> {
-  const rawText = "text" in event ? (event as unknown as { text?: string }).text : undefined;
-  const messageText = rawText?.trim() || "Respond to this message";
+  const rawText = typeof event.text === "string" ? event.text : undefined;
+  const rawFiles = Array.isArray(event.files) ? event.files : undefined;
+  const attachments = extractAttachments(rawFiles);
+  const trimmedText = rawText?.trim();
+
+  let messageText: string;
+  if (trimmedText) {
+    messageText = trimmedText;
+  } else if (attachments.imageFiles?.length) {
+    messageText = "Answer based on the attached image(s).";
+  } else {
+    messageText = "Respond to this message";
+  }
 
   const channelLabel = await resolveChannelLabel(client, event.channel);
   const userLabel = await resolveUserLabel(client, context.userId);
   const link = await slackLink(client, event.channel, threadTs ?? event.ts);
   logger.info(
     `Auto-respond triggered: ${userLabel} in ${channelLabel} (${context.triggerType})${link}`,
-  );
-
-  const attachments = extractAttachments(
-    "files" in event ? (event as unknown as { files?: unknown[] }).files : undefined,
   );
 
   try {

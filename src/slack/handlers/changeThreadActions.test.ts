@@ -56,6 +56,9 @@ const mockCreateStreamer = mock.fn(() => ({
 const mockFinalizeStreamedWorkflow = mock.fn<ChangeThreadActionsDeps["finalizeStreamedWorkflow"]>(
   async () => {},
 );
+const mockSetAutoResponseActive = mock.fn<ChangeThreadActionsDeps["setAutoResponseActive"]>(
+  async () => {},
+);
 
 const mockPostEphemeralFn = mock.fn<
   (args: {
@@ -81,6 +84,7 @@ function makeDeps(): ChangeThreadActionsDeps {
     errorMessage: mockErrorMessage,
     createStreamer: mockCreateStreamer,
     finalizeStreamedWorkflow: mockFinalizeStreamedWorkflow,
+    setAutoResponseActive: mockSetAutoResponseActive,
   };
 }
 
@@ -188,6 +192,7 @@ beforeEach(() => {
   mockFinalizeStreamedWorkflow.mock.resetCalls();
   mockPostEphemeralFn.mock.resetCalls();
   mockPostMessageFn.mock.resetCalls();
+  mockSetAutoResponseActive.mock.resetCalls();
 
   // Reset to defaults
   mockGetRole.mock.mockImplementation(async () => "dev");
@@ -556,6 +561,70 @@ describe("triggerFollowUp", () => {
     assert.equal(followUpArgs[2], undefined);
 
     assert.equal(mockFinalizeStreamedWorkflow.mock.callCount(), 1);
+  });
+
+  it("re-engages a disengaged thread before running the follow-up", async () => {
+    const session = makeSession({ autoResponseActive: false });
+    const client = makeClient();
+
+    await triggerFollowUp(
+      session,
+      "review",
+      undefined,
+      {
+        channelId: "C001",
+        threadTs: "1700000000.000001",
+        userId: "U001",
+        client,
+      },
+      makeDeps(),
+    );
+
+    assert.equal(mockSetAutoResponseActive.mock.callCount(), 1);
+    const args = mockSetAutoResponseActive.mock.calls[0].arguments;
+    assert.equal(args[0], "session-1");
+    assert.equal(args[1], true);
+    assert.equal(mockHandleFollowUp.mock.callCount(), 1);
+  });
+
+  it("does NOT re-engage a thread that is already active", async () => {
+    const session = makeSession({ autoResponseActive: true });
+    const client = makeClient();
+
+    await triggerFollowUp(
+      session,
+      "review",
+      undefined,
+      {
+        channelId: "C001",
+        threadTs: "1700000000.000001",
+        userId: "U001",
+        client,
+      },
+      makeDeps(),
+    );
+
+    assert.equal(mockSetAutoResponseActive.mock.callCount(), 0);
+  });
+
+  it("does NOT re-engage when autoResponseActive is undefined", async () => {
+    const session = makeSession();
+    const client = makeClient();
+
+    await triggerFollowUp(
+      session,
+      "merge",
+      undefined,
+      {
+        channelId: "C001",
+        threadTs: "1700000000.000001",
+        userId: "U001",
+        client,
+      },
+      makeDeps(),
+    );
+
+    assert.equal(mockSetAutoResponseActive.mock.callCount(), 0);
   });
 
   it("passes additional instructions for update command", async () => {

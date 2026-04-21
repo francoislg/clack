@@ -1,7 +1,12 @@
 import type { App, BlockAction } from "@slack/bolt";
 import { errorMessage } from "../../errors.js";
 import { logger } from "../../logger.js";
-import { findSessionByThread, getStagedIntent, type SessionContext } from "../../sessions.js";
+import {
+  findSessionByThread,
+  getStagedIntent,
+  setAutoResponseActive,
+  type SessionContext,
+} from "../../sessions.js";
 import type { StagedIntent } from "../../tools/types.js";
 import { getRole } from "../../roles.js";
 import { canRequestChanges } from "../../permissions.js";
@@ -28,6 +33,7 @@ export interface ChangeActionDeps {
     onEvent: (event: StreamEvent) => void,
   ) => Promise<ChangeResult>;
   errorMessage: (err: unknown) => string;
+  setAutoResponseActive: (sessionId: string, active: boolean) => Promise<void>;
   createStreamer: (opts: {
     client: App["client"];
     channel: string;
@@ -59,6 +65,7 @@ export const defaultChangeActionDeps: ChangeActionDeps = {
   findSessionByThread,
   startChangeWorkflow,
   errorMessage,
+  setAutoResponseActive,
   createStreamer: (opts) => new SlackStreamer(opts),
   finalizeStreamedWorkflow: finalizeStreamedWorkflow as never,
 };
@@ -94,6 +101,15 @@ export async function triggerChangeWorkflow(
       text: "Could not find an active session for this thread.",
     });
     return;
+  }
+
+  // Re-engage the thread if a stop gesture had silenced it. Clicking Accept/
+  // Edit/Reject on a change proposal signals the user is back in the loop.
+  if (session.autoResponseActive === false) {
+    logger.info(
+      `Re-engaging session ${session.sessionId} via change-accept button click in ${channelId}`,
+    );
+    await deps.setAutoResponseActive(session.sessionId, true);
   }
 
   // Create streamer for live progress (target DM thread if provided)

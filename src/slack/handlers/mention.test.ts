@@ -15,7 +15,22 @@ function makeDeps(): MentionDeps {
     processMessage: mockProcessMessage as never,
     findSessionByThread: async () => null,
     setAutoResponseActive: async () => {},
+    stopThread: mockStopThread,
   };
+}
+
+const mockStopThread = mock.fn<MentionDeps["stopThread"]>(async () => ({
+  queryAborted: 0,
+  workerAborted: false,
+  sessionDisengaged: false,
+}));
+
+interface IncomingFile {
+  id: string;
+  name: string;
+  mimetype: string;
+  size: number;
+  url_private: string;
 }
 
 type EventHandler = (args: {
@@ -25,6 +40,7 @@ type EventHandler = (args: {
     text: string;
     ts: string;
     thread_ts?: string;
+    files?: IncomingFile[];
   };
   client: App["client"];
 }) => Promise<void>;
@@ -232,5 +248,199 @@ describe("registerMentionHandler", () => {
     }
     const args = mockProcessMessage.mock.calls[0]!.arguments[0] as ProcessMessageArg;
     assert.equal(args.threadTs, undefined);
+  });
+
+  it("processes top-level image-only @mention with image fallback prompt", async () => {
+    const client = makeClient("B001");
+
+    await capturedHandler({
+      event: {
+        user: "U001",
+        channel: "C001",
+        text: "<@B001>",
+        ts: "1700000000.000001",
+        files: [
+          {
+            id: "F1",
+            name: "screenshot.png",
+            mimetype: "image/png",
+            size: 1024,
+            url_private: "https://files.slack.com/F1",
+          },
+        ],
+      },
+      client,
+    });
+
+    assert.equal(mockProcessMessage.mock.callCount(), 1);
+    interface ProcessMessageArg {
+      messageText: string;
+      imageFiles?: Array<{ id: string }>;
+    }
+    const args = mockProcessMessage.mock.calls[0]!.arguments[0] as ProcessMessageArg;
+    assert.equal(args.messageText, "Answer based on the attached image(s).");
+    assert.equal(args.imageFiles?.length, 1);
+    assert.equal(args.imageFiles?.[0].id, "F1");
+  });
+
+  it("uses thread fallback prompt for in-thread image-only @mention and forwards images", async () => {
+    const client = makeClient("B001");
+
+    await capturedHandler({
+      event: {
+        user: "U001",
+        channel: "C001",
+        text: "<@B001>",
+        ts: "1700000000.000002",
+        thread_ts: "1700000000.000001",
+        files: [
+          {
+            id: "F2",
+            name: "diagram.jpg",
+            mimetype: "image/jpeg",
+            size: 2048,
+            url_private: "https://files.slack.com/F2",
+          },
+        ],
+      },
+      client,
+    });
+
+    assert.equal(mockProcessMessage.mock.callCount(), 1);
+    interface ProcessMessageArg {
+      messageText: string;
+      imageFiles?: Array<{ id: string }>;
+    }
+    const args = mockProcessMessage.mock.calls[0]!.arguments[0] as ProcessMessageArg;
+    assert.ok(args.messageText.includes("Read the conversation above"));
+    assert.equal(args.imageFiles?.length, 1);
+    assert.equal(args.imageFiles?.[0].id, "F2");
+  });
+
+  it("posts help message when empty text and no images and not in thread", async () => {
+    const client = makeClient("B001");
+
+    await capturedHandler({
+      event: {
+        user: "U001",
+        channel: "C001",
+        text: "<@B001>",
+        ts: "1700000000.000001",
+      },
+      client,
+    });
+
+    assert.equal(mockProcessMessage.mock.callCount(), 0);
+  });
+});
+
+// ============================================================================
+// Inline stop-emoji detection
+// ============================================================================
+
+const mockInlineProcess = mock.fn<MentionDeps["processMessage"]>(async () => {});
+
+function makeStopDeps(stopEmoji: string | null = "octagonal_sign"): MentionDeps {
+  return {
+    getConfig: () => ({
+      mentions: { enabled: true },
+      reactions: { stop: stopEmoji },
+    }),
+    processMessage: mockInlineProcess,
+    findSessionByThread: async () => null,
+    setAutoResponseActive: async () => {},
+    stopThread: mockStopThread,
+  };
+}
+
+describe("registerMentionHandler — inline stop emoji", () => {
+  beforeEach(() => {
+    mockStopThread.mock.resetCalls();
+    mockInlineProcess.mock.resetCalls();
+    const app = makeApp();
+    registerMentionHandler(app, makeStopDeps());
+  });
+
+  it("stops when the mention body is only the Unicode stop emoji", async () => {
+    const client = makeClient();
+    await capturedHandler({
+      event: {
+        user: "U001",
+        channel: "C001",
+        text: "<@B001> \u{1F6D1}",
+        ts: "1700000000.000001",
+      },
+      client,
+    });
+    assert.equal(mockStopThread.mock.callCount(), 1);
+    assert.equal(mockInlineProcess.mock.callCount(), 0);
+    const args = mockStopThread.mock.calls[0]?.arguments;
+    assert.equal(args?.[0], "C001");
+    assert.equal(args?.[1], "1700000000.000001");
+    assert.equal(args?.[2], "U001");
+    assert.equal(args?.[3], "stopped via inline emoji");
+  });
+
+  it("stops when the mention body uses the colon shortcode form", async () => {
+    const client = makeClient();
+    await capturedHandler({
+      event: {
+        user: "U001",
+        channel: "C001",
+        text: "<@B001> :octagonal_sign:",
+        ts: "1700000000.000001",
+      },
+      client,
+    });
+    assert.equal(mockStopThread.mock.callCount(), 1);
+    assert.equal(mockInlineProcess.mock.callCount(), 0);
+  });
+
+  it("uses thread_ts when the mention is in a thread", async () => {
+    const client = makeClient();
+    await capturedHandler({
+      event: {
+        user: "U001",
+        channel: "C001",
+        text: "<@B001> \u{1F6D1} please stop",
+        ts: "1700000000.000002",
+        thread_ts: "1700000000.000001",
+      },
+      client,
+    });
+    assert.equal(mockStopThread.mock.calls[0]?.arguments[1], "1700000000.000001");
+  });
+
+  it("does NOT stop when the mention body exceeds 60 chars even with the emoji", async () => {
+    const client = makeClient();
+    const longText = `<@B001> \u{1F6D1} ${"x".repeat(70)}`;
+    await capturedHandler({
+      event: {
+        user: "U001",
+        channel: "C001",
+        text: longText,
+        ts: "1700000000.000001",
+      },
+      client,
+    });
+    assert.equal(mockStopThread.mock.callCount(), 0);
+    assert.equal(mockInlineProcess.mock.callCount(), 1);
+  });
+
+  it("does NOT stop when config.reactions.stop is null", async () => {
+    const app = makeApp();
+    registerMentionHandler(app, makeStopDeps(null));
+    const client = makeClient();
+    await capturedHandler({
+      event: {
+        user: "U001",
+        channel: "C001",
+        text: "<@B001> \u{1F6D1}",
+        ts: "1700000000.000001",
+      },
+      client,
+    });
+    assert.equal(mockStopThread.mock.callCount(), 0);
+    assert.equal(mockInlineProcess.mock.callCount(), 1);
   });
 });

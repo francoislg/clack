@@ -129,7 +129,13 @@ function buildCancelledResult(
   fallback: string,
 ): ChangeResult | null {
   if (!activeChange.cancelledBy) return null;
-  deps.updateActiveChangeStatus(sessionId, "cancelled");
+  // If we were cancelled while running a follow-up on an existing PR (review,
+  // update, merge, close), the PR itself is untouched — revert the in-memory
+  // status so the user can retry via buttons. For planning/executing (no PR
+  // yet), transition to terminal `cancelled`.
+  const prFollowUpStatuses: ChangeStatus[] = ["reviewing", "merging"];
+  const updateStatus = activeChange.prUrl || prFollowUpStatuses.includes(activeChange.status);
+  deps.updateActiveChangeStatus(sessionId, updateStatus ? "pr_created" : "cancelled");
   return {
     success: false,
     cancelled: true,

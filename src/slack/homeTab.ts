@@ -657,6 +657,12 @@ export function buildHelpSection(deps: HomeTabDeps = defaultHomeTabDeps): KnownB
     triggerInstructions.push("• *Mention:* @mention me in any channel with your question");
   }
 
+  if (config.reactions.stop) {
+    triggerInstructions.push(
+      `• *Stop:* React with :${config.reactions.stop}: (or type it inline in a short message) to cancel current work and silence me in a thread`,
+    );
+  }
+
   return [
     {
       type: "header",

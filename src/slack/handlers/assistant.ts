@@ -6,17 +6,28 @@ import { findSessionByThread, updateSession, type SessionContext } from "../../s
 import { extractAttachments, type ExtractedAttachments } from "../fileExtractor.js";
 import { PerThreadContextStore } from "./assistantContextStore.js";
 import { processMessage, type ProcessMessageParams } from "./core.js";
+import { matchesInlineStopEmoji } from "../stopEmoji.js";
+import { stopThread, type StopResult } from "../stopPipeline.js";
 
 type AssistantConstructor = new (handlers: AssistantConfig) => Assistant;
 
 export interface AssistantDeps {
   Assistant: AssistantConstructor;
-  getConfig: () => { directMessages: { enabled: boolean } };
+  getConfig: () => {
+    directMessages: { enabled: boolean };
+    reactions?: { stop?: string | null };
+  };
   findSessionByThread: (channelId: string, threadTs: string) => Promise<SessionContext | null>;
   updateSession: (
     sessionId: string,
     updates: { assistantCurrentChannelId: string },
   ) => Promise<SessionContext | null>;
+  stopThread: (
+    channelId: string,
+    threadTs: string,
+    triggeredByUserId: string,
+    reason: string,
+  ) => Promise<StopResult>;
   processMessage: (params: ProcessMessageParams) => Promise<void>;
   extractAttachments: (files: unknown[] | undefined) => ExtractedAttachments;
 }
@@ -28,6 +39,7 @@ export const defaultAssistantDeps: AssistantDeps = {
   updateSession,
   processMessage,
   extractAttachments,
+  stopThread,
 };
 
 /**
@@ -97,7 +109,30 @@ interface AssistantEventMessage {
   channel: string;
   ts: string;
   thread_ts?: string;
-  files?: unknown[];
+  files?: object[];
+}
+
+interface RawAssistantEvent {
+  channel?: unknown;
+  ts?: unknown;
+  user?: unknown;
+  text?: unknown;
+  thread_ts?: unknown;
+  files?: unknown;
+}
+
+function toAssistantEventMessage<T extends object>(value: T): AssistantEventMessage | null {
+  const e = value as RawAssistantEvent;
+  if (typeof e.channel !== "string") return null;
+  if (typeof e.ts !== "string") return null;
+  return {
+    channel: e.channel,
+    ts: e.ts,
+    user: typeof e.user === "string" ? e.user : undefined,
+    text: typeof e.text === "string" ? e.text : undefined,
+    thread_ts: typeof e.thread_ts === "string" ? e.thread_ts : undefined,
+    files: Array.isArray(e.files) ? (e.files as object[]) : undefined,
+  };
 }
 
 export function registerAssistant(app: App, deps: AssistantDeps = defaultAssistantDeps): void {
@@ -143,28 +178,43 @@ export function registerAssistant(app: App, deps: AssistantDeps = defaultAssista
 
     userMessage: async ({ event, client, setStatus, setTitle, getThreadContext }) => {
       if (!deps.getConfig().directMessages.enabled) return;
-      const msg = event as never as AssistantEventMessage;
-      if (!msg.user || !msg.text) return;
+      const msg = toAssistantEventMessage(event);
+      if (!msg?.user) return;
+
+      const attachments = deps.extractAttachments(msg.files);
+      const hasText = !!msg.text;
+      const hasImages = !!attachments.imageFiles?.length;
+      if (!hasText && !hasImages) return;
+
+      const config = deps.getConfig();
+      if (matchesInlineStopEmoji(msg.text, config.reactions?.stop)) {
+        const threadTs = msg.thread_ts || msg.ts;
+        logger.info(
+          `Inline stop emoji in DM thread from ${msg.user} in ${msg.channel} (thread ${threadTs})`,
+        );
+        await deps.stopThread(msg.channel, threadTs, msg.user, "stopped via inline emoji");
+        return;
+      }
 
       await setStatus("Thinking...");
 
       const contextChannelId = await resolveContextChannelId(client, msg, getThreadContext, deps);
 
-      const attachments = deps.extractAttachments(msg.files);
+      const messageText = hasText ? msg.text! : "Answer based on the attached image(s).";
 
       await deps.processMessage({
         client,
         userId: msg.user,
         channelId: msg.channel,
         messageTs: msg.ts,
-        messageText: msg.text,
+        messageText,
         threadTs: msg.thread_ts,
         triggerType: "directMessages",
         assistantChannelId: contextChannelId,
         ...attachments,
       });
 
-      const title = msg.text.length > 50 ? msg.text.substring(0, 49) + "…" : msg.text;
+      const title = messageText.length > 50 ? messageText.substring(0, 49) + "…" : messageText;
       try {
         await setTitle(title);
       } catch (err) {

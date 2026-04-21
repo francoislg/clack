@@ -13,6 +13,7 @@ import { migration as m11 } from "./011-add-allow-scheduled-messages.js";
 import { migration as m12 } from "./012-add-thread-auto-respond-max-age.js";
 import { migration as m13 } from "./013-rename-plugins-to-skill-plugins.js";
 import { migration as m14 } from "./014-cron-job-block-kit-prompts.js";
+import { migration as m15 } from "./015-add-stop-reaction.js";
 
 // Register migrations here in version order.
 export const migrations: Migration[] = [
@@ -30,4 +31,5 @@ export const migrations: Migration[] = [
   m12,
   m13,
   m14,
+  m15,
 ];

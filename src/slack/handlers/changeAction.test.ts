@@ -55,6 +55,9 @@ const mockCreateStreamer = mock.fn(() => ({
 const mockFinalizeStreamedWorkflow = mock.fn<ChangeActionDeps["finalizeStreamedWorkflow"]>(
   async () => {},
 );
+const mockSetAutoResponseActive = mock.fn<ChangeActionDeps["setAutoResponseActive"]>(
+  async () => {},
+);
 const mockPostEphemeralFn = mock.fn<
   (args: { channel: string; user: string; text: string }) => Promise<{ ok: boolean }>
 >(async () => ({ ok: true }));
@@ -74,6 +77,7 @@ function makeDeps(): ChangeActionDeps {
     errorMessage: mockErrorMessage,
     createStreamer: mockCreateStreamer,
     finalizeStreamedWorkflow: mockFinalizeStreamedWorkflow,
+    setAutoResponseActive: mockSetAutoResponseActive,
   };
 }
 

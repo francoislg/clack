@@ -4,6 +4,8 @@ import {
   registerInFlightRequest,
   deregisterInFlightRequest,
   getInFlightRequest,
+  findInFlightByThread,
+  type InFlightRequest,
 } from "./inFlightRequests.js";
 
 // ---------------------------------------------------------------------------
@@ -14,13 +16,15 @@ function makeRequest(
   overrides?: Partial<{
     abortController: AbortController;
     sessionId: string;
-    triggerType: "directMessages" | "mentions";
+    triggerType: InFlightRequest["triggerType"];
+    threadTs: string;
   }>,
-) {
+): InFlightRequest {
   return {
     abortController: new AbortController(),
     sessionId: "session-1",
-    triggerType: "directMessages" as const,
+    triggerType: "directMessages",
+    threadTs: "thread-default",
     ...overrides,
   };
 }
@@ -76,6 +80,63 @@ describe("inFlightRequests", () => {
 
       deregisterInFlightRequest("C100", "100.001");
       deregisterInFlightRequest("C200", "100.001");
+    });
+  });
+
+  describe("findInFlightByThread", () => {
+    it("returns a reactions-triggered entry by thread", () => {
+      const req = makeRequest({
+        sessionId: "reaction-1",
+        triggerType: "reactions",
+        threadTs: "thread-react",
+      });
+      registerInFlightRequest("C010", "react.001", req);
+
+      const matches = findInFlightByThread("C010", "thread-react");
+      assert.equal(matches.length, 1);
+      assert.equal(matches[0]?.request.sessionId, "reaction-1");
+
+      deregisterInFlightRequest("C010", "react.001");
+    });
+
+    it("returns multiple entries sharing the same thread", () => {
+      const a = makeRequest({ sessionId: "a", triggerType: "mentions", threadTs: "t-multi" });
+      const b = makeRequest({
+        sessionId: "b",
+        triggerType: "directMessages",
+        threadTs: "t-multi",
+      });
+      registerInFlightRequest("C020", "1.001", a);
+      registerInFlightRequest("C020", "2.002", b);
+
+      const matches = findInFlightByThread("C020", "t-multi");
+      const ids = matches.map((m) => m.request.sessionId).sort();
+      assert.deepEqual(ids, ["a", "b"]);
+
+      deregisterInFlightRequest("C020", "1.001");
+      deregisterInFlightRequest("C020", "2.002");
+    });
+
+    it("ignores entries in different threads or channels", () => {
+      const a = makeRequest({ sessionId: "same-channel", threadTs: "t-A" });
+      const b = makeRequest({ sessionId: "other-thread", threadTs: "t-B" });
+      const c = makeRequest({ sessionId: "other-channel", threadTs: "t-A" });
+      registerInFlightRequest("C030", "1.001", a);
+      registerInFlightRequest("C030", "2.002", b);
+      registerInFlightRequest("C031", "3.003", c);
+
+      const matches = findInFlightByThread("C030", "t-A");
+      const ids = matches.map((m) => m.request.sessionId);
+      assert.deepEqual(ids, ["same-channel"]);
+
+      deregisterInFlightRequest("C030", "1.001");
+      deregisterInFlightRequest("C030", "2.002");
+      deregisterInFlightRequest("C031", "3.003");
+    });
+
+    it("returns an empty array when no entries match", () => {
+      const matches = findInFlightByThread("C-NONE", "thread-missing");
+      assert.deepEqual(matches, []);
     });
   });
 
