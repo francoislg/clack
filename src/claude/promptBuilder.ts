@@ -337,7 +337,7 @@ Use this context to understand the conversation flow and provide relevant answer
   if (options?.userTimezone) {
     tzParts.push(`USER TIMEZONE: ${options.userTimezone}`);
     tzParts.push(
-      'When the user mentions relative times (e.g., "tomorrow at 3pm", "in 2 hours", "next Monday at 9am"), convert them to UTC using this timezone.',
+      "Use this timezone when interpreting local times the user mentions. Each tool that accepts times specifies its own timezone expectation in its description — follow that, not a blanket rule.",
     );
   }
   parts.push(tzParts.join("\n"));

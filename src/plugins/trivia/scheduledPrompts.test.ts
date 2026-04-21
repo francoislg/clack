@@ -84,7 +84,7 @@ describe("process_responses_instructions tool", () => {
     assert.match(body.prompt, /cheaterUserIds/);
     assert.match(body.prompt, /silent/i);
     assert.match(body.prompt, /never name a caught cheater/i);
-    assert.match(body.prompt, /MUST NOT appear in any subsection/);
+    assert.match(body.prompt, /MUST NOT appear anywhere in the reveal/);
   });
 
   it("instructs cheater exclusion from the submit_answers payload as well", async () => {
@@ -118,14 +118,32 @@ describe("process_responses_instructions tool", () => {
     assert.match(body.prompt, /BEFORE submit_response/);
   });
 
-  it("includes the four voter-category labels", async () => {
+  it("names the four voter situations Clack should cover", async () => {
     const tool = createProcessResponsesInstructionsTool();
     const result = await tool.handler({}, SESSION);
     const body = parseResult(result);
-    assert.match(body.prompt, /Nailed it! 🎉/);
-    assert.match(body.prompt, /Not quite! 💪/);
-    assert.match(body.prompt, /Playing both sides, eh\? 🤨/);
-    assert.match(body.prompt, /Wait, what\? 🤔/);
+    assert.match(body.prompt, /CORRECT voters/);
+    assert.match(body.prompt, /INCORRECT voters/);
+    assert.match(body.prompt, /FENCE-SITTERS/);
+    assert.match(body.prompt, /WILDCARDS/);
+  });
+
+  it("instructs to skip any voter situation with no qualifying users", async () => {
+    const tool = createProcessResponsesInstructionsTool();
+    const result = await tool.handler({}, SESSION);
+    const body = parseResult(result);
+    assert.match(body.prompt, /Skip anything with no qualifying users entirely/i);
+    assert.match(body.prompt, /cover whichever ones actually apply/i);
+  });
+
+  it("does not prescribe a rigid four-sub-group layout", async () => {
+    const tool = createProcessResponsesInstructionsTool();
+    const result = await tool.handler({}, SESSION);
+    const body = parseResult(result);
+    assert.match(
+      body.prompt,
+      /NOT required to use four sections, four headings, or any fixed structure/i,
+    );
   });
 });
 

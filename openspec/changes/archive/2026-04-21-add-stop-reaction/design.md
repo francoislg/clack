@@ -12,7 +12,8 @@ There is no **single user gesture** that (a) works across all trigger types, (b)
 ## Goals / Non-Goals
 
 **Goals:**
-- A reaction emoji (default 🛑 `octagonal_sign`, configurable) that, added to *any* message in a thread, atomically: aborts any in-flight Claude work for the thread AND disengages the thread from auto-respond.
+
+- A reaction emoji (default 🛑 `octagonal_sign`, configurable) that, added to _any_ message in a thread, atomically: aborts any in-flight Claude work for the thread AND disengages the thread from auto-respond.
 - Equivalent inline detection: typing the same emoji (Unicode or colon shortcode) in a short message (≤60 chars) produces the same outcome, gated on the same config field, running before pre-analysis / rule matching / `processMessage` dispatch.
 - Works uniformly across mentions, DMs, reaction-triggered queries, and worker mode.
 - Non-destructive to git/GitHub state (no PR close, no branch delete, no worktree removal as a side effect).
@@ -20,6 +21,7 @@ There is no **single user gesture** that (a) works across all trigger types, (b)
 - Backwards-compatible via a boot migration that adds the default stop reaction to existing configs.
 
 **Non-Goals:**
+
 - New MCP tool, new Slack slash command, or new button. The new UI surfaces are limited to the reaction emoji and inline detection of the same emoji.
 - Closing PRs, deleting branches, merging, or any destructive git operation.
 - Per-user or per-channel "mute" preferences. Stop is per-thread and sticky until explicit re-engagement (mention or button click).
@@ -34,31 +36,33 @@ There is no **single user gesture** that (a) works across all trigger types, (b)
 
 ### Decision: Thread-scoped lookup, not message-scoped
 
-The in-flight registry is keyed by `channelId:messageTs` (the triggering message). The stop reaction may be added to *any* message in the thread — the trigger message, the bot's streamed response, the parent of the thread, another user's reply. We therefore do a **thread-scoped sweep**: resolve the reacted message's `threadTs`, then abort every in-flight request whose `threadTs` matches, plus the `activeChange.abortController` for the session at `(channelId, threadTs)`.
+The in-flight registry is keyed by `channelId:messageTs` (the triggering message). The stop reaction may be added to _any_ message in the thread — the trigger message, the bot's streamed response, the parent of the thread, another user's reply. We therefore do a **thread-scoped sweep**: resolve the reacted message's `threadTs`, then abort every in-flight request whose `threadTs` matches, plus the `activeChange.abortController` for the session at `(channelId, threadTs)`.
 
 To support this, `InFlightRequest` gains a `threadTs` field. We iterate the registry (it's small — worst case a few entries per process) to find matches. No re-keying; the existing `channelId:messageTs` key is still right for the edit-on-message flow.
 
 **Alternatives considered:**
-- *Message-scoped only (abort only the exact reacted message's request):* too narrow — the user reacts to the bot's streaming message, not their original trigger, and expects the whole thing to stop.
-- *Re-key the registry by thread:* breaks the edit-detection flow which needs per-message lookup.
+
+- _Message-scoped only (abort only the exact reacted message's request):_ too narrow — the user reacts to the bot's streaming message, not their original trigger, and expects the whole thing to stop.
+- _Re-key the registry by thread:_ breaks the edit-detection flow which needs per-message lookup.
 
 ### Decision: Extend `InFlightRequest.triggerType` to include `"reactions"`
 
-Reaction-triggered queries are currently *not* registered (`inFlightRequests.ts:6`, `request-cancellation` spec "Reactions mode excluded" scenario). We extend the union and register them in `processMessage` unconditionally for all three query trigger types.
+Reaction-triggered queries are currently _not_ registered (`inFlightRequests.ts:6`, `request-cancellation` spec "Reactions mode excluded" scenario). We extend the union and register them in `processMessage` unconditionally for all three query trigger types.
 
 **Why now:** the stop reaction is meaningless for reaction-triggered queries if they can't be aborted. The "edit-the-triggering-message" flow also becomes available for reactions as a side effect — harmless and arguably an improvement (the "reactions mode excluded" exclusion existed because no one had a use case; now we do).
 
 **Alternatives considered:**
-- *Keep reactions excluded, register a shadow entry only when stop-tracking is on:* complexity for no benefit. Cheaper to always register.
+
+- _Keep reactions excluded, register a shadow entry only when stop-tracking is on:_ complexity for no benefit. Cheaper to always register.
 
 ### Decision: Worker state transitions on stop
 
-| Incoming status | Post-stop status | Worktree | PR | Monitor |
-|---|---|---|---|---|
-| `planning` / `executing` | `cancelled` | preserved | none | inactive (monitor only watches `pr_created`) |
-| `reviewing` / `merging` | `pr_created` (revert) | preserved | open, untouched | continues watching |
-| `pr_created` (idle) | `pr_created` (unchanged) | preserved | untouched | continues watching |
-| `completed` / `failed` / `cancelled` | unchanged | untouched | untouched | unchanged |
+| Incoming status                      | Post-stop status         | Worktree  | PR              | Monitor                                      |
+| ------------------------------------ | ------------------------ | --------- | --------------- | -------------------------------------------- |
+| `planning` / `executing`             | `cancelled`              | preserved | none            | inactive (monitor only watches `pr_created`) |
+| `reviewing` / `merging`              | `pr_created` (revert)    | preserved | open, untouched | continues watching                           |
+| `pr_created` (idle)                  | `pr_created` (unchanged) | preserved | untouched       | continues watching                           |
+| `completed` / `failed` / `cancelled` | unchanged                | untouched | untouched       | unchanged                                    |
 
 The reviewing/merging revert matches the existing abort-from-timeout behavior (`src/changes/workflow.ts`) — aborting a follow-up doesn't abandon the PR, it just stops the in-progress Clack action on it. The user can re-click Merge / Review / Close after re-engagement.
 
@@ -71,8 +75,9 @@ Change-thread buttons (Merge, Review, Close, Accept, Edit) exist in the Slack me
 **Why this matters:** buttons stay live after stop (we don't remove them — the user may want to come back and hit Merge later). Without re-engagement, clicking Merge would work for that one action but Clack would go silent again immediately after. Re-engaging makes the click a coherent "I'm back" signal.
 
 **Alternatives considered:**
-- *Disable buttons when stopped:* loses the recoverability benefit the user specifically asked for.
-- *Re-engage only on some buttons (Merge, Review) not others (Close):* arbitrary and surprising. Treat any button click as a re-engage signal, same as `@mention`.
+
+- _Disable buttons when stopped:_ loses the recoverability benefit the user specifically asked for.
+- _Re-engage only on some buttons (Merge, Review) not others (Close):_ arbitrary and surprising. Treat any button click as a re-engage signal, same as `@mention`.
 
 ### Decision: Default reaction = `octagonal_sign`, configurable to any emoji name
 
@@ -89,15 +94,17 @@ A boot migration (`src/migrations/` via `/create-migration`) adds `reactions.sto
 **Why migrate rather than just defaulting in code:** the Home Tab renders the config; having the field explicitly present makes it visible and editable by admins. It also surfaces the new feature to existing installs rather than hiding it behind a code default they'd never notice.
 
 **Alternatives considered:**
-- *Code-level default only (no migration):* simpler, but existing installs wouldn't see the feature in the Home Tab until they manually edited config. Poor discoverability.
+
+- _Code-level default only (no migration):_ simpler, but existing installs wouldn't see the feature in the Home Tab until they manually edited config. Poor discoverability.
 
 ### Decision: Permission model — anyone in the thread
 
 Any user who can see the thread can stop it. Matches the permission model of the trigger reaction (`config.reactions.trigger`, handled by the existing reaction handler with no role check). Trolling risk is low in practice (same as trolling risk for any reaction emoji) and scoping stop to the session owner would defeat the "lenient, universal" intent.
 
 **Alternatives considered:**
-- *Session-owner only:* fails when a teammate sees a runaway worker and wants to stop it on your behalf.
-- *Dev+ role:* closer to "trusted" but excludes regular members who are in the thread and have standing to stop a conversation they're part of.
+
+- _Session-owner only:_ fails when a teammate sees a runaway worker and wants to stop it on your behalf.
+- _Dev+ role:_ closer to "trusted" but excludes regular members who are in the thread and have standing to stop a conversation they're part of.
 
 ### Decision: Inline detection uses a short-message + contains-emoji rule (Rule B)
 
@@ -121,8 +128,9 @@ Message                                           Match?
 ```
 
 **Alternatives considered:**
-- *Rule A — message is only emoji/whitespace:* zero false positives but misses the natural "🛑 please stop" phrasing, the most common form in practice.
-- *Rule C — emoji anywhere, any length:* catches all intent but false-stops on casual mentions of the emoji in longer explanatory text. Unacceptable for a signal meant to interrupt work.
+
+- _Rule A — message is only emoji/whitespace:_ zero false positives but misses the natural "🛑 please stop" phrasing, the most common form in practice.
+- _Rule C — emoji anywhere, any length:_ catches all intent but false-stops on casual mentions of the emoji in longer explanatory text. Unacceptable for a signal meant to interrupt work.
 
 **Rationale:** 60 chars is tight enough that incidental mentions of the emoji in longer explanatory messages don't trigger (most casual references live in longer text), but loose enough to permit a short reason ("🛑 wrong branch"). Edge-case false positives are survivable because stop is non-destructive and a single @mention or button click re-engages the thread.
 
@@ -137,20 +145,22 @@ const matches = nameRegex.test(text) || (unicode !== undefined && text.includes(
 ```
 
 **Alternatives considered:**
-- *Unicode only:* fails for custom workspace emojis entirely (no Unicode form exists).
-- *Colon only:* misses the common case where users click the emoji picker, which inserts the Unicode codepoint into the message text rather than the shortcode.
+
+- _Unicode only:_ fails for custom workspace emojis entirely (no Unicode form exists).
+- _Colon only:_ misses the common case where users click the emoji picker, which inserts the Unicode codepoint into the message text rather than the shortcode.
 
 **Rationale:** Both forms are equally natural in Slack — picker clicks produce Unicode, autocomplete typing produces `:name:`. Matching both costs one extra string check.
 
 ### Decision: Inline detection runs before pre-analysis, rule matching, and `processMessage`
 
-**Choice:** Each message handler calls `matchesInlineStopEmoji` as the *first* step after basic identity gates (skip bot messages, skip edits/subtypes that aren't real messages). On match, dispatch to the same thread-scoped cancel + disengage pipeline the reaction uses and return — no pre-analysis, no `processMessage`, no reply.
+**Choice:** Each message handler calls `matchesInlineStopEmoji` as the _first_ step after basic identity gates (skip bot messages, skip edits/subtypes that aren't real messages). On match, dispatch to the same thread-scoped cancel + disengage pipeline the reaction uses and return — no pre-analysis, no `processMessage`, no reply.
 
 **Rationale:** The stop signal should short-circuit everything. Running pre-analysis first would waste an LLM call, delay the abort by seconds, and introduce a perverse risk where the classifier decides "this looks like a stop gesture, let me respond" rather than "this means stop, silence." Detection is O(text length) and synchronous — essentially free.
 
 ### Decision: Reaction and inline share one "cancel by thread" entry point
 
 **Choice:** Both the reaction handler and inline detection call the same internal function (conceptually `stopThread(channelId, threadTs, reactorUserId, reason)`), which does:
+
 1. Query-side abort sweep via the in-flight registry scan.
 2. Worker-side abort via lookup on `activeChange.abortController` with `cancelledBy` set.
 3. Disengagement via `setAutoResponseActive(sessionId, false)` if a session exists.
@@ -166,6 +176,7 @@ const matches = nameRegex.test(text) || (unicode !== undefined && text.includes(
 ### Decision: Idempotency
 
 Reacting stop on an already-stopped thread is a no-op (no error, no double-abort, no status flip). The handler checks:
+
 - In-flight registry: iterate and abort only entries where `!controller.signal.aborted`.
 - Session: only set `autoResponseActive = false` if currently `true` (or unset).
 - Worker: only transition status if not already terminal; only set `cancelledBy` if not already set.
@@ -183,7 +194,7 @@ Reacting stop on an already-stopped thread is a no-op (no error, no double-abort
 **[Risk]** The `reviewing`/`merging` → `pr_created` revert happens mid-action. If the worker had already pushed a commit or written a comment as part of the review/merge flow, those side effects stay.
 → **Mitigation:** accepted. This matches the existing abort-on-timeout behavior. Partial side effects are visible on GitHub for the user to inspect and decide what to do next. Reverting the status signals "Clack has stopped; the PR state is what you see on GitHub."
 
-**[Risk]** Stop reaction is added on a message that is *not* in a thread (a standalone channel message that, say, was reacted to with the trigger emoji and generated an ephemeral reaction-mode answer).
+**[Risk]** Stop reaction is added on a message that is _not_ in a thread (a standalone channel message that, say, was reacted to with the trigger emoji and generated an ephemeral reaction-mode answer).
 → **Mitigation:** the handler resolves `threadTs` via the same `resolveReactedMessage` helper used for the trigger reaction (`src/slack/handlers/newQuery.ts`). If the message has no thread, the handler treats `threadTs = messageTs` (the parent-of-itself) for lookup purposes. In-flight requests keyed by that `channelId:messageTs` get aborted. The session lookup likely finds nothing (reaction-mode queries typically don't have a persistent `autoResponseActive` tracking session) — that's fine, the disengage step is a no-op in that case.
 
 **[Risk]** Registry iteration per stop event is O(n) in open sessions. If Clack ever scales to thousands of concurrent sessions, this is not free.

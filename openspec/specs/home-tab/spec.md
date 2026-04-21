@@ -330,7 +330,7 @@ The system SHALL support toggling and deleting rules from the edit modal.
 
 ### Requirement: Scheduled Messages Section
 
-The system SHALL display a Scheduled Messages section on the Home Tab with role-based visibility and management controls. Each row SHALL surface the job's `skipConditions` when set, and admins SHALL be able to edit the field through the existing scheduled-message edit flow.
+The system SHALL display a Scheduled Messages section on the Home Tab with role-based visibility and management controls. The job's `skipConditions` is NOT rendered inline on the Home Tab row — admins and creators edit the field through the scheduled-message edit modal, which pre-fills the stored value.
 
 #### Scenario: Admin sees all scheduled messages
 - **GIVEN** the current user is an admin or owner
@@ -373,7 +373,7 @@ The system SHALL display a Scheduled Messages section on the Home Tab with role-
 - **AND** if the job has `lastRunStatus: "skipped"`, show a distinct "skipped" indicator (neutral, not a warning)
 - **AND** if the job is disabled, show a "paused" label
 - **AND** if the job is `oneShot`, show a "one-time" label
-- **AND** if the job has a non-empty `skipConditions` field, show a context line summarizing it, truncated to roughly 120 characters with an ellipsis (`…`) when the full value is longer. The full value is available through the edit modal — no tooltip or inline expansion is required
+- **AND** `skipConditions` is NOT rendered inline on the row — it is only visible inside the edit modal
 
 #### Scenario: Edit modal exposes skipConditions
 - **WHEN** an admin, an owner, or the job's creator opens the scheduled-message edit modal (matching the existing enable/disable/delete permission gate)

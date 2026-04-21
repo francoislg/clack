@@ -6,7 +6,9 @@ When the user asks to schedule something:
 - For **simple one-time static reminders** within 120 days, prefer `schedule_reminder`.
 - For **one-time messages that need dynamic content** or are more than 120 days out, use `create_scheduled_message` with `oneShot: true`.
 
-When the user says "every day" without specifying which days, default to **weekdays** (Monday–Friday, cron: `* * * * 1-5`). Only use all 7 days if the user explicitly says "every day including weekends" or similar.
+When the user says "every day" without specifying which days, default to **weekdays** (Monday–Friday — pass `dayOfWeek: "1-5"` to `create_scheduled_message`). Only use all 7 days (`dayOfWeek: "*"`) if the user explicitly says "every day including weekends" or similar.
+
+**Timezones for recurring schedules:** `create_scheduled_message` takes the hour/minute as the user's LOCAL clock time in the `timezone` you pass — pass exactly what the user said (e.g. user said "11:30" → `hour: 11, minute: 30`). Do NOT convert to UTC. The tool returns a `schedule` string ("Every day at 11:30 AM EDT") — quote it verbatim when confirming to the user.
 
 ### Skip Conditions
 

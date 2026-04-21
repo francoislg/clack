@@ -1,9 +1,11 @@
 ## MODIFIED Requirements
 
 ### Requirement: In-Flight Request Registry
+
 The system SHALL maintain an in-memory registry of currently executing Claude invocations, keyed by `channelId:messageTs` (the original triggering message).
 
 #### Scenario: Request registered on invocation start
+
 - **WHEN** `processMessage()` begins a Claude invocation
 - **AND** the trigger type is `mentions`, `directMessages`, or `reactions`
 - **THEN** the registry stores an entry with the `AbortController`, session ID, trigger type, and `threadTs`
@@ -11,16 +13,19 @@ The system SHALL maintain an in-memory registry of currently executing Claude in
 - **AND** the entry is keyed by `"{channelId}:{messageTs}"`
 
 #### Scenario: Request deregistered on invocation completion
+
 - **WHEN** a Claude invocation completes (success or error)
 - **THEN** the registry entry for that invocation is removed
 - **AND** this happens in a `finally` block to guarantee cleanup
 
 #### Scenario: Request deregistered on abort
+
 - **WHEN** a Claude invocation is aborted via the `AbortController`
 - **THEN** the registry entry is removed before the abort signal is sent
 - **AND** subsequent lookups for the same key return no match
 
 #### Scenario: Reaction-triggered requests registered
+
 - **WHEN** a request is triggered via reaction mode
 - **THEN** an entry IS added to the in-flight registry with `triggerType: "reactions"`
 - **AND** the entry includes the `threadTs` derived from the reacted message
@@ -91,5 +96,6 @@ The system SHALL abort any in-flight query-mode Claude invocation for a thread w
 ## REMOVED Requirements
 
 ### Requirement: Reactions mode excluded
+
 **Reason:** Reaction-triggered queries now need to be cancellable — specifically by the new stop reaction. Excluding them from the registry means the stop reaction cannot abort them. The original exclusion existed because no feature needed cancellation for reactions; that is no longer true.
 **Migration:** None — registering reaction-triggered requests is a purely additive runtime behavior change. Existing edit-on-message flow (`Message Edit Detection` requirement) continues to work for mentions and DMs; applying it to reactions is benign.

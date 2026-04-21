@@ -51,8 +51,12 @@ interface ToolHandlerResult {
 
 interface CallArgs {
   channel: string;
-  cronExpression: string;
   prompt: string;
+  minute?: number;
+  hour?: number;
+  dayOfMonth?: string;
+  month?: string;
+  dayOfWeek?: string;
   timezone?: string;
   skipConditions?: string;
 }
@@ -62,6 +66,11 @@ type CreateTool = ReturnType<typeof createCreateScheduledMessageTool>;
 function callHandler(tool: CreateTool, args: CallArgs): Promise<ToolHandlerResult> {
   return tool.handler(
     {
+      minute: 0,
+      hour: 9,
+      dayOfMonth: "*",
+      month: "*",
+      dayOfWeek: "*",
       timezone: "America/New_York",
       oneShot: undefined,
       requiredTools: undefined,
@@ -94,7 +103,6 @@ describe("createScheduledMessage tool", () => {
     const tool = createCreateScheduledMessageTool(ctx, deps);
     const result = await callHandler(tool, {
       channel: "C456",
-      cronExpression: "0 9 * * *",
       prompt: "Summarize PRs",
     });
 
@@ -109,18 +117,56 @@ describe("createScheduledMessage tool", () => {
     assert.ok(jobs[0].timezone);
   });
 
-  it("rejects invalid cron expression", async () => {
+  it("stores the local hour/minute unchanged — no UTC conversion", async () => {
+    const ctx = buildCtx();
+    const deps = makeDeps();
+    const tool = createCreateScheduledMessageTool(ctx, deps);
+    await callHandler(tool, {
+      channel: "C456",
+      minute: 30,
+      hour: 11,
+      timezone: "America/New_York",
+      prompt: "Morning standup",
+    });
+
+    const jobs = await getJobs();
+    assert.equal(jobs.length, 1);
+    assert.equal(
+      jobs[0].cronExpression,
+      "30 11 * * *",
+      "hour must be stored as given (11), not UTC-converted (15)",
+    );
+    assert.equal(jobs[0].timezone, "America/New_York");
+  });
+
+  it("returns a human-readable schedule the caller can quote verbatim", async () => {
     const ctx = buildCtx();
     const deps = makeDeps();
     const tool = createCreateScheduledMessageTool(ctx, deps);
     const result = await callHandler(tool, {
       channel: "C456",
-      cronExpression: "not valid",
+      minute: 30,
+      hour: 11,
+      timezone: "America/New_York",
+      prompt: "Morning standup",
+    });
+
+    const parsed = JSON.parse(result.content[0].text);
+    assert.match(parsed.schedule, /11:30 AM (EDT|EST)/);
+  });
+
+  it("rejects invalid cron field combinations", async () => {
+    const ctx = buildCtx();
+    const deps = makeDeps();
+    const tool = createCreateScheduledMessageTool(ctx, deps);
+    const result = await callHandler(tool, {
+      channel: "C456",
+      dayOfWeek: "not-a-day",
       prompt: "test",
     });
 
     assert.equal(result.isError, true);
-    assert.match(result.content[0].text, /Invalid cron expression/);
+    assert.match(result.content[0].text, /Invalid schedule fields/);
   });
 
   it("resolves channel by name", async () => {
@@ -129,7 +175,6 @@ describe("createScheduledMessage tool", () => {
     const tool = createCreateScheduledMessageTool(ctx, deps);
     const result = await callHandler(tool, {
       channel: "#engineering",
-      cronExpression: "0 9 * * *",
       prompt: "test",
     });
 
@@ -151,7 +196,6 @@ describe("createScheduledMessage tool", () => {
 
     const result = await callHandler(tool, {
       channel: "U123",
-      cronExpression: "0 9 * * *",
       prompt: "daily self-DM",
     });
 
@@ -177,7 +221,6 @@ describe("createScheduledMessage tool", () => {
 
     const result = await callHandler(tool, {
       channel: "U999",
-      cronExpression: "0 9 * * *",
       prompt: "malicious dm",
     });
 
@@ -196,7 +239,11 @@ describe("createScheduledMessage tool", () => {
     const result: ToolHandlerResult = await tool.handler(
       {
         channel: "C456",
-        cronExpression: "0 9 * * *",
+        minute: 0,
+        hour: 9,
+        dayOfMonth: "*",
+        month: "*",
+        dayOfWeek: "*",
         timezone: "America/New_York",
         prompt: "test",
         requiredTools: ["mcp__clack__not_a_real_tool", "bare_name_missing_prefix"],
@@ -222,7 +269,11 @@ describe("createScheduledMessage tool", () => {
     const result: ToolHandlerResult = await tool.handler(
       {
         channel: "C456",
-        cronExpression: "0 9 * * *",
+        minute: 0,
+        hour: 9,
+        dayOfMonth: "*",
+        month: "*",
+        dayOfWeek: "*",
         timezone: "America/New_York",
         prompt: "test",
         requiredTools: ["mcp__clack__fetch_channel_messages"],
@@ -246,7 +297,6 @@ describe("createScheduledMessage tool", () => {
     const tool = createCreateScheduledMessageTool(ctx, deps);
     const result = await callHandler(tool, {
       channel: "C456",
-      cronExpression: "0 9 * * *",
       prompt: "Summarize merged PRs",
       skipConditions: "Skip if no PRs were merged in the last 24 hours.",
     });
@@ -265,7 +315,6 @@ describe("createScheduledMessage tool", () => {
     const tool = createCreateScheduledMessageTool(ctx, deps);
     await callHandler(tool, {
       channel: "C456",
-      cronExpression: "0 9 * * *",
       prompt: "no conditions",
     });
 

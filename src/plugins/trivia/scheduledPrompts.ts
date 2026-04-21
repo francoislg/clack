@@ -161,32 +161,30 @@ Reveal the answer to today's trivia question. Follow these steps:
    - DO NOT call submit_response until AFTER submit_answers has completed.
 
 10. DELIVER WITH GAME SHOW ENERGY USING BLOCK KIT:
-    Use your Game Presenter persona to reveal the answer. Build the drama, celebrate the winners, keep that high-energy vibe going.
+    Use your Game Presenter persona to reveal the answer. Build the drama, celebrate the voters, keep that high-energy vibe going.
 
-    IMPORTANT: Use submit_response with a \`blocks\` array (Clack's curated subset: divider, header, section, context, image). Use block structure to pace the reveal — a header announces the answer, a section explains why, and a second section lists the voting results.
+    IMPORTANT: Use submit_response with a \`blocks\` array (Clack's curated subset: divider, header, section, context, image). Use block structure to pace the reveal — a header announces the answer, a section explains why, and further blocks present the voting results.
 
-    Compose your response as the following block sequence:
+    Start with:
     1. A \`header\` block whose plain_text announces the correct answer with dramatic emphasis (e.g. "🎯 THE ANSWER IS TRUE!").
     2. A \`section\` block (mrkdwn) explaining WHY the statement is true/false with the correct facts.
-    3. A \`header\` block with plain_text "🎪 VOTING RESULTS".
-    4. A \`section\` block (mrkdwn) grouping the four voter categories below, using Slack mrkdwn bullet points (\`•\`).
 
-    In the mrkdwn text:
+    Then present the voting results. Keep the following FOUR voter situations in mind — cover whichever ones actually apply for this question, in whatever arrangement reads best. Skip anything with no qualifying users entirely: do not add a heading, placeholder, or "nobody here" line for an empty situation. You are NOT required to use four sections, four headings, or any fixed structure — let your Game Show Presenter instincts shape the layout around what actually happened:
+    - CORRECT voters — users who voted the right answer (single reaction). If any, celebrate them enthusiastically and mention them with <@USERID>.
+    - INCORRECT voters — users who voted the wrong answer (single reaction). If any, acknowledge them with encouragement and game show charm.
+    - FENCE-SITTERS — users who reacted with BOTH :+1: AND :-1:. If any, call them out with a lighthearted roast.
+    - WILDCARDS — users who reacted with other emojis. If any, interpret their emoji intent with humor (e.g. "I see you <@U123> with that 🍕 — were you hungry or is this your way of saying 'false'?").
+
+    Style guidance:
     - Use emojis liberally for visual impact.
     - Mention users with <@USERID> format (e.g. <@U09FSR0REUQ>).
     - Use Slack mrkdwn (\`*bold*\`, \`_italic_\`) sparingly — emoji and energy do most of the work.
     - Keep paragraphs short and punchy.
     - Header text is \`plain_text\`, so emojis render but \`*asterisks*\` do not.
 
-    Inside the voting-results section, label four sub-groups (on separate lines within the same section):
-    - "Nailed it! 🎉" — celebrate correct voters (mention them like <@U123>) with enthusiastic praise.
-    - "Not quite! 💪" — acknowledge incorrect voters with encouragement and game show charm.
-    - "Playing both sides, eh? 🤨" — call out fence-sitters who voted for both (lighthearted roast).
-    - "Wait, what? 🤔" — address wildcard emoji users and interpret their intent with humor (e.g. "I see you <@U123> with that 🍕 — were you hungry or is this your way of saying 'false'?").
+    Caught cheaters from step 6 MUST NOT appear anywhere in the reveal — no mention, callout, footnote, or aside. If silent cheater removal leaves a situation empty, simply omit it — do not draw attention to the absence.
 
-    Caught cheaters from step 6 MUST NOT appear in any subsection, callout, footnote, or aside. If a side ends up empty after the silent removal, render that side as if no one voted there — do not draw attention to the absence.
-
-    If nobody voted (after excluding the bot and any caught cheaters), acknowledge it with humor and game show energy without referencing the exclusions.
+    If nobody voted at all (after excluding the bot and any caught cheaters), acknowledge it with humor and game show energy without referencing the exclusions.
     DO NOT include a leaderboard snippet — just the voting results for this question.
 
 Keep the tone fun, educational, and maintain that charismatic Game Show Presenter energy throughout.`;

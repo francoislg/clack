@@ -72,15 +72,10 @@ The returned prompt SHALL open with the **Game Show Presenter persona** directiv
 7. **Categorize reactions, excluding the bot AND silently excluding cheaters** — Before any analysis, remove the bot's own user ID from every reaction list (the bot's self-reactions must never count as votes). Claude SHALL determine the bot's user ID from its own session context rather than relying on a hardcoded value. Then remove every user ID present in `cheaterUserIds` (from step 6) from every reaction list. The exclusion is silent: Claude MUST NOT mention, allude to, or stylistically signal these removals in the user-facing reveal. After both removals, `:+1:` = TRUE vote; `:-1:` = FALSE vote. Identify fence-sitters (users who reacted with both `:+1:` AND `:-1:`) and wildcards (users who used other emojis) from the post-exclusion lists.
 8. **Partition voters** into four disjoint groups (human users only, bot AND cheaters excluded): **Correct** (voted the right answer, single reaction), **Incorrect** (voted the wrong answer, single reaction), **Fence-sitters** (both `:+1:` and `:-1:`), **Wildcards** (other emojis).
 9. **Submit answers BEFORE response** — Call `submit_answers` with `[{ userId, displayName, answer: boolean }]` including ONLY single-reaction voters from the post-exclusion partition (exclude fence-sitters, wildcards, AND cheaters from scoring). `answer: true` for `:+1:`, `false` for `:-1:`. Wait for completion. On failure, retry once; if it still fails, proceed with `submit_response` and mention that scoring failed. `submit_response` MUST NOT be called until `submit_answers` has completed.
-10. **Deliver via `submit_response`** using Block Kit `sections` (no Markdown headers, no bold/italic). Two sections:
-    - Answer section — correct answer with dramatic emphasis + the explanation.
-    - Voting Results section — labelled subsections for each voter group:
-      - **"Nailed it! 🎉"** — mention correct voters with `<@USERID>`, enthusiastic praise
-      - **"Not quite! 💪"** — incorrect voters with encouragement
-      - **"Playing both sides, eh? 🤨"** — fence-sitters, lighthearted roast
-      - **"Wait, what? 🤔"** — wildcards, interpret their emoji humorously
-    - Cheater identities MUST NOT appear in any subsection, callout, footnote, or aside; if every reactor on a side was a cheater, that side renders as if no one voted there.
-    - If nobody voted (after excluding the bot and cheaters), acknowledge with game-show humor. Do NOT include a leaderboard snippet.
+10. **Deliver via `submit_response`** using Block Kit blocks (Clack's curated subset: divider, header, section, context, image). The prompt SHALL require a `header` block announcing the correct answer and a `section` block explaining why, and SHALL then direct Claude to present the voting results while keeping the four voter situations in mind — **CORRECT voters**, **INCORRECT voters**, **FENCE-SITTERS**, **WILDCARDS**. The prompt SHALL NOT prescribe a fixed number of sections, fixed headings, or fixed sub-group labels for the voting results; layout is left to Claude's Game Show Presenter judgment.
+    - For each of the four situations, the prompt SHALL instruct Claude to cover it ONLY if at least one qualifying user exists, and to OMIT it entirely (no heading, no placeholder, no "nobody here" line) when empty.
+    - Cheater identities MUST NOT appear anywhere in the reveal — no mention, callout, footnote, or aside. If silent cheater removal empties a situation, the prompt SHALL instruct Claude to omit it under the same "skip when empty" rule, without drawing attention to the absence.
+    - If nobody voted at all (after excluding the bot and cheaters), acknowledge with game-show humor. Do NOT include a leaderboard snippet.
 
 #### Scenario: Returns the full step flow
 
@@ -109,10 +104,18 @@ The returned prompt SHALL open with the **Game Show Presenter persona** directiv
 - **THEN** the returned text includes an explicit rule that `submit_response` MUST NOT be called until `submit_answers` has completed
 - **AND** describes the one-retry-then-proceed fallback for `submit_answers` failures
 
-#### Scenario: Prompt defines the four voter category labels
+#### Scenario: Prompt names the four voter situations to cover
 
 - **WHEN** the tool is invoked
-- **THEN** the returned text specifies the exact section labels: "Nailed it! 🎉", "Not quite! 💪", "Playing both sides, eh? 🤨", "Wait, what? 🤔"
+- **THEN** the returned text names all four voter situations Claude must keep in mind: CORRECT voters, INCORRECT voters, FENCE-SITTERS, and WILDCARDS
+- **AND** does NOT mandate fixed sub-group labels (e.g. "Nailed it!", "Not quite!") or a rigid four-subsection layout — Claude is free to arrange the voting results however the Game Show Presenter persona deems best
+
+#### Scenario: Prompt instructs to skip empty voter situations
+
+- **WHEN** the tool is invoked
+- **THEN** the returned text instructs Claude to cover each voter situation ONLY if at least one qualifying user exists
+- **AND** instructs Claude to omit empty situations entirely — no heading, no placeholder, no "nobody here" line
+- **AND** the same skip-when-empty rule applies to situations emptied by silent cheater removal, without drawing attention to the absence
 
 #### Scenario: Prompt contains no cheat-detection logic
 
