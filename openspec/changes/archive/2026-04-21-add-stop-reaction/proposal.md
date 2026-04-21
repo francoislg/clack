@@ -1,8 +1,8 @@
 ## Why
 
-Users currently have no fast, universal way to tell Clack to stop. If Clack misunderstood a question and is churning through tools, or if a worker-mode change went off the rails, the available options are piecemeal: editing the triggering message (mentions/DMs only, and it *restarts* rather than cancels), waiting for Claude to finish, or — for worker mode — invoking the `cancel_worker_run` MCP tool (requires a follow-up message, doesn't work if the thread has lost context). Reaction-triggered queries have *no* cancellation path at all (`request-cancellation` spec explicitly excludes them).
+Users currently have no fast, universal way to tell Clack to stop. If Clack misunderstood a question and is churning through tools, or if a worker-mode change went off the rails, the available options are piecemeal: editing the triggering message (mentions/DMs only, and it _restarts_ rather than cancels), waiting for Claude to finish, or — for worker mode — invoking the `cancel_worker_run` MCP tool (requires a follow-up message, doesn't work if the thread has lost context). Reaction-triggered queries have _no_ cancellation path at all (`request-cancellation` spec explicitly excludes them).
 
-A single reaction that works anywhere in the thread and stops everything immediately — current Claude work and future auto-responses — closes this gap with a universal, discoverable gesture. Users also frequently *type* their intent ("🛑 stop") rather than react; inline detection of the same emoji in short messages catches that natural behavior too, so both surfaces lead to the same outcome.
+A single reaction that works anywhere in the thread and stops everything immediately — current Claude work and future auto-responses — closes this gap with a universal, discoverable gesture. Users also frequently _type_ their intent ("🛑 stop") rather than react; inline detection of the same emoji in short messages catches that natural behavior too, so both surfaces lead to the same outcome.
 
 ## What Changes
 
@@ -21,6 +21,7 @@ A single reaction that works anywhere in the thread and stops everything immedia
 - **Tests** cover: config/validation, reaction handler emoji matching, thread-level lookup from any message, abort for each trigger type (mentions, DMs, reaction-triggered queries, worker executing, worker follow-up), disengagement, re-engagement on button click, idempotency, and the migration.
 
 Non-goals:
+
 - Closing PRs, merging PRs, or any destructive git operation as a side effect of stop. Stop is non-destructive.
 - Per-user / per-channel silencing preferences (no mute lists). Stop is per-thread and sticky until explicit re-engagement.
 - Stopping top-level auto-respond triggering in a channel — stop acts on the thread the reacted message belongs to.
@@ -29,9 +30,11 @@ Non-goals:
 ## Capabilities
 
 ### New Capabilities
+
 - (none — this change extends existing capabilities)
 
 ### Modified Capabilities
+
 - `slack-reaction-trigger`: adds a third configurable reaction (the stop reaction) alongside the existing query trigger and work-mode trigger. Adds detection and thread-scoped lookup behavior.
 - `slack-message-trigger`: adds inline stop-emoji detection to DM, @mention, and thread-reply handling, intercepting before `processMessage` dispatch.
 - `request-cancellation`: removes the current "reactions mode excluded" exclusion (the registry will now track reaction-triggered requests), adds a new requirement covering abort via stop reaction for all query trigger types, and adds a companion requirement covering abort via inline stop emoji with the same thread-scoped semantics.

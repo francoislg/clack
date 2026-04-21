@@ -11,7 +11,9 @@ export function createScheduleReminderTool(ctx: QueryToolContext) {
     "schedule_reminder",
     "Schedule a message to be posted to a Slack channel or DM at a future time. " +
       "Use this when the user asks you to set a reminder or schedule a message. " +
-      "The post_at parameter must be an ISO 8601 UTC timestamp. " +
+      "The post_at parameter must be an ISO 8601 UTC timestamp — if the user spoke in " +
+      "their local time (e.g. 'tomorrow at 3pm'), convert that local time to UTC using " +
+      "the USER TIMEZONE from the system prompt before passing it. " +
       "Messages are limited to 120 days in the future. " +
       "The message will be attributed to the requesting user.",
     {
@@ -25,7 +27,10 @@ export function createScheduleReminderTool(ctx: QueryToolContext) {
       message: z.string().describe("The reminder message content"),
       post_at: z
         .string()
-        .describe("ISO 8601 UTC timestamp for when to post (e.g. '2026-03-28T15:00:00Z')"),
+        .describe(
+          "ISO 8601 UTC timestamp for when to post (e.g. '2026-03-28T15:00:00Z'). " +
+            "Convert the user's local time to UTC before passing.",
+        ),
     },
     async (args) => {
       if (!ctx.slackClient) {

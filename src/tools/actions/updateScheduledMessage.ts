@@ -17,20 +17,44 @@ export function createUpdateScheduledMessageTool(ctx: QueryToolContext) {
     "update_scheduled_message",
     "Update an existing scheduled message. " +
       "Non-admin users can only update their own scheduled messages. " +
-      "Only provide the fields you want to change.",
+      "Only provide the fields you want to change. " +
+      "To change the schedule time, pass the full `schedule` object with all five cron fields — " +
+      "hour/minute are in the stored (or newly-passed) timezone, NOT UTC. " +
+      "When reporting back to the user, quote the `schedule` field from the tool result verbatim " +
+      "— do not recompute or rephrase it.",
     {
       id: z.string().describe("The scheduled message ID to update"),
-      cronExpression: z
-        .string()
+      schedule: z
+        .object({
+          minute: z
+            .number()
+            .int()
+            .min(0)
+            .max(59)
+            .describe("Minute of the hour (0-59) in the job's timezone. NOT UTC."),
+          hour: z
+            .number()
+            .int()
+            .min(0)
+            .max(23)
+            .describe(
+              "Hour of the day (0-23) in the job's timezone — exactly what the user said. NOT UTC.",
+            ),
+          dayOfMonth: z.string().describe("Cron day-of-month field (e.g. '*', '1', '1,15')."),
+          month: z.string().describe("Cron month field (e.g. '*', '1', '1-6')."),
+          dayOfWeek: z
+            .string()
+            .describe("Cron day-of-week field (e.g. '*', '1-5' for weekdays, '0,6' for weekends)."),
+        })
         .optional()
         .describe(
-          "New cron expression, interpreted in the job's timezone (pass `timezone` here to change it) — do NOT convert to UTC",
+          "Replace the full schedule. Omit to keep the existing one. All five fields are required when provided.",
         ),
       timezone: z
         .string()
         .optional()
         .describe(
-          "New IANA timezone the cron expression is expressed in (e.g. 'America/New_York', 'UTC'). Omit to keep unchanged.",
+          "New IANA timezone the hour/minute are expressed in (e.g. 'America/New_York', 'UTC'). Omit to keep unchanged.",
         ),
       channel: z.string().optional().describe("New target channel"),
       prompt: z
@@ -72,13 +96,18 @@ export function createUpdateScheduledMessageTool(ctx: QueryToolContext) {
         return errorResult("You can only update your own scheduled messages.");
       }
 
-      // Validate cron expression if provided
-      if (args.cronExpression) {
+      let newCronExpression: string | undefined;
+      if (args.schedule) {
+        const { minute, hour, dayOfMonth, month, dayOfWeek } = args.schedule;
+        newCronExpression = `${minute} ${hour} ${dayOfMonth} ${month} ${dayOfWeek}`;
         try {
-          CronExpressionParser.parse(args.cronExpression);
+          CronExpressionParser.parse(newCronExpression);
         } catch (error) {
           const msg = errorMessage(error);
-          return errorResult(`Invalid cron expression "${args.cronExpression}": ${msg}`);
+          return errorResult(
+            `Invalid schedule fields (built cron "${newCronExpression}"): ${msg}. ` +
+              "Check dayOfMonth, month, and dayOfWeek for valid cron syntax.",
+          );
         }
       }
 
@@ -108,7 +137,7 @@ export function createUpdateScheduledMessageTool(ctx: QueryToolContext) {
 
       try {
         const updated = await updateJob(args.id, {
-          ...(args.cronExpression && { cronExpression: args.cronExpression }),
+          ...(newCronExpression && { cronExpression: newCronExpression }),
           ...(args.timezone !== undefined && { timezone: args.timezone }),
           ...(channelId && { channel: channelId }),
           ...(args.prompt !== undefined && { prompt: args.prompt }),

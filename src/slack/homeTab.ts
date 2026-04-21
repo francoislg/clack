@@ -1397,28 +1397,9 @@ async function buildScheduledMessagesSection(
         action_id: `cron_edit_job:${job.id}`,
       },
     });
-
-    if (job.skipConditions) {
-      blocks.push({
-        type: "context",
-        elements: [
-          {
-            type: "mrkdwn",
-            text: `Skip conditions: ${truncateSkipConditions(job.skipConditions)}`,
-          },
-        ],
-      });
-    }
   }
 
   return blocks;
-}
-
-const SKIP_CONDITIONS_DISPLAY_LIMIT = 120;
-
-function truncateSkipConditions(value: string): string {
-  if (value.length <= SKIP_CONDITIONS_DISPLAY_LIMIT) return value;
-  return `${value.slice(0, SKIP_CONDITIONS_DISPLAY_LIMIT - 1)}…`;
 }
 
 export function buildCronJobModal(job?: CronJob): View {

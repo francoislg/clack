@@ -36,13 +36,21 @@ function callHandler(
     id: string;
     skipConditions?: string;
     prompt?: string;
+    schedule?: {
+      minute: number;
+      hour: number;
+      dayOfMonth: string;
+      month: string;
+      dayOfWeek: string;
+    };
+    timezone?: string;
   },
 ): Promise<ToolHandlerResult> {
   return tool.handler(
     {
       id: args.id,
-      cronExpression: undefined,
-      timezone: undefined,
+      schedule: args.schedule,
+      timezone: args.timezone,
       channel: undefined,
       prompt: args.prompt,
       requiredTools: undefined,
@@ -156,5 +164,40 @@ describe("update_scheduled_message tool — skipConditions", () => {
     assert.notEqual(result.isError, true);
     const updated = await getJob(job.id);
     assert.equal(updated?.skipConditions, "Admin-set condition");
+  });
+
+  it("rewrites cronExpression from structured schedule fields as local time", async () => {
+    const job = await seedJob();
+    const tool = createUpdateScheduledMessageTool(buildCtx());
+
+    const result = await callHandler(tool, {
+      id: job.id,
+      schedule: { minute: 30, hour: 11, dayOfMonth: "*", month: "*", dayOfWeek: "*" },
+      timezone: "America/New_York",
+    });
+
+    assert.notEqual(result.isError, true);
+    const updated = await getJob(job.id);
+    assert.equal(
+      updated?.cronExpression,
+      "30 11 * * *",
+      "hour must be stored as given (11), not UTC-converted (15)",
+    );
+    assert.equal(updated?.timezone, "America/New_York");
+  });
+
+  it("rejects an invalid cron field combination in the schedule update", async () => {
+    const job = await seedJob();
+    const tool = createUpdateScheduledMessageTool(buildCtx());
+
+    const result = await callHandler(tool, {
+      id: job.id,
+      schedule: { minute: 0, hour: 9, dayOfMonth: "*", month: "*", dayOfWeek: "not-a-day" },
+    });
+
+    assert.equal(result.isError, true);
+    assert.match(result.content[0].text, /Invalid schedule fields/);
+    const unchanged = await getJob(job.id);
+    assert.equal(unchanged?.cronExpression, "0 9 * * *", "no change should be persisted");
   });
 });

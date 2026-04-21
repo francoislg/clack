@@ -25,17 +25,19 @@ export function createCreateScheduledMessageTool(
 ) {
   return tool(
     "create_scheduled_message",
-    "Create a scheduled message that runs on a cron schedule. " +
+    "Create a scheduled message that runs on a recurring schedule. " +
       "Use this when the user asks to schedule recurring messages or one-time future messages. " +
       "If the user's request is ambiguous (e.g., 'send this regularly' without specifying when), " +
       "ask clarifying questions first before calling this tool. " +
-      "The cronExpression uses standard 5-field cron syntax (minute hour day-of-month month day-of-week) " +
-      "and is interpreted in the timezone you pass as `timezone` — do NOT convert to UTC. " +
-      "For example, '0 9 * * *' with timezone 'America/New_York' means 9:00 AM every day in New York. " +
-      "Provide a prompt describing what Claude should do each time the schedule fires. " +
+      "Time is specified with `minute` and `hour` as the user's LOCAL clock time in the " +
+      "`timezone` you pass — pass exactly what the user said (e.g. user said '11:30 AM' → " +
+      "hour: 11, minute: 30). The tool interprets those in the given timezone. Do NOT convert " +
+      "to UTC. Provide a prompt describing what Claude should do each time the schedule fires. " +
       "IMPORTANT: The prompt should only describe WHAT to do, not HOW to deliver the result. " +
       "The scheduler automatically handles delivery via submit_response — do NOT include " +
-      "instructions about submit_response, post_to, or how to post the message in the prompt.",
+      "instructions about submit_response, post_to, or how to post the message in the prompt. " +
+      "When reporting back to the user, quote the `schedule` field from the tool result verbatim " +
+      "(e.g. 'Every day at 11:30 AM EDT') — do not recompute or rephrase it.",
     {
       channel: z
         .string()
@@ -44,16 +46,41 @@ export function createCreateScheduledMessageTool(
             "DM channel ID (e.g. 'D0123ABCDEF'), or your own user ID to DM yourself " +
             "(e.g. 'U0123ABCDEF'). Third-party user IDs are not allowed.",
         ),
-      cronExpression: z
+      minute: z
+        .number()
+        .int()
+        .min(0)
+        .max(59)
+        .describe("Minute of the hour (0-59) in the user's local timezone. NOT UTC."),
+      hour: z
+        .number()
+        .int()
+        .min(0)
+        .max(23)
+        .describe(
+          "Hour of the day (0-23) in the user's local timezone — the exact hour the user said. " +
+            "NOT UTC. E.g. user said '11:30 AM' → hour: 11. User said '3pm' → hour: 15.",
+        ),
+      dayOfMonth: z
         .string()
         .describe(
-          "5-field cron expression, interpreted in the `timezone` you pass — do NOT convert to UTC " +
-            "(e.g. '0 9 * * *' for daily at 9am in the given timezone, '0 9 * * 1' for Mondays at 9am)",
+          "Cron day-of-month field: '*' for every day, '1' for the 1st, '1,15' for 1st and 15th, etc.",
+        ),
+      month: z
+        .string()
+        .describe(
+          "Cron month field: '*' for every month, '1' for January, '1-6' for Jan-Jun, etc.",
+        ),
+      dayOfWeek: z
+        .string()
+        .describe(
+          "Cron day-of-week field: '*' for every day, '1-5' for Mon-Fri (weekdays), " +
+            "'1' for Mondays, '0,6' for weekends (Sun, Sat).",
         ),
       timezone: z
         .string()
         .describe(
-          "IANA timezone name the cron expression is expressed in (e.g. 'America/New_York', " +
+          "IANA timezone name the hour/minute are expressed in (e.g. 'America/New_York', " +
             "'Europe/London', 'UTC'). Pass the user's local timezone — shown in the system " +
             "prompt as USER TIMEZONE — unless they explicitly asked for a different zone.",
         ),
@@ -99,12 +126,14 @@ export function createCreateScheduledMessageTool(
         return errorResult("Scheduling requires a Slack connection");
       }
 
-      // Validate cron expression
+      const cronExpression = `${args.minute} ${args.hour} ${args.dayOfMonth} ${args.month} ${args.dayOfWeek}`;
+
       try {
-        CronExpressionParser.parse(args.cronExpression);
+        CronExpressionParser.parse(cronExpression);
       } catch (error) {
         return errorResult(
-          `Invalid cron expression "${args.cronExpression}": ${errorMessage(error)}. Use 5-field format: minute hour day-of-month month day-of-week`,
+          `Invalid schedule fields (built cron "${cronExpression}"): ${errorMessage(error)}. ` +
+            "Check dayOfMonth, month, and dayOfWeek for valid cron syntax (use '*' for every).",
         );
       }
 
@@ -130,7 +159,7 @@ export function createCreateScheduledMessageTool(
 
       try {
         const job = await deps.createJob({
-          cronExpression: args.cronExpression,
+          cronExpression,
           channel: channelId,
           prompt: args.prompt,
           createdBy: ctx.userId,
@@ -141,8 +170,8 @@ export function createCreateScheduledMessageTool(
           skipConditions: args.skipConditions,
         });
 
-        const schedule = humanReadableSchedule(args.cronExpression, args.timezone);
-        const nextRun = getNextRun(args.cronExpression, args.timezone);
+        const schedule = humanReadableSchedule(cronExpression, args.timezone);
+        const nextRun = getNextRun(cronExpression, args.timezone);
 
         return textResult({
           ok: true,

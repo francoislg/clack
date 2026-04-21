@@ -1152,7 +1152,7 @@ describe("buildHomeView — Scheduled Messages skipConditions", () => {
     return texts;
   }
 
-  it("renders a context line with skipConditions when set on a job", async () => {
+  it("does NOT render a skip-conditions context line on the home page (edit modal only)", async () => {
     setDefaultMocks("member");
     mockGetJobsByUser.mock.mockImplementation(async () => [
       baseJob({ skipConditions: "Skip on weekends" }),
@@ -1162,39 +1162,9 @@ describe("buildHomeView — Scheduled Messages skipConditions", () => {
     const view = await buildHomeView({ userId: "U001" }, deps);
     const texts = findContextTexts(view);
     assert.ok(
-      texts.some((t) => t.includes("Skip conditions:") && t.includes("Skip on weekends")),
-      `expected skip-conditions context line, got: ${JSON.stringify(texts)}`,
+      !texts.some((t) => t.includes("Skip conditions:") || t.includes("Skip on weekends")),
+      "skipConditions should only be visible inside the edit modal, not as a row label",
     );
-  });
-
-  it("omits the skipConditions context line when the field is not set", async () => {
-    setDefaultMocks("member");
-    mockGetJobsByUser.mock.mockImplementation(async () => [baseJob()]);
-
-    const deps = makeDeps();
-    const view = await buildHomeView({ userId: "U001" }, deps);
-    const texts = findContextTexts(view);
-    assert.ok(
-      !texts.some((t) => t.includes("Skip conditions:")),
-      "no skip-conditions line should render when skipConditions is absent",
-    );
-  });
-
-  it("truncates long skipConditions with an ellipsis", async () => {
-    setDefaultMocks("member");
-    const longCondition = "x".repeat(200);
-    mockGetJobsByUser.mock.mockImplementation(async () => [
-      baseJob({ skipConditions: longCondition }),
-    ]);
-
-    const deps = makeDeps();
-    const view = await buildHomeView({ userId: "U001" }, deps);
-    const texts = findContextTexts(view);
-    const line = texts.find((t) => t.includes("Skip conditions:"));
-    assert.ok(line);
-    assert.ok(line.endsWith("…"), "long values should end with an ellipsis");
-    // Header "Skip conditions: " is 17 chars; content is capped at 120 chars total incl. ellipsis
-    assert.ok(line.length < 17 + 200, "line should be shorter than the raw condition");
   });
 
   it("renders a distinct 'last run skipped' indicator for skipped status", async () => {
