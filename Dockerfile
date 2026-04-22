@@ -20,6 +20,9 @@ WORKDIR /app
 # Install git for repository operations
 RUN apk add --no-cache git curl bash
 
+# Enable corepack so pnpm/yarn shims are available for repo hooks
+RUN corepack enable
+
 # Install Claude Code CLI (required by @anthropic-ai/claude-agent-sdk)
 # Installer puts it in /root/.local; copy to /usr/local/bin so it's accessible to non-root user
 RUN curl -fsSL https://claude.ai/install.sh | bash \
