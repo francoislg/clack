@@ -2,11 +2,29 @@ import type { App } from "@slack/bolt";
 import type { Block as SlackRawBlock, KnownBlock } from "@slack/types";
 import type { SlackBlocks } from "../slack/blocks.js";
 import type { Block } from "../slack/blockSchema.js";
-import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
+import type {
+  McpSdkServerConfigWithInstance,
+  McpServerConfig,
+  McpSetServersResult,
+} from "@anthropic-ai/claude-agent-sdk";
 import type { UserRole } from "../roles.js";
 import type { SessionContext } from "../sessions.js";
 import type { Config } from "../config.js";
+import type { McpServerManager } from "../claude/mcpServerManager.js";
 import type { SlackImageFile, SlackFile } from "../slack/slackFileBase.js";
+
+// ============================================================================
+// Query handle — shared mutable ref for the SDK Query object
+// ============================================================================
+
+/**
+ * Function signature for the SDK's `Query.setMcpServers`. Extracted so tools and
+ * tests can reference the contract without depending on the whole `Query` interface
+ * (which is an AsyncGenerator — awkward to fake in tests).
+ */
+export type SetMcpServersFn = (
+  servers: Record<string, McpServerConfig>,
+) => Promise<McpSetServersResult>;
 
 // ============================================================================
 // Delivery
@@ -64,6 +82,14 @@ export interface QueryToolContext {
    * Ignored for non-scheduled triggers.
    */
   skipConditions?: string;
+  /**
+   * Owns the session's MCP-server lifecycle — tracks session-start servers, attached
+   * servers, the effective registry, and wraps every `setMcpServers` call so the
+   * merge invariant is guaranteed. Populated by the session orchestrator and bound
+   * to the SDK Query in `clackSession`'s `onQuery` callback. Absent in contexts
+   * without dynamic attachment (worker mode).
+   */
+  mcpManager?: McpServerManager;
 }
 
 /** Worker context — used by change execution and follow-up flows */

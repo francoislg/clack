@@ -4,6 +4,7 @@ import type { SessionContext } from "../sessions.js";
 import type { Config } from "../config.js";
 import type { SlackImageFile, SlackFile } from "../slack/slackFileBase.js";
 import type { QueryToolContext, WorkerToolContext, DeliverFn } from "./types.js";
+import type { McpServerManager } from "../claude/mcpServerManager.js";
 
 export interface BuildQueryContextParams {
   userId: string;
@@ -18,6 +19,12 @@ export interface BuildQueryContextParams {
   availableFiles?: Map<string, SlackFile>;
   requiredTools?: string[];
   skipConditions?: string;
+  /**
+   * MCP server lifecycle manager for this session. Owns session-start servers,
+   * attached servers, and the effective registry; guarantees the merge invariant
+   * on every `setMcpServers` call. Bound to the SDK Query by the orchestrator.
+   */
+  mcpManager?: McpServerManager;
 }
 
 export function buildQueryContext(params: BuildQueryContextParams): QueryToolContext {

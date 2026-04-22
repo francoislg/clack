@@ -214,6 +214,25 @@ export interface SessionContext {
   /** Whether this session is actively tracked for auto-respond thread replies.
    *  Defaults to true. Set to false to disengage from thread tracking. */
   autoResponseActive?: boolean;
+  /**
+   * Integrations the session has attached via `attach_integration` mid-session.
+   * Persisted so resumed turns can re-attach (call `query.setMcpServers`) before
+   * the first assistant message. Absent/empty means no lazy integrations are active.
+   */
+  attachedIntegrations?: string[];
+  /**
+   * Per-attempt history of every `attach_integration` call in this session. Unlike
+   * `attachedIntegrations` (which is the current *successful* set), this records
+   * every attempt — success, duplicate, or failure — with the outcome and any
+   * error text, in chronological order. Used for post-hoc debugging of sessions
+   * where Claude reached for an integration and something went wrong.
+   */
+  mcpAttachHistory?: Array<{
+    name: string;
+    outcome: "ok" | "duplicate" | "failed" | "instructions_only";
+    error?: string;
+    timestamp: number;
+  }>;
 }
 
 function generateSessionId(channelId: string, messageTs: string, userId: string): string {

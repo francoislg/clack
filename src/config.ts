@@ -101,6 +101,19 @@ export interface AutoRespondConfig {
   enabled: boolean;
 }
 
+/**
+ * Clack-owned metadata about an MCP server. `data/mcp.json` stays in pure Claude SDK shape;
+ * this registry (under `config.mcpServers`) adds:
+ *  - `alwaysLoad`: whether to attach at session start vs. lazy-load via `attach_integration`
+ *  - `description`: one-line reason Claude should use the integration (shown in the catalog block)
+ */
+export interface McpServerRegistryEntry {
+  alwaysLoad: boolean;
+  description: string;
+}
+
+export type McpServerRegistry = Record<string, McpServerRegistryEntry>;
+
 export interface Config {
   slack: SlackConfig;
   slackApp?: SlackAppConfig;
@@ -120,6 +133,14 @@ export interface Config {
   threadAutoRespondMaxAgeMinutes?: number;
   /** List of Clack plugin names to load at startup */
   plugins?: string[];
+  /**
+   * Clack-owned MCP server registry. Keyed by server name. Declares each server's
+   * `alwaysLoad` flag (session-start attach vs. lazy) and a `description` shown in the
+   * integrations catalog. Entries without a matching `data/mcp.json` server are valid
+   * (instructions-only topics). Servers in `data/mcp.json` without a registry entry are
+   * auto-loaded with a warning — see `resolveEffectiveRegistry` in `src/mcp.ts`.
+   */
+  mcpServers?: McpServerRegistry;
 }
 
 const DEFAULTS: Partial<Config> = {
@@ -272,6 +293,48 @@ function parseStopReaction(raw: ReactionsRaw | undefined): string | null | undef
     );
   }
   return val;
+}
+
+// JSON value tree for validator inputs — a real type rather than `unknown`.
+type JsonPrimitive = string | number | boolean | null;
+type JsonArray = JsonValue[];
+interface JsonObject {
+  [key: string]: JsonValue;
+}
+type JsonValue = JsonPrimitive | JsonArray | JsonObject;
+
+export function parseMcpServerRegistry(raw: JsonValue | undefined): McpServerRegistry | undefined {
+  if (raw === undefined) return undefined;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("Config 'mcpServers' must be an object keyed by server name");
+  }
+
+  const entries: JsonObject = raw;
+  const registry: McpServerRegistry = {};
+
+  for (const [name, value] of Object.entries(entries)) {
+    if (!name || /\s/.test(name)) {
+      throw new Error(`Config 'mcpServers' key '${name}' must be a non-empty identifier`);
+    }
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error(`Config 'mcpServers.${name}' must be an object`);
+    }
+    const entry: JsonObject = value;
+
+    const alwaysLoad = entry.alwaysLoad;
+    if (typeof alwaysLoad !== "boolean") {
+      throw new Error(`Config 'mcpServers.${name}.alwaysLoad' must be a boolean`);
+    }
+
+    const description = entry.description;
+    if (typeof description !== "string" || description.trim().length === 0) {
+      throw new Error(`Config 'mcpServers.${name}.description' must be a non-empty string`);
+    }
+
+    registry[name] = { alwaysLoad, description };
+  }
+
+  return registry;
 }
 
 const VALID_MERGE_STRATEGIES = ["squash", "merge", "rebase"] as const;
@@ -480,6 +543,7 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
     threadAutoRespond: bool(c, "threadAutoRespond") ?? undefined,
     threadAutoRespondMaxAgeMinutes: num(c, "threadAutoRespondMaxAgeMinutes") ?? undefined,
     plugins: strArray(c, "plugins"),
+    mcpServers: parseMcpServerRegistry(c.mcpServers as JsonValue | undefined),
   };
 
   return merged;

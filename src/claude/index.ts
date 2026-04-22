@@ -6,7 +6,6 @@ import { buildSystemPrompt, buildPrompt } from "./promptBuilder.js";
 import { detectRuntime } from "./utilities.js";
 import { errorMessage } from "../errors.js";
 import { logger } from "../logger.js";
-import { loadMcpServers } from "../mcp.js";
 import type { UserRole } from "../roles.js";
 import type { SessionContext } from "../sessions.js";
 import { updateSession } from "../sessions.js";
@@ -17,6 +16,7 @@ import type {
   DeliverFn,
   ClackToolsResult,
 } from "../tools/types.js";
+import { McpServerManager, prepareMcpSession, completeSessionStart } from "./mcpServerManager.js";
 import type { StreamEvent } from "../streaming/types.js";
 import type { SlackImageFile, SlackFile } from "../slack/slackFileBase.js";
 import type { SlackBlocks } from "../slack/blocks.js";
@@ -145,6 +145,7 @@ interface QuerySetup {
   model: string | undefined;
   clackTools: ClackToolsResult;
   mcpServers: Record<string, McpServerConfig>;
+  mcpManager: McpServerManager;
 }
 
 async function buildQuerySetup(
@@ -153,12 +154,17 @@ async function buildQuerySetup(
 ): Promise<QuerySetup> {
   const config = getConfig();
   const reposDir = getRepositoriesDir();
-  const externalMcpServers = await loadMcpServers();
+
+  // All MCP-server setup (registry resolution, always-on loading, resume
+  // attachment pre-loading, stale cleanup, manager construction) lives in the
+  // `prepareMcpSession` factory. We get back a manager and the pieces needed
+  // to finalize the session-start mcpServers map after building the clack/
+  // plugin servers below.
+  const mcpSetup = await prepareMcpSession(session, config);
 
   const systemPrompt = buildSystemPrompt(options);
-  const userPrompt = buildPrompt(session, options);
+  const userPrompt = buildPrompt(session, { ...options, mcpRegistry: mcpSetup.registry });
 
-  // Build clack tool server for this query
   const toolCtx = buildQueryContext({
     userId: session.userId,
     role: options?.role ?? "member",
@@ -172,14 +178,17 @@ async function buildQuerySetup(
     availableFiles: options?.availableFiles,
     requiredTools: options?.requiredTools,
     skipConditions: options?.skipConditions,
+    mcpManager: mcpSetup.manager,
   });
   const clackTools = buildClackTools(toolCtx);
 
-  // Merge external MCP servers with the clack + per-plugin tool servers
-  const mcpServers: Record<string, McpServerConfig> = {
-    ...externalMcpServers,
-    ...(clackTools.mcpServers as Record<string, McpServerConfig>),
-  };
+  // Hand the clack + plugin servers back to the factory. It hydrates the
+  // manager's baseline and returns the merged `options.mcpServers` (baseline +
+  // resumed attachments) so the CLI's restored state matches exactly.
+  const mcpServers = completeSessionStart(
+    mcpSetup,
+    clackTools.mcpServers as Record<string, McpServerConfig>,
+  );
 
   return {
     reposDir,
@@ -188,6 +197,7 @@ async function buildQuerySetup(
     model: config.claudeCode.model,
     clackTools,
     mcpServers,
+    mcpManager: mcpSetup.manager,
   };
 }
 
@@ -332,7 +342,7 @@ export async function askClaude(
   session: SessionContext,
   options?: AskClaudeOptions,
 ): Promise<ClaudeResponse> {
-  const { reposDir, systemPrompt, userPrompt, model, clackTools, mcpServers } =
+  const { reposDir, systemPrompt, userPrompt, model, clackTools, mcpServers, mcpManager } =
     await buildQuerySetup(session, options);
 
   logger.debug(`Querying Claude via Agent SDK for session ${session.sessionId}...`);
@@ -357,6 +367,15 @@ export async function askClaude(
         updateSession(session.sessionId, { sdkSessionId: id }).catch((err) =>
           logger.warn(`Failed to save sdkSessionId: ${errorMessage(err)}`),
         );
+      },
+      onQuery: (query) => {
+        // Bind the Query's setMcpServers so the manager (and by extension
+        // `attach_integration`) can call it mid-session for NEW attachments.
+        // Resume-time re-attach is handled at session-start — persisted
+        // integrations are pre-loaded into `options.mcpServers` in buildQuerySetup
+        // so the CLI's restored state matches --mcp-config exactly (otherwise we
+        // get duplicate tool registrations and a 400 "tools must be unique" error).
+        mcpManager.bind(query.setMcpServers.bind(query));
       },
       options: {
         cwd: reposDir,

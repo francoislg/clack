@@ -19,6 +19,7 @@ import { startAll, stopAll } from "./lifecycle.js";
 import { setFailedMcpServers } from "./mcpStatus.js";
 import { diagnoseMcpServer, type DiagnosableConfig } from "./mcpDiagnose.js";
 import { loadMcpServers } from "./mcp.js";
+import { runBaselineSmoke } from "./startupBaselineSmoke.js";
 
 // Load environment variables from .env files (later files don't override earlier ones)
 dotenvConfig({ path: join(process.cwd(), ".env") });
@@ -133,6 +134,13 @@ async function main(): Promise<void> {
       logger.warn("Failed to restore worker sessions:", error);
     }
   }
+
+  // Step 3.8: Baseline token smoke test (fire-and-forget).
+  // Launches minimal per-role Claude queries and logs `baseline.tokens role=<x> tokens=<n>`
+  // so operators can monitor whether the system-prompt baseline is drifting over time.
+  void runBaselineSmoke(config).catch((error) => {
+    logger.warn("baseline.tokens.failed stage=unexpected error=", error);
+  });
 
   // Step 4: Create and start Slack app
   logger.info("Starting Slack app...");

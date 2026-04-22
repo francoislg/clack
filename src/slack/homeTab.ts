@@ -1,6 +1,6 @@
 import type { View, KnownBlock, Block } from "@slack/types";
 import { getConfig } from "../config.js";
-import { getConfiguredMcpServerNames } from "../mcp.js";
+import { getConfiguredMcpServerNames, resolveEffectiveRegistry } from "../mcp.js";
 import { getFailedMcpServers } from "../mcpStatus.js";
 import { loadRoles, getRole, hasOwner, type UserRole } from "../roles.js";
 import { canEditConfig, canManageRoles, canRequestChanges } from "../permissions.js";
@@ -512,17 +512,39 @@ export function buildStatusSection(
     },
   });
 
-  // MCP Servers
+  // MCP Servers — split into always-loaded (session-start) vs on-demand (lazy).
+  // The effective registry is the source of truth for the alwaysLoad flag;
+  // servers in mcp.json with no registry entry fall back to alwaysLoad=true
+  // (see `resolveEffectiveRegistry`), so they surface in the Always group.
   if (mcpServers.length > 0) {
     const failed = deps.getFailedMcpServers();
-    const rendered = mcpServers
-      .map((name) => (failed.has(name) ? `${name} :warning:` : name))
-      .join(", ");
+    const { registry } = resolveEffectiveRegistry({
+      configRegistry: config.mcpServers,
+      mcpServerNames: mcpServers,
+      githubAutoInjected: mcpServers.includes("github"),
+    });
+
+    const always: string[] = [];
+    const onDemand: string[] = [];
+    for (const name of mcpServers) {
+      const marker = failed.has(name) ? `${name} :warning:` : name;
+      // Unknown → default to always (legacy behaviour parity).
+      if (registry[name]?.alwaysLoad !== false) {
+        always.push(marker);
+      } else {
+        onDemand.push(marker);
+      }
+    }
+
+    const lines: string[] = [":electric_plug: *MCP Servers:*"];
+    lines.push(`• *Always loaded:* ${always.length > 0 ? always.join(", ") : "_(none)_"}`);
+    lines.push(`• *On demand:* ${onDemand.length > 0 ? onDemand.join(", ") : "_(none)_"}`);
+
     blocks.push({
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `:electric_plug: *MCP Servers:* ${rendered}`,
+        text: lines.join("\n"),
       },
     });
   }

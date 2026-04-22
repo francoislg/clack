@@ -83,6 +83,7 @@ Managed via the Home Tab in Slack. Per-repo access control with `read` and `writ
 - Template variables like `{BOT_NAME}` are substituted at runtime (see `src/claude/promptBuilder.ts`)
 - Per-repo instructions: `{repo}/changes_instructions.md` and `{repo}/worktree_setup_instructions.md`
 - Admins can edit instruction overrides from the Home Tab
+- **Baseline vs topic files**: `{role}/*.md` at the top level are *baseline* files — always loaded. `{role}/topics/<topic>/*.md` are *topic* files — loaded only when `attach_integration("<topic>")` activates that topic mid-session. Both layers cascade through the role chain (member → dev → admin → owner) the same way; baseline resolution explicitly skips the `topics/` folder. See `src/cascadingConfigResolver.ts` and the MCP registry in `data/config.json` (`mcpServers: { <name>: { alwaysLoad, description } }`) which governs which integrations get lazy-loaded via the catalog
 
 ### Changes Workflow
 

@@ -14,6 +14,8 @@ import { migration as m12 } from "./012-add-thread-auto-respond-max-age.js";
 import { migration as m13 } from "./013-rename-plugins-to-skill-plugins.js";
 import { migration as m14 } from "./014-cron-job-block-kit-prompts.js";
 import { migration as m15 } from "./015-add-stop-reaction.js";
+import { migration as m16 } from "./016-topic-subfolders.js";
+import { migration as m17 } from "./017-split-topic-files.js";
 
 // Register migrations here in version order.
 export const migrations: Migration[] = [
@@ -32,4 +34,6 @@ export const migrations: Migration[] = [
   m13,
   m14,
   m15,
+  m16,
+  m17,
 ];

@@ -1,0 +1,171 @@
+import { z } from "zod";
+import { tool } from "@anthropic-ai/claude-agent-sdk";
+import type { QueryToolContext } from "../types.js";
+import { errorResult } from "../helpers.js";
+import { loadMcpServer as defaultLoadMcpServer } from "../../mcp.js";
+import {
+  buildRoleChain,
+  resolveInstructions as defaultResolveInstructions,
+} from "../../cascadingConfigResolver.js";
+import { updateSession as defaultUpdateSession } from "../../sessions.js";
+import type { SessionContext } from "../../sessions.js";
+import { logger } from "../../logger.js";
+
+type McpAttachHistoryEntry = NonNullable<SessionContext["mcpAttachHistory"]>[number];
+
+/**
+ * Append a single entry to `session.mcpAttachHistory` and persist. Swallows errors
+ * — logging history is best-effort; a failure must not block the tool result.
+ */
+async function appendAttachHistory(
+  session: SessionContext,
+  updateSession: typeof defaultUpdateSession,
+  entry: McpAttachHistoryEntry,
+): Promise<void> {
+  try {
+    await updateSession(session.sessionId, {
+      mcpAttachHistory: [...(session.mcpAttachHistory ?? []), entry],
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.warn(`Failed to append mcpAttachHistory for '${entry.name}': ${message}`);
+  }
+}
+
+export interface AttachIntegrationDeps {
+  loadMcpServer: typeof defaultLoadMcpServer;
+  resolveInstructions: typeof defaultResolveInstructions;
+  updateSession: typeof defaultUpdateSession;
+}
+
+export const defaultAttachIntegrationDeps: AttachIntegrationDeps = {
+  loadMcpServer: defaultLoadMcpServer,
+  resolveInstructions: defaultResolveInstructions,
+  updateSession: defaultUpdateSession,
+};
+
+/**
+ * Dynamic MCP attach tool. Claude calls `attach_integration({ name })` when a
+ * question matches one of the non-always-on integrations listed in the catalog
+ * (see `src/claude/integrationsCatalog.ts`). The tool:
+ *   1. Validates the name against the effective registry (via the manager)
+ *   2. Short-circuits on duplicate attach (idempotent) — returns a brief success
+ *   3. Loads the server config (`loadMcpServer`) for MCP-backed topics
+ *   4. Delegates to `mcpManager.attach(...)` which handles the SDK call and the
+ *      session-start merge invariant
+ *   5. Resolves the topic's instructions via the cascade resolver
+ *   6. Persists the attach on the session so resume can replay it
+ *   7. Returns the topic instructions as the tool's text result so they land
+ *      in conversation history
+ */
+export function createAttachIntegrationTool(
+  ctx: QueryToolContext,
+  deps: AttachIntegrationDeps = defaultAttachIntegrationDeps,
+) {
+  return tool(
+    "attach_integration",
+    "Attach an external integration (MCP server + topic instructions) mid-session. Call this when the user's question matches one of the entries in the AVAILABLE INTEGRATIONS catalog. The integration's tools and instructions become available on your next turn.",
+    {
+      name: z.string().describe("The integration name from the AVAILABLE INTEGRATIONS catalog."),
+    },
+    async (args) => {
+      const sessionId = ctx.session.sessionId;
+      const manager = ctx.mcpManager;
+      if (!manager) {
+        return errorResult(
+          "attach_integration is not available in this session. This is a bug — contact the operator.",
+        );
+      }
+
+      if (!manager.knowsServer(args.name)) {
+        const available = manager.knownNames().join(", ");
+        logger.info(`mcp.attach sessionId=${sessionId} name=${args.name} outcome=unknown`);
+        return errorResult(
+          `Unknown integration: ${args.name}. Available integrations: ${available || "(none)"}.`,
+        );
+      }
+
+      // Idempotent duplicate attach — no SDK call, no re-injection of instructions.
+      if (manager.isAttached(args.name)) {
+        logger.info(`mcp.attach sessionId=${sessionId} name=${args.name} outcome=duplicate`);
+        await appendAttachHistory(ctx.session, deps.updateSession, {
+          name: args.name,
+          outcome: "duplicate",
+          timestamp: Date.now(),
+        });
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Integration already attached: ${args.name}. No additional action taken.`,
+            },
+          ],
+        };
+      }
+
+      // Resolve topic instructions from the cascade (role chain × topics/<name>/).
+      const roleChain = buildRoleChain(ctx.role, ctx.changesWorkflowEnabled);
+      const instructions = deps.resolveInstructions(roleChain, new Set([args.name]));
+
+      // Two paths: MCP-backed (load + setMcpServers) and instructions-only (no server).
+      const serverConfig = await deps.loadMcpServer(args.name);
+
+      if (serverConfig) {
+        const result = await manager.attach(args.name, serverConfig);
+        if (!result.ok) {
+          logger.warn(
+            `mcp.attach sessionId=${sessionId} name=${args.name} outcome=failed error="${result.error}"`,
+          );
+          await appendAttachHistory(ctx.session, deps.updateSession, {
+            name: args.name,
+            outcome: "failed",
+            error: result.error,
+            timestamp: Date.now(),
+          });
+          return errorResult(`Failed to attach ${args.name}: ${result.error}`);
+        }
+        logger.info(`mcp.attach sessionId=${sessionId} name=${args.name} outcome=ok`);
+      } else {
+        logger.info(
+          `mcp.attach sessionId=${sessionId} name=${args.name} outcome=instructions_only`,
+        );
+      }
+
+      // Persist the attach on the session so resume can replay it. Don't fail the
+      // tool call if persistence errors — the attach itself succeeded.
+      const currentList = ctx.session.attachedIntegrations ?? [];
+      const nextList = currentList.includes(args.name) ? currentList : [...currentList, args.name];
+      const outcome: "ok" | "instructions_only" = serverConfig ? "ok" : "instructions_only";
+      try {
+        await deps.updateSession(ctx.session.sessionId, {
+          attachedIntegrations: nextList,
+          mcpAttachHistory: [
+            ...(ctx.session.mcpAttachHistory ?? []),
+            { name: args.name, outcome, timestamp: Date.now() },
+          ],
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.warn(`Failed to persist attach state for '${args.name}': ${message}`);
+      }
+
+      const kindNote = serverConfig
+        ? `New tools may now be available on the next turn.`
+        : `This integration has no MCP server — instructions were loaded, no new tools arrive.`;
+
+      const body =
+        instructions.trim().length > 0
+          ? instructions
+          : "(No topic instructions were resolved — proceed using the integration's tools.)";
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Attached integration: ${args.name}. ${kindNote}\n\n${body}`,
+          },
+        ],
+      };
+    },
+  );
+}

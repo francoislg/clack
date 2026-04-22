@@ -63,22 +63,51 @@ export type VirtualDefaults = Map<string, Map<string, string>>;
 
 export function resolveInstructions(
   roleChain: RoleDir[],
+  activeTopics?: Set<string>,
   virtualDefaults?: VirtualDefaults,
 ): string {
+  const baseline = resolveBaselineFiles(roleChain, virtualDefaults);
+
+  if (!activeTopics || activeTopics.size === 0) {
+    return baseline;
+  }
+
+  const sections: string[] = [];
+  if (baseline.length > 0) sections.push(baseline);
+
+  // Topics appear after baseline, alphabetically by topic name, each under a header.
+  for (const topic of [...activeTopics].sort()) {
+    const content = resolveTopicFiles(roleChain, topic, virtualDefaults);
+    if (content.length > 0) {
+      sections.push(`=== TOPIC: ${topic} ===\n\n${content}`);
+    }
+  }
+
+  return sections.join("\n\n");
+}
+
+/**
+ * Baseline cascade resolution: walks `{role}/*.md` (not `topics/`) across the role chain,
+ * applying default → virtual → custom per-file. Identical to the pre-topic-support
+ * behavior when `activeTopics` is empty.
+ */
+function resolveBaselineFiles(roleChain: RoleDir[], virtualDefaults?: VirtualDefaults): string {
   const defaultDir = getDefaultConfigurationDir();
   const configDir = getConfigurationDir();
 
-  // 1. Discover all unique filenames across disk directories and virtual defaults
+  // 1. Discover all unique baseline filenames across disk dirs and virtual defaults.
+  //    Virtual-default keys starting with "topics/" are topic files — skip them here.
   const allFilenames = new Set<string>();
   for (const role of roleChain) {
     for (const filename of scanMdFiles(resolve(defaultDir, role))) {
       allFilenames.add(filename);
     }
-    // Include virtual default filenames from plugins
     const virtualForRole = virtualDefaults?.get(role);
     if (virtualForRole) {
       for (const filename of virtualForRole.keys()) {
-        allFilenames.add(filename);
+        if (!filename.startsWith("topics/")) {
+          allFilenames.add(filename);
+        }
       }
     }
     for (const filename of scanMdFiles(resolve(configDir, role))) {
@@ -86,7 +115,7 @@ export function resolveInstructions(
     }
   }
 
-  // 2. For each filename, resolve through the interleaved cascade
+  // 2. For each filename, resolve through the interleaved cascade.
   //    Order per role: disk default → plugin virtual default → disk custom
   const resolvedContents: Array<{ filename: string; content: string }> = [];
 
@@ -94,32 +123,98 @@ export function resolveInstructions(
     let resolvedContent: string | null = null;
 
     for (const role of roleChain) {
-      // Disk default first
       const defaultPath = resolve(defaultDir, role, filename);
       if (existsSync(defaultPath)) {
         resolvedContent = readFileSync(defaultPath, "utf-8");
       }
 
-      // Plugin virtual default (between disk default and disk custom)
       const virtualContent = virtualDefaults?.get(role)?.get(filename);
       if (virtualContent !== undefined) {
         resolvedContent = virtualContent;
       }
 
-      // Disk custom override wins
       const customPath = resolve(configDir, role, filename);
       if (existsSync(customPath)) {
         resolvedContent = readFileSync(customPath, "utf-8");
       }
     }
 
-    // Empty/whitespace-only files suppress the instruction
     if (resolvedContent !== null && resolvedContent.trim().length > 0) {
       resolvedContents.push({ filename, content: resolvedContent });
     }
   }
 
-  // 3. Sort alphabetically by filename and concatenate
+  resolvedContents.sort((a, b) => a.filename.localeCompare(b.filename));
+  return resolvedContents.map((r) => r.content).join("\n\n");
+}
+
+/**
+ * Resolve files for a single active topic. Walks `{role}/topics/{topic}/*.md` across
+ * the role chain with the same default → virtual → custom cascade as baseline files.
+ * Virtual defaults participate when keyed as `topics/<topic>/<filename>.md` within
+ * the appropriate role.
+ *
+ * Files within a topic are concatenated in alphabetical filename order and share
+ * a single `=== TOPIC: <name> ===` header emitted by the caller.
+ */
+function resolveTopicFiles(
+  roleChain: RoleDir[],
+  topic: string,
+  virtualDefaults?: VirtualDefaults,
+): string {
+  const defaultDir = getDefaultConfigurationDir();
+  const configDir = getConfigurationDir();
+  const topicPrefix = `topics/${topic}/`;
+
+  // 1. Discover every filename that could contribute to this topic.
+  const allFilenames = new Set<string>();
+  for (const role of roleChain) {
+    for (const filename of scanMdFiles(resolve(defaultDir, role, "topics", topic))) {
+      allFilenames.add(filename);
+    }
+    const virtualForRole = virtualDefaults?.get(role);
+    if (virtualForRole) {
+      for (const key of virtualForRole.keys()) {
+        if (key.startsWith(topicPrefix)) {
+          allFilenames.add(key.slice(topicPrefix.length));
+        }
+      }
+    }
+    for (const filename of scanMdFiles(resolve(configDir, role, "topics", topic))) {
+      allFilenames.add(filename);
+    }
+  }
+
+  if (allFilenames.size === 0) return "";
+
+  // 2. Resolve each filename through the role cascade (default → virtual → custom).
+  const resolvedContents: Array<{ filename: string; content: string }> = [];
+
+  for (const filename of allFilenames) {
+    let resolvedContent: string | null = null;
+
+    for (const role of roleChain) {
+      const defaultPath = resolve(defaultDir, role, "topics", topic, filename);
+      if (existsSync(defaultPath)) {
+        resolvedContent = readFileSync(defaultPath, "utf-8");
+      }
+
+      const virtualContent = virtualDefaults?.get(role)?.get(`${topicPrefix}${filename}`);
+      if (virtualContent !== undefined) {
+        resolvedContent = virtualContent;
+      }
+
+      const customPath = resolve(configDir, role, "topics", topic, filename);
+      if (existsSync(customPath)) {
+        resolvedContent = readFileSync(customPath, "utf-8");
+      }
+    }
+
+    if (resolvedContent !== null && resolvedContent.trim().length > 0) {
+      resolvedContents.push({ filename, content: resolvedContent });
+    }
+  }
+
   resolvedContents.sort((a, b) => a.filename.localeCompare(b.filename));
   return resolvedContents.map((r) => r.content).join("\n\n");
 }
@@ -195,6 +290,128 @@ export function listRoleDirFiles(virtualDefaults?: VirtualDefaults): RoleDirList
   }
 
   return result;
+}
+
+/**
+ * Scan for topic subfolder names under `{role}/topics/` in both default and custom dirs,
+ * plus any topics represented by virtual defaults keyed as `topics/<name>/...`. Returns
+ * a sorted deduplicated list. A topic "exists" for a role if any source (default, custom,
+ * or virtual) contributes at least one file to it.
+ */
+function scanTopicNames(role: string, virtualDefaults?: VirtualDefaults): string[] {
+  const names = new Set<string>();
+  const defaultDir = getDefaultConfigurationDir();
+  const configDir = getConfigurationDir();
+
+  for (const base of [defaultDir, configDir]) {
+    const topicsRoot = resolve(base, role, "topics");
+    if (!existsSync(topicsRoot)) continue;
+    try {
+      for (const entry of readdirSync(topicsRoot, { withFileTypes: true })) {
+        if (entry.isDirectory()) names.add(entry.name);
+      }
+    } catch {
+      // Ignore — directory unreadable
+    }
+  }
+
+  const virtualForRole = virtualDefaults?.get(role);
+  if (virtualForRole) {
+    for (const key of virtualForRole.keys()) {
+      const parts = key.split("/");
+      if (parts.length >= 3 && parts[0] === "topics" && parts[1]) {
+        names.add(parts[1]);
+      }
+    }
+  }
+
+  return [...names].sort();
+}
+
+export interface RoleTopicListing {
+  role: string;
+  topic: string;
+  files: InstructionFileEntry[];
+}
+
+/**
+ * List topic files grouped by `(role, topic)`. Mirrors `listRoleDirFiles` for the
+ * topic subfolder layout (`{role}/topics/<topic>/*.md`), so the Home Tab can render
+ * topics alongside baseline files. Returns only topics that have at least one file
+ * contributed from default, custom, or virtual sources.
+ */
+export function listRoleTopicDirFiles(virtualDefaults?: VirtualDefaults): RoleTopicListing[] {
+  const defaultDir = getDefaultConfigurationDir();
+  const configDir = getConfigurationDir();
+
+  const result: RoleTopicListing[] = [];
+
+  for (const role of ALL_ROLE_DIRS) {
+    const topics = scanTopicNames(role, virtualDefaults);
+    for (const topic of topics) {
+      const defaultFiles = new Set(scanMdFiles(resolve(defaultDir, role, "topics", topic)));
+      const customFiles = new Set(scanMdFiles(resolve(configDir, role, "topics", topic)));
+
+      const virtualFiles = new Set<string>();
+      const virtualForRole = virtualDefaults?.get(role);
+      if (virtualForRole) {
+        const prefix = `topics/${topic}/`;
+        for (const key of virtualForRole.keys()) {
+          if (key.startsWith(prefix)) virtualFiles.add(key.slice(prefix.length));
+        }
+      }
+
+      const allFiles = new Set([...defaultFiles, ...customFiles, ...virtualFiles]);
+      if (allFiles.size === 0) continue;
+
+      const files: InstructionFileEntry[] = [];
+      for (const filename of [...allFiles].sort()) {
+        const hasDefault = defaultFiles.has(filename);
+        const hasCustom = customFiles.has(filename);
+        const hasVirtual = virtualFiles.has(filename);
+
+        if (hasVirtual && hasCustom) {
+          files.push({ filename, source: "plugin-customized" });
+        } else if (hasVirtual) {
+          files.push({ filename, source: "plugin" });
+        } else if (hasCustom && hasDefault) {
+          files.push({ filename, source: "customized" });
+        } else if (hasCustom) {
+          files.push({ filename, source: "custom-only" });
+        } else {
+          files.push({ filename, source: "default" });
+        }
+      }
+
+      result.push({ role, topic, files });
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Read a specific topic file. Returns default + custom content so callers can
+ * diff the override, mirroring `readRoleFile` for baseline files.
+ */
+export function readRoleTopicFile(
+  role: string,
+  topic: string,
+  filename: string,
+): {
+  default_content: string | null;
+  custom_content: string | null;
+} {
+  const defaultDir = getDefaultConfigurationDir();
+  const configDir = getConfigurationDir();
+
+  const defaultPath = resolve(defaultDir, role, "topics", topic, filename);
+  const customPath = resolve(configDir, role, "topics", topic, filename);
+
+  return {
+    default_content: existsSync(defaultPath) ? readFileSync(defaultPath, "utf-8") : null,
+    custom_content: existsSync(customPath) ? readFileSync(customPath, "utf-8") : null,
+  };
 }
 
 /**
