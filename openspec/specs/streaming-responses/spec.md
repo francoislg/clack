@@ -48,9 +48,12 @@ The system SHALL manage a Slack chat stream for each Claude query, using `chat.s
 - **AND** on completion, the caller detects `hasFailed` and falls back to `chat.postMessage`
 - **AND** calls `streamer.stop()` first to clear any loading state
 
-#### Scenario: Known stream expiry logged as warning
-- **WHEN** `appendStream` fails with `message_not_in_streaming_state`
+#### Scenario: Known stream expiry logged as warning with diagnostics
+- **WHEN** `appendStream` fails with `message_not_in_streaming_state` (either from handleEvent, keepalive, or stop)
 - **THEN** the error is logged at `warn` level (not `error`)
+- **AND** the log message SHALL include `msSinceLastTick` (milliseconds since the most recent keepalive tick fired)
+- **AND** the log message SHALL include `msSinceLastEvent` (milliseconds since the most recent real `handleEvent` call)
+- **AND** the log message SHALL include `activeTaskCount` (the number of tasks currently tracked as in-progress)
 - **AND** the streamer enters failed state as normal
 
 #### Scenario: Cancellation stops stream
@@ -69,16 +72,46 @@ The system SHALL manage a Slack chat stream for each Claude query, using `chat.s
 - **AND** the thinking indicator and all task cards disappear from Slack
 
 ### Requirement: Stream Keepalive
-The system SHALL periodically send keepalive appends to prevent Slack from expiring the chat stream during idle periods.
+The system SHALL periodically send keepalive appends to prevent Slack from expiring the chat stream during idle periods. Keepalive content SHALL target every currently in-progress task that has been running for at least a visible-progress threshold, updating the task's title with a live elapsed-time suffix and appending incremental content to the task's details field to ensure Slack registers the update as activity.
 
 #### Scenario: Keepalive timer started after stream starts
 - **WHEN** `start()` completes successfully (initial append succeeds)
 - **THEN** a periodic keepalive timer is started at a fixed interval (15 seconds)
 
-#### Scenario: Keepalive sends current thinking task state
-- **WHEN** the keepalive timer fires and the stream is not stopped or failed
-- **THEN** the system appends a `task_update` chunk with the current thinking task ID, title, and `in_progress` status
-- **AND** this resets Slack's server-side inactivity timer
+#### Scenario: Per-task tracking of in-progress work
+- **WHEN** a tool call starts and results in a new task card
+- **THEN** the system records that task's `startedAt` time and base title in an active-task map
+- **WHEN** a tool call joins an existing group (same consecutive group key)
+- **THEN** the group's `startedAt` time is NOT reset
+- **WHEN** a tool call completes and causes its task card to transition to `complete` status
+- **THEN** the task is removed from the active-task map
+
+#### Scenario: Keepalive decorates long-running tasks with elapsed time
+- **WHEN** the keepalive timer fires and an in-progress task has been running for at least 30 seconds
+- **THEN** the system appends a `task_update` chunk for that task containing a `title` with the current base title plus a ` :stopwatch: {elapsed}` suffix (where `{elapsed}` is formatted as `45s`, `1m 5s`, etc.)
+- **AND** the chunk contains a `details` field appending `" ."` (or `"\n ."` on the first decoration tick for that task) to accumulate a visible dot trail
+
+#### Scenario: Fast tasks not decorated
+- **WHEN** the keepalive timer fires and an in-progress task has been running for less than 30 seconds
+- **THEN** no decoration update is emitted for that task
+
+#### Scenario: Keepalive handles parallel tasks independently
+- **WHEN** two or more tasks are simultaneously in-progress and both exceed the 30-second threshold
+- **THEN** each task receives its own elapsed-time decoration based on its individual `startedAt`
+- **AND** a single tick emits one `task_update` chunk per decorated task
+
+#### Scenario: Grouped task title stays current
+- **WHEN** the keepalive timer fires for a grouped in-progress task whose item count has changed since the task started
+- **THEN** the emitted title uses the current group title (e.g., `Running commands (3)`) as the base before the `:stopwatch:` suffix
+
+#### Scenario: Keepalive also fires when no task is active
+- **WHEN** the keepalive timer fires and no task is in-progress (e.g., before the first tool event or between tool completion and a follow-up)
+- **THEN** the system SHALL emit a `task_update` chunk targeting the thinking task id
+- **AND** the chunk SHALL contain the current thinking task title and `in_progress` status, preserving the pre-existing fallback behavior for pre-first-tool dead zones
+
+#### Scenario: Keepalive dots append after existing details content
+- **WHEN** a task already has `details` content (e.g., grouped itemDetails from prior tool calls) and keepalive appends a dot on a subsequent tick
+- **THEN** the dot SHALL be appended below the existing content (not replacing it), consistent with Slack's `details` field append semantics
 
 #### Scenario: Keepalive skipped when stream is stopped
 - **WHEN** the keepalive timer fires after `stop()` has been called
@@ -97,7 +130,7 @@ The system SHALL periodically send keepalive appends to prevent Slack from expir
 - **THEN** no keepalive timer is started
 
 #### Scenario: Keepalive failure triggers stream failed state
-- **WHEN** the keepalive append fails with an API error
+- **WHEN** a keepalive append fails with an API error
 - **THEN** the streamer enters failed state (`hasFailed` returns true)
 - **AND** the keepalive timer is cleared
 
