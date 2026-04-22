@@ -3,6 +3,7 @@ import { logger } from "../logger.js";
 import { getDataDir } from "../config.js";
 import { createClackSdk, type ClackPlugin, type PluginLoadResult } from "./sdk.js";
 import { triviaPlugin } from "./trivia/index.js";
+import { gifPlugin } from "./gif/index.js";
 
 // ============================================================================
 // Built-in Plugin Registry
@@ -10,6 +11,7 @@ import { triviaPlugin } from "./trivia/index.js";
 
 const BUILTIN_PLUGINS: Record<string, ClackPlugin> = {
   trivia: triviaPlugin,
+  gif: gifPlugin,
 };
 
 // ============================================================================
