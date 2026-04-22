@@ -46,6 +46,7 @@ import { createAddReactionTool } from "./query/addReaction.js";
 import { createFindChannelTool } from "./query/findChannel.js";
 import { createRemoveReactionTool } from "./query/removeReaction.js";
 import { createGetSessionTraceTool } from "./query/getSessionTrace.js";
+import { createAttachIntegrationTool } from "./query/attachIntegration.js";
 import { createUsersCache } from "../slack/usersCache.js";
 import { createEmojiCache } from "../slack/emojiCache.js";
 import { createChannelsCache } from "../slack/channelsCache.js";
@@ -321,6 +322,13 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
     tools.push(createRemoveReactionTool(ctx));
     const channelsCache = createChannelsCache(ctx.slackClient);
     tools.push(createFindChannelTool(channelsCache));
+  }
+
+  // Lazy MCP loading — attach_integration is available whenever the mcpManager is
+  // populated (i.e., lazy-loading is wired for this session). Gated so the tool is
+  // hidden in contexts that can't support mid-session attachment.
+  if (ctx.mcpManager) {
+    tools.push(createAttachIntegrationTool(ctx));
   }
 
   // Read-only query tools — available to all roles

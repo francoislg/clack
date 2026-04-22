@@ -9,7 +9,9 @@ import {
   buildRoleChain,
   validateInstructionDirs,
   listRoleDirFiles,
+  listRoleTopicDirFiles,
   readRoleFile,
+  readRoleTopicFile,
   type VirtualDefaults,
 } from "./cascadingConfigResolver.js";
 
@@ -489,7 +491,7 @@ describe("resolveInstructions with virtualDefaults", () => {
       ["user", new Map([["trivia__instructions.md", "Trivia instructions here"]])],
     ]);
 
-    const result = resolveInstructions(["user"], virtualDefaults);
+    const result = resolveInstructions(["user"], undefined, virtualDefaults);
     assert.ok(result.includes("core identity"));
     assert.ok(result.includes("Trivia instructions here"));
   });
@@ -502,7 +504,7 @@ describe("resolveInstructions with virtualDefaults", () => {
       ["user", new Map([["trivia__instructions.md", "Plugin default"]])],
     ]);
 
-    const result = resolveInstructions(["user"], virtualDefaults);
+    const result = resolveInstructions(["user"], undefined, virtualDefaults);
     assert.ok(result.includes("Admin override of trivia"));
     assert.ok(!result.includes("Plugin default"));
   });
@@ -514,7 +516,7 @@ describe("resolveInstructions with virtualDefaults", () => {
       ["user", new Map([["trivia__instructions.md", "Plugin virtual default"]])],
     ]);
 
-    const result = resolveInstructions(["user"], virtualDefaults);
+    const result = resolveInstructions(["user"], undefined, virtualDefaults);
     assert.ok(result.includes("Plugin virtual default"));
     assert.ok(!result.includes("Old disk default"));
   });
@@ -528,11 +530,11 @@ describe("resolveInstructions with virtualDefaults", () => {
     ]);
 
     // user chain only: virtual user wins over disk default user
-    const userResult = resolveInstructions(["user"], virtualDefaults);
+    const userResult = resolveInstructions(["user"], undefined, virtualDefaults);
     assert.ok(userResult.includes("virtual user"));
 
     // user+dev chain: virtual dev wins (higher role tier)
-    const devResult = resolveInstructions(["user", "dev"], virtualDefaults);
+    const devResult = resolveInstructions(["user", "dev"], undefined, virtualDefaults);
     assert.ok(devResult.includes("virtual dev"));
     assert.ok(!devResult.includes("virtual user"));
   });
@@ -542,6 +544,140 @@ describe("resolveInstructions with virtualDefaults", () => {
 
     const result = resolveInstructions(["user"], undefined);
     assert.ok(result.includes("core identity"));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveInstructions — topic subfolders
+// ---------------------------------------------------------------------------
+
+function writeDefaultTopic(role: string, topic: string, filename: string, content: string) {
+  const dir = resolve(defaultDir, role, "topics", topic);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(resolve(dir, filename), content, "utf-8");
+}
+
+function writeCustomTopic(role: string, topic: string, filename: string, content: string) {
+  const dir = resolve(configDir, role, "topics", topic);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(resolve(dir, filename), content, "utf-8");
+}
+
+describe("resolveInstructions — topic subfolders", () => {
+  beforeEach(setup);
+  afterEach(() => process.chdir(originalCwd));
+
+  it("baseline resolution excludes topic folders entirely (activeTopics empty)", () => {
+    writeDefault("user", "identity.md", "core identity");
+    writeDefaultTopic("user", "metabase", "metabase.md", "metabase rules");
+
+    const result = resolveInstructions(["user"]);
+    assert.ok(result.includes("core identity"));
+    assert.ok(!result.includes("metabase rules"));
+    assert.ok(!result.includes("TOPIC:"));
+  });
+
+  it("activates a topic when included in activeTopics", () => {
+    writeDefault("user", "identity.md", "core identity");
+    writeDefaultTopic("user", "metabase", "metabase.md", "metabase rules");
+
+    const result = resolveInstructions(["user"], new Set(["metabase"]));
+    assert.ok(result.includes("core identity"));
+    assert.ok(result.includes("metabase rules"));
+    assert.ok(result.includes("=== TOPIC: metabase ==="));
+  });
+
+  it("custom override wins over default for a topic file", () => {
+    writeDefaultTopic("user", "metabase", "metabase.md", "default rules");
+    writeCustomTopic("user", "metabase", "metabase.md", "custom override rules");
+
+    const result = resolveInstructions(["user"], new Set(["metabase"]));
+    assert.ok(result.includes("custom override rules"));
+    assert.ok(!result.includes("default rules"));
+  });
+
+  it("additive custom topic file with no default counterpart is included", () => {
+    writeDefaultTopic("user", "metabase", "metabase.md", "default rules");
+    writeCustomTopic("user", "metabase", "company-dashboards.md", "company-specific dashboards");
+
+    const result = resolveInstructions(["user"], new Set(["metabase"]));
+    assert.ok(result.includes("default rules"));
+    assert.ok(result.includes("company-specific dashboards"));
+    // Multiple files within a topic share a single header, alphabetical order
+    // (`company-dashboards.md` before `metabase.md`).
+    const companyIdx = result.indexOf("company-specific dashboards");
+    const defaultIdx = result.indexOf("default rules");
+    assert.ok(companyIdx < defaultIdx, "company-dashboards.md should precede metabase.md");
+    // Only one header for the topic
+    assert.equal((result.match(/=== TOPIC: metabase ===/g) ?? []).length, 1);
+  });
+
+  it("topic files cascade across the role chain", () => {
+    writeDefaultTopic("user", "metabase", "metabase.md", "user-level metabase");
+    writeDefaultTopic("dev", "metabase", "metabase.md", "dev-level metabase");
+
+    const result = resolveInstructions(["user", "dev"], new Set(["metabase"]));
+    assert.ok(result.includes("dev-level metabase"));
+    assert.ok(!result.includes("user-level metabase"));
+  });
+
+  it("empty/whitespace topic file suppresses that entry", () => {
+    writeDefaultTopic("user", "metabase", "metabase.md", "original");
+    writeCustomTopic("user", "metabase", "metabase.md", "   \n\t  ");
+
+    const result = resolveInstructions(["user"], new Set(["metabase"]));
+    assert.ok(!result.includes("original"));
+    // If all files in the topic are empty, no header appears.
+    assert.ok(!result.includes("=== TOPIC: metabase ==="));
+  });
+
+  it("multiple active topics concatenate under separate headers, alphabetically ordered", () => {
+    writeDefaultTopic("user", "metabase", "metabase.md", "metabase content");
+    writeDefaultTopic("user", "monday", "monday.md", "monday content");
+
+    const result = resolveInstructions(["user"], new Set(["monday", "metabase"]));
+    const metabaseIdx = result.indexOf("=== TOPIC: metabase ===");
+    const mondayIdx = result.indexOf("=== TOPIC: monday ===");
+    assert.ok(metabaseIdx > -1 && mondayIdx > -1);
+    assert.ok(metabaseIdx < mondayIdx, "metabase should appear before monday alphabetically");
+  });
+
+  it("topic with no matching files returns nothing extra beyond baseline", () => {
+    writeDefault("user", "identity.md", "core identity");
+
+    const result = resolveInstructions(["user"], new Set(["nonexistent-topic"]));
+    assert.ok(result.includes("core identity"));
+    assert.ok(!result.includes("TOPIC:"));
+  });
+
+  it("plugin virtual default for a topic file is included when topic is active", () => {
+    const virtualDefaults: VirtualDefaults = new Map([
+      ["user", new Map([["topics/metabase/rules.md", "Virtual metabase rules"]])],
+    ]);
+
+    const result = resolveInstructions(["user"], new Set(["metabase"]), virtualDefaults);
+    assert.ok(result.includes("=== TOPIC: metabase ==="));
+    assert.ok(result.includes("Virtual metabase rules"));
+  });
+
+  it("plugin virtual topic default is NOT included in baseline resolution", () => {
+    const virtualDefaults: VirtualDefaults = new Map([
+      ["user", new Map([["topics/metabase/rules.md", "Virtual metabase rules"]])],
+    ]);
+
+    const result = resolveInstructions(["user"], undefined, virtualDefaults);
+    assert.ok(!result.includes("Virtual metabase rules"));
+  });
+
+  it("disk custom override wins over plugin virtual topic default", () => {
+    writeCustomTopic("user", "metabase", "rules.md", "disk custom rules");
+    const virtualDefaults: VirtualDefaults = new Map([
+      ["user", new Map([["topics/metabase/rules.md", "virtual default rules"]])],
+    ]);
+
+    const result = resolveInstructions(["user"], new Set(["metabase"]), virtualDefaults);
+    assert.ok(result.includes("disk custom rules"));
+    assert.ok(!result.includes("virtual default rules"));
   });
 });
 
@@ -575,5 +711,95 @@ describe("listRoleDirFiles with virtualDefaults", () => {
     const triviaFile = userDir.files.find((f) => f.filename === "trivia__instructions.md");
     assert.ok(triviaFile);
     assert.equal(triviaFile.source, "plugin-customized");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// listRoleTopicDirFiles / readRoleTopicFile — Home Tab visibility for topics
+// ---------------------------------------------------------------------------
+
+describe("listRoleTopicDirFiles", () => {
+  beforeEach(setup);
+  afterEach(() => process.chdir(originalCwd));
+
+  it("lists topic files grouped by (role, topic) with source tags", () => {
+    writeDefaultTopic("user", "metabase", "metabase.md", "default rules");
+    writeCustomTopic("user", "metabase", "company.md", "company-specific");
+
+    const result = listRoleTopicDirFiles();
+    const metabase = result.find((r) => r.role === "user" && r.topic === "metabase");
+    assert.ok(metabase);
+    const filenames = metabase.files.map((f) => f.filename).sort();
+    assert.deepEqual(filenames, ["company.md", "metabase.md"]);
+    assert.equal(metabase.files.find((f) => f.filename === "company.md")?.source, "custom-only");
+    assert.equal(metabase.files.find((f) => f.filename === "metabase.md")?.source, "default");
+  });
+
+  it("marks customized topic files correctly", () => {
+    writeDefaultTopic("user", "metabase", "metabase.md", "default");
+    writeCustomTopic("user", "metabase", "metabase.md", "custom");
+
+    const result = listRoleTopicDirFiles();
+    const metabase = result.find((r) => r.topic === "metabase");
+    assert.ok(metabase);
+    const file = metabase.files.find((f) => f.filename === "metabase.md");
+    assert.equal(file?.source, "customized");
+  });
+
+  it("includes plugin virtual topic files", () => {
+    const virtualDefaults: VirtualDefaults = new Map([
+      ["user", new Map([["topics/metabase/rules.md", "virtual"]])],
+    ]);
+
+    const result = listRoleTopicDirFiles(virtualDefaults);
+    const metabase = result.find((r) => r.role === "user" && r.topic === "metabase");
+    assert.ok(metabase);
+    const file = metabase.files.find((f) => f.filename === "rules.md");
+    assert.equal(file?.source, "plugin");
+  });
+
+  it("returns no entries when no topic files exist", () => {
+    writeDefault("user", "identity.md", "baseline");
+    const result = listRoleTopicDirFiles();
+    assert.deepEqual(result, []);
+  });
+
+  it("spans multiple roles and multiple topics", () => {
+    writeDefaultTopic("user", "metabase", "a.md", "A");
+    writeDefaultTopic("dev", "monday", "b.md", "B");
+
+    const result = listRoleTopicDirFiles();
+    const topics = result.map((r) => `${r.role}/${r.topic}`).sort();
+    assert.deepEqual(topics, ["dev/monday", "user/metabase"]);
+  });
+});
+
+describe("readRoleTopicFile", () => {
+  beforeEach(setup);
+  afterEach(() => process.chdir(originalCwd));
+
+  it("returns default and custom content for a topic file", () => {
+    writeDefaultTopic("user", "metabase", "metabase.md", "default content");
+    writeCustomTopic("user", "metabase", "metabase.md", "custom content");
+
+    const { default_content, custom_content } = readRoleTopicFile(
+      "user",
+      "metabase",
+      "metabase.md",
+    );
+    assert.equal(default_content, "default content");
+    assert.equal(custom_content, "custom content");
+  });
+
+  it("returns null for missing sources", () => {
+    writeDefaultTopic("user", "metabase", "metabase.md", "default only");
+
+    const { default_content, custom_content } = readRoleTopicFile(
+      "user",
+      "metabase",
+      "metabase.md",
+    );
+    assert.equal(default_content, "default only");
+    assert.equal(custom_content, null);
   });
 });

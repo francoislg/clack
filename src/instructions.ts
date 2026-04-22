@@ -72,7 +72,9 @@ export function loadInstructions(role: UserRole, options: LoadInstructionsOption
   logger.debug(`Loading instructions for role '${role}' with chain: [${roleChain.join(", ")}]`);
 
   const virtualDefaults = buildVirtualDefaults();
-  let content = resolveInstructions(roleChain, virtualDefaults);
+  // No topics active in the baseline call — topics are attached mid-session via
+  // `attach_integration` and injected through its tool result, not the system prompt.
+  let content = resolveInstructions(roleChain, undefined, virtualDefaults);
 
   // Interpolate variables after concatenation
   content = interpolateVariables(content, options.variables);

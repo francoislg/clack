@@ -1,10 +1,12 @@
 import { getConfig } from "../config.js";
+import type { McpServerRegistry } from "../config.js";
 import { loadInstructions } from "../instructions.js";
 import type { UserRole } from "../roles.js";
 import type { SessionContext } from "../sessions.js";
 import { triggerText, userContinuations } from "../sessions/selectors.js";
 import type { SlackImageFile, SlackFile } from "../slack/slackFileBase.js";
 import { DISMISSAL_PHRASES_INLINE } from "./dismissalPhrases.js";
+import { buildIntegrationsCatalog } from "./integrationsCatalog.js";
 /** Subset of AskClaudeOptions needed for prompt construction. */
 export interface PromptOptions {
   role?: UserRole;
@@ -20,6 +22,12 @@ export interface PromptOptions {
    * `skip_response: true` when any apply.
    */
   skipConditions?: string;
+  /**
+   * Effective MCP registry for the current session, used to render the "available
+   * integrations" catalog block. Omit when attach_integration isn't available (worker
+   * mode, or lazy-loading not configured yet) — the catalog is skipped entirely.
+   */
+  mcpRegistry?: McpServerRegistry;
 }
 
 export function buildSystemPrompt(options?: PromptOptions): string {
@@ -366,6 +374,11 @@ Use this context to understand the conversation flow and provide relevant answer
       }
     }
     parts.push(lines.join("\n"));
+  }
+
+  if (options?.mcpRegistry) {
+    const catalog = buildIntegrationsCatalog(options.mcpRegistry);
+    if (catalog.length > 0) parts.push(catalog);
   }
 
   parts.push(`QUESTION: ${triggerText(session)}`);

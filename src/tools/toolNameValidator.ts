@@ -30,6 +30,7 @@ export const CLACK_CORE_TOOL_NAMES: readonly string[] = [
   "find_changes",
   "find_pull_requests",
   "resolve_review_thread",
+  "attach_integration",
   // Admin-gated query tools
   "list_config_files",
   "read_config_file",

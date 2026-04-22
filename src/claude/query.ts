@@ -7,7 +7,12 @@
  * - `clackQuery`   — fire-and-forget, no session persistence
  * - `clackSession` — persisted & resumable multi-turn conversations
  */
-import { query as _query, type Options, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import {
+  query as _query,
+  type Options,
+  type Query,
+  type SDKMessage,
+} from "@anthropic-ai/claude-agent-sdk";
 import { logger } from "../logger.js";
 
 // ---------------------------------------------------------------------------
@@ -15,7 +20,13 @@ import { logger } from "../logger.js";
 // ---------------------------------------------------------------------------
 
 export interface QueryDeps {
-  query: (...args: Parameters<typeof _query>) => AsyncIterable<SDKMessage>;
+  /**
+   * The SDK's `query()` returns a `Query` (which extends `AsyncGenerator<SDKMessage>`).
+   * We type the return as `Query` rather than `AsyncIterable<SDKMessage>` so wrappers
+   * can access control methods like `setMcpServers()` — needed by `attach_integration`
+   * for mid-session MCP attachment.
+   */
+  query: (...args: Parameters<typeof _query>) => Query;
 }
 
 export const defaultQueryDeps: QueryDeps = {
@@ -54,6 +65,13 @@ export interface ClackSessionParams {
   resumeSessionId?: string;
   /** Called once the SDK emits the init message with the session ID */
   onSessionId?: (sessionId: string) => void;
+  /**
+   * Called with the SDK `Query` handle as soon as `deps.query(...)` returns, before any
+   * message is yielded. Tools that need mid-session control (e.g. `attach_integration`
+   * calling `setMcpServers`) read the Query via a holder populated by this callback.
+   * Fires again on the resume-fallback path with the fresh Query.
+   */
+  onQuery?: (query: Query) => void | Promise<void>;
 }
 
 /**
@@ -70,12 +88,12 @@ export function clackSession(
   params: ClackSessionParams,
   deps: QueryDeps = defaultQueryDeps,
 ): AsyncIterable<SDKMessage> {
-  const { prompt, options, resumeSessionId, onSessionId } = params;
+  const { prompt, options, resumeSessionId, onSessionId, onQuery } = params;
 
   // Wrap in an async generator so we can intercept the init message
   // and handle resume failures gracefully.
   async function* sessionGenerator(): AsyncGenerator<SDKMessage, void> {
-    let stream: AsyncIterable<SDKMessage>;
+    let stream: Query;
 
     try {
       stream = deps.query({
@@ -86,6 +104,7 @@ export function clackSession(
           ...(resumeSessionId ? { resume: resumeSessionId } : {}),
         },
       });
+      await onQuery?.(stream);
 
       // Iterate the entire stream inside the try-catch so resume failures
       // that surface after the init message (e.g., "No conversation found")
@@ -114,6 +133,7 @@ export function clackSession(
         persistSession: true,
       },
     });
+    await onQuery?.(stream);
 
     for await (const message of stream) {
       captureSessionId(message, onSessionId);

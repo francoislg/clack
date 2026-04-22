@@ -4,9 +4,15 @@ import type { McpDeps } from "./mcp.js";
 import {
   mapPermissionsToToolsets,
   loadMcpServers,
+  loadMcpServer,
+  loadAlwaysOnMcpServers,
   getConfiguredMcpServerNames,
   resetMcpCache,
+  resolveEffectiveRegistry,
+  DEFAULT_GITHUB_REGISTRY_ENTRY,
+  UNMAPPED_REGISTRY_DESCRIPTION,
 } from "./mcp.js";
+import type { McpServerRegistry } from "./config.js";
 
 // ---------------------------------------------------------------------------
 // Mock functions
@@ -699,5 +705,255 @@ describe("resetMcpCache", () => {
 
     names = getConfiguredMcpServerNames(makeDeps());
     assert.ok(names.includes("github"));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveEffectiveRegistry
+// ---------------------------------------------------------------------------
+
+describe("resolveEffectiveRegistry", () => {
+  it("passes through a fully-mapped registry with no unmapped warnings", () => {
+    const configRegistry: McpServerRegistry = {
+      metabase: { alwaysLoad: false, description: "metabase queries" },
+      monday: { alwaysLoad: false, description: "monday boards" },
+    };
+
+    const result = resolveEffectiveRegistry({
+      configRegistry,
+      mcpServerNames: ["metabase", "monday"],
+      githubAutoInjected: false,
+    });
+
+    assert.deepEqual(result.registry, configRegistry);
+    assert.deepEqual(result.unmapped, []);
+  });
+
+  it("adds a synthetic always-load entry for each mcp.json server missing from the registry", () => {
+    const result = resolveEffectiveRegistry({
+      configRegistry: {
+        metabase: { alwaysLoad: false, description: "metabase" },
+      },
+      mcpServerNames: ["metabase", "sentry", "monday"],
+      githubAutoInjected: false,
+    });
+
+    assert.deepEqual(result.unmapped.sort(), ["monday", "sentry"]);
+    assert.equal(result.registry.sentry.alwaysLoad, true);
+    assert.equal(result.registry.sentry.description, UNMAPPED_REGISTRY_DESCRIPTION);
+    assert.equal(result.registry.monday.alwaysLoad, true);
+    assert.equal(result.registry.monday.description, UNMAPPED_REGISTRY_DESCRIPTION);
+    // metabase kept its explicit entry
+    assert.equal(result.registry.metabase.alwaysLoad, false);
+    assert.equal(result.registry.metabase.description, "metabase");
+  });
+
+  it("injects a default github entry when auto-injection is active and no override exists", () => {
+    const result = resolveEffectiveRegistry({
+      configRegistry: {},
+      mcpServerNames: [],
+      githubAutoInjected: true,
+    });
+
+    assert.deepEqual(result.registry.github, DEFAULT_GITHUB_REGISTRY_ENTRY);
+    // auto-injected github is NOT reported as unmapped (it's a first-class path).
+    assert.deepEqual(result.unmapped, []);
+  });
+
+  it("does not override an explicit github registry entry when auto-injecting", () => {
+    const explicit = { alwaysLoad: false, description: "Custom github usage" };
+    const result = resolveEffectiveRegistry({
+      configRegistry: { github: explicit },
+      mcpServerNames: [],
+      githubAutoInjected: true,
+    });
+
+    assert.deepEqual(result.registry.github, explicit);
+  });
+
+  it("does not insert a github entry when auto-inject is inactive", () => {
+    const result = resolveEffectiveRegistry({
+      configRegistry: {},
+      mcpServerNames: [],
+      githubAutoInjected: false,
+    });
+
+    assert.ok(!("github" in result.registry));
+  });
+
+  it("accepts an undefined configRegistry", () => {
+    const result = resolveEffectiveRegistry({
+      mcpServerNames: ["sentry"],
+      githubAutoInjected: true,
+    });
+
+    assert.deepEqual(result.unmapped, ["sentry"]);
+    assert.equal(result.registry.sentry.description, UNMAPPED_REGISTRY_DESCRIPTION);
+    assert.deepEqual(result.registry.github, DEFAULT_GITHUB_REGISTRY_ENTRY);
+  });
+
+  it("preserves instructions-only entries (in registry but not in mcp.json)", () => {
+    // A registry entry for a "scheduling" topic that has no matching mcp.json server —
+    // valid per the design (instructions-only integrations).
+    const result = resolveEffectiveRegistry({
+      configRegistry: {
+        scheduling: { alwaysLoad: false, description: "Scheduled messages" },
+      },
+      mcpServerNames: [],
+      githubAutoInjected: false,
+    });
+
+    assert.deepEqual(result.registry.scheduling, {
+      alwaysLoad: false,
+      description: "Scheduled messages",
+    });
+    assert.deepEqual(result.unmapped, []);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// loadMcpServer — fetch a single server by name
+// ---------------------------------------------------------------------------
+
+describe("loadMcpServer", () => {
+  beforeEach(() => {
+    resetMocks();
+  });
+
+  it("returns a server from mcp.json by name", async () => {
+    setExistingPaths([mcpConfigPath()]);
+    mockReadFileSync.mock.mockImplementation(() => stdioMcpJson());
+
+    const cfg = await loadMcpServer("myserver", makeDeps());
+    assert.ok(cfg);
+    assert.equal(cfg.type, "stdio");
+  });
+
+  it("returns undefined for a name that's not in mcp.json", async () => {
+    setExistingPaths([mcpConfigPath()]);
+    mockReadFileSync.mock.mockImplementation(() => stdioMcpJson());
+
+    const cfg = await loadMcpServer("does-not-exist", makeDeps());
+    assert.equal(cfg, undefined);
+  });
+
+  it("returns undefined when mcp.json is absent and name is not github", async () => {
+    setExistingPaths([]);
+    const cfg = await loadMcpServer("sentry", makeDeps());
+    assert.equal(cfg, undefined);
+  });
+
+  it("builds a fresh github entry via token refresh when github is auto-injected", async () => {
+    // github not in mcp.json, but credentials + binary available
+    setExistingPaths([githubAuthPath()]);
+    mockExecSync.mock.mockImplementation(() => Buffer.from("ok"));
+
+    const cfg = await loadMcpServer("github", makeDeps());
+
+    assert.ok(cfg);
+    assert.equal(cfg.type, "stdio");
+    // Token fetch was called — this is the proof of a fresh token.
+    assert.equal(mockGetInstallationToken.mock.callCount(), 1);
+  });
+
+  it("returns a manual github entry from mcp.json without minting a token", async () => {
+    setExistingPaths([mcpConfigPath()]);
+    mockReadFileSync.mock.mockImplementation(() =>
+      JSON.stringify({
+        mcpServers: {
+          github: { command: "custom-github-mcp", args: ["--stdio"], env: {} },
+        },
+      }),
+    );
+
+    const cfg = await loadMcpServer("github", makeDeps());
+
+    assert.ok(cfg);
+    assert.equal(mockGetInstallationToken.mock.callCount(), 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// loadAlwaysOnMcpServers — filter down to alwaysLoad=true entries
+// ---------------------------------------------------------------------------
+
+describe("loadAlwaysOnMcpServers", () => {
+  beforeEach(() => {
+    resetMocks();
+  });
+
+  it("returns only servers tagged alwaysLoad: true", async () => {
+    setExistingPaths([mcpConfigPath()]);
+    mockReadFileSync.mock.mockImplementation(() =>
+      JSON.stringify({
+        mcpServers: {
+          metabase: { command: "mb", args: [] },
+          monday: { command: "md", args: [] },
+        },
+      }),
+    );
+
+    const registry: McpServerRegistry = {
+      metabase: { alwaysLoad: true, description: "x" },
+      monday: { alwaysLoad: false, description: "y" },
+    };
+
+    const result = await loadAlwaysOnMcpServers(registry, makeDeps());
+    assert.ok(result);
+    assert.deepEqual(Object.keys(result).sort(), ["metabase"]);
+  });
+
+  it("includes auto-injected github when its registry entry is alwaysLoad: true", async () => {
+    setExistingPaths([githubAuthPath()]);
+    mockExecSync.mock.mockImplementation(() => Buffer.from("ok"));
+
+    const registry: McpServerRegistry = {
+      github: { alwaysLoad: true, description: "GitHub MCP" },
+    };
+
+    const result = await loadAlwaysOnMcpServers(registry, makeDeps());
+    assert.ok(result);
+    assert.ok("github" in result);
+  });
+
+  it("returns undefined when no server qualifies", async () => {
+    setExistingPaths([mcpConfigPath()]);
+    mockReadFileSync.mock.mockImplementation(() =>
+      JSON.stringify({
+        mcpServers: {
+          metabase: { command: "mb", args: [] },
+        },
+      }),
+    );
+
+    const registry: McpServerRegistry = {
+      metabase: { alwaysLoad: false, description: "metabase" },
+    };
+
+    const result = await loadAlwaysOnMcpServers(registry, makeDeps());
+    assert.equal(result, undefined);
+  });
+
+  it("excludes servers in the MCP set that have no registry entry", async () => {
+    setExistingPaths([mcpConfigPath()]);
+    mockReadFileSync.mock.mockImplementation(() =>
+      JSON.stringify({
+        mcpServers: {
+          metabase: { command: "mb", args: [] },
+          untagged: { command: "other", args: [] },
+        },
+      }),
+    );
+
+    const registry: McpServerRegistry = {
+      metabase: { alwaysLoad: true, description: "x" },
+      // no entry for "untagged"
+    };
+
+    const result = await loadAlwaysOnMcpServers(registry, makeDeps());
+    assert.ok(result);
+    assert.deepEqual(Object.keys(result).sort(), ["metabase"]);
+    // `untagged` is filtered out; the caller is expected to have run
+    // `resolveEffectiveRegistry` first which would synthesize an always-load entry.
   });
 });

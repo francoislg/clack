@@ -556,6 +556,88 @@ describe("loadConfig", () => {
     const second = loadConfig(configPath, true);
     assert.equal(second.claudeCode.model, "haiku");
   });
+
+  it("parses a valid mcpServers registry", () => {
+    writeSlackAuth();
+    writeConfig(
+      minimalConfig({
+        mcpServers: {
+          metabase: { alwaysLoad: false, description: "metabase queries" },
+          github: { alwaysLoad: true, description: "GitHub MCP — PRs, issues" },
+        },
+      }),
+    );
+
+    const cfg = loadConfig(configPath, true);
+
+    assert.deepEqual(cfg.mcpServers, {
+      metabase: { alwaysLoad: false, description: "metabase queries" },
+      github: { alwaysLoad: true, description: "GitHub MCP — PRs, issues" },
+    });
+  });
+
+  it("treats mcpServers as optional", () => {
+    writeSlackAuth();
+    writeConfig(minimalConfig());
+
+    const cfg = loadConfig(configPath, true);
+
+    assert.equal(cfg.mcpServers, undefined);
+  });
+
+  it("throws when mcpServers is not an object", () => {
+    writeSlackAuth();
+    writeConfig(
+      minimalConfig({
+        mcpServers: ["metabase", "monday"],
+      }),
+    );
+
+    assert.throws(() => loadConfig(configPath, true), /Config 'mcpServers' must be an object/);
+  });
+
+  it("throws when an entry is missing alwaysLoad", () => {
+    writeSlackAuth();
+    writeConfig(
+      minimalConfig({
+        mcpServers: {
+          metabase: { description: "metabase queries" },
+        },
+      }),
+    );
+
+    assert.throws(
+      () => loadConfig(configPath, true),
+      /'mcpServers\.metabase\.alwaysLoad' must be a boolean/,
+    );
+  });
+
+  it("throws when an entry's description is empty", () => {
+    writeSlackAuth();
+    writeConfig(
+      minimalConfig({
+        mcpServers: {
+          metabase: { alwaysLoad: false, description: "   " },
+        },
+      }),
+    );
+
+    assert.throws(
+      () => loadConfig(configPath, true),
+      /'mcpServers\.metabase\.description' must be a non-empty string/,
+    );
+  });
+
+  it("throws when an entry is not an object", () => {
+    writeSlackAuth();
+    writeConfig(
+      minimalConfig({
+        mcpServers: { metabase: "not-an-object" },
+      }),
+    );
+
+    assert.throws(() => loadConfig(configPath, true), /'mcpServers\.metabase' must be an object/);
+  });
 });
 
 // ---------------------------------------------------------------------------
