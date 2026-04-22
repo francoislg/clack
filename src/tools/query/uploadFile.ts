@@ -19,11 +19,15 @@ export function createUploadFileTool(ctx: QueryToolContext) {
       channel: z
         .string()
         .optional()
-        .describe("Target channel ID (defaults to current thread's channel)"),
+        .describe(
+          "Target channel ID. Only provide when the user explicitly asked to upload to a DIFFERENT channel than the current one. Omit to upload to the current channel.",
+        ),
       thread_ts: z
         .string()
         .optional()
-        .describe("Target thread timestamp (defaults to current thread)"),
+        .describe(
+          "Target thread timestamp. Only provide when the user explicitly asked to post in a DIFFERENT thread than the current one (e.g. they shared a Slack message URL). Never fabricate this — omit it to post in the current thread.",
+        ),
     },
     async (args) => {
       if (!ctx.slackClient) {
@@ -44,7 +48,8 @@ export function createUploadFileTool(ctx: QueryToolContext) {
       }
 
       const channelId = args.channel ?? ctx.session.channelId;
-      const threadTs = args.thread_ts ?? (args.channel ? undefined : ctx.session.threadTs);
+      const threadTs =
+        args.thread_ts ?? (channelId === ctx.session.channelId ? ctx.session.threadTs : undefined);
 
       try {
         const uploadArgs = {
@@ -53,12 +58,11 @@ export function createUploadFileTool(ctx: QueryToolContext) {
           filename: args.filename,
           title: args.title ?? args.filename,
         };
-        const result = await ctx.slackClient.files.uploadV2(
+        const result = await ctx.slackClient.filesUploadV2(
           threadTs ? { ...uploadArgs, thread_ts: threadTs } : uploadArgs,
         );
 
-        // uploadV2 returns { ok, files } where files is an array of completed uploads
-        const file = (result as { files?: Array<{ id?: string; permalink?: string }> }).files?.[0];
+        const file = result.files?.[0]?.files?.[0];
 
         return textResult({
           ok: true,
