@@ -12,9 +12,7 @@ import { registerChoiceHandler, type ChoiceDeps } from "./choice.js";
 // ============================================================================
 
 const mockGetSession = mock.fn<(id: string) => Promise<SessionContext | null>>();
-const mockAddRefinement = mock.fn<(id: string, text: string) => Promise<SessionContext | null>>(
-  async () => null,
-);
+const mockAppendUserMessage = mock.fn<ChoiceDeps["appendUserMessage"]>(async () => null);
 
 const mockDecodeActionValue =
   mock.fn<(v: string) => { sessionId: string; choiceValue?: string; workMode?: boolean }>();
@@ -37,7 +35,7 @@ function makeDeps(): ChoiceDeps {
     decodeActionValue: mockDecodeActionValue,
     restoreSession: mockRestoreSessionInfo,
     getSession: mockGetSession,
-    addRefinement: mockAddRefinement,
+    appendUserMessage: mockAppendUserMessage,
     getHandlerClaudeOptions: mockGetHandlerClaudeOptions,
     canRequestChanges: mockCanRequestChanges,
     executeAndDeliver: mockExecuteAndDeliver,
@@ -77,9 +75,9 @@ function makeSession(overrides: Partial<SessionContext> = {}): SessionContext {
     messageTs: "1700000000.000001",
     threadTs: "1700000000.000001",
     userId: "U001",
-    originalQuestion: "q",
+    trigger: { type: "mentions", userId: "U001", messageTs: "1700000000.000001", messageText: "q" },
+    messages: [],
     threadContext: [],
-    refinements: [],
     errors: [],
     lastActivity: Date.now(),
     createdAt: Date.now(),
@@ -98,7 +96,7 @@ function makeSessionInfo(overrides: Partial<SessionInfo> = {}): SessionInfo {
 
 beforeEach(() => {
   mockGetSession.mock.resetCalls();
-  mockAddRefinement.mock.resetCalls();
+  mockAppendUserMessage.mock.resetCalls();
   mockDecodeActionValue.mock.resetCalls();
   mockRestoreSessionInfo.mock.resetCalls();
   mockExecuteAndDeliver.mock.resetCalls();
@@ -175,7 +173,9 @@ describe("registerChoiceHandler", () => {
   it("adds a refinement with the choice value and calls executeAndDeliver", async () => {
     const session = makeSession();
     const sessionInfo = makeSessionInfo();
-    const updatedSession = makeSession({ refinements: ["The user chose: option-a"] });
+    const updatedSession = makeSession({
+      messages: [{ role: "user", source: "choice", text: "option-a", value: "option-a", ts: 1 }],
+    });
 
     mockDecodeActionValue.mock.mockImplementation(() => ({
       sessionId: "sess-1",
@@ -196,9 +196,15 @@ describe("registerChoiceHandler", () => {
       client,
     });
 
-    assert.equal(mockAddRefinement.mock.callCount(), 1);
-    assert.equal(mockAddRefinement.mock.calls[0].arguments[0], "sess-1");
-    assert.equal(mockAddRefinement.mock.calls[0].arguments[1], "The user chose: option-a");
+    // unified-conversation-log: choice presses now append a structured user message
+    // with source: "choice". The dual-write inside appendUserMessage still produces
+    // "The user chose: ${text}" in the legacy refinements[] for prompt-builder parity.
+    assert.equal(mockAppendUserMessage.mock.callCount(), 1);
+    assert.equal(mockAppendUserMessage.mock.calls[0].arguments[0], "sess-1");
+    const appended = mockAppendUserMessage.mock.calls[0].arguments[1];
+    assert.equal(appended.source, "choice");
+    assert.equal(appended.text, "option-a");
+    assert.equal(appended.value, "option-a");
 
     assert.equal(mockExecuteAndDeliver.mock.callCount(), 1);
     const deliverArgs = mockExecuteAndDeliver.mock.calls[0].arguments[0] as Record<string, unknown>;

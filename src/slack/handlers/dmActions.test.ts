@@ -17,7 +17,7 @@ import { postAnswerToChannel, resolveOrigin, registerDmActionHandlers } from "./
 
 const mockGetSession = mock.fn<DmActionsDeps["getSession"]>();
 const mockUpdateSession = mock.fn<DmActionsDeps["updateSession"]>();
-const mockSetLastAnswer = mock.fn<DmActionsDeps["setLastAnswer"]>();
+const mockAppendAssistantMessage = mock.fn<DmActionsDeps["appendAssistantMessage"]>();
 const mockRestoreSession = mock.fn<DmActionsDeps["restoreSession"]>();
 const mockSetSessionInfo = mock.fn<DmActionsDeps["setSessionInfo"]>();
 const mockDecodeActionValue = mock.fn<DmActionsDeps["decodeActionValue"]>();
@@ -28,7 +28,7 @@ function makeDeps(): DmActionsDeps {
   return {
     getSession: mockGetSession,
     updateSession: mockUpdateSession,
-    setLastAnswer: mockSetLastAnswer,
+    appendAssistantMessage: mockAppendAssistantMessage,
     restoreSession: mockRestoreSession,
     setSessionInfo: mockSetSessionInfo,
     decodeActionValue: mockDecodeActionValue,
@@ -137,7 +137,7 @@ function makeSnapshot(overrides: Partial<ResponseSnapshot> = {}): ResponseSnapsh
 beforeEach(() => {
   mockGetSession.mock.resetCalls();
   mockUpdateSession.mock.resetCalls();
-  mockSetLastAnswer.mock.resetCalls();
+  mockAppendAssistantMessage.mock.resetCalls();
   mockRestoreSession.mock.resetCalls();
   mockSetSessionInfo.mock.resetCalls();
   mockDecodeActionValue.mock.resetCalls();

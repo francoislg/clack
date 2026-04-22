@@ -54,8 +54,10 @@ function makeDeps(
     getRenderedBlocks: mock.fn<() => null>(() => null),
     setSkipped: mock.fn<() => void>(),
     setDisengaged: mock.fn<() => void>(),
+    setPostedTopLevel: mock.fn<() => void>(),
     isSkipped: mock.fn<() => boolean>(() => false),
     isDisengaged: mock.fn<() => boolean>(() => false),
+    isPostedTopLevel: mock.fn<() => boolean>(() => false),
     ...overrides.responseCapture,
   };
 
@@ -182,8 +184,10 @@ describe("createSubmitResponseTool", () => {
           getRenderedBlocks: () => null,
           setSkipped: () => {},
           setDisengaged: () => {},
+          setPostedTopLevel: () => {},
           isSkipped: () => false,
           isDisengaged: () => false,
+          isPostedTopLevel: () => false,
         },
       });
 
@@ -608,8 +612,10 @@ describe("createSubmitResponseTool", () => {
           getRenderedBlocks: () => null,
           setSkipped: () => {},
           setDisengaged: () => {},
+          setPostedTopLevel: () => {},
           isSkipped: () => false,
           isDisengaged: () => false,
+          isPostedTopLevel: () => false,
         },
       });
 
@@ -759,8 +765,10 @@ describe("createSubmitResponseTool", () => {
           getRenderedBlocks: () => null,
           setSkipped: () => {},
           setDisengaged: () => {},
+          setPostedTopLevel: () => {},
           isSkipped: () => false,
           isDisengaged: () => false,
+          isPostedTopLevel: () => false,
         },
       });
 
@@ -898,8 +906,10 @@ describe("createSubmitResponseTool", () => {
           getRenderedBlocks: () => null,
           setSkipped: () => {},
           setDisengaged: () => {},
+          setPostedTopLevel: () => {},
           isSkipped: () => false,
           isDisengaged: () => false,
+          isPostedTopLevel: () => false,
         },
       });
 
@@ -928,8 +938,10 @@ describe("createSubmitResponseTool", () => {
           getRenderedBlocks: () => null,
           setSkipped: () => {},
           setDisengaged: () => {},
+          setPostedTopLevel: () => {},
           isSkipped: () => false,
           isDisengaged: () => false,
+          isPostedTopLevel: () => false,
         },
       });
 

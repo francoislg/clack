@@ -220,6 +220,7 @@ async function executeDynamicJob(
     additionalSystemPrompt: buildAttribution(job),
     requiredTools: job.requiredTools,
     skipConditions: job.skipConditions,
+    jobId: job.id,
   });
 
   if (response.skipped) {

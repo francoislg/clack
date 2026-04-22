@@ -263,12 +263,6 @@ export interface ToolCallRecord {
   timestamp: number;
 }
 
-export interface ContinuationRecord {
-  actionType: "choice" | "followup";
-  userInput: string;
-  timestamp: number;
-}
-
 // ============================================================================
 // Tool Server Result
 // ============================================================================
@@ -282,6 +276,8 @@ interface ClackToolsResultBase {
   getToolCallHistory: () => ToolCallRecord[];
   isSkipped: () => boolean;
   isDisengaged: () => boolean;
+  /** True when submit_response was called with `post_top_level: true` and delivery succeeded. */
+  isPostedTopLevel: () => boolean;
 }
 
 /** Query-mode result: map of MCP servers (one `clack` core server plus one per loaded plugin). */

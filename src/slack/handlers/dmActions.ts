@@ -1,6 +1,12 @@
 import type { App, BlockAction, ViewSubmitAction } from "@slack/bolt";
 import { logger } from "../../logger.js";
-import { getSession, updateSession, setLastAnswer, type SessionContext } from "../../sessions.js";
+import {
+  getSession,
+  updateSession,
+  appendAssistantMessage,
+  type SessionContext,
+} from "../../sessions.js";
+import { latestAssistantText, latestAssistantPayload } from "../../sessions/selectors.js";
 import type { ResponseSnapshot } from "../../tools/types.js";
 import { activeSessions, type SessionInfo } from "../activeSessions.js";
 import { getStructuredAcceptedBlocks, decodeActionValue, asSlackBlocks } from "../blocks.js";
@@ -28,7 +34,7 @@ export interface DmActionsDeps {
     sessionId: string,
     updates: Partial<SessionContext>,
   ) => Promise<SessionContext | null>;
-  setLastAnswer: (sessionId: string, answer: string) => Promise<SessionContext | null>;
+  appendAssistantMessage: typeof appendAssistantMessage;
   restoreSession: (sessionId: string) => Promise<SessionInfo | undefined>;
   setSessionInfo: (sessionId: string, info: SessionInfo) => void;
   decodeActionValue: typeof decodeActionValue;
@@ -39,7 +45,7 @@ export interface DmActionsDeps {
 export const defaultDmActionsDeps: DmActionsDeps = {
   getSession,
   updateSession: updateSession as never,
-  setLastAnswer,
+  appendAssistantMessage,
   restoreSession: (sessionId: string) => activeSessions.restore(sessionId),
   setSessionInfo: (sessionId, info) => activeSessions.set(sessionId, info),
   decodeActionValue,
@@ -122,7 +128,8 @@ export function resolveOrigin(
 
 /** Build Block Kit blocks from session response blocks, or a single-section fallback from plain answer text. */
 function buildAnswerBlocks(session: SessionContext, answer: string, deps: DmActionsDeps) {
-  const sourceBlocks = session.lastResponse?.blocks ?? textToBlocks(answer);
+  const payload = latestAssistantPayload(session);
+  const sourceBlocks = payload?.blocks ?? textToBlocks(answer);
   return deps.getStructuredAcceptedBlocks(sourceBlocks);
 }
 
@@ -252,7 +259,7 @@ async function handleAcceptSynthesis(
   if (!resolved) return;
   const { sessionId, session, sessionInfo } = resolved;
 
-  const answer = session.lastAnswer;
+  const answer = latestAssistantText(session);
   const { originChannel, originThreadTs } = resolveOrigin(session, sessionInfo);
   const targetChannel = originChannel || session.assistantCurrentChannelId;
 
@@ -291,8 +298,9 @@ async function handleEditSynthesis(
 ): Promise<void> {
   const sessionId = (body.actions[0] as { value: string }).value;
   const session = await deps.getSession(sessionId);
+  const answer = session ? latestAssistantText(session) : undefined;
 
-  if (!session?.lastAnswer) {
+  if (!session || !answer) {
     logger.error(`Cannot edit synthesis: no answer for ${sessionId}`);
     if (body.channel?.id) {
       await client.chat
@@ -323,7 +331,7 @@ async function handleEditSynthesis(
             type: "plain_text_input",
             action_id: "synthesis_content",
             multiline: true,
-            initial_value: session.lastAnswer,
+            initial_value: answer,
           },
           label: { type: "plain_text", text: "Answer" },
         },
@@ -355,7 +363,13 @@ async function handleEditSynthesisSubmit(
     return;
   }
 
-  await deps.setLastAnswer(sessionId, editedAnswer);
+  // Record the user-edited synthesis as a new assistant turn so future reads via
+  // `latestAssistantText()` return the edit, matching the prior `setLastAnswer` behavior.
+  await deps.appendAssistantMessage(sessionId, {
+    role: "assistant",
+    ts: Date.now(),
+    text: editedAnswer,
+  });
 
   const postResult = await client.chat.postMessage({
     channel: originChannel,
@@ -418,7 +432,7 @@ async function handleUpdatePost(
   if (!resolved) return;
   const { sessionId, session, sessionInfo } = resolved;
 
-  const answer = session.lastAnswer;
+  const answer = latestAssistantText(session);
   const { originChannel } = resolveOrigin(session, sessionInfo);
   const channelPostTs = session.channelPostTs || sessionInfo.channelPostTs;
 
@@ -456,7 +470,7 @@ async function handlePostNew(
   if (!resolved) return;
   const { sessionId, session, sessionInfo } = resolved;
 
-  const answer = session.lastAnswer;
+  const answer = latestAssistantText(session);
   const { originChannel, originThreadTs } = resolveOrigin(session, sessionInfo);
 
   if (!answer || !originChannel || !originThreadTs) {

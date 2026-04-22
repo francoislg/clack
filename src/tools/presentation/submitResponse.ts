@@ -577,6 +577,9 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
       if (wantsDisengage) {
         responseCapture.setDisengaged();
       }
+      if (wantsPostTopLevel) {
+        responseCapture.setPostedTopLevel();
+      }
 
       const result: SubmitResponseSuccessResult = {
         success: true,

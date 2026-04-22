@@ -7,6 +7,10 @@ import { textResult } from "../helpers.js";
 import { getSessionsDir } from "../../config.js";
 import { fileExists } from "../../fs.js";
 import { getChannelInfo } from "../../slack/channelCache.js";
+import { extractDisplayText } from "../../slack/blockText.js";
+import type { SessionMessage, SessionTrigger } from "../../sessions.js";
+import { synthesizeMessagesFromLegacy } from "../../sessions.js";
+import type { TriggerType } from "../../changes/types.js";
 
 /** Cap on how many session directories are loaded per query.
  *  Sessions older than MAX_AGE_DAYS (30) are already pruned by cleanup, but this
@@ -38,25 +42,39 @@ interface PersistedSession {
   sessionId: string;
   channelId: string;
   channelName?: string;
-  triggerType?: string;
+  triggerType?: TriggerType;
   userId: string;
   displayName?: string;
   createdAt: number;
-  originalQuestion: string;
+  lastActivity?: number;
+  /** DM-first delivered sessions carry the channel where the reaction originated. */
+  originChannel?: string;
+  /** Post-split sessions carry a structured trigger; pre-split sessions rely on
+   *  legacy fields (originalQuestion + triggerType) that the synthesizer converts. */
+  trigger?: SessionTrigger;
+  messageTs?: string;
+  /** Unified conversation log. */
+  messages?: SessionMessage[];
+  /** Legacy fields — still on-disk for pre-migration sessions. */
+  originalQuestion?: string;
   refinements?: string[];
   lastAnswer?: string;
 }
 
 export interface InteractionResult {
   sessionId: string;
+  channelId: string;
   channelName?: string;
   triggerType?: string;
   userId: string;
   displayName?: string;
   createdAt: number;
-  question: string;
-  refinements: string[];
-  answer: string;
+  lastActivity?: number;
+  firstQuestion: string;
+  latestAssistantText?: string;
+  messageCount: number;
+  assistantTurnCount: number;
+  skippedTurnCount: number;
 }
 
 /** True when the channel is definitively known to be a non-private public channel.
@@ -89,12 +107,80 @@ function matchesType(
   return session.channelId.startsWith("D") && session.userId === callerUserId;
 }
 
+/** Return the raw trigger text for scanning (messageText for user-first, prompt for scheduled). */
+function triggerTextOf(session: PersistedSession): string {
+  if (session.trigger) {
+    return session.trigger.type === "scheduled"
+      ? session.trigger.prompt
+      : session.trigger.messageText;
+  }
+  return session.originalQuestion ?? "";
+}
+
 function matchesKeywords(session: PersistedSession, keywords: string): boolean {
   const needle = keywords.toLowerCase();
-  if (session.originalQuestion.toLowerCase().includes(needle)) return true;
+  // Trigger text is the first thing to scan — post-split, it holds the user's first message.
+  if (triggerTextOf(session).toLowerCase().includes(needle)) return true;
+  if (session.messages && session.messages.length > 0) {
+    for (const m of session.messages) {
+      if (m.role === "user" && m.text.toLowerCase().includes(needle)) return true;
+      if (m.role === "assistant") {
+        if (m.text && m.text.toLowerCase().includes(needle)) return true;
+        if (m.payload?.message && m.payload.message.toLowerCase().includes(needle)) return true;
+        if (m.payload?.blocks) {
+          const rendered = extractDisplayText(m.payload.blocks).toLowerCase();
+          if (rendered.includes(needle)) return true;
+        }
+      }
+    }
+    return false;
+  }
+  // Legacy fallback for pre-migration files on disk.
   if (session.refinements?.some((r) => r.toLowerCase().includes(needle))) return true;
   if (session.lastAnswer?.toLowerCase().includes(needle)) return true;
   return false;
+}
+
+/** Summarize a session's unified log into count + latest-assistant-text.
+ *  Falls back to legacy fields when `messages` is absent. */
+function summarize(session: PersistedSession): {
+  firstQuestion: string;
+  latestAssistantText?: string;
+  messageCount: number;
+  assistantTurnCount: number;
+  skippedTurnCount: number;
+} {
+  const firstQuestion = triggerTextOf(session);
+  if (session.messages && session.messages.length > 0) {
+    const messages = session.messages;
+    let latest: string | undefined;
+    let assistantTurnCount = 0;
+    let skippedTurnCount = 0;
+    for (const m of messages) {
+      if (m.role === "assistant") {
+        assistantTurnCount += 1;
+        if (m.skipped) skippedTurnCount += 1;
+        if (m.text) latest = m.text;
+        else if (m.payload?.message) latest = m.payload.message;
+      }
+    }
+    return {
+      firstQuestion,
+      latestAssistantText: latest,
+      messageCount: messages.length,
+      assistantTurnCount,
+      skippedTurnCount,
+    };
+  }
+  // Legacy fallback — derived counts from the old shape.
+  const messageCount = 1 + (session.refinements?.length ?? 0) + (session.lastAnswer ? 1 : 0);
+  return {
+    firstQuestion,
+    latestAssistantText: session.lastAnswer,
+    messageCount,
+    assistantTurnCount: session.lastAnswer ? 1 : 0,
+    skippedTurnCount: 0,
+  };
 }
 
 async function loadSession(
@@ -107,17 +193,35 @@ async function loadSession(
 
   try {
     const content = await deps.readFile(contextPath, "utf-8");
-    const parsed = JSON.parse(content) as PersistedSession;
+    const parsed: PersistedSession = JSON.parse(content);
     if (
       typeof parsed !== "object" ||
       parsed === null ||
       !parsed.sessionId ||
-      !parsed.originalQuestion ||
       !parsed.channelId ||
       !parsed.userId ||
       !parsed.createdAt
     ) {
       return null;
+    }
+    // Post-split sessions carry a structured trigger; pre-split sessions synthesize one
+    // on read so every downstream consumer sees a uniform shape.
+    if (!parsed.trigger) {
+      const synth = synthesizeMessagesFromLegacy({
+        triggerType: parsed.triggerType,
+        userId: parsed.userId,
+        messageTs: parsed.messageTs,
+        createdAt: parsed.createdAt,
+        lastActivity: parsed.lastActivity ?? parsed.createdAt,
+        originalQuestion: parsed.originalQuestion,
+        refinements: parsed.refinements,
+        lastAnswer: parsed.lastAnswer,
+        messages: parsed.messages,
+      });
+      parsed.trigger = synth.trigger;
+      if (!parsed.messages || parsed.messages.length === 0) {
+        parsed.messages = synth.messages;
+      }
     }
     return parsed;
   } catch {
@@ -131,6 +235,11 @@ export interface SearchArgs {
   includeAutoRespond?: boolean;
   limit?: number;
   offset?: number;
+  /** Filter by specific channel ID. Matches either `channelId` or `originChannel`
+   *  (DM-first sessions record the channel where the reaction originated). */
+  channel?: string;
+  /** Filter by trigger type (reactions, directMessages, mentions, autoRespond, etc.). */
+  triggerType?: string;
 }
 
 export async function searchRecentInteractions(
@@ -189,23 +298,40 @@ export async function searchRecentInteractions(
       (includeAutoRespond || s.triggerType !== "autoRespond"),
   );
 
+  if (args.channel) {
+    const channel = args.channel;
+    filtered = filtered.filter((s) => s.channelId === channel || s.originChannel === channel);
+  }
+
+  if (args.triggerType) {
+    const triggerType = args.triggerType;
+    filtered = filtered.filter((s) => s.triggerType === triggerType);
+  }
+
   if (args.keywords) {
     filtered = filtered.filter((s) => matchesKeywords(s, args.keywords!));
   }
 
   const paginated = filtered.slice(args.offset ?? 0, (args.offset ?? 0) + (args.limit ?? 10));
 
-  return paginated.map((s) => ({
-    sessionId: s.sessionId,
-    channelName: s.channelName,
-    triggerType: s.triggerType,
-    userId: s.userId,
-    displayName: s.displayName,
-    createdAt: s.createdAt,
-    question: s.originalQuestion,
-    refinements: s.refinements ?? [],
-    answer: s.lastAnswer ?? "",
-  }));
+  return paginated.map((s) => {
+    const summary = summarize(s);
+    return {
+      sessionId: s.sessionId,
+      channelId: s.channelId,
+      channelName: s.channelName,
+      triggerType: s.triggerType,
+      userId: s.userId,
+      displayName: s.displayName,
+      createdAt: s.createdAt,
+      lastActivity: s.lastActivity,
+      firstQuestion: summary.firstQuestion,
+      latestAssistantText: summary.latestAssistantText,
+      messageCount: summary.messageCount,
+      assistantTurnCount: summary.assistantTurnCount,
+      skippedTurnCount: summary.skippedTurnCount,
+    };
+  });
 }
 
 export function createFindRecentInteractionsTool(
@@ -242,6 +368,25 @@ export function createFindRecentInteractionsTool(
         .describe(
           'Filter by interaction type: "all" (default) returns public channels + your own DMs; "public_channels" returns only public channel interactions; "dm" returns only your own DM interactions.',
         ),
+      channel: z
+        .string()
+        .optional()
+        .describe(
+          "Filter by a specific Slack channel ID. Matches both the session's primary channel and, for DM-first-delivered sessions, the channel where the triggering reaction originated. Standard privacy rules still apply.",
+        ),
+      trigger_type: z
+        .enum([
+          "reactions",
+          "directMessages",
+          "mentions",
+          "autoRespond",
+          "threadReply",
+          "scheduled",
+        ])
+        .optional()
+        .describe(
+          'Filter by how the session was triggered. Valid values: "reactions", "directMessages", "mentions", "autoRespond", "threadReply", "scheduled".',
+        ),
       include_auto_respond: z
         .boolean()
         .optional()
@@ -264,10 +409,10 @@ export function createFindRecentInteractionsTool(
         .default(0)
         .describe("Number of results to skip (for paginating further back in history)."),
     },
-    async ({ include_auto_respond, ...rest }) => {
+    async ({ include_auto_respond, trigger_type, ...rest }) => {
       const results = await searchRecentInteractions(
         ctx,
-        { ...rest, includeAutoRespond: include_auto_respond },
+        { ...rest, includeAutoRespond: include_auto_respond, triggerType: trigger_type },
         deps,
       );
       return textResult(results);

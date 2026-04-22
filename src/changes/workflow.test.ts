@@ -194,9 +194,14 @@ function makeSessionContext(overrides: Partial<SessionContext> = {}): SessionCon
     messageTs: "1700000000.000001",
     threadTs: "1700000000.000001",
     userId: "U001",
-    originalQuestion: "Fix the bug",
+    trigger: {
+      type: "mentions",
+      userId: "U001",
+      messageTs: "1700000000.000001",
+      messageText: "Fix the bug",
+    },
+    messages: [],
     threadContext: [],
-    refinements: [],
     errors: [],
     lastActivity: Date.now(),
     createdAt: Date.now(),
@@ -273,6 +278,7 @@ function resetMocks(): void {
     getToolCallHistory: () => [],
     isSkipped: () => false,
     isDisengaged: () => false,
+    isPostedTopLevel: () => false,
   }));
 }
 

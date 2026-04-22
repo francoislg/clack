@@ -1,6 +1,7 @@
 import type { App, BlockAction } from "@slack/bolt";
 import { logger } from "../../logger.js";
 import { getSession } from "../../sessions.js";
+import { latestAssistantText, latestAssistantPayload } from "../../sessions/selectors.js";
 import { getStructuredResponseBlocks, asSlackBlocks } from "../blocks.js";
 import { activeSessions } from "../activeSessions.js";
 import { postResponse } from "./handlerResponse.js";
@@ -29,7 +30,10 @@ export function registerResendHandler(app: App, deps: ResendDeps = defaultResend
     const session = await deps.getSession(sessionId);
     const sessionInfo = await deps.restoreSession(sessionId);
 
-    if (!session || !sessionInfo || !session.lastAnswer) {
+    const answerText = session ? latestAssistantText(session) : undefined;
+    const answerPayload = session ? latestAssistantPayload(session) : undefined;
+
+    if (!session || !sessionInfo || !answerText) {
       logger.error("Could not restore session for resend");
       await respond({
         text: "Sorry, the session has expired. Please start a new query.",
@@ -38,15 +42,15 @@ export function registerResendHandler(app: App, deps: ResendDeps = defaultResend
       return;
     }
 
-    if (session.lastResponse) {
-      const blocks = deps.getStructuredResponseBlocks(session.lastResponse, session.sessionId);
+    if (answerPayload) {
+      const blocks = deps.getStructuredResponseBlocks(answerPayload, session.sessionId);
       await deps.postResponse(client, sessionInfo, {
         blocks: deps.asSlackBlocks(blocks),
-        text: session.lastAnswer,
+        text: answerText,
       });
     } else {
       await deps.postResponse(client, sessionInfo, {
-        text: session.lastAnswer,
+        text: answerText,
       });
     }
 

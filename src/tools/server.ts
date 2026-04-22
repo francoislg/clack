@@ -77,6 +77,7 @@ import { createListRemindersTool } from "./query/listReminders.js";
 import { createListScheduledMessagesTool } from "./query/listScheduledMessages.js";
 import { createGetScheduledMessageRunsTool } from "./query/getScheduledMessageRuns.js";
 import { createFindRecentInteractionsTool } from "./query/findRecentInteractions.js";
+import { createFindSessionTranscriptTool } from "./query/findSessionTranscript.js";
 
 // Presentation tool
 import { createSubmitResponseTool } from "./presentation/submitResponse.js";
@@ -188,8 +189,10 @@ export interface ResponseCapture {
   getRenderedBlocks: () => SlackBlocks | null;
   setSkipped: () => void;
   setDisengaged: () => void;
+  setPostedTopLevel: () => void;
   isSkipped: () => boolean;
   isDisengaged: () => boolean;
+  isPostedTopLevel: () => boolean;
 }
 
 export function createResponseCapture(): ResponseCapture {
@@ -197,6 +200,7 @@ export function createResponseCapture(): ResponseCapture {
   let blocks: SlackBlocks | null = null;
   let skipped = false;
   let disengaged = false;
+  let postedTopLevel = false;
 
   return {
     set(payload: SubmitResponsePayload, renderedBlocks: SlackBlocks): void {
@@ -220,12 +224,20 @@ export function createResponseCapture(): ResponseCapture {
       disengaged = true;
     },
 
+    setPostedTopLevel(): void {
+      postedTopLevel = true;
+    },
+
     isSkipped(): boolean {
       return skipped;
     },
 
     isDisengaged(): boolean {
       return disengaged;
+    },
+
+    isPostedTopLevel(): boolean {
+      return postedTopLevel;
     },
   };
 }
@@ -313,6 +325,7 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
 
   // Read-only query tools — available to all roles
   tools.push(createFindRecentInteractionsTool(ctx));
+  tools.push(createFindSessionTranscriptTool(ctx));
   tools.push(createFindSessionsTool(ctx));
   tools.push(createFindChangesTool(ctx));
   tools.push(createFindPullRequestsTool(ctx));
@@ -477,6 +490,7 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
     getToolCallHistory: () => recorder.getHistory(),
     isSkipped: () => responseCapture.isSkipped(),
     isDisengaged: () => responseCapture.isDisengaged(),
+    isPostedTopLevel: () => responseCapture.isPostedTopLevel(),
   };
 }
 
@@ -511,6 +525,7 @@ function buildWorkerTools(ctx: WorkerToolContext): ClackWorkerToolsResult {
     getToolCallHistory: () => [],
     isSkipped: () => false,
     isDisengaged: () => false,
+    isPostedTopLevel: () => false,
   };
 }
 

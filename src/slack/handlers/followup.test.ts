@@ -11,9 +11,7 @@ import { registerFollowupHandler, type FollowupDeps } from "./followup.js";
 // ============================================================================
 
 const mockGetSession = mock.fn<(id: string) => Promise<SessionContext | null>>();
-const mockAddRefinement = mock.fn<(id: string, text: string) => Promise<SessionContext | null>>(
-  async () => null,
-);
+const mockAppendUserMessage = mock.fn<FollowupDeps["appendUserMessage"]>(async () => null);
 
 const mockDecodeActionValue = mock.fn<(v: string) => { sessionId: string; prompt?: string }>();
 const mockRestoreSessionInfo = mock.fn<(id: string) => Promise<SessionInfo | undefined>>();
@@ -24,7 +22,7 @@ const mockGetHandlerClaudeOptions = mock.fn<(info: SessionInfo) => Promise<AskCl
 function makeDeps(): FollowupDeps {
   return {
     getSession: mockGetSession,
-    addRefinement: mockAddRefinement,
+    appendUserMessage: mockAppendUserMessage,
     decodeActionValue: mockDecodeActionValue as never,
     restoreSession: mockRestoreSessionInfo,
     executeAndDeliver: mockExecuteAndDeliver as never,
@@ -59,9 +57,9 @@ function makeSession(overrides: Partial<SessionContext> = {}): SessionContext {
     messageTs: "1700000000.000001",
     threadTs: "1700000000.000001",
     userId: "U001",
-    originalQuestion: "q",
+    trigger: { type: "mentions", userId: "U001", messageTs: "1700000000.000001", messageText: "q" },
+    messages: [],
     threadContext: [],
-    refinements: [],
     errors: [],
     lastActivity: Date.now(),
     createdAt: Date.now(),
@@ -80,7 +78,7 @@ function makeSessionInfo(overrides: Partial<SessionInfo> = {}): SessionInfo {
 
 beforeEach(() => {
   mockGetSession.mock.resetCalls();
-  mockAddRefinement.mock.resetCalls();
+  mockAppendUserMessage.mock.resetCalls();
   mockDecodeActionValue.mock.resetCalls();
   mockRestoreSessionInfo.mock.resetCalls();
   mockExecuteAndDeliver.mock.resetCalls();
@@ -156,7 +154,9 @@ describe("registerFollowupHandler", () => {
   it("adds the prompt as a refinement and calls executeAndDeliver", async () => {
     const session = makeSession();
     const sessionInfo = makeSessionInfo();
-    const updatedSession = makeSession({ refinements: ["tell me more"] });
+    const updatedSession = makeSession({
+      messages: [{ role: "user", source: "followup", text: "tell me more", ts: 1 }],
+    });
     const claudeOptions: AskClaudeOptions = { role: "dev", changesWorkflowEnabled: false };
 
     mockDecodeActionValue.mock.mockImplementation(() => ({
@@ -179,10 +179,12 @@ describe("registerFollowupHandler", () => {
       client,
     });
 
-    // Check addRefinement was called with the prompt text
-    assert.equal(mockAddRefinement.mock.callCount(), 1);
-    assert.equal(mockAddRefinement.mock.calls[0]!.arguments[0], "sess-1");
-    assert.equal(mockAddRefinement.mock.calls[0]!.arguments[1], "tell me more");
+    // Check appendUserMessage was called with source: "followup" and the prompt text
+    assert.equal(mockAppendUserMessage.mock.callCount(), 1);
+    assert.equal(mockAppendUserMessage.mock.calls[0]!.arguments[0], "sess-1");
+    const appended = mockAppendUserMessage.mock.calls[0]!.arguments[1];
+    assert.equal(appended.source, "followup");
+    assert.equal(appended.text, "tell me more");
 
     // Check executeAndDeliver was called with updated session
     assert.equal(mockExecuteAndDeliver.mock.callCount(), 1);

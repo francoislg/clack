@@ -67,23 +67,28 @@ async function main(): Promise<void> {
       console.error(`Session not found: ${sessionId}`);
       process.exit(1);
     }
-    // Add the new prompt as a refinement
-    existingSession.refinements.push(prompt);
+    // Append the new prompt as a refinement on the unified log.
+    const ts = Date.now();
+    existingSession.messages = [
+      ...(existingSession.messages ?? []),
+      { role: "user", source: "refinement", text: prompt, ts },
+    ];
     session = existingSession;
     console.log(`\n📂 Using session: ${sessionId}\n`);
   } else {
     // Create a minimal session context
+    const now = Date.now();
     session = {
-      sessionId: `cli-${Date.now()}`,
+      sessionId: `cli-${now}`,
       channelId: "CLI",
-      messageTs: Date.now().toString(),
-      threadTs: Date.now().toString(),
+      messageTs: now.toString(),
+      threadTs: now.toString(),
       userId: "cli-user",
-      originalQuestion: prompt,
+      messages: [{ role: "user", source: "initial", text: prompt, ts: now }],
       threadContext: [],
-      refinements: [],
-      lastActivity: Date.now(),
-      createdAt: Date.now(),
+      errors: [],
+      lastActivity: now,
+      createdAt: now,
     };
   }
 

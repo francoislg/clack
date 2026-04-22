@@ -2,6 +2,7 @@ import { getConfig } from "../config.js";
 import { loadInstructions } from "../instructions.js";
 import type { UserRole } from "../roles.js";
 import type { SessionContext } from "../sessions.js";
+import { triggerText, userContinuations } from "../sessions/selectors.js";
 import type { SlackImageFile, SlackFile } from "../slack/slackFileBase.js";
 import { DISMISSAL_PHRASES_INLINE } from "./dismissalPhrases.js";
 /** Subset of AskClaudeOptions needed for prompt construction. */
@@ -367,12 +368,16 @@ Use this context to understand the conversation flow and provide relevant answer
     parts.push(lines.join("\n"));
   }
 
-  // Original question
-  parts.push(`QUESTION: ${session.originalQuestion}`);
+  parts.push(`QUESTION: ${triggerText(session)}`);
 
-  // Refinements (from button handlers within the current process lifetime)
-  if (session.refinements.length > 0) {
-    parts.push(`\nADDITIONAL INSTRUCTIONS FROM USER:\n${session.refinements.join("\n")}`);
+  // Continuations (refinements / choices / followups). `source: "choice"` messages
+  // render as "The user chose: ${text}" — preserved from the pre-unified-log format.
+  const continuations = userContinuations(session);
+  if (continuations.length > 0) {
+    const rendered = continuations.map((m) =>
+      m.source === "choice" ? `The user chose: ${m.text}` : m.text,
+    );
+    parts.push(`\nADDITIONAL INSTRUCTIONS FROM USER:\n${rendered.join("\n")}`);
   }
 
   return parts.join("\n");

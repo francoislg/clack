@@ -50,6 +50,8 @@ export interface ClaudeResponse {
   skipped?: boolean;
   /** True when Claude chose to disengage from the thread (skip + stop tracking) */
   disengaged?: boolean;
+  /** True when submit_response was invoked with post_top_level: true */
+  postedTopLevel?: boolean;
   conversationTrace?: ConversationMessage[];
   /** Captured stderr output from the Claude Code process */
   stderrOutput?: string;
@@ -264,6 +266,7 @@ function buildSuccessResponse(
       renderedBlocks,
       stagedIntents: optionalIntents,
       toolCallHistory: optionalToolHistory,
+      postedTopLevel: clackTools.isPostedTopLevel() || undefined,
     };
   }
 

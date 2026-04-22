@@ -293,7 +293,7 @@ describe("searchRecentInteractions", () => {
       });
       const results = await search(deps, makeCtx(), { keywords: "typescript" });
       assert.equal(results.length, 1);
-      assert.equal(results[0].question, "What is TypeScript?");
+      assert.equal(results[0].firstQuestion, "What is TypeScript?");
     });
 
     it("matches on refinements (case-insensitive)", async () => {
@@ -342,8 +342,10 @@ describe("searchRecentInteractions", () => {
       });
       const results = await search(deps, makeCtx(), { keywords: "keyword" });
       assert.equal(results.length, 1);
-      assert.equal(results[0].answer, "Full answer text.");
-      assert.deepEqual(results[0].refinements, ["follow up"]);
+      assert.equal(results[0].latestAssistantText, "Full answer text.");
+      // refinements are no longer in the summary — messageCount captures presence;
+      // use find_session_transcript for the full transcript.
+      assert.ok((results[0].messageCount ?? 0) >= 2);
     });
   });
 
@@ -481,27 +483,86 @@ describe("searchRecentInteractions", () => {
       assert.equal(r.userId, "U001");
       assert.equal(r.displayName, "Bob");
       assert.equal(r.createdAt, 9999);
-      assert.equal(r.question, "How does X work?");
-      assert.deepEqual(r.refinements, ["More detail?"]);
-      assert.equal(r.answer, "X works like this.");
+      assert.equal(r.firstQuestion, "How does X work?");
+      assert.equal(r.latestAssistantText, "X works like this.");
+      // Post-trigger-split: initial question lives on trigger (not messages[]),
+      // so messages[] = [refinement, assistant answer] = 2.
+      assert.ok(r.messageCount >= 2);
     });
 
-    it("defaults refinements to [] when absent from persisted session", async () => {
+    it("handles sessions missing refinements (pre-migration legacy shape)", async () => {
       const deps = makeDeps({
         "sess-1": makeSessionFile({ refinements: undefined }),
       });
       const results = await search(deps, makeCtx());
       assert.equal(results.length, 1);
-      assert.deepEqual(results[0].refinements, []);
+      assert.ok(results[0].firstQuestion);
     });
 
-    it("defaults answer to empty string when lastAnswer absent from persisted session", async () => {
+    it("latestAssistantText is undefined when no assistant turn has occurred", async () => {
       const deps = makeDeps({
         "sess-1": makeSessionFile({ lastAnswer: undefined }),
       });
       const results = await search(deps, makeCtx());
       assert.equal(results.length, 1);
-      assert.equal(results[0].answer, "");
+      assert.equal(results[0].latestAssistantText, undefined);
+    });
+  });
+
+  describe("channel filter", () => {
+    it("returns only sessions whose channelId matches the channel arg", async () => {
+      const deps = makeDeps({
+        "sess-1": makeSessionFile({ sessionId: "sess-1", channelId: "C001" }),
+        "sess-2": makeSessionFile({ sessionId: "sess-2", channelId: "C002" }),
+      });
+      const results = await search(deps, makeCtx(), { channel: "C001" });
+      assert.equal(results.length, 1);
+      assert.equal(results[0].sessionId, "sess-1");
+    });
+
+    it("returns empty when no session matches the channel filter", async () => {
+      const deps = makeDeps({
+        "sess-1": makeSessionFile({ channelId: "C001" }),
+      });
+      const results = await search(deps, makeCtx(), { channel: "C999" });
+      assert.deepEqual(results, []);
+    });
+  });
+
+  describe("trigger_type filter", () => {
+    it("returns only sessions with matching triggerType", async () => {
+      const deps = makeDeps({
+        "sess-1": makeSessionFile({ sessionId: "sess-1", triggerType: "mentions" }),
+        "sess-2": makeSessionFile({ sessionId: "sess-2", triggerType: "directMessages" }),
+      });
+      const results = await search(deps, makeCtx(), { triggerType: "directMessages" });
+      assert.equal(results.length, 1);
+      assert.equal(results[0].sessionId, "sess-2");
+    });
+  });
+
+  describe("skippedTurnCount", () => {
+    it("counts assistant messages flagged as skipped in the unified log", async () => {
+      // Direct JSON — a session with a unified `messages` array containing a skipped turn.
+      const persisted = JSON.stringify({
+        sessionId: "sess-1",
+        channelId: "C001",
+        userId: "U001",
+        createdAt: 1000,
+        lastActivity: 2000,
+        originalQuestion: "hi",
+        messages: [
+          { role: "user", source: "initial", text: "hi", ts: 1000 },
+          { role: "assistant", ts: 1500, text: "hello" },
+          { role: "assistant", ts: 1800, skipped: true },
+        ],
+      });
+      const deps = makeDeps({ "sess-1": persisted });
+      const results = await search(deps, makeCtx());
+      assert.equal(results.length, 1);
+      assert.equal(results[0].skippedTurnCount, 1);
+      assert.equal(results[0].assistantTurnCount, 2);
+      assert.equal(results[0].messageCount, 3);
     });
   });
 });

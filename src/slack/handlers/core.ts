@@ -1,5 +1,5 @@
 import type { App } from "@slack/bolt";
-import type { SessionContext } from "../../sessions.js";
+import type { SessionContext, SessionMessage, SessionTrigger } from "../../sessions.js";
 import {
   findSessionByThread,
   createSession,
@@ -105,6 +105,15 @@ export interface ProcessMessageParams {
    * `skip_response` so Claude can decline delivery. Only meaningful for `triggerType: "scheduled"`.
    */
   skipConditions?: string;
+  /** Pre-analysis verdict from the autoRespond gate. Forwarded onto the session trigger at
+   *  creation (autoRespond only) AND onto each assistant message appended during this run. */
+  preAnalysis?: string;
+  /** Cron job ID for scheduled triggers — recorded on the session's trigger. */
+  jobId?: string;
+  /** Emoji name (no colons) for reactions triggers — recorded on the trigger. */
+  reactionEmoji?: string;
+  /** autoRespond rule name — propagated onto the trigger when a rule matched. */
+  autoRespondRuleName?: string;
 }
 
 interface ProcessingContext {
@@ -122,6 +131,84 @@ interface ProcessingContext {
   readonly additionalSystemPrompt?: string;
   readonly requiredTools?: string[];
   readonly skipConditions?: string;
+  /** Image files from the triggering Slack message (stored on the trigger). */
+  readonly imageFiles?: SlackImageFile[];
+  /** Pre-analysis verdict from the autoRespond gate. Stamped onto the session's trigger
+   *  at creation (autoRespond only) AND onto each assistant message appended during this run. */
+  readonly preAnalysis?: string;
+  /** Cron job ID for scheduled triggers — carried onto the trigger for provenance. */
+  readonly jobId?: string;
+  /** Reactions trigger — the emoji that was reacted with. */
+  readonly reactionEmoji?: string;
+  /** autoRespond rule name — propagated onto the trigger when a rule matched. */
+  readonly autoRespondRuleName?: string;
+}
+
+/** Construct a `SessionTrigger` from the inputs we have at handler time. The switch on
+ *  `triggerType` picks the right discriminated-union variant and omits fields that don't
+ *  apply to that variant. */
+function buildTriggerFromParams(params: {
+  triggerType: TriggerType;
+  userId: string;
+  messageTs: string;
+  messageText: string;
+  imageFiles?: SlackImageFile[];
+  preAnalysis?: string;
+  jobId?: string;
+  reactionEmoji?: string;
+  autoRespondRuleName?: string;
+}): SessionTrigger {
+  switch (params.triggerType) {
+    case "scheduled":
+      return {
+        type: "scheduled",
+        prompt: params.messageText,
+        ...(params.jobId !== undefined ? { jobId: params.jobId } : {}),
+        ...(params.preAnalysis !== undefined ? { preAnalysis: params.preAnalysis } : {}),
+      };
+    case "reactions":
+      return {
+        type: "reactions",
+        userId: params.userId,
+        emoji: params.reactionEmoji ?? "",
+        messageTs: params.messageTs,
+        messageText: params.messageText,
+        ...(params.imageFiles !== undefined ? { imageFiles: params.imageFiles } : {}),
+      };
+    case "autoRespond":
+    case "threadReply":
+      // A threadReply event here only happens when there was NO existing session found — in
+      // practice that's almost always an autoRespond-created session in a thread. Model as
+      // autoRespond for the new trigger union (threadReply is NOT a session-creating type).
+      return {
+        type: "autoRespond",
+        userId: params.userId,
+        messageTs: params.messageTs,
+        messageText: params.messageText,
+        ...(params.autoRespondRuleName !== undefined
+          ? { ruleName: params.autoRespondRuleName }
+          : {}),
+        ...(params.imageFiles !== undefined ? { imageFiles: params.imageFiles } : {}),
+        ...(params.preAnalysis !== undefined ? { preAnalysis: params.preAnalysis } : {}),
+      };
+    case "directMessages":
+      return {
+        type: "directMessages",
+        userId: params.userId,
+        messageTs: params.messageTs,
+        messageText: params.messageText,
+        ...(params.imageFiles !== undefined ? { imageFiles: params.imageFiles } : {}),
+      };
+    case "mentions":
+    default:
+      return {
+        type: "mentions",
+        userId: params.userId,
+        messageTs: params.messageTs,
+        messageText: params.messageText,
+        ...(params.imageFiles !== undefined ? { imageFiles: params.imageFiles } : {}),
+      };
+  }
 }
 
 interface DmCoordinates {
@@ -160,24 +247,38 @@ async function setupSession(ctx: ProcessingContext, deps: CoreDeps): Promise<Ses
   const channelInfo = await deps.getChannelInfo(client, channelId);
 
   if (!session) {
+    const trigger = buildTriggerFromParams({
+      triggerType: ctx.triggerType,
+      userId,
+      messageTs,
+      messageText: processedMessageText,
+      imageFiles: ctx.imageFiles,
+      preAnalysis: ctx.preAnalysis,
+    });
     session = await deps.createSession({
       channelId,
       messageTs,
       threadTs: effectiveThreadTs,
       userId,
-      originalQuestion: processedMessageText,
+      trigger,
       threadContext,
       username: userInfo?.username,
       displayName: userInfo?.displayName,
-      triggerType: ctx.triggerType,
       additionalSystemPrompt: ctx.additionalSystemPrompt,
       channelName: channelInfo?.name,
     });
     logger.debug(`Created session ${session.sessionId}`);
   } else {
     await deps.updateThreadContext(session.sessionId, threadContext);
+    // Append every reuse as a user continuation. messages[0] is always an assistant turn;
+    // follow-up user messages (thread replies, edits, etc.) append with source: "reply".
+    // The trigger on the session is immutable after creation.
+    const updatedMessages: SessionMessage[] = [
+      ...session.messages,
+      { role: "user", source: "reply", text: processedMessageText, ts: Date.now() },
+    ];
     const updates: Partial<SessionContext> = {
-      originalQuestion: processedMessageText,
+      messages: updatedMessages,
       triggerType: ctx.triggerType,
     };
     if (!session.username && userInfo?.username) updates.username = userInfo.username;
@@ -354,6 +455,11 @@ export async function processMessage(
     additionalSystemPrompt: params.additionalSystemPrompt,
     requiredTools: params.requiredTools,
     skipConditions: params.skipConditions,
+    imageFiles: params.imageFiles,
+    preAnalysis: params.preAnalysis,
+    jobId: params.jobId,
+    reactionEmoji: params.reactionEmoji,
+    autoRespondRuleName: params.autoRespondRuleName,
   };
 
   const userLabel = await deps.resolveUserLabel(client, userId);
@@ -438,6 +544,7 @@ export async function processMessage(
         },
         abortController,
         silentThinking,
+        preAnalysis: ctx.preAnalysis,
       }),
     deps,
   );
