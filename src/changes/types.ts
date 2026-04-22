@@ -46,6 +46,7 @@ export interface ChangeSession {
   channel: string;
   threadTs: string;
   cancelledBy?: { userId: string; reason?: string };
+  verificationAttempts?: number;
 }
 
 export type ChangeStatus =
@@ -90,6 +91,7 @@ export interface WriteableSessionState {
   channel: string;
   threadTs: string;
   cancelledBy?: { userId: string; reason?: string };
+  verificationAttempts?: number;
 }
 
 // ============================================================================
@@ -111,6 +113,7 @@ export interface PersistedSessionState {
   channel: string | null;
   threadTs: string | null;
   cancelledBy?: { userId: string; reason?: string };
+  verificationAttempts?: number;
 }
 
 // ============================================================================

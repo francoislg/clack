@@ -58,6 +58,12 @@ export interface ActiveChangeState {
   abortController?: AbortController;
   /** Runtime-only: set by cancel tool before abort, checked by workflow after execution returns */
   cancelledBy?: { userId: string; reason?: string };
+  /**
+   * Number of times the verification gate has failed for this change.
+   * Persisted so the counter survives process restarts within a single change
+   * session. Bounded by the configured `retryBudget`.
+   */
+  verificationAttempts?: number;
 }
 
 export interface ActiveWorker {
@@ -123,6 +129,9 @@ function buildChangeSessionForPersistence(
     channel: ref.channelId,
     threadTs: ref.threadTs,
     ...(change.cancelledBy && { cancelledBy: change.cancelledBy }),
+    ...(change.verificationAttempts !== undefined && {
+      verificationAttempts: change.verificationAttempts,
+    }),
   };
 }
 

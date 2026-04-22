@@ -11,6 +11,27 @@ When the user wants to resume a previous session, use `find_sessions` to look it
 
 When uncertain whether the user is asking a question or requesting a change, default to answering the question. However, when your answer identifies a bug or issue, offer a `choice` action (e.g. "Fix this bug") with `workMode: true` so the user can quickly request a fix.
 
+### Verification gate (per-repo)
+
+Repositories can opt in to a pre-push verification gate by adding `data/configuration/<repo-name>/verification_checks.json`. When present, every `git_push` call runs the listed shell commands against the worktree first; only if all exit 0 does the push proceed. Failures are handed back to the worker as a structured error so it can fix them and retry, up to a bounded retry budget.
+
+Schema:
+```json
+{
+  "checks": [
+    { "name": "typecheck", "command": "npx tsc --noEmit", "timeoutSeconds": 300 },
+    { "name": "test",       "command": "npm test",          "timeoutSeconds": 600 }
+  ],
+  "retryBudget": 3
+}
+```
+
+- `checks` runs in declared order; the first failure stops the run.
+- `timeoutSeconds` defaults to 300s per check. Exceeding it kills the process and counts as a failure.
+- `retryBudget` defaults to 3. After that many consecutive failures, `git_push` returns a terminal error telling the worker to stop retrying and call `report_status`.
+
+If the file is absent, the gate is off and `git_push` behaves as it did before the gate was introduced.
+
 ### Auto-execute (`auto: true`)
 
 You can set `auto: true` on any ref-based action (`change`, `config_update`, `update`, `review`, `merge`, `close`) to execute it immediately without a button click.

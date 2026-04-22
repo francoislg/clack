@@ -384,6 +384,36 @@ describe("writeSessionState", () => {
       );
     }
   });
+
+  it("persists verificationAttempts when set on the session", () => {
+    const session = makeSession({ verificationAttempts: 2 });
+
+    writeSessionState(session, "After gate attempt");
+
+    assert.equal(fsState.writeCalls.length, 1);
+    const parsed = JSON.parse(fsState.writeCalls[0]!.content);
+    assert.equal(parsed.verificationAttempts, 2);
+  });
+
+  it("omits verificationAttempts from persisted state when undefined", () => {
+    const session = makeSession();
+
+    writeSessionState(session, "Before any gate runs");
+
+    assert.equal(fsState.writeCalls.length, 1);
+    const parsed = JSON.parse(fsState.writeCalls[0]!.content);
+    assert.equal("verificationAttempts" in parsed, false);
+  });
+
+  it("round-trips verificationAttempts through readSessionState", async () => {
+    const session = makeSession({ verificationAttempts: 1 });
+
+    writeSessionState(session, "Gate failed once");
+    const read = await readSessionState(session.plan.branchName);
+
+    assert.ok(read);
+    assert.equal(read.verificationAttempts, 1);
+  });
 });
 
 // ============================================================================
