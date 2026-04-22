@@ -102,6 +102,9 @@ export function writeSessionState(session: WriteableSessionState, lastMessage: s
     channel: session.channel,
     threadTs: session.threadTs,
     ...(session.cancelledBy && { cancelledBy: session.cancelledBy }),
+    ...(session.verificationAttempts !== undefined && {
+      verificationAttempts: session.verificationAttempts,
+    }),
   };
 
   const statePath = join(folderPath, "state.json");

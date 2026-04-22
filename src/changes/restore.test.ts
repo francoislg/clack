@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import type { PersistedSessionState, ChangeStatus } from "./types.js";
 import type { RepositoryConfig } from "../config.js";
 import { restoreWorkerSessions, type RestoreDeps } from "./restore.js";
+import type { setActiveChange } from "./activeState.js";
+import type { getAllPersistedSessions } from "./persistence.js";
 
 // ============================================================================
 // Helpers
@@ -373,6 +375,44 @@ describe("restoreWorkerSessions", () => {
 
       const changeState = mockSetActiveChange.mock.calls[0]!.arguments[1] as { worktree: unknown };
       assert.equal(changeState.worktree, customWorktree);
+    });
+  });
+
+  // ==========================================================================
+  // verificationAttempts round-trip
+  // ==========================================================================
+
+  describe("verificationAttempts field", () => {
+    it("restores verificationAttempts from persisted state", async () => {
+      const mockSetActiveChange = mock.fn<typeof setActiveChange>(() => undefined);
+      const mockGetAll = mock.fn<typeof getAllPersistedSessions>(async () => [
+        makePersistedState({ status: "pr_created", verificationAttempts: 2 }),
+      ]);
+      const deps = makeDeps({
+        getAllPersistedSessions: mockGetAll,
+        setActiveChange: mockSetActiveChange,
+      });
+
+      await restoreWorkerSessions(deps);
+
+      const changeState = mockSetActiveChange.mock.calls[0]!.arguments[1];
+      assert.equal(changeState.verificationAttempts, 2);
+    });
+
+    it("leaves verificationAttempts undefined when not present on persisted state", async () => {
+      const mockSetActiveChange = mock.fn<typeof setActiveChange>(() => undefined);
+      const mockGetAll = mock.fn<typeof getAllPersistedSessions>(async () => [
+        makePersistedState({ status: "pr_created" }),
+      ]);
+      const deps = makeDeps({
+        getAllPersistedSessions: mockGetAll,
+        setActiveChange: mockSetActiveChange,
+      });
+
+      await restoreWorkerSessions(deps);
+
+      const changeState = mockSetActiveChange.mock.calls[0]!.arguments[1];
+      assert.equal(changeState.verificationAttempts, undefined);
     });
   });
 

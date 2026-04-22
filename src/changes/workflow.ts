@@ -191,6 +191,7 @@ export async function startChangeWorkflow(
     status: "executing",
     startedAt: new Date(),
     lastActivityAt: new Date(),
+    verificationAttempts: 0,
   };
   deps.setActiveChange(sessionId, activeChange, {
     userId: request.userId,

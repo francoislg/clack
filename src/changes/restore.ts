@@ -141,6 +141,9 @@ export async function restoreWorkerSessions(deps: RestoreDeps = defaultRestoreDe
         prUrl: state.prUrl ?? undefined,
         startedAt: new Date(state.startedAt),
         lastActivityAt: new Date(state.lastActivityAt),
+        ...(state.verificationAttempts !== undefined && {
+          verificationAttempts: state.verificationAttempts,
+        }),
       },
       {
         userId: unifiedSession.userId,

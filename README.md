@@ -191,7 +191,7 @@ Clack uses a two-tier instruction system to guide Claude's behavior:
 - **Defaults** (`data/default_configuration/`) — Shipped with the project, checked into git
 - **Overrides** (`data/configuration/`) — Org-specific customizations, gitignored, take precedence
 
-Instruction files: `instructions.md` (base), `dev_instructions.md`, `admin_instructions.md`, `user_instructions.md` (role overlays), plus per-repo `{repo}/changes_instructions.md` and `{repo}/worktree_setup_instructions.md`.
+Instruction files: `instructions.md` (base), `dev_instructions.md`, `admin_instructions.md`, `user_instructions.md` (role overlays), plus per-repo `{repo}/changes_instructions.md`, `{repo}/worktree_setup_instructions.md`, and `{repo}/verification_checks.json` (opt-in pre-push gate — see `data/default_configuration/dev/changes.md` for the schema).
 
 Template variables like `{BOT_NAME}` are interpolated at runtime. Admins can edit instructions from the Home Tab.
 
