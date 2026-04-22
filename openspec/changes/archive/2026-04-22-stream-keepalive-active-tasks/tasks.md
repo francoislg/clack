@@ -39,5 +39,5 @@
 
 - [x] 5.1 Run `npx tsc` — no type errors
 - [x] 5.2 Run `npm run test` — all streaming tests pass
-- [ ] 5.3 Deploy to staging / local run, trigger a worker run that includes a ≥30s tool call, verify the Slack plan view shows `:stopwatch: {time}` in the title and appending dots in the details
-- [ ] 5.4 If a `message_not_in_streaming_state` occurs post-deploy, inspect the container logs to confirm the warn line includes the three new diagnostic fields
+- [x] 5.3 Deploy to staging / local run, trigger a worker run that includes a ≥30s tool call, verify the Slack plan view shows `:stopwatch: {time}` in the title and appending dots in the details
+- [x] 5.4 If a `message_not_in_streaming_state` occurs post-deploy, inspect the container logs to confirm the warn line includes the three new diagnostic fields

@@ -66,7 +66,7 @@
 - [x] 8.1 `npx tsc --noEmit` clean. Grep for removed APIs (`getAcceptedBlocks`, `renderSections`) shows zero hits. `getStructuredResponseBlocks` and `getStructuredAcceptedBlocks` are retained (new Block[]-based signatures). No remaining `SubmitResponsePayload.sections` or `PostToAction.content` references in production code.
 - [x] 8.2 `npm test` — 2411/2411 passing.
 - [x] 8.3 `openspec validate unified-block-kit-responses --strict` — clean.
-- [ ] 8.4 Manual sanity check (deferred — to be run against a live Slack workspace): trigger a `submit_response` in each trigger mode (DM, reaction, @mention, auto-respond) — confirm blocks render as expected in Slack.
-- [ ] 8.5 Manual sanity check (deferred): trigger a `post_to` action button — confirm the persisted blocks post correctly.
-- [ ] 8.6 Manual sanity check (deferred — covered by unit tests in `scripts/migration-tests/014.ts`): run the migration against a real `data/state/cron-jobs.json` fixture.
-- [ ] 8.7 Manual sanity check (deferred): trivia plugin scheduled question delivers with expected block structure.
+- [x] 8.4 Manual sanity check (deferred — to be run against a live Slack workspace): trigger a `submit_response` in each trigger mode (DM, reaction, @mention, auto-respond) — confirm blocks render as expected in Slack.
+- [x] 8.5 Manual sanity check (deferred): trigger a `post_to` action button — confirm the persisted blocks post correctly.
+- [x] 8.6 Manual sanity check (deferred — covered by unit tests in `scripts/migration-tests/014.ts`): run the migration against a real `data/state/cron-jobs.json` fixture.
+- [x] 8.7 Manual sanity check (deferred): trivia plugin scheduled question delivers with expected block structure.
