@@ -1,13 +1,13 @@
 import type { App, BlockAction } from "@slack/bolt";
 import { logger } from "../../logger.js";
-import { getSession, addRefinement } from "../../sessions.js";
+import { getSession, appendUserMessage } from "../../sessions.js";
 import { decodeActionValue } from "../blocks.js";
 import { activeSessions } from "../activeSessions.js";
 import { executeAndDeliver, getHandlerClaudeOptions } from "./handlerResponse.js";
 
 export interface FollowupDeps {
   getSession: typeof getSession;
-  addRefinement: typeof addRefinement;
+  appendUserMessage: typeof appendUserMessage;
   decodeActionValue: typeof decodeActionValue;
   restoreSession: typeof activeSessions.restore;
   executeAndDeliver: typeof executeAndDeliver;
@@ -16,7 +16,7 @@ export interface FollowupDeps {
 
 export const defaultFollowupDeps: FollowupDeps = {
   getSession,
-  addRefinement,
+  appendUserMessage,
   decodeActionValue,
   restoreSession: activeSessions.restore.bind(activeSessions),
   executeAndDeliver,
@@ -47,8 +47,15 @@ export function registerFollowupHandler(app: App, deps: FollowupDeps = defaultFo
       return;
     }
 
-    // Inject the followup prompt as a refinement
-    await deps.addRefinement(session.sessionId, prompt);
+    // Record the followup press as a structured user message in the conversation log.
+    // appendUserMessage dual-writes the prompt text to legacy refinements[] so prompt
+    // builder behavior is preserved during the unified-conversation-log transition.
+    await deps.appendUserMessage(session.sessionId, {
+      role: "user",
+      source: "followup",
+      text: prompt,
+      ts: Date.now(),
+    });
     const updatedSession = (await deps.getSession(session.sessionId))!;
 
     const claudeOptions = await deps.getHandlerClaudeOptions(sessionInfo);

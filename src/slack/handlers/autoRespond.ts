@@ -140,6 +140,11 @@ interface AutoRespondContext {
   triggerType: TriggerType;
   userId: string;
   additionalSystemPrompt?: string;
+  /** Pre-analysis verdict that led to this response — forwarded to processMessage so it
+   *  lands on the session trigger (new session) and every assistant message (per-turn). */
+  preAnalysis?: string;
+  /** autoRespond rule that matched (top-level only). Missing on threadReply. */
+  ruleName?: string;
 }
 
 export interface AutoRespondDeps {
@@ -307,6 +312,7 @@ export async function resolveAutoRespondContext(
     return {
       triggerType: "threadReply",
       userId: messageUser ?? "thread-reply",
+      preAnalysis: verdict,
     };
   }
 
@@ -319,6 +325,7 @@ export async function resolveAutoRespondContext(
   const rule = await findMatchingRule(channelId, messageUser, rawText);
   if (!rule) return null;
 
+  let topLevelVerdict: string | undefined;
   if (rule.preAnalysisContext) {
     const textForAnalysis = rawText?.trim();
     if (!textForAnalysis) return null;
@@ -348,7 +355,7 @@ export async function resolveAutoRespondContext(
       ? `${rule.preAnalysisContext} Note: message history could not be retrieved.`
       : rule.preAnalysisContext;
     const messageLink = await slackLink(client, channelId, messageTs);
-    const topLevelVerdict = await deps.preAnalysis(
+    topLevelVerdict = await deps.preAnalysis(
       enrichment.resolvedMessageText,
       enrichment.messageAuthorName,
       botName,
@@ -369,6 +376,8 @@ export async function resolveAutoRespondContext(
     triggerType: "autoRespond",
     userId: messageUser ?? AUTO_RESPOND_USER_ID,
     additionalSystemPrompt: rule.extraContext,
+    ...(topLevelVerdict !== undefined ? { preAnalysis: topLevelVerdict } : {}),
+    ruleName: rule.id,
   };
 }
 
@@ -495,6 +504,8 @@ async function respond(
       threadTs,
       triggerType: context.triggerType,
       additionalSystemPrompt: context.additionalSystemPrompt,
+      preAnalysis: context.preAnalysis,
+      autoRespondRuleName: context.ruleName,
       ...attachments,
     });
   } catch (error) {

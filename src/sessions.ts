@@ -7,7 +7,6 @@ import type { ErrorRecord, ConversationMessage } from "./claude/index.js";
 import type {
   SubmitResponsePayload,
   ToolCallRecord,
-  ContinuationRecord,
   ResponseSnapshot,
   StagedIntent,
 } from "./tools/types.js";
@@ -63,6 +62,101 @@ export interface ThreadMessage {
   reactions?: MessageReaction[];
 }
 
+// ============================================================================
+// Session Trigger + Conversation Log
+//
+// A session has two parts:
+//   - `trigger`: structured metadata describing what started the session (user
+//                message, cron job, etc.). Discriminated union — the shape
+//                depends on the trigger type.
+//   - `messages[]`: a pure temporal log of everything that happened after.
+//                   `messages[0]` is ALWAYS an assistant turn (Clack's first
+//                   delivered response). User thread replies and button
+//                   clicks are appended as `SessionUserMessage` entries.
+// ============================================================================
+
+/** Discriminated union describing what created a session. */
+export type SessionTrigger =
+  | {
+      type: "reactions";
+      userId: string;
+      emoji: string;
+      messageTs: string;
+      messageText: string;
+      imageFiles?: SlackImageFile[];
+    }
+  | {
+      type: "mentions";
+      userId: string;
+      messageTs: string;
+      messageText: string;
+      imageFiles?: SlackImageFile[];
+    }
+  | {
+      type: "directMessages";
+      userId: string;
+      messageTs: string;
+      messageText: string;
+      imageFiles?: SlackImageFile[];
+    }
+  | {
+      type: "autoRespond";
+      userId: string;
+      messageTs: string;
+      messageText: string;
+      ruleName?: string;
+      imageFiles?: SlackImageFile[];
+      /** Pre-analysis verdict that decided the session should be created. */
+      preAnalysis?: string;
+    }
+  | {
+      type: "scheduled";
+      jobId?: string;
+      prompt: string;
+      /** Skip-condition verdict at session creation, if the cron had one. */
+      preAnalysis?: string;
+    };
+
+/** The set of trigger-type discriminator values. */
+export type SessionTriggerType = SessionTrigger["type"];
+
+/** User-authored entries appended after the session's trigger. No `"initial"` here —
+ *  the session-creating text lives on the trigger, not on `messages[]`. */
+export type SessionUserMessageSource = "reply" | "choice" | "followup";
+
+export interface SessionUserMessage {
+  role: "user";
+  source: SessionUserMessageSource;
+  text: string;
+  ts: number;
+  /** Machine value for `source: "choice"` (the action value, not the button label) */
+  value?: string;
+}
+
+export interface SessionAssistantMessage {
+  role: "assistant";
+  ts: number;
+  /** Plain-text rendering of the response as delivered to the user. Absent when `skipped` is true. */
+  text?: string;
+  /** Structured response authored by Claude via submit_response. Absent when `skipped` is true. */
+  payload?: SubmitResponsePayload;
+  /** Turn declined to answer via submit_response skip_response */
+  skipped?: true;
+  /** Turn opted out of further thread tracking (disengage requires skip_response) */
+  disengaged?: true;
+  /** Turn was delivered at channel top level (no thread_ts) */
+  postedTopLevel?: true;
+  /** Tool calls issued during this turn. Omitted when the turn made no tool calls. */
+  toolCalls?: ToolCallRecord[];
+  /** Error scoped to this specific turn (session-wide failures go on SessionContext.errors). */
+  error?: ErrorRecord;
+  /** Pre-analysis verdict for the autoRespond/threadReply gate that preceded this turn.
+   *  Present for autoRespond-driven turns; absent for user-first and scheduled triggers. */
+  preAnalysis?: string;
+}
+
+export type SessionMessage = SessionUserMessage | SessionAssistantMessage;
+
 export interface SessionContext {
   sessionId: string;
   channelId: string;
@@ -71,24 +165,22 @@ export interface SessionContext {
   userId: string;
   username?: string;
   displayName?: string;
-  originalQuestion: string;
+  /** Structured metadata describing what created this session. Discriminated union.
+   *  The session-creating user message (or cron prompt) lives here — NOT on `messages[]`. */
+  trigger: SessionTrigger;
+  /** Temporal log of everything that happened after the trigger. `messages[0]` is always an
+   *  assistant turn (Clack's first response). User thread replies, choice/followup clicks
+   *  append later entries. Readers must use the selectors in `./sessions/selectors.js`. */
+  messages: SessionMessage[];
   threadContext: ThreadMessage[];
-  refinements: string[];
-  lastAnswer?: string;
   errors: ErrorRecord[];
   lastActivity: number;
   createdAt: number;
-  /** Structured response from submit_response tool */
-  lastResponse?: SubmitResponsePayload;
-  /** Tool call history from the latest query */
-  toolCallHistory?: ToolCallRecord[];
   /** Staged intents from action tools, keyed by ref ID */
   stagedIntents?: Record<string, StagedIntent>;
-  /** History of user continuations (choice, followup, refine) */
-  continuationHistory?: ContinuationRecord[];
-  /** Images from the triggering message */
-  imageFiles?: SlackImageFile[];
-  /** How the session was triggered */
+  /** How the session was triggered (mirrors `trigger.type`). Kept as a top-level field for
+   *  filter queries like `find_recent_interactions` that want to shallow-scan without parsing
+   *  the full trigger. */
   triggerType?: TriggerType;
   /** Resolved channel name (e.g., "backend-dev") */
   channelName?: string;
@@ -214,6 +306,189 @@ function stripRuntimeFields(session: SessionContext): PersistableSession {
   return persistable;
 }
 
+/** On-disk shape for sessions persisted before the unified-conversation-log migration.
+ *  Carries the legacy fields that `synthesizeMessagesFromLegacy` converts into `messages[]`.
+ *  Kept narrow — only what the synthesis needs. */
+export interface LegacySessionShape {
+  originalQuestion?: string;
+  refinements?: string[];
+  lastAnswer?: string;
+  lastResponse?: SubmitResponsePayload;
+  toolCallHistory?: ToolCallRecord[];
+  imageFiles?: SlackImageFile[];
+  createdAt: number;
+  lastActivity: number;
+}
+
+/** Result of synthesizing a pre-trigger-split session file: produces both the trigger
+ *  metadata and the post-trigger messages log. */
+export interface SynthesizedSession {
+  trigger: SessionTrigger;
+  messages: SessionMessage[];
+}
+
+/** Inputs the synthesizer needs. We accept either a purely legacy shape or a first-wave
+ *  unified-log shape (`messages` populated but no `trigger`). */
+export interface SynthesizeInput extends LegacySessionShape {
+  /** First-wave unified-log shape: messages[] may be present with a `source: "initial"` head. */
+  messages?: SessionMessage[];
+  /** Top-level triggerType drives the synthesized trigger's discriminator. */
+  triggerType?: TriggerType;
+  /** Carried through to user-first trigger variants. */
+  userId?: string;
+  /** Carried onto the trigger's messageTs for user-first variants. */
+  messageTs?: string;
+}
+
+/** Synthesize a `{ trigger, messages }` pair from an on-disk session that predates the
+ *  trigger split. Handles two input shapes:
+ *   (a) Pre-unified-log (originalQuestion + refinements + lastAnswer + lastResponse): build
+ *       trigger from originalQuestion, construct messages[] from refinements + assistant reply.
+ *   (b) First-wave unified-log (messages[0] as `source: "initial"`): lift messages[0] into a
+ *       synthesized trigger; convert subsequent user entries from "refinement"/"initial" → "reply". */
+export function synthesizeMessagesFromLegacy(input: SynthesizeInput): SynthesizedSession {
+  const triggerType = input.triggerType ?? "mentions";
+  const userId = input.userId ?? "";
+
+  // Derive the triggering text — messages[0] wins over legacy originalQuestion.
+  let triggerText = input.originalQuestion ?? "";
+  let triggerImages = input.imageFiles;
+  let firstWaveInitialTs: number | undefined;
+  const firstWaveUserMessages: SessionUserMessage[] = [];
+  const firstWaveAssistantMessages: SessionAssistantMessage[] = [];
+
+  if (input.messages && input.messages.length > 0) {
+    for (const msg of input.messages) {
+      if (msg.role === "user") {
+        // Widen the runtime shape so we can recognize legacy "initial"/"refinement" values.
+        const asLegacy = msg as SessionUserMessage & { imageFiles?: SlackImageFile[] };
+        const legacySource: string = asLegacy.source;
+        if (legacySource === "initial" && !firstWaveInitialTs) {
+          triggerText = asLegacy.text;
+          triggerImages = asLegacy.imageFiles ?? triggerImages;
+          firstWaveInitialTs = asLegacy.ts;
+          continue;
+        }
+        const narrowedSource: SessionUserMessageSource =
+          legacySource === "choice" || legacySource === "followup"
+            ? (legacySource as "choice" | "followup")
+            : "reply";
+        firstWaveUserMessages.push({
+          role: "user",
+          source: narrowedSource,
+          text: asLegacy.text,
+          ts: asLegacy.ts,
+          ...(asLegacy.value !== undefined ? { value: asLegacy.value } : {}),
+        });
+      } else {
+        firstWaveAssistantMessages.push(msg);
+      }
+    }
+  }
+
+  const trigger = buildSynthesizedTrigger({
+    triggerType,
+    userId,
+    messageTs: input.messageTs ?? "",
+    messageText: triggerText,
+    imageFiles: triggerImages,
+  });
+
+  // Merge first-wave messages in original order. If we split them above by role, we lose
+  // chronological ordering — so reconstruct by walking the original array a second time.
+  const messages: SessionMessage[] = [];
+  if (input.messages && input.messages.length > 0) {
+    for (const msg of input.messages) {
+      if (msg.role === "user") {
+        const asLegacy = msg as SessionUserMessage;
+        const legacySource: string = asLegacy.source;
+        if (legacySource === "initial") continue; // lifted into trigger
+        const narrowedSource: SessionUserMessageSource =
+          legacySource === "choice" || legacySource === "followup"
+            ? (legacySource as "choice" | "followup")
+            : "reply";
+        messages.push({
+          role: "user",
+          source: narrowedSource,
+          text: asLegacy.text,
+          ts: asLegacy.ts,
+          ...(asLegacy.value !== undefined ? { value: asLegacy.value } : {}),
+        });
+      } else {
+        messages.push(msg);
+      }
+    }
+    return { trigger, messages };
+  }
+
+  // Pure legacy shape (no messages array): synthesize from originalQuestion/refinements/lastAnswer.
+  for (const refinement of input.refinements ?? []) {
+    messages.push({
+      role: "user",
+      source: "reply",
+      text: refinement,
+      ts: input.createdAt,
+    });
+  }
+  if (input.lastAnswer !== undefined || input.lastResponse !== undefined) {
+    const assistant: SessionAssistantMessage = {
+      role: "assistant",
+      ts: input.lastActivity,
+    };
+    if (input.lastAnswer !== undefined) assistant.text = input.lastAnswer;
+    if (input.lastResponse !== undefined) assistant.payload = input.lastResponse;
+    if (input.toolCallHistory !== undefined) assistant.toolCalls = input.toolCallHistory;
+    messages.push(assistant);
+  }
+  return { trigger, messages };
+}
+
+/** Build a `SessionTrigger` from loose inputs (shape-matching the pre-split on-disk fields).
+ *  Used by the synthesizer; fields that don't apply to a given type are dropped by TS narrowing. */
+function buildSynthesizedTrigger(input: {
+  triggerType: TriggerType;
+  userId: string;
+  messageTs: string;
+  messageText: string;
+  imageFiles?: SlackImageFile[];
+}): SessionTrigger {
+  switch (input.triggerType) {
+    case "scheduled":
+      return { type: "scheduled", prompt: input.messageText };
+    case "reactions":
+      // The emoji isn't preserved in legacy files — default to empty string as a placeholder.
+      return {
+        type: "reactions",
+        userId: input.userId,
+        emoji: "",
+        messageTs: input.messageTs,
+        messageText: input.messageText,
+        ...(input.imageFiles !== undefined ? { imageFiles: input.imageFiles } : {}),
+      };
+    case "autoRespond":
+    case "threadReply":
+      // Pre-split files used "threadReply" as a distinct triggerType; the new model treats
+      // threadReply continuations as the original autoRespond session's trigger, so normalize.
+      return {
+        type: "autoRespond",
+        userId: input.userId,
+        messageTs: input.messageTs,
+        messageText: input.messageText,
+        ...(input.imageFiles !== undefined ? { imageFiles: input.imageFiles } : {}),
+      };
+    case "mentions":
+    case "directMessages":
+    default:
+      return {
+        type: input.triggerType === "directMessages" ? "directMessages" : "mentions",
+        userId: input.userId,
+        messageTs: input.messageTs,
+        messageText: input.messageText,
+        ...(input.imageFiles !== undefined ? { imageFiles: input.imageFiles } : {}),
+      };
+  }
+}
+
 // ============================================================================
 // Session CRUD
 // ============================================================================
@@ -223,11 +498,13 @@ export interface CreateSessionOptions {
   messageTs: string;
   threadTs: string;
   userId: string;
-  originalQuestion: string;
+  /** Structured metadata describing what created this session. Drives the session's
+   *  `trigger` field. For user-first types this carries the triggering message; for
+   *  scheduled cron jobs it carries the job prompt. */
+  trigger: SessionTrigger;
   threadContext?: ThreadMessage[];
   username?: string;
   displayName?: string;
-  triggerType?: SessionContext["triggerType"];
   additionalSystemPrompt?: string;
   channelName?: string;
 }
@@ -253,12 +530,12 @@ export async function createSession(opts: CreateSessionOptions): Promise<Session
     userId: opts.userId,
     username: opts.username,
     displayName: opts.displayName,
-    originalQuestion: opts.originalQuestion,
+    trigger: opts.trigger,
+    messages: [],
     threadContext: opts.threadContext ?? [],
-    triggerType: opts.triggerType,
+    triggerType: opts.trigger.type,
     additionalSystemPrompt: opts.additionalSystemPrompt,
     channelName: opts.channelName,
-    refinements: [],
     errors: [],
     lastActivity: now,
     createdAt: now,
@@ -298,19 +575,31 @@ export async function getSession(sessionId: string): Promise<SessionContext | nu
       typeof parsed !== "object" ||
       parsed === null ||
       !("sessionId" in parsed) ||
-      !("originalQuestion" in parsed)
+      (!("messages" in parsed) && !("originalQuestion" in parsed))
     ) {
       logger.warn(`Corrupt session file ${contextPath}: missing required fields`);
       return null;
     }
-    const session = parsed as SessionContext;
+    // On-disk files may be in one of three shapes:
+    //   (a) Pre-unified-log: has `originalQuestion` + `refinements` + `lastAnswer`/`lastResponse`, no `messages`.
+    //   (b) First-wave unified-log: has `messages[]` with `messages[0]` as `source: "initial"`, no `trigger`.
+    //   (c) Final: has `trigger` + `messages[]` (assistant-first).
+    // The synthesizer handles (a) and (b); (c) passes through untouched.
+    const session = parsed as SessionContext & Partial<LegacySessionShape>;
 
     // Backward compatibility: ensure arrays exist
     if (!session.errors) session.errors = [];
-    if (!session.refinements) session.refinements = [];
     if (!session.threadContext) session.threadContext = [];
     // Default autoResponseActive to true for pre-existing sessions
     if (session.autoResponseActive === undefined) session.autoResponseActive = true;
+    // If there's no trigger yet (pre-split shape), synthesize from whichever shape is on disk.
+    if (!session.trigger) {
+      const synth = synthesizeMessagesFromLegacy(session);
+      session.trigger = synth.trigger;
+      session.messages = synth.messages;
+      if (!session.triggerType) session.triggerType = synth.trigger.type;
+    }
+    if (!session.messages) session.messages = [];
 
     // Merge active change state from dedicated module
     const ac = getActiveChange(sessionId);
@@ -475,15 +764,41 @@ export async function setAutoResponseActive(sessionId: string, active: boolean):
   await updateSession(sessionId, { autoResponseActive: active });
 }
 
-export function addRefinement(
+/**
+ * Append a user message to the session's unified conversation log.
+ *
+ * Dual-writes the legacy `refinements[]` field so pre-migration readers (prompt
+ * builder, find_recent_interactions, etc.) keep working during the transition.
+ * The legacy dual-write is removed in §9 of the unified-conversation-log change.
+ *
+ * For `source: "initial"` (the first message), call `createSession()` instead —
+ * `appendUserMessage` is for continuations only.
+ */
+export function appendUserMessage(
   sessionId: string,
-  refinement: string,
+  message: SessionUserMessage,
 ): Promise<SessionContext | null> {
   return withSessionLock(sessionId, async () => {
     const session = await getSession(sessionId);
     if (!session) return null;
+    const existing = session.messages ?? [];
     return updateSessionUnlocked(sessionId, {
-      refinements: [...session.refinements, refinement],
+      messages: [...existing, message],
+    });
+  });
+}
+
+/** Append an assistant turn (or skip/error turn) to the session's unified conversation log. */
+export function appendAssistantMessage(
+  sessionId: string,
+  message: SessionAssistantMessage,
+): Promise<SessionContext | null> {
+  return withSessionLock(sessionId, async () => {
+    const session = await getSession(sessionId);
+    if (!session) return null;
+    const existing = session.messages ?? [];
+    return updateSessionUnlocked(sessionId, {
+      messages: [...existing, message],
     });
   });
 }
@@ -493,10 +808,6 @@ export function updateThreadContext(
   threadContext: ThreadMessage[],
 ): Promise<SessionContext | null> {
   return updateSession(sessionId, { threadContext });
-}
-
-export function setLastAnswer(sessionId: string, answer: string): Promise<SessionContext | null> {
-  return updateSession(sessionId, { lastAnswer: answer });
 }
 
 export function addError(

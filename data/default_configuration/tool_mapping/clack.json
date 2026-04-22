@@ -6,6 +6,7 @@
   },
   "tools": {
     "find_recent_interactions": "Recalling recent messages {keywords}",
+    "find_session_transcript": "Reading transcript for session {sessionId}",
     "stop_tracking": "Stopping tracking for thread",
     "cancel_worker_run": "Cancelling worker run",
     "get_session_trace": "Reading session trace",

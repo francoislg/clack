@@ -12,6 +12,7 @@ import type { ExecuteChangeOptions } from "./execution.js";
 import type { WorkerToolContext, ClackWorkerToolsResult } from "../tools/types.js";
 import type { SessionContext } from "../sessions.js";
 import { getSession } from "../sessions.js";
+import { firstUserMessage } from "../sessions/selectors.js";
 import type { ActiveChangeState } from "./activeState.js";
 import {
   getActiveChange,
@@ -422,7 +423,7 @@ export async function handleFollowUp(
         };
         const updateRequest: ChangeRequest = {
           userId: session.userId,
-          message: additionalInstructions ?? session.originalQuestion,
+          message: additionalInstructions ?? firstUserMessage(session).text,
           triggerType: session.triggerType ?? "reactions",
           channel: session.channelId,
           messageTs: session.threadTs,

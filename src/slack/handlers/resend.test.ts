@@ -76,9 +76,14 @@ function makeSession(overrides: Partial<SessionContext> = {}): SessionContext {
     messageTs: "1700000000.000001",
     threadTs: "1700000000.000001",
     userId: "U001",
-    originalQuestion: "test question",
+    trigger: {
+      type: "mentions",
+      userId: "U001",
+      messageTs: "1700000000.000001",
+      messageText: "test question",
+    },
+    messages: [{ role: "assistant", ts: 1, text: "past answer" }],
     threadContext: [],
-    refinements: [],
     errors: [],
     lastActivity: Date.now(),
     createdAt: Date.now(),
@@ -158,7 +163,12 @@ describe("registerResendHandler", () => {
   });
 
   it("responds with expired message when session has no lastAnswer", async () => {
-    mockGetSession.mock.mockImplementation(async () => makeSession({ lastAnswer: undefined }));
+    // Session with no assistant turn — latestAssistantText returns undefined.
+    mockGetSession.mock.mockImplementation(async () =>
+      makeSession({
+        messages: [],
+      }),
+    );
     mockRestoreSessionInfo.mock.mockImplementation(async () => makeSessionInfo());
     const mockRespond = mock.fn<
       (msg: { replace_original?: boolean; text: string }) => Promise<void>
@@ -177,8 +187,9 @@ describe("registerResendHandler", () => {
 
   it("posts structured response with blocks when lastResponse exists", async () => {
     const session = makeSession({
-      lastAnswer: "plain answer",
-      lastResponse: { blocks: [], actions: [] } satisfies SessionContext["lastResponse"],
+      messages: [
+        { role: "assistant", ts: 1, text: "plain answer", payload: { blocks: [], actions: [] } },
+      ],
     });
     const sessionInfo = makeSessionInfo();
     mockGetSession.mock.mockImplementation(async () => session);
@@ -216,7 +227,9 @@ describe("registerResendHandler", () => {
   });
 
   it("posts plain text when lastResponse is not present", async () => {
-    const session = makeSession({ lastAnswer: "just text" });
+    const session = makeSession({
+      messages: [{ role: "assistant", ts: 1, text: "just text" }],
+    });
     const sessionInfo = makeSessionInfo();
     mockGetSession.mock.mockImplementation(async () => session);
     mockRestoreSessionInfo.mock.mockImplementation(async () => sessionInfo);

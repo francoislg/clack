@@ -17,83 +17,89 @@ The system SHALL create a unique session for each triggered reaction.
 - **THEN** the session ID includes the Slack channel, message timestamp, and user ID
 - **AND** ensures uniqueness across concurrent requests
 
-### Requirement: Session State Persistence
+### Requirement: Unified Conversation Log
 
-The system SHALL persist session state to the filesystem, including structured tool interaction data, DM delivery coordinates, the SDK session ID for conversation resumption, and the auto-respond tracking flag. Thread conversation history (questions, answers, refinements) is derived from Slack on each request and is NOT persisted. Aborted sessions SHALL retain their state for reuse on restart.
+The system SHALL persist a session's conversation as a structured **`trigger`** metadata object plus a temporal **`messages: SessionMessage[]`** array on `SessionContext`. The trigger describes what created the session; `messages[]` is a pure log of turns that happened after, starting at index 0 with Clack's first assistant turn.
 
-#### Scenario: Context file structure
+#### Scenario: Trigger shape is a discriminated union
 
-- **WHEN** a session is created or updated
-- **THEN** the system writes `data/sessions/{session-id}/context.json`
-- **AND** includes: sessionId, channelId, messageTs, threadTs, userId, username, displayName, errors, createdAt, lastActivity, autoResponseActive
-- **AND** includes `username` and `displayName` for the requesting user when `fetchUserNames` is enabled
-- **AND** includes `sdkSessionId` when an SDK session has been established for this session
-- **AND** does NOT persist `refinements`, `lastAnswer`, or `threadContext` (these are fetched from Slack on each request)
-- **AND** the context does NOT include `isEphemeral`
-- **AND** delivery mode is derived from `triggerType` and whether `dmChannel` is set
-- **AND** the `triggerType` field accepts `"directMessages"`, `"mentions"`, `"reactions"`, `"autoRespond"`, or `"threadReply"`
+- **WHEN** a session is persisted
+- **THEN** `context.json` includes a `trigger` object whose `type` is one of `"reactions"`, `"mentions"`, `"directMessages"`, `"autoRespond"`, or `"scheduled"`
+- **AND** for `"reactions"`, `trigger` includes `userId`, `emoji`, `messageTs`, `messageText`, and optional `imageFiles`
+- **AND** for `"mentions"`, `"directMessages"`, `"autoRespond"`, `trigger` includes `userId`, `messageTs`, `messageText`, and optional `imageFiles`; `"autoRespond"` additionally carries optional `ruleName` and optional `preAnalysis`
+- **AND** for `"scheduled"`, `trigger` includes `prompt`, optional `jobId`, and optional `preAnalysis`; no `userId` / `messageTs` / `messageText` fields
+- **AND** `messageTs` on the trigger is the Slack timestamp of the triggering message (for user-first types)
 
-#### Scenario: Session reused after abort
+#### Scenario: Messages array shape
 
-- **WHEN** a Claude invocation is aborted due to a message edit
-- **AND** processing is restarted with updated text
-- **THEN** `processMessage()` finds the existing session via `findSessionByThread()`
-- **AND** updates the session's `originalQuestion` with the new text
-- **AND** does NOT create a duplicate session
+- **WHEN** a session has had at least one assistant turn
+- **THEN** `context.json` contains a `messages` array
+- **AND** each entry is one of:
+  - a `SessionUserMessage` with `role: "user"`, `source` of `"reply" | "choice" | "followup"`, `text`, `ts`, and — only when `source: "choice"` — a `value`
+  - a `SessionAssistantMessage` with `role: "assistant"`, `ts`, and optional `text`, `payload`, `toolCalls`, `skipped`, `disengaged`, `postedTopLevel`, `error`, `preAnalysis`
+- **AND** `messages[0]` is ALWAYS a `SessionAssistantMessage` (Clack's first delivered response)
+- **AND** entries appear in chronological order by `ts`
+- **AND** NO `SessionUserMessage` has `source: "initial"` or `source: "refinement"` (those sources are removed)
 
-#### Scenario: Auto-respond tracking field defaults on load
+#### Scenario: Empty messages on new session
 
-- **WHEN** a session is loaded from disk
-- **AND** the `autoResponseActive` field is absent (session created before this feature)
-- **THEN** the system treats the session as if `autoResponseActive` is `true`
+- **WHEN** a session is created but Claude has not yet delivered a response
+- **THEN** `messages` is an empty array
+- **AND** the `trigger` carries all metadata about the triggering event
+- **AND** the session is a valid on-disk entity (e.g., a `find_session_transcript` call on it returns `totalMessages: 0`)
 
-#### Scenario: Tool call history persisted
+#### Scenario: User reply appended
 
-- **WHEN** Claude makes clack tool calls during a query
-- **THEN** each tool call is recorded as `{ tool: string, args: object, result: object, timestamp: number }`
-- **AND** the tool call history is stored in the session context
+- **WHEN** a user posts a thread reply on an existing session
+- **THEN** a `SessionUserMessage` with `source: "reply"` is appended to `messages` with the message text and current timestamp
+- **AND** the trigger is untouched
 
-#### Scenario: Structured last response persisted
+#### Scenario: Choice button press appended as structured user message
 
-- **WHEN** Claude calls `submit_response`
-- **THEN** the full payload (sections array and actions array) is stored as `lastResponse` in the session
-- **AND** the structured response can be re-rendered by the Slack block builder
+- **WHEN** a user presses a choice action button
+- **THEN** a `SessionUserMessage` with `source: "choice"` is appended with `text` set to the choice label, `value` set to the machine value, and the current timestamp
 
-#### Scenario: Staged intents persisted
+#### Scenario: Followup button press appended as structured user message
 
-- **WHEN** a query completes with staged intents referenced in `submit_response`
-- **THEN** the staged intents are serialized into the session context
-- **AND** button handlers can resolve refs from the persisted data
-- **AND** this survives bot restarts between Claude responding and user clicking a button
+- **WHEN** a user presses a followup action button
+- **THEN** a `SessionUserMessage` with `source: "followup"` is appended with `text` set to the followup prompt and the current timestamp
 
-#### Scenario: Continuation state persisted
+#### Scenario: Assistant turn appended after submit_response
 
-- **WHEN** a user interacts with a continuation action (choice, followup)
-- **THEN** the session records: the action type (`"choice"` or `"followup"`), the user's input, and timestamp
-- **AND** `"refine"` is no longer a valid action type (thread-based replies replace it)
-- **AND** the continuation history is available for context reconstruction in subsequent queries
+- **WHEN** a query turn completes with a successful `submit_response` call
+- **THEN** a `SessionAssistantMessage` is appended to `messages` with `payload` set to the `SubmitResponsePayload`, `ts` set to the completion timestamp, and `toolCalls` set to the tool call records for this turn
+- **AND** previous assistant messages in `messages` are NOT overwritten or removed
 
-#### Scenario: DM delivery coordinates persisted
+#### Scenario: Skipped assistant turn appended without payload
 
-- **WHEN** a session is created with DM-first delivery
-- **THEN** the session stores `dmChannel` (DM channel ID) and `dmThreadTs` (DM root message timestamp)
-- **AND** the session stores `originChannel` and `originThreadTs` for the original channel message
-- **AND** these coordinates are persisted in `context.json`
-- **AND** are available for session restoration after app restart
+- **WHEN** a query turn completes via `submit_response` with `skip_response: true`
+- **THEN** a `SessionAssistantMessage` is appended with `skipped: true`, no `payload`, and `toolCalls` populated
+- **AND** if `disengage: true` was also set, `disengaged: true` is included
 
-#### Scenario: SDK session ID persisted
+#### Scenario: Top-level post recorded on assistant turn
 
-- **WHEN** a `clackSession()` call completes and yields a `session_id` from the SDK init message
-- **THEN** the system stores the SDK session ID as `sdkSessionId` in the Clack session context
-- **AND** persists it to `context.json`
-- **AND** uses it as the `resumeSessionId` for subsequent queries in the same thread
+- **WHEN** an assistant turn is posted at the top of the channel via `post_top_level: true`
+- **THEN** the appended `SessionAssistantMessage` includes `postedTopLevel: true`
 
-#### Scenario: SDK session ID cleared on resume failure
+#### Scenario: Errored turn appended as assistant message with error
 
-- **WHEN** a resumed SDK session fails (file missing or corrupted)
-- **AND** the wrapper falls back to a fresh session
-- **THEN** the `sdkSessionId` on the Clack session is updated to the new SDK session ID
-- **AND** the new ID is persisted to `context.json`
+- **WHEN** a query turn fails with an error attributable to the turn (not a session-level failure)
+- **THEN** a `SessionAssistantMessage` with `error` populated is appended
+
+#### Scenario: Pre-analysis verdict captured per autoRespond turn
+
+- **WHEN** a query turn is driven by autoRespond (either the initial session-creating trigger or a threadReply continuation)
+- **AND** the pre-analysis gate ran and produced a verdict
+- **THEN** the verdict is stored as `preAnalysis` on the appended `SessionAssistantMessage`
+- **AND** for session-creating autoRespond triggers the same verdict is also stored on `trigger.preAnalysis`
+
+#### Scenario: Session reuse always appends — no abort-edit rewrite
+
+- **WHEN** a handler fires on an existing session (found via `findSessionByThread`)
+- **THEN** a `SessionUserMessage` with `source: "reply"` is appended with the new message text
+- **AND** the trigger's `messageText` is NOT mutated
+- **AND** `messages[0]` is NOT mutated
+
 
 ### Requirement: Thread Context Delta Tracking
 

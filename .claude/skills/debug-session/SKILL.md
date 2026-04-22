@@ -39,13 +39,23 @@ Directories are named `{channelId}-{tsSecs}-{tsMicros}-{userId}-{createdAtMs}`. 
 Find candidates by listing `data/sessions/` and filtering for names starting with `{channelId}-{threadTs with . → -}`. Multiple matches are possible (different users triggering in the same thread is rare but possible — pick by opening `context.json` and matching `threadTs` exactly).
 
 Read the session's `context.json`. The fields that matter for debugging:
-- `originalQuestion`, `refinements[]`, `continuationHistory[]` — what the user actually said over time
-- `triggerType` — `reaction`, `dm`, or `mention`
-- `toolCallHistory[]` — every tool Claude called with `{ tool, args, result, timestamp }`. This is the single most important artifact for diagnosis.
-- `lastResponse` — the final `submit_response` payload (blocks + actions)
-- `errors[]` — `{ errorMessage, conversationTrace, timestamp }`. Present when something threw.
+- `trigger` — structured metadata describing what started the session. A discriminated union keyed on `type`:
+  - `{ type: "reactions", userId, emoji, messageTs, messageText, imageFiles? }` — someone reacted with a configured emoji.
+  - `{ type: "mentions", userId, messageTs, messageText, imageFiles? }` — @Clack in a channel/thread.
+  - `{ type: "directMessages", userId, messageTs, messageText, imageFiles? }` — DM to Clack.
+  - `{ type: "autoRespond", userId, messageTs, messageText, ruleName?, imageFiles?, preAnalysis? }` — auto-respond rule matched; `preAnalysis` captures the session-creating verdict.
+  - `{ type: "scheduled", jobId?, prompt, preAnalysis? }` — cron fired; `prompt` is the cron's instruction.
+  - The trigger is independent from `messages[]` — it records what kicked off the session without being part of the turn log.
+- `messages[]` — the unified temporal log of everything after the trigger. `messages[0]` is usually Clack's first assistant response (NOT the user's message — that's on `trigger`). Entries are either `{ role: "user", source, text, ts, value? }` (source: `"reply" | "choice" | "followup"`) or `{ role: "assistant", ts, text?, payload?, toolCalls?, error?, skipped?, disengaged?, postedTopLevel?, preAnalysis? }`.
+  - User messages are replies/button clicks/followups that arrived after the trigger, in temporal order.
+  - Assistant messages carry their own per-turn `toolCalls[]` and `payload`. `skipped: true` means Claude declined to reply; `error` means the turn failed; `postedTopLevel: true` means the response was posted to the channel, not the thread. `preAnalysis` on an assistant turn records the gate verdict for THAT specific turn (autoRespond thread replies run pre-analysis per turn).
+  - The `find_session_transcript` tool returns the trigger AND paginated `messages[]` in one call — useful when reading `context.json` directly is noisy.
+- `triggerType` — `reactions`, `directMessages`, `mentions`, `autoRespond`, `threadReply`, or `scheduled` (mirrors `trigger.type` for convenience; `threadReply` only appears on sessions reused via the auto-respond thread path).
+- `errors[]` — `{ errorMessage, conversationTrace, timestamp }`. Present when something threw. (Per-turn failures are also captured on the corresponding `messages` entry as `message.error`.)
 - `stagedIntents` — action-button intents Claude queued
 - `channelName`, `userId`, `username`, `displayName`
+
+> **Pre-migration note**: sessions written before the trigger split (and the earlier unified-conversation-log change) persist a flatter shape — either the legacy `originalQuestion` / `refinements[]` / `lastAnswer` / `lastResponse` / `toolCallHistory` fields, or an early `messages[]` where `messages[0]` had `source: "initial"`. Clack's `getSession` synthesizes `(trigger, messages[])` for those on read and writes the new shape back on next `updateSession`. If you open `context.json` directly and see legacy fields, or see a user entry at `messages[0]` with `source: "initial"`, that's expected — the information is the same, just laid out differently.
 
 **Worker sessions** (`data/worktree-sessions/`)
 
@@ -83,12 +93,12 @@ If no Clack session is found at all, stop and tell the user — it likely means 
 
 ### 3. Reconstruct the story
 
-From the session data, build a timeline. **The SDK JSONL is the primary source** — always work from it when the file exists, not from `context.json` snippets. Use the Clack `context.json` for triggering metadata (channel, user, triggerType, errors[]) and as the fallback when the JSONL isn't on disk.
+From the session data, build a timeline. **The SDK JSONL is the primary source** — always work from it when the file exists, not from `context.json` snippets. Use the Clack `context.json` (`messages[]` + triggering metadata like channel, user, `triggerType`, `errors[]`) as the fallback when the JSONL isn't on disk and to understand the Slack-side framing around each turn.
 
-- What did the user ask, turn by turn (initial + each subsequent message that re-fired Claude)?
-- Which tools did Claude call on each turn, in what order, with what args, and what did they return?
+- What did the user ask? Start with `trigger.messageText` (or `trigger.prompt` for scheduled), then walk `messages[]` in order for subsequent user replies/button clicks/followups.
+- Which tools did Claude call on each turn, in what order, with what args, and what did they return (per-turn `toolCalls[]` on each assistant message, or the JSONL for the full picture)?
 - Did any tool error or return a surprising result?
-- What did Claude say back, turn by turn (assistant text blocks in JSONL, or `lastResponse` for the latest turn from `context.json`)?
+- What did Claude say back, turn by turn (each assistant `messages` entry carries `text`, `payload`, and flags like `skipped` / `postedTopLevel`)?
 - Where does that diverge from what the user expected, per their description of the issue?
 
 Name the divergence concretely. Typical shapes:
@@ -120,7 +130,7 @@ When citing code, use `file:line` so the user can jump to the location.
 Deliver the investigation as a single message to the user with these sections:
 
 **What the user asked**
-One or two sentences summarizing the request, quoting the key line(s) from `originalQuestion` / `refinements` verbatim where helpful.
+One or two sentences summarizing the request, quoting the key line(s) from `trigger.messageText` / `trigger.prompt` and user replies in `messages[]` verbatim where helpful.
 
 **What Clack did**
 A short narrative or bullet list of the tool calls and responses, in order, with the specific args/results that matter. Don't dump the whole history — pick the 3–6 steps that explain the outcome.
@@ -140,8 +150,9 @@ End with an explicit one-liner: *"I haven't applied any of these — decide whic
 ## Notes
 
 - Sessions with `errors[]` populated are preserved past the 30-day cleanup window, so old failure cases are often still investigable.
-- The Clack session's `toolCallHistory` and `lastResponse` only reflect the *latest* turn. Always read the SDK JSONL (step 2) — even single-turn sessions expose detail that `context.json` has dropped.
-- Tool results in both the JSONL and `toolCallHistory` are stored as whatever the tool returned — they may be large (e.g., `view_slack_image` embeds base64). Skim first, then zoom in on the ones that look decisive.
+- The SDK JSONL is still the richest per-turn source (full system preamble, every tool_use + tool_result). Always read it (step 2) alongside `messages[]`. `messages[]` is authoritative for what the user sent / what Claude returned; the JSONL is authoritative for *how* Claude reached that outcome.
+- The `find_session_transcript` tool (query-mode) returns paginated `messages[]` for a given `sessionId` with full per-turn payload and `toolCalls[]`. Useful when you want a structured view without parsing raw JSON. Subject to the standard privacy rules (owner always, non-owner only for public channels).
+- Tool results in both the JSONL and `messages[].toolCalls[]` are stored as whatever the tool returned — they may be large (e.g., `view_slack_image` embeds base64). Skim first, then zoom in on the ones that look decisive.
 - If you find the Clack session was never persisted (no match on disk), that itself might be the bug — surface it and check `src/sessions.ts` and the handler that would have created it.
 - If the user's complaint is about *delivery* (wrong channel, missing thread, etc.) rather than Claude's reasoning, focus on `src/slack/handlers/core.ts`, `src/slack/dmResponse.ts`, and `src/slack/messagesApi.ts` rather than the tool history.
 - The bot sets `CLAUDE_CONFIG_DIR=/app/data/.claude` in its Dockerfile, which is why SDK JSONLs land under `data/.claude/projects/` and travel with the rest of `data/`. If you ever debug a setup where that env var isn't set, the JSONLs will be under `~/.claude/projects/` instead.

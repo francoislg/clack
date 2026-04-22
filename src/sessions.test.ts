@@ -8,11 +8,12 @@ import {
   hasErrors,
   createSession,
   updateSession,
-  addRefinement,
+  appendUserMessage,
+  appendAssistantMessage,
   getSession,
   getSessionPath,
 } from "./sessions.js";
-import type { SessionContext } from "./sessions.js";
+import type { SessionContext, SessionAssistantMessage } from "./sessions.js";
 
 describe("parseSessionId", () => {
   it("parses a valid session ID into channelId, messageTs, and userId", () => {
@@ -66,9 +67,14 @@ describe("hasErrors", () => {
     messageTs: "1234.5678",
     threadTs: "1234.5678",
     userId: "U123",
-    originalQuestion: "test question",
+    trigger: {
+      type: "mentions",
+      userId: "U123",
+      messageTs: "1234.5678",
+      messageText: "test question",
+    },
+    messages: [],
     threadContext: [],
-    refinements: [],
     errors: [],
     lastActivity: Date.now(),
     createdAt: Date.now(),
@@ -134,30 +140,39 @@ describe("updateSession concurrency", () => {
     }
   });
 
-  it("serializes concurrent addRefinement calls without losing updates", async () => {
+  it("serializes concurrent appendUserMessage calls without losing updates", async () => {
     const session = await createSession({
       channelId: "C111",
       messageTs: "1000.0001",
       threadTs: "1000.0001",
       userId: "UAAA",
-      originalQuestion: "concurrent refinements",
+      trigger: {
+        type: "mentions",
+        userId: "UAAA",
+        messageTs: "1000.0001",
+        messageText: "concurrent refinements",
+      },
     });
 
     const N = 20;
     await Promise.all(
-      Array.from({ length: N }, (_, i) => addRefinement(session.sessionId, `r${i}`)),
+      Array.from({ length: N }, (_, i) =>
+        appendUserMessage(session.sessionId, {
+          role: "user",
+          source: "reply",
+          text: `r${i}`,
+          ts: Date.now(),
+        }),
+      ),
     );
 
     const final = await getSession(session.sessionId);
     assert.ok(final);
-    assert.equal(
-      final.refinements.length,
-      N,
-      "all refinements should be present — no lost updates",
-    );
-    const seen = new Set(final.refinements);
+    // Trigger holds the triggering message; messages[] starts empty, gets N replies.
+    assert.equal(final.messages.length, N, "all replies should be appended — no lost updates");
+    const refinementTexts = new Set(final.messages.map((m) => (m.role === "user" ? m.text : "")));
     for (let i = 0; i < N; i++) {
-      assert.ok(seen.has(`r${i}`), `refinement r${i} should be present`);
+      assert.ok(refinementTexts.has(`r${i}`), `refinement r${i} should be present`);
     }
   });
 
@@ -167,14 +182,19 @@ describe("updateSession concurrency", () => {
       messageTs: "2000.0002",
       threadTs: "2000.0002",
       userId: "UBBB",
-      originalQuestion: "concurrent large writes",
+      trigger: {
+        type: "mentions",
+        userId: "UBBB",
+        messageTs: "2000.0002",
+        messageText: "concurrent large writes",
+      },
     });
 
     const bigPayload = "x".repeat(8000);
     await Promise.all(
       Array.from({ length: 20 }, (_, i) =>
         updateSession(session.sessionId, {
-          lastAnswer: `${bigPayload}-${i}`,
+          additionalSystemPrompt: `${bigPayload}-${i}`,
         }),
       ),
     );
@@ -182,8 +202,8 @@ describe("updateSession concurrency", () => {
     const contextPath = join(getSessionPath(session.sessionId), "context.json");
     const raw = readFileSync(contextPath, "utf-8");
     // Must parse cleanly — no trailing garbage from racing writers
-    const parsed = JSON.parse(raw) as { lastAnswer?: string };
-    assert.ok(parsed.lastAnswer?.startsWith(bigPayload));
+    const parsed = JSON.parse(raw) as { additionalSystemPrompt?: string };
+    assert.ok(parsed.additionalSystemPrompt?.startsWith(bigPayload));
   });
 
   it("quarantines a corrupt context.json on read so callers stop re-logging it", async () => {
@@ -223,5 +243,194 @@ describe("updateSession concurrency", () => {
     // Second read should silently return null with no additional rename.
     const second = await getSession(freshId);
     assert.equal(second, null);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Unified conversation log — appendUserMessage / appendAssistantMessage behavior.
+// Exercises both the new `messages` array and the transitional dual-write to
+// legacy `refinements` / `lastAnswer` / `lastResponse` / `toolCallHistory`.
+// ---------------------------------------------------------------------------
+describe("appendUserMessage / appendAssistantMessage", () => {
+  const tmpBase = resolve(tmpdir(), `sessions-append-test-${process.pid}`);
+  const sessionsDir = join(tmpBase, "data", "sessions");
+  const originalCwd = process.cwd();
+
+  beforeEach(() => {
+    if (existsSync(tmpBase)) {
+      rmSync(tmpBase, { recursive: true });
+    }
+    mkdirSync(sessionsDir, { recursive: true });
+    process.chdir(tmpBase);
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    if (existsSync(tmpBase)) {
+      rmSync(tmpBase, { recursive: true });
+    }
+  });
+
+  it("appendUserMessage appends a user message to the unified log", async () => {
+    const session = await createSession({
+      channelId: "C111",
+      messageTs: "1000.0001",
+      threadTs: "1000.0001",
+      userId: "UAAA",
+      trigger: {
+        type: "mentions",
+        userId: "UAAA",
+        messageTs: "1000.0001",
+        messageText: "original",
+      },
+    });
+
+    const updated = await appendUserMessage(session.sessionId, {
+      role: "user",
+      source: "reply",
+      text: "a follow up",
+      ts: 1234,
+    });
+    assert.ok(updated);
+    assert.equal(updated.messages.length, 1);
+    const second = updated.messages[0];
+    assert.equal(second.role, "user");
+    if (second.role === "user") {
+      assert.equal(second.source, "reply");
+      assert.equal(second.text, "a follow up");
+    }
+  });
+
+  it("appendUserMessage with source 'choice' preserves the value field", async () => {
+    const session = await createSession({
+      channelId: "C111",
+      messageTs: "1000.0002",
+      threadTs: "1000.0002",
+      userId: "UAAA",
+      trigger: {
+        type: "mentions",
+        userId: "UAAA",
+        messageTs: "1000.0002",
+        messageText: "original",
+      },
+    });
+
+    const updated = await appendUserMessage(session.sessionId, {
+      role: "user",
+      source: "choice",
+      text: "Go Left",
+      value: "left",
+      ts: 2000,
+    });
+    assert.ok(updated);
+    const choice = updated.messages[0];
+    assert.equal(choice.role, "user");
+    if (choice.role === "user") {
+      assert.equal(choice.source, "choice");
+      assert.equal(choice.value, "left");
+      assert.equal(choice.text, "Go Left");
+    }
+  });
+
+  it("appendAssistantMessage appends an assistant turn with payload and toolCalls", async () => {
+    const session = await createSession({
+      channelId: "C222",
+      messageTs: "2000.0001",
+      threadTs: "2000.0001",
+      userId: "UBBB",
+      trigger: {
+        type: "mentions",
+        userId: "UBBB",
+        messageTs: "2000.0001",
+        messageText: "q",
+      },
+    });
+
+    const assistantMsg: SessionAssistantMessage = {
+      role: "assistant",
+      ts: 5000,
+      text: "here's the answer",
+      payload: { message: "preamble", blocks: [], actions: [] },
+      toolCalls: [{ tool: "list_repositories", args: {}, result: {}, timestamp: 4500 }],
+    };
+    const updated = await appendAssistantMessage(session.sessionId, assistantMsg);
+    assert.ok(updated);
+    assert.equal(updated.messages.length, 1);
+    const turn = updated.messages[0];
+    assert.equal(turn.role, "assistant");
+    if (turn.role === "assistant") {
+      assert.equal(turn.text, "here's the answer");
+      assert.deepEqual(turn.payload, assistantMsg.payload);
+      assert.equal(turn.toolCalls?.length, 1);
+    }
+  });
+
+  it("appendAssistantMessage for a skipped turn stores only `skipped` without payload", async () => {
+    const session = await createSession({
+      channelId: "C333",
+      messageTs: "3000.0001",
+      threadTs: "3000.0001",
+      userId: "UCCC",
+      trigger: {
+        type: "mentions",
+        userId: "UCCC",
+        messageTs: "3000.0001",
+        messageText: "q",
+      },
+    });
+
+    await appendAssistantMessage(session.sessionId, {
+      role: "assistant",
+      ts: 1000,
+      text: "first",
+      payload: { blocks: [], actions: [] },
+    });
+
+    const updated = await appendAssistantMessage(session.sessionId, {
+      role: "assistant",
+      ts: 2000,
+      skipped: true,
+    });
+    assert.ok(updated);
+    assert.equal(updated.messages.length, 2);
+    const skippedTurn = updated.messages[1];
+    assert.equal(skippedTurn.role, "assistant");
+    if (skippedTurn.role === "assistant") {
+      assert.equal(skippedTurn.skipped, true);
+      assert.equal(skippedTurn.payload, undefined);
+      assert.equal(skippedTurn.text, undefined);
+    }
+  });
+
+  it("serializes concurrent appendUserMessage calls without losing updates", async () => {
+    const session = await createSession({
+      channelId: "C444",
+      messageTs: "4000.0001",
+      threadTs: "4000.0001",
+      userId: "UDDD",
+      trigger: {
+        type: "mentions",
+        userId: "UDDD",
+        messageTs: "4000.0001",
+        messageText: "concurrent appends",
+      },
+    });
+
+    const N = 20;
+    await Promise.all(
+      Array.from({ length: N }, (_, i) =>
+        appendUserMessage(session.sessionId, {
+          role: "user",
+          source: "reply",
+          text: `r${i}`,
+          ts: 1000 + i,
+        }),
+      ),
+    );
+
+    const final = await getSession(session.sessionId);
+    assert.ok(final);
+    // N replies (trigger holds the triggering message)
+    assert.equal(final.messages.length, N);
   });
 });

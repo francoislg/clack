@@ -21,7 +21,10 @@ const mockAskClaude = mock.fn<(...args: never[]) => Promise<ClaudeResponse>>(asy
   answer: "test answer",
 }));
 
-const mockSetLastAnswer = mock.fn<(...args: never[]) => Promise<void>>(async () => {});
+const mockAppendAssistantMessage = mock.fn<
+  NonNullable<HandlerResponseDeps["appendAssistantMessage"]>
+>(async () => null);
+
 const mockUpdateSession = mock.fn<(...args: never[]) => Promise<void>>(async () => {});
 const mockAddError = mock.fn<(...args: never[]) => Promise<void>>(async () => {});
 const mockSetAutoResponseActive = mock.fn<(...args: never[]) => Promise<void>>(async () => {});
@@ -72,7 +75,6 @@ function makeDeps(): HandlerResponseDeps {
   return {
     askClaude: mockAskClaude as never,
     analyzeError: mockAnalyzeError as never,
-    setLastAnswer: mockSetLastAnswer as never,
     updateSession: mockUpdateSession as never,
     addError: mockAddError as never,
     setAutoResponseActive: mockSetAutoResponseActive as never,
@@ -165,7 +167,6 @@ function getPostMessageMock(_client: App["client"]) {
 
 beforeEach(() => {
   mockAskClaude.mock.resetCalls();
-  mockSetLastAnswer.mock.resetCalls();
   mockUpdateSession.mock.resetCalls();
   mockAddError.mock.resetCalls();
   mockGetErrorBlocksWithRetry.mock.resetCalls();
@@ -196,6 +197,8 @@ beforeEach(() => {
 
   // Create fresh deps
   deps = makeDeps();
+  deps.appendAssistantMessage = mockAppendAssistantMessage;
+  mockAppendAssistantMessage.mock.resetCalls();
 });
 
 // ============================================================================
@@ -333,15 +336,17 @@ describe("executeAndDeliver — success handling", () => {
       deps,
     });
 
-    assert.equal(mockSetLastAnswer.mock.callCount(), 1);
-    assert.equal(mockSetLastAnswer.mock.calls[0].arguments[0], "session-1");
-    assert.equal(mockSetLastAnswer.mock.calls[0].arguments[1], "the answer");
-
+    // answer + lastResponse + toolCalls now flow through appendAssistantMessage.
+    // stagedIntents still goes through updateSession (per-turn ephemeral, not part of the log).
+    assert.equal(mockAppendAssistantMessage.mock.callCount(), 1);
+    assert.equal(mockAppendAssistantMessage.mock.calls[0].arguments[0], "session-1");
+    const appended = mockAppendAssistantMessage.mock.calls[0].arguments[1];
+    assert.equal(appended.text, "the answer");
+    assert.ok(appended.payload);
+    assert.ok(appended.toolCalls);
     assert.equal(mockUpdateSession.mock.callCount(), 1);
     const updates = mockUpdateSession.mock.calls[0].arguments[1] as Partial<SessionContext>;
-    assert.ok(updates.lastResponse);
     assert.ok(updates.stagedIntents);
-    assert.ok(updates.toolCallHistory);
   });
 
   it("does not call updateSession when there are no extra fields", async () => {
@@ -358,7 +363,7 @@ describe("executeAndDeliver — success handling", () => {
       deps,
     });
 
-    assert.equal(mockSetLastAnswer.mock.callCount(), 1);
+    assert.equal(mockAppendAssistantMessage.mock.callCount(), 1);
     assert.equal(mockUpdateSession.mock.callCount(), 0);
   });
 
@@ -568,12 +573,13 @@ describe("executeAndDeliver — cancellation", () => {
 
     assert.equal(response.cancelled, true);
     assert.equal(mockHandleAutoExecuteActions.mock.callCount(), 0);
-    assert.equal(mockSetLastAnswer.mock.callCount(), 0);
+    assert.equal(mockAppendAssistantMessage.mock.callCount(), 0);
   });
 
   it("deletes the streamer message when cancelled instead of posting a cancellation notice", async () => {
     resetStreamerInstance({ messageTs: "1700000000.000002" });
     deps = makeDeps();
+    deps.appendAssistantMessage = mockAppendAssistantMessage;
 
     mockAskClaude.mock.mockImplementation(async () => ({
       success: false,
@@ -614,6 +620,7 @@ describe("executeAndDeliver — cancellation", () => {
   it("skips delete when the streamer never posted a message", async () => {
     resetStreamerInstance({ messageTs: undefined });
     deps = makeDeps();
+    deps.appendAssistantMessage = mockAppendAssistantMessage;
 
     mockAskClaude.mock.mockImplementation(async () => ({
       success: false,
@@ -696,7 +703,7 @@ describe("executeAndDeliver — error handling", () => {
     assert.ok(!call.text.includes("crashed"));
   });
 
-  it("persists toolCallHistory to the session on Claude failure", async () => {
+  it("appends toolCalls onto the error assistant message on Claude failure", async () => {
     const history = [
       {
         tool: "mcp__trivia__submit_answers",
@@ -721,16 +728,14 @@ describe("executeAndDeliver — error handling", () => {
       deps,
     });
 
-    const historyUpdate = mockUpdateSession.mock.calls.find((c) => {
-      const updates = c.arguments[1] as Partial<SessionContext>;
-      return Array.isArray(updates.toolCallHistory);
-    });
-    assert.ok(historyUpdate, "expected a session update carrying toolCallHistory");
-    const updates = historyUpdate.arguments[1] as Partial<SessionContext>;
-    assert.deepEqual(updates.toolCallHistory, history);
+    // The error path appends a SessionAssistantMessage carrying the failure + toolCalls.
+    assert.ok(mockAppendAssistantMessage.mock.callCount() >= 1);
+    const appended = mockAppendAssistantMessage.mock.calls[0].arguments[1];
+    assert.deepEqual(appended.toolCalls, history);
+    assert.ok(appended.error);
   });
 
-  it("does not call updateSession with toolCallHistory on error when history is empty", async () => {
+  it("omits toolCalls on the error assistant message when toolCallHistory is empty", async () => {
     mockAskClaude.mock.mockImplementation(async () => ({
       success: false,
       answer: "",
@@ -747,11 +752,9 @@ describe("executeAndDeliver — error handling", () => {
       deps,
     });
 
-    const historyUpdate = mockUpdateSession.mock.calls.find((c) => {
-      const updates = c.arguments[1] as Partial<SessionContext>;
-      return updates.toolCallHistory !== undefined;
-    });
-    assert.equal(historyUpdate, undefined);
+    assert.ok(mockAppendAssistantMessage.mock.callCount() >= 1);
+    const appended = mockAppendAssistantMessage.mock.calls[0].arguments[1];
+    assert.equal(appended.toolCalls, undefined);
   });
 
   it("uses 'Unknown error' when error field is empty", async () => {
@@ -1471,7 +1474,7 @@ describe("silentThinking mode", () => {
         skipped: true,
         answer: "",
       }));
-      mockSetLastAnswer.mock.resetCalls();
+      mockAppendAssistantMessage.mock.resetCalls();
       mockUpdateSession.mock.resetCalls();
       mockHandleAutoExecuteActions.mock.resetCalls();
 
@@ -1495,11 +1498,11 @@ describe("silentThinking mode", () => {
       });
 
       // Session persistence and auto-execute should NOT have been called
-      assert.equal(mockSetLastAnswer.mock.callCount(), 0);
+      assert.equal(mockAppendAssistantMessage.mock.callCount(), 0);
       assert.equal(mockHandleAutoExecuteActions.mock.callCount(), 0);
     });
 
-    it("calls setAutoResponseActive when response is skipped with disengage", async () => {
+    it("persists skipped+disengaged turn and autoResponseActive:false in a single updateSession call", async () => {
       resetStreamerInstance({ messageTs: "1234.5678" });
       mockAskClaude.mock.mockImplementationOnce(async () => ({
         success: true,
@@ -1507,7 +1510,7 @@ describe("silentThinking mode", () => {
         disengaged: true,
         answer: "",
       }));
-      mockSetAutoResponseActive.mock.resetCalls();
+      mockUpdateSession.mock.resetCalls();
 
       const client = makeClient();
       const response = await executeAndDeliver({
@@ -1520,12 +1523,21 @@ describe("silentThinking mode", () => {
 
       assert.equal(response.skipped, true);
       assert.equal(response.disengaged, true);
-      assert.equal(mockSetAutoResponseActive.mock.callCount(), 1);
-      assert.equal(mockSetAutoResponseActive.mock.calls[0].arguments[0], "session-1");
-      assert.equal(mockSetAutoResponseActive.mock.calls[0].arguments[1], false);
+      // unified-conversation-log: both the appended skipped+disengaged message AND
+      // autoResponseActive: false are persisted in the same updateSession call.
+      assert.equal(mockUpdateSession.mock.callCount(), 1);
+      const updates = mockUpdateSession.mock.calls[0].arguments[1] as Partial<SessionContext>;
+      assert.equal(updates.autoResponseActive, false);
+      assert.ok(Array.isArray(updates.messages));
+      const last = updates.messages![updates.messages!.length - 1];
+      assert.equal(last.role, "assistant");
+      const lastAssistant = last as { skipped?: true; disengaged?: true; payload?: unknown };
+      assert.equal(lastAssistant.skipped, true);
+      assert.equal(lastAssistant.disengaged, true);
+      assert.equal(lastAssistant.payload, undefined);
     });
 
-    it("does NOT call setAutoResponseActive when skip without disengage", async () => {
+    it("skip without disengage: appended message has no disengaged flag and autoResponseActive unchanged", async () => {
       resetStreamerInstance({ messageTs: "1234.5678" });
       mockAskClaude.mock.mockImplementationOnce(async () => ({
         success: true,
@@ -1533,6 +1545,7 @@ describe("silentThinking mode", () => {
         answer: "",
       }));
       mockSetAutoResponseActive.mock.resetCalls();
+      mockUpdateSession.mock.resetCalls();
 
       const client = makeClient();
       await executeAndDeliver({
@@ -1544,6 +1557,14 @@ describe("silentThinking mode", () => {
       });
 
       assert.equal(mockSetAutoResponseActive.mock.callCount(), 0);
+      // Single updateSession for the skipped-turn append; autoResponseActive not touched.
+      assert.equal(mockUpdateSession.mock.callCount(), 1);
+      const updates = mockUpdateSession.mock.calls[0].arguments[1] as Partial<SessionContext>;
+      assert.equal(updates.autoResponseActive, undefined);
+      const last = updates.messages![updates.messages!.length - 1];
+      const lastAssistant = last as { skipped?: true; disengaged?: true };
+      assert.equal(lastAssistant.skipped, true);
+      assert.equal(lastAssistant.disengaged, undefined);
     });
 
     it("calls setAutoResponseActive when normal response has disengaged: true", async () => {

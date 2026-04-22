@@ -15,12 +15,13 @@ import { getErrorBlocksWithRetry, asSlackBlocks, type SlackBlocks } from "../blo
 import { extractDisplayText } from "../blockText.js";
 import type { Block } from "../blockSchema.js";
 import {
-  setLastAnswer,
   updateSession,
   addError,
   setAutoResponseActive,
   createSession,
+  appendAssistantMessage,
 } from "../../sessions.js";
+import type { SessionAssistantMessage } from "../../sessions.js";
 import { askClaude } from "../../claude/index.js";
 import { analyzeError } from "../../claude/utilities.js";
 import { sendErrorReport } from "../messagesApi.js";
@@ -37,7 +38,9 @@ import { writeErrorReport } from "../../errorReports.js";
 export interface HandlerResponseDeps {
   askClaude: typeof askClaude;
   analyzeError: typeof analyzeError;
-  setLastAnswer: typeof setLastAnswer;
+  /** Optional for tests that don't exercise the unified conversation log yet.
+   *  Production code always receives the default via `defaultHandlerResponseDeps`. */
+  appendAssistantMessage?: typeof appendAssistantMessage;
   updateSession: typeof updateSession;
   addError: typeof addError;
   setAutoResponseActive: typeof setAutoResponseActive;
@@ -61,7 +64,7 @@ export interface HandlerResponseDeps {
 export const defaultHandlerResponseDeps: HandlerResponseDeps = {
   askClaude,
   analyzeError,
-  setLastAnswer,
+  appendAssistantMessage,
   updateSession,
   addError,
   setAutoResponseActive,
@@ -93,6 +96,9 @@ export interface ExecuteAndDeliverParams {
   abortController?: AbortController;
   /** When true, skip SlackStreamer and post the final result directly (no thinking indicators) */
   silentThinking?: boolean;
+  /** Pre-analysis verdict from the autoRespond gate for THIS turn. Stamped onto the appended
+   *  `SessionAssistantMessage` so the per-turn decision trail is preserved on disk. */
+  preAnalysis?: string;
   deps?: HandlerResponseDeps;
 }
 
@@ -108,6 +114,7 @@ interface DeliveryContext {
   alreadyDelivered: boolean;
   startTime: number;
   silentThinking: boolean;
+  preAnalysis?: string;
   deps: HandlerResponseDeps;
 }
 
@@ -124,6 +131,7 @@ export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promis
     claudeOptions,
     abortController,
     silentThinking = false,
+    preAnalysis,
     deps = defaultHandlerResponseDeps,
   } = params;
 
@@ -169,6 +177,7 @@ export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promis
     alreadyDelivered: false,
     startTime: Date.now(),
     silentThinking,
+    preAnalysis,
     deps,
   };
 
@@ -190,13 +199,8 @@ export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promis
       slackClient: client,
       deliver,
       onEvent: streamer?.handleEvent ?? (() => {}),
-      onToolCall: async (record) => {
+      onToolCall: (record) => {
         liveToolHistory.push(record);
-        try {
-          await deps.updateSession(session.sessionId, { toolCallHistory: [...liveToolHistory] });
-        } catch (err) {
-          logger.warn(`Failed to persist live tool call to session: ${toErrorMessage(err)}`);
-        }
       },
       abortController,
       userTimezone: userInfo?.tz,
@@ -316,8 +320,12 @@ function buildDeliverFn(ctx: DeliveryContext): DeliverFn {
               messageTs: ts,
               threadTs: ts,
               userId: ctx.session.userId,
-              originalQuestion: fallbackText.slice(0, 500),
-              triggerType: "autoRespond",
+              trigger: {
+                type: "autoRespond",
+                userId: ctx.session.userId,
+                messageTs: ts,
+                messageText: fallbackText.slice(0, 500),
+              },
               additionalSystemPrompt: ctx.session.additionalSystemPrompt,
               channelName: ctx.session.channelName,
               username: ctx.session.username,
@@ -481,13 +489,28 @@ async function handleSkip(ctx: DeliveryContext, response: ClaudeResponse): Promi
     }
   }
 
-  // Disengage: permanently stop tracking this thread for auto-respond
-  if (response.disengaged) {
-    try {
-      await ctx.deps.setAutoResponseActive(ctx.session.sessionId, false);
-    } catch (err) {
-      logger.error("Failed to persist disengage state on skip:", err);
+  // unified-conversation-log: persist the skipped turn in a single updateSession
+  // call together with the disengage flag (per skip-response spec requirement:
+  // both updates must land atomically). No legacy fields are written on skip.
+  try {
+    const skippedMessage: SessionAssistantMessage = {
+      role: "assistant",
+      ts: Date.now(),
+      skipped: true,
+    };
+    if (response.disengaged) skippedMessage.disengaged = true;
+    if (response.toolCallHistory && response.toolCallHistory.length > 0) {
+      skippedMessage.toolCalls = response.toolCallHistory;
     }
+    if (ctx.preAnalysis) skippedMessage.preAnalysis = ctx.preAnalysis;
+    const existing = ctx.session.messages ?? [];
+    const updates: Partial<SessionContext> = {
+      messages: [...existing, skippedMessage],
+    };
+    if (response.disengaged) updates.autoResponseActive = false;
+    await ctx.deps.updateSession(ctx.session.sessionId, updates);
+  } catch (err) {
+    logger.error("Failed to persist skipped turn to session:", err);
   }
 }
 
@@ -577,18 +600,27 @@ async function handleError(ctx: DeliveryContext, response: ClaudeResponse): Prom
     logger.error("Failed to persist error to session:", err);
   }
 
-  // Preserve the recorder history on the session even on failure — otherwise silent/scheduled
-  // runs lose the only record of what tools actually returned. The error-report file captures
-  // this too, but the session file is the natural first place to look.
-  if (response.toolCallHistory && response.toolCallHistory.length > 0) {
-    try {
-      await ctx.deps.updateSession(ctx.session.sessionId, {
-        toolCallHistory: response.toolCallHistory,
-      });
-    } catch (err) {
-      logger.error("Failed to persist toolCallHistory to session:", err);
+  // unified-conversation-log: also record this turn's failure as a per-turn assistant
+  // message so the conversation log reflects what happened. Legacy `errors[]` write above
+  // remains during the transition — both lift in §9.
+  try {
+    const append = ctx.deps.appendAssistantMessage ?? appendAssistantMessage;
+    const errorAssistantMessage: SessionAssistantMessage = {
+      role: "assistant",
+      ts: Date.now(),
+      error: { timestamp: Date.now(), errorMessage, conversationTrace },
+    };
+    if (response.toolCallHistory && response.toolCallHistory.length > 0) {
+      errorAssistantMessage.toolCalls = response.toolCallHistory;
     }
+    if (ctx.preAnalysis) errorAssistantMessage.preAnalysis = ctx.preAnalysis;
+    await append(ctx.session.sessionId, errorAssistantMessage);
+  } catch (err) {
+    logger.error("Failed to append error turn to conversation log:", err);
   }
+
+  // Tool-call records are preserved on the appended error assistant message above
+  // (via `errorAssistantMessage.toolCalls`). Error report files also capture them.
 
   const isPlatformLimit = /usage limit|limit reached/i.test(errorMessage);
   const errorText = isPlatformLimit
@@ -683,27 +715,35 @@ async function handleUnexpectedError(ctx: DeliveryContext, error: unknown): Prom
 // ============================================================
 
 /**
- * Persist the Claude response state to the session (answer, response payload, intents, tool history).
+ * Persist the Claude response state to the session.
+ *
+ * Appends a `SessionAssistantMessage` to the unified conversation log carrying the
+ * answer, response payload, tool calls, and `postedTopLevel` flag. `stagedIntents`
+ * remains session-level (per-turn ephemeral).
  */
 async function persistResponseState(
   ctx: DeliveryContext,
   session: SessionContext,
   response: ClaudeResponse,
 ): Promise<void> {
-  await ctx.deps.setLastAnswer(session.sessionId, response.answer);
-
-  const sessionUpdates: Partial<SessionContext> = {};
-  if (response.response) {
-    sessionUpdates.lastResponse = response.response;
-  }
-  if (response.stagedIntents && Object.keys(response.stagedIntents).length > 0) {
-    sessionUpdates.stagedIntents = response.stagedIntents;
-  }
+  const assistantMessage: SessionAssistantMessage = {
+    role: "assistant",
+    ts: Date.now(),
+    text: response.answer,
+  };
+  if (response.response) assistantMessage.payload = response.response;
   if (response.toolCallHistory && response.toolCallHistory.length > 0) {
-    sessionUpdates.toolCallHistory = response.toolCallHistory;
+    assistantMessage.toolCalls = response.toolCallHistory;
   }
-  if (Object.keys(sessionUpdates).length > 0) {
-    await ctx.deps.updateSession(session.sessionId, sessionUpdates);
+  if (response.postedTopLevel) assistantMessage.postedTopLevel = true;
+  if (ctx.preAnalysis) assistantMessage.preAnalysis = ctx.preAnalysis;
+  const append = ctx.deps.appendAssistantMessage ?? appendAssistantMessage;
+  await append(session.sessionId, assistantMessage);
+
+  if (response.stagedIntents && Object.keys(response.stagedIntents).length > 0) {
+    await ctx.deps.updateSession(session.sessionId, {
+      stagedIntents: response.stagedIntents,
+    });
   }
 }
 

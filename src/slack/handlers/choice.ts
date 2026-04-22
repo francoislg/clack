@@ -1,6 +1,6 @@
 import type { App, BlockAction } from "@slack/bolt";
 import { logger } from "../../logger.js";
-import { getSession, addRefinement, type SessionContext } from "../../sessions.js";
+import { getSession, appendUserMessage, type SessionContext } from "../../sessions.js";
 import { decodeActionValue } from "../blocks.js";
 import { activeSessions, type SessionInfo } from "../activeSessions.js";
 import { executeAndDeliver, getHandlerClaudeOptions } from "./handlerResponse.js";
@@ -16,7 +16,7 @@ export interface ChoiceDeps {
   };
   restoreSession: (sessionId: string) => Promise<SessionInfo | undefined>;
   getSession: (sessionId: string) => Promise<SessionContext | null>;
-  addRefinement: (sessionId: string, text: string) => Promise<SessionContext | null>;
+  appendUserMessage: typeof appendUserMessage;
   getHandlerClaudeOptions: (info: SessionInfo) => Promise<AskClaudeOptions>;
   canRequestChanges: (role: UserRole) => boolean;
   executeAndDeliver: (params: {
@@ -31,7 +31,7 @@ export const defaultChoiceDeps: ChoiceDeps = {
   decodeActionValue,
   restoreSession: (sessionId: string) => activeSessions.restore(sessionId),
   getSession,
-  addRefinement,
+  appendUserMessage,
   getHandlerClaudeOptions,
   canRequestChanges,
   executeAndDeliver,
@@ -61,8 +61,16 @@ export function registerChoiceHandler(app: App, deps: ChoiceDeps = defaultChoice
       return;
     }
 
-    // Inject the user's choice as a refinement
-    await deps.addRefinement(session.sessionId, `The user chose: ${choiceValue}`);
+    // Record the user's choice as a structured message in the conversation log.
+    // appendUserMessage dual-writes "The user chose: ${text}" to legacy refinements[]
+    // during the unified-conversation-log transition so prompt builder behavior is preserved.
+    await deps.appendUserMessage(session.sessionId, {
+      role: "user",
+      source: "choice",
+      text: choiceValue,
+      value: choiceValue,
+      ts: Date.now(),
+    });
     const updatedSession = (await deps.getSession(session.sessionId))!;
 
     const claudeOptions = await deps.getHandlerClaudeOptions(sessionInfo);

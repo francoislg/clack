@@ -9,9 +9,14 @@ import type { SessionContext } from "../sessions.js";
  */
 function makeSession(overrides: Partial<SessionContext> = {}): SessionContext {
   return {
-    originalQuestion: "What does this function do?",
+    trigger: {
+      type: "mentions",
+      userId: "U1",
+      messageTs: "1.0",
+      messageText: "What does this function do?",
+    },
+    messages: [],
     threadContext: [],
-    refinements: [],
     triggerType: undefined,
     dmChannel: undefined,
     originChannel: undefined,
@@ -473,7 +478,16 @@ describe("buildPrompt", () => {
   // ---- refinements ----
   it("includes refinements when present", () => {
     const session = makeSession({
-      refinements: ["Also check the tests", "Focus on error handling"],
+      trigger: {
+        type: "mentions",
+        userId: "U1",
+        messageTs: "1.0",
+        messageText: "What does this function do?",
+      },
+      messages: [
+        { role: "user", source: "reply", text: "Also check the tests", ts: 1 },
+        { role: "user", source: "reply", text: "Focus on error handling", ts: 2 },
+      ],
     });
     const prompt = buildPrompt(session);
     assert.ok(prompt.includes("ADDITIONAL INSTRUCTIONS FROM USER"));
