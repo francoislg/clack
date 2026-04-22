@@ -124,6 +124,11 @@ function validateSection(
   return errors;
 }
 
+// Fields Slack accepts on an image block. Anything else triggers
+// `ignored_extra_attributes_for_image_block` warnings server-side, so we reject
+// them here and hand Claude an actionable error instead.
+const ALLOWED_IMAGE_KEYS = new Set(["type", "image_url", "alt_text", "title", "block_id"]);
+
 function validateImage(
   block: Extract<Block, { type: "image" }>,
   i: number,
@@ -156,6 +161,17 @@ function validateImage(
       limit: 0,
     });
   }
+
+  const extras = Object.keys(block).filter((k) => !ALLOWED_IMAGE_KEYS.has(k));
+  if (extras.length > 0) {
+    errors.push({
+      field: `blocks[${i}]`,
+      message: `blocks[${i}] (image) has unsupported field(s): ${extras.map((k) => `\`${k}\``).join(", ")}. Slack logs an \`ignored_extra_attributes_for_image_block\` warning for these — remove them. Allowed fields: \`type\`, \`image_url\`, \`alt_text\`, \`title\`, \`block_id\`.`,
+      currentLength: extras.length,
+      limit: 0,
+    });
+  }
+
   return errors;
 }
 

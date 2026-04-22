@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import type { Block } from "./blockSchema.js";
+import { BlockSchema, type Block } from "./blockSchema.js";
 import { validateBlocks } from "./blockValidate.js";
 
 describe("validateBlocks — totals", () => {
@@ -194,6 +194,34 @@ describe("validateBlocks — image", () => {
     const block: Block = { type: "image", image_url: "", alt_text: "" };
     const errors = validateBlocks([block]);
     assert.equal(errors.length, 2);
+  });
+
+  it("rejects unsupported fields (fallback, image_width, etc.) to avoid Slack's ignored_extra_attributes warning", () => {
+    const block = BlockSchema.parse({
+      type: "image",
+      image_url: "https://example.com/x.png",
+      alt_text: "ok",
+      fallback: "some fallback",
+      image_width: 480,
+    });
+    const errors = validateBlocks([block]);
+    assert.equal(errors.length, 1);
+    assert.equal(errors[0].field, "blocks[0]");
+    assert.match(errors[0].message, /unsupported field/);
+    assert.match(errors[0].message, /fallback/);
+    assert.match(errors[0].message, /image_width/);
+    assert.match(errors[0].message, /ignored_extra_attributes_for_image_block/);
+  });
+
+  it("accepts the allowed optional fields (title, block_id)", () => {
+    const block = BlockSchema.parse({
+      type: "image",
+      image_url: "https://example.com/x.png",
+      alt_text: "ok",
+      title: { type: "plain_text", text: "caption" },
+      block_id: "my-image",
+    });
+    assert.equal(validateBlocks([block]).length, 0);
   });
 });
 
