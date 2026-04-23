@@ -4,6 +4,7 @@ import type { App } from "@slack/bolt";
 import type { View } from "@slack/types";
 import type { HomeTabDeps } from "./homeTab.js";
 import { registerHomeTabHandler } from "./homeTab.js";
+import type { AutoRespondRule } from "../../autoRespond.js";
 
 // ============================================================================
 // Mock Functions
@@ -56,13 +57,15 @@ const mockAddRule = mock.fn<
 const mockUpdateRule = mock.fn<
   (
     ruleId: string,
-    channels: string[],
-    userFilters?: string[],
-    keywords?: string[],
-    extraContext?: string,
-    preAnalysisContext?: string,
-  ) => Promise<void>
->(async () => {});
+    patch: {
+      channels?: string[];
+      userFilters?: string[];
+      keywords?: string[];
+      extraContext?: string;
+      preAnalysisContext?: string;
+    },
+  ) => Promise<AutoRespondRule | null>
+>(async (ruleId) => ({ id: ruleId, channels: ["C1"], enabled: true }));
 const mockToggleRule = mock.fn<(ruleId: string) => Promise<null>>(async () => null);
 const mockDeleteRule = mock.fn<(ruleId: string) => Promise<void>>(async () => {});
 const mockGetRule = mock.fn<(ruleId: string) => Promise<null>>(async () => null);

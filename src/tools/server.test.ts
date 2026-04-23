@@ -1,6 +1,7 @@
 import { describe, it, beforeEach, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import { z } from "zod";
+import { WebClient } from "@slack/web-api";
 import { tool, createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
 import type { SdkMcpToolDefinition, AnyZodRawShape } from "@anthropic-ai/claude-agent-sdk";
 import {
@@ -252,6 +253,64 @@ describe("buildClackTools — query mode", () => {
       assert.equal(unknownWarnings.length, 0);
     } finally {
       warnFn.mock.restore();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Auto-respond rule tools registration
+// ---------------------------------------------------------------------------
+
+describe("buildClackTools — auto-respond rule tools admin gate", () => {
+  const AUTO_RESPOND_TOOL_NAMES = [
+    "list_auto_respond_rules",
+    "add_auto_respond_rule",
+    "update_auto_respond_rule",
+    "toggle_auto_respond_rule",
+    "delete_auto_respond_rule",
+  ];
+
+  function stubSlackClient(): WebClient {
+    return new WebClient("xoxb-test-token");
+  }
+
+  beforeEach(() => {
+    setLoadedPlugins({ results: [] });
+  });
+
+  afterEach(() => {
+    setLoadedPlugins({ results: [] });
+  });
+
+  it("registers all five auto-respond rule tools for admin with Slack client", () => {
+    const result = buildClackTools(makeQueryCtx({ role: "admin", slackClient: stubSlackClient() }));
+    for (const name of AUTO_RESPOND_TOOL_NAMES) {
+      assert.ok(
+        result.toolNames.includes(name),
+        `expected tool "${name}" to be registered for admin`,
+      );
+    }
+  });
+
+  it("does NOT register auto-respond rule tools for non-admin (member, dev)", () => {
+    for (const role of ["member", "dev"] as const) {
+      const result = buildClackTools(makeQueryCtx({ role, slackClient: stubSlackClient() }));
+      for (const name of AUTO_RESPOND_TOOL_NAMES) {
+        assert.ok(
+          !result.toolNames.includes(name),
+          `tool "${name}" must NOT be registered for role "${role}"`,
+        );
+      }
+    }
+  });
+
+  it("does NOT register auto-respond rule tools when Slack client is missing", () => {
+    const result = buildClackTools(makeQueryCtx({ role: "admin", slackClient: undefined }));
+    for (const name of AUTO_RESPOND_TOOL_NAMES) {
+      assert.ok(
+        !result.toolNames.includes(name),
+        `tool "${name}" must NOT register without a Slack client`,
+      );
     }
   });
 });
