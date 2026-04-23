@@ -27,18 +27,16 @@ export function createUpdateScheduledMessageTool(ctx: QueryToolContext) {
       schedule: z
         .object({
           minute: z
-            .number()
-            .int()
-            .min(0)
-            .max(59)
-            .describe("Minute of the hour (0-59) in the job's timezone. NOT UTC."),
-          hour: z
-            .number()
-            .int()
-            .min(0)
-            .max(23)
+            .string()
             .describe(
-              "Hour of the day (0-23) in the job's timezone — exactly what the user said. NOT UTC.",
+              "Cron minute field in the job's timezone (NOT UTC). Accepts any cron syntax: " +
+                "'30', '0,30', '0-15', '*/15' (every 15 min), or '*' (every minute).",
+            ),
+          hour: z
+            .string()
+            .describe(
+              "Cron hour field in the job's timezone (NOT UTC). Accepts any cron syntax: '9', " +
+                "'9,13,17', '9-17', '*/2' (every 2 hours), or '*' (every hour).",
             ),
           dayOfMonth: z.string().describe("Cron day-of-month field (e.g. '*', '1', '1,15')."),
           month: z.string().describe("Cron month field (e.g. '*', '1', '1-6')."),
@@ -106,7 +104,8 @@ export function createUpdateScheduledMessageTool(ctx: QueryToolContext) {
           const msg = errorMessage(error);
           return errorResult(
             `Invalid schedule fields (built cron "${newCronExpression}"): ${msg}. ` +
-              "Check dayOfMonth, month, and dayOfWeek for valid cron syntax.",
+              "All five fields accept standard cron syntax (use '*' for every, '*/N' for steps, " +
+              "'A,B' for lists, 'A-B' for ranges).",
           );
         }
       }

@@ -54,8 +54,8 @@ interface ToolHandlerResult {
 interface CallArgs {
   channel: string;
   prompt: string;
-  minute?: number;
-  hour?: number;
+  minute?: string;
+  hour?: string;
   dayOfMonth?: string;
   month?: string;
   dayOfWeek?: string;
@@ -68,8 +68,8 @@ type CreateTool = ReturnType<typeof createCreateScheduledMessageTool>;
 function callHandler(tool: CreateTool, args: CallArgs) {
   return tool.handler(
     {
-      minute: 0,
-      hour: 9,
+      minute: "0",
+      hour: "9",
       dayOfMonth: "*",
       month: "*",
       dayOfWeek: "*",
@@ -125,8 +125,8 @@ describe("createScheduledMessage tool", () => {
     const tool = createCreateScheduledMessageTool(ctx, deps);
     await callHandler(tool, {
       channel: "C456",
-      minute: 30,
-      hour: 11,
+      minute: "30",
+      hour: "11",
       timezone: "America/New_York",
       prompt: "Morning standup",
     });
@@ -147,14 +147,53 @@ describe("createScheduledMessage tool", () => {
     const tool = createCreateScheduledMessageTool(ctx, deps);
     const result = await callHandler(tool, {
       channel: "C456",
-      minute: 30,
-      hour: 11,
+      minute: "30",
+      hour: "11",
       timezone: "America/New_York",
       prompt: "Morning standup",
     });
 
     const parsed = parseToolResult(result as any);
     assert.match(parsed.schedule, /11:30 AM (EDT|EST)/);
+  });
+
+  it("accepts '*' in the hour field for hourly schedules", async () => {
+    const ctx = buildCtx();
+    const deps = makeDeps();
+    const tool = createCreateScheduledMessageTool(ctx, deps);
+    const result = await callHandler(tool, {
+      channel: "C456",
+      minute: "0",
+      hour: "*",
+      timezone: "America/New_York",
+      prompt: "Hourly digest",
+    });
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.ok, true);
+
+    const jobs = await getJobs();
+    assert.equal(jobs.length, 1);
+    assert.equal(jobs[0].cronExpression, "0 * * * *");
+  });
+
+  it("accepts step syntax in the minute field for every-N-minutes schedules", async () => {
+    const ctx = buildCtx();
+    const deps = makeDeps();
+    const tool = createCreateScheduledMessageTool(ctx, deps);
+    const result = await callHandler(tool, {
+      channel: "C456",
+      minute: "*/15",
+      hour: "*",
+      timezone: "UTC",
+      prompt: "Poll",
+    });
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.ok, true);
+
+    const jobs = await getJobs();
+    assert.equal(jobs[0].cronExpression, "*/15 * * * *");
   });
 
   it("rejects invalid cron field combinations", async () => {
@@ -241,8 +280,8 @@ describe("createScheduledMessage tool", () => {
     const result = await tool.handler(
       {
         channel: "C456",
-        minute: 0,
-        hour: 9,
+        minute: "0",
+        hour: "9",
         dayOfMonth: "*",
         month: "*",
         dayOfWeek: "*",
@@ -271,8 +310,8 @@ describe("createScheduledMessage tool", () => {
     const result: ToolHandlerResult = await tool.handler(
       {
         channel: "C456",
-        minute: 0,
-        hour: 9,
+        minute: "0",
+        hour: "9",
         dayOfMonth: "*",
         month: "*",
         dayOfWeek: "*",

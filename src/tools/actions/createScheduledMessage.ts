@@ -29,10 +29,12 @@ export function createCreateScheduledMessageTool(
       "Use this when the user asks to schedule recurring messages or one-time future messages. " +
       "If the user's request is ambiguous (e.g., 'send this regularly' without specifying when), " +
       "ask clarifying questions first before calling this tool. " +
-      "Time is specified with `minute` and `hour` as the user's LOCAL clock time in the " +
-      "`timezone` you pass — pass exactly what the user said (e.g. user said '11:30 AM' → " +
-      "hour: 11, minute: 30). The tool interprets those in the given timezone. Do NOT convert " +
-      "to UTC. Provide a prompt describing what Claude should do each time the schedule fires. " +
+      "All five schedule fields (`minute`, `hour`, `dayOfMonth`, `month`, `dayOfWeek`) accept " +
+      "full cron syntax as strings: specific values ('9'), lists ('9,13'), ranges ('9-17'), " +
+      "steps ('*/15'), or '*' for every. `minute`/`hour` are interpreted in the user's LOCAL " +
+      "`timezone` — do NOT convert to UTC. For a one-off time like '11:30 AM', pass hour: '11', " +
+      "minute: '30'. For 'every hour on the half-hour', pass hour: '*', minute: '30'. " +
+      "Provide a prompt describing what Claude should do each time the schedule fires. " +
       "IMPORTANT: The prompt should only describe WHAT to do, not HOW to deliver the result. " +
       "The scheduler automatically handles delivery via submit_response — do NOT include " +
       "instructions about submit_response, post_to, or how to post the message in the prompt. " +
@@ -47,19 +49,20 @@ export function createCreateScheduledMessageTool(
             "(e.g. 'U0123ABCDEF'). Third-party user IDs are not allowed.",
         ),
       minute: z
-        .number()
-        .int()
-        .min(0)
-        .max(59)
-        .describe("Minute of the hour (0-59) in the user's local timezone. NOT UTC."),
-      hour: z
-        .number()
-        .int()
-        .min(0)
-        .max(23)
+        .string()
         .describe(
-          "Hour of the day (0-23) in the user's local timezone — the exact hour the user said. " +
-            "NOT UTC. E.g. user said '11:30 AM' → hour: 11. User said '3pm' → hour: 15.",
+          "Cron minute field in the user's local timezone (NOT UTC). Accepts any cron syntax: " +
+            "a specific minute ('0', '30'), a list ('0,30'), a range ('0-15'), a step ('*/15' = " +
+            "every 15 minutes), or '*' for every minute. For a specific time like '11:30 AM', " +
+            "pass '30'.",
+        ),
+      hour: z
+        .string()
+        .describe(
+          "Cron hour field in the user's local timezone (NOT UTC). Accepts any cron syntax: a " +
+            "specific hour ('9', '15'), a list ('9,13,17'), a range ('9-17'), a step ('*/2' = " +
+            "every 2 hours), or '*' for every hour. For a specific time like '11:30 AM', pass " +
+            "'11'. For '3pm', pass '15'. For hourly, pass '*'.",
         ),
       dayOfMonth: z
         .string()
@@ -133,7 +136,8 @@ export function createCreateScheduledMessageTool(
       } catch (error) {
         return errorResult(
           `Invalid schedule fields (built cron "${cronExpression}"): ${errorMessage(error)}. ` +
-            "Check dayOfMonth, month, and dayOfWeek for valid cron syntax (use '*' for every).",
+            "All five fields accept standard cron syntax (use '*' for every, '*/N' for steps, " +
+            "'A,B' for lists, 'A-B' for ranges).",
         );
       }
 
