@@ -38,6 +38,19 @@ export interface FetchChannelMessagesDeps {
   getChannelInfo: typeof getChannelInfo;
 }
 
+function normalizeSlackTimestamp(input: string): string | { error: string } {
+  if (/^\d+(\.\d+)?$/.test(input)) {
+    return input;
+  }
+  const parsed = Date.parse(input);
+  if (Number.isNaN(parsed)) {
+    return {
+      error: `"${input}" is neither a Unix epoch timestamp nor a parseable ISO 8601 datetime`,
+    };
+  }
+  return (parsed / 1000).toFixed(6);
+}
+
 export const defaultFetchChannelMessagesDeps: FetchChannelMessagesDeps = {
   buildThreadMessage,
   resolveUsers,
@@ -160,11 +173,15 @@ export function createFetchChannelMessagesTool(
       oldest: z
         .string()
         .optional()
-        .describe("Only messages after this Unix timestamp (e.g. '1234567890.123456')"),
+        .describe(
+          "Only messages after this timestamp. Accepts a Unix epoch string (e.g. '1234567890.123456' or '1234567890') or an ISO 8601 datetime (e.g. '2026-04-22T00:00:00-04:00' or '2026-04-22').",
+        ),
       latest: z
         .string()
         .optional()
-        .describe("Only messages before this Unix timestamp (e.g. '1234567890.123456')"),
+        .describe(
+          "Only messages before this timestamp. Accepts a Unix epoch string (e.g. '1234567890.123456' or '1234567890') or an ISO 8601 datetime (e.g. '2026-04-22T23:59:59-04:00' or '2026-04-22').",
+        ),
       include_threads: z
         .boolean()
         .optional()
@@ -179,12 +196,40 @@ export function createFetchChannelMessagesTool(
       const client = ctx.slackClient;
       const limit = Math.min(args.limit ?? 20, 100);
 
+      let normalizedOldest: string | undefined;
+      if (args.oldest !== undefined) {
+        const outcome = normalizeSlackTimestamp(args.oldest);
+        if (typeof outcome !== "string") {
+          return errorResult(`Invalid 'oldest' argument: ${outcome.error}`);
+        }
+        normalizedOldest = outcome;
+      }
+
+      let normalizedLatest: string | undefined;
+      if (args.latest !== undefined) {
+        const outcome = normalizeSlackTimestamp(args.latest);
+        if (typeof outcome !== "string") {
+          return errorResult(`Invalid 'latest' argument: ${outcome.error}`);
+        }
+        normalizedLatest = outcome;
+      }
+
+      const windowEcho: Record<string, string> = {};
+      if (normalizedOldest !== undefined) {
+        windowEcho.oldest = normalizedOldest;
+        windowEcho.oldest_iso = new Date(parseFloat(normalizedOldest) * 1000).toISOString();
+      }
+      if (normalizedLatest !== undefined) {
+        windowEcho.latest = normalizedLatest;
+        windowEcho.latest_iso = new Date(parseFloat(normalizedLatest) * 1000).toISOString();
+      }
+
       try {
         const result = await client.conversations.history({
           channel: args.channel_id,
           limit,
-          ...(args.oldest ? { oldest: args.oldest } : {}),
-          ...(args.latest ? { latest: args.latest } : {}),
+          ...(normalizedOldest !== undefined ? { oldest: normalizedOldest } : {}),
+          ...(normalizedLatest !== undefined ? { latest: normalizedLatest } : {}),
           inclusive: true,
         });
 
@@ -194,8 +239,10 @@ export function createFetchChannelMessagesTool(
           return textResult({
             channel: args.channel_id,
             ...(channelInfo && { channel_name: channelInfo.name }),
-            messages: [],
             message_count: 0,
+            has_more: result.has_more ?? false,
+            ...windowEcho,
+            messages: [],
           });
         }
 
@@ -231,6 +278,7 @@ export function createFetchChannelMessagesTool(
           ...(channelInfo && { channel_name: channelInfo.name }),
           message_count: messages.length,
           has_more: result.has_more ?? false,
+          ...windowEcho,
           messages,
         });
       } catch (error) {

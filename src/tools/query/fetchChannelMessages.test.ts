@@ -285,7 +285,7 @@ describe("fetchChannelMessages tool", () => {
     assert.equal(historyCallArgs(client).limit, 20);
   });
 
-  it("passes oldest and latest params to API", async () => {
+  it("passes numeric oldest and latest params to API unchanged", async () => {
     const client = makeSlackClient({ messages: [], has_more: false });
     const ctx = makeCtx({ slackClient: client });
     const toolDef = createFetchChannelMessagesTool(ctx, makeDeps());
@@ -305,6 +305,232 @@ describe("fetchChannelMessages tool", () => {
     assert.equal(callArgs.oldest, "1234567890.000000");
     assert.equal(callArgs.latest, "1234567899.000000");
     assert.equal(callArgs.inclusive, true);
+  });
+
+  it("accepts numeric epoch without fractional part", async () => {
+    const client = makeSlackClient({ messages: [], has_more: false });
+    const ctx = makeCtx({ slackClient: client });
+    const toolDef = createFetchChannelMessagesTool(ctx, makeDeps());
+
+    await toolDef.handler(
+      {
+        channel_id: "C123",
+        limit: undefined,
+        oldest: "1234567890",
+        latest: undefined,
+        include_threads: undefined,
+      },
+      { sessionId: "test" },
+    );
+
+    assert.equal(historyCallArgs(client).oldest, "1234567890");
+  });
+
+  it("normalizes ISO 8601 oldest/latest to epoch before calling Slack", async () => {
+    const client = makeSlackClient({ messages: [], has_more: false });
+    const ctx = makeCtx({ slackClient: client });
+    const toolDef = createFetchChannelMessagesTool(ctx, makeDeps());
+
+    await toolDef.handler(
+      {
+        channel_id: "C123",
+        limit: undefined,
+        oldest: "2026-04-22T00:00:00-04:00",
+        latest: "2026-04-22T23:59:59-04:00",
+        include_threads: undefined,
+      },
+      { sessionId: "test" },
+    );
+
+    const callArgs = historyCallArgs(client);
+    const oldestEpoch = Date.parse("2026-04-22T00:00:00-04:00") / 1000;
+    const latestEpoch = Date.parse("2026-04-22T23:59:59-04:00") / 1000;
+    assert.equal(callArgs.oldest, oldestEpoch.toFixed(6));
+    assert.equal(callArgs.latest, latestEpoch.toFixed(6));
+  });
+
+  it("normalizes date-only strings to epoch", async () => {
+    const client = makeSlackClient({ messages: [], has_more: false });
+    const ctx = makeCtx({ slackClient: client });
+    const toolDef = createFetchChannelMessagesTool(ctx, makeDeps());
+
+    await toolDef.handler(
+      {
+        channel_id: "C123",
+        limit: undefined,
+        oldest: "2026-04-22",
+        latest: undefined,
+        include_threads: undefined,
+      },
+      { sessionId: "test" },
+    );
+
+    const expected = (Date.parse("2026-04-22") / 1000).toFixed(6);
+    assert.equal(historyCallArgs(client).oldest, expected);
+  });
+
+  it("returns tool error and does not call Slack when oldest is unparseable", async () => {
+    const client = makeSlackClient({ messages: [], has_more: false });
+    const ctx = makeCtx({ slackClient: client });
+    const toolDef = createFetchChannelMessagesTool(ctx, makeDeps());
+
+    const result = await toolDef.handler(
+      {
+        channel_id: "C123",
+        limit: undefined,
+        oldest: "yesterday",
+        latest: undefined,
+        include_threads: undefined,
+      },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseResult(result);
+    assert.equal(result.isError, true);
+    assert.ok(parsed.error.includes("oldest"));
+    assert.ok(parsed.error.includes("yesterday"));
+    assert.equal(client.conversations.history.mock.callCount(), 0);
+  });
+
+  it("returns tool error and does not call Slack when latest is unparseable", async () => {
+    const client = makeSlackClient({ messages: [], has_more: false });
+    const ctx = makeCtx({ slackClient: client });
+    const toolDef = createFetchChannelMessagesTool(ctx, makeDeps());
+
+    const result = await toolDef.handler(
+      {
+        channel_id: "C123",
+        limit: undefined,
+        oldest: undefined,
+        latest: "not-a-date",
+        include_threads: undefined,
+      },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseResult(result);
+    assert.equal(result.isError, true);
+    assert.ok(parsed.error.includes("latest"));
+    assert.ok(parsed.error.includes("not-a-date"));
+    assert.equal(client.conversations.history.mock.callCount(), 0);
+  });
+
+  it("echoes normalized oldest/latest and ISO forms on empty results when provided", async () => {
+    const client = makeSlackClient({ messages: [], has_more: false });
+    const ctx = makeCtx({ slackClient: client });
+    const toolDef = createFetchChannelMessagesTool(ctx, makeDeps());
+
+    const result = await toolDef.handler(
+      {
+        channel_id: "C123",
+        limit: undefined,
+        oldest: "2026-04-22T00:00:00Z",
+        latest: "2026-04-22T23:59:59Z",
+        include_threads: undefined,
+      },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseResult(result);
+    const oldestEpoch = (Date.parse("2026-04-22T00:00:00Z") / 1000).toFixed(6);
+    const latestEpoch = (Date.parse("2026-04-22T23:59:59Z") / 1000).toFixed(6);
+    assert.equal(parsed.oldest, oldestEpoch);
+    assert.equal(parsed.latest, latestEpoch);
+    assert.equal(parsed.oldest_iso, new Date(parseFloat(oldestEpoch) * 1000).toISOString());
+    assert.equal(parsed.latest_iso, new Date(parseFloat(latestEpoch) * 1000).toISOString());
+    assert.equal(parsed.has_more, false);
+  });
+
+  it("echoes normalized oldest/latest and ISO forms on non-empty results when provided", async () => {
+    const messages: MockMessage[] = [{ ts: "1.0", text: "msg", user: "U1" }];
+    const client = makeSlackClient({ messages, has_more: true });
+    const ctx = makeCtx({ slackClient: client });
+    const toolDef = createFetchChannelMessagesTool(ctx, makeDeps());
+
+    const result = await toolDef.handler(
+      {
+        channel_id: "C123",
+        limit: undefined,
+        oldest: "1234567890.000000",
+        latest: "1234567899.000000",
+        include_threads: undefined,
+      },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseResult(result);
+    assert.equal(parsed.oldest, "1234567890.000000");
+    assert.equal(parsed.latest, "1234567899.000000");
+    assert.equal(parsed.oldest_iso, new Date(1234567890 * 1000).toISOString());
+    assert.equal(parsed.latest_iso, new Date(1234567899 * 1000).toISOString());
+    assert.equal(parsed.has_more, true);
+  });
+
+  it("omits window fields when oldest/latest are not provided", async () => {
+    const messages: MockMessage[] = [{ ts: "1.0", text: "msg", user: "U1" }];
+    const client = makeSlackClient({ messages, has_more: false });
+    const ctx = makeCtx({ slackClient: client });
+    const toolDef = createFetchChannelMessagesTool(ctx, makeDeps());
+
+    const result = await toolDef.handler(
+      {
+        channel_id: "C123",
+        limit: undefined,
+        oldest: undefined,
+        latest: undefined,
+        include_threads: undefined,
+      },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseResult(result);
+    assert.equal("oldest" in parsed, false);
+    assert.equal("latest" in parsed, false);
+    assert.equal("oldest_iso" in parsed, false);
+    assert.equal("latest_iso" in parsed, false);
+  });
+
+  it("includes has_more on empty results even when no bounds are provided", async () => {
+    const client = makeSlackClient({ messages: [], has_more: false });
+    const ctx = makeCtx({ slackClient: client });
+    const toolDef = createFetchChannelMessagesTool(ctx, makeDeps());
+
+    const result = await toolDef.handler(
+      {
+        channel_id: "C123",
+        limit: undefined,
+        oldest: undefined,
+        latest: undefined,
+        include_threads: undefined,
+      },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseResult(result);
+    assert.equal(parsed.has_more, false);
+  });
+
+  it("echoes only the provided bound when the other is omitted", async () => {
+    const client = makeSlackClient({ messages: [], has_more: false });
+    const ctx = makeCtx({ slackClient: client });
+    const toolDef = createFetchChannelMessagesTool(ctx, makeDeps());
+
+    const result = await toolDef.handler(
+      {
+        channel_id: "C123",
+        limit: undefined,
+        oldest: "2026-04-22T00:00:00Z",
+        latest: undefined,
+        include_threads: undefined,
+      },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseResult(result);
+    assert.ok("oldest" in parsed);
+    assert.ok("oldest_iso" in parsed);
+    assert.equal("latest" in parsed, false);
+    assert.equal("latest_iso" in parsed, false);
   });
 
   it("marks bot messages correctly", async () => {
