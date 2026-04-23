@@ -16,6 +16,7 @@ data/worktree-sessions/
 data/state/
 data/cache/
 data/.claude/
+data/.npm/
 data/auth/*
 !data/auth/.gitkeep
 !data/auth/slack.example.json
