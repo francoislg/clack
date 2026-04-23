@@ -39,8 +39,8 @@ function callHandler(
     skipConditions?: string;
     prompt?: string;
     schedule?: {
-      minute: number;
-      hour: number;
+      minute: string;
+      hour: string;
       dayOfMonth: string;
       month: string;
       dayOfWeek: string;
@@ -174,7 +174,7 @@ describe("update_scheduled_message tool — skipConditions", () => {
 
     const result = await callHandler(tool, {
       id: job.id,
-      schedule: { minute: 30, hour: 11, dayOfMonth: "*", month: "*", dayOfWeek: "*" },
+      schedule: { minute: "30", hour: "11", dayOfMonth: "*", month: "*", dayOfWeek: "*" },
       timezone: "America/New_York",
     });
 
@@ -188,13 +188,27 @@ describe("update_scheduled_message tool — skipConditions", () => {
     assert.equal(updated?.timezone, "America/New_York");
   });
 
+  it("accepts full cron syntax in the hour field (e.g. '*' for hourly)", async () => {
+    const job = await seedJob();
+    const tool = createUpdateScheduledMessageTool(buildCtx());
+
+    const result = await callHandler(tool, {
+      id: job.id,
+      schedule: { minute: "0", hour: "*", dayOfMonth: "*", month: "*", dayOfWeek: "*" },
+    });
+
+    assert.notEqual(result.isError, true);
+    const updated = await getJob(job.id);
+    assert.equal(updated?.cronExpression, "0 * * * *");
+  });
+
   it("rejects an invalid cron field combination in the schedule update", async () => {
     const job = await seedJob();
     const tool = createUpdateScheduledMessageTool(buildCtx());
 
     const result = await callHandler(tool, {
       id: job.id,
-      schedule: { minute: 0, hour: 9, dayOfMonth: "*", month: "*", dayOfWeek: "not-a-day" },
+      schedule: { minute: "0", hour: "9", dayOfMonth: "*", month: "*", dayOfWeek: "not-a-day" },
     });
 
     assert.equal(result.isError, true);
