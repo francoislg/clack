@@ -62,6 +62,8 @@ USER clack
 ENV HOME=/home/clack
 # Store Claude Code sessions inside /app/data so they survive container restarts
 ENV CLAUDE_CONFIG_DIR=/app/data/.claude
+# Persist npm/npx cache in /app/data so MCP packages survive container rebuilds
+ENV npm_config_cache=/app/data/.npm
 
 # Configure git for the clack user (needed by Claude Code for push operations)
 RUN git config --global user.name "Clack" && \
