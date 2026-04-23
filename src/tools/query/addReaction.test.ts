@@ -1,6 +1,7 @@
 import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 import { createAddReactionTool } from "./addReaction.js";
+import { parseToolResult } from "../testHelpers.js";
 import type { QueryToolContext } from "../types.js";
 
 interface MockSlackClient {
@@ -33,10 +34,6 @@ function makeCtx(slackClient?: MockSlackClient): QueryToolContext {
   return ctx;
 }
 
-function parseResult(result: { content: Array<{ text: string }> }) {
-  return JSON.parse(result.content[0].text);
-}
-
 function params(
   overrides: {
     emoji?: string;
@@ -64,7 +61,7 @@ describe("addReaction tool", () => {
       sessionId: "test",
     });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.success, true);
     assert.equal(parsed.emoji, "thumbsup");
     assert.equal(client.reactions.add.mock.callCount(), 1);
@@ -84,7 +81,7 @@ describe("addReaction tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.success, true);
     assert.equal(parsed.emoji, "eyes");
   });
@@ -103,7 +100,7 @@ describe("addReaction tool", () => {
       sessionId: "test",
     });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.success, true);
     assert.equal(parsed.already_reacted, true);
   });
@@ -124,7 +121,7 @@ describe("addReaction tool", () => {
     );
 
     assert.equal(result.isError, true);
-    assert.ok(parseResult(result).error.includes("Invalid emoji"));
+    assert.ok(parseToolResult(result).error.includes("Invalid emoji"));
   });
 
   it("returns error for message not found", async () => {
@@ -142,7 +139,7 @@ describe("addReaction tool", () => {
     });
 
     assert.equal(result.isError, true);
-    assert.ok(parseResult(result).error.includes("Message not found"));
+    assert.ok(parseToolResult(result).error.includes("Message not found"));
   });
 
   it("returns error for channel not found", async () => {
@@ -160,7 +157,7 @@ describe("addReaction tool", () => {
     });
 
     assert.equal(result.isError, true);
-    assert.ok(parseResult(result).error.includes("Channel not found"));
+    assert.ok(parseToolResult(result).error.includes("Channel not found"));
   });
 
   it("returns error for invalid URL format", async () => {
@@ -174,7 +171,7 @@ describe("addReaction tool", () => {
     });
 
     assert.equal(result.isError, true);
-    assert.ok(parseResult(result).error.includes("Invalid Slack message URL"));
+    assert.ok(parseToolResult(result).error.includes("Invalid Slack message URL"));
   });
 
   it("returns error when neither URL nor channel_id+message_ts provided", async () => {
@@ -186,7 +183,7 @@ describe("addReaction tool", () => {
     const result = await toolDef.handler(params(), { sessionId: "test" });
 
     assert.equal(result.isError, true);
-    assert.ok(parseResult(result).error.includes("channel_id and message_ts"));
+    assert.ok(parseToolResult(result).error.includes("channel_id and message_ts"));
   });
 
   it("returns error when Slack client is not available", async () => {
@@ -197,6 +194,6 @@ describe("addReaction tool", () => {
     });
 
     assert.equal(result.isError, true);
-    assert.ok(parseResult(result).error.includes("Slack client"));
+    assert.ok(parseToolResult(result).error.includes("Slack client"));
   });
 });

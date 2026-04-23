@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createUpdateScheduledMessageTool } from "./updateScheduledMessage.js";
 import type { QueryToolContext } from "../types.js";
+import { parseToolResult, toolResultText } from "../testHelpers.js";
 import { clearCronJobsCache, createJob, getJob } from "../../cronJobs.js";
 
 const originalCwd = process.cwd;
@@ -24,8 +25,9 @@ function buildCtx(overrides: Partial<QueryToolContext> = {}): QueryToolContext {
 }
 
 interface ToolHandlerResult {
-  content: Array<{ text: string }>;
+  content: Array<{ type?: string; text?: string; [key: string]: unknown }>;
   isError?: boolean;
+  [key: string]: unknown;
 }
 
 type UpdateTool = ReturnType<typeof createUpdateScheduledMessageTool>;
@@ -45,7 +47,7 @@ function callHandler(
     };
     timezone?: string;
   },
-): Promise<ToolHandlerResult> {
+) {
   return tool.handler(
     {
       id: args.id,
@@ -131,7 +133,7 @@ describe("update_scheduled_message tool — skipConditions", () => {
     });
 
     assert.equal(result.isError, true);
-    assert.match(result.content[0].text, /not found/i);
+    assert.match(toolResultText(result), /not found/i);
   });
 
   it("rejects non-creator non-admin users", async () => {
@@ -145,7 +147,7 @@ describe("update_scheduled_message tool — skipConditions", () => {
     });
 
     assert.equal(result.isError, true);
-    assert.match(result.content[0].text, /your own/i);
+    assert.match(toolResultText(result), /your own/i);
 
     const unchanged = await getJob(job.id);
     assert.equal(unchanged?.skipConditions, undefined, "no change should be persisted");
@@ -196,7 +198,7 @@ describe("update_scheduled_message tool — skipConditions", () => {
     });
 
     assert.equal(result.isError, true);
-    assert.match(result.content[0].text, /Invalid schedule fields/);
+    assert.match(toolResultText(result), /Invalid schedule fields/);
     const unchanged = await getJob(job.id);
     assert.equal(unchanged?.cronExpression, "0 9 * * *", "no change should be persisted");
   });

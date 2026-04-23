@@ -1,4 +1,5 @@
 import { describe, it, mock } from "node:test";
+import { parseToolResult } from "../testHelpers.js";
 import assert from "node:assert/strict";
 import { createListRepositoriesTool, type ListRepositoriesDeps } from "./listRepositories.js";
 import type { RepositoryConfig } from "../../config.js";
@@ -53,10 +54,6 @@ function callTool(
   );
 }
 
-function parseResult(result: { content: Array<{ text: string }> }) {
-  return JSON.parse(result.content[0].text);
-}
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -66,7 +63,7 @@ describe("listRepositories tool", () => {
     const deps = makeDeps();
     const result = await callTool(makeCtx(), deps);
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.length, 1);
     assert.equal(parsed[0].name, "my-repo");
     assert.equal(parsed[0].description, "Test repo");
@@ -80,7 +77,7 @@ describe("listRepositories tool", () => {
 
     const result = await callTool(makeCtx(), deps);
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed[0].canChange, false);
   });
 
@@ -88,7 +85,7 @@ describe("listRepositories tool", () => {
     const deps = makeDeps();
     const result = await callTool(makeCtx(), deps);
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok("canChange" in parsed[0]);
   });
 
@@ -96,7 +93,7 @@ describe("listRepositories tool", () => {
     const deps = makeDeps();
     const result = await callTool(makeCtx(), deps, { includeChangeSupport: true });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok("canChange" in parsed[0]);
   });
 
@@ -104,7 +101,7 @@ describe("listRepositories tool", () => {
     const deps = makeDeps();
     const result = await callTool(makeCtx(), deps, { includeChangeSupport: false });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed[0].canChange, undefined);
     assert.ok(!("canChange" in parsed[0]));
   });
@@ -116,7 +113,7 @@ describe("listRepositories tool", () => {
 
     const result = await callTool(makeCtx(), deps);
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.deepEqual(parsed, []);
   });
 
@@ -132,7 +129,7 @@ describe("listRepositories tool", () => {
 
     const result = await callTool(makeCtx(), deps);
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.length, 3);
     assert.equal(parsed[0].name, "repo-a");
     assert.equal(parsed[1].name, "repo-b");
@@ -148,7 +145,7 @@ describe("listRepositories tool", () => {
     const result = await callTool(makeCtx({ role: "admin" }), deps);
 
     // Verify results are correct (confirms the function was called)
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.length, 1);
 
     assert.equal(mockGetVisibleRepos.mock.callCount(), 1);

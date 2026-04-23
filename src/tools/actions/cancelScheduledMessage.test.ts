@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createCancelScheduledMessageTool } from "./cancelScheduledMessage.js";
 import type { QueryToolContext } from "../types.js";
+import { parseToolResult } from "../testHelpers.js";
 import { clearCronJobsCache, createJob } from "../../cronJobs.js";
 
 const originalCwd = process.cwd;
@@ -56,7 +57,7 @@ describe("cancelScheduledMessage tool", () => {
     const tool = createCancelScheduledMessageTool(ctx);
     const result = await callHandler(tool, { id: job.id });
 
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.ok, true);
     assert.equal(parsed.cancelled, true);
   });
@@ -91,7 +92,7 @@ describe("cancelScheduledMessage tool", () => {
     const tool = createCancelScheduledMessageTool(ctx);
     const result = await callHandler(tool, { id: job.id });
 
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.ok, true);
   });
 

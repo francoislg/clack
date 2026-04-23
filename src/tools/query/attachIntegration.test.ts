@@ -2,6 +2,7 @@ import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 import { createAttachIntegrationTool, type AttachIntegrationDeps } from "./attachIntegration.js";
+import { toolResultText } from "../testHelpers.js";
 import type { QueryToolContext, SetMcpServersFn } from "../types.js";
 import type { McpServerRegistry, RepositoryConfig } from "../../config.js";
 import type { SessionContext } from "../../sessions.js";
@@ -119,10 +120,6 @@ function makeDepMocks(overrides: Partial<AttachIntegrationDeps> = {}): DepMocks 
   return { deps, loadMcpServer, resolveInstructions, updateSession };
 }
 
-function parseText(result: { content: Array<{ text: string }> }): string {
-  return result.content[0].text;
-}
-
 function okSetMcpServers(): ReturnType<typeof mock.fn<SetMcpServersFn>> {
   return mock.fn<SetMcpServersFn>(async () => ({ added: [], removed: [], errors: {} }));
 }
@@ -140,7 +137,7 @@ describe("attach_integration tool", () => {
     const toolDef = createAttachIntegrationTool(ctx, depMocks.deps);
 
     const result = await toolDef.handler({ name: "metabase" }, { sessionId: "test" });
-    const text = parseText(result);
+    const text = toolResultText(result);
 
     assert.ok(text.includes("Attached integration: metabase"));
     assert.ok(text.includes("New tools may now be available"));
@@ -168,7 +165,7 @@ describe("attach_integration tool", () => {
 
     const callCountBefore = setMcpServers.mock.callCount();
     const result = await toolDef.handler({ name: "metabase" }, { sessionId: "test" });
-    const text = parseText(result);
+    const text = toolResultText(result);
 
     assert.ok(text.includes("already attached"));
     // No additional setMcpServers call triggered by the duplicate.
@@ -185,7 +182,7 @@ describe("attach_integration tool", () => {
     const result = await toolDef.handler({ name: "nonexistent" }, { sessionId: "test" });
 
     assert.equal(result.isError, true);
-    const text = parseText(result);
+    const text = toolResultText(result);
     assert.ok(text.includes("Unknown integration: nonexistent"));
     assert.ok(text.includes("metabase"));
     assert.ok(text.includes("scheduling-only"));
@@ -199,7 +196,7 @@ describe("attach_integration tool", () => {
     const toolDef = createAttachIntegrationTool(ctx, depMocks.deps);
 
     const result = await toolDef.handler({ name: "scheduling-only" }, { sessionId: "test" });
-    const text = parseText(result);
+    const text = toolResultText(result);
 
     assert.ok(text.includes("Attached integration: scheduling-only"));
     assert.ok(text.includes("This integration has no MCP server"));
@@ -223,7 +220,7 @@ describe("attach_integration tool", () => {
     const result = await toolDef.handler({ name: "metabase" }, { sessionId: "test" });
 
     assert.equal(result.isError, true);
-    const text = parseText(result);
+    const text = toolResultText(result);
     assert.ok(text.includes("Failed to attach metabase"));
     assert.ok(text.includes("connection refused"));
     assert.deepEqual(manager.attachedNames(), []);
@@ -249,7 +246,7 @@ describe("attach_integration tool", () => {
     const result = await toolDef.handler({ name: "metabase" }, { sessionId: "test" });
 
     assert.equal(result.isError, true);
-    const text = parseText(result);
+    const text = toolResultText(result);
     assert.ok(text.includes("Failed to attach metabase"));
     assert.ok(text.includes("network blew up"));
     assert.deepEqual(manager.attachedNames(), []);
@@ -356,7 +353,7 @@ describe("attach_integration tool", () => {
     const result = await toolDef.handler({ name: "metabase" }, { sessionId: "test" });
 
     assert.notEqual(result.isError, true);
-    const text = parseText(result);
+    const text = toolResultText(result);
     assert.ok(text.includes("Attached integration: metabase"));
   });
 
@@ -367,7 +364,7 @@ describe("attach_integration tool", () => {
     const result = await toolDef.handler({ name: "metabase" }, { sessionId: "test" });
 
     assert.equal(result.isError, true);
-    const text = parseText(result);
+    const text = toolResultText(result);
     assert.ok(text.includes("not available"));
   });
 
@@ -379,7 +376,7 @@ describe("attach_integration tool", () => {
     const result = await toolDef.handler({ name: "metabase" }, { sessionId: "test" });
 
     assert.equal(result.isError, true);
-    const text = parseText(result);
+    const text = toolResultText(result);
     assert.ok(text.includes("setMcpServers not yet bound"));
   });
 
@@ -392,7 +389,7 @@ describe("attach_integration tool", () => {
     const toolDef = createAttachIntegrationTool(ctx, depMocks.deps);
 
     const result = await toolDef.handler({ name: "metabase" }, { sessionId: "test" });
-    const text = parseText(result);
+    const text = toolResultText(result);
 
     assert.ok(text.includes("No topic instructions were resolved"));
   });

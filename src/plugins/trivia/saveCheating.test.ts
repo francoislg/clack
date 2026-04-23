@@ -2,13 +2,10 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { createInMemoryDataLayer } from "./testHelpers.js";
 import { createSaveCheatingTool } from "./saveCheating.js";
+import { parseToolResult } from "../../tools/testHelpers.js";
 import type { ClackSdk } from "../sdk.js";
 
 const SESSION = { sessionId: "test" };
-
-function parseResult(result: { content: { text: string }[] }) {
-  return JSON.parse(result.content[0].text);
-}
 
 interface FakeSdkOptions {
   dmOwnerResult?: { ok: true } | { ok: false; error: string };
@@ -49,7 +46,7 @@ describe("save_cheating tool", () => {
       SESSION,
     );
 
-    const body = parseResult(result);
+    const body = parseToolResult(result);
     assert.equal(body.saved, true);
     assert.equal(body.totalAttempts, 1);
     assert.equal(body.ownerNotified, true);
@@ -82,7 +79,7 @@ describe("save_cheating tool", () => {
       SESSION,
     );
 
-    const body = parseResult(result);
+    const body = parseToolResult(result);
     assert.equal(body.saved, true);
     assert.equal(body.ownerNotified, false);
     assert.match(body.ownerNotificationError, /owner is configured/);
@@ -105,7 +102,7 @@ describe("save_cheating tool", () => {
       SESSION,
     );
 
-    const body = parseResult(result);
+    const body = parseToolResult(result);
     assert.equal(body.totalAttempts, 2);
 
     const users = await data.loadUsers();
@@ -151,7 +148,7 @@ describe("save_cheating tool", () => {
       SESSION,
     );
 
-    const body = parseResult(result);
+    const body = parseToolResult(result);
     assert.equal(body.error, "reason must be a concise description");
 
     const cheats = await data.loadCheats();

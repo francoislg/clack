@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { createRequestUpdateTool } from "./requestUpdate.js";
+import { parseToolResult } from "../testHelpers.js";
 import type { QueryToolContext } from "../types.js";
 import type { IntentStore } from "../server.js";
 import type { ActiveChangeState } from "../../changes/activeState.js";
@@ -69,10 +70,6 @@ function makeIntentStore(): IntentStore {
   };
 }
 
-function parseResult(result: { content: Array<{ text: string }> }) {
-  return JSON.parse(result.content[0].text);
-}
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -93,7 +90,7 @@ describe("requestUpdate tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("No active change"));
     assert.equal(result.isError, true);
@@ -114,7 +111,7 @@ describe("requestUpdate tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("No worktree"));
     assert.equal(result.isError, true);
@@ -130,7 +127,7 @@ describe("requestUpdate tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.ref);
     assert.equal(parsed.sessionId, "sess-1");
     assert.equal(parsed.instructions, "Add tests for the login module");
@@ -153,7 +150,7 @@ describe("requestUpdate tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.userFeedback, feedback);
 
     const staged = store.resolve(parsed.ref) as { userFeedback?: string };
@@ -170,7 +167,7 @@ describe("requestUpdate tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.userFeedback, undefined);
 
     const staged = store.resolve(parsed.ref) as { userFeedback?: string };
@@ -196,7 +193,7 @@ describe("requestUpdate tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.sessionId, "custom-session-42");
 
     const staged = store.resolve(parsed.ref);

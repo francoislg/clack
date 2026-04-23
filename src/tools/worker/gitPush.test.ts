@@ -2,6 +2,7 @@ import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 import { createGitPushTool, type GitPushDeps } from "./gitPush.js";
 import type { WorkerToolContext } from "../types.js";
+import { parseToolResult } from "../testHelpers.js";
 import type { VerificationConfig } from "../../changes/verification/config.js";
 import type { GateRunResult } from "../../changes/verification/runner.js";
 import type { ActiveChangeState } from "../../changes/activeState.js";
@@ -28,10 +29,6 @@ function makeCtx(overrides?: Partial<WorkerToolContext>): WorkerToolContext {
 interface ToolResult {
   content: Array<{ text: string }>;
   isError?: true;
-}
-
-function parseResult(result: ToolResult) {
-  return JSON.parse(result.content[0]!.text);
 }
 
 interface MakeDepsOptions {
@@ -92,7 +89,7 @@ describe("gitPush tool", () => {
     const toolDef = createGitPushTool(ctx, deps);
     const result = await toolDef.handler({ _placeholder: undefined }, { sessionId: "test" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.success, true);
     assert.equal(result.isError, undefined);
   });
@@ -151,7 +148,7 @@ describe("gitPush tool", () => {
     const toolDef = createGitPushTool(makeCtx(), deps);
     const result = await toolDef.handler({ _placeholder: undefined }, { sessionId: "test" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("push failed"));
     assert.ok(parsed.error.includes("Authentication failed"));
@@ -184,7 +181,7 @@ describe("gitPush tool", () => {
     const toolDef = createGitPushTool(makeCtx(), deps);
     const result = await toolDef.handler({ _placeholder: undefined }, { sessionId: "test" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("Token expired"));
     assert.equal(result.isError, true);
@@ -211,7 +208,7 @@ describe("gitPush verification gate", () => {
     const toolDef = createGitPushTool(makeCtx(), deps);
     const result = await toolDef.handler({ _placeholder: undefined }, { sessionId: "test" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.success, true);
     assert.equal(mockRunChecks.mock.callCount(), 0);
     assert.equal(mockPush.mock.callCount(), 1);
@@ -224,7 +221,7 @@ describe("gitPush verification gate", () => {
     const toolDef = createGitPushTool(makeCtx(), deps);
     const result = await toolDef.handler({ _placeholder: undefined }, { sessionId: "test" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.success, true);
     assert.equal(mockRunChecks.mock.callCount(), 0);
     assert.equal(mockPush.mock.callCount(), 1);
@@ -241,7 +238,7 @@ describe("gitPush verification gate", () => {
     const toolDef = createGitPushTool(makeCtx(), deps);
     const result = await toolDef.handler({ _placeholder: undefined }, { sessionId: "test" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.success, true);
     assert.equal(mockRunChecks.mock.callCount(), 1);
     assert.equal(mockPush.mock.callCount(), 1);
@@ -271,7 +268,7 @@ describe("gitPush verification gate", () => {
     const toolDef = createGitPushTool(makeCtx(), deps);
     const result = await toolDef.handler({ _placeholder: undefined }, { sessionId: "test" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(result.isError, true);
     assert.ok(parsed.error.includes("typecheck"));
     assert.ok(parsed.error.includes("some error"));
@@ -304,7 +301,7 @@ describe("gitPush verification gate", () => {
     const toolDef = createGitPushTool(makeCtx(), deps);
     const result = await toolDef.handler({ _placeholder: undefined }, { sessionId: "test" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(result.isError, true);
     assert.ok(parsed.error.includes("budget exhausted"));
     assert.ok(parsed.error.includes("Do not attempt git_push again"));
@@ -326,7 +323,7 @@ describe("gitPush verification gate", () => {
     const toolDef = createGitPushTool(makeCtx(), deps);
     const result = await toolDef.handler({ _placeholder: undefined }, { sessionId: "test" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(result.isError, true);
     assert.ok(parsed.error.includes("push failed"));
     assert.ok(parsed.error.includes("remote rejected"));

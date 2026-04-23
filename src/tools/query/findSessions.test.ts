@@ -2,6 +2,7 @@ import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 import { createFindSessionsTool, type FindSessionsDeps } from "./findSessions.js";
 import type { QueryToolContext } from "../types.js";
+import { parseToolResult } from "../testHelpers.js";
 import type { RepositoryConfig } from "../../config.js";
 
 // ---------------------------------------------------------------------------
@@ -64,10 +65,6 @@ function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
   };
 }
 
-function parseResult(result: { content: Array<{ text: string }> }) {
-  return JSON.parse(result.content[0].text);
-}
-
 function makeSession(overrides?: SessionOverrides) {
   return {
     branchName: "clack/fix/some-bug",
@@ -95,7 +92,7 @@ describe("findSessions tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.deepEqual(parsed, []);
   });
 
@@ -114,7 +111,7 @@ describe("findSessions tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.length, 1);
     assert.equal(parsed[0].branchName, "clack/fix/some-bug");
     assert.equal(parsed[0].repo, "my-repo");
@@ -141,7 +138,7 @@ describe("findSessions tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.length, 1);
     assert.equal(parsed[0].repo, "my-repo");
   });
@@ -172,7 +169,7 @@ describe("findSessions tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.length, 1);
     assert.equal(parsed[0].repo, "my-repo");
   });
@@ -194,7 +191,7 @@ describe("findSessions tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.length, 1);
     assert.equal(parsed[0].branchName, "clack/fix/login-bug");
   });
@@ -227,7 +224,7 @@ describe("findSessions tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.length, 1);
     assert.equal(parsed[0].repo, "my-repo");
     assert.equal(parsed[0].branchName, "clack/fix/login");
@@ -248,7 +245,7 @@ describe("findSessions tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.length, 1);
     assert.equal(parsed[0].secretField, undefined);
     const keys = Object.keys(parsed[0]);

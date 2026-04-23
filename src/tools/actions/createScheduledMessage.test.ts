@@ -9,6 +9,7 @@ import {
   type CreateScheduledMessageDeps,
 } from "./createScheduledMessage.js";
 import type { QueryToolContext } from "../types.js";
+import { parseToolResult, toolResultText } from "../testHelpers.js";
 import { clearCronJobsCache, getJobs, createJob } from "../../cronJobs.js";
 
 const originalCwd = process.cwd;
@@ -45,8 +46,9 @@ function buildCtx(overrides: Partial<QueryToolContext> = {}): QueryToolContext {
 }
 
 interface ToolHandlerResult {
-  content: Array<{ text: string }>;
+  content: Array<{ type?: string; text?: string; [key: string]: unknown }>;
   isError?: boolean;
+  [key: string]: unknown;
 }
 
 interface CallArgs {
@@ -63,7 +65,7 @@ interface CallArgs {
 
 type CreateTool = ReturnType<typeof createCreateScheduledMessageTool>;
 
-function callHandler(tool: CreateTool, args: CallArgs): Promise<ToolHandlerResult> {
+function callHandler(tool: CreateTool, args: CallArgs) {
   return tool.handler(
     {
       minute: 0,
@@ -106,7 +108,7 @@ describe("createScheduledMessage tool", () => {
       prompt: "Summarize PRs",
     });
 
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = parseToolResult(result as any);
     assert.equal(parsed.ok, true);
     assert.ok(parsed.id);
     assert.equal(parsed.type, "dynamic");
@@ -151,7 +153,7 @@ describe("createScheduledMessage tool", () => {
       prompt: "Morning standup",
     });
 
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = parseToolResult(result as any);
     assert.match(parsed.schedule, /11:30 AM (EDT|EST)/);
   });
 
@@ -166,7 +168,7 @@ describe("createScheduledMessage tool", () => {
     });
 
     assert.equal(result.isError, true);
-    assert.match(result.content[0].text, /Invalid schedule fields/);
+    assert.match(toolResultText(result), /Invalid schedule fields/);
   });
 
   it("resolves channel by name", async () => {
@@ -178,7 +180,7 @@ describe("createScheduledMessage tool", () => {
       prompt: "test",
     });
 
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = parseToolResult(result as any);
     assert.equal(parsed.ok, true);
     assert.equal(parsed.channel, "C456");
   });
@@ -199,7 +201,7 @@ describe("createScheduledMessage tool", () => {
       prompt: "daily self-DM",
     });
 
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = parseToolResult(result as any);
     assert.equal(parsed.ok, true);
     assert.equal(parsed.channel, "D_SELF");
 
@@ -225,7 +227,7 @@ describe("createScheduledMessage tool", () => {
     });
 
     assert.equal(result.isError, true);
-    assert.match(result.content[0].text, /can only DM the requesting user/);
+    assert.match(toolResultText(result), /can only DM the requesting user/);
     assert.equal(openSpy.mock.callCount(), 0, "should not open a DM with a third party");
 
     const jobs = await getJobs();
@@ -236,7 +238,7 @@ describe("createScheduledMessage tool", () => {
     const ctx = buildCtx();
     const deps = makeDeps();
     const tool = createCreateScheduledMessageTool(ctx, deps);
-    const result: ToolHandlerResult = await tool.handler(
+    const result = await tool.handler(
       {
         channel: "C456",
         minute: 0,
@@ -255,9 +257,9 @@ describe("createScheduledMessage tool", () => {
     );
 
     assert.equal(result.isError, true);
-    assert.match(result.content[0].text, /Invalid requiredTools/);
-    assert.match(result.content[0].text, /mcp__clack__not_a_real_tool/);
-    assert.match(result.content[0].text, /bare_name_missing_prefix/);
+    assert.match(toolResultText(result), /Invalid requiredTools/);
+    assert.match(toolResultText(result), /mcp__clack__not_a_real_tool/);
+    assert.match(toolResultText(result), /bare_name_missing_prefix/);
     const jobs = await getJobs();
     assert.equal(jobs.length, 0, "invalid requiredTools should prevent the job from being saved");
   });
@@ -284,7 +286,7 @@ describe("createScheduledMessage tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = parseToolResult(result as any);
     assert.equal(parsed.ok, true);
     const jobs = await getJobs();
     assert.equal(jobs.length, 1);
@@ -301,7 +303,7 @@ describe("createScheduledMessage tool", () => {
       skipConditions: "Skip if no PRs were merged in the last 24 hours.",
     });
 
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = parseToolResult(result as any);
     assert.equal(parsed.ok, true);
 
     const jobs = await getJobs();

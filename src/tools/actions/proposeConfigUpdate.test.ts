@@ -4,6 +4,7 @@ import {
   createProposeConfigUpdateTool,
   type ProposeConfigUpdateDeps,
 } from "./proposeConfigUpdate.js";
+import { parseToolResult } from "../testHelpers.js";
 import type { QueryToolContext } from "../types.js";
 import type { IntentStore } from "../server.js";
 
@@ -62,10 +63,6 @@ function makeIntentStore(): IntentStore {
   };
 }
 
-function parseResult(result: { content: Array<{ text: string }> }) {
-  return JSON.parse(result.content[0].text);
-}
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -93,7 +90,7 @@ describe("proposeConfigUpdate tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("Invalid file path"));
     assert.equal(result.isError, true);
@@ -130,7 +127,7 @@ describe("proposeConfigUpdate tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.ref);
     assert.equal(parsed.file, "user/identity.md");
   });
@@ -149,7 +146,7 @@ describe("proposeConfigUpdate tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.ref);
   });
 
@@ -176,7 +173,7 @@ describe("proposeConfigUpdate tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     const staged = store.resolve(parsed.ref) as { content: string };
     assert.equal(staged.content, "existing line 1\nexisting line 2\n\nnew content");
   });
@@ -202,7 +199,7 @@ describe("proposeConfigUpdate tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     const staged = store.resolve(parsed.ref) as { content: string };
     assert.equal(staged.content, "default content\n\nappended");
   });
@@ -221,7 +218,7 @@ describe("proposeConfigUpdate tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     const staged = store.resolve(parsed.ref) as { content: string };
     assert.equal(staged.content, "brand new content");
   });
@@ -242,7 +239,7 @@ describe("proposeConfigUpdate tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     const staged = store.resolve(parsed.ref) as { content: string };
     assert.equal(staged.content, "completely new content");
   });
@@ -270,7 +267,7 @@ describe("proposeConfigUpdate tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.status, "will_overwrite_custom");
   });
 
@@ -295,7 +292,7 @@ describe("proposeConfigUpdate tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.status, "will_override_default");
   });
 
@@ -313,7 +310,7 @@ describe("proposeConfigUpdate tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.status, "will_create_new");
   });
 
@@ -333,7 +330,7 @@ describe("proposeConfigUpdate tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     const staged = store.resolve(parsed.ref);
     assert.ok(staged);
     assert.equal(staged!.type, "config_update");

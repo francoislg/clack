@@ -1,4 +1,5 @@
 import { describe, it, mock } from "node:test";
+import { parseToolResult } from "../testHelpers.js";
 import assert from "node:assert/strict";
 import { createGetSessionTraceTool, type GetSessionTraceDeps } from "./getSessionTrace.js";
 
@@ -42,10 +43,6 @@ function callTool(
   );
 }
 
-function parseResult(result: { content: Array<{ text: string }> }) {
-  return JSON.parse(result.content[0].text);
-}
-
 interface JsonlEntry {
   type: string;
   subtype?: string;
@@ -71,7 +68,7 @@ describe("get_session_trace", () => {
     const deps = makeDeps();
     const result = await callTool(makeCtx(), deps, { sessionId: "nonexistent" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error.includes("not found"));
   });
 
@@ -93,7 +90,7 @@ describe("get_session_trace", () => {
 
     const result = await callTool(makeCtx(), deps, { sessionId: "test-session" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error.includes("No SDK session ID"));
   });
 
@@ -128,7 +125,7 @@ describe("get_session_trace", () => {
     });
 
     const result = await callTool(makeCtx(), deps, { sessionId: "test-session" });
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
 
     assert.equal(parsed.sdkSessionId, "sdk-uuid-123");
     assert.equal(parsed.totalMessages, 3);
@@ -170,7 +167,7 @@ describe("get_session_trace", () => {
     });
 
     const result = await callTool(makeCtx(), deps, { sessionId: "test-session", source: "change" });
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
 
     assert.equal(parsed.sdkSessionId, "change-uuid-456");
     assert.equal(parsed.source, "change");
@@ -197,7 +194,7 @@ describe("get_session_trace", () => {
     const deps = makeDeps({ getSession, readFile });
 
     const result = await callTool(makeCtx(), deps, { sessionId: "test-session" });
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
 
     assert.ok(parsed.error.includes("not found"));
   });
@@ -232,7 +229,7 @@ describe("get_session_trace", () => {
     });
 
     const result = await callTool(makeCtx(), deps, { sessionId: "test-session", verbose: true });
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
 
     assert.deepEqual(parsed.trace[0].toolArgs, { pattern: "foo", path: "/bar" });
   });
@@ -263,7 +260,7 @@ describe("get_session_trace", () => {
     const deps = makeDeps({ getSession, getActiveChange });
 
     const result = await callTool(makeCtx(), deps, { sessionId: "test-session" });
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
 
     assert.ok(parsed.error.includes("change execution trace IS available"));
   });

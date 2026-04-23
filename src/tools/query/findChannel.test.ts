@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { createFindChannelTool } from "./findChannel.js";
+import { parseToolResult } from "../testHelpers.js";
 import type { ChannelsCache, SlackChannelEntry } from "../../slack/channelsCache.js";
 
 function entry(
@@ -46,10 +47,6 @@ interface ToolArgs {
   page?: number;
 }
 
-function parseResult(result: { content: Array<{ text: string }> }) {
-  return JSON.parse(result.content[0].text);
-}
-
 function call(cache: ChannelsCache, args: ToolArgs) {
   const toolDef = createFindChannelTool(cache);
   return toolDef.handler(
@@ -72,7 +69,7 @@ describe("findChannel tool", () => {
 
     const result = await call(cache, { query: "C0A82GNR25V" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.id, "C0A82GNR25V");
     assert.equal(parsed.name, "clack-test");
     assert.equal(parsed.topic, "Testing channel");
@@ -88,7 +85,7 @@ describe("findChannel tool", () => {
 
     const result = await call(cache, { query: "dev" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.channels.length, 2);
     assert.equal(parsed.channels[0].name, "dev-team");
     assert.equal(parsed.channels[1].name, "dev-updates");
@@ -100,7 +97,7 @@ describe("findChannel tool", () => {
 
     const result = await call(cache, { query: "#general" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.channels.length, 1);
     assert.equal(parsed.channels[0].name, "general");
   });
@@ -110,7 +107,7 @@ describe("findChannel tool", () => {
 
     const result = await call(cache, { query: "dev-team" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.channels.length, 1);
   });
 
@@ -122,7 +119,7 @@ describe("findChannel tool", () => {
 
     const result = await call(cache, { query: "chat", scope: "public" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.channels.length, 1);
     assert.equal(parsed.channels[0].name, "public-chat");
   });
@@ -135,7 +132,7 @@ describe("findChannel tool", () => {
 
     const result = await call(cache, { query: "chat", scope: "private" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.channels.length, 1);
     assert.equal(parsed.channels[0].name, "private-chat");
   });
@@ -148,7 +145,7 @@ describe("findChannel tool", () => {
 
     const result = await call(cache, { query: "team" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.channels.length, 1);
     assert.equal(parsed.channels[0].name, "active-team");
   });
@@ -161,7 +158,7 @@ describe("findChannel tool", () => {
 
     const result = await call(cache, { query: "team", include_archived: true });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.channels.length, 2);
   });
 
@@ -172,14 +169,14 @@ describe("findChannel tool", () => {
     const cache = makeCache(channels);
 
     const page0 = await call(cache, { query: "team", limit: 3, page: 0 });
-    const parsed0 = parseResult(page0);
+    const parsed0 = parseToolResult(page0);
     assert.equal(parsed0.channels.length, 3);
     assert.equal(parsed0.channels[0].name, "team-0");
     assert.equal(parsed0.page, 0);
     assert.equal(parsed0.has_more, true);
 
     const page1 = await call(cache, { query: "team", limit: 3, page: 1 });
-    const parsed1 = parseResult(page1);
+    const parsed1 = parseToolResult(page1);
     assert.equal(parsed1.channels.length, 3);
     assert.equal(parsed1.channels[0].name, "team-3");
     assert.equal(parsed1.has_more, true);
@@ -191,7 +188,7 @@ describe("findChannel tool", () => {
     const result = await call(cache, { query: "nonexistent" });
 
     assert.equal(result.isError, true);
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error.includes("No channels matching"));
   });
 
@@ -201,7 +198,7 @@ describe("findChannel tool", () => {
     const result = await call(cache, { query: "C999INVALID" });
 
     assert.equal(result.isError, true);
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error.includes("not found"));
   });
 
@@ -211,7 +208,7 @@ describe("findChannel tool", () => {
     const result = await call(cache, { query: "  " });
 
     assert.equal(result.isError, true);
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error.includes("empty"));
   });
 });

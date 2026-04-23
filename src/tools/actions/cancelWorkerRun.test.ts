@@ -2,6 +2,7 @@ import { describe, it, beforeEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import { createCancelWorkerRunTool, type CancelWorkerRunDeps } from "./cancelWorkerRun.js";
 import type { QueryToolContext } from "../types.js";
+import { parseToolResult } from "../testHelpers.js";
 import type { ActiveChangeState } from "../../changes/activeState.js";
 
 // ---------------------------------------------------------------------------
@@ -67,7 +68,7 @@ describe("createCancelWorkerRunTool", () => {
 
     const tool = createCancelWorkerRunTool(makeContext(), deps);
     const result = await tool.handler({ target_user_id: undefined, reason: undefined }, {});
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = parseToolResult(result);
 
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("No active worker run found"));
@@ -92,7 +93,7 @@ describe("createCancelWorkerRunTool", () => {
 
     const tool = createCancelWorkerRunTool(makeContext(), deps);
     const result = await tool.handler({ target_user_id: undefined, reason: "taking too long" }, {});
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = parseToolResult(result);
 
     assert.equal(parsed.ok, true);
     assert.equal(parsed.cancelled, true);
@@ -118,7 +119,7 @@ describe("createCancelWorkerRunTool", () => {
 
     const tool = createCancelWorkerRunTool(makeContext(), deps);
     const result = await tool.handler({ target_user_id: undefined, reason: undefined }, {});
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = parseToolResult(result);
 
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("restart"));
@@ -143,7 +144,7 @@ describe("createCancelWorkerRunTool", () => {
 
     const tool = createCancelWorkerRunTool(makeContext({ role: "admin" }), deps);
     const result = await tool.handler({ target_user_id: "U_OTHER", reason: undefined }, {});
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = parseToolResult(result);
 
     assert.equal(parsed.ok, true);
     assert.equal(parsed.cancelled, true);
@@ -155,7 +156,7 @@ describe("createCancelWorkerRunTool", () => {
   it("non-admin cannot cancel another user's run", async () => {
     const tool = createCancelWorkerRunTool(makeContext({ role: "dev" }), deps);
     const result = await tool.handler({ target_user_id: "U_OTHER", reason: undefined }, {});
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = parseToolResult(result);
 
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("Only admins"));
@@ -178,7 +179,7 @@ describe("createCancelWorkerRunTool", () => {
 
     const tool = createCancelWorkerRunTool(makeContext(), deps);
     const result = await tool.handler({ target_user_id: undefined, reason: undefined }, {});
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = parseToolResult(result);
 
     assert.equal(parsed.ok, true);
     assert.ok(parsed.description.includes("reviewing"));

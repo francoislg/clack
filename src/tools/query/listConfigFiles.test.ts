@@ -1,4 +1,5 @@
 import { describe, it, mock } from "node:test";
+import { parseToolResult } from "../testHelpers.js";
 import assert from "node:assert/strict";
 import { createListConfigFilesTool, type ListConfigFilesDeps } from "./listConfigFiles.js";
 
@@ -35,10 +36,6 @@ function callTool(ctx: TestCtx, deps: ListConfigFilesDeps) {
   return toolDef.handler({ _placeholder: undefined }, { sessionId: "test" });
 }
 
-function parseResult(result: { content: Array<{ text: string }> }) {
-  return JSON.parse(result.content[0].text);
-}
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -48,7 +45,7 @@ describe("listConfigFiles tool", () => {
     const deps = makeDeps();
     const result = await callTool(makeCtx(), deps);
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.deepEqual(parsed, {});
   });
 
@@ -71,7 +68,7 @@ describe("listConfigFiles tool", () => {
 
     const result = await callTool(makeCtx(), deps);
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.user.length, 2);
     assert.equal(parsed.user[0].file, "identity.md");
     assert.equal(parsed.user[0].status, "default");
@@ -97,7 +94,7 @@ describe("listConfigFiles tool", () => {
 
     const result = await callTool(makeCtx(), deps);
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.repos.length, 2);
     assert.equal(parsed.repos[0].status, "default");
     assert.equal(parsed.repos[1].status, "not_created");
@@ -113,7 +110,7 @@ describe("listConfigFiles tool", () => {
 
     const result = await callTool(makeCtx(), deps);
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.user[0].status, "custom-only");
   });
 
@@ -127,7 +124,7 @@ describe("listConfigFiles tool", () => {
 
     const result = await callTool(makeCtx(), deps);
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.repos, undefined);
   });
 });

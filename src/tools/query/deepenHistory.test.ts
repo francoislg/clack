@@ -1,6 +1,7 @@
 import { describe, it, beforeEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import { createDeepenHistoryTool, type DeepenHistoryDeps } from "./deepenHistory.js";
+import { parseToolResult } from "../testHelpers.js";
 import type { QueryToolContext } from "../types.js";
 import type { RepositoryConfig } from "../../config.js";
 
@@ -44,10 +45,6 @@ function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
   };
 }
 
-function parseResult(result: { content: Array<{ text: string }> }) {
-  return JSON.parse(result.content[0].text);
-}
-
 const mockGitRaw = mock.fn<(...args: unknown[]) => Promise<string>>();
 
 function makeSimpleGit(): DeepenHistoryDeps["simpleGit"] {
@@ -88,7 +85,7 @@ describe("deepenHistory tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("not found"));
     assert.ok(parsed.error.includes("my-repo"));
@@ -107,7 +104,7 @@ describe("deepenHistory tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("not been cloned"));
     assert.equal(result.isError, true);
@@ -130,7 +127,7 @@ describe("deepenHistory tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.message.includes("full history"));
     assert.equal(parsed.shallow, false);
     assert.equal(parsed.availableCommits, 500);
@@ -162,7 +159,7 @@ describe("deepenHistory tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.message.includes("100"));
     assert.equal(parsed.availableCommits, 200);
 
@@ -194,7 +191,7 @@ describe("deepenHistory tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.message.includes("250"));
 
     const deepenCall = rawCalls.find((c) => c.some((a) => a.startsWith("--deepen=")));
@@ -224,7 +221,7 @@ describe("deepenHistory tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.message.includes("unshallowed"));
     assert.equal(parsed.shallow, false);
     assert.equal(parsed.availableCommits, 1000);
@@ -270,7 +267,7 @@ describe("deepenHistory tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("Failed to deepen history"));
     assert.ok(parsed.error.includes("network error"));
@@ -292,7 +289,7 @@ describe("deepenHistory tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("not found"));
     assert.ok(parsed.error.includes("admin-only"));
@@ -315,7 +312,7 @@ describe("deepenHistory tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.availableCommits, 0);
   });
 });

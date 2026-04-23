@@ -23,12 +23,6 @@ RUN apk add --no-cache git curl bash
 # Enable corepack so pnpm/yarn shims are available for repo hooks
 RUN corepack enable
 
-# Install Claude Code CLI (required by @anthropic-ai/claude-agent-sdk)
-# Installer puts it in /root/.local; copy to /usr/local/bin so it's accessible to non-root user
-RUN curl -fsSL https://claude.ai/install.sh | bash \
-    && cp "$(readlink -f /root/.local/bin/claude)" /usr/local/bin/claude \
-    && rm -rf /root/.local/share/claude /root/.local/bin/claude
-
 # Install github-mcp-server for GitHub API access via MCP
 ARG GITHUB_MCP_SERVER_VERSION=0.31.0
 ARG TARGETARCH

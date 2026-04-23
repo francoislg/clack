@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { WebClient } from "@slack/web-api";
 import { createGetScheduledMessageRunsTool } from "./getScheduledMessageRuns.js";
 import type { QueryToolContext } from "../types.js";
+import { parseToolResult, toolResultText } from "../testHelpers.js";
 import { clearCronJobsCache, createJob, updateJobRunStatus } from "../../cronJobs.js";
 
 const originalCwd = process.cwd;
@@ -68,9 +69,9 @@ describe("get_scheduled_message_runs tool — skipped outcome", () => {
     await updateJobRunStatus(job.id, "error");
 
     const tool = createGetScheduledMessageRunsTool(buildCtx({ slackClient: stubSlackClient() }));
-    const result: ToolHandlerResult = await tool.handler({ id: job.id }, { sessionId: "test" });
+    const result = await tool.handler({ id: job.id }, { sessionId: "test" });
 
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.count, 3);
     const statuses = parsed.runs.map((r: { status: string }) => r.status);
     assert.deepEqual(statuses, ["success", "skipped", "error"]);
@@ -85,6 +86,6 @@ describe("get_scheduled_message_runs tool — skipped outcome", () => {
     const result = await tool.handler({ id: "nope" }, { sessionId: "test" });
 
     assert.equal(result.isError, true);
-    assert.match(result.content[0].text, /not found/i);
+    assert.match(toolResultText(result), /not found/i);
   });
 });

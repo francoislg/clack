@@ -2,6 +2,7 @@ import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 import { createEnsurePRTool, type EnsurePRDeps } from "./ensurePR.js";
 import type { WorkerToolContext } from "../types.js";
+import { parseToolResult } from "../testHelpers.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -29,10 +30,6 @@ function makeCtx(overrides?: Partial<WorkerToolContext>): WorkerToolContext {
 interface ToolResult {
   content: Array<{ text: string }>;
   isError?: true;
-}
-
-function parseResult(result: ToolResult) {
-  return JSON.parse(result.content[0]!.text);
 }
 
 function makeDeps() {
@@ -89,7 +86,7 @@ describe("ensurePR tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("not found"));
     assert.equal(result.isError, true);
@@ -111,7 +108,7 @@ describe("ensurePR tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.success, true);
     assert.equal(parsed.pr_url, "https://github.com/org/my-repo/pull/10");
     assert.equal(parsed.created, false);
@@ -140,7 +137,7 @@ describe("ensurePR tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.success, true);
     assert.equal(parsed.pr_url, "https://github.com/org/my-repo/pull/99");
     assert.equal(parsed.created, true);
@@ -184,7 +181,7 @@ describe("ensurePR tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.success, true);
     assert.equal(parsed.pr_url, "https://github.com/org/my-repo/pull/77");
     assert.equal(parsed.created, false);
@@ -211,7 +208,7 @@ describe("ensurePR tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("Failed to ensure PR"));
     assert.equal(result.isError, true);
@@ -235,7 +232,7 @@ describe("ensurePR tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("Failed to ensure PR"));
     assert.equal(result.isError, true);
