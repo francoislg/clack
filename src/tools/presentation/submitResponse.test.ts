@@ -2,6 +2,7 @@ import { describe, it, beforeEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import type { IntentStore, ResponseCapture, ToolCallRecorder } from "../server.js";
 import type { StagedIntent, ResponseSnapshot } from "../types.js";
+import { parseToolResult, toolResultText } from "../testHelpers.js";
 import { createSubmitResponseTool, type SubmitResponseDeps } from "./submitResponse.js";
 
 // ---------------------------------------------------------------------------
@@ -166,7 +167,7 @@ describe("createSubmitResponseTool", () => {
         actions: [],
       });
 
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = parseToolResult(result);
       assert.equal(parsed.success, true);
       assert.equal(parsed.delivered, false);
       assert.equal(parsed.blocksCount, 1);
@@ -234,7 +235,7 @@ describe("createSubmitResponseTool", () => {
         actions: [],
       });
 
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = parseToolResult(result);
       assert.equal(parsed.success, true);
     });
 
@@ -251,7 +252,7 @@ describe("createSubmitResponseTool", () => {
         actions: [],
       });
 
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = parseToolResult(result);
       assert.equal(parsed.success, true);
     });
   });
@@ -270,7 +271,7 @@ describe("createSubmitResponseTool", () => {
       });
 
       assert.equal("isError" in result && result.isError, true);
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = parseToolResult(result);
       assert.ok(parsed.error.includes("unknown ref"));
     });
 
@@ -282,7 +283,7 @@ describe("createSubmitResponseTool", () => {
       });
 
       assert.equal("isError" in result && result.isError, true);
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = parseToolResult(result);
       assert.ok(parsed.error.includes("unknown ref"));
     });
 
@@ -294,7 +295,7 @@ describe("createSubmitResponseTool", () => {
       });
 
       assert.equal("isError" in result && result.isError, true);
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = parseToolResult(result);
       assert.ok(parsed.error.includes("unknown ref"));
     });
 
@@ -317,7 +318,7 @@ describe("createSubmitResponseTool", () => {
       });
 
       assert.equal("isError" in result && result.isError, true);
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = parseToolResult(result);
       assert.ok(parsed.error.includes("update"));
       assert.ok(parsed.error.includes("change"));
     });
@@ -341,7 +342,7 @@ describe("createSubmitResponseTool", () => {
         actions: [{ type: "change", ref: "ref-1" }],
       });
 
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = parseToolResult(result);
       assert.equal(parsed.success, true);
     });
 
@@ -352,7 +353,7 @@ describe("createSubmitResponseTool", () => {
         actions: [{ type: "followup", label: "More", prompt: "Tell me more" }],
       });
 
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = parseToolResult(result);
       assert.equal(parsed.success, true);
     });
 
@@ -363,7 +364,7 @@ describe("createSubmitResponseTool", () => {
         actions: [{ type: "choice", label: "Option A", value: "a" }],
       });
 
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = parseToolResult(result);
       assert.equal(parsed.success, true);
     });
 
@@ -430,7 +431,7 @@ describe("createSubmitResponseTool", () => {
       });
 
       assert.equal("isError" in result && result.isError, true);
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = parseToolResult(result);
       assert.ok(parsed.error.includes("staged"));
       assert.ok(parsed.error.includes("ref-1"));
     });
@@ -473,7 +474,7 @@ describe("createSubmitResponseTool", () => {
         actions: [{ type: "change", ref: "ref-1" }],
       });
 
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = parseToolResult(result);
       assert.equal(parsed.success, true);
     });
 
@@ -495,7 +496,7 @@ describe("createSubmitResponseTool", () => {
         actions: [],
       });
 
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = parseToolResult(result);
       assert.equal(parsed.success, true);
     });
 
@@ -506,7 +507,7 @@ describe("createSubmitResponseTool", () => {
         actions: [],
       });
 
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = parseToolResult(result);
       assert.equal(parsed.success, true);
     });
   });
@@ -521,7 +522,7 @@ describe("createSubmitResponseTool", () => {
       });
 
       assert.equal("isError" in result && result.isError, true);
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = parseToolResult(result);
       assert.equal(parsed.error, "response_too_long");
       assert.ok(parsed.details.includes("10000"));
     });
@@ -537,7 +538,7 @@ describe("createSubmitResponseTool", () => {
 
       // message + "\n\n" + body = 5000 + 2 + 5001 = 10003 > 10000
       assert.equal("isError" in result && result.isError, true);
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = parseToolResult(result);
       assert.equal(parsed.error, "response_too_long");
     });
 
@@ -586,7 +587,7 @@ describe("createSubmitResponseTool", () => {
       });
 
       assert.equal("isError" in result && result.isError, true);
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = parseToolResult(result);
       assert.equal(parsed.error, "invalid_blocks");
       assert.ok(Array.isArray(parsed.details));
       assert.ok(parsed.details[0].includes("section[0].text"));
@@ -649,7 +650,7 @@ describe("createSubmitResponseTool", () => {
         actions: [],
       });
 
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = parseToolResult(result);
       assert.equal(parsed.delivered, true);
       assert.equal(deliverCalls.length, 1);
     });
@@ -726,7 +727,7 @@ describe("createSubmitResponseTool", () => {
       });
 
       assert.equal("isError" in result && result.isError, true);
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = parseToolResult(result);
       assert.equal(parsed.error, "delivery_failed");
       assert.equal(parsed.details, "channel_not_found");
     });
@@ -824,7 +825,7 @@ describe("createSubmitResponseTool", () => {
         reactions: ["thumbsup"],
       });
 
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = parseToolResult(result);
       assert.equal(parsed.success, true);
     });
   });
@@ -844,7 +845,7 @@ describe("createSubmitResponseTool", () => {
       });
 
       assert.equal(snapshots.length, 0);
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = parseToolResult(result);
       assert.equal(parsed.snapshotId, undefined);
     });
 
@@ -975,7 +976,7 @@ describe("createSubmitResponseTool", () => {
           "I acknowledge that responding to this would serve no purpose, so I am skipping it.",
       });
 
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = parseToolResult(result);
       assert.equal(parsed.success, true);
       assert.equal(parsed.skipped, true);
       // Verify setSkipped was actually called (this is the signal to buildSuccessResponse)
@@ -993,7 +994,7 @@ describe("createSubmitResponseTool", () => {
       });
 
       assert.equal(result.isError, true);
-      const text = result.content[0].text;
+      const text = toolResultText(result);
       assert.ok(text.includes("I acknowledge that responding to this would serve no purpose"));
     });
 
@@ -1004,7 +1005,7 @@ describe("createSubmitResponseTool", () => {
       });
 
       assert.equal(result.isError, true);
-      const text = result.content[0].text;
+      const text = toolResultText(result);
       assert.ok(text.includes("I acknowledge that responding to this would serve no purpose"));
     });
 
@@ -1029,7 +1030,7 @@ describe("createSubmitResponseTool", () => {
           "I acknowledge that responding to this would serve no purpose, so I am skipping it.",
       });
 
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = parseToolResult(result);
       assert.equal(parsed.success, true);
       assert.equal(parsed.skipped, true);
       assert.equal(parsed.disengaged, true);
@@ -1056,7 +1057,7 @@ describe("createSubmitResponseTool", () => {
       });
 
       assert.notEqual(result.isError, true);
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = parseToolResult(result);
       assert.equal(parsed.success, true);
       assert.equal(parsed.disengaged, true);
       assert.equal(setDisengagedFn.mock.callCount(), 1);
@@ -1112,7 +1113,7 @@ describe("createSubmitResponseTool", () => {
         actions: [],
       });
 
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = parseToolResult(result);
       assert.equal(parsed.success, true);
       assert.equal(parsed.skipped, undefined);
       assert.equal(parsed.blocksCount, 1);
@@ -1144,7 +1145,7 @@ describe("createSubmitResponseTool", () => {
       });
 
       assert.equal(result.isError, true);
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = parseToolResult(result);
       assert.equal(parsed.error, "delivery_failed");
       assert.equal(setDisengagedFn.mock.callCount(), 0);
     });
@@ -1166,7 +1167,7 @@ describe("createSubmitResponseTool", () => {
       });
 
       assert.notEqual(result.isError, true);
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = parseToolResult(result);
       assert.equal(parsed.success, true);
       assert.equal(parsed.disengaged, true);
     });
@@ -1192,7 +1193,7 @@ describe("createSubmitResponseTool", () => {
       });
 
       assert.notEqual(result.isError, true);
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = parseToolResult(result);
       assert.equal(parsed.success, true);
       assert.equal(parsed.disengaged, true);
       assert.equal(setDisengagedFn.mock.callCount(), 1);
@@ -1229,7 +1230,7 @@ describe("createSubmitResponseTool", () => {
       });
 
       assert.notEqual(result.isError, true);
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = parseToolResult(result);
       assert.equal(parsed.success, true);
       assert.equal(parsed.skipped, true);
       assert.equal(parsed.disengaged, undefined);
@@ -1284,7 +1285,7 @@ describe("createSubmitResponseTool", () => {
       assert.notEqual(result.isError, true);
       assert.equal(deliverCalls.length, 1);
       assert.equal(deliverCalls[0].postTopLevel, true);
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = parseToolResult(result);
       assert.equal(parsed.success, true);
       assert.equal(parsed.postedTopLevel, true);
     });
@@ -1336,7 +1337,7 @@ describe("createSubmitResponseTool", () => {
       });
 
       assert.equal(result.isError, true);
-      const text = result.content[0].text;
+      const text = toolResultText(result);
       assert.ok(text.includes("duplicate"), `expected duplicate-rejection error, got: ${text}`);
     });
 
@@ -1404,7 +1405,7 @@ describe("createSubmitResponseTool", () => {
         blocks: [{ type: "section", text: { type: "mrkdwn", text: "Hello" } }],
         actions: [],
       });
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = parseToolResult(result);
       assert.equal(parsed.success, true);
     });
 
@@ -1427,7 +1428,7 @@ describe("createSubmitResponseTool", () => {
         blocks: [{ type: "section", text: { type: "mrkdwn", text: "Hello" } }],
         actions: [],
       });
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = parseToolResult(result);
       assert.equal(parsed.success, true);
     });
 
@@ -1449,8 +1450,8 @@ describe("createSubmitResponseTool", () => {
       });
 
       assert.equal(result.isError, true);
-      assert.ok(result.content[0].text.includes("mcp__trivia__submit_answers"));
-      assert.ok(result.content[0].text.includes("have not been called"));
+      assert.ok(toolResultText(result).includes("mcp__trivia__submit_answers"));
+      assert.ok(toolResultText(result).includes("have not been called"));
       assert.equal(deliverFn.mock.callCount(), 0);
     });
 
@@ -1475,7 +1476,7 @@ describe("createSubmitResponseTool", () => {
       });
 
       assert.equal(result.isError, true);
-      const text = result.content[0].text;
+      const text = toolResultText(result);
       assert.ok(text.includes("mcp__trivia__save_question"));
       assert.ok(
         !text.includes("mcp__trivia__submit_answers,"),
@@ -1502,7 +1503,7 @@ describe("createSubmitResponseTool", () => {
         blocks: [{ type: "section", text: { type: "mrkdwn", text: "Hello" } }],
         actions: [],
       });
-      const parsed = JSON.parse(result.content[0].text);
+      const parsed = parseToolResult(result);
       assert.equal(parsed.success, true);
     });
 
@@ -1521,7 +1522,7 @@ describe("createSubmitResponseTool", () => {
         {},
       );
       assert.equal(result.isError, true);
-      assert.ok(result.content[0].text.includes("mcp__trivia__submit_answers"));
+      assert.ok(toolResultText(result).includes("mcp__trivia__submit_answers"));
     });
   });
 });

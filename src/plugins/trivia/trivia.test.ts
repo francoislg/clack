@@ -9,15 +9,12 @@ import { createFindPreviousQuestionsTool } from "./findPreviousQuestions.js";
 import { createSubmitAnswersTool } from "./submitAnswers.js";
 import { createRetrieveScoresTool } from "./retrieveScores.js";
 import { SEED_CATEGORIES } from "./seedCategories.js";
+import { parseToolResult } from "../../tools/testHelpers.js";
 import type { TriviaDataLayer, TriviaQuestion } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function parseResult(result: { content: { text: string }[] }) {
-  return JSON.parse(result.content[0].text);
-}
 
 const SESSION = { sessionId: "test" };
 
@@ -67,7 +64,7 @@ describe("trivia plugin", () => {
     it("adds new categories", async () => {
       const tool = createAddCategoriesTool(data);
       const result = await tool.handler({ categories: ["Art", "Music"] }, SESSION);
-      const parsed = parseResult(result);
+      const parsed = parseToolResult(result);
 
       assert.deepEqual(parsed.added, ["Art", "Music"]);
       assert.deepEqual(parsed.alreadyExists, []);
@@ -81,7 +78,7 @@ describe("trivia plugin", () => {
     it("deduplicates existing categories (case-insensitive)", async () => {
       const tool = createAddCategoriesTool(data);
       const result = await tool.handler({ categories: ["science", "HISTORY", "NewOne"] }, SESSION);
-      const parsed = parseResult(result);
+      const parsed = parseToolResult(result);
 
       assert.deepEqual(parsed.added, ["NewOne"]);
       assert.deepEqual(parsed.alreadyExists, ["science", "HISTORY"]);
@@ -91,7 +88,7 @@ describe("trivia plugin", () => {
     it("returns correct totals when mixing new and existing", async () => {
       const tool = createAddCategoriesTool(data);
       const result = await tool.handler({ categories: ["Science", "Novel1", "Novel2"] }, SESSION);
-      const parsed = parseResult(result);
+      const parsed = parseToolResult(result);
 
       assert.equal(parsed.added.length, 2);
       assert.equal(parsed.alreadyExists.length, 1);
@@ -107,7 +104,7 @@ describe("trivia plugin", () => {
     it("removes categories by exact match (case-insensitive)", async () => {
       const tool = createRemoveCategoriesTool(data);
       const result = await tool.handler({ categories: ["science", "HISTORY"] }, SESSION);
-      const parsed = parseResult(result);
+      const parsed = parseToolResult(result);
 
       assert.equal(parsed.removed.length, 2);
       assert.ok(parsed.removed.includes("Science") || parsed.removed.includes("science"));
@@ -122,7 +119,7 @@ describe("trivia plugin", () => {
     it("reports not found for non-existent categories", async () => {
       const tool = createRemoveCategoriesTool(data);
       const result = await tool.handler({ categories: ["Unknown", "Missing"] }, SESSION);
-      const parsed = parseResult(result);
+      const parsed = parseToolResult(result);
 
       assert.deepEqual(parsed.removed, []);
       assert.deepEqual(parsed.notFound, ["Unknown", "Missing"]);
@@ -132,7 +129,7 @@ describe("trivia plugin", () => {
     it("handles mixed removal (some exist, some don't)", async () => {
       const tool = createRemoveCategoriesTool(data);
       const result = await tool.handler({ categories: ["Science", "Unknown"] }, SESSION);
-      const parsed = parseResult(result);
+      const parsed = parseToolResult(result);
 
       assert.equal(parsed.removed.length, 1);
       assert.equal(parsed.notFound.length, 1);
@@ -163,7 +160,7 @@ describe("trivia plugin", () => {
     it("returns up to 5 random categories", async () => {
       const tool = createGetIdeasTool(data);
       const result = await tool.handler({}, SESSION);
-      const parsed = parseResult(result);
+      const parsed = parseToolResult(result);
 
       assert.ok(Array.isArray(parsed.ideas));
       assert.ok(parsed.ideas.length <= 5);
@@ -185,7 +182,7 @@ describe("trivia plugin", () => {
 
       const tool = createGetIdeasTool(data);
       const result = await tool.handler({}, SESSION);
-      const parsed = parseResult(result);
+      const parsed = parseToolResult(result);
 
       // Should exclude the 5 recent categories and pick from the remaining 5
       for (const idea of parsed.ideas) {
@@ -222,7 +219,7 @@ describe("trivia plugin", () => {
 
       const tool = createGetIdeasTool(data);
       const result = await tool.handler({}, SESSION);
-      const parsed = parseResult(result);
+      const parsed = parseToolResult(result);
 
       // Only 1 category should be available (Economics is the only one not in last 10)
       assert.equal(parsed.ideas.length, 1);
@@ -250,7 +247,7 @@ describe("trivia plugin", () => {
         },
         SESSION,
       );
-      const parsed = parseResult(result);
+      const parsed = parseToolResult(result);
 
       assert.equal(parsed.saved, true);
       assert.ok(parsed.question.id);
@@ -273,7 +270,7 @@ describe("trivia plugin", () => {
         },
         SESSION,
       );
-      const parsed = parseResult(result);
+      const parsed = parseToolResult(result);
 
       assert.equal(parsed.saved, true);
       assert.equal(parsed.question.category, "Science");
@@ -290,7 +287,7 @@ describe("trivia plugin", () => {
         },
         SESSION,
       );
-      const parsed = parseResult(result);
+      const parsed = parseToolResult(result);
 
       assert.ok(parsed.error);
       assert.ok(parsed.error.includes("not found"));
@@ -308,7 +305,7 @@ describe("trivia plugin", () => {
         },
         SESSION,
       );
-      const parsed = parseResult(result);
+      const parsed = parseToolResult(result);
 
       assert.ok(parsed.error);
       assert.ok(parsed.error.includes("at least 10"));
@@ -326,7 +323,7 @@ describe("trivia plugin", () => {
         },
         SESSION,
       );
-      const parsed = parseResult(result);
+      const parsed = parseToolResult(result);
 
       assert.ok(parsed.error);
       assert.ok(parsed.error.includes("at most 500"));
@@ -343,7 +340,7 @@ describe("trivia plugin", () => {
         },
         SESSION,
       );
-      const parsed = parseResult(result);
+      const parsed = parseToolResult(result);
 
       assert.ok(parsed.error);
       assert.ok(parsed.error.includes("1-4 emojis"));
@@ -360,7 +357,7 @@ describe("trivia plugin", () => {
         },
         SESSION,
       );
-      const parsed = parseResult(result);
+      const parsed = parseToolResult(result);
 
       assert.ok(parsed.error);
       assert.ok(parsed.error.includes("1-4 emojis"));
@@ -377,7 +374,7 @@ describe("trivia plugin", () => {
         },
         SESSION,
       );
-      const parsed = parseResult(result);
+      const parsed = parseToolResult(result);
 
       assert.equal(parsed.saved, true);
     });
@@ -393,7 +390,7 @@ describe("trivia plugin", () => {
         },
         SESSION,
       );
-      const parsed = parseResult(result);
+      const parsed = parseToolResult(result);
 
       assert.equal(parsed.saved, true);
     });
@@ -437,7 +434,7 @@ describe("trivia plugin", () => {
         { category: "Science", text: undefined, limit: undefined },
         SESSION,
       );
-      const parsed = parseResult(result);
+      const parsed = parseToolResult(result);
 
       assert.equal(parsed.count, 2);
       assert.ok(parsed.questions.every((q: TriviaQuestion) => q.category === "Science"));
@@ -449,7 +446,7 @@ describe("trivia plugin", () => {
         { category: undefined, text: "boils", limit: undefined },
         SESSION,
       );
-      const parsed = parseResult(result);
+      const parsed = parseToolResult(result);
 
       assert.equal(parsed.count, 1);
       assert.equal(parsed.questions[0].id, "q1");
@@ -461,7 +458,7 @@ describe("trivia plugin", () => {
         { category: "Science", text: "Earth", limit: undefined },
         SESSION,
       );
-      const parsed = parseResult(result);
+      const parsed = parseToolResult(result);
 
       assert.equal(parsed.count, 1);
       assert.equal(parsed.questions[0].id, "q2");
@@ -473,7 +470,7 @@ describe("trivia plugin", () => {
         { category: "Science", text: "Rome", limit: undefined },
         SESSION,
       );
-      const parsed = parseResult(result);
+      const parsed = parseToolResult(result);
 
       assert.equal(parsed.count, 0);
       assert.deepEqual(parsed.questions, []);
@@ -485,7 +482,7 @@ describe("trivia plugin", () => {
         { category: "science", text: undefined, limit: undefined },
         SESSION,
       );
-      const parsed = parseResult(result);
+      const parsed = parseToolResult(result);
 
       assert.equal(parsed.count, 2);
     });
@@ -496,7 +493,7 @@ describe("trivia plugin", () => {
         { category: undefined, text: "EARTH", limit: undefined },
         SESSION,
       );
-      const parsed = parseResult(result);
+      const parsed = parseToolResult(result);
 
       assert.equal(parsed.count, 1);
     });
@@ -507,7 +504,7 @@ describe("trivia plugin", () => {
         { category: undefined, text: undefined, limit: undefined },
         SESSION,
       );
-      const parsed = parseResult(result);
+      const parsed = parseToolResult(result);
 
       assert.equal(parsed.error, undefined);
       assert.ok(parsed.count >= 1);
@@ -544,7 +541,7 @@ describe("trivia plugin", () => {
         },
         SESSION,
       );
-      const parsed = parseResult(result);
+      const parsed = parseToolResult(result);
 
       assert.equal(parsed.results.length, 2);
       assert.equal(parsed.results[0].userId, "U1");
@@ -600,7 +597,7 @@ describe("trivia plugin", () => {
         },
         SESSION,
       );
-      const parsed = parseResult(result);
+      const parsed = parseToolResult(result);
 
       assert.equal(parsed.results[0].skipped, true);
 
@@ -688,7 +685,7 @@ describe("trivia plugin", () => {
         },
         SESSION,
       );
-      assert.equal(parseResult(r1).results[0].currentStreak, 1);
+      assert.equal(parseToolResult(r1).results[0].currentStreak, 1);
 
       // Second answer correct
       const r2 = await tool.handler(
@@ -700,7 +697,7 @@ describe("trivia plugin", () => {
         },
         SESSION,
       );
-      assert.equal(parseResult(r2).results[0].currentStreak, 2);
+      assert.equal(parseToolResult(r2).results[0].currentStreak, 2);
     });
 
     it("resets currentStreak on incorrect answer", async () => {
@@ -737,7 +734,7 @@ describe("trivia plugin", () => {
         },
         SESSION,
       );
-      assert.equal(parseResult(r2).results[0].currentStreak, 0);
+      assert.equal(parseToolResult(r2).results[0].currentStreak, 0);
     });
   });
 
@@ -749,7 +746,7 @@ describe("trivia plugin", () => {
     it("returns empty leaderboard when no answers exist", async () => {
       const tool = createRetrieveScoresTool(data);
       const result = await tool.handler({ limit: undefined }, SESSION);
-      const parsed = parseResult(result);
+      const parsed = parseToolResult(result);
 
       assert.deepEqual(parsed.leaderboard, []);
       assert.equal(parsed.totalPlayers, 0);
@@ -793,7 +790,7 @@ describe("trivia plugin", () => {
 
       const tool = createRetrieveScoresTool(data);
       const result = await tool.handler({ limit: undefined }, SESSION);
-      const parsed = parseResult(result);
+      const parsed = parseToolResult(result);
 
       assert.equal(parsed.leaderboard.length, 2);
       assert.equal(parsed.leaderboard[0].displayName, "Alice");
@@ -821,7 +818,7 @@ describe("trivia plugin", () => {
 
       const tool = createRetrieveScoresTool(data);
       const result = await tool.handler({ limit: 2 }, SESSION);
-      const parsed = parseResult(result);
+      const parsed = parseToolResult(result);
 
       assert.equal(parsed.leaderboard.length, 2);
     });
@@ -861,7 +858,7 @@ describe("trivia plugin", () => {
 
       const tool = createRetrieveScoresTool(data);
       const result = await tool.handler({ limit: undefined }, SESSION);
-      const parsed = parseResult(result);
+      const parsed = parseToolResult(result);
 
       assert.equal(parsed.leaderboard[0].accuracy, 75);
     });
@@ -894,7 +891,7 @@ describe("trivia plugin", () => {
 
       const tool = createRetrieveScoresTool(data);
       const result = await tool.handler({ limit: undefined }, SESSION);
-      const parsed = parseResult(result);
+      const parsed = parseToolResult(result);
 
       const accuracy = parsed.leaderboard[0].accuracy;
       assert.ok(accuracy === 33 || accuracy === 34); // Allow for rounding variance

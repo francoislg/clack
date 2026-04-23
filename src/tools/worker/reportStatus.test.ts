@@ -2,6 +2,7 @@ import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 import { createReportStatusTool, type ReportStatusDeps } from "./reportStatus.js";
 import type { WorkerToolContext } from "../types.js";
+import { parseToolResult } from "../testHelpers.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -25,10 +26,6 @@ function makeCtx(overrides?: Partial<WorkerToolContext>): WorkerToolContext {
 interface ToolResult {
   content: Array<{ text: string }>;
   isError?: true;
-}
-
-function parseResult(result: ToolResult) {
-  return JSON.parse(result.content[0]!.text);
 }
 
 function makeDeps() {
@@ -58,7 +55,7 @@ describe("reportStatus tool", () => {
     const toolDef = createReportStatusTool(ctx, deps);
     const result = await toolDef.handler({ message: "Work is done!" }, { sessionId: "test" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.success, true);
     assert.equal(result.isError, undefined);
 
@@ -81,7 +78,7 @@ describe("reportStatus tool", () => {
     const toolDef = createReportStatusTool(makeCtx(), deps);
     const result = await toolDef.handler({ message: "Status update" }, { sessionId: "test" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("Slack client not available"));
     assert.equal(result.isError, true);
@@ -96,7 +93,7 @@ describe("reportStatus tool", () => {
     const toolDef = createReportStatusTool(makeCtx(), deps);
     const result = await toolDef.handler({ message: "Hello" }, { sessionId: "test" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("slack error"));
     assert.ok(parsed.error.includes("channel_not_found"));

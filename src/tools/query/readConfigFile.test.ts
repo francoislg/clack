@@ -1,4 +1,5 @@
 import { describe, it, mock } from "node:test";
+import { parseToolResult } from "../testHelpers.js";
 import assert from "node:assert/strict";
 import { createReadConfigFileTool, type ReadConfigFileDeps } from "./readConfigFile.js";
 
@@ -43,10 +44,6 @@ function callTool(
   return toolDef.handler(args, { sessionId: "test" });
 }
 
-function parseResult(result: { content: Array<{ text: string }> }) {
-  return JSON.parse(result.content[0].text);
-}
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -65,7 +62,7 @@ describe("readConfigFile tool", () => {
       changesWorkflowEnabled: true,
     });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("not found"));
     assert.ok(parsed.error.includes("nonexistent.md"));
@@ -85,7 +82,7 @@ describe("readConfigFile tool", () => {
       changesWorkflowEnabled: true,
     });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.file, "user/identity.md");
     assert.equal(parsed.default_content, "# Default Instructions\nBe helpful.");
     assert.equal(parsed.custom_content, null);
@@ -105,7 +102,7 @@ describe("readConfigFile tool", () => {
       changesWorkflowEnabled: true,
     });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.file, "user/identity.md");
     assert.equal(parsed.default_content, "Default instructions");
     assert.equal(parsed.custom_content, "Custom instructions");
@@ -124,7 +121,7 @@ describe("readConfigFile tool", () => {
       changesWorkflowEnabled: true,
     });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.file, "dev/custom-rule.md");
     assert.equal(parsed.default_content, null);
     assert.equal(parsed.custom_content, "Custom only content");
@@ -162,7 +159,7 @@ describe("readConfigFile tool", () => {
       changesWorkflowEnabled: true,
     });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error.includes("user/identity.md"));
   });
 
@@ -185,7 +182,7 @@ describe("readConfigFile tool", () => {
       changesWorkflowEnabled: true,
     });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.view, "resolved");
     assert.equal(parsed.role, "dev");
     assert.deepEqual(parsed.roleChain, ["user", "dev"]);

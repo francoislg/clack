@@ -26,7 +26,7 @@ export function createViewSlackFileTool(ctx: QueryToolContext) {
           "The Slack file ID from the ATTACHED FILES section or from a fetched message's files array",
         ),
     },
-    async (args) => {
+    async (args, _extra): Promise<any> => {
       const file = availableFiles.get(args.file_id);
       if (!file) {
         const available = [...availableFiles.keys()].join(", ");

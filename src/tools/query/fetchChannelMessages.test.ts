@@ -4,6 +4,7 @@ import {
   createFetchChannelMessagesTool,
   type FetchChannelMessagesDeps,
 } from "./fetchChannelMessages.js";
+import { parseToolResult } from "../testHelpers.js";
 import type { QueryToolContext } from "../types.js";
 import type { ThreadMessage } from "../../sessions.js";
 
@@ -128,10 +129,6 @@ function makeCtx(overrides?: {
   return ctx;
 }
 
-function parseResult(result: { content: Array<{ text: string }> }) {
-  return JSON.parse(result.content[0].text);
-}
-
 function historyCallArgs(client: MockSlackClient, callIndex = 0) {
   return client.conversations.history.mock.calls[callIndex].arguments[0] as {
     limit: number;
@@ -161,7 +158,7 @@ describe("fetchChannelMessages tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("Slack client is not available"));
     assert.equal(result.isError, true);
@@ -183,7 +180,7 @@ describe("fetchChannelMessages tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.channel, "C123");
     assert.equal(parsed.message_count, 0);
     assert.deepEqual(parsed.messages, []);
@@ -205,7 +202,7 @@ describe("fetchChannelMessages tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.message_count, 0);
   });
 
@@ -237,7 +234,7 @@ describe("fetchChannelMessages tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.channel, "C123");
     assert.equal(parsed.message_count, 2);
     // Messages should be reversed (oldest first)
@@ -385,7 +382,7 @@ describe("fetchChannelMessages tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(result.isError, true);
     assert.ok(parsed.error.includes("oldest"));
     assert.ok(parsed.error.includes("yesterday"));
@@ -408,7 +405,7 @@ describe("fetchChannelMessages tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(result.isError, true);
     assert.ok(parsed.error.includes("latest"));
     assert.ok(parsed.error.includes("not-a-date"));
@@ -431,7 +428,7 @@ describe("fetchChannelMessages tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     const oldestEpoch = (Date.parse("2026-04-22T00:00:00Z") / 1000).toFixed(6);
     const latestEpoch = (Date.parse("2026-04-22T23:59:59Z") / 1000).toFixed(6);
     assert.equal(parsed.oldest, oldestEpoch);
@@ -458,7 +455,7 @@ describe("fetchChannelMessages tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.oldest, "1234567890.000000");
     assert.equal(parsed.latest, "1234567899.000000");
     assert.equal(parsed.oldest_iso, new Date(1234567890 * 1000).toISOString());
@@ -483,7 +480,7 @@ describe("fetchChannelMessages tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal("oldest" in parsed, false);
     assert.equal("latest" in parsed, false);
     assert.equal("oldest_iso" in parsed, false);
@@ -506,7 +503,7 @@ describe("fetchChannelMessages tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.has_more, false);
   });
 
@@ -526,7 +523,7 @@ describe("fetchChannelMessages tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok("oldest" in parsed);
     assert.ok("oldest_iso" in parsed);
     assert.equal("latest" in parsed, false);
@@ -553,7 +550,7 @@ describe("fetchChannelMessages tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     // Reversed order
     assert.equal(parsed.messages[0].is_bot, false);
     assert.equal(parsed.messages[1].is_bot, true);
@@ -579,7 +576,7 @@ describe("fetchChannelMessages tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.message_count, 1);
     assert.equal(parsed.messages[0].ts, "1.0");
   });
@@ -601,7 +598,7 @@ describe("fetchChannelMessages tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.has_more, true);
   });
 
@@ -628,7 +625,7 @@ describe("fetchChannelMessages tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("Failed to fetch channel messages"));
     assert.ok(parsed.error.includes("channel_not_found"));
@@ -659,7 +656,7 @@ describe("fetchChannelMessages tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.messages[0].reply_count, 3);
   });
 
@@ -694,7 +691,7 @@ describe("fetchChannelMessages tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.messages[0].reply_count, 1);
     assert.ok(parsed.messages[0].thread_replies);
     assert.equal(parsed.messages[0].thread_replies.length, 1);
@@ -724,7 +721,7 @@ describe("fetchChannelMessages tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.messages[0].reply_count, 5);
     assert.equal(parsed.messages[0].thread_replies, undefined);
   });
@@ -759,7 +756,7 @@ describe("fetchChannelMessages tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.messages[0].thread_error, "Failed to fetch thread replies");
   });
 
@@ -780,7 +777,7 @@ describe("fetchChannelMessages tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.messages[0].text, "[attachment]");
   });
 
@@ -806,7 +803,7 @@ describe("fetchChannelMessages tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.message_count, 0);
   });
 
@@ -834,7 +831,7 @@ describe("fetchChannelMessages tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.channel_name, "backend-dev");
   });
 
@@ -859,7 +856,7 @@ describe("fetchChannelMessages tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.channel_name, undefined);
   });
 
@@ -896,7 +893,7 @@ describe("fetchChannelMessages tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.messages[0].reactions.length, 1);
     assert.equal(parsed.messages[0].reactions[0].emoji, "thumbsup");
     assert.deepEqual(parsed.messages[0].reactions[0].users, ["Bob (U2)", "Charlie (U3)"]);
@@ -919,7 +916,7 @@ describe("fetchChannelMessages tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal("reactions" in parsed.messages[0], false);
   });
 });

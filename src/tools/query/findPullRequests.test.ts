@@ -7,6 +7,7 @@ import {
 } from "./findPullRequests.js";
 import type { QueryToolContext } from "../types.js";
 import type { RepositoryConfig } from "../../config.js";
+import { parseToolResult } from "../testHelpers.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -77,10 +78,6 @@ function makePR(overrides?: Partial<FakePR>): FakePR {
   };
 }
 
-function parseResult(result: { content: Array<{ text: string }> }) {
-  return JSON.parse(result.content[0].text);
-}
-
 function makeDeps(overrides: Partial<FindPullRequestsDeps> = {}): FindPullRequestsDeps {
   return {
     getVisibleRepos: mock.fn(() => [makeRepo()]) as FindPullRequestsDeps["getVisibleRepos"],
@@ -109,7 +106,7 @@ describe("findPullRequests tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("nonexistent"));
     assert.ok(parsed.error.includes("not found"));
@@ -141,7 +138,7 @@ describe("findPullRequests tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.length, 2);
     assert.equal(parsed[0].url, "https://github.com/org/my-repo/pull/1");
     assert.equal(parsed[0].title, "PR 1");
@@ -169,7 +166,7 @@ describe("findPullRequests tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.length, 2);
     assert.ok(parsed.every((pr: { branch: string }) => pr.branch.includes("login")));
   });
@@ -187,7 +184,7 @@ describe("findPullRequests tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.deepEqual(parsed, []);
   });
 
@@ -206,7 +203,7 @@ describe("findPullRequests tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.deepEqual(parsed, []);
   });
 
@@ -225,7 +222,7 @@ describe("findPullRequests tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("Failed to fetch pull requests"));
     assert.ok(parsed.error.includes("rate limit"));
@@ -247,7 +244,7 @@ describe("findPullRequests tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("Not found"));
     assert.equal(result.isError, true);
@@ -308,7 +305,7 @@ describe("findPullRequests tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.length, 1);
     assert.equal(parsed[0].url, "https://github.com/org/my-repo/pull/42");
     assert.equal(parsed[0].number, 42);
@@ -353,7 +350,7 @@ describe("findPullRequests tool", () => {
     const callArgs = listPullsMock.mock.calls[0]!.arguments[0]!;
     assert.equal(callArgs.state, "closed");
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.length, 1);
     assert.equal(parsed[0].title, "Merged PR");
     assert.equal(parsed[0].state, "merged");
@@ -388,7 +385,7 @@ describe("findPullRequests tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.length, 1);
     assert.equal(parsed[0].title, "Recent");
   });
@@ -411,7 +408,7 @@ describe("findPullRequests tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.length, 1);
     assert.equal(parsed[0].title, "Recent");
   });
@@ -431,7 +428,7 @@ describe("findPullRequests tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed[0].state, "merged");
   });
 
@@ -451,7 +448,7 @@ describe("findPullRequests tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed[0].body.length, 500);
   });
 
@@ -474,7 +471,7 @@ describe("findPullRequests tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error.includes("repo-a"));
     assert.ok(parsed.error.includes("repo-b"));
   });

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createGitLogTool, type GitLogDeps } from "./gitLog.js";
 import type { QueryToolContext } from "../types.js";
 import type { RepositoryConfig } from "../../config.js";
+import { parseToolResult } from "../testHelpers.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -42,10 +43,6 @@ function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
     allowScheduledMessages: false,
     ...overrides,
   };
-}
-
-function parseResult(result: { content: Array<{ text: string }> }) {
-  return JSON.parse(result.content[0].text);
 }
 
 const mockGitRaw = mock.fn<(...args: unknown[]) => Promise<string>>();
@@ -93,7 +90,7 @@ describe("gitLog tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("not found"));
     assert.ok(parsed.error.includes("my-repo"));
@@ -113,7 +110,7 @@ describe("gitLog tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("not been cloned"));
     assert.equal(result.isError, true);
@@ -137,7 +134,7 @@ describe("gitLog tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.output.includes("commit abc123"));
     assert.equal(parsed.shallow, true);
     assert.equal(parsed.availableCommits, 50);
@@ -211,7 +208,7 @@ describe("gitLog tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.truncated, true);
     assert.ok(parsed.output.includes("TRUNCATED"));
     assert.ok(parsed.output.length < 150_000);
@@ -234,7 +231,7 @@ describe("gitLog tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.shallow, false);
     assert.equal(parsed.availableCommits, 500);
   });
@@ -253,7 +250,7 @@ describe("gitLog tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("git log failed"));
     assert.equal(result.isError, true);
@@ -276,7 +273,7 @@ describe("gitLog tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.availableCommits, 0);
   });
 
@@ -294,7 +291,7 @@ describe("gitLog tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("not found"));
     assert.ok(parsed.error.includes("admin-only"));

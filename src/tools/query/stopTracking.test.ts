@@ -1,4 +1,5 @@
 import { describe, it, mock } from "node:test";
+import { parseToolResult } from "../testHelpers.js";
 import assert from "node:assert/strict";
 import type { SessionContext } from "../../sessions.js";
 import { createStopTrackingTool, type StopTrackingDeps } from "./stopTracking.js";
@@ -75,7 +76,7 @@ describe("stop_tracking tool", () => {
       url: "https://team.slack.com/archives/C123/p1234567890123456",
     });
 
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.success, true);
     assert.equal(parsed.channel, "C123");
     assert.equal(parsed.session_id, "sess-1");
@@ -86,7 +87,7 @@ describe("stop_tracking tool", () => {
     const deps = makeDeps();
     const result = await callTool(makeCtx(), deps, { url: "not-a-slack-url" });
 
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error.includes("Invalid"));
     assert.equal(result.isError, true);
   });
@@ -97,7 +98,7 @@ describe("stop_tracking tool", () => {
       url: "https://team.slack.com/archives/C123/p1234567890123456",
     });
 
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error.includes("No tracked session"));
     assert.equal(result.isError, true);
   });
@@ -113,7 +114,7 @@ describe("stop_tracking tool", () => {
       url: "https://team.slack.com/archives/C123/p1234567890123456",
     });
 
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error.includes("only stop tracking threads you started"));
     assert.equal(result.isError, true);
     assert.equal(setActive.mock.callCount(), 0);
@@ -130,7 +131,7 @@ describe("stop_tracking tool", () => {
       url: "https://team.slack.com/archives/C123/p1234567890123456",
     });
 
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.success, true);
     assert.equal(setActive.mock.callCount(), 1);
   });
@@ -146,7 +147,7 @@ describe("stop_tracking tool", () => {
       url: "https://team.slack.com/archives/C123/p1234567890123456",
     });
 
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.success, true);
     assert.equal(parsed.already_disengaged, true);
     assert.equal(setActive.mock.callCount(), 0);

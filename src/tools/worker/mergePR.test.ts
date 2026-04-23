@@ -2,6 +2,7 @@ import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 import { createMergePRTool, type MergePRDeps } from "./mergePR.js";
 import type { WorkerToolContext } from "../types.js";
+import { parseToolResult } from "../testHelpers.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -25,10 +26,6 @@ function makeCtx(overrides?: Partial<WorkerToolContext>): WorkerToolContext {
 interface ToolResult {
   content: Array<{ text: string }>;
   isError?: true;
-}
-
-function parseResult(result: ToolResult) {
-  return JSON.parse(result.content[0]!.text);
 }
 
 function makeDeps() {
@@ -83,7 +80,7 @@ describe("mergePR tool", () => {
     const toolDef = createMergePRTool(makeCtx(), deps);
     const result = await toolDef.handler({ _placeholder: undefined }, { sessionId: "test" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("No active change"));
     assert.equal(result.isError, true);
@@ -96,7 +93,7 @@ describe("mergePR tool", () => {
     const toolDef = createMergePRTool(makeCtx(), deps);
     const result = await toolDef.handler({ _placeholder: undefined }, { sessionId: "test" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error.includes("No active change"));
     assert.equal(result.isError, true);
   });
@@ -110,7 +107,7 @@ describe("mergePR tool", () => {
     const toolDef = createMergePRTool(makeCtx(), deps);
     const result = await toolDef.handler({ _placeholder: undefined }, { sessionId: "test" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error.includes("No PR URL"));
     assert.equal(result.isError, true);
   });
@@ -122,7 +119,7 @@ describe("mergePR tool", () => {
     const toolDef = createMergePRTool(makeCtx(), deps);
     const result = await toolDef.handler({ _placeholder: undefined }, { sessionId: "test" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error.includes("Could not parse PR URL"));
     assert.equal(result.isError, true);
   });
@@ -139,7 +136,7 @@ describe("mergePR tool", () => {
     const toolDef = createMergePRTool(makeCtx(), deps);
     const result = await toolDef.handler({ _placeholder: undefined }, { sessionId: "test" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.success, true);
     assert.equal(parsed.merge_method, "squash");
     assert.equal(parsed.warning, undefined);
@@ -174,7 +171,7 @@ describe("mergePR tool", () => {
     const toolDef = createMergePRTool(makeCtx(), deps);
     const result = await toolDef.handler({ _placeholder: undefined }, { sessionId: "test" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.merge_method, "merge");
 
     const mergeArgs = mockMerge.mock.calls[0]!.arguments as never as [{ merge_method: string }];
@@ -197,7 +194,7 @@ describe("mergePR tool", () => {
     const toolDef = createMergePRTool(makeCtx(), deps);
     const result = await toolDef.handler({ _placeholder: undefined }, { sessionId: "test" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.merge_method, "squash");
   });
 
@@ -214,7 +211,7 @@ describe("mergePR tool", () => {
     const toolDef = createMergePRTool(makeCtx(), deps);
     const result = await toolDef.handler({ _placeholder: undefined }, { sessionId: "test" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.merge_method, "squash");
   });
 
@@ -254,7 +251,7 @@ describe("mergePR tool", () => {
     const toolDef = createMergePRTool(makeCtx(), deps);
     const result = await toolDef.handler({ _placeholder: undefined }, { sessionId: "test" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.success, true);
     assert.ok(parsed.warning);
     assert.ok(parsed.warning.includes("Failed to delete remote branch"));
@@ -273,7 +270,7 @@ describe("mergePR tool", () => {
     const toolDef = createMergePRTool(makeCtx(), deps);
     const result = await toolDef.handler({ _placeholder: undefined }, { sessionId: "test" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("merge failed"));
     assert.ok(parsed.error.includes("Merge conflict"));

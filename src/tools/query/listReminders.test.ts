@@ -2,6 +2,7 @@ import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 import { createListRemindersTool } from "./listReminders.js";
 import type { QueryToolContext } from "../types.js";
+import { parseToolResult } from "../testHelpers.js";
 
 function makeContext(overrides?: Partial<QueryToolContext>): QueryToolContext {
   return {
@@ -62,7 +63,7 @@ describe("createListRemindersTool", () => {
     const tool = createListRemindersTool(ctx);
 
     const result = await tool.handler({ channel: undefined }, {});
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = parseToolResult(result);
 
     assert.equal(parsed.ok, true);
     assert.equal(parsed.count, 1);
@@ -89,7 +90,7 @@ describe("createListRemindersTool", () => {
     const tool = createListRemindersTool(ctx);
 
     const result = await tool.handler({ channel: undefined }, {});
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = parseToolResult(result);
 
     assert.equal(parsed.ok, true);
     assert.equal(parsed.count, 0);
@@ -101,7 +102,7 @@ describe("createListRemindersTool", () => {
     const tool = createListRemindersTool(ctx);
 
     const result = await tool.handler({ channel: undefined }, {});
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = parseToolResult(result);
 
     assert.ok(parsed.error);
     assert.ok(result.isError);

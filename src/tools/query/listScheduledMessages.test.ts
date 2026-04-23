@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createListScheduledMessagesTool } from "./listScheduledMessages.js";
 import type { QueryToolContext } from "../types.js";
+import { parseToolResult } from "../testHelpers.js";
 import { clearCronJobsCache, createJob, updateJobRunStatus } from "../../cronJobs.js";
 
 const originalCwd = process.cwd;
@@ -54,12 +55,12 @@ describe("list_scheduled_messages tool — skipConditions and skipped status", (
     });
 
     const tool = createListScheduledMessagesTool(buildCtx());
-    const result: ToolHandlerResult = await tool.handler(
+    const result = await tool.handler(
       { channel: undefined, all: undefined },
       { sessionId: "test" },
     );
 
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.count, 1);
     assert.equal(parsed.scheduled_messages[0].skipConditions, "Skip on holidays");
   });
@@ -74,12 +75,12 @@ describe("list_scheduled_messages tool — skipConditions and skipped status", (
     });
 
     const tool = createListScheduledMessagesTool(buildCtx());
-    const result: ToolHandlerResult = await tool.handler(
+    const result = await tool.handler(
       { channel: undefined, all: undefined },
       { sessionId: "test" },
     );
 
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.scheduled_messages[0].skipConditions, null);
   });
 
@@ -94,12 +95,12 @@ describe("list_scheduled_messages tool — skipConditions and skipped status", (
     await updateJobRunStatus(job.id, "skipped");
 
     const tool = createListScheduledMessagesTool(buildCtx());
-    const result: ToolHandlerResult = await tool.handler(
+    const result = await tool.handler(
       { channel: undefined, all: undefined },
       { sessionId: "test" },
     );
 
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.scheduled_messages[0].lastRunStatus, "skipped");
   });
 });

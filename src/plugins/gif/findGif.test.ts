@@ -1,14 +1,11 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { createFindGifTool } from "./findGif.js";
+import { parseToolResult } from "../../tools/testHelpers.js";
 import { TenorError, type SearchTenorParams } from "./tenor.js";
 import type { GifResult } from "./types.js";
 
 const SESSION = { sessionId: "test" };
-
-function parseBody(result: { content: { text: string }[] }) {
-  return JSON.parse(result.content[0].text);
-}
 
 describe("find_gif tool", () => {
   it("returns an error when the API key is missing", async () => {
@@ -18,7 +15,7 @@ describe("find_gif tool", () => {
     });
     const result = await tool.handler({ query: "x", limit: undefined }, SESSION);
     assert.equal(result.isError, true);
-    const parsed = parseBody(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error.includes("GIF_TENOR_API_KEY"));
     assert.ok(parsed.error.includes("data/auth/.env"));
   });
@@ -33,7 +30,7 @@ describe("find_gif tool", () => {
     });
     const result = await tool.handler({ query: "party", limit: undefined }, SESSION);
     assert.equal(result.isError, undefined);
-    const parsed = parseBody(result);
+    const parsed = parseToolResult(result);
     assert.deepEqual(parsed, fake);
   });
 
@@ -72,7 +69,7 @@ describe("find_gif tool", () => {
     });
     const result = await tool.handler({ query: "x", limit: undefined }, SESSION);
     assert.equal(result.isError, true);
-    const parsed = parseBody(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error.includes("HTTP 500"));
   });
 
@@ -85,7 +82,7 @@ describe("find_gif tool", () => {
     });
     const result = await tool.handler({ query: "x", limit: undefined }, SESSION);
     assert.equal(result.isError, true);
-    const parsed = parseBody(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error.includes("network down"));
   });
 });

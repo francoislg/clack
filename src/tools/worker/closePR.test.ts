@@ -2,6 +2,7 @@ import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 import { createClosePRTool, type ClosePRDeps } from "./closePR.js";
 import type { WorkerToolContext } from "../types.js";
+import { parseToolResult } from "../testHelpers.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -25,10 +26,6 @@ function makeCtx(overrides?: Partial<WorkerToolContext>): WorkerToolContext {
 interface ToolResult {
   content: Array<{ text: string }>;
   isError?: true;
-}
-
-function parseResult(result: ToolResult) {
-  return JSON.parse(result.content[0]!.text);
 }
 
 function makeDeps() {
@@ -77,7 +74,7 @@ describe("closePR tool", () => {
     const toolDef = createClosePRTool(makeCtx(), deps);
     const result = await toolDef.handler({ delete_branch: undefined }, { sessionId: "test" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("No active change"));
     assert.equal(result.isError, true);
@@ -90,7 +87,7 @@ describe("closePR tool", () => {
     const toolDef = createClosePRTool(makeCtx(), deps);
     const result = await toolDef.handler({ delete_branch: undefined }, { sessionId: "test" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error.includes("No active change"));
     assert.equal(result.isError, true);
   });
@@ -104,7 +101,7 @@ describe("closePR tool", () => {
     const toolDef = createClosePRTool(makeCtx(), deps);
     const result = await toolDef.handler({ delete_branch: undefined }, { sessionId: "test" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error.includes("No PR URL"));
     assert.equal(result.isError, true);
   });
@@ -116,7 +113,7 @@ describe("closePR tool", () => {
     const toolDef = createClosePRTool(makeCtx(), deps);
     const result = await toolDef.handler({ delete_branch: undefined }, { sessionId: "test" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error.includes("Could not parse PR URL"));
     assert.equal(result.isError, true);
   });
@@ -132,7 +129,7 @@ describe("closePR tool", () => {
     const toolDef = createClosePRTool(makeCtx(), deps);
     const result = await toolDef.handler({ delete_branch: undefined }, { sessionId: "test" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.success, true);
     assert.equal(parsed.branch_deleted, false);
     assert.equal(parsed.warning, undefined);
@@ -164,7 +161,7 @@ describe("closePR tool", () => {
     const toolDef = createClosePRTool(ctx, deps);
     const result = await toolDef.handler({ delete_branch: true }, { sessionId: "test" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.success, true);
     assert.equal(parsed.branch_deleted, true);
 
@@ -192,7 +189,7 @@ describe("closePR tool", () => {
     const toolDef = createClosePRTool(makeCtx(), deps);
     const result = await toolDef.handler({ delete_branch: true }, { sessionId: "test" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.success, true);
     assert.equal(parsed.branch_deleted, false);
     assert.ok(parsed.warning);
@@ -212,7 +209,7 @@ describe("closePR tool", () => {
     const toolDef = createClosePRTool(makeCtx(), deps);
     const result = await toolDef.handler({ delete_branch: undefined }, { sessionId: "test" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("Failed to close PR"));
     assert.ok(parsed.error.includes("API error"));

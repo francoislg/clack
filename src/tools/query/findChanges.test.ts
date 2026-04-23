@@ -2,6 +2,7 @@ import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 import { createFindChangesTool, type FindChangesDeps } from "./findChanges.js";
 import type { QueryToolContext } from "../types.js";
+import { parseToolResult } from "../testHelpers.js";
 import type { RepositoryConfig } from "../../config.js";
 
 // ---------------------------------------------------------------------------
@@ -81,10 +82,6 @@ function makeWorker(overrides?: WorkerOverrides) {
   };
 }
 
-function parseResult(result: { content: Array<{ text: string }> }) {
-  return JSON.parse(result.content[0].text);
-}
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -100,7 +97,7 @@ describe("findChanges tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.deepEqual(parsed, []);
   });
 
@@ -117,7 +114,7 @@ describe("findChanges tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.length, 1);
     assert.equal(parsed[0].id, "w1");
     assert.equal(parsed[0].branch, "clack/fix/login-bug");
@@ -142,7 +139,7 @@ describe("findChanges tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.length, 1);
     assert.equal(parsed[0].repo, "my-repo");
   });
@@ -170,7 +167,7 @@ describe("findChanges tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.length, 1);
     assert.equal(parsed[0].repo, "repo-a");
   });
@@ -195,7 +192,7 @@ describe("findChanges tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.length, 2);
     assert.ok(parsed.every((w: { status: string }) => w.status === "executing"));
   });
@@ -228,7 +225,7 @@ describe("findChanges tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.length, 1);
     assert.equal(parsed[0].id, "w1");
   });
@@ -247,7 +244,7 @@ describe("findChanges tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.deepEqual(parsed, []);
   });
 
@@ -265,7 +262,7 @@ describe("findChanges tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed[0].prUrl, "https://github.com/org/my-repo/pull/42");
   });
 
@@ -283,7 +280,7 @@ describe("findChanges tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed[0].startedAt, "2025-12-25T00:00:00.000Z");
   });
 });

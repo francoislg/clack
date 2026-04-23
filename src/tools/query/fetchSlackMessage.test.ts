@@ -1,6 +1,7 @@
 import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 import { createFetchSlackMessageTool, type FetchSlackMessageDeps } from "./fetchSlackMessage.js";
+import { parseToolResult } from "../testHelpers.js";
 import type { QueryToolContext } from "../types.js";
 import type { SlackImageFile } from "../../slack/slackFileBase.js";
 
@@ -49,10 +50,6 @@ function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
   };
 }
 
-function parseResult(result: { content: Array<{ text: string }> }) {
-  return JSON.parse(result.content[0].text);
-}
-
 function makeThreadMessages(count: number) {
   return Array.from({ length: count }, (_, i) => ({
     text: `Message ${i}`,
@@ -79,7 +76,7 @@ describe("fetchSlackMessage tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("Invalid Slack message URL"));
     assert.equal(result.isError, true);
@@ -94,7 +91,7 @@ describe("fetchSlackMessage tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("Invalid Slack message URL"));
     assert.equal(result.isError, true);
@@ -113,7 +110,7 @@ describe("fetchSlackMessage tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("Invalid Slack message URL"));
     assert.equal(result.isError, true);
@@ -134,7 +131,7 @@ describe("fetchSlackMessage tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("Slack client is not available"));
     assert.equal(result.isError, true);
@@ -162,7 +159,7 @@ describe("fetchSlackMessage tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.channel, "C0123ABC");
     assert.equal(parsed.thread_ts, "1234567890.123456");
     assert.equal(parsed.message_count, 5);
@@ -193,7 +190,7 @@ describe("fetchSlackMessage tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.message_count, 3);
     assert.equal(parsed.has_more, false);
   });
@@ -220,7 +217,7 @@ describe("fetchSlackMessage tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.page, 1);
     assert.equal(parsed.limit, 10);
     assert.equal(parsed.message_count, 10);
@@ -250,7 +247,7 @@ describe("fetchSlackMessage tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.message_count, 5);
     assert.equal(parsed.has_more, true);
   });
@@ -275,7 +272,7 @@ describe("fetchSlackMessage tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.message_count, 5);
     assert.equal(parsed.has_more, false);
   });
@@ -302,7 +299,7 @@ describe("fetchSlackMessage tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.message_count, 1);
     assert.equal(parsed.has_more, false);
     assert.equal(parsed.messages[0].user, "User 0");
@@ -331,7 +328,7 @@ describe("fetchSlackMessage tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.thread_ts, "1111111111.000000");
 
     // Verify fetchThreadContext was called with the thread_ts, not the message ts
@@ -358,7 +355,7 @@ describe("fetchSlackMessage tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("Could not fetch thread"));
     assert.equal(result.isError, true);
@@ -379,7 +376,7 @@ describe("fetchSlackMessage tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("maximum fetch cap"));
     assert.equal(result.isError, true);
@@ -422,7 +419,7 @@ describe("fetchSlackMessage tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("maximum fetch cap"));
     assert.equal(result.isError, true);
@@ -450,7 +447,7 @@ describe("fetchSlackMessage tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.message_count, 0);
     assert.equal(parsed.has_more, false);
   });
@@ -494,7 +491,7 @@ describe("fetchSlackMessage tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.messages[0].images[0].file_id, "F123");
     assert.ok(availableImages.has("F123"));
   });
@@ -536,7 +533,7 @@ describe("fetchSlackMessage tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.messages[0].files[0].file_id, "F456");
     assert.ok(availableFiles.has("F456"));
   });
@@ -628,7 +625,7 @@ describe("fetchSlackMessage tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.messages[0].user, "bob");
   });
 
@@ -652,7 +649,7 @@ describe("fetchSlackMessage tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.messages[0].user, "U1");
   });
 
@@ -699,7 +696,7 @@ describe("fetchSlackMessage tool", () => {
 
     // Should not throw, and should return valid result
     assert.equal(result.isError, undefined);
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.message_count, 1);
   });
 
@@ -725,7 +722,7 @@ describe("fetchSlackMessage tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal("images" in parsed.messages[0], false);
     assert.equal("files" in parsed.messages[0], false);
   });
@@ -765,7 +762,7 @@ describe("fetchSlackMessage tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.messages[0].reactions.length, 2);
     assert.equal(parsed.messages[0].reactions[0].emoji, "thumbsup");
     assert.deepEqual(parsed.messages[0].reactions[0].users, ["Bob (U2)", "Charlie (U3)"]);
@@ -792,7 +789,7 @@ describe("fetchSlackMessage tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal("reactions" in parsed.messages[0], false);
   });
 
@@ -869,7 +866,7 @@ describe("fetchSlackMessage tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.channel_name, "backend-dev");
   });
 
@@ -893,7 +890,7 @@ describe("fetchSlackMessage tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.channel_name, undefined);
   });
 });

@@ -7,6 +7,7 @@ import { createFindUserTool } from "./findUser.js";
 // ---------------------------------------------------------------------------
 
 import type { QueryToolContext } from "../types.js";
+import { parseToolResult } from "../testHelpers.js";
 import type { UsersCache, SlackUserEntry } from "../../slack/usersCache.js";
 
 function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
@@ -34,10 +35,6 @@ function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
     allowScheduledMessages: false,
     ...overrides,
   };
-}
-
-function parseResult(result: { content: Array<{ text: string }> }) {
-  return JSON.parse(result.content[0].text);
 }
 
 const mockSearch = mock.fn<(queries: string[], limit?: number) => Promise<SlackUserEntry[]>>();
@@ -73,7 +70,7 @@ describe("findUser tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.total, 2);
     assert.equal(parsed.users.length, 2);
     assert.equal(parsed.truncated, false);
@@ -123,7 +120,7 @@ describe("findUser tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.total, 10);
     assert.equal(parsed.truncated, true);
   });
@@ -141,7 +138,7 @@ describe("findUser tool", () => {
 
     const result = await toolDef.handler({ query: ["test"], limit: 3 }, { sessionId: "test" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.truncated, true);
   });
 
@@ -157,7 +154,7 @@ describe("findUser tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.total, 1);
     assert.equal(parsed.truncated, false);
   });
@@ -173,7 +170,7 @@ describe("findUser tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.total, 0);
     assert.deepEqual(parsed.users, []);
     assert.equal(parsed.truncated, false);

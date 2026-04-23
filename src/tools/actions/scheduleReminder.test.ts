@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { WebClient } from "@slack/web-api";
 import { createScheduleReminderTool } from "./scheduleReminder.js";
 import type { QueryToolContext } from "../types.js";
+import { parseToolResult } from "../testHelpers.js";
 
 function makeContext(overrides?: Partial<QueryToolContext>): QueryToolContext {
   return {
@@ -73,7 +74,7 @@ describe("createScheduleReminderTool", () => {
     const tool = createScheduleReminderTool(ctx);
 
     const result = await tool.handler(scheduleArgs(), {});
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = parseToolResult(result);
 
     assert.equal(parsed.ok, true);
     assert.equal(parsed.scheduled_message_id, "Q1234567890");
@@ -92,7 +93,7 @@ describe("createScheduleReminderTool", () => {
     const tool = createScheduleReminderTool(ctx);
 
     const result = await tool.handler(scheduleArgs({ channel: "#ops" }), {});
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = parseToolResult(result);
 
     assert.equal(parsed.ok, true);
     assert.equal(parsed.channel, "C_OPS");
@@ -104,7 +105,7 @@ describe("createScheduleReminderTool", () => {
     const tool = createScheduleReminderTool(ctx);
 
     const result = await tool.handler(scheduleArgs({ channel: "nonexistent" }), {});
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = parseToolResult(result);
 
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("Could not find channel"));
@@ -116,7 +117,7 @@ describe("createScheduleReminderTool", () => {
     const tool = createScheduleReminderTool(ctx);
 
     const result = await tool.handler(scheduleArgs({ post_at: "not-a-date" }), {});
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = parseToolResult(result);
 
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("Invalid timestamp"));
@@ -134,7 +135,7 @@ describe("createScheduleReminderTool", () => {
     const tool = createScheduleReminderTool(ctx);
 
     const result = await tool.handler(scheduleArgs(), {});
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = parseToolResult(result);
 
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("past"));
@@ -152,7 +153,7 @@ describe("createScheduleReminderTool", () => {
     const tool = createScheduleReminderTool(ctx);
 
     const result = await tool.handler(scheduleArgs(), {});
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = parseToolResult(result);
 
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("120 days"));
@@ -163,7 +164,7 @@ describe("createScheduleReminderTool", () => {
     const tool = createScheduleReminderTool(ctx);
 
     const result = await tool.handler(scheduleArgs(), {});
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = parseToolResult(result);
 
     assert.ok(parsed.error);
     assert.ok(result.isError);
@@ -184,7 +185,7 @@ describe("createScheduleReminderTool", () => {
     const tool = createScheduleReminderTool(ctx);
 
     const result = await tool.handler(scheduleArgs({ channel: "U123" }), {});
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = parseToolResult(result);
 
     assert.equal(parsed.ok, true);
     assert.equal(parsed.channel, "D_SELF");
@@ -205,7 +206,7 @@ describe("createScheduleReminderTool", () => {
     const tool = createScheduleReminderTool(ctx);
 
     const result = await tool.handler(scheduleArgs({ channel: "U999" }), {});
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = parseToolResult(result);
 
     assert.ok(parsed.error);
     assert.match(parsed.error, /can only DM the requesting user/);

@@ -2,13 +2,10 @@ import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { createInMemoryDataLayer } from "./testHelpers.js";
 import { createGetQuestionHistoryTool } from "./getQuestionHistory.js";
+import { parseToolResult } from "../../tools/testHelpers.js";
 import type { TriviaDataLayer } from "./types.js";
 
 const SESSION = { sessionId: "test" };
-
-function parseResult(result: { content: { text: string }[] }) {
-  return JSON.parse(result.content[0].text);
-}
 
 describe("get_question_history", () => {
   let data: TriviaDataLayer;
@@ -88,7 +85,7 @@ describe("get_question_history", () => {
 
     const tool = createGetQuestionHistoryTool(data);
     const result = await tool.handler({ questionId: "q42" }, SESSION);
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
 
     assert.equal(parsed.isTrue, true);
     assert.deepEqual(parsed.cheaterUserIds.sort(), ["U777", "U888"]);
@@ -127,7 +124,7 @@ describe("get_question_history", () => {
 
     const tool = createGetQuestionHistoryTool(data);
     const result = await tool.handler({ questionId: "q42" }, SESSION);
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
 
     assert.deepEqual(parsed.cheaterUserIds, ["U777"]);
   });
@@ -161,8 +158,8 @@ describe("get_question_history", () => {
     });
 
     const tool = createGetQuestionHistoryTool(data);
-    const result42 = parseResult(await tool.handler({ questionId: "q42" }, SESSION));
-    const result43 = parseResult(await tool.handler({ questionId: "q43" }, SESSION));
+    const result42 = parseToolResult(await tool.handler({ questionId: "q42" }, SESSION));
+    const result43 = parseToolResult(await tool.handler({ questionId: "q43" }, SESSION));
 
     assert.deepEqual(result42.cheaterUserIds, ["U777"]);
     assert.equal(result42.responses.length, 1);
@@ -184,7 +181,7 @@ describe("get_question_history", () => {
 
     const tool = createGetQuestionHistoryTool(data);
     const result = await tool.handler({ questionId: "q42" }, SESSION);
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
 
     assert.deepEqual(parsed.cheaterUserIds, []);
     assert.equal(parsed.responses.length, 1);
@@ -200,7 +197,7 @@ describe("get_question_history", () => {
 
     const tool = createGetQuestionHistoryTool(data);
     const result = await tool.handler({ questionId: "q42" }, SESSION);
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
 
     assert.deepEqual(parsed.responses, []);
     assert.deepEqual(parsed.cheaterUserIds, ["U777"]);
@@ -217,7 +214,7 @@ describe("get_question_history", () => {
 
     const tool = createGetQuestionHistoryTool(data);
     const result = await tool.handler({ questionId: "q42" }, SESSION);
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
 
     assert.equal(parsed.responses.length, 1);
     assert.equal(parsed.responses[0].userId, "U999");
@@ -227,7 +224,7 @@ describe("get_question_history", () => {
   it("returns an error when questionId is unknown", async () => {
     const tool = createGetQuestionHistoryTool(data);
     const result = await tool.handler({ questionId: "does-not-exist" }, SESSION);
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
 
     assert.ok(parsed.error);
     assert.match(parsed.error, /not found/);

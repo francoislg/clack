@@ -5,6 +5,7 @@ import {
   type ResolveReviewThreadDeps,
 } from "./resolveReviewThread.js";
 import type { QueryToolContext } from "../types.js";
+import { parseToolResult } from "../testHelpers.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -37,10 +38,6 @@ function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
   };
 }
 
-function parseResult(result: { content: Array<{ text: string }> }) {
-  return JSON.parse(result.content[0].text);
-}
-
 function makeDeps(overrides: Partial<ResolveReviewThreadDeps> = {}): ResolveReviewThreadDeps {
   return {
     graphql: mock.fn(async () => ({
@@ -71,7 +68,7 @@ describe("resolveReviewThread tool", () => {
 
     const result = await toolDef.handler({ threadId: "PRRT_abc123" }, { sessionId: "test" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.success, true);
     assert.equal(parsed.threadId, "PRRT_abc123");
     assert.equal(parsed.isResolved, true);
@@ -109,7 +106,7 @@ describe("resolveReviewThread tool", () => {
 
     const result = await toolDef.handler({ threadId: "PRRT_abc123" }, { sessionId: "test" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("Failed to resolve review thread"));
     assert.ok(parsed.error.includes("GitHub App not configured"));
@@ -128,7 +125,7 @@ describe("resolveReviewThread tool", () => {
 
     const result = await toolDef.handler({ threadId: "PRRT_invalid" }, { sessionId: "test" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("Failed to resolve review thread"));
     assert.ok(parsed.error.includes("insufficient permissions"));
@@ -147,7 +144,7 @@ describe("resolveReviewThread tool", () => {
 
     const result = await toolDef.handler({ threadId: "PRRT_abc123" }, { sessionId: "test" });
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("Failed to resolve review thread"));
     assert.equal(result.isError, true);

@@ -1,6 +1,7 @@
 import { describe, it, beforeEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import { createProposeChangeTool, type ProposeChangeDeps } from "./proposeChange.js";
+import { parseToolResult } from "../testHelpers.js";
 import type { QueryToolContext } from "../types.js";
 import type { IntentStore } from "../server.js";
 import type { RepositoryConfig } from "../../config.js";
@@ -71,10 +72,6 @@ function makeIntentStore(): IntentStore {
   };
 }
 
-function parseResult(result: { content: Array<{ text: string }> }) {
-  return JSON.parse(result.content[0].text);
-}
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -101,7 +98,7 @@ describe("proposeChange tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("Invalid branch name"));
     assert.equal(result.isError, true);
@@ -122,7 +119,7 @@ describe("proposeChange tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error.includes("Invalid branch name"));
     assert.equal(result.isError, true);
   });
@@ -142,7 +139,7 @@ describe("proposeChange tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error.includes("not found"));
     assert.ok(parsed.error.includes("my-repo")); // lists available repos
     assert.equal(result.isError, true);
@@ -168,7 +165,7 @@ describe("proposeChange tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error.includes("write access"));
     assert.equal(result.isError, true);
   });
@@ -194,7 +191,7 @@ describe("proposeChange tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.error.includes("other-repo"));
   });
 
@@ -213,7 +210,7 @@ describe("proposeChange tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.ref);
     assert.equal(parsed.branch, "clack/feat/add-login");
     assert.equal(parsed.description, "Add login feature");
@@ -243,7 +240,7 @@ describe("proposeChange tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.plan, detailedPlan);
 
     const staged = store.resolve(parsed.ref) as { plan?: string };
@@ -265,7 +262,7 @@ describe("proposeChange tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.plan, undefined);
 
     const staged = store.resolve(parsed.ref) as { plan?: string };
@@ -303,7 +300,7 @@ describe("proposeChange tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.existingWorktree);
     assert.equal(parsed.existingWorktree.status, "in_progress");
     assert.equal(parsed.existingWorktree.lastActivity, "2025-01-01T12:00:00Z");
@@ -335,7 +332,7 @@ describe("proposeChange tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.ok(parsed.existingWorktree);
     assert.equal(parsed.existingWorktree.status, "unknown");
     assert.equal(parsed.existingWorktree.lastActivity, createdAt.toISOString());
@@ -356,7 +353,7 @@ describe("proposeChange tool", () => {
       { sessionId: "test" },
     );
 
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
     assert.equal(parsed.repo, "my-repo");
     assert.ok(parsed.ref, "should return a staged ref");
   });
@@ -379,7 +376,7 @@ describe("proposeChange tool", () => {
         { sessionId: "test" },
       );
 
-      const parsed = parseResult(result);
+      const parsed = parseToolResult(result);
       assert.ok(parsed.ref, `Expected ref for branch type "${type}"`);
       assert.equal(parsed.branch, `clack/${type}/test-branch`);
     }

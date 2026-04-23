@@ -1,6 +1,7 @@
 import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 import { createCancelReminderTool } from "./cancelReminder.js";
+import { parseToolResult, toolResultText } from "../testHelpers.js";
 import type { QueryToolContext } from "../types.js";
 
 function makeContext(overrides?: Partial<QueryToolContext>): QueryToolContext {
@@ -47,7 +48,7 @@ describe("createCancelReminderTool", () => {
       },
       {},
     );
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = parseToolResult(result);
 
     assert.equal(parsed.ok, true);
     assert.equal(parsed.cancelled, true);
@@ -71,7 +72,7 @@ describe("createCancelReminderTool", () => {
       },
       {},
     );
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = parseToolResult(result);
 
     assert.ok(parsed.error);
     assert.ok(parsed.error.includes("already been posted or cancelled"));
@@ -88,7 +89,7 @@ describe("createCancelReminderTool", () => {
       },
       {},
     );
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = parseToolResult(result);
 
     assert.ok(parsed.error);
     assert.ok(result.isError);

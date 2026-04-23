@@ -2,13 +2,10 @@ import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { createInMemoryDataLayer } from "./testHelpers.js";
 import { createFindPreviousQuestionsTool } from "./findPreviousQuestions.js";
+import { parseToolResult } from "../../tools/testHelpers.js";
 import type { TriviaDataLayer } from "./types.js";
 
 const SESSION = { sessionId: "test" };
-
-function parseResult(result: { content: { text: string }[] }) {
-  return JSON.parse(result.content[0].text);
-}
 
 describe("find_previous_questions response shape", () => {
   let data: TriviaDataLayer;
@@ -49,7 +46,7 @@ describe("find_previous_questions response shape", () => {
       { category: "Science", text: undefined, limit: undefined },
       SESSION,
     );
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
 
     assert.equal(parsed.count, 2);
     for (const q of parsed.questions) {
@@ -67,7 +64,7 @@ describe("find_previous_questions response shape", () => {
       { category: undefined, text: "boils", limit: undefined },
       SESSION,
     );
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
 
     assert.equal(parsed.count, 1);
     assert.equal(Object.prototype.hasOwnProperty.call(parsed.questions[0], "isTrue"), false);
@@ -79,7 +76,7 @@ describe("find_previous_questions response shape", () => {
       { category: "Science", text: "Earth", limit: undefined },
       SESSION,
     );
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
 
     assert.equal(parsed.count, 1);
     assert.equal(parsed.questions[0].id, "q2");
@@ -92,7 +89,7 @@ describe("find_previous_questions response shape", () => {
       { category: undefined, text: "boils", limit: undefined },
       SESSION,
     );
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
 
     const q = parsed.questions[0];
     assert.deepEqual(Object.keys(q).sort(), [
@@ -112,7 +109,7 @@ describe("find_previous_questions response shape", () => {
       { category: undefined, text: "Earth", limit: undefined },
       SESSION,
     );
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
 
     const q = parsed.questions[0];
     assert.equal(Object.prototype.hasOwnProperty.call(q, "postedAt"), false);
@@ -126,7 +123,7 @@ describe("find_previous_questions response shape", () => {
       { category: "Science", text: "Rome", limit: undefined },
       SESSION,
     );
-    const parsed = parseResult(result);
+    const parsed = parseToolResult(result);
 
     assert.equal(parsed.count, 0);
     assert.deepEqual(parsed.questions, []);
