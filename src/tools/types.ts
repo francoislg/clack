@@ -11,6 +11,7 @@ import type { UserRole } from "../roles.js";
 import type { SessionContext } from "../sessions.js";
 import type { Config } from "../config.js";
 import type { McpServerManager } from "../claude/mcpServerManager.js";
+import type { SkillsManager } from "../claude/skillsManager.js";
 import type { SlackImageFile, SlackFile } from "../slack/slackFileBase.js";
 
 // ============================================================================
@@ -90,6 +91,12 @@ export interface QueryToolContext {
    * without dynamic attachment (worker mode).
    */
   mcpManager?: McpServerManager;
+  /**
+   * Owns the session's lazy skill-pack metadata and loaded-skill set. Populated by
+   * the session orchestrator in query mode. Consumed by `list_skill_pack_skills`
+   * and `load_skill`. Absent in worker mode.
+   */
+  skillsManager?: SkillsManager;
 }
 
 /** Worker context — used by change execution and follow-up flows */

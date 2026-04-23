@@ -102,8 +102,16 @@ describe("hasErrors", () => {
     const session = {
       ...baseSession,
       errors: [
-        { timestamp: Date.now(), errorMessage: "error 1", conversationTrace: [] },
-        { timestamp: Date.now(), errorMessage: "error 2", conversationTrace: [] },
+        {
+          timestamp: Date.now(),
+          errorMessage: "error 1",
+          conversationTrace: [],
+        },
+        {
+          timestamp: Date.now(),
+          errorMessage: "error 2",
+          conversationTrace: [],
+        },
       ],
     };
     assert.equal(hasErrors(session), true);
@@ -243,6 +251,57 @@ describe("updateSession concurrency", () => {
     // Second read should silently return null with no additional rename.
     const second = await getSession(freshId);
     assert.equal(second, null);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// loadedSkills round-trip (lazy skill loading)
+// ---------------------------------------------------------------------------
+
+describe("loadedSkills persistence", () => {
+  const tmpBase = resolve(tmpdir(), `sessions-loadedskills-${process.pid}`);
+  const sessionsDir = join(tmpBase, "data", "sessions");
+  const originalCwd = process.cwd();
+
+  beforeEach(() => {
+    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true });
+    mkdirSync(sessionsDir, { recursive: true });
+    process.chdir(tmpBase);
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true });
+  });
+
+  it("round-trips loadedSkills across updateSession + getSession", async () => {
+    const session = await createSession({
+      channelId: "CLOAD",
+      messageTs: "5000.0001",
+      threadTs: "5000.0001",
+      userId: "ULOAD",
+      trigger: {
+        type: "mentions",
+        userId: "ULOAD",
+        messageTs: "5000.0001",
+        messageText: "load skill round-trip",
+      },
+    });
+
+    await updateSession(session.sessionId, {
+      loadedSkills: [{ pack: "marketingskills", skill: "ab-test-setup" }],
+    });
+
+    // Verify via getSession (cache-hit path).
+    const reloaded = await getSession(session.sessionId);
+    assert.ok(reloaded);
+    assert.deepEqual(reloaded.loadedSkills, [{ pack: "marketingskills", skill: "ab-test-setup" }]);
+
+    // Verify the field lands on disk (cold read — bypass cache by reading file directly).
+    const onDisk = readFileSync(join(getSessionPath(session.sessionId), "context.json"), "utf-8");
+    // Cheap runtime check: the field's JSON shape appears verbatim in the file.
+    assert.match(onDisk, /"loadedSkills"\s*:\s*\[\s*\{[^}]*"pack"\s*:\s*"marketingskills"/);
+    assert.match(onDisk, /"skill"\s*:\s*"ab-test-setup"/);
   });
 });
 

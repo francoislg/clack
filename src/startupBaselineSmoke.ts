@@ -7,17 +7,39 @@
  * re-inflate it (e.g. a new always-on MCP, a large topical file accidentally
  * moved back into the baseline cascade).
  *
+ * Mirrors a real cold-start session: attaches the clack MCP, plugin MCPs, and
+ * every `alwaysLoad: true` external MCP. Lazy servers (attached via
+ * `attach_integration`) are excluded, matching `completeSessionStart` in
+ * `mcpServerManager.ts`.
+ *
  * Fire-and-forget: failures log a warning but never block startup.
  */
 
-import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { McpServerConfig, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { clackQuery as defaultClackQuery } from "./claude/query.js";
-import { buildSystemPrompt as defaultBuildSystemPrompt } from "./claude/promptBuilder.js";
+import {
+  buildSystemPrompt as defaultBuildSystemPrompt,
+  buildPrompt as defaultBuildPrompt,
+} from "./claude/promptBuilder.js";
 import { detectRuntime } from "./claude/utilities.js";
-import { loadMcpServers as defaultLoadMcpServers } from "./mcp.js";
+import {
+  getConfiguredMcpServerNames as defaultGetConfiguredMcpServerNames,
+  loadAlwaysOnMcpServers as defaultLoadAlwaysOnMcpServers,
+  resolveEffectiveRegistry,
+} from "./mcp.js";
+import { buildQueryContext as defaultBuildQueryContext } from "./tools/context.js";
+import { buildClackTools as defaultBuildClackTools } from "./tools/server.js";
+import type { QueryToolContext, ClackQueryToolsResult } from "./tools/types.js";
 import { logger as defaultLogger } from "./logger.js";
 import type { Config } from "./config.js";
 import type { UserRole } from "./roles.js";
+import type { SessionContext } from "./sessions.js";
+import {
+  discoverEagerSkillPlugins as defaultDiscoverEagerSkillPlugins,
+  discoverSkillPluginInfo as defaultDiscoverSkillPluginInfo,
+} from "./skillPlugins.js";
+import { prepareSkillsSession as defaultPrepareSkillsSession } from "./claude/skillsManager.js";
+import { McpServerManager } from "./claude/mcpServerManager.js";
 
 /**
  * Role tiers measured by the smoke test. The label is what appears in log lines;
@@ -44,15 +66,30 @@ export interface BaselineSmokeLogger {
 
 export interface BaselineSmokeDeps {
   clackQuery: typeof defaultClackQuery;
-  loadMcpServers: typeof defaultLoadMcpServers;
+  getConfiguredMcpServerNames: typeof defaultGetConfiguredMcpServerNames;
+  loadAlwaysOnMcpServers: typeof defaultLoadAlwaysOnMcpServers;
   buildSystemPrompt: typeof defaultBuildSystemPrompt;
+  buildPrompt: typeof defaultBuildPrompt;
+  buildQueryContext: typeof defaultBuildQueryContext;
+  // Narrow to the query-mode overload — the smoke only measures query-mode baselines.
+  buildClackTools: (ctx: QueryToolContext) => ClackQueryToolsResult;
+  discoverEagerSkillPlugins: typeof defaultDiscoverEagerSkillPlugins;
+  discoverSkillPluginInfo: typeof defaultDiscoverSkillPluginInfo;
+  prepareSkillsSession: typeof defaultPrepareSkillsSession;
   logger: BaselineSmokeLogger;
 }
 
 export const defaultBaselineSmokeDeps: BaselineSmokeDeps = {
   clackQuery: defaultClackQuery,
-  loadMcpServers: defaultLoadMcpServers,
+  getConfiguredMcpServerNames: defaultGetConfiguredMcpServerNames,
+  loadAlwaysOnMcpServers: defaultLoadAlwaysOnMcpServers,
   buildSystemPrompt: defaultBuildSystemPrompt,
+  buildPrompt: defaultBuildPrompt,
+  buildQueryContext: defaultBuildQueryContext,
+  buildClackTools: defaultBuildClackTools,
+  discoverEagerSkillPlugins: defaultDiscoverEagerSkillPlugins,
+  discoverSkillPluginInfo: defaultDiscoverSkillPluginInfo,
+  prepareSkillsSession: defaultPrepareSkillsSession,
   logger: defaultLogger,
 };
 
@@ -77,8 +114,16 @@ export async function runBaselineSmoke(
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   let mcpServers;
+  let mcpRegistry;
   try {
-    mcpServers = await deps.loadMcpServers();
+    const mcpServerNames = deps.getConfiguredMcpServerNames();
+    const resolved = resolveEffectiveRegistry({
+      configRegistry: config.mcpServers,
+      mcpServerNames,
+      githubAutoInjected: mcpServerNames.includes("github"),
+    });
+    mcpRegistry = resolved.registry;
+    mcpServers = await deps.loadAlwaysOnMcpServers(mcpRegistry);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     deps.logger.warn(`baseline.tokens.failed stage=load-mcp error=${message}`);
@@ -90,7 +135,11 @@ export async function runBaselineSmoke(
 
   for (const tier of ROLE_TIERS) {
     try {
-      const tokens = await measureRoleBaseline(tier, { model, mcpServers, timeoutMs }, deps);
+      const tokens = await measureRoleBaseline(
+        tier,
+        { model, mcpServers, mcpRegistry, timeoutMs, config },
+        deps,
+      );
       results.push({ label: tier.label, value: String(tokens) });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -105,8 +154,10 @@ export async function runBaselineSmoke(
 
 interface MeasureOptions {
   model?: string;
-  mcpServers: Awaited<ReturnType<typeof defaultLoadMcpServers>>;
+  mcpServers: Awaited<ReturnType<typeof defaultLoadAlwaysOnMcpServers>>;
+  mcpRegistry: Config["mcpServers"];
   timeoutMs: number;
+  config: Config;
 }
 
 async function measureRoleBaseline(
@@ -119,12 +170,66 @@ async function measureRoleBaseline(
     changesWorkflowEnabled: true,
   });
 
+  // Build the same cold-start wiring a real query uses: dummy session, skillsManager
+  // (so list_skill_pack_skills / load_skill tool schemas land in baseline), mcpManager
+  // (so attach_integration registers), and a user prompt with the AVAILABLE SKILL PACKS
+  // + AVAILABLE INTEGRATIONS catalog blocks.
+  const dummySession: SessionContext = {
+    sessionId: "baseline",
+    channelId: "baseline",
+    messageTs: "baseline",
+    threadTs: "baseline",
+    userId: "baseline",
+    trigger: {
+      type: "mentions",
+      userId: "baseline",
+      messageTs: "baseline",
+      messageText: "ping",
+    },
+    messages: [],
+    threadContext: [],
+    errors: [],
+    lastActivity: Date.now(),
+    createdAt: Date.now(),
+  };
+
+  const skillsManager = deps.prepareSkillsSession(
+    dummySession,
+    deps.discoverSkillPluginInfo(),
+    options.config.skillPlugins,
+  );
+  const mcpManager = new McpServerManager({}, options.mcpRegistry ?? {});
+
+  const toolCtx = deps.buildQueryContext({
+    userId: "baseline",
+    role: tier.role,
+    session: dummySession,
+    config: options.config,
+    changesWorkflowEnabled: true,
+    allowScheduledMessages: options.config.allowScheduledMessages ?? false,
+    mcpManager,
+    skillsManager,
+  });
+  const clackTools = deps.buildClackTools(toolCtx);
+
+  const userPrompt = deps.buildPrompt(dummySession, {
+    mcpRegistry: options.mcpRegistry,
+    skillPluginsRegistry: options.config.skillPlugins,
+  });
+
+  // `McpServerConfig` is the SDK's union of stdio/sse/http/sdk-instance variants;
+  // both clack/plugin (sdk-instance) and mcp.json externals assign into it cleanly.
+  const mergedMcpServers: Record<string, McpServerConfig> = {
+    ...clackTools.mcpServers,
+    ...options.mcpServers,
+  };
+
   const abortController = new AbortController();
   const timer = setTimeout(() => abortController.abort(), options.timeoutMs);
 
   try {
     const stream = deps.clackQuery({
-      prompt: "ping",
+      prompt: userPrompt,
       options: {
         cwd: process.cwd(),
         executable: detectRuntime(),
@@ -132,7 +237,8 @@ async function measureRoleBaseline(
         systemPrompt,
         permissionMode: "bypassPermissions",
         maxTurns: 1,
-        ...(options.mcpServers ? { mcpServers: options.mcpServers } : {}),
+        plugins: deps.discoverEagerSkillPlugins(),
+        mcpServers: mergedMcpServers,
         abortController,
       },
     });

@@ -4,7 +4,7 @@ import type { UserRole, RolesConfig } from "../roles.js";
 import type { RepositoryConfig, Config } from "../config.js";
 import type { InstructionFileListing } from "../configurationFiles.js";
 import type { ActiveWorker } from "../changes/activeState.js";
-import type { PluginInfo } from "../plugins.js";
+import type { SkillPluginInfo } from "../skillPlugins.js";
 import type { MigrationError } from "../migrations/types.js";
 import type { KnownBlock, View, ActionsBlockElement } from "@slack/types";
 import {
@@ -50,7 +50,7 @@ const mockGetVisibleRepos =
   mock.fn<(role: UserRole, repos: RepositoryConfig[]) => RepositoryConfig[]>();
 const mockCanWriteRepo = mock.fn<(role: UserRole, repo: RepositoryConfig) => boolean>();
 const mockGetMigrationErrors = mock.fn<() => MigrationError[]>();
-const mockDiscoverPluginInfo = mock.fn<() => PluginInfo[]>();
+const mockDiscoverSkillPluginInfo = mock.fn<() => SkillPluginInfo[]>();
 const mockGetLoadedClackPlugins = mock.fn<() => ClackPluginSummary[]>();
 const mockGetRules = mock.fn<() => Promise<AutoRespondRule[]>>();
 const mockGetJobs = mock.fn<() => Promise<CronJob[]>>();
@@ -75,7 +75,7 @@ function makeDeps(): HomeTabDeps {
     getVisibleRepos: mockGetVisibleRepos,
     canWriteRepo: mockCanWriteRepo,
     getMigrationErrors: mockGetMigrationErrors,
-    discoverPluginInfo: mockDiscoverPluginInfo,
+    discoverSkillPluginInfo: mockDiscoverSkillPluginInfo,
     getLoadedClackPlugins: mockGetLoadedClackPlugins,
     getRules: mockGetRules,
     getJobs: mockGetJobs,
@@ -170,7 +170,7 @@ function resetAllMocks() {
   mockGetVisibleRepos.mock.resetCalls();
   mockCanWriteRepo.mock.resetCalls();
   mockGetMigrationErrors.mock.resetCalls();
-  mockDiscoverPluginInfo.mock.resetCalls();
+  mockDiscoverSkillPluginInfo.mock.resetCalls();
   mockGetLoadedClackPlugins.mock.resetCalls();
   mockGetRules.mock.resetCalls();
   mockGetJobs.mock.resetCalls();
@@ -199,7 +199,7 @@ function setDefaultMocks(role: UserRole = "member") {
   mockGetVisibleRepos.mock.mockImplementation((_role, repos) => repos);
   mockCanWriteRepo.mock.mockImplementation(() => false);
   mockGetMigrationErrors.mock.mockImplementation(() => []);
-  mockDiscoverPluginInfo.mock.mockImplementation(() => []);
+  mockDiscoverSkillPluginInfo.mock.mockImplementation(() => []);
   mockGetLoadedClackPlugins.mock.mockImplementation(() => []);
   mockGetRules.mock.mockImplementation(async () => []);
   mockGetJobs.mock.mockImplementation(async () => []);
@@ -722,8 +722,8 @@ describe("buildStatusSection", () => {
 
   it("shows skill plugins when discovered", () => {
     const deps = makeDeps();
-    mockDiscoverPluginInfo.mock.mockImplementation(() => [
-      { name: "my-plugin", path: "/some/path", skillCount: 3 },
+    mockDiscoverSkillPluginInfo.mock.mockImplementation(() => [
+      { name: "my-plugin", path: "/some/path", skillCount: 3, lazyLoad: false },
     ]);
     const blocks = buildStatusSection("member", deps);
     const texts = getSectionTexts(blocks);
@@ -731,11 +731,46 @@ describe("buildStatusSection", () => {
     assert.ok(pluginBlock);
     assert.ok(pluginBlock.includes("my-plugin"));
     assert.ok(pluginBlock.includes("3 skills"));
+    assert.ok(pluginBlock.includes("Eager"));
+  });
+
+  it("groups skill plugins into Eager and Lazy sections", () => {
+    const deps = makeDeps();
+    mockDiscoverSkillPluginInfo.mock.mockImplementation(() => [
+      { name: "devtools", path: "/a", skillCount: 2, lazyLoad: false },
+      { name: "marketingskills", path: "/b", skillCount: 32, lazyLoad: true },
+    ]);
+    const blocks = buildStatusSection("member", deps);
+    const texts = getSectionTexts(blocks);
+    const pluginBlock = texts.find((t) => t.includes("Skill Plugins"));
+    assert.ok(pluginBlock);
+    assert.ok(pluginBlock.includes("Eager"));
+    assert.ok(pluginBlock.includes("Lazy"));
+    const eagerIdx = pluginBlock.indexOf("Eager");
+    const lazyIdx = pluginBlock.indexOf("Lazy");
+    const devtoolsIdx = pluginBlock.indexOf("devtools");
+    const marketingIdx = pluginBlock.indexOf("marketingskills");
+    assert.ok(eagerIdx < devtoolsIdx);
+    assert.ok(devtoolsIdx < lazyIdx);
+    assert.ok(lazyIdx < marketingIdx);
+  });
+
+  it("shows only the Lazy section when every plugin is lazy-tagged", () => {
+    const deps = makeDeps();
+    mockDiscoverSkillPluginInfo.mock.mockImplementation(() => [
+      { name: "marketingskills", path: "/b", skillCount: 32, lazyLoad: true },
+    ]);
+    const blocks = buildStatusSection("member", deps);
+    const texts = getSectionTexts(blocks);
+    const pluginBlock = texts.find((t) => t.includes("Skill Plugins"));
+    assert.ok(pluginBlock);
+    assert.ok(pluginBlock.includes("Lazy"));
+    assert.ok(!pluginBlock.includes("Eager"));
   });
 
   it("does not show skill plugins section when none found", () => {
     const deps = makeDeps();
-    mockDiscoverPluginInfo.mock.mockImplementation(() => []);
+    mockDiscoverSkillPluginInfo.mock.mockImplementation(() => []);
     const blocks = buildStatusSection("member", deps);
     const texts = getSectionTexts(blocks);
     const pluginBlock = texts.find((t) => t.includes("Skill Plugins"));

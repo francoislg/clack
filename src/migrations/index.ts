@@ -16,6 +16,7 @@ import { migration as m14 } from "./014-cron-job-block-kit-prompts.js";
 import { migration as m15 } from "./015-add-stop-reaction.js";
 import { migration as m16 } from "./016-topic-subfolders.js";
 import { migration as m17 } from "./017-split-topic-files.js";
+import { migration as m18 } from "./018-lazy-skill-references.js";
 
 // Register migrations here in version order.
 export const migrations: Migration[] = [
@@ -36,4 +37,5 @@ export const migrations: Migration[] = [
   m15,
   m16,
   m17,
+  m18,
 ];

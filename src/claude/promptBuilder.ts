@@ -1,5 +1,5 @@
 import { getConfig } from "../config.js";
-import type { McpServerRegistry } from "../config.js";
+import type { McpServerRegistry, SkillPluginRegistry } from "../config.js";
 import { loadInstructions } from "../instructions.js";
 import type { UserRole } from "../roles.js";
 import type { SessionContext } from "../sessions.js";
@@ -7,6 +7,7 @@ import { triggerText, userContinuations } from "../sessions/selectors.js";
 import type { SlackImageFile, SlackFile } from "../slack/slackFileBase.js";
 import { DISMISSAL_PHRASES_INLINE } from "./dismissalPhrases.js";
 import { buildIntegrationsCatalog } from "./integrationsCatalog.js";
+import { buildSkillPacksCatalog } from "./skillPacksCatalog.js";
 /** Subset of AskClaudeOptions needed for prompt construction. */
 export interface PromptOptions {
   role?: UserRole;
@@ -28,6 +29,11 @@ export interface PromptOptions {
    * mode, or lazy-loading not configured yet) — the catalog is skipped entirely.
    */
   mcpRegistry?: McpServerRegistry;
+  /**
+   * Skill-plugin registry (from `config.skillPlugins`) used to render the
+   * "AVAILABLE SKILL PACKS" catalog block. Omit to skip the section entirely.
+   */
+  skillPluginsRegistry?: SkillPluginRegistry;
 }
 
 export function buildSystemPrompt(options?: PromptOptions): string {
@@ -319,9 +325,12 @@ Use this context to understand the conversation flow and provide relevant answer
     parts.push(lines.join("\n"));
   }
 
-  // GitHub MCP hint — Claude can use it for PR operations on any PR
+  // GitHub access hint — always-available Changes Workflow tools (worker mode, Octokit-backed)
+  // plus the lazy `github` MCP for broader ops. The MCP is listed in AVAILABLE INTEGRATIONS
+  // below; attach it when the user needs ad-hoc read access (files, commits, issues) that the
+  // built-in tools don't cover.
   parts.push(
-    "GITHUB ACCESS: You have access to GitHub via MCP. You can merge, close, comment on, or review any PR — not just ones from active changes. Use GitHub MCP tools when the user asks about PR operations.",
+    'GITHUB ACCESS: Clack\'s built-in tools (find_pull_requests, resolve_review_thread, worker-mode merge_pr / close_pr / ensure_pr) always work on any PR — use them first. For broader GitHub operations (reading files, commits, issues, comments), call `attach_integration("github")` to load the GitHub MCP on demand.',
   );
 
   // Work mode hint — advisory only, does NOT change available tools
@@ -378,6 +387,11 @@ Use this context to understand the conversation flow and provide relevant answer
 
   if (options?.mcpRegistry) {
     const catalog = buildIntegrationsCatalog(options.mcpRegistry);
+    if (catalog.length > 0) parts.push(catalog);
+  }
+
+  if (options?.skillPluginsRegistry) {
+    const catalog = buildSkillPacksCatalog(options.skillPluginsRegistry);
     if (catalog.length > 0) parts.push(catalog);
   }
 

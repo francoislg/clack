@@ -114,6 +114,20 @@ export interface McpServerRegistryEntry {
 
 export type McpServerRegistry = Record<string, McpServerRegistryEntry>;
 
+/**
+ * Clack-owned metadata about a Claude Code skill plugin directory under `data/skill-plugins/`.
+ * Mirrors `McpServerRegistryEntry` in shape. `lazyLoad: true` excludes the plugin from the SDK
+ * session-start `plugins` array — its skills are discovered via `list_skill_pack_skills` and
+ * loaded via `load_skill` instead. `description` is required for lazy packs (rendered in the
+ * AVAILABLE SKILL PACKS catalog); optional and unused for eager packs.
+ */
+export interface SkillPluginEntry {
+  lazyLoad: boolean;
+  description: string;
+}
+
+export type SkillPluginRegistry = Record<string, SkillPluginEntry>;
+
 export interface Config {
   slack: SlackConfig;
   slackApp?: SlackAppConfig;
@@ -141,6 +155,13 @@ export interface Config {
    * auto-loaded with a warning — see `resolveEffectiveRegistry` in `src/mcp.ts`.
    */
   mcpServers?: McpServerRegistry;
+  /**
+   * Clack-owned skill-plugin registry. Keyed by the plugin directory name under
+   * `data/skill-plugins/`. Declares each plugin's `lazyLoad` flag and a `description`
+   * for the AVAILABLE SKILL PACKS catalog. Plugins without an entry default to eager
+   * loading (passed via `--plugin-dir` at session start, same as pre-lazy behavior).
+   */
+  skillPlugins?: SkillPluginRegistry;
 }
 
 const DEFAULTS: Partial<Config> = {
@@ -332,6 +353,56 @@ export function parseMcpServerRegistry(raw: JsonValue | undefined): McpServerReg
     }
 
     registry[name] = { alwaysLoad, description };
+  }
+
+  return registry;
+}
+
+export function parseSkillPluginRegistry(
+  raw: JsonValue | undefined,
+): SkillPluginRegistry | undefined {
+  if (raw === undefined) return undefined;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("Config 'skillPlugins' must be an object keyed by plugin name");
+  }
+
+  const entries: JsonObject = raw;
+  const registry: SkillPluginRegistry = {};
+
+  for (const [name, value] of Object.entries(entries)) {
+    if (!name || /\s/.test(name)) {
+      throw new Error(`Config 'skillPlugins' key '${name}' must be a non-empty identifier`);
+    }
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error(`Config 'skillPlugins.${name}' must be an object`);
+    }
+    const entry: JsonObject = value;
+
+    const lazyLoad = entry.lazyLoad;
+    if (typeof lazyLoad !== "boolean") {
+      throw new Error(`Config 'skillPlugins.${name}.lazyLoad' must be a boolean`);
+    }
+
+    const description = entry.description;
+    if (lazyLoad) {
+      // Lazy entries render in the catalog — description is required.
+      if (typeof description !== "string" || description.trim().length === 0) {
+        throw new Error(
+          `Config 'skillPlugins.${name}.description' must be a non-empty string when lazyLoad is true`,
+        );
+      }
+      registry[name] = { lazyLoad, description };
+    } else {
+      // Non-lazy entries never hit the catalog; description is optional but must be a
+      // string when provided.
+      if (description !== undefined && typeof description !== "string") {
+        throw new Error(`Config 'skillPlugins.${name}.description' must be a string if provided`);
+      }
+      registry[name] = {
+        lazyLoad,
+        description: typeof description === "string" ? description : "",
+      };
+    }
   }
 
   return registry;
@@ -544,6 +615,7 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
     threadAutoRespondMaxAgeMinutes: num(c, "threadAutoRespondMaxAgeMinutes") ?? undefined,
     plugins: strArray(c, "plugins"),
     mcpServers: parseMcpServerRegistry(c.mcpServers as JsonValue | undefined),
+    skillPlugins: parseSkillPluginRegistry(c.skillPlugins as JsonValue | undefined),
   };
 
   return merged;

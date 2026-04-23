@@ -43,17 +43,43 @@ function makeLogger(calls: LogCall[]): BaselineSmokeDeps["logger"] {
   };
 }
 
+const stubBuildQueryContext: BaselineSmokeDeps["buildQueryContext"] = (params) => ({
+  mode: "query",
+  ...params,
+  allowScheduledMessages: params.allowScheduledMessages ?? false,
+});
+
+const stubBuildClackTools: BaselineSmokeDeps["buildClackTools"] = () => ({
+  mcpServers: {},
+  toolNames: [],
+  getResult: () => null,
+  getRenderedBlocks: () => null,
+  getStagedIntents: () => new Map(),
+  getToolCallHistory: () => [],
+  isSkipped: () => false,
+  isDisengaged: () => false,
+  isPostedTopLevel: () => false,
+});
+
 function makeDeps(
   mockQuery: MockClackQuery,
   calls: LogCall[],
-  loadMcp?: BaselineSmokeDeps["loadMcpServers"],
+  loadMcp?: BaselineSmokeDeps["loadAlwaysOnMcpServers"],
 ): BaselineSmokeDeps {
   return {
     ...defaultBaselineSmokeDeps,
     clackQuery: mockQuery,
-    loadMcpServers: loadMcp ?? (() => Promise.resolve(undefined)),
+    getConfiguredMcpServerNames: () => [],
+    loadAlwaysOnMcpServers: loadMcp ?? (() => Promise.resolve(undefined)),
     // Stub so tests don't need the global getConfig() state or the disk cascade.
     buildSystemPrompt: (options) => `SYSTEM_PROMPT_FOR_${options?.role ?? "unknown"}`,
+    // Stubs so tests don't hit the real tool registry / plugin loader.
+    buildPrompt: () => "USER_PROMPT",
+    buildQueryContext: stubBuildQueryContext,
+    buildClackTools: stubBuildClackTools,
+    discoverEagerSkillPlugins: () => [],
+    discoverSkillPluginInfo: () => [],
+    prepareSkillsSession: defaultBaselineSmokeDeps.prepareSkillsSession,
     logger: makeLogger(calls),
   };
 }
@@ -160,7 +186,7 @@ describe("runBaselineSmoke", () => {
     assert.match(warns[0].message, /stream ended before any assistant turn/);
   });
 
-  it("does not throw when loadMcpServers rejects", async () => {
+  it("does not throw when loadAlwaysOnMcpServers rejects", async () => {
     const calls: LogCall[] = [];
     await assert.doesNotReject(() =>
       runBaselineSmoke(

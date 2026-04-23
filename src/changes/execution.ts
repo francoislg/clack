@@ -15,7 +15,7 @@ import { ClaudeMessageParser } from "../claude/messageParser.js";
 import { detectRuntime } from "../claude/utilities.js";
 import { buildWorkerContext } from "../tools/context.js";
 import { buildClackTools } from "../tools/server.js";
-import { discoverPlugins } from "../plugins.js";
+import { discoverEagerSkillPlugins } from "../skillPlugins.js";
 import type { StreamEvent } from "../streaming/types.js";
 import { truncate } from "../text.js";
 
@@ -119,7 +119,7 @@ export async function runClaude(options: {
         disallowedTools: options.disallowedTools,
         permissionMode: "bypassPermissions",
         allowDangerouslySkipPermissions: true,
-        plugins: discoverPlugins(),
+        plugins: discoverEagerSkillPlugins(),
         ...(options.mcpServers && {
           mcpServers: options.mcpServers as Record<
             string,
