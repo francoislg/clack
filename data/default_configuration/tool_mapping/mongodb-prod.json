@@ -1,0 +1,71 @@
+{
+  "default": "Checking MongoDB prod",
+  "group": "Checking MongoDB prod",
+  "argOptions": {
+    "query": { "truncate": 40 },
+    "newName": { "truncate": 40 },
+    "deploymentName": { "truncate": 40 },
+    "clusterName": { "truncate": 40 },
+    "projectName": { "truncate": 40 },
+    "workspaceName": { "truncate": 40 },
+    "indexName": { "truncate": 40 },
+    "name": { "truncate": 40 }
+  },
+  "tools": {
+    "connect": "Connecting to MongoDB",
+    "switch-connection": "Switching MongoDB connection",
+    "list-databases": "Listing MongoDB databases",
+    "list-collections": "Listing collections in {database}",
+    "collection-indexes": "Reading indexes on {database}.{collection}",
+    "collection-schema": "Reading schema of {database}.{collection}",
+    "collection-storage-size": "Reading storage size of {database}.{collection}",
+    "db-stats": "Reading stats for {database}",
+    "mongodb-logs": "Reading MongoDB logs",
+    "explain": "Explaining query on {database}.{collection}",
+
+    "find": "Querying {database}.{collection}",
+    "count": "Counting documents in {database}.{collection}",
+    "aggregate": "Aggregating {database}.{collection}",
+    "aggregate-db": "Aggregating database {database}",
+    "export": "Exporting from {database}.{collection}",
+
+    "insert-many": "Inserting into {database}.{collection}",
+    "update-many": "Updating {database}.{collection}",
+    "delete-many": "Deleting from {database}.{collection}",
+
+    "create-collection": "Creating collection {database}.{collection}",
+    "drop-collection": "Dropping collection {database}.{collection}",
+    "rename-collection": "Renaming {database}.{collection} to {newName}",
+    "drop-database": "Dropping database {database}",
+
+    "create-index": "Creating index on {database}.{collection}",
+    "drop-index": "Dropping index {indexName} on {database}.{collection}",
+
+    "atlas-connect-cluster": "Connecting to Atlas cluster <https://cloud.mongodb.com/v2/{projectId}#/clusters/detail/{clusterName}|{clusterName}>",
+    "atlas-inspect-cluster": "Reading Atlas cluster <https://cloud.mongodb.com/v2/{projectId}#/clusters/detail/{clusterName}|{clusterName}>",
+    "atlas-get-performance-advisor": "Reading performance advisor for <https://cloud.mongodb.com/v2/{projectId}#/clusters/detail/{clusterName}|{clusterName}>",
+    "atlas-list-clusters": "Listing Atlas clusters",
+    "atlas-inspect-access-list": "Reading Atlas access list",
+    "atlas-create-access-list": "Adding Atlas access list entry",
+    "atlas-create-db-user": "Creating Atlas DB user {username}",
+    "atlas-list-db-users": "Listing Atlas DB users",
+    "atlas-create-free-cluster": "Creating free Atlas cluster {name}",
+    "atlas-create-project": "Creating Atlas project {projectName|…}",
+    "atlas-list-projects": "Listing Atlas projects",
+    "atlas-list-orgs": "Listing Atlas organizations",
+    "atlas-list-alerts": "Listing Atlas alerts",
+
+    "atlas-streams-build": "Creating Atlas Stream {resource}",
+    "atlas-streams-discover": "Discovering Atlas Streams ({action})",
+    "atlas-streams-manage": "Managing Atlas Stream ({action})",
+    "atlas-streams-teardown": "Deleting Atlas Stream {resource}",
+
+    "atlas-local-connect-deployment": "Connecting to Atlas Local {deploymentName}",
+    "atlas-local-create-deployment": "Creating Atlas Local {deploymentName|deployment}",
+    "atlas-local-delete-deployment": "Deleting Atlas Local {deploymentName}",
+    "atlas-local-list-deployments": "Listing Atlas Local deployments",
+
+    "list-knowledge-sources": "Listing MongoDB knowledge sources",
+    "search-knowledge": "Searching MongoDB docs for \"{query|…}\""
+  }
+}

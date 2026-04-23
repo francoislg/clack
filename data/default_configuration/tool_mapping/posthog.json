@@ -1,0 +1,65 @@
+{
+  "default": "Checking PostHog",
+  "group": "Checking PostHog",
+  "argOptions": {
+    "query": { "truncate": 40 },
+    "question": { "truncate": 40 },
+    "name": { "truncate": 40 },
+    "eventName": { "truncate": 40 }
+  },
+  "tools": {
+    "feature-flag-get-definition": "Reading feature flag {flagKey|flagId|…}",
+    "feature-flag-get-all": "Listing feature flags",
+    "create-feature-flag": "Creating feature flag {key|name|…}",
+    "update-feature-flag": "Updating feature flag {flagKey}",
+    "delete-feature-flag": "Deleting feature flag {flagKey}",
+
+    "organizations-get": "Listing PostHog organizations",
+    "switch-organization": "Switching organization to {orgId}",
+    "organization-details-get": "Reading organization details",
+
+    "projects-get": "Listing PostHog projects",
+    "switch-project": "Switching project to {projectId}",
+    "event-definitions-list": "Listing event definitions",
+    "properties-list": "Listing properties for {eventName|…}",
+
+    "docs-search": "Searching PostHog docs for \"{query|…}\"",
+
+    "list-errors": "Listing error tracking issues",
+    "error-details": "Reading error issue {issueId}",
+
+    "experiment-get-all": "Listing experiments",
+    "experiment-get": "Reading experiment {experimentId}",
+    "experiment-results-get": "Reading results for experiment {experimentId}",
+    "experiment-create": "Creating experiment {name|…}",
+    "experiment-delete": "Deleting experiment {experimentId}",
+    "experiment-update": "Updating experiment {experimentId}",
+
+    "insights-get-all": "Listing insights",
+    "insight-get": "Reading insight {insightId}",
+    "insight-create-from-query": "Creating insight",
+    "insight-update": "Updating insight {insightId}",
+    "insight-delete": "Deleting insight {insightId}",
+    "insight-query": "Running insight {insightId}",
+
+    "query-generate-hogql-from-question": "Generating HogQL for \"{question|…}\"",
+    "query-run": "Running PostHog query",
+
+    "dashboards-get-all": "Listing dashboards",
+    "dashboard-get": "Reading dashboard {dashboardId}",
+    "dashboard-create": "Creating dashboard",
+    "dashboard-update": "Updating dashboard {dashboardId}",
+    "dashboard-delete": "Deleting dashboard {dashboardId}",
+    "add-insight-to-dashboard": "Adding insight to dashboard",
+
+    "get-llm-total-costs-for-project": "Reading LLM costs for project {projectId}",
+
+    "surveys-get-all": "Listing surveys",
+    "survey-get": "Reading survey {surveyId}",
+    "survey-create": "Creating survey {name|…}",
+    "survey-update": "Updating survey {surveyId}",
+    "survey-delete": "Deleting survey {surveyId}",
+    "surveys-global-stats": "Reading global survey stats",
+    "survey-stats": "Reading survey stats {survey_id}"
+  }
+}
