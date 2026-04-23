@@ -51,6 +51,11 @@ export const CLACK_CORE_TOOL_NAMES: readonly string[] = [
   "admin_list_error_reports",
   "admin_read_error_report",
   "admin_delete_message",
+  "list_auto_respond_rules",
+  "add_auto_respond_rule",
+  "update_auto_respond_rule",
+  "toggle_auto_respond_rule",
+  "delete_auto_respond_rule",
   // Scheduled-message tools
   "schedule_reminder",
   "list_reminders",

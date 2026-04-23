@@ -113,38 +113,54 @@ export async function addRule(
   return rule;
 }
 
+/**
+ * Partial patch for an existing rule. Semantics:
+ * - Omitted keys preserve the current value.
+ * - `extraContext` / `preAnalysisContext` set to an empty string (or whitespace-only) clear the field.
+ * - `keywords` / `userFilters` set to an empty array clear the field.
+ */
+export type AutoRespondRulePatch = Partial<Omit<AutoRespondRule, "id" | "enabled">>;
+
 export async function updateRule(
   ruleId: string,
-  channels: string[],
-  userFilters?: string[],
-  keywords?: string[],
-  extraContext?: string,
-  preAnalysisContext?: string,
+  patch: AutoRespondRulePatch,
 ): Promise<AutoRespondRule | null> {
   const rules = await loadRules();
   const rule = rules.find((r) => r.id === ruleId);
   if (!rule) return null;
 
-  rule.channels = channels;
-  if (userFilters && userFilters.length > 0) {
-    rule.userFilters = userFilters;
-  } else {
-    delete rule.userFilters;
+  if (patch.channels !== undefined) {
+    rule.channels = patch.channels;
   }
-  if (keywords && keywords.length > 0) {
-    rule.keywords = keywords;
-  } else {
-    delete rule.keywords;
+  if (patch.userFilters !== undefined) {
+    if (patch.userFilters.length > 0) {
+      rule.userFilters = patch.userFilters;
+    } else {
+      delete rule.userFilters;
+    }
   }
-  if (extraContext?.trim()) {
-    rule.extraContext = extraContext.trim();
-  } else {
-    delete rule.extraContext;
+  if (patch.keywords !== undefined) {
+    if (patch.keywords.length > 0) {
+      rule.keywords = patch.keywords;
+    } else {
+      delete rule.keywords;
+    }
   }
-  if (preAnalysisContext?.trim()) {
-    rule.preAnalysisContext = preAnalysisContext.trim();
-  } else {
-    delete rule.preAnalysisContext;
+  if (patch.extraContext !== undefined) {
+    const trimmed = patch.extraContext.trim();
+    if (trimmed) {
+      rule.extraContext = trimmed;
+    } else {
+      delete rule.extraContext;
+    }
+  }
+  if (patch.preAnalysisContext !== undefined) {
+    const trimmed = patch.preAnalysisContext.trim();
+    if (trimmed) {
+      rule.preAnalysisContext = trimmed;
+    } else {
+      delete rule.preAnalysisContext;
+    }
   }
 
   await saveState({ rules });

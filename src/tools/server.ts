@@ -63,6 +63,11 @@ import { createCreateScheduledMessageTool } from "./actions/createScheduledMessa
 import { createCancelScheduledMessageTool } from "./actions/cancelScheduledMessage.js";
 import { createUpdateScheduledMessageTool } from "./actions/updateScheduledMessage.js";
 import { createCancelWorkerRunTool } from "./actions/cancelWorkerRun.js";
+import { createAddAutoRespondRuleTool } from "./actions/addAutoRespondRule.js";
+import { createUpdateAutoRespondRuleTool } from "./actions/updateAutoRespondRule.js";
+import { createToggleAutoRespondRuleTool } from "./actions/toggleAutoRespondRule.js";
+import { createDeleteAutoRespondRuleTool } from "./actions/deleteAutoRespondRule.js";
+import { createListAutoRespondRulesTool } from "./query/listAutoRespondRules.js";
 
 // Admin tools
 import { createAdminReadFileTool } from "./admin/adminReadFile.js";
@@ -383,6 +388,11 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
     tools.push(createReadErrorReportTool());
     if (ctx.slackClient) {
       tools.push(createAdminDeleteMessageTool(ctx));
+      tools.push(createListAutoRespondRulesTool(ctx));
+      tools.push(createAddAutoRespondRuleTool(ctx));
+      tools.push(createUpdateAutoRespondRuleTool(ctx));
+      tools.push(createToggleAutoRespondRuleTool(ctx));
+      tools.push(createDeleteAutoRespondRuleTool(ctx));
     }
   }
 

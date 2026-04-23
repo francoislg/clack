@@ -821,14 +821,20 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
     const keywords = parseKeywords(keywordsRaw);
     const extraContext = view.state.values.extra_context_block?.extra_context?.value;
     const preAnalysisContext = view.state.values.pre_analysis_block?.pre_analysis_context?.value;
-    await deps.updateRule(
-      ruleId,
+    const updated = await deps.updateRule(ruleId, {
       channels,
-      users && users.length > 0 ? users : undefined,
-      keywords,
-      extraContext ?? undefined,
-      preAnalysisContext ?? undefined,
-    );
+      userFilters: users ?? [],
+      keywords: keywords ?? [],
+      extraContext: extraContext ?? "",
+      preAnalysisContext: preAnalysisContext ?? "",
+    });
+    if (!updated) {
+      await ack({
+        response_action: "errors",
+        errors: { channels_block: "Rule no longer exists (it may have been deleted)" },
+      });
+      return;
+    }
     await ack();
     await publishHomeView(client, body.user.id, deps);
   });
