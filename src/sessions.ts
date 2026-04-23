@@ -233,6 +233,12 @@ export interface SessionContext {
     error?: string;
     timestamp: number;
   }>;
+  /**
+   * Skills loaded in this session via `load_skill`. Each entry is a (pack, skill)
+   * pair. Persisted so resumed turns short-circuit repeated loads of the same
+   * skill. Absent/empty means no lazy skills have been loaded yet.
+   */
+  loadedSkills?: Array<{ pack: string; skill: string }>;
 }
 
 function generateSessionId(channelId: string, messageTs: string, userId: string): string {

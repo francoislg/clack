@@ -9,7 +9,7 @@ import { listInstructionFiles } from "../configurationFiles.js";
 import { getReactionDelivery, getUserPreference } from "../userPreferences.js";
 import { getVisibleRepos, canWriteRepo } from "../repoAccess.js";
 import { getMigrationErrors } from "../migrations/admin.js";
-import { discoverPluginInfo } from "../plugins.js";
+import { discoverSkillPluginInfo } from "../skillPlugins.js";
 import { getRules, type AutoRespondRule } from "../autoRespond.js";
 import { getJobs, getJobsByUser, type CronJob } from "../cronJobs.js";
 import { humanReadableSchedule } from "../cronScheduler.js";
@@ -17,7 +17,7 @@ import { truncate } from "../text.js";
 import type { ActiveWorker } from "../changes/activeState.js";
 import type { InstructionFileListing } from "../configurationFiles.js";
 import type { Config, RepositoryConfig } from "../config.js";
-import type { PluginInfo } from "../plugins.js";
+import type { SkillPluginInfo } from "../skillPlugins.js";
 import type { MigrationError } from "../migrations/types.js";
 import { getLoadedPlugins } from "../plugins/state.js";
 
@@ -52,7 +52,7 @@ export interface HomeTabDeps {
   getVisibleRepos: (role: UserRole, repos: RepositoryConfig[]) => RepositoryConfig[];
   canWriteRepo: (role: UserRole, repo: RepositoryConfig) => boolean;
   getMigrationErrors: () => MigrationError[];
-  discoverPluginInfo: () => PluginInfo[];
+  discoverSkillPluginInfo: () => SkillPluginInfo[];
   getLoadedClackPlugins: () => ClackPluginSummary[];
   getRules: () => Promise<AutoRespondRule[]>;
   getJobs: () => Promise<CronJob[]>;
@@ -77,9 +77,12 @@ export const defaultHomeTabDeps: HomeTabDeps = {
   getVisibleRepos,
   canWriteRepo,
   getMigrationErrors,
-  discoverPluginInfo,
+  discoverSkillPluginInfo,
   getLoadedClackPlugins: () =>
-    getLoadedPlugins().results.map((r) => ({ name: r.name, toolCount: r.tools.length })),
+    getLoadedPlugins().results.map((r) => ({
+      name: r.name,
+      toolCount: r.tools.length,
+    })),
   getRules,
   getJobs,
   getJobsByUser,
@@ -430,7 +433,11 @@ export function buildConfigurationSection(
     for (const [repoName] of repoGroups) {
       buttons.push({
         type: "button",
-        text: { type: "plain_text", text: `:file_folder: Edit ${repoName} Config`, emoji: true },
+        text: {
+          type: "plain_text",
+          text: `:file_folder: Edit ${repoName} Config`,
+          emoji: true,
+        },
         action_id: `view_config_dir:${repoName}`,
         value: repoName,
       });
@@ -440,7 +447,11 @@ export function buildConfigurationSection(
   // Personal Preferences button — always visible
   buttons.push({
     type: "button",
-    text: { type: "plain_text", text: ":gear: Personal Preferences", emoji: true },
+    text: {
+      type: "plain_text",
+      text: ":gear: Personal Preferences",
+      emoji: true,
+    },
     action_id: "open_settings",
   });
 
@@ -550,16 +561,29 @@ export function buildStatusSection(
   }
 
   // SDK Skill Plugins (Claude Code skill packs from data/skill-plugins/)
-  const skillPlugins = deps.discoverPluginInfo();
+  // Split into eager (passed via --plugin-dir at session start) and lazy
+  // (excluded from baseline; loaded on demand via list_skill_pack_skills /
+  // load_skill). Mirrors the MCP Always/On-demand split.
+  const skillPlugins = deps.discoverSkillPluginInfo();
   if (skillPlugins.length > 0) {
-    const pluginList = skillPlugins
-      .map((p) => `• *${p.name}*${p.skillCount > 0 ? ` (${p.skillCount} skills)` : ""}`)
+    const format = (p: SkillPluginInfo) =>
+      `• *${p.name}*${p.skillCount > 0 ? ` (${p.skillCount} skills)` : ""}`;
+    const eager = skillPlugins
+      .filter((p) => !p.lazyLoad)
+      .map(format)
       .join("\n");
+    const lazy = skillPlugins
+      .filter((p) => p.lazyLoad)
+      .map(format)
+      .join("\n");
+    const sections: string[] = [];
+    if (eager) sections.push(`_Eager (always loaded):_\n${eager}`);
+    if (lazy) sections.push(`_Lazy (on-demand via load_skill):_\n${lazy}`);
     blocks.push({
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `:jigsaw: *Skill Plugins:*\n${pluginList}`,
+        text: `:jigsaw: *Skill Plugins:*\n${sections.join("\n\n")}`,
       },
     });
   }
@@ -1218,7 +1242,10 @@ async function buildAutoRespondSection(
 
       blocks.push({
         type: "section",
-        text: { type: "mrkdwn", text: `${channels}${users}${keywords}${preAnalysis}${status}` },
+        text: {
+          type: "mrkdwn",
+          text: `${channels}${users}${keywords}${preAnalysis}${status}`,
+        },
         accessory: {
           type: "button",
           text: { type: "plain_text", text: "Edit" },
@@ -1270,7 +1297,10 @@ export function buildAutoRespondModal(rule?: AutoRespondRule): View {
         type: "multi_users_select",
         action_id: "users",
         ...(rule?.userFilters && { initial_users: rule.userFilters }),
-        placeholder: { type: "plain_text", text: "Leave empty to match all messages" },
+        placeholder: {
+          type: "plain_text",
+          text: "Leave empty to match all messages",
+        },
       },
     },
     {
@@ -1282,7 +1312,10 @@ export function buildAutoRespondModal(rule?: AutoRespondRule): View {
         type: "plain_text_input",
         action_id: "keywords",
         ...(rule?.keywords && { initial_value: rule.keywords.join(", ") }),
-        placeholder: { type: "plain_text", text: "e.g., CRITICAL, timeout, OOM — comma-separated" },
+        placeholder: {
+          type: "plain_text",
+          text: "e.g., CRITICAL, timeout, OOM — comma-separated",
+        },
       },
     },
     {
@@ -1310,7 +1343,9 @@ export function buildAutoRespondModal(rule?: AutoRespondRule): View {
         type: "plain_text_input",
         action_id: "pre_analysis_context",
         multiline: true,
-        ...(rule?.preAnalysisContext && { initial_value: rule.preAnalysisContext }),
+        ...(rule?.preAnalysisContext && {
+          initial_value: rule.preAnalysisContext,
+        }),
         placeholder: {
           type: "plain_text",
           text: "e.g., Only respond if this is an actionable error — leave empty to skip pre-analysis",
@@ -1341,7 +1376,10 @@ export function buildAutoRespondModal(rule?: AutoRespondRule): View {
       elements: [
         {
           type: "button",
-          text: { type: "plain_text", text: rule.enabled ? "Disable Rule" : "Enable Rule" },
+          text: {
+            type: "plain_text",
+            text: rule.enabled ? "Disable Rule" : "Enable Rule",
+          },
           action_id: `ai_toggle_rule:${rule.id}`,
         },
         {
@@ -1450,7 +1488,10 @@ export function buildCronJobModal(job?: CronJob): View {
         type: "plain_text_input",
         action_id: "cron_expression",
         ...(job?.cronExpression && { initial_value: job.cronExpression }),
-        placeholder: { type: "plain_text", text: "e.g. 0 9 * * * (daily at 9am)" },
+        placeholder: {
+          type: "plain_text",
+          text: "e.g. 0 9 * * * (daily at 9am)",
+        },
       },
       hint: {
         type: "plain_text",
@@ -1526,7 +1567,10 @@ export function buildCronJobModal(job?: CronJob): View {
         },
         {
           type: "button",
-          text: { type: "plain_text", text: job.enabled ? "Disable" : "Enable" },
+          text: {
+            type: "plain_text",
+            text: job.enabled ? "Disable" : "Enable",
+          },
           action_id: `cron_toggle_job:${job.id}`,
         },
         {
@@ -1553,7 +1597,10 @@ export function buildCronJobModal(job?: CronJob): View {
     type: "modal",
     callback_id: isEdit ? "cron_edit_job_modal" : "cron_add_job_modal",
     private_metadata: isEdit ? job.id : "",
-    title: { type: "plain_text", text: isEdit ? "Edit Schedule" : "Add Schedule" },
+    title: {
+      type: "plain_text",
+      text: isEdit ? "Edit Schedule" : "Add Schedule",
+    },
     submit: { type: "plain_text", text: "Save" },
     close: { type: "plain_text", text: "Cancel" },
     blocks,

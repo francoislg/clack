@@ -1,30 +1,33 @@
 import { describe, it, beforeEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import {
-  discoverPluginInfo,
-  discoverPlugins,
-  setPluginsDeps,
-  resetPluginsDeps,
-  type PluginsDeps,
-} from "./plugins.js";
+  discoverSkillPluginInfo,
+  discoverSkillPlugins,
+  discoverEagerSkillPlugins,
+  setSkillPluginsDeps,
+  resetSkillPluginsDeps,
+  type SkillPluginsDeps,
+} from "./skillPlugins.js";
 
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
 
-const mockExistsSync = mock.fn<(path: string) => boolean>();
-const mockReaddirSync = mock.fn<(path: string) => string[]>();
-const mockReadFileSync = mock.fn<(path: string, encoding: string) => string>();
-const mockStatSync = mock.fn<(path: string) => { isDirectory: () => boolean }>();
-const mockGetDataDir = mock.fn<() => string>();
+const mockExistsSync = mock.fn<SkillPluginsDeps["existsSync"]>();
+const mockReaddirSync = mock.fn<SkillPluginsDeps["readdirSync"]>();
+const mockReadFileSync = mock.fn<SkillPluginsDeps["readFileSync"]>();
+const mockStatSync = mock.fn<SkillPluginsDeps["statSync"]>();
+const mockGetDataDir = mock.fn<SkillPluginsDeps["getDataDir"]>();
+const mockGetConfig = mock.fn<SkillPluginsDeps["getConfig"]>();
 
-function makeDeps(): PluginsDeps {
+function makeDeps(): SkillPluginsDeps {
   return {
-    existsSync: mockExistsSync as PluginsDeps["existsSync"],
-    readdirSync: mockReaddirSync as Function as PluginsDeps["readdirSync"],
-    readFileSync: mockReadFileSync as Function as PluginsDeps["readFileSync"],
-    statSync: mockStatSync as Function as PluginsDeps["statSync"],
+    existsSync: mockExistsSync,
+    readdirSync: mockReaddirSync,
+    readFileSync: mockReadFileSync,
+    statSync: mockStatSync,
     getDataDir: mockGetDataDir,
+    getConfig: mockGetConfig,
   };
 }
 
@@ -38,37 +41,42 @@ function resetMocks(): void {
   mockReadFileSync.mock.resetCalls();
   mockStatSync.mock.resetCalls();
   mockGetDataDir.mock.resetCalls();
+  mockGetConfig.mock.resetCalls();
 
   mockGetDataDir.mock.mockImplementation(() => "/fake/data");
   mockExistsSync.mock.mockImplementation(() => false);
   mockReaddirSync.mock.mockImplementation(() => []);
   mockReadFileSync.mock.mockImplementation(() => "{}");
   mockStatSync.mock.mockImplementation(() => ({ isDirectory: () => false }));
+  // Default: config throws (simulates "config not loaded") — discover* treats as no registry.
+  mockGetConfig.mock.mockImplementation(() => {
+    throw new Error("Config not loaded");
+  });
 
-  resetPluginsDeps();
+  resetSkillPluginsDeps();
 }
 
 // ---------------------------------------------------------------------------
-// discoverPluginInfo
+// discoverSkillPluginInfo
 // ---------------------------------------------------------------------------
 
-describe("discoverPluginInfo", () => {
+describe("discoverSkillPluginInfo", () => {
   beforeEach(resetMocks);
 
   it("returns empty array when plugins directory does not exist", () => {
     mockExistsSync.mock.mockImplementation(() => false);
-    setPluginsDeps(makeDeps());
+    setSkillPluginsDeps(makeDeps());
 
-    const result = discoverPluginInfo();
+    const result = discoverSkillPluginInfo();
     assert.deepEqual(result, []);
   });
 
   it("returns empty array when plugins directory is empty", () => {
     mockExistsSync.mock.mockImplementation((p: string) => p === "/fake/data/skill-plugins");
     mockReaddirSync.mock.mockImplementation(() => []);
-    setPluginsDeps(makeDeps());
+    setSkillPluginsDeps(makeDeps());
 
-    const result = discoverPluginInfo();
+    const result = discoverSkillPluginInfo();
     assert.deepEqual(result, []);
   });
 
@@ -76,9 +84,9 @@ describe("discoverPluginInfo", () => {
     mockExistsSync.mock.mockImplementation((p: string) => p === "/fake/data/skill-plugins");
     mockReaddirSync.mock.mockImplementation(() => ["somefile.txt"]);
     mockStatSync.mock.mockImplementation(() => ({ isDirectory: () => false }));
-    setPluginsDeps(makeDeps());
+    setSkillPluginsDeps(makeDeps());
 
-    const result = discoverPluginInfo();
+    const result = discoverSkillPluginInfo();
     assert.deepEqual(result, []);
   });
 
@@ -93,9 +101,9 @@ describe("discoverPluginInfo", () => {
     mockStatSync.mock.mockImplementation((p: string) => ({
       isDirectory: () => p === "/fake/data/skill-plugins/my-plugin",
     }));
-    setPluginsDeps(makeDeps());
+    setSkillPluginsDeps(makeDeps());
 
-    const result = discoverPluginInfo();
+    const result = discoverSkillPluginInfo();
     assert.deepEqual(result, []);
   });
 
@@ -110,9 +118,9 @@ describe("discoverPluginInfo", () => {
       isDirectory: () => p === "/fake/data/skill-plugins/awesome",
     }));
     mockReadFileSync.mock.mockImplementation(() => JSON.stringify({ name: "Awesome Plugin" }));
-    setPluginsDeps(makeDeps());
+    setSkillPluginsDeps(makeDeps());
 
-    const result = discoverPluginInfo();
+    const result = discoverSkillPluginInfo();
     assert.equal(result.length, 1);
     assert.equal(result[0].name, "Awesome Plugin");
     assert.equal(result[0].path, "/fake/data/skill-plugins/awesome");
@@ -130,9 +138,9 @@ describe("discoverPluginInfo", () => {
       isDirectory: () => p === "/fake/data/skill-plugins/market",
     }));
     mockReadFileSync.mock.mockImplementation(() => JSON.stringify({ name: "Market Plugin" }));
-    setPluginsDeps(makeDeps());
+    setSkillPluginsDeps(makeDeps());
 
-    const result = discoverPluginInfo();
+    const result = discoverSkillPluginInfo();
     assert.equal(result.length, 1);
     assert.equal(result[0].name, "Market Plugin");
   });
@@ -149,9 +157,9 @@ describe("discoverPluginInfo", () => {
       isDirectory: () => p === "/fake/data/skill-plugins/both",
     }));
     mockReadFileSync.mock.mockImplementation(() => JSON.stringify({ name: "Plugin JSON Name" }));
-    setPluginsDeps(makeDeps());
+    setSkillPluginsDeps(makeDeps());
 
-    const result = discoverPluginInfo();
+    const result = discoverSkillPluginInfo();
     assert.equal(result.length, 1);
     // readFileSync should be called with plugin.json path, not marketplace.json
     const readPath = mockReadFileSync.mock.calls[0].arguments[0];
@@ -169,9 +177,9 @@ describe("discoverPluginInfo", () => {
       isDirectory: () => p === "/fake/data/skill-plugins/fallback-name",
     }));
     mockReadFileSync.mock.mockImplementation(() => JSON.stringify({}));
-    setPluginsDeps(makeDeps());
+    setSkillPluginsDeps(makeDeps());
 
-    const result = discoverPluginInfo();
+    const result = discoverSkillPluginInfo();
     assert.equal(result.length, 1);
     assert.equal(result[0].name, "fallback-name");
   });
@@ -192,9 +200,9 @@ describe("discoverPluginInfo", () => {
         plugins: [{ skills: ["skill-a", "skill-b", "skill-c"] }],
       }),
     );
-    setPluginsDeps(makeDeps());
+    setSkillPluginsDeps(makeDeps());
 
-    const result = discoverPluginInfo();
+    const result = discoverSkillPluginInfo();
     assert.equal(result.length, 1);
     assert.equal(result[0].skillCount, 3);
   });
@@ -225,9 +233,9 @@ describe("discoverPluginInfo", () => {
       return { isDirectory: () => false };
     });
     mockReadFileSync.mock.mockImplementation(() => JSON.stringify({ name: "Dir Skills Plugin" }));
-    setPluginsDeps(makeDeps());
+    setSkillPluginsDeps(makeDeps());
 
-    const result = discoverPluginInfo();
+    const result = discoverSkillPluginInfo();
     assert.equal(result.length, 1);
     assert.equal(result[0].skillCount, 2);
   });
@@ -243,9 +251,9 @@ describe("discoverPluginInfo", () => {
       isDirectory: () => p === "/fake/data/skill-plugins/broken",
     }));
     mockReadFileSync.mock.mockImplementation(() => "{ not valid json }}}");
-    setPluginsDeps(makeDeps());
+    setSkillPluginsDeps(makeDeps());
 
-    const result = discoverPluginInfo();
+    const result = discoverSkillPluginInfo();
     assert.equal(result.length, 1);
     assert.equal(result[0].name, "broken"); // falls back to dir name
     assert.equal(result[0].skillCount, 0);
@@ -272,9 +280,9 @@ describe("discoverPluginInfo", () => {
       if (p.includes("alpha")) return JSON.stringify({ name: "Alpha" });
       return JSON.stringify({ name: "Beta" });
     });
-    setPluginsDeps(makeDeps());
+    setSkillPluginsDeps(makeDeps());
 
-    const result = discoverPluginInfo();
+    const result = discoverSkillPluginInfo();
     assert.equal(result.length, 2);
     assert.equal(result[0].name, "Alpha");
     assert.equal(result[1].name, "Beta");
@@ -282,17 +290,17 @@ describe("discoverPluginInfo", () => {
 });
 
 // ---------------------------------------------------------------------------
-// discoverPlugins
+// discoverSkillPlugins
 // ---------------------------------------------------------------------------
 
-describe("discoverPlugins", () => {
+describe("discoverSkillPlugins", () => {
   beforeEach(resetMocks);
 
   it("returns empty array when no plugins found", () => {
     mockExistsSync.mock.mockImplementation(() => false);
-    setPluginsDeps(makeDeps());
+    setSkillPluginsDeps(makeDeps());
 
-    const result = discoverPlugins();
+    const result = discoverSkillPlugins();
     assert.deepEqual(result, []);
   });
 
@@ -307,11 +315,123 @@ describe("discoverPlugins", () => {
       isDirectory: () => p === "/fake/data/skill-plugins/my-plugin",
     }));
     mockReadFileSync.mock.mockImplementation(() => JSON.stringify({ name: "My Plugin" }));
-    setPluginsDeps(makeDeps());
+    setSkillPluginsDeps(makeDeps());
 
-    const result = discoverPlugins();
+    const result = discoverSkillPlugins();
     assert.equal(result.length, 1);
     assert.equal(result[0].type, "local");
     assert.equal(result[0].path, "/fake/data/skill-plugins/my-plugin");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// lazyLoad field + discoverEagerSkillPlugins
+// ---------------------------------------------------------------------------
+
+function setupTwoPlugins() {
+  const existingPaths = new Set([
+    "/fake/data/skill-plugins",
+    "/fake/data/skill-plugins/marketingskills/.claude-plugin/plugin.json",
+    "/fake/data/skill-plugins/devtools/.claude-plugin/plugin.json",
+  ]);
+  mockExistsSync.mock.mockImplementation((p: string) => existingPaths.has(p));
+  mockReaddirSync.mock.mockImplementation(() => ["marketingskills", "devtools"]);
+  mockStatSync.mock.mockImplementation((p: string) => ({
+    isDirectory: () =>
+      p === "/fake/data/skill-plugins/marketingskills" || p === "/fake/data/skill-plugins/devtools",
+  }));
+  mockReadFileSync.mock.mockImplementation((p: string) => {
+    if (p.includes("marketingskills")) return JSON.stringify({ name: "marketingskills" });
+    return JSON.stringify({ name: "devtools" });
+  });
+}
+
+describe("discoverSkillPluginInfo — lazyLoad field", () => {
+  beforeEach(resetMocks);
+
+  it("defaults lazyLoad to false when config.skillPlugins is absent", () => {
+    setupTwoPlugins();
+    mockGetConfig.mock.mockImplementation(() => ({ skillPlugins: undefined }));
+    setSkillPluginsDeps(makeDeps());
+
+    const result = discoverSkillPluginInfo();
+    assert.equal(result.length, 2);
+    assert.equal(result[0].lazyLoad, false);
+    assert.equal(result[1].lazyLoad, false);
+  });
+
+  it("sets lazyLoad: true for plugins tagged in the registry", () => {
+    setupTwoPlugins();
+    mockGetConfig.mock.mockImplementation(() => ({
+      skillPlugins: {
+        marketingskills: { lazyLoad: true, description: "Marketing pack" },
+      },
+    }));
+    setSkillPluginsDeps(makeDeps());
+
+    const result = discoverSkillPluginInfo();
+    const mk = result.find((p) => p.name === "marketingskills");
+    const dt = result.find((p) => p.name === "devtools");
+    assert.ok(mk);
+    assert.ok(dt);
+    assert.equal(mk.lazyLoad, true);
+    assert.equal(dt.lazyLoad, false);
+  });
+
+  it("falls back to lazyLoad: false when getConfig throws", () => {
+    setupTwoPlugins();
+    mockGetConfig.mock.mockImplementation(() => {
+      throw new Error("Config not loaded");
+    });
+    setSkillPluginsDeps(makeDeps());
+
+    const result = discoverSkillPluginInfo();
+    assert.equal(result.length, 2);
+    for (const p of result) assert.equal(p.lazyLoad, false);
+  });
+});
+
+describe("discoverEagerSkillPlugins", () => {
+  beforeEach(resetMocks);
+
+  it("returns empty array when no plugins found", () => {
+    mockExistsSync.mock.mockImplementation(() => false);
+    setSkillPluginsDeps(makeDeps());
+
+    assert.deepEqual(discoverEagerSkillPlugins(), []);
+  });
+
+  it("excludes lazy-tagged plugins from the SDK plugin set", () => {
+    setupTwoPlugins();
+    mockGetConfig.mock.mockImplementation(() => ({
+      skillPlugins: {
+        marketingskills: { lazyLoad: true, description: "Marketing pack" },
+      },
+    }));
+    setSkillPluginsDeps(makeDeps());
+
+    const result = discoverEagerSkillPlugins();
+    assert.equal(result.length, 1);
+    assert.equal(result[0].path, "/fake/data/skill-plugins/devtools");
+  });
+
+  it("includes all plugins when config has no lazy tags", () => {
+    setupTwoPlugins();
+    mockGetConfig.mock.mockImplementation(() => ({ skillPlugins: undefined }));
+    setSkillPluginsDeps(makeDeps());
+
+    const result = discoverEagerSkillPlugins();
+    assert.equal(result.length, 2);
+  });
+
+  it("falls back to eager (all plugins) when config is unavailable", () => {
+    setupTwoPlugins();
+    mockGetConfig.mock.mockImplementation(() => {
+      throw new Error("Config not loaded");
+    });
+    setSkillPluginsDeps(makeDeps());
+
+    const result = discoverEagerSkillPlugins();
+    assert.equal(result.length, 2);
   });
 });

@@ -5,6 +5,7 @@ import type { Config } from "../config.js";
 import type { SlackImageFile, SlackFile } from "../slack/slackFileBase.js";
 import type { QueryToolContext, WorkerToolContext, DeliverFn } from "./types.js";
 import type { McpServerManager } from "../claude/mcpServerManager.js";
+import type { SkillsManager } from "../claude/skillsManager.js";
 
 export interface BuildQueryContextParams {
   userId: string;
@@ -25,6 +26,12 @@ export interface BuildQueryContextParams {
    * on every `setMcpServers` call. Bound to the SDK Query by the orchestrator.
    */
   mcpManager?: McpServerManager;
+  /**
+   * Lazy skill-pack manager for this session. Owns per-pack skill metadata and
+   * the session's `loadedSkills` set. Consumed by `list_skill_pack_skills` and
+   * `load_skill`. Absent in worker mode.
+   */
+  skillsManager?: SkillsManager;
 }
 
 export function buildQueryContext(params: BuildQueryContextParams): QueryToolContext {

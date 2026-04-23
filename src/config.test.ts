@@ -638,6 +638,107 @@ describe("loadConfig", () => {
 
     assert.throws(() => loadConfig(configPath, true), /'mcpServers\.metabase' must be an object/);
   });
+
+  it("parses a valid skillPlugins registry", () => {
+    writeSlackAuth();
+    writeConfig(
+      minimalConfig({
+        skillPlugins: {
+          marketingskills: { lazyLoad: true, description: "Marketing playbooks" },
+          othersskills: { lazyLoad: false },
+        },
+      }),
+    );
+
+    const cfg = loadConfig(configPath, true);
+
+    assert.deepEqual(cfg.skillPlugins, {
+      marketingskills: { lazyLoad: true, description: "Marketing playbooks" },
+      othersskills: { lazyLoad: false, description: "" },
+    });
+  });
+
+  it("treats skillPlugins as optional", () => {
+    writeSlackAuth();
+    writeConfig(minimalConfig());
+
+    const cfg = loadConfig(configPath, true);
+
+    assert.equal(cfg.skillPlugins, undefined);
+  });
+
+  it("throws when skillPlugins is not an object", () => {
+    writeSlackAuth();
+    writeConfig(
+      minimalConfig({
+        skillPlugins: ["marketingskills"],
+      }),
+    );
+
+    assert.throws(() => loadConfig(configPath, true), /Config 'skillPlugins' must be an object/);
+  });
+
+  it("throws when a skillPlugins entry is missing lazyLoad", () => {
+    writeSlackAuth();
+    writeConfig(
+      minimalConfig({
+        skillPlugins: {
+          marketingskills: { description: "Marketing playbooks" },
+        },
+      }),
+    );
+
+    assert.throws(
+      () => loadConfig(configPath, true),
+      /'skillPlugins\.marketingskills\.lazyLoad' must be a boolean/,
+    );
+  });
+
+  it("throws when a skillPlugins entry has non-string description", () => {
+    writeSlackAuth();
+    writeConfig(
+      minimalConfig({
+        skillPlugins: {
+          marketingskills: { lazyLoad: false, description: 42 },
+        },
+      }),
+    );
+
+    assert.throws(
+      () => loadConfig(configPath, true),
+      /'skillPlugins\.marketingskills\.description' must be a string if provided/,
+    );
+  });
+
+  it("throws when a skillPlugins entry is not an object", () => {
+    writeSlackAuth();
+    writeConfig(
+      minimalConfig({
+        skillPlugins: { marketingskills: "lazy" },
+      }),
+    );
+
+    assert.throws(
+      () => loadConfig(configPath, true),
+      /'skillPlugins\.marketingskills' must be an object/,
+    );
+  });
+
+  it("throws when a lazy skillPlugins entry has no description", () => {
+    writeSlackAuth();
+    writeConfig(
+      minimalConfig({
+        skillPlugins: {
+          marketingskills: { lazyLoad: true },
+        },
+      }),
+    );
+
+    assert.throws(
+      () => loadConfig(configPath, true),
+      /'skillPlugins\.marketingskills\.description' must be a non-empty string when lazyLoad is true/,
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------

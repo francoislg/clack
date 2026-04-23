@@ -23,7 +23,8 @@ import type { SlackBlocks } from "../slack/blocks.js";
 import { extractDisplayText } from "../slack/blockText.js";
 import { buildQueryContext } from "../tools/context.js";
 import { buildClackTools } from "../tools/server.js";
-import { discoverPlugins } from "../plugins.js";
+import { discoverEagerSkillPlugins, discoverSkillPluginInfo } from "../skillPlugins.js";
+import { prepareSkillsSession } from "./skillsManager.js";
 
 export interface ConversationMessage {
   type: string;
@@ -163,7 +164,17 @@ async function buildQuerySetup(
   const mcpSetup = await prepareMcpSession(session, config);
 
   const systemPrompt = buildSystemPrompt(options);
-  const userPrompt = buildPrompt(session, { ...options, mcpRegistry: mcpSetup.registry });
+  const userPrompt = buildPrompt(session, {
+    ...options,
+    mcpRegistry: mcpSetup.registry,
+    skillPluginsRegistry: config.skillPlugins,
+  });
+
+  const skillsManager = prepareSkillsSession(
+    session,
+    discoverSkillPluginInfo(),
+    config.skillPlugins,
+  );
 
   const toolCtx = buildQueryContext({
     userId: session.userId,
@@ -179,6 +190,7 @@ async function buildQuerySetup(
     requiredTools: options?.requiredTools,
     skipConditions: options?.skipConditions,
     mcpManager: mcpSetup.manager,
+    skillsManager,
   });
   const clackTools = buildClackTools(toolCtx);
 
@@ -384,7 +396,7 @@ export async function askClaude(
         model,
         permissionMode: "bypassPermissions",
         tools: ["Read", "Glob", "Grep", "Skill", "WebSearch"],
-        plugins: discoverPlugins(),
+        plugins: discoverEagerSkillPlugins(),
         mcpServers,
         stderr: (data) => stderrLines.push(data),
         ...(options?.abortController && { abortController: options.abortController }),

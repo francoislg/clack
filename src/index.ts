@@ -7,7 +7,7 @@ import { logger } from "./logger.js";
 import { initializeRepositories, syncAllRepositories } from "./repositories.js";
 import { createSlackApp, startSlackApp, stopSlackApp } from "./slack/app.js";
 import { ensureWorktreeDirectories, cleanupWorktrees } from "./worktrees.js";
-import { discoverPluginInfo } from "./plugins.js";
+import { discoverSkillPluginInfo } from "./skillPlugins.js";
 import { loadPlugins } from "./plugins/registry.js";
 import { setLoadedPlugins } from "./plugins/state.js";
 import { restoreWorkerSessions } from "./changes/restore.js";
@@ -18,7 +18,7 @@ import { runBlockingMigrations, runEnhancementMigrations } from "./migrations/bo
 import { startAll, stopAll } from "./lifecycle.js";
 import { setFailedMcpServers } from "./mcpStatus.js";
 import { diagnoseMcpServer, type DiagnosableConfig } from "./mcpDiagnose.js";
-import { loadMcpServers } from "./mcp.js";
+import { loadMcpServers, resolveEffectiveRegistry } from "./mcp.js";
 import { runBaselineSmoke } from "./startupBaselineSmoke.js";
 
 // Load environment variables from .env files (later files don't override earlier ones)
@@ -80,8 +80,25 @@ async function main(): Promise<void> {
     }
     if (mcpResult.configuredServers.length > 0) {
       if (mcpResult.connectedServers.length > 0) {
-        const serverNames = mcpResult.connectedServers.map((s) => s.name).join(", ");
-        logger.info(`MCP servers connected: ${serverNames} (${mcpResult.mcpTools.length} tools)`);
+        const { registry } = resolveEffectiveRegistry({
+          configRegistry: getConfig().mcpServers,
+          mcpServerNames: mcpResult.configuredServers,
+          githubAutoInjected: mcpResult.configuredServers.includes("github"),
+        });
+        const alwaysOn: string[] = [];
+        const lazy: string[] = [];
+        for (const { name } of mcpResult.connectedServers) {
+          // Unknown → default to always (parity with homeTab classification).
+          if (registry[name]?.alwaysLoad !== false) alwaysOn.push(name);
+          else lazy.push(name);
+        }
+        if (alwaysOn.length > 0) {
+          logger.info(`MCP servers always-on: ${alwaysOn.join(", ")}`);
+        }
+        if (lazy.length > 0) {
+          logger.info(`MCP servers lazy (attach on demand): ${lazy.join(", ")}`);
+        }
+        logger.info(`MCP tools discovered: ${mcpResult.mcpTools.length}`);
       }
       if (mcpResult.failedServers.length > 0) {
         const configs = (await loadMcpServers()) ?? {};
@@ -101,11 +118,22 @@ async function main(): Promise<void> {
     // Continue anyway - MCP is optional
   }
 
-  // Step 2.5: Discover plugins
-  const plugins = discoverPluginInfo();
+  // Step 2.5: Discover plugins — split eager (always passed via --plugin-dir) vs
+  // lazy (excluded from baseline; loaded on demand via list_skill_pack_skills /
+  // load_skill). Mirrors the MCP always-on / lazy log shape.
+  const plugins = discoverSkillPluginInfo();
   if (plugins.length > 0) {
-    const pluginSummary = plugins.map((p) => `${p.name} (${p.skillCount} skills)`).join(", ");
-    logger.info(`Plugins loaded: ${pluginSummary}`);
+    const fmt = (p: (typeof plugins)[number]) => `${p.name} (${p.skillCount} skills)`;
+    const eager = plugins
+      .filter((p) => !p.lazyLoad)
+      .map(fmt)
+      .join(", ");
+    const lazy = plugins
+      .filter((p) => p.lazyLoad)
+      .map(fmt)
+      .join(", ");
+    if (eager) logger.info(`Skill plugins always-on: ${eager}`);
+    if (lazy) logger.info(`Skill plugins lazy (load on demand): ${lazy}`);
   }
 
   // Step 3: Initialize and sync repositories

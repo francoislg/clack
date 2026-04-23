@@ -33,6 +33,8 @@
     "remove_reaction": "Removing :{emoji}: reaction",
     "resolve_review_thread": "Resolving review thread",
     "attach_integration": "Attaching {name} integration",
+    "list_skill_pack_skills": "Listing skills in {pack}",
+    "load_skill": "Loading skill {skill} from {pack}",
     "propose_change": "Proposing change {repo}",
     "request_update": "Requesting update",
     "propose_config_update": "Proposing config update",
