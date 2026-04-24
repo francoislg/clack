@@ -1,7 +1,7 @@
 import { type McpServerConfig, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { clackSession } from "./query.js";
 import { getConfig, getRepositoriesDir } from "../config.js";
-import { ClaudeMessageParser, detectPlatformError } from "./messageParser.js";
+import { ClaudeMessageParser, detectPlatformError, isResumeMissingError } from "./messageParser.js";
 import { buildSystemPrompt, buildPrompt } from "./promptBuilder.js";
 import { detectRuntime } from "./utilities.js";
 import { errorMessage } from "../errors.js";
@@ -422,6 +422,13 @@ export async function askClaude(
         if (parser.result.success) {
           answer = parser.result.text || parser.lastAssistantText;
         } else {
+          // Defensive: if a "No conversation found" error ever reaches here, the
+          // clackSession wrapper should already have retried on a fresh session.
+          // Clear sdkSessionId anyway so the user's next turn starts clean
+          // instead of re-resuming the dead ID forever.
+          if (isResumeMissingError(parser.result.error ?? "")) {
+            await updateSession(session.sessionId, { sdkSessionId: undefined });
+          }
           return {
             success: false,
             answer: "",

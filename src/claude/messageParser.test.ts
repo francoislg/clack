@@ -4,6 +4,7 @@ import {
   ClaudeMessageParser,
   detectPlatformError,
   extractToolErrorMessage,
+  isResumeMissingError,
 } from "./messageParser.js";
 import type { StreamEvent } from "../streaming/types.js";
 import type {
@@ -126,6 +127,32 @@ describe("detectPlatformError", () => {
 
   it("returns null for empty string", () => {
     assert.equal(detectPlatformError(""), null);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isResumeMissingError
+// ---------------------------------------------------------------------------
+describe("isResumeMissingError", () => {
+  it("matches the SDK's resume-missing phrasing", () => {
+    assert.equal(
+      isResumeMissingError(
+        "No conversation found with session ID: 639882d6-b817-433e-9dda-ead8d4394657",
+      ),
+      true,
+    );
+  });
+
+  it("matches case-insensitively", () => {
+    assert.equal(isResumeMissingError("no CONVERSATION found with Session ID: abc"), true);
+  });
+
+  it("returns false for unrelated errors", () => {
+    assert.equal(isResumeMissingError("API rate limit exceeded"), false);
+  });
+
+  it("returns false for empty string", () => {
+    assert.equal(isResumeMissingError(""), false);
   });
 });
 

@@ -39,6 +39,15 @@ export function detectPlatformError(text: string): string | null {
 }
 
 /**
+ * True when the text is the SDK's "the session ID you asked to resume doesn't exist"
+ * error. Surfaces both as a yielded non-success `result` message and (rarely) as a
+ * thrown error message.
+ */
+export function isResumeMissingError(errorText: string): boolean {
+  return /No conversation found with session ID/i.test(errorText);
+}
+
+/**
  * Extract a short error message from a tool_result block's content field.
  * Returns undefined if content is empty or not extractable.
  */

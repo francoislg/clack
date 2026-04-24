@@ -48,6 +48,16 @@ function makeResultMessage(text: string) {
   };
 }
 
+function makeResultErrorMessage(errors: string[]) {
+  return {
+    type: "result" as const,
+    subtype: "error_during_execution" as const,
+    errors,
+    session_id: "test-session",
+    uuid: "err-uuid",
+  };
+}
+
 function makeAsyncIterable<T>(items: T[]): never {
   async function* gen() {
     for (const item of items) {
@@ -218,6 +228,76 @@ describe("clackSession", () => {
     assert.equal(secondArgs.options.resume, undefined);
     // Should have captured the new session ID
     assert.equal(capturedId, "new-session-id");
+    assert.equal(messages.length, 2);
+  });
+
+  it("falls back to fresh session when SDK yields a resume-missing result", async () => {
+    let callCount = 0;
+    mockQuery.mock.mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        // First call: SDK yields a non-success result indicating the backend
+        // has no record of the session we asked to resume.
+        return makeAsyncIterable([
+          makeResultErrorMessage(["No conversation found with session ID: broken-session"]),
+        ]);
+      }
+      // Second call (fresh session) succeeds
+      return makeAsyncIterable([makeInitMessage("new-session-id"), makeResultMessage("done")]);
+    });
+
+    let capturedId: string | undefined;
+    const messages: unknown[] = [];
+    for await (const msg of clackSession(
+      {
+        prompt: "test",
+        resumeSessionId: "broken-session",
+        onSessionId: (id) => {
+          capturedId = id;
+        },
+      },
+      makeDeps(),
+    )) {
+      messages.push(msg);
+    }
+
+    // Should have been called twice: failed resume + fresh start
+    assert.equal(mockQuery.mock.callCount(), 2);
+    // Fresh session should not have resume
+    const secondArgs = mockQuery.mock.calls[1]!.arguments[0] as QueryCallArg;
+    assert.equal(secondArgs.options.resume, undefined);
+    // Should have captured the new session ID
+    assert.equal(capturedId, "new-session-id");
+    // Consumer should see only the two messages from the fresh session —
+    // the poisoned result message must not be yielded through.
+    assert.equal(messages.length, 2);
+    assert.deepEqual(messages, [makeInitMessage("new-session-id"), makeResultMessage("done")]);
+  });
+
+  it("surfaces non-resume-missing error results without retrying", async () => {
+    // A regular error_during_execution result (not a resume problem) should
+    // flow through to the consumer, not trigger a fallback.
+    mockQuery.mock.mockImplementation(() =>
+      makeAsyncIterable([
+        makeInitMessage("sess-id"),
+        makeResultErrorMessage(["Something else went wrong"]),
+      ]),
+    );
+
+    const messages: unknown[] = [];
+    for await (const msg of clackSession(
+      {
+        prompt: "test",
+        resumeSessionId: "some-session",
+      },
+      makeDeps(),
+    )) {
+      messages.push(msg);
+    }
+
+    // Single call, no fallback
+    assert.equal(mockQuery.mock.callCount(), 1);
+    // Both messages yielded through
     assert.equal(messages.length, 2);
   });
 
