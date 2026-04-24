@@ -5,7 +5,7 @@ import { errorResult } from "../helpers.js";
 import { loadMcpServer as defaultLoadMcpServer } from "../../mcp.js";
 import {
   buildRoleChain,
-  resolveInstructions as defaultResolveInstructions,
+  resolveTopicFiles as defaultResolveTopicFiles,
 } from "../../cascadingConfigResolver.js";
 import { updateSession as defaultUpdateSession } from "../../sessions.js";
 import type { SessionContext } from "../../sessions.js";
@@ -34,13 +34,13 @@ async function appendAttachHistory(
 
 export interface AttachIntegrationDeps {
   loadMcpServer: typeof defaultLoadMcpServer;
-  resolveInstructions: typeof defaultResolveInstructions;
+  resolveTopicFiles: typeof defaultResolveTopicFiles;
   updateSession: typeof defaultUpdateSession;
 }
 
 export const defaultAttachIntegrationDeps: AttachIntegrationDeps = {
   loadMcpServer: defaultLoadMcpServer,
-  resolveInstructions: defaultResolveInstructions,
+  resolveTopicFiles: defaultResolveTopicFiles,
   updateSession: defaultUpdateSession,
 };
 
@@ -103,9 +103,12 @@ export function createAttachIntegrationTool(
         };
       }
 
-      // Resolve topic instructions from the cascade (role chain × topics/<name>/).
+      // Resolve ONLY the topic-specific instructions from the cascade
+      // (`{role}/topics/<name>/*.md`). Do NOT include baseline files — they are
+      // already in the system prompt. Re-injecting them inflates the tool result
+      // by ~30KB and starves the context window (autocompact thrash).
       const roleChain = buildRoleChain(ctx.role, ctx.changesWorkflowEnabled);
-      const instructions = deps.resolveInstructions(roleChain, new Set([args.name]));
+      const instructions = deps.resolveTopicFiles(roleChain, args.name);
 
       // Two paths: MCP-backed (load + setMcpServers) and instructions-only (no server).
       const serverConfig = await deps.loadMcpServer(args.name);

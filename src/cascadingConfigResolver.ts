@@ -156,8 +156,12 @@ function resolveBaselineFiles(roleChain: RoleDir[], virtualDefaults?: VirtualDef
  *
  * Files within a topic are concatenated in alphabetical filename order and share
  * a single `=== TOPIC: <name> ===` header emitted by the caller.
+ *
+ * Exported so `attach_integration` can inject *only* the topic delta into its tool
+ * result — baseline instructions are already in the system prompt and must not be
+ * duplicated into conversation history (large attach results thrash auto-compact).
  */
-function resolveTopicFiles(
+export function resolveTopicFiles(
   roleChain: RoleDir[],
   topic: string,
   virtualDefaults?: VirtualDefaults,
