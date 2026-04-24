@@ -81,13 +81,13 @@ function makeCtx(overrides: Partial<QueryToolContext> = {}): QueryToolContext {
 }
 
 type LoadMcpServerFn = AttachIntegrationDeps["loadMcpServer"];
-type ResolveInstructionsFn = AttachIntegrationDeps["resolveInstructions"];
+type ResolveTopicFilesFn = AttachIntegrationDeps["resolveTopicFiles"];
 type UpdateSessionFn = AttachIntegrationDeps["updateSession"];
 
 interface DepMocks {
   deps: AttachIntegrationDeps;
   loadMcpServer: ReturnType<typeof mock.fn<LoadMcpServerFn>>;
-  resolveInstructions: ReturnType<typeof mock.fn<ResolveInstructionsFn>>;
+  resolveTopicFiles: ReturnType<typeof mock.fn<ResolveTopicFilesFn>>;
   updateSession: ReturnType<typeof mock.fn<UpdateSessionFn>>;
 }
 
@@ -104,20 +104,17 @@ function makeDepMocks(overrides: Partial<AttachIntegrationDeps> = {}): DepMocks 
     }
     return undefined;
   });
-  const resolveInstructions = mock.fn<ResolveInstructionsFn>((_roleChain, activeTopics) => {
-    if (activeTopics && activeTopics.size > 0) {
-      return `Topic instructions for ${[...activeTopics].join(",")}`;
-    }
-    return "";
-  });
+  const resolveTopicFiles = mock.fn<ResolveTopicFilesFn>(
+    (_roleChain, topic) => `Topic instructions for ${topic}`,
+  );
   const updateSession = mock.fn<UpdateSessionFn>(async () => null);
   const deps: AttachIntegrationDeps = {
     loadMcpServer,
-    resolveInstructions,
+    resolveTopicFiles,
     updateSession,
     ...overrides,
   };
-  return { deps, loadMcpServer, resolveInstructions, updateSession };
+  return { deps, loadMcpServer, resolveTopicFiles, updateSession };
 }
 
 function okSetMcpServers(): ReturnType<typeof mock.fn<SetMcpServersFn>> {
@@ -384,8 +381,8 @@ describe("attach_integration tool", () => {
     const setMcpServers = okSetMcpServers();
     const manager = makeManager({ setMcpServers });
     const ctx = makeCtx({ mcpManager: manager });
-    const resolveInstructions = mock.fn<ResolveInstructionsFn>(() => "");
-    const depMocks = makeDepMocks({ resolveInstructions });
+    const resolveTopicFiles = mock.fn<ResolveTopicFilesFn>(() => "");
+    const depMocks = makeDepMocks({ resolveTopicFiles });
     const toolDef = createAttachIntegrationTool(ctx, depMocks.deps);
 
     const result = await toolDef.handler({ name: "metabase" }, { sessionId: "test" });
