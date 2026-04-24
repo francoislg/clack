@@ -14,6 +14,7 @@ import {
   type SDKMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { logger } from "../logger.js";
+import { isResumeMissingError } from "./messageParser.js";
 
 // ---------------------------------------------------------------------------
 // Dependency injection
@@ -94,6 +95,7 @@ export function clackSession(
   // and handle resume failures gracefully.
   async function* sessionGenerator(): AsyncGenerator<SDKMessage, void> {
     let stream: Query;
+    let resumeMissing = false;
 
     try {
       stream = deps.query({
@@ -106,16 +108,34 @@ export function clackSession(
       });
       await onQuery?.(stream);
 
-      // Iterate the entire stream inside the try-catch so resume failures
-      // that surface after the init message (e.g., "No conversation found")
-      // are also caught and trigger the fallback.
+      // Resume failures surface two ways:
+      //   - thrown (caught below) — rare, e.g., missing local session file
+      //   - yielded as a non-success `result` message with errors containing
+      //     "No conversation found with session ID" — what the CLI actually
+      //     emits when the backend no longer has the conversation
+      // Handle both by breaking into the same fresh-session fallback below.
       for await (const message of stream) {
+        if (
+          resumeSessionId &&
+          message.type === "result" &&
+          message.subtype !== "success" &&
+          Array.isArray(message.errors) &&
+          message.errors.some(isResumeMissingError)
+        ) {
+          logger.warn(
+            `SDK session resume failed for ${resumeSessionId}: backend has no record. Falling back to fresh session.`,
+          );
+          resumeMissing = true;
+          break;
+        }
         captureSessionId(message, onSessionId);
         yield message;
       }
 
-      // Completed successfully — skip the fallback
-      return;
+      if (!resumeMissing) {
+        // Completed successfully (or failed for unrelated reasons) — skip the fallback
+        return;
+      }
     } catch (error) {
       if (!resumeSessionId) throw error;
 
