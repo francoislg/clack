@@ -25,6 +25,18 @@ import { runBaselineSmoke } from "./startupBaselineSmoke.js";
 dotenvConfig({ path: join(process.cwd(), ".env") });
 dotenvConfig({ path: join(process.cwd(), "data", "auth", ".env") });
 
+// Defer MCP tool schemas via Claude Code's Tool Search. Without this, the full
+// tool registry (~150 PostHog tools, ~50 MongoDB tools, etc.) lands in every
+// session's system prompt — pushing the floor to ~170K tokens and triggering
+// autocompact thrashing. `auto` activates Tool Search only when MCP tools
+// exceed 10% of context, so light setups are unaffected. Operator can override
+// by setting ENABLE_TOOL_SEARCH explicitly in the environment.
+// Requires Sonnet 4+ / Opus 4+; Haiku doesn't support it (used only for
+// pre-analysis, where tool registries are small anyway).
+if (process.env.ENABLE_TOOL_SEARCH === undefined) {
+  process.env.ENABLE_TOOL_SEARCH = "auto";
+}
+
 async function main(): Promise<void> {
   logger.startup("Starting Clack...");
 
