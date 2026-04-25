@@ -36,6 +36,24 @@ data/default_configuration/tool_mapping/
 
 User overrides live in `data/configuration/tool_mapping/` (same filename fully replaces the default). Write new configs to `data/default_configuration/tool_mapping/` — these ship with the app.
 
+### Sharing one mapping across several MCP servers
+
+By default the runtime looks up `mcp__<serverName>__<tool>` against `<serverName>.json`. When two or more servers run the same underlying integration in different environments (e.g. `mongodb-dev` + `mongodb-prod`, `metabase-staging` + `metabase-prod`), let them share a single mapping file via the `toolMapping` field on each server's `config.json` registry entry:
+
+```jsonc
+// data/config.json
+"mcpServers": {
+  "mongodb-dev":  { "alwaysLoad": false, "description": "...", "toolMapping": { "name": "mongodb", "label": "dev"  } },
+  "mongodb-prod": { "alwaysLoad": true,  "description": "...", "toolMapping": { "name": "mongodb", "label": "prod" } }
+}
+```
+
+- `toolMapping.name` redirects the lookup to `<name>.json` (e.g. both servers above use `mongodb.json`).
+- `toolMapping.label` is appended as a `(suffix)` to the **group banner and the `default` fallback only** — `"Checking MongoDB"` becomes `"Checking MongoDB (prod)"`. Per-tool labels like `"Querying users.accounts"` render unchanged: the group title already carries the environment, so repeating it on every sub-item would just be noise. Omit `label` if no suffix is needed at all.
+- Group keys are namespaced per wire server, so dev and prod task cards never collapse together even though they share a mapping file.
+
+When you would otherwise create two near-identical mapping files that differ only by an environment word, prefer one shared file plus `toolMapping.label` instead. Schema and validation live in `src/config.ts` (`McpServerRegistryEntry`); resolution lives in `src/streaming/toolMappingLoader.ts` (`loadServerOverrides`) and `src/streaming/toolLabels.ts`.
+
 ---
 
 ## Step 2: Discover tool parameters
@@ -69,7 +87,7 @@ Analyze the tool list and decide:
 
 ## Step 4: Write the config file
 
-Create `data/default_configuration/tool_mapping/<server-name>.json`.
+Create `data/default_configuration/tool_mapping/<server-name>.json`. If this server is one of several environments of the same integration, use the shared filename (e.g. `mongodb.json`) and wire each server to it via `toolMapping.name` in `data/config.json` — see Step 1.
 
 **Important**: Tool names in the config use the **raw name without the MCP prefix**. The runtime strips `mcp__<server>__` automatically. So for a tool called `mcp__monday__get_board`, the config key is just `get_board`.
 

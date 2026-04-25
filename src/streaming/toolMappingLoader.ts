@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync } from "fs";
 import { resolve, basename } from "path";
-import { getDefaultConfigurationDir, getConfigurationDir } from "../config.js";
+import { getDefaultConfigurationDir, getConfigurationDir, getConfig } from "../config.js";
 import { getLoadedPlugins } from "../plugins/state.js";
 import { logger } from "../logger.js";
 
@@ -406,7 +406,63 @@ export function loadToolMappings(): Map<string, ResolvedToolMapping> {
   return mappings;
 }
 
+// ---------------------------------------------------------------------------
+// Per-server tool-mapping overrides (config.mcpServers[name].toolMapping)
+// ---------------------------------------------------------------------------
+
+/** Result of resolving a server's `toolMapping` override. */
+export interface ServerOverride {
+  /** Mapping file/key to look up in `loadToolMappings()` instead of the wire server name. */
+  mappingName: string;
+  /** Optional environment label appended as `(label)` to rendered task titles. */
+  label?: string;
+}
+
+let cachedServerOverrides: Map<string, ServerOverride> | undefined;
+
+/**
+ * Load per-server tool-mapping overrides from `config.mcpServers[name].toolMapping`.
+ *
+ * Lets several MCP server entries share a single mapping file (`name`) and append
+ * an environment label (`label`) to rendered task titles. Cached on first call.
+ *
+ * Returns an empty map if config has not been loaded yet (e.g. in unit tests that
+ * exercise `getToolLabel` without booting the app).
+ */
+export function loadServerOverrides(): Map<string, ServerOverride> {
+  if (cachedServerOverrides) return cachedServerOverrides;
+  const map = new Map<string, ServerOverride>();
+  let registry: Record<string, { toolMapping?: { name: string; label?: string } }> | undefined;
+  try {
+    registry = getConfig().mcpServers;
+  } catch {
+    // Config not loaded — leave map empty.
+  }
+  if (registry) {
+    for (const [serverName, entry] of Object.entries(registry)) {
+      if (entry.toolMapping) {
+        map.set(serverName, {
+          mappingName: entry.toolMapping.name,
+          label: entry.toolMapping.label,
+        });
+      }
+    }
+  }
+  cachedServerOverrides = map;
+  return map;
+}
+
 /** Clear the cached tool mappings, forcing reload on next access. */
 export function resetToolMappingCache(): void {
   cachedMappings = undefined;
+  cachedServerOverrides = undefined;
+}
+
+/**
+ * Test-only: seed the server-overrides cache so unit tests can exercise the
+ * `toolMapping.name` / `toolMapping.label` behavior without booting the full
+ * config. Call `resetToolMappingCache()` afterwards to clear.
+ */
+export function __setServerOverridesForTest(overrides: Map<string, ServerOverride>): void {
+  cachedServerOverrides = overrides;
 }

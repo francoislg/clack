@@ -1,5 +1,6 @@
 import {
   loadToolMappings,
+  loadServerOverrides,
   interpolateLabel,
   applyArgConfigs,
   type ResolvedToolMapping,
@@ -37,15 +38,46 @@ function resolve(
 ): {
   serverName: string;
   rawToolName: string;
+  mappingKey: string;
+  labelSuffix: string | undefined;
+  hasOverride: boolean;
   mapping: ResolvedToolMapping | undefined;
   args: Record<string, unknown>;
   truncations: Map<string, number>;
 } {
   const { serverName, rawToolName } = parseToolName(toolName);
-  const mapping = loadToolMappings().get(serverName);
-  if (!mapping) return { serverName, rawToolName, mapping, args: toolArgs, truncations: new Map() };
+  const override = loadServerOverrides().get(serverName);
+  const mappingKey = override?.mappingName ?? serverName;
+  const labelSuffix = override?.label;
+  const hasOverride = override !== undefined;
+  const mapping = loadToolMappings().get(mappingKey);
+  if (!mapping)
+    return {
+      serverName,
+      rawToolName,
+      mappingKey,
+      labelSuffix,
+      hasOverride,
+      mapping,
+      args: toolArgs,
+      truncations: new Map(),
+    };
   const { args, truncations } = applyArgConfigs(toolArgs, mapping.argConfigs);
-  return { serverName, rawToolName, mapping, args, truncations };
+  return {
+    serverName,
+    rawToolName,
+    mappingKey,
+    labelSuffix,
+    hasOverride,
+    mapping,
+    args,
+    truncations,
+  };
+}
+
+/** Append an environment label suffix `(label)` if one was configured for this server. */
+function withSuffix(label: string, suffix: string | undefined): string {
+  return suffix ? `${label} (${suffix})` : label;
 }
 
 /**
@@ -57,7 +89,10 @@ function resolve(
  * template structure (including link markup) is trusted.
  */
 export function getToolLabel(toolName: string, toolArgs: Record<string, unknown>): string | null {
-  const { serverName, rawToolName, mapping, args, truncations } = resolve(toolName, toolArgs);
+  const { serverName, rawToolName, mappingKey, labelSuffix, mapping, args, truncations } = resolve(
+    toolName,
+    toolArgs,
+  );
 
   if (mapping) {
     if (mapping.hidden.has(rawToolName)) return null;
@@ -70,16 +105,22 @@ export function getToolLabel(toolName: string, toolArgs: Record<string, unknown>
       }
     }
 
+    // Per-tool labels intentionally skip the suffix: when a tool runs inside a group,
+    // the group banner already carries "(env)", so repeating it on every sub-item is noise.
     const template = mapping.labels.get(rawToolName);
     if (template) return interpolateLabel(template, args, truncations);
 
-    if (mapping.defaultLabel) return interpolateLabel(mapping.defaultLabel, args, truncations);
+    if (mapping.defaultLabel)
+      return withSuffix(interpolateLabel(mapping.defaultLabel, args, truncations), labelSuffix);
   }
 
-  // Generic MCP tool fallback: "mcp__foo__do_something" → "Checking Foo"
+  // Generic MCP tool fallback: "mcp__foo__do_something" → "Checking Foo".
+  // When an override is in play, capitalize the mapping name (e.g. "mongodb") rather than
+  // the wire server name (e.g. "mongodb-prod") so the suffix carries the env distinction.
   if (serverName !== "_builtins") {
-    const capitalized = serverName.charAt(0).toUpperCase() + serverName.slice(1);
-    return `Checking ${capitalized}`;
+    const base = mappingKey;
+    const capitalized = base.charAt(0).toUpperCase() + base.slice(1);
+    return withSuffix(`Checking ${capitalized}`, labelSuffix);
   }
 
   return `Running ${toolName}`;
@@ -93,24 +134,37 @@ export function getToolGroup(
   toolName: string,
   toolArgs: Record<string, unknown>,
 ): ToolGroupInfo | null {
-  const { rawToolName, mapping, args, truncations } = resolve(toolName, toolArgs);
+  const { serverName, rawToolName, labelSuffix, hasOverride, mapping, args, truncations } = resolve(
+    toolName,
+    toolArgs,
+  );
   if (!mapping) return null;
+
+  // When several wire servers share a mapping file via toolMapping.name, namespace the
+  // group key with the wire server name so `mongodb-dev` and `mongodb-prod` task cards
+  // do not collapse into one another inside slackStreamer's openGroup tracking.
+  const namespaceKey = (key: string): string => (hasOverride ? `${serverName}:${key}` : key);
 
   // Check per-tool group
   const toolGroup = mapping.toolGroups.get(rawToolName);
   if (toolGroup) {
-    const title = mapping.groupTitles.get(toolGroup.groupKey) ?? toolGroup.groupKey;
+    const baseTitle = mapping.groupTitles.get(toolGroup.groupKey) ?? toolGroup.groupKey;
+    const title = withSuffix(baseTitle, labelSuffix);
     const itemDetail = toolGroup.itemDetail
       ? interpolateLabel(toolGroup.itemDetail, args, truncations)
       : interpolateLabel(mapping.labels.get(rawToolName) ?? rawToolName, args, truncations);
-    return { key: toolGroup.groupKey, title, itemDetail };
+    return { key: namespaceKey(toolGroup.groupKey), title, itemDetail };
   }
 
   // Check file-level group — use interpolated label as itemDetail
   if (mapping.fileGroup) {
     const template = mapping.labels.get(rawToolName);
     const itemDetail = template ? interpolateLabel(template, args, truncations) : rawToolName;
-    return { key: mapping.fileGroup.key, title: mapping.fileGroup.title, itemDetail };
+    return {
+      key: namespaceKey(mapping.fileGroup.key),
+      title: withSuffix(mapping.fileGroup.title, labelSuffix),
+      itemDetail,
+    };
   }
 
   return null;
