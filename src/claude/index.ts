@@ -395,9 +395,17 @@ export async function askClaude(
         systemPrompt,
         model,
         permissionMode: "bypassPermissions",
-        tools: ["Read", "Glob", "Grep", "Skill", "WebSearch"],
+        tools: ["Read", "Glob", "Grep", "Skill", "WebSearch", "ToolSearch"],
         plugins: discoverEagerSkillPlugins(),
         mcpServers,
+        // Force-pass ENABLE_TOOL_SEARCH so it reaches claude.exe regardless of
+        // env propagation quirks. The SDK destructures `env: U = {...process.env}`,
+        // so providing `env` here REPLACES process.env entirely — must spread it
+        // back in to keep PATH, HOME, credentials, etc.
+        env: {
+          ...process.env,
+          ENABLE_TOOL_SEARCH: process.env.ENABLE_TOOL_SEARCH ?? "true",
+        },
         stderr: (data) => stderrLines.push(data),
         ...(options?.abortController && { abortController: options.abortController }),
       },
