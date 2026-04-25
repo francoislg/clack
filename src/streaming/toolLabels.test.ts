@@ -1,6 +1,7 @@
-import { describe, it } from "node:test";
+import { describe, it, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { getToolLabel, getToolGroup, getToolDetails } from "./toolLabels.js";
+import { __setServerOverridesForTest, resetToolMappingCache } from "./toolMappingLoader.js";
 
 // ---------------------------------------------------------------------------
 // getToolLabel
@@ -441,5 +442,77 @@ describe("getToolDetails", () => {
     assert.equal(getToolDetails("mcp__clack__list_repositories", {}), null);
     assert.equal(getToolDetails("mcp__github__get_pull_request", {}), null);
     assert.equal(getToolDetails("mcp__sentry__search_issues", {}), null);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Per-server tool-mapping overrides (config.mcpServers[name].toolMapping)
+// ---------------------------------------------------------------------------
+describe("server tool-mapping overrides", () => {
+  afterEach(() => {
+    resetToolMappingCache();
+  });
+
+  it("routes wire server name to the shared mapping but keeps per-tool labels suffix-free", () => {
+    __setServerOverridesForTest(
+      new Map([
+        ["mongodb-dev", { mappingName: "mongodb", label: "dev" }],
+        ["mongodb-prod", { mappingName: "mongodb", label: "prod" }],
+      ]),
+    );
+
+    // Per-tool templates render unchanged — the group banner carries the env suffix instead.
+    assert.equal(
+      getToolLabel("mcp__mongodb-dev__find", { database: "users", collection: "accounts" }),
+      "Querying users.accounts",
+    );
+    assert.equal(
+      getToolLabel("mcp__mongodb-prod__find", { database: "users", collection: "accounts" }),
+      "Querying users.accounts",
+    );
+  });
+
+  it("appends label suffix to the default fallback label", () => {
+    __setServerOverridesForTest(
+      new Map([["mongodb-prod", { mappingName: "mongodb", label: "prod" }]]),
+    );
+
+    // `unknown-tool` is not in the mapping → falls back to "default" template, which carries the suffix.
+    assert.equal(getToolLabel("mcp__mongodb-prod__unknown-tool", {}), "Checking MongoDB (prod)");
+  });
+
+  it("renders without suffix when label is omitted on the override", () => {
+    __setServerOverridesForTest(new Map([["mongodb-aux", { mappingName: "mongodb" }]]));
+
+    assert.equal(
+      getToolLabel("mcp__mongodb-aux__find", { database: "u", collection: "a" }),
+      "Querying u.a",
+    );
+    // default fallback also has no suffix when label is omitted
+    assert.equal(getToolLabel("mcp__mongodb-aux__unknown-tool", {}), "Checking MongoDB");
+  });
+
+  it("namespaces group keys per wire server so dev and prod do not collapse", () => {
+    __setServerOverridesForTest(
+      new Map([
+        ["mongodb-dev", { mappingName: "mongodb", label: "dev" }],
+        ["mongodb-prod", { mappingName: "mongodb", label: "prod" }],
+      ]),
+    );
+
+    const devGroup = getToolGroup("mcp__mongodb-dev__find", { database: "u", collection: "a" });
+    const prodGroup = getToolGroup("mcp__mongodb-prod__find", { database: "u", collection: "a" });
+
+    assert.ok(devGroup, "expected dev group");
+    assert.ok(prodGroup, "expected prod group");
+    assert.notEqual(devGroup.key, prodGroup.key);
+    assert.equal(devGroup.title, "Checking MongoDB (dev)");
+    assert.equal(prodGroup.title, "Checking MongoDB (prod)");
+  });
+
+  it("falls through unchanged when no override is configured", () => {
+    __setServerOverridesForTest(new Map());
+    // sentry has its own mapping file with no override — labels should be untouched.
+    assert.equal(getToolLabel("mcp__sentry__list_issues", {}), "Listing Sentry issues");
   });
 });

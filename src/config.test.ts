@@ -639,6 +639,132 @@ describe("loadConfig", () => {
     assert.throws(() => loadConfig(configPath, true), /'mcpServers\.metabase' must be an object/);
   });
 
+  it("parses a valid mcpServers entry with toolMapping", () => {
+    writeSlackAuth();
+    writeConfig(
+      minimalConfig({
+        mcpServers: {
+          "mongodb-dev": {
+            alwaysLoad: false,
+            description: "dev",
+            toolMapping: { name: "mongodb", label: "dev" },
+          },
+          "mongodb-prod": {
+            alwaysLoad: true,
+            description: "prod",
+            toolMapping: { name: "mongodb" },
+          },
+        },
+      }),
+    );
+
+    const cfg = loadConfig(configPath, true);
+
+    assert.deepEqual(cfg.mcpServers, {
+      "mongodb-dev": {
+        alwaysLoad: false,
+        description: "dev",
+        toolMapping: { name: "mongodb", label: "dev" },
+      },
+      "mongodb-prod": {
+        alwaysLoad: true,
+        description: "prod",
+        toolMapping: { name: "mongodb" },
+      },
+    });
+  });
+
+  it("throws when toolMapping is not an object", () => {
+    writeSlackAuth();
+    writeConfig(
+      minimalConfig({
+        mcpServers: {
+          "mongodb-dev": { alwaysLoad: false, description: "dev", toolMapping: "mongodb" },
+        },
+      }),
+    );
+
+    assert.throws(
+      () => loadConfig(configPath, true),
+      /'mcpServers\.mongodb-dev\.toolMapping' must be an object/,
+    );
+  });
+
+  it("throws when toolMapping.name is missing or has whitespace", () => {
+    writeSlackAuth();
+    writeConfig(
+      minimalConfig({
+        mcpServers: {
+          "mongodb-dev": {
+            alwaysLoad: false,
+            description: "dev",
+            toolMapping: { name: "" },
+          },
+        },
+      }),
+    );
+    assert.throws(
+      () => loadConfig(configPath, true),
+      /'mcpServers\.mongodb-dev\.toolMapping\.name' must be a non-empty identifier/,
+    );
+
+    writeConfig(
+      minimalConfig({
+        mcpServers: {
+          "mongodb-dev": {
+            alwaysLoad: false,
+            description: "dev",
+            toolMapping: { name: "mongo db" },
+          },
+        },
+      }),
+    );
+    assert.throws(
+      () => loadConfig(configPath, true),
+      /'mcpServers\.mongodb-dev\.toolMapping\.name' must be a non-empty identifier/,
+    );
+  });
+
+  it("throws when toolMapping.label is empty", () => {
+    writeSlackAuth();
+    writeConfig(
+      minimalConfig({
+        mcpServers: {
+          "mongodb-dev": {
+            alwaysLoad: false,
+            description: "dev",
+            toolMapping: { name: "mongodb", label: "   " },
+          },
+        },
+      }),
+    );
+
+    assert.throws(
+      () => loadConfig(configPath, true),
+      /'mcpServers\.mongodb-dev\.toolMapping\.label' must be a non-empty string/,
+    );
+  });
+
+  it("throws when toolMapping has unknown keys", () => {
+    writeSlackAuth();
+    writeConfig(
+      minimalConfig({
+        mcpServers: {
+          "mongodb-dev": {
+            alwaysLoad: false,
+            description: "dev",
+            toolMapping: { name: "mongodb", label: "dev", extra: true },
+          },
+        },
+      }),
+    );
+
+    assert.throws(
+      () => loadConfig(configPath, true),
+      /'mcpServers\.mongodb-dev\.toolMapping' contains unknown key 'extra'/,
+    );
+  });
+
   it("parses a valid skillPlugins registry", () => {
     writeSlackAuth();
     writeConfig(

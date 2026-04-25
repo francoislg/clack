@@ -106,10 +106,22 @@ export interface AutoRespondConfig {
  * this registry (under `config.mcpServers`) adds:
  *  - `alwaysLoad`: whether to attach at session start vs. lazy-load via `attach_integration`
  *  - `description`: one-line reason Claude should use the integration (shown in the catalog block)
+ *  - `toolMapping`: optional override pointing several servers at one shared tool-mapping file
+ *    (`name`) and appending an environment label suffix (`label`) to the group banner / default
+ *    fallback so e.g. `mongodb-dev` and `mongodb-prod` can both reuse `mongodb.json` while still
+ *    rendering the group title as "Checking MongoDB (dev)" / "Checking MongoDB (prod)". Per-tool
+ *    labels (e.g. "Querying users.accounts") are intentionally left suffix-free — the group
+ *    banner already carries the environment, so repeating it on each sub-item is noise.
  */
 export interface McpServerRegistryEntry {
   alwaysLoad: boolean;
   description: string;
+  toolMapping?: McpToolMappingOverride;
+}
+
+export interface McpToolMappingOverride {
+  name: string;
+  label?: string;
 }
 
 export type McpServerRegistry = Record<string, McpServerRegistryEntry>;
@@ -352,7 +364,39 @@ export function parseMcpServerRegistry(raw: JsonValue | undefined): McpServerReg
       throw new Error(`Config 'mcpServers.${name}.description' must be a non-empty string`);
     }
 
-    registry[name] = { alwaysLoad, description };
+    const toolMappingRaw = entry.toolMapping;
+    let toolMapping: McpToolMappingOverride | undefined;
+    if (toolMappingRaw !== undefined) {
+      if (!toolMappingRaw || typeof toolMappingRaw !== "object" || Array.isArray(toolMappingRaw)) {
+        throw new Error(`Config 'mcpServers.${name}.toolMapping' must be an object`);
+      }
+      const tm: JsonObject = toolMappingRaw;
+      const tmName = tm.name;
+      if (typeof tmName !== "string" || tmName.trim().length === 0 || /\s/.test(tmName)) {
+        throw new Error(
+          `Config 'mcpServers.${name}.toolMapping.name' must be a non-empty identifier`,
+        );
+      }
+      let tmLabel: string | undefined;
+      if (tm.label !== undefined) {
+        if (typeof tm.label !== "string" || tm.label.trim().length === 0) {
+          throw new Error(
+            `Config 'mcpServers.${name}.toolMapping.label' must be a non-empty string`,
+          );
+        }
+        tmLabel = tm.label;
+      }
+      for (const key of Object.keys(tm)) {
+        if (key !== "name" && key !== "label") {
+          throw new Error(`Config 'mcpServers.${name}.toolMapping' contains unknown key '${key}'`);
+        }
+      }
+      toolMapping = tmLabel !== undefined ? { name: tmName, label: tmLabel } : { name: tmName };
+    }
+
+    registry[name] = toolMapping
+      ? { alwaysLoad, description, toolMapping }
+      : { alwaysLoad, description };
   }
 
   return registry;

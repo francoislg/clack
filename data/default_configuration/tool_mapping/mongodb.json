@@ -1,6 +1,6 @@
 {
-  "default": "Checking MongoDB dev",
-  "group": "Checking MongoDB dev",
+  "default": "Checking MongoDB",
+  "group": "Checking MongoDB",
   "argOptions": {
     "query": { "truncate": 40 },
     "newName": { "truncate": 40 },
