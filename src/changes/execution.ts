@@ -319,7 +319,7 @@ export async function executeChange(opts: ExecuteChangeOptions): Promise<Executi
   const config = getConfig();
 
   // Build the allowed tools list
-  const defaultTools = ["Read", "Glob", "Grep", "Write", "Edit", "Bash"];
+  const defaultTools = ["Read", "Glob", "Grep", "Write", "Edit", "Bash", "ToolSearch"];
   const additionalTools = config.changesWorkflow?.additionalAllowedTools ?? [];
   const allowedTools = [...defaultTools, ...additionalTools];
 
@@ -503,7 +503,7 @@ export async function runWorktreeSetup(
       "Do not guess what setup commands to run — only run what the instructions explicitly tell you to.",
       "Do not ask questions — just execute the steps.",
     ].join(" "),
-    allowedTools: ["Bash", "Write", "Edit", "Read"],
+    allowedTools: ["Bash", "Write", "Edit", "Read", "ToolSearch"],
     disallowedTools: ["Task", "TaskOutput", "Glob", "Grep"],
     branchName,
     onEvent,

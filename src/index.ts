@@ -36,6 +36,8 @@ dotenvConfig({ path: join(process.cwd(), "data", "auth", ".env") });
 if (process.env.ENABLE_TOOL_SEARCH === undefined) {
   process.env.ENABLE_TOOL_SEARCH = "auto";
 }
+// eslint-disable-next-line no-console
+console.log(`[startup] ENABLE_TOOL_SEARCH=${process.env.ENABLE_TOOL_SEARCH}`);
 
 async function main(): Promise<void> {
   logger.startup("Starting Clack...");

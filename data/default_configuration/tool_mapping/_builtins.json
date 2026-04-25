@@ -1,4 +1,5 @@
 {
+  "hidden": ["ToolSearch"],
   "conditionalHidden": [
     { "tool": "Read", "arg": "file_path", "pattern": "^tool-results/" },
     { "tool": "Read", "arg": "file_path", "pattern": "cache/files/" },
@@ -11,12 +12,32 @@
     "command": { "truncate": 40 }
   },
   "tools": {
-    "Read": { "label": "Reading {file_path|file}", "group": "search", "itemDetail": "{file_path|file}" },
+    "Read": {
+      "label": "Reading {file_path|file}",
+      "group": "search",
+      "itemDetail": "{file_path|file}"
+    },
     "Glob": { "label": "Searching for files", "group": "search", "itemDetail": "{pattern|files}" },
-    "Grep": { "label": "Searching for \"{pattern|codebase}\"", "group": "search", "itemDetail": "\"{pattern|search}\"" },
-    "Edit": { "label": "Editing {file_path|file}", "group": "edit", "itemDetail": "{file_path|file}" },
-    "Write": { "label": "Writing {file_path|file}", "group": "write", "itemDetail": "{file_path|file}" },
-    "Bash": { "label": "{description|Running command}", "group": "commands", "itemDetail": "{description|command|command}" },
+    "Grep": {
+      "label": "Searching for \"{pattern|codebase}\"",
+      "group": "search",
+      "itemDetail": "\"{pattern|search}\""
+    },
+    "Edit": {
+      "label": "Editing {file_path|file}",
+      "group": "edit",
+      "itemDetail": "{file_path|file}"
+    },
+    "Write": {
+      "label": "Writing {file_path|file}",
+      "group": "write",
+      "itemDetail": "{file_path|file}"
+    },
+    "Bash": {
+      "label": "{description|Running command}",
+      "group": "commands",
+      "itemDetail": "{description|command|command}"
+    },
     "Skill": "Running skill {skill}"
   },
   "groups": {
