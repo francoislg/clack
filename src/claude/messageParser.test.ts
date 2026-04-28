@@ -69,7 +69,6 @@ function resultSuccess(result: string): SDKResultSuccess {
     permission_denials: [],
     uuid: TEST_UUID,
     session_id: TEST_SESSION_ID,
-    stop_reason: null,
   };
 }
 
@@ -91,7 +90,6 @@ function resultError(
     permission_denials: [],
     uuid: TEST_UUID,
     session_id: TEST_SESSION_ID,
-    stop_reason: null,
   };
 }
 

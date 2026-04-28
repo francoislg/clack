@@ -317,11 +317,18 @@ Use this context to understand the conversation flow and provide relevant answer
     if (ac.prUrl) {
       lines.push(`- PR: ${ac.prUrl}`);
     }
-    lines.push(
-      "",
-      "To add more changes to this active worktree, use `request_update` (not `propose_change`).",
-      "Only use `propose_change` if the user explicitly wants a separate, unrelated change on a different branch.",
-    );
+    if (options?.changesWorkflowEnabled) {
+      lines.push(
+        "",
+        "To add more changes to this active worktree, use `request_update` (not `propose_change`).",
+        "Only use `propose_change` if the user explicitly wants a separate, unrelated change on a different branch.",
+      );
+    } else {
+      lines.push(
+        "",
+        "The Changes Workflow is not available in this context, so you cannot modify the change from here — the `request_update` and `propose_change` tools are not registered. Treat this block as read-only context: answer questions about the change, but if the user wants to modify it, tell them to @mention or DM the bot to request the update there.",
+      );
+    }
     parts.push(lines.join("\n"));
   }
 
@@ -335,7 +342,11 @@ Use this context to understand the conversation flow and provide relevant answer
 
   // Work mode hint — advisory only, does NOT change available tools
   if (options?.workMode) {
-    if (session.activeChange) {
+    if (!options.changesWorkflowEnabled) {
+      parts.push(
+        `WORK MODE: The user explicitly requested this as a work task, but the Changes Workflow is not available in this context — \`propose_change\` and \`request_update\` are not registered here. Answer the user with submit_response, explain that they need to @mention or DM the bot to start a code change, and stop there.`,
+      );
+    } else if (session.activeChange) {
       parts.push(
         `WORK MODE: The user explicitly requested this as a work task. Since there is an active change in this thread, use request_update with auto: true on the update action in submit_response. If you cannot determine what change to make, ask for clarification via submit_response.`,
       );
