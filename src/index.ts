@@ -16,9 +16,10 @@ import { getActiveChangeBranches } from "./changes/activeState.js";
 import { validateInstructionFiles } from "./instructions.js";
 import { runBlockingMigrations, runEnhancementMigrations } from "./migrations/boot.js";
 import { startAll, stopAll } from "./lifecycle.js";
-import { setFailedMcpServers } from "./mcpStatus.js";
+import { addFailedMcpServers } from "./mcpStatus.js";
 import { diagnoseMcpServer, type DiagnosableConfig } from "./mcpDiagnose.js";
-import { loadMcpServers, resolveEffectiveRegistry } from "./mcp.js";
+import { getPinnedEntries, loadMcpServers, resolveEffectiveRegistry } from "./mcp.js";
+import { installAllPinnedMcpServers } from "./mcpInstaller.js";
 import { runBaselineSmoke } from "./startupBaselineSmoke.js";
 
 // Load environment variables from .env files (later files don't override earlier ones)
@@ -85,6 +86,21 @@ async function main(): Promise<void> {
     setLoadedPlugins(loaded);
   }
 
+  // Step 1.9: Install pinned MCP packages. Each pinned entry in data/mcp.json
+  // (with `package` + `version`) is installed into data/mcp_packages/<name>/
+  // with hoisting disabled. Validation errors fail boot fast; install errors
+  // are surfaced via the failed-MCP set so the Home tab reflects reality.
+  try {
+    getPinnedEntries(); // surface schema/validation errors before the install loop
+  } catch (error) {
+    logger.error("Invalid MCP configuration:", error);
+    process.exit(1);
+  }
+  const { failed: pinnedFailures } = await installAllPinnedMcpServers();
+  if (pinnedFailures.length > 0) {
+    addFailedMcpServers(pinnedFailures);
+  }
+
   // Step 2: Test MCP connections and clack tools
   logger.info("Connecting to MCP servers...");
   try {
@@ -122,7 +138,7 @@ async function main(): Promise<void> {
           logger.warn(`MCP server failed: ${server.name} (${server.status}) — ${detail}`);
         }
       }
-      setFailedMcpServers(mcpResult.failedServers.map((s) => s.name));
+      addFailedMcpServers(mcpResult.failedServers.map((s) => s.name));
     }
     if (!mcpResult.success) {
       logger.warn(`MCP test issue: ${mcpResult.error}`);

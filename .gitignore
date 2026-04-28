@@ -17,6 +17,7 @@ data/state/
 data/cache/
 data/.claude/
 data/.npm/
+data/mcp_packages/
 data/auth/*
 !data/auth/.gitkeep
 !data/auth/slack.example.json
