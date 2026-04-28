@@ -147,17 +147,17 @@ export async function removeWorktree(repoName: string, worktreePath: string): Pr
 
   const git = getGitInstance(mainRepoPath);
 
+  // `git worktree remove` refuses to delete a directory that contains untracked
+  // / gitignored files (e.g. node_modules, build outputs), even with --force.
+  // Remove the directory ourselves first, then prune to update git's metadata.
+  if (existsSync(worktreePath)) {
+    rmSync(worktreePath, { recursive: true, force: true });
+  }
+
   try {
-    // Force remove the worktree
-    await git.raw(["worktree", "remove", "--force", worktreePath]);
-  } catch (error) {
-    logger.warn(`git worktree remove failed, cleaning up manually: ${errorMessage(error)}`);
-    // Manually remove the directory
-    if (existsSync(worktreePath)) {
-      rmSync(worktreePath, { recursive: true, force: true });
-    }
-    // Prune worktree references
     await git.raw(["worktree", "prune"]);
+  } catch (error) {
+    logger.warn(`git worktree prune failed: ${errorMessage(error)}`);
   }
 
   logger.debug(`Successfully removed worktree at ${worktreePath}`);
