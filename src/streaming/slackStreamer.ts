@@ -428,7 +428,7 @@ export class SlackStreamer {
         chunks.push({
           type: "task_update",
           id: slackId,
-          title: `${base} :stopwatch: ${fmtElapsed(elapsed)}`,
+          title: `${base} ⏱ ${fmtElapsed(elapsed)}`,
           status: "in_progress",
           details: entry.tickCount === 0 ? "\n ." : " .",
         });
@@ -541,11 +541,19 @@ export async function finalizeStreamedWorkflow(
     error?: string;
     cancelled?: boolean;
     cancelledBy?: { userId: string; reason?: string };
+    prUrl?: string;
   },
   label: string,
 ): Promise<void> {
   if (result.success) {
     await streamer.stop();
+    // If the streamer died mid-run, the frozen in-progress task is all the
+    // user sees. Post a plain thread reply so they still get a final-state
+    // confirmation (the PR URL if available).
+    if (streamer.hasFailed) {
+      const message = result.prUrl ? `${label} complete: ${result.prUrl}` : `${label} complete.`;
+      await client.chat.postMessage({ channel, thread_ts: threadTs, text: message });
+    }
   } else if (result.cancelled && result.cancelledBy) {
     const reason = result.cancelledBy.reason ? `: ${result.cancelledBy.reason}` : "";
     const message = `This work session was cancelled by <@${result.cancelledBy.userId}>${reason}`;
