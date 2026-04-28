@@ -44,14 +44,14 @@ ASANA_ACCESS_TOKEN=your_personal_access_token
 
 ### 2. MCP server config
 
-The `asana` entry is already included in `data/mcp.json`:
+The `asana` entry is already included in `data/mcp.json`, pinned to a known-good version:
 
 ```json
 {
   "mcpServers": {
     "asana": {
-      "command": "npx",
-      "args": ["-y", "@roychri/mcp-server-asana"],
+      "package": "@roychri/mcp-server-asana",
+      "version": "1.8.0",
       "env": {
         "ASANA_ACCESS_TOKEN": "${ASANA_ACCESS_TOKEN}"
       }
@@ -61,6 +61,8 @@ The `asana` entry is already included in `data/mcp.json`:
 ```
 
 The `${ASANA_ACCESS_TOKEN}` placeholder is resolved from `process.env` at runtime by Clack's MCP config loader.
+
+Clack installs the package into `data/mcp_packages/asana/` at boot using `npm install --install-strategy=nested`, then spawns the resulting binary via `node`. This sidesteps an npm 10 hoisting bug that breaks `npx -y` for jsdom-based packages. To bump the version, edit `version` in `data/mcp.json` and restart — Clack detects the drift and reinstalls. To force a clean install, `rm -rf data/mcp_packages/asana` before restart.
 
 ### 3. Restart Clack
 

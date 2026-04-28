@@ -1,7 +1,7 @@
-let failedServers = new Set<string>();
+const failedServers = new Set<string>();
 
-export function setFailedMcpServers(names: string[]): void {
-  failedServers = new Set(names);
+export function addFailedMcpServers(names: string[]): void {
+  for (const n of names) failedServers.add(n);
 }
 
 export function getFailedMcpServers(): Set<string> {

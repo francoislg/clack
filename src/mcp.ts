@@ -5,6 +5,21 @@ import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 import { getInstallationToken } from "./github.js";
 import { logger } from "./logger.js";
 import type { McpServerRegistry } from "./config.js";
+import {
+  buildGithubMcpEntry,
+  DEFAULT_GITHUB_REGISTRY_ENTRY as GITHUB_DEFAULT_REGISTRY,
+  isGitHubAutoInjectable,
+  resetGithubCache,
+} from "./mcpGithub.js";
+import {
+  getPinnedEntriesCache,
+  parseStdioEntry,
+  pinnedNames,
+  recordPinnedEntries,
+  resetPinnedState,
+  type PinnedEntry,
+  type StdioMcpEntry,
+} from "./mcpPinned.js";
 
 // ============================================================================
 // Dependency Injection
@@ -36,51 +51,31 @@ function getMcpConfigPath(): string {
   return join(process.cwd(), "data", "mcp.json");
 }
 
-function getGitHubAuthPath(): string {
-  return join(process.cwd(), "data", "auth", "github.json");
-}
-
-interface McpStdioConfig {
-  type?: "stdio";
-  command: string;
-  args?: string[];
-  env?: Record<string, string>;
-}
-
 interface McpRemoteConfig {
   type: "sse" | "http";
   url: string;
   headers?: Record<string, string>;
 }
 
-type McpServerEntry = McpStdioConfig | McpRemoteConfig;
+type McpServerEntry = StdioMcpEntry | McpRemoteConfig;
 
 interface McpConfig {
   mcpServers?: Record<string, McpServerEntry>;
 }
 
-/**
- * Maps GitHub App installation token permission keys to github-mcp-server toolset names.
- * One permission may enable multiple toolsets.
- */
-const PERMISSION_TO_TOOLSETS: Record<string, string[]> = {
-  pull_requests: ["pull_requests", "issues"],
-  issues: ["issues", "labels"],
-  contents: ["repos", "git"],
-  actions: ["actions"],
-  security_events: ["code_security", "security_advisories"],
-  secret_scanning_alerts: ["secret_protection"],
-  vulnerability_alerts: ["dependabot"],
-  repository_projects: ["projects"],
-  organization_projects: ["projects"],
-};
+function isRemoteEntry(entry: McpServerEntry): entry is McpRemoteConfig {
+  return entry.type === "sse" || entry.type === "http";
+}
 
-// Cache the static MCP config from mcp.json (parsed once)
+// Re-export types/constants that other modules import from mcp.ts.
+export type { PinnedEntry } from "./mcpPinned.js";
+export const DEFAULT_GITHUB_REGISTRY_ENTRY = GITHUB_DEFAULT_REGISTRY;
+
+// Cache the static MCP config from mcp.json (parsed once).
+// Holds spawn configs for legacy-shape entries and, after install, the resolved
+// node-binary spawn configs for pinned entries (set via setPinnedSpawnConfig).
 let cachedStaticServers: Record<string, McpServerConfig> | undefined;
 let staticConfigLoaded = false;
-
-// Cache whether the github-mcp-server binary is available
-let binaryAvailable: boolean | null = null;
 
 /**
  * Load and cache the static MCP server config from data/mcp.json.
@@ -100,136 +95,47 @@ function loadStaticMcpConfig(
     return undefined;
   }
 
+  let config: McpConfig;
   try {
     const raw = deps.readFileSync(getMcpConfigPath(), "utf-8");
-    const config: McpConfig = JSON.parse(raw);
-
-    if (!config.mcpServers || Object.keys(config.mcpServers).length === 0) {
-      logger.debug("MCP config file exists but has no servers configured");
-      return undefined;
-    }
-
-    const result: Record<string, McpServerConfig> = {};
-    for (const [name, server] of Object.entries(config.mcpServers)) {
-      if (server.type === "sse" || server.type === "http") {
-        result[name] = {
-          type: server.type,
-          url: server.url,
-          headers: substituteEnvVars(server.headers),
-        };
-      } else {
-        // stdio (default)
-        const stdioServer = server as McpStdioConfig;
-        result[name] = {
-          type: "stdio",
-          command: stdioServer.command,
-          args: stdioServer.args,
-          env: substituteEnvVars(stdioServer.env),
-        };
-      }
-    }
-
-    cachedStaticServers = result;
-    logger.debug(`Loaded MCP config: ${Object.keys(result).join(", ")}`);
-    return result;
+    config = JSON.parse(raw);
   } catch (error) {
     logger.error("Failed to load MCP configuration:", error);
     return undefined;
   }
-}
 
-/**
- * Check if the github-mcp-server binary is available on PATH.
- * Result is cached after first check.
- */
-function isGitHubMcpServerAvailable(deps: McpDeps = defaultMcpDeps): boolean {
-  if (binaryAvailable !== null) {
-    return binaryAvailable;
-  }
-
-  try {
-    // Use 'where' on Windows, 'which' elsewhere — just checks PATH presence
-    // without executing the binary (whose --help may exit non-zero).
-    const cmd =
-      process.platform === "win32" ? "where github-mcp-server" : "which github-mcp-server";
-    deps.execSync(cmd, { stdio: "ignore" });
-    binaryAvailable = true;
-  } catch {
-    binaryAvailable = false;
-  }
-
-  return binaryAvailable;
-}
-
-/**
- * Convert GitHub App token permissions to a GITHUB_TOOLSETS string.
- * Always includes the "context" toolset (no permission required).
- */
-export function mapPermissionsToToolsets(permissions: Record<string, string>): string {
-  const toolsets = new Set<string>(["context"]);
-  for (const [permKey, toolsetList] of Object.entries(PERMISSION_TO_TOOLSETS)) {
-    if (permKey in permissions) {
-      for (const ts of toolsetList) {
-        toolsets.add(ts);
-      }
-    }
-  }
-  return [...toolsets].join(",");
-}
-
-/**
- * Build a fresh GitHub MCP server entry via GitHub App credentials. Returns undefined
- * when auto-injection conditions aren't met (no credentials, missing binary, no useful
- * permissions, or token fetch failed). Always mints a fresh token on each call.
- */
-async function buildGithubMcpEntry(deps: McpDeps): Promise<McpServerConfig | undefined> {
-  if (!deps.existsSync(getGitHubAuthPath())) return undefined;
-
-  if (!isGitHubMcpServerAvailable(deps)) {
-    logger.warn("github-mcp-server binary not found — skipping GitHub MCP auto-configuration");
+  if (!config.mcpServers || Object.keys(config.mcpServers).length === 0) {
+    logger.debug("MCP config file exists but has no servers configured");
     return undefined;
   }
 
-  try {
-    const { token, permissions } = await deps.getInstallationToken();
-    const toolsets = mapPermissionsToToolsets(permissions);
-
-    if (!toolsets) {
-      logger.warn(
-        "GitHub App token has no permissions that map to MCP toolsets — skipping GitHub MCP auto-configuration",
-      );
-      return undefined;
+  // Validation errors (partial pin, missing command) propagate to the caller —
+  // boot must fail fast on a misconfigured mcp.json, unlike a parse/IO error
+  // (handled above) which keeps the bot running without external MCPs.
+  const result: Record<string, McpServerConfig> = {};
+  const pinned: Record<string, PinnedEntry> = {};
+  for (const [name, server] of Object.entries(config.mcpServers)) {
+    if (isRemoteEntry(server)) {
+      result[name] = {
+        type: server.type,
+        url: server.url,
+        headers: substituteEnvVars(server.headers),
+      };
+      continue;
     }
 
-    // GitHub App installation tokens can't use org-scoped search or /user endpoints.
-    // Exclude tools that require PAT-level access to avoid 403s, and tools that
-    // overlap with Clack's own tools (which resolve owner/repo from config correctly).
-    const excludedTools = [
-      "search_pull_requests",
-      "search_issues",
-      "search_code",
-      "search_repositories",
-      "search_users",
-      "get_me",
-      // Clack's find_pull_requests resolves owner/repo from config — the MCP version
-      // requires Claude to guess the org name, which it often gets wrong.
-      "list_pull_requests",
-    ];
-
-    logger.debug(`Auto-configured GitHub MCP server (toolsets: ${toolsets})`);
-    return {
-      type: "stdio",
-      command: "github-mcp-server",
-      args: ["stdio", "--exclude-tools", excludedTools.join(",")],
-      env: {
-        GITHUB_PERSONAL_ACCESS_TOKEN: token,
-        GITHUB_TOOLSETS: toolsets,
-      },
-    };
-  } catch (error) {
-    logger.warn("Failed to auto-configure GitHub MCP server:", error);
-    return undefined;
+    const parsed = parseStdioEntry(name, server, substituteEnvVars);
+    if (parsed.kind === "pinned") {
+      pinned[name] = parsed.entry;
+    } else {
+      result[name] = parsed.config;
+    }
   }
+
+  cachedStaticServers = result;
+  recordPinnedEntries(pinned);
+  logger.debug(`Loaded MCP config: ${[...Object.keys(result), ...Object.keys(pinned)].join(", ")}`);
+  return result;
 }
 
 /**
@@ -303,22 +209,16 @@ export async function loadAlwaysOnMcpServers(
 
 /**
  * Returns the names of configured MCP servers (without loading/connecting).
- * Uses only the cached static config (synchronous).
+ * Uses only the cached static config (synchronous). Includes pinned entries
+ * even before their install has resolved — the registry needs to know about
+ * them for catalog/Home-tab purposes.
  */
 export function getConfiguredMcpServerNames(deps: McpDeps = defaultMcpDeps): string[] {
   const servers = loadStaticMcpConfig(deps);
-  const names = servers ? Object.keys(servers) : [];
-
-  // Include "github" if auto-config conditions are met
-  if (
-    !names.includes("github") &&
-    deps.existsSync(getGitHubAuthPath()) &&
-    isGitHubMcpServerAvailable(deps)
-  ) {
-    names.push("github");
-  }
-
-  return names;
+  const names = new Set<string>(servers ? Object.keys(servers) : []);
+  for (const name of pinnedNames()) names.add(name);
+  if (!names.has("github") && isGitHubAutoInjectable(deps)) names.add("github");
+  return [...names];
 }
 
 /**
@@ -327,22 +227,33 @@ export function getConfiguredMcpServerNames(deps: McpDeps = defaultMcpDeps): str
 export function resetMcpCache(): void {
   cachedStaticServers = undefined;
   staticConfigLoaded = false;
-  binaryAvailable = null;
+  resetGithubCache();
+  resetPinnedState();
+}
+
+/**
+ * Returns the pinned entries declared in `data/mcp.json` — those with both
+ * `package` and `version` set. Result is populated after `loadStaticMcpConfig`
+ * has run (typically the first MCP load call).
+ */
+export function getPinnedEntries(deps: McpDeps = defaultMcpDeps): Record<string, PinnedEntry> {
+  loadStaticMcpConfig(deps);
+  return getPinnedEntriesCache();
+}
+
+/**
+ * Record a resolved spawn config for a pinned entry. Called by the boot-time
+ * installer after `ensureInstalled` returns a bin path. Subsequent
+ * `loadMcpServer(name)` calls will return this config.
+ */
+export function setPinnedSpawnConfig(name: string, config: McpServerConfig): void {
+  if (!cachedStaticServers) cachedStaticServers = {};
+  cachedStaticServers[name] = config;
 }
 
 // ============================================================================
 // Effective MCP registry (lazy loading)
 // ============================================================================
-
-/**
- * Default description used when Clack auto-injects the GitHub MCP server
- * without an explicit `config.mcpServers.github` entry.
- */
-export const DEFAULT_GITHUB_REGISTRY_ENTRY: { alwaysLoad: false; description: string } = {
-  alwaysLoad: false,
-  description:
-    "GitHub — pull requests, issues, reviews, code on github.com. Attach when the user mentions a PR/issue number, pastes a github.com URL, or asks about merge status.",
-};
 
 /**
  * Placeholder description used for unmapped `mcp.json` servers. Shown in the catalog
@@ -396,7 +307,7 @@ export function resolveEffectiveRegistry(
   }
 
   if (githubAutoInjected && !("github" in registry)) {
-    registry.github = { ...DEFAULT_GITHUB_REGISTRY_ENTRY };
+    registry.github = { ...GITHUB_DEFAULT_REGISTRY };
     // GitHub auto-inject is a first-class path — don't report as unmapped.
   }
 
