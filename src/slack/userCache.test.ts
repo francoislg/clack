@@ -57,10 +57,18 @@ describe("formatUserIdentity", () => {
 function makeClient(
   users: Record<string, { name?: string; display_name?: string; real_name?: string; tz?: string }>,
   bots: Record<string, { name?: string }> = {},
+  userThrows: Record<string, string> = {},
 ): App["client"] {
   return {
     users: {
       info: async ({ user }: { user: string }) => {
+        if (userThrows[user]) {
+          const err = Object.assign(new Error(`An API error occurred: ${userThrows[user]}`), {
+            code: "slack_webapi_platform_error",
+            data: { ok: false, error: userThrows[user] },
+          });
+          throw err;
+        }
         const u = users[user];
         if (!u) return { ok: false, error: "user_not_found" };
         return {
@@ -148,6 +156,13 @@ describe("getUserInfo", () => {
   it("returns undefined for unknown bot", async () => {
     const client = makeClient({}, {});
     const info = await getUserInfo(client, "B999");
+    assert.equal(info, undefined);
+  });
+
+  it("swallows user_not_found platform errors thrown by the SDK", async () => {
+    // Slack WebClient throws (rather than returning {ok: false}) for user_not_found.
+    const client = makeClient({}, {}, { U_MISSING: "user_not_found" });
+    const info = await getUserInfo(client, "U_MISSING");
     assert.equal(info, undefined);
   });
 });
