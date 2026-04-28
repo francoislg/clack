@@ -11,6 +11,21 @@ export interface UserInfo {
 
 const userCache = new Map<string, UserInfo>();
 
+// Slack platform errors that mean "this ID cannot be resolved by this bot" — an
+// expected outcome (deactivated users, external Slack Connect users, cross-workspace
+// IDs) rather than an operational failure. The SDK throws rather than returning
+// { ok: false } for these, so we normalize to the same debug-level handling.
+const EXPECTED_LOOKUP_ERRORS = new Set(["user_not_found", "user_not_visible", "bot_not_found"]);
+
+interface SlackPlatformError {
+  data?: { error?: string };
+}
+
+function isExpectedLookupError(error: SlackPlatformError | null | undefined): boolean {
+  const code = error?.data?.error;
+  return typeof code === "string" && EXPECTED_LOOKUP_ERRORS.has(code);
+}
+
 /**
  * Get user info from cache or fetch from Slack API.
  * Returns undefined if the user cannot be resolved.
@@ -59,6 +74,10 @@ export async function getUserInfo(
 
     return userInfo;
   } catch (error) {
+    if (isExpectedLookupError(error as SlackPlatformError)) {
+      logger.debug(`User ${userId} not resolvable: ${(error as SlackPlatformError).data?.error}`);
+      return undefined;
+    }
     logger.error(`Error fetching user info for ${userId}:`, error);
     return undefined;
   }
@@ -85,6 +104,10 @@ async function getBotInfo(client: App["client"], botId: string): Promise<UserInf
 
     return userInfo;
   } catch (error) {
+    if (isExpectedLookupError(error as SlackPlatformError)) {
+      logger.debug(`Bot ${botId} not resolvable: ${(error as SlackPlatformError).data?.error}`);
+      return undefined;
+    }
     logger.error(`Error fetching bot info for ${botId}:`, error);
     return undefined;
   }
