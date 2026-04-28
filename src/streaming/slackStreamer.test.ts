@@ -84,6 +84,30 @@ function makeClient(opts?: {
   } as unknown as App["client"];
 }
 
+interface PostMessageCallArgs {
+  channel?: string;
+  thread_ts?: string;
+  text?: string;
+}
+
+interface MockedPostMessageHandle {
+  mock: {
+    callCount(): number;
+    calls: ReadonlyArray<{ arguments: ReadonlyArray<PostMessageCallArgs> }>;
+  };
+}
+
+function assertIsMockedPostMessage(fn: object): asserts fn is MockedPostMessageHandle {
+  const maybeMock = (fn as { mock?: unknown }).mock;
+  if (
+    !maybeMock ||
+    typeof maybeMock !== "object" ||
+    typeof (maybeMock as { callCount?: unknown }).callCount !== "function"
+  ) {
+    throw new Error("expected mock fn");
+  }
+}
+
 /** Extract all chunks sent via append calls. */
 function getAppendedChunks(streamer: MockChatStreamer): TaskUpdateChunk[] {
   const chunks: TaskUpdateChunk[] = [];
@@ -872,6 +896,64 @@ describe("finalizeStreamedWorkflow", () => {
     assert.equal(pmArgs.thread_ts, "1234.5678");
     assert.ok(pmArgs.text.includes("Update failed: oops"));
   });
+
+  it("posts a success fallback with PR URL when streamer has failed mid-run", async () => {
+    const mockStreamerObj = makeMockChatStreamer();
+    mockStreamerObj.append.mock.mockImplementation(async () => {
+      throw new Error("broken");
+    });
+    const client = makeClient({ chatStreamer: mockStreamerObj });
+    const streamer = new SlackStreamer({
+      client,
+      channel: "C_CHAN",
+      threadTs: "1234.5678",
+      teamId: "T_TEAM",
+      logger: mockLogger.logger,
+    });
+    await streamer.start();
+
+    await finalizeStreamedWorkflow(
+      streamer,
+      client,
+      "C_CHAN",
+      "1234.5678",
+      { success: true, prUrl: "https://example.com/pull/42" },
+      "Change request",
+    );
+
+    const pm = client.chat.postMessage;
+    assertIsMockedPostMessage(pm);
+    assert.equal(pm.mock.callCount(), 1);
+    const text = pm.mock.calls[0]?.arguments[0]?.text ?? "";
+    assert.ok(text.includes("Change request complete"));
+    assert.ok(text.includes("https://example.com/pull/42"));
+  });
+
+  it("does not post a success fallback when the streamer is healthy", async () => {
+    const mockStreamerObj = makeMockChatStreamer();
+    const client = makeClient({ chatStreamer: mockStreamerObj });
+    const streamer = new SlackStreamer({
+      client,
+      channel: "C_CHAN",
+      threadTs: "1234.5678",
+      teamId: "T_TEAM",
+      logger: mockLogger.logger,
+    });
+    await streamer.start();
+
+    await finalizeStreamedWorkflow(
+      streamer,
+      client,
+      "C_CHAN",
+      "1234.5678",
+      { success: true, prUrl: "https://example.com/pull/42" },
+      "Change request",
+    );
+
+    const pm = client.chat.postMessage;
+    assertIsMockedPostMessage(pm);
+    assert.equal(pm.mock.callCount(), 0);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1051,7 +1133,7 @@ describe("SlackStreamer keepalive", () => {
 
     // No keepalive decoration should have appended for this task
     const chunks = getAppendedChunks(mockStreamerObj);
-    const decorated = chunks.filter((c) => c.title?.includes(":stopwatch:"));
+    const decorated = chunks.filter((c) => c.title?.includes("⏱"));
     assert.equal(decorated.length, 0);
 
     await streamer.stop();
@@ -1084,23 +1166,23 @@ describe("SlackStreamer keepalive", () => {
     // Tick 1: 15s — under threshold, no decoration
     t.mock.timers.tick(15_000);
     let chunks = getAppendedChunks(mockStreamerObj);
-    assert.equal(chunks.filter((c) => c.title?.includes(":stopwatch:")).length, 0);
+    assert.equal(chunks.filter((c) => c.title?.includes("⏱")).length, 0);
 
     // Tick 2: 30s — at threshold, first decoration
     t.mock.timers.tick(15_000);
     chunks = getAppendedChunks(mockStreamerObj);
-    const firstDecoration = chunks.filter((c) => c.title?.includes(":stopwatch:"));
+    const firstDecoration = chunks.filter((c) => c.title?.includes("⏱"));
     assert.equal(firstDecoration.length, 1);
     assert.equal(firstDecoration[0].id, "task-slow");
-    assert.match(firstDecoration[0].title!, /:stopwatch: 30s$/);
+    assert.match(firstDecoration[0].title!, /⏱ 30s$/);
     assert.equal(firstDecoration[0].details, "\n .");
 
     // Tick 3: 45s — second decoration, appends single dot
     t.mock.timers.tick(15_000);
     chunks = getAppendedChunks(mockStreamerObj);
-    const allDecorations = chunks.filter((c) => c.title?.includes(":stopwatch:"));
+    const allDecorations = chunks.filter((c) => c.title?.includes("⏱"));
     assert.equal(allDecorations.length, 2);
-    assert.match(allDecorations[1].title!, /:stopwatch: 45s$/);
+    assert.match(allDecorations[1].title!, /⏱ 45s$/);
     assert.equal(allDecorations[1].details, " .");
 
     await streamer.stop();
@@ -1144,7 +1226,7 @@ describe("SlackStreamer keepalive", () => {
     t.mock.timers.tick(10_000);
 
     const chunks = getAppendedChunks(mockStreamerObj);
-    const decorated = chunks.filter((c) => c.title?.includes(":stopwatch:"));
+    const decorated = chunks.filter((c) => c.title?.includes("⏱"));
     assert.equal(decorated.length, 1);
     assert.equal(decorated[0].id, "task-A");
 
@@ -1188,10 +1270,10 @@ describe("SlackStreamer keepalive", () => {
     t.mock.timers.tick(15_000);
 
     let chunks = getAppendedChunks(mockStreamerObj);
-    let decorated = chunks.filter((c) => c.title?.includes(":stopwatch:"));
+    let decorated = chunks.filter((c) => c.title?.includes("⏱"));
     assert.equal(decorated.length, 1);
     // Group title "Searching codebase" with count (2)
-    assert.match(decorated[0].title!, /\(2\) :stopwatch:/);
+    assert.match(decorated[0].title!, /\(2\) ⏱/);
 
     // Add a third item and tick again — count should update to (3)
     streamer.handleEvent({
@@ -1204,9 +1286,9 @@ describe("SlackStreamer keepalive", () => {
 
     t.mock.timers.tick(15_000);
     chunks = getAppendedChunks(mockStreamerObj);
-    decorated = chunks.filter((c) => c.title?.includes(":stopwatch:"));
+    decorated = chunks.filter((c) => c.title?.includes("⏱"));
     assert.equal(decorated.length, 1);
-    assert.match(decorated[0].title!, /\(3\) :stopwatch:/);
+    assert.match(decorated[0].title!, /\(3\) ⏱/);
 
     await streamer.stop();
   });
@@ -1248,9 +1330,9 @@ describe("SlackStreamer keepalive", () => {
     t.mock.timers.tick(5_000);
 
     const chunks = getAppendedChunks(mockStreamerObj);
-    const decorated = chunks.filter((c) => c.title?.includes(":stopwatch:"));
+    const decorated = chunks.filter((c) => c.title?.includes("⏱"));
     assert.equal(decorated.length, 1, "group should decorate at 30s total, not restart timer");
-    assert.match(decorated[0].title!, /:stopwatch: 30s$/);
+    assert.match(decorated[0].title!, /⏱ 30s$/);
 
     await streamer.stop();
   });
