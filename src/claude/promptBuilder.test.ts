@@ -405,7 +405,7 @@ describe("buildPrompt", () => {
   });
 
   // ---- active change ----
-  it("includes active change context when present", () => {
+  it("includes active change context when present and changes workflow enabled", () => {
     const session = makeSession({
       activeChange: {
         branch: "feat/new-thing",
@@ -417,11 +417,31 @@ describe("buildPrompt", () => {
         prUrl: undefined,
       },
     });
-    const prompt = buildPrompt(session);
+    const prompt = buildPrompt(session, { changesWorkflowEnabled: true });
     assert.ok(prompt.includes("ACTIVE CHANGE"));
     assert.ok(prompt.includes("feat/new-thing"));
     assert.ok(prompt.includes("my-org/my-repo"));
     assert.ok(prompt.includes("request_update"));
+  });
+
+  it("omits request_update/propose_change guidance in active change when changes workflow disabled", () => {
+    const session = makeSession({
+      activeChange: {
+        branch: "feat/new-thing",
+        repo: "my-org/my-repo",
+        status: "executing" as const,
+        description: "Add new feature",
+        startedAt: new Date(),
+        lastActivityAt: new Date(),
+        prUrl: undefined,
+      },
+    });
+    const prompt = buildPrompt(session, { changesWorkflowEnabled: false });
+    assert.ok(prompt.includes("ACTIVE CHANGE"));
+    assert.ok(prompt.includes("feat/new-thing"));
+    assert.ok(!prompt.includes("use `request_update`"));
+    assert.ok(!prompt.includes("use `propose_change`"));
+    assert.ok(prompt.includes("Changes Workflow is not available"));
   });
 
   it("includes PR URL in active change when present", () => {
@@ -441,14 +461,14 @@ describe("buildPrompt", () => {
   });
 
   // ---- work mode ----
-  it("includes work mode hint with propose_change when no active change", () => {
+  it("includes work mode hint with propose_change when no active change and changes workflow enabled", () => {
     const session = makeSession();
-    const prompt = buildPrompt(session, { workMode: true });
+    const prompt = buildPrompt(session, { workMode: true, changesWorkflowEnabled: true });
     assert.ok(prompt.includes("WORK MODE"));
     assert.ok(prompt.includes("propose_change"));
   });
 
-  it("includes work mode hint with request_update when active change exists", () => {
+  it("includes work mode hint with request_update when active change exists and changes workflow enabled", () => {
     const session = makeSession({
       activeChange: {
         branch: "feat/x",
@@ -459,9 +479,27 @@ describe("buildPrompt", () => {
         lastActivityAt: new Date(),
       },
     });
-    const prompt = buildPrompt(session, { workMode: true });
+    const prompt = buildPrompt(session, { workMode: true, changesWorkflowEnabled: true });
     assert.ok(prompt.includes("WORK MODE"));
     assert.ok(prompt.includes("request_update"));
+  });
+
+  it("falls back to explanatory work mode hint when changes workflow disabled", () => {
+    const session = makeSession({
+      activeChange: {
+        branch: "feat/x",
+        repo: "org/repo",
+        status: "executing" as const,
+        description: "Work mode test",
+        startedAt: new Date(),
+        lastActivityAt: new Date(),
+      },
+    });
+    const prompt = buildPrompt(session, { workMode: true, changesWorkflowEnabled: false });
+    assert.ok(prompt.includes("WORK MODE"));
+    assert.ok(!prompt.includes("use request_update"));
+    assert.ok(!prompt.includes("Propose a code change using propose_change"));
+    assert.ok(prompt.includes("Changes Workflow is not available"));
   });
 
   it("does not include work mode hint when workMode is false", () => {
