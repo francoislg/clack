@@ -64,6 +64,57 @@ describe("BlockSchema.parse — allowed block types", () => {
     });
     assert.equal(parsed.type, "image");
   });
+
+  it("accepts a markdown block with non-empty text", () => {
+    const parsed = BlockSchema.parse({
+      type: "markdown",
+      text: "## Heading\n\nSome **bold** prose with `code`.",
+    });
+    assert.equal(parsed.type, "markdown");
+    if (parsed.type === "markdown") {
+      assert.match(parsed.text, /^## Heading/);
+    }
+  });
+
+  it("accepts a table block with bare-string cells", () => {
+    const parsed = BlockSchema.parse({
+      type: "table",
+      rows: [
+        ["Repo", "Status"],
+        ["clack", "active"],
+      ],
+    });
+    assert.equal(parsed.type, "table");
+    if (parsed.type === "table") {
+      assert.equal(parsed.rows.length, 2);
+      assert.equal(parsed.rows[0][0], "Repo");
+    }
+  });
+
+  it("accepts a table block with raw_text and rich_text cells", () => {
+    const parsed = BlockSchema.parse({
+      type: "table",
+      rows: [
+        [
+          { type: "raw_text", text: "Plain" },
+          {
+            type: "rich_text",
+            elements: [{ type: "rich_text_section", elements: [] }],
+          },
+        ],
+      ],
+    });
+    assert.equal(parsed.type, "table");
+  });
+
+  it("accepts a table block with column_settings", () => {
+    const parsed = BlockSchema.parse({
+      type: "table",
+      rows: [["a", "b"]],
+      column_settings: [{ align: "left", is_wrapped: false }, { align: "right" }],
+    });
+    assert.equal(parsed.type, "table");
+  });
 });
 
 describe("BlockSchema.parse — disallowed block types", () => {
@@ -75,12 +126,47 @@ describe("BlockSchema.parse — disallowed block types", () => {
     assert.throws(() => BlockSchema.parse({ type: "input" }));
   });
 
-  it("rejects a rich_text block", () => {
-    assert.throws(() => BlockSchema.parse({ type: "rich_text" }));
+  it("rejects a top-level rich_text block", () => {
+    // rich_text is allowed as a TABLE CELL, but not as a top-level block.
+    assert.throws(() => BlockSchema.parse({ type: "rich_text", elements: [] }));
+  });
+
+  it("rejects newer AI-surface block types", () => {
+    assert.throws(() => BlockSchema.parse({ type: "alert" }));
+    assert.throws(() => BlockSchema.parse({ type: "card" }));
+    assert.throws(() => BlockSchema.parse({ type: "carousel" }));
   });
 
   it("rejects an unknown block type", () => {
     assert.throws(() => BlockSchema.parse({ type: "made_up_block_type" }));
+  });
+
+  it("emits an actionable error message for an unknown block type", () => {
+    // Names the offending type and lists the allowed types so the model can
+    // self-correct without hallucinating that the MCP tool is unavailable.
+    const result = BlockSchema.safeParse({ type: "made_up_block_type" });
+    assert.equal(result.success, false);
+    const message = result.success ? "" : result.error.issues[0]?.message;
+    assert.match(message, /Block type "made_up_block_type" is not supported/);
+    for (const allowed of ALLOWED_BLOCK_TYPES) {
+      assert.ok(message.includes(allowed), `error message should list "${allowed}"`);
+    }
+  });
+
+  it("rejects a markdown block with empty text", () => {
+    assert.throws(() => BlockSchema.parse({ type: "markdown", text: "" }));
+  });
+
+  it("rejects a markdown block missing text", () => {
+    assert.throws(() => BlockSchema.parse({ type: "markdown" }));
+  });
+
+  it("rejects a table block missing rows", () => {
+    assert.throws(() => BlockSchema.parse({ type: "table" }));
+  });
+
+  it("rejects a table block with an empty rows array", () => {
+    assert.throws(() => BlockSchema.parse({ type: "table", rows: [] }));
   });
 });
 
@@ -140,7 +226,9 @@ describe("ALLOWED_BLOCK_TYPES", () => {
       "divider",
       "header",
       "image",
+      "markdown",
       "section",
+      "table",
     ]);
   });
 

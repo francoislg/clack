@@ -1,6 +1,7 @@
 import { describe, it, beforeEach, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import { z } from "zod";
+import { toJSONSchema } from "zod/v4/core";
 import { WebClient } from "@slack/web-api";
 import { tool, createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
 import type { SdkMcpToolDefinition, AnyZodRawShape } from "@anthropic-ai/claude-agent-sdk";
@@ -239,6 +240,52 @@ describe("buildClackTools — query mode", () => {
       );
     } finally {
       warnFn.mock.restore();
+    }
+  });
+
+  // Regression: a `z.custom(...)` schema inside `submit_response`'s blocks union
+  // made Zod v4's `toJSONSchema` throw "Custom types cannot be represented in
+  // JSON Schema". Inside the agent SDK that throw bubbles out of the entire
+  // `tools/list` handler, so the Clack MCP server reported as connected but
+  // exposed ZERO tools. Boot superficially succeeded, but `submit_response`
+  // (and every other Clack tool) was missing — see src/index.ts hard-fail guard.
+  // This test runs the same JSON-Schema conversion the SDK does at tools/list
+  // time, against every registered Clack tool, so any future schema that
+  // breaks serialization fails here loudly instead of in production.
+  it("every Clack tool's input schema serializes to JSON Schema (regression: tools/list silent failure)", () => {
+    // owner role + changesWorkflow enabled exercises every tool that gates on those.
+    const result = buildClackTools(makeQueryCtx({ role: "owner", changesWorkflowEnabled: true }));
+
+    // The SDK's tools/list handler reads from `_registeredTools` on the McpServer
+    // instance. No public accessor exists, so assert the shape we depend on
+    // before iterating.
+    interface RegisteredTool {
+      inputSchema: Parameters<typeof toJSONSchema>[0];
+    }
+    interface InstanceWithRegisteredTools {
+      _registeredTools?: Record<string, RegisteredTool>;
+    }
+    function hasRegisteredTools(value: object): value is InstanceWithRegisteredTools {
+      return "_registeredTools" in value;
+    }
+
+    const clackServer = result.mcpServers.clack;
+    assert.ok(
+      hasRegisteredTools(clackServer.instance),
+      "expected _registeredTools on the Clack MCP server instance",
+    );
+    const registered = clackServer.instance._registeredTools;
+    assert.ok(registered, "expected _registeredTools to be populated");
+
+    const names = Object.keys(registered);
+    assert.ok(names.length > 0, "expected the Clack MCP server to register at least one tool");
+
+    for (const name of names) {
+      const schema = registered[name].inputSchema;
+      assert.doesNotThrow(
+        () => toJSONSchema(schema, { io: "input" }),
+        `tool "${name}" input schema cannot be converted to JSON Schema — the agent SDK runs this conversion when serving tools/list, and a throw here strips the entire Clack tool registry at runtime`,
+      );
     }
   });
 

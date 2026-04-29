@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import type { RichTextBlock } from "@slack/types";
 import type { Block } from "./blockSchema.js";
 import { prepareBlocks } from "./blockPrepare.js";
 
@@ -245,6 +246,150 @@ describe("prepareBlocks — passthrough fields preserved through prepare", () =>
       assert.equal(first.block_id, "**not_converted**");
     } else {
       assert.fail("expected block_id on output");
+    }
+  });
+});
+
+describe("prepareBlocks — markdown block passthrough", () => {
+  it("preserves markdown text verbatim (no mrkdwn conversion)", () => {
+    const block: Block = {
+      type: "markdown",
+      text: "## Heading\n\n**bold** and [link](https://x.com)",
+    };
+    const result = prepareBlocks([block]);
+    assert.equal(result.length, 1);
+    if (result[0].type === "markdown") {
+      // Markdown blocks are server-rendered; convertMarkdownToSlack must NOT run.
+      assert.equal(result[0].text, "## Heading\n\n**bold** and [link](https://x.com)");
+    } else {
+      assert.fail("expected markdown block");
+    }
+  });
+
+  it("does not split markdown blocks regardless of length", () => {
+    // 5000 chars of text — well over the section 3000-char limit. Markdown
+    // blocks rely on Slack's server-side splitting, so prepareBlocks must NOT
+    // split them.
+    const longText = "a ".repeat(2500);
+    const block: Block = { type: "markdown", text: longText };
+    const result = prepareBlocks([block]);
+    assert.equal(result.length, 1);
+    if (result[0].type === "markdown") {
+      assert.equal(result[0].text.length, longText.length);
+    } else {
+      assert.fail("expected single markdown block");
+    }
+  });
+
+  it("preserves block_id on markdown blocks", () => {
+    const block: Block = {
+      type: "markdown",
+      text: "hi",
+      block_id: "intro_md",
+    };
+    const result = prepareBlocks([block]);
+    if ("block_id" in result[0]) {
+      assert.equal(result[0].block_id, "intro_md");
+    }
+  });
+});
+
+describe("prepareBlocks — table cell normalization", () => {
+  it("normalizes bare-string cells to raw_text", () => {
+    const block: Block = {
+      type: "table",
+      rows: [
+        ["Repo", "Status"],
+        ["clack", "active"],
+      ],
+    };
+    const result = prepareBlocks([block]);
+    assert.equal(result.length, 1);
+    if (result[0].type === "table") {
+      const r0c0 = result[0].rows[0][0];
+      const r1c1 = result[0].rows[1][1];
+      assert.deepEqual(r0c0, { type: "raw_text", text: "Repo" });
+      assert.deepEqual(r1c1, { type: "raw_text", text: "active" });
+    } else {
+      assert.fail("expected table block");
+    }
+  });
+
+  it("passes raw_text cells through untouched", () => {
+    const block: Block = {
+      type: "table",
+      rows: [[{ type: "raw_text", text: "explicit" }, "sugar"]],
+    };
+    const result = prepareBlocks([block]);
+    if (result[0].type === "table") {
+      assert.deepEqual(result[0].rows[0][0], { type: "raw_text", text: "explicit" });
+      assert.deepEqual(result[0].rows[0][1], { type: "raw_text", text: "sugar" });
+    } else {
+      assert.fail("expected table block");
+    }
+  });
+
+  it("passes rich_text cells through untouched", () => {
+    const richCell: RichTextBlock = {
+      type: "rich_text",
+      elements: [
+        {
+          type: "rich_text_section",
+          elements: [{ type: "text", text: "hello", style: { bold: true } }],
+        },
+      ],
+    };
+    const block: Block = {
+      type: "table",
+      rows: [[richCell]],
+    };
+    const result = prepareBlocks([block]);
+    if (result[0].type === "table") {
+      // Same shape, same content — rich_text cells are not modified.
+      assert.deepEqual(result[0].rows[0][0], richCell);
+    } else {
+      assert.fail("expected table block");
+    }
+  });
+
+  it("preserves column_settings", () => {
+    const block: Block = {
+      type: "table",
+      rows: [["a", "b"]],
+      column_settings: [{ align: "left", is_wrapped: false }, { align: "right" }],
+    };
+    const result = prepareBlocks([block]);
+    if (result[0].type === "table") {
+      assert.deepEqual(result[0].column_settings, [
+        { align: "left", is_wrapped: false },
+        { align: "right" },
+      ]);
+    } else {
+      assert.fail("expected table block");
+    }
+  });
+
+  it("does not mutate the input table block", () => {
+    const block: Block = {
+      type: "table",
+      rows: [["a", "b"]],
+    };
+    const result = prepareBlocks([block]);
+    assert.notEqual(result[0], block);
+    // Input rows still hold the original string cells.
+    if (block.type === "table") {
+      assert.equal(block.rows[0][0], "a");
+    }
+  });
+
+  it("handles a row with zero cells", () => {
+    const block: Block = { type: "table", rows: [[]] };
+    const result = prepareBlocks([block]);
+    if (result[0].type === "table") {
+      assert.equal(result[0].rows.length, 1);
+      assert.equal(result[0].rows[0].length, 0);
+    } else {
+      assert.fail("expected table block");
     }
   });
 });
