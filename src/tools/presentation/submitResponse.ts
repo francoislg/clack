@@ -93,14 +93,57 @@ const updateActionSchema = z.object({
     .describe("If true, execute immediately without waiting for button click"),
 });
 
-const actionSchema = z.discriminatedUnion("type", [
-  followupActionSchema,
-  choiceActionSchema,
-  postToActionSchema,
-  changeActionSchema,
-  configUpdateActionSchema,
-  updateActionSchema,
-]);
+const ALLOWED_ACTION_TYPES = [
+  "followup",
+  "choice",
+  "post_to",
+  "change",
+  "config_update",
+  "update",
+] as const;
+
+type ActionInput =
+  | string
+  | number
+  | boolean
+  | null
+  | ActionInput[]
+  | { [key: string]: ActionInput };
+
+interface MaybeTaggedActionInput {
+  type?: ActionInput;
+}
+
+function readActionType(input: ActionInput | undefined): ActionInput | undefined {
+  if (input && typeof input === "object" && !Array.isArray(input)) {
+    return (input as MaybeTaggedActionInput).type;
+  }
+  return undefined;
+}
+
+// Custom error for unknown action types — same rationale as BlockSchema:
+// produce an actionable message at the Zod boundary so the model gets a
+// clear "Action type X is not supported" instead of generic "Invalid input".
+const actionSchema = z.discriminatedUnion(
+  "type",
+  [
+    followupActionSchema,
+    choiceActionSchema,
+    postToActionSchema,
+    changeActionSchema,
+    configUpdateActionSchema,
+    updateActionSchema,
+  ],
+  {
+    error: (issue) => {
+      if (issue.code === "invalid_union") {
+        const actualType = readActionType(issue.input as ActionInput | undefined);
+        return `Action type ${JSON.stringify(actualType)} is not supported. Allowed action types: ${ALLOWED_ACTION_TYPES.join(", ")}.`;
+      }
+      return undefined;
+    },
+  },
+);
 
 // Ref-based action types that need validation
 const REF_ACTION_TYPES = new Set(["change", "config_update", "update"]);
@@ -255,7 +298,7 @@ const normalResponseSchema = {
     .array(BlockSchema)
     .min(1)
     .describe(
-      "Slack Block Kit blocks (Clack's curated subset: divider, header, section, context, image) shown to the user. Default to a single section block with mrkdwn text; add structure only when the content genuinely has structure.",
+      "Slack Block Kit blocks (Clack's curated subset: divider, header, section, context, image, markdown, table) shown to the user. Default to a single section block with mrkdwn text; add structure only when the content genuinely has structure.",
     ),
   actions: z
     .array(actionSchema)

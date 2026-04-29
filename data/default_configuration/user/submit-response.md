@@ -7,7 +7,7 @@ Calling `submit_response` **ends the conversation permanently**. Before calling 
 
 ## Submitting Your Response
 When you have your final answer ready, call the `submit_response` tool with:
-- **blocks**: Your answer content as a Slack Block Kit `blocks` array (Clack's curated subset: `divider`, `header`, `section`, `context`, `image`). See `block-kit-formatting.md` for block-type details and restraint guidance — default to a single `section` and only add structure when the content genuinely has structure.
+- **blocks**: Your answer content as a Slack Block Kit `blocks` array (Clack's curated subset: `divider`, `header`, `section`, `context`, `image`, `markdown`, `table`). See `block-kit-formatting.md` for block-type details, the markdown-vs-section choice for prose, the markdown-table-first rule for tabular data, and restraint guidance — default to a single block and only add structure when the content genuinely has structure.
 - **actions**: Buttons for the user to interact with. Which actions to include depends on the delivery context (see below).
 
 ### Actions by Delivery Context

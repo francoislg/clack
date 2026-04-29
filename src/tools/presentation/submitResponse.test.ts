@@ -1,5 +1,6 @@
 import { describe, it, beforeEach, mock } from "node:test";
 import assert from "node:assert/strict";
+import { z } from "zod";
 import type { IntentStore, ResponseCapture, ToolCallRecorder } from "../server.js";
 import type { StagedIntent, ResponseSnapshot } from "../types.js";
 import { parseToolResult, toolResultText } from "../testHelpers.js";
@@ -1523,6 +1524,39 @@ describe("createSubmitResponseTool", () => {
       );
       assert.equal(result.isError, true);
       assert.ok(toolResultText(result).includes("mcp__trivia__submit_answers"));
+    });
+  });
+
+  describe("schema-level validation errors (boundary)", () => {
+    // The SDK validates inputs against the tool's inputSchema BEFORE the
+    // handler runs. The custom Zod error maps below ensure the model gets an
+    // actionable message when it picks an unsupported block/action type —
+    // otherwise the Zod error would just be a generic "Invalid input" and
+    // the model has historically misread that as "the MCP is disconnected".
+    function inputSchemaOf(deps: ReturnType<typeof makeDeps>) {
+      return z.object(createSubmitResponseTool(deps).inputSchema);
+    }
+
+    it("emits an actionable error for an unknown block type", () => {
+      const result = inputSchemaOf(makeDeps()).safeParse({
+        blocks: [{ type: "header", text: { type: "plain_text", text: "h" } }, { type: "fancy" }],
+        actions: [],
+      });
+      assert.equal(result.success, false);
+      const message = result.success ? "" : result.error.issues[0]?.message;
+      assert.match(message, /Block type "fancy" is not supported/);
+      assert.match(message, /Allowed block types:/);
+    });
+
+    it("emits an actionable error for an unknown action type", () => {
+      const result = inputSchemaOf(makeDeps()).safeParse({
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "hi" } }],
+        actions: [{ type: "definitely_not_real" }],
+      });
+      assert.equal(result.success, false);
+      const message = result.success ? "" : result.error.issues[0]?.message;
+      assert.match(message, /Action type "definitely_not_real" is not supported/);
+      assert.match(message, /Allowed action types:/);
     });
   });
 });

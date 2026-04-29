@@ -103,11 +103,30 @@ async function main(): Promise<void> {
 
   // Step 2: Test MCP connections and clack tools
   logger.info("Connecting to MCP servers...");
+  let mcpResult: Awaited<ReturnType<typeof testMCP>>;
   try {
-    const mcpResult = await testMCP();
-    if (mcpResult.clackTools.length > 0) {
-      logger.info(`Clack tools registered: ${mcpResult.clackTools.join(", ")}`);
-    }
+    mcpResult = await testMCP();
+  } catch (error) {
+    // testMCP itself crashed — boot must not continue without verifying
+    // that Clack's in-process tools registered.
+    logger.error("Failed to test MCP connections — refusing to boot:", error);
+    process.exit(1);
+  }
+  // Hard guard: if the SDK comes back with zero `mcp__clack__*` tools, the
+  // in-process tool server failed to register (e.g. a Zod schema that the
+  // SDK can't serialize to JSON Schema makes `tools/list` throw and silently
+  // strips the whole registry). The bot is useless without `submit_response`
+  // so fail loudly here rather than booting into a broken state.
+  if (mcpResult.clackTools.length === 0) {
+    logger.error(
+      "Clack registered ZERO internal tools — the in-process MCP server failed to expose any tool. " +
+        "Common cause: a Zod schema in src/tools/** that cannot be serialized to JSON Schema. " +
+        `testMCP error: ${mcpResult.error ?? "(none)"}`,
+    );
+    process.exit(1);
+  }
+  try {
+    logger.info(`Clack tools registered: ${mcpResult.clackTools.join(", ")}`);
     if (mcpResult.configuredServers.length > 0) {
       if (mcpResult.connectedServers.length > 0) {
         const { registry } = resolveEffectiveRegistry({

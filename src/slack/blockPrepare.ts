@@ -1,6 +1,18 @@
-import type { SectionBlock, ContextBlock, PlainTextElement, MrkdwnElement } from "@slack/types";
+import type {
+  SectionBlock,
+  ContextBlock,
+  MarkdownBlock,
+  PlainTextElement,
+  MrkdwnElement,
+  RawTextElement,
+} from "@slack/types";
 import { convertMarkdownToSlack, splitForSlack } from "../claude/formatting.js";
-import type { Block } from "./blockSchema.js";
+import type {
+  AuthoredRichTextCell,
+  AuthoredTableBlock,
+  AuthoredTableCell,
+  Block,
+} from "./blockSchema.js";
 
 const SECTION_TEXT_LIMIT = 3000;
 
@@ -81,6 +93,27 @@ function prepareContext(block: ContextBlock): ContextBlock {
   return { ...block, elements: convertedElements };
 }
 
+// Markdown blocks are passthrough: Slack handles markdown rendering AND
+// oversize-text splitting server-side (per the spec, "passing a single block
+// may result in multiple blocks after translation"). We only enforce the
+// 12k cumulative cap at validation time.
+function prepareMarkdown(block: MarkdownBlock): MarkdownBlock {
+  return { ...block };
+}
+
+// Authoring sugar: a bare-string cell is normalized into a RawTextElement.
+function normalizeTableCell(cell: AuthoredTableCell): RawTextElement | AuthoredRichTextCell {
+  if (typeof cell === "string") {
+    return { type: "raw_text", text: cell };
+  }
+  return cell;
+}
+
+function prepareTable(block: AuthoredTableBlock): AuthoredTableBlock {
+  const rows = block.rows.map((row) => row.map(normalizeTableCell));
+  return { ...block, rows };
+}
+
 // ============================================================================
 // Public API
 // ============================================================================
@@ -105,6 +138,12 @@ export function prepareBlocks(blocks: readonly Block[]): Block[] {
         break;
       case "context":
         out.push(prepareContext(block));
+        break;
+      case "markdown":
+        out.push(prepareMarkdown(block));
+        break;
+      case "table":
+        out.push(prepareTable(block));
         break;
       case "divider":
       case "header":
