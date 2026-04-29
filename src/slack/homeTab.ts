@@ -12,7 +12,7 @@ import { getMigrationErrors } from "../migrations/admin.js";
 import { discoverSkillPluginInfo } from "../skillPlugins.js";
 import { getRules, type AutoRespondRule } from "../autoRespond.js";
 import { getJobs, getJobsByUser, type CronJob } from "../cronJobs.js";
-import { humanReadableSchedule } from "../cronScheduler.js";
+import { humanReadableSchedule } from "../cronFormatter.js";
 import { truncate } from "../text.js";
 import type { ActiveWorker } from "../changes/activeState.js";
 import type { InstructionFileListing } from "../configurationFiles.js";

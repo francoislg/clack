@@ -6,7 +6,7 @@ import { textResult, errorResult } from "../helpers.js";
 import { resolveChannelId } from "../../slack/channelResolver.js";
 import { getJob, updateJob } from "../../cronJobs.js";
 import { canManageRoles } from "../../permissions.js";
-import { humanReadableSchedule } from "../../cronScheduler.js";
+import { humanReadableSchedule } from "../../cronFormatter.js";
 import { isValidTimezone } from "../../timezone.js";
 import { validateRequiredToolNames, formatRequiredToolNameError } from "../toolNameValidator.js";
 import { logger } from "../../logger.js";

@@ -4,7 +4,7 @@ import type { QueryToolContext } from "../types.js";
 import { textResult } from "../helpers.js";
 import { getJobs, getJobsByUser, type CronJob } from "../../cronJobs.js";
 import { canManageRoles } from "../../permissions.js";
-import { humanReadableSchedule } from "../../cronScheduler.js";
+import { humanReadableSchedule } from "../../cronFormatter.js";
 import { slackLink } from "../../slack/logContext.js";
 
 export function createListScheduledMessagesTool(ctx: QueryToolContext) {

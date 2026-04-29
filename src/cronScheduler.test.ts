@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { WebClient } from "@slack/web-api";
 import {
   executeJob,
-  humanReadableSchedule,
   matchesCron,
   notifyCreatorOfError,
   type CronSchedulerDeps,
@@ -12,35 +11,6 @@ import type { CronJob } from "./cronJobs.js";
 import type { ClaudeResponse } from "./claude/index.js";
 
 describe("cronScheduler", () => {
-  describe("humanReadableSchedule", () => {
-    it("formats daily schedule", () => {
-      const result = humanReadableSchedule("0 9 * * *", "America/New_York");
-      assert.match(result, /Every day at/);
-      assert.match(result, /9:00/);
-    });
-
-    it("formats weekly schedule", () => {
-      const result = humanReadableSchedule("0 9 * * 1", "UTC");
-      assert.match(result, /Mon/);
-      assert.match(result, /9:00/);
-    });
-
-    it("formats weekday schedule", () => {
-      const result = humanReadableSchedule("0 9 * * 1-5", "UTC");
-      assert.match(result, /Weekdays at/);
-    });
-
-    it("formats monthly schedule", () => {
-      const result = humanReadableSchedule("0 9 15 * *", "UTC");
-      assert.match(result, /Day 15/);
-    });
-
-    it("returns raw expression for invalid cron", () => {
-      const result = humanReadableSchedule("invalid", "UTC");
-      assert.equal(result, "invalid");
-    });
-  });
-
   describe("matchesCron", () => {
     it("matches when now is within the cron minute", () => {
       // Cron fires at minute 0 of every hour; check at HH:00:30
