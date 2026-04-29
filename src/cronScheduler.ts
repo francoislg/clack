@@ -8,6 +8,7 @@ import { resolveChannelLabel, slackLink } from "./slack/logContext.js";
 import { openDmChannel } from "./slack/channelResolver.js";
 import { errorMessage as toErrorMessage } from "./errors.js";
 import { isSlackAccessError } from "./slackErrors.js";
+import { humanReadableSchedule } from "./cronFormatter.js";
 
 // ============================================================================
 // Injectable deps (for tests; production uses module-level imports)
@@ -239,75 +240,6 @@ async function executeDynamicJob(
 function buildAttribution(job: CronJob): string {
   const schedule = humanReadableSchedule(job.cronExpression, job.timezone);
   return `_Scheduled by <@${job.createdBy}> · ${schedule}_`;
-}
-
-export function humanReadableSchedule(cronExpression: string, timezone: string): string {
-  try {
-    const interval = CronExpressionParser.parse(cronExpression, { tz: timezone });
-    const next = interval.next().toDate();
-    const timeStr = next.toLocaleTimeString("en-US", {
-      hour: "numeric",
-      minute: "2-digit",
-      timeZone: timezone,
-      timeZoneName: "short",
-    });
-
-    // Parse cron fields for human-readable description
-    const fields = cronExpression.split(/\s+/);
-    if (fields.length < 5) return cronExpression;
-
-    const [, , dayOfMonth, , dayOfWeek] = fields;
-
-    if (dayOfWeek !== "*" && dayOfMonth === "*") {
-      const days = parseDayOfWeek(dayOfWeek);
-      if (days.length === 7) return `Every day at ${timeStr}`;
-      if (days.length === 5 && !days.includes("Sat") && !days.includes("Sun")) {
-        return `Weekdays at ${timeStr}`;
-      }
-      return `Every ${days.join(", ")} at ${timeStr}`;
-    }
-
-    if (dayOfMonth !== "*") {
-      return `Day ${dayOfMonth} of each month at ${timeStr}`;
-    }
-
-    return `Every day at ${timeStr}`;
-  } catch {
-    return cronExpression;
-  }
-}
-
-const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const DAY_NAME_MAP: Record<string, number> = {
-  sun: 0,
-  mon: 1,
-  tue: 2,
-  wed: 3,
-  thu: 4,
-  fri: 5,
-  sat: 6,
-};
-
-function toDayIndex(value: string): number {
-  const num = Number(value);
-  if (!isNaN(num)) return num;
-  return DAY_NAME_MAP[value.toLowerCase().slice(0, 3)] ?? -1;
-}
-
-function parseDayOfWeek(field: string): string[] {
-  const days: string[] = [];
-  for (const part of field.split(",")) {
-    if (part.includes("-")) {
-      const [start, end] = part.split("-").map(toDayIndex);
-      for (let i = start; i <= end; i++) {
-        if (DAY_NAMES[i]) days.push(DAY_NAMES[i]);
-      }
-    } else {
-      const idx = toDayIndex(part);
-      if (DAY_NAMES[idx]) days.push(DAY_NAMES[idx]);
-    }
-  }
-  return days;
 }
 
 // ============================================================================

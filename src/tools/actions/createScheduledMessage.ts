@@ -8,7 +8,7 @@ import { createJob, type CronJob } from "../../cronJobs.js";
 import { isValidTimezone } from "../../timezone.js";
 import { logger } from "../../logger.js";
 import { errorMessage } from "../../errors.js";
-import { humanReadableSchedule } from "../../cronScheduler.js";
+import { humanReadableSchedule } from "../../cronFormatter.js";
 import { validateRequiredToolNames, formatRequiredToolNameError } from "../toolNameValidator.js";
 
 export interface CreateScheduledMessageDeps {
