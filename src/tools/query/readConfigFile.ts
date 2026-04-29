@@ -1,30 +1,23 @@
-import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
 import { textResult, errorResult } from "../helpers.js";
 import { readInstructionFile } from "../../configurationFiles.js";
 import {
-  resolveInstructions,
-  buildRoleChain,
-  type RoleDir,
-} from "../../cascadingConfigResolver.js";
-import type { UserRole } from "../../roles.js";
-
-const VALID_ROLES = ["member", "dev", "admin", "owner"] as const;
+  ROLE_ENUM,
+  TOPIC_PATTERN,
+  FILE_PATTERN,
+  buildInstructionPath,
+} from "./configFieldSchemas.js";
 
 export interface ReadConfigFileDeps {
   readInstructionFile: (filepath: string) => {
     default_content: string | null;
     custom_content: string | null;
   };
-  buildRoleChain: (role: UserRole, changesWorkflowEnabled: boolean) => RoleDir[];
-  resolveInstructions: (roleChain: RoleDir[]) => string;
 }
 
 export const defaultDeps: ReadConfigFileDeps = {
   readInstructionFile,
-  buildRoleChain,
-  resolveInstructions,
 };
 
 export function createReadConfigFileTool(
@@ -34,44 +27,28 @@ export function createReadConfigFileTool(
   return tool(
     "read_config_file",
     "Read an instruction file. Returns both default and custom content for comparison. " +
-      "Use {role}/{filename} format (e.g., 'user/identity.md', 'dev/changes.md'). " +
-      "Alternatively, pass just a role name (e.g., 'dev') to get the full resolved instruction set for that role.",
+      "For baseline files, pass `role` and `file`. For topic-scoped files, also pass `topic`.",
     {
-      file: z
-        .string()
-        .describe(
-          "The instruction file path (e.g., 'user/identity.md') or a role name (e.g., 'dev') for resolved view",
-        ),
-      changesWorkflowEnabled: z
-        .boolean()
-        .optional()
-        .default(true)
-        .describe("Whether changesWorkflow is enabled (used for resolved view)"),
+      role: ROLE_ENUM.describe("The role directory (one of: user, dev, admin, owner)"),
+      topic: TOPIC_PATTERN.optional().describe(
+        "Optional topic name for topic-scoped instruction files (e.g., 'metabase'). Omit for baseline files.",
+      ),
+      file: FILE_PATTERN.describe(
+        "The bare filename ending in `.md` (e.g., 'identity.md'). No slashes — use the `topic` field for topic-scoped paths.",
+      ),
     },
     async (args) => {
-      // Check if this is a resolved view request (just a role name)
-      if (VALID_ROLES.includes(args.file as (typeof VALID_ROLES)[number])) {
-        const roleChain = deps.buildRoleChain(args.file as UserRole, args.changesWorkflowEnabled);
-        const resolved = deps.resolveInstructions(roleChain);
-        return textResult({
-          view: "resolved",
-          role: args.file,
-          roleChain,
-          content: resolved,
-        });
-      }
-
-      // Otherwise, read a specific file
-      const result = deps.readInstructionFile(args.file);
+      const path = buildInstructionPath(args.role, args.topic, args.file);
+      const result = deps.readInstructionFile(path);
 
       if (result.default_content === null && result.custom_content === null) {
         return errorResult(
-          `File "${args.file}" not found. Use {role}/{filename} format (e.g., 'user/identity.md').`,
+          `File "${path}" not found. Verify the role/topic/file combination is correct.`,
         );
       }
 
       return textResult({
-        file: args.file,
+        file: path,
         default_content: result.default_content,
         custom_content: result.custom_content,
       });

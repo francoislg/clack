@@ -327,6 +327,31 @@ describe("registerConfigUpdateActionHandler — success", () => {
     assert.equal(msgArgs.channel, "C001");
     assert.equal(msgArgs.thread_ts, "1700000000.000001");
   });
+
+  it("writes a topic-scoped intent path through to writeInstructionFile unchanged", async () => {
+    // The propose tool composes `dev/topics/metabase/rules.md` into `intent.file`;
+    // the apply handler must pass it through verbatim so writeInstructionFile creates
+    // the nested topic directory and lands the override at the right cascade level.
+    const handler = captureHandler();
+    const configIntent: StagedConfigUpdateIntent = {
+      type: "config_update",
+      file: "dev/topics/metabase/rules.md",
+      content: "metabase rules",
+    };
+    mockGetStagedIntent.mock.mockImplementation(async () => configIntent);
+    const args = makeHandlerArgs();
+
+    await handler(args);
+
+    assert.equal(mockWriteInstructionFile.mock.callCount(), 1);
+    const writeArgs = mockWriteInstructionFile.mock.calls[0]!.arguments;
+    assert.equal(writeArgs[0], "dev/topics/metabase/rules.md");
+    assert.equal(writeArgs[1], "metabase rules");
+
+    const postEphemeral = args.postEphemeral;
+    const msgArgs = postEphemeral.mock.calls[0]!.arguments[0] as { text: string };
+    assert.ok(msgArgs.text.includes("dev/topics/metabase/rules.md"));
+  });
 });
 
 // ============================================================================

@@ -195,7 +195,11 @@ function setDefaultMocks(role: UserRole = "member") {
   mockGetConfiguredMcpServerNames.mock.mockImplementation(() => []);
   mockGetFailedMcpServers.mock.mockImplementation(() => new Set<string>());
   mockGetActiveWorkers.mock.mockImplementation(() => []);
-  mockListInstructionFiles.mock.mockImplementation(() => ({ roles: [], repos: [] }));
+  mockListInstructionFiles.mock.mockImplementation(() => ({
+    roles: [],
+    preAnalysis: [],
+    repos: [],
+  }));
   mockGetVisibleRepos.mock.mockImplementation((_role, repos) => repos);
   mockCanWriteRepo.mock.mockImplementation(() => false);
   mockGetMigrationErrors.mock.mockImplementation(() => []);
@@ -538,10 +542,8 @@ describe("buildConfigurationSection", () => {
   it("renders directory buttons in a single actions row", () => {
     const deps = makeDeps();
     mockListInstructionFiles.mock.mockImplementation(() => ({
-      roles: [
-        { role: "member", files: [] },
-        { role: "pre-analysis", files: [] },
-      ],
+      roles: [{ role: "member", files: [], topics: [] }],
+      preAnalysis: [],
       repos: [],
     }));
     const blocks = buildConfigurationSection(true, deps);
@@ -553,10 +555,16 @@ describe("buildConfigurationSection", () => {
   it("includes repo directory buttons alongside role buttons", () => {
     const deps = makeDeps();
     mockListInstructionFiles.mock.mockImplementation(() => ({
-      roles: [{ role: "member", files: [] }],
+      roles: [{ role: "member", files: [], topics: [] }],
+      preAnalysis: [],
       repos: [
-        { filename: "my-repo/test.md", hasOverride: false, hasDefault: true },
-        { filename: "my-repo/other.md", hasOverride: false, hasDefault: true },
+        {
+          repo: "my-repo",
+          files: [
+            { file: "test.md", status: "default" },
+            { file: "other.md", status: "default" },
+          ],
+        },
       ],
     }));
     const blocks = buildConfigurationSection(true, deps);

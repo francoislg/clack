@@ -2,10 +2,14 @@ import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
 import type { IntentStore } from "../server.js";
-import { textResult, errorResult } from "../helpers.js";
+import { textResult } from "../helpers.js";
 import { readInstructionFile } from "../../configurationFiles.js";
-
-const KNOWN_ROLE_DIRS = ["user", "dev", "admin", "owner"];
+import {
+  ROLE_ENUM,
+  TOPIC_PATTERN,
+  FILE_PATTERN,
+  buildInstructionPath,
+} from "../query/configFieldSchemas.js";
 
 export interface ProposeConfigUpdateDeps {
   readInstructionFile: (filepath: string) => {
@@ -25,15 +29,18 @@ export function createProposeConfigUpdateTool(
 ) {
   return tool(
     "propose_config_update",
-    "Propose an update to an instruction file. Use {role}/{filename} format (e.g., 'user/company-context.md', 'dev/changes.md'). " +
-      "Validates the path and stages the intent. Returns a ref ID to use in submit_response. " +
-      "Default operation is 'append' which adds content to the end of the existing file. Use 'replace' only when rewriting or removing content.",
+    "Propose an update to an instruction file. For baseline files, pass `role` and `file`. " +
+      "For topic-scoped instructions, also pass `topic`. Validates the path and stages the intent. " +
+      "Returns a ref ID to use in submit_response. Default operation is 'append' which adds content " +
+      "to the end of the existing file. Use 'replace' only when rewriting or removing content.",
     {
-      file: z
-        .string()
-        .describe(
-          "The instruction file path in {role}/{filename} format (e.g., 'user/identity.md', 'admin/config-updates.md') or {repo}/{filename} for repo-scoped files",
-        ),
+      role: ROLE_ENUM.describe("The role directory (one of: user, dev, admin, owner)"),
+      topic: TOPIC_PATTERN.optional().describe(
+        "Optional topic name for topic-scoped instruction files (e.g., 'metabase'). Omit for baseline files.",
+      ),
+      file: FILE_PATTERN.describe(
+        "The bare filename ending in `.md` (e.g., 'identity.md'). No slashes — use the `topic` field for topic-scoped paths.",
+      ),
       content: z
         .string()
         .describe(
@@ -47,28 +54,13 @@ export function createProposeConfigUpdateTool(
         ),
     },
     async (args) => {
-      // Validate the path format
-      const parts = args.file.split("/");
-      if (parts.length !== 2 || !parts[0] || !parts[1]) {
-        const errMsg = `Invalid file path "${args.file}". Use {role}/{filename} format (e.g., 'user/identity.md'). Valid role directories: ${KNOWN_ROLE_DIRS.join(", ")}`;
-        return errorResult(errMsg);
-      }
-
-      const [dir] = parts;
-
-      // Validate it's a known role directory or repo directory
-      // (repo directories are allowed too for repo-scoped instruction files)
-      if (!KNOWN_ROLE_DIRS.includes(dir)) {
-        // Allow if the first part might be a repo name — we don't validate repo names here
-        // since the write will go to configuration/{dir}/{filename} which is safe
-      }
+      const path = buildInstructionPath(args.role, args.topic, args.file);
 
       let finalContent: string;
       if (args.operation === "replace") {
         finalContent = args.content;
       } else {
-        // Append: read current content and append
-        const current = deps.readInstructionFile(args.file);
+        const current = deps.readInstructionFile(path);
         const currentContent = current.custom_content ?? current.default_content;
         if (currentContent) {
           finalContent = currentContent.trimEnd() + "\n\n" + args.content;
@@ -77,14 +69,13 @@ export function createProposeConfigUpdateTool(
         }
       }
 
-      // Stage the intent
       const ref = intentStore.stage({
         type: "config_update",
-        file: args.file,
+        file: path,
         content: finalContent,
       });
 
-      const current = deps.readInstructionFile(args.file);
+      const current = deps.readInstructionFile(path);
       const status =
         current.custom_content !== null
           ? "will_overwrite_custom"
@@ -92,7 +83,7 @@ export function createProposeConfigUpdateTool(
             ? "will_override_default"
             : "will_create_new";
 
-      return textResult({ ref, file: args.file, status });
+      return textResult({ ref, file: path, status });
     },
   );
 }

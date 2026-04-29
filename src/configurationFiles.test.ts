@@ -78,10 +78,8 @@ describe("listInstructionFiles", () => {
     loadConfig(configPath, true);
 
     const result = listInstructionFiles();
-    // Only the always-present pre-analysis pseudo-directory (empty, for create-new-file UI)
-    assert.equal(result.roles.length, 1);
-    assert.equal(result.roles[0].role, "pre-analysis");
-    assert.deepEqual(result.roles[0].files, []);
+    assert.deepEqual(result.roles, []);
+    assert.deepEqual(result.preAnalysis, []);
   });
 
   it("scans role directories for default files", () => {
@@ -98,16 +96,16 @@ describe("listInstructionFiles", () => {
     const userRole = result.roles.find((r) => r.role === "user");
     assert.ok(userRole);
     assert.equal(userRole.files.length, 2);
-    assert.ok(userRole.files.some((f) => f.filename === "behavior.md" && f.source === "default"));
-    assert.ok(userRole.files.some((f) => f.filename === "identity.md" && f.source === "default"));
+    assert.ok(userRole.files.some((f) => f.file === "behavior.md" && f.status === "default"));
+    assert.ok(userRole.files.some((f) => f.file === "identity.md" && f.status === "default"));
 
     const devRole = result.roles.find((r) => r.role === "dev");
     assert.ok(devRole);
     assert.equal(devRole.files.length, 1);
-    assert.ok(devRole.files.some((f) => f.filename === "changes.md" && f.source === "default"));
+    assert.ok(devRole.files.some((f) => f.file === "changes.md" && f.status === "default"));
   });
 
-  it("reports source=customized when both default and custom exist", () => {
+  it("reports status=customized when both default and custom exist", () => {
     writeSlackAuth();
     writeConfig([{ name: "repo", url: "https://github.com/org/repo.git", description: "Repo" }]);
     loadConfig(configPath, true);
@@ -119,12 +117,12 @@ describe("listInstructionFiles", () => {
 
     const userRole = result.roles.find((r) => r.role === "user");
     assert.ok(userRole);
-    const entry = userRole.files.find((f) => f.filename === "identity.md");
+    const entry = userRole.files.find((f) => f.file === "identity.md");
     assert.ok(entry);
-    assert.equal(entry.source, "customized");
+    assert.equal(entry.status, "customized");
   });
 
-  it("reports source=custom-only when only custom file exists", () => {
+  it("reports status=custom-only when only custom file exists", () => {
     writeSlackAuth();
     writeConfig([{ name: "repo", url: "https://github.com/org/repo.git", description: "Repo" }]);
     loadConfig(configPath, true);
@@ -135,12 +133,12 @@ describe("listInstructionFiles", () => {
 
     const adminRole = result.roles.find((r) => r.role === "admin");
     assert.ok(adminRole);
-    const entry = adminRole.files.find((f) => f.filename === "custom-rule.md");
+    const entry = adminRole.files.find((f) => f.file === "custom-rule.md");
     assert.ok(entry);
-    assert.equal(entry.source, "custom-only");
+    assert.equal(entry.status, "custom-only");
   });
 
-  it("omits role directories with no files", () => {
+  it("omits role directories with no baseline or topic files", () => {
     writeSlackAuth();
     writeConfig([{ name: "repo", url: "https://github.com/org/repo.git", description: "Repo" }]);
     loadConfig(configPath, true);
@@ -150,11 +148,61 @@ describe("listInstructionFiles", () => {
     const result = listInstructionFiles();
     const roleNames = result.roles.map((r) => r.role);
 
-    // user + always-present pre-analysis
     assert.ok(roleNames.includes("user"));
-    assert.ok(roleNames.includes("pre-analysis"));
     assert.ok(!roleNames.includes("dev"));
     assert.ok(!roleNames.includes("admin"));
+    // pre-analysis is no longer surfaced inside roles
+    assert.ok(!roleNames.includes("pre-analysis"));
+  });
+
+  it("surfaces topic files under the role's topics array", () => {
+    writeSlackAuth();
+    writeConfig([{ name: "repo", url: "https://github.com/org/repo.git", description: "Repo" }]);
+    loadConfig(configPath, true);
+
+    writeDefaultFile("user/topics/metabase/rules.md", "default topic rules");
+    writeOverrideFile("user/topics/metabase/queries.md", "custom queries");
+
+    const result = listInstructionFiles();
+
+    const userRole = result.roles.find((r) => r.role === "user");
+    assert.ok(userRole);
+    assert.equal(userRole.topics.length, 1);
+    const metabase = userRole.topics[0];
+    assert.equal(metabase.topic, "metabase");
+    assert.ok(metabase.files.some((f) => f.file === "rules.md" && f.status === "default"));
+    assert.ok(metabase.files.some((f) => f.file === "queries.md" && f.status === "custom-only"));
+  });
+
+  it("surfaces a role with topic-only files (no baseline)", () => {
+    writeSlackAuth();
+    writeConfig([{ name: "repo", url: "https://github.com/org/repo.git", description: "Repo" }]);
+    loadConfig(configPath, true);
+
+    writeDefaultFile("dev/topics/monday/setup.md", "monday setup");
+
+    const result = listInstructionFiles();
+
+    const devRole = result.roles.find((r) => r.role === "dev");
+    assert.ok(devRole);
+    assert.deepEqual(devRole.files, []);
+    assert.equal(devRole.topics.length, 1);
+    assert.equal(devRole.topics[0].topic, "monday");
+  });
+
+  it("surfaces preAnalysis at the top level (not inside roles)", () => {
+    writeSlackAuth();
+    writeConfig([{ name: "repo", url: "https://github.com/org/repo.git", description: "Repo" }]);
+    loadConfig(configPath, true);
+
+    writeDefaultFile("pre-analysis/context.md", "shared context");
+
+    const result = listInstructionFiles();
+
+    assert.equal(result.preAnalysis.length, 1);
+    assert.equal(result.preAnalysis[0].file, "context.md");
+    assert.equal(result.preAnalysis[0].status, "default");
+    assert.ok(!result.roles.some((r) => r.role === "pre-analysis"));
   });
 
   it("includes repo-scoped instruction files for each configured repository", () => {
@@ -166,15 +214,19 @@ describe("listInstructionFiles", () => {
     loadConfig(configPath, true);
 
     const result = listInstructionFiles();
-    const repoFilenames = result.repos.map((r) => r.filename);
+    const repoNames = result.repos.map((r) => r.repo);
 
-    assert.ok(repoFilenames.includes("alpha/changes_instructions.md"));
-    assert.ok(repoFilenames.includes("alpha/worktree_setup_instructions.md"));
-    assert.ok(repoFilenames.includes("beta/changes_instructions.md"));
-    assert.ok(repoFilenames.includes("beta/worktree_setup_instructions.md"));
+    assert.ok(repoNames.includes("alpha"));
+    assert.ok(repoNames.includes("beta"));
+
+    const alpha = result.repos.find((r) => r.repo === "alpha");
+    assert.ok(alpha);
+    assert.equal(alpha.files.length, 2);
+    assert.ok(alpha.files.some((f) => f.file === "changes_instructions.md"));
+    assert.ok(alpha.files.some((f) => f.file === "worktree_setup_instructions.md"));
   });
 
-  it("reports hasDefault and hasOverride for repo files", () => {
+  it("reports semantic status for repo files", () => {
     writeSlackAuth();
     writeConfig([{ name: "repo", url: "https://github.com/org/repo.git", description: "Repo" }]);
     loadConfig(configPath, true);
@@ -183,21 +235,19 @@ describe("listInstructionFiles", () => {
     writeOverrideFile("repo/worktree_setup_instructions.md", "custom setup");
 
     const result = listInstructionFiles();
+    const repo = result.repos.find((r) => r.repo === "repo");
+    assert.ok(repo);
 
-    const changesEntry = result.repos.find((r) => r.filename === "repo/changes_instructions.md");
+    const changesEntry = repo.files.find((f) => f.file === "changes_instructions.md");
     assert.ok(changesEntry);
-    assert.equal(changesEntry.hasDefault, true);
-    assert.equal(changesEntry.hasOverride, false);
+    assert.equal(changesEntry.status, "default");
 
-    const setupEntry = result.repos.find(
-      (r) => r.filename === "repo/worktree_setup_instructions.md",
-    );
+    const setupEntry = repo.files.find((f) => f.file === "worktree_setup_instructions.md");
     assert.ok(setupEntry);
-    assert.equal(setupEntry.hasDefault, false);
-    assert.equal(setupEntry.hasOverride, true);
+    assert.equal(setupEntry.status, "custom-only");
   });
 
-  it("returns correct repo count: 2 files per repo", () => {
+  it("returns correct repo count: 1 entry per repo with 2 files each", () => {
     writeSlackAuth();
     writeConfig([
       { name: "a", url: "https://github.com/org/a.git", description: "A" },
@@ -207,7 +257,10 @@ describe("listInstructionFiles", () => {
     loadConfig(configPath, true);
 
     const result = listInstructionFiles();
-    assert.equal(result.repos.length, 6);
+    assert.equal(result.repos.length, 3);
+    for (const repo of result.repos) {
+      assert.equal(repo.files.length, 2);
+    }
   });
 });
 
@@ -264,6 +317,27 @@ describe("readInstructionFile", () => {
 
   it("returns both null for paths without role/filename format", () => {
     const result = readInstructionFile("no-slash.md");
+    assert.equal(result.default_content, null);
+    assert.equal(result.custom_content, null);
+  });
+
+  it("reads a topic-scoped file via 4-segment path", () => {
+    writeDefaultFile("dev/topics/metabase/rules.md", "topic default");
+    writeOverrideFile("dev/topics/metabase/rules.md", "topic override");
+
+    const result = readInstructionFile("dev/topics/metabase/rules.md");
+    assert.equal(result.default_content, "topic default");
+    assert.equal(result.custom_content, "topic override");
+  });
+
+  it("returns null/null for missing topic files", () => {
+    const result = readInstructionFile("dev/topics/metabase/missing.md");
+    assert.equal(result.default_content, null);
+    assert.equal(result.custom_content, null);
+  });
+
+  it("returns null/null for 3-segment malformed paths", () => {
+    const result = readInstructionFile("dev/topics/metabase");
     assert.equal(result.default_content, null);
     assert.equal(result.custom_content, null);
   });
@@ -378,6 +452,17 @@ describe("writeInstructionFile", () => {
     const result = readInstructionFile("user/identity.md");
     assert.equal(result.default_content, "default version");
     assert.equal(result.custom_content, "override version");
+  });
+
+  it("creates nested directories for a brand-new topic path", () => {
+    writeInstructionFile("dev/topics/newtopic/rules.md", "topic content");
+
+    const writtenPath = resolve(configDir, "dev/topics/newtopic/rules.md");
+    assert.ok(existsSync(writtenPath));
+    assert.equal(readFileSync(writtenPath, "utf-8"), "topic content");
+
+    const result = readInstructionFile("dev/topics/newtopic/rules.md");
+    assert.equal(result.custom_content, "topic content");
   });
 });
 
