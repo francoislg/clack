@@ -1,7 +1,7 @@
 import type { App } from "@slack/bolt";
 import type { Block as SlackRawBlock, KnownBlock } from "@slack/types";
 import type { SlackBlocks } from "../slack/blocks.js";
-import type { Block } from "../slack/blockSchema.js";
+import type { AuthoredTableBlock, Block } from "../slack/blockSchema.js";
 import type {
   McpSdkServerConfigWithInstance,
   McpServerConfig,
@@ -201,10 +201,23 @@ export type StagedIntent =
  * The `blocks` array is the canonical shareable payload (Slack Block Kit in
  * Clack's curated subset). `text` is a plain-string fallback used as the
  * `text:` parameter on `chat.postMessage` for notifications and accessibility.
+ *
+ * `actions` and `reactions` are persisted alongside `blocks` so the deferred
+ * (button-click) `post_to` delivery path can replay them after an arbitrary
+ * delay between submit time and click time. They are forward-declared via
+ * `Action[]`, defined further down in this file.
  */
 export interface ResponseSnapshot {
   text: string;
   blocks: Block[];
+  /**
+   * Optional table appended to the cross-posted message at delivery time.
+   * Slack always renders tables at the bottom of the message, so this is a
+   * sibling of `blocks` rather than a member of it.
+   */
+  table?: AuthoredTableBlock;
+  actions?: Action[];
+  reactions?: string[];
 }
 
 // Continuation actions
@@ -237,6 +250,24 @@ export interface PostToAction {
    * option's blocks.
    */
   blocks: Block[];
+  /**
+   * Optional table appended to the cross-posted message at delivery time.
+   * Slack always renders tables at the bottom of the message, so this is a
+   * sibling of `blocks` rather than a member of it.
+   */
+  table?: AuthoredTableBlock;
+  /**
+   * Optional interactive buttons rendered on the cross-posted message. Same
+   * action types as top-level (followup, choice, change, config_update, update).
+   * Nested `post_to` is rejected. Click handlers route back to the original
+   * session, so ref-based actions resolve against the original intentStore.
+   */
+  actions?: Action[];
+  /**
+   * Optional emoji reactions added to the cross-posted message after delivery.
+   * Same semantics as top-level `submit_response.reactions`.
+   */
+  reactions?: string[];
   /** Internal: resolved content entry ID set by submit_response before delivery (not from Claude) */
   _snapshotId?: string;
 }
@@ -282,6 +313,12 @@ export interface SubmitResponsePayload {
    * action-button blocks generated from `actions`.
    */
   blocks: Block[];
+  /**
+   * Optional table appended after `blocks` at delivery. Slack always renders
+   * tables at the bottom of the message regardless of position, so the MCP
+   * surface exposes it as a sibling of `blocks` rather than a block type.
+   */
+  table?: AuthoredTableBlock;
   actions: Action[];
 }
 

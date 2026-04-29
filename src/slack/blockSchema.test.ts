@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { BlockSchema, ALLOWED_BLOCK_TYPES } from "./blockSchema.js";
+import { BlockSchema, ALLOWED_BLOCK_TYPES, tableBlockSchema } from "./blockSchema.js";
 
 describe("BlockSchema.parse — allowed block types", () => {
   it("accepts a minimal divider", () => {
@@ -75,9 +75,11 @@ describe("BlockSchema.parse — allowed block types", () => {
       assert.match(parsed.text, /^## Heading/);
     }
   });
+});
 
-  it("accepts a table block with bare-string cells", () => {
-    const parsed = BlockSchema.parse({
+describe("tableBlockSchema.parse — standalone table parameter", () => {
+  it("accepts a table with bare-string cells", () => {
+    const parsed = tableBlockSchema.parse({
       type: "table",
       rows: [
         ["Repo", "Status"],
@@ -85,14 +87,12 @@ describe("BlockSchema.parse — allowed block types", () => {
       ],
     });
     assert.equal(parsed.type, "table");
-    if (parsed.type === "table") {
-      assert.equal(parsed.rows.length, 2);
-      assert.equal(parsed.rows[0][0], "Repo");
-    }
+    assert.equal(parsed.rows.length, 2);
+    assert.equal(parsed.rows[0][0], "Repo");
   });
 
-  it("accepts a table block with raw_text and rich_text cells", () => {
-    const parsed = BlockSchema.parse({
+  it("accepts a table with raw_text and rich_text cells", () => {
+    const parsed = tableBlockSchema.parse({
       type: "table",
       rows: [
         [
@@ -107,13 +107,21 @@ describe("BlockSchema.parse — allowed block types", () => {
     assert.equal(parsed.type, "table");
   });
 
-  it("accepts a table block with column_settings", () => {
-    const parsed = BlockSchema.parse({
+  it("accepts a table with column_settings", () => {
+    const parsed = tableBlockSchema.parse({
       type: "table",
       rows: [["a", "b"]],
       column_settings: [{ align: "left", is_wrapped: false }, { align: "right" }],
     });
     assert.equal(parsed.type, "table");
+  });
+
+  it("rejects a table missing rows", () => {
+    assert.throws(() => tableBlockSchema.parse({ type: "table" }));
+  });
+
+  it("rejects a table with an empty rows array", () => {
+    assert.throws(() => tableBlockSchema.parse({ type: "table", rows: [] }));
   });
 });
 
@@ -161,12 +169,13 @@ describe("BlockSchema.parse — disallowed block types", () => {
     assert.throws(() => BlockSchema.parse({ type: "markdown" }));
   });
 
-  it("rejects a table block missing rows", () => {
-    assert.throws(() => BlockSchema.parse({ type: "table" }));
-  });
-
-  it("rejects a table block with an empty rows array", () => {
-    assert.throws(() => BlockSchema.parse({ type: "table", rows: [] }));
+  it("rejects a table block in the curated subset (tables are a sibling parameter)", () => {
+    // Tables don't belong in `blocks` — Slack always renders them at the bottom
+    // of the message, and the API rejects payloads with more than one. The MCP
+    // surface exposes them via the standalone `table` parameter on
+    // `submit_response` and `post_to`. See `tableBlockSchema` for the
+    // standalone validator.
+    assert.throws(() => BlockSchema.parse({ type: "table", rows: [["a", "b"]] }));
   });
 });
 
@@ -228,11 +237,14 @@ describe("ALLOWED_BLOCK_TYPES", () => {
       "image",
       "markdown",
       "section",
-      "table",
     ]);
   });
 
   it("does not include actions", () => {
     assert.equal((ALLOWED_BLOCK_TYPES as readonly string[]).includes("actions"), false);
+  });
+
+  it("does not include table (tables are a sibling parameter)", () => {
+    assert.equal((ALLOWED_BLOCK_TYPES as readonly string[]).includes("table"), false);
   });
 });

@@ -117,7 +117,15 @@ const tableColumnSettingSchema = z.looseObject({
   is_wrapped: z.boolean().optional(),
 });
 
-const tableBlockSchema = z.looseObject({
+/**
+ * Standalone schema for the top-level `table` parameter on `submit_response`
+ * and `post_to`. Tables are NOT members of the curated `Block` union — Slack
+ * always renders them at the bottom of the message regardless of position in
+ * `blocks`, and rejects payloads with more than one. The MCP-tool surface
+ * encodes both constraints structurally by exposing tables as a sibling
+ * parameter (single optional field) rather than a block type.
+ */
+export const tableBlockSchema = z.looseObject({
   type: z.literal("table"),
   rows: z.array(z.array(tableCellSchema)).min(1),
   column_settings: z.array(tableColumnSettingSchema).optional(),
@@ -160,7 +168,6 @@ export const BlockSchema = z.discriminatedUnion(
     contextBlockSchema,
     imageBlockSchema,
     markdownBlockSchema,
-    tableBlockSchema,
   ],
   {
     error: (issue) => {
@@ -205,10 +212,10 @@ export type AuthoredTableBlock = Omit<TableBlock, "rows"> & {
 };
 
 /**
- * The curated subset of Slack Block Kit blocks Claude may author.
- * Types are Slack's own — the Zod schema above validates runtime shape.
- * Tables use AuthoredTableBlock to admit string-cell sugar; prepareTable
- * narrows cells to RawTextElement | RichTextBlock at runtime.
+ * The curated subset of Slack Block Kit blocks Claude may author inside
+ * `blocks`. Types are Slack's own — the Zod schema above validates runtime
+ * shape. Tables are deliberately NOT members of this union: see
+ * `tableBlockSchema` and `AuthoredTableBlock` for the standalone parameter.
  */
 export type Block =
   | DividerBlock
@@ -216,8 +223,7 @@ export type Block =
   | SectionBlock
   | ContextBlock
   | ImageBlock
-  | MarkdownBlock
-  | AuthoredTableBlock;
+  | MarkdownBlock;
 
 /** The curated type names as a runtime list — useful for error messages. */
 export const ALLOWED_BLOCK_TYPES = [
@@ -227,5 +233,4 @@ export const ALLOWED_BLOCK_TYPES = [
   "context",
   "image",
   "markdown",
-  "table",
 ] as const;

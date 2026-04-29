@@ -192,6 +192,112 @@ describe("postAnswerToChannel", () => {
     assert.equal(result.ok, true);
     assert.equal(result.ts, "1700.999");
   });
+
+  // -------------------------------------------------------------------------
+  // post_to message-content parity: actions + reactions on cross-posted messages
+  // -------------------------------------------------------------------------
+
+  function attachReactionsMock(client: App["client"]): {
+    calls: { channel: string; timestamp: string; name: string }[];
+  } {
+    const calls: { channel: string; timestamp: string; name: string }[] = [];
+    const addFn = mock.fn(async (args: { channel: string; timestamp: string; name: string }) => {
+      calls.push(args);
+      return { ok: true as const };
+    });
+    // The fake client from makeClient() doesn't have `reactions` set, so attach
+    // the full surface here. Real `App["client"]` has it; this mirrors that.
+    Object.defineProperty(client, "reactions", {
+      configurable: true,
+      value: { add: addFn },
+    });
+    return { calls };
+  }
+
+  it("calls reactions.add once per emoji when opts.reactions is provided", async () => {
+    const deps = makeDeps();
+    const client = makeClient();
+    const { calls } = attachReactionsMock(client);
+
+    const snapshot = makeSnapshot();
+    await postAnswerToChannel(client, snapshot, "C100", undefined, deps, {
+      reactions: ["white_check_mark", "thumbsup"],
+    });
+
+    assert.equal(calls.length, 2);
+    assert.deepEqual(
+      calls.map((c) => c.name),
+      ["white_check_mark", "thumbsup"],
+    );
+    assert.equal(calls[0].channel, "C100");
+    assert.equal(calls[0].timestamp, "1700.999");
+  });
+
+  it("falls back to snapshot.reactions when opts.reactions is omitted", async () => {
+    const deps = makeDeps();
+    const client = makeClient();
+    const { calls } = attachReactionsMock(client);
+
+    const snapshot = makeSnapshot({ reactions: ["eyes"] });
+    await postAnswerToChannel(client, snapshot, "C100", undefined, deps);
+
+    assert.deepEqual(
+      calls.map((c) => c.name),
+      ["eyes"],
+    );
+  });
+
+  it("does not call reactions.add when neither opts nor snapshot has reactions", async () => {
+    const deps = makeDeps();
+    const client = makeClient();
+    const { calls } = attachReactionsMock(client);
+
+    const snapshot = makeSnapshot();
+    await postAnswerToChannel(client, snapshot, "C100", undefined, deps);
+
+    assert.equal(calls.length, 0);
+  });
+
+  it("appends rendered action buttons when opts.actions and sessionId are provided", async () => {
+    const deps = makeDeps();
+    const client = makeClient();
+    const snapshot = makeSnapshot();
+
+    await postAnswerToChannel(client, snapshot, "C100", undefined, deps, {
+      sessionId: "sess-99",
+      actions: [{ type: "followup", label: "More?", prompt: "Tell me more" }],
+    });
+
+    // The postMessage call should have been invoked once with blocks containing
+    // both the content blocks AND a rendered actions block whose button value
+    // encodes the original session ID.
+    assert.equal(mockPostMessage.mock.callCount(), 1);
+    const postArgs = mockPostMessage.mock.calls[0].arguments[0] as {
+      blocks: { type: string; elements?: { value?: string }[] }[];
+    };
+    const actionsBlock = postArgs.blocks.find((b) => b.type === "actions");
+    assert.ok(actionsBlock, "expected an actions block on the cross-posted message");
+    assert.ok(
+      actionsBlock?.elements?.[0]?.value?.includes("sess-99"),
+      `expected button value to encode session ID, got: ${JSON.stringify(actionsBlock?.elements)}`,
+    );
+  });
+
+  it("does not append action buttons when actions are absent", async () => {
+    const deps = makeDeps();
+    const client = makeClient();
+    const snapshot = makeSnapshot();
+
+    await postAnswerToChannel(client, snapshot, "C100", undefined, deps, {
+      sessionId: "sess-99",
+    });
+
+    const postArgs = mockPostMessage.mock.calls[0].arguments[0] as {
+      blocks: { type: string }[];
+    };
+    const actionsBlock = postArgs.blocks.find((b) => b.type === "actions");
+    assert.equal(actionsBlock, undefined);
+  });
 });
 
 // ============================================================================

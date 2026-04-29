@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { BlockSchema, type Block } from "./blockSchema.js";
-import { validateBlocks } from "./blockValidate.js";
+import { BlockSchema, type AuthoredTableBlock, type Block } from "./blockSchema.js";
+import { validateBlocks, validateTable } from "./blockValidate.js";
 
 describe("validateBlocks — totals", () => {
   it("accepts an empty array without total-limit error", () => {
@@ -285,102 +285,102 @@ describe("validateBlocks — markdown cumulative cap", () => {
   });
 });
 
-describe("validateBlocks — table", () => {
+describe("validateTable — standalone table parameter", () => {
   it("accepts a small table with bare-string cells", () => {
-    const block: Block = {
+    const table: AuthoredTableBlock = {
       type: "table",
       rows: [
         ["Repo", "Status"],
         ["clack", "active"],
       ],
     };
-    assert.equal(validateBlocks([block]).length, 0);
+    assert.equal(validateTable(table, "table").length, 0);
   });
 
   it("accepts a table at exactly 100 rows of 20 cells (the boundary)", () => {
     const rows = Array.from({ length: 100 }, () => Array.from({ length: 20 }, () => "x"));
-    const block: Block = { type: "table", rows };
-    assert.equal(validateBlocks([block]).length, 0);
+    const table: AuthoredTableBlock = { type: "table", rows };
+    assert.equal(validateTable(table, "table").length, 0);
   });
 
   it("accepts a table with exactly 20 column_settings (the boundary)", () => {
-    const block: Block = {
+    const table: AuthoredTableBlock = {
       type: "table",
       rows: [["a"]],
       column_settings: Array.from({ length: 20 }, () => ({ align: "left" as const })),
     };
-    assert.equal(validateBlocks([block]).length, 0);
+    assert.equal(validateTable(table, "table").length, 0);
   });
 
   it("reports every cell that exceeds the 2,000-char limit", () => {
-    const block: Block = {
+    const table: AuthoredTableBlock = {
       type: "table",
       rows: [["a".repeat(2001), "b".repeat(2001)]],
     };
-    const errors = validateBlocks([block]);
-    const cellErrors = errors.filter((e) => /^blocks\[0\]\.rows\[0\]\[\d+\]$/.test(e.field));
+    const errors = validateTable(table, "table");
+    const cellErrors = errors.filter((e) => /^table\.rows\[0\]\[\d+\]$/.test(e.field));
     assert.equal(cellErrors.length, 2);
   });
 
   it("rejects a table with more than 100 rows", () => {
     const rows = Array.from({ length: 101 }, (_, i) => [`row${i}`]);
-    const block: Block = { type: "table", rows };
-    const errors = validateBlocks([block]);
-    const rowError = errors.find((e) => e.field === "blocks[0].rows");
+    const table: AuthoredTableBlock = { type: "table", rows };
+    const errors = validateTable(table, "table");
+    const rowError = errors.find((e) => e.field === "table.rows");
     assert.ok(rowError);
     assert.equal(rowError.currentLength, 101);
     assert.equal(rowError.limit, 100);
   });
 
   it("rejects a row with more than 20 cells", () => {
-    const block: Block = {
+    const table: AuthoredTableBlock = {
       type: "table",
       rows: [Array.from({ length: 21 }, (_, i) => `c${i}`)],
     };
-    const errors = validateBlocks([block]);
-    const cellError = errors.find((e) => e.field === "blocks[0].rows[0]");
+    const errors = validateTable(table, "table");
+    const cellError = errors.find((e) => e.field === "table.rows[0]");
     assert.ok(cellError);
     assert.equal(cellError.currentLength, 21);
     assert.equal(cellError.limit, 20);
   });
 
   it("rejects column_settings with more than 20 entries", () => {
-    const block: Block = {
+    const table: AuthoredTableBlock = {
       type: "table",
       rows: [["a"]],
       column_settings: Array.from({ length: 21 }, () => ({ align: "left" as const })),
     };
-    const errors = validateBlocks([block]);
-    const csError = errors.find((e) => e.field === "blocks[0].column_settings");
+    const errors = validateTable(table, "table");
+    const csError = errors.find((e) => e.field === "table.column_settings");
     assert.ok(csError);
     assert.equal(csError.currentLength, 21);
   });
 
   it("rejects a string cell exceeding 2,000 chars", () => {
-    const block: Block = {
+    const table: AuthoredTableBlock = {
       type: "table",
       rows: [["short", "a".repeat(2001)]],
     };
-    const errors = validateBlocks([block]);
-    const cellError = errors.find((e) => e.field === "blocks[0].rows[0][1]");
+    const errors = validateTable(table, "table");
+    const cellError = errors.find((e) => e.field === "table.rows[0][1]");
     assert.ok(cellError);
     assert.equal(cellError.currentLength, 2001);
     assert.equal(cellError.limit, 2000);
   });
 
   it("rejects a raw_text cell exceeding 2,000 chars", () => {
-    const block: Block = {
+    const table: AuthoredTableBlock = {
       type: "table",
       rows: [[{ type: "raw_text", text: "a".repeat(2001) }]],
     };
-    const errors = validateBlocks([block]);
-    const cellError = errors.find((e) => e.field === "blocks[0].rows[0][0]");
+    const errors = validateTable(table, "table");
+    const cellError = errors.find((e) => e.field === "table.rows[0][0]");
     assert.ok(cellError);
     assert.equal(cellError.currentLength, 2001);
   });
 
   it("does NOT enforce per-cell cap on rich_text cells (text length not measured)", () => {
-    const block: Block = {
+    const table: AuthoredTableBlock = {
       type: "table",
       rows: [
         [
@@ -392,35 +392,21 @@ describe("validateBlocks — table", () => {
       ],
     };
     // Validation passes — we don't walk rich_text element trees.
-    const errors = validateBlocks([block]);
+    const errors = validateTable(table, "table");
     assert.equal(
       errors.filter((e) => /rows\[0\]\[0\]/.test(e.field)).length,
       0,
       "should not flag oversize rich_text cells",
     );
   });
-});
 
-describe("validateBlocks — multi-table guard", () => {
-  it("rejects a payload containing two table blocks", () => {
-    const blocks: Block[] = [
-      { type: "table", rows: [["a"]] },
-      { type: "section", text: { type: "mrkdwn", text: "between" } },
-      { type: "table", rows: [["b"]] },
-    ];
-    const errors = validateBlocks(blocks);
-    const multiTableError = errors.find((e) => /at most one `table` block/.test(e.message));
-    assert.ok(multiTableError);
-    assert.equal(multiTableError.currentLength, 2);
-    assert.equal(multiTableError.limit, 1);
-    assert.match(multiTableError.message, /indices \[0, 2\]/);
-  });
-
-  it("accepts a payload with exactly one table", () => {
-    const blocks: Block[] = [
-      { type: "section", text: { type: "mrkdwn", text: "header" } },
-      { type: "table", rows: [["a", "b"]] },
-    ];
-    assert.equal(validateBlocks(blocks).length, 0);
+  it("namespaces error field paths via the path prefix (e.g., post_to)", () => {
+    const table: AuthoredTableBlock = {
+      type: "table",
+      rows: [Array.from({ length: 21 }, () => "x")],
+    };
+    const errors = validateTable(table, "actions[2].table");
+    const cellError = errors.find((e) => e.field === "actions[2].table.rows[0]");
+    assert.ok(cellError, "should prefix error field with caller-supplied path");
   });
 });

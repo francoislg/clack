@@ -1,8 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { RichTextBlock } from "@slack/types";
-import type { Block } from "./blockSchema.js";
-import { prepareBlocks } from "./blockPrepare.js";
+import type { AuthoredTableBlock, Block } from "./blockSchema.js";
+import { prepareBlocks, prepareTable } from "./blockPrepare.js";
 
 describe("prepareBlocks — pass-throughs", () => {
   it("preserves divider verbatim", () => {
@@ -294,39 +294,28 @@ describe("prepareBlocks — markdown block passthrough", () => {
   });
 });
 
-describe("prepareBlocks — table cell normalization", () => {
+describe("prepareTable — standalone table parameter", () => {
   it("normalizes bare-string cells to raw_text", () => {
-    const block: Block = {
+    const block: AuthoredTableBlock = {
       type: "table",
       rows: [
         ["Repo", "Status"],
         ["clack", "active"],
       ],
     };
-    const result = prepareBlocks([block]);
-    assert.equal(result.length, 1);
-    if (result[0].type === "table") {
-      const r0c0 = result[0].rows[0][0];
-      const r1c1 = result[0].rows[1][1];
-      assert.deepEqual(r0c0, { type: "raw_text", text: "Repo" });
-      assert.deepEqual(r1c1, { type: "raw_text", text: "active" });
-    } else {
-      assert.fail("expected table block");
-    }
+    const result = prepareTable(block);
+    assert.deepEqual(result.rows[0][0], { type: "raw_text", text: "Repo" });
+    assert.deepEqual(result.rows[1][1], { type: "raw_text", text: "active" });
   });
 
   it("passes raw_text cells through untouched", () => {
-    const block: Block = {
+    const block: AuthoredTableBlock = {
       type: "table",
       rows: [[{ type: "raw_text", text: "explicit" }, "sugar"]],
     };
-    const result = prepareBlocks([block]);
-    if (result[0].type === "table") {
-      assert.deepEqual(result[0].rows[0][0], { type: "raw_text", text: "explicit" });
-      assert.deepEqual(result[0].rows[0][1], { type: "raw_text", text: "sugar" });
-    } else {
-      assert.fail("expected table block");
-    }
+    const result = prepareTable(block);
+    assert.deepEqual(result.rows[0][0], { type: "raw_text", text: "explicit" });
+    assert.deepEqual(result.rows[0][1], { type: "raw_text", text: "sugar" });
   });
 
   it("passes rich_text cells through untouched", () => {
@@ -339,57 +328,42 @@ describe("prepareBlocks — table cell normalization", () => {
         },
       ],
     };
-    const block: Block = {
+    const block: AuthoredTableBlock = {
       type: "table",
       rows: [[richCell]],
     };
-    const result = prepareBlocks([block]);
-    if (result[0].type === "table") {
-      // Same shape, same content — rich_text cells are not modified.
-      assert.deepEqual(result[0].rows[0][0], richCell);
-    } else {
-      assert.fail("expected table block");
-    }
+    const result = prepareTable(block);
+    assert.deepEqual(result.rows[0][0], richCell);
   });
 
   it("preserves column_settings", () => {
-    const block: Block = {
+    const block: AuthoredTableBlock = {
       type: "table",
       rows: [["a", "b"]],
       column_settings: [{ align: "left", is_wrapped: false }, { align: "right" }],
     };
-    const result = prepareBlocks([block]);
-    if (result[0].type === "table") {
-      assert.deepEqual(result[0].column_settings, [
-        { align: "left", is_wrapped: false },
-        { align: "right" },
-      ]);
-    } else {
-      assert.fail("expected table block");
-    }
+    const result = prepareTable(block);
+    assert.deepEqual(result.column_settings, [
+      { align: "left", is_wrapped: false },
+      { align: "right" },
+    ]);
   });
 
   it("does not mutate the input table block", () => {
-    const block: Block = {
+    const block: AuthoredTableBlock = {
       type: "table",
       rows: [["a", "b"]],
     };
-    const result = prepareBlocks([block]);
-    assert.notEqual(result[0], block);
+    const result = prepareTable(block);
+    assert.notEqual(result, block);
     // Input rows still hold the original string cells.
-    if (block.type === "table") {
-      assert.equal(block.rows[0][0], "a");
-    }
+    assert.equal(block.rows[0][0], "a");
   });
 
   it("handles a row with zero cells", () => {
-    const block: Block = { type: "table", rows: [[]] };
-    const result = prepareBlocks([block]);
-    if (result[0].type === "table") {
-      assert.equal(result[0].rows.length, 1);
-      assert.equal(result[0].rows[0].length, 0);
-    } else {
-      assert.fail("expected table block");
-    }
+    const block: AuthoredTableBlock = { type: "table", rows: [[]] };
+    const result = prepareTable(block);
+    assert.equal(result.rows.length, 1);
+    assert.equal(result.rows[0].length, 0);
   });
 });

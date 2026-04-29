@@ -7,11 +7,17 @@ import {
   type SessionContext,
 } from "../../sessions.js";
 import { latestAssistantText, latestAssistantPayload } from "../../sessions/selectors.js";
-import type { ResponseSnapshot } from "../../tools/types.js";
+import type { Action, ResponseSnapshot } from "../../tools/types.js";
 import { activeSessions, type SessionInfo } from "../activeSessions.js";
-import { getStructuredAcceptedBlocks, decodeActionValue, asSlackBlocks } from "../blocks.js";
+import {
+  getResponseActionBlocks,
+  getStructuredAcceptedBlocks,
+  decodeActionValue,
+  asSlackBlocks,
+} from "../blocks.js";
 import type { Block } from "../blockSchema.js";
 import type { SectionBlock } from "@slack/types";
+import { addDeliveryReactions } from "../messageReactions.js";
 
 /** Fallback for callers that only have a plain-text answer (no structured blocks). */
 function textToBlocks(text: string): Block[] {
@@ -93,6 +99,12 @@ async function resolveActionSession(
 /**
  * Post snapshot content to a target channel or thread.
  * Content comes from the dedicated snapshot entry (persisted at creation time).
+ *
+ * Optional `actions` are rendered as Slack action buttons appended to the
+ * cross-posted message; their click handlers route back to the original
+ * session (via the `sessionId` encoded in each button's value). Optional
+ * `reactions` are added to the cross-posted message after delivery via the
+ * shared `addDeliveryReactions` helper.
  */
 export async function postAnswerToChannel(
   client: App["client"],
@@ -100,19 +112,36 @@ export async function postAnswerToChannel(
   targetChannel: string,
   targetThreadTs?: string,
   deps: DmActionsDeps = defaultDmActionsDeps,
+  opts: { sessionId?: string; actions?: Action[]; reactions?: string[] } = {},
 ): Promise<{ ok: boolean; ts?: string }> {
-  const blocks = deps.getStructuredAcceptedBlocks(snapshot.blocks);
+  const contentBlocks = deps.getStructuredAcceptedBlocks(snapshot.blocks, snapshot.table);
+
+  // Append rendered action buttons when post_to.actions are present.
+  // The original session's ID is passed through so click handlers resolve
+  // ref-based actions against the same intentStore as the original thread.
+  const actions = opts.actions ?? snapshot.actions;
+  const renderedActionBlocks =
+    actions && actions.length > 0 && opts.sessionId
+      ? getResponseActionBlocks(actions, opts.sessionId)
+      : [];
 
   const result = await client.chat.postMessage({
     channel: targetChannel,
     ...(targetThreadTs ? { thread_ts: targetThreadTs } : {}),
-    blocks: deps.asSlackBlocks(blocks),
+    blocks: deps.asSlackBlocks([...contentBlocks, ...renderedActionBlocks]),
     text: snapshot.text,
     unfurl_links: false,
     unfurl_media: false,
   });
 
-  return { ok: true, ts: result.ts ?? undefined };
+  const ts = result.ts ?? undefined;
+
+  const reactions = opts.reactions ?? snapshot.reactions;
+  if (ts && reactions && reactions.length > 0) {
+    await addDeliveryReactions(client, targetChannel, ts, reactions);
+  }
+
+  return { ok: true, ts };
 }
 
 /** Resolve originChannel and originThreadTs from session + sessionInfo. */
@@ -219,7 +248,14 @@ async function handlePostTo(
   }
 
   try {
-    const result = await postAnswerToChannel(client, snapshot, targetChannel, targetThreadTs, deps);
+    const result = await postAnswerToChannel(
+      client,
+      snapshot,
+      targetChannel,
+      targetThreadTs,
+      deps,
+      { sessionId },
+    );
 
     if (result.ts) {
       await persistChannelPost(sessionId, sessionInfo, result.ts, deps);
