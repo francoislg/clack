@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { IntentStore, ResponseCapture, ToolCallRecorder } from "../server.js";
-import type { DeliverFn, ResponseSnapshot, SubmitResponsePayload } from "../types.js";
+import type { Action, DeliverFn, ResponseSnapshot, SubmitResponsePayload } from "../types.js";
 import { textResult } from "../helpers.js";
 import { DISMISSAL_PHRASES_INLINE } from "../../claude/dismissalPhrases.js";
 import {
@@ -10,8 +10,16 @@ import {
   getResponseActionBlocks as _getResponseActionBlocks,
   validateActionButtonLabels as _validateActionButtonLabels,
 } from "../../slack/blocks.js";
-import { BlockSchema, type Block } from "../../slack/blockSchema.js";
-import { validateBlocks as _validateBlocks } from "../../slack/blockValidate.js";
+import {
+  BlockSchema,
+  tableBlockSchema,
+  type AuthoredTableBlock,
+  type Block,
+} from "../../slack/blockSchema.js";
+import {
+  validateBlocks as _validateBlocks,
+  validateTable as _validateTable,
+} from "../../slack/blockValidate.js";
 import { extractDisplayText } from "../../slack/blockText.js";
 
 // Action schemas for submit_response
@@ -34,6 +42,37 @@ const choiceActionSchema = z.object({
     ),
 });
 
+// Shared message-content fields used by both `submit_response` (top-level) and
+// the `post_to` action. Spreading the fragment into both schemas keeps the
+// content surfaces in lockstep — adding a new field here updates both at once.
+//
+// `actions` is NOT in this fragment because:
+//   - It has different optionality on each surface (required top-level, optional in post_to).
+//   - `postToActionSchema` is declared before `actionSchema`, so its `actions` field
+//     needs `z.lazy(...)` to break the cycle, while top-level `actions` (declared
+//     after `actionSchema`) can reference it directly. Sharing one declaration would
+//     force both to use lazy and lose type inference for the top-level path.
+const messageContentFields = {
+  blocks: z
+    .array(BlockSchema)
+    .min(1)
+    .describe(
+      "Slack Block Kit blocks (Clack's curated subset: divider, header, section, context, image, markdown) shown to the user. Default to a single section block with mrkdwn text; add structure only when the content genuinely has structure.",
+    ),
+  table: tableBlockSchema
+    .optional()
+    .describe(
+      "Optional Slack table block. Sibling of `blocks`, NOT a member of it: Slack always renders tables at the bottom of the message regardless of position, and rejects payloads with more than one. Use this when column alignment, wrap control, or rich-text cells matter; for inline tabular data prefer a markdown table inside a `markdown` block.",
+    ),
+  reactions: z
+    .array(z.string())
+    .optional()
+    .describe(
+      "Emoji reactions to add to the posted message (e.g., ['white_check_mark', 'thumbsup']). " +
+        "Names without colons. Invalid emojis are silently ignored.",
+    ),
+};
+
 const postToActionSchema = z.object({
   type: z.literal("post_to"),
   label: z.string().optional().describe("Custom button label (default: 'Post to thread')"),
@@ -55,11 +94,21 @@ const postToActionSchema = z.object({
     .describe(
       "Explicit target thread timestamp. Omit for a top-level channel post (e.g., 'in the channel').",
     ),
+  ...messageContentFields,
+  // Override the fragment's `blocks` description for post_to context.
   blocks: z
     .array(BlockSchema)
     .min(1)
     .describe(
       "The exact Block Kit payload to post. Each post_to action posts only its own blocks. When presenting multiple options, each action's blocks hold only that option's content.",
+    ),
+  // Optional interactive buttons rendered on the cross-posted message.
+  // `z.lazy` breaks the recursion cycle (actionSchema → postToActionSchema → actionSchema).
+  actions: z
+    .array(z.lazy((): z.ZodType<Action> => actionSchema))
+    .optional()
+    .describe(
+      "Optional interactive buttons rendered on the cross-posted message. Same action types as top-level (followup, choice, change, config_update, update). Nested `post_to` is rejected. Click handlers route back to the original session, so ref-based actions resolve against the original intentStore.",
     ),
 });
 
@@ -182,22 +231,53 @@ export interface SubmitResponseDeps {
   requiredTools?: string[];
   getStructuredResponseBlocks?: typeof _getStructuredResponseBlocks;
   validateBlocks?: typeof _validateBlocks;
+  validateTable?: typeof _validateTable;
   validateActionButtonLabels?: typeof _validateActionButtonLabels;
   getResponseActionBlocks?: typeof _getResponseActionBlocks;
+}
+
+/**
+ * Walks every action in the response — both top-level entries and entries
+ * nested inside `post_to.actions` — yielding each with a path label like
+ * `"actions[0]"` or `"actions[0].actions[1]"`. Used by validators that should
+ * treat nested actions identically to top-level ones.
+ */
+interface FlatAction {
+  action: Action;
+  path: string;
+  parentIsPostTo: boolean;
+}
+
+function flattenActions(actions: z.infer<typeof actionSchema>[]): FlatAction[] {
+  const flat: FlatAction[] = [];
+  actions.forEach((action, i) => {
+    const path = `actions[${i}]`;
+    flat.push({ action, path, parentIsPostTo: false });
+    if (action.type === "post_to" && action.actions) {
+      action.actions.forEach((nested, j) => {
+        flat.push({
+          action: nested,
+          path: `${path}.actions[${j}]`,
+          parentIsPostTo: true,
+        });
+      });
+    }
+  });
+  return flat;
 }
 
 function validateRefActions(
   actions: z.infer<typeof actionSchema>[],
   intentStore: IntentStore,
 ): string | null {
-  for (const action of actions) {
+  for (const { action, path } of flattenActions(actions)) {
     if (!REF_ACTION_TYPES.has(action.type) || !("ref" in action)) continue;
     const intent = intentStore.resolve(action.ref);
     if (!intent) {
-      return `Action type "${action.type}" references unknown ref "${action.ref}". Call the corresponding action tool first (e.g., propose_change, request_merge).`;
+      return `${path}: Action type "${action.type}" references unknown ref "${action.ref}". Call the corresponding action tool first (e.g., propose_change, request_merge).`;
     }
     if (intent.type !== action.type) {
-      return `Ref "${action.ref}" is a "${intent.type}" intent but action type is "${action.type}".`;
+      return `${path}: Ref "${action.ref}" is a "${intent.type}" intent but action type is "${action.type}".`;
     }
   }
   return null;
@@ -207,13 +287,19 @@ function validatePostToActions(
   actions: z.infer<typeof actionSchema>[],
   topLevelDeliveryChannel?: string,
 ): string | null {
-  for (const action of actions) {
+  for (const { action, path, parentIsPostTo } of flattenActions(actions)) {
     if (action.type !== "post_to") continue;
+    // Nested post_to is rejected — the recursion has no useful semantics
+    // (cross-posted message that itself triggers another cross-post) and would
+    // complicate auto-delivery and snapshot persistence.
+    if (parentIsPostTo) {
+      return `${path}: Nested post_to is not supported. Use a separate top-level post_to action instead.`;
+    }
     if (action.auto && !action.channel) {
-      return `post_to with auto: true requires an explicit channel ID. Provide the target channel (e.g., "C0APQ9JU865"). Use list_repositories or check the conversation context for channel IDs.`;
+      return `${path}: post_to with auto: true requires an explicit channel ID. Provide the target channel (e.g., "C0APQ9JU865"). Use list_repositories or check the conversation context for channel IDs.`;
     }
     if (action.blocks.length === 0) {
-      return `post_to action has empty blocks. Provide at least one block to post.`;
+      return `${path}: post_to action has empty blocks. Provide at least one block to post.`;
     }
     // In scheduled mode, submit_response already delivers top-level to the target channel.
     // A post_to targeting the same channel without a thread would duplicate the message.
@@ -222,7 +308,7 @@ function validatePostToActions(
       action.channel === topLevelDeliveryChannel &&
       !action.thread_ts
     ) {
-      return `submit_response already posts top-level to channel ${topLevelDeliveryChannel}. Remove this post_to action — it would duplicate the message. Use post_to only for a DIFFERENT channel or a specific thread.`;
+      return `${path}: submit_response already posts top-level to channel ${topLevelDeliveryChannel}. Remove this post_to action — it would duplicate the message. Use post_to only for a DIFFERENT channel or a specific thread.`;
     }
   }
   return null;
@@ -236,7 +322,7 @@ function validateStagedIntentsCoverage(
   if (allIntents.size === 0) return null;
 
   const actionRefs = new Set<string>();
-  for (const action of actions) {
+  for (const { action } of flattenActions(actions)) {
     if ("ref" in action && action.ref) {
       actionRefs.add(action.ref);
     }
@@ -294,23 +380,11 @@ const normalResponseSchema = {
         "Use for meta-commentary like 'Here is the updated version:' or 'I adjusted the tone:'. " +
         "Put the actual shareable content in blocks.",
     ),
-  blocks: z
-    .array(BlockSchema)
-    .min(1)
-    .describe(
-      "Slack Block Kit blocks (Clack's curated subset: divider, header, section, context, image, markdown, table) shown to the user. Default to a single section block with mrkdwn text; add structure only when the content genuinely has structure.",
-    ),
+  ...messageContentFields,
   actions: z
     .array(actionSchema)
     .describe(
       "Interactive buttons for the user to click. Use an empty array for casual/conversational responses that don't need actions.",
-    ),
-  reactions: z
-    .array(z.string())
-    .optional()
-    .describe(
-      "Emoji reactions to add to the posted response message (e.g., ['white_check_mark', 'thumbsup']). " +
-        "Names without colons. Invalid emojis are silently ignored.",
     ),
 };
 
@@ -428,6 +502,7 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
     requiredTools,
     getStructuredResponseBlocks = _getStructuredResponseBlocks,
     validateBlocks = _validateBlocks,
+    validateTable = _validateTable,
     validateActionButtonLabels = _validateActionButtonLabels,
     getResponseActionBlocks = _getResponseActionBlocks,
   } = deps;
@@ -517,7 +592,20 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
         });
       }
 
-      // Validate the blocks attached to each post_to action the same way.
+      // Validate the optional top-level `table` parameter.
+      const table: AuthoredTableBlock | undefined =
+        "table" in args && args.table ? (args.table as AuthoredTableBlock) : undefined;
+      if (table) {
+        const tableErrors = validateTable(table, "table");
+        if (tableErrors.length > 0) {
+          return recordError(recorder, args, {
+            error: "invalid_blocks",
+            details: tableErrors.map((e) => `${e.field}: ${e.message}`),
+          });
+        }
+      }
+
+      // Validate the blocks (and optional table) attached to each post_to action.
       for (let i = 0; i < actions.length; i++) {
         const action = actions[i];
         if (action.type !== "post_to") continue;
@@ -527,6 +615,18 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
             error: "invalid_blocks",
             details: postToErrors.map((e) => `actions[${i}].${e.field}: ${e.message}`),
           });
+        }
+        if (action.table) {
+          const postToTableErrors = validateTable(
+            action.table as AuthoredTableBlock,
+            `actions[${i}].table`,
+          );
+          if (postToTableErrors.length > 0) {
+            return recordError(recorder, args, {
+              error: "invalid_blocks",
+              details: postToTableErrors.map((e) => `${e.field}: ${e.message}`),
+            });
+          }
         }
       }
 
@@ -556,6 +656,7 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
       const payload: SubmitResponsePayload = {
         ...(message && { message }),
         blocks,
+        ...(table && { table }),
         actions,
       };
 
@@ -569,7 +670,8 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
         });
       }
 
-      // Persist per-button blocks for each post_to action
+      // Persist per-button blocks (and any table/actions/reactions) for each post_to action
+      // so the deferred button-click delivery can replay them after an arbitrary delay.
       if (persistSnapshot) {
         for (const action of payload.actions) {
           if (action.type === "post_to") {
@@ -578,6 +680,10 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
             await persistSnapshot(snapshotId, {
               text: snapshotText,
               blocks: action.blocks,
+              ...(action.table && { table: action.table }),
+              ...(action.actions && action.actions.length > 0 && { actions: action.actions }),
+              ...(action.reactions &&
+                action.reactions.length > 0 && { reactions: action.reactions }),
             });
             action._snapshotId = snapshotId;
           }
@@ -594,6 +700,20 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
           error: "invalid_blocks",
           details: buttonLabelErrors.map((e) => `${e.field}: ${e.message}`),
         });
+      }
+
+      // Same validation for buttons rendered on cross-posted (post_to) messages.
+      for (let i = 0; i < payload.actions.length; i++) {
+        const action = payload.actions[i];
+        if (action.type !== "post_to" || !action.actions || action.actions.length === 0) continue;
+        const nestedBlocks = getResponseActionBlocks(action.actions, sessionId);
+        const nestedErrors = validateActionButtonLabels(nestedBlocks);
+        if (nestedErrors.length > 0) {
+          return recordError(recorder, args, {
+            error: "invalid_blocks",
+            details: nestedErrors.map((e) => `actions[${i}].${e.field}: ${e.message}`),
+          });
+        }
       }
 
       const reactions =

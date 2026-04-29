@@ -109,7 +109,14 @@ function normalizeTableCell(cell: AuthoredTableCell): RawTextElement | AuthoredR
   return cell;
 }
 
-function prepareTable(block: AuthoredTableBlock): AuthoredTableBlock {
+/**
+ * Normalize the standalone `table` parameter for delivery: walk `rows[][]`,
+ * normalize bare-string cells into `{ type: "raw_text", text }`, and pass
+ * `raw_text` and `rich_text` cell objects through. Preserves
+ * `column_settings` and any passthrough fields. Tables are atomic — no
+ * row/column splitting.
+ */
+export function prepareTable(block: AuthoredTableBlock): AuthoredTableBlock {
   const rows = block.rows.map((row) => row.map(normalizeTableCell));
   return { ...block, rows };
 }
@@ -141,9 +148,6 @@ export function prepareBlocks(blocks: readonly Block[]): Block[] {
         break;
       case "markdown":
         out.push(prepareMarkdown(block));
-        break;
-      case "table":
-        out.push(prepareTable(block));
         break;
       case "divider":
       case "header":

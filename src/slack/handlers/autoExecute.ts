@@ -5,7 +5,7 @@
 import type { App } from "@slack/bolt";
 import { errorMessage } from "../../errors.js";
 import type { ClaudeResponse } from "../../claude/index.js";
-import type { Action, PostToAction, ResponseSnapshot } from "../../tools/types.js";
+import type { Action, PostToAction } from "../../tools/types.js";
 import type { UserRole } from "../../roles.js";
 import type { TriggerType } from "../../changes/types.js";
 import { canRequestChanges } from "../../permissions.js";
@@ -35,12 +35,7 @@ export interface AutoExecuteDeps {
     deps?: unknown,
     userFeedback?: string,
   ) => Promise<void>;
-  postAnswerToChannel: (
-    client: App["client"],
-    snapshot: ResponseSnapshot,
-    targetChannel: string,
-    targetThreadTs?: string,
-  ) => Promise<{ ok: boolean; ts?: string }>;
+  postAnswerToChannel: typeof postAnswerToChannel;
   resolveOrigin: (
     session: SessionContext,
     sessionInfo: SessionInfo,
@@ -296,6 +291,12 @@ async function handlePostToAutoExecute(
         snapshot,
         targetChannel,
         targetThreadTs,
+        undefined,
+        {
+          sessionId,
+          ...(action.actions && action.actions.length > 0 && { actions: action.actions }),
+          ...(action.reactions && action.reactions.length > 0 && { reactions: action.reactions }),
+        },
       );
       // Track top-level posts so thread replies can find this session
       if (!targetThreadTs && postResult.ts) {

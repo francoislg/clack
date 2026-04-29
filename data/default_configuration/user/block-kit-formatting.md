@@ -8,7 +8,8 @@ Your `submit_response` takes a `blocks` array — a list of Slack Block Kit bloc
 - `context` — subtle secondary line below content. `elements` is an array (≤ 10) of mrkdwn or plain_text items (each ≤ 75 chars). Perfect for "last updated 5m ago" / attribution / metadata.
 - `image` — a rendered image. Requires `image_url` + `alt_text`.
 - `markdown` — full GitHub-flavored markdown rendered server-side. `text` is a string. Slack splits oversize content automatically. **Cumulative cap of 12,000 chars across ALL `markdown` blocks** in one response.
-- `table` — structured tabular data with column alignment and wrap control. **Only one `table` block per message** (Slack rejects multiple). The table is always rendered at the bottom of the message regardless of position in the `blocks` array.
+
+Tables are NOT in this list. They are exposed as a separate top-level `table` parameter on `submit_response` (and on `post_to`) — see the Tabular data section below.
 
 ### When to use which prose block
 
@@ -16,7 +17,7 @@ Your `submit_response` takes a `blocks` array — a list of Slack Block Kit bloc
 - **`section`** — short snippets where mrkdwn is enough (a few paragraphs, a list of links), `fields` for paired label/value layouts, or when you need an accessory element. Sections still go through Clack's markdown→mrkdwn conversion.
 - Don't mix `header` with a `markdown` block that already uses `##` headers — pick one.
 
-### Tabular data — markdown table FIRST, structural `table` only when needed
+### Tabular data — markdown table FIRST, top-level `table` parameter only when needed
 
 For most lists with multiple attributes (repos, sessions, PRs, comparisons), write a markdown table inside a `markdown` block:
 
@@ -27,15 +28,27 @@ For most lists with multiple attributes (repos, sessions, PRs, comparisons), wri
 }
 ```
 
-Markdown tables work in any number per response (subject to the 12k cumulative cap), are simple to author, and support inline formatting in cells (bold, code, links).
+Markdown tables work in any number per response (subject to the 12k cumulative cap), are simple to author, support inline formatting in cells (bold, code, links), and can be interleaved with prose.
 
-Escalate to a structural `table` block ONLY when one of these matters:
+#### When to escalate to the top-level `table` parameter
+
+The structural Slack table is exposed as a **top-level optional `table` field on `submit_response`** (sibling to `blocks`), not as a block type. Same shape applies on `post_to.table`.
+
+Use it ONLY when one of these matters:
 
 - **Column alignment** — left/center/right per column via `column_settings: [{ align: "left" }, { align: "right" }]` (max 20 entries).
 - **Wrap control** — `is_wrapped: true` to wrap long cell content.
 - **Rich-text cells** — cells with structural mentions (`<@USERID>`), styled spans, or links rendered as Slack-native rich text.
 
-Structural `table` block shape:
+Shape of the `table` parameter:
+
+```
+{
+  "type": "table",
+  "rows": [["Repo", "Status"], ["clack", "active"]],
+  "column_settings": [{ "align": "left" }, { "align": "right" }]
+}
+```
 
 - `rows`: array of row arrays (max 100 rows; max 20 cells per row).
 - Each cell is one of:
@@ -44,10 +57,11 @@ Structural `table` block shape:
   - `{ "type": "rich_text", "elements": [...] }` (Slack rich_text element shape)
 - Per-cell text limit: 2,000 chars for string and raw_text cells.
 
-Hard constraints:
+#### Why a sibling parameter and not a block type
 
-- **Only one `table` block per message** — sending more triggers `invalid_attachments`. Use markdown tables when you need multiple tabular sections.
-- **Tables always render at the bottom of the message** regardless of position in `blocks`. Don't try to interleave them with prose.
+Slack always renders tables at the bottom of the message regardless of position in `blocks` — they're appended as a Slack attachment, not rendered inline with other blocks. The API also rejects payloads with more than one table per message. Exposing `table` as a separate top-level field encodes both constraints structurally: there's no place to put a table mid-response, and only one fits in the schema.
+
+Don't try to put a `table` inside `blocks` — the schema rejects it. Use the top-level `table` parameter, or use a markdown table in a `markdown` block when you need tabular content interleaved with prose or multiple tables in one response.
 
 ### Restraint is the default
 

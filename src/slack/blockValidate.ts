@@ -1,4 +1,4 @@
-import type { Block, AuthoredTableCell } from "./blockSchema.js";
+import type { AuthoredTableBlock, AuthoredTableCell, Block } from "./blockSchema.js";
 
 // ============================================================================
 // Slack Block Kit limits
@@ -151,17 +151,23 @@ function tableCellTextLength(cell: AuthoredTableCell): number | null {
   return null;
 }
 
-function validateTable(
-  block: Extract<Block, { type: "table" }>,
-  i: number,
+/**
+ * Validate the standalone `table` parameter on `submit_response` or `post_to`.
+ * `pathPrefix` is used to namespace error field paths for the caller (e.g.,
+ * `"table"` for the top-level field, `"actions[2].table"` for a `post_to`
+ * action's table). Returns an empty array on success.
+ */
+export function validateTable(
+  block: AuthoredTableBlock,
+  pathPrefix: string,
 ): BlockValidationError[] {
   const errors: BlockValidationError[] = [];
   const rows = block.rows;
 
   if (rows.length > TABLE_MAX_ROWS) {
     errors.push({
-      field: `blocks[${i}].rows`,
-      message: `blocks[${i}] (table) has ${rows.length} rows, exceeding the ${TABLE_MAX_ROWS}-row limit. Reduce row count or split tabular data into a markdown table inside a markdown block (no row cap).`,
+      field: `${pathPrefix}.rows`,
+      message: `${pathPrefix} has ${rows.length} rows, exceeding the ${TABLE_MAX_ROWS}-row limit. Reduce row count or split tabular data into a markdown table inside a markdown block (no row cap).`,
       currentLength: rows.length,
       limit: TABLE_MAX_ROWS,
     });
@@ -170,8 +176,8 @@ function validateTable(
   rows.forEach((row, ri) => {
     if (row.length > TABLE_MAX_CELLS_PER_ROW) {
       errors.push({
-        field: `blocks[${i}].rows[${ri}]`,
-        message: `blocks[${i}] (table) row ${ri} has ${row.length} cells, exceeding the ${TABLE_MAX_CELLS_PER_ROW}-cell limit.`,
+        field: `${pathPrefix}.rows[${ri}]`,
+        message: `${pathPrefix} row ${ri} has ${row.length} cells, exceeding the ${TABLE_MAX_CELLS_PER_ROW}-cell limit.`,
         currentLength: row.length,
         limit: TABLE_MAX_CELLS_PER_ROW,
       });
@@ -180,8 +186,8 @@ function validateTable(
       const len = tableCellTextLength(cell);
       if (len !== null && len > TABLE_CELL_TEXT_LIMIT) {
         errors.push({
-          field: `blocks[${i}].rows[${ri}][${ci}]`,
-          message: `blocks[${i}] (table) cell at row ${ri}, column ${ci} has ${len} chars of text, exceeding the ${TABLE_CELL_TEXT_LIMIT}-char limit. Shorten the cell or move large content into a separate block.`,
+          field: `${pathPrefix}.rows[${ri}][${ci}]`,
+          message: `${pathPrefix} cell at row ${ri}, column ${ci} has ${len} chars of text, exceeding the ${TABLE_CELL_TEXT_LIMIT}-char limit. Shorten the cell or move large content into a separate block.`,
           currentLength: len,
           limit: TABLE_CELL_TEXT_LIMIT,
         });
@@ -191,8 +197,8 @@ function validateTable(
 
   if (block.column_settings && block.column_settings.length > TABLE_MAX_COLUMN_SETTINGS) {
     errors.push({
-      field: `blocks[${i}].column_settings`,
-      message: `blocks[${i}] (table) column_settings has ${block.column_settings.length} entries, exceeding the ${TABLE_MAX_COLUMN_SETTINGS}-entry limit.`,
+      field: `${pathPrefix}.column_settings`,
+      message: `${pathPrefix} column_settings has ${block.column_settings.length} entries, exceeding the ${TABLE_MAX_COLUMN_SETTINGS}-entry limit.`,
       currentLength: block.column_settings.length,
       limit: TABLE_MAX_COLUMN_SETTINGS,
     });
@@ -278,9 +284,6 @@ export function validateBlocks(blocks: readonly Block[]): BlockValidationError[]
     });
   }
 
-  // Payload-scope: Slack rejects payloads with more than one table block
-  // (`invalid_attachments`). Surface this here before the API call.
-  const tableIndices: number[] = [];
   // Payload-scope: cumulative markdown text across all `markdown` blocks
   // must stay within Slack's documented 12k-char limit.
   let cumulativeMarkdownLength = 0;
@@ -302,10 +305,6 @@ export function validateBlocks(blocks: readonly Block[]): BlockValidationError[]
       case "markdown":
         cumulativeMarkdownLength += block.text.length;
         break;
-      case "table":
-        tableIndices.push(i);
-        errors.push(...validateTable(block, i));
-        break;
       case "divider":
         // Shape-only; nothing to validate beyond the schema parse.
         break;
@@ -318,15 +317,6 @@ export function validateBlocks(blocks: readonly Block[]): BlockValidationError[]
       message: `Cumulative \`markdown\` block text (${cumulativeMarkdownLength} chars across all markdown blocks) exceeds Slack's ${MARKDOWN_CUMULATIVE_TEXT_LIMIT}-char limit. Reduce total markdown content or split across multiple responses.`,
       currentLength: cumulativeMarkdownLength,
       limit: MARKDOWN_CUMULATIVE_TEXT_LIMIT,
-    });
-  }
-
-  if (tableIndices.length > 1) {
-    errors.push({
-      field: "blocks",
-      message: `Slack allows at most one \`table\` block per message — found ${tableIndices.length} at indices [${tableIndices.join(", ")}]. Use a markdown table inside a \`markdown\` block when multiple tabular sections are needed.`,
-      currentLength: tableIndices.length,
-      limit: 1,
     });
   }
 

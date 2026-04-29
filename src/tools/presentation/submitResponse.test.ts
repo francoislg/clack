@@ -12,11 +12,13 @@ import { createSubmitResponseTool, type SubmitResponseDeps } from "./submitRespo
 
 type StructuredBlocksFn = NonNullable<SubmitResponseDeps["getStructuredResponseBlocks"]>;
 type ValidateBlocksFn = NonNullable<SubmitResponseDeps["validateBlocks"]>;
+type ValidateTableFn = NonNullable<SubmitResponseDeps["validateTable"]>;
 type ValidateButtonLabelsFn = NonNullable<SubmitResponseDeps["validateActionButtonLabels"]>;
 type ActionBlocksFn = NonNullable<SubmitResponseDeps["getResponseActionBlocks"]>;
 
 const mockGetStructuredResponseBlocks = mock.fn<StructuredBlocksFn>();
 const mockValidateBlocks = mock.fn<ValidateBlocksFn>();
+const mockValidateTable = mock.fn<ValidateTableFn>();
 const mockValidateActionButtonLabels = mock.fn<ValidateButtonLabelsFn>();
 const mockGetResponseActionBlocks = mock.fn<ActionBlocksFn>();
 
@@ -84,6 +86,7 @@ function makeDeps(
     requiredTools: overrides.requiredTools,
     getStructuredResponseBlocks: mockGetStructuredResponseBlocks,
     validateBlocks: mockValidateBlocks,
+    validateTable: mockValidateTable,
     validateActionButtonLabels: mockValidateActionButtonLabels,
     getResponseActionBlocks: mockGetResponseActionBlocks,
   };
@@ -100,6 +103,10 @@ interface ToolAction {
   content?: string;
   channel?: string;
   thread_ts?: string;
+  // Allowed inside post_to actions only — exercised by the parity tests.
+  actions?: ToolAction[];
+  reactions?: string[];
+  table?: unknown;
 }
 
 interface CallToolArgs {
@@ -108,6 +115,7 @@ interface CallToolArgs {
   sections?: { title?: string; body: string }[];
   actions: ToolAction[];
   reactions?: string[];
+  table?: unknown;
 }
 
 /** Call the tool's handler directly. */
@@ -141,6 +149,7 @@ async function callToolRawTopLevel(deps: ReturnType<typeof makeDeps>, args: Call
 function resetBlockMocks() {
   mockGetStructuredResponseBlocks.mock.resetCalls();
   mockValidateBlocks.mock.resetCalls();
+  mockValidateTable.mock.resetCalls();
   mockValidateActionButtonLabels.mock.resetCalls();
   mockGetResponseActionBlocks.mock.resetCalls();
 
@@ -149,6 +158,7 @@ function resetBlockMocks() {
     { type: "section", text: { type: "mrkdwn", text: "test" } },
   ]);
   mockValidateBlocks.mock.mockImplementation(() => []);
+  mockValidateTable.mock.mockImplementation(() => []);
   mockValidateActionButtonLabels.mock.mockImplementation(() => []);
   mockGetResponseActionBlocks.mock.mockImplementation(() => []);
 }
@@ -1557,6 +1567,332 @@ describe("createSubmitResponseTool", () => {
       const message = result.success ? "" : result.error.issues[0]?.message;
       assert.match(message, /Action type "definitely_not_real" is not supported/);
       assert.match(message, /Allowed action types:/);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // post_to / submit_response message-content parity
+  // ---------------------------------------------------------------------------
+
+  describe("post_to message-content parity", () => {
+    it("accepts post_to with reactions and nested actions", async () => {
+      const deps = makeDeps();
+      const result = await callTool(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Top" } }],
+        actions: [
+          {
+            type: "post_to",
+            blocks: [{ type: "section", text: { type: "mrkdwn", text: "Cross-post" } }],
+            reactions: ["white_check_mark"],
+            actions: [{ type: "followup", label: "Tell me more", prompt: "More?" }],
+          },
+        ],
+      });
+
+      const parsed = parseToolResult(result);
+      assert.equal(parsed.success, true);
+    });
+
+    it("rejects unknown ref placed inside post_to.actions with a path-prefixed error", async () => {
+      const deps = makeDeps();
+      const result = await callTool(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Top" } }],
+        actions: [
+          {
+            type: "post_to",
+            blocks: [{ type: "section", text: { type: "mrkdwn", text: "Cross-post" } }],
+            actions: [{ type: "change", ref: "missing-ref" }],
+          },
+        ],
+      });
+
+      assert.equal("isError" in result && result.isError, true);
+      const parsed = parseToolResult(result);
+      assert.ok(parsed.error.includes("unknown ref"));
+      // Path label should identify the nested location.
+      assert.ok(
+        parsed.error.includes("actions[0].actions[0]"),
+        `expected error to include nested path, got: ${parsed.error}`,
+      );
+    });
+
+    it("rejects oversize button label inside post_to.actions with a path-prefixed error", async () => {
+      const deps = makeDeps();
+      // Emit an error only on the SECOND validateActionButtonLabels call (the nested
+      // one for post_to.actions). The first call validates top-level actions and
+      // must succeed so the handler advances to the nested check.
+      mockGetResponseActionBlocks.mock.mockImplementation((actions) =>
+        actions.length > 0 ? [{ type: "actions", elements: [] }] : [],
+      );
+      let callCount = 0;
+      mockValidateActionButtonLabels.mock.mockImplementation(() => {
+        callCount += 1;
+        if (callCount === 2) {
+          return [
+            {
+              field: "elements[0].text.text",
+              message: "label exceeds 75 chars (got 90)",
+              currentLength: 90,
+              limit: 75,
+            },
+          ];
+        }
+        return [];
+      });
+
+      const longLabel = "x".repeat(90);
+      const result = await callTool(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Top" } }],
+        actions: [
+          {
+            type: "post_to",
+            blocks: [{ type: "section", text: { type: "mrkdwn", text: "Cross-post" } }],
+            actions: [{ type: "followup", label: longLabel, prompt: "x" }],
+          },
+        ],
+      });
+
+      assert.equal("isError" in result && result.isError, true);
+      const parsed = parseToolResult(result);
+      assert.ok(
+        Array.isArray(parsed.details) &&
+          parsed.details.some((d: string) => d.startsWith("actions[0].")),
+        `expected nested path prefix in details, got: ${JSON.stringify(parsed.details)}`,
+      );
+    });
+
+    it("treats a staged intent placed only inside post_to.actions as covered", async () => {
+      const stagedIntent = {
+        type: "change" as const,
+        branch: "feat/x",
+        description: "do stuff",
+        repo: "my-repo",
+      };
+      const deps = makeDeps({
+        intentStore: {
+          stage: () => "ref-1",
+          resolve: (ref: string) => (ref === "ref-1" ? stagedIntent : undefined),
+          getAll: () => new Map([["ref-1", stagedIntent]]),
+        },
+      });
+
+      const result = await callTool(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Top" } }],
+        actions: [
+          {
+            type: "post_to",
+            blocks: [{ type: "section", text: { type: "mrkdwn", text: "Cross-post" } }],
+            actions: [{ type: "change", ref: "ref-1" }],
+          },
+        ],
+      });
+
+      const parsed = parseToolResult(result);
+      assert.equal(parsed.success, true, `unexpected error: ${JSON.stringify(parsed)}`);
+    });
+
+    it("rejects nested post_to inside post_to.actions with an actionable message", async () => {
+      const deps = makeDeps();
+      const result = await callTool(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Top" } }],
+        actions: [
+          {
+            type: "post_to",
+            blocks: [{ type: "section", text: { type: "mrkdwn", text: "Outer" } }],
+            actions: [
+              {
+                type: "post_to",
+                blocks: [{ type: "section", text: { type: "mrkdwn", text: "Inner" } }],
+              },
+            ],
+          },
+        ],
+      });
+
+      assert.equal("isError" in result && result.isError, true);
+      const parsed = parseToolResult(result);
+      assert.match(parsed.error, /[Nn]ested post_to is not supported/);
+      assert.ok(parsed.error.includes("actions[0].actions[0]"));
+    });
+
+    it("snapshot persistence captures actions and reactions when present", async () => {
+      const snapshots: { id: string; snapshot: ResponseSnapshot }[] = [];
+      const deps = makeDeps({
+        persistSnapshot: async (id, snapshot) => {
+          snapshots.push({ id, snapshot });
+        },
+      });
+
+      await callTool(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Top" } }],
+        actions: [
+          {
+            type: "post_to",
+            blocks: [{ type: "section", text: { type: "mrkdwn", text: "Cross-post" } }],
+            reactions: ["white_check_mark", "thumbsup"],
+            actions: [{ type: "followup", label: "More", prompt: "Tell me more" }],
+          },
+        ],
+      });
+
+      assert.equal(snapshots.length, 1);
+      assert.deepEqual(snapshots[0].snapshot.reactions, ["white_check_mark", "thumbsup"]);
+      assert.equal(snapshots[0].snapshot.actions?.length, 1);
+      assert.equal(snapshots[0].snapshot.actions?.[0].type, "followup");
+    });
+
+    it("snapshot persistence omits actions and reactions when absent", async () => {
+      const snapshots: { id: string; snapshot: ResponseSnapshot }[] = [];
+      const deps = makeDeps({
+        persistSnapshot: async (id, snapshot) => {
+          snapshots.push({ id, snapshot });
+        },
+      });
+
+      await callTool(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Top" } }],
+        actions: [
+          {
+            type: "post_to",
+            blocks: [{ type: "section", text: { type: "mrkdwn", text: "Cross-post" } }],
+          },
+        ],
+      });
+
+      assert.equal(snapshots.length, 1);
+      assert.equal(
+        "actions" in snapshots[0].snapshot,
+        false,
+        "snapshot should not contain `actions` key when absent on the action",
+      );
+      assert.equal(
+        "reactions" in snapshots[0].snapshot,
+        false,
+        "snapshot should not contain `reactions` key when absent on the action",
+      );
+    });
+  });
+
+  describe("top-level table parameter", () => {
+    it("accepts a valid top-level table alongside blocks", async () => {
+      const deps = makeDeps();
+      const result = await callTool(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Heading" } }],
+        actions: [],
+        table: {
+          type: "table",
+          rows: [
+            ["Repo", "Status"],
+            ["clack", "active"],
+          ],
+        },
+      });
+
+      const parsed = parseToolResult(result);
+      assert.equal(parsed.success, true);
+      // validateTable was invoked with the table, prefixed as "table"
+      assert.equal(mockValidateTable.mock.callCount(), 1);
+      const [tableArg, pathArg] = mockValidateTable.mock.calls[0].arguments;
+      assert.equal((tableArg as { type: string }).type, "table");
+      assert.equal(pathArg, "table");
+    });
+
+    it("rejects an invalid top-level table with field-prefixed errors", async () => {
+      mockValidateTable.mock.mockImplementation(() => [
+        {
+          field: "table.rows",
+          message: "table has 200 rows, exceeding the 100-row limit",
+          currentLength: 200,
+          limit: 100,
+        },
+      ]);
+
+      const deps = makeDeps();
+      const result = await callTool(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Heading" } }],
+        actions: [],
+        table: { type: "table", rows: [["a"]] },
+      });
+
+      assert.equal("isError" in result && result.isError, true);
+      const parsed = parseToolResult(result);
+      assert.equal(parsed.error, "invalid_blocks");
+      assert.ok(
+        Array.isArray(parsed.details) &&
+          parsed.details.some((d: string) => d.startsWith("table.rows:")),
+        `expected error details to surface table.rows path, got: ${JSON.stringify(parsed.details)}`,
+      );
+    });
+
+    it("validates table inside a post_to action with a path-prefixed namespace", async () => {
+      // The post_to.table validation runs after blocks validation; emit an
+      // error specifically when the caller passes the post_to path prefix.
+      mockValidateTable.mock.mockImplementation((_block, prefix) => {
+        if (prefix === "actions[0].table") {
+          return [
+            {
+              field: "actions[0].table.rows",
+              message: "table has 200 rows",
+              currentLength: 200,
+              limit: 100,
+            },
+          ];
+        }
+        return [];
+      });
+
+      const deps = makeDeps();
+      const result = await callTool(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Top" } }],
+        actions: [
+          {
+            type: "post_to",
+            blocks: [{ type: "section", text: { type: "mrkdwn", text: "Cross-post" } }],
+            table: { type: "table", rows: [["a"]] },
+          },
+        ],
+      });
+
+      assert.equal("isError" in result && result.isError, true);
+      const parsed = parseToolResult(result);
+      assert.equal(parsed.error, "invalid_blocks");
+      assert.ok(
+        Array.isArray(parsed.details) &&
+          parsed.details.some((d: string) => d.startsWith("actions[0].table.rows:")),
+        `expected post_to.table path prefix, got: ${JSON.stringify(parsed.details)}`,
+      );
+    });
+
+    it("persists post_to.table into the per-button snapshot", async () => {
+      const snapshots: { id: string; snapshot: ResponseSnapshot }[] = [];
+      const deps = makeDeps({
+        persistSnapshot: async (id, snapshot) => {
+          snapshots.push({ id, snapshot });
+        },
+      });
+
+      await callTool(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Top" } }],
+        actions: [
+          {
+            type: "post_to",
+            blocks: [{ type: "section", text: { type: "mrkdwn", text: "Cross-post" } }],
+            table: { type: "table", rows: [["x"]] },
+          },
+        ],
+      });
+
+      assert.equal(snapshots.length, 1);
+      assert.equal(snapshots[0].snapshot.table?.type, "table");
+    });
+
+    it("does not call validateTable when no table is present", async () => {
+      const deps = makeDeps();
+      await callTool(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Hello" } }],
+        actions: [],
+      });
+      assert.equal(mockValidateTable.mock.callCount(), 0);
     });
   });
 });

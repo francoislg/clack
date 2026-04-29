@@ -28,6 +28,7 @@ import { sendErrorReport } from "../messagesApi.js";
 import { getConfig } from "../../config.js";
 import { getClaudeOptions } from "./changeWorkflowHelper.js";
 import { handleAutoExecuteActions } from "./autoExecute.js";
+import { addDeliveryReactions } from "../messageReactions.js";
 import { SlackStreamer } from "../../streaming/slackStreamer.js";
 import { getUserInfo } from "../userCache.js";
 import { getUserPreference } from "../../userPreferences.js";
@@ -234,28 +235,6 @@ export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promis
 // ============================================================
 // DELIVERY HELPERS
 // ============================================================
-
-/**
- * Add emoji reactions to a posted message. Failures are logged as warnings
- * but never affect the delivery result. already_reacted is silently ignored.
- */
-async function addDeliveryReactions(
-  client: App["client"],
-  channel: string,
-  timestamp: string,
-  reactions: string[],
-): Promise<void> {
-  for (const emoji of reactions) {
-    try {
-      await client.reactions.add({ channel, timestamp, name: emoji });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (!msg.includes("already_reacted")) {
-        logger.warn(`Failed to add reaction :${emoji}: — ${msg}`);
-      }
-    }
-  }
-}
 
 /**
  * Extract a plain-text notification string from rendered blocks.

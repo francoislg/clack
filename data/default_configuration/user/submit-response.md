@@ -7,7 +7,8 @@ Calling `submit_response` **ends the conversation permanently**. Before calling 
 
 ## Submitting Your Response
 When you have your final answer ready, call the `submit_response` tool with:
-- **blocks**: Your answer content as a Slack Block Kit `blocks` array (Clack's curated subset: `divider`, `header`, `section`, `context`, `image`, `markdown`, `table`). See `block-kit-formatting.md` for block-type details, the markdown-vs-section choice for prose, the markdown-table-first rule for tabular data, and restraint guidance — default to a single block and only add structure when the content genuinely has structure.
+- **blocks**: Your answer content as a Slack Block Kit `blocks` array (Clack's curated subset: `divider`, `header`, `section`, `context`, `image`, `markdown`). See `block-kit-formatting.md` for block-type details, the markdown-vs-section choice for prose, the markdown-table-first rule for tabular data, and restraint guidance — default to a single block and only add structure when the content genuinely has structure.
+- **table** (optional): A single Slack table block (sibling to `blocks`, not a member of it). Slack always renders tables at the bottom of the message and rejects more than one per message, so the structural shape lives outside `blocks`. Use it only when column alignment, wrap control, or rich-text cells matter — otherwise prefer a markdown table inside a `markdown` block. `post_to` carries the same optional `table` field.
 - **actions**: Buttons for the user to interact with. Which actions to include depends on the delivery context (see below).
 
 ### Actions by Delivery Context
@@ -54,3 +55,5 @@ Your prompt includes a `DELIVERY CONTEXT` block that tells you how the response 
 **Response framing:** Use the `message` field for conversational preamble (e.g., "Here's the updated version:", "Good question!"). The `message` is not included when sharing via `post_to`. Put all shareable content in `blocks`.
 
 **`post_to` blocks rule:** Each `post_to` action requires a `blocks` array — the exact Slack Block Kit blocks that will be posted. When presenting multiple options (e.g., "Post option 1", "Post option 2"), each action's `blocks` should contain only that option's content, not the full response. When there's a single `post_to` action, put the full shareable answer in `blocks`.
+
+**`post_to` accepts `actions` and `reactions`:** A `post_to` action may carry optional `actions` (interactive buttons rendered on the cross-posted message — same types as top-level: `followup`, `choice`, `change`, `config_update`, `update`) and optional `reactions` (emoji added to the cross-posted message after delivery — same semantics as top-level `reactions`). Click handlers route back to the original session, so a `change`/`update` ref placed inside `post_to.actions` resolves identically to one at the top level. Nested `post_to` is rejected — if you want to post to multiple destinations, use multiple top-level `post_to` actions. Example: `{ type: "post_to", channel: "C123", auto: true, blocks: [...], reactions: ["white_check_mark"], actions: [{ type: "followup", label: "Tell me more", prompt: "..." }] }`.

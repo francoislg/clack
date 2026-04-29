@@ -6,8 +6,8 @@ import type {
   DividerBlock,
   SectionBlock,
 } from "@slack/types";
-import type { Block } from "./blockSchema.js";
-import { prepareBlocks } from "./blockPrepare.js";
+import type { AuthoredTableBlock, Block } from "./blockSchema.js";
+import { prepareBlocks, prepareTable } from "./blockPrepare.js";
 import type { BlockValidationError } from "./blockValidate.js";
 import type { SubmitResponsePayload, Action } from "../tools/types.js";
 
@@ -189,6 +189,9 @@ export function getResponseActionBlocks(actions: Action[], sessionId: string): A
  * Build the Slack Block Kit output for a submit_response payload:
  *   - Prepend `message` preamble as a section block (if present).
  *   - Include Claude-authored `blocks` (after markdown conversion + splits).
+ *   - Append the optional `table` (sibling parameter — Slack always renders
+ *     tables at the bottom of the message, so we place it after content but
+ *     before action buttons; either ordering renders identically).
  *   - Append action buttons with a divider separator.
  *
  * Validation is the caller's responsibility and should run on this output
@@ -212,6 +215,10 @@ export function getStructuredResponseBlocks(
     out.push(b);
   }
 
+  if (payload.table) {
+    out.push(prepareTable(payload.table));
+  }
+
   const actionBlocks = getResponseActionBlocks(payload.actions, sessionId);
   if (actionBlocks.length === 0) {
     return out;
@@ -223,11 +230,19 @@ export function getStructuredResponseBlocks(
 
 /**
  * Build blocks for the accepted (shareable, post_to) payload — just the
- * authored blocks after markdown conversion + splitting. Excludes the
- * conversational `message` preamble by contract.
+ * authored blocks after markdown conversion + splitting, plus the optional
+ * `table` appended at the end. Excludes the conversational `message`
+ * preamble by contract.
  */
-export function getStructuredAcceptedBlocks(blocks: Block[]): SlackBlocks {
-  return prepareBlocks(blocks);
+export function getStructuredAcceptedBlocks(
+  blocks: Block[],
+  table?: AuthoredTableBlock,
+): SlackBlocks {
+  const out: SlackBlocks = prepareBlocks(blocks);
+  if (table) {
+    out.push(prepareTable(table));
+  }
+  return out;
 }
 
 export function getErrorBlocks(message: string): SlackBlocks {
