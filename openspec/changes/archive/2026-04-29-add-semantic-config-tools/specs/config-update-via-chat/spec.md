@@ -1,9 +1,4 @@
-# Config Update Via Chat Specification
-
-## Purpose
-Allow admins to update configuration files through Slack chat, with Claude proposing changes via MCP tools and a confirmation flow before applying them.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Read Config File Tool
 
@@ -199,75 +194,10 @@ The system SHALL provide a `list_config_files` MCP tool that returns instruction
 - **THEN** `list_config_files` is NOT registered
 - **AND** Claude cannot call it regardless of prompt instructions
 
-### Requirement: Config Update Confirmation Flow
+## REMOVED Requirements
 
-The system SHALL show a preview and require explicit confirmation before writing config files.
+### Requirement: Resolved View for Admins
 
-#### Scenario: Show preview with action buttons
-- **GIVEN** Claude called `propose_config_update` and included a `config_update` action in `submit_response`
-- **WHEN** the response is rendered
-- **THEN** the sections from `submit_response` show the preview (Claude controls the diff/preview content)
-- **AND** the `config_update` action renders as an "Apply Update" button
-- **AND** a `reject` action renders as a dismiss button
+**Reason**: The resolved-view feature was implemented as a schema overload — passing a role name (e.g., `"dev"`) as the `file` parameter triggered a different code path that returned the cascaded view. Switching to semantic fields (`role`, `topic?`, `file`) makes this overload incoherent. Removing it now keeps the tool surface clean. If the use case re-emerges, it gets a dedicated tool (e.g., `resolve_role_instructions`) with its own schema, including support for active topics in the resolved view.
 
-#### Scenario: Apply config update
-- **GIVEN** a pending config update staged via tool
-- **WHEN** an admin clicks the "Apply Update" button
-- **THEN** the system resolves the staged intent by ref ID
-- **AND** verifies the user is an admin
-- **AND** validates the file path is within a known role or repository directory
-- **AND** writes the content via `writeInstructionFile()`
-- **AND** replies confirming the update was applied
-
-#### Scenario: Dismiss config update
-- **GIVEN** a pending config update staged via tool
-- **WHEN** a user clicks the dismiss/reject button
-- **THEN** the ephemeral message is deleted
-- **AND** no file is written
-
-### Requirement: Config Update Auto-Execute
-
-The system SHALL support auto-execution of config updates when Claude sets `auto: true`, enabling immediate file writes for clear user directives without requiring a button click.
-
-#### Scenario: Auto-execute config update on clear directive
-- **GIVEN** an admin or owner user gives a clear directive to update configuration (e.g., "update the config to add X")
-- **AND** Claude calls `propose_config_update` and receives a ref
-- **WHEN** Claude calls `submit_response` with `{ type: "config_update", ref: "<id>", auto: true }`
-- **THEN** the system writes the config file immediately via `writeInstructionFile()`
-- **AND** posts a confirmation message in the thread
-- **AND** does NOT render a button for the config_update action
-
-#### Scenario: Proposal mode for exploratory config discussions
-- **GIVEN** an admin or owner user is exploring or discussing a potential config change (e.g., "maybe we should add X")
-- **AND** Claude calls `propose_config_update` and receives a ref
-- **WHEN** Claude calls `submit_response` with `{ type: "config_update", ref: "<id>" }` (no `auto` or `auto: false`)
-- **THEN** the system renders an "Apply Update" button
-- **AND** the config file is NOT written until the user clicks the button
-
-#### Scenario: Auto-execute config update failure
-- **GIVEN** a config update action has `auto: true`
-- **WHEN** `writeInstructionFile()` throws an error
-- **THEN** the system posts an error message in the thread
-- **AND** does NOT crash or affect the posted response
-
-### Requirement: Smart File Placement Instructions
-
-The system SHALL instruct Claude to intelligently determine file placement when an admin requests instruction changes.
-
-#### Scenario: Content fits existing file
-- **GIVEN** an admin asks Claude to add a rule about response formatting
-- **AND** `user/response-style.md` already covers response formatting topics
-- **WHEN** Claude analyzes the request
-- **THEN** Claude proposes appending to `user/response-style.md`
-
-#### Scenario: Content is a new distinct topic
-- **GIVEN** an admin asks Claude to add context about the company's Sentry setup
-- **AND** no existing file covers Sentry or monitoring topics
-- **WHEN** Claude analyzes the request
-- **THEN** Claude proposes creating a new file with a descriptive name (e.g., `user/mcp-sentry.md`)
-
-#### Scenario: Uncertain placement
-- **GIVEN** an admin asks Claude to add instructions that could fit multiple existing files
-- **WHEN** Claude cannot confidently determine the best placement
-- **THEN** Claude asks the admin whether to merge into an existing file or create a new one
-
+**Migration**: Admins who previously asked Claude "what does a dev see?" now get the answer by listing files for the role and reading them individually, or by waiting for a future dedicated resolved-view tool. The replacement tool is out of scope for this change.

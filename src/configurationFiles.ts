@@ -5,8 +5,10 @@ import { logger } from "./logger.js";
 import { interpolateVariables } from "./instructions.js";
 import {
   listRoleDirFiles,
+  listRoleTopicDirFiles,
   listSingleDirFiles,
   readRoleFile,
+  readRoleTopicFile,
   scanMdFiles,
   type RoleDirListing,
   type InstructionFileEntry,
@@ -15,61 +17,123 @@ import {
 export type { RoleDirListing, InstructionFileEntry };
 
 // ---------------------------------------------------------------------------
-// Repo instruction files (unchanged — flat, not cascaded)
+// Semantic file entry — the building block surfaced by the new listing shape
 // ---------------------------------------------------------------------------
 
-export interface RepoInstructionFileInfo {
-  filename: string;
-  hasOverride: boolean;
-  hasDefault: boolean;
+export interface FileEntry {
+  file: string;
+  status: "default" | "customized" | "custom-only" | "plugin" | "plugin-customized";
 }
 
-function getRepoInstructionFiles(): RepoInstructionFileInfo[] {
+// ---------------------------------------------------------------------------
+// Repo instruction files
+// ---------------------------------------------------------------------------
+
+export interface RepoEntry {
+  repo: string;
+  files: RepoFileEntry[];
+}
+
+export interface RepoFileEntry {
+  file: string;
+  status: "default" | "customized" | "custom-only" | "not_created";
+}
+
+function getRepoEntries(): RepoEntry[] {
   try {
     const config = getConfig();
     const configDir = getConfigurationDir();
     const defaultDir = getDefaultConfigurationDir();
-    const files: RepoInstructionFileInfo[] = [];
+    const repos: RepoEntry[] = [];
 
     for (const repo of config.repositories) {
+      const files: RepoFileEntry[] = [];
       for (const suffix of ["changes_instructions.md", "worktree_setup_instructions.md"]) {
-        const filename = `${repo.name}/${suffix}`;
-        files.push({
-          filename,
-          hasOverride: existsSync(resolve(configDir, filename)),
-          hasDefault: existsSync(resolve(defaultDir, filename)),
-        });
+        const fullPath = `${repo.name}/${suffix}`;
+        const hasOverride = existsSync(resolve(configDir, fullPath));
+        const hasDefault = existsSync(resolve(defaultDir, fullPath));
+        const status: RepoFileEntry["status"] = hasOverride
+          ? hasDefault
+            ? "customized"
+            : "custom-only"
+          : hasDefault
+            ? "default"
+            : "not_created";
+        files.push({ file: suffix, status });
       }
+      repos.push({ repo: repo.name, files });
     }
-    return files;
+    return repos;
   } catch {
     return [];
   }
 }
 
 // ---------------------------------------------------------------------------
-// List all instruction files (role directories + repo files)
+// List all instruction files (role directories + topics + repo files)
 // ---------------------------------------------------------------------------
 
+export interface RoleEntry {
+  role: string;
+  files: FileEntry[];
+  topics: TopicEntry[];
+}
+
+export interface TopicEntry {
+  topic: string;
+  files: FileEntry[];
+}
+
 export interface InstructionFileListing {
-  roles: RoleDirListing[];
-  repos: RepoInstructionFileInfo[];
+  roles: RoleEntry[];
+  preAnalysis: FileEntry[];
+  repos: RepoEntry[];
+}
+
+function toFileEntries(entries: InstructionFileEntry[]): FileEntry[] {
+  return entries.map((e) => ({ file: e.filename, status: e.source }));
 }
 
 /**
- * List all instruction files: role-based (scanned from directories),
- * pre-analysis context, and repo-scoped (convention-based).
+ * List all instruction files: role-based (scanned from directories), pre-analysis
+ * context, and repo-scoped (convention-based). Topic files (`{role}/topics/{topic}/*.md`)
+ * are surfaced under the corresponding role's `topics` array.
+ *
+ * Roles with neither baseline files nor topic files are omitted (matches the existing
+ * `listRoleDirFiles` behavior of skipping empty role directories).
  */
 export function listInstructionFiles(): InstructionFileListing {
-  const roles = listRoleDirFiles();
+  const baselineByRole = new Map<string, RoleDirListing>();
+  for (const listing of listRoleDirFiles()) {
+    baselineByRole.set(listing.role, listing);
+  }
 
-  // Include pre-analysis as a pseudo-role directory (reuses same UI infrastructure).
-  // Always included so admins can create the first file from the picker.
-  roles.push({ role: "pre-analysis", files: listSingleDirFiles("pre-analysis") });
+  const topicsByRole = new Map<string, TopicEntry[]>();
+  for (const topicListing of listRoleTopicDirFiles()) {
+    const arr = topicsByRole.get(topicListing.role) ?? [];
+    arr.push({
+      topic: topicListing.topic,
+      files: toFileEntries(topicListing.files),
+    });
+    topicsByRole.set(topicListing.role, arr);
+  }
+
+  const allRoleNames = new Set<string>([...baselineByRole.keys(), ...topicsByRole.keys()]);
+  const roles: RoleEntry[] = [];
+  for (const role of allRoleNames) {
+    const baseline = baselineByRole.get(role);
+    const topics = topicsByRole.get(role) ?? [];
+    roles.push({
+      role,
+      files: baseline ? toFileEntries(baseline.files) : [],
+      topics,
+    });
+  }
 
   return {
     roles,
-    repos: getRepoInstructionFiles(),
+    preAnalysis: toFileEntries(listSingleDirFiles("pre-analysis")),
+    repos: getRepoEntries(),
   };
 }
 
@@ -78,24 +142,30 @@ export function listInstructionFiles(): InstructionFileListing {
 // ---------------------------------------------------------------------------
 
 /**
- * Read an instruction file from a role directory.
- * Accepts paths like "user/identity.md" or "dev/changes.md".
- * Returns both default and custom content for comparison.
+ * Read an instruction file. Accepts:
+ *   - 2-segment baseline paths: `{role}/{filename}` (e.g., `"user/identity.md"`)
+ *   - 4-segment topic paths:    `{role}/topics/{topic}/{filename}`
+ *   - 2-segment repo paths:     `{repo}/{filename}` (resolved via `readRoleFile`,
+ *     which falls back to the flat two-tier resolution for non-role directories)
  *
- * For repo-scoped files (e.g., "myrepo/changes_instructions.md"),
- * uses the flat two-tier resolution.
+ * Returns both default and custom content for comparison. Anything outside the
+ * accepted shapes returns null/null without throwing.
  */
 export function readInstructionFile(filepath: string): {
   default_content: string | null;
   custom_content: string | null;
 } {
   const parts = filepath.split("/");
-  if (parts.length !== 2) {
-    return { default_content: null, custom_content: null };
+
+  if (parts.length === 2 && parts[0] && parts[1]) {
+    return readRoleFile(parts[0], parts[1]);
   }
 
-  const [dir, filename] = parts;
-  return readRoleFile(dir, filename);
+  if (parts.length === 4 && parts[0] && parts[1] === "topics" && parts[2] && parts[3]) {
+    return readRoleTopicFile(parts[0], parts[2], parts[3]);
+  }
+
+  return { default_content: null, custom_content: null };
 }
 
 // ---------------------------------------------------------------------------

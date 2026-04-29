@@ -456,29 +456,41 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
 
       const listing = deps.listInstructionFiles();
 
-      // Check if this is a role directory or repo directory
-      const roleListing = listing.roles.find((r) => r.role === dir);
+      // The picker handles three kinds of directories: real roles, the pre-analysis
+      // pseudo-directory, and per-repo directories. Topic files are not surfaced here
+      // — the Home Tab keeps its baseline-only representation; topic editing flows
+      // through chat-based MCP tools.
+      const roleEntry = listing.roles.find((r) => r.role === dir);
+      const isPreAnalysis = dir === "pre-analysis";
       let files: ConfigFilePickerEntry[];
       let isRepoDir: boolean;
 
-      if (roleListing) {
+      if (roleEntry) {
         isRepoDir = false;
-        files = roleListing.files.map((f) => ({
-          filename: f.filename,
+        files = roleEntry.files.map((f) => ({
+          filename: f.file,
           sourceLabel:
-            f.source === "customized" ? "Customized" : f.source === "custom-only" ? "Custom" : "",
-          effectiveLength: deps.getEffectiveContentLength(`${dir}/${f.filename}`),
+            f.status === "customized" ? "Customized" : f.status === "custom-only" ? "Custom" : "",
+          effectiveLength: deps.getEffectiveContentLength(`${dir}/${f.file}`),
+        }));
+      } else if (isPreAnalysis) {
+        isRepoDir = false;
+        files = listing.preAnalysis.map((f) => ({
+          filename: f.file,
+          sourceLabel:
+            f.status === "customized" ? "Customized" : f.status === "custom-only" ? "Custom" : "",
+          effectiveLength: deps.getEffectiveContentLength(`${dir}/${f.file}`),
         }));
       } else {
         isRepoDir = true;
-        const repoFiles = listing.repos.filter((r) => r.filename.startsWith(`${dir}/`));
-        files = repoFiles.map((f) => {
-          const filename = f.filename.split("/").slice(1).join("/");
-          const sourceLabel = f.hasOverride ? "Customized" : "";
+        const repoEntry = listing.repos.find((r) => r.repo === dir);
+        files = (repoEntry?.files ?? []).map((f) => {
+          const sourceLabel =
+            f.status === "customized" || f.status === "custom-only" ? "Customized" : "";
           return {
-            filename,
+            filename: f.file,
             sourceLabel,
-            effectiveLength: deps.getEffectiveContentLength(f.filename),
+            effectiveLength: deps.getEffectiveContentLength(`${dir}/${f.file}`),
           };
         });
       }

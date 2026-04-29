@@ -2,37 +2,40 @@ import { describe, it, mock } from "node:test";
 import { parseToolResult } from "../testHelpers.js";
 import assert from "node:assert/strict";
 import { createListConfigFilesTool, type ListConfigFilesDeps } from "./listConfigFiles.js";
+import type { QueryToolContext } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-interface TestCtx {
-  mode: "query";
-  userId: string;
-  role: string;
-}
+const fakeSession = { sessionId: "test", channelId: "C1", threadTs: "1.0" };
+const fakeConfig = {};
 
-function makeCtx(): TestCtx {
+function makeCtx(): QueryToolContext {
   return {
     mode: "query",
     userId: "U123",
     role: "admin",
+    session: fakeSession as QueryToolContext["session"],
+    config: fakeConfig as QueryToolContext["config"],
+    changesWorkflowEnabled: false,
+    allowScheduledMessages: false,
   };
 }
 
 function makeDeps(overrides: Partial<ListConfigFilesDeps> = {}): ListConfigFilesDeps {
   return {
-    listInstructionFiles: mock.fn(() => ({
+    listInstructionFiles: mock.fn<ListConfigFilesDeps["listInstructionFiles"]>(() => ({
       roles: [],
+      preAnalysis: [],
       repos: [],
-    })) as ListConfigFilesDeps["listInstructionFiles"],
+    })),
     ...overrides,
   };
 }
 
-function callTool(ctx: TestCtx, deps: ListConfigFilesDeps) {
-  const toolDef = createListConfigFilesTool(ctx as never, deps);
+function callTool(ctx: QueryToolContext, deps: ListConfigFilesDeps) {
+  const toolDef = createListConfigFilesTool(ctx, deps);
   return toolDef.handler({ _placeholder: undefined }, { sessionId: "test" });
 }
 
@@ -41,27 +44,33 @@ function callTool(ctx: TestCtx, deps: ListConfigFilesDeps) {
 // ---------------------------------------------------------------------------
 
 describe("listConfigFiles tool", () => {
-  it("returns empty object when no instruction files exist", async () => {
+  it("returns the empty shape when no files exist", async () => {
     const deps = makeDeps();
     const result = await callTool(makeCtx(), deps);
 
     const parsed = parseToolResult(result);
-    assert.deepEqual(parsed, {});
+    assert.deepEqual(parsed, { roles: [], preAnalysis: [], repos: [] });
   });
 
-  it("returns role directories with file listings", async () => {
+  it("returns roles with semantic file/status entries", async () => {
     const deps = makeDeps({
       listInstructionFiles: () => ({
         roles: [
           {
             role: "user",
             files: [
-              { filename: "identity.md", source: "default" },
-              { filename: "response-style.md", source: "customized" },
+              { file: "identity.md", status: "default" },
+              { file: "response-style.md", status: "customized" },
             ],
+            topics: [],
           },
-          { role: "dev", files: [{ filename: "changes.md", source: "default" }] },
+          {
+            role: "dev",
+            files: [{ file: "changes.md", status: "default" }],
+            topics: [],
+          },
         ],
+        preAnalysis: [],
         repos: [],
       }),
     });
@@ -69,24 +78,88 @@ describe("listConfigFiles tool", () => {
     const result = await callTool(makeCtx(), deps);
 
     const parsed = parseToolResult(result);
-    assert.equal(parsed.user.length, 2);
-    assert.equal(parsed.user[0].file, "identity.md");
-    assert.equal(parsed.user[0].status, "default");
-    assert.equal(parsed.user[1].status, "customized");
-    assert.equal(parsed.dev.length, 1);
-    assert.equal(parsed.dev[0].file, "changes.md");
+    const userRole = parsed.roles.find((r: { role: string }) => r.role === "user");
+    assert.equal(userRole.files.length, 2);
+    assert.equal(userRole.files[0].file, "identity.md");
+    assert.equal(userRole.files[0].status, "default");
+    assert.equal(userRole.files[1].status, "customized");
+    assert.deepEqual(userRole.topics, []);
+
+    const devRole = parsed.roles.find((r: { role: string }) => r.role === "dev");
+    assert.equal(devRole.files.length, 1);
+    assert.equal(devRole.files[0].file, "changes.md");
   });
 
-  it("includes repo files when present", async () => {
+  it("surfaces topic groups under their role", async () => {
+    const deps = makeDeps({
+      listInstructionFiles: () => ({
+        roles: [
+          {
+            role: "user",
+            files: [{ file: "identity.md", status: "default" }],
+            topics: [
+              {
+                topic: "metabase",
+                files: [{ file: "rules.md", status: "customized" }],
+              },
+            ],
+          },
+        ],
+        preAnalysis: [],
+        repos: [],
+      }),
+    });
+
+    const result = await callTool(makeCtx(), deps);
+
+    const parsed = parseToolResult(result);
+    const userRole = parsed.roles[0];
+    assert.equal(userRole.topics.length, 1);
+    assert.equal(userRole.topics[0].topic, "metabase");
+    assert.equal(userRole.topics[0].files[0].file, "rules.md");
+    assert.equal(userRole.topics[0].files[0].status, "customized");
+  });
+
+  it("surfaces multiple topics under a single role", async () => {
+    const deps = makeDeps({
+      listInstructionFiles: () => ({
+        roles: [
+          {
+            role: "dev",
+            files: [],
+            topics: [
+              { topic: "metabase", files: [{ file: "queries.md", status: "default" }] },
+              { topic: "monday", files: [{ file: "boards.md", status: "custom-only" }] },
+            ],
+          },
+        ],
+        preAnalysis: [],
+        repos: [],
+      }),
+    });
+
+    const result = await callTool(makeCtx(), deps);
+
+    const parsed = parseToolResult(result);
+    const devRole = parsed.roles[0];
+    assert.equal(devRole.topics.length, 2);
+    const topicNames = devRole.topics.map((t: { topic: string }) => t.topic);
+    assert.ok(topicNames.includes("metabase"));
+    assert.ok(topicNames.includes("monday"));
+  });
+
+  it("surfaces repos grouped by repo name with semantic statuses", async () => {
     const deps = makeDeps({
       listInstructionFiles: () => ({
         roles: [],
+        preAnalysis: [],
         repos: [
-          { filename: "my-repo/changes_instructions.md", hasOverride: false, hasDefault: true },
           {
-            filename: "my-repo/worktree_setup_instructions.md",
-            hasOverride: false,
-            hasDefault: false,
+            repo: "alpha",
+            files: [
+              { file: "changes_instructions.md", status: "default" },
+              { file: "worktree_setup_instructions.md", status: "not_created" },
+            ],
           },
         ],
       }),
@@ -95,15 +168,18 @@ describe("listConfigFiles tool", () => {
     const result = await callTool(makeCtx(), deps);
 
     const parsed = parseToolResult(result);
-    assert.equal(parsed.repos.length, 2);
-    assert.equal(parsed.repos[0].status, "default");
-    assert.equal(parsed.repos[1].status, "not_created");
+    assert.equal(parsed.repos.length, 1);
+    assert.equal(parsed.repos[0].repo, "alpha");
+    assert.equal(parsed.repos[0].files.length, 2);
+    assert.equal(parsed.repos[0].files[0].status, "default");
+    assert.equal(parsed.repos[0].files[1].status, "not_created");
   });
 
-  it("includes custom-only files", async () => {
+  it("surfaces preAnalysis as a top-level field", async () => {
     const deps = makeDeps({
       listInstructionFiles: () => ({
-        roles: [{ role: "user", files: [{ filename: "company.md", source: "custom-only" }] }],
+        roles: [],
+        preAnalysis: [{ file: "context.md", status: "customized" }],
         repos: [],
       }),
     });
@@ -111,20 +187,8 @@ describe("listConfigFiles tool", () => {
     const result = await callTool(makeCtx(), deps);
 
     const parsed = parseToolResult(result);
-    assert.equal(parsed.user[0].status, "custom-only");
-  });
-
-  it("omits repos key when no repo files exist", async () => {
-    const deps = makeDeps({
-      listInstructionFiles: () => ({
-        roles: [{ role: "user", files: [{ filename: "identity.md", source: "default" }] }],
-        repos: [],
-      }),
-    });
-
-    const result = await callTool(makeCtx(), deps);
-
-    const parsed = parseToolResult(result);
-    assert.equal(parsed.repos, undefined);
+    assert.equal(parsed.preAnalysis.length, 1);
+    assert.equal(parsed.preAnalysis[0].file, "context.md");
+    assert.equal(parsed.preAnalysis[0].status, "customized");
   });
 });

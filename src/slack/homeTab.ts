@@ -405,41 +405,41 @@ export function buildConfigurationSection(
   if (showEditButtons) {
     const listing = deps.listInstructionFiles();
 
-    const customLabels: Record<string, string> = {
-      "pre-analysis": "Pre-Analysis Context",
-    };
-
-    for (const roleListing of listing.roles) {
-      const roleLabel =
-        customLabels[roleListing.role] ??
-        `${roleListing.role.charAt(0).toUpperCase() + roleListing.role.slice(1)} Config`;
-      const emoji = roleEmojis[roleListing.role] ?? "";
+    for (const roleEntry of listing.roles) {
+      const roleLabel = `${roleEntry.role.charAt(0).toUpperCase() + roleEntry.role.slice(1)} Config`;
+      const emoji = roleEmojis[roleEntry.role] ?? "";
       const label = emoji ? `${emoji} Edit ${roleLabel}` : `Edit ${roleLabel}`;
       buttons.push({
         type: "button",
         text: { type: "plain_text", text: label, emoji: true },
-        action_id: `view_config_dir:${roleListing.role}`,
-        value: roleListing.role,
+        action_id: `view_config_dir:${roleEntry.role}`,
+        value: roleEntry.role,
       });
     }
 
-    // Repo directories — group by repo name
-    const repoGroups = new Map<string, number>();
-    for (const repo of listing.repos) {
-      const repoName = repo.filename.split("/")[0];
-      repoGroups.set(repoName, (repoGroups.get(repoName) ?? 0) + 1);
-    }
+    // Pre-analysis context — distinct top-level field, rendered as its own button
+    const preAnalysisEmoji = roleEmojis["pre-analysis"] ?? "";
+    const preAnalysisLabel = preAnalysisEmoji
+      ? `${preAnalysisEmoji} Edit Pre-Analysis Context`
+      : "Edit Pre-Analysis Context";
+    buttons.push({
+      type: "button",
+      text: { type: "plain_text", text: preAnalysisLabel, emoji: true },
+      action_id: `view_config_dir:pre-analysis`,
+      value: "pre-analysis",
+    });
 
-    for (const [repoName] of repoGroups) {
+    // Repo directories
+    for (const repoEntry of listing.repos) {
       buttons.push({
         type: "button",
         text: {
           type: "plain_text",
-          text: `:file_folder: Edit ${repoName} Config`,
+          text: `:file_folder: Edit ${repoEntry.repo} Config`,
           emoji: true,
         },
-        action_id: `view_config_dir:${repoName}`,
-        value: repoName,
+        action_id: `view_config_dir:${repoEntry.repo}`,
+        value: repoEntry.repo,
       });
     }
   }
