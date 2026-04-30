@@ -103,6 +103,36 @@ export function createAttachIntegrationTool(
         };
       }
 
+      // Always-on baseline short-circuit. The integration was registered at
+      // session start, so re-running `setMcpServers` would tear down and rebuild
+      // every connection just to re-add a server that's already live — and that
+      // re-registration is what trips the SDK's 30s connect timeout in practice.
+      // Verify the server is actually `connected` before short-circuiting; if
+      // it's not (startup failure, pending, etc.), fall through to a real attach
+      // as graceful recovery.
+      if (manager.isInSessionStart(args.name)) {
+        const live = await manager.isLiveInBaseline(args.name);
+        if (live) {
+          logger.info(`mcp.attach sessionId=${sessionId} name=${args.name} outcome=baseline_live`);
+          await appendAttachHistory(ctx.session, deps.updateSession, {
+            name: args.name,
+            outcome: "duplicate",
+            timestamp: Date.now(),
+          });
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Integration ${args.name} is always-loaded as part of the session baseline — its tools are already available. No attach needed; proceed using the integration's tools directly.`,
+              },
+            ],
+          };
+        }
+        logger.warn(
+          `mcp.attach sessionId=${sessionId} name=${args.name} outcome=baseline_not_live — attempting recovery attach`,
+        );
+      }
+
       // Resolve ONLY the topic-specific instructions from the cascade
       // (`{role}/topics/<name>/*.md`). Do NOT include baseline files — they are
       // already in the system prompt. Re-injecting them inflates the tool result

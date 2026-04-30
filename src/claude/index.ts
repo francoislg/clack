@@ -387,7 +387,7 @@ export async function askClaude(
         // integrations are pre-loaded into `options.mcpServers` in buildQuerySetup
         // so the CLI's restored state matches --mcp-config exactly (otherwise we
         // get duplicate tool registrations and a 400 "tools must be unique" error).
-        mcpManager.bind(query.setMcpServers.bind(query));
+        mcpManager.bind(query.setMcpServers.bind(query), query.mcpServerStatus.bind(query));
       },
       options: {
         cwd: reposDir,

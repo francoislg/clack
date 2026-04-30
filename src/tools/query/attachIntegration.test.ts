@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 import { createAttachIntegrationTool, type AttachIntegrationDeps } from "./attachIntegration.js";
 import { toolResultText } from "../testHelpers.js";
-import type { QueryToolContext, SetMcpServersFn } from "../types.js";
+import type { McpServerStatusFn, QueryToolContext, SetMcpServersFn } from "../types.js";
+import type { McpServerStatus } from "@anthropic-ai/claude-agent-sdk";
 import type { McpServerRegistry, RepositoryConfig } from "../../config.js";
 import type { SessionContext } from "../../sessions.js";
 import { McpServerManager } from "../../claude/mcpServerManager.js";
@@ -169,6 +170,75 @@ describe("attach_integration tool", () => {
     assert.equal(setMcpServers.mock.callCount(), callCountBefore);
     // loadMcpServer wasn't called on the duplicate path.
     assert.equal(depMocks.loadMcpServer.mock.callCount(), 0);
+  });
+
+  it("short-circuits when the integration is in the session-start baseline and the SDK reports it connected", async () => {
+    const setMcpServers = okSetMcpServers();
+    const mongoCfg: McpServerConfig = {
+      type: "stdio",
+      command: "mongodb-mcp",
+      args: [],
+      env: {},
+    };
+    const registry: McpServerRegistry = {
+      "mongodb-prod": { alwaysLoad: true, description: "MongoDB prod" },
+    };
+    const manager = new McpServerManager(
+      { clack: BASELINE_CLACK, "mongodb-prod": mongoCfg },
+      registry,
+    );
+    const statusFn = mock.fn<McpServerStatusFn>(async () => [
+      { name: "mongodb-prod", status: "connected" } as McpServerStatus,
+    ]);
+    manager.bind(setMcpServers, statusFn);
+
+    const ctx = makeCtx({ mcpManager: manager });
+    const depMocks = makeDepMocks();
+    const toolDef = createAttachIntegrationTool(ctx, depMocks.deps);
+
+    const result = await toolDef.handler({ name: "mongodb-prod" }, { sessionId: "test" });
+    const text = toolResultText(result);
+
+    assert.ok(text.includes("always-loaded"));
+    assert.ok(text.includes("tools are already available"));
+    assert.equal(setMcpServers.mock.callCount(), 0);
+    assert.equal(depMocks.loadMcpServer.mock.callCount(), 0);
+    assert.equal(depMocks.updateSession.mock.callCount(), 1);
+    const updates = depMocks.updateSession.mock.calls[0]!.arguments[1];
+    assert.equal(updates.mcpAttachHistory?.[0]?.outcome, "duplicate");
+  });
+
+  it("falls through to a real attach when the baseline server is not connected (recovery)", async () => {
+    const setMcpServers = okSetMcpServers();
+    const mongoCfg: McpServerConfig = {
+      type: "stdio",
+      command: "mongodb-mcp",
+      args: [],
+      env: {},
+    };
+    const registry: McpServerRegistry = {
+      "mongodb-prod": { alwaysLoad: true, description: "MongoDB prod" },
+    };
+    const manager = new McpServerManager(
+      { clack: BASELINE_CLACK, "mongodb-prod": mongoCfg },
+      registry,
+    );
+    const statusFn = mock.fn<McpServerStatusFn>(async () => [
+      { name: "mongodb-prod", status: "failed", error: "boom" } as McpServerStatus,
+    ]);
+    manager.bind(setMcpServers, statusFn);
+
+    const ctx = makeCtx({ mcpManager: manager });
+    const loadMcpServer = mock.fn<LoadMcpServerFn>(async () => mongoCfg);
+    const depMocks = makeDepMocks({ loadMcpServer });
+    const toolDef = createAttachIntegrationTool(ctx, depMocks.deps);
+
+    const result = await toolDef.handler({ name: "mongodb-prod" }, { sessionId: "test" });
+    const text = toolResultText(result);
+
+    assert.ok(text.includes("Attached integration: mongodb-prod"));
+    assert.equal(setMcpServers.mock.callCount(), 1);
+    assert.equal(loadMcpServer.mock.callCount(), 1);
   });
 
   it("returns error for unknown integration name and lists available ones", async () => {

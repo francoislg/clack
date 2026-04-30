@@ -1,6 +1,6 @@
 import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 import type { Config, McpServerRegistry } from "../config.js";
-import type { SetMcpServersFn } from "../tools/types.js";
+import type { McpServerStatusFn, SetMcpServersFn } from "../tools/types.js";
 import { logger } from "../logger.js";
 import { errorMessage } from "../errors.js";
 import {
@@ -37,6 +37,7 @@ export type AttachResult = AttachSuccess | AttachFailure;
 export class McpServerManager {
   private attached: Record<string, McpServerConfig> = {};
   private setMcpServersFn?: SetMcpServersFn;
+  private mcpServerStatusFn?: McpServerStatusFn;
 
   constructor(
     /**
@@ -54,12 +55,18 @@ export class McpServerManager {
   ) {}
 
   /**
-   * Bind the SDK `Query.setMcpServers` once the Query is available. Callers hold
-   * the manager reference from before `clackSession(...)` returns, and the SDK's
-   * `onQuery` callback fires `bind(query.setMcpServers.bind(query))`.
+   * Bind the SDK `Query.setMcpServers` (and optionally `Query.mcpServerStatus`)
+   * once the Query is available. Callers hold the manager reference from before
+   * `clackSession(...)` returns, and the SDK's `onQuery` callback fires
+   * `bind(query.setMcpServers.bind(query), query.mcpServerStatus.bind(query))`.
+   *
+   * The status fn is optional so existing tests don't have to mock it. When
+   * present, `isLiveInBaseline(...)` uses it to decide whether an always-on
+   * server is healthy enough to short-circuit a redundant attach call.
    */
-  bind(fn: SetMcpServersFn): void {
-    this.setMcpServersFn = fn;
+  bind(setMcpServers: SetMcpServersFn, mcpServerStatus?: McpServerStatusFn): void {
+    this.setMcpServersFn = setMcpServers;
+    this.mcpServerStatusFn = mcpServerStatus;
   }
 
   isBound(): boolean {
@@ -72,6 +79,36 @@ export class McpServerManager {
 
   isAttached(name: string): boolean {
     return name in this.attached;
+  }
+
+  /** True if `name` is part of the session-start baseline (e.g. an always-on
+   *  external loaded at boot). Different from `isAttached` — sessionStart is
+   *  the static set passed to `options.mcpServers`, while `attached` tracks
+   *  dynamic additions made via `attach()`. */
+  isInSessionStart(name: string): boolean {
+    return name in this.sessionStart;
+  }
+
+  /**
+   * Returns true only if the SDK currently reports the server as `connected`.
+   * Returns false for any other status (`pending`, `failed`, `needs-auth`,
+   * `disabled`) and for the case where the status fn isn't bound or throws.
+   * The conservative default (false-on-uncertainty) lets the caller fall
+   * through to a real attach as recovery instead of falsely reassuring Claude.
+   */
+  async isLiveInBaseline(name: string): Promise<boolean> {
+    const fn = this.mcpServerStatusFn;
+    if (!fn) return false;
+    try {
+      const statuses = await fn();
+      const entry = statuses.find((s) => s.name === name);
+      return entry?.status === "connected";
+    } catch (error) {
+      logger.warn(
+        `mcpServerStatus probe failed for '${name}': ${errorMessage(error)} — treating as not-live`,
+      );
+      return false;
+    }
   }
 
   /**

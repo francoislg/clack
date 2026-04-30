@@ -65,7 +65,7 @@ The system SHALL attach only `alwaysLoad: true` MCP servers at the start of a ne
 
 ### Requirement: `attach_integration` Tool
 
-The system SHALL expose an internal tool `attach_integration(name: string)` to Claude that dynamically attaches an MCP server and returns its topic instructions. The tool SHALL be available in query-mode sessions (reactions, DMs, mentions, autoRespond, threadReply, scheduled) and hidden in worker-mode.
+The system SHALL expose an internal tool `attach_integration(name: string)` to Claude that dynamically attaches an MCP server and returns its topic instructions. The tool SHALL be available in query-mode sessions (reactions, DMs, mentions, autoRespond, threadReply, scheduled) and hidden in worker-mode. The tool SHALL be idempotent against both the dynamically-attached set AND the session-start baseline: when the requested integration is already part of the session-start baseline (e.g. `alwaysLoad: true`) and the SDK reports it as `connected`, the tool SHALL skip `setMcpServers` entirely and return a short success message indicating the integration is always-loaded. When the requested integration is in the baseline but is NOT reported as `connected`, the tool SHALL fall through to a real attach as graceful recovery.
 
 #### Scenario: Successful attach brings tools and instructions
 
@@ -84,6 +84,26 @@ The system SHALL expose an internal tool `attach_integration(name: string)` to C
 - **THEN** the tool returns a success result with text `"Integration already attached: metabase. No additional action taken."`
 - **AND** topic instructions are NOT re-injected (no duplicate content in the conversation)
 - **AND** `setMcpServers` is NOT called
+
+#### Scenario: Baseline-loaded integration short-circuits when SDK reports it connected
+
+- **GIVEN** the registry has `mongodb-prod = { alwaysLoad: true, description: "..." }`
+- **AND** the session-start baseline includes `mongodb-prod`
+- **AND** the SDK's `Query.mcpServerStatus()` reports `mongodb-prod` with `status: "connected"`
+- **WHEN** Claude calls `attach_integration({ name: "mongodb-prod" })`
+- **THEN** the tool returns a success result whose text indicates the integration is always-loaded and its tools are already available (e.g. `"Integration mongodb-prod is always-loaded as part of the session baseline — its tools are already available. No attach needed; proceed using the integration's tools directly."`)
+- **AND** `setMcpServers` is NOT called
+- **AND** topic instructions are NOT re-injected
+- **AND** the attempt is recorded in `session.mcpAttachHistory` with `outcome: "duplicate"`
+
+#### Scenario: Baseline-loaded integration falls through to real attach when not connected
+
+- **GIVEN** the registry has `mongodb-prod = { alwaysLoad: true, description: "..." }`
+- **AND** the session-start baseline includes `mongodb-prod`
+- **AND** the SDK's `Query.mcpServerStatus()` reports `mongodb-prod` with `status` other than `"connected"` (e.g. `"failed"`, `"pending"`, `"needs-auth"`, `"disabled"`), or `mongodb-prod` is absent from the status list, or the status probe throws
+- **WHEN** Claude calls `attach_integration({ name: "mongodb-prod" })`
+- **THEN** the tool falls through to a real attach: `loadMcpServer` is called and `setMcpServers` is invoked with the baseline + dynamic + `mongodb-prod` union
+- **AND** the resulting outcome (success or failure) is reported and persisted using the existing real-attach paths
 
 #### Scenario: Unknown integration name
 
