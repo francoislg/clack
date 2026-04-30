@@ -367,3 +367,73 @@ describe("prepareTable — standalone table parameter", () => {
     assert.equal(result.rows[0].length, 0);
   });
 });
+
+describe("prepareBlocks — card and carousel", () => {
+  it("converts mrkdwn in card title / subtitle / body", () => {
+    const block: Block = {
+      type: "card",
+      title: { type: "mrkdwn", text: "See [docs](https://example.com)" },
+      subtitle: { type: "mrkdwn", text: "Open" },
+      body: { type: "mrkdwn", text: "Refactor [worker](https://example.com/w)" },
+    };
+    const result = prepareBlocks([block]);
+    if (result[0].type !== "card") {
+      assert.fail("expected card block");
+    }
+    assert.equal(result[0].title?.text, "See <https://example.com|docs>");
+    assert.equal(result[0].subtitle?.text, "Open");
+    assert.equal(result[0].body?.text, "Refactor <https://example.com/w|worker>");
+  });
+
+  it("preserves hero_image and icon untouched", () => {
+    const block: Block = {
+      type: "card",
+      title: { type: "mrkdwn", text: "ok" },
+      hero_image: { type: "image", image_url: "https://example.com/h.png", alt_text: "h" },
+      icon: { type: "image", image_url: "https://example.com/i.png", alt_text: "i" },
+    };
+    const result = prepareBlocks([block]);
+    if (result[0].type !== "card") {
+      assert.fail("expected card block");
+    }
+    assert.deepEqual(result[0].hero_image, {
+      type: "image",
+      image_url: "https://example.com/h.png",
+      alt_text: "h",
+    });
+    assert.deepEqual(result[0].icon, {
+      type: "image",
+      image_url: "https://example.com/i.png",
+      alt_text: "i",
+    });
+  });
+
+  it("does not mutate the input card block", () => {
+    const block: Block = {
+      type: "card",
+      title: { type: "mrkdwn", text: "[hi](https://x)" },
+    };
+    const result = prepareBlocks([block]);
+    assert.notEqual(result[0], block);
+    if (block.type === "card") {
+      // Input title text is unchanged.
+      assert.equal(block.title?.text, "[hi](https://x)");
+    }
+  });
+
+  it("applies prepareCard to each child of a carousel", () => {
+    const block: Block = {
+      type: "carousel",
+      elements: [
+        { type: "card", title: { type: "mrkdwn", text: "[a](https://x)" } },
+        { type: "card", title: { type: "mrkdwn", text: "plain" } },
+      ],
+    };
+    const result = prepareBlocks([block]);
+    if (result[0].type !== "carousel") {
+      assert.fail("expected carousel block");
+    }
+    assert.equal(result[0].elements[0].title?.text, "<https://x|a>");
+    assert.equal(result[0].elements[1].title?.text, "plain");
+  });
+});

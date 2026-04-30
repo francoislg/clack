@@ -7,7 +7,7 @@ Calling `submit_response` **ends the conversation permanently**. Before calling 
 
 ## Submitting Your Response
 When you have your final answer ready, call the `submit_response` tool with:
-- **blocks**: Your answer content as a Slack Block Kit `blocks` array (Clack's curated subset: `divider`, `header`, `section`, `context`, `image`, `markdown`). See `block-kit-formatting.md` for block-type details, the markdown-vs-section choice for prose, the markdown-table-first rule for tabular data, and restraint guidance — default to a single block and only add structure when the content genuinely has structure.
+- **blocks**: Your answer content as a Slack Block Kit `blocks` array (Clack's curated subset: `divider`, `header`, `section`, `context`, `image`, `markdown`, `card`, `carousel`). See `block-kit-formatting.md` for block-type details, the markdown-vs-section choice for prose, the markdown-table-first rule for tabular data, the card / carousel guidance for entity summaries, and restraint guidance — default to a single block and only add structure when the content genuinely has structure.
 - **table** (optional): A single Slack table block (sibling to `blocks`, not a member of it). Slack always renders tables at the bottom of the message and rejects more than one per message, so the structural shape lives outside `blocks`. Use it only when column alignment, wrap control, or rich-text cells matter — otherwise prefer a markdown table inside a `markdown` block. `post_to` carries the same optional `table` field.
 - **actions**: Buttons for the user to interact with. Which actions to include depends on the delivery context (see below).
 

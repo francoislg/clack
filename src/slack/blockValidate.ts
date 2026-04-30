@@ -21,6 +21,12 @@ const TABLE_MAX_COLUMN_SETTINGS = 20;
 // Per-cell text cap (Slack does not publish a hard limit; mirroring the
 // section-field cap as a conservative starting point).
 const TABLE_CELL_TEXT_LIMIT = 2000;
+// Card / Carousel limits per Slack's documented Block Kit shape.
+const CARD_TITLE_LIMIT = 150;
+const CARD_SUBTITLE_LIMIT = 150;
+const CARD_BODY_LIMIT = 200;
+const CAROUSEL_MIN_ELEMENTS = 1;
+const CAROUSEL_MAX_ELEMENTS = 10;
 
 export interface BlockValidationError {
   field: string;
@@ -258,6 +264,170 @@ function validateImage(
   return errors;
 }
 
+// ----------------------------------------------------------------------------
+// Card and Carousel
+// ----------------------------------------------------------------------------
+
+interface InCarouselContext {
+  carouselIndex: number;
+  elementIndex: number;
+}
+
+interface ValidateCardOpts {
+  /**
+   * When set, errors emit field paths like `blocks[i].elements[j].title` so the
+   * carousel-child case is distinguishable from a top-level card violation.
+   */
+  inCarousel?: InCarouselContext;
+}
+
+function cardFieldPath(i: number, field: string, opts?: ValidateCardOpts): string {
+  if (opts?.inCarousel) {
+    return `blocks[${opts.inCarousel.carouselIndex}].elements[${opts.inCarousel.elementIndex}].${field}`;
+  }
+  return `blocks[${i}].${field}`;
+}
+
+function cardLabel(i: number, opts?: ValidateCardOpts): string {
+  if (opts?.inCarousel) {
+    return `blocks[${opts.inCarousel.carouselIndex}].elements[${opts.inCarousel.elementIndex}] (card)`;
+  }
+  return `blocks[${i}] (card)`;
+}
+
+function validateCardImage(
+  image: { image_url?: string; alt_text?: string } | undefined,
+  i: number,
+  fieldName: "hero_image" | "icon",
+  opts: ValidateCardOpts | undefined,
+): BlockValidationError[] {
+  if (!image) return [];
+  const errors: BlockValidationError[] = [];
+  if (!image.image_url || image.image_url.length === 0) {
+    errors.push({
+      field: cardFieldPath(i, `${fieldName}.image_url`, opts),
+      message: `${cardLabel(i, opts)} \`${fieldName}\` requires a non-empty \`image_url\`.`,
+      currentLength: 0,
+      limit: 0,
+    });
+  }
+  if (!image.alt_text || image.alt_text.length === 0) {
+    errors.push({
+      field: cardFieldPath(i, `${fieldName}.alt_text`, opts),
+      message: `${cardLabel(i, opts)} \`${fieldName}\` requires a non-empty \`alt_text\`.`,
+      currentLength: 0,
+      limit: 0,
+    });
+  }
+  return errors;
+}
+
+function validateCard(
+  block: Extract<Block, { type: "card" }>,
+  i: number,
+  opts?: ValidateCardOpts,
+): BlockValidationError[] {
+  const errors: BlockValidationError[] = [];
+  const titleText = block.title?.text ?? "";
+  const subtitleText = block.subtitle?.text ?? "";
+  const bodyText = block.body?.text ?? "";
+
+  if (titleText.length > CARD_TITLE_LIMIT) {
+    errors.push({
+      field: cardFieldPath(i, "title", opts),
+      message: `${cardLabel(i, opts)} title (${titleText.length} chars) exceeds the ${CARD_TITLE_LIMIT}-char limit.`,
+      currentLength: titleText.length,
+      limit: CARD_TITLE_LIMIT,
+    });
+  }
+  if (subtitleText.length > CARD_SUBTITLE_LIMIT) {
+    errors.push({
+      field: cardFieldPath(i, "subtitle", opts),
+      message: `${cardLabel(i, opts)} subtitle (${subtitleText.length} chars) exceeds the ${CARD_SUBTITLE_LIMIT}-char limit.`,
+      currentLength: subtitleText.length,
+      limit: CARD_SUBTITLE_LIMIT,
+    });
+  }
+  if (bodyText.length > CARD_BODY_LIMIT) {
+    errors.push({
+      field: cardFieldPath(i, "body", opts),
+      message: `${cardLabel(i, opts)} body (${bodyText.length} chars) exceeds the ${CARD_BODY_LIMIT}-char limit.`,
+      currentLength: bodyText.length,
+      limit: CARD_BODY_LIMIT,
+    });
+  }
+
+  errors.push(...validateCardImage(block.hero_image, i, "hero_image", opts));
+  errors.push(...validateCardImage(block.icon, i, "icon", opts));
+
+  // v1: card-level `actions` is rejected with a pointer at the top-level
+  // `actions: Action[]` field. The schema parses it through (looseObject), so
+  // we check at validation time.
+  if ("actions" in block) {
+    errors.push({
+      field: cardFieldPath(i, "actions", opts),
+      message: `${cardLabel(i, opts)} carries an inline \`actions\` field. Card-level actions are not supported in v1 — use the top-level \`actions: Action[]\` field on submit_response instead.`,
+      currentLength: 0,
+      limit: 0,
+    });
+  }
+
+  // Slack's documented Card schema requires at least one of hero_image,
+  // title, actions, or body. (We reject `actions` above, but it still
+  // satisfies the at-least-one rule when present.)
+  const hasContent =
+    block.hero_image !== undefined ||
+    block.title !== undefined ||
+    block.body !== undefined ||
+    "actions" in block;
+  if (!hasContent) {
+    errors.push({
+      field: cardFieldPath(i, "", opts).replace(/\.$/, ""),
+      message: `${cardLabel(i, opts)} must carry at least one of \`hero_image\`, \`title\`, \`actions\`, or \`body\` (per Slack's documented Card schema).`,
+      currentLength: 0,
+      limit: 0,
+    });
+  }
+
+  return errors;
+}
+
+function validateCarousel(
+  block: Extract<Block, { type: "carousel" }>,
+  i: number,
+): BlockValidationError[] {
+  const errors: BlockValidationError[] = [];
+  const elements = block.elements;
+
+  if (elements.length < CAROUSEL_MIN_ELEMENTS || elements.length > CAROUSEL_MAX_ELEMENTS) {
+    errors.push({
+      field: `blocks[${i}].elements`,
+      message: `blocks[${i}] (carousel) has ${elements.length} elements — must be between ${CAROUSEL_MIN_ELEMENTS} and ${CAROUSEL_MAX_ELEMENTS} inclusive.`,
+      currentLength: elements.length,
+      limit: CAROUSEL_MAX_ELEMENTS,
+    });
+  }
+
+  elements.forEach((el, ei) => {
+    if (el.type !== "card") {
+      errors.push({
+        field: `blocks[${i}].elements[${ei}]`,
+        message: `blocks[${i}] (carousel) element[${ei}] has type \`${el.type}\`, but carousel elements must be \`card\` blocks.`,
+        currentLength: 0,
+        limit: 0,
+      });
+      return;
+    }
+    errors.push(
+      ...validateCard(el as Extract<Block, { type: "card" }>, i, {
+        inCarousel: { carouselIndex: i, elementIndex: ei },
+      }),
+    );
+  });
+
+  return errors;
+}
+
 // ============================================================================
 // Public API
 // ============================================================================
@@ -304,6 +474,12 @@ export function validateBlocks(blocks: readonly Block[]): BlockValidationError[]
         break;
       case "markdown":
         cumulativeMarkdownLength += block.text.length;
+        break;
+      case "card":
+        errors.push(...validateCard(block, i));
+        break;
+      case "carousel":
+        errors.push(...validateCarousel(block, i));
         break;
       case "divider":
         // Shape-only; nothing to validate beyond the schema parse.

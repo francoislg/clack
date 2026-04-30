@@ -410,3 +410,136 @@ describe("validateTable — standalone table parameter", () => {
     assert.ok(cellError, "should prefix error field with caller-supplied path");
   });
 });
+
+describe("validateBlocks — card", () => {
+  it("accepts a card with just a title", () => {
+    const block: Block = {
+      type: "card",
+      title: { type: "mrkdwn", text: "PR #42" },
+    };
+    assert.equal(validateBlocks([block]).length, 0);
+  });
+
+  it("rejects a card title exceeding 150 chars", () => {
+    const block: Block = {
+      type: "card",
+      title: { type: "mrkdwn", text: "x".repeat(151) },
+    };
+    const error = validateBlocks([block]).find((e) => e.field === "blocks[0].title");
+    assert.ok(error);
+    assert.equal(error.currentLength, 151);
+    assert.equal(error.limit, 150);
+  });
+
+  it("rejects a card subtitle exceeding 150 chars", () => {
+    const block: Block = {
+      type: "card",
+      title: { type: "mrkdwn", text: "ok" },
+      subtitle: { type: "mrkdwn", text: "x".repeat(151) },
+    };
+    const error = validateBlocks([block]).find((e) => e.field === "blocks[0].subtitle");
+    assert.ok(error);
+    assert.equal(error.currentLength, 151);
+    assert.equal(error.limit, 150);
+  });
+
+  it("rejects a card body exceeding 200 chars", () => {
+    const block: Block = {
+      type: "card",
+      title: { type: "mrkdwn", text: "ok" },
+      body: { type: "mrkdwn", text: "x".repeat(201) },
+    };
+    const error = validateBlocks([block]).find((e) => e.field === "blocks[0].body");
+    assert.ok(error);
+    assert.equal(error.currentLength, 201);
+    assert.equal(error.limit, 200);
+  });
+
+  it("rejects a card with none of hero_image / title / actions / body", () => {
+    const block: Block = { type: "card" };
+    const error = validateBlocks([block]).find((e) => /must carry at least one/.test(e.message));
+    assert.ok(error);
+  });
+
+  it("rejects a card whose hero_image is missing image_url", () => {
+    const block: Block = {
+      type: "card",
+      title: { type: "mrkdwn", text: "ok" },
+      hero_image: { type: "image", image_url: "", alt_text: "x" },
+    };
+    const error = validateBlocks([block]).find((e) => e.field === "blocks[0].hero_image.image_url");
+    assert.ok(error);
+  });
+
+  it("rejects a card whose icon is missing alt_text", () => {
+    const block: Block = {
+      type: "card",
+      title: { type: "mrkdwn", text: "ok" },
+      icon: { type: "image", image_url: "https://example.com/i.png", alt_text: "" },
+    };
+    const error = validateBlocks([block]).find((e) => e.field === "blocks[0].icon.alt_text");
+    assert.ok(error);
+  });
+
+  it("rejects a card with an inline actions field, pointing at the top-level actions field", () => {
+    // The card schema is looseObject so unknown fields pass through; the
+    // rejection lives at the validator layer.
+    const block: Block = {
+      type: "card",
+      title: { type: "mrkdwn", text: "ok" },
+      // @ts-expect-error — `actions` isn't part of CardBlock; we simulate a
+      // looseObject pass-through to verify the validator catches it.
+      actions: [{ type: "button", text: { type: "plain_text", text: "Go" }, action_id: "x" }],
+    };
+    const error = validateBlocks([block]).find((e) => e.field === "blocks[0].actions");
+    assert.ok(error);
+    assert.match(error.message, /Card-level actions are not supported/);
+    assert.match(error.message, /top-level `actions: Action\[\]`/);
+  });
+});
+
+describe("validateBlocks — carousel", () => {
+  function makeCard(text: string): Extract<Block, { type: "card" }> {
+    return { type: "card", title: { type: "mrkdwn", text } };
+  }
+
+  it("accepts a carousel with 1–10 valid card children", () => {
+    const block: Block = {
+      type: "carousel",
+      elements: [makeCard("A"), makeCard("B"), makeCard("C")],
+    };
+    assert.equal(validateBlocks([block]).length, 0);
+  });
+
+  it("rejects a carousel with a non-card element", () => {
+    const block: Block = {
+      type: "carousel",
+      elements: [
+        makeCard("ok"),
+        // @ts-expect-error — we intentionally violate the carousel schema to
+        // confirm the validator catches it.
+        { type: "section", text: { type: "mrkdwn", text: "wrong" } },
+      ],
+    };
+    const error = validateBlocks([block]).find((e) => e.field === "blocks[0].elements[1]");
+    assert.ok(error);
+    assert.match(
+      error.message,
+      /carousel elements must be `card` blocks|carousel elements must be \\?`?card\\?`? blocks|elements must be `card`/,
+    );
+  });
+
+  it("propagates a child-card violation with both indices in the path", () => {
+    const oversize: Extract<Block, { type: "card" }> = {
+      type: "card",
+      title: { type: "mrkdwn", text: "x".repeat(151) },
+    };
+    const block: Block = {
+      type: "carousel",
+      elements: [makeCard("ok"), oversize],
+    };
+    const error = validateBlocks([block]).find((e) => e.field === "blocks[0].elements[1].title");
+    assert.ok(error, "expected a path-prefixed error for the oversize child card title");
+    assert.equal(error.currentLength, 151);
+  });
+});

@@ -75,6 +75,78 @@ describe("BlockSchema.parse — allowed block types", () => {
       assert.match(parsed.text, /^## Heading/);
     }
   });
+
+  it("accepts a minimal card with just a title", () => {
+    const parsed = BlockSchema.parse({
+      type: "card",
+      title: { type: "mrkdwn", text: "Hello" },
+    });
+    assert.equal(parsed.type, "card");
+  });
+
+  it("accepts a card with hero_image, icon, title, subtitle, body", () => {
+    const parsed = BlockSchema.parse({
+      type: "card",
+      hero_image: { type: "image", image_url: "https://example.com/h.png", alt_text: "hero" },
+      icon: { type: "image", image_url: "https://example.com/i.png", alt_text: "icon" },
+      title: { type: "mrkdwn", text: "PR #42" },
+      subtitle: { type: "mrkdwn", text: "Open" },
+      body: { type: "mrkdwn", text: "Refactor the worker" },
+    });
+    assert.equal(parsed.type, "card");
+  });
+
+  it("accepts a card carrying an inline actions field at the schema layer (validator rejects it)", () => {
+    // The schema is `looseObject` so unknown fields pass through. The v1
+    // rejection of card-level actions runs at validation time — see
+    // `validateCard` in blockValidate.ts.
+    const parsed = BlockSchema.parse({
+      type: "card",
+      title: { type: "mrkdwn", text: "x" },
+      actions: [{ type: "button", text: { type: "plain_text", text: "Go" }, action_id: "x" }],
+    });
+    assert.equal(parsed.type, "card");
+  });
+
+  it("accepts a carousel with 1 child card", () => {
+    const parsed = BlockSchema.parse({
+      type: "carousel",
+      elements: [{ type: "card", title: { type: "mrkdwn", text: "A" } }],
+    });
+    assert.equal(parsed.type, "carousel");
+  });
+
+  it("accepts a carousel with 10 child cards", () => {
+    const parsed = BlockSchema.parse({
+      type: "carousel",
+      elements: Array.from({ length: 10 }, (_, i) => ({
+        type: "card" as const,
+        title: { type: "mrkdwn" as const, text: `card ${i}` },
+      })),
+    });
+    assert.equal(parsed.type, "carousel");
+  });
+
+  it("rejects a carousel with 0 elements at parse time", () => {
+    assert.throws(() =>
+      BlockSchema.parse({
+        type: "carousel",
+        elements: [],
+      }),
+    );
+  });
+
+  it("rejects a carousel with 11 elements at parse time", () => {
+    assert.throws(() =>
+      BlockSchema.parse({
+        type: "carousel",
+        elements: Array.from({ length: 11 }, () => ({
+          type: "card" as const,
+          title: { type: "mrkdwn" as const, text: "x" },
+        })),
+      }),
+    );
+  });
 });
 
 describe("tableBlockSchema.parse — standalone table parameter", () => {
@@ -139,10 +211,10 @@ describe("BlockSchema.parse — disallowed block types", () => {
     assert.throws(() => BlockSchema.parse({ type: "rich_text", elements: [] }));
   });
 
-  it("rejects newer AI-surface block types", () => {
+  it("rejects newer AI-surface block types not in the curated subset", () => {
     assert.throws(() => BlockSchema.parse({ type: "alert" }));
-    assert.throws(() => BlockSchema.parse({ type: "card" }));
-    assert.throws(() => BlockSchema.parse({ type: "carousel" }));
+    // `card` and `carousel` are in the curated subset — see the dedicated
+    // describe block below.
   });
 
   it("rejects an unknown block type", () => {
@@ -231,6 +303,8 @@ describe("BlockSchema passthrough behavior", () => {
 describe("ALLOWED_BLOCK_TYPES", () => {
   it("lists all curated type names", () => {
     assert.deepEqual([...ALLOWED_BLOCK_TYPES].sort(), [
+      "card",
+      "carousel",
       "context",
       "divider",
       "header",
