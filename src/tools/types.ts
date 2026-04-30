@@ -5,6 +5,7 @@ import type { AuthoredTableBlock, Block } from "../slack/blockSchema.js";
 import type {
   McpSdkServerConfigWithInstance,
   McpServerConfig,
+  McpServerStatus,
   McpSetServersResult,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { UserRole } from "../roles.js";
@@ -26,6 +27,14 @@ import type { SlackImageFile, SlackFile } from "../slack/slackFileBase.js";
 export type SetMcpServersFn = (
   servers: Record<string, McpServerConfig>,
 ) => Promise<McpSetServersResult>;
+
+/**
+ * Function signature for the SDK's `Query.mcpServerStatus`. Used by the manager
+ * to verify that an always-on baseline server is actually live before short-
+ * circuiting `attach_integration` — if the baseline registration silently failed
+ * (or is still pending), we want to fall through to a real attach as recovery.
+ */
+export type McpServerStatusFn = () => Promise<McpServerStatus[]>;
 
 // ============================================================================
 // Delivery

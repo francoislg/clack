@@ -2,7 +2,8 @@ import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 import { McpServerManager } from "./mcpServerManager.js";
-import type { SetMcpServersFn } from "../tools/types.js";
+import type { McpServerStatusFn, SetMcpServersFn } from "../tools/types.js";
+import type { McpServerStatus } from "@anthropic-ai/claude-agent-sdk";
 import type { McpServerRegistry } from "../config.js";
 
 const BASELINE_CLACK: McpServerConfig = {
@@ -123,6 +124,68 @@ describe("McpServerManager", () => {
 
       assert.equal(result.ok, true);
       assert.equal(setMcpServers.mock.callCount(), callsBefore);
+    });
+  });
+
+  describe("isInSessionStart", () => {
+    it("is true for names in the session-start baseline and false otherwise", () => {
+      const manager = new McpServerManager(
+        { clack: BASELINE_CLACK, "mongodb-prod": METABASE_CFG },
+        makeRegistry(),
+      );
+      assert.equal(manager.isInSessionStart("clack"), true);
+      assert.equal(manager.isInSessionStart("mongodb-prod"), true);
+      assert.equal(manager.isInSessionStart("metabase"), false);
+    });
+
+    it("reflects servers added via hydrateSessionStart", () => {
+      const manager = new McpServerManager({}, makeRegistry());
+      manager.hydrateSessionStart({ clack: BASELINE_CLACK });
+      assert.equal(manager.isInSessionStart("clack"), true);
+    });
+  });
+
+  describe("isLiveInBaseline", () => {
+    function statusFn(statuses: McpServerStatus[]): McpServerStatusFn {
+      return mock.fn<McpServerStatusFn>(async () => statuses);
+    }
+
+    it("returns true when the SDK reports the server as connected", async () => {
+      const manager = new McpServerManager({ "mongodb-prod": METABASE_CFG }, makeRegistry());
+      manager.bind(okSetMcpServers(), statusFn([{ name: "mongodb-prod", status: "connected" }]));
+      assert.equal(await manager.isLiveInBaseline("mongodb-prod"), true);
+    });
+
+    it("returns false for non-connected statuses", async () => {
+      const manager = new McpServerManager({ "mongodb-prod": METABASE_CFG }, makeRegistry());
+      manager.bind(
+        okSetMcpServers(),
+        statusFn([{ name: "mongodb-prod", status: "failed", error: "boom" }]),
+      );
+      assert.equal(await manager.isLiveInBaseline("mongodb-prod"), false);
+    });
+
+    it("returns false when the server is not in the status list", async () => {
+      const manager = new McpServerManager({ "mongodb-prod": METABASE_CFG }, makeRegistry());
+      manager.bind(okSetMcpServers(), statusFn([]));
+      assert.equal(await manager.isLiveInBaseline("mongodb-prod"), false);
+    });
+
+    it("returns false when the status fn isn't bound (defensive default)", async () => {
+      const manager = new McpServerManager({ "mongodb-prod": METABASE_CFG }, makeRegistry());
+      manager.bind(okSetMcpServers());
+      assert.equal(await manager.isLiveInBaseline("mongodb-prod"), false);
+    });
+
+    it("returns false when the status probe throws", async () => {
+      const manager = new McpServerManager({ "mongodb-prod": METABASE_CFG }, makeRegistry());
+      manager.bind(
+        okSetMcpServers(),
+        mock.fn<McpServerStatusFn>(async () => {
+          throw new Error("transport closed");
+        }),
+      );
+      assert.equal(await manager.isLiveInBaseline("mongodb-prod"), false);
     });
   });
 
