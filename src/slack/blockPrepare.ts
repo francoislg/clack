@@ -6,6 +6,7 @@ import type {
   MrkdwnElement,
   RawTextElement,
 } from "@slack/types";
+import type { CardBlock, CarouselBlock } from "./customSlackTypes.js";
 import { convertMarkdownToSlack, splitForSlack } from "../claude/formatting.js";
 import type {
   AuthoredRichTextCell,
@@ -121,6 +122,28 @@ export function prepareTable(block: AuthoredTableBlock): AuthoredTableBlock {
   return { ...block, rows };
 }
 
+// Card text fields (title/subtitle/body) are documented as mrkdwn-text.
+// Convert internal markdown to Slack mrkdwn on each. The 200-char body cap
+// is well below the 3000-char split threshold, so no splitting is needed —
+// oversize content fails validation and Claude shortens on retry.
+function prepareCard(block: CardBlock): CardBlock {
+  const out: CardBlock = { ...block };
+  if (block.title?.type === "mrkdwn") {
+    out.title = { ...block.title, text: convertMarkdownToSlack(block.title.text) };
+  }
+  if (block.subtitle?.type === "mrkdwn") {
+    out.subtitle = { ...block.subtitle, text: convertMarkdownToSlack(block.subtitle.text) };
+  }
+  if (block.body?.type === "mrkdwn") {
+    out.body = { ...block.body, text: convertMarkdownToSlack(block.body.text) };
+  }
+  return out;
+}
+
+function prepareCarousel(block: CarouselBlock): CarouselBlock {
+  return { ...block, elements: block.elements.map(prepareCard) };
+}
+
 // ============================================================================
 // Public API
 // ============================================================================
@@ -148,6 +171,12 @@ export function prepareBlocks(blocks: readonly Block[]): Block[] {
         break;
       case "markdown":
         out.push(prepareMarkdown(block));
+        break;
+      case "card":
+        out.push(prepareCard(block));
+        break;
+      case "carousel":
+        out.push(prepareCarousel(block));
         break;
       case "divider":
       case "header":

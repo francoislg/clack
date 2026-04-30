@@ -81,4 +81,45 @@ describe("extractDisplayText", () => {
     ];
     assert.equal(extractDisplayText(blocks), "Title\n\nBody");
   });
+
+  it("extracts text from a markdown block", () => {
+    const blocks: Block[] = [{ type: "markdown", text: "## Heading\n\nProse" }];
+    assert.equal(extractDisplayText(blocks), "## Heading\n\nProse");
+  });
+
+  it("walks card fields in title / subtitle / body order, then alt_texts", () => {
+    const blocks: Block[] = [
+      {
+        type: "card",
+        title: { type: "mrkdwn", text: "PR #42" },
+        subtitle: { type: "mrkdwn", text: "Open" },
+        body: { type: "mrkdwn", text: "Refactor worker" },
+        hero_image: { type: "image", image_url: "https://example.com/h.png", alt_text: "hero" },
+        icon: { type: "image", image_url: "https://example.com/i.png", alt_text: "icon" },
+      },
+    ];
+    assert.equal(extractDisplayText(blocks), "PR #42\n\nOpen\n\nRefactor worker\n\nhero\n\nicon");
+  });
+
+  it("omits absent card fields", () => {
+    const blocks: Block[] = [{ type: "card", title: { type: "mrkdwn", text: "Just a title" } }];
+    assert.equal(extractDisplayText(blocks), "Just a title");
+  });
+
+  it("walks each child of a carousel", () => {
+    const blocks: Block[] = [
+      {
+        type: "carousel",
+        elements: [
+          { type: "card", title: { type: "mrkdwn", text: "A" } },
+          {
+            type: "card",
+            title: { type: "mrkdwn", text: "B" },
+            body: { type: "mrkdwn", text: "B body" },
+          },
+        ],
+      },
+    ];
+    assert.equal(extractDisplayText(blocks), "A\n\nB\n\nB body");
+  });
 });

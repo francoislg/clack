@@ -8,8 +8,18 @@ Your `submit_response` takes a `blocks` array — a list of Slack Block Kit bloc
 - `context` — subtle secondary line below content. `elements` is an array (≤ 10) of mrkdwn or plain_text items (each ≤ 75 chars). Perfect for "last updated 5m ago" / attribution / metadata.
 - `image` — a rendered image. Requires `image_url` + `alt_text`.
 - `markdown` — full GitHub-flavored markdown rendered server-side. `text` is a string. Slack splits oversize content automatically. **Cumulative cap of 12,000 chars across ALL `markdown` blocks** in one response.
+- `card` — compact, scannable summary card for an entity (a repo, a PR, a session). Optional fields: `hero_image` and `icon` (each `{ type: "image", image_url, alt_text }`), `title` / `subtitle` / `body` (each `{ type: "mrkdwn", text }`). At least one of `hero_image`, `title`, `body` must be present. **Limits: title ≤ 150, subtitle ≤ 150, body ≤ 200 chars.** **Cards do NOT accept inline `actions` in v1** — interactive buttons go through the top-level `actions: Action[]` field on `submit_response`.
+- `carousel` — ordered list of 1–10 child `card` blocks. Use for side-by-side entity comparisons (multiple PRs, multiple repos). Each child obeys the same card limits.
 
 Tables are NOT in this list. They are exposed as a separate top-level `table` parameter on `submit_response` (and on `post_to`) — see the Tabular data section below.
+
+### When to use card / carousel
+
+Use `card` for compact summaries of a single entity that scan well in a Slack feed: a PR card with title, status, and link; a repo card with name, latest commit, and stats; a session card with the question and outcome. The 200-char body cap is a hint — these are *summaries*, not long-form answers. For prose answers, use `markdown` or `section`. For lists with many attributes, use a markdown table.
+
+Use `carousel` when you have multiple entities of the same shape to present side-by-side: top 3 PRs, recent sessions, repos under review. Don't use a carousel for a single card — just emit the card.
+
+If you need an interactive button on a card (jump to PR, start a change), use the top-level `actions: Action[]` field on `submit_response`. Card-internal action buttons are deferred — schema validation rejects an `actions` field on a card.
 
 ### When to use which prose block
 

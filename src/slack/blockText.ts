@@ -33,6 +33,27 @@ export function extractDisplayText(blocks: readonly Block[]): string {
       case "image":
         parts.push(block.alt_text);
         break;
+      case "markdown":
+        parts.push(block.text);
+        break;
+      case "card": {
+        if (block.title) parts.push(block.title.text);
+        if (block.subtitle) parts.push(block.subtitle.text);
+        if (block.body) parts.push(block.body.text);
+        if (block.hero_image?.alt_text) parts.push(block.hero_image.alt_text);
+        if (block.icon?.alt_text) parts.push(block.icon.alt_text);
+        break;
+      }
+      case "carousel": {
+        for (const card of block.elements) {
+          if (card.title) parts.push(card.title.text);
+          if (card.subtitle) parts.push(card.subtitle.text);
+          if (card.body) parts.push(card.body.text);
+          if (card.hero_image?.alt_text) parts.push(card.hero_image.alt_text);
+          if (card.icon?.alt_text) parts.push(card.icon.alt_text);
+        }
+        break;
+      }
       case "divider":
         break;
     }

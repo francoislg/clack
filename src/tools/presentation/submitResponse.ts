@@ -57,7 +57,7 @@ const messageContentFields = {
     .array(BlockSchema)
     .min(1)
     .describe(
-      "Slack Block Kit blocks (Clack's curated subset: divider, header, section, context, image, markdown) shown to the user. Default to a single section block with mrkdwn text; add structure only when the content genuinely has structure.",
+      "Slack Block Kit blocks (Clack's curated subset: divider, header, section, context, image, markdown, card, carousel) shown to the user. Default to a single section block with mrkdwn text; add structure only when the content genuinely has structure.",
     ),
   table: tableBlockSchema
     .optional()

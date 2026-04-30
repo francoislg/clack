@@ -9,6 +9,7 @@ import type {
   TableBlock,
   RawTextElement,
 } from "@slack/types";
+import type { CardBlock, CarouselBlock } from "./customSlackTypes.js";
 
 // ============================================================================
 // Text object shapes (plain_text / mrkdwn)
@@ -131,6 +132,55 @@ export const tableBlockSchema = z.looseObject({
   column_settings: z.array(tableColumnSettingSchema).optional(),
 });
 
+// ----------------------------------------------------------------------------
+// Card and Carousel blocks
+// ----------------------------------------------------------------------------
+// Slack's card / carousel block types — newer Block Kit additions for entity
+// summaries (PR cards, repo cards, etc). `@slack/types@2.20.0` does not yet
+// export these; types are hand-rolled in `customSlackTypes.ts` until upstream
+// catches up. v1 disallows the card-level `actions` field — interactive
+// buttons go through the top-level `actions: Action[]` field on
+// `submit_response`. See design.md for `add-card-and-carousel-blocks`.
+
+const cardImageObjectSchema = z.looseObject({
+  type: z.literal("image"),
+  image_url: z.string(),
+  alt_text: z.string(),
+});
+
+// Card schema. `looseObject` lets the `actions` field pass through Zod parse;
+// `validateCard` rejects its presence at validation time with an actionable
+// error. We deliberately don't use `.refine()` here because wrapping a
+// discriminated-union member in a refine breaks Zod's narrowing (the variant
+// becomes a `ZodPipe` rather than a `ZodObject`).
+const cardBlockSchema = z.looseObject({
+  type: z.literal("card"),
+  hero_image: cardImageObjectSchema.optional(),
+  icon: cardImageObjectSchema.optional(),
+  title: mrkdwnTextSchema.optional(),
+  subtitle: mrkdwnTextSchema.optional(),
+  body: mrkdwnTextSchema.optional(),
+});
+
+const carouselBlockSchema = z.looseObject({
+  type: z.literal("carousel"),
+  // Carousel children are validated as cards by both the Zod schema and
+  // `validateCarousel` (which delegates to `validateCard` per child).
+  elements: z
+    .array(
+      z.looseObject({
+        type: z.literal("card"),
+        hero_image: cardImageObjectSchema.optional(),
+        icon: cardImageObjectSchema.optional(),
+        title: mrkdwnTextSchema.optional(),
+        subtitle: mrkdwnTextSchema.optional(),
+        body: mrkdwnTextSchema.optional(),
+      }),
+    )
+    .min(1)
+    .max(10),
+});
+
 /**
  * Runtime validator for the curated Slack Block Kit subset Claude may author
  * inside the `blocks` array on `submit_response` and `post_to` actions.
@@ -168,6 +218,8 @@ export const BlockSchema = z.discriminatedUnion(
     contextBlockSchema,
     imageBlockSchema,
     markdownBlockSchema,
+    cardBlockSchema,
+    carouselBlockSchema,
   ],
   {
     error: (issue) => {
@@ -223,7 +275,9 @@ export type Block =
   | SectionBlock
   | ContextBlock
   | ImageBlock
-  | MarkdownBlock;
+  | MarkdownBlock
+  | CardBlock
+  | CarouselBlock;
 
 /** The curated type names as a runtime list — useful for error messages. */
 export const ALLOWED_BLOCK_TYPES = [
@@ -233,4 +287,6 @@ export const ALLOWED_BLOCK_TYPES = [
   "context",
   "image",
   "markdown",
+  "card",
+  "carousel",
 ] as const;
