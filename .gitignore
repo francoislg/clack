@@ -66,3 +66,10 @@ coverage/
 scorecard.png
 
 .systematic/
+
+# Graphify regeneratable artifacts (graph.json + report + labels are checked in)
+graphify-out/cache/
+graphify-out/cost.json
+graphify-out/manifest.json
+graphify-out/.graphify_python
+graphify-out/.graphify_root

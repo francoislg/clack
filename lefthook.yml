@@ -6,6 +6,7 @@ pre-commit:
       run: npx oxlint {staged_files}
     format:
       glob: "*.{ts,js,json}"
+      exclude: "graphify-out/**"
       run: npx oxfmt --check {staged_files}
     test:
       glob: "*.ts"
