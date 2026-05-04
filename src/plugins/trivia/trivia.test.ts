@@ -157,18 +157,21 @@ describe("trivia plugin", () => {
       ]);
     });
 
-    it("returns up to 5 random categories", async () => {
+    it("returns up to 5 random categories with pool stats and suggestions", async () => {
       const tool = createGetIdeasTool(data);
       const result = await tool.handler({}, SESSION);
       const parsed = parseToolResult(result);
 
-      assert.ok(Array.isArray(parsed.ideas));
-      assert.ok(parsed.ideas.length <= 5);
-      assert.ok(parsed.ideas.length > 0);
+      assert.ok(Array.isArray(parsed.categories.ideas));
+      assert.ok(parsed.categories.ideas.length <= 5);
+      assert.ok(parsed.categories.ideas.length > 0);
+      assert.equal(parsed.categories.total, 10);
+      assert.equal(parsed.categories.excluded, 0);
+      assert.equal(typeof parsed.suggestedAnswer, "boolean");
+      assert.ok(["Easy", "Medium", "Hard"].includes(parsed.suggestedDifficulty));
     });
 
     it("excludes categories used in last 10 questions", async () => {
-      // Add 5 recent questions
       for (let i = 0; i < 5; i++) {
         await data.saveQuestion({
           id: `q${i}`,
@@ -184,8 +187,8 @@ describe("trivia plugin", () => {
       const result = await tool.handler({}, SESSION);
       const parsed = parseToolResult(result);
 
-      // Should exclude the 5 recent categories and pick from the remaining 5
-      for (const idea of parsed.ideas) {
+      assert.equal(parsed.categories.excluded, 5);
+      for (const idea of parsed.categories.ideas) {
         assert.ok(
           !["Science", "History", "Geography", "Art", "Music"].includes(idea),
           `${idea} should not be in recent categories`,
@@ -193,8 +196,7 @@ describe("trivia plugin", () => {
       }
     });
 
-    it("returns fewer ideas when pool is small after exclusions", async () => {
-      // Add 9 questions (more than 5, ensuring exclusion of all but 1)
+    it("returns fewer ideas when pool is small after exclusions, still emits suggestions", async () => {
       const categories = [
         "Science",
         "History",
@@ -221,9 +223,125 @@ describe("trivia plugin", () => {
       const result = await tool.handler({}, SESSION);
       const parsed = parseToolResult(result);
 
-      // Only 1 category should be available (Economics is the only one not in last 10)
-      assert.equal(parsed.ideas.length, 1);
-      assert.equal(parsed.ideas[0], "Economics");
+      assert.equal(parsed.categories.ideas.length, 1);
+      assert.equal(parsed.categories.ideas[0], "Economics");
+      assert.equal(typeof parsed.suggestedAnswer, "boolean");
+      assert.ok(["Easy", "Medium", "Hard"].includes(parsed.suggestedDifficulty));
+    });
+
+    it("returns empty ideas but still emits suggestions when all categories are excluded", async () => {
+      const allCategories = [
+        "Science",
+        "History",
+        "Geography",
+        "Art",
+        "Music",
+        "Technology",
+        "Sports",
+        "Literature",
+        "Philosophy",
+        "Economics",
+      ];
+      for (let i = 0; i < allCategories.length; i++) {
+        await data.saveQuestion({
+          id: `q${i}`,
+          category: allCategories[i],
+          statement: "A statement that is definitely long enough to pass validation",
+          isTrue: true,
+          emojis: ["🎯"],
+          createdAt: i,
+        });
+      }
+
+      const tool = createGetIdeasTool(data);
+      const result = await tool.handler({}, SESSION);
+      const parsed = parseToolResult(result);
+
+      assert.equal(parsed.categories.ideas.length, 0);
+      assert.equal(parsed.categories.excluded, allCategories.length);
+      assert.equal(typeof parsed.suggestedAnswer, "boolean");
+      assert.ok(["Easy", "Medium", "Hard"].includes(parsed.suggestedDifficulty));
+    });
+
+    // Distribution tests use an empty category pool so the idea-pick loop
+    // consumes zero Math.random() calls. Only the two suggestion picks remain:
+    // [answer, difficulty]. This decouples the tests from internal call ordering.
+    describe("suggestion distribution", () => {
+      const originalRandom = Math.random;
+
+      beforeEach(async () => {
+        await data.saveCategories([]);
+      });
+
+      const stubRandomSequence = (values: number[]) => {
+        let i = 0;
+        Math.random = () => values[i++ % values.length];
+      };
+
+      const restore = () => {
+        Math.random = originalRandom;
+      };
+
+      it("suggestedAnswer takes both values across calls", async () => {
+        const tool = createGetIdeasTool(data);
+        try {
+          // [answer=0.0, difficulty=0.0] → answer = (0.0 < 0.5) = true.
+          stubRandomSequence([0.0, 0.0]);
+          const a = parseToolResult(await tool.handler({}, SESSION));
+          assert.equal(a.suggestedAnswer, true);
+
+          // [answer=0.99, difficulty=0.0] → answer = (0.99 < 0.5) = false.
+          stubRandomSequence([0.99, 0.0]);
+          const b = parseToolResult(await tool.handler({}, SESSION));
+          assert.equal(b.suggestedAnswer, false);
+        } finally {
+          restore();
+        }
+      });
+
+      it("suggestedDifficulty buckets at 0.30 and 0.90 boundaries", async () => {
+        const tool = createGetIdeasTool(data);
+        try {
+          // [answer=0.0, difficulty=<value-under-test>].
+          stubRandomSequence([0.0, 0.0]);
+          assert.equal(
+            parseToolResult(await tool.handler({}, SESSION)).suggestedDifficulty,
+            "Easy",
+          );
+
+          stubRandomSequence([0.0, 0.2999]);
+          assert.equal(
+            parseToolResult(await tool.handler({}, SESSION)).suggestedDifficulty,
+            "Easy",
+          );
+
+          stubRandomSequence([0.0, 0.3]);
+          assert.equal(
+            parseToolResult(await tool.handler({}, SESSION)).suggestedDifficulty,
+            "Medium",
+          );
+
+          stubRandomSequence([0.0, 0.8999]);
+          assert.equal(
+            parseToolResult(await tool.handler({}, SESSION)).suggestedDifficulty,
+            "Medium",
+          );
+
+          stubRandomSequence([0.0, 0.9]);
+          assert.equal(
+            parseToolResult(await tool.handler({}, SESSION)).suggestedDifficulty,
+            "Hard",
+          );
+
+          stubRandomSequence([0.0, 0.9999]);
+          assert.equal(
+            parseToolResult(await tool.handler({}, SESSION)).suggestedDifficulty,
+            "Hard",
+          );
+        } finally {
+          restore();
+        }
+      });
     });
   });
 
@@ -804,7 +922,11 @@ describe("trivia plugin", () => {
     it("respects limit parameter", async () => {
       await data.saveUser({ userId: "U1", displayName: "Alice", joinedAt: 1 });
       await data.saveUser({ userId: "U2", displayName: "Bob", joinedAt: 2 });
-      await data.saveUser({ userId: "U3", displayName: "Charlie", joinedAt: 3 });
+      await data.saveUser({
+        userId: "U3",
+        displayName: "Charlie",
+        joinedAt: 3,
+      });
 
       for (let i = 1; i <= 3; i++) {
         await data.saveAnswer({

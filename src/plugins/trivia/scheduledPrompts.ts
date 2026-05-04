@@ -15,23 +15,38 @@ const GAME_SHOW_PERSONA = `PERSONA: You are a charismatic Game Show Presenter! T
  * Used by the scheduled question-posting prompt; kept as a single source so
  * future flows (e.g. an on-demand user-triggered generation) can compose from it.
  */
-const QUESTION_FLOW_STEPS = `1. GET CATEGORY IDEAS:
-   - Call get_ideas to get 5 random categories (excludes the last 10 used).
-   - Pick one category from the suggestions.
+const QUESTION_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
+   - Call get_ideas. It returns:
+     - categories.ideas: 5 random categories (excludes the last 10 used).
+     - suggestedAnswer (boolean): the truth value the final statement MUST have.
+     - suggestedDifficulty ("Easy" | "Medium" | "Hard"): the bucket to aim at.
+   - Pick one category from categories.ideas.
+   - Read suggestedAnswer and suggestedDifficulty — both steer the next steps.
 
-2. Research and come up with a TRUE fact / statement about that topic.
+2. Research and come up with a TRUE fact / statement about that topic. Aim at the difficulty bucket from suggestedDifficulty using this 1-10 mapping (you will self-rate against the same scale in step 6):
+   - Easy → 4-6 on the 1-10 scale.
+   - Medium → 7-8.
+   - Hard → 9-10.
 
-3. Randomly decide whether to keep it TRUE or modify it to make it FALSE (e.g. swap a key detail like changing "shrimp" to "lobster").
+3. HONOR suggestedAnswer:
+   - If suggestedAnswer is true: keep the statement TRUE as researched.
+   - If suggestedAnswer is false: modify a key detail to make the statement FALSE (e.g. swap "shrimp" → "lobster"). The underlying TRUE fact must still be a real fact — only the surfaced statement is altered.
+   - Do NOT randomize this choice yourself; the random pick has already been made server-side.
 
 4. CHECK FOR DUPLICATES:
    - Call find_previous_questions to search for similar statements.
    - If a match is found, go back to step 2 and try a different statement.
    - Keep iterating until you have a truly unique statement.
 
-5. Validate your final statement — confirm whether it is actually TRUE or FALSE through research.
+5. Validate your final statement — confirm through research that it is actually TRUE or FALSE in the direction matched to suggestedAnswer (true → actually true; false → actually false). If your modification in step 3 accidentally produced a still-true statement, return to step 3 and re-modify.
 
 6. DIFFICULTY RATING (REQUIRED GATE):
-   Rate the question's difficulty on a 1-10 scale:
+   Self-rate the question on the 1-10 scale. The TARGET RANGE is the bucket named by suggestedDifficulty:
+   - Easy → 4-6.
+   - Medium → 7-8.
+   - Hard → 9-10.
+
+   General intuition for the scale:
    - 1-3 = too obvious, most people would know immediately.
    - 4-6 = good balance — makes you think but is solvable.
    - 7-10 = very challenging, obscure knowledge required.
@@ -41,7 +56,7 @@ const QUESTION_FLOW_STEPS = `1. GET CATEGORY IDEAS:
    - Go back to step 2 and generate a completely new question.
    - Keep iterating until the question rates at least 4/10.
 
-   ONLY PROCEED TO STEP 7 if the difficulty is 4/10 or higher.
+   ONLY PROCEED TO STEP 7 if the difficulty is 4/10 or higher. Prefer ratings inside the target range for suggestedDifficulty.
 
 7. Choose fun emojis that relate to the topic.
 
@@ -99,7 +114,7 @@ ${QUESTION_FLOW_STEPS}
     - CRITICAL: the order is "+1" first, then "-1" — this ensures 👍 appears before 👎.
     - This makes it easy for people to vote immediately.
 
-The goal is to make people pause and think — aim for questions that are interesting and non-obvious, but not impossibly obscure. Sweet spot is 5-7/10 difficulty.`;
+The goal is to make people pause and think — aim for questions that are interesting and non-obvious, but not impossibly obscure. The exact target is the bucket from suggestedDifficulty (Easy 4-6, Medium 7-8, Hard 9-10).`;
 
 export const PROCESS_RESPONSES_INSTRUCTIONS = `${GAME_SHOW_PERSONA}
 
