@@ -2,10 +2,19 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { textResult } from "../../tools/helpers.js";
 import type { TriviaDataLayer } from "./types.js";
 
+type SuggestedDifficulty = "Easy" | "Medium" | "Hard";
+
+function pickSuggestedDifficulty(): SuggestedDifficulty {
+  const r = Math.random();
+  if (r < 0.3) return "Easy";
+  if (r < 0.9) return "Medium";
+  return "Hard";
+}
+
 export function createGetIdeasTool(data: TriviaDataLayer) {
   return tool(
     "get_ideas",
-    "Get 5 random trivia category suggestions, excluding categories used in the last 10 questions.",
+    "Get 5 random trivia category suggestions (excluding categories used in the last 10 questions), plus a server-chosen `suggestedAnswer` (true/false) and `suggestedDifficulty` (Easy/Medium/Hard) hint that the question-flow prompt must honor.",
     {},
     async () => {
       const categories = await data.loadCategories();
@@ -15,7 +24,6 @@ export function createGetIdeasTool(data: TriviaDataLayer) {
 
       const available = categories.filter((c) => !recentCategories.has(c.toLowerCase()));
 
-      // Pick up to 5 random from available
       const pool = [...available];
       const ideas: string[] = [];
       const count = Math.min(5, pool.length);
@@ -26,9 +34,13 @@ export function createGetIdeasTool(data: TriviaDataLayer) {
       }
 
       return textResult({
-        ideas,
-        totalCategories: categories.length,
-        excluded: recentCategories.size,
+        categories: {
+          ideas,
+          total: categories.length,
+          excluded: recentCategories.size,
+        },
+        suggestedAnswer: Math.random() < 0.5,
+        suggestedDifficulty: pickSuggestedDifficulty(),
       });
     },
   );

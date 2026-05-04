@@ -33,7 +33,28 @@ describe("send_questions_instructions tool", () => {
     assert.match(body.prompt, /3\/10/);
     assert.match(body.prompt, /4\/10/);
     assert.match(body.prompt, /"\+1", "-1"/);
-    assert.match(body.prompt, /5-7\/10/);
+  });
+
+  it("instructs Claude to honor the server-chosen suggestedAnswer", async () => {
+    const tool = createSendQuestionsInstructionsTool();
+    const result = await tool.handler({}, SESSION);
+    const body = parseToolResult(result);
+    assert.match(body.prompt, /suggestedAnswer/);
+    assert.match(body.prompt, /honor.*suggestedAnswer/i);
+    assert.doesNotMatch(body.prompt, /randomly decide/i);
+  });
+
+  it("instructs Claude to target suggestedDifficulty with the bucket-to-1-10 mapping", async () => {
+    const tool = createSendQuestionsInstructionsTool();
+    const result = await tool.handler({}, SESSION);
+    const body = parseToolResult(result);
+    assert.match(body.prompt, /suggestedDifficulty/);
+    assert.match(body.prompt, /Easy/);
+    assert.match(body.prompt, /Medium/);
+    assert.match(body.prompt, /Hard/);
+    assert.match(body.prompt, /Easy.*4-6/s);
+    assert.match(body.prompt, /Medium.*7-8/s);
+    assert.match(body.prompt, /Hard.*9-10/s);
   });
 
   it("invites invented styles rather than prescribing a rotation", async () => {

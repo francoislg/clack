@@ -1,6 +1,7 @@
 # trivia-scheduled-prompts Specification
 
 ## Purpose
+
 Plugin-owned instruction tools that return on-demand prompts for the Trivia game's scheduled runs (question posting, answer reveal) and an admin-facing setup recipe that creates the matching cron jobs. Cron job prompts are thin dispatchers; the substantive behavior lives in the plugin's TypeScript constants.
 
 ## Requirements
@@ -13,14 +14,14 @@ The tool SHALL be gated to the `admin` role (scheduled runs execute with the cre
 
 The returned prompt SHALL open with a **Game Show Presenter persona** directive ("energetic, engaging, and fun — add showmanship to your delivery") and then instruct Claude through the following ten-step flow, preserving the substantive behavior of the live cron job prior to this change:
 
-1. **Get category ideas** — Call `get_ideas` (returns 5 categories, excluding the last 10 used). Pick one.
-2. **Research a TRUE fact** about that topic.
-3. **Randomize true/false** — keep the statement true or modify a key detail to make it false (e.g., swap "shrimp" → "lobster").
+1. **Get category ideas and suggestions** — Call `get_ideas`. The tool returns `categories.ideas` (5 categories, excluding the last 10 used), `suggestedAnswer` (a boolean), and `suggestedDifficulty` (one of `"Easy"`, `"Medium"`, `"Hard"`). Pick one category from `categories.ideas`. Read both `suggestedAnswer` and `suggestedDifficulty` — they steer the next steps.
+2. **Research a TRUE fact** about that topic, aiming at the difficulty bucket named by `suggestedDifficulty` (Easy = 4–6 on the 1–10 scale, Medium = 7–8, Hard = 9–10).
+3. **Honor `suggestedAnswer`** — if `suggestedAnswer` is `true`, keep the statement TRUE. If `suggestedAnswer` is `false`, modify a key detail to make the statement FALSE (e.g., swap "shrimp" → "lobster"). The prompt SHALL NOT instruct Claude to "randomly decide" — the random choice has already been made server-side.
 4. **Duplicate check** — Call `find_previous_questions`; if a match is found, iterate from step 2.
-5. **Validate** the final statement through research.
-6. **Difficulty gate** — Self-rate 1–10; reject and regenerate if the rating is ≤ 3/10; only proceed when ≥ 4/10. Target sweet spot is 5–7/10.
+5. **Validate** the final statement through research — confirm it is actually TRUE or FALSE, matching the `suggestedAnswer` honored in step 3.
+6. **Difficulty gate** — Self-rate 1–10. The target range is the one named by `suggestedDifficulty` (Easy = 4–6, Medium = 7–8, Hard = 9–10). Reject and regenerate if the rating is ≤ 3/10; only proceed when ≥ 4/10. The bucket-mapped target supersedes the legacy "5–7/10 sweet spot" guidance.
 7. **Choose emojis** relating to the topic.
-8. **Save via `save_question`** with `{ category, statement, isTrue, emojis }`; retain the returned `questionId`.
+8. **Save via `save_question`** with `{ category, statement, isTrue, emojis }`; retain the returned `questionId`. `isTrue` SHALL reflect the statement Claude actually produced (and, by the rule in step 3, SHOULD match `suggestedAnswer`).
 9. **Format using Block Kit `sections`** — no Markdown bold/italic, no `##` headers. A single section, plain text plus emojis. The 👍 (TRUE) marker MUST appear before the 👎 (FALSE) marker. The prompt SHALL encourage Claude to invent a style that fits the day and include at least one concrete example (without prescribing a rotation) so the delivery varies over time.
 10. **Deliver via `submit_response`** with `reactions: ["+1", "-1"]` in that exact order (ensures 👍 renders before 👎).
 
@@ -31,11 +32,26 @@ The returned prompt SHALL open with a **Game Show Presenter persona** directive 
 - **AND** references the plugin's own tools (`get_ideas`, `find_previous_questions`, `save_question`) by their bare names
 - **AND** references `submit_response` for delivery
 
+#### Scenario: Prompt instructs Claude to honor suggestedAnswer
+
+- **WHEN** the tool is invoked
+- **THEN** the returned text references `suggestedAnswer` from `get_ideas`
+- **AND** instructs Claude to keep the statement TRUE when `suggestedAnswer` is `true`
+- **AND** instructs Claude to modify a key detail to make the statement FALSE when `suggestedAnswer` is `false`
+- **AND** does NOT instruct Claude to "randomly decide" the truth value
+
+#### Scenario: Prompt instructs Claude to target suggestedDifficulty
+
+- **WHEN** the tool is invoked
+- **THEN** the returned text references `suggestedDifficulty` from `get_ideas`
+- **AND** spells out the bucket-to-1–10 mapping: Easy = 4–6, Medium = 7–8, Hard = 9–10
+- **AND** instructs Claude to aim the question at the bucket's range when researching and when self-rating
+
 #### Scenario: Prompt enforces the difficulty gate
 
 - **WHEN** the tool is invoked
 - **THEN** the returned text contains an explicit rule that questions rated ≤ 3/10 MUST be rejected and regenerated
-- **AND** names a target sweet spot of 5–7/10
+- **AND** ties the target range to the bucket named by `suggestedDifficulty`
 
 #### Scenario: Prompt enforces reaction ordering
 
@@ -137,14 +153,14 @@ The Trivia plugin SHALL expose a `create_schedules_instructions` MCP tool, gated
 
 The fields the recipe SHALL fix across both schedules are only the structural ones; timing is elicited from the user, not defaulted:
 
-| Field | Schedule A (question) | Schedule B (reveal) |
-|---|---|---|
-| `cronExpression` | **asked from the user** (no default) | **asked from the user** (no default) |
-| `timezone` | **asked from the user** if not clear from context | same as Schedule A |
-| `plugin` | `trivia` | `trivia` |
-| `requiredTools` | `["mcp__trivia__send_questions_instructions", "mcp__trivia__get_ideas", "mcp__trivia__find_previous_questions", "mcp__trivia__save_question"]` | `["mcp__trivia__process_responses_instructions", "mcp__clack__fetch_channel_messages", "mcp__trivia__find_previous_questions", "mcp__trivia__get_question_history", "mcp__trivia__submit_answers"]` |
-| thin `prompt` | `"Call send_questions_instructions and follow the returned instructions exactly."` | `"Call process_responses_instructions and follow the returned instructions exactly."` |
-| `channel` | asked from the user | same as Schedule A |
+| Field            | Schedule A (question)                                                                                                                          | Schedule B (reveal)                                                                                                                                                                                 |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cronExpression` | **asked from the user** (no default)                                                                                                           | **asked from the user** (no default)                                                                                                                                                                |
+| `timezone`       | **asked from the user** if not clear from context                                                                                              | same as Schedule A                                                                                                                                                                                  |
+| `plugin`         | `trivia`                                                                                                                                       | `trivia`                                                                                                                                                                                            |
+| `requiredTools`  | `["mcp__trivia__send_questions_instructions", "mcp__trivia__get_ideas", "mcp__trivia__find_previous_questions", "mcp__trivia__save_question"]` | `["mcp__trivia__process_responses_instructions", "mcp__clack__fetch_channel_messages", "mcp__trivia__find_previous_questions", "mcp__trivia__get_question_history", "mcp__trivia__submit_answers"]` |
+| thin `prompt`    | `"Call send_questions_instructions and follow the returned instructions exactly."`                                                             | `"Call process_responses_instructions and follow the returned instructions exactly."`                                                                                                               |
+| `channel`        | asked from the user                                                                                                                            | same as Schedule A                                                                                                                                                                                  |
 
 The returned instructions SHALL direct Clack to:
 
