@@ -1,10 +1,10 @@
 # Tenor (GIF) Plugin
 
-The `gif` plugin gives Claude a `find_gif` tool backed by [Tenor](https://tenor.com/). When enabled, Claude can include a GIF URL in its response and Slack unfurls it inline — no uploads, no Block Kit image blocks.
+The `tenor-gif` plugin gives Claude a `find_gif` tool backed by [Tenor](https://tenor.com/). When enabled, Claude can include a GIF URL in its response and Slack unfurls it inline — no uploads, no Block Kit image blocks.
 
 ## Behavior
 
-- **Search**: one MCP tool, `mcp__gif__find_gif({ query, limit? })`, returns an array of `{ url, previewUrl, title }`.
+- **Search**: one MCP tool, `mcp__tenor-gif__find_gif({ query, limit? })`, returns an array of `{ url, previewUrl, title }`.
 - **SFW only**: every request is sent with Tenor's strictest filter (`contentfilter=high`). Not configurable.
 - **Randomized**: repeated calls with the same query don't return the same GIF — Tenor's `random=true` shuffles results server-side.
 - **Default limit is 1**: the tool returns a single result unless Claude asks for more (up to 10).
@@ -45,11 +45,11 @@ The non-secret `client_key` identifier sent with every request is hard-coded to 
 
 ### 2. Enable the plugin
 
-Make sure `"gif"` appears in `data/config.json → plugins`:
+Make sure `"tenor-gif"` appears in `data/config.json → plugins`:
 
 ```json
 {
-  "plugins": ["trivia", "gif"]
+  "plugins": ["trivia", "tenor-gif"]
 }
 ```
 
@@ -58,7 +58,7 @@ Make sure `"gif"` appears in `data/config.json → plugins`:
 On startup you should see:
 
 ```
-Plugin "gif" loaded: 1 instructions, 1 tools
+Plugin "tenor-gif" loaded: 1 instructions, 1 tools
 ```
 
 ## Notes

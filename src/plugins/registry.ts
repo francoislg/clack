@@ -3,7 +3,8 @@ import { logger } from "../logger.js";
 import { getDataDir } from "../config.js";
 import { createClackSdk, type ClackPlugin, type PluginLoadResult } from "./sdk.js";
 import { triviaPlugin } from "./trivia/index.js";
-import { gifPlugin } from "./gif/index.js";
+import { tenorGifPlugin } from "./tenor-gif/index.js";
+import { giphyPlugin } from "./giphy/index.js";
 
 // ============================================================================
 // Built-in Plugin Registry
@@ -11,7 +12,8 @@ import { gifPlugin } from "./gif/index.js";
 
 const BUILTIN_PLUGINS: Record<string, ClackPlugin> = {
   trivia: triviaPlugin,
-  gif: gifPlugin,
+  "tenor-gif": tenorGifPlugin,
+  giphy: giphyPlugin,
 };
 
 // ============================================================================
