@@ -1,5 +1,10 @@
 import { type McpServerConfig, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { clackSession } from "./query.js";
+import type { ClaudeRunHandle } from "./runHandle.js";
+import {
+  register as registerActiveRun,
+  unregister as unregisterActiveRun,
+} from "../slack/activeRuns.js";
 import { getConfig, getRepositoriesDir } from "../config.js";
 import { ClaudeMessageParser, detectPlatformError, isResumeMissingError } from "./messageParser.js";
 import { buildSystemPrompt, buildPrompt } from "./promptBuilder.js";
@@ -151,7 +156,8 @@ interface QuerySetup {
 
 async function buildQuerySetup(
   session: SessionContext,
-  options?: AskClaudeOptions,
+  options: AskClaudeOptions | undefined,
+  hasPendingInput: () => boolean,
 ): Promise<QuerySetup> {
   const config = getConfig();
   const reposDir = getRepositoriesDir();
@@ -191,6 +197,7 @@ async function buildQuerySetup(
     skipConditions: options?.skipConditions,
     mcpManager: mcpSetup.manager,
     skillsManager,
+    hasPendingInput,
   });
   const clackTools = buildClackTools(toolCtx);
 
@@ -350,12 +357,24 @@ function handleQueryError(
   };
 }
 
+/**
+ * Start a Claude run for the given session. Returns a `ClaudeRunHandle` whose
+ * `futureResponse` resolves with the final `ClaudeResponse` once the run terminates.
+ *
+ * Callers may invoke `handle.sendUpdate(text)` while the run is in flight to push
+ * follow-up user messages onto the live SDK Query, or `handle.stop(reason)` to abort.
+ * Both reject cleanly once the run has settled (first-result-wins semantics).
+ */
 export async function askClaude(
   session: SessionContext,
   options?: AskClaudeOptions,
-): Promise<ClaudeResponse> {
+): Promise<ClaudeRunHandle> {
+  // Forward-reference the run so the tool context can ask "is there pending input?"
+  // before the run is constructed below. submit_response gates on this to refuse
+  // finalizing while a sendUpdate push is unread.
+  let runRef: ClaudeRunHandle | undefined;
   const { reposDir, systemPrompt, userPrompt, model, clackTools, mcpServers, mcpManager } =
-    await buildQuerySetup(session, options);
+    await buildQuerySetup(session, options, () => runRef?.hasPendingInput() ?? false);
 
   logger.debug(`Querying Claude via Agent SDK for session ${session.sessionId}...`);
 
@@ -363,122 +382,178 @@ export async function askClaude(
   const stderrLines: string[] = [];
   const streamToolHistory: ToolCallRecord[] = [];
 
-  try {
-    let answer = "";
-    const parser = new ClaudeMessageParser(options?.onEvent);
+  // Compute lastSeenThreadTs before the query starts
+  const lastSeenTs = session.threadContext?.length
+    ? session.threadContext[session.threadContext.length - 1].ts
+    : undefined;
 
-    // Compute lastSeenThreadTs before the query starts
-    const lastSeenTs = session.threadContext?.length
-      ? session.threadContext[session.threadContext.length - 1].ts
-      : undefined;
+  // Forward declare so the run can reference itself in onTerminal (registry slot guard).
+  let registeredHandle: ClaudeRunHandle | undefined;
 
-    for await (const message of clackSession({
-      prompt: userPrompt,
-      resumeSessionId: session.sdkSessionId,
-      onSessionId: (id) => {
-        updateSession(session.sessionId, { sdkSessionId: id }).catch((err) =>
-          logger.warn(`Failed to save sdkSessionId: ${errorMessage(err)}`),
-        );
-      },
-      onQuery: (query) => {
-        // Bind the Query's setMcpServers so the manager (and by extension
-        // `attach_integration`) can call it mid-session for NEW attachments.
-        // Resume-time re-attach is handled at session-start — persisted
-        // integrations are pre-loaded into `options.mcpServers` in buildQuerySetup
-        // so the CLI's restored state matches --mcp-config exactly (otherwise we
-        // get duplicate tool registrations and a 400 "tools must be unique" error).
-        mcpManager.bind(query.setMcpServers.bind(query), query.mcpServerStatus.bind(query));
-      },
-      options: {
-        cwd: reposDir,
-        executable: detectRuntime(),
-        systemPrompt,
-        model,
-        permissionMode: "bypassPermissions",
-        tools: ["Read", "Glob", "Grep", "Skill", "WebSearch", "ToolSearch"],
-        plugins: discoverEagerSkillPlugins(),
-        mcpServers,
-        // Force-pass ENABLE_TOOL_SEARCH so it reaches claude.exe regardless of
-        // env propagation quirks. The SDK destructures `env: U = {...process.env}`,
-        // so providing `env` here REPLACES process.env entirely — must spread it
-        // back in to keep PATH, HOME, credentials, etc.
-        env: {
-          ...process.env,
-          ENABLE_TOOL_SEARCH: process.env.ENABLE_TOOL_SEARCH ?? "true",
-        },
-        stderr: (data) => stderrLines.push(data),
-        ...(options?.abortController && { abortController: options.abortController }),
-      },
-    })) {
-      const parsed = await parser.process(message);
-
-      conversationTrace.push(recordTraceEntry(message, parsed));
-
-      for (const completed of parsed.completedToolCalls) {
-        streamToolHistory.push(completed);
-        // Fire-and-forget: we don't want a slow `updateSession` (disk contention, etc.) to stall
-        // the SDK stream. Errors are logged, not surfaced to callers.
-        if (options?.onToolCall) {
-          void Promise.resolve(options.onToolCall(completed)).catch((err) => {
-            logger.warn(`onToolCall handler threw: ${errorMessage(err)}`);
-          });
-        }
+  const run = clackSession({
+    prompt: userPrompt,
+    resumeSessionId: session.sdkSessionId,
+    onSessionId: (id) => {
+      updateSession(session.sessionId, { sdkSessionId: id }).catch((err) =>
+        logger.warn(`Failed to save sdkSessionId: ${errorMessage(err)}`),
+      );
+    },
+    onTerminal: () => {
+      if (registeredHandle) {
+        unregisterActiveRun(registeredHandle);
       }
+    },
+    onQuery: (query) => {
+      // Bind the Query's setMcpServers so the manager (and by extension
+      // `attach_integration`) can call it mid-session for NEW attachments.
+      // Resume-time re-attach is handled at session-start — persisted
+      // integrations are pre-loaded into `options.mcpServers` in buildQuerySetup
+      // so the CLI's restored state matches --mcp-config exactly (otherwise we
+      // get duplicate tool registrations and a 400 "tools must be unique" error).
+      mcpManager.bind(query.setMcpServers.bind(query), query.mcpServerStatus.bind(query));
+    },
+    options: {
+      cwd: reposDir,
+      executable: detectRuntime(),
+      systemPrompt,
+      model,
+      permissionMode: "bypassPermissions",
+      tools: ["Read", "Glob", "Grep", "Skill", "WebSearch", "ToolSearch"],
+      plugins: discoverEagerSkillPlugins(),
+      mcpServers,
+      // Force-pass ENABLE_TOOL_SEARCH so it reaches claude.exe regardless of
+      // env propagation quirks. The SDK destructures `env: U = {...process.env}`,
+      // so providing `env` here REPLACES process.env entirely — must spread it
+      // back in to keep PATH, HOME, credentials, etc.
+      env: {
+        ...process.env,
+        ENABLE_TOOL_SEARCH: process.env.ENABLE_TOOL_SEARCH ?? "true",
+      },
+      stderr: (data) => stderrLines.push(data),
+    },
+  });
+  runRef = run;
 
-      // Handle result
-      if (parser.result) {
-        if (parser.result.success) {
-          answer = parser.result.text || parser.lastAssistantText;
-        } else {
+  // Register in the active-runs registry so concurrent messages on the same thread can
+  // route through `sendUpdate` instead of spawning a parallel session. For DMs we also
+  // register a per-user key — DM messages arrive top-level (no `thread_ts`) so the
+  // thread key changes per message and a follow-up DM would never find the live run.
+  // Slot is freed by the `onTerminal` hook above when the run settles or stops.
+  const isDirectMessage = session.channelId.startsWith("D");
+  const registerOpts = {
+    channelId: session.channelId,
+    threadTs: session.threadTs,
+    ...(isDirectMessage && { dmUserId: session.userId }),
+  };
+  if (registerActiveRun(registerOpts, run)) {
+    registeredHandle = run;
+  } else {
+    logger.warn(
+      `askClaude: active-runs slot already occupied for ${session.channelId}:${session.threadTs} (session ${session.sessionId}); proceeding without registration`,
+    );
+  }
+
+  // Bridge: until all callers migrate to `handle.stop(...)`, an external AbortController
+  // passed via options aborts the run by triggering `run.stop`. Removed in the Slack
+  // handler routing pass.
+  if (options?.abortController) {
+    if (options.abortController.signal.aborted) {
+      void run.stop("aborted");
+    } else {
+      options.abortController.signal.addEventListener(
+        "abort",
+        () => {
+          void run.stop("aborted");
+        },
+        { once: true },
+      );
+    }
+  }
+
+  async function driveRunToCompletion(): Promise<void> {
+    try {
+      let answer = "";
+      const parser = new ClaudeMessageParser(options?.onEvent);
+
+      for await (const message of run.messages) {
+        const parsed = await parser.process(message);
+
+        conversationTrace.push(recordTraceEntry(message, parsed));
+
+        for (const completed of parsed.completedToolCalls) {
+          streamToolHistory.push(completed);
+          // Fire-and-forget: we don't want a slow `updateSession` (disk contention, etc.) to
+          // stall the SDK stream. Errors are logged, not surfaced to callers.
+          if (options?.onToolCall) {
+            void Promise.resolve(options.onToolCall(completed)).catch((err) => {
+              logger.warn(`onToolCall handler threw: ${errorMessage(err)}`);
+            });
+          }
+        }
+
+        if (parser.result) {
+          if (parser.result.success) {
+            answer = parser.result.text || parser.lastAssistantText;
+            break;
+          }
           // Defensive: if a "No conversation found" error ever reaches here, the
           // clackSession wrapper should already have retried on a fresh session.
-          // Clear sdkSessionId anyway so the user's next turn starts clean
-          // instead of re-resuming the dead ID forever.
+          // Clear sdkSessionId anyway so the user's next turn starts clean.
           if (isResumeMissingError(parser.result.error ?? "")) {
             await updateSession(session.sessionId, { sdkSessionId: undefined });
           }
-          return {
+          run.settle({
             success: false,
             answer: "",
             error: `Claude query failed: ${parser.result.error}`,
             conversationTrace,
             toolCallHistory: optionalHistory(streamToolHistory),
-          };
+          });
+          return;
         }
       }
-    }
 
-    // Check for platform errors masquerading as successful responses
-    const platformError =
-      detectPlatformError(answer) ?? detectPlatformError(parser.lastAssistantText);
-    if (platformError) {
-      logger.warn(`Platform error detected: ${platformError}`);
-      return {
-        success: false,
-        answer: "",
-        error: platformError,
+      // Check for platform errors masquerading as successful responses
+      const platformError =
+        detectPlatformError(answer) ?? detectPlatformError(parser.lastAssistantText);
+      if (platformError) {
+        logger.warn(`Platform error detected: ${platformError}`);
+        run.settle({
+          success: false,
+          answer: "",
+          error: platformError,
+          conversationTrace,
+          toolCallHistory: optionalHistory(streamToolHistory),
+        });
+        return;
+      }
+
+      // Persist lastSeenThreadTs so the next resumed query only injects delta context
+      if (lastSeenTs) {
+        updateSession(session.sessionId, { lastSeenThreadTs: lastSeenTs }).catch((err) =>
+          logger.warn(`Failed to save lastSeenThreadTs: ${errorMessage(err)}`),
+        );
+      }
+
+      run.settle(buildSuccessResponse(answer, conversationTrace, clackTools, streamToolHistory));
+    } catch (error) {
+      const stderrOutput = stderrLines.join("");
+      const response = handleQueryError(
+        error,
+        session.sessionId,
         conversationTrace,
-        toolCallHistory: optionalHistory(streamToolHistory),
-      };
-    }
-
-    // Persist lastSeenThreadTs so the next resumed query only injects delta context
-    if (lastSeenTs) {
-      updateSession(session.sessionId, { lastSeenThreadTs: lastSeenTs }).catch((err) =>
-        logger.warn(`Failed to save lastSeenThreadTs: ${errorMessage(err)}`),
+        stderrOutput,
+        streamToolHistory,
+        run.abortController,
       );
+      // handleQueryError already builds a complete ClaudeResponse; settle with it directly
+      // rather than re-converting via run.fail (which would lose the conversationTrace etc.).
+      run.settle(response);
     }
-
-    return buildSuccessResponse(answer, conversationTrace, clackTools, streamToolHistory);
-  } catch (error) {
-    const stderrOutput = stderrLines.join("");
-    return handleQueryError(
-      error,
-      session.sessionId,
-      conversationTrace,
-      stderrOutput,
-      streamToolHistory,
-      options?.abortController,
-    );
   }
+  driveRunToCompletion().catch((err) => {
+    logger.error(`Unexpected error in askClaude completion driver: ${errorMessage(err)}`);
+  });
+
+  return run;
 }

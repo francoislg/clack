@@ -477,11 +477,14 @@ export class SlackStreamer {
       // append from handleEvent resolved after the stream was finalized.
       if (this.stopped) return;
 
-      // Slack expires streams server-side after inactivity. This is a known
-      // condition — log as warning, not error. The fallback path handles it.
-      if (getSlackErrorCode(error) === "message_not_in_streaming_state") {
+      // Slack expires streams server-side after inactivity, OR garbage-collects the
+      // placeholder message in the assistant API when a new userMessage event arrives.
+      // Both surface as known terminal conditions for the stream — log as warning, not
+      // error, and let the fallback path handle them.
+      const code = getSlackErrorCode(error);
+      if (code === "message_not_in_streaming_state" || code === "message_not_found") {
         this.logger.warn(
-          "Chat stream expired (message_not_in_streaming_state), falling back to post",
+          `Chat stream no longer writable (${code}), falling back to post`,
           this.streamDiagnostics(),
         );
       } else {

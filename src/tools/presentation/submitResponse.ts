@@ -229,6 +229,13 @@ export interface SubmitResponseDeps {
    * is accepted. Enforced by a gate at the top of the handler.
    */
   requiredTools?: string[];
+  /**
+   * Returns true when the live SDK input stream still has unread `sendUpdate` pushes. When
+   * set, the handler refuses to finalize while pending input exists — the SDK keeps reading,
+   * the queued message lands as the next user turn, and Claude addresses it before
+   * resubmitting. Wired from the active `ClaudeRunHandle.hasPendingInput`.
+   */
+  hasPendingInput?: () => boolean;
   getStructuredResponseBlocks?: typeof _getStructuredResponseBlocks;
   validateBlocks?: typeof _validateBlocks;
   validateTable?: typeof _validateTable;
@@ -500,6 +507,7 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
     allowDisengage,
     allowPostTopLevel,
     requiredTools,
+    hasPendingInput,
     getStructuredResponseBlocks = _getStructuredResponseBlocks,
     validateBlocks = _validateBlocks,
     validateTable = _validateTable,
@@ -528,6 +536,16 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
     "Submit the final response to the user. IMPORTANT: calling this tool ENDS the conversation — you cannot take any further actions afterward. If your response mentions doing something (e.g., 'Let me set that up', 'I'll create a PR'), you MUST have already called the relevant tools BEFORE calling submit_response. Never promise future actions in your response text — either do them first or don't mention them. This defines what the user sees: text sections and interactive buttons. Always call this tool to deliver your response.",
     schema,
     async (args) => {
+      // --- Pending-input gate: refuse delivery while user follow-ups are queued on the
+      // SDK input stream. Returning an error keeps the SDK turn loop alive so the queued
+      // message surfaces as the next user turn for Claude to read and address.
+      if (hasPendingInput?.()) {
+        return recordError(recorder, args, {
+          error:
+            "A new user message arrived while you were responding. Read it and address it before calling submit_response again — call submit_response only after you have addressed the latest user input.",
+        });
+      }
+
       // --- Required tools gate: refuse delivery until every required tool has been recorded ---
       if (requiredTools && requiredTools.length > 0) {
         const history = recorder.getHistory();

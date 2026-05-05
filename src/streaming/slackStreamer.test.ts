@@ -1457,6 +1457,54 @@ describe("SlackStreamer error classification", () => {
     );
   });
 
+  it("logs message_not_found as warning, not error", async () => {
+    const mockStreamerObj = makeMockChatStreamer();
+    const client = makeClient({ chatStreamer: mockStreamerObj });
+    const streamer = new SlackStreamer({
+      client,
+      channel: "C_CHAN",
+      threadTs: "1234.5678",
+      teamId: "T_TEAM",
+      logger: mockLogger.logger,
+    });
+
+    await streamer.start();
+    mockLogger.reset();
+
+    const slackError = Object.assign(new Error("message_not_found"), {
+      code: "slack_webapi_platform_error",
+      data: { ok: false, error: "message_not_found" },
+    });
+    mockStreamerObj.append.mock.mockImplementation(async () => {
+      throw slackError;
+    });
+
+    streamer.handleEvent({
+      type: "tool_start",
+      taskId: "task-1",
+      toolName: "mcp__clack__list_repositories",
+      toolArgs: {},
+    });
+
+    await new Promise((r) => setTimeout(r, 10));
+
+    assert.equal(streamer.hasFailed, true);
+
+    const notFoundWarn = mockLogger.warnCalls.find(
+      (c) => typeof c[0] === "string" && c[0].includes("message_not_found"),
+    );
+    assert.ok(notFoundWarn, "Expected a warn log about message_not_found");
+
+    const failedAppendError = mockLogger.errorCalls.find(
+      (c) => typeof c[0] === "string" && c[0].includes("Failed to append"),
+    );
+    assert.equal(
+      failedAppendError,
+      undefined,
+      "Should not log 'Failed to append' at error level when the placeholder message is gone",
+    );
+  });
+
   it("still logs other append errors at error level", async () => {
     const mockStreamerObj = makeMockChatStreamer();
     const client = makeClient({ chatStreamer: mockStreamerObj });

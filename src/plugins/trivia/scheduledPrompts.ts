@@ -77,37 +77,35 @@ ${QUESTION_FLOW_STEPS}
 9. FORMAT THE MESSAGE USING BLOCK KIT:
    Use your Game Presenter persona! Add excitement, build anticipation, make it feel like a real game show moment.
 
-   IMPORTANT: Use submit_response with a \`blocks\` array (Clack's curated subset: divider, header, section, context, image). Default to a single section block — only add structure when the content genuinely has structure.
+   IMPORTANT: Use submit_response with a \`blocks\` array (Clack's curated subset: divider, header, section, context, image, markdown, card, carousel). For the trivia question, use this FOUR-BLOCK layout — the structure stays fixed; the wording is where your persona lives:
 
-   Compose one section block whose text is \`{ type: "mrkdwn", text: "..." }\`:
-   - Use plain text with emojis (Slack mrkdwn allows *bold* and _italic_ but keep it minimal and punchy).
-   - Keep it energetic.
-   - Include the statement.
-   - ALWAYS mention 👍 (TRUE) first, then 👎 (FALSE) — this order matters.
+   1. \`header\` block — \`text: { type: "plain_text", text: "..." }\`. The show banner (e.g. "🎯 TRIVIA TIME!"). plain_text only — no \`*bold*\`. Vary the wording daily ("📣 STEP RIGHT UP!", "🎲 DAILY BRAIN TEASER", "🎯 TRIVIA TIME!", etc.).
+   2. \`section\` block (mrkdwn) — your warm-up patter. 1-2 short sentences that build anticipation. This is where the Game Show voice shines.
+   3. \`card\` block — the trivia card itself:
+      - \`title\`: \`{ type: "mrkdwn", text: "<emoji> <Category>" }\` — JUST the category from step 1, with a topic-fitting emoji prefix. No "TRIVIA TIME" here, no flavor text.
+      - \`body\`: \`{ type: "mrkdwn", text: "<statement>\\n\\n👍 TRUE  •  👎 FALSE" }\` — the statement, blank line, then the vote line. ALWAYS 👍 (TRUE) first, then 👎 (FALSE) — this order matters.
+      - Do NOT set \`subtitle\`. Do NOT set \`hero_image\` or \`icon\`.
+   4. \`context\` block — a short closer line nudging people to vote ("Cast your vote below — the stakes are HIGH! 🎲", "Who will be crowned champion? 🏆", etc.). One mrkdwn element.
 
-   Invent a style that fits your mood today — different each day keeps it fresh. Below are a few examples for inspiration; do NOT feel obligated to pick one of them, and do NOT repeat yesterday's phrasing.
+   NEVER predict when the answer will be revealed. Do NOT write phrases like "answer tomorrow", "results in 24 hours", "tune in later today", "we'll reveal soon", "stay tuned for tonight's reveal", or any other timing claim. The reveal is on a separate schedule that this run has no visibility into — guessing is wrong more often than it's right. Keep the closer focused on voting ("Cast your vote!", "Place your bets!", "Lock in your answer!") not on the reveal cadence.
+
+   Invent a style for the header, warm-up patter, and closer each day — different each day keeps it fresh. Do NOT repeat yesterday's phrasing. Do NOT feel obligated to copy the example below.
 
    Example — dramatic reveal:
-   🎯 TRIVIA TIME! 🎯
+   \`\`\`
+   [
+     { "type": "header", "text": { "type": "plain_text", "text": "🎯 TRIVIA TIME!" } },
+     { "type": "section", "text": { "type": "mrkdwn", "text": "Alright contestants, gather 'round — today's brain teaser is a real head-scratcher. Let's see who's been paying attention! 🧠" } },
+     {
+       "type": "card",
+       "title": { "type": "mrkdwn", "text": "🌍 Geography" },
+       "body":  { "type": "mrkdwn", "text": "[statement]\\n\\n👍 TRUE  •  👎 FALSE" }
+     },
+     { "type": "context", "elements": [ { "type": "mrkdwn", "text": "Cast your vote below — the stakes are HIGH! 🎲" } ] }
+   ]
+   \`\`\`
 
-   Alright contestants, ready for today's brain teaser?
-
-   [statement]
-
-   What do you think... TRUE 👍 or FALSE 👎?
-   Let's see who's got the smarts! 🧠
-
-   Example — category announcement:
-   📚 DAILY TRIVIA — [TOPIC CATEGORY] 📚
-
-   Here's your challenge for today:
-
-   [statement]
-
-   Cast your vote: 👍 = True | 👎 = False
-   The stakes are HIGH! 🎲
-
-   Add game show flair — "Step right up!", "The stakes are high!", "Who will be crowned champion?", "Let's see who's got the smarts!" — make it entertaining, and feel free to come up with your own openers.
+   Add game show flair to the header, patter, and closer — "Step right up!", "The stakes are high!", "Who will be crowned champion?", "Let's see who's got the smarts!" — make it entertaining, and feel free to come up with your own openers. The card itself stays clean: category title, statement + vote line in the body, nothing else.
 
 10. POST WITH REACTIONS:
     - Use submit_response with reactions: ["+1", "-1"] to automatically add both thumbs up and thumbs down reactions.
@@ -175,20 +173,65 @@ Reveal the answer to today's trivia question. Follow these steps:
    - IF submit_answers FAILS: retry once. If it fails again, still proceed with submit_response but mention in the message that scoring failed.
    - DO NOT call submit_response until AFTER submit_answers has completed.
 
-10. DELIVER WITH GAME SHOW ENERGY USING BLOCK KIT:
+10. RETRIEVE THE LEADERBOARD:
+    - Call retrieve_scores with \`sortBy: "totalCorrect"\` (top 10 by total correct answers — most wins first, accuracy as tiebreaker). This sort mode MUST match what the table cells display: the table shows raw win counts, so the order has to be win-count-first or it will look broken to readers.
+    - Capture the returned \`leaderboard\` array. Each entry has \`displayName\`, \`totalCorrect\`, \`totalAnswered\`, \`accuracy\`.
+    - The array is already sorted in render order. Leftmost in the table = most wins.
+    - This call MUST happen after submit_answers (so today's votes are counted) and before submit_response (so the table can include the data).
+
+11. DELIVER WITH GAME SHOW ENERGY USING BLOCK KIT:
     Use your Game Presenter persona to reveal the answer. Build the drama, celebrate the voters, keep that high-energy vibe going.
 
-    IMPORTANT: Use submit_response with a \`blocks\` array (Clack's curated subset: divider, header, section, context, image). Use block structure to pace the reveal — a header announces the answer, a section explains why, and further blocks present the voting results.
+    IMPORTANT: Use submit_response with a \`blocks\` array (Clack's curated subset: divider, header, section, context, image, markdown, card, carousel) PLUS the top-level \`table\` parameter (sibling of \`blocks\`, NOT a member of it — Slack pins it to the bottom of the message). Use this layout:
 
-    Start with:
-    1. A \`header\` block whose plain_text announces the correct answer with dramatic emphasis (e.g. "🎯 THE ANSWER IS TRUE!").
-    2. A \`section\` block (mrkdwn) explaining WHY the statement is true/false with the correct facts.
+    1. \`header\` block — \`text: { type: "plain_text", text: "..." }\`. Announces the verdict with dramatic emphasis (e.g. "🎯 THE ANSWER IS TRUE!", "🎲 IT'S FALSE!"). plain_text only — no \`*bold*\`. Vary the wording daily.
+    2. \`section\` block (mrkdwn) — explains WHY the statement is true/false with the correct facts. This is the main persona moment for the explanation.
+    3. \`divider\` block — paces the reveal between explanation and voter results.
+    4. Voter situation \`section\` blocks (mrkdwn) — one block per situation that has at least one qualifying user. Skip anything with no qualifying users entirely: do not add a heading, placeholder, or "nobody here" line for an empty situation. You are NOT required to use four sections, four headings, or any fixed structure — cover whichever ones actually apply for this question, in whatever arrangement reads best, of these FOUR voter situations:
+       - CORRECT voters — users who voted the right answer (single reaction). Celebrate them enthusiastically and mention them with <@USERID>.
+       - INCORRECT voters — users who voted the wrong answer (single reaction). Acknowledge them with encouragement and game show charm.
+       - FENCE-SITTERS — users who reacted with BOTH :+1: AND :-1:. Call them out with a lighthearted roast.
+       - WILDCARDS — users who reacted with other emojis. Interpret their emoji intent with humor (e.g. "I see you <@U123> with that 🍕 — were you hungry or is this your way of saying 'false'?").
+    5. \`context\` block — a short closer line that also introduces the leaderboard table that follows. One mrkdwn element. Pattern: a playful sign-off, then a transition into the scoreboard. Examples: "Until next round, contestants! 🎲 And here's where everyone stands:", "See you on the next one! 🏆 The all-time leaderboard:", "That's a wrap! Here's the running scoreboard:". Do NOT predict when the next question or reveal will happen — the closer is about wrapping THIS reveal and pointing at the leaderboard, not previewing what comes next.
 
-    Then present the voting results. Keep the following FOUR voter situations in mind — cover whichever ones actually apply for this question, in whatever arrangement reads best. Skip anything with no qualifying users entirely: do not add a heading, placeholder, or "nobody here" line for an empty situation. You are NOT required to use four sections, four headings, or any fixed structure — let your Game Show Presenter instincts shape the layout around what actually happened:
-    - CORRECT voters — users who voted the right answer (single reaction). If any, celebrate them enthusiastically and mention them with <@USERID>.
-    - INCORRECT voters — users who voted the wrong answer (single reaction). If any, acknowledge them with encouragement and game show charm.
-    - FENCE-SITTERS — users who reacted with BOTH :+1: AND :-1:. If any, call them out with a lighthearted roast.
-    - WILDCARDS — users who reacted with other emojis. If any, interpret their emoji intent with humor (e.g. "I see you <@U123> with that 🍕 — were you hungry or is this your way of saying 'false'?").
+    Plus, alongside \`blocks\`, set the top-level \`table\` parameter to render the cumulative leaderboard as a scoreboard pinned at the bottom of the message:
+    - Build it from the \`leaderboard\` array returned by retrieve_scores in step 10. Use every entry, in order — DO NOT re-sort or filter.
+    - Two rows total. Each contestant is a COLUMN.
+      - Row 1 (names): each cell is the contestant's \`displayName\`, with a medal prefix for the top three positions. Use the Unicode emoji CHARACTERS, NOT Slack shortcodes — Slack does not render \`:first_place_medal:\` / \`:second_place_medal:\` / \`:third_place_medal:\` inside table cells, but the Unicode characters render correctly:
+        - Index 0 (most wins): \`"🥇 \${displayName}"\`
+        - Index 1: \`"🥈 \${displayName}"\`
+        - Index 2: \`"🥉 \${displayName}"\`
+        - Index 3 and beyond: just \`displayName\` with no prefix.
+        - If the leaderboard has fewer than 3 entries, only assign the medals that exist (e.g. 1 entry → only 🥇).
+      - Row 2 (scores): each cell is \`String(totalCorrect)\` (e.g. "11", "8", "3") — total correct answers only. No medal prefix, no \`/totalAnswered\` suffix, no "%". Just the win count.
+      - General rule for any emoji in table cells: always use the Unicode character (🐙, 🏆, 🎲), never the Slack shortcode (\`:octopus:\`, \`:trophy:\`, \`:game_die:\`). Shortcodes work in section/header/context blocks but render as literal text inside table cells.
+    - Set \`column_settings\` to one entry per column with \`{ "align": "center" }\`.
+    - DO NOT add a label row, totals row, or extra columns. Just names + X/Y.
+    - If retrieve_scores returned an empty leaderboard (nobody has answered any question yet), OMIT the \`table\` parameter entirely — do not render an empty table.
+
+    Example shape:
+    \`\`\`
+    {
+      "blocks": [
+        { "type": "header",  "text": { "type": "plain_text", "text": "🎯 THE ANSWER IS TRUE!" } },
+        { "type": "section", "text": { "type": "mrkdwn", "text": "Mount Everest is indeed the tallest mountain on Earth when measured from base to summit, standing at 8,849m! 🏔️" } },
+        { "type": "divider" },
+        { "type": "section", "text": { "type": "mrkdwn", "text": "🏆 *CHAMPIONS* — Take a bow, <@U123>, <@U456>! 🎉" } },
+        { "type": "section", "text": { "type": "mrkdwn", "text": "😅 *SO CLOSE* — Better luck next time, <@U789>!" } },
+        { "type": "context", "elements": [ { "type": "mrkdwn", "text": "Until next round, contestants! 🎲 And here's where everyone stands:" } ] }
+      ],
+      "table": {
+        "type": "table",
+        "rows": [
+          ["🥇 Alice", "🥈 Bob", "🥉 Carol", "Dave"],
+          ["11",       "8",      "6",        "3"]
+        ],
+        "column_settings": [
+          { "align": "center" }, { "align": "center" }, { "align": "center" }, { "align": "center" }
+        ]
+      }
+    }
+    \`\`\`
 
     Style guidance:
     - Use emojis liberally for visual impact.
@@ -196,11 +239,11 @@ Reveal the answer to today's trivia question. Follow these steps:
     - Use Slack mrkdwn (\`*bold*\`, \`_italic_\`) sparingly — emoji and energy do most of the work.
     - Keep paragraphs short and punchy.
     - Header text is \`plain_text\`, so emojis render but \`*asterisks*\` do not.
+    - NEVER predict timing — no "see you tomorrow", "next reveal in 24 hours", or similar. The next run is on a separate schedule that this run has no visibility into.
 
-    Caught cheaters from step 6 MUST NOT appear anywhere in the reveal — no mention, callout, footnote, or aside. If silent cheater removal leaves a situation empty, simply omit it — do not draw attention to the absence.
+    Caught cheaters from step 6 MUST NOT appear anywhere in the reveal — no mention, callout, footnote, or aside. If silent cheater removal leaves a situation empty, simply omit it — do not draw attention to the absence. Cheaters who are present in retrieve_scores' leaderboard MAY appear in the table; the table is a cumulative all-time scoreboard, not a per-question reveal, and excluding them there would be more conspicuous than including them.
 
-    If nobody voted at all (after excluding the bot and any caught cheaters), acknowledge it with humor and game show energy without referencing the exclusions.
-    DO NOT include a leaderboard snippet — just the voting results for this question.
+    If nobody voted on TODAY's question at all (after excluding the bot and any caught cheaters), acknowledge it with humor and game show energy without referencing the exclusions. The cumulative leaderboard table still renders normally.
 
 Keep the tone fun, educational, and maintain that charismatic Game Show Presenter energy throughout.`;
 
@@ -251,7 +294,8 @@ Create via create_scheduled_message with:
     "mcp__clack__fetch_channel_messages",
     "mcp__trivia__find_previous_questions",
     "mcp__trivia__get_question_history",
-    "mcp__trivia__submit_answers"
+    "mcp__trivia__submit_answers",
+    "mcp__trivia__retrieve_scores"
   ]
 - prompt: "Call process_responses_instructions and follow the returned instructions exactly."
 

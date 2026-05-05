@@ -4,6 +4,8 @@ import { createCancelWorkerRunTool, type CancelWorkerRunDeps } from "./cancelWor
 import type { QueryToolContext } from "../types.js";
 import { parseToolResult } from "../testHelpers.js";
 import type { ActiveChangeState } from "../../changes/activeState.js";
+import type { ClaudeRunHandle } from "../../claude/runHandle.js";
+import { makeFakeRunHandle as makeFakeHandle } from "../../claude/runHandle.testFixtures.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -13,15 +15,16 @@ function fakeChange(partial: {
   repo: string;
   branch: string;
   status: string;
-  abortController?: AbortController;
+  handle?: ClaudeRunHandle;
   cancelledBy?: { userId: string; reason?: string };
 }): ActiveChangeState {
-  return {
+  const change: ActiveChangeState = {
     description: "test",
     startedAt: new Date(),
     lastActivityAt: new Date(),
     ...partial,
-  } as never as ActiveChangeState;
+  } as ActiveChangeState;
+  return change;
 }
 
 function makeDeps(overrides?: Partial<CancelWorkerRunDeps>): CancelWorkerRunDeps {
@@ -75,13 +78,13 @@ describe("createCancelWorkerRunTool", () => {
     assert.equal(result.isError, true);
   });
 
-  it("aborts a live worker run via AbortController", async () => {
-    const abortController = new AbortController();
+  it("stops a live worker run via the handle", async () => {
+    const handle = makeFakeHandle();
     const change = fakeChange({
       repo: "my-repo",
       branch: "feat/my-change",
       status: "executing",
-      abortController,
+      handle,
       cancelledBy: undefined,
     });
     deps = makeDeps({
@@ -99,12 +102,12 @@ describe("createCancelWorkerRunTool", () => {
     assert.equal(parsed.cancelled, true);
     assert.equal(parsed.sessionId, "sess-123");
     assert.ok(parsed.description.includes("my-repo"));
-    assert.equal(abortController.signal.aborted, true);
-    // cancelledBy should be set before abort
+    assert.deepEqual(handle.stopCalls, ["taking too long"]);
+    // cancelledBy should be set before stop
     assert.deepEqual(change.cancelledBy, { userId: "U_CALLER", reason: "taking too long" });
   });
 
-  it("handles stale session without AbortController", async () => {
+  it("handles stale session without a handle", async () => {
     deps = makeDeps({
       getActiveChangeForUser: mock.fn(() => ({
         sessionId: "sess-456",
@@ -112,7 +115,7 @@ describe("createCancelWorkerRunTool", () => {
           repo: "my-repo",
           branch: "feat/stale",
           status: "executing",
-          abortController: undefined,
+          handle: undefined,
         }),
       })),
     });
@@ -127,12 +130,12 @@ describe("createCancelWorkerRunTool", () => {
   });
 
   it("admin can cancel another user's run", async () => {
-    const abortController = new AbortController();
+    const handle = makeFakeHandle();
     const change = fakeChange({
       repo: "my-repo",
       branch: "feat/other-user",
       status: "executing",
-      abortController,
+      handle,
       cancelledBy: undefined,
     });
     deps = makeDeps({
@@ -148,7 +151,7 @@ describe("createCancelWorkerRunTool", () => {
 
     assert.equal(parsed.ok, true);
     assert.equal(parsed.cancelled, true);
-    assert.equal(abortController.signal.aborted, true);
+    assert.deepEqual(handle.stopCalls, [undefined]);
     // cancelledBy records the admin, not the target
     assert.equal(change.cancelledBy!.userId, "U_CALLER");
   });
@@ -164,7 +167,7 @@ describe("createCancelWorkerRunTool", () => {
   });
 
   it("works for reviewing status", async () => {
-    const abortController = new AbortController();
+    const handle = makeFakeHandle();
     deps = makeDeps({
       getActiveChangeForUser: mock.fn(() => ({
         sessionId: "sess-review",
@@ -172,7 +175,7 @@ describe("createCancelWorkerRunTool", () => {
           repo: "my-repo",
           branch: "feat/review",
           status: "reviewing",
-          abortController,
+          handle,
         }),
       })),
     });
@@ -183,6 +186,6 @@ describe("createCancelWorkerRunTool", () => {
 
     assert.equal(parsed.ok, true);
     assert.ok(parsed.description.includes("reviewing"));
-    assert.equal(abortController.signal.aborted, true);
+    assert.deepEqual(handle.stopCalls, [undefined]);
   });
 });

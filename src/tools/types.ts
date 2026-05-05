@@ -106,6 +106,14 @@ export interface QueryToolContext {
    * and `load_skill`. Absent in worker mode.
    */
   skillsManager?: SkillsManager;
+  /**
+   * Returns true when at least one user message has been queued onto the live SDK input
+   * stream via `handle.sendUpdate` and not yet consumed by the SDK. Used by
+   * `submit_response` to refuse finalizing while there are unread follow-ups: the tool
+   * returns an error, the SDK keeps reading, the queued message lands as the next user
+   * turn, and Claude addresses it before submitting again.
+   */
+  hasPendingInput?: () => boolean;
 }
 
 /** Worker context — used by change execution and follow-up flows */

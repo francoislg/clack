@@ -863,7 +863,7 @@ describe("trivia plugin", () => {
   describe("retrieve_scores", () => {
     it("returns empty leaderboard when no answers exist", async () => {
       const tool = createRetrieveScoresTool(data);
-      const result = await tool.handler({ limit: undefined }, SESSION);
+      const result = await tool.handler({ limit: undefined, sortBy: undefined }, SESSION);
       const parsed = parseToolResult(result);
 
       assert.deepEqual(parsed.leaderboard, []);
@@ -907,7 +907,7 @@ describe("trivia plugin", () => {
       });
 
       const tool = createRetrieveScoresTool(data);
-      const result = await tool.handler({ limit: undefined }, SESSION);
+      const result = await tool.handler({ limit: undefined, sortBy: undefined }, SESSION);
       const parsed = parseToolResult(result);
 
       assert.equal(parsed.leaderboard.length, 2);
@@ -939,7 +939,7 @@ describe("trivia plugin", () => {
       }
 
       const tool = createRetrieveScoresTool(data);
-      const result = await tool.handler({ limit: 2 }, SESSION);
+      const result = await tool.handler({ limit: 2, sortBy: undefined }, SESSION);
       const parsed = parseToolResult(result);
 
       assert.equal(parsed.leaderboard.length, 2);
@@ -979,10 +979,129 @@ describe("trivia plugin", () => {
       });
 
       const tool = createRetrieveScoresTool(data);
-      const result = await tool.handler({ limit: undefined }, SESSION);
+      const result = await tool.handler({ limit: undefined, sortBy: undefined }, SESSION);
       const parsed = parseToolResult(result);
 
       assert.equal(parsed.leaderboard[0].accuracy, 75);
+    });
+
+    it("sorts by totalCorrect by default with accuracy as tiebreaker", async () => {
+      await data.saveUser({ userId: "U1", displayName: "Alice", joinedAt: 1 });
+      await data.saveUser({ userId: "U2", displayName: "Bob", joinedAt: 2 });
+
+      // Alice: 2/3 = 67%
+      await data.saveAnswer({
+        userId: "U1",
+        questionId: "q1",
+        answer: true,
+        correct: true,
+        timestamp: 1,
+      });
+      await data.saveAnswer({
+        userId: "U1",
+        questionId: "q2",
+        answer: true,
+        correct: true,
+        timestamp: 2,
+      });
+      await data.saveAnswer({
+        userId: "U1",
+        questionId: "q3",
+        answer: true,
+        correct: false,
+        timestamp: 3,
+      });
+      // Bob: 1/1 = 100%
+      await data.saveAnswer({
+        userId: "U2",
+        questionId: "q1",
+        answer: true,
+        correct: true,
+        timestamp: 4,
+      });
+
+      const tool = createRetrieveScoresTool(data);
+      const result = await tool.handler({ limit: undefined, sortBy: undefined }, SESSION);
+      const parsed = parseToolResult(result);
+
+      // Default sortBy is "totalCorrect" — Alice (2 wins) beats Bob (1 win) despite lower accuracy.
+      assert.equal(parsed.leaderboard[0].displayName, "Alice");
+      assert.equal(parsed.leaderboard[1].displayName, "Bob");
+    });
+
+    it("sorts by accuracy when sortBy is 'accuracy', with totalCorrect as tiebreaker", async () => {
+      await data.saveUser({ userId: "U1", displayName: "Alice", joinedAt: 1 });
+      await data.saveUser({ userId: "U2", displayName: "Bob", joinedAt: 2 });
+
+      // Alice: 2/3 = 67%
+      await data.saveAnswer({
+        userId: "U1",
+        questionId: "q1",
+        answer: true,
+        correct: true,
+        timestamp: 1,
+      });
+      await data.saveAnswer({
+        userId: "U1",
+        questionId: "q2",
+        answer: true,
+        correct: true,
+        timestamp: 2,
+      });
+      await data.saveAnswer({
+        userId: "U1",
+        questionId: "q3",
+        answer: true,
+        correct: false,
+        timestamp: 3,
+      });
+      // Bob: 1/1 = 100%
+      await data.saveAnswer({
+        userId: "U2",
+        questionId: "q1",
+        answer: true,
+        correct: true,
+        timestamp: 4,
+      });
+
+      const tool = createRetrieveScoresTool(data);
+      const result = await tool.handler({ limit: undefined, sortBy: "accuracy" }, SESSION);
+      const parsed = parseToolResult(result);
+
+      // sortBy "accuracy" — Bob (100%) beats Alice (67%) despite fewer total wins.
+      assert.equal(parsed.leaderboard[0].displayName, "Bob");
+      assert.equal(parsed.leaderboard[1].displayName, "Alice");
+    });
+
+    it("breaks accuracy ties using totalCorrect", async () => {
+      await data.saveUser({ userId: "U1", displayName: "Alice", joinedAt: 1 });
+      await data.saveUser({ userId: "U2", displayName: "Bob", joinedAt: 2 });
+
+      // Both 100% — Alice 5/5, Bob 1/1
+      for (let i = 1; i <= 5; i++) {
+        await data.saveAnswer({
+          userId: "U1",
+          questionId: `q${i}`,
+          answer: true,
+          correct: true,
+          timestamp: i,
+        });
+      }
+      await data.saveAnswer({
+        userId: "U2",
+        questionId: "q6",
+        answer: true,
+        correct: true,
+        timestamp: 6,
+      });
+
+      const tool = createRetrieveScoresTool(data);
+      const result = await tool.handler({ limit: undefined, sortBy: "accuracy" }, SESSION);
+      const parsed = parseToolResult(result);
+
+      // Same accuracy → tiebreaker is totalCorrect, so Alice (5/5) outranks Bob (1/1).
+      assert.equal(parsed.leaderboard[0].displayName, "Alice");
+      assert.equal(parsed.leaderboard[1].displayName, "Bob");
     });
 
     it("rounds accuracy correctly", async () => {
@@ -1012,7 +1131,7 @@ describe("trivia plugin", () => {
       });
 
       const tool = createRetrieveScoresTool(data);
-      const result = await tool.handler({ limit: undefined }, SESSION);
+      const result = await tool.handler({ limit: undefined, sortBy: undefined }, SESSION);
       const parsed = parseToolResult(result);
 
       const accuracy = parsed.leaderboard[0].accuracy;

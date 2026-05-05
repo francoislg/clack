@@ -20,7 +20,12 @@ interface CapturedProcessArgs {
 // Mocks
 // ============================================================================
 
-const mockProcessMessage = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
+// processMessage now returns a ClaudeResponse (the assistant handler reads `.skipped`).
+type ProcessMessageFn = AssistantDeps["processMessage"];
+const mockProcessMessage = mock.fn<ProcessMessageFn>(async () => ({
+  success: true,
+  answer: "",
+}));
 const mockFindSessionByThread = mock.fn<(...args: unknown[]) => Promise<unknown>>(async () => null);
 const mockUpdateSession = mock.fn<(...args: unknown[]) => Promise<unknown>>(async () => null);
 
@@ -365,7 +370,10 @@ describe("assistant userMessage", () => {
       getThreadContext: mockGetThreadContext,
     });
 
-    assert.equal(mockSetStatus.mock.callCount(), 1);
+    // Two calls: "Thinking..." before processMessage, then "" cleanup after.
+    assert.equal(mockSetStatus.mock.callCount(), 2);
+    assert.equal(mockSetStatus.mock.calls[0]!.arguments[0], "Thinking...");
+    assert.equal(mockSetStatus.mock.calls[1]!.arguments[0], "");
     assert.equal(mockProcessMessage.mock.callCount(), 1);
 
     const args = mockProcessMessage.mock.calls[0].arguments[0] as CapturedProcessArgs;

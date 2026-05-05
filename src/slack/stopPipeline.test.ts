@@ -1,25 +1,22 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { stopThread, type StopPipelineDeps } from "./stopPipeline.js";
-import type { InFlightRequest } from "./inFlightRequests.js";
 import type { ActiveChangeState } from "../changes/activeState.js";
 import type { SessionContext } from "../sessions.js";
 import type { ChangeStatus } from "../changes/types.js";
+import { makeFakeRunHandle, type FakeRunHandle } from "../claude/runHandle.testFixtures.js";
 
 interface FakeSetup {
-  inFlight: { key: string; request: InFlightRequest }[];
+  /** Handle returned by `getActiveRunByThread` for the (channel, thread) under test. */
+  queryHandle: FakeRunHandle | null;
   session: Partial<SessionContext> | null;
   activeChange: Partial<ActiveChangeState> | null;
-  deregistered: string[];
   disengagedSessionIds: string[];
 }
 
 function makeDeps(setup: FakeSetup): StopPipelineDeps {
   return {
-    findInFlightByThread: () => setup.inFlight,
-    deregisterInFlightRequest: (_channel, messageTs) => {
-      setup.deregistered.push(messageTs);
-    },
+    getActiveRunByThread: () => setup.queryHandle ?? undefined,
     findSessionByThread: async () => {
       if (!setup.session) return null;
       return setup.session as SessionContext;
@@ -34,79 +31,45 @@ function makeDeps(setup: FakeSetup): StopPipelineDeps {
   };
 }
 
-function makeRequest(overrides?: Partial<InFlightRequest>): InFlightRequest {
-  return {
-    abortController: new AbortController(),
-    sessionId: "s-1",
-    triggerType: "mentions",
-    threadTs: "t-1",
-    ...overrides,
-  };
-}
-
 describe("stopThread", () => {
-  it("aborts a single in-flight query and deregisters it", async () => {
-    const req = makeRequest();
+  it("stops the active query-side run when one is registered", async () => {
+    const handle = makeFakeRunHandle();
     const setup: FakeSetup = {
-      inFlight: [{ key: "C1:msg-1", request: req }],
+      queryHandle: handle,
       session: null,
       activeChange: null,
-      deregistered: [],
       disengagedSessionIds: [],
     };
     const result = await stopThread("C1", "t-1", "U1", "test", makeDeps(setup));
     assert.equal(result.queryAborted, 1);
     assert.equal(result.workerAborted, false);
     assert.equal(result.sessionDisengaged, false);
-    assert.equal(req.abortController.signal.aborted, true);
-    assert.deepEqual(setup.deregistered, ["msg-1"]);
+    assert.deepEqual(handle.stopCalls, ["test"]);
+    assert.equal(handle.status, "stopped");
   });
 
-  it("aborts multiple in-flight queries in the same thread", async () => {
-    const r1 = makeRequest({ sessionId: "a" });
-    const r2 = makeRequest({ sessionId: "b" });
+  it("skips an already-settled run handle", async () => {
+    const handle = makeFakeRunHandle("settled");
     const setup: FakeSetup = {
-      inFlight: [
-        { key: "C1:1.001", request: r1 },
-        { key: "C1:2.002", request: r2 },
-      ],
+      queryHandle: handle,
       session: null,
       activeChange: null,
-      deregistered: [],
-      disengagedSessionIds: [],
-    };
-    const result = await stopThread("C1", "t-1", "U1", "test", makeDeps(setup));
-    assert.equal(result.queryAborted, 2);
-    assert.equal(r1.abortController.signal.aborted, true);
-    assert.equal(r2.abortController.signal.aborted, true);
-    assert.deepEqual(setup.deregistered.sort(), ["1.001", "2.002"]);
-  });
-
-  it("skips already-aborted in-flight entries", async () => {
-    const req = makeRequest();
-    req.abortController.abort();
-    const setup: FakeSetup = {
-      inFlight: [{ key: "C1:msg-1", request: req }],
-      session: null,
-      activeChange: null,
-      deregistered: [],
       disengagedSessionIds: [],
     };
     const result = await stopThread("C1", "t-1", "U1", "test", makeDeps(setup));
     assert.equal(result.queryAborted, 0);
-    assert.deepEqual(setup.deregistered, ["msg-1"]);
+    assert.deepEqual(handle.stopCalls, []);
   });
 
-  it("aborts the worker and sets cancelledBy during executing state", async () => {
-    const abortController = new AbortController();
+  it("stops the worker run and sets cancelledBy during executing state", async () => {
+    const workerHandle = makeFakeRunHandle();
     const setup: FakeSetup = {
-      inFlight: [],
+      queryHandle: null,
       session: { sessionId: "s-1", autoResponseActive: true },
       activeChange: {
         status: "executing" as ChangeStatus,
-        abortController,
+        handle: workerHandle,
       },
-      deregistered: [],
       disengagedSessionIds: [],
     };
     const result = await stopThread(
@@ -117,40 +80,38 @@ describe("stopThread", () => {
       makeDeps(setup),
     );
     assert.equal(result.workerAborted, true);
-    assert.equal(abortController.signal.aborted, true);
+    assert.deepEqual(workerHandle.stopCalls, ["stopped via reaction"]);
     assert.deepEqual(setup.activeChange?.cancelledBy, {
       userId: "U-reactor",
       reason: "stopped via reaction",
     });
   });
 
-  it("does not abort a worker in terminal state", async () => {
-    const abortController = new AbortController();
+  it("does not stop a worker in terminal state", async () => {
     for (const status of ["completed", "failed", "cancelled"] as ChangeStatus[]) {
+      const workerHandle = makeFakeRunHandle();
       const setup: FakeSetup = {
-        inFlight: [],
+        queryHandle: null,
         session: { sessionId: "s-1", autoResponseActive: true },
-        activeChange: { status, abortController },
-        deregistered: [],
+        activeChange: { status, handle: workerHandle },
         disengagedSessionIds: [],
       };
       const result = await stopThread("C1", "t-1", "U1", "test", makeDeps(setup));
-      assert.equal(result.workerAborted, false, `expected no worker abort for status ${status}`);
-      assert.equal(abortController.signal.aborted, false);
+      assert.equal(result.workerAborted, false, `expected no worker stop for status ${status}`);
+      assert.deepEqual(workerHandle.stopCalls, [], `expected no stop call for status ${status}`);
     }
   });
 
   it("does not overwrite an existing cancelledBy", async () => {
-    const abortController = new AbortController();
+    const workerHandle = makeFakeRunHandle();
     const setup: FakeSetup = {
-      inFlight: [],
+      queryHandle: null,
       session: { sessionId: "s-1", autoResponseActive: true },
       activeChange: {
         status: "executing" as ChangeStatus,
-        abortController,
+        handle: workerHandle,
         cancelledBy: { userId: "U-first", reason: "first" },
       },
-      deregistered: [],
       disengagedSessionIds: [],
     };
     await stopThread("C1", "t-1", "U-second", "second", makeDeps(setup));
@@ -159,10 +120,9 @@ describe("stopThread", () => {
 
   it("disengages an active session", async () => {
     const setup: FakeSetup = {
-      inFlight: [],
+      queryHandle: null,
       session: { sessionId: "s-disengage", autoResponseActive: true },
       activeChange: null,
-      deregistered: [],
       disengagedSessionIds: [],
     };
     const result = await stopThread("C1", "t-1", "U1", "test", makeDeps(setup));
@@ -172,10 +132,9 @@ describe("stopThread", () => {
 
   it("is idempotent on already-disengaged sessions", async () => {
     const setup: FakeSetup = {
-      inFlight: [],
+      queryHandle: null,
       session: { sessionId: "s-already", autoResponseActive: false },
       activeChange: null,
-      deregistered: [],
       disengagedSessionIds: [],
     };
     const result = await stopThread("C1", "t-1", "U1", "test", makeDeps(setup));
@@ -183,39 +142,32 @@ describe("stopThread", () => {
     assert.deepEqual(setup.disengagedSessionIds, []);
   });
 
-  it("no-ops when there is no session and no in-flight work", async () => {
+  it("no-ops when there is no session and no active run", async () => {
     const setup: FakeSetup = {
-      inFlight: [],
+      queryHandle: null,
       session: null,
       activeChange: null,
-      deregistered: [],
       disengagedSessionIds: [],
     };
     const result = await stopThread("C1", "t-1", "U1", "test", makeDeps(setup));
     assert.deepEqual(result, { queryAborted: 0, workerAborted: false, sessionDisengaged: false });
   });
 
-  it("combines query abort, worker abort, and disengage in a single call", async () => {
-    const queryAbort = new AbortController();
-    const workerAbort = new AbortController();
+  it("combines query stop, worker stop, and disengage in a single call", async () => {
+    const queryHandle = makeFakeRunHandle();
+    const workerHandle = makeFakeRunHandle();
     const setup: FakeSetup = {
-      inFlight: [
-        {
-          key: "C1:msg-1",
-          request: makeRequest({ abortController: queryAbort }),
-        },
-      ],
+      queryHandle,
       session: { sessionId: "s-combo", autoResponseActive: true },
-      activeChange: { status: "executing" as ChangeStatus, abortController: workerAbort },
-      deregistered: [],
+      activeChange: { status: "executing" as ChangeStatus, handle: workerHandle },
       disengagedSessionIds: [],
     };
     const result = await stopThread("C1", "t-1", "U-reactor", "combo test", makeDeps(setup));
     assert.equal(result.queryAborted, 1);
     assert.equal(result.workerAborted, true);
     assert.equal(result.sessionDisengaged, true);
-    assert.equal(queryAbort.signal.aborted, true);
-    assert.equal(workerAbort.signal.aborted, true);
+    assert.deepEqual(queryHandle.stopCalls, ["combo test"]);
+    assert.deepEqual(workerHandle.stopCalls, ["combo test"]);
     assert.deepEqual(setup.disengagedSessionIds, ["s-combo"]);
   });
 });

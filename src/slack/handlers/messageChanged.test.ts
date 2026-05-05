@@ -1,32 +1,45 @@
 import { describe, it, mock, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
-import type { InFlightRequest } from "../inFlightRequests.js";
+import type { SessionContext } from "../../sessions.js";
+import type { ClaudeResponse } from "../../claude/index.js";
+import { makeFakeRunHandle } from "../../claude/runHandle.testFixtures.js";
 import { registerMessageChangedHandler, type MessageChangedDeps } from "./messageChanged.js";
 
-// ============================================================================
-// Helpers
-// ============================================================================
+type ProcessMessageFn = MessageChangedDeps["processMessage"];
+type ConfigShape = ReturnType<MessageChangedDeps["getConfig"]>;
 
-const mockProcessMessage = mock.fn<(...args: never[]) => Promise<void>>(async () => {});
-const mockGetInFlightRequest = mock.fn<
-  (channelId: string, messageTs: string) => InFlightRequest | undefined
->(() => undefined);
-const mockDeregisterInFlightRequest = mock.fn<(channelId: string, messageTs: string) => void>();
+const mockProcessMessage = mock.fn<ProcessMessageFn>(
+  async (): Promise<ClaudeResponse> => ({
+    success: true,
+    answer: "",
+  }),
+);
+const mockGetActiveRun = mock.fn<MessageChangedDeps["getActiveRunForChannelMessage"]>(
+  () => undefined,
+);
+const mockFindSessionByThread = mock.fn<MessageChangedDeps["findSessionByThread"]>(
+  async () => null,
+);
+
+const fakeConfig: ConfigShape = {
+  directMessages: { enabled: true },
+  mentions: { enabled: true },
+} as ConfigShape;
 
 function makeDeps(): MessageChangedDeps {
   return {
-    getConfig: () => ({ directMessages: { enabled: true }, mentions: { enabled: true } }) as never,
-    getInFlightRequest: mockGetInFlightRequest,
-    deregisterInFlightRequest: mockDeregisterInFlightRequest,
-    processMessage: mockProcessMessage as never,
+    getConfig: () => fakeConfig,
+    getActiveRunForChannelMessage: mockGetActiveRun,
+    findSessionByThread: mockFindSessionByThread,
+    processMessage: mockProcessMessage,
   };
 }
 
 interface TestMessageEvent {
   subtype?: string;
   channel?: string;
-  message?: { ts?: string; text?: string; user?: string };
+  message?: { ts?: string; text?: string; user?: string; thread_ts?: string };
   previous_message?: { ts?: string; text?: string };
 }
 
@@ -34,40 +47,31 @@ type EventHandler = (args: { event: TestMessageEvent; client: App["client"] }) =
 
 let capturedHandler: EventHandler;
 
-function makeApp(): App {
-  return {
-    event: (_eventType: string, handler: EventHandler) => {
-      capturedHandler = handler;
-    },
-  } as App;
-}
+const fakeApp: App = {
+  event: (_eventType: string, handler: EventHandler) => {
+    capturedHandler = handler;
+  },
+} as App;
 
 function makeClient(botUserId = "B001"): App["client"] {
-  return {
-    auth: {
-      test: mock.fn(async () => ({ user_id: botUserId })),
-    },
-  } as never;
+  const fakeClient: App["client"] = {
+    auth: { test: async () => ({ user_id: botUserId }) },
+  } as App["client"];
+  return fakeClient;
 }
 
-function makeInFlightRequest(overrides: Partial<InFlightRequest> = {}): InFlightRequest {
-  return {
-    abortController: new AbortController(),
-    sessionId: "session-1",
-    triggerType: "mentions",
-    threadTs: "thread-default",
-    ...overrides,
-  };
+function makeSession(triggerType: SessionContext["triggerType"]): SessionContext {
+  return { sessionId: "session-1", triggerType } as SessionContext;
 }
 
 beforeEach(() => {
   mockProcessMessage.mock.resetCalls();
-  mockGetInFlightRequest.mock.resetCalls();
-  mockDeregisterInFlightRequest.mock.resetCalls();
+  mockGetActiveRun.mock.resetCalls();
+  mockGetActiveRun.mock.mockImplementation(() => undefined);
+  mockFindSessionByThread.mock.resetCalls();
+  mockFindSessionByThread.mock.mockImplementation(async () => null);
 
-  // Re-register handler each test
-  const app = makeApp();
-  registerMessageChangedHandler(app, makeDeps());
+  registerMessageChangedHandler(fakeApp, makeDeps());
 });
 
 // ============================================================================
@@ -81,27 +85,18 @@ describe("registerMessageChangedHandler", () => {
 
   it("ignores events that are not message_changed subtype", async () => {
     await capturedHandler({
-      event: {
-        subtype: undefined,
-        channel: "C001",
-      },
+      event: { subtype: undefined, channel: "C001" },
       client: makeClient(),
     });
-
-    assert.equal(mockGetInFlightRequest.mock.callCount(), 0);
+    assert.equal(mockGetActiveRun.mock.callCount(), 0);
   });
 
   it("ignores message_changed when messageTs is missing", async () => {
     await capturedHandler({
-      event: {
-        subtype: "message_changed",
-        channel: "C001",
-        message: { text: "new text" },
-      },
+      event: { subtype: "message_changed", channel: "C001", message: { text: "new text" } },
       client: makeClient(),
     });
-
-    assert.equal(mockGetInFlightRequest.mock.callCount(), 0);
+    assert.equal(mockGetActiveRun.mock.callCount(), 0);
   });
 
   it("ignores when text has not changed (metadata-only update)", async () => {
@@ -114,13 +109,10 @@ describe("registerMessageChangedHandler", () => {
       },
       client: makeClient(),
     });
-
-    assert.equal(mockGetInFlightRequest.mock.callCount(), 0);
+    assert.equal(mockGetActiveRun.mock.callCount(), 0);
   });
 
-  it("ignores when no in-flight request exists for the message", async () => {
-    mockGetInFlightRequest.mock.mockImplementation(() => undefined);
-
+  it("ignores when no active run exists for the thread", async () => {
     await capturedHandler({
       event: {
         subtype: "message_changed",
@@ -130,16 +122,14 @@ describe("registerMessageChangedHandler", () => {
       },
       client: makeClient(),
     });
-
-    assert.equal(mockGetInFlightRequest.mock.callCount(), 1);
-    assert.equal(mockDeregisterInFlightRequest.mock.callCount(), 0);
+    assert.equal(mockGetActiveRun.mock.callCount(), 1);
+    assert.equal(mockProcessMessage.mock.callCount(), 0);
   });
 
-  it("aborts and deregisters in-flight request when text changes", async () => {
-    const inFlight = makeInFlightRequest({ triggerType: "mentions" });
-    mockGetInFlightRequest.mock.mockImplementation(() => inFlight);
-
-    const client = makeClient("B001");
+  it("appends edited mention text onto the live run via sendUpdate", async () => {
+    const handle = makeFakeRunHandle();
+    mockGetActiveRun.mock.mockImplementation(() => handle);
+    mockFindSessionByThread.mock.mockImplementation(async () => makeSession("mentions"));
 
     await capturedHandler({
       event: {
@@ -148,50 +138,18 @@ describe("registerMessageChangedHandler", () => {
         message: { ts: "1700000000.000001", text: "<@B001> updated question", user: "U001" },
         previous_message: { ts: "1700000000.000001", text: "<@B001> old question" },
       },
-      client,
+      client: makeClient("B001"),
     });
 
-    assert.equal(mockDeregisterInFlightRequest.mock.callCount(), 1);
-    assert.equal(inFlight.abortController.signal.aborted, true);
+    assert.deepEqual(handle.sendUpdateCalls, ["updated question"]);
+    assert.deepEqual(handle.stopCalls, []);
+    assert.equal(mockProcessMessage.mock.callCount(), 0);
   });
 
-  it("restarts with cleaned text for mentions trigger", async () => {
-    const inFlight = makeInFlightRequest({ triggerType: "mentions" });
-    mockGetInFlightRequest.mock.mockImplementation(() => inFlight);
-
-    const client = makeClient("B001");
-
-    await capturedHandler({
-      event: {
-        subtype: "message_changed",
-        channel: "C001",
-        message: { ts: "1700000000.000001", text: "<@B001> updated question", user: "U001" },
-        previous_message: { ts: "1700000000.000001", text: "<@B001> old question" },
-      },
-      client,
-    });
-
-    assert.equal(mockProcessMessage.mock.callCount(), 1);
-    interface ProcessMessageArg {
-      messageText: string;
-      channelId: string;
-      messageTs: string;
-      userId: string;
-      triggerType: string;
-    }
-    const args = mockProcessMessage.mock.calls[0]!.arguments[0] as ProcessMessageArg;
-    assert.equal(args.messageText, "updated question");
-    assert.equal(args.channelId, "C001");
-    assert.equal(args.messageTs, "1700000000.000001");
-    assert.equal(args.userId, "U001");
-    assert.equal(args.triggerType, "mentions");
-  });
-
-  it("does not restart for mentions when bot mention is removed", async () => {
-    const inFlight = makeInFlightRequest({ triggerType: "mentions" });
-    mockGetInFlightRequest.mock.mockImplementation(() => inFlight);
-
-    const client = makeClient("B001");
+  it("does not append for mentions when bot mention is removed", async () => {
+    const handle = makeFakeRunHandle();
+    mockGetActiveRun.mock.mockImplementation(() => handle);
+    mockFindSessionByThread.mock.mockImplementation(async () => makeSession("mentions"));
 
     await capturedHandler({
       event: {
@@ -200,37 +158,17 @@ describe("registerMessageChangedHandler", () => {
         message: { ts: "1700000000.000001", text: "no mention here", user: "U001" },
         previous_message: { ts: "1700000000.000001", text: "<@B001> old question" },
       },
-      client,
+      client: makeClient("B001"),
     });
 
-    // Should still abort, but not restart
-    assert.equal(mockDeregisterInFlightRequest.mock.callCount(), 1);
-    assert.equal(mockProcessMessage.mock.callCount(), 0);
+    assert.deepEqual(handle.sendUpdateCalls, []);
+    assert.deepEqual(handle.stopCalls, []);
   });
 
-  it("does not restart for mentions when text after mention is empty", async () => {
-    const inFlight = makeInFlightRequest({ triggerType: "mentions" });
-    mockGetInFlightRequest.mock.mockImplementation(() => inFlight);
-
-    const client = makeClient("B001");
-
-    await capturedHandler({
-      event: {
-        subtype: "message_changed",
-        channel: "C001",
-        message: { ts: "1700000000.000001", text: "<@B001>", user: "U001" },
-        previous_message: { ts: "1700000000.000001", text: "<@B001> old question" },
-      },
-      client,
-    });
-
-    assert.equal(mockDeregisterInFlightRequest.mock.callCount(), 1);
-    assert.equal(mockProcessMessage.mock.callCount(), 0);
-  });
-
-  it("restarts with new text for directMessages trigger", async () => {
-    const inFlight = makeInFlightRequest({ triggerType: "directMessages" });
-    mockGetInFlightRequest.mock.mockImplementation(() => inFlight);
+  it("appends edited DM text onto the live run via sendUpdate", async () => {
+    const handle = makeFakeRunHandle();
+    mockGetActiveRun.mock.mockImplementation(() => handle);
+    mockFindSessionByThread.mock.mockImplementation(async () => makeSession("directMessages"));
 
     await capturedHandler({
       event: {
@@ -242,50 +180,25 @@ describe("registerMessageChangedHandler", () => {
       client: makeClient(),
     });
 
-    assert.equal(mockProcessMessage.mock.callCount(), 1);
-    interface ProcessMessageArg {
-      messageText: string;
-      triggerType: string;
-    }
-    const args = mockProcessMessage.mock.calls[0]!.arguments[0] as ProcessMessageArg;
-    assert.equal(args.messageText, "edited DM");
-    assert.equal(args.triggerType, "directMessages");
+    assert.deepEqual(handle.sendUpdateCalls, ["edited DM"]);
+    assert.deepEqual(handle.stopCalls, []);
+    assert.equal(mockProcessMessage.mock.callCount(), 0);
   });
 
-  it("does not restart for directMessages when new text is empty", async () => {
-    const inFlight = makeInFlightRequest({ triggerType: "directMessages" });
-    mockGetInFlightRequest.mock.mockImplementation(() => inFlight);
+  it("ignores already-settled handles", async () => {
+    const handle = makeFakeRunHandle("settled");
+    mockGetActiveRun.mock.mockImplementation(() => handle);
 
     await capturedHandler({
       event: {
         subtype: "message_changed",
         channel: "D001",
-        message: { ts: "1700000000.000001", text: "   ", user: "U001" },
+        message: { ts: "1700000000.000001", text: "edited DM", user: "U001" },
         previous_message: { ts: "1700000000.000001", text: "original DM" },
       },
       client: makeClient(),
     });
 
-    assert.equal(mockDeregisterInFlightRequest.mock.callCount(), 1);
-    assert.equal(mockProcessMessage.mock.callCount(), 0);
-  });
-
-  it("handles missing previous_message gracefully", async () => {
-    const inFlight = makeInFlightRequest({ triggerType: "directMessages" });
-    mockGetInFlightRequest.mock.mockImplementation(() => inFlight);
-
-    await capturedHandler({
-      event: {
-        subtype: "message_changed",
-        channel: "D001",
-        message: { ts: "1700000000.000001", text: "new text", user: "U001" },
-        // no previous_message
-      },
-      client: makeClient(),
-    });
-
-    // previous text defaults to "", which differs from "new text", so it proceeds
-    assert.equal(mockDeregisterInFlightRequest.mock.callCount(), 1);
-    assert.equal(mockProcessMessage.mock.callCount(), 1);
+    assert.deepEqual(handle.sendUpdateCalls, []);
   });
 });

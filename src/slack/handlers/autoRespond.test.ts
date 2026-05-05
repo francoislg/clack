@@ -60,7 +60,9 @@ function makeDeps(overrides: Partial<AutoRespondDeps> = {}): AutoRespondDeps {
     findSession: async () => null,
     setActive: mock.fn(async () => {}),
     preAnalysis: mock.fn(async () => "respond" as const),
+    activeRunPreAnalysis: mock.fn(async () => "append" as const),
     loadSharedContext: () => "",
+    getActiveRun: () => undefined,
     ...overrides,
   };
 }

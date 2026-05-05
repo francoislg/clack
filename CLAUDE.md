@@ -24,7 +24,11 @@ npm run test         # Run tests (node --test)
 npx tsc              # Type-check without emitting (use to verify changes)
 ```
 
-No ESLint configured — rely on TypeScript strict mode for correctness.
+**Linter:** **oxlint**, not ESLint. Run `npx oxlint <files>`.
+
+**Formatter:** **oxfmt**, not Prettier. Run `npx oxfmt <files>` to fix. Do NOT run `prettier --write` — its output differs from oxfmt's and the pre-commit hook will still reject the commit.
+
+**Pre-commit hook (lefthook):** runs three checks in parallel on staged files — `oxlint`, `oxfmt --check`, and the full `npm test` suite. All three must pass. If `oxfmt --check` fails, run `npx oxfmt` on the flagged files and re-stage.
 
 ## Key Conventions
 
@@ -53,21 +57,25 @@ Each mode is independently configured with its own thinking indicator and Change
 ### Internal MCP Tools (`src/tools/`)
 
 Claude is given a local MCP server (built in `src/tools/server.ts`). Key rules:
+
 - Claude **must** call `submit_response` to deliver answers — it cannot just print text
 - Action tools (`propose_change`, `request_update`, etc.) stage intents that become Slack buttons
 - Worker tools (`git_push`, `ensure_pr`, etc.) are only available in the Changes Workflow
 
 Query tools (role-gated):
+
 - `list_repositories`, `git_log`, `deepen_history` — available to all
 - `find_sessions`, `find_changes`, `find_pull_requests`, `resolve_review_thread` — dev+ only
 - `find_user` — available when Slack client is present
 - `list_config_files`, `read_config_file` — admin+ only
 
 Action tools:
+
 - `propose_change`, `request_update` — dev+ with Changes Workflow enabled
 - `propose_config_update` — admin+ only
 
 Worker tools (in worktree context):
+
 - `git_push`, `ensure_pr`, `merge_pr`, `close_pr`, `resolve_review_thread`, `report_status`
 
 ### Role System (4 tiers)
@@ -83,7 +91,7 @@ Managed via the Home Tab in Slack. Per-repo access control with `read` and `writ
 - Template variables like `{BOT_NAME}` are substituted at runtime (see `src/claude/promptBuilder.ts`)
 - Per-repo instructions: `{repo}/changes_instructions.md` and `{repo}/worktree_setup_instructions.md`
 - Admins can edit instruction overrides from the Home Tab
-- **Baseline vs topic files**: `{role}/*.md` at the top level are *baseline* files — always loaded. `{role}/topics/<topic>/*.md` are *topic* files — loaded only when `attach_integration("<topic>")` activates that topic mid-session. Both layers cascade through the role chain (member → dev → admin → owner) the same way; baseline resolution explicitly skips the `topics/` folder. See `src/cascadingConfigResolver.ts` and the MCP registry in `data/config.json` (`mcpServers: { <name>: { alwaysLoad, description } }`) which governs which integrations get lazy-loaded via the catalog
+- **Baseline vs topic files**: `{role}/*.md` at the top level are _baseline_ files — always loaded. `{role}/topics/<topic>/*.md` are _topic_ files — loaded only when `attach_integration("<topic>")` activates that topic mid-session. Both layers cascade through the role chain (member → dev → admin → owner) the same way; baseline resolution explicitly skips the `topics/` folder. See `src/cascadingConfigResolver.ts` and the MCP registry in `data/config.json` (`mcpServers: { <name>: { alwaysLoad, description } }`) which governs which integrations get lazy-loaded via the catalog
 
 ### Changes Workflow
 
@@ -92,6 +100,7 @@ Optional feature (gated by `changesWorkflow.enabled`). Dev+ users request change
 ### Data Directory Layout
 
 All runtime data lives in `data/` (mostly gitignored):
+
 - `config.json` — main runtime config
 - `auth/` — credentials (slack.json, github.json, .env, github-app.pem)
 - `repositories/` — cloned repos
@@ -176,3 +185,14 @@ This project uses OpenSpec for spec-driven development.
 ## Migrations
 
 When creating boot migrations, **always use `/create-migration`**. This skill scaffolds the migration file, registers it, creates test cases, and registers them in the test runner. Never create migration files manually.
+
+## graphify
+
+This project has a graphify knowledge graph at graphify-out/.
+
+Rules:
+
+- Before answering architecture or codebase questions, read graphify-out/GRAPH_REPORT.md for god nodes and community structure
+- If graphify-out/wiki/index.md exists, navigate it instead of reading raw files
+- For cross-module "how does X relate to Y" questions, prefer `graphify query "<question>"`, `graphify path "<A>" "<B>"`, or `graphify explain "<concept>"` over grep — these traverse the graph's EXTRACTED + INFERRED edges instead of scanning files
+- After modifying code files in this session, run `graphify update .` to keep the graph current (AST-only, no API cost)

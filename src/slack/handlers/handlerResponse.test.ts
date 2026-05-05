@@ -2,6 +2,7 @@ import { describe, it, mock, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
 import type { ClaudeResponse, AskClaudeOptions } from "../../claude/index.js";
+import type { ClaudeRunHandle } from "../../claude/runHandle.js";
 import type { SessionContext } from "../../sessions.js";
 import type { SessionInfo } from "../activeSessions.js";
 import type { SlackBlocks } from "../blocks.js";
@@ -16,10 +17,33 @@ import {
 // Mocks
 // ============================================================================
 
-const mockAskClaude = mock.fn<(...args: never[]) => Promise<ClaudeResponse>>(async () => ({
+type AskClaudeArgs = Parameters<HandlerResponseDeps["askClaude"]>;
+
+const mockAskClaude = mock.fn<(...args: AskClaudeArgs) => Promise<ClaudeResponse>>(async () => ({
   success: true,
   answer: "test answer",
 }));
+
+/**
+ * Wraps `mockAskClaude` to satisfy `askClaude`'s real signature (returns a `ClaudeRunHandle`).
+ * Each test still configures `mockAskClaude` to return a `ClaudeResponse`; this adapter
+ * packages it into a fake handle whose `futureResponse` resolves immediately. Rejections
+ * from `mockAskClaude` propagate as-is.
+ */
+function fakeHandleFromResponse(response: ClaudeResponse): ClaudeRunHandle {
+  return {
+    sendUpdate: async () => {},
+    stop: async () => {},
+    futureResponse: Promise.resolve(response),
+    status: "settled",
+    hasPendingInput: () => false,
+  };
+}
+
+async function askClaudeAdapter(...args: AskClaudeArgs): Promise<ClaudeRunHandle> {
+  const response = await mockAskClaude(...args);
+  return fakeHandleFromResponse(response);
+}
 
 const mockAppendAssistantMessage = mock.fn<
   NonNullable<HandlerResponseDeps["appendAssistantMessage"]>
@@ -73,7 +97,7 @@ function resetStreamerInstance(overrides?: {
 
 function makeDeps(): HandlerResponseDeps {
   return {
-    askClaude: mockAskClaude as never,
+    askClaude: askClaudeAdapter,
     analyzeError: mockAnalyzeError as never,
     updateSession: mockUpdateSession as never,
     addError: mockAddError as never,

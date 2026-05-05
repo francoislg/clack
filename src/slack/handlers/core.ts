@@ -6,6 +6,7 @@ import {
   getSession,
   updateSession,
   updateThreadContext,
+  appendUserMessage,
 } from "../../sessions.js";
 import { getConfig, type Config } from "../../config.js";
 import { logger } from "../../logger.js";
@@ -17,13 +18,29 @@ import { openDmChannel } from "../channelResolver.js";
 import { resolveChannelLabel, resolveUserLabel, slackLink } from "../logContext.js";
 import { getClaudeOptions } from "./changeWorkflowHelper.js";
 import { getReactionDelivery } from "../../userPreferences.js";
-import { registerInFlightRequest, deregisterInFlightRequest } from "../inFlightRequests.js";
+import { getForChannelMessage as getActiveRunForChannelMessage } from "../activeRuns.js";
+import { addDeliveryReactions } from "../messageReactions.js";
 import { storeDmCoordinates } from "../dmResponse.js";
 import { executeAndDeliver } from "./handlerResponse.js";
 import type { TriggerType } from "../../changes/types.js";
 import type { SlackImageFile, SlackFile } from "../slackFileBase.js";
 import type { AskClaudeOptions, ClaudeResponse } from "../../claude/index.js";
 import type { SessionInfo } from "../activeSessions.js";
+
+/**
+ * Default emoji applied to a user message when their follow-up is appended onto an
+ * in-flight Claude run via `handle.sendUpdate`. Overridable via `config.reactions.queuedFollowup`
+ * (set to `null` or empty to disable).
+ */
+const DEFAULT_QUEUED_FOLLOWUP_REACTION = "eyes";
+
+function resolveQueuedFollowupReaction(config: Config): string | null {
+  // `undefined` => not set in config => use default; `null`/empty => explicitly disabled.
+  const configured = config.reactions?.queuedFollowup;
+  if (configured === null) return null;
+  if (configured === undefined) return DEFAULT_QUEUED_FOLLOWUP_REACTION;
+  return configured || null;
+}
 
 export interface CoreDeps {
   findSessionByThread: (channelId: string, threadTs: string) => Promise<SessionContext | null>;
@@ -45,10 +62,9 @@ export interface CoreDeps {
   slackLink: typeof slackLink;
   getClaudeOptions: (userId: string, triggerType: TriggerType) => Promise<AskClaudeOptions>;
   getReactionDelivery: (userId: string) => Promise<string>;
-  registerInFlightRequest: typeof registerInFlightRequest;
-  deregisterInFlightRequest: typeof deregisterInFlightRequest;
   storeDmCoordinates: typeof storeDmCoordinates;
   executeAndDeliver: typeof executeAndDeliver;
+  appendUserMessage: typeof appendUserMessage;
 }
 
 export const defaultCoreDeps: CoreDeps = {
@@ -68,10 +84,9 @@ export const defaultCoreDeps: CoreDeps = {
   slackLink,
   getClaudeOptions,
   getReactionDelivery,
-  registerInFlightRequest,
-  deregisterInFlightRequest,
   storeDmCoordinates,
   executeAndDeliver,
+  appendUserMessage,
 };
 
 export interface ProcessMessageParams {
@@ -352,41 +367,6 @@ async function setupDmDelivery(
 }
 
 // ============================================================
-// IN-FLIGHT REQUEST TRACKING
-// ============================================================
-
-/**
- * Register an in-flight request for cancellation support, execute the callback,
- * and deregister when done. Every Claude query — regardless of trigger type — is
- * cancellable; `stopThread` finds requests by channel + thread, so it doesn't
- * care which surface started the run.
- */
-async function withInFlightTracking<T>(
-  info: {
-    channelId: string;
-    messageTs: string;
-    threadTs: string;
-    triggerType: TriggerType;
-    sessionId: string;
-    abortController: AbortController;
-  },
-  fn: () => Promise<T>,
-  deps: CoreDeps,
-): Promise<T> {
-  deps.registerInFlightRequest(info.channelId, info.messageTs, {
-    abortController: info.abortController,
-    sessionId: info.sessionId,
-    triggerType: info.triggerType,
-    threadTs: info.threadTs,
-  });
-  try {
-    return await fn();
-  } finally {
-    deps.deregisterInFlightRequest(info.channelId, info.messageTs);
-  }
-}
-
-// ============================================================
 // ASSISTANT CONTEXT
 // ============================================================
 
@@ -440,6 +420,53 @@ export async function processMessage(
   }
 
   const effectiveThreadTs = threadTs || messageTs;
+
+  // Active-runs queueing per the original spec: if a Claude run is already in flight for
+  // this conversation, push the new message into it via `handle.sendUpdate(text)`. The
+  // handle's first-result-wins semantics deliver the queued text to the model only if it
+  // arrives before the live run produces its first `result`. On rejection (run settled
+  // between the lookup and the push), fall through to the normal fresh-spawn path.
+  // Skip empty/whitespace text — pushing "" into the live SDK stream is not useful.
+  const existingRun = getActiveRunForChannelMessage(channelId, effectiveThreadTs, userId);
+  if (existingRun && messageText.trim().length > 0) {
+    try {
+      await existingRun.sendUpdate(messageText);
+      logger.debug(
+        `processMessage: appended follow-up to active run for ${channelId}:${effectiveThreadTs}`,
+      );
+      // Persist the follow-up into the session's `messages[]` so debug-session and
+      // find_session_transcript see it. Without this, the SDK JSONL records the new user
+      // turn but the Clack session log stays out of sync — the assistant's combined
+      // response would appear to come from nowhere. Best-effort: a session miss just means
+      // we couldn't attribute the follow-up (rare; the run wouldn't be in the registry
+      // without an owning session).
+      const followupSession = await deps.findSessionByThread(channelId, effectiveThreadTs);
+      if (followupSession) {
+        await deps.appendUserMessage(followupSession.sessionId, {
+          role: "user",
+          source: "reply",
+          text: messageText,
+          ts: Date.now(),
+        });
+      } else {
+        logger.warn(
+          `processMessage: in-flight run for ${channelId}:${effectiveThreadTs} has no session — follow-up text not persisted to messages[]`,
+        );
+      }
+      // Visible ack so the user sees their follow-up was accepted into the running
+      // conversation. Configurable via `reactions.queuedFollowup` (null/empty disables).
+      const ackEmoji = resolveQueuedFollowupReaction(config);
+      if (ackEmoji) {
+        await addDeliveryReactions(client, channelId, messageTs, [ackEmoji]);
+      }
+      return { success: true, skipped: true, answer: "" };
+    } catch (err) {
+      logger.debug(
+        `processMessage: existing run rejected sendUpdate (${err instanceof Error ? err.message : String(err)}); spawning a fresh run`,
+      );
+      // fall through
+    }
+  }
 
   const ctx: ProcessingContext = {
     client,
@@ -516,36 +543,26 @@ export async function processMessage(
   const availableImages = imageMap;
   const availableFiles = fileMap;
 
-  // 6. Build Claude options and execute
+  // 6. Build Claude options and execute. The active-runs registry replaces the previous
+  // in-flight tracking wrapper — `askClaude` registers itself under (channelId, threadTs)
+  // when the run is constructed and deregisters via the handle's `onTerminal` hook.
   const claudeOptions = await deps.getClaudeOptions(userId, triggerType);
   const abortController = new AbortController();
 
-  return withInFlightTracking(
-    {
-      channelId,
-      messageTs,
-      threadTs: effectiveThreadTs,
-      triggerType,
-      sessionId: session.sessionId,
-      abortController,
+  return deps.executeAndDeliver({
+    client,
+    session,
+    sessionInfo,
+    claudeOptions: {
+      ...claudeOptions,
+      workMode,
+      availableImages,
+      availableFiles,
+      requiredTools: ctx.requiredTools,
+      skipConditions: ctx.skipConditions,
     },
-    () =>
-      deps.executeAndDeliver({
-        client,
-        session,
-        sessionInfo,
-        claudeOptions: {
-          ...claudeOptions,
-          workMode,
-          availableImages,
-          availableFiles,
-          requiredTools: ctx.requiredTools,
-          skipConditions: ctx.skipConditions,
-        },
-        abortController,
-        silentThinking,
-        preAnalysis: ctx.preAnalysis,
-      }),
-    deps,
-  );
+    abortController,
+    silentThinking,
+    preAnalysis: ctx.preAnalysis,
+  });
 }

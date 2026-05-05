@@ -17,6 +17,7 @@ import { buildWorkerContext } from "../tools/context.js";
 import { buildClackTools } from "../tools/server.js";
 import { discoverEagerSkillPlugins } from "../skillPlugins.js";
 import type { StreamEvent } from "../streaming/types.js";
+import type { ClaudeRunHandle } from "../claude/runHandle.js";
 import { truncate } from "../text.js";
 
 export interface RunClaudeDeps {
@@ -47,6 +48,12 @@ export async function runClaude(options: {
   onSessionId?: (sessionId: string) => void;
   /** External AbortController for cancellation support. If omitted, one is created internally. */
   abortController?: AbortController;
+  /**
+   * Receives the live `ClaudeRunHandle` once the run starts, before the first SDK message.
+   * Workflow callers use this to expose `sendUpdate` / `stop` to Slack handlers via the
+   * active-runs registry. Fires synchronously after `clackSession` returns.
+   */
+  onHandle?: (handle: ClaudeRunHandle) => void;
   /** Dependencies for testing — leave unset in production. */
   _deps?: RunClaudeDeps;
 }): Promise<{ success: boolean; text: string; error?: string; lastMessage?: string }> {
@@ -80,14 +87,6 @@ export async function runClaude(options: {
   log?.(`Prompt length: ${options.prompt.length} chars`);
   log?.(`Timeout: ${timeoutMs / 60000} minutes`);
 
-  // Timeout via AbortController (use caller-provided controller for external cancellation support)
-  const abortController = options.abortController ?? new AbortController();
-  let timedOut = false;
-  const timeoutId = setTimeout(() => {
-    timedOut = true;
-    abortController.abort();
-  }, timeoutMs);
-
   // Heartbeat logging
   let lastOutputTime = Date.now();
   let outputReceived = false;
@@ -106,36 +105,58 @@ export async function runClaude(options: {
   let resultError: string | undefined;
   const parser = new ClaudeMessageParser(options.onEvent);
 
-  try {
-    for await (const message of deps.clackSession({
-      prompt: options.prompt,
-      resumeSessionId: options.resumeSessionId,
-      onSessionId: options.onSessionId,
-      options: {
-        cwd: options.cwd,
-        executable: detectRuntime(),
-        systemPrompt: options.systemPrompt,
-        allowedTools: options.allowedTools,
-        disallowedTools: options.disallowedTools,
-        permissionMode: "bypassPermissions",
-        allowDangerouslySkipPermissions: true,
-        plugins: discoverEagerSkillPlugins(),
-        ...(options.mcpServers && {
-          mcpServers: options.mcpServers as Record<
-            string,
-            import("@anthropic-ai/claude-agent-sdk").McpServerConfig
-          >,
-        }),
-        abortController,
-        env: {
-          ...process.env,
-          GIT_AUTHOR_NAME: botName,
-          GIT_AUTHOR_EMAIL: botEmail,
-          GIT_COMMITTER_NAME: botName,
-          GIT_COMMITTER_EMAIL: botEmail,
-        },
+  const run = deps.clackSession({
+    prompt: options.prompt,
+    resumeSessionId: options.resumeSessionId,
+    onSessionId: options.onSessionId,
+    options: {
+      cwd: options.cwd,
+      executable: detectRuntime(),
+      systemPrompt: options.systemPrompt,
+      allowedTools: options.allowedTools,
+      disallowedTools: options.disallowedTools,
+      permissionMode: "bypassPermissions",
+      allowDangerouslySkipPermissions: true,
+      plugins: discoverEagerSkillPlugins(),
+      ...(options.mcpServers && {
+        mcpServers: options.mcpServers as Record<string, McpServerConfig>,
+      }),
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: botName,
+        GIT_AUTHOR_EMAIL: botEmail,
+        GIT_COMMITTER_NAME: botName,
+        GIT_COMMITTER_EMAIL: botEmail,
       },
-    })) {
+    },
+  });
+
+  options.onHandle?.(run);
+
+  // Timeout: stop the run when elapsed
+  let timedOut = false;
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    void run.stop("timeout");
+  }, timeoutMs);
+
+  // Bridge: external AbortController triggers run.stop. Removed once all callers migrate.
+  if (options.abortController) {
+    if (options.abortController.signal.aborted) {
+      void run.stop("aborted");
+    } else {
+      options.abortController.signal.addEventListener(
+        "abort",
+        () => {
+          void run.stop("aborted");
+        },
+        { once: true },
+      );
+    }
+  }
+
+  try {
+    for await (const message of run.messages) {
       lastOutputTime = Date.now();
       outputReceived = true;
 
@@ -154,7 +175,7 @@ export async function runClaude(options: {
         log?.(`Event: assistant text: ${truncate(parsed.assistantText.replace(/\n/g, " "), 200)}`);
       }
 
-      // Handle result
+      // Handle result — first-result-wins: break out of the loop so the input stream closes
       if (parser.result) {
         if (parser.result.success) {
           resultSuccess = true;
@@ -167,6 +188,7 @@ export async function runClaude(options: {
         log?.(
           `Event: result (subtype: ${"subtype" in message ? String(message.subtype) : "unknown"})`,
         );
+        break;
       } else if (message.type === "system" && "subtype" in message && message.subtype === "init") {
         const sessionId =
           "session_id" in message ? String(message.session_id).substring(0, 8) : "unknown";
@@ -184,11 +206,14 @@ export async function runClaude(options: {
     clearTimeout(timeoutId);
     clearInterval(heartbeatInterval);
 
-    // Detect abort: either a standard AbortError or the SDK's "aborted by user"
-    // message when our AbortController signal has fired
     const isAbortError = error instanceof Error && error.name === "AbortError";
     const isSignalAbort =
-      abortController.signal.aborted && error instanceof Error && /aborted/i.test(error.message);
+      run.abortController.signal.aborted &&
+      error instanceof Error &&
+      /aborted/i.test(error.message);
+
+    // Settle the handle so its futureResponse resolves and any registry slot is freed.
+    run.fail(error instanceof Error ? error : String(error));
 
     if (isAbortError || isSignalAbort) {
       if (timedOut) {
@@ -220,6 +245,13 @@ export async function runClaude(options: {
 
   clearTimeout(timeoutId);
   clearInterval(heartbeatInterval);
+
+  // Settle the run so the input stream closes cleanly and any registry slot is freed.
+  run.settle({
+    success: resultSuccess,
+    answer: finalText.trim(),
+    ...(resultError && { error: resultError }),
+  });
 
   // Check for platform errors masquerading as successful responses
   const platformError =
@@ -303,6 +335,12 @@ export interface ExecuteChangeOptions {
   sdkSessionId?: string;
   /** External AbortController for cancellation support */
   abortController?: AbortController;
+  /**
+   * Fires synchronously when the underlying Claude run is constructed. The workflow uses
+   * this to record `activeChange.handle` so `cancel_worker_run` and Slack-side stop paths
+   * can call `handle.stop(reason)` instead of touching the AbortController.
+   */
+  onHandle?: (handle: ClaudeRunHandle) => void;
 }
 
 export async function executeChange(opts: ExecuteChangeOptions): Promise<ExecutionResult> {
@@ -315,6 +353,7 @@ export async function executeChange(opts: ExecuteChangeOptions): Promise<Executi
     onEvent,
     sdkSessionId,
     abortController,
+    onHandle,
   } = opts;
   const config = getConfig();
 
@@ -398,6 +437,7 @@ Follow the workflow steps in the system prompt. Report your final status using t
     mcpServers: { clack: workerTools.mcpServer },
     onEvent,
     abortController,
+    ...(onHandle && { onHandle }),
     resumeSessionId: sdkSessionId,
     onSessionId: (id) => {
       capturedSdkSessionId = id;

@@ -3,7 +3,11 @@ import type { WebClient } from "@slack/web-api";
 import { getConfig, type Config } from "../../config.js";
 import { logger } from "../../logger.js";
 import { findMatchingRule, loadRules } from "../../autoRespond.js";
-import { runPreAnalysis, type PreAnalysisMessage } from "../../claude/preAnalysis.js";
+import {
+  runPreAnalysis,
+  runActiveRunPreAnalysis,
+  type PreAnalysisMessage,
+} from "../../claude/preAnalysis.js";
 import { loadPreAnalysisContext } from "../../configurationFiles.js";
 import { findSessionByThread, setAutoResponseActive } from "../../sessions.js";
 import { resolveUsers } from "../userCache.js";
@@ -14,6 +18,8 @@ import { buildImageOnlyPreAnalysisText } from "../imageFormatting.js";
 import { processMessage } from "./core.js";
 import { matchesInlineStopEmoji } from "../stopEmoji.js";
 import { stopThread } from "../stopPipeline.js";
+import { getBotIdentity } from "../botIdentity.js";
+import { getForChannelMessage as getActiveRunForChannelMessage } from "../activeRuns.js";
 import type { TriggerType } from "../../changes/types.js";
 
 const AUTO_RESPOND_USER_ID = "auto-respond";
@@ -151,14 +157,18 @@ export interface AutoRespondDeps {
   findSession: typeof findSessionByThread;
   setActive: typeof setAutoResponseActive;
   preAnalysis: typeof runPreAnalysis;
+  activeRunPreAnalysis: typeof runActiveRunPreAnalysis;
   loadSharedContext: typeof loadPreAnalysisContext;
+  getActiveRun: typeof getActiveRunForChannelMessage;
 }
 
 const defaultAutoRespondDeps: AutoRespondDeps = {
   findSession: findSessionByThread,
   setActive: setAutoResponseActive,
   preAnalysis: runPreAnalysis,
+  activeRunPreAnalysis: runActiveRunPreAnalysis,
   loadSharedContext: loadPreAnalysisContext,
+  getActiveRun: getActiveRunForChannelMessage,
 };
 
 /**
@@ -279,6 +289,34 @@ export async function resolveAutoRespondContext(
     const threadPreAnalysisContext = enrichment.historyUnavailable
       ? `${THREAD_PRE_ANALYSIS_CONTEXT} Note: message history could not be retrieved.`
       : THREAD_PRE_ANALYSIS_CONTEXT;
+
+    // If a Claude run is already in flight for this thread, switch to the active-run
+    // pre-analysis variant: a different prompt that biases toward "append" (the user is
+    // actively engaged) and only returns "append" or "skip" — there's no "stop" because
+    // the live run owns the thread.
+    const activeRun = deps.getActiveRun(channelId, threadTs, messageUser);
+    if (activeRun && activeRun.status === "running") {
+      const activeVerdict = await deps.activeRunPreAnalysis(
+        enrichment.resolvedMessageText,
+        enrichment.messageAuthorName,
+        botName,
+        threadPreAnalysisContext,
+        sharedContext || undefined,
+        enrichment.history,
+        channelInfo?.name,
+        threadLink,
+      );
+      logger.info(
+        `Thread auto-respond (active run): ${channelLabel}, verdict=${activeVerdict}${threadLink}`,
+      );
+      if (activeVerdict === "skip") return null;
+      return {
+        triggerType: "threadReply",
+        userId: messageUser ?? "thread-reply",
+        preAnalysis: `active-run-${activeVerdict}`,
+      };
+    }
+
     const verdict = await deps.preAnalysis(
       enrichment.resolvedMessageText,
       enrichment.messageAuthorName,
@@ -382,30 +420,20 @@ export async function resolveAutoRespondContext(
 }
 
 export function registerAutoRespondHandler(app: App): void {
-  let botUserId: string | undefined;
-  let botId: string | undefined;
-
-  const processingThreads = new Set<string>();
-
   app.event("message", async ({ event, client }) => {
     // Skip non-message subtypes (edits, deletes, joins, etc.) — but allow bot_message through
     if ("subtype" in event && event.subtype !== undefined && event.subtype !== "bot_message") {
       return;
     }
 
-    // Resolve bot identity (cached)
-    if (!botUserId) {
-      const authResult = await client.auth.test();
-      botUserId = authResult.user_id;
-      botId = authResult.bot_id;
-    }
+    const { botUserId, botId } = await getBotIdentity(client);
     if (!botUserId) return;
 
     const messageUser = "user" in event && typeof event.user === "string" ? event.user : undefined;
     if (messageUser === botUserId) return;
 
     const messageBotId =
-      "bot_id" in event ? (event as unknown as { bot_id: string }).bot_id : undefined;
+      "bot_id" in event && typeof event.bot_id === "string" ? event.bot_id : undefined;
     if (messageBotId && messageBotId === botId) return;
 
     // Skip @mentions — handled by mention handler
@@ -443,19 +471,11 @@ export function registerAutoRespondHandler(app: App): void {
     );
     if (!context) return;
 
-    // Thread processing lock
-    if (threadTs) {
-      const threadKey = `${event.channel}:${threadTs}`;
-      if (processingThreads.has(threadKey)) return;
-      processingThreads.add(threadKey);
-      try {
-        await respond(event, client, context, threadTs);
-      } finally {
-        processingThreads.delete(threadKey);
-      }
-      return;
-    }
-
+    // Concurrency: a thread-level lock is no longer needed here. `processMessage` itself
+    // consults the active-runs registry and routes a follow-up onto the live `ClaudeRunHandle`
+    // via `sendUpdate` if one exists. The previous in-process Set only protected against
+    // overlapping pre-analysis cycles within one node — duplicate work, not correctness —
+    // and the registry path replaces that with first-result-wins queueing on the run.
     await respond(event, client, context, threadTs);
   });
 }

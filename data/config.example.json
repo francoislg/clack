@@ -7,6 +7,8 @@
   "reactions": {
     "trigger": "robot_face",
     "responseType": "ephemeral",
+    "stop": "octagonal_sign",
+    "queuedFollowup": "eyes",
     "thinking": {
       "type": "message"
     },

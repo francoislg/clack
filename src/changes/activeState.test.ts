@@ -15,6 +15,7 @@ import {
   type ActiveChangeState,
   type SessionRef,
 } from "./activeState.js";
+import { makeFakeRunHandle } from "../claude/runHandle.testFixtures.js";
 
 // ============================================================================
 // Helpers
@@ -93,11 +94,11 @@ describe("setActiveChange / getActiveChange", () => {
     assert.equal(getActiveChange("session-2")?.branch, "feat/b");
   });
 
-  it("stores and retrieves abortController with active change", () => {
-    const ac = new AbortController();
-    setActiveChange("session-1", makeChange({ abortController: ac }), makeRef());
+  it("stores and retrieves the live ClaudeRunHandle with active change", () => {
+    const handle = makeFakeRunHandle();
+    setActiveChange("session-1", makeChange({ handle }), makeRef());
     const change = getActiveChange("session-1");
-    assert.equal(change?.abortController, ac);
+    assert.equal(change?.handle, handle);
   });
 });
 
