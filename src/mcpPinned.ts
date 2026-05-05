@@ -9,6 +9,7 @@ import { logger } from "./logger.js";
 export interface PinnedEntry {
   package: string;
   version: string;
+  args?: string[];
   env?: Record<string, string>;
 }
 
@@ -57,6 +58,7 @@ export function parseStdioEntry(
       entry: {
         package: stdio.package as string,
         version: stdio.version as string,
+        ...(stdio.args ? { args: stdio.args } : {}),
         env: substituteEnvVars(stdio.env),
       },
     };

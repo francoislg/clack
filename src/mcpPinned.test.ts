@@ -98,6 +98,26 @@ describe("Pinned MCP schema", () => {
     });
   });
 
+  it("captures args on a pinned entry so they reach the spawn config", async () => {
+    setExistingPaths([mcpConfigPath()]);
+    mockReadFileSync.mock.mockImplementation(() =>
+      JSON.stringify({
+        mcpServers: {
+          mongo: {
+            package: "mongodb-mcp-server",
+            version: "1.10.0",
+            args: ["--readOnly"],
+            env: { MDB_MCP_CONNECTION_STRING: "mongodb://x" },
+          },
+        },
+      }),
+    );
+
+    await loadMcpServers(makeDeps());
+    const pinned = getPinnedEntries(makeDeps());
+    assert.deepEqual(pinned.mongo.args, ["--readOnly"]);
+  });
+
   it("throws when package is set but version is missing", async () => {
     setExistingPaths([mcpConfigPath()]);
     mockReadFileSync.mock.mockImplementation(() =>

@@ -209,7 +209,7 @@ export async function installAllPinnedMcpServers(
       deps.setPinnedSpawnConfig(name, {
         type: "stdio",
         command: "node",
-        args: [binPath],
+        args: [binPath, ...(entry.args ?? [])],
         env: entry.env,
       });
       logger.info(`MCP install ready: ${name} (${entry.package}@${entry.version})`);
