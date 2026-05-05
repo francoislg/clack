@@ -2,6 +2,7 @@ import { watch, existsSync, mkdirSync, type FSWatcher } from "fs";
 import { join } from "path";
 import { config as dotenvConfig } from "dotenv";
 import { resetMcpCache } from "./mcp.js";
+import { installAllPinnedMcpServers } from "./mcpInstaller.js";
 import { resetToolMappingCache } from "./streaming/toolMappingLoader.js";
 import { getDefaultConfigurationDir, getConfigurationDir } from "./config.js";
 import { logger } from "./logger.js";
@@ -30,6 +31,24 @@ function watchDir(dir: string, handler: () => void, label: string): FSWatcher {
   return watcher;
 }
 
+// Re-install pinned MCP servers (`package` + `version` entries in mcp.json)
+// after a cache reset. The cache holds resolved spawn configs that
+// resetMcpCache just cleared, so without this they're unreachable until the
+// next process boot. Fire-and-forget — watcher callbacks are sync.
+function reinstallPinned(trigger: string): void {
+  installAllPinnedMcpServers()
+    .then(({ failed }) => {
+      if (failed.length > 0) {
+        logger.warn(`Pinned MCP install (${trigger}) failed for: ${failed.join(", ")}`);
+      }
+    })
+    .catch((error) => {
+      logger.warn(
+        `Pinned MCP install (${trigger}) threw: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    });
+}
+
 /**
  * Watch config files for changes and invalidate caches.
  * Returns a stop function that closes all watchers.
@@ -49,6 +68,7 @@ export function startConfigWatcher(): () => void {
       logger.info("MCP config changed (data/mcp.json) — cache invalidated");
       resetMcpCache();
       resetToolMappingCache();
+      reinstallPinned("mcp.json change");
     },
     "MCP config",
   );
@@ -66,6 +86,7 @@ export function startConfigWatcher(): () => void {
       dotenvConfig({ path: envPath, override: true });
       resetMcpCache();
       resetToolMappingCache();
+      reinstallPinned(".env change");
     },
     "Env file",
   );
