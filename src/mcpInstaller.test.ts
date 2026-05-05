@@ -323,6 +323,26 @@ describe("installAllPinnedMcpServers", () => {
     });
   });
 
+  it("appends pinned-entry args after the resolved binPath in the spawn config", async () => {
+    const deps = makeInstallAllDeps({
+      mongo: {
+        package: "mongodb-mcp-server",
+        version: "1.10.0",
+        args: ["--readOnly", "--logLevel=info"],
+        env: { MDB_MCP_CONNECTION_STRING: "mongodb://x" },
+      },
+    });
+
+    await installAllPinnedMcpServers(deps);
+
+    assert.deepEqual(deps.spawnConfigs.mongo, {
+      type: "stdio",
+      command: "node",
+      args: ["/abs/mongo/bin.js", "--readOnly", "--logLevel=info"],
+      env: { MDB_MCP_CONNECTION_STRING: "mongodb://x" },
+    });
+  });
+
   it("collects names of failed installs and continues with the rest", async () => {
     const deps = makeInstallAllDeps(
       {
