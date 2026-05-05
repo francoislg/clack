@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.118",
+    "@giphy/js-fetch-api": "^5.8.0",
     "@octokit/auth-app": "^8.2.0",
     "@octokit/rest": "^22.0.1",
     "@slack/bolt": "^4.1.0",

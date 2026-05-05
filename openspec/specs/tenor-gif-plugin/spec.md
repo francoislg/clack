@@ -1,4 +1,4 @@
-# gif-plugin
+# tenor-gif-plugin
 
 ## Purpose
 
@@ -7,14 +7,14 @@ A built-in Clack plugin that integrates Tenor GIF search via the `find_gif` MCP 
 ## Requirements
 
 ### Requirement: GIF plugin registration
-The system SHALL ship a built-in `gif` plugin that follows the Clack plugin SDK contract and becomes active when `"gif"` is listed in `data/config.json → plugins`.
+The system SHALL ship a built-in `tenor-gif` plugin that follows the Clack plugin SDK contract and becomes active when `"tenor-gif"` is listed in `data/config.json → plugins`.
 
 #### Scenario: Plugin registered in config
-- **WHEN** `data/config.json` lists `"gif"` in `plugins` and the bot starts
-- **THEN** the plugin loads, its MCP tools become available as `mcp__gif__*`, and its baseline instructions are included in the system prompt
+- **WHEN** `data/config.json` lists `"tenor-gif"` in `plugins` and the bot starts
+- **THEN** the plugin loads, its MCP tools become available as `mcp__tenor-gif__*`, and its baseline instructions are included in the system prompt
 
 #### Scenario: Plugin absent from config
-- **WHEN** `"gif"` is not listed in `plugins`
+- **WHEN** `"tenor-gif"` is not listed in `plugins`
 - **THEN** no GIF tools are registered and no GIF instructions are injected into the prompt
 
 ### Requirement: find_gif tool
@@ -66,7 +66,7 @@ The plugin SHALL inject baseline instructions into the `user` role config (via t
 
 #### Scenario: Instructions loaded
 - **WHEN** the plugin loads
-- **THEN** a file `user/gif__usage.md` is registered through the plugin SDK and appears in the cascading config resolver's output for every session
+- **THEN** a file `user/tenor-gif__usage.md` is registered through the plugin SDK and appears in the cascading config resolver's output for every session
 
 #### Scenario: Required rules present
 - **WHEN** the instructions file is rendered into the system prompt

@@ -1,6 +1,6 @@
-export const GIF_USAGE_INSTRUCTION = `# GIF usage
+export const TENOR_GIF_USAGE_INSTRUCTION = `# GIF usage (Tenor)
 
-You have access to \`mcp__gif__find_gif\` — a Tenor-backed search that returns real GIF URLs.
+You have access to \`mcp__tenor-gif__find_gif\` — a Tenor-backed search that returns real GIF URLs.
 
 ## When to use it
 
