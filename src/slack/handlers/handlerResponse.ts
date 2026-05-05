@@ -195,7 +195,7 @@ export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promis
       `Calling Claude for ${user} in ${channelLabel} (role: ${claudeOptions.role ?? "member"}, session: ${session.sessionId}${viewingSuffix}${silentThinking ? ", silentThinking" : ""})${link}`,
     );
     const liveToolHistory: ToolCallRecord[] = [];
-    const response = await deps.askClaude(session, {
+    const handle = await deps.askClaude(session, {
       ...claudeOptions,
       slackClient: client,
       deliver,
@@ -206,6 +206,7 @@ export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promis
       abortController,
       userTimezone: userInfo?.tz,
     });
+    const response = await handle.futureResponse;
 
     if (response.cancelled) {
       await handleCancellation(ctx);

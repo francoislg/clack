@@ -4,17 +4,21 @@
  * All call sites MUST use `clackQuery` or `clackSession` — never import
  * `query` directly from `@anthropic-ai/claude-agent-sdk`.
  *
- * - `clackQuery`   — fire-and-forget, no session persistence
- * - `clackSession` — persisted & resumable multi-turn conversations
+ * - `clackQuery`   — fire-and-forget, no session persistence, string-prompt mode
+ * - `clackSession` — persisted, resumable, streaming-input mode; returns a
+ *                    `ClaudeRunDriver` so callers can `sendUpdate`/`stop` mid-run.
  */
 import {
   query as _query,
   type Options,
   type Query,
   type SDKMessage,
+  type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { logger } from "../logger.js";
 import { isResumeMissingError } from "./messageParser.js";
+import { createPushableAsyncIterable, type PushableAsyncIterable } from "./pushableIterable.js";
+import { createRunHandle, type ClaudeRunDriver } from "./runHandle.js";
 
 // ---------------------------------------------------------------------------
 // Dependency injection
@@ -56,12 +60,12 @@ export function clackQuery(
 }
 
 /* -------------------------------------------------------------------------- */
-/*  clackSession — persisted & resumable                                      */
+/*  clackSession — persisted & resumable, streaming-input mode                */
 /* -------------------------------------------------------------------------- */
 
 export interface ClackSessionParams {
   prompt: string;
-  options?: Omit<Options, "persistSession" | "resume" | "continue">;
+  options?: Omit<Options, "persistSession" | "resume" | "continue" | "abortController">;
   /** SDK session ID from a previous turn — passed as `resume` */
   resumeSessionId?: string;
   /** Called once the SDK emits the init message with the session ID */
@@ -73,48 +77,115 @@ export interface ClackSessionParams {
    * Fires again on the resume-fallback path with the fresh Query.
    */
   onQuery?: (query: Query) => void | Promise<void>;
+  /**
+   * Optional terminal hook — fires exactly once when the run settles or stops. The
+   * active-runs registry uses this to deregister the handle.
+   */
+  onTerminal?: () => void;
 }
 
 /**
- * Start or resume a persisted SDK session.
+ * What `clackSession` returns: a `ClaudeRunDriver` (control surface + settle/fail) plus
+ * an SDK message stream the consumer iterates. Callers that only need the public handle
+ * (Slack handlers) upcast to `ClaudeRunHandle`.
+ */
+export interface ClackSessionRun extends ClaudeRunDriver {
+  /** SDK message stream — the consumer's for-await loop drives this. */
+  readonly messages: AsyncIterable<SDKMessage>;
+}
+
+function makeUserMessage(text: string): SDKUserMessage {
+  return {
+    type: "user",
+    session_id: "",
+    parent_tool_use_id: null,
+    message: {
+      role: "user",
+      content: [{ type: "text", text }],
+    },
+  };
+}
+
+function captureSessionId(message: SDKMessage, onSessionId?: (sessionId: string) => void): void {
+  if (
+    message.type === "system" &&
+    "subtype" in message &&
+    message.subtype === "init" &&
+    "session_id" in message &&
+    typeof message.session_id === "string"
+  ) {
+    onSessionId?.(message.session_id);
+  }
+}
+
+/**
+ * Start or resume a persisted SDK session in streaming-input mode.
  *
- * Returns an async iterable of SDK messages — identical to the SDK `query()`.
- * The `onSessionId` callback fires once the `init` message is received.
+ * Returns a `ClackSessionRun` synchronously. Callers iterate `run.messages` to drive the
+ * SDK stream, and call `run.settle(response)` / `run.fail(error)` when their consumer
+ * loop concludes. Slack handlers that only need to push follow-up messages or stop the
+ * run upcast to `ClaudeRunHandle` and use `sendUpdate` / `stop`.
  *
- * If `resumeSessionId` is provided but the session file is missing/corrupt,
- * the wrapper catches the error (before any messages are streamed) and falls
- * back to a fresh session.
+ * Resume-fallback: if `resumeSessionId` refers to a missing session, the wrapper closes
+ * the current SDK query, creates a fresh input stream, replays the initial prompt and any
+ * `sendUpdate`-pushed messages, and restarts on a fresh session. Errors thrown after
+ * streaming has progressed past the failure window are NOT caught here — they surface
+ * through the consumer's iteration of `messages` and are handled by `fail()`.
  */
 export function clackSession(
   params: ClackSessionParams,
   deps: QueryDeps = defaultQueryDeps,
-): AsyncIterable<SDKMessage> {
-  const { prompt, options, resumeSessionId, onSessionId, onQuery } = params;
+): ClackSessionRun {
+  const { prompt, options, resumeSessionId, onSessionId, onQuery, onTerminal } = params;
 
-  // Wrap in an async generator so we can intercept the init message
-  // and handle resume failures gracefully.
-  async function* sessionGenerator(): AsyncGenerator<SDKMessage, void> {
+  // Replay buffer — every SDKUserMessage pushed via the driver is appended here so the
+  // resume-fallback path can replay them onto a fresh input stream.
+  const replayBuffer: SDKUserMessage[] = [];
+  let currentInputStream: PushableAsyncIterable<SDKUserMessage> = createPushableAsyncIterable();
+
+  function pushUserMessage(msg: SDKUserMessage): void {
+    replayBuffer.push(msg);
+    if (!currentInputStream.ended) {
+      currentInputStream.push(msg);
+    }
+  }
+
+  // Seed the input with the initial prompt before the SDK is even started.
+  const initialMessage = makeUserMessage(prompt);
+  pushUserMessage(initialMessage);
+
+  const driver = createRunHandle({
+    push: (text) => pushUserMessage(makeUserMessage(text)),
+    closeInput: () => {
+      if (!currentInputStream.ended) currentInputStream.end();
+    },
+    isInputPending: () => currentInputStream.pendingCount > 0,
+    ...(onTerminal && { onTerminal }),
+  });
+
+  function startSdkQuery(useResume: boolean): Query {
+    return deps.query({
+      prompt: currentInputStream,
+      options: {
+        ...options,
+        persistSession: true,
+        ...(useResume && resumeSessionId ? { resume: resumeSessionId } : {}),
+        abortController: driver.abortController,
+      },
+    });
+  }
+
+  async function* messagesGenerator(): AsyncGenerator<SDKMessage, void> {
     let stream: Query;
     let resumeMissing = false;
 
     try {
-      stream = deps.query({
-        prompt,
-        options: {
-          ...options,
-          persistSession: true,
-          ...(resumeSessionId ? { resume: resumeSessionId } : {}),
-        },
-      });
+      stream = startSdkQuery(true);
       await onQuery?.(stream);
 
-      // Resume failures surface two ways:
-      //   - thrown (caught below) — rare, e.g., missing local session file
-      //   - yielded as a non-success `result` message with errors containing
-      //     "No conversation found with session ID" — what the CLI actually
-      //     emits when the backend no longer has the conversation
-      // Handle both by breaking into the same fresh-session fallback below.
       for await (const message of stream) {
+        // Detect resume-missing error reported as a yielded result message
+        // (the CLI's "No conversation found with session ID" surface).
         if (
           resumeSessionId &&
           message.type === "result" &&
@@ -133,26 +204,27 @@ export function clackSession(
       }
 
       if (!resumeMissing) {
-        // Completed successfully (or failed for unrelated reasons) — skip the fallback
         return;
       }
     } catch (error) {
       if (!resumeSessionId) throw error;
 
-      // Resume failed — fall back to fresh session
       logger.warn(
-        `SDK session resume failed for ${resumeSessionId}: ${error instanceof Error ? error.message : String(error)}. Falling back to fresh session.`,
+        `SDK session resume failed for ${resumeSessionId}: ${
+          error instanceof Error ? error.message : String(error)
+        }. Falling back to fresh session.`,
       );
     }
 
-    // Fallback: start a fresh session (no resume)
-    stream = deps.query({
-      prompt,
-      options: {
-        ...options,
-        persistSession: true,
-      },
-    });
+    // Fallback: tear down the resume input stream, build a fresh one, and replay
+    // every buffered message (initial prompt + any sendUpdate calls so far).
+    if (!currentInputStream.ended) currentInputStream.end();
+    currentInputStream = createPushableAsyncIterable();
+    for (const msg of replayBuffer) {
+      currentInputStream.push(msg);
+    }
+
+    stream = startSdkQuery(false);
     await onQuery?.(stream);
 
     for await (const message of stream) {
@@ -161,17 +233,9 @@ export function clackSession(
     }
   }
 
-  return sessionGenerator();
-}
+  const messages = messagesGenerator();
 
-function captureSessionId(message: SDKMessage, onSessionId?: (sessionId: string) => void): void {
-  if (
-    message.type === "system" &&
-    "subtype" in message &&
-    message.subtype === "init" &&
-    "session_id" in message &&
-    typeof message.session_id === "string"
-  ) {
-    onSessionId?.(message.session_id);
-  }
+  // Object.assign preserves the driver's `status` getter (no `status` on the source side
+  // means it isn't overwritten with a snapshot value). Spread would capture `status` once.
+  return Object.assign(driver, { messages });
 }

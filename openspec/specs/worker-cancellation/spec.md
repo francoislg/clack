@@ -7,13 +7,13 @@ Ability to cancel in-flight worker executions (change workflow runs) via MCP too
 
 ### Requirement: cancel_worker_run MCP Tool
 
-The system SHALL provide a `cancel_worker_run` MCP tool in query mode that aborts in-flight worker executions.
+The system SHALL provide a `cancel_worker_run` MCP tool in query mode that aborts in-flight worker executions via the worker's `ClaudeRunHandle`.
 
 #### Scenario: Cancel own active worker run
 
 - **WHEN** a dev+ user calls `cancel_worker_run` without `target_user_id`
 - **THEN** the tool looks up the caller's active change via `getActiveChangeForUser(ctx.userId)`
-- **AND** if an active run exists with a live `AbortController`, calls `abort()` on it
+- **AND** if an active run exists with a live `ClaudeRunHandle`, calls `handle.stop(reason)` on it
 - **AND** sets `cancelledBy = { userId: ctx.userId, reason }` on the active change
 - **AND** returns `{ ok: true, cancelled: true, sessionId, description }` immediately (the worker execution winds down asynchronously)
 
@@ -21,7 +21,7 @@ The system SHALL provide a `cancel_worker_run` MCP tool in query mode that abort
 
 - **WHEN** an admin or owner calls `cancel_worker_run` with `target_user_id`
 - **THEN** the tool looks up the target user's active change
-- **AND** aborts it with `cancelledBy` set to the calling admin's user ID
+- **AND** stops it via `handle.stop(reason)` with `cancelledBy` set to the calling admin's user ID
 - **AND** returns success with the target user's session details
 
 #### Scenario: Cancel another user's worker run (non-admin)
@@ -34,9 +34,9 @@ The system SHALL provide a `cancel_worker_run` MCP tool in query mode that abort
 - **WHEN** `cancel_worker_run` is called and no active run exists for the target user
 - **THEN** the tool returns an error: "No active worker run found"
 
-#### Scenario: Stale session without AbortController
+#### Scenario: Stale session without handle
 
-- **WHEN** `cancel_worker_run` is called and the target user has an active change but no `AbortController` (e.g., after restart)
+- **WHEN** `cancel_worker_run` is called and the target user has an active change but no `ClaudeRunHandle` (e.g., after restart)
 - **THEN** the tool returns `{ ok: false, stale: true }` with an error message indicating no running worker process was found
 - **AND** the response indicates the session may have been lost after a restart
 
@@ -46,43 +46,65 @@ The system SHALL provide a `cancel_worker_run` MCP tool in query mode that abort
 - **AND** the user has dev+ role and changes workflow is enabled
 - **THEN** `cancel_worker_run` is registered alongside `propose_change` and `request_update`
 
-### Requirement: Worker Execution AbortController Pipeline
+### Requirement: Worker Execution Handle Pipeline
 
-The system SHALL thread an `AbortController` through the worker execution pipeline so it can be triggered externally.
+The system SHALL store the worker's `ClaudeRunHandle` on the active change record so it can be triggered externally via `handle.stop(...)`. The handle replaces the prior `activeChange.abortController` field.
 
-#### Scenario: AbortController created per execution in startChangeWorkflow
+#### Scenario: Handle stored per execution in startChangeWorkflow
 
 - **WHEN** `startChangeWorkflow` enters the execution phase
-- **THEN** a new `AbortController` is created and stored on `activeChange.abortController`
-- **AND** the controller is passed through `executeChange` → `runClaudeInWorktree` → `runClaude`
-- **AND** the controller is cleared (`undefined`) in a `finally` block after execution completes
+- **THEN** `executeChange` returns a `ClaudeRunHandle`
+- **AND** the workflow stores it on `activeChange.handle`
+- **AND** the handle's slot is released (cleared) in a `finally` block after execution completes
 
-#### Scenario: AbortController created per execution in handleFollowUp
+#### Scenario: Handle stored per execution in handleFollowUp
 
 - **WHEN** `handleFollowUp` processes any command (review, update, merge, close)
-- **THEN** a new `AbortController` is created and stored on `activeChange.abortController`
-- **AND** the controller is passed to the `runClaudeInWorktree` or `executeChange` call
-- **AND** the controller is cleared in a `finally` block after the command completes
+- **THEN** the resulting `ClaudeRunHandle` is stored on `activeChange.handle`
+- **AND** the handle is cleared in a `finally` block after the command completes
 
-#### Scenario: runClaude accepts external AbortController
+#### Scenario: executeChange exposes a handle
 
-- **WHEN** `runClaude` is called with an `abortController` option
-- **THEN** it uses the provided controller instead of creating one internally
-- **AND** the timeout is still applied to the provided controller
+- **WHEN** `executeChange` is called
+- **THEN** it returns a `ClaudeRunHandle` instead of a `Promise<ExecutionResult>`
+- **AND** the caller awaits `handle.futureResponse` (mapped/wrapped into `ExecutionResult`) where it used to await `executeChange` directly
+- **AND** the caller may call `handle.sendUpdate(text)` while the worker is running to inject context
 
-#### Scenario: runClaude distinguishes cancellation from timeout
+#### Scenario: Worker distinguishes cancellation from timeout
 
-- **WHEN** the `AbortController` is aborted during execution
-- **AND** the abort was user-initiated (not from the timeout callback)
-- **THEN** `runClaude` returns `{ success: false, error: "Execution cancelled" }`
+- **WHEN** the worker run is stopped via `handle.stop(reason)` and `reason` indicates user cancellation
+- **THEN** `executeChange`'s mapped result returns `{ success: false, error: "Execution cancelled" }`
 - **AND** the execution log records "Cancelled: Execution was cancelled by user"
 
-#### Scenario: runClaude distinguishes timeout from cancellation
+#### Scenario: Worker distinguishes timeout from cancellation
 
-- **WHEN** the `AbortController` is aborted during execution
-- **AND** the abort was from the timeout callback
-- **THEN** `runClaude` returns the existing timeout error message
+- **WHEN** the worker run is stopped because the timeout callback aborted the underlying controller
+- **THEN** `executeChange`'s mapped result returns the existing timeout error message
 - **AND** the execution log records the timeout as before
+
+### Requirement: Worker Mid-Run Context Injection
+
+The system SHALL allow follow-up messages in a change thread to be delivered to the running worker as queued user input via `handle.sendUpdate(text)`, when the worker run is still in `"running"` state.
+
+#### Scenario: Follow-up message in change thread routes to sendUpdate
+
+- **WHEN** a user posts a message in a thread whose active change has a registered `ClaudeRunHandle` in `"running"` status
+- **THEN** the Slack handler that processes the message consults the active-runs registry and finds the handle
+- **AND** calls `handle.sendUpdate(text)` instead of constructing a fresh worker run
+- **AND** the worker receives the message as the next user input on its input stream
+- **AND** the model sees the message after its current turn (or current tool call sequence) finishes
+
+#### Scenario: sendUpdate rejects when run already settled
+
+- **WHEN** the handler invokes `handle.sendUpdate(text)` and the call rejects (e.g., the worker just emitted its first `result`)
+- **THEN** the handler falls back to the existing fresh-spawn path
+- **AND** the new message becomes the prompt of a new run that resumes from the persisted `sdkSessionId`
+
+#### Scenario: Worker observes follow-up on next turn boundary
+
+- **WHEN** `handle.sendUpdate(text)` is called while the worker is mid-tool-call
+- **THEN** the SDK queues the user message and the model receives it after the in-flight tool call's results are returned to the model
+- **AND** no tool call is interrupted (this is non-interrupting `sendUpdate`, not `interrupt()`)
 
 ### Requirement: Cancellation Display
 
@@ -90,8 +112,8 @@ The system SHALL display cancellation distinctly from failure in all user-facing
 
 #### Scenario: Streamer finalization on cancellation
 
-- **WHEN** a worker execution is cancelled
-- **AND** `ChangeResult` has `cancelled: true` and `cancelledBy` info
+- **WHEN** a worker execution is stopped via `handle.stop(...)`
+- **AND** `ChangeResult` has `cancelled: true` and `cancelledBy` info (derived from the handle's stop reason and the active change's `cancelledBy` field)
 - **THEN** the streamer finalizes with "This work session was cancelled by <@userId>" appended below any partial progress (tool cards are force-completed, progress is preserved)
 - **AND** if a reason was provided, appends it: "This work session was cancelled by <@userId>: reason"
 
@@ -106,16 +128,22 @@ The system SHALL display cancellation distinctly from failure in all user-facing
 - **THEN** it returns changes that were cancelled
 - **AND** the status enum accepts `"cancelled"` as a valid filter value
 
+#### Scenario: Cancellation display on reaction-triggered abort
+
+- **WHEN** a worker execution is aborted via the stop reaction and `cancelledBy` is set
+- **THEN** the streamer finalizes with "This work session was cancelled by <@userId>: stopped via reaction" appended below any partial progress
+- **AND** this uses the existing cancellation-display path (no new display code)
+
 ### Requirement: Abort Worker via Stop Reaction
 
-The system SHALL support cancelling in-flight worker-mode executions via the configured stop reaction (`config.reactions.stop`). The post-abort status and cleanup behavior depend on the worker's current lifecycle state. The operation SHALL be non-destructive to git, the worktree, and any associated PR.
+The system SHALL support cancelling in-flight worker-mode executions via the configured stop reaction (`config.reactions.stop`). Cancellation routes through `handle.stop(...)` on the worker's `ClaudeRunHandle`. The post-abort status and cleanup behavior depend on the worker's current lifecycle state. The operation SHALL be non-destructive to git, the worktree, and any associated PR.
 
 #### Scenario: Abort during planning or executing
 
 - **WHEN** a user adds the stop reaction to any message in a thread whose active change has status `planning` or `executing`
-- **THEN** the system looks up `activeChange.abortController` for the session at `(channelId, threadTs)`
+- **THEN** the system looks up `activeChange.handle` for the session at `(channelId, threadTs)`
 - **AND** sets `activeChange.cancelledBy = { userId: <reactor>, reason: "stopped via reaction" }`
-- **AND** calls `abort()` on the controller
+- **AND** calls `handle.stop("stopped via reaction")` on the handle
 - **AND** the workflow transitions the change to status `cancelled` per the existing cancellation-display path
 - **AND** the worktree is NOT removed
 - **AND** any pushed branch on the remote is NOT deleted
@@ -124,7 +152,7 @@ The system SHALL support cancelling in-flight worker-mode executions via the con
 
 - **WHEN** a user adds the stop reaction to any message in a thread whose active change has status `reviewing` or `merging`
 - **THEN** the system sets `activeChange.cancelledBy` with the reactor's user ID and reason
-- **AND** calls `abort()` on `activeChange.abortController`
+- **AND** calls `handle.stop(...)` on `activeChange.handle`
 - **AND** the workflow reverts `activeChange.status` to `pr_created`
 - **AND** the PR on GitHub is NOT closed
 - **AND** the monitor continues watching the PR for external state changes
@@ -132,7 +160,7 @@ The system SHALL support cancelling in-flight worker-mode executions via the con
 #### Scenario: Stop reaction on idle pr_created state
 
 - **WHEN** a user adds the stop reaction to a thread whose active change has status `pr_created` with no in-flight follow-up
-- **THEN** no abort occurs (nothing to abort)
+- **THEN** no abort occurs (no handle is registered for the thread)
 - **AND** the change's status remains `pr_created`
 - **AND** the PR, worktree, and monitor are unchanged
 - **AND** thread disengagement still proceeds (per auto-respond-tracking spec)
@@ -147,25 +175,19 @@ The system SHALL support cancelling in-flight worker-mode executions via the con
 #### Scenario: Stop reaction when no active change exists
 
 - **WHEN** a user adds the stop reaction to a thread that has no active change
-- **THEN** the worker-side abort is a no-op (nothing to look up)
+- **THEN** the worker-side abort is a no-op (no handle to look up)
 - **AND** the query-side abort sweep and disengagement still proceed
-
-#### Scenario: Cancellation display on reaction-triggered abort
-
-- **WHEN** a worker execution is aborted via the stop reaction and `cancelledBy` is set
-- **THEN** the streamer finalizes with "This work session was cancelled by <@userId>: stopped via reaction" appended below any partial progress
-- **AND** this uses the existing cancellation-display path (no new display code)
 
 ### Requirement: Worker-Mode Abort via Inline Stop Emoji
 
-The system SHALL abort any in-flight worker-mode execution for a thread when a message in that thread matches the inline stop-emoji detection rule (defined in `slack-message-trigger`), with the same lifecycle-aware semantics as abort via stop reaction. The operation SHALL be non-destructive to git, the worktree, and any associated PR.
+The system SHALL abort any in-flight worker-mode execution for a thread when a message in that thread matches the inline stop-emoji detection rule (defined in `slack-message-trigger`), routing through `handle.stop(...)` on the worker's `ClaudeRunHandle`. The lifecycle-aware semantics match abort via stop reaction. The operation SHALL be non-destructive to git, the worktree, and any associated PR.
 
 #### Scenario: Inline stop emoji during planning or executing state
 
 - **WHEN** a message matching the inline stop-emoji detection rule arrives in a thread
 - **AND** a worker-mode change for that thread is in `planning` or `executing` state
 - **THEN** the system sets `activeChange.cancelledBy = { userId: <sender>, reason: "stopped via inline emoji" }`
-- **AND** calls `abort()` on `activeChange.abortController`
+- **AND** calls `handle.stop("stopped via inline emoji")` on `activeChange.handle`
 - **AND** the workflow transitions the change to status `cancelled`
 - **AND** leaves the worktree and any pushed branch intact
 - **AND** does NOT close the PR or perform any destructive git operation
@@ -175,7 +197,7 @@ The system SHALL abort any in-flight worker-mode execution for a thread when a m
 - **WHEN** a message matching the inline stop-emoji detection rule arrives in a thread
 - **AND** a worker-mode change for that thread is in `reviewing` or `merging` state
 - **THEN** the system sets `activeChange.cancelledBy` with the sender's user ID and inline reason
-- **AND** calls `abort()` on `activeChange.abortController`
+- **AND** calls `handle.stop(...)` on `activeChange.handle`
 - **AND** the workflow reverts `activeChange.status` to `pr_created`
 - **AND** the PR on GitHub is NOT closed
 - **AND** the monitor continues watching the PR for external state changes
@@ -184,7 +206,7 @@ The system SHALL abort any in-flight worker-mode execution for a thread when a m
 
 - **WHEN** a message matching the inline stop-emoji detection rule arrives in a thread
 - **AND** a worker-mode change for that thread is in `pr_created` state with no in-flight follow-up
-- **THEN** no worker abort occurs (nothing to abort)
+- **THEN** no worker abort occurs (no handle is registered)
 - **AND** the change's status remains `pr_created`
 - **AND** the PR, worktree, and monitor are unchanged
 - **AND** thread disengagement still proceeds (per auto-respond-tracking spec)
@@ -207,7 +229,7 @@ The system SHALL abort any in-flight worker-mode execution for a thread when a m
 - **WHEN** either the stop reaction is added OR an inline-matching message arrives
 - **AND** the target thread has a worker change in the same lifecycle state
 - **THEN** both paths produce identical post-stop status, worktree state, PR state, and `cancelledBy` assignment
-- **AND** the streamer finalization text differs only in the `reason` field ("stopped via reaction" vs "stopped via inline emoji")
+- **AND** the streamer finalization text differs only in the `reason` field passed to `handle.stop(...)`
 
 ### Requirement: Re-Engagement via Change-Thread Button Click
 

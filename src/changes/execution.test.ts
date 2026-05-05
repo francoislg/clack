@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { runClaude, type RunClaudeDeps } from "./execution.js";
 import type { Config } from "../config.js";
+import type { ClackSessionRun, ClackSessionParams } from "../claude/query.js";
+import { createRunHandle } from "../claude/runHandle.js";
 
 // ============================================================================
 // Helpers
@@ -16,29 +18,43 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
 }
 
 /**
- * Builds a RunClaudeDeps where clackSession hangs until the AbortController
- * fires, then throws an AbortError — simulating a real SDK abort.
+ * Build a `ClackSessionRun` whose `messages` iterable hangs until the driver's internal
+ * AbortController fires (via `run.stop()` or external bridge), then throws an AbortError —
+ * simulating a real SDK abort. Returns the run plus its driver controller so callers can
+ * inspect or assert.
  */
-function makeHangingDeps(abortController: AbortController): RunClaudeDeps {
-  return {
-    getConfig: mock.fn(() => makeConfig()),
-    clackSession: mock.fn((): AsyncIterable<SDKMessage> => {
+function makeHangingRun(): ClackSessionRun {
+  const driver = createRunHandle({
+    push: () => {},
+    closeInput: () => {},
+  });
+  const messages: AsyncIterable<SDKMessage> = {
+    [Symbol.asyncIterator](): AsyncIterator<SDKMessage> {
       return {
-        [Symbol.asyncIterator](): AsyncIterator<SDKMessage> {
-          return {
-            next(): Promise<IteratorResult<SDKMessage>> {
-              return new Promise((_resolve, reject) => {
-                abortController.signal.addEventListener("abort", () => {
-                  const err = new Error("aborted by user");
-                  err.name = "AbortError";
-                  reject(err);
-                });
-              });
-            },
-          };
+        next(): Promise<IteratorResult<SDKMessage>> {
+          return new Promise((_resolve, reject) => {
+            driver.abortController.signal.addEventListener("abort", () => {
+              const err = new Error("aborted by user");
+              err.name = "AbortError";
+              reject(err);
+            });
+          });
         },
       };
-    }),
+    },
+  };
+  return Object.assign(driver, { messages });
+}
+
+/**
+ * RunClaudeDeps that returns a hanging run whose iterator only resolves when the run's
+ * internal AbortController fires. `runClaude` wires its own timeout and the external
+ * `abortController` option to `run.stop()`, which aborts that internal controller.
+ */
+function makeHangingDeps(): RunClaudeDeps {
+  return {
+    getConfig: mock.fn(() => makeConfig()),
+    clackSession: mock.fn((_params: ClackSessionParams): ClackSessionRun => makeHangingRun()),
   };
 }
 
@@ -48,15 +64,14 @@ function makeHangingDeps(abortController: AbortController): RunClaudeDeps {
 
 describe("runClaude — timeout abort", () => {
   it("returns timeout error when execution exceeds the configured timeout", async () => {
-    const ac = new AbortController();
-    const deps = makeHangingDeps(ac);
+    const deps = makeHangingDeps();
 
     const result = await runClaude({
       prompt: "do something",
       cwd: "/tmp",
-      // 0 minutes → setTimeout fires with 0ms delay, setting timedOut = true
+      // 0 minutes → setTimeout fires with 0ms delay, run.stop("timeout") aborts the
+      // driver's internal controller, which is what the hanging iterator listens on.
       timeout: 0,
-      abortController: ac,
       _deps: deps,
     });
 
@@ -66,9 +81,10 @@ describe("runClaude — timeout abort", () => {
 
   it("returns cancellation error when aborted without timeout", async () => {
     const ac = new AbortController();
-    const deps = makeHangingDeps(ac);
+    const deps = makeHangingDeps();
 
-    // Abort externally before the (long) timeout fires
+    // Abort externally before the (long) timeout fires; runClaude's bridge converts
+    // ac.abort() → run.stop("aborted") → driver controller fires → iterator throws.
     setTimeout(() => ac.abort(), 10);
 
     const result = await runClaude({
@@ -87,7 +103,7 @@ describe("runClaude — timeout abort", () => {
     let sessionCallCount = 0;
     const deps: RunClaudeDeps = {
       getConfig: mock.fn(() => makeConfig()),
-      clackSession: (): AsyncIterable<SDKMessage> => {
+      clackSession: (_params: ClackSessionParams): ClackSessionRun => {
         sessionCallCount++;
         throw new Error("clackSession should not be called");
       },

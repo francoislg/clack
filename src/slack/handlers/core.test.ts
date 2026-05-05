@@ -4,7 +4,6 @@ import type { App } from "@slack/bolt";
 import type { SessionContext } from "../../sessions.js";
 import type { ProcessMessageParams, CoreDeps } from "./core.js";
 import { processMessage } from "./core.js";
-import type { Config } from "../../config.js";
 import type { SessionInfo } from "../activeSessions.js";
 import type { TriggerType } from "../../changes/types.js";
 import type { AskClaudeOptions } from "../../claude/index.js";
@@ -74,33 +73,20 @@ const mockUpdateSession =
   mock.fn<
     (sessionId: string, updates: Partial<SessionContext>) => Promise<SessionContext | null>
   >();
-const mockUpdateThreadContext =
-  mock.fn<(sessionId: string, context: object[]) => Promise<SessionContext | null>>();
-const mockGetConfig = mock.fn<() => object>();
+const mockUpdateThreadContext = mock.fn<CoreDeps["updateThreadContext"]>();
+const mockGetConfig = mock.fn<CoreDeps["getConfig"]>();
 const mockSetSessionInfo = mock.fn<(sessionId: string, info: SessionInfo) => void>();
-const mockFetchThreadContext =
-  mock.fn<
-    (
-      client: ReturnType<typeof makeClient>,
-      channelId: string,
-      threadTs: string,
-      botUserId: string,
-      options: object,
-    ) => Promise<object[]>
-  >();
+const mockFetchThreadContext = mock.fn<CoreDeps["fetchThreadContext"]>();
 const mockTransformUserMentions =
   mock.fn<(client: ReturnType<typeof makeClient>, text: string) => Promise<string>>();
-const mockGetUserInfo = mock.fn<() => Promise<object | null>>();
-const mockGetChannelInfo = mock.fn<() => Promise<object | null>>();
+const mockGetUserInfo = mock.fn<CoreDeps["getUserInfo"]>();
+const mockGetChannelInfo = mock.fn<CoreDeps["getChannelInfo"]>();
 const mockResolveChannelLabel = mock.fn<() => Promise<string>>();
 const mockResolveUserLabel = mock.fn<() => Promise<string>>();
 const mockSlackLink = mock.fn<() => Promise<string>>();
 const mockGetClaudeOptions =
   mock.fn<(userId: string, triggerType: TriggerType) => Promise<AskClaudeOptions>>();
 const mockGetReactionDelivery = mock.fn<(userId: string) => Promise<string>>();
-const mockRegisterInFlightRequest =
-  mock.fn<(channelId: string, messageTs: string, info: object) => void>();
-const mockDeregisterInFlightRequest = mock.fn<(channelId: string, messageTs: string) => void>();
 const mockStoreDmCoordinates =
   mock.fn<
     (
@@ -111,7 +97,8 @@ const mockStoreDmCoordinates =
       originThreadTs: string,
     ) => Promise<void>
   >();
-const mockExecuteAndDeliver = mock.fn<() => Promise<object>>();
+const mockExecuteAndDeliver = mock.fn<CoreDeps["executeAndDeliver"]>();
+const mockAppendUserMessage = mock.fn<CoreDeps["appendUserMessage"]>(async () => null);
 
 function makeDeps(): CoreDeps {
   return {
@@ -119,22 +106,21 @@ function makeDeps(): CoreDeps {
     createSession: mockCreateSession,
     getSession: mockGetSession,
     updateSession: mockUpdateSession,
-    updateThreadContext: mockUpdateThreadContext as Function as CoreDeps["updateThreadContext"],
-    getConfig: mockGetConfig as () => void as CoreDeps["getConfig"],
+    updateThreadContext: mockUpdateThreadContext,
+    getConfig: mockGetConfig,
     setSessionInfo: mockSetSessionInfo,
-    fetchThreadContext: mockFetchThreadContext as Function as CoreDeps["fetchThreadContext"],
+    fetchThreadContext: mockFetchThreadContext,
     transformUserMentions: mockTransformUserMentions,
-    getUserInfo: mockGetUserInfo as Function as CoreDeps["getUserInfo"],
-    getChannelInfo: mockGetChannelInfo as Function as CoreDeps["getChannelInfo"],
+    getUserInfo: mockGetUserInfo,
+    getChannelInfo: mockGetChannelInfo,
     resolveChannelLabel: mockResolveChannelLabel,
     resolveUserLabel: mockResolveUserLabel,
     slackLink: mockSlackLink,
     getClaudeOptions: mockGetClaudeOptions,
     getReactionDelivery: mockGetReactionDelivery,
-    registerInFlightRequest: mockRegisterInFlightRequest,
-    deregisterInFlightRequest: mockDeregisterInFlightRequest,
     storeDmCoordinates: mockStoreDmCoordinates,
-    executeAndDeliver: mockExecuteAndDeliver as Function as CoreDeps["executeAndDeliver"],
+    executeAndDeliver: mockExecuteAndDeliver,
+    appendUserMessage: mockAppendUserMessage,
   };
 }
 
@@ -155,8 +141,6 @@ function resetAllMocks() {
   mockSlackLink.mock.resetCalls();
   mockGetClaudeOptions.mock.resetCalls();
   mockGetReactionDelivery.mock.resetCalls();
-  mockRegisterInFlightRequest.mock.resetCalls();
-  mockDeregisterInFlightRequest.mock.resetCalls();
   mockStoreDmCoordinates.mock.resetCalls();
   mockExecuteAndDeliver.mock.resetCalls();
 
@@ -167,9 +151,9 @@ function resetAllMocks() {
   mockUpdateSession.mock.mockImplementation(async () => makeSession());
   mockUpdateThreadContext.mock.mockImplementation(async () => makeSession());
   mockFetchThreadContext.mock.mockImplementation(async () => []);
-  mockTransformUserMentions.mock.mockImplementation(async (client, text) => text);
-  mockGetUserInfo.mock.mockImplementation(async () => null);
-  mockGetChannelInfo.mock.mockImplementation(async () => null);
+  mockTransformUserMentions.mock.mockImplementation(async (_client, text) => text);
+  mockGetUserInfo.mock.mockImplementation(async () => undefined);
+  mockGetChannelInfo.mock.mockImplementation(async () => undefined);
   mockResolveChannelLabel.mock.mockImplementation(async () => "#test");
   mockResolveUserLabel.mock.mockImplementation(async () => "@user");
   mockSlackLink.mock.mockImplementation(async () => "");
@@ -179,11 +163,15 @@ function resetAllMocks() {
     role: "dev" as const,
     changesWorkflowEnabled: false,
   }));
-  mockGetConfig.mock.mockImplementation(() => ({
+  // Test fixture: only the fields processMessage actually reads. Cast at the const so
+  // the mock implementation can return it without an inline cast.
+  type FakeConfig = ReturnType<CoreDeps["getConfig"]>;
+  const fakeConfig: FakeConfig = {
     slack: { fetchAndStoreUsername: false },
     directMessages: { enabled: false },
     mentions: { enabled: false },
-  }));
+  } as FakeConfig;
+  mockGetConfig.mock.mockImplementation(() => fakeConfig);
 }
 
 // ============================================================================
@@ -262,62 +250,6 @@ describe("processMessage — executeAndDeliver delegation", () => {
   });
 });
 
-describe("processMessage — in-flight request registration", () => {
-  beforeEach(() => {
-    resetAllMocks();
-  });
-
-  it("registers in-flight request for mentions", async () => {
-    const deps = makeDeps();
-    await processMessage(makeParams({ triggerType: "mentions" }), deps);
-
-    assert.equal(mockRegisterInFlightRequest.mock.callCount(), 1);
-  });
-
-  it("registers in-flight request for directMessages", async () => {
-    const deps = makeDeps();
-    await processMessage(makeParams({ triggerType: "directMessages" }), deps);
-
-    assert.equal(mockRegisterInFlightRequest.mock.callCount(), 1);
-  });
-
-  it("registers in-flight request for reactions", async () => {
-    const deps = makeDeps();
-    await processMessage(makeParams({ triggerType: "reactions" }), deps);
-
-    assert.equal(mockRegisterInFlightRequest.mock.callCount(), 1);
-  });
-
-  it("deregisters in-flight request after executeAndDeliver completes", async () => {
-    const deps = makeDeps();
-    await processMessage(makeParams({ triggerType: "mentions" }), deps);
-
-    assert.equal(mockDeregisterInFlightRequest.mock.callCount(), 1);
-  });
-
-  it("deregisters in-flight request even if executeAndDeliver throws", async () => {
-    mockExecuteAndDeliver.mock.mockImplementation(async () => {
-      throw new Error("executeAndDeliver failed");
-    });
-
-    const deps = makeDeps();
-    await assert.rejects(() => processMessage(makeParams({ triggerType: "mentions" }), deps), {
-      message: "executeAndDeliver failed",
-    });
-
-    assert.equal(mockDeregisterInFlightRequest.mock.callCount(), 1);
-  });
-
-  it("deregisters for reactions even if executeAndDeliver throws", async () => {
-    mockExecuteAndDeliver.mock.mockImplementation(async () => {
-      throw new Error("boom");
-    });
-
-    const deps = makeDeps();
-    await assert.rejects(() => processMessage(makeParams({ triggerType: "reactions" }), deps), {
-      message: "boom",
-    });
-
-    assert.equal(mockDeregisterInFlightRequest.mock.callCount(), 1);
-  });
-});
+// In-flight tracking moved out of `processMessage`: `askClaude` self-registers via
+// `activeRuns.register` and self-deregisters through the handle's `onTerminal` hook.
+// Coverage for that lives in askClaude / activeRuns tests.

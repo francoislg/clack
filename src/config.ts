@@ -81,6 +81,12 @@ export interface ReactionsConfig {
   trigger: string;
   /** Stop reaction emoji name (without colons). Null/empty disables the stop feature. */
   stop?: string | null;
+  /**
+   * Emoji name (without colons) added to a user message when their follow-up is appended
+   * onto an in-flight Claude run via `handle.sendUpdate`. Acts as a quiet ack so the user
+   * sees their message landed. Defaults to `eyes`. Set to `null` or empty to disable.
+   */
+  queuedFollowup?: string | null;
   thinking?: ThinkingFeedbackConfig;
   changesWorkflow?: ReactionsChangesWorkflowConfig;
 }
@@ -185,6 +191,7 @@ const DEFAULTS: Partial<Config> = {
   reactions: {
     trigger: "robot_face",
     stop: "octagonal_sign",
+    queuedFollowup: "eyes",
     thinking: {
       type: "message",
     },
@@ -309,23 +316,36 @@ function parseTriggerChangesWorkflow(
 
 interface ReactionsRaw {
   stop?: unknown;
+  queuedFollowup?: unknown;
 }
 
-function parseStopReaction(raw: ReactionsRaw | undefined): string | null | undefined {
+function parseEmojiReaction(
+  raw: ReactionsRaw | undefined,
+  field: "stop" | "queuedFollowup",
+  configPath: string,
+): string | null | undefined {
   if (!raw) return undefined;
-  if (!("stop" in raw)) return undefined;
-  const val = raw.stop;
+  if (!(field in raw)) return undefined;
+  const val = raw[field];
   if (val === null) return null;
   if (typeof val !== "string") {
-    throw new Error("Config 'reactions.stop' must be a string or null");
+    throw new Error(`Config '${configPath}' must be a string or null`);
   }
   if (val.length === 0) return null;
   if (val.includes(":") || /\s/.test(val)) {
     throw new Error(
-      "Config 'reactions.stop' must be an emoji name without colons or whitespace (e.g., 'octagonal_sign', not ':octagonal_sign:')",
+      `Config '${configPath}' must be an emoji name without colons or whitespace (e.g., 'octagonal_sign', not ':octagonal_sign:')`,
     );
   }
   return val;
+}
+
+function parseStopReaction(raw: ReactionsRaw | undefined): string | null | undefined {
+  return parseEmojiReaction(raw, "stop", "reactions.stop");
+}
+
+function parseQueuedFollowupReaction(raw: ReactionsRaw | undefined): string | null | undefined {
+  return parseEmojiReaction(raw, "queuedFollowup", "reactions.queuedFollowup");
 }
 
 // JSON value tree for validator inputs — a real type rather than `unknown`.
@@ -604,6 +624,7 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
     reactions: {
       trigger: (reactionsRaw && str(reactionsRaw, "trigger")) || DEFAULTS.reactions!.trigger,
       stop: parseStopReaction(reactionsRaw),
+      queuedFollowup: parseQueuedFollowupReaction(reactionsRaw),
       thinking: parseThinking(
         reactionsRaw && section(reactionsRaw, "thinking"),
         DEFAULTS.reactions!.thinking,

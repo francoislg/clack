@@ -460,6 +460,7 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
       allowDisengage: shouldAllowDisengage(triggerType),
       allowPostTopLevel: shouldAllowPostTopLevel(triggerType),
       requiredTools: ctx.requiredTools,
+      ...(ctx.hasPendingInput && { hasPendingInput: ctx.hasPendingInput }),
     }),
   );
 

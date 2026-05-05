@@ -1,6 +1,11 @@
 import { describe, it, beforeEach, mock } from "node:test";
 import assert from "node:assert/strict";
-import type { query as sdkQuery } from "@anthropic-ai/claude-agent-sdk";
+import type {
+  query as sdkQuery,
+  Query,
+  SDKMessage,
+  SDKUserMessage,
+} from "@anthropic-ai/claude-agent-sdk";
 import { clackQuery, clackSession, type QueryDeps, defaultQueryDeps } from "./query.js";
 
 // ---------------------------------------------------------------------------
@@ -58,25 +63,102 @@ function makeResultErrorMessage(errors: string[]) {
   };
 }
 
-function makeAsyncIterable<T>(items: T[]): never {
-  async function* gen() {
+/** Minimal-but-valid shape for fixtures in this test file. */
+interface MessageFixture {
+  type: string;
+  subtype?: string;
+  session_id?: string;
+}
+
+/**
+ * Build a Query stub that yields the supplied fixtures. The SDK's `Query` interface
+ * extends `AsyncGenerator<SDKMessage, void>` plus 11 control methods. The control
+ * methods are no-op stubs — tests don't invoke them, but the type system requires
+ * them. Fixtures are cast to `SDKMessage` at the yield boundary because the test
+ * fixtures intentionally omit fields that clackSession doesn't read at runtime.
+ */
+function makeMockQuery(items: ReadonlyArray<MessageFixture>): Query {
+  async function* gen(): AsyncGenerator<SDKMessage, void> {
     for (const item of items) {
-      yield item;
+      yield item as SDKMessage;
     }
   }
-  return gen() as never;
+  const generator = gen();
+  const errors: Record<string, string> = {};
+  // `notImplemented` returns `Promise<never>`, which is assignable to any `Promise<X>`.
+  // Used for Query control methods whose return shapes (SDKControlInitializeResponse,
+  // AccountInfo, etc.) we don't have an easy way to construct in tests. Tests don't
+  // invoke these — they exist only to satisfy the Query interface.
+  const notImplemented = (name: string) => () =>
+    Promise.reject(new Error(`mock Query.${name} not implemented in tests`));
+
+  const control: Pick<
+    Query,
+    | "interrupt"
+    | "setPermissionMode"
+    | "setModel"
+    | "setMaxThinkingTokens"
+    | "applyFlagSettings"
+    | "initializationResult"
+    | "supportedCommands"
+    | "supportedModels"
+    | "supportedAgents"
+    | "mcpServerStatus"
+    | "getContextUsage"
+    | "readFile"
+    | "reloadPlugins"
+    | "accountInfo"
+    | "rewindFiles"
+    | "seedReadState"
+    | "reconnectMcpServer"
+    | "toggleMcpServer"
+    | "setMcpServers"
+    | "streamInput"
+    | "stopTask"
+    | "close"
+  > = {
+    interrupt: () => Promise.resolve(),
+    setPermissionMode: () => Promise.resolve(),
+    setModel: () => Promise.resolve(),
+    setMaxThinkingTokens: () => Promise.resolve(),
+    applyFlagSettings: () => Promise.resolve(),
+    initializationResult: notImplemented("initializationResult"),
+    supportedCommands: () => Promise.resolve([]),
+    supportedModels: () => Promise.resolve([]),
+    supportedAgents: () => Promise.resolve([]),
+    mcpServerStatus: () => Promise.resolve([]),
+    getContextUsage: notImplemented("getContextUsage"),
+    readFile: () => Promise.resolve(null),
+    reloadPlugins: notImplemented("reloadPlugins"),
+    accountInfo: notImplemented("accountInfo"),
+    rewindFiles: () => Promise.resolve({ canRewind: false }),
+    seedReadState: () => Promise.resolve(),
+    reconnectMcpServer: () => Promise.resolve(),
+    toggleMcpServer: () => Promise.resolve(),
+    setMcpServers: () =>
+      Promise.resolve({ added: [] as string[], removed: [] as string[], errors }),
+    streamInput: () => Promise.resolve(),
+    stopTask: () => Promise.resolve(),
+    close: () => {},
+  };
+  return Object.assign(generator, control);
 }
 
 interface QueryCallArg {
-  prompt: string;
+  prompt: string | AsyncIterable<SDKUserMessage>;
   options: {
     persistSession: boolean;
     resume?: string;
     model?: string;
     cwd?: string;
     permissionMode?: string;
-    [key: string]: unknown;
   };
+}
+
+async function collectMessages(messages: AsyncIterable<SDKMessage>): Promise<SDKMessage[]> {
+  const out: SDKMessage[] = [];
+  for await (const msg of messages) out.push(msg);
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -89,7 +171,7 @@ describe("clackQuery", () => {
   });
 
   it("sets persistSession to false", () => {
-    mockQuery.mock.mockImplementation(() => makeAsyncIterable([makeResultMessage("done")]));
+    mockQuery.mock.mockImplementation(() => makeMockQuery([makeResultMessage("done")]));
 
     clackQuery(
       {
@@ -108,7 +190,7 @@ describe("clackQuery", () => {
   });
 
   it("does not pass resume", () => {
-    mockQuery.mock.mockImplementation(() => makeAsyncIterable([makeResultMessage("done")]));
+    mockQuery.mock.mockImplementation(() => makeMockQuery([makeResultMessage("done")]));
 
     clackQuery({ prompt: "test" }, makeDeps());
 
@@ -126,28 +208,28 @@ describe("clackSession", () => {
     mockQuery = mock.fn<typeof sdkQuery>();
   });
 
-  it("sets persistSession to true", async () => {
+  it("sets persistSession to true and returns a streaming-input run", async () => {
     mockQuery.mock.mockImplementation(() =>
-      makeAsyncIterable([makeInitMessage("abc-123"), makeResultMessage("done")]),
+      makeMockQuery([makeInitMessage("abc-123"), makeResultMessage("done")]),
     );
 
-    const messages: unknown[] = [];
-    for await (const msg of clackSession({ prompt: "test" }, makeDeps())) {
-      messages.push(msg);
-    }
+    const run = clackSession({ prompt: "test" }, makeDeps());
+    const messages = await collectMessages(run.messages);
 
     const args = mockQuery.mock.calls[0]!.arguments[0] as QueryCallArg;
     assert.equal(args.options.persistSession, true);
+    // Streaming-input mode: prompt is now an async iterable of SDKUserMessage
+    assert.notEqual(typeof args.prompt, "string");
     assert.equal(messages.length, 2);
   });
 
   it("captures session_id from init message via onSessionId callback", async () => {
     mockQuery.mock.mockImplementation(() =>
-      makeAsyncIterable([makeInitMessage("captured-id"), makeResultMessage("done")]),
+      makeMockQuery([makeInitMessage("captured-id"), makeResultMessage("done")]),
     );
 
     let capturedId: string | undefined;
-    for await (const _msg of clackSession(
+    const run = clackSession(
       {
         prompt: "test",
         onSessionId: (id) => {
@@ -155,27 +237,25 @@ describe("clackSession", () => {
         },
       },
       makeDeps(),
-    )) {
-      // consume
-    }
+    );
+    await collectMessages(run.messages);
 
     assert.equal(capturedId, "captured-id");
   });
 
   it("passes resumeSessionId as resume option", async () => {
     mockQuery.mock.mockImplementation(() =>
-      makeAsyncIterable([makeInitMessage("resumed-id"), makeResultMessage("done")]),
+      makeMockQuery([makeInitMessage("resumed-id"), makeResultMessage("done")]),
     );
 
-    for await (const _msg of clackSession(
+    const run = clackSession(
       {
         prompt: "test",
         resumeSessionId: "previous-session-id",
       },
       makeDeps(),
-    )) {
-      // consume
-    }
+    );
+    await collectMessages(run.messages);
 
     const args = mockQuery.mock.calls[0]!.arguments[0] as QueryCallArg;
     assert.equal(args.options.resume, "previous-session-id");
@@ -183,12 +263,11 @@ describe("clackSession", () => {
 
   it("does not pass resume when resumeSessionId is undefined", async () => {
     mockQuery.mock.mockImplementation(() =>
-      makeAsyncIterable([makeInitMessage("fresh-id"), makeResultMessage("done")]),
+      makeMockQuery([makeInitMessage("fresh-id"), makeResultMessage("done")]),
     );
 
-    for await (const _msg of clackSession({ prompt: "test" }, makeDeps())) {
-      // consume
-    }
+    const run = clackSession({ prompt: "test" }, makeDeps());
+    await collectMessages(run.messages);
 
     const args = mockQuery.mock.calls[0]!.arguments[0] as QueryCallArg;
     assert.equal(args.options.resume, undefined);
@@ -203,12 +282,11 @@ describe("clackSession", () => {
         throw new Error("Session file not found");
       }
       // Second call (fresh session) succeeds
-      return makeAsyncIterable([makeInitMessage("new-session-id"), makeResultMessage("done")]);
+      return makeMockQuery([makeInitMessage("new-session-id"), makeResultMessage("done")]);
     });
 
     let capturedId: string | undefined;
-    const messages: unknown[] = [];
-    for await (const msg of clackSession(
+    const run = clackSession(
       {
         prompt: "test",
         resumeSessionId: "broken-session",
@@ -217,9 +295,8 @@ describe("clackSession", () => {
         },
       },
       makeDeps(),
-    )) {
-      messages.push(msg);
-    }
+    );
+    const messages = await collectMessages(run.messages);
 
     // Should have been called twice: failed resume + fresh start
     assert.equal(mockQuery.mock.callCount(), 2);
@@ -236,19 +313,15 @@ describe("clackSession", () => {
     mockQuery.mock.mockImplementation(() => {
       callCount++;
       if (callCount === 1) {
-        // First call: SDK yields a non-success result indicating the backend
-        // has no record of the session we asked to resume.
-        return makeAsyncIterable([
+        return makeMockQuery([
           makeResultErrorMessage(["No conversation found with session ID: broken-session"]),
         ]);
       }
-      // Second call (fresh session) succeeds
-      return makeAsyncIterable([makeInitMessage("new-session-id"), makeResultMessage("done")]);
+      return makeMockQuery([makeInitMessage("new-session-id"), makeResultMessage("done")]);
     });
 
     let capturedId: string | undefined;
-    const messages: unknown[] = [];
-    for await (const msg of clackSession(
+    const run = clackSession(
       {
         prompt: "test",
         resumeSessionId: "broken-session",
@@ -257,47 +330,35 @@ describe("clackSession", () => {
         },
       },
       makeDeps(),
-    )) {
-      messages.push(msg);
-    }
+    );
+    const messages = await collectMessages(run.messages);
 
-    // Should have been called twice: failed resume + fresh start
     assert.equal(mockQuery.mock.callCount(), 2);
-    // Fresh session should not have resume
     const secondArgs = mockQuery.mock.calls[1]!.arguments[0] as QueryCallArg;
     assert.equal(secondArgs.options.resume, undefined);
-    // Should have captured the new session ID
     assert.equal(capturedId, "new-session-id");
-    // Consumer should see only the two messages from the fresh session —
-    // the poisoned result message must not be yielded through.
     assert.equal(messages.length, 2);
     assert.deepEqual(messages, [makeInitMessage("new-session-id"), makeResultMessage("done")]);
   });
 
   it("surfaces non-resume-missing error results without retrying", async () => {
-    // A regular error_during_execution result (not a resume problem) should
-    // flow through to the consumer, not trigger a fallback.
     mockQuery.mock.mockImplementation(() =>
-      makeAsyncIterable([
+      makeMockQuery([
         makeInitMessage("sess-id"),
         makeResultErrorMessage(["Something else went wrong"]),
       ]),
     );
 
-    const messages: unknown[] = [];
-    for await (const msg of clackSession(
+    const run = clackSession(
       {
         prompt: "test",
         resumeSessionId: "some-session",
       },
       makeDeps(),
-    )) {
-      messages.push(msg);
-    }
+    );
+    const messages = await collectMessages(run.messages);
 
-    // Single call, no fallback
     assert.equal(mockQuery.mock.callCount(), 1);
-    // Both messages yielded through
     assert.equal(messages.length, 2);
   });
 
@@ -306,22 +367,16 @@ describe("clackSession", () => {
       throw new Error("API rate limit");
     });
 
-    await assert.rejects(
-      async () => {
-        for await (const _msg of clackSession({ prompt: "test" }, makeDeps())) {
-          // consume
-        }
-      },
-      { message: "API rate limit" },
-    );
+    const run = clackSession({ prompt: "test" }, makeDeps());
+    await assert.rejects(async () => collectMessages(run.messages), { message: "API rate limit" });
   });
 
   it("forwards all other options unchanged", async () => {
     mockQuery.mock.mockImplementation(() =>
-      makeAsyncIterable([makeInitMessage("id"), makeResultMessage("done")]),
+      makeMockQuery([makeInitMessage("id"), makeResultMessage("done")]),
     );
 
-    for await (const _msg of clackSession(
+    const run = clackSession(
       {
         prompt: "test",
         options: {
@@ -331,13 +386,93 @@ describe("clackSession", () => {
         },
       },
       makeDeps(),
-    )) {
-      // consume
-    }
+    );
+    await collectMessages(run.messages);
 
     const args = mockQuery.mock.calls[0]!.arguments[0] as QueryCallArg;
     assert.equal(args.options.model, "opus");
     assert.equal(args.options.cwd, "/repos");
     assert.equal(args.options.permissionMode, "bypassPermissions");
+  });
+
+  it("the initial SDKUserMessage carries the prompt text", async () => {
+    mockQuery.mock.mockImplementation(() =>
+      makeMockQuery([makeInitMessage("id"), makeResultMessage("done")]),
+    );
+
+    const run = clackSession({ prompt: "hello world" }, makeDeps());
+    await collectMessages(run.messages);
+
+    const args = mockQuery.mock.calls[0]!.arguments[0] as QueryCallArg;
+    assert.notEqual(typeof args.prompt, "string");
+    if (typeof args.prompt === "string") {
+      assert.fail("Expected AsyncIterable prompt");
+    }
+    const inputStream = args.prompt;
+    const collected: SDKUserMessage[] = [];
+    for await (const msg of inputStream) {
+      collected.push(msg);
+      // Collect just the first message; the stream stays open for more pushes
+      break;
+    }
+    assert.equal(collected.length, 1);
+    assert.equal(collected[0]!.type, "user");
+    const content = collected[0]!.message.content;
+    if (Array.isArray(content) && content[0] && "text" in content[0]) {
+      assert.equal(content[0].text, "hello world");
+    } else {
+      assert.fail("Expected text content block");
+    }
+  });
+
+  it("sendUpdate pushes a follow-up SDKUserMessage onto the input stream", async () => {
+    mockQuery.mock.mockImplementation(() =>
+      makeMockQuery([makeInitMessage("id"), makeResultMessage("done")]),
+    );
+
+    const run = clackSession({ prompt: "first" }, makeDeps());
+    // Start consuming `run.messages` so the SDK query is constructed and the input
+    // stream becomes the prompt source — only then does `sendUpdate` land somewhere
+    // observable.
+    async function drainMessages(): Promise<void> {
+      for await (const _msg of run.messages) {
+        // ignored — we only care that the generator runs and triggers deps.query
+      }
+    }
+    const drain = drainMessages();
+    // Yield so the generator's first `for await` tick reaches `deps.query(...)`.
+    await new Promise((resolve) => setImmediate(resolve));
+    await run.sendUpdate("second");
+    await drain;
+
+    const args = mockQuery.mock.calls[0]!.arguments[0] as QueryCallArg;
+    if (typeof args.prompt === "string") {
+      assert.fail("Expected AsyncIterable prompt");
+    }
+    const inputStream = args.prompt;
+    const iter = inputStream[Symbol.asyncIterator]();
+    const first = (await iter.next()).value;
+    const second = (await iter.next()).value;
+    assert.ok(first);
+    assert.ok(second);
+    const content = second.message.content;
+    if (Array.isArray(content) && content[0] && "text" in content[0]) {
+      assert.equal(content[0].text, "second");
+    } else {
+      assert.fail("Expected text content block");
+    }
+  });
+
+  it("settle resolves futureResponse and the run's status flips to settled", async () => {
+    mockQuery.mock.mockImplementation(() =>
+      makeMockQuery([makeInitMessage("id"), makeResultMessage("done")]),
+    );
+
+    const run = clackSession({ prompt: "test" }, makeDeps());
+    assert.equal(run.status, "running");
+    run.settle({ success: true, answer: "ok" });
+    const response = await run.futureResponse;
+    assert.equal(response.success, true);
+    assert.equal(run.status, "settled");
   });
 });

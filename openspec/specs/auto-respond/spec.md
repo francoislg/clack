@@ -151,7 +151,7 @@ The system SHALL support `"autoRespond"` as a trigger type throughout the proces
 
 ### Requirement: Thread Auto-Respond
 
-The system SHALL support automatic responses to thread replies in threads with existing Clack sessions, gated by tracking state and pre-analysis to avoid responding to noise.
+The system SHALL support automatic responses to thread replies in threads with existing Clack sessions, gated by tracking state and pre-analysis to avoid responding to noise. When a Claude run is already active for the same thread (per the `active-runs-registry` capability), incoming messages SHALL be delivered to that run via `handle.sendUpdate(text)` instead of being dropped or spawned as a parallel run.
 
 #### Scenario: Thread reply in a session thread
 
@@ -186,12 +186,20 @@ The system SHALL support automatic responses to thread replies in threads with e
 - **WHEN** a message in a thread has a `bot_id` field
 - **THEN** the system does NOT trigger a response
 
-#### Scenario: Thread processing lock
+#### Scenario: Active run receives the reply via sendUpdate
 
 - **WHEN** a thread reply triggers auto-respond
-- **AND** the system is already processing a response for the same thread
-- **THEN** the new message is dropped (not queued)
-- **AND** only one response is processed at a time per thread
+- **AND** the active-runs registry contains a `ClaudeRunHandle` for the thread (or, for DMs, for the per-user DM key)
+- **THEN** `processMessage()` consults the registry and calls `handle.sendUpdate(text)` to push the message into the live run
+- **AND** adds a `:speech_balloon:` reaction to the user's message as visible ack
+- **AND** does NOT create a new streamer or new session resume
+- **AND** the active run's existing streamer continues to render its in-flight response (no second response is rendered for the queued message; the model folds the new context into its turn-after-current)
+
+#### Scenario: sendUpdate rejection falls through to fresh spawn
+
+- **WHEN** auto-respond invokes `handle.sendUpdate(text)` and the call rejects (e.g., the run just settled)
+- **THEN** the handler falls through to the existing fresh-spawn path
+- **AND** spawns a new run that resumes from the persisted `sdkSessionId`
 
 ### Requirement: Auto-Respond Error Handling
 

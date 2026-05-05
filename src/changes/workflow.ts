@@ -14,6 +14,7 @@ import type { SessionContext } from "../sessions.js";
 import { getSession } from "../sessions.js";
 import { firstUserMessage } from "../sessions/selectors.js";
 import type { ActiveChangeState } from "./activeState.js";
+import type { ClaudeRunHandle } from "../claude/runHandle.js";
 import {
   getActiveChange,
   setActiveChange,
@@ -50,6 +51,8 @@ interface RunClaudeInWorktreeOptions {
   mcpServers: { clack: McpServerConfig };
   onEvent?: (event: StreamEvent) => void | Promise<void>;
   abortController?: AbortController;
+  /** Captures the live `ClaudeRunHandle` so the workflow can route stop/sendUpdate to it. */
+  onHandle?: (handle: ClaudeRunHandle) => void;
   timeout?: number;
   resumeSessionId?: string;
   onSessionId?: (id: string) => void;
@@ -242,7 +245,6 @@ export async function startChangeWorkflow(
 
   // Phase 2: Execution
   const abortController = new AbortController();
-  activeChange.abortController = abortController;
 
   let execResult;
   try {
@@ -254,6 +256,9 @@ export async function startChangeWorkflow(
       resumeContext,
       onEvent,
       abortController,
+      onHandle: (handle) => {
+        activeChange.handle = handle;
+      },
     });
   } catch (error) {
     deps.appendExecutionLog(plan.branchName, `Execution error: ${errorMessage(error)}`);
@@ -262,7 +267,7 @@ export async function startChangeWorkflow(
       error: `Execution threw exception: ${errorMessage(error)}`,
     };
   } finally {
-    activeChange.abortController = undefined;
+    activeChange.handle = undefined;
   }
 
   // Store SDK session ID for resuming follow-ups
@@ -347,9 +352,13 @@ export async function handleFollowUp(
 
   activeChange.lastActivityAt = new Date();
 
-  // Create an AbortController for cancellation support
+  // Create an AbortController for cancellation support. The live `ClaudeRunHandle` is
+  // captured into `activeChange.handle` via the `onHandle` callback on each inner call so
+  // `cancel_worker_run` and Slack-side stop paths can call `handle.stop(reason)`.
   const abortController = new AbortController();
-  activeChange.abortController = abortController;
+  const captureHandle = (handle: ClaudeRunHandle): void => {
+    activeChange.handle = handle;
+  };
 
   // Build worker context for this command
   const workerCtx = deps.buildWorkerContext({
@@ -391,6 +400,7 @@ export async function handleFollowUp(
           mcpServers: { clack: workerTools.mcpServer },
           onEvent,
           abortController,
+          onHandle: captureHandle,
           resumeSessionId: activeChange.sdkSessionId,
           onSessionId: (id: string) => {
             activeChange.sdkSessionId = id;
@@ -448,6 +458,7 @@ The instructions above were generated from the user's full Slack thread context 
           onEvent,
           sdkSessionId: activeChange.sdkSessionId,
           abortController,
+          onHandle: captureHandle,
           ...(resumeContext && { resumeContext }),
         });
 
@@ -492,6 +503,7 @@ The instructions above were generated from the user's full Slack thread context 
           mcpServers: { clack: workerTools.mcpServer },
           onEvent,
           abortController,
+          onHandle: captureHandle,
         });
 
         // Check if merge succeeded by reading session state
@@ -533,6 +545,7 @@ The instructions above were generated from the user's full Slack thread context 
           mcpServers: { clack: workerTools.mcpServer },
           onEvent,
           abortController,
+          onHandle: captureHandle,
         });
 
         // Check if close succeeded by reading session state
@@ -559,6 +572,6 @@ The instructions above were generated from the user's full Slack thread context 
       }
     }
   } finally {
-    activeChange.abortController = undefined;
+    activeChange.handle = undefined;
   }
 }

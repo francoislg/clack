@@ -1,5 +1,6 @@
 import type { ChangeStatus, ChangeSession } from "./types.js";
 import type { WorktreeInfo } from "../worktrees.js";
+import type { ClaudeRunHandle } from "../claude/runHandle.js";
 import {
   writeSessionState,
   createSessionFolder,
@@ -54,8 +55,13 @@ export interface ActiveChangeState {
   lastActivityAt: Date;
   /** SDK session ID for resuming change executions across follow-ups */
   sdkSessionId?: string;
-  /** Runtime-only: AbortController for cancelling the current execution */
-  abortController?: AbortController;
+  /**
+   * Runtime-only: live `ClaudeRunHandle` for the in-flight execution. Used by
+   * `cancel_worker_run` and Slack-side stop paths to invoke `handle.stop(reason)`. Cleared
+   * by the workflow's `finally` block when the run terminates. Replaces the prior
+   * `abortController` field — the handle owns its own AbortController internally.
+   */
+  handle?: ClaudeRunHandle;
   /** Runtime-only: set by cancel tool before abort, checked by workflow after execution returns */
   cancelledBy?: { userId: string; reason?: string };
   /**

@@ -57,11 +57,11 @@ export function createCancelWorkerRunTool(
       const { sessionId, change } = active;
       const description = `${change.repo}:${change.branch} (${change.status})`;
 
-      // Set cancelledBy BEFORE aborting so workflow.ts can detect it
+      // Set cancelledBy BEFORE stopping so workflow.ts can detect it
       change.cancelledBy = { userId: ctx.userId, reason: args.reason };
 
-      if (change.abortController) {
-        change.abortController.abort();
+      if (change.handle && change.handle.status === "running") {
+        await change.handle.stop(args.reason);
         logger.info(
           `Worker run cancelled by ${ctx.userId}: ${description}${args.reason ? ` — ${args.reason}` : ""}`,
         );
@@ -74,7 +74,7 @@ export function createCancelWorkerRunTool(
         });
       }
 
-      // No AbortController — worker process is gone (e.g., after restart) but
+      // No live handle — worker process is gone (e.g., after restart) but
       // the session is still in an active status.
       logger.info(
         `Stale worker run flagged by ${ctx.userId}: ${description}${args.reason ? ` — ${args.reason}` : ""}`,

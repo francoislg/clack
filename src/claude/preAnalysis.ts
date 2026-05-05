@@ -40,6 +40,9 @@ export function formatRelativeAge(ts: string, now = Date.now()): string {
 
 export type PreAnalysisResult = "respond" | "skip" | "stop";
 
+/** Verdict for active-run pre-analysis: append the message onto the live run, or skip it. */
+export type ActiveRunPreAnalysisResult = "append" | "skip";
+
 /**
  * Pre-analysis gate for auto-respond: asks Claude whether to skip a message.
  * Returns "respond", "skip", or "stop". Defaults to "skip" on error or ambiguity.
@@ -137,5 +140,102 @@ OUTPUT FORMAT: The single word "skip", "respond", or "stop". Nothing else.`;
   } catch (error) {
     logger.warn("Pre-analysis call failed:", error);
     return "skip";
+  }
+}
+
+/**
+ * Active-run pre-analysis gate: when a Claude run is already in flight for this thread,
+ * decide whether the new message should be APPENDED to the running conversation (via
+ * `handle.sendUpdate`) or SKIPPED entirely. Different from `runPreAnalysis`: there's no
+ * "stop" verdict (the live run owns the thread; disengagement isn't this gate's job),
+ * and the bias is much lighter — when the user is actively engaged, almost any message
+ * they send is plausibly meant for the bot. Default on error/ambiguity is "append" so
+ * we err on the side of delivering the message.
+ */
+export async function runActiveRunPreAnalysis(
+  messageText: string,
+  messageAuthor: string,
+  botName: string,
+  preAnalysisContext: string,
+  sharedContext?: string,
+  recentMessages?: PreAnalysisMessage[],
+  channelName?: string,
+  slackLink?: string,
+  deps: PreAnalysisDeps = defaultPreAnalysisDeps,
+): Promise<ActiveRunPreAnalysisResult> {
+  const contextSection = sharedContext
+    ? `${sharedContext}\n\nAdditional context: ${preAnalysisContext}`
+    : preAnalysisContext;
+
+  const conversationContext =
+    recentMessages && recentMessages.length > 0
+      ? `\n\nRECENT CHANNEL HISTORY (oldest first):\n${recentMessages.map((m) => `[${m.ts ? formatRelativeAge(m.ts) + " " : ""}${m.author}]: ${m.text}`).join("\n")}`
+      : "";
+
+  const systemPrompt = `You are a classifier. You output exactly one word, nothing else.
+
+A Slack bot named "${botName}" is currently producing a response in this thread. Your job: decide whether a new incoming message should be APPENDED onto ${botName}'s running turn (so the model sees it and folds it into its current answer), or SKIPPED (the message is unrelated chatter that ${botName} should ignore).
+
+Bias toward APPEND — the user is actively engaged with the bot in this thread, and the cost of skipping a relevant message is high. Only SKIP when the message is clearly unrelated cross-talk, an emoji-only acknowledgement that adds no information, or a side conversation between other users that doesn't address ${botName}.
+
+- "append" — the message is from the user engaging with ${botName}: a clarification, a follow-up question, additional context, a course-correction, even a "wait, also do X". Default to this.
+- "skip" — the message is unrelated cross-talk, an empty acknowledgement, or clearly directed at someone else.
+
+${contextSection}
+
+OUTPUT FORMAT: The single word "append" or "skip". Nothing else.`;
+
+  try {
+    let lastAssistantText = "";
+
+    for await (const message of deps.clackQuery({
+      prompt: `${conversationContext}\n\nMESSAGE TO CLASSIFY:${channelName ? `\nChannel: #${channelName}` : ""}\nFrom: ${messageAuthor}\n\n"""${messageText}"""`,
+      options: {
+        cwd: process.cwd(),
+        executable: detectRuntime(),
+        model: "sonnet",
+        systemPrompt,
+        disallowedTools: [
+          "Write",
+          "Edit",
+          "NotebookEdit",
+          "Bash",
+          "Task",
+          "TaskOutput",
+          "Read",
+          "Glob",
+          "Grep",
+        ],
+        maxTurns: 1,
+      },
+    })) {
+      if (message.type === "assistant" && message.message?.content) {
+        lastAssistantText = "";
+        for (const block of message.message.content) {
+          if ("text" in block && typeof block.text === "string") {
+            lastAssistantText += block.text;
+          }
+        }
+      }
+      if (message.type === "result") {
+        const resultText = ((message as { result?: string }).result || lastAssistantText)
+          .trim()
+          .toLowerCase();
+        logger.info(
+          `Active-run pre-analysis: text="${resultText}", message="${truncate(messageText, 50)}"${slackLink ?? ""}`,
+        );
+        if (message.subtype !== "success") return "append";
+        if (resultText.includes("skip")) return "skip";
+        return "append";
+      }
+    }
+
+    logger.warn(
+      `Active-run pre-analysis: no result message received for "${truncate(messageText, 50)}"`,
+    );
+    return "append";
+  } catch (error) {
+    logger.warn("Active-run pre-analysis call failed:", error);
+    return "append";
   }
 }

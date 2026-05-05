@@ -32,6 +32,11 @@ export interface BuildQueryContextParams {
    * `load_skill`. Absent in worker mode.
    */
   skillsManager?: SkillsManager;
+  /**
+   * Returns true when the live SDK input stream has unread `sendUpdate` pushes. Used by
+   * `submit_response` to gate finalization on consuming queued user follow-ups.
+   */
+  hasPendingInput?: () => boolean;
 }
 
 export function buildQueryContext(params: BuildQueryContextParams): QueryToolContext {

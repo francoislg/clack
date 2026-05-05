@@ -8,6 +8,7 @@ import { PerThreadContextStore } from "./assistantContextStore.js";
 import { processMessage } from "./core.js";
 import { matchesInlineStopEmoji } from "../stopEmoji.js";
 import { stopThread, type StopResult } from "../stopPipeline.js";
+import { getBotIdentity } from "../botIdentity.js";
 
 type AssistantConstructor = new (handlers: AssistantConfig) => Assistant;
 
@@ -181,6 +182,14 @@ export function registerAssistant(app: App, deps: AssistantDeps = defaultAssista
       const msg = toAssistantEventMessage(event);
       if (!msg?.user) return;
 
+      // Bolt's assistant `isAssistantMessage` filter does not exclude the bot's own
+      // messages — it checks channel_type/subtype only (see Assistant.js:103-109 in
+      // @slack/bolt). Without this guard, Clack's own DM posts come back through
+      // `userMessage` and the bot ends up responding to itself in a loop.
+      const { botUserId, botId } = await getBotIdentity(client);
+      if (msg.user === botUserId) return;
+      if ("bot_id" in event && typeof event.bot_id === "string" && event.bot_id === botId) return;
+
       const attachments = deps.extractAttachments(msg.files);
       const hasText = !!msg.text;
       const hasImages = !!attachments.imageFiles?.length;
@@ -213,6 +222,16 @@ export function registerAssistant(app: App, deps: AssistantDeps = defaultAssista
         assistantChannelId: contextChannelId,
         ...attachments,
       });
+
+      // Clear the "Thinking..." indicator unconditionally. The streamer's chat.update path
+      // does not always trigger the assistant API's auto-clear (especially for queued
+      // follow-ups that wait for an in-flight run before spawning fresh), leaving the
+      // indicator stuck. Explicit clear here is idempotent and safe.
+      try {
+        await setStatus("");
+      } catch (err) {
+        logger.debug(`Failed to clear assistant status: ${err}`);
+      }
 
       const title = messageText.length > 50 ? messageText.substring(0, 49) + "…" : messageText;
       try {
