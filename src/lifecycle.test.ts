@@ -38,6 +38,7 @@ function createMockDeps(): {
   const mockStartCronScheduler = mock.fn();
   const mockStopCronScheduler = mock.fn();
   const mockResetMcpCache = mock.fn();
+  const mockInstallAllPinnedMcpServers = mock.fn(async () => ({ failed: [] as string[] }));
   const mockResetToolMappingCache = mock.fn();
   const mockClearRolesCache = mock.fn();
   const mockClearPreferencesCache = mock.fn();
@@ -65,6 +66,7 @@ function createMockDeps(): {
     mockStartCronScheduler,
     mockStopCronScheduler,
     mockResetMcpCache,
+    mockInstallAllPinnedMcpServers,
     mockResetToolMappingCache,
     mockClearRolesCache,
     mockClearPreferencesCache,
@@ -95,6 +97,7 @@ function createMockDeps(): {
     startCronScheduler: mockStartCronScheduler,
     stopCronScheduler: mockStopCronScheduler,
     resetMcpCache: mockResetMcpCache,
+    installAllPinnedMcpServers: mockInstallAllPinnedMcpServers,
     resetToolMappingCache: mockResetToolMappingCache,
     clearRolesCache: mockClearRolesCache,
     clearPreferencesCache: mockClearPreferencesCache,
@@ -122,6 +125,45 @@ describe("restartAll", () => {
     assert.equal(mocks.mockClearGitHubTokenCache.mock.callCount(), 1);
     assert.equal(mocks.mockClearAutoRespondCache.mock.callCount(), 1);
     assert.equal(mocks.mockClearCronJobsCache.mock.callCount(), 1);
+  });
+
+  it("re-installs pinned MCP servers after resetting caches", async () => {
+    const { deps, mocks } = createMockDeps();
+    const callOrder: string[] = [];
+
+    mocks.mockResetMcpCache.mock.mockImplementation(() => {
+      callOrder.push("resetMcp");
+    });
+    mocks.mockInstallAllPinnedMcpServers.mock.mockImplementation(async () => {
+      callOrder.push("installPinned");
+      return { failed: [] };
+    });
+
+    await restartAll(deps);
+
+    assert.equal(mocks.mockInstallAllPinnedMcpServers.mock.callCount(), 1);
+    const resetIdx = callOrder.indexOf("resetMcp");
+    const installIdx = callOrder.indexOf("installPinned");
+    assert.ok(
+      resetIdx < installIdx,
+      "pinned install must run after the cache reset (otherwise the install populates a cache that's about to be cleared)",
+    );
+  });
+
+  it("surfaces pinned MCP install failures as warnings without aborting", async () => {
+    const { deps, mocks } = createMockDeps();
+    mocks.mockInstallAllPinnedMcpServers.mock.mockImplementation(async () => ({
+      failed: ["mongodb-prod"],
+    }));
+
+    const result = await restartAll(deps);
+
+    assert.ok(
+      result.warnings.some((w) => w.includes("mongodb-prod")),
+      `expected a warning mentioning 'mongodb-prod', got: ${JSON.stringify(result.warnings)}`,
+    );
+    // Restart still completed — schedulers were started.
+    assert.equal(mocks.mockStartSyncScheduler.mock.callCount(), 1);
   });
 
   it("reloads config before stopping schedulers", async () => {

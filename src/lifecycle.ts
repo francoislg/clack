@@ -18,6 +18,7 @@ import { validateInstructionFiles } from "./instructions.js";
 import { startConfigWatcher } from "./configWatcher.js";
 import { startCronScheduler, stopCronScheduler } from "./cronScheduler.js";
 import { resetMcpCache } from "./mcp.js";
+import { installAllPinnedMcpServers } from "./mcpInstaller.js";
 import { resetToolMappingCache } from "./streaming/toolMappingLoader.js";
 import { clearRolesCache } from "./roles.js";
 import { clearPreferencesCache } from "./userPreferences.js";
@@ -50,6 +51,7 @@ export interface LifecycleDeps {
   startCronScheduler: typeof startCronScheduler;
   stopCronScheduler: typeof stopCronScheduler;
   resetMcpCache: typeof resetMcpCache;
+  installAllPinnedMcpServers: typeof installAllPinnedMcpServers;
   resetToolMappingCache: typeof resetToolMappingCache;
   clearRolesCache: typeof clearRolesCache;
   clearPreferencesCache: typeof clearPreferencesCache;
@@ -79,6 +81,7 @@ export const defaultLifecycleDeps: LifecycleDeps = {
   startCronScheduler,
   stopCronScheduler,
   resetMcpCache,
+  installAllPinnedMcpServers,
   resetToolMappingCache,
   clearRolesCache,
   clearPreferencesCache,
@@ -204,6 +207,21 @@ export async function restartAll(
 
     // Step 4: Reset all caches
     resetAllCaches(deps);
+
+    // Step 4.5: Re-install pinned MCP servers — populates the spawn-config
+    // cache that resetAllCaches just cleared. Without this, pinned entries
+    // (package + version in mcp.json) are unreachable until the next full
+    // process boot.
+    try {
+      const { failed } = await deps.installAllPinnedMcpServers();
+      if (failed.length > 0) {
+        warnings.push(`Pinned MCP install failed for: ${failed.join(", ")}`);
+      }
+    } catch (error) {
+      warnings.push(
+        `Pinned MCP install failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
 
     // Step 5: Reload GitHub credentials
     try {
