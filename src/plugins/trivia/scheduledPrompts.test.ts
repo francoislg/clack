@@ -40,8 +40,27 @@ describe("send_questions_instructions tool", () => {
     const result = await tool.handler({}, SESSION);
     const body = parseToolResult(result);
     assert.match(body.prompt, /suggestedAnswer/);
-    assert.match(body.prompt, /honor.*suggestedAnswer/i);
+    assert.match(body.prompt, /Branch on suggestedAnswer/i);
+    assert.match(body.prompt, /Do NOT randomize the polarity yourself/i);
     assert.doesNotMatch(body.prompt, /randomly decide/i);
+  });
+
+  it("frames false statements directly instead of researching truth-then-flipping", async () => {
+    const tool = createSendQuestionsInstructionsTool();
+    const result = await tool.handler({}, SESSION);
+    const body = parseToolResult(result);
+    assert.match(body.prompt, /CORRECT POLARITY FROM THE START/);
+    assert.match(body.prompt, /do NOT write a true statement and try to flip it later/i);
+    assert.match(body.prompt, /plausible-sounding FALSE statement/);
+  });
+
+  it("includes an explicit polarity self-check gate", async () => {
+    const tool = createSendQuestionsInstructionsTool();
+    const result = await tool.handler({}, SESSION);
+    const body = parseToolResult(result);
+    assert.match(body.prompt, /POLARITY SELF-CHECK/);
+    assert.match(body.prompt, /Do these match\?/);
+    assert.match(body.prompt, /rewrite/i);
   });
 
   it("instructs Claude to target suggestedDifficulty with the bucket-to-1-10 mapping", async () => {
