@@ -463,6 +463,59 @@ describe("clackSession", () => {
     }
   });
 
+  it("hasPendingInput becomes true after sendUpdate and clears on user-text echo", async () => {
+    // The SDK pre-pulls user messages into a waiter, so the iterable's `pendingCount`
+    // is unreliable. clackSession tracks sendUpdate pushes itself and decrements when
+    // the SDK echoes a user-text message back, so submit_response can gate properly.
+    let releaseEcho: (() => void) | undefined;
+    const echoReleased = new Promise<void>((resolve) => {
+      releaseEcho = resolve;
+    });
+    function makeUserTextEcho(text: string) {
+      return {
+        type: "user" as const,
+        message: { role: "user" as const, content: [{ type: "text" as const, text }] },
+        session_id: "test-session",
+        parent_tool_use_id: null,
+      };
+    }
+    async function* genStream(): AsyncGenerator<SDKMessage, void> {
+      // Delegate the SDKMessage cast to the pre-existing makeMockQuery helper rather
+      // than casting in new code.
+      yield* makeMockQuery([makeInitMessage("id")]);
+      await echoReleased;
+      yield* makeMockQuery([makeUserTextEcho("second")]);
+      yield* makeMockQuery([makeResultMessage("done")]);
+    }
+    mockQuery.mock.mockImplementation(() => {
+      const inner = makeMockQuery([]);
+      const generator = genStream();
+      return Object.assign(inner, {
+        next: generator.next.bind(generator),
+        return: generator.return.bind(generator),
+        throw: generator.throw.bind(generator),
+        [Symbol.asyncIterator]: () => generator,
+      });
+    });
+
+    const run = clackSession({ prompt: "first" }, makeDeps());
+    async function drainMessages(): Promise<void> {
+      for await (const _msg of run.messages) {
+        // drain
+      }
+    }
+    const drain = drainMessages();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.equal(run.hasPendingInput(), false, "no pending before sendUpdate");
+    await run.sendUpdate("second");
+    assert.equal(run.hasPendingInput(), true, "pending after sendUpdate, before SDK echo");
+
+    releaseEcho?.();
+    await drain;
+    assert.equal(run.hasPendingInput(), false, "cleared after SDK echoes the user message");
+  });
+
   it("settle resolves futureResponse and the run's status flips to settled", async () => {
     mockQuery.mock.mockImplementation(() =>
       makeMockQuery([makeInitMessage("id"), makeResultMessage("done")]),
