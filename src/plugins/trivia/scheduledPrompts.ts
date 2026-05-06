@@ -23,22 +23,36 @@ const QUESTION_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
    - Pick one category from categories.ideas.
    - Read suggestedAnswer and suggestedDifficulty — both steer the next steps.
 
-2. Research and come up with a TRUE fact / statement about that topic. Aim at the difficulty bucket from suggestedDifficulty using this 1-10 mapping (you will self-rate against the same scale in step 6):
+2. WRITE A STATEMENT WITH THE CORRECT POLARITY FROM THE START. Branch on suggestedAnswer — do NOT write a true statement and try to flip it later, because that retrofit consistently fails and biases output toward true:
+
+   - If suggestedAnswer is TRUE: research a verified true fact about the topic and state it directly. The statement must be actually true.
+   - If suggestedAnswer is FALSE: write a plausible-sounding FALSE statement about the topic from the start. Pick one of these angles:
+     a) A common misconception people believe but is wrong (e.g. "Humans only use 10% of their brain").
+     b) A confidently-stated claim that is contradicted by the actual record (e.g. wrong inventor, wrong date, wrong location, wrong superlative).
+     c) A real fact with one key detail swapped to something incorrect (e.g. "shrimp" → "lobster", "1969" → "1971"). The underlying real fact must remain a real fact — only the surfaced statement is wrong.
+     Do not start from a true fact and ask "how do I flip this?" — start from "what false-but-plausible statement can I write about this topic?"
+
+   Aim at the difficulty bucket from suggestedDifficulty using this 1-10 mapping (you will self-rate against the same scale in step 6):
    - Easy → 4-6 on the 1-10 scale.
    - Medium → 7-8.
    - Hard → 9-10.
 
-3. HONOR suggestedAnswer:
-   - If suggestedAnswer is true: keep the statement TRUE as researched.
-   - If suggestedAnswer is false: modify a key detail to make the statement FALSE (e.g. swap "shrimp" → "lobster"). The underlying TRUE fact must still be a real fact — only the surfaced statement is altered.
-   - Do NOT randomize this choice yourself; the random pick has already been made server-side.
+   Do NOT randomize the polarity yourself; the random pick has already been made server-side.
+
+3. POLARITY SELF-CHECK (REQUIRED GATE — DO NOT SKIP):
+   State the following explicitly to yourself before continuing:
+   - "suggestedAnswer was: <true | false>"
+   - "My statement asserts something that is actually: <true | false>"
+   - "Do these match? <yes | no>"
+
+   If the answer is "no" — stop, return to step 2, and rewrite the statement with the correct polarity. Do NOT try to patch it with a small edit; rewrite. Only proceed to step 4 once the polarities match.
 
 4. CHECK FOR DUPLICATES:
    - Call find_previous_questions to search for similar statements.
    - If a match is found, go back to step 2 and try a different statement.
    - Keep iterating until you have a truly unique statement.
 
-5. Validate your final statement — confirm through research that it is actually TRUE or FALSE in the direction matched to suggestedAnswer (true → actually true; false → actually false). If your modification in step 3 accidentally produced a still-true statement, return to step 3 and re-modify.
+5. VALIDATE through research that the statement's actual truth matches suggestedAnswer (true → actually true; false → actually false). If validation reveals a mismatch (e.g. a "false" statement turned out to be accidentally true, or vice versa), return to step 2 and rewrite — do not patch.
 
 6. DIFFICULTY RATING (REQUIRED GATE):
    Self-rate the question on the 1-10 scale. The TARGET RANGE is the bucket named by suggestedDifficulty:
