@@ -143,6 +143,15 @@ export function clackSession(
   const replayBuffer: SDKUserMessage[] = [];
   let currentInputStream: PushableAsyncIterable<SDKUserMessage> = createPushableAsyncIterable();
 
+  // Counts sendUpdate-pushed messages that the SDK has not yet echoed back through the
+  // stream. The iterable's `pendingCount` is unreliable here: in streaming-input mode the
+  // SDK pre-pulls `next()` on the prompt iterator and parks as a waiter, so any pushed
+  // message is handed to the waiter synchronously and never lands in the buffer — leaving
+  // `pendingCount` at 0 even with an unread message. We instead bump on push and decrement
+  // when the SDK echoes a user-text message, which is its signal that it has begun
+  // processing that input as a new turn.
+  let pendingSendUpdates = 0;
+
   function pushUserMessage(msg: SDKUserMessage): void {
     replayBuffer.push(msg);
     if (!currentInputStream.ended) {
@@ -155,13 +164,23 @@ export function clackSession(
   pushUserMessage(initialMessage);
 
   const driver = createRunHandle({
-    push: (text) => pushUserMessage(makeUserMessage(text)),
+    push: (text) => {
+      pendingSendUpdates++;
+      pushUserMessage(makeUserMessage(text));
+    },
     closeInput: () => {
       if (!currentInputStream.ended) currentInputStream.end();
     },
-    isInputPending: () => currentInputStream.pendingCount > 0,
+    isInputPending: () => pendingSendUpdates > 0,
     ...(onTerminal && { onTerminal }),
   });
+
+  function isUserTextMessage(message: SDKMessage): boolean {
+    if (message.type !== "user") return false;
+    const content = message.message?.content;
+    if (!Array.isArray(content)) return false;
+    return content.some((block) => block && (block as { type?: string }).type === "text");
+  }
 
   function startSdkQuery(useResume: boolean): Query {
     return deps.query({
@@ -199,6 +218,9 @@ export function clackSession(
           resumeMissing = true;
           break;
         }
+        if (pendingSendUpdates > 0 && isUserTextMessage(message)) {
+          pendingSendUpdates--;
+        }
         captureSessionId(message, onSessionId);
         yield message;
       }
@@ -228,6 +250,9 @@ export function clackSession(
     await onQuery?.(stream);
 
     for await (const message of stream) {
+      if (pendingSendUpdates > 0 && isUserTextMessage(message)) {
+        pendingSendUpdates--;
+      }
       captureSessionId(message, onSessionId);
       yield message;
     }
