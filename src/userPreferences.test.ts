@@ -110,7 +110,7 @@ describe("savePreferences", () => {
 
     assert.equal(mockMkdir.mock.callCount(), 1);
     const mkdirArgs = mockMkdir.mock.calls[0].arguments;
-    assert.ok((mkdirArgs[0] as string).endsWith("data/state"));
+    assert.match(mkdirArgs[0] as string, /[\\/]data[\\/]state$/);
     assert.deepEqual(mkdirArgs[1], { recursive: true });
   });
 

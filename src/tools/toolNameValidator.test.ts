@@ -24,7 +24,8 @@ function discoverRegisteredCoreToolNames(): Set<string> {
 
   for (const file of walk(TEST_DIR)) {
     if (!file.endsWith(".ts") || file.endsWith(".test.ts")) continue;
-    if (file.includes(`${TEST_DIR}/worker/`)) continue;
+    if (file.includes(join(TEST_DIR, "worker") + (process.platform === "win32" ? "\\" : "/")))
+      continue;
     const src = readFileSync(file, "utf8");
     for (const match of src.matchAll(toolCallPattern)) {
       names.add(match[1]);

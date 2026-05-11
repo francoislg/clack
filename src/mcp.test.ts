@@ -1,5 +1,6 @@
 import { describe, it, beforeEach, mock } from "node:test";
 import assert from "node:assert/strict";
+import { join } from "node:path";
 import type { McpDeps } from "./mcp.js";
 import {
   loadMcpServers,
@@ -35,12 +36,12 @@ const mockGetInstallationToken = mock.fn<
 
 /** Build the expected MCP config path based on cwd */
 function mcpConfigPath(): string {
-  return `${process.cwd()}/data/mcp.json`;
+  return join(process.cwd(), "data", "mcp.json");
 }
 
 /** Build the expected GitHub auth path based on cwd */
 function githubAuthPath(): string {
-  return `${process.cwd()}/data/auth/github.json`;
+  return join(process.cwd(), "data", "auth", "github.json");
 }
 
 /**

@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { normalizePath } from "../../testUtils.js";
 import { fetchSessionTranscript, type FindSessionTranscriptDeps } from "./findSessionTranscript.js";
 import type { QueryToolContext } from "../types.js";
 import type { SessionAssistantMessage, SessionTrigger } from "../../sessions.js";
@@ -76,13 +77,13 @@ function makeDeps(
   return {
     getSessionsDir: () => sessionsDir,
     fileExists: async (path: string) => {
-      const match = path.match(/\/fake\/sessions\/([^/]+)\/context\.json$/);
+      const match = normalizePath(path).match(/\/fake\/sessions\/([^/]+)\/context\.json$/);
       if (!match) return false;
       const id = match[1];
       return id !== undefined && id in sessions && sessions[id] !== null;
     },
     readFile: async (path: string) => {
-      const match = path.match(/\/fake\/sessions\/([^/]+)\/context\.json$/);
+      const match = normalizePath(path).match(/\/fake\/sessions\/([^/]+)\/context\.json$/);
       if (!match) throw new Error(`Unexpected readFile path: ${path}`);
       const id = match[1];
       const content = id !== undefined ? sessions[id] : undefined;

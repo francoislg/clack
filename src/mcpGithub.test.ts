@@ -1,5 +1,6 @@
 import { describe, it, beforeEach, mock } from "node:test";
 import assert from "node:assert/strict";
+import { join } from "node:path";
 import type { McpDeps } from "./mcp.js";
 import { loadMcpServers, resetMcpCache } from "./mcp.js";
 import { mapPermissionsToToolsets } from "./mcpGithub.js";
@@ -21,10 +22,10 @@ const mockGetInstallationToken = mock.fn<
 >();
 
 function mcpConfigPath(): string {
-  return `${process.cwd()}/data/mcp.json`;
+  return join(process.cwd(), "data", "mcp.json");
 }
 function githubAuthPath(): string {
-  return `${process.cwd()}/data/auth/github.json`;
+  return join(process.cwd(), "data", "auth", "github.json");
 }
 
 function makeDeps(): McpDeps {

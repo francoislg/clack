@@ -1,5 +1,6 @@
 import { describe, it, beforeEach, mock } from "node:test";
 import assert from "node:assert/strict";
+import { join } from "node:path";
 import type { McpDeps } from "./mcp.js";
 import {
   loadMcpServer,
@@ -27,7 +28,7 @@ const mockGetInstallationToken = mock.fn<
 >();
 
 function mcpConfigPath(): string {
-  return `${process.cwd()}/data/mcp.json`;
+  return join(process.cwd(), "data", "mcp.json");
 }
 
 function makeDeps(): McpDeps {
