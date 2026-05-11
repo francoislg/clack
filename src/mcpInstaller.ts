@@ -3,6 +3,7 @@ import { existsSync, readFileSync, rmSync } from "fs";
 import { join, resolve } from "path";
 import { errorMessage } from "./errors.js";
 import { logger } from "./logger.js";
+import { npmBin } from "./platform.js";
 import {
   getPinnedEntries as defaultGetPinnedEntries,
   setPinnedSpawnConfig as defaultSetPinnedSpawnConfig,
@@ -166,7 +167,7 @@ export async function ensureInstalled(
   // metacharacters or quoting concerns.
   try {
     deps.execFileSync(
-      "npm",
+      npmBin("npm"),
       ["install", "--install-strategy=nested", "--prefix", dir, `${pkg}@${version}`],
       { stdio: "pipe" },
     );
