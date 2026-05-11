@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { normalizePath } from "../../testUtils.js";
 import {
   searchRecentInteractions,
   type FindRecentInteractionsDeps,
@@ -62,18 +63,19 @@ function makeDeps(
   return {
     getSessionsDir: () => sessionsDir,
     fileExists: async (path: string) => {
-      if (path === sessionsDir) return true;
-      const match = path.match(/\/fake\/sessions\/([^/]+)\/context\.json$/);
+      const p = normalizePath(path);
+      if (p === sessionsDir) return true;
+      const match = p.match(/\/fake\/sessions\/([^/]+)\/context\.json$/);
       if (!match) return false;
       const id = match[1];
       return id !== undefined && id in sessions && sessions[id] !== null;
     },
     readdir: async (path: string) => {
-      if (path !== sessionsDir) return [];
+      if (normalizePath(path) !== sessionsDir) return [];
       return Object.keys(sessions);
     },
     readFile: async (path: string) => {
-      const match = path.match(/\/fake\/sessions\/([^/]+)\/context\.json$/);
+      const match = normalizePath(path).match(/\/fake\/sessions\/([^/]+)\/context\.json$/);
       if (!match) throw new Error(`Unexpected readFile path: ${path}`);
       const id = match[1];
       const content = id !== undefined ? sessions[id] : undefined;
@@ -82,7 +84,7 @@ function makeDeps(
     },
     statMtimeMs: async (path: string) => {
       // Fake mtime derived from session createdAt so sort-by-mtime matches sort-by-createdAt.
-      const match = path.match(/\/fake\/sessions\/([^/]+)$/);
+      const match = normalizePath(path).match(/\/fake\/sessions\/([^/]+)$/);
       if (!match) return 0;
       const id = match[1];
       const content = id !== undefined ? sessions[id] : undefined;

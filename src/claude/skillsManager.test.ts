@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { normalizePath } from "../testUtils.js";
 import {
   SkillsManager,
   prepareSkillsSession,
@@ -230,10 +231,11 @@ function fakeSession(loadedSkills?: Array<{ pack: string; skill: string }>): Ses
 
 function depsWithFiles(files: Record<string, string>, dirs: Set<string>): SkillsSessionSetupDeps {
   return {
-    existsSync: (p) => p in files || dirs.has(p),
+    existsSync: (p) => normalizePath(p) in files || dirs.has(normalizePath(p)),
     readdirSync: (p) => {
       const entries = new Set<string>();
-      const prefix = p.endsWith("/") ? p : p + "/";
+      const np = normalizePath(p);
+      const prefix = np.endsWith("/") ? np : np + "/";
       for (const key of [...Object.keys(files), ...dirs]) {
         if (!key.startsWith(prefix)) continue;
         const rest = key.slice(prefix.length);
@@ -243,11 +245,11 @@ function depsWithFiles(files: Record<string, string>, dirs: Set<string>): Skills
       return Array.from(entries);
     },
     readFileSync: (p) => {
-      const content = files[p];
+      const content = files[normalizePath(p)];
       if (content === undefined) throw new Error(`ENOENT: ${p}`);
       return content;
     },
-    statSync: (p) => ({ isDirectory: () => dirs.has(p) }),
+    statSync: (p) => ({ isDirectory: () => dirs.has(normalizePath(p)) }),
   };
 }
 

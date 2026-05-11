@@ -297,7 +297,7 @@ describe("cloneRepository", () => {
 
     assert.equal(mockGitClone.mock.callCount(), 1);
     const repoPath = mockGitClone.mock.calls[0].arguments[1];
-    assert.ok(repoPath.endsWith("/my-project"));
+    assert.ok(repoPath.endsWith("my-project") && /[\\/]my-project$/.test(repoPath));
   });
 });
 

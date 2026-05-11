@@ -403,10 +403,11 @@ describe("shipped default_configuration smoke test", () => {
     const smokeDataDir = join(smokeBase, "data");
     mkdirSync(smokeDataDir, { recursive: true });
 
-    // Symlink real defaults
+    // Symlink real defaults — use junction on Windows so non-admin users can create it
     symlinkSync(
       resolve(projectRoot, "data/default_configuration"),
       join(smokeDataDir, "default_configuration"),
+      process.platform === "win32" ? "junction" : "dir",
     );
     // Empty configuration dir
     mkdirSync(join(smokeDataDir, "configuration"), { recursive: true });
