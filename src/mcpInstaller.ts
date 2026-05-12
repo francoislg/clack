@@ -3,7 +3,6 @@ import { existsSync, readFileSync, rmSync } from "fs";
 import { join, resolve } from "path";
 import { errorMessage } from "./errors.js";
 import { logger } from "./logger.js";
-import { npmBin } from "./platform.js";
 import {
   getPinnedEntries as defaultGetPinnedEntries,
   setPinnedSpawnConfig as defaultSetPinnedSpawnConfig,
@@ -17,7 +16,7 @@ export interface McpInstallerDeps {
   execFileSync: (
     file: string,
     args: string[],
-    opts: { stdio?: "pipe" | "ignore" | "inherit"; cwd?: string },
+    opts: { stdio?: "pipe" | "ignore" | "inherit"; cwd?: string; shell?: boolean },
   ) => Buffer;
 }
 
@@ -163,13 +162,16 @@ export async function ensureInstalled(
   // --install-strategy=nested disables hoisting, sidestepping npm 10's shadow-stub
   // bug for trees where multiple ancestors require the same transitive dep at
   // overlapping ranges (the failure mode that broke asana and sentry).
-  // Use execFile (no shell) so package/version/dir are passed as argv — no shell
-  // metacharacters or quoting concerns.
+  // On Windows, `npm` is a `.cmd` shim; spawning it without `shell: true` fails
+  // with EINVAL since Node 20's CVE-2024-27980 mitigation. The shell resolves
+  // PATHEXT so we don't need the explicit `.cmd` suffix. `pkg`/`version`/`dir`
+  // are Clack-controlled (validated mcp.json keys + an internally-built path),
+  // so shell quoting is safe here.
   try {
     deps.execFileSync(
-      npmBin("npm"),
+      "npm",
       ["install", "--install-strategy=nested", "--prefix", dir, `${pkg}@${version}`],
-      { stdio: "pipe" },
+      { stdio: "pipe", shell: process.platform === "win32" },
     );
   } catch (error) {
     // execFileSync with stdio:"pipe" attaches captured stderr to the thrown error.
