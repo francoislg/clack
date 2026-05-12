@@ -11,7 +11,6 @@ import {
   type InstallAllDeps,
 } from "./mcpInstaller.js";
 import type { PinnedEntry } from "./mcp.js";
-import { npmBin } from "./platform.js";
 
 const mockExistsSync = mock.fn<(path: string) => boolean>();
 const mockReadFileSync = mock.fn<(path: string, encoding: BufferEncoding) => string>();
@@ -175,7 +174,7 @@ describe("ensureInstalled", () => {
     assert.equal(mockRmSync.mock.callCount(), 1, "should wipe before reinstall");
     assert.equal(mockExecFileSync.mock.callCount(), 1, "should run npm install");
     const [file, args] = mockExecFileSync.mock.calls[0].arguments;
-    assert.equal(file, npmBin("npm"));
+    assert.equal(file, "npm");
     assert.ok(args.includes("--install-strategy=nested"));
     assert.ok(args.includes("@roychri/mcp-server-asana@1.8.0"));
   });
