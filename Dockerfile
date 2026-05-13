@@ -25,7 +25,9 @@ RUN corepack enable
 
 # Install github-mcp-server for GitHub API access via MCP
 ARG GITHUB_MCP_SERVER_VERSION=0.31.0
-ARG TARGETARCH
+# Default to amd64 for builders that don't auto-populate TARGETARCH (e.g. classic
+# Cloud Build, plain `docker build` without buildx). buildx overrides this per platform.
+ARG TARGETARCH=amd64
 RUN ARCH=$(echo "${TARGETARCH}" | sed 's/amd64/x86_64/' | sed 's/arm64/arm64/') && \
     wget -qO- "https://github.com/github/github-mcp-server/releases/download/v${GITHUB_MCP_SERVER_VERSION}/github-mcp-server_Linux_${ARCH}.tar.gz" \
     | tar -xz -C /usr/local/bin github-mcp-server
