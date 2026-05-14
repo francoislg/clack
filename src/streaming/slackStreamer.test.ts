@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, mock, type TestContext } from "node:test";
+import { describe, it, beforeEach, afterEach, mock, type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
 import type { TaskUpdateChunk } from "@slack/types";
@@ -1539,5 +1539,277 @@ describe("SlackStreamer error classification", () => {
       (c) => typeof c[0] === "string" && c[0].includes("Failed to append"),
     );
     assert.ok(failedAppendError, "Generic errors should still be logged at error level");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SlackStreamer.handleEvent — grouped detail cap
+// ---------------------------------------------------------------------------
+
+import { writeFileSync, mkdirSync, rmSync, existsSync } from "node:fs";
+import { resolve as resolvePath } from "node:path";
+import { resetToolMappingCache } from "./toolMappingLoader.js";
+
+const USER_TOOL_MAPPING_DIR_FOR_CAP_TESTS = resolvePath(
+  process.cwd(),
+  "data/configuration/tool_mapping",
+);
+
+/** Count chunks for `slackId` that set a non-empty `details` field. */
+function countDetailChunks(chunks: TaskUpdateChunk[], slackId: string): number {
+  return chunks.filter(
+    (c) => c.id === slackId && typeof c.details === "string" && c.details.length > 0,
+  ).length;
+}
+
+describe("SlackStreamer.handleEvent — grouped detail cap", () => {
+  let mockStreamerObj: MockChatStreamer;
+  let streamer: InstanceType<typeof SlackStreamer>;
+
+  beforeEach(async () => {
+    mockStreamerObj = makeMockChatStreamer();
+    const client = makeClient({ chatStreamer: mockStreamerObj });
+    streamer = new SlackStreamer({
+      client,
+      channel: "C_CHAN",
+      threadTs: "1234.5678",
+      teamId: "T_TEAM",
+      logger: mockLogger.logger,
+    });
+    await streamer.start();
+    mockStreamerObj.append.mock.resetCalls();
+  });
+
+  it("renders one detail line per call up to the default cap of 5", () => {
+    for (let i = 1; i <= 5; i++) {
+      streamer.handleEvent({
+        type: "tool_start",
+        taskId: `task-${i}`,
+        toolName: "Read",
+        toolArgs: { file_path: `/file${i}.ts` },
+      });
+    }
+
+    const chunks = getAppendedChunks(mockStreamerObj);
+    assert.equal(
+      countDetailChunks(chunks, "task-1"),
+      5,
+      "5 calls under cap should each emit a detail line",
+    );
+
+    // Header reflects 5 calls
+    const lastTaskChunk = [...chunks].reverse().find((c) => c.id === "task-1");
+    assert.ok(lastTaskChunk);
+    assert.ok(
+      lastTaskChunk!.title!.includes("(5)"),
+      `expected "(5)" in title, got "${lastTaskChunk!.title}"`,
+    );
+  });
+
+  it("stops appending detail lines once cap is reached but keeps incrementing the header", () => {
+    for (let i = 1; i <= 7; i++) {
+      streamer.handleEvent({
+        type: "tool_start",
+        taskId: `task-${i}`,
+        toolName: "Read",
+        toolArgs: { file_path: `/file${i}.ts` },
+      });
+    }
+
+    const chunks = getAppendedChunks(mockStreamerObj);
+    assert.equal(
+      countDetailChunks(chunks, "task-1"),
+      5,
+      "detail lines capped at 5 even with 7 calls",
+    );
+
+    const lastTaskChunk = [...chunks].reverse().find((c) => c.id === "task-1");
+    assert.ok(lastTaskChunk);
+    assert.ok(
+      lastTaskChunk!.title!.includes("(7)"),
+      `header count should keep climbing past cap; got "${lastTaskChunk!.title}"`,
+    );
+  });
+});
+
+describe("SlackStreamer.handleEvent — grouped detail cap with custom mapping", () => {
+  const overrideFile = resolvePath(USER_TOOL_MAPPING_DIR_FOR_CAP_TESTS, "testcap.json");
+
+  beforeEach(() => {
+    mkdirSync(USER_TOOL_MAPPING_DIR_FOR_CAP_TESTS, { recursive: true });
+  });
+
+  afterEach(() => {
+    if (existsSync(overrideFile)) rmSync(overrideFile);
+    resetToolMappingCache();
+  });
+
+  it("renders header-only when maxDetails is 0", async () => {
+    writeFileSync(
+      overrideFile,
+      JSON.stringify({
+        tools: {
+          do_thing: { label: "Doing thing {id}", group: "noisy", itemDetail: "{id}" },
+        },
+        groups: {
+          noisy: { title: "Doing noisy work", maxDetails: 0 },
+        },
+      }),
+    );
+    resetToolMappingCache();
+
+    const mockStreamerObj = makeMockChatStreamer();
+    const client = makeClient({ chatStreamer: mockStreamerObj });
+    const streamer = new SlackStreamer({
+      client,
+      channel: "C_CHAN",
+      threadTs: "1234.5678",
+      teamId: "T_TEAM",
+      logger: mockLogger.logger,
+    });
+    await streamer.start();
+    mockStreamerObj.append.mock.resetCalls();
+
+    for (let i = 1; i <= 3; i++) {
+      streamer.handleEvent({
+        type: "tool_start",
+        taskId: `task-${i}`,
+        toolName: "mcp__testcap__do_thing",
+        toolArgs: { id: `item-${i}` },
+      });
+    }
+
+    const chunks = getAppendedChunks(mockStreamerObj);
+    assert.equal(
+      countDetailChunks(chunks, "task-1"),
+      0,
+      "maxDetails: 0 must produce zero detail lines",
+    );
+
+    const lastTaskChunk = [...chunks].reverse().find((c) => c.id === "task-1");
+    assert.ok(lastTaskChunk);
+    assert.ok(
+      lastTaskChunk!.title!.includes("(3)"),
+      "header count must still climb when detail lines are suppressed",
+    );
+  });
+
+  it("two groups in the same stream cap independently", async () => {
+    writeFileSync(
+      overrideFile,
+      JSON.stringify({
+        tools: {
+          tight: { label: "Tight {id}", group: "small", itemDetail: "{id}" },
+          loose: { label: "Loose {id}", group: "big", itemDetail: "{id}" },
+        },
+        groups: {
+          small: { title: "Tight group", maxDetails: 3 },
+          big: { title: "Loose group", maxDetails: 10 },
+        },
+      }),
+    );
+    resetToolMappingCache();
+
+    const mockStreamerObj = makeMockChatStreamer();
+    const client = makeClient({ chatStreamer: mockStreamerObj });
+    const streamer = new SlackStreamer({
+      client,
+      channel: "C_CHAN",
+      threadTs: "1234.5678",
+      teamId: "T_TEAM",
+      logger: mockLogger.logger,
+    });
+    await streamer.start();
+    mockStreamerObj.append.mock.resetCalls();
+
+    // 5 "tight" calls (cap 3) — should produce only 3 detail lines under one task
+    for (let i = 1; i <= 5; i++) {
+      streamer.handleEvent({
+        type: "tool_start",
+        taskId: `tight-${i}`,
+        toolName: "mcp__testcap__tight",
+        toolArgs: { id: `s-${i}` },
+      });
+    }
+    // Switching to "loose" opens a new group task
+    for (let i = 1; i <= 5; i++) {
+      streamer.handleEvent({
+        type: "tool_start",
+        taskId: `loose-${i}`,
+        toolName: "mcp__testcap__loose",
+        toolArgs: { id: `b-${i}` },
+      });
+    }
+
+    const chunks = getAppendedChunks(mockStreamerObj);
+    assert.equal(countDetailChunks(chunks, "tight-1"), 3, "tight group capped at maxDetails: 3");
+    assert.equal(
+      countDetailChunks(chunks, "loose-1"),
+      5,
+      "loose group should emit all 5 detail lines (cap 10)",
+    );
+
+    const tightHeader = [...chunks].reverse().find((c) => c.id === "tight-1");
+    const looseHeader = [...chunks].reverse().find((c) => c.id === "loose-1");
+    assert.ok(tightHeader);
+    assert.ok(looseHeader);
+    assert.ok(tightHeader!.title!.includes("(5)"));
+    assert.ok(looseHeader!.title!.includes("(5)"));
+  });
+
+  it("re-emission of grouped details respects the cap when count exceeds it", async () => {
+    writeFileSync(
+      overrideFile,
+      JSON.stringify({
+        tools: {
+          do_thing: { label: "Doing {id}", group: "capped", itemDetail: "{id}" },
+        },
+        groups: {
+          capped: { title: "Capped group", maxDetails: 2 },
+        },
+      }),
+    );
+    resetToolMappingCache();
+
+    const mockStreamerObj = makeMockChatStreamer();
+    const client = makeClient({ chatStreamer: mockStreamerObj });
+    const streamer = new SlackStreamer({
+      client,
+      channel: "C_CHAN",
+      threadTs: "1234.5678",
+      teamId: "T_TEAM",
+      logger: mockLogger.logger,
+    });
+    await streamer.start();
+
+    // Three calls with real args — first 2 should emit detail lines, 3rd should be suppressed.
+    for (let i = 1; i <= 3; i++) {
+      streamer.handleEvent({
+        type: "tool_start",
+        taskId: `task-${i}`,
+        toolName: "mcp__testcap__do_thing",
+        toolArgs: { id: `item-${i}` },
+      });
+    }
+    // 4th: tool_progress (empty args) then re-emit with real args — should NOT add a detail line
+    streamer.handleEvent({
+      type: "tool_start",
+      taskId: "task-4",
+      toolName: "mcp__testcap__do_thing",
+      toolArgs: {},
+    });
+    mockStreamerObj.append.mock.resetCalls();
+    streamer.handleEvent({
+      type: "tool_start",
+      taskId: "task-4",
+      toolName: "mcp__testcap__do_thing",
+      toolArgs: { id: "item-4" },
+    });
+
+    const reemissionChunks = getAppendedChunks(mockStreamerObj);
+    const reemittedDetail = reemissionChunks.find(
+      (c) => c.id === "task-1" && typeof c.details === "string" && c.details.length > 0,
+    );
+    assert.equal(reemittedDetail, undefined, "re-emission past cap must not append a detail line");
   });
 });

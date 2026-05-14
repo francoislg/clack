@@ -35,6 +35,13 @@ export interface ConditionalHiddenRule {
   pattern: string;
 }
 
+/** Per-group entry when callers need to override task-card rendering. */
+export interface GroupEntryObject {
+  title: string;
+  /** Cap on detail lines rendered for this group's task card. Overrides the global default. */
+  maxDetails?: number;
+}
+
 export interface ToolMappingConfig {
   tools?: Record<string, string | ToolEntryObject>;
   default?: string;
@@ -43,8 +50,10 @@ export interface ToolMappingConfig {
   conditionalHidden?: ConditionalHiddenRule[];
   /** Shorthand: all tools share one group with this title. */
   group?: string;
-  /** Explicit group key → display title mapping. */
-  groups?: Record<string, string>;
+  /** Cap on detail lines for the file-level group (paired with `group`). */
+  maxDetails?: number;
+  /** Explicit group key → display title (string form) or full entry (object form with `maxDetails`). */
+  groups?: Record<string, string | GroupEntryObject>;
   /** Per-arg behavior: extraction from other args, truncation limits. Real args take precedence over extracted values. */
   argOptions?: Record<string, ArgConfig>;
 }
@@ -69,6 +78,8 @@ export interface ResolvedToolMapping {
   toolGroups: Map<string, { groupKey: string; itemDetail?: string }>;
   /** group key → display title */
   groupTitles: Map<string, string>;
+  /** group key → per-group cap on detail lines (absent ⇒ use global default) */
+  groupMaxDetails: Map<string, number>;
   /** Arg name → config (extraction, truncation) */
   argConfigs: Map<string, ResolvedArgConfig>;
   /** Tools excluded from task cards */
@@ -237,20 +248,42 @@ export function resolveConfig(config: ToolMappingConfig, filename: string): Reso
   const labels = new Map<string, string>();
   const toolGroups = new Map<string, { groupKey: string; itemDetail?: string }>();
   const groupTitles = new Map<string, string>();
+  const groupMaxDetails = new Map<string, number>();
   const hidden = new Set<string>(config.hidden ?? []);
 
-  // Populate group titles from explicit groups map
+  // Populate group titles (and optional per-group maxDetails) from the explicit groups map.
+  // Each value may be a plain title string (legacy form) or `{ title, maxDetails? }` (object form).
   if (config.groups) {
-    for (const [key, title] of Object.entries(config.groups)) {
-      groupTitles.set(key, title);
+    for (const [key, entry] of Object.entries(config.groups)) {
+      if (typeof entry === "string") {
+        groupTitles.set(key, entry);
+      } else {
+        groupTitles.set(key, entry.title);
+        const max = entry.maxDetails;
+        if (typeof max === "number" && Number.isFinite(max) && Number.isInteger(max) && max >= 0) {
+          groupMaxDetails.set(key, max);
+        } else if (max !== undefined) {
+          logger.warn(
+            `Tool mapping '${filename}' group '${key}' has invalid maxDetails ${JSON.stringify(max)}; ignoring`,
+          );
+        }
+      }
     }
   }
 
-  // File-level group shorthand
+  // File-level group shorthand (and its optional sibling maxDetails).
   let fileGroup: { key: string; title: string } | undefined;
   if (config.group) {
     fileGroup = { key: filename, title: config.group };
     groupTitles.set(filename, config.group);
+    const max = config.maxDetails;
+    if (typeof max === "number" && Number.isFinite(max) && Number.isInteger(max) && max >= 0) {
+      groupMaxDetails.set(filename, max);
+    } else if (max !== undefined) {
+      logger.warn(
+        `Tool mapping '${filename}' has invalid maxDetails ${JSON.stringify(max)}; ignoring`,
+      );
+    }
   }
 
   // Process tool entries
@@ -302,6 +335,7 @@ export function resolveConfig(config: ToolMappingConfig, filename: string): Reso
     labels,
     toolGroups,
     groupTitles,
+    groupMaxDetails,
     argConfigs,
     hidden,
     conditionalHidden,

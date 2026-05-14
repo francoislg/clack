@@ -14,6 +14,8 @@ import {
   getWorktreeSessionsDir,
   loadConfig,
   getConfig,
+  getTaskCardMaxDetails,
+  DEFAULT_TASK_CARD_MAX_DETAILS,
   type Config,
   type RepositoryConfig,
 } from "./config.js";
@@ -879,5 +881,61 @@ describe("getConfig", () => {
     assert.ok(cfg);
     assert.ok(cfg.slack);
     assert.ok(cfg.repositories);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// taskCards / getTaskCardMaxDetails
+// ---------------------------------------------------------------------------
+
+describe("taskCards config", () => {
+  beforeEach(() => {
+    writeSlackAuth();
+  });
+
+  afterEach(() => {
+    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true, force: true });
+  });
+
+  it("parses taskCards.maxDetailsPerGroup when set to a positive integer", () => {
+    writeConfig(minimalConfig({ taskCards: { maxDetailsPerGroup: 8 } }));
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.taskCards?.maxDetailsPerGroup, 8);
+    assert.equal(getTaskCardMaxDetails(), 8);
+  });
+
+  it("accepts maxDetailsPerGroup of 0 (header-only task cards)", () => {
+    writeConfig(minimalConfig({ taskCards: { maxDetailsPerGroup: 0 } }));
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.taskCards?.maxDetailsPerGroup, 0);
+    assert.equal(getTaskCardMaxDetails(), 0);
+  });
+
+  it("falls back to default when taskCards section is absent", () => {
+    writeConfig(minimalConfig());
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.taskCards, undefined);
+    assert.equal(getTaskCardMaxDetails(), DEFAULT_TASK_CARD_MAX_DETAILS);
+  });
+
+  it("falls back to default when maxDetailsPerGroup field is absent", () => {
+    writeConfig(minimalConfig({ taskCards: {} }));
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.taskCards?.maxDetailsPerGroup, undefined);
+    assert.equal(getTaskCardMaxDetails(), DEFAULT_TASK_CARD_MAX_DETAILS);
+  });
+
+  it("falls back to default when maxDetailsPerGroup is negative", () => {
+    writeConfig(minimalConfig({ taskCards: { maxDetailsPerGroup: -1 } }));
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.taskCards?.maxDetailsPerGroup, undefined);
+    assert.equal(getTaskCardMaxDetails(), DEFAULT_TASK_CARD_MAX_DETAILS);
+  });
+
+  it("falls back to default when maxDetailsPerGroup is a non-number", () => {
+    writeConfig(minimalConfig({ taskCards: { maxDetailsPerGroup: "five" } }));
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.taskCards?.maxDetailsPerGroup, undefined);
+    assert.equal(getTaskCardMaxDetails(), DEFAULT_TASK_CARD_MAX_DETAILS);
   });
 });
