@@ -41,7 +41,9 @@ export function scanMdFiles(dirPath: string): string[] {
   if (!existsSync(dirPath)) return [];
   try {
     return readdirSync(dirPath, { withFileTypes: true })
-      .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
+      .filter(
+        (entry) => entry.isFile() && entry.name.endsWith(".md") && !entry.name.startsWith("."),
+      )
       .map((entry) => entry.name);
   } catch {
     return [];

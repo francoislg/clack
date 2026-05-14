@@ -351,7 +351,7 @@ export function loadToolMappings(): Map<string, ResolvedToolMapping> {
   for (const dir of [defaultDir, userDir]) {
     let files: string[];
     try {
-      files = readdirSync(dir).filter((f) => f.endsWith(".json"));
+      files = readdirSync(dir).filter((f) => f.endsWith(".json") && !f.startsWith("."));
     } catch {
       continue; // Directory doesn't exist
     }

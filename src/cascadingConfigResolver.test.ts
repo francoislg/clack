@@ -180,6 +180,19 @@ describe("resolveInstructions", () => {
     assert.ok(!result.includes("not markdown"));
   });
 
+  it("ignores hidden dotfiles (._*.md, .#*.md, etc.)", () => {
+    writeDefault("user", "identity.md", "I am a bot");
+    writeDefault("user", "._identity.md", "applesauce metadata");
+    writeDefault("user", ".#identity.md", "emacs lock content");
+    writeDefault("user", ".hidden.md", "hidden file content");
+
+    const result = resolveInstructions(["user"]);
+    assert.ok(result.includes("I am a bot"));
+    assert.ok(!result.includes("applesauce metadata"));
+    assert.ok(!result.includes("emacs lock content"));
+    assert.ok(!result.includes("hidden file content"));
+  });
+
   it("returns empty string when no files exist", () => {
     const result = resolveInstructions(["user"]);
     assert.equal(result, "");
