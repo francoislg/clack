@@ -49,6 +49,11 @@ gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet --command="
     # which is writable; /root is read-only on COS so sudo would fail).
     docker-credential-gcr configure-docker --registries=gcr.io
 
+    # Prune dangling/unused images BEFORE pulling so the new image has room.
+    # Without this, every deploy adds ~1.4 GB and the 10 GB boot disk fills up
+    # after ~5-6 deploys, causing pull to fail with 'no space left on device'.
+    docker image prune -f
+
     docker pull $IMAGE_NAME
 "
 
@@ -114,6 +119,11 @@ case $WAIT_EXIT in
         exit 1
         ;;
 esac
+echo ""
+echo -e "${YELLOW}Reminder:${NC} this script only rolls out the docker image. If you've"
+echo "edited any project-class config locally (config.json, mcp.json,"
+echo "default_configuration/, etc.) since the last push, also run:"
+echo "  bash scripts/gce-push-config.sh"
 echo ""
 echo -e "${YELLOW}Tail logs:${NC}"
 echo "gcloud compute ssh $INSTANCE_NAME --zone=$ZONE --command='docker logs -f clack'"

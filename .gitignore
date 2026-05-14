@@ -19,6 +19,7 @@ data/.claude/
 data/.debug-sessions/
 data/.npm/
 data/mcp_packages/
+data/.deploy-include
 data/auth/*
 !data/auth/.gitkeep
 !data/auth/slack.example.json
