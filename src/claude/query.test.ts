@@ -463,29 +463,44 @@ describe("clackSession", () => {
     }
   });
 
-  it("hasPendingInput becomes true after sendUpdate and clears on user-text echo", async () => {
-    // The SDK pre-pulls user messages into a waiter, so the iterable's `pendingCount`
-    // is unreliable. clackSession tracks sendUpdate pushes itself and decrements when
-    // the SDK echoes a user-text message back, so submit_response can gate properly.
-    let releaseEcho: (() => void) | undefined;
-    const echoReleased = new Promise<void>((resolve) => {
-      releaseEcho = resolve;
+  it("hasPendingInput becomes true after sendUpdate and clears on next assistant turn start", async () => {
+    // The decrement signal is "first assistant message after an `end_turn`" — that's
+    // when the SDK has pulled the queued user message and Claude is responding to it.
+    // The SDK doesn't echo user messages back through the output stream, so we can't
+    // observe the queued message itself; we rely on assistant turn boundaries instead.
+    let releaseTurnBoundary: (() => void) | undefined;
+    const turnBoundaryReleased = new Promise<void>((resolve) => {
+      releaseTurnBoundary = resolve;
     });
-    function makeUserTextEcho(text: string) {
+    function makeAssistantMessage(text: string, stopReason: string) {
       return {
-        type: "user" as const,
-        message: { role: "user" as const, content: [{ type: "text" as const, text }] },
-        session_id: "test-session",
+        type: "assistant" as const,
+        message: {
+          id: `msg-${stopReason}`,
+          type: "message" as const,
+          role: "assistant" as const,
+          content: [{ type: "text" as const, text }],
+          model: "test",
+          stop_reason: stopReason,
+          stop_sequence: null,
+          usage: { input_tokens: 0, output_tokens: 0 },
+        },
         parent_tool_use_id: null,
+        session_id: "test-session",
+        uuid: `assistant-${stopReason}`,
       };
     }
     async function* genStream(): AsyncGenerator<SDKMessage, void> {
-      // Delegate the SDKMessage cast to the pre-existing makeMockQuery helper rather
-      // than casting in new code.
-      yield* makeMockQuery([makeInitMessage("id")]);
-      await echoReleased;
-      yield* makeMockQuery([makeUserTextEcho("second")]);
-      yield* makeMockQuery([makeResultMessage("done")]);
+      // Turn 0: initial prompt. Ends with `end_turn`.
+      yield* makeMockQuery([makeInitMessage("id"), makeAssistantMessage("turn0 done", "end_turn")]);
+      // Pause until the test pushes a sendUpdate and verifies the flag is set.
+      await turnBoundaryReleased;
+      // Turn 1: starts because the SDK pulled our pushed user message. The first
+      // assistant message of this turn is the decrement signal.
+      yield* makeMockQuery([
+        makeAssistantMessage("turn1 begins", "end_turn"),
+        makeResultMessage("done"),
+      ]);
     }
     mockQuery.mock.mockImplementation(() => {
       const inner = makeMockQuery([]);
@@ -505,15 +520,53 @@ describe("clackSession", () => {
       }
     }
     const drain = drainMessages();
+    // Let the consumer drain through turn 0's end_turn so `awaitingNextTurnStart` is set.
     await new Promise((resolve) => setImmediate(resolve));
 
     assert.equal(run.hasPendingInput(), false, "no pending before sendUpdate");
     await run.sendUpdate("second");
-    assert.equal(run.hasPendingInput(), true, "pending after sendUpdate, before SDK echo");
+    assert.equal(run.hasPendingInput(), true, "pending after sendUpdate, before turn 1 starts");
 
-    releaseEcho?.();
+    releaseTurnBoundary?.();
     await drain;
-    assert.equal(run.hasPendingInput(), false, "cleared after SDK echoes the user message");
+    assert.equal(run.hasPendingInput(), false, "cleared after turn 1's first assistant message");
+  });
+
+  it("hasPendingInput stays clear when initial-prompt turn ends without any sendUpdate", async () => {
+    // The initial prompt also produces an `end_turn` assistant message. Without a
+    // sendUpdate, the counter must not underflow when the next turn never starts (or
+    // when the `awaitingNextTurnStart` flag never observes a decrement target).
+    function makeAssistantMessage(text: string, stopReason: string) {
+      return {
+        type: "assistant" as const,
+        message: {
+          id: `msg-${stopReason}`,
+          type: "message" as const,
+          role: "assistant" as const,
+          content: [{ type: "text" as const, text }],
+          model: "test",
+          stop_reason: stopReason,
+          stop_sequence: null,
+          usage: { input_tokens: 0, output_tokens: 0 },
+        },
+        parent_tool_use_id: null,
+        session_id: "test-session",
+        uuid: `assistant-${stopReason}`,
+      };
+    }
+    mockQuery.mock.mockImplementation(() =>
+      makeMockQuery([
+        makeInitMessage("id"),
+        makeAssistantMessage("done", "end_turn"),
+        makeResultMessage("ok"),
+      ]),
+    );
+
+    const run = clackSession({ prompt: "first" }, makeDeps());
+    for await (const _msg of run.messages) {
+      // drain
+    }
+    assert.equal(run.hasPendingInput(), false, "never goes negative without a push");
   });
 
   it("settle resolves futureResponse and the run's status flips to settled", async () => {

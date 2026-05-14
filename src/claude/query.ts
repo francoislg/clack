@@ -143,15 +143,6 @@ export function clackSession(
   const replayBuffer: SDKUserMessage[] = [];
   let currentInputStream: PushableAsyncIterable<SDKUserMessage> = createPushableAsyncIterable();
 
-  // Counts sendUpdate-pushed messages that the SDK has not yet echoed back through the
-  // stream. The iterable's `pendingCount` is unreliable here: in streaming-input mode the
-  // SDK pre-pulls `next()` on the prompt iterator and parks as a waiter, so any pushed
-  // message is handed to the waiter synchronously and never lands in the buffer — leaving
-  // `pendingCount` at 0 even with an unread message. We instead bump on push and decrement
-  // when the SDK echoes a user-text message, which is its signal that it has begun
-  // processing that input as a new turn.
-  let pendingSendUpdates = 0;
-
   function pushUserMessage(msg: SDKUserMessage): void {
     replayBuffer.push(msg);
     if (!currentInputStream.ended) {
@@ -162,6 +153,24 @@ export function clackSession(
   // Seed the input with the initial prompt before the SDK is even started.
   const initialMessage = makeUserMessage(prompt);
   pushUserMessage(initialMessage);
+
+  // Tracks how many `sendUpdate`-pushed user messages have not yet had a corresponding
+  // new assistant turn started. Each push increments; each turn-boundary observation
+  // decrements. While > 0, `submit_response` is gated so Claude is forced to address the
+  // queued message before finalizing.
+  //
+  // Turn-boundary detection: an assistant message with `stop_reason: end_turn` (or any
+  // non-`tool_use` terminal reason) marks the END of the current turn — the SDK will
+  // pull the next queued user message next. We flip `awaitingNextTurnStart = true`. The
+  // FIRST assistant message after that flag is set is the START of a new turn (Claude
+  // is now responding to the dequeued user message). At that point we decrement.
+  //
+  // Why this signal works where the previous one didn't: the SDK doesn't echo pushed
+  // user messages through the output stream, but it always emits assistant messages and
+  // those carry `stop_reason`. Multiple pushes during one turn each need their own new
+  // turn to clear (the SDK delivers one user message per turn).
+  let pendingSendUpdates = 0;
+  let awaitingNextTurnStart = false;
 
   const driver = createRunHandle({
     push: (text) => {
@@ -175,11 +184,37 @@ export function clackSession(
     ...(onTerminal && { onTerminal }),
   });
 
-  function isUserTextMessage(message: SDKMessage): boolean {
-    if (message.type !== "user") return false;
-    const content = message.message?.content;
-    if (!Array.isArray(content)) return false;
-    return content.some((block) => block && (block as { type?: string }).type === "text");
+  /** Returns the assistant message's `stop_reason`, or null if not present/parseable. */
+  function getAssistantStopReason(message: SDKMessage): string | null {
+    if (message.type !== "assistant") return null;
+    const inner = message.message as { stop_reason?: string | null } | undefined;
+    return inner?.stop_reason ?? null;
+  }
+
+  /**
+   * Observe a yielded SDK message and update turn-boundary tracking. Called once per
+   * yielded message in both the resume-attempt and fallback message loops.
+   */
+  function observeTurnBoundary(message: SDKMessage): void {
+    if (message.type !== "assistant") return;
+
+    // First assistant message after an end-of-turn signal = start of a new turn = the
+    // SDK has dequeued the next user message and Claude is responding to it. Decrement
+    // pending pushes (clamped at 0 so the initial-prompt turn doesn't underflow when no
+    // push is outstanding).
+    if (awaitingNextTurnStart) {
+      awaitingNextTurnStart = false;
+      if (pendingSendUpdates > 0) pendingSendUpdates--;
+    }
+
+    // `tool_use` means the assistant turn continues (Claude wants the tool result before
+    // finishing). Anything else (`end_turn`, `stop_sequence`, `max_tokens`, etc.) ends
+    // the turn — the SDK will pull the next queued user message before any further
+    // assistant output.
+    const stopReason = getAssistantStopReason(message);
+    if (stopReason && stopReason !== "tool_use") {
+      awaitingNextTurnStart = true;
+    }
   }
 
   function startSdkQuery(useResume: boolean): Query {
@@ -218,9 +253,7 @@ export function clackSession(
           resumeMissing = true;
           break;
         }
-        if (pendingSendUpdates > 0 && isUserTextMessage(message)) {
-          pendingSendUpdates--;
-        }
+        observeTurnBoundary(message);
         captureSessionId(message, onSessionId);
         yield message;
       }
@@ -250,9 +283,7 @@ export function clackSession(
     await onQuery?.(stream);
 
     for await (const message of stream) {
-      if (pendingSendUpdates > 0 && isUserTextMessage(message)) {
-        pendingSendUpdates--;
-      }
+      observeTurnBoundary(message);
       captureSessionId(message, onSessionId);
       yield message;
     }
