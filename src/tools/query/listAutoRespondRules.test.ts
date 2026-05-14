@@ -9,9 +9,16 @@ import { addRule, clearAutoRespondCache } from "../../autoRespond.js";
 
 const originalCwd = process.cwd;
 
-interface ToolHandlerResult {
-  content: Array<{ text: string }>;
-  isError?: boolean;
+type ToolHandlerResult = Awaited<
+  ReturnType<ReturnType<typeof createListAutoRespondRulesTool>["handler"]>
+>;
+
+function textAt(result: ToolHandlerResult, index: number): string {
+  const block = result.content[index];
+  if (!block || !("text" in block) || typeof block.text !== "string") {
+    throw new Error(`Expected text content at index ${index}`);
+  }
+  return block.text;
 }
 
 function buildCtx(overrides: Partial<QueryToolContext> = {}): QueryToolContext {
@@ -49,7 +56,7 @@ describe("list_auto_respond_rules tool", () => {
       { _placeholder: undefined },
       { sessionId: "test" },
     );
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = JSON.parse(textAt(result, 0));
     assert.equal(parsed.ok, true);
     assert.equal(parsed.count, 0);
     assert.deepEqual(parsed.rules, []);
@@ -64,7 +71,7 @@ describe("list_auto_respond_rules tool", () => {
       { _placeholder: undefined },
       { sessionId: "test" },
     );
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = JSON.parse(textAt(result, 0));
 
     assert.equal(parsed.count, 2);
     const first = parsed.rules[0];

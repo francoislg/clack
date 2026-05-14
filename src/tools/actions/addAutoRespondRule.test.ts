@@ -10,9 +10,19 @@ import type { ResolveChannelResult } from "../../slack/channelResolver.js";
 
 const originalCwd = process.cwd;
 
-interface ToolHandlerResult {
-  content: Array<{ text: string }>;
-  isError?: boolean;
+// Use the MCP SDK's actual handler return type so the SDK's content union (text + image
+// variants) is accepted. Tests narrow to text content via `textAt`.
+type ToolHandlerResult = Awaited<
+  ReturnType<ReturnType<typeof createAddAutoRespondRuleTool>["handler"]>
+>;
+
+/** Narrow a content block to its `text` field; throws if the entry is not a text block. */
+function textAt(result: ToolHandlerResult, index: number): string {
+  const block = result.content[index];
+  if (!block || !("text" in block) || typeof block.text !== "string") {
+    throw new Error(`Expected text content at index ${index}`);
+  }
+  return block.text;
 }
 
 function buildCtx(overrides: Partial<QueryToolContext> = {}): QueryToolContext {
@@ -78,7 +88,7 @@ describe("add_auto_respond_rule tool", () => {
       preAnalysisContext: undefined,
     });
 
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = JSON.parse(textAt(result, 0));
     assert.equal(parsed.ok, true);
     assert.deepEqual(parsed.channels, ["C999"]);
     const rules = await getRules();
@@ -98,7 +108,7 @@ describe("add_auto_respond_rule tool", () => {
       preAnalysisContext: undefined,
     });
 
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = JSON.parse(textAt(result, 0));
     assert.equal(parsed.ok, true);
     assert.deepEqual(parsed.channels, ["C0123ABCDEF", "C2"]);
   });
@@ -116,7 +126,7 @@ describe("add_auto_respond_rule tool", () => {
     });
 
     assert.equal(result.isError, true);
-    assert.match(result.content[0].text, /nonexistent/);
+    assert.match(textAt(result, 0), /nonexistent/);
     const rules = await getRules();
     assert.equal(rules.length, 0);
   });
@@ -153,6 +163,6 @@ describe("add_auto_respond_rule tool", () => {
       preAnalysisContext: undefined,
     });
     assert.equal(result.isError, true);
-    assert.match(result.content[0].text, /Slack connection/);
+    assert.match(textAt(result, 0), /Slack connection/);
   });
 });

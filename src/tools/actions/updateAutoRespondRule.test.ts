@@ -10,9 +10,16 @@ import type { ResolveChannelResult } from "../../slack/channelResolver.js";
 
 const originalCwd = process.cwd;
 
-interface ToolHandlerResult {
-  content: Array<{ text: string }>;
-  isError?: boolean;
+type ToolHandlerResult = Awaited<
+  ReturnType<ReturnType<typeof createUpdateAutoRespondRuleTool>["handler"]>
+>;
+
+function textAt(result: ToolHandlerResult, index: number): string {
+  const block = result.content[index];
+  if (!block || !("text" in block) || typeof block.text !== "string") {
+    throw new Error(`Expected text content at index ${index}`);
+  }
+  return block.text;
 }
 
 function buildCtx(overrides: Partial<QueryToolContext> = {}): QueryToolContext {
@@ -192,7 +199,7 @@ describe("update_auto_respond_rule tool", () => {
     });
 
     assert.equal(result.isError, true);
-    assert.match(result.content[0].text, /cannot be empty/);
+    assert.match(textAt(result, 0), /cannot be empty/);
   });
 
   it("returns error for unknown rule ID", async () => {
@@ -209,6 +216,6 @@ describe("update_auto_respond_rule tool", () => {
     });
 
     assert.equal(result.isError, true);
-    assert.match(result.content[0].text, /not found/);
+    assert.match(textAt(result, 0), /not found/);
   });
 });

@@ -257,24 +257,23 @@ describe("buildClackTools — query mode", () => {
     const result = buildClackTools(makeQueryCtx({ role: "owner", changesWorkflowEnabled: true }));
 
     // The SDK's tools/list handler reads from `_registeredTools` on the McpServer
-    // instance. No public accessor exists, so assert the shape we depend on
-    // before iterating.
+    // instance. No public accessor exists. The McpServer type now declares
+    // `_registeredTools` as private, so a `value is X` predicate where `X` declares it
+    // public reduces the intersection to `never`. We extract via `Reflect.get` to
+    // dodge the access modifier mismatch.
     interface RegisteredTool {
       inputSchema: Parameters<typeof toJSONSchema>[0];
     }
-    interface InstanceWithRegisteredTools {
-      _registeredTools?: Record<string, RegisteredTool>;
-    }
-    function hasRegisteredTools(value: object): value is InstanceWithRegisteredTools {
-      return "_registeredTools" in value;
+    function readRegisteredTools(value: object): Record<string, RegisteredTool> | undefined {
+      if (!("_registeredTools" in value)) return undefined;
+      const tools = Reflect.get(value, "_registeredTools");
+      if (typeof tools !== "object" || tools === null) return undefined;
+      const result: Record<string, RegisteredTool> = tools as Record<string, RegisteredTool>;
+      return result;
     }
 
     const clackServer = result.mcpServers.clack;
-    assert.ok(
-      hasRegisteredTools(clackServer.instance),
-      "expected _registeredTools on the Clack MCP server instance",
-    );
-    const registered = clackServer.instance._registeredTools;
+    const registered = readRegisteredTools(clackServer.instance);
     assert.ok(registered, "expected _registeredTools to be populated");
 
     const names = Object.keys(registered);
