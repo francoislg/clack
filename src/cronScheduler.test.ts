@@ -259,5 +259,62 @@ describe("cronScheduler", () => {
       assert.equal(calls.updateJobRunStatus[0][1], "success");
       // responseTs comes from findSessionByMessage which returns undefined without a real session
     });
+
+    it("does NOT include REPLAY CONTEXT when asOf is omitted", async () => {
+      const { deps, calls } = makeDeps({ skipped: false });
+      const client = fakeClient();
+
+      await executeJob(baseJob(), client, deps);
+
+      assert.equal(calls.processMessage.length, 1);
+      const additional = calls.processMessage[0].additionalSystemPrompt ?? "";
+      assert.ok(
+        !additional.includes("REPLAY CONTEXT"),
+        `expected no REPLAY CONTEXT but got: ${additional}`,
+      );
+    });
+
+    it("injects REPLAY CONTEXT into additionalSystemPrompt when asOf is set", async () => {
+      const { deps, calls } = makeDeps({ skipped: false });
+      const client = fakeClient();
+      const asOf = new Date("2026-05-08T09:00:00.000Z");
+
+      await executeJob(baseJob(), client, deps, asOf);
+
+      assert.equal(calls.processMessage.length, 1);
+      const additional = calls.processMessage[0].additionalSystemPrompt ?? "";
+      assert.ok(
+        additional.includes("REPLAY CONTEXT"),
+        `expected REPLAY CONTEXT in additionalSystemPrompt`,
+      );
+      assert.ok(
+        additional.includes("2026-05-08T09:00:00.000Z"),
+        `expected asOf ISO timestamp in REPLAY CONTEXT block`,
+      );
+    });
+
+    it("forwards replayOf to updateJobRunStatus on successful replay", async () => {
+      const { deps, calls } = makeDeps({ skipped: false });
+      const client = fakeClient();
+      const asOf = new Date("2026-05-08T09:00:00.000Z");
+
+      await executeJob(baseJob(), client, deps, asOf);
+
+      assert.equal(calls.updateJobRunStatus.length, 1);
+      // updateJobRunStatus(jobId, status, responseTs, replayOf)
+      assert.equal(calls.updateJobRunStatus[0][3], "2026-05-08T09:00:00.000Z");
+    });
+
+    it("forwards replayOf to updateJobRunStatus on skipped replay", async () => {
+      const { deps, calls } = makeDeps({ skipped: true });
+      const client = fakeClient();
+      const asOf = new Date("2026-05-08T09:00:00.000Z");
+
+      await executeJob(baseJob({ skipConditions: "Skip on weekends" }), client, deps, asOf);
+
+      assert.equal(calls.updateJobRunStatus.length, 1);
+      assert.equal(calls.updateJobRunStatus[0][1], "skipped");
+      assert.equal(calls.updateJobRunStatus[0][3], "2026-05-08T09:00:00.000Z");
+    });
   });
 });

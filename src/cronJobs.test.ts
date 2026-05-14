@@ -418,6 +418,40 @@ describe("cronJobs", () => {
       assert.equal(updated?.runs?.length, 2);
     });
 
+    it("records replayOf on a replay run", async () => {
+      const job = await createJob({
+        cronExpression: "0 9 * * *",
+        channel: "C1",
+        prompt: "Test",
+        createdBy: "U1",
+        timezone: "UTC",
+      });
+
+      const asOf = "2026-05-08T09:00:00.000Z";
+      await updateJobRunStatus(job.id, "success", "1234567890.111111", asOf);
+
+      const updated = await getJob(job.id);
+      assert.equal(updated?.runs?.length, 1);
+      assert.equal(updated?.runs?.[0].status, "success");
+      assert.equal(updated?.runs?.[0].responseTs, "1234567890.111111");
+      assert.equal(updated?.runs?.[0].replayOf, asOf);
+    });
+
+    it("omits replayOf when not supplied", async () => {
+      const job = await createJob({
+        cronExpression: "0 9 * * *",
+        channel: "C1",
+        prompt: "Test",
+        createdBy: "U1",
+        timezone: "UTC",
+      });
+
+      await updateJobRunStatus(job.id, "success", "1234567890.222222");
+
+      const updated = await getJob(job.id);
+      assert.equal(updated?.runs?.[0].replayOf, undefined);
+    });
+
     it("accumulates all runs without cap", async () => {
       const job = await createJob({
         cronExpression: "0 9 * * *",
