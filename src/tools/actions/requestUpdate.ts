@@ -39,6 +39,9 @@ export function createRequestUpdateTool(ctx: QueryToolContext, intentStore: Inte
         sessionId: ctx.session.sessionId,
         instructions: args.instructions,
         ...(args.userFeedback && { userFeedback: args.userFeedback }),
+        applied: false,
+        instruction:
+          "STAGED — the worker has NOT received these instructions yet. The user must click 'Update' to dispatch them. Your submit_response prose MUST reflect this: use pending language ('I've drafted an update...', 'Click below to send this to the worker'). Do NOT use 'Done', 'I'll update...', 'I've sent...' — those imply work has happened, which it hasn't until the click.",
       });
     },
   );
