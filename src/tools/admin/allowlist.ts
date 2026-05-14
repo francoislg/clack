@@ -168,7 +168,9 @@ export function readDataFile(
     if (!deps.existsSync(absolute)) {
       return { content: "Directory does not exist yet.", isDirectory: true };
     }
-    const files = deps.readdirSync(absolute).filter((f) => f.endsWith(".json"));
+    const files = deps
+      .readdirSync(absolute)
+      .filter((f) => f.endsWith(".json") && !f.startsWith("."));
     return {
       content:
         files.length === 0

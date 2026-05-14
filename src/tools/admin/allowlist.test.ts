@@ -1,10 +1,14 @@
 import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
+import { mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { resolve } from "node:path";
 import type { SlackAuthConfig } from "../../config.js";
 import {
   isAllowedPath,
   validateContent,
   getAllowedPaths,
+  readDataFile,
   type AllowlistDeps,
   defaultAllowlistDeps,
 } from "./allowlist.js";
@@ -132,5 +136,32 @@ describe("validateContent", () => {
     const deps = makeDeps();
     const result = validateContent("configuration/tool_mapping/test.json", "{broken", deps);
     assert.ok(!result.valid);
+  });
+});
+
+describe("readDataFile tool_mapping directory listing", () => {
+  it("excludes hidden dotfiles (._*.json, .#*.json, etc.)", () => {
+    const tmpDataDir = resolve(tmpdir(), `allowlist-test-${process.pid}-${Date.now()}`);
+    const toolMappingDir = resolve(tmpDataDir, "configuration/tool_mapping");
+    mkdirSync(toolMappingDir, { recursive: true });
+    writeFileSync(resolve(toolMappingDir, "github.json"), "{}");
+    writeFileSync(resolve(toolMappingDir, "clack.json"), "{}");
+    writeFileSync(resolve(toolMappingDir, "._github.json"), "apple metadata");
+    writeFileSync(resolve(toolMappingDir, ".#clack.json"), "emacs lock target");
+    writeFileSync(resolve(toolMappingDir, ".hidden.json"), "{}");
+
+    try {
+      const deps = makeDeps({ getDataDir: () => tmpDataDir });
+      const result = readDataFile("configuration/tool_mapping/", deps);
+
+      assert.ok(result.isDirectory);
+      assert.ok(result.content?.includes("configuration/tool_mapping/github.json"));
+      assert.ok(result.content?.includes("configuration/tool_mapping/clack.json"));
+      assert.ok(!result.content?.includes("._github.json"));
+      assert.ok(!result.content?.includes(".#clack.json"));
+      assert.ok(!result.content?.includes(".hidden.json"));
+    } finally {
+      if (existsSync(tmpDataDir)) rmSync(tmpDataDir, { recursive: true });
+    }
   });
 });

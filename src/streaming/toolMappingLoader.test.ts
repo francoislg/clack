@@ -745,7 +745,27 @@ describe("loadToolMappings error handling", () => {
     // Clean up any test files
     const badFile = resolve(USER_TOOL_MAPPING_DIR, "_test_malformed.json");
     if (existsSync(badFile)) rmSync(badFile);
+    const appleDouble = resolve(USER_TOOL_MAPPING_DIR, "._github.json");
+    if (existsSync(appleDouble)) rmSync(appleDouble);
+    const emacsLock = resolve(USER_TOOL_MAPPING_DIR, ".#github.json");
+    if (existsSync(emacsLock)) rmSync(emacsLock);
     resetToolMappingCache();
+  });
+
+  it("skips hidden dotfiles (._*.json, .#*.json, etc.)", () => {
+    mkdirSync(USER_TOOL_MAPPING_DIR, { recursive: true });
+
+    writeFileSync(resolve(USER_TOOL_MAPPING_DIR, "._github.json"), "binary apple metadata");
+    writeFileSync(resolve(USER_TOOL_MAPPING_DIR, ".#github.json"), "emacs lock symlink target");
+
+    resetToolMappingCache();
+    const mappings = loadToolMappings();
+
+    // Hidden files should not be parsed or registered under any key
+    assert.equal(mappings.has("._github"), false);
+    assert.equal(mappings.has(".#github"), false);
+    // The real github mapping should still load from defaults
+    assert.ok(mappings.has("github"), "Shipped github.json should still load");
   });
 
   it("skips malformed JSON files and loads valid ones", () => {
