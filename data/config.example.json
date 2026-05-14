@@ -38,6 +38,9 @@
   "autoRespond": {
     "enabled": false
   },
+  "taskCards": {
+    "maxDetailsPerGroup": 5
+  },
   "repositories": [
     {
       "name": "my-app",

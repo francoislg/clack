@@ -1,6 +1,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type { UserRole } from "./roles.js";
+import { logger } from "./logger.js";
 
 export interface SlackAuthConfig {
   botToken: string;
@@ -107,6 +108,14 @@ export interface AutoRespondConfig {
   enabled: boolean;
 }
 
+export interface TaskCardsConfig {
+  /** Default cap on detail lines rendered per grouped tool task card. */
+  maxDetailsPerGroup?: number;
+}
+
+/** Built-in fallback when neither per-group nor global config sets a cap. */
+export const DEFAULT_TASK_CARD_MAX_DETAILS = 5;
+
 /**
  * Clack-owned metadata about an MCP server. `data/mcp.json` stays in pure Claude SDK shape;
  * this registry (under `config.mcpServers`) adds:
@@ -153,6 +162,7 @@ export interface Config {
   directMessages: DirectMessagesConfig;
   mentions: MentionsConfig;
   autoRespond?: AutoRespondConfig;
+  taskCards?: TaskCardsConfig;
   repositories: RepositoryConfig[];
   git: GitConfig;
   sessions: SessionsConfig;
@@ -305,6 +315,23 @@ function parseThinking(
   const type = str(raw, "type");
   if (type !== "message" && type !== "emoji") return fallback;
   return { type, emoji: str(raw, "emoji") };
+}
+
+interface TaskCardsRaw {
+  maxDetailsPerGroup?: unknown;
+}
+
+function parseTaskCardsConfig(raw: TaskCardsRaw | undefined): TaskCardsConfig | undefined {
+  if (!raw) return undefined;
+  const val = raw.maxDetailsPerGroup;
+  if (val === undefined) return {};
+  if (typeof val !== "number" || !Number.isFinite(val) || val < 0 || !Number.isInteger(val)) {
+    logger.warn(
+      `Config 'taskCards.maxDetailsPerGroup' must be a non-negative integer (got ${JSON.stringify(val)}); falling back to default ${DEFAULT_TASK_CARD_MAX_DETAILS}`,
+    );
+    return {};
+  }
+  return { maxDetailsPerGroup: val };
 }
 
 function parseTriggerChangesWorkflow(
@@ -589,6 +616,7 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
   const dmRaw = section(c, "directMessages");
   const mentionsRaw = section(c, "mentions");
   const autoRespondRaw = section(c, "autoRespond");
+  const taskCardsRaw = section(c, "taskCards");
   const gitRaw = section(c, "git");
   const sessionsRaw = section(c, "sessions");
   const claudeCodeRaw = section(c, "claudeCode");
@@ -650,6 +678,7 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
       ),
     },
     autoRespond: autoRespondRaw ? { enabled: bool(autoRespondRaw, "enabled") ?? false } : undefined,
+    taskCards: parseTaskCardsConfig(taskCardsRaw as TaskCardsRaw | undefined),
     repositories: c.repositories.map((r: unknown) => parseRepo(r as Record<string, unknown>)),
     git: {
       pullIntervalMinutes:
@@ -721,6 +750,16 @@ export function getConfig(): Config {
     throw new Error("Config not loaded. Call loadConfig() first.");
   }
   return cachedConfig;
+}
+
+/**
+ * Resolved cap on detail lines rendered per grouped tool task card,
+ * sourced from `config.taskCards.maxDetailsPerGroup` with a built-in
+ * fallback when config is missing or unloaded.
+ */
+export function getTaskCardMaxDetails(): number {
+  if (!cachedConfig) return DEFAULT_TASK_CARD_MAX_DETAILS;
+  return cachedConfig.taskCards?.maxDetailsPerGroup ?? DEFAULT_TASK_CARD_MAX_DETAILS;
 }
 
 export function getDataDir(): string {

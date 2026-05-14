@@ -65,6 +65,8 @@ export class SlackStreamer {
     title: string;
     count: number;
     pending: number;
+    /** Cap on detail lines for this group; resolved when the group is opened. */
+    maxDetails: number;
   } | null = null;
   /** Maps each SDK taskId to the Slack task ID it belongs to. */
   private taskSlack = new Map<string, string>();
@@ -199,9 +201,12 @@ export class SlackStreamer {
                 title: this.groupTitle(label),
                 status: "in_progress",
               };
-              if (group.itemDetail)
+              // Skip the itemDetail re-emission once the group's cap is reached. The header
+              // count keeps climbing via groupTitle() — only the detail list stops growing.
+              if (group.itemDetail && this.openGroup.count <= this.openGroup.maxDetails) {
                 chunk.details =
                   this.openGroup.count > 1 ? `\n${group.itemDetail}` : group.itemDetail;
+              }
               const details = getToolDetails(event.toolName, event.toolArgs);
               if (details) chunk.details = (chunk.details ? chunk.details + "\n" : "") + details;
               this.append([chunk]);
@@ -238,13 +243,23 @@ export class SlackStreamer {
             title: this.groupTitle(this.openGroup.title),
             status: "in_progress",
           };
-          // Only append itemDetail when we have real args (skip generic placeholders)
-          if (group.itemDetail && hasArgs) chunk.details = `\n${group.itemDetail}`;
+          // Only append itemDetail when we have real args (skip generic placeholders),
+          // and only while we are still under the group's detail-line cap.
+          if (group.itemDetail && hasArgs && this.openGroup.count <= this.openGroup.maxDetails) {
+            chunk.details = `\n${group.itemDetail}`;
+          }
           chunks.push(chunk);
         } else {
           // New task (grouped or standalone)
           this.openGroup = group
-            ? { slackId: event.taskId, key: groupKey, title: group.title, count: 1, pending: 1 }
+            ? {
+                slackId: event.taskId,
+                key: groupKey,
+                title: group.title,
+                count: 1,
+                pending: 1,
+                maxDetails: group.maxDetails,
+              }
             : null;
           this.taskSlack.set(event.taskId, event.taskId);
           this.taskLabels.set(event.taskId, label);
@@ -262,9 +277,12 @@ export class SlackStreamer {
             status: "in_progress",
           };
 
-          // Attach details: itemDetail for grouped (only with real args), or rich details for standalone
+          // Attach details: itemDetail for grouped (only with real args, and only when the
+          // group's cap allows at least one detail line), or rich details for standalone.
           if (group) {
-            if (group.itemDetail && hasArgs) chunk.details = group.itemDetail;
+            if (group.itemDetail && hasArgs && group.maxDetails > 0) {
+              chunk.details = group.itemDetail;
+            }
           } else {
             const details = getToolDetails(event.toolName, event.toolArgs);
             if (details) chunk.details = details;

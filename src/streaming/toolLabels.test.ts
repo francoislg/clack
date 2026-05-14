@@ -411,6 +411,23 @@ describe("getToolGroup", () => {
     assert.ok(group.itemDetail.length <= 65, "itemDetail should be truncated per argOptions");
     assert.ok(group.itemDetail.includes("…"), "Should contain ellipsis");
   });
+
+  it("includes maxDetails on resolved per-tool group entries", () => {
+    const group = getToolGroup("Read", { file_path: "/a.ts" });
+    assert.ok(group);
+    assert.equal(typeof group.maxDetails, "number");
+    assert.ok(group.maxDetails >= 0, "maxDetails must be non-negative");
+  });
+
+  it("includes maxDetails on resolved file-level group entries", () => {
+    const group = getToolGroup("mcp__github__pull_request_read", {
+      pullNumber: 42,
+      method: "reviews",
+    });
+    assert.ok(group);
+    assert.equal(typeof group.maxDetails, "number");
+    assert.ok(group.maxDetails >= 0);
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -5,6 +5,7 @@ import {
   applyArgConfigs,
   type ResolvedToolMapping,
 } from "./toolMappingLoader.js";
+import { getTaskCardMaxDetails } from "../config.js";
 
 /**
  * Group info for collapsing consecutive tool calls of the same type
@@ -18,6 +19,13 @@ export interface ToolGroupInfo {
   title: string;
   /** Short description for this specific call, shown in the details list. */
   itemDetail: string;
+  /**
+   * Cap on detail lines rendered for this group's task card. The renderer
+   * keeps incrementing the header `(<count>)` past this cap, but stops
+   * appending new detail lines once it is reached.
+   * Resolution: per-group config → global `taskCards.maxDetailsPerGroup` → built-in default.
+   */
+  maxDetails: number;
 }
 
 const MCP_PREFIX_RE = /^mcp__([^_]+)__(.+)$/;
@@ -153,7 +161,12 @@ export function getToolGroup(
     const itemDetail = toolGroup.itemDetail
       ? interpolateLabel(toolGroup.itemDetail, args, truncations)
       : interpolateLabel(mapping.labels.get(rawToolName) ?? rawToolName, args, truncations);
-    return { key: namespaceKey(toolGroup.groupKey), title, itemDetail };
+    return {
+      key: namespaceKey(toolGroup.groupKey),
+      title,
+      itemDetail,
+      maxDetails: resolveGroupMaxDetails(mapping, toolGroup.groupKey),
+    };
   }
 
   // Check file-level group — use interpolated label as itemDetail
@@ -164,10 +177,21 @@ export function getToolGroup(
       key: namespaceKey(mapping.fileGroup.key),
       title: withSuffix(mapping.fileGroup.title, labelSuffix),
       itemDetail,
+      maxDetails: resolveGroupMaxDetails(mapping, mapping.fileGroup.key),
     };
   }
 
   return null;
+}
+
+/**
+ * Resolve the detail-line cap for a group key:
+ * per-group override → global `taskCards.maxDetailsPerGroup` → built-in default.
+ */
+function resolveGroupMaxDetails(mapping: ResolvedToolMapping, groupKey: string): number {
+  const perGroup = mapping.groupMaxDetails.get(groupKey);
+  if (perGroup !== undefined) return perGroup;
+  return getTaskCardMaxDetails();
 }
 
 /**

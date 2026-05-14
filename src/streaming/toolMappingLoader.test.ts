@@ -674,12 +674,24 @@ describe("shipped default tool mapping configs", () => {
           assert.equal(typeof config.group, "string");
         }
 
-        // groups must be Record<string, string> if present
+        // groups values may be a title string OR { title, maxDetails? } object
         if (config.groups !== undefined) {
           assert.equal(typeof config.groups, "object");
           for (const [key, val] of Object.entries(config.groups)) {
             assert.equal(typeof key, "string");
-            assert.equal(typeof val, "string", `groups["${key}"] must be a string`);
+            if (typeof val === "string") {
+              // legacy string form
+            } else {
+              assert.equal(typeof val, "object", `groups["${key}"] must be string or object`);
+              assert.equal(typeof val.title, "string", `groups["${key}"].title must be a string`);
+              if (val.maxDetails !== undefined) {
+                assert.equal(
+                  typeof val.maxDetails,
+                  "number",
+                  `groups["${key}"].maxDetails must be a number`,
+                );
+              }
+            }
           }
         }
       });
