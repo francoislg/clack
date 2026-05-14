@@ -30,6 +30,20 @@ So from the link, derive `channelId` and `threadTs`.
 
 ### 2. Locate the session
 
+**Where sessions actually live**
+
+Clack is deployed on GCE. The authoritative copy of `data/` lives on the VM's persistent disk at `/mnt/disks/clack-data/data/`. The local `./data/` in this repo is usually NOT the right place to look — it's only populated when the user has explicitly sync'd or is running the bot locally.
+
+**Always use the fetch script** to pull a single session from the VM into a sandboxed local dir:
+
+```
+scripts/gce-fetch-session.sh '<slack-permalink>'
+```
+
+This pulls just the matching Q&A session, worker session (if any), and the corresponding SDK JSONL into `data/.debug-sessions/<channelId>-<threadTs>/`. It's non-destructive and won't touch your real `./data/`. The script handles `?thread_ts=` parsing and SDK JSONL discovery for you. Read files from the resulting `data/.debug-sessions/<id>/` path for the rest of this skill.
+
+If the script reports `NO_MATCH`, the session was either evicted (30-day age cap) or the thread never triggered Clack — surface that to the user.
+
 Two kinds of persisted sessions exist, and the right one depends on whether the thread triggered a Q&A or a Changes Workflow. Check both.
 
 **Q&A sessions** (`data/sessions/`)

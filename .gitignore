@@ -16,6 +16,7 @@ data/worktree-sessions/
 data/state/
 data/cache/
 data/.claude/
+data/.debug-sessions/
 data/.npm/
 data/mcp_packages/
 data/auth/*
