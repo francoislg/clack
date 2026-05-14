@@ -32,7 +32,11 @@
     "add_reaction": "Adding :{emoji}: reaction",
     "remove_reaction": "Removing :{emoji}: reaction",
     "resolve_review_thread": "Resolving review thread",
-    "attach_integration": "Attaching {name} integration",
+    "attach_integration": {
+      "label": "Attaching {name} integration",
+      "group": "integrations",
+      "itemDetail": "{name}"
+    },
     "list_skill_pack_skills": "Listing skills in {pack}",
     "load_skill": "Loading skill {skill} from {pack}",
     "propose_change": "Proposing change {repo}",
@@ -56,5 +60,8 @@
     "admin_set_env": "Admin - Setting env {key}",
     "admin_list_env": "Admin - Listing env keys",
     "admin_set_role": "Admin - Setting {user} to {role}"
+  },
+  "groups": {
+    "integrations": "Attaching integrations"
   }
 }
