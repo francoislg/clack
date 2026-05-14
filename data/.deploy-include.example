@@ -1,0 +1,25 @@
+# Paths under the project root that travel with deploys.
+# Used by scripts/gce-push-config.sh to overwrite the corresponding files on
+# the VM's persistent data disk. State files (sessions, state, repositories,
+# trivia plugin, etc.) are NOT in this list and stay untouched on the VM.
+#
+# Copy this file to data/.deploy-include (gitignored) and edit it to match
+# your instance:
+#   cp data/.deploy-include.example data/.deploy-include
+#
+# Format: one path per line, relative to the repo root. Lines starting with
+# `#` and blank lines are ignored.
+
+# Universal project-class paths (every Clack instance should push these)
+data/config.json
+data/mcp.json
+data/default_configuration
+
+# Per-instance project paths — uncomment / add lines below as needed.
+# Plugins that ship code (an index.js + assets, no persistent state) go here.
+# Plugins that have local state on the VM (e.g. trivia's question/score JSON)
+# must NOT be listed here, or you will clobber their state on every push.
+#
+# Examples:
+# data/plugins/my-org-plugin
+# data/plugins/another-code-only-plugin
