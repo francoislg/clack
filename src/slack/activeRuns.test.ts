@@ -4,7 +4,7 @@ import type { ClaudeRunHandle } from "../claude/runHandle.js";
 import {
   register,
   getByThread,
-  getByDm,
+  getForChannelMessage,
   unregister,
   size,
   _resetForTesting,
@@ -87,34 +87,20 @@ describe("activeRuns", () => {
     assert.equal(getByThread("C1", "T1"), undefined);
   });
 
-  it("registers under a DM key when dmUserId is supplied", () => {
-    const h = fakeHandle("dm");
-    register({ channelId: "D1", threadTs: "T1", dmUserId: "U1" }, h);
-    assert.strictEqual(getByDm("D1", "U1"), h);
-    // Also still findable by the thread key.
-    assert.strictEqual(getByThread("D1", "T1"), h);
-  });
-
-  it("getByDm returns undefined for handles registered without dmUserId", () => {
-    const h = fakeHandle("nodm");
-    register({ channelId: "C1", threadTs: "T1" }, h);
-    assert.equal(getByDm("C1", "U1"), undefined);
-  });
-
-  it("rejects registration when the DM key is occupied", () => {
+  it("does NOT collapse different DM threads under a per-user key", () => {
+    // Critical: two assistant threads in the same DM channel for the same user must
+    // remain isolated. A run in thread T1 must NOT be returned when looking up T2.
     const a = fakeHandle("a");
     const b = fakeHandle("b");
-    register({ channelId: "D1", threadTs: "T1", dmUserId: "U1" }, a);
-    // Same DM, different threadTs (a follow-up DM) — should still be rejected because the
-    // per-user DM slot is taken.
-    assert.equal(register({ channelId: "D1", threadTs: "T2", dmUserId: "U1" }, b), false);
-  });
-
-  it("unregister cleans up both thread and DM keys for a single handle", () => {
-    const h = fakeHandle("h");
-    register({ channelId: "D1", threadTs: "T1", dmUserId: "U1" }, h);
-    unregister(h);
-    assert.equal(getByThread("D1", "T1"), undefined);
-    assert.equal(getByDm("D1", "U1"), undefined);
+    register({ channelId: "D1", threadTs: "T1" }, a);
+    register({ channelId: "D1", threadTs: "T2" }, b);
+    assert.strictEqual(getByThread("D1", "T1"), a);
+    assert.strictEqual(getByThread("D1", "T2"), b);
+    // The combined-lookup helper must also respect the thread boundary in DMs.
+    assert.strictEqual(getForChannelMessage("D1", "T1", "U1"), a);
+    assert.strictEqual(getForChannelMessage("D1", "T2", "U1"), b);
+    // A lookup for a brand-new thread in the same DM channel must NOT find the
+    // handle from another thread.
+    assert.equal(getForChannelMessage("D1", "T_NEW", "U1"), undefined);
   });
 });
