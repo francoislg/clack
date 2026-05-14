@@ -83,7 +83,14 @@ export function createProposeConfigUpdateTool(
             ? "will_override_default"
             : "will_create_new";
 
-      return textResult({ ref, file: path, status });
+      return textResult({
+        ref,
+        file: path,
+        status,
+        applied: false,
+        instruction:
+          "STAGED — the file has NOT been written yet. Unless you also set `auto: true` on the matching `config_update` action in submit_response, the user must click 'Apply Update' to actually write the file. Your submit_response prose MUST reflect this: use pending language ('I've drafted...', 'Ready for you to apply...', 'Click below to save this preference'). Do NOT use 'Done', 'I'll now...', 'I've added...' — those imply the change is live, which it isn't until the click.",
+      });
     },
   );
 }

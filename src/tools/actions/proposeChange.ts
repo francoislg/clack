@@ -101,6 +101,9 @@ export function createProposeChangeTool(
         repo: args.repo,
         ...(args.plan && { plan: args.plan }),
         existingWorktree: existingWorktreeInfo,
+        applied: false,
+        instruction:
+          "STAGED — no worktree, branch, or code has been created yet. The user must click 'Start Change' to launch the worker. Your submit_response prose MUST reflect this: use pending language ('I've drafted a plan...', 'Ready when you are — click below to start the change'). Do NOT use 'Done', 'I'll create...', 'I've started...' — those imply work has begun, which it hasn't until the click.",
       };
 
       return textResult(result);
