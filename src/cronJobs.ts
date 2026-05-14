@@ -13,6 +13,12 @@ export interface CronRun {
   status: "success" | "error" | "skipped";
   /** Slack message timestamp — absent when delivery failed or was skipped */
   responseTs?: string;
+  /**
+   * ISO datetime of the run this entry was a replay of — set when the run was fired
+   * on-demand via `run_scheduled_message_now` with an `asOf` argument. Absent for
+   * normal scheduler-tick fires and for plain run-now invocations without `asOf`.
+   */
+  replayOf?: string;
 }
 
 export interface CronJob {
@@ -238,6 +244,7 @@ export async function updateJobRunStatus(
   jobId: string,
   status: "success" | "error" | "skipped",
   responseTs?: string,
+  replayOf?: string,
 ): Promise<void> {
   const jobs = await loadJobs();
   const job = jobs.find((j) => j.id === jobId);
@@ -248,7 +255,12 @@ export async function updateJobRunStatus(
   job.lastRunStatus = status;
 
   if (!job.runs) job.runs = [];
-  job.runs.push({ executedAt: now, status, ...(responseTs ? { responseTs } : {}) });
+  job.runs.push({
+    executedAt: now,
+    status,
+    ...(responseTs ? { responseTs } : {}),
+    ...(replayOf ? { replayOf } : {}),
+  });
 
   await saveState({ jobs });
 }

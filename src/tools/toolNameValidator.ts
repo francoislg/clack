@@ -65,6 +65,7 @@ export const CLACK_CORE_TOOL_NAMES: readonly string[] = [
   "get_scheduled_message_runs",
   "cancel_scheduled_message",
   "update_scheduled_message",
+  "run_scheduled_message_now",
   // Presentation
   "submit_response",
 ] as const;

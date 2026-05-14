@@ -61,6 +61,7 @@ import { createScheduleReminderTool } from "./actions/scheduleReminder.js";
 import { createCancelReminderTool } from "./actions/cancelReminder.js";
 import { createCreateScheduledMessageTool } from "./actions/createScheduledMessage.js";
 import { createCancelScheduledMessageTool } from "./actions/cancelScheduledMessage.js";
+import { createRunScheduledMessageNowTool } from "./actions/runScheduledMessageNow.js";
 import { createUpdateScheduledMessageTool } from "./actions/updateScheduledMessage.js";
 import { createCancelWorkerRunTool } from "./actions/cancelWorkerRun.js";
 import { createAddAutoRespondRuleTool } from "./actions/addAutoRespondRule.js";
@@ -406,6 +407,7 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
     tools.push(createGetScheduledMessageRunsTool(ctx));
     tools.push(createCancelScheduledMessageTool(ctx));
     tools.push(createUpdateScheduledMessageTool(ctx));
+    tools.push(createRunScheduledMessageNowTool(ctx));
   }
 
   // --- Plugin tools: one dedicated MCP server per plugin, with handlers wrapped to auto-record.

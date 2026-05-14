@@ -143,21 +143,23 @@ export async function executeJob(
   job: CronJob,
   client: App["client"],
   deps: CronSchedulerDeps = defaultDeps,
+  asOf?: Date,
 ): Promise<void> {
   runningJobs.add(job.id);
   const channelLabel = await resolveChannelLabel(client, job.channel);
   logger.info(
     `Cron job ${job.id} executing in ${channelLabel}${await slackLink(client, job.channel)}`,
   );
+  const replayOf = asOf?.toISOString();
 
   try {
-    const outcome = await executeDynamicJob(job, client, deps);
+    const outcome = await executeDynamicJob(job, client, deps, asOf);
 
     if (outcome.skipped) {
-      await deps.updateJobRunStatus(job.id, "skipped");
+      await deps.updateJobRunStatus(job.id, "skipped", undefined, replayOf);
       logger.info(`Cron job ${job.id} skipped by Claude (skipConditions matched)`);
     } else {
-      await deps.updateJobRunStatus(job.id, "success", outcome.responseTs);
+      await deps.updateJobRunStatus(job.id, "success", outcome.responseTs, replayOf);
     }
 
     if (job.oneShot) {
@@ -167,7 +169,7 @@ export async function executeJob(
   } catch (error) {
     logger.error(`Cron job ${job.id} failed:`, error);
     try {
-      await deps.updateJobRunStatus(job.id, "error");
+      await deps.updateJobRunStatus(job.id, "error", undefined, replayOf);
     } catch (e) {
       logger.error("Failed to update job status:", e);
     }
@@ -185,28 +187,35 @@ export async function executeJob(
   }
 }
 
-export async function runJobNow(job: CronJob, client: App["client"]): Promise<void> {
+export async function runJobNow(
+  job: CronJob,
+  client: App["client"],
+  asOf?: Date,
+): Promise<JobOutcome> {
   const channelLabel = await resolveChannelLabel(client, job.channel);
   logger.info(
     `Cron job ${job.id} executing manually in ${channelLabel}${await slackLink(client, job.channel)}`,
   );
-  const outcome = await executeDynamicJob(job, client, defaultDeps);
+  const replayOf = asOf?.toISOString();
+  const outcome = await executeDynamicJob(job, client, defaultDeps, asOf);
   if (outcome.skipped) {
-    await updateJobRunStatus(job.id, "skipped");
+    await updateJobRunStatus(job.id, "skipped", undefined, replayOf);
   } else {
-    await updateJobRunStatus(job.id, "success", outcome.responseTs);
+    await updateJobRunStatus(job.id, "success", outcome.responseTs, replayOf);
   }
+  return outcome;
 }
 
-interface JobOutcome {
+export interface JobOutcome {
   skipped: boolean;
   responseTs?: string;
 }
 
-async function executeDynamicJob(
+export async function executeDynamicJob(
   job: CronJob,
   client: App["client"],
   deps: CronSchedulerDeps,
+  asOf?: Date,
 ): Promise<JobOutcome> {
   const messageTs = `${Date.now() / 1000}`;
 
@@ -218,7 +227,7 @@ async function executeDynamicJob(
     messageText: job.prompt,
     triggerType: "scheduled",
     silentThinking: true,
-    additionalSystemPrompt: buildAttribution(job),
+    additionalSystemPrompt: buildAdditionalSystemPrompt(job, asOf),
     requiredTools: job.requiredTools,
     skipConditions: job.skipConditions,
     jobId: job.id,
@@ -231,6 +240,24 @@ async function executeDynamicJob(
   // Read back the session to capture the Slack message timestamp
   const session = await findSessionByMessage(job.channel, messageTs, job.createdBy);
   return { skipped: false, responseTs: session?.responseTs };
+}
+
+function buildAdditionalSystemPrompt(job: CronJob, asOf?: Date): string {
+  const attribution = buildAttribution(job);
+  if (!asOf) return attribution;
+  const iso = asOf.toISOString();
+  const replayContext = [
+    "",
+    "",
+    "REPLAY CONTEXT: This run is replaying a scheduled fire that was originally due " +
+      `at ${iso}. When interpreting relative date language ("today", "yesterday", "this week", ` +
+      '"last 24 hours", etc.) or when filtering by relative dates in tool calls, treat the ' +
+      `effective current date as ${iso} — NOT the wall-clock time shown in CURRENT DATE. ` +
+      "Note that the underlying tools still see real wall-clock time; you must translate " +
+      "relative date phrases into explicit dates anchored on the replay timestamp before " +
+      "passing them as tool arguments.",
+  ].join("\n");
+  return attribution + replayContext;
 }
 
 // ============================================================================
