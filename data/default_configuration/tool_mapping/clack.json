@@ -5,32 +5,88 @@
     "query": { "truncate": 30 }
   },
   "tools": {
-    "find_recent_interactions": "Recalling recent messages {keywords}",
+    "find_recent_interactions": {
+      "label": "Recalling recent messages {keywords}",
+      "group": "messages",
+      "itemDetail": "Recent {keywords}"
+    },
     "find_session_transcript": "Reading transcript for session {sessionId}",
     "stop_tracking": "Stopping tracking for thread",
     "cancel_worker_run": "Cancelling worker run",
     "get_session_trace": "Reading session trace",
-    "admin_list_error_reports": "Admin - Listing error reports",
-    "admin_read_error_report": "Admin - Reading error report {filename}",
-    "admin_delete_message": "Admin - Deleting message",
+    "admin_list_error_reports": {
+      "label": "Admin - Listing error reports",
+      "group": "admin",
+      "itemDetail": "List error reports"
+    },
+    "admin_read_error_report": {
+      "label": "Admin - Reading error report {filename}",
+      "group": "admin",
+      "itemDetail": "Read error report {filename}"
+    },
+    "admin_delete_message": {
+      "label": "Admin - Deleting message",
+      "group": "admin",
+      "itemDetail": "Delete message"
+    },
     "list_repositories": "Listing repositories",
     "git_log": "Reading git history {repo}",
     "deepen_history": "Loading more history",
     "find_sessions": "Finding sessions {repo}",
     "find_changes": "Finding changes {repo}",
     "find_pull_requests": "Finding pull requests {repo} {branch}",
-    "find_user": "Looking up user {query}",
-    "find_emoji": "Looking up emoji \"{query}\"",
-    "find_channel": "Finding channel \"{query}\"",
+    "find_user": {
+      "label": "Looking up user {query}",
+      "group": "lookups",
+      "itemDetail": "user {query}"
+    },
+    "find_emoji": {
+      "label": "Looking up emoji \"{query}\"",
+      "group": "lookups",
+      "itemDetail": "emoji \"{query}\""
+    },
+    "find_channel": {
+      "label": "Finding channel \"{query}\"",
+      "group": "lookups",
+      "itemDetail": "channel \"{query}\""
+    },
     "list_config_files": "Listing config files",
     "read_config_file": "Reading config {role}/{file}",
-    "fetch_channel_messages": "Reading messages in <#{channel_id}>",
-    "fetch_slack_message": "Reading <{url}|Slack message>",
-    "view_slack_image": "Viewing image {file_id}",
-    "view_slack_file": "Viewing file {file_id}",
-    "upload_file": "Uploading {filename}",
-    "add_reaction": "Adding :{emoji}: reaction",
-    "remove_reaction": "Removing :{emoji}: reaction",
+    "fetch_channel_messages": {
+      "label": "Reading messages in <#{channel_id}>",
+      "group": "messages",
+      "itemDetail": "<#{channel_id}>"
+    },
+    "fetch_slack_message": {
+      "label": "Reading <{url}|Slack message>",
+      "group": "messages",
+      "itemDetail": "<{url}|Slack message>"
+    },
+    "view_slack_image": {
+      "label": "Viewing image {file_id}",
+      "group": "files",
+      "itemDetail": "View image {file_id}"
+    },
+    "view_slack_file": {
+      "label": "Viewing file {file_id}",
+      "group": "files",
+      "itemDetail": "View file {file_id}"
+    },
+    "upload_file": {
+      "label": "Uploading {filename}",
+      "group": "files",
+      "itemDetail": "Upload {filename}"
+    },
+    "add_reaction": {
+      "label": "Adding :{emoji}: reaction",
+      "group": "reactions",
+      "itemDetail": "Add :{emoji}:"
+    },
+    "remove_reaction": {
+      "label": "Removing :{emoji}: reaction",
+      "group": "reactions",
+      "itemDetail": "Remove :{emoji}:"
+    },
     "resolve_review_thread": "Resolving review thread",
     "attach_integration": {
       "label": "Attaching {name} integration",
@@ -46,22 +102,85 @@
     "ensure_pr": "Creating pull request {title}",
     "merge_pr": "Merging pull request",
     "close_pr": "Closing pull request",
-    "schedule_reminder": "Scheduling reminder to <#{channel}>",
-    "list_reminders": "Listing reminders",
-    "cancel_reminder": "Cancelling reminder",
-    "create_scheduled_message": "Scheduling message to <#{channel}>",
-    "list_scheduled_messages": "Listing scheduled messages",
-    "get_scheduled_message_runs": "Fetching runs for schedule {id}",
-    "cancel_scheduled_message": "Cancelling scheduled message {id}",
-    "update_scheduled_message": "Updating scheduled message {id}",
-    "admin_read_file": "Admin - Reading {path}",
-    "admin_write_file": "Admin - Writing {path}",
-    "admin_restart_app": "Admin - Restarting app",
-    "admin_set_env": "Admin - Setting env {key}",
-    "admin_list_env": "Admin - Listing env keys",
-    "admin_set_role": "Admin - Setting {user} to {role}"
+    "schedule_reminder": {
+      "label": "Scheduling reminder to <#{channel}>",
+      "group": "reminders",
+      "itemDetail": "Schedule to <#{channel}>"
+    },
+    "list_reminders": {
+      "label": "Listing reminders",
+      "group": "reminders",
+      "itemDetail": "List all"
+    },
+    "cancel_reminder": {
+      "label": "Cancelling reminder",
+      "group": "reminders",
+      "itemDetail": "Cancel"
+    },
+    "create_scheduled_message": {
+      "label": "Scheduling message to <#{channel}>",
+      "group": "scheduled_messages",
+      "itemDetail": "Schedule to <#{channel}>"
+    },
+    "list_scheduled_messages": {
+      "label": "Listing scheduled messages",
+      "group": "scheduled_messages",
+      "itemDetail": "List all"
+    },
+    "get_scheduled_message_runs": {
+      "label": "Fetching runs for schedule {id}",
+      "group": "scheduled_messages",
+      "itemDetail": "Fetch runs for {id}"
+    },
+    "cancel_scheduled_message": {
+      "label": "Cancelling scheduled message {id}",
+      "group": "scheduled_messages",
+      "itemDetail": "Cancel {id}"
+    },
+    "update_scheduled_message": {
+      "label": "Updating scheduled message {id}",
+      "group": "scheduled_messages",
+      "itemDetail": "Update {id}"
+    },
+    "admin_read_file": {
+      "label": "Admin - Reading {path}",
+      "group": "admin",
+      "itemDetail": "Read {path}"
+    },
+    "admin_write_file": {
+      "label": "Admin - Writing {path}",
+      "group": "admin",
+      "itemDetail": "Write {path}"
+    },
+    "admin_restart_app": {
+      "label": "Admin - Restarting app",
+      "group": "admin",
+      "itemDetail": "Restart app"
+    },
+    "admin_set_env": {
+      "label": "Admin - Setting env {key}",
+      "group": "admin",
+      "itemDetail": "Set env {key}"
+    },
+    "admin_list_env": {
+      "label": "Admin - Listing env keys",
+      "group": "admin",
+      "itemDetail": "List env keys"
+    },
+    "admin_set_role": {
+      "label": "Admin - Setting {user} to {role}",
+      "group": "admin",
+      "itemDetail": "Set {user} to {role}"
+    }
   },
   "groups": {
-    "integrations": "Attaching integrations"
+    "integrations": "Attaching integrations",
+    "messages": "Reading messages",
+    "files": "Working with files",
+    "reactions": "Updating reactions",
+    "lookups": "Looking up in Slack",
+    "reminders": "Managing reminders",
+    "scheduled_messages": "Managing scheduled messages",
+    "admin": "Admin actions"
   }
 }

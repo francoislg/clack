@@ -201,11 +201,14 @@ export class SlackStreamer {
                 title: this.groupTitle(label),
                 status: "in_progress",
               };
-              // Skip the itemDetail re-emission once the group's cap is reached. The header
-              // count keeps climbing via groupTitle() — only the detail list stops growing.
-              if (group.itemDetail && this.openGroup.count <= this.openGroup.maxDetails) {
-                chunk.details =
-                  this.openGroup.count > 1 ? `\n${group.itemDetail}` : group.itemDetail;
+              // Once the group's cap is reached, emit one final "…" overflow marker, then
+              // stay silent. The header count keeps climbing via groupTitle().
+              if (group.itemDetail) {
+                const formatted = this.formatGroupDetail(
+                  group.itemDetail,
+                  this.openGroup.count > 1,
+                );
+                if (formatted !== null) chunk.details = formatted;
               }
               const details = getToolDetails(event.toolName, event.toolArgs);
               if (details) chunk.details = (chunk.details ? chunk.details + "\n" : "") + details;
@@ -243,10 +246,11 @@ export class SlackStreamer {
             title: this.groupTitle(this.openGroup.title),
             status: "in_progress",
           };
-          // Only append itemDetail when we have real args (skip generic placeholders),
-          // and only while we are still under the group's detail-line cap.
-          if (group.itemDetail && hasArgs && this.openGroup.count <= this.openGroup.maxDetails) {
-            chunk.details = `\n${group.itemDetail}`;
+          // Only append itemDetail when we have real args (skip generic placeholders).
+          // Within the cap → real detail; at cap+1 → "…" overflow marker; beyond → silent.
+          if (group.itemDetail && hasArgs) {
+            const formatted = this.formatGroupDetail(group.itemDetail, true);
+            if (formatted !== null) chunk.details = formatted;
           }
           chunks.push(chunk);
         } else {
@@ -277,11 +281,13 @@ export class SlackStreamer {
             status: "in_progress",
           };
 
-          // Attach details: itemDetail for grouped (only with real args, and only when the
-          // group's cap allows at least one detail line), or rich details for standalone.
+          // Attach details: itemDetail for grouped (only with real args; routed through
+          // the same cap helper so the overflow rule stays consistent), or rich details
+          // for standalone.
           if (group) {
-            if (group.itemDetail && hasArgs && group.maxDetails > 0) {
-              chunk.details = group.itemDetail;
+            if (group.itemDetail && hasArgs) {
+              const formatted = this.formatGroupDetail(group.itemDetail, false);
+              if (formatted !== null) chunk.details = formatted;
             }
           } else {
             const details = getToolDetails(event.toolName, event.toolArgs);
@@ -402,6 +408,29 @@ export class SlackStreamer {
   }
 
   // --- Private ---
+
+  /**
+   * Compute the details string for the currently open group at its current count.
+   * Returns null to suppress emission entirely.
+   *
+   *   count <= maxDetails  → the real `itemDetail` (this is a normal in-cap line)
+   *   count == maxDetails+1 → `…` (one final overflow marker)
+   *   count >  maxDetails+1 → null (silent; header `(N)` already conveys the size)
+   *   maxDetails == 0      → null (caller chose header-only mode)
+   *
+   * `prefixNewline` controls whether the result starts with `\n`. The fold and re-emit
+   * sites prepend a newline so Slack treats each detail as a new line; the first-item
+   * path on a fresh task does not.
+   */
+  private formatGroupDetail(itemDetail: string, prefixNewline: boolean): string | null {
+    if (!this.openGroup) return null;
+    const { count, maxDetails } = this.openGroup;
+    if (maxDetails === 0) return null;
+    const prefix = prefixNewline ? "\n" : "";
+    if (count <= maxDetails) return `${prefix}${itemDetail}`;
+    if (count === maxDetails + 1) return `${prefix}…`;
+    return null;
+  }
 
   private groupTitle(fallback: string): string {
     if (!this.openGroup) return fallback;

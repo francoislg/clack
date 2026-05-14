@@ -164,7 +164,7 @@ The system SHALL periodically send keepalive appends to prevent Slack from expir
 
 ### Requirement: Tool Call Progress
 
-The system SHALL display Claude's tool calls as task cards within a plan block, updated in real-time as tools execute. Consecutive same-group tool calls collapse into a single task card; the header title increments a `(<count>)` suffix on every call, and each call appends a detail line below the header up to the group's resolved `maxDetails` cap. Once the cap is reached, additional same-group calls continue to advance the header count but SHALL NOT append further detail lines.
+The system SHALL display Claude's tool calls as task cards within a plan block, updated in real-time as tools execute. Consecutive same-group tool calls collapse into a single task card; the header title increments a `(<count>)` suffix on every call, and each call appends a detail line below the header up to the group's resolved `maxDetails` cap. The first call that exceeds the cap (i.e. call number `maxDetails + 1`) SHALL append a single `…` overflow marker line in place of its detail. Every subsequent same-group call SHALL continue to advance the header count but SHALL NOT append any further detail line — the marker is emitted exactly once per group, regardless of how many calls overflow the cap. When `maxDetails` is `0`, no detail lines (including the marker) are emitted at all.
 
 #### Scenario: Thinking task lifecycle
 
@@ -200,23 +200,30 @@ The system SHALL display Claude's tool calls as task cards within a plan block, 
 - **WHEN** five consecutive tools join the same open group with a resolved `maxDetails` of `5`
 - **THEN** the task card header SHALL read `<title> (5)` and the details SHALL contain exactly five detail lines (one per call)
 
-#### Scenario: Grouped detail lines stop at the cap while header count continues
+#### Scenario: A single overflow marker fires at the cap+1 call
 
 - **WHEN** a sixth tool joins the same open group with a resolved `maxDetails` of `5`
 - **THEN** the task card header SHALL read `<title> (6)`
-- **AND** the system SHALL NOT append a detail line for that sixth call
+- **AND** the system SHALL append exactly one `…` overflow marker line in place of the sixth call's detail
 - **AND** the existing five detail lines SHALL remain unchanged
+
+#### Scenario: Subsequent overflow calls add no further detail lines
+
+- **WHEN** a seventh, eighth, or later tool joins the same open group whose cap has already been marked
+- **THEN** the system SHALL NOT append any additional detail line for those calls
+- **AND** the marker SHALL remain a single `…` entry — it is NOT emitted again per call
+- **AND** the header count SHALL continue to advance with each call
 
 #### Scenario: Cap of zero produces a header-only task card
 
 - **WHEN** a group is opened with a resolved `maxDetails` of `0`
-- **THEN** the task card SHALL be created with the group's title and no detail lines
+- **THEN** the task card SHALL be created with the group's title and no detail lines (no `…` marker either)
 - **AND** subsequent calls in the group SHALL increment only the header count
 
 #### Scenario: Re-emission of grouped details respects the cap
 
-- **WHEN** an MCP tool emits `tool_progress` (empty args) followed by `tool_use` (real args) for a call whose ordinal in the group exceeds `maxDetails`
-- **THEN** the re-emission SHALL NOT append a new detail line
+- **WHEN** an MCP tool emits `tool_progress` (empty args) followed by `tool_use` (real args) for a call whose ordinal in the group is strictly greater than `maxDetails + 1`
+- **THEN** the re-emission SHALL NOT append a new detail line (the marker was already emitted on the boundary call)
 
 #### Scenario: Cap applies independently to separate groups in the same stream
 
