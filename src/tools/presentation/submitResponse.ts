@@ -230,12 +230,20 @@ export interface SubmitResponseDeps {
    */
   requiredTools?: string[];
   /**
-   * Returns true when the live SDK input stream still has unread `sendUpdate` pushes. When
-   * set, the handler refuses to finalize while pending input exists — the SDK keeps reading,
-   * the queued message lands as the next user turn, and Claude addresses it before
-   * resubmitting. Wired from the active `ClaudeRunHandle.hasPendingInput`.
+   * Returns true when `sendUpdate` has pushed user input Claude hasn't yet observed. When
+   * set, the handler refuses to finalize while pending input exists — the error result
+   * inlines the queued texts (see `consumePendingPushedTexts`) so Claude can address them
+   * in the current turn, then retry `submit_response`. Wired from
+   * `ClaudeRunHandle.hasPendingInput`.
    */
   hasPendingInput?: () => boolean;
+  /**
+   * Returns AND clears the texts of every unobserved `sendUpdate` push. The gate calls
+   * this exactly once when it fires, embedding the texts in the error result so Claude
+   * sees them. After draining, `hasPendingInput()` returns false for those messages.
+   * Wired from `ClaudeRunHandle.consumePendingPushedTexts`.
+   */
+  consumePendingPushedTexts?: () => string[];
   getStructuredResponseBlocks?: typeof _getStructuredResponseBlocks;
   validateBlocks?: typeof _validateBlocks;
   validateTable?: typeof _validateTable;
@@ -508,6 +516,7 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
     allowPostTopLevel,
     requiredTools,
     hasPendingInput,
+    consumePendingPushedTexts,
     getStructuredResponseBlocks = _getStructuredResponseBlocks,
     validateBlocks = _validateBlocks,
     validateTable = _validateTable,
@@ -531,18 +540,33 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
         ? normalResponseSchemaWithPostTopLevel
         : normalResponseSchema;
 
+  // Safety net: if the pending-input gate fires this many times in one run, bypass it on
+  // the next attempt. Prevents a permanent loop if the consume callback is missing/buggy
+  // and the message texts never become visible to Claude. Reset per `createSubmitResponseTool`
+  // invocation, so each run starts fresh.
+  let gateRejectionCount = 0;
+  const MAX_GATE_REJECTIONS = 5;
+
   return tool(
     "submit_response",
     "Submit the final response to the user. IMPORTANT: calling this tool ENDS the conversation — you cannot take any further actions afterward. If your response mentions doing something (e.g., 'Let me set that up', 'I'll create a PR'), you MUST have already called the relevant tools BEFORE calling submit_response. Never promise future actions in your response text — either do them first or don't mention them. This defines what the user sees: text sections and interactive buttons. Always call this tool to deliver your response.",
     schema,
     async (args) => {
-      // --- Pending-input gate: refuse delivery while user follow-ups are queued on the
-      // SDK input stream. Returning an error keeps the SDK turn loop alive so the queued
-      // message surfaces as the next user turn for Claude to read and address.
-      if (hasPendingInput?.()) {
+      // --- Pending-input gate: refuse delivery while `sendUpdate` has queued user input
+      // Claude hasn't observed yet. The error result inlines the queued texts so Claude
+      // can address them in the current turn (the SDK only surfaces queued messages at
+      // turn boundaries, which never arrive while submit_response keeps the assistant in
+      // `tool_use`). After MAX_GATE_REJECTIONS attempts in this run, bypass the gate so a
+      // bug in the consume path can't deadlock the conversation.
+      if (hasPendingInput?.() && gateRejectionCount < MAX_GATE_REJECTIONS) {
+        gateRejectionCount++;
+        const queuedMessages = consumePendingPushedTexts?.() ?? [];
         return recordError(recorder, args, {
           error:
-            "A new user message arrived while you were responding. Read it and address it before calling submit_response again — call submit_response only after you have addressed the latest user input.",
+            queuedMessages.length > 0
+              ? "New user message(s) arrived while you were responding. They are listed in `new_user_messages` below — address them in your response, then call submit_response again."
+              : "A new user message arrived while you were responding. Address it and call submit_response again.",
+          new_user_messages: queuedMessages,
         });
       }
 

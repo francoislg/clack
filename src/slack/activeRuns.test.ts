@@ -17,6 +17,7 @@ function fakeHandle(label: string): ClaudeRunHandle {
     futureResponse: Promise.resolve({ success: true, answer: label }),
     status: "running",
     hasPendingInput: () => false,
+    consumePendingPushedTexts: () => [],
   };
 }
 

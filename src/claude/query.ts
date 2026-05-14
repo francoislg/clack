@@ -154,33 +154,36 @@ export function clackSession(
   const initialMessage = makeUserMessage(prompt);
   pushUserMessage(initialMessage);
 
-  // Tracks how many `sendUpdate`-pushed user messages have not yet had a corresponding
-  // new assistant turn started. Each push increments; each turn-boundary observation
-  // decrements. While > 0, `submit_response` is gated so Claude is forced to address the
-  // queued message before finalizing.
+  // Texts of every `sendUpdate`-pushed user message Claude has not yet observed. Each push
+  // appends; messages get consumed either when the SDK delivers them as a new turn (turn-
+  // boundary shift below) OR when `submit_response`'s gate surfaces them in its error
+  // result. While non-empty, `submit_response` is gated so Claude is forced to address
+  // queued input before finalizing.
   //
   // Turn-boundary detection: an assistant message with `stop_reason: end_turn` (or any
   // non-`tool_use` terminal reason) marks the END of the current turn — the SDK will
   // pull the next queued user message next. We flip `awaitingNextTurnStart = true`. The
   // FIRST assistant message after that flag is set is the START of a new turn (Claude
-  // is now responding to the dequeued user message). At that point we decrement.
+  // is now responding to the dequeued user message). At that point we shift the front.
   //
-  // Why this signal works where the previous one didn't: the SDK doesn't echo pushed
-  // user messages through the output stream, but it always emits assistant messages and
-  // those carry `stop_reason`. Multiple pushes during one turn each need their own new
-  // turn to clear (the SDK delivers one user message per turn).
-  let pendingSendUpdates = 0;
+  // Why both consumption paths exist: turn-boundary delivery only happens when the
+  // assistant emits a non-`tool_use` stop_reason, but `submit_response` is itself a tool
+  // call, so a gated `submit_response` cycle never produces a turn boundary. Without the
+  // gate-side consumption, Claude could never see mid-turn user input and would loop on
+  // the gate forever. See `src/tools/presentation/submitResponse.ts` for the gate.
+  const pendingPushedTexts: string[] = [];
   let awaitingNextTurnStart = false;
 
   const driver = createRunHandle({
     push: (text) => {
-      pendingSendUpdates++;
+      pendingPushedTexts.push(text);
       pushUserMessage(makeUserMessage(text));
     },
     closeInput: () => {
       if (!currentInputStream.ended) currentInputStream.end();
     },
-    isInputPending: () => pendingSendUpdates > 0,
+    isInputPending: () => pendingPushedTexts.length > 0,
+    consumePendingPushedTexts: () => pendingPushedTexts.splice(0, pendingPushedTexts.length),
     ...(onTerminal && { onTerminal }),
   });
 
@@ -199,12 +202,12 @@ export function clackSession(
     if (message.type !== "assistant") return;
 
     // First assistant message after an end-of-turn signal = start of a new turn = the
-    // SDK has dequeued the next user message and Claude is responding to it. Decrement
-    // pending pushes (clamped at 0 so the initial-prompt turn doesn't underflow when no
-    // push is outstanding).
+    // SDK has dequeued the next user message and Claude is responding to it. Shift the
+    // queue front (no-op if empty, e.g. the initial-prompt turn ending without any
+    // outstanding push).
     if (awaitingNextTurnStart) {
       awaitingNextTurnStart = false;
-      if (pendingSendUpdates > 0) pendingSendUpdates--;
+      if (pendingPushedTexts.length > 0) pendingPushedTexts.shift();
     }
 
     // `tool_use` means the assistant turn continues (Claude wants the tool result before

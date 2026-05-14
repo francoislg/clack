@@ -63,6 +63,25 @@ function makeResultErrorMessage(errors: string[]) {
   };
 }
 
+function makeAssistantMessage(text: string, stopReason: string) {
+  return {
+    type: "assistant" as const,
+    message: {
+      id: `msg-${stopReason}`,
+      type: "message" as const,
+      role: "assistant" as const,
+      content: [{ type: "text" as const, text }],
+      model: "test",
+      stop_reason: stopReason,
+      stop_sequence: null,
+      usage: { input_tokens: 0, output_tokens: 0 },
+    },
+    parent_tool_use_id: null,
+    session_id: "test-session",
+    uuid: `assistant-${stopReason}`,
+  };
+}
+
 /** Minimal-but-valid shape for fixtures in this test file. */
 interface MessageFixture {
   type: string;
@@ -472,24 +491,6 @@ describe("clackSession", () => {
     const turnBoundaryReleased = new Promise<void>((resolve) => {
       releaseTurnBoundary = resolve;
     });
-    function makeAssistantMessage(text: string, stopReason: string) {
-      return {
-        type: "assistant" as const,
-        message: {
-          id: `msg-${stopReason}`,
-          type: "message" as const,
-          role: "assistant" as const,
-          content: [{ type: "text" as const, text }],
-          model: "test",
-          stop_reason: stopReason,
-          stop_sequence: null,
-          usage: { input_tokens: 0, output_tokens: 0 },
-        },
-        parent_tool_use_id: null,
-        session_id: "test-session",
-        uuid: `assistant-${stopReason}`,
-      };
-    }
     async function* genStream(): AsyncGenerator<SDKMessage, void> {
       // Turn 0: initial prompt. Ends with `end_turn`.
       yield* makeMockQuery([makeInitMessage("id"), makeAssistantMessage("turn0 done", "end_turn")]);
@@ -532,28 +533,131 @@ describe("clackSession", () => {
     assert.equal(run.hasPendingInput(), false, "cleared after turn 1's first assistant message");
   });
 
+  it("turn-boundary shift and gate consume coexist without underflow", async () => {
+    // Two drain paths share `pendingPushedTexts`: the SDK-turn-boundary path (front-shifts
+    // one element when a new turn starts) and the gate-consume path (splice-clears all).
+    // This walks both in one run to verify they don't double-pop or underflow.
+    let releaseBeforeTurnOne: (() => void) | undefined;
+    const beforeTurnOne = new Promise<void>((resolve) => {
+      releaseBeforeTurnOne = resolve;
+    });
+    let releaseAfterTurnOne: (() => void) | undefined;
+    const afterTurnOne = new Promise<void>((resolve) => {
+      releaseAfterTurnOne = resolve;
+    });
+    let releaseFinal: (() => void) | undefined;
+    const finalReleased = new Promise<void>((resolve) => {
+      releaseFinal = resolve;
+    });
+    async function* genStream(): AsyncGenerator<SDKMessage, void> {
+      // Turn 0: initial prompt, ends with end_turn so awaitingNextTurnStart flips on.
+      yield* makeMockQuery([makeInitMessage("id"), makeAssistantMessage("turn0 done", "end_turn")]);
+      // Pause so the test can push "A" BEFORE turn 1's first assistant message lands.
+      await beforeTurnOne;
+      // Turn 1's first assistant message — this is the shift point for "A".
+      yield* makeMockQuery([makeAssistantMessage("turn1 start", "tool_use")]);
+      // Pause so the test can verify post-shift state, push "B", and consume via the gate.
+      await afterTurnOne;
+      // Hold in tool_use so no further turn boundary fires.
+      await finalReleased;
+      yield* makeMockQuery([makeResultMessage("done")]);
+    }
+    mockQuery.mock.mockImplementation(() => {
+      const inner = makeMockQuery([]);
+      const generator = genStream();
+      return Object.assign(inner, {
+        next: generator.next.bind(generator),
+        return: generator.return.bind(generator),
+        throw: generator.throw.bind(generator),
+        [Symbol.asyncIterator]: () => generator,
+      });
+    });
+
+    const run = clackSession({ prompt: "first" }, makeDeps());
+    async function drainMessages(): Promise<void> {
+      for await (const _msg of run.messages) {
+        // drain
+      }
+    }
+    const drain = drainMessages();
+
+    // Let turn 0 stream through; generator parks on beforeTurnOne.
+    await new Promise((resolve) => setImmediate(resolve));
+
+    // Push "A" — should ride the SDK turn-boundary path when turn 1's first message arrives.
+    await run.sendUpdate("A");
+    assert.equal(run.hasPendingInput(), true, "A queued");
+
+    // Unblock the generator so turn 1's first assistant message lands; observeTurnBoundary
+    // shifts "A" off the queue.
+    releaseBeforeTurnOne?.();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(run.hasPendingInput(), false, "A shifted at turn boundary");
+
+    // Push "B" mid-tool_use — goes through the gate-consume path instead.
+    await run.sendUpdate("B");
+    assert.equal(run.hasPendingInput(), true, "B queued mid-turn");
+    assert.deepEqual(run.consumePendingPushedTexts(), ["B"], "gate consumes B");
+    assert.equal(run.hasPendingInput(), false, "queue empty after consume");
+
+    // No underflow on repeat consume or if another turn boundary fires.
+    assert.deepEqual(run.consumePendingPushedTexts(), [], "no underflow on repeat consume");
+
+    releaseAfterTurnOne?.();
+    releaseFinal?.();
+    await drain;
+  });
+
+  it("consumePendingPushedTexts returns and clears every queued text", async () => {
+    // Without a turn boundary or a gate-side consume, multiple sendUpdates accumulate.
+    // `consumePendingPushedTexts` is how submit_response's pending-input gate drains them.
+    // Hold the SDK in `tool_use` so no turn boundary fires and the queue stays unconsumed.
+    let release: (() => void) | undefined;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    async function* genStream(): AsyncGenerator<SDKMessage, void> {
+      yield* makeMockQuery([makeInitMessage("id"), makeAssistantMessage("thinking", "tool_use")]);
+      await released;
+      yield* makeMockQuery([makeResultMessage("done")]);
+    }
+    mockQuery.mock.mockImplementation(() => {
+      const inner = makeMockQuery([]);
+      const generator = genStream();
+      return Object.assign(inner, {
+        next: generator.next.bind(generator),
+        return: generator.return.bind(generator),
+        throw: generator.throw.bind(generator),
+        [Symbol.asyncIterator]: () => generator,
+      });
+    });
+
+    const run = clackSession({ prompt: "first" }, makeDeps());
+    async function drainMessages(): Promise<void> {
+      for await (const _msg of run.messages) {
+        // drain
+      }
+    }
+    const drain = drainMessages();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    await run.sendUpdate("ok ty works");
+    await run.sendUpdate("what are you doing");
+    assert.equal(run.hasPendingInput(), true, "two pending pushes");
+
+    const drained = run.consumePendingPushedTexts();
+    assert.deepEqual(drained, ["ok ty works", "what are you doing"]);
+    assert.equal(run.hasPendingInput(), false, "queue cleared after consume");
+    assert.deepEqual(run.consumePendingPushedTexts(), [], "subsequent consume returns empty");
+
+    release?.();
+    await drain;
+  });
+
   it("hasPendingInput stays clear when initial-prompt turn ends without any sendUpdate", async () => {
     // The initial prompt also produces an `end_turn` assistant message. Without a
     // sendUpdate, the counter must not underflow when the next turn never starts (or
     // when the `awaitingNextTurnStart` flag never observes a decrement target).
-    function makeAssistantMessage(text: string, stopReason: string) {
-      return {
-        type: "assistant" as const,
-        message: {
-          id: `msg-${stopReason}`,
-          type: "message" as const,
-          role: "assistant" as const,
-          content: [{ type: "text" as const, text }],
-          model: "test",
-          stop_reason: stopReason,
-          stop_sequence: null,
-          usage: { input_tokens: 0, output_tokens: 0 },
-        },
-        parent_tool_use_id: null,
-        session_id: "test-session",
-        uuid: `assistant-${stopReason}`,
-      };
-    }
     mockQuery.mock.mockImplementation(() =>
       makeMockQuery([
         makeInitMessage("id"),

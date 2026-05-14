@@ -35,11 +35,21 @@ export interface ClaudeRunHandle {
   readonly status: ClaudeRunStatus;
 
   /**
-   * True when at least one `sendUpdate` push is queued in the SDK input stream and has not
-   * yet been consumed by the SDK. Used to gate `submit_response` so Claude is forced to
-   * read queued user messages before finalizing its answer.
+   * True when at least one `sendUpdate` push is queued and has not yet been observed by
+   * Claude. Used to gate `submit_response` so Claude is forced to read queued user
+   * messages before finalizing its answer.
    */
   hasPendingInput(): boolean;
+
+  /**
+   * Return AND clear the texts of every queued `sendUpdate` push that Claude has not yet
+   * observed. After this call, `hasPendingInput()` returns false until a fresh `sendUpdate`
+   * lands. Called by `submit_response`'s pending-input gate to inline the queued texts into
+   * its error result — that's how Claude actually sees mid-turn user follow-ups (the SDK
+   * input stream only surfaces messages at turn boundaries, which never arrive while
+   * `submit_response` keeps the assistant in `tool_use`).
+   */
+  consumePendingPushedTexts(): string[];
 }
 
 /**
@@ -84,10 +94,17 @@ export interface CreateRunHandleOptions {
   closeInput: () => void;
 
   /**
-   * Returns whether the SDK input stream still has unread items pushed via `sendUpdate`.
-   * Backed by `PushableAsyncIterable.pendingCount` in production. Defaults to `false`.
+   * Returns whether there are unread `sendUpdate` pushes Claude hasn't observed. Defaults
+   * to `false`.
    */
   isInputPending?: () => boolean;
+
+  /**
+   * Returns AND clears the texts of every unobserved push. Defaults to returning `[]`. The
+   * production wrapper backs this with the same array that `isInputPending` measures, so
+   * the two stay in sync.
+   */
+  consumePendingPushedTexts?: () => string[];
 
   /**
    * Optional hook fired exactly once when the handle settles or stops. Used by callers that
@@ -185,5 +202,6 @@ export function createRunHandle(options: CreateRunHandleOptions): ClaudeRunDrive
     settle,
     fail,
     hasPendingInput: () => options.isInputPending?.() ?? false,
+    consumePendingPushedTexts: () => options.consumePendingPushedTexts?.() ?? [],
   };
 }

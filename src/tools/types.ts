@@ -107,13 +107,17 @@ export interface QueryToolContext {
    */
   skillsManager?: SkillsManager;
   /**
-   * Returns true when at least one user message has been queued onto the live SDK input
-   * stream via `handle.sendUpdate` and not yet consumed by the SDK. Used by
-   * `submit_response` to refuse finalizing while there are unread follow-ups: the tool
-   * returns an error, the SDK keeps reading, the queued message lands as the next user
-   * turn, and Claude addresses it before submitting again.
+   * Returns true when at least one user message has been queued via `handle.sendUpdate`
+   * and Claude has not yet observed it. Used by `submit_response` to refuse finalizing
+   * while there are unread follow-ups.
    */
   hasPendingInput?: () => boolean;
+  /**
+   * Returns AND clears the texts of every queued `sendUpdate` push that Claude has not yet
+   * observed. `submit_response`'s pending-input gate calls this to inline the texts into
+   * its error result so Claude can address them in the current turn.
+   */
+  consumePendingPushedTexts?: () => string[];
 }
 
 /** Worker context — used by change execution and follow-up flows */

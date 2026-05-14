@@ -33,10 +33,15 @@ export interface BuildQueryContextParams {
    */
   skillsManager?: SkillsManager;
   /**
-   * Returns true when the live SDK input stream has unread `sendUpdate` pushes. Used by
-   * `submit_response` to gate finalization on consuming queued user follow-ups.
+   * Returns true when `sendUpdate` has pushed user input Claude hasn't yet observed. Used
+   * by `submit_response` to gate finalization on addressing queued user follow-ups.
    */
   hasPendingInput?: () => boolean;
+  /**
+   * Returns AND clears the texts of every unobserved push. Consumed by `submit_response`'s
+   * gate to inline queued texts into its error result.
+   */
+  consumePendingPushedTexts?: () => string[];
 }
 
 export function buildQueryContext(params: BuildQueryContextParams): QueryToolContext {

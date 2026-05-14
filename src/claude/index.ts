@@ -158,6 +158,7 @@ async function buildQuerySetup(
   session: SessionContext,
   options: AskClaudeOptions | undefined,
   hasPendingInput: () => boolean,
+  consumePendingPushedTexts: () => string[],
 ): Promise<QuerySetup> {
   const config = getConfig();
   const reposDir = getRepositoriesDir();
@@ -198,6 +199,7 @@ async function buildQuerySetup(
     mcpManager: mcpSetup.manager,
     skillsManager,
     hasPendingInput,
+    consumePendingPushedTexts,
   });
   const clackTools = buildClackTools(toolCtx);
 
@@ -374,7 +376,12 @@ export async function askClaude(
   // finalizing while a sendUpdate push is unread.
   let runRef: ClaudeRunHandle | undefined;
   const { reposDir, systemPrompt, userPrompt, model, clackTools, mcpServers, mcpManager } =
-    await buildQuerySetup(session, options, () => runRef?.hasPendingInput() ?? false);
+    await buildQuerySetup(
+      session,
+      options,
+      () => runRef?.hasPendingInput() ?? false,
+      () => runRef?.consumePendingPushedTexts() ?? [],
+    );
 
   logger.debug(`Querying Claude via Agent SDK for session ${session.sessionId}...`);
 

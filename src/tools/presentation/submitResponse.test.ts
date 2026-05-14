@@ -43,6 +43,8 @@ function makeDeps(
     sessionChannelId: string;
     topLevelDeliveryChannel: string;
     requiredTools: string[];
+    hasPendingInput: () => boolean;
+    consumePendingPushedTexts: () => string[];
   }> = {},
 ) {
   const intentStore: IntentStore = {
@@ -84,6 +86,8 @@ function makeDeps(
     sessionChannelId: overrides.sessionChannelId,
     topLevelDeliveryChannel: overrides.topLevelDeliveryChannel,
     requiredTools: overrides.requiredTools,
+    hasPendingInput: overrides.hasPendingInput,
+    consumePendingPushedTexts: overrides.consumePendingPushedTexts,
     getStructuredResponseBlocks: mockGetStructuredResponseBlocks,
     validateBlocks: mockValidateBlocks,
     validateTable: mockValidateTable,
@@ -1893,6 +1897,136 @@ describe("createSubmitResponseTool", () => {
         actions: [],
       });
       assert.equal(mockValidateTable.mock.callCount(), 0);
+    });
+  });
+
+  describe("pending-input gate", () => {
+    it("returns an error and inlines the queued texts when hasPendingInput is true", async () => {
+      const queue = ["ok ty works", "what are you doing"];
+      const deps = makeDeps({
+        hasPendingInput: () => queue.length > 0,
+        consumePendingPushedTexts: () => queue.splice(0, queue.length),
+      });
+      const result = await callTool(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Hello" } }],
+        actions: [],
+      });
+      const parsed = parseToolResult(result);
+      assert.ok(parsed.error, "expected an error");
+      assert.deepEqual(parsed.new_user_messages, ["ok ty works", "what are you doing"]);
+    });
+
+    it("clears the queue so the next submit_response goes through", async () => {
+      const queue = ["mid-turn"];
+      const deps = makeDeps({
+        hasPendingInput: () => queue.length > 0,
+        consumePendingPushedTexts: () => queue.splice(0, queue.length),
+      });
+      // First call hits the gate
+      const blocked = await callTool(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "first" } }],
+        actions: [],
+      });
+      assert.ok(parseToolResult(blocked).error);
+      // Queue is drained — second call succeeds
+      const ok = await callTool(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "after addressing" } }],
+        actions: [],
+      });
+      const parsed = parseToolResult(ok);
+      assert.equal(parsed.success, true);
+    });
+
+    it("bypasses the gate after MAX_GATE_REJECTIONS to prevent deadlock", async () => {
+      // Simulate the broken case: hasPendingInput stays true forever (consume callback
+      // missing or buggy). After 5 rejections the gate must let the response through.
+      const deps = makeDeps({
+        hasPendingInput: () => true,
+        consumePendingPushedTexts: () => [],
+      });
+      const toolDef = createSubmitResponseTool(deps);
+      const args = {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "hello" } }],
+        actions: [],
+      };
+      // 5 rejections, then bypass on the 6th call
+      for (let i = 0; i < 5; i++) {
+        const blocked = await toolDef.handler(Object.assign(Object.create(null), args), {});
+        assert.ok(parseToolResult(blocked).error, `attempt ${i + 1} should be gated`);
+      }
+      const bypassed = await toolDef.handler(Object.assign(Object.create(null), args), {});
+      assert.equal(parseToolResult(bypassed).success, true, "6th attempt should bypass the gate");
+    });
+
+    it("does not consume the queue when there are no pending pushes", async () => {
+      let consumeCalls = 0;
+      const deps = makeDeps({
+        hasPendingInput: () => false,
+        consumePendingPushedTexts: () => {
+          consumeCalls++;
+          return [];
+        },
+      });
+      const result = await callTool(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Hello" } }],
+        actions: [],
+      });
+      assert.equal(parseToolResult(result).success, true);
+      assert.equal(consumeCalls, 0, "consume must not be called when nothing is pending");
+    });
+
+    it("stays functional across push-drain-push cycles", async () => {
+      // Regression: after the gate drains the queue, a fresh push must surface the same
+      // way (gate fires again with the new text, then clears).
+      const queue: string[] = [];
+      const deps = makeDeps({
+        hasPendingInput: () => queue.length > 0,
+        consumePendingPushedTexts: () => queue.splice(0, queue.length),
+      });
+      const toolDef = createSubmitResponseTool(deps);
+      const args = {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "hello" } }],
+        actions: [],
+      };
+
+      queue.push("A");
+      const firstBlocked = await toolDef.handler(Object.assign(Object.create(null), args), {});
+      const firstParsed = parseToolResult(firstBlocked);
+      assert.deepEqual(firstParsed.new_user_messages, ["A"]);
+
+      queue.push("B");
+      const secondBlocked = await toolDef.handler(Object.assign(Object.create(null), args), {});
+      const secondParsed = parseToolResult(secondBlocked);
+      assert.deepEqual(
+        secondParsed.new_user_messages,
+        ["B"],
+        "second drain must surface the new push, not stale A",
+      );
+
+      const ok = await toolDef.handler(Object.assign(Object.create(null), args), {});
+      assert.equal(parseToolResult(ok).success, true, "queue empty → gate clears");
+    });
+
+    it("falls back to a generic error when hasPendingInput is true but consume returns empty", async () => {
+      // Edge case: stale `hasPendingInput` flag with an empty queue (shouldn't normally
+      // happen, but guards against a race or buggy callback). The gate still fires but
+      // the error text uses the singular fallback wording — no `new_user_messages` to list.
+      const deps = makeDeps({
+        hasPendingInput: () => true,
+        consumePendingPushedTexts: () => [],
+      });
+      const result = await callTool(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Hello" } }],
+        actions: [],
+      });
+      const parsed = parseToolResult(result);
+      assert.ok(parsed.error, "gate should still fire");
+      assert.deepEqual(parsed.new_user_messages, []);
+      assert.match(
+        parsed.error,
+        /A new user message arrived/,
+        "fallback wording when consume returned no texts",
+      );
     });
   });
 });
