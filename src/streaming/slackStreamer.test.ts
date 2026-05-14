@@ -1606,8 +1606,10 @@ describe("SlackStreamer.handleEvent — grouped detail cap", () => {
     );
   });
 
-  it("stops appending detail lines once cap is reached but keeps incrementing the header", () => {
-    for (let i = 1; i <= 7; i++) {
+  it("emits one '…' overflow marker at cap+1, then stays silent while header keeps climbing", () => {
+    // 10 calls into a default-cap-of-5 group. The overflow marker must fire at call #6
+    // and NEVER fire again for calls #7-10 — exactly one marker total.
+    for (let i = 1; i <= 10; i++) {
       streamer.handleEvent({
         type: "tool_start",
         taskId: `task-${i}`,
@@ -1617,16 +1619,33 @@ describe("SlackStreamer.handleEvent — grouped detail cap", () => {
     }
 
     const chunks = getAppendedChunks(mockStreamerObj);
-    assert.equal(
-      countDetailChunks(chunks, "task-1"),
-      5,
-      "detail lines capped at 5 even with 7 calls",
+    const detailChunks = chunks.filter(
+      (c) => c.id === "task-1" && typeof c.details === "string" && c.details.length > 0,
     );
 
+    // 5 in-cap detail lines + 1 overflow marker = 6 detail-bearing chunks, no more.
+    assert.equal(
+      detailChunks.length,
+      6,
+      "5 in-cap details + exactly 1 overflow marker (silent for calls 7–10)",
+    );
+
+    // Exactly one "…" line — not one per overflow call.
+    const markerChunks = detailChunks.filter((c) => c.details!.includes("…"));
+    assert.equal(
+      markerChunks.length,
+      1,
+      `overflow marker must fire exactly once, got ${markerChunks.length}`,
+    );
+
+    // The marker is the 6th (and last) detail-bearing chunk.
+    assert.ok(detailChunks[detailChunks.length - 1].details!.includes("…"));
+
+    // Header reflects all 10 calls.
     const lastTaskChunk = [...chunks].reverse().find((c) => c.id === "task-1");
     assert.ok(lastTaskChunk);
     assert.ok(
-      lastTaskChunk!.title!.includes("(7)"),
+      lastTaskChunk!.title!.includes("(10)"),
       `header count should keep climbing past cap; got "${lastTaskChunk!.title}"`,
     );
   });
@@ -1742,7 +1761,12 @@ describe("SlackStreamer.handleEvent — grouped detail cap with custom mapping",
     }
 
     const chunks = getAppendedChunks(mockStreamerObj);
-    assert.equal(countDetailChunks(chunks, "tight-1"), 3, "tight group capped at maxDetails: 3");
+    // Tight: 3 in-cap details + 1 overflow marker; loose: 5 calls, well under cap (10), no marker.
+    assert.equal(
+      countDetailChunks(chunks, "tight-1"),
+      4,
+      "tight group: 3 in-cap details + 1 overflow marker",
+    );
     assert.equal(
       countDetailChunks(chunks, "loose-1"),
       5,
