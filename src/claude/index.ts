@@ -435,17 +435,9 @@ export async function askClaude(
   runRef = run;
 
   // Register in the active-runs registry so concurrent messages on the same thread can
-  // route through `sendUpdate` instead of spawning a parallel session. For DMs we also
-  // register a per-user key — DM messages arrive top-level (no `thread_ts`) so the
-  // thread key changes per message and a follow-up DM would never find the live run.
-  // Slot is freed by the `onTerminal` hook above when the run settles or stops.
-  const isDirectMessage = session.channelId.startsWith("D");
-  const registerOpts = {
-    channelId: session.channelId,
-    threadTs: session.threadTs,
-    ...(isDirectMessage && { dmUserId: session.userId }),
-  };
-  if (registerActiveRun(registerOpts, run)) {
+  // route through `sendUpdate` instead of spawning a parallel session. Slot is freed by
+  // the `onTerminal` hook above when the run settles or stops.
+  if (registerActiveRun({ channelId: session.channelId, threadTs: session.threadTs }, run)) {
     registeredHandle = run;
   } else {
     logger.warn(

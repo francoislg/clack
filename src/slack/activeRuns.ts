@@ -2,19 +2,16 @@ import { logger } from "../logger.js";
 import type { ClaudeRunHandle } from "../claude/runHandle.js";
 
 /**
- * In-memory registry of active `ClaudeRunHandle`s.
+ * In-memory registry of active `ClaudeRunHandle`s, keyed by `(channelId, threadTs)`.
  *
- * Each handle can be registered under multiple lookup keys so the queueing semantics work
- * uniformly across surfaces:
- *   - **Thread key** `{channelId}:{threadTs}` — for threaded conversations (mentions,
- *     reactions, replies). For top-level non-threaded messages this defaults to messageTs.
- *   - **DM key** `dm:{channelId}:{userId}` — for direct messages, where each new message
- *     from the same user is its own top-level message with a fresh `messageTs`. Without a
- *     stable per-user key, follow-up DMs would never match a live run.
+ * For top-level non-threaded messages, `threadTs` defaults to `messageTs`. The Slack
+ * assistant API always provides `thread_ts` on user messages, so thread-keyed lookups
+ * work for DMs too — we deliberately do NOT collapse multiple DM threads under a per-user
+ * key, since that would route a message in one DM thread into a run in a different thread.
  *
- * Invariant: at most one handle per key. `register` returns false if any of the requested
- * keys is already occupied. The handle is responsible for calling `unregister` when it
- * terminates (typically via its `onTerminal` hook).
+ * Invariant: at most one handle per key. `register` returns false if the key is already
+ * occupied. The handle is responsible for calling `unregister` when it terminates
+ * (typically via its `onTerminal` hook).
  *
  * Replaces the prior `inFlightRequests` registry.
  */
@@ -23,49 +20,32 @@ function makeThreadKey(channelId: string, threadTs: string): string {
   return `${channelId}:${threadTs}`;
 }
 
-function makeDmKey(channelId: string, userId: string): string {
-  return `dm:${channelId}:${userId}`;
-}
-
 const registry = new Map<string, ClaudeRunHandle>();
 
-/**
- * Tracks every key a handle was registered under so `unregister` can clean them all up
- * even when the caller only knows the primary (thread) key. Keyed by the handle reference.
- */
-const handleKeys = new WeakMap<ClaudeRunHandle, string[]>();
+/** Tracks the key each handle was registered under so `unregister` can find it from the
+ * handle reference alone. Keyed by the handle reference (WeakMap so a forgotten handle
+ * doesn't leak the registry slot). */
+const handleKeys = new WeakMap<ClaudeRunHandle, string>();
 
 export interface RegisterOptions {
   channelId: string;
   threadTs: string;
-  /** Optional: when present, the handle is also indexed under `dm:{channelId}:{userId}`. */
-  dmUserId?: string;
 }
 
 /**
- * Insert a handle into the registry under all applicable keys. Returns `true` on success;
- * `false` if any of the requested keys is already occupied (and rolls back partial inserts
- * so the registry stays consistent). The handle is responsible for calling `unregister`
- * when it terminates.
+ * Insert a handle into the registry under `(channelId, threadTs)`. Returns `true` on
+ * success; `false` if the key is already occupied. The handle is responsible for calling
+ * `unregister` when it terminates.
  */
 export function register(opts: RegisterOptions, handle: ClaudeRunHandle): boolean {
-  const keys = [makeThreadKey(opts.channelId, opts.threadTs)];
-  if (opts.dmUserId) {
-    keys.push(makeDmKey(opts.channelId, opts.dmUserId));
+  const key = makeThreadKey(opts.channelId, opts.threadTs);
+  if (registry.has(key)) {
+    logger.debug(`active-runs: slot already occupied for ${key}`);
+    return false;
   }
-
-  for (const key of keys) {
-    if (registry.has(key)) {
-      logger.debug(`active-runs: slot already occupied for ${key}`);
-      return false;
-    }
-  }
-
-  for (const key of keys) {
-    registry.set(key, handle);
-  }
-  handleKeys.set(handle, keys);
-  logger.debug(`active-runs: registered ${keys.join(", ")}`);
+  registry.set(key, handle);
+  handleKeys.set(handle, key);
+  logger.debug(`active-runs: registered ${key}`);
   return true;
 }
 
@@ -75,48 +55,33 @@ export function getByThread(channelId: string, threadTs: string): ClaudeRunHandl
 }
 
 /**
- * Look up the active run for a DM by `(channelId, userId)`. Returns `undefined` if the
- * handle wasn't registered with a `dmUserId` or no run is active in this DM.
- */
-export function getByDm(channelId: string, userId: string): ClaudeRunHandle | undefined {
-  return registry.get(makeDmKey(channelId, userId));
-}
-
-/**
- * Look up the active run for an incoming Slack message. Tries the thread key first; if
- * the channel is a DM (channel id starts with `D`) and the user id is known, falls back
- * to the per-user DM key. This collapses the lookup-with-DM-fallback pattern used by
- * every Slack handler that needs to detect whether a run is in flight for the
- * conversation the new message belongs to.
+ * Look up the active run for an incoming Slack message. Slack's assistant API and
+ * standard threading both supply a `thread_ts` on user messages; for top-level non-
+ * threaded triggers, callers pass `messageTs` as `threadTs`. Returns `undefined` when
+ * no run is active for this exact thread — DMs are NOT collapsed across threads under
+ * a per-user key, since that would route a message in one DM thread into a run in a
+ * different thread.
  */
 export function getForChannelMessage(
   channelId: string,
   threadTs: string,
-  userId: string | undefined,
+  _userId: string | undefined,
 ): ClaudeRunHandle | undefined {
-  const byThread = getByThread(channelId, threadTs);
-  if (byThread) return byThread;
-  if (channelId.startsWith("D") && userId) {
-    return getByDm(channelId, userId);
-  }
-  return undefined;
+  return getByThread(channelId, threadTs);
 }
 
 /**
- * Remove every key the handle was registered under. The `expected` parameter prevents
- * accidental unregistration of a newer handle that took the slot after the original
- * settled. Idempotent.
+ * Remove the handle's registry entry. Idempotent. The key is recovered from the
+ * `handleKeys` map so the caller doesn't need to remember it.
  */
 export function unregister(handle: ClaudeRunHandle): void {
-  const keys = handleKeys.get(handle);
-  if (!keys) return;
-  for (const key of keys) {
-    if (registry.get(key) === handle) {
-      registry.delete(key);
-    }
+  const key = handleKeys.get(handle);
+  if (!key) return;
+  if (registry.get(key) === handle) {
+    registry.delete(key);
   }
   handleKeys.delete(handle);
-  logger.debug(`active-runs: unregistered ${keys.join(", ")}`);
+  logger.debug(`active-runs: unregistered ${key}`);
 }
 
 /** Test-only: clear all entries. Not exported from index. */
@@ -124,9 +89,7 @@ export function _resetForTesting(): void {
   registry.clear();
 }
 
-/** Returns the number of active runs (counts unique handles, not keys). */
+/** Returns the number of active runs. */
 export function size(): number {
-  // A handle can occupy multiple keys; count unique handle references via the WeakMap by
-  // walking the registry values into a Set.
-  return new Set(registry.values()).size;
+  return registry.size;
 }
