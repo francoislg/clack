@@ -9,9 +9,16 @@ import { addRule, clearAutoRespondCache, getRules } from "../../autoRespond.js";
 
 const originalCwd = process.cwd;
 
-interface ToolHandlerResult {
-  content: Array<{ text: string }>;
-  isError?: boolean;
+type ToolHandlerResult = Awaited<
+  ReturnType<ReturnType<typeof createDeleteAutoRespondRuleTool>["handler"]>
+>;
+
+function textAt(result: ToolHandlerResult, index: number): string {
+  const block = result.content[index];
+  if (!block || !("text" in block) || typeof block.text !== "string") {
+    throw new Error(`Expected text content at index ${index}`);
+  }
+  return block.text;
 }
 
 function buildCtx(overrides: Partial<QueryToolContext> = {}): QueryToolContext {
@@ -59,7 +66,7 @@ describe("delete_auto_respond_rule tool", () => {
     const tool = createDeleteAutoRespondRuleTool(buildCtx());
     const result = await call(tool, { id: rule.id });
 
-    const parsed = JSON.parse(result.content[0].text);
+    const parsed = JSON.parse(textAt(result, 0));
     assert.equal(parsed.ok, true);
     assert.equal(parsed.deleted, true);
     const remaining = await getRules();
@@ -72,6 +79,6 @@ describe("delete_auto_respond_rule tool", () => {
     const result = await call(tool, { id: "nope" });
 
     assert.equal(result.isError, true);
-    assert.match(result.content[0].text, /not found/);
+    assert.match(textAt(result, 0), /not found/);
   });
 });
