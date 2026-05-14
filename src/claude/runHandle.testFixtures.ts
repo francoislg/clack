@@ -32,6 +32,7 @@ export function makeFakeRunHandle(initialStatus: ClaudeRunStatus = "running"): F
     futureResponse: Promise.resolve({ success: true, answer: "" }),
     status: initialStatus,
     hasPendingInput: () => false,
+    consumePendingPushedTexts: () => [],
     sendUpdateCalls,
     stopCalls,
   };

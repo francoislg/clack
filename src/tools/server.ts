@@ -463,6 +463,9 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
       allowPostTopLevel: shouldAllowPostTopLevel(triggerType),
       requiredTools: ctx.requiredTools,
       ...(ctx.hasPendingInput && { hasPendingInput: ctx.hasPendingInput }),
+      ...(ctx.consumePendingPushedTexts && {
+        consumePendingPushedTexts: ctx.consumePendingPushedTexts,
+      }),
     }),
   );
 

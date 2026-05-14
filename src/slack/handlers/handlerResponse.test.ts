@@ -37,6 +37,7 @@ function fakeHandleFromResponse(response: ClaudeResponse): ClaudeRunHandle {
     futureResponse: Promise.resolve(response),
     status: "settled",
     hasPendingInput: () => false,
+    consumePendingPushedTexts: () => [],
   };
 }
 
