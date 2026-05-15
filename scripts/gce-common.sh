@@ -14,7 +14,7 @@ NC='\033[0m'
 PROJECT_ID=$(gcloud config get-value project 2>/dev/null)
 INSTANCE_NAME="clack"
 ZONE="northamerica-northeast1-a"
-MACHINE_TYPE="e2-small"
+MACHINE_TYPE="e2-medium"
 IMAGE_NAME="gcr.io/${PROJECT_ID}/clack:latest"
 
 DATA_DISK_NAME="clack-data"
