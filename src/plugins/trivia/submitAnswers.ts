@@ -40,9 +40,10 @@ export function createSubmitAnswersTool(data: TriviaDataLayer) {
       // Load existing state
       const existingAnswers = await data.loadAnswers();
       const users = await data.loadUsers();
+      const currentSeason = await data.getCurrentSeasonSlug();
 
       // Process each answer
-      const results: Array<{
+      interface AnswerResult {
         userId: string;
         displayName: string;
         correct: boolean;
@@ -50,7 +51,10 @@ export function createSubmitAnswersTool(data: TriviaDataLayer) {
         totalCorrect: number;
         totalAnswered: number;
         currentStreak: number;
-      }> = [];
+        currentSeasonCorrect?: number;
+        currentSeasonAnswered?: number;
+      }
+      const results: AnswerResult[] = [];
 
       for (const answerInput of args.answers) {
         const correct = answerInput.answer === question.isTrue;
@@ -81,12 +85,14 @@ export function createSubmitAnswersTool(data: TriviaDataLayer) {
         );
 
         if (!skipped) {
+          const seasonTag = currentSeason !== null ? { season: currentSeason } : {};
           await data.saveAnswer({
             userId: answerInput.userId,
             questionId: args.questionId,
             answer: answerInput.answer,
             correct,
             timestamp: Date.now(),
+            ...seasonTag,
           });
 
           existingAnswers.push({
@@ -95,6 +101,7 @@ export function createSubmitAnswersTool(data: TriviaDataLayer) {
             answer: answerInput.answer,
             correct,
             timestamp: Date.now(),
+            ...seasonTag,
           });
         }
 
@@ -111,7 +118,7 @@ export function createSubmitAnswersTool(data: TriviaDataLayer) {
           else break;
         }
 
-        results.push({
+        const result: AnswerResult = {
           userId: answerInput.userId,
           displayName: answerInput.displayName,
           correct,
@@ -119,7 +126,13 @@ export function createSubmitAnswersTool(data: TriviaDataLayer) {
           totalCorrect,
           totalAnswered,
           currentStreak,
-        });
+        };
+        if (currentSeason !== null) {
+          const currentSeasonAnswers = userAnswers.filter((a) => a.season === currentSeason);
+          result.currentSeasonCorrect = currentSeasonAnswers.filter((a) => a.correct).length;
+          result.currentSeasonAnswered = currentSeasonAnswers.length;
+        }
+        results.push(result);
       }
 
       return textResult({

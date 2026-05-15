@@ -27,17 +27,69 @@ The system SHALL seed `categories.json` with 50 hardcoded categories on first pl
 
 ### Requirement: Add categories tool
 
-The system SHALL provide an `add_categories` MCP tool (dev+ role) that appends categories to the pool, deduplicating against existing entries.
+The system SHALL provide an `add_categories` MCP tool (dev+ role) that appends categories with deduplication.
 
-#### Scenario: Add new categories
+The tool SHALL accept an optional `target` argument (string) controlling where the additions land:
 
-- **WHEN** `add_categories` is called with `["Quantum Physics", "Origami"]` and neither exists in the pool
+- `"current"`: appends to the currently-active season's `categories` array (resolved via `findCurrentSeason(state, now)`). When `now` falls in a timeline gap, this resolves to a warned no-op — Claude is informed there is no current season to mutate.
+- `"default"`: appends to `categories.json` only (the persistent baseline that future seasons seed from).
+- `"both"` (default): appends to BOTH the currently-active season AND `categories.json`.
+- **Any other string**: interpreted as a season slug. Appends to that season's `categories` array. If the slug does not match any entry on the timeline, the tool returns a not-found error.
+
+When `trivia.seasons.enabled` is `false`, the `target` argument SHALL be silently ignored and the tool SHALL operate on `categories.json` alone (legacy behavior).
+
+Deduplication SHALL be applied independently per target.
+
+#### Scenario: Add new categories (default target)
+
+- **WHEN** `add_categories` is called with `["Quantum Physics", "Origami"]`, seasons are enabled, and neither category exists in either pool
 - **THEN** both categories are appended to `categories.json`
+- **AND** both categories are appended to `seasons.json#currentCategories`
+
+#### Scenario: Add to current season only
+
+- **WHEN** `add_categories` is called with `["Cephalopods"]` and `target: "current"`, seasons are enabled
+- **THEN** "Cephalopods" is appended to `seasons.json#currentCategories`
+- **AND** `categories.json` is unchanged
+
+#### Scenario: Add to default baseline only
+
+- **WHEN** `add_categories` is called with `["Future Topic"]` and `target: "default"`, seasons are enabled
+- **THEN** "Future Topic" is appended to `categories.json`
+- **AND** `seasons.json#currentCategories` is unchanged (the current season does NOT gain the new category)
 
 #### Scenario: Add duplicate category
 
-- **WHEN** `add_categories` is called with `["Science"]` and "Science" already exists in the pool
-- **THEN** the duplicate is skipped and a result indicates it was already present
+- **WHEN** `add_categories` is called with `["Science"]` (default target) and "Science" already exists in both pools
+- **THEN** the duplicate is skipped for both
+- **AND** the result indicates each was already present
+
+#### Scenario: Seasons disabled — target argument ignored
+
+- **GIVEN** `trivia.seasons.enabled` is `false`
+- **WHEN** `add_categories` is called with `["Foo"]` and any `target` value
+- **THEN** "Foo" is appended to `categories.json`
+- **AND** no other side effects occur
+
+#### Scenario: Add to a queued future season by slug
+
+- **GIVEN** the timeline contains a future season "june-2026" with `categories: ["Marine Biology", "Coral Reefs"]`
+- **WHEN** `add_categories(["Whales"], target: "june-2026")` is called
+- **THEN** "Whales" is appended to "june-2026"'s `categories`
+- **AND** no other season's `categories` and `categories.json` are unchanged
+
+#### Scenario: Target slug not found returns an error
+
+- **WHEN** `add_categories(["Foo"], target: "nonexistent-slug")` is called
+- **THEN** the tool returns a not-found error
+- **AND** no file is mutated
+
+#### Scenario: target "current" during a gap is a warned no-op
+
+- **GIVEN** `now` falls in a gap (no season's window contains it)
+- **WHEN** `add_categories(["Foo"], target: "current")` is called
+- **THEN** the tool returns a structured response indicating no current season to mutate
+- **AND** no file is mutated
 
 #### Scenario: Insufficient role
 
@@ -46,17 +98,37 @@ The system SHALL provide an `add_categories` MCP tool (dev+ role) that appends c
 
 ### Requirement: Remove categories tool
 
-The system SHALL provide a `remove_categories` MCP tool (dev+ role) that removes categories from the pool by exact match.
+The system SHALL provide a `remove_categories` MCP tool (dev+ role) that removes categories by exact match.
 
-#### Scenario: Remove existing category
+The tool SHALL accept an optional `target` argument with the same semantics as `add_categories`: `"current"` (default), `"default"`, `"both"`, or any specific season slug.
 
-- **WHEN** `remove_categories` is called with `["Sports"]` and "Sports" exists in the pool
+When `trivia.seasons.enabled` is `false`, the `target` argument SHALL be silently ignored and the tool SHALL operate on `categories.json` alone.
+
+The active-pool-empty guard applies: if a removal would empty the currently-active season's `categories` array (per `findCurrentSeason`), the tool SHALL return a structured error and SHALL NOT mutate any file. Additionally, every season's `categories` array MUST remain non-empty — removing the last category from a specifically-targeted past or future season is rejected with a "season would have zero categories" error.
+
+#### Scenario: Remove existing category (default target)
+
+- **WHEN** `remove_categories` is called with `["Sports"]`, seasons are enabled, and "Sports" exists in both pools
 - **THEN** "Sports" is removed from `categories.json`
+- **AND** "Sports" is removed from `seasons.json#currentCategories`
+
+#### Scenario: Remove from current season only (keep in baseline)
+
+- **WHEN** `remove_categories` is called with `["Sports"]` and `target: "current"`
+- **THEN** "Sports" is removed from `seasons.json#currentCategories`
+- **AND** `categories.json` is unchanged — the next season will still include "Sports" in its seed
 
 #### Scenario: Remove non-existent category
 
 - **WHEN** `remove_categories` is called with `["Nonexistent"]`
-- **THEN** the tool succeeds with a result indicating the category was not found
+- **THEN** the tool succeeds with a result indicating the category was not found in either target
+
+#### Scenario: Removing the last current category is rejected
+
+- **GIVEN** `seasons.json#currentCategories` contains exactly one entry "Only Topic" and seasons are enabled
+- **WHEN** `remove_categories` is called with `["Only Topic"]` and `target` `"current"` or `"both"`
+- **THEN** the tool returns a structured error indicating the active pool would become empty
+- **AND** no file is mutated
 
 ### Requirement: Get ideas tool
 
@@ -72,7 +144,9 @@ The tool SHALL return an object with the following shape:
 }
 ```
 
-`categories.ideas` SHALL contain up to 5 random categories drawn from the pool, excluding categories used in the last 10 questions. `categories.total` SHALL be the total number of categories in the pool. `categories.excluded` SHALL be the count of recently-used categories filtered out.
+When `trivia.seasons.enabled` is `true` AND `findCurrentSeason(state, now)` returns a season, the tool SHALL read its source pool from that season's `categories`. When seasons are disabled OR `findCurrentSeason` returns `null` (gap), the tool SHALL read from `categories.json` (legacy / fallback behavior).
+
+`categories.ideas` SHALL contain up to 5 random categories drawn from the active source pool, excluding categories used in the last `min(10, floor(activePoolSize / 3))` questions. The exclusion window scales down for small themed pools so a season with only 8 categories does not deadlock with an empty `ideas` array. `categories.total` SHALL be the total number of categories in the active source pool. `categories.excluded` SHALL be the count of recently-used categories filtered out.
 
 `suggestedAnswer` SHALL be sampled uniformly at random — each call has a 50% chance of `true` and a 50% chance of `false`.
 
@@ -112,16 +186,45 @@ The mapping itself is not part of the tool's payload; consumers (the trivia ques
 - **WHEN** `get_ideas` is invoked many times
 - **THEN** each invocation independently produces `suggestedDifficulty = "Easy"` with probability 0.30, `"Medium"` with probability 0.60, and `"Hard"` with probability 0.10
 
+#### Scenario: Get ideas reads current season's pool when seasons are enabled
+
+- **GIVEN** `trivia.seasons.enabled` is `true`, `seasons.json#currentCategories` has 8 entries, `categories.json` has 30 unrelated entries
+- **WHEN** `get_ideas` is called
+- **THEN** `categories.ideas` is drawn only from `currentCategories`
+- **AND** `categories.total` equals 8
+
+#### Scenario: Exclusion window scales for small pools
+
+- **GIVEN** `seasons.json#currentCategories` has 8 entries and 8 questions have already been asked in the current season
+- **WHEN** `get_ideas` is called
+- **THEN** `categories.excluded` equals `min(10, floor(8 / 3))` = 2 (not 8)
+- **AND** `categories.ideas` is non-empty (at least one eligible category remains)
+
+#### Scenario: Get ideas falls back to categories.json when seasons are disabled
+
+- **GIVEN** `trivia.seasons.enabled` is `false`
+- **WHEN** `get_ideas` is called
+- **THEN** `categories.ideas` is drawn from `categories.json`
+- **AND** the behavior is identical to the pre-seasons implementation
+
 ### Requirement: save_question validates category
 
-The `save_question` tool SHALL reject questions whose category is not in `categories.json`.
+The `save_question` tool SHALL reject questions whose category is not in the active source pool. When `trivia.seasons.enabled` is `true` AND `findCurrentSeason(state, now)` returns a season, the active source pool is that season's `categories`. Otherwise (seasons disabled or in a gap), the active source pool is `categories.json`.
 
-#### Scenario: Valid category
+#### Scenario: Valid category (seasons enabled)
 
-- **WHEN** `save_question` is called with `category: "Marine Biology"` and "Marine Biology" exists in the pool
+- **GIVEN** seasons are enabled and `seasons.json#currentCategories` contains "Marine Biology"
+- **WHEN** `save_question` is called with `category: "Marine Biology"`
 - **THEN** the question is saved
 
-#### Scenario: Invalid category
+#### Scenario: Category in baseline but not current season is rejected
 
-- **WHEN** `save_question` is called with `category: "Unknown Topic"` and it does not exist in the pool
+- **GIVEN** seasons are enabled, `categories.json` contains "Sports", and `seasons.json#currentCategories` does NOT contain "Sports"
+- **WHEN** `save_question` is called with `category: "Sports"`
+- **THEN** the tool returns an error suggesting the use of `add_categories` (with `target: "current"` if the admin wants it just for this season)
+
+#### Scenario: Invalid category (seasons disabled)
+
+- **GIVEN** seasons are disabled
+- **WHEN** `save_question` is called with `category: "Unknown Topic"` and it does not exist in `categories.json`
 - **THEN** the tool returns an error suggesting the use of `add_categories`

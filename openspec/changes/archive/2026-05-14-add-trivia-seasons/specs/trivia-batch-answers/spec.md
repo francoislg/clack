@@ -1,16 +1,10 @@
-# Trivia Batch Answers
-
-## Purpose
-
-Batch processing of trivia answers, including user auto-registration, metadata stamping, and per-user result tracking.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Batch answer submission
 
 The system SHALL provide a `submit_answers` MCP tool (member role) that accepts a question ID, a Slack message link, a posted-at timestamp, and an array of user answers.
 
-When `trivia.seasons.enabled` is `true` AND `findCurrentSeason(state, now)` returns a season, each new entry written to `answers.json` SHALL include a `season: string` field equal to that season's slug. When seasons are disabled OR `findCurrentSeason` returns `null` (timeline gap), no `season` field SHALL be written on new answer entries.
+When `trivia.seasons.enabled` is `true`, each new entry written to `answers.json` SHALL include a `season: string` field equal to `seasons.json#current` at the moment of write. When `seasons.enabled` is `false`, no `season` field SHALL be written on new answer entries.
 
 #### Scenario: Submit batch of answers
 
@@ -39,35 +33,13 @@ When `trivia.seasons.enabled` is `true` AND `findCurrentSeason(state, now)` retu
 - **WHEN** `submit_answers` records new answer entries
 - **THEN** the new entries in `answers.json` contain no `season` field
 
-### Requirement: Auto-register users on answer submission
-The system SHALL auto-register or update users from the answer payload. Each answer entry includes `userId` and `displayName`.
-
-#### Scenario: New user submits answer
-- **WHEN** `submit_answers` includes an answer from a user not in `users.json`
-- **THEN** the user is created in `users.json` with the provided `displayName` and current timestamp as `joinedAt`
-
-#### Scenario: Existing user submits answer
-- **WHEN** `submit_answers` includes an answer from a user already in `users.json`
-- **THEN** the user's `displayName` is updated to the provided value
-
-### Requirement: Stamp question with posting metadata
-The system SHALL set `postedAt` and `messageLink` on the question record when `submit_answers` is first called for that question.
-
-#### Scenario: First submission for a question
-- **WHEN** `submit_answers` is called for a question that has no `postedAt` set
-- **THEN** the question record is updated with the provided `postedAt` and `messageLink`
-
-#### Scenario: Subsequent submission for same question
-- **WHEN** `submit_answers` is called for a question that already has `postedAt` set
-- **THEN** the question's `postedAt` and `messageLink` are not overwritten
-
 ### Requirement: Submit answers returns per-user results
 
 The `submit_answers` tool SHALL return correctness and updated stats for each submitted answer.
 
-When `trivia.seasons.enabled` is `true` AND `findCurrentSeason(state, now)` returns a season, the per-user result entries SHALL include both **all-time** totals (`totalCorrect`, `totalAnswered`) and **current-season** totals (`currentSeasonCorrect`, `currentSeasonAnswered`), plus `currentStreak`. All-time totals SHALL be computed across every entry in `answers.json` for the user (no season filter); current-season totals SHALL be computed across entries whose `season` matches the active season's slug.
+When `trivia.seasons.enabled` is `true`, the per-user result entries SHALL include both **all-time** totals (`totalCorrect`, `totalAnswered`) and **current-season** totals (`currentSeasonCorrect`, `currentSeasonAnswered`), plus `currentStreak`. All-time totals SHALL be computed across every entry in `answers.json` for the user (no season filter); current-season totals SHALL be computed across entries whose `season` matches `seasons.json#current`.
 
-When seasons are disabled OR `findCurrentSeason` returns `null` (gap), the per-user result entries SHALL include only `totalCorrect`, `totalAnswered`, and `currentStreak` (the prior shape).
+When `trivia.seasons.enabled` is `false`, the per-user result entries SHALL include only `totalCorrect`, `totalAnswered`, and `currentStreak` (the prior shape).
 
 #### Scenario: Mixed correct and incorrect answers, seasons disabled
 
@@ -84,16 +56,18 @@ When seasons are disabled OR `findCurrentSeason` returns `null` (gap), the per-u
 - **THEN** the per-user result for U1 reports `totalCorrect: 19`, `totalAnswered` reflecting all-time, `currentSeasonCorrect: 4`, and `currentSeasonAnswered` reflecting only `"august-2026"` entries
 - **AND** `currentStreak` is present
 
+## ADDED Requirements
+
 ### Requirement: Retrieve scores tool
 
 The Trivia plugin SHALL expose a `retrieve_scores` MCP tool gated to the `member` role that returns a per-user leaderboard suitable for the reveal-time leaderboard rendering. The tool SHALL accept an optional `season` parameter (string, optional):
 
-- When `season` is omitted AND seasons are enabled AND `findCurrentSeason(state, now)` returns a season, the default SHALL be `"current"`.
-- When `season` is `"current"`, the tool SHALL filter `answers.json` to entries whose `season` matches the currently-active season's slug (resolved via `findCurrentSeason`).
+- When `season` is omitted, the default SHALL be `"current"`.
+- When `season` is `"current"`, the tool SHALL filter `answers.json` to entries whose `season` matches `seasons.json#current` before grouping.
 - When `season` is `"all"`, the tool SHALL NOT apply any season filter (groups across the entire `answers.json`).
 - When `season` is any other string, the tool SHALL filter `answers.json` to entries whose `season` exactly matches the provided value.
 
-When seasons are disabled OR `findCurrentSeason` returns `null` (gap), the `season` parameter SHALL be silently ignored and the tool SHALL group across the entire `answers.json` (legacy behavior).
+When `trivia.seasons.enabled` is `false`, the `season` parameter SHALL be silently ignored and the tool SHALL group across the entire `answers.json` (legacy behavior).
 
 The tool SHALL return:
 
@@ -102,7 +76,7 @@ The tool SHALL return:
   - `displayName` (string, resolved from `users.json`; falls back to `userId` if missing)
   - `totalCorrect` (number) — all-time correct count, regardless of the season filter
   - `totalAnswered` (number) — all-time answered count, regardless of the season filter
-  - When `seasons.enabled` is `true` AND `findCurrentSeason` returns a season AND the filter is not `"all"`: additionally `currentSeasonCorrect` and `currentSeasonAnswered`, computed over entries whose `season` matches the currently-active season's slug. These two fields SHALL be present even when the explicit `season` argument selects a historical slug — they always reflect *current* season participation so the caller can render a 3-row table for any view.
+  - When `seasons.enabled` is `true` AND the filter is not `"all"`: additionally `currentSeasonCorrect` and `currentSeasonAnswered`, computed over entries whose `season` matches `seasons.json#current`. These two fields SHALL be present even when the explicit `season` argument selects a historical slug — they always reflect *current* season participation so the caller can render a 3-row table for any view.
 
 #### Scenario: Default season parameter is "current"
 

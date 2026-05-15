@@ -261,6 +261,97 @@ Reveal the answer to today's trivia question. Follow these steps:
 
 Keep the tone fun, educational, and maintain that charismatic Game Show Presenter energy throughout.`;
 
+/**
+ * Additions injected into the reveal prompt when `trivia.seasons.enabled` is true.
+ * Two insertion points:
+ *   - SEASONS_CHECK_STEP: appended after step 6, before "EXCLUDE THE BOT…" — directs Claude
+ *     to call check_season_status early and capture isLastFireOfSeason.
+ *   - SEASONS_FINALE_AND_TABLE: replaces the 2-row leaderboard description with the 3-row dual-totals
+ *     form, and adds the season-finale section + final start_new_season step.
+ */
+const SEASONS_CHECK_STEP = `
+
+6.5. CHECK SEASON STATUS (SEASONS ENABLED — INTERNAL STEP, NEVER SURFACE):
+   - Call check_season_status. Capture \`currentSlug\`, \`currentExpectedEndAt\`, \`isLastFireOfSeason\`, \`nextSeasonSlug\`, and \`nextSeasonStartsAt\`.
+   - If \`isLastFireOfSeason\` is true, today's reveal is the season finale — you will render an additional finale section in step 11 and run the season-end tool calls in step 12. Otherwise, behave normally.
+   - \`nextSeasonSlug\` tells you whether a future season is already queued on the timeline (so step 12 won't need to create a continuation).
+   - This step is internal pre-analysis. Never mention check_season_status, the season slug, the timeline, or seasonality in the user-facing reveal except via the finale section you'll render in step 11 when isLastFireOfSeason is true.
+`;
+
+const SEASONS_LEADERBOARD_OVERRIDE = `
+
+LEADERBOARD TABLE — 3-row dual-totals shape (SEASONS ENABLED):
+The \`leaderboard\` entries returned by retrieve_scores include both \`currentSeasonCorrect\` / \`currentSeasonAnswered\` AND \`totalCorrect\` / \`totalAnswered\`. Render the \`table\` parameter as THREE rows × (N+1) columns:
+
+- Row 1 — empty top-left cell, then one cell per player containing the player's \`displayName\` with NO medal prefix. The names row stays uncluttered.
+- Row 2 — left cell text \`"Current Season"\`, then one cell per player containing \`String(currentSeasonCorrect)\`. Apply medal prefixes \`"🥇 "\`, \`"🥈 "\`, \`"🥉 "\` (Unicode characters, NOT shortcodes) to the cells holding the top three \`currentSeasonCorrect\` values across the present players. Ties: stable order from retrieve_scores' return.
+- Row 3 — left cell text \`"All Time"\`, then one cell per player containing \`String(totalCorrect)\`. Apply medal prefixes to the top three \`totalCorrect\` values across the present players. THIS RANKING IS INDEPENDENT of the Current Season ranking — the same player may hold a medal on both rows, or different players may hold the top spots on each row. That's expected and intentional.
+
+Column order: players sorted by \`currentSeasonCorrect\` descending (already done by retrieve_scores' default "current" filter). Players with \`currentSeasonCorrect === 0\` AND \`currentSeasonAnswered === 0\` are OMITTED from the table — they have no current-season participation.
+
+Fewer than 3 present players → assign medals only for whichever positions exist (1 player → only 🥇 per row, 2 players → 🥇 and 🥈 per row).
+
+\`column_settings\`: one \`{ "align": "center" }\` entry per column (label column + each player column).
+
+SEASON FINALE SECTION (ONLY when isLastFireOfSeason from step 6.5 is true):
+ABOVE the leaderboard table — between the voter-situations sections and the closer \`context\` block — render an extra \`section\` block (mrkdwn) that:
+- Names the closing season's slug (e.g. "🏁 SEASON FINALE — \`<currentSlug>\` ends today!").
+- Gives a brief, in-persona wrap-up paragraph (1-2 sentences).
+- Calls out the season MVP — the player at index 0 of the current-season-ordered leaderboard — with a hearty congratulation (e.g. "🏆 SEASON MVP: <@U123> with X correct this season!").
+- DOES NOT preview the next season's slug or theme — the new season hasn't started yet (the rollover tool calls run as the FINAL step in step 12, AFTER submit_response).
+
+When isLastFireOfSeason is false, do NOT render the finale section. The 3-row leaderboard still renders normally — that's the standard layout for the rest of the season.
+
+12. CLOSE THE SEASON AND ENSURE CONTINUITY (ONLY when isLastFireOfSeason from step 6.5 is true — FINAL STEPS):
+   - These steps run LAST, after submit_response has been issued.
+   - **(a) Stamp the actual end time** on the closing season:
+     - Call \`upsert_season(currentSlug, { endedAt: <Date.now()> })\`. This is idempotent — if the season is already marked ended, the call is harmless.
+   - **(b) Ensure the timeline has a continuation**:
+     - If step 6.5 reported \`nextSeasonSlug\` is non-null, a future season is already queued — DO NOTHING further. It takes over naturally as \`now\` crosses into its window.
+     - If \`nextSeasonSlug\` is null, no continuation is queued. Create one:
+       - Derive a fresh slug AND an expectedEndAt that match \`trivia.seasons.prompt\` style/cadence guidance plus the current date.
+       - If the prompt or the slug implies a clear theme, generate a list of ~20 themed categories and pass them as \`categories\` (e.g. a marine-themed season → categories: ["Cephalopods", "Coral Reefs", "Tides", "Marine Mammals", "Sharks", "Coral", "Tide Pools", "Whales", "Bioluminescence", "Deep Sea", ...]). The new season's pool will be EXACTLY that list — no baseline categories are added.
+       - If there is no clear theme (e.g. "Every month" with no specific topic), OMIT \`categories\`. The new season will copy the \`categories.json\` baseline pool.
+       - Call \`upsert_season(<new slug>, { startedAt: <now>, expectedEndAt: <derived>, categories?: [...] })\`.
+       - If upsert_season returns an error (slug collision with history, invalid timestamps, empty pool), retry once with adjusted values. If it still fails, log internally — do not post a recovery message; the reveal has been delivered.
+   - When isLastFireOfSeason is false, OMIT step 12 entirely.
+`;
+
+function buildSeasonsAwarePrompt(): string {
+  // Splice the seasons step in after step 6's block and append the leaderboard/finale/rollover guidance.
+  const withCheckStep = PROCESS_RESPONSES_INSTRUCTIONS.replace(
+    /(7\. EXCLUDE THE BOT)/,
+    `${SEASONS_CHECK_STEP}\n$1`,
+  );
+  return withCheckStep.replace(
+    /Keep the tone fun, educational, and maintain that charismatic Game Show Presenter energy throughout\.$/,
+    `${SEASONS_LEADERBOARD_OVERRIDE}\n\nKeep the tone fun, educational, and maintain that charismatic Game Show Presenter energy throughout.`,
+  );
+}
+
+const PROCESS_RESPONSES_INSTRUCTIONS_WITH_SEASONS = buildSeasonsAwarePrompt();
+
+export function getProcessResponsesInstructions(seasonsEnabled: boolean): string {
+  return seasonsEnabled
+    ? PROCESS_RESPONSES_INSTRUCTIONS_WITH_SEASONS
+    : PROCESS_RESPONSES_INSTRUCTIONS;
+}
+
+export function getCreateSchedulesInstructions(seasonsEnabled: boolean): string {
+  if (!seasonsEnabled) return CREATE_SCHEDULES_INSTRUCTIONS;
+  // Inject ONLY check_season_status into Schedule B's requiredTools.
+  // upsert_season and delete_season are CONDITIONALLY called (end-of-season rollover,
+  // admin retraction) — they must not be required-every-fire, or every daily reveal
+  // would fail when they aren't called. They remain available in the MCP catalog.
+  return CREATE_SCHEDULES_INSTRUCTIONS.replace(
+    `    "mcp__trivia__retrieve_scores"
+  ]`,
+    `    "mcp__trivia__retrieve_scores",
+    "mcp__trivia__check_season_status"
+  ]`,
+  );
+}
+
 export const CREATE_SCHEDULES_INSTRUCTIONS = `# Setting up Trivia schedules
 
 When the user asks to set up, install, configure, or add Trivia scheduling (in a specific channel), follow this recipe. Create two cron jobs — Schedule A posts the daily question, Schedule B reveals the answer — both in the SAME channel.

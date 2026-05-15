@@ -34,12 +34,14 @@ export function createSaveCheatingTool(data: TriviaDataLayer, sdk: ClackSdk) {
       if (args.reason.trim().length < 3) {
         return errorResult("reason must be a concise description");
       }
+      const currentSeason = await data.getCurrentSeasonSlug();
       const report: CheatReport = {
         cheaterUserId: args.cheaterUserId,
         questionId: args.questionId,
         reason: args.reason,
         evidence: args.evidence,
         detectedAt: new Date().toISOString(),
+        ...(currentSeason !== null ? { season: currentSeason } : {}),
       };
       const { totalAttempts } = await data.saveCheat(report);
 

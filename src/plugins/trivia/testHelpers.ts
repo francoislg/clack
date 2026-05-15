@@ -3,8 +3,10 @@ import type {
   TriviaUser,
   SubmittedAnswer,
   CheatReport,
+  SeasonsState,
   TriviaDataLayer,
 } from "./types.js";
+import { findCurrentSeason } from "./data.js";
 
 /** In-memory implementation of TriviaDataLayer, for unit tests. */
 export function createInMemoryDataLayer(): TriviaDataLayer {
@@ -13,6 +15,7 @@ export function createInMemoryDataLayer(): TriviaDataLayer {
   const users = new Map<string, TriviaUser>();
   const answers: SubmittedAnswer[] = [];
   const cheats: CheatReport[] = [];
+  let seasonsState: SeasonsState | null = null;
 
   return {
     async loadCategories() {
@@ -60,6 +63,15 @@ export function createInMemoryDataLayer(): TriviaDataLayer {
           };
       users.set(report.cheaterUserId, next);
       return { totalAttempts: next.cheatAttempts ?? 1 };
+    },
+    async loadSeasonsState() {
+      return seasonsState === null ? null : structuredClone(seasonsState);
+    },
+    async saveSeasonsState(state) {
+      seasonsState = structuredClone(state);
+    },
+    async getCurrentSeasonSlug() {
+      return findCurrentSeason(seasonsState, Date.now())?.slug ?? null;
     },
   };
 }

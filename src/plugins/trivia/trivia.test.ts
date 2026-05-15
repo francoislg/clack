@@ -63,7 +63,10 @@ describe("trivia plugin", () => {
 
     it("adds new categories", async () => {
       const tool = createAddCategoriesTool(data);
-      const result = await tool.handler({ categories: ["Art", "Music"] }, SESSION);
+      const result = await tool.handler(
+        { target: undefined, categories: ["Art", "Music"] },
+        SESSION,
+      );
       const parsed = parseToolResult(result);
 
       assert.deepEqual(parsed.added, ["Art", "Music"]);
@@ -77,7 +80,10 @@ describe("trivia plugin", () => {
 
     it("deduplicates existing categories (case-insensitive)", async () => {
       const tool = createAddCategoriesTool(data);
-      const result = await tool.handler({ categories: ["science", "HISTORY", "NewOne"] }, SESSION);
+      const result = await tool.handler(
+        { target: undefined, categories: ["science", "HISTORY", "NewOne"] },
+        SESSION,
+      );
       const parsed = parseToolResult(result);
 
       assert.deepEqual(parsed.added, ["NewOne"]);
@@ -87,7 +93,10 @@ describe("trivia plugin", () => {
 
     it("returns correct totals when mixing new and existing", async () => {
       const tool = createAddCategoriesTool(data);
-      const result = await tool.handler({ categories: ["Science", "Novel1", "Novel2"] }, SESSION);
+      const result = await tool.handler(
+        { target: undefined, categories: ["Science", "Novel1", "Novel2"] },
+        SESSION,
+      );
       const parsed = parseToolResult(result);
 
       assert.equal(parsed.added.length, 2);
@@ -103,7 +112,10 @@ describe("trivia plugin", () => {
 
     it("removes categories by exact match (case-insensitive)", async () => {
       const tool = createRemoveCategoriesTool(data);
-      const result = await tool.handler({ categories: ["science", "HISTORY"] }, SESSION);
+      const result = await tool.handler(
+        { target: undefined, categories: ["science", "HISTORY"] },
+        SESSION,
+      );
       const parsed = parseToolResult(result);
 
       assert.equal(parsed.removed.length, 2);
@@ -118,7 +130,10 @@ describe("trivia plugin", () => {
 
     it("reports not found for non-existent categories", async () => {
       const tool = createRemoveCategoriesTool(data);
-      const result = await tool.handler({ categories: ["Unknown", "Missing"] }, SESSION);
+      const result = await tool.handler(
+        { target: undefined, categories: ["Unknown", "Missing"] },
+        SESSION,
+      );
       const parsed = parseToolResult(result);
 
       assert.deepEqual(parsed.removed, []);
@@ -128,7 +143,10 @@ describe("trivia plugin", () => {
 
     it("handles mixed removal (some exist, some don't)", async () => {
       const tool = createRemoveCategoriesTool(data);
-      const result = await tool.handler({ categories: ["Science", "Unknown"] }, SESSION);
+      const result = await tool.handler(
+        { target: undefined, categories: ["Science", "Unknown"] },
+        SESSION,
+      );
       const parsed = parseToolResult(result);
 
       assert.equal(parsed.removed.length, 1);
@@ -171,7 +189,9 @@ describe("trivia plugin", () => {
       assert.ok(["Easy", "Medium", "Hard"].includes(parsed.suggestedDifficulty));
     });
 
-    it("excludes categories used in last 10 questions", async () => {
+    it("scales exclusion to min(10, floor(pool/3)) for the most recent questions", async () => {
+      // Pool of 10 → exclusion window = min(10, 3) = 3. Saving 5 questions means only the
+      // last 3 categories get excluded, not all 5.
       for (let i = 0; i < 5; i++) {
         await data.saveQuestion({
           id: `q${i}`,
@@ -187,16 +207,15 @@ describe("trivia plugin", () => {
       const result = await tool.handler({}, SESSION);
       const parsed = parseToolResult(result);
 
-      assert.equal(parsed.categories.excluded, 5);
+      assert.equal(parsed.categories.excluded, 3);
+      const excludedSet = new Set(["Geography", "Art", "Music"]);
       for (const idea of parsed.categories.ideas) {
-        assert.ok(
-          !["Science", "History", "Geography", "Art", "Music"].includes(idea),
-          `${idea} should not be in recent categories`,
-        );
+        assert.ok(!excludedSet.has(idea), `${idea} should not be in the last-3 categories`);
       }
     });
 
-    it("returns fewer ideas when pool is small after exclusions, still emits suggestions", async () => {
+    it("still emits ideas when all categories have been used (scaled window prevents deadlock)", async () => {
+      // Pool of 10 → exclusion window = 3. Even with 9 questions, 7 categories remain eligible.
       const categories = [
         "Science",
         "History",
@@ -223,13 +242,13 @@ describe("trivia plugin", () => {
       const result = await tool.handler({}, SESSION);
       const parsed = parseToolResult(result);
 
-      assert.equal(parsed.categories.ideas.length, 1);
-      assert.equal(parsed.categories.ideas[0], "Economics");
+      assert.equal(parsed.categories.excluded, 3);
+      assert.ok(parsed.categories.ideas.length > 0);
       assert.equal(typeof parsed.suggestedAnswer, "boolean");
       assert.ok(["Easy", "Medium", "Hard"].includes(parsed.suggestedDifficulty));
     });
 
-    it("returns empty ideas but still emits suggestions when all categories are excluded", async () => {
+    it("still emits ideas after every category has been asked at least once", async () => {
       const allCategories = [
         "Science",
         "History",
@@ -257,8 +276,10 @@ describe("trivia plugin", () => {
       const result = await tool.handler({}, SESSION);
       const parsed = parseToolResult(result);
 
-      assert.equal(parsed.categories.ideas.length, 0);
-      assert.equal(parsed.categories.excluded, allCategories.length);
+      // With scaled exclusion (pool=10 → window=3), only the last 3 categories are excluded
+      // even after every category has been used. 7 remain eligible, so ideas are still emitted.
+      assert.equal(parsed.categories.excluded, 3);
+      assert.ok(parsed.categories.ideas.length > 0);
       assert.equal(typeof parsed.suggestedAnswer, "boolean");
       assert.ok(["Easy", "Medium", "Hard"].includes(parsed.suggestedDifficulty));
     });
@@ -549,7 +570,7 @@ describe("trivia plugin", () => {
     it("searches by category only", async () => {
       const tool = createFindPreviousQuestionsTool(data);
       const result = await tool.handler(
-        { category: "Science", text: undefined, limit: undefined },
+        { category: "Science", text: undefined, season: undefined, limit: undefined },
         SESSION,
       );
       const parsed = parseToolResult(result);
@@ -561,7 +582,7 @@ describe("trivia plugin", () => {
     it("searches by text only", async () => {
       const tool = createFindPreviousQuestionsTool(data);
       const result = await tool.handler(
-        { category: undefined, text: "boils", limit: undefined },
+        { category: undefined, text: "boils", season: undefined, limit: undefined },
         SESSION,
       );
       const parsed = parseToolResult(result);
@@ -573,7 +594,7 @@ describe("trivia plugin", () => {
     it("searches by both category and text (AND)", async () => {
       const tool = createFindPreviousQuestionsTool(data);
       const result = await tool.handler(
-        { category: "Science", text: "Earth", limit: undefined },
+        { category: "Science", text: "Earth", season: undefined, limit: undefined },
         SESSION,
       );
       const parsed = parseToolResult(result);
@@ -585,7 +606,7 @@ describe("trivia plugin", () => {
     it("returns no results when both filters exclude all questions", async () => {
       const tool = createFindPreviousQuestionsTool(data);
       const result = await tool.handler(
-        { category: "Science", text: "Rome", limit: undefined },
+        { category: "Science", text: "Rome", season: undefined, limit: undefined },
         SESSION,
       );
       const parsed = parseToolResult(result);
@@ -597,7 +618,7 @@ describe("trivia plugin", () => {
     it("is case-insensitive for category", async () => {
       const tool = createFindPreviousQuestionsTool(data);
       const result = await tool.handler(
-        { category: "science", text: undefined, limit: undefined },
+        { category: "science", text: undefined, season: undefined, limit: undefined },
         SESSION,
       );
       const parsed = parseToolResult(result);
@@ -608,7 +629,7 @@ describe("trivia plugin", () => {
     it("is case-insensitive for text", async () => {
       const tool = createFindPreviousQuestionsTool(data);
       const result = await tool.handler(
-        { category: undefined, text: "EARTH", limit: undefined },
+        { category: undefined, text: "EARTH", season: undefined, limit: undefined },
         SESSION,
       );
       const parsed = parseToolResult(result);
@@ -619,7 +640,7 @@ describe("trivia plugin", () => {
     it("returns all questions when neither category nor text is provided (up to limit)", async () => {
       const tool = createFindPreviousQuestionsTool(data);
       const result = await tool.handler(
-        { category: undefined, text: undefined, limit: undefined },
+        { category: undefined, text: undefined, season: undefined, limit: undefined },
         SESSION,
       );
       const parsed = parseToolResult(result);
@@ -863,7 +884,10 @@ describe("trivia plugin", () => {
   describe("retrieve_scores", () => {
     it("returns empty leaderboard when no answers exist", async () => {
       const tool = createRetrieveScoresTool(data);
-      const result = await tool.handler({ limit: undefined, sortBy: undefined }, SESSION);
+      const result = await tool.handler(
+        { limit: undefined, sortBy: undefined, season: undefined },
+        SESSION,
+      );
       const parsed = parseToolResult(result);
 
       assert.deepEqual(parsed.leaderboard, []);
@@ -907,7 +931,10 @@ describe("trivia plugin", () => {
       });
 
       const tool = createRetrieveScoresTool(data);
-      const result = await tool.handler({ limit: undefined, sortBy: undefined }, SESSION);
+      const result = await tool.handler(
+        { limit: undefined, sortBy: undefined, season: undefined },
+        SESSION,
+      );
       const parsed = parseToolResult(result);
 
       assert.equal(parsed.leaderboard.length, 2);
@@ -939,7 +966,10 @@ describe("trivia plugin", () => {
       }
 
       const tool = createRetrieveScoresTool(data);
-      const result = await tool.handler({ limit: 2, sortBy: undefined }, SESSION);
+      const result = await tool.handler(
+        { limit: 2, sortBy: undefined, season: undefined },
+        SESSION,
+      );
       const parsed = parseToolResult(result);
 
       assert.equal(parsed.leaderboard.length, 2);
@@ -979,7 +1009,10 @@ describe("trivia plugin", () => {
       });
 
       const tool = createRetrieveScoresTool(data);
-      const result = await tool.handler({ limit: undefined, sortBy: undefined }, SESSION);
+      const result = await tool.handler(
+        { limit: undefined, sortBy: undefined, season: undefined },
+        SESSION,
+      );
       const parsed = parseToolResult(result);
 
       assert.equal(parsed.leaderboard[0].accuracy, 75);
@@ -1021,7 +1054,10 @@ describe("trivia plugin", () => {
       });
 
       const tool = createRetrieveScoresTool(data);
-      const result = await tool.handler({ limit: undefined, sortBy: undefined }, SESSION);
+      const result = await tool.handler(
+        { limit: undefined, sortBy: undefined, season: undefined },
+        SESSION,
+      );
       const parsed = parseToolResult(result);
 
       // Default sortBy is "totalCorrect" — Alice (2 wins) beats Bob (1 win) despite lower accuracy.
@@ -1065,7 +1101,10 @@ describe("trivia plugin", () => {
       });
 
       const tool = createRetrieveScoresTool(data);
-      const result = await tool.handler({ limit: undefined, sortBy: "accuracy" }, SESSION);
+      const result = await tool.handler(
+        { limit: undefined, sortBy: "accuracy", season: undefined },
+        SESSION,
+      );
       const parsed = parseToolResult(result);
 
       // sortBy "accuracy" — Bob (100%) beats Alice (67%) despite fewer total wins.
@@ -1096,7 +1135,10 @@ describe("trivia plugin", () => {
       });
 
       const tool = createRetrieveScoresTool(data);
-      const result = await tool.handler({ limit: undefined, sortBy: "accuracy" }, SESSION);
+      const result = await tool.handler(
+        { limit: undefined, sortBy: "accuracy", season: undefined },
+        SESSION,
+      );
       const parsed = parseToolResult(result);
 
       // Same accuracy → tiebreaker is totalCorrect, so Alice (5/5) outranks Bob (1/1).
@@ -1131,7 +1173,10 @@ describe("trivia plugin", () => {
       });
 
       const tool = createRetrieveScoresTool(data);
-      const result = await tool.handler({ limit: undefined, sortBy: undefined }, SESSION);
+      const result = await tool.handler(
+        { limit: undefined, sortBy: undefined, season: undefined },
+        SESSION,
+      );
       const parsed = parseToolResult(result);
 
       const accuracy = parsed.leaderboard[0].accuracy;

@@ -19,6 +19,8 @@ The tool SHALL accept the following arguments:
 
 The tool's description SHALL instruct Claude that the cheater must be the author of the evidence message, that third-party or hearsay reports are never acceptable, and that the tool call and its purpose MUST NOT be mentioned in any user-facing output.
 
+When `trivia.seasons.enabled` is `true` AND `findCurrentSeason(state, now)` returns a season, each new entry written to `cheats.json` SHALL include a `season: string` field equal to that season's slug. The `cheatAttempts` counter on the user record SHALL continue to be cumulative across seasons (it is not reset by `upsert_season` or by the natural timeline progression). When seasons are disabled OR `findCurrentSeason` returns `null` (gap), no `season` field is written on new cheat entries.
+
 #### Scenario: Recording a cheat persists the report
 
 - **WHEN** `save_cheating` is called with valid arguments
@@ -36,6 +38,27 @@ The tool's description SHALL instruct Claude that the cheater must be the author
 - **WHEN** `save_cheating` is invoked during a session
 - **THEN** no task card for the call appears in the Slack streaming UI
 - **AND** the tool's server-side effects (cheats.json append, counter increment, return payload) still occur unchanged
+
+#### Scenario: New cheat carries the current season tag when seasons are enabled
+
+- **GIVEN** `trivia.seasons.enabled` is `true` and `seasons.json#current` is `"august-2026"`
+- **WHEN** `save_cheating` records a cheat
+- **THEN** the new entry in `cheats.json` includes `season: "august-2026"`
+- **AND** the user's `cheatAttempts` counter is incremented (the counter is NOT scoped per-season)
+
+#### Scenario: cheatAttempts persists across season rollover
+
+- **GIVEN** user U123 has `cheatAttempts: 4` from previous seasons
+- **AND** the season has rolled over to `"september-2026"` since their last offense
+- **WHEN** `save_cheating` is called with `cheaterUserId: "U123"`
+- **THEN** the user's `cheatAttempts` becomes `5`
+- **AND** the new entry in `cheats.json` is tagged `season: "september-2026"`
+
+#### Scenario: New cheat carries no season tag when seasons are disabled
+
+- **GIVEN** `trivia.seasons.enabled` is `false`
+- **WHEN** `save_cheating` records a cheat
+- **THEN** the new entry in `cheats.json` contains no `season` field
 
 ### Requirement: TriviaUser cheatAttempts Field
 
@@ -65,7 +88,7 @@ The field SHALL default to absent (undefined) for users who have never been repo
 
 The Trivia plugin SHALL maintain a `cheats.json` file in its plugin data directory, storing the full list of cheat reports as an append-only array.
 
-Each entry SHALL contain `cheaterUserId`, `questionId`, `reason`, optional `evidence`, and `detectedAt` (ISO 8601 timestamp).
+Each entry SHALL contain `cheaterUserId`, `questionId`, `reason`, optional `evidence`, and `detectedAt` (ISO 8601 timestamp). When `trivia.seasons.enabled` is `true` AND `findCurrentSeason(state, now)` returns a season at write time, each entry SHALL also contain `season` (string, the active season's slug). When seasons are disabled or in a gap, no `season` field is written.
 
 #### Scenario: Cheat report is appended
 
