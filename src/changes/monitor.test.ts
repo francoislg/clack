@@ -5,11 +5,35 @@ import type { ActiveWorker } from "./activeState.js";
 import {
   checkSessionCompletion,
   runCompletionCheck,
+  runIdleSweep,
   startCompletionMonitor,
   stopCompletionMonitor,
   setMonitorDeps,
+  type IdleSweepPool,
   type MonitorDeps,
 } from "./monitor.js";
+import type { ReleaseReason, Worker, WorkerPool } from "../workers/types.js";
+import type { RepositoryConfig } from "../config.js";
+
+type ReleaseFn = (worker: Worker, reason: ReleaseReason) => Promise<void>;
+
+function makeMockPool(overrides: Partial<WorkerPool> = {}): WorkerPool {
+  const noopRelease: ReleaseFn = async () => {};
+  const acquireStub = async (
+    _repo: RepositoryConfig,
+    _branch: string,
+    _sessionId: string,
+  ): Promise<Worker> => {
+    throw new Error("acquire not used in monitor tests");
+  };
+  return {
+    acquire: overrides.acquire ?? acquireStub,
+    release: overrides.release ?? noopRelease,
+    findByBranch: overrides.findByBranch ?? (() => null),
+    list: overrides.list ?? (() => []),
+    ensureMinimum: overrides.ensureMinimum ?? (async () => {}),
+  };
+}
 
 // ============================================================================
 // Helpers
@@ -55,12 +79,14 @@ function makeDeps(overrides: Partial<MonitorDeps> = {}): MonitorDeps {
     getConfig: mock.fn(() => ({
       changesWorkflow: { enabled: true, monitoringIntervalMinutes: 5 },
     })) as never,
-    removeWorktree: mock.fn(async () => {}) as never,
+    pool: makeMockPool(),
     getPRStatus: mock.fn(async () => ({ state: "OPEN" })) as never,
     getSession: mock.fn(async () => null) as never,
     getActiveWorkers: mock.fn(() => []) as never,
     updateActiveChangeStatus: mock.fn() as never,
     clearActiveChange: mock.fn() as never,
+    detachActiveChangeWorktree: () => {},
+    getReusablePool: () => null,
     ...overrides,
   };
 }
@@ -274,7 +300,7 @@ describe("runCompletionCheck", () => {
     assert.equal(mockClearActiveChange.mock.calls[0]!.arguments[1], false);
   });
 
-  it("removes worktree during cleanup when worktree info is present", async () => {
+  it("releases worker during cleanup when worktree info is present", async () => {
     const activeChange = makeActiveChange({
       worktree: {
         repoName: "my-repo",
@@ -283,36 +309,37 @@ describe("runCompletionCheck", () => {
         createdAt: new Date(),
       },
     });
-    const mockRemoveWorktree = mock.fn<(repoName: string, worktreePath: string) => Promise<void>>(
-      async () => {},
-    );
+    const releaseCalls: Array<{ workerId: string; reason: ReleaseReason }> = [];
+    const mockRelease: ReleaseFn = async (worker, reason) => {
+      releaseCalls.push({ workerId: worker.id, reason });
+    };
     setMonitorDeps(
       makeDeps({
         getActiveWorkers: mock.fn(() => [makeWorker({ id: "sess-wt" })]) as never,
         getSession: mock.fn(async () => ({ activeChange })) as never,
         getPRStatus: mock.fn(async () => ({ state: "MERGED" })) as never,
-        removeWorktree: mockRemoveWorktree as never,
+        pool: makeMockPool({ release: mockRelease }),
       }),
     );
 
     await runCompletionCheck();
 
-    assert.equal(mockRemoveWorktree.mock.callCount(), 1);
-    assert.equal(mockRemoveWorktree.mock.calls[0]!.arguments[0], "my-repo");
-    assert.equal(mockRemoveWorktree.mock.calls[0]!.arguments[1], "/tmp/wt/my-repo/feat-test");
+    assert.equal(releaseCalls.length, 1);
+    assert.equal(releaseCalls[0]!.reason, "pr_merged");
   });
 
-  it("does not throw when worktree removal fails", async () => {
+  it("does not throw when worker release fails", async () => {
     const activeChange = makeActiveChange();
     const mockClearActiveChange = mock.fn();
+    const failingRelease: ReleaseFn = async () => {
+      throw new Error("removal failed");
+    };
     setMonitorDeps(
       makeDeps({
         getActiveWorkers: mock.fn(() => [makeWorker({ id: "sess-err" })]) as never,
         getSession: mock.fn(async () => ({ activeChange })) as never,
         getPRStatus: mock.fn(async () => ({ state: "MERGED" })) as never,
-        removeWorktree: mock.fn(async () => {
-          throw new Error("removal failed");
-        }) as never,
+        pool: makeMockPool({ release: failingRelease }),
         clearActiveChange: mockClearActiveChange as never,
       }),
     );
@@ -323,21 +350,24 @@ describe("runCompletionCheck", () => {
 
   it("skips cleanup when no worktree is present", async () => {
     const activeChange = makeActiveChange({ worktree: undefined });
-    const mockRemoveWorktree = mock.fn(async () => {});
+    const releaseCalls: number[] = [];
+    const mockRelease: ReleaseFn = async () => {
+      releaseCalls.push(1);
+    };
     const mockClearActiveChange = mock.fn();
     setMonitorDeps(
       makeDeps({
         getActiveWorkers: mock.fn(() => [makeWorker({ id: "sess-nowt" })]) as never,
         getSession: mock.fn(async () => ({ activeChange })) as never,
         getPRStatus: mock.fn(async () => ({ state: "CLOSED" })) as never,
-        removeWorktree: mockRemoveWorktree as never,
+        pool: makeMockPool({ release: mockRelease }),
         clearActiveChange: mockClearActiveChange as never,
       }),
     );
 
     await runCompletionCheck();
 
-    assert.equal(mockRemoveWorktree.mock.callCount(), 0);
+    assert.equal(releaseCalls.length, 0);
     assert.equal(mockClearActiveChange.mock.callCount(), 1);
   });
 
@@ -537,5 +567,286 @@ describe("stopCompletionMonitor", () => {
 
   it("is a no-op when no monitor is running", () => {
     stopCompletionMonitor();
+  });
+});
+
+// ============================================================================
+// runIdleSweep
+// ============================================================================
+
+function makeWorkerRecord(over: Partial<Worker> = {}): Worker {
+  return {
+    id: "worker-1",
+    repo: "my-repo",
+    worktreePath: "/tmp/wt/my-repo/worker-1",
+    currentBranch: "feat/idle",
+    status: "busy",
+    setupComplete: true,
+    setupVersionHash: null,
+    claimedBy: "session-1",
+    lastUsedAt: new Date(Date.now() - 25 * 3600_000),
+    createdAt: new Date(),
+    ...over,
+  };
+}
+
+function makeSweepPool(over: {
+  candidates?: Worker[];
+  detachIfClean?: (w: Worker) => Promise<boolean>;
+}): IdleSweepPool {
+  return {
+    idleSweepCandidates: async () => over.candidates ?? [],
+    detachIfClean: over.detachIfClean ?? (async () => true),
+  };
+}
+
+type SessionFn = MonitorDeps["getSession"];
+type DetachFn = MonitorDeps["detachActiveChangeWorktree"];
+
+function sessionReturning(activeChange: ActiveChangeState | undefined): SessionFn {
+  const session: Awaited<ReturnType<SessionFn>> = {
+    sessionId: "session-1",
+    channelId: "C001",
+    messageTs: "1700000000.000001",
+    threadTs: "1700000000.000001",
+    userId: "U001",
+    trigger: {
+      type: "reactions",
+      userId: "U001",
+      emoji: "robot_face",
+      messageTs: "1700000000.000001",
+      messageText: "",
+    },
+    messages: [],
+    threadContext: [],
+    errors: [],
+    lastActivity: Date.now(),
+    createdAt: Date.now(),
+    activeChange,
+  };
+  const fn: SessionFn = async () => session;
+  return fn;
+}
+
+function makeFakeHandle(): ActiveChangeState["handle"] {
+  const handle: ActiveChangeState["handle"] = {
+    sendUpdate: async () => {},
+    stop: async () => {},
+    futureResponse: Promise.resolve({ success: true, answer: "" }),
+    status: "running",
+    hasPendingInput: () => false,
+    consumePendingPushedTexts: () => [],
+  };
+  return handle;
+}
+
+describe("runIdleSweep", () => {
+  it("is a no-op when reusable mode is off (getReusablePool returns null)", async () => {
+    const detachCalls: number[] = [];
+    const detachStub: DetachFn = () => {
+      detachCalls.push(1);
+    };
+    setMonitorDeps(
+      makeDeps({
+        getReusablePool: () => null,
+        detachActiveChangeWorktree: detachStub,
+      }),
+    );
+    await runIdleSweep();
+    assert.equal(detachCalls.length, 0);
+  });
+
+  it("does nothing when there are no idle candidates", async () => {
+    const detachCalls: string[] = [];
+    const detachStub: DetachFn = (sessionId) => {
+      detachCalls.push(sessionId);
+    };
+    setMonitorDeps(
+      makeDeps({
+        getReusablePool: () => makeSweepPool({ candidates: [] }),
+        detachActiveChangeWorktree: detachStub,
+      }),
+    );
+    await runIdleSweep();
+    assert.equal(detachCalls.length, 0);
+  });
+
+  it("detaches a clean worker bound to a pr_created session with no live handle", async () => {
+    const worker = makeWorkerRecord({ claimedBy: "session-1" });
+    const detachCalls: string[] = [];
+    let detachedWorker: Worker | null = null;
+    const detachStub: DetachFn = (sessionId) => {
+      detachCalls.push(sessionId);
+    };
+
+    setMonitorDeps(
+      makeDeps({
+        getReusablePool: () =>
+          makeSweepPool({
+            candidates: [worker],
+            detachIfClean: async (w) => {
+              detachedWorker = w;
+              return true;
+            },
+          }),
+        getSession: sessionReturning(makeActiveChange({ status: "pr_created", handle: undefined })),
+        detachActiveChangeWorktree: detachStub,
+      }),
+    );
+
+    await runIdleSweep();
+
+    assert.equal(detachedWorker, worker);
+    assert.deepEqual(detachCalls, ["session-1"]);
+  });
+
+  it("skips workers whose session is not pr_created (still executing)", async () => {
+    const worker = makeWorkerRecord({ claimedBy: "session-1" });
+    let detachCalled = false;
+    const detached: string[] = [];
+    const detachStub: DetachFn = (s) => {
+      detached.push(s);
+    };
+
+    setMonitorDeps(
+      makeDeps({
+        getReusablePool: () =>
+          makeSweepPool({
+            candidates: [worker],
+            detachIfClean: async () => {
+              detachCalled = true;
+              return true;
+            },
+          }),
+        getSession: sessionReturning(makeActiveChange({ status: "executing" })),
+        detachActiveChangeWorktree: detachStub,
+      }),
+    );
+
+    await runIdleSweep();
+
+    assert.equal(detachCalled, false);
+    assert.equal(detached.length, 0);
+  });
+
+  it("skips workers whose session has a live Claude run handle", async () => {
+    const worker = makeWorkerRecord();
+    let detachCalled = false;
+
+    setMonitorDeps(
+      makeDeps({
+        getReusablePool: () =>
+          makeSweepPool({
+            candidates: [worker],
+            detachIfClean: async () => {
+              detachCalled = true;
+              return true;
+            },
+          }),
+        getSession: sessionReturning(
+          makeActiveChange({ status: "pr_created", handle: makeFakeHandle() }),
+        ),
+      }),
+    );
+
+    await runIdleSweep();
+    assert.equal(detachCalled, false);
+  });
+
+  it("does NOT detach the session when the worker is dirty (quarantined instead)", async () => {
+    const worker = makeWorkerRecord();
+    const detached: string[] = [];
+    const detachStub: DetachFn = (s) => {
+      detached.push(s);
+    };
+
+    setMonitorDeps(
+      makeDeps({
+        getReusablePool: () =>
+          makeSweepPool({
+            candidates: [worker],
+            detachIfClean: async () => false, // dirty → quarantine, no detach
+          }),
+        getSession: sessionReturning(makeActiveChange({ status: "pr_created" })),
+        detachActiveChangeWorktree: detachStub,
+      }),
+    );
+
+    await runIdleSweep();
+    assert.equal(detached.length, 0);
+  });
+
+  it("continues to next candidate when one detach throws", async () => {
+    const w1 = makeWorkerRecord({ id: "worker-1", claimedBy: "session-1" });
+    const w2 = makeWorkerRecord({
+      id: "worker-2",
+      claimedBy: "session-2",
+      currentBranch: "feat/other",
+    });
+    const detached: string[] = [];
+    const detachStub: DetachFn = (s) => {
+      detached.push(s);
+    };
+
+    setMonitorDeps(
+      makeDeps({
+        getReusablePool: () =>
+          makeSweepPool({
+            candidates: [w1, w2],
+            detachIfClean: async (w) => {
+              if (w.id === "worker-1") throw new Error("boom");
+              return true;
+            },
+          }),
+        getSession: sessionReturning(makeActiveChange({ status: "pr_created" })),
+        detachActiveChangeWorktree: detachStub,
+      }),
+    );
+
+    await runIdleSweep();
+    assert.deepEqual(detached, ["session-2"]);
+  });
+
+  it("skips workers with no claimedBy", async () => {
+    const worker = makeWorkerRecord({ claimedBy: null });
+    let detachCalled = false;
+
+    setMonitorDeps(
+      makeDeps({
+        getReusablePool: () =>
+          makeSweepPool({
+            candidates: [worker],
+            detachIfClean: async () => {
+              detachCalled = true;
+              return true;
+            },
+          }),
+      }),
+    );
+
+    await runIdleSweep();
+    assert.equal(detachCalled, false);
+  });
+
+  it("skips workers whose session no longer has an activeChange", async () => {
+    const worker = makeWorkerRecord();
+    let detachCalled = false;
+
+    setMonitorDeps(
+      makeDeps({
+        getReusablePool: () =>
+          makeSweepPool({
+            candidates: [worker],
+            detachIfClean: async () => {
+              detachCalled = true;
+              return true;
+            },
+          }),
+        getSession: sessionReturning(undefined),
+      }),
+    );
+
+    await runIdleSweep();
+    assert.equal(detachCalled, false);
   });
 });

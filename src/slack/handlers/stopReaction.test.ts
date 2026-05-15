@@ -15,7 +15,12 @@ type EventHandler = (args: { event: ReactionEvent; client: App["client"] }) => P
 
 const mockStopThread = mock.fn<
   (channel: string, threadTs: string, userId: string, reason: string) => Promise<StopResult>
->(async () => ({ queryAborted: 0, workerAborted: false, sessionDisengaged: false }));
+>(async () => ({
+  queryAborted: 0,
+  workerAborted: false,
+  queuedCancelled: false,
+  sessionDisengaged: false,
+}));
 
 let resolvedThreadTs = "thread-default";
 const mockResolveThreadTs = mock.fn<

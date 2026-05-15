@@ -12,9 +12,14 @@ interface FakeSetup {
   session: Partial<SessionContext> | null;
   activeChange: Partial<ActiveChangeState> | null;
   disengagedSessionIds: string[];
+  /** When set, simulates the session being in the reusable-pool queue. */
+  queuedSessionId?: string;
+  /** Records every (sessionId, reason) cancelQueuedSession was called with. */
+  cancelQueuedCalls?: Array<{ sessionId: string; reason?: string }>;
 }
 
 function makeDeps(setup: FakeSetup): StopPipelineDeps {
+  setup.cancelQueuedCalls = setup.cancelQueuedCalls ?? [];
   return {
     getActiveRunByThread: () => setup.queryHandle ?? undefined,
     findSessionByThread: async () => {
@@ -27,6 +32,10 @@ function makeDeps(setup: FakeSetup): StopPipelineDeps {
     },
     setAutoResponseActive: async (sessionId, _active) => {
       setup.disengagedSessionIds.push(sessionId);
+    },
+    cancelQueuedSession: (sessionId, reason) => {
+      setup.cancelQueuedCalls!.push({ sessionId, reason });
+      return setup.queuedSessionId === sessionId;
     },
   };
 }
@@ -150,7 +159,12 @@ describe("stopThread", () => {
       disengagedSessionIds: [],
     };
     const result = await stopThread("C1", "t-1", "U1", "test", makeDeps(setup));
-    assert.deepEqual(result, { queryAborted: 0, workerAborted: false, sessionDisengaged: false });
+    assert.deepEqual(result, {
+      queryAborted: 0,
+      workerAborted: false,
+      queuedCancelled: false,
+      sessionDisengaged: false,
+    });
   });
 
   it("combines query stop, worker stop, and disengage in a single call", async () => {
@@ -169,5 +183,57 @@ describe("stopThread", () => {
     assert.deepEqual(queryHandle.stopCalls, ["combo test"]);
     assert.deepEqual(workerHandle.stopCalls, ["combo test"]);
     assert.deepEqual(setup.disengagedSessionIds, ["s-combo"]);
+  });
+
+  it("cancels a queued session when the active change has no live handle", async () => {
+    const setup: FakeSetup = {
+      queryHandle: null,
+      session: { sessionId: "s-queued", autoResponseActive: true },
+      // activeChange exists in a non-terminal status but has no handle — typical
+      // shape for a session waiting on `pool.acquire` to dequeue.
+      activeChange: { status: "executing" as ChangeStatus, handle: undefined },
+      disengagedSessionIds: [],
+      queuedSessionId: "s-queued",
+    };
+    const result = await stopThread("C1", "t-1", "U-reactor", "user stopped", makeDeps(setup));
+    assert.equal(result.queuedCancelled, true);
+    assert.equal(result.workerAborted, false);
+    assert.equal(result.sessionDisengaged, true);
+    assert.deepEqual(setup.cancelQueuedCalls, [{ sessionId: "s-queued", reason: "user stopped" }]);
+    assert.deepEqual((setup.activeChange as ActiveChangeState).cancelledBy, {
+      userId: "U-reactor",
+      reason: "user stopped",
+    });
+  });
+
+  it("does not flag queuedCancelled when the queue lookup misses", async () => {
+    const setup: FakeSetup = {
+      queryHandle: null,
+      session: { sessionId: "s-ghost", autoResponseActive: true },
+      activeChange: { status: "executing" as ChangeStatus, handle: undefined },
+      disengagedSessionIds: [],
+      // queuedSessionId omitted → cancelQueuedSession returns false
+    };
+    const result = await stopThread("C1", "t-1", "U-reactor", "miss", makeDeps(setup));
+    assert.equal(result.queuedCancelled, false);
+    assert.equal(result.workerAborted, false);
+    // Session is still disengaged regardless of queue miss
+    assert.equal(result.sessionDisengaged, true);
+  });
+
+  it("prefers stopping the live handle over checking the queue", async () => {
+    const workerHandle = makeFakeRunHandle();
+    const setup: FakeSetup = {
+      queryHandle: null,
+      session: { sessionId: "s-live", autoResponseActive: true },
+      activeChange: { status: "executing" as ChangeStatus, handle: workerHandle },
+      disengagedSessionIds: [],
+      queuedSessionId: "s-live", // pretend it's queued too (impossible, but tests precedence)
+    };
+    const result = await stopThread("C1", "t-1", "U1", "live wins", makeDeps(setup));
+    assert.equal(result.workerAborted, true);
+    assert.equal(result.queuedCancelled, false);
+    // cancelQueuedSession should not have been consulted when a handle was available
+    assert.deepEqual(setup.cancelQueuedCalls, []);
   });
 });

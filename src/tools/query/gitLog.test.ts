@@ -59,6 +59,7 @@ function makeDeps(overrides: Partial<GitLogDeps> = {}): GitLogDeps {
     getRepositoriesDir: mock.fn(() => "/data/repositories") as GitLogDeps["getRepositoriesDir"],
     existsSync: mock.fn((_path: string) => true) as GitLogDeps["existsSync"],
     simpleGit: makeSimpleGit(),
+    findLocalBranchSource: () => null,
     ...overrides,
   };
 }
@@ -86,7 +87,7 @@ describe("gitLog tool", () => {
     const toolDef = createGitLogTool(ctx, deps);
 
     const result = await toolDef.handler(
-      { repo: "nonexistent", args: undefined },
+      { repo: "nonexistent", args: undefined, branch: undefined },
       { sessionId: "test" },
     );
 
@@ -106,7 +107,7 @@ describe("gitLog tool", () => {
     const toolDef = createGitLogTool(ctx, deps);
 
     const result = await toolDef.handler(
-      { repo: "my-repo", args: undefined },
+      { repo: "my-repo", args: undefined, branch: undefined },
       { sessionId: "test" },
     );
 
@@ -130,7 +131,7 @@ describe("gitLog tool", () => {
     const toolDef = createGitLogTool(ctx, deps);
 
     const result = await toolDef.handler(
-      { repo: "my-repo", args: ["--oneline", "-n", "5"] },
+      { repo: "my-repo", args: ["--oneline", "-n", "5"], branch: undefined },
       { sessionId: "test" },
     );
 
@@ -157,7 +158,7 @@ describe("gitLog tool", () => {
     const toolDef = createGitLogTool(ctx, deps);
 
     await toolDef.handler(
-      { repo: "my-repo", args: ["--oneline", "--author=John", "-n", "20"] },
+      { repo: "my-repo", args: ["--oneline", "--author=John", "-n", "20"], branch: undefined },
       { sessionId: "test" },
     );
 
@@ -183,7 +184,10 @@ describe("gitLog tool", () => {
     const ctx = makeCtx();
     const toolDef = createGitLogTool(ctx, deps);
 
-    await toolDef.handler({ repo: "my-repo", args: undefined }, { sessionId: "test" });
+    await toolDef.handler(
+      { repo: "my-repo", args: undefined, branch: undefined },
+      { sessionId: "test" },
+    );
 
     const logCall = rawCalls.find((c) => c[0] === "log");
     assert.ok(logCall);
@@ -204,7 +208,7 @@ describe("gitLog tool", () => {
     const toolDef = createGitLogTool(ctx, deps);
 
     const result = await toolDef.handler(
-      { repo: "my-repo", args: undefined },
+      { repo: "my-repo", args: undefined, branch: undefined },
       { sessionId: "test" },
     );
 
@@ -227,7 +231,7 @@ describe("gitLog tool", () => {
     const toolDef = createGitLogTool(ctx, deps);
 
     const result = await toolDef.handler(
-      { repo: "my-repo", args: undefined },
+      { repo: "my-repo", args: undefined, branch: undefined },
       { sessionId: "test" },
     );
 
@@ -246,7 +250,7 @@ describe("gitLog tool", () => {
     const toolDef = createGitLogTool(ctx, deps);
 
     const result = await toolDef.handler(
-      { repo: "my-repo", args: undefined },
+      { repo: "my-repo", args: undefined, branch: undefined },
       { sessionId: "test" },
     );
 
@@ -269,7 +273,7 @@ describe("gitLog tool", () => {
     const toolDef = createGitLogTool(ctx, deps);
 
     const result = await toolDef.handler(
-      { repo: "my-repo", args: undefined },
+      { repo: "my-repo", args: undefined, branch: undefined },
       { sessionId: "test" },
     );
 
@@ -287,7 +291,7 @@ describe("gitLog tool", () => {
     const toolDef = createGitLogTool(ctx, deps);
 
     const result = await toolDef.handler(
-      { repo: "my-repo", args: undefined },
+      { repo: "my-repo", args: undefined, branch: undefined },
       { sessionId: "test" },
     );
 
@@ -296,5 +300,78 @@ describe("gitLog tool", () => {
     assert.ok(parsed.error.includes("not found"));
     assert.ok(parsed.error.includes("admin-only"));
     assert.equal(result.isError, true);
+  });
+
+  // -------------------------------------------------------------------------
+  // §16: local-worker shortcut
+  // -------------------------------------------------------------------------
+
+  it("uses the worker's worktree as baseDir when findLocalBranchSource returns a path", async () => {
+    const baseDirs: string[] = [];
+    const deps = makeDeps({
+      findLocalBranchSource: () => "/data/worktrees/my-repo/worker-1",
+      simpleGit: (opts: { baseDir: string }) => {
+        baseDirs.push(opts.baseDir);
+        return { raw: (...args: string[][]) => mockGitRaw(...args) };
+      },
+    });
+
+    const ctx = makeCtx();
+    const toolDef = createGitLogTool(ctx, deps);
+
+    await toolDef.handler(
+      { repo: "my-repo", args: undefined, branch: "feat/x" },
+      { sessionId: "test" },
+    );
+
+    assert.deepEqual(baseDirs, ["/data/worktrees/my-repo/worker-1"]);
+  });
+
+  it("falls back to the main clone when no worker has the branch", async () => {
+    const baseDirs: string[] = [];
+    const deps = makeDeps({
+      findLocalBranchSource: () => null,
+      simpleGit: (opts: { baseDir: string }) => {
+        baseDirs.push(opts.baseDir);
+        return { raw: (...args: string[][]) => mockGitRaw(...args) };
+      },
+    });
+
+    const ctx = makeCtx();
+    const toolDef = createGitLogTool(ctx, deps);
+
+    await toolDef.handler(
+      { repo: "my-repo", args: undefined, branch: "feat/x" },
+      { sessionId: "test" },
+    );
+
+    assert.deepEqual(baseDirs, ["/data/repositories/my-repo"]);
+  });
+
+  it("uses the main clone when no branch is provided (no shortcut attempted)", async () => {
+    const findCalls: Array<{ repo: string; branch: string }> = [];
+    const baseDirs: string[] = [];
+    const deps = makeDeps({
+      findLocalBranchSource: (repo, branch) => {
+        findCalls.push({ repo, branch });
+        return "/should/not/be/used";
+      },
+      simpleGit: (opts: { baseDir: string }) => {
+        baseDirs.push(opts.baseDir);
+        return { raw: (...args: string[][]) => mockGitRaw(...args) };
+      },
+    });
+
+    const ctx = makeCtx();
+    const toolDef = createGitLogTool(ctx, deps);
+
+    await toolDef.handler(
+      { repo: "my-repo", args: undefined, branch: undefined },
+      { sessionId: "test" },
+    );
+
+    // No branch → no shortcut lookup, uses main clone
+    assert.equal(findCalls.length, 0);
+    assert.deepEqual(baseDirs, ["/data/repositories/my-repo"]);
   });
 });

@@ -8,7 +8,9 @@ import {
   claimOwnershipFromDisabled,
   transferOwnership,
   hasOwner,
+  getRole,
 } from "../../roles.js";
+import { clearQuarantinedWorker } from "../../workers/index.js";
 import { userCanManageRoles, userCanEditConfig } from "../../permissions.js";
 import {
   buildHomeView,
@@ -77,6 +79,8 @@ export interface HomeTabDeps {
   getJob: typeof getJob;
   updateJob: typeof updateJob;
   runJobNow: typeof runJobNow;
+  getRole: typeof getRole;
+  clearQuarantinedWorker: typeof clearQuarantinedWorker;
 }
 
 export const defaultHomeTabDeps: HomeTabDeps = {
@@ -114,6 +118,8 @@ export const defaultHomeTabDeps: HomeTabDeps = {
   getJob,
   updateJob,
   runJobNow,
+  getRole,
+  clearQuarantinedWorker,
 };
 
 /** Parse comma-separated keywords input into a trimmed array, or undefined if empty. */
@@ -1054,6 +1060,40 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
       await publishHomeView(client, body.user.id, deps);
     } catch (error) {
       logger.error("Failed to update cron job:", error);
+    }
+  });
+
+  // "Discard & restore" button on quarantined worker rows. Admin-gated:
+  // discards uncommitted work via `git reset --hard HEAD` + `git clean -fd`,
+  // then flips the worker back to idle.
+  app.action<BlockAction>("clack_clear_quarantine", async ({ ack, body, client, action }) => {
+    await ack();
+    try {
+      const role = await deps.getRole(body.user.id);
+      if (!deps.userCanEditConfig(role)) {
+        logger.warn(`clack_clear_quarantine: user ${body.user.id} (role=${role}) lacks permission`);
+        return;
+      }
+
+      const value = (action as { value?: string }).value;
+      if (!value || !value.includes("/")) {
+        logger.warn(`clack_clear_quarantine: missing or malformed value: ${value}`);
+        return;
+      }
+      const slash = value.indexOf("/");
+      const repo = value.slice(0, slash);
+      const workerId = value.slice(slash + 1);
+
+      const result = await deps.clearQuarantinedWorker(workerId, repo);
+      if (!result.ok) {
+        logger.warn(`clack_clear_quarantine: ${repo}/${workerId} failed — ${result.reason}`);
+      } else {
+        logger.info(`clack_clear_quarantine: ${repo}/${workerId} restored by ${body.user.id}`);
+      }
+
+      await publishHomeView(client, body.user.id, deps);
+    } catch (error) {
+      logger.error("Failed to clear quarantine:", error);
     }
   });
 }

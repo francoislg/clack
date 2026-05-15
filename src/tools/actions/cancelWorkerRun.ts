@@ -6,17 +6,21 @@ import { getActiveChangeForUser, type ActiveChangeState } from "../../changes/ac
 import { canEditConfig } from "../../permissions.js";
 import type { UserRole } from "../../roles.js";
 import { logger } from "../../logger.js";
+import { cancelQueuedSession } from "../../workers/index.js";
 
 export interface CancelWorkerRunDeps {
   getActiveChangeForUser: (
     userId: string,
   ) => { sessionId: string; change: ActiveChangeState } | undefined;
   canEditConfig: (role: UserRole) => boolean;
+  /** Cancel a queued acquire by sessionId. Returns true if an entry was found+cancelled. */
+  cancelQueuedSession: (sessionId: string, reason?: string) => boolean;
 }
 
 export const defaultCancelWorkerRunDeps: CancelWorkerRunDeps = {
   getActiveChangeForUser,
   canEditConfig,
+  cancelQueuedSession,
 };
 
 export function createCancelWorkerRunTool(
@@ -74,8 +78,25 @@ export function createCancelWorkerRunTool(
         });
       }
 
-      // No live handle — worker process is gone (e.g., after restart) but
-      // the session is still in an active status.
+      // No live handle — but the session may be queued waiting for a worker.
+      // In reusable mode, an acquire that hit `maxConcurrent` is parked in the
+      // per-repo FIFO queue. Cancel it before falling through to "no run found".
+      if (deps.cancelQueuedSession(sessionId, args.reason)) {
+        logger.info(
+          `Queued worker request cancelled by ${ctx.userId}: ${description}${args.reason ? ` — ${args.reason}` : ""}`,
+        );
+        return textResult({
+          ok: true,
+          cancelled: true,
+          queuedAtCancel: true,
+          sessionId,
+          description,
+          message: "Queued request cancelled before a worker was assigned.",
+        });
+      }
+
+      // No live handle and not queued — worker process is gone (e.g., after
+      // restart) but the session is still in an active status.
       logger.info(
         `Stale worker run flagged by ${ctx.userId}: ${description}${args.reason ? ` — ${args.reason}` : ""}`,
       );

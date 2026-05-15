@@ -1,7 +1,8 @@
-import { describe, it, mock, beforeEach } from "node:test";
+import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 import { restartAll } from "./lifecycle.js";
 import type { LifecycleDeps } from "./lifecycle.js";
+import type { LoadedPlugins } from "./plugins/registry.js";
 
 // ============================================================================
 // Mocks and Helpers
@@ -44,6 +45,10 @@ function createMockDeps(): {
   const mockClearPreferencesCache = mock.fn();
   const mockClearAutoRespondCache = mock.fn();
   const mockClearCronJobsCache = mock.fn();
+  const mockLoadPlugins = mock.fn(
+    async (_pluginNames: string[]): Promise<LoadedPlugins> => ({ results: [] }),
+  );
+  const mockSetLoadedPlugins = mock.fn((_plugins: LoadedPlugins): void => {});
 
   const mocks = {
     mockLoadConfig,
@@ -72,6 +77,8 @@ function createMockDeps(): {
     mockClearPreferencesCache,
     mockClearAutoRespondCache,
     mockClearCronJobsCache,
+    mockLoadPlugins,
+    mockSetLoadedPlugins,
   };
 
   const deps: LifecycleDeps = {
@@ -103,6 +110,8 @@ function createMockDeps(): {
     clearPreferencesCache: mockClearPreferencesCache,
     clearAutoRespondCache: mockClearAutoRespondCache,
     clearCronJobsCache: mockClearCronJobsCache,
+    loadPlugins: mockLoadPlugins,
+    setLoadedPlugins: mockSetLoadedPlugins,
   };
 
   return { deps, mocks };
@@ -163,6 +172,55 @@ describe("restartAll", () => {
       `expected a warning mentioning 'mongodb-prod', got: ${JSON.stringify(result.warnings)}`,
     );
     // Restart still completed — schedulers were started.
+    assert.equal(mocks.mockStartSyncScheduler.mock.callCount(), 1);
+  });
+
+  it("reloads plugins from the freshly-loaded config", async () => {
+    const { deps, mocks } = createMockDeps();
+    const configWithPlugins = {
+      repositories: [],
+      changesWorkflow: { enabled: false },
+      claudeCode: { watchMcpConfig: false },
+      allowScheduledMessages: false,
+      plugins: ["trivia", "giphy"],
+    };
+    mocks.mockLoadConfig.mock.mockImplementation(() => configWithPlugins);
+    mocks.mockGetConfig.mock.mockImplementation(() => configWithPlugins);
+    const harvested: LoadedPlugins = { results: [] };
+    mocks.mockLoadPlugins.mock.mockImplementation(async () => harvested);
+
+    await restartAll(deps);
+
+    assert.equal(mocks.mockLoadPlugins.mock.callCount(), 1);
+    assert.deepEqual(mocks.mockLoadPlugins.mock.calls[0].arguments[0], ["trivia", "giphy"]);
+    assert.equal(mocks.mockSetLoadedPlugins.mock.callCount(), 1);
+    assert.strictEqual(mocks.mockSetLoadedPlugins.mock.calls[0].arguments[0], harvested);
+  });
+
+  it("clears plugin state when config has no plugins", async () => {
+    const { deps, mocks } = createMockDeps();
+    // Default config has no `plugins` field — loader should be called with []
+    // so a previously-loaded plugin set is cleared.
+    await restartAll(deps);
+
+    assert.equal(mocks.mockLoadPlugins.mock.callCount(), 1);
+    assert.deepEqual(mocks.mockLoadPlugins.mock.calls[0].arguments[0], []);
+    assert.equal(mocks.mockSetLoadedPlugins.mock.callCount(), 1);
+  });
+
+  it("surfaces plugin reload failures as warnings without aborting", async () => {
+    const { deps, mocks } = createMockDeps();
+    mocks.mockLoadPlugins.mock.mockImplementation(async () => {
+      throw new Error("plugin import failed");
+    });
+
+    const result = await restartAll(deps);
+
+    assert.ok(
+      result.warnings.some((w) => w.includes("plugin import failed")),
+      `expected a warning mentioning 'plugin import failed', got: ${JSON.stringify(result.warnings)}`,
+    );
+    // Restart still completed.
     assert.equal(mocks.mockStartSyncScheduler.mock.callCount(), 1);
   });
 

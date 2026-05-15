@@ -98,7 +98,7 @@
     "propose_change": "Proposing change {repo}",
     "request_update": "Requesting update",
     "propose_config_update": "Proposing config update {role}/{file}",
-    "git_push": "Pushing to remote",
+    "git_push": "Verifying & pushing to remote",
     "ensure_pr": "Creating pull request {title}",
     "merge_pr": "Merging pull request",
     "close_pr": "Closing pull request",

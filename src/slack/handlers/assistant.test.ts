@@ -58,6 +58,7 @@ function makeDeps(): AssistantDeps {
 const mockAssistantStopThread = mock.fn<AssistantDeps["stopThread"]>(async () => ({
   queryAborted: 0,
   workerAborted: false,
+  queuedCancelled: false,
   sessionDisengaged: false,
 }));
 

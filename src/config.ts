@@ -58,6 +58,24 @@ export interface ThinkingFeedbackConfig {
   emoji?: string;
 }
 
+/**
+ * Reusable worker folder pool config. When `enabled`, change requests are routed through
+ * a pool of long-lived `worker-N` folders instead of the default disposable per-branch model.
+ */
+export interface ReusableFoldersConfig {
+  enabled: boolean;
+  /** Workers to provision asynchronously at boot, per repo. */
+  minimumProvisioned?: number;
+  /** Hard cap on pool size per repo; new requests beyond this enqueue. */
+  maxConcurrent?: number;
+  /** FIFO queue depth bound per repo; beyond this, requests are rejected. */
+  maxQueueDepth?: number;
+  /** Detach session-bound idle workers after this many hours of no activity. */
+  idleReleaseHours?: number;
+  /** Quarantine workers with modified-tracked files instead of branch-switching. */
+  dirtyTrackedQuarantine?: boolean;
+}
+
 // Changes Workflow configuration
 export interface ChangesWorkflowConfig {
   enabled: boolean;
@@ -66,6 +84,14 @@ export interface ChangesWorkflowConfig {
   additionalAllowedTools?: string[];
   sessionExpiryHours?: number;
   monitoringIntervalMinutes?: number;
+  reusableFolders?: ReusableFoldersConfig;
+  /**
+   * Max simultaneously-executing changes per user. Counts only changes in
+   * `executing`/`reviewing`/`merging` — idle states (`pr_created`, `completed`,
+   * `failed`, `cancelled`) never block. Defaults to 1. Set to 0 to disable the
+   * gate entirely (rely on the worker pool's queue for backpressure instead).
+   */
+  maxActiveChangesPerUser?: number;
 }
 
 // Per-trigger changes workflow config
@@ -106,6 +132,15 @@ export interface MentionsConfig {
 
 export interface AutoRespondConfig {
   enabled: boolean;
+}
+
+export interface TriviaSeasonsConfig {
+  enabled: boolean;
+  prompt: string;
+}
+
+export interface TriviaConfig {
+  seasons?: TriviaSeasonsConfig;
 }
 
 export interface TaskCardsConfig {
@@ -175,6 +210,8 @@ export interface Config {
   threadAutoRespondMaxAgeMinutes?: number;
   /** List of Clack plugin names to load at startup */
   plugins?: string[];
+  /** Trivia plugin configuration (only read when the trivia plugin is in `plugins`) */
+  trivia?: TriviaConfig;
   /**
    * Clack-owned MCP server registry. Keyed by server name. Declares each server's
    * `alwaysLoad` flag (session-start attach vs. lazy) and a `description` shown in the
@@ -621,6 +658,36 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
   const sessionsRaw = section(c, "sessions");
   const claudeCodeRaw = section(c, "claudeCode");
   const cwRaw = section(c, "changesWorkflow");
+  const triviaRaw = section(c, "trivia");
+  const triviaSeasonsRaw = triviaRaw ? section(triviaRaw, "seasons") : undefined;
+  let triviaConfig: TriviaConfig | undefined;
+  if (triviaRaw) {
+    if (triviaSeasonsRaw) {
+      const seasonsEnabled = bool(triviaSeasonsRaw, "enabled") ?? false;
+      const seasonsPrompt = str(triviaSeasonsRaw, "prompt") ?? "";
+      if (seasonsEnabled && seasonsPrompt.trim().length === 0) {
+        logger.warn(
+          "Config 'trivia.seasons.enabled' is true but 'trivia.seasons.prompt' is missing — disabling seasons",
+        );
+        triviaConfig = { seasons: { enabled: false, prompt: "" } };
+      } else {
+        triviaConfig = { seasons: { enabled: seasonsEnabled, prompt: seasonsPrompt } };
+      }
+    } else {
+      triviaConfig = {};
+    }
+  }
+  const reusableFoldersRaw = cwRaw && section(cwRaw, "reusableFolders");
+  const reusableFolders: ReusableFoldersConfig | undefined = reusableFoldersRaw
+    ? {
+        enabled: bool(reusableFoldersRaw, "enabled") ?? false,
+        minimumProvisioned: num(reusableFoldersRaw, "minimumProvisioned") ?? 0,
+        maxConcurrent: num(reusableFoldersRaw, "maxConcurrent") ?? 3,
+        maxQueueDepth: num(reusableFoldersRaw, "maxQueueDepth") ?? 5,
+        idleReleaseHours: num(reusableFoldersRaw, "idleReleaseHours") ?? 24,
+        dirtyTrackedQuarantine: bool(reusableFoldersRaw, "dirtyTrackedQuarantine") ?? true,
+      }
+    : undefined;
 
   // Parse reactions changes workflow (has extra "trigger" field)
   const reactionsChangesWorkflow = reactionsRaw
@@ -702,12 +769,15 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
           additionalAllowedTools: strArray(cwRaw, "additionalAllowedTools"),
           sessionExpiryHours: num(cwRaw, "sessionExpiryHours"),
           monitoringIntervalMinutes: num(cwRaw, "monitoringIntervalMinutes"),
+          reusableFolders,
+          maxActiveChangesPerUser: num(cwRaw, "maxActiveChangesPerUser"),
         }
       : undefined,
     allowScheduledMessages: bool(c, "allowScheduledMessages") ?? false,
     threadAutoRespond: bool(c, "threadAutoRespond") ?? undefined,
     threadAutoRespondMaxAgeMinutes: num(c, "threadAutoRespondMaxAgeMinutes") ?? undefined,
     plugins: strArray(c, "plugins"),
+    trivia: triviaConfig,
     mcpServers: parseMcpServerRegistry(c.mcpServers as JsonValue | undefined),
     skillPlugins: parseSkillPluginRegistry(c.skillPlugins as JsonValue | undefined),
   };
@@ -788,6 +858,10 @@ export function getDefaultConfigurationDir(): string {
 
 export function getWorktreeSessionsDir(): string {
   return resolve(getDataDir(), "worktree-sessions");
+}
+
+export function getStateDir(): string {
+  return resolve(getDataDir(), "state");
 }
 
 export function findRepoByName(name: string, config: Config): RepositoryConfig | undefined {

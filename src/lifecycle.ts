@@ -24,6 +24,8 @@ import { clearRolesCache } from "./roles.js";
 import { clearPreferencesCache } from "./userPreferences.js";
 import { clearAutoRespondCache } from "./autoRespond.js";
 import { clearCronJobsCache } from "./cronJobs.js";
+import { loadPlugins } from "./plugins/registry.js";
+import { setLoadedPlugins } from "./plugins/state.js";
 
 // ---------------------------------------------------------------------------
 // Dependency Injection
@@ -57,6 +59,8 @@ export interface LifecycleDeps {
   clearPreferencesCache: typeof clearPreferencesCache;
   clearAutoRespondCache: typeof clearAutoRespondCache;
   clearCronJobsCache: typeof clearCronJobsCache;
+  loadPlugins: typeof loadPlugins;
+  setLoadedPlugins: typeof setLoadedPlugins;
 }
 
 export const defaultLifecycleDeps: LifecycleDeps = {
@@ -87,6 +91,8 @@ export const defaultLifecycleDeps: LifecycleDeps = {
   clearPreferencesCache,
   clearAutoRespondCache,
   clearCronJobsCache,
+  loadPlugins,
+  setLoadedPlugins,
 };
 
 // ---------------------------------------------------------------------------
@@ -177,6 +183,8 @@ export function stopAll(deps: LifecycleDeps = defaultLifecycleDeps): void {
  * 2. Reload config — if this fails, abort without side effects
  * 3. Stop all schedulers and watchers
  * 4. Reset all module caches
+ * 4.5. Re-install pinned MCP servers
+ * 4.6. Reload Clack plugins (instructions + tools + tool mappings)
  * 5. Reload GitHub credentials
  * 6. Validate instruction files
  * 7. Initialize + sync repositories
@@ -220,6 +228,22 @@ export async function restartAll(
     } catch (error) {
       warnings.push(
         `Pinned MCP install failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
+    // Step 4.6: Reload Clack plugins. Plugin state is consumed reactively via
+    // getLoadedPlugins() (tool server, instructions resolver, home tab, tool
+    // mapping loader), so replacing it here propagates to the next session
+    // without touching any other subsystem. Always call setLoadedPlugins —
+    // including with an empty result — so removing a plugin from config takes
+    // effect on restart.
+    try {
+      const pluginNames = config.plugins ?? [];
+      const loaded = await deps.loadPlugins(pluginNames);
+      deps.setLoadedPlugins(loaded);
+    } catch (error) {
+      warnings.push(
+        `Plugin reload failed: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
 

@@ -1,5 +1,5 @@
 import { getConfig, findRepoByName } from "../config.js";
-import { createWorktree, getExistingWorktree, type WorktreeInfo } from "../worktrees.js";
+import type { WorktreeInfo } from "../worktrees.js";
 import type {
   ChangeRequest,
   ChangePlan,
@@ -15,11 +15,14 @@ import { getSession } from "../sessions.js";
 import { firstUserMessage } from "../sessions/selectors.js";
 import type { ActiveChangeState } from "./activeState.js";
 import type { ClaudeRunHandle } from "../claude/runHandle.js";
+import { lazyDefaultPool } from "../workers/index.js";
+import { workerToWorktreeInfo, type Worker, type WorkerPool } from "../workers/types.js";
 import {
   getActiveChange,
   setActiveChange,
   clearActiveChange,
   getActiveChangeForUser,
+  countActiveChangesForUser,
   updateActiveChangeStatus,
 } from "./activeState.js";
 import { appendExecutionLog, readSessionState } from "./persistence.js";
@@ -61,8 +64,7 @@ interface RunClaudeInWorktreeOptions {
 export interface WorkflowDeps {
   getConfig: () => AppConfig;
   findRepoByName: (name: string, config: AppConfig) => RepositoryConfig | undefined;
-  createWorktree: (repo: RepositoryConfig, branch: string) => Promise<WorktreeInfo>;
-  getExistingWorktree: (repo: RepositoryConfig, branch: string) => WorktreeInfo | null;
+  pool: WorkerPool;
   getActiveChange: (sessionId: string) => ActiveChangeState | undefined;
   setActiveChange: (
     sessionId: string,
@@ -73,6 +75,7 @@ export interface WorkflowDeps {
   getActiveChangeForUser: (
     userId: string,
   ) => { sessionId: string; change: ActiveChangeState } | undefined;
+  countActiveChangesForUser: (userId: string) => number;
   updateActiveChangeStatus: (sessionId: string, status: ChangeStatus) => void;
   appendExecutionLog: (branch: string, message: string) => void;
   readSessionState: (
@@ -102,12 +105,12 @@ export interface WorkflowDeps {
 export const defaultWorkflowDeps: WorkflowDeps = {
   getConfig,
   findRepoByName,
-  createWorktree,
-  getExistingWorktree,
+  pool: lazyDefaultPool(),
   getActiveChange,
   setActiveChange,
   clearActiveChange,
   getActiveChangeForUser,
+  countActiveChangesForUser,
   updateActiveChangeStatus,
   appendExecutionLog,
   readSessionState,
@@ -155,6 +158,10 @@ function buildCancelledResult(
 /**
  * Start a new change request workflow.
  * Attaches an activeChange to the existing unified thread session.
+ *
+ * `onAck` is an optional Slack-side hook used to post out-of-band acks (e.g.,
+ * "you're queued at position N") that don't fit cleanly into the StreamEvent
+ * pipeline. Provided by `changeAction.ts` with the Slack client + thread bound.
  */
 export async function startChangeWorkflow(
   request: ChangeRequest,
@@ -162,16 +169,22 @@ export async function startChangeWorkflow(
   sessionId: string,
   onEvent?: (event: StreamEvent) => void | Promise<void>,
   deps: WorkflowDeps = defaultWorkflowDeps,
+  onAck?: (text: string) => Promise<void>,
 ): Promise<ChangeResult> {
   const config = deps.getConfig();
 
-  // Check if user already has an active session
-  const existingChange = deps.getActiveChangeForUser(request.userId);
-  if (existingChange) {
-    return {
-      success: false,
-      error: `You already have an active change request. Check your existing thread or wait for it to complete.`,
-    };
+  // Per-user concurrent-change cap. Default 1 preserves legacy behavior;
+  // 0 disables the cap and relies on the worker pool's queue for backpressure.
+  const userCap = config.changesWorkflow?.maxActiveChangesPerUser ?? 1;
+  if (userCap > 0) {
+    const activeCount = deps.countActiveChangesForUser(request.userId);
+    if (activeCount >= userCap) {
+      const error =
+        userCap === 1
+          ? `You already have an active change request. Check your existing thread or wait for it to complete.`
+          : `You already have ${activeCount} active change request${activeCount === 1 ? "" : "s"} (limit ${userCap}). Wait for one to complete before starting another.`;
+      return { success: false, error };
+    }
   }
 
   // Find target repo
@@ -203,13 +216,14 @@ export async function startChangeWorkflow(
     triggerType: request.triggerType,
   });
 
-  // Check for existing worktree (from a previous failed/interrupted attempt)
+  // Acquire a worker via the pool. This handles fresh-create vs. existing-resume
+  // (disposable mode) and slot-allocation (reusable mode) transparently.
+  let worker: Worker;
   let worktree: WorktreeInfo;
   let resumeContext: string | undefined;
 
-  const existingWorktree = deps.getExistingWorktree(repo, plan.branchName);
-  if (existingWorktree) {
-    // Check if there's a persisted session state we can resume
+  const preExisting = deps.pool.findByBranch(repo.name, plan.branchName);
+  if (preExisting) {
     const existingState = await deps.readSessionState(plan.branchName);
     if (existingState) {
       const stateObj = existingState as { status: string; phase: string; lastMessage: string };
@@ -223,21 +237,42 @@ export async function startChangeWorkflow(
       resumeContext =
         "A previous session started but left no state. The workspace may have partial changes.";
     }
-    worktree = existingWorktree;
-  } else {
-    try {
-      worktree = await deps.createWorktree(repo, plan.branchName);
-      // Run worktree setup for fresh worktrees only.
-      // Forward onEvent so setup tool calls keep the stream alive.
+  }
+
+  try {
+    worker = await deps.pool.acquire(repo, plan.branchName, sessionId, {
+      onQueued: (position) => {
+        deps.appendExecutionLog(
+          plan.branchName,
+          `Queued for worker (position ${position}) — waiting for a slot to free up`,
+        );
+        // Surface to the user too — they'd otherwise see no feedback while parked.
+        if (onAck) {
+          const text =
+            position === 1
+              ? `:hourglass_flowing_sand: Waiting for a worker on \`${plan.targetRepo}\` — next in line.`
+              : `:hourglass_flowing_sand: Queued at position ${position} for a worker on \`${plan.targetRepo}\`.`;
+          // Fire-and-forget: a Slack hiccup must not cause the queued acquire to fail.
+          onAck(text).catch((err) =>
+            deps.appendExecutionLog(plan.branchName, `Queue ack post failed: ${errorMessage(err)}`),
+          );
+        }
+      },
+    });
+    worktree = workerToWorktreeInfo(worker);
+    // For fresh worker without setup yet, run worktree setup. The pool's reusable
+    // implementation runs setup internally (via injected setup runner); the disposable
+    // implementation defers to the workflow.
+    if (!worker.setupComplete) {
       await deps.runWorktreeSetup(repo.name, worktree.worktreePath, plan.branchName, onEvent);
-    } catch (err) {
-      // Release the slot on failure
-      deps.clearActiveChange(sessionId);
-      return {
-        success: false,
-        error: `Failed to create workspace: ${errorMessage(err)}`,
-      };
+      worker.setupComplete = true;
     }
+  } catch (err) {
+    deps.clearActiveChange(sessionId);
+    return {
+      success: false,
+      error: `Failed to create workspace: ${errorMessage(err)}`,
+    };
   }
 
   // Now that the worktree exists, attach it to the active change
@@ -327,8 +362,25 @@ export async function handleFollowUp(
     return { success: false, error: "No active change in this thread." };
   }
 
+  const config = deps.getConfig();
+  const repo = deps.findRepoByName(activeChange.repo, config);
+
+  // Reusable mode: a detached session has no `worktree` until we re-acquire it.
+  // Disposable mode: a missing worktree is a real failure — surface the error.
   if (!activeChange.worktree) {
-    return { success: false, error: "No worktree exists for this change." };
+    const reusableMode = config.changesWorkflow?.reusableFolders?.enabled === true;
+    if (!reusableMode || !repo) {
+      return { success: false, error: "No worktree exists for this change." };
+    }
+    try {
+      const worker = await deps.pool.acquire(repo, activeChange.branch, session.sessionId);
+      activeChange.worktree = workerToWorktreeInfo(worker);
+    } catch (err) {
+      return {
+        success: false,
+        error: `Failed to re-acquire worker for branch ${activeChange.branch}: ${errorMessage(err)}`,
+      };
+    }
   }
 
   // Guard: only allow follow-ups when the change is idle (PR exists, no work in progress)
@@ -346,9 +398,6 @@ export async function handleFollowUp(
       error: `This change is currently ${activeChange.status}. Please wait for it to finish before requesting another action.`,
     };
   }
-
-  const config = deps.getConfig();
-  const repo = deps.findRepoByName(activeChange.repo, config);
 
   activeChange.lastActivityAt = new Date();
 

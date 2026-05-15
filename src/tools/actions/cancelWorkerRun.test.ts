@@ -31,6 +31,7 @@ function makeDeps(overrides?: Partial<CancelWorkerRunDeps>): CancelWorkerRunDeps
   return {
     getActiveChangeForUser: mock.fn(() => undefined),
     canEditConfig: (role) => role === "admin" || role === "owner",
+    cancelQueuedSession: () => false,
     ...overrides,
   };
 }
@@ -118,6 +119,62 @@ describe("createCancelWorkerRunTool", () => {
           handle: undefined,
         }),
       })),
+    });
+
+    const tool = createCancelWorkerRunTool(makeContext(), deps);
+    const result = await tool.handler({ target_user_id: undefined, reason: undefined }, {});
+    const parsed = parseToolResult(result);
+
+    assert.ok(parsed.error);
+    assert.ok(parsed.error.includes("restart"));
+    assert.equal(result.isError, true);
+  });
+
+  it("cancels a queued session when there's no live handle (reusable mode)", async () => {
+    const cancelCalls: Array<{ sessionId: string; reason?: string }> = [];
+    deps = makeDeps({
+      getActiveChangeForUser: mock.fn(() => ({
+        sessionId: "sess-queued",
+        change: fakeChange({
+          repo: "my-repo",
+          branch: "feat/queued",
+          status: "executing",
+          handle: undefined,
+        }),
+      })),
+      cancelQueuedSession: (sessionId, reason) => {
+        cancelCalls.push({ sessionId, reason });
+        return true; // queued entry found and cancelled
+      },
+    });
+
+    const tool = createCancelWorkerRunTool(makeContext(), deps);
+    const result = await tool.handler(
+      { target_user_id: undefined, reason: "user changed mind" },
+      {},
+    );
+    const parsed = parseToolResult(result);
+
+    assert.equal(parsed.ok, true);
+    assert.equal(parsed.cancelled, true);
+    assert.equal(parsed.queuedAtCancel, true);
+    assert.equal(parsed.sessionId, "sess-queued");
+    assert.match(parsed.message, /Queued request cancelled/);
+    assert.deepEqual(cancelCalls, [{ sessionId: "sess-queued", reason: "user changed mind" }]);
+  });
+
+  it("falls through to stale-session error when neither handle nor queue entry exists", async () => {
+    deps = makeDeps({
+      getActiveChangeForUser: mock.fn(() => ({
+        sessionId: "sess-ghost",
+        change: fakeChange({
+          repo: "my-repo",
+          branch: "feat/ghost",
+          status: "executing",
+          handle: undefined,
+        }),
+      })),
+      cancelQueuedSession: () => false, // no queued entry either
     });
 
     const tool = createCancelWorkerRunTool(makeContext(), deps);

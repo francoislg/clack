@@ -1,10 +1,12 @@
 import { getConfig, type RepositoryConfig } from "../config.js";
 import { logger } from "../logger.js";
-import { getExistingWorktree } from "../worktrees.js";
 import { getAllPersistedSessions, writeSessionState } from "./persistence.js";
 import type { ChangeStatus, PersistedSessionState, WriteableSessionState } from "./types.js";
 import { findSessionByThread } from "../sessions.js";
 import { setActiveChange } from "./activeState.js";
+import { lazyDefaultPool } from "../workers/index.js";
+import { workerToWorktreeInfo, type WorkerPool } from "../workers/types.js";
+import type { WorktreeInfo } from "../worktrees.js";
 
 // ============================================================================
 // Dependency Injection
@@ -12,7 +14,7 @@ import { setActiveChange } from "./activeState.js";
 
 export interface RestoreDeps {
   getConfig: typeof getConfig;
-  getExistingWorktree: typeof getExistingWorktree;
+  pool: WorkerPool;
   getAllPersistedSessions: typeof getAllPersistedSessions;
   writeSessionState: typeof writeSessionState;
   findSessionByThread: typeof findSessionByThread;
@@ -21,7 +23,7 @@ export interface RestoreDeps {
 
 export const defaultRestoreDeps: RestoreDeps = {
   getConfig,
-  getExistingWorktree,
+  pool: lazyDefaultPool(),
   getAllPersistedSessions,
   writeSessionState,
   findSessionByThread,
@@ -45,7 +47,8 @@ type RestorationOutcome =
       action: "restore";
       effectiveStatus: ChangeStatus;
       repo: RepositoryConfig;
-      worktree: ReturnType<typeof getExistingWorktree> & {};
+      /** Set when a worker holds the branch; null when detached (reusable mode only). */
+      worktree: WorktreeInfo | null;
     };
 
 function classifySession(
@@ -63,8 +66,13 @@ function classifySession(
     return { action: "skip" };
   }
 
-  const worktree = restoreDeps.getExistingWorktree(repo, state.branch);
-  if (!worktree) {
+  const worker = restoreDeps.pool.findByBranch(repo.name, state.branch);
+  const worktree = worker ? workerToWorktreeInfo(worker) : null;
+  const reusableMode = restoreDeps.getConfig().changesWorkflow?.reusableFolders?.enabled === true;
+
+  // Disposable mode: no matching worker means the worktree was deleted — skip.
+  // Reusable mode: detach if the branch isn't on any worker; the next follow-up will re-acquire.
+  if (!worktree && !reusableMode) {
     logger.debug(`Skipping session ${state.sessionId}: worktree for "${state.branch}" not found`);
     return { action: "skip" };
   }
@@ -99,12 +107,25 @@ export async function restoreWorkerSessions(deps: RestoreDeps = defaultRestoreDe
     reposByName: new Map(config.repositories.map((r) => [r.name, r])),
   };
 
+  // Process restorable sessions newest-first so that when two sessions reference
+  // the same branch, the most-recently-active one wins the worker claim. Older
+  // siblings are restored as detached and will re-acquire on next follow-up.
+  // Stable sort: when timestamps tie, persisted order breaks the tie.
+  const sortedStates = [...states].sort(
+    (a, b) => new Date(b.lastActivityAt).getTime() - new Date(a.lastActivityAt).getTime(),
+  );
+
+  // Tracks which (repo, branch) pairs have already claimed their worker in this
+  // restore pass — the second session referencing the same branch is detached.
+  const claimedBranches = new Map<string, string>(); // key=`${repo}/${branch}`, value=winning sessionId
+
   let restored = 0;
   let skipped = 0;
   let downgraded = 0;
   let markedFailed = 0;
+  let conflictsResolved = 0;
 
-  for (const state of states) {
+  for (const state of sortedStates) {
     const outcome = classifySession(state, ctx, deps);
 
     if (outcome.action === "skip") {
@@ -117,7 +138,26 @@ export async function restoreWorkerSessions(deps: RestoreDeps = defaultRestoreDe
       continue;
     }
 
-    const { effectiveStatus, worktree } = outcome;
+    let { effectiveStatus, worktree } = outcome;
+
+    // Conflict detection: if another (newer) session in this restore pass
+    // already claimed this branch, surrender our worktree binding and restore
+    // as detached. The branch is still on the activeChange for re-acquisition.
+    if (worktree) {
+      const key = `${state.repo}/${state.branch}`;
+      const winner = claimedBranches.get(key);
+      if (winner && winner !== state.sessionId) {
+        logger.warn(
+          `Restore conflict on ${key}: session ${state.sessionId} loses to ${winner} ` +
+            `(both reference the same branch). Loser will be restored as detached.`,
+        );
+        worktree = null;
+        conflictsResolved++;
+      } else {
+        claimedBranches.set(key, state.sessionId);
+      }
+    }
+
     const wasDowngraded = effectiveStatus !== state.status;
     if (wasDowngraded) downgraded++;
 
@@ -136,7 +176,7 @@ export async function restoreWorkerSessions(deps: RestoreDeps = defaultRestoreDe
         branch: state.branch,
         repo: state.repo,
         description: state.description,
-        worktree,
+        worktree: worktree ?? undefined,
         status: effectiveStatus,
         prUrl: state.prUrl ?? undefined,
         startedAt: new Date(state.startedAt),
@@ -174,9 +214,9 @@ export async function restoreWorkerSessions(deps: RestoreDeps = defaultRestoreDe
     restored++;
   }
 
-  if (restored > 0 || downgraded > 0 || markedFailed > 0) {
+  if (restored > 0 || downgraded > 0 || markedFailed > 0 || conflictsResolved > 0) {
     logger.info(
-      `Worker sessions restored: ${restored} restored, ${downgraded} downgraded to pr_created, ${markedFailed} marked failed, ${skipped} skipped`,
+      `Worker sessions restored: ${restored} restored, ${downgraded} downgraded to pr_created, ${markedFailed} marked failed, ${conflictsResolved} branch conflicts resolved, ${skipped} skipped`,
     );
   }
 }

@@ -14,10 +14,11 @@ import { decodeActionValue } from "../blocks.js";
 import { activeSessions, type SessionInfo } from "../activeSessions.js";
 import type { StagedChangeIntent } from "../../tools/types.js";
 import type { ChangeRequest, ChangePlan, ChangeResult, TriggerType } from "../../changes/types.js";
-import { startChangeWorkflow } from "../../changes/workflow.js";
+import { startChangeWorkflow, type WorkflowDeps } from "../../changes/workflow.js";
 import { SlackStreamer, finalizeStreamedWorkflow } from "../../streaming/slackStreamer.js";
 import type { StreamEvent } from "../../streaming/types.js";
 import type { UserRole } from "../../roles.js";
+import { getUserInfo } from "../userCache.js";
 
 export interface ChangeActionDeps {
   getRole: (userId: string) => Promise<UserRole>;
@@ -31,6 +32,8 @@ export interface ChangeActionDeps {
     plan: ChangePlan,
     sessionId: string,
     onEvent: (event: StreamEvent) => void,
+    deps?: WorkflowDeps,
+    onAck?: (text: string) => Promise<void>,
   ) => Promise<ChangeResult>;
   errorMessage: (err: unknown) => string;
   setAutoResponseActive: (sessionId: string, active: boolean) => Promise<void>;
@@ -125,9 +128,13 @@ export async function triggerChangeWorkflow(
   await streamer.start();
 
   try {
+    const userInfo = await getUserInfo(client, userId);
+    const userDisplayName = userInfo?.displayName || userInfo?.username;
+
     // Build change request and plan
     const request: ChangeRequest = {
       userId,
+      ...(userDisplayName && { userDisplayName }),
       message: intent.description,
       triggerType: slack.triggerType ?? "reactions",
       channel: channelId,
@@ -141,11 +148,24 @@ export async function triggerChangeWorkflow(
       ...(intent.plan && { plan: intent.plan }),
     };
 
+    // Slack-side ack for queue-position events. The workflow fires this when
+    // `pool.acquire` enqueues (reusable mode at maxConcurrent). Posted on the
+    // same thread the streamer is using so the user sees it without scrolling.
+    const onAck = async (text: string): Promise<void> => {
+      await client.chat.postMessage({
+        channel: streamChannel,
+        thread_ts: streamThreadTs,
+        text,
+      });
+    };
+
     const result = await deps.startChangeWorkflow(
       request,
       plan,
       session.sessionId,
       streamer.handleEvent,
+      undefined,
+      onAck,
     );
 
     await deps.finalizeStreamedWorkflow(

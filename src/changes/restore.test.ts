@@ -5,6 +5,7 @@ import type { RepositoryConfig } from "../config.js";
 import { restoreWorkerSessions, type RestoreDeps } from "./restore.js";
 import type { setActiveChange } from "./activeState.js";
 import type { getAllPersistedSessions } from "./persistence.js";
+import type { WorkerPool } from "../workers/types.js";
 
 // ============================================================================
 // Helpers
@@ -52,24 +53,63 @@ const defaultUnifiedSession = {
   triggerType: "reactions" as const,
 };
 
+function buildRestorePool(
+  opts: {
+    findByBranch?: (repo: string, branch: string) => ReturnType<WorkerPool["findByBranch"]>;
+  } = {},
+): WorkerPool {
+  return {
+    acquire: async () => {
+      throw new Error("acquire not used in restore tests");
+    },
+    release: async () => {},
+    findByBranch:
+      opts.findByBranch ??
+      (() => ({
+        id: "feat-test",
+        repo: "my-repo",
+        worktreePath: defaultWorktree.worktreePath,
+        currentBranch: defaultWorktree.branchName,
+        status: "idle",
+        setupComplete: true,
+        setupVersionHash: null,
+        claimedBy: null,
+        lastUsedAt: new Date(),
+        createdAt: defaultWorktree.createdAt,
+      })),
+    list: () => [],
+    ensureMinimum: async () => {},
+  };
+}
+
+type FakeConfig = {
+  repositories: RepositoryConfig[];
+  changesWorkflow?: { reusableFolders?: { enabled: boolean } };
+};
+const fakeConfigBox: { value: FakeConfig } = { value: { repositories: mockRepositories } };
+function setFakeConfig(c: FakeConfig): void {
+  fakeConfigBox.value = c;
+}
+
 function makeDeps(overrides: Partial<RestoreDeps> = {}): RestoreDeps {
-  const mockGetAllPersistedSessions = mock.fn(async () => [] as PersistedSessionState[]);
-  const mockWriteSessionState = mock.fn(() => {});
-  const mockGetExistingWorktree = mock.fn(
-    () => defaultWorktree as ReturnType<RestoreDeps["getExistingWorktree"]>,
+  const mockGetAllPersistedSessions: RestoreDeps["getAllPersistedSessions"] = mock.fn(
+    async () => [],
   );
-  const mockFindSessionByThread = mock.fn(
+  const mockWriteSessionState: RestoreDeps["writeSessionState"] = mock.fn(() => {});
+  const mockFindSessionByThread: RestoreDeps["findSessionByThread"] = mock.fn(
     async () => defaultUnifiedSession as Awaited<ReturnType<RestoreDeps["findSessionByThread"]>>,
   );
-  const mockSetActiveChange = mock.fn(() => {});
+  const mockSetActiveChange: RestoreDeps["setActiveChange"] = mock.fn(() => {});
 
+  const getConfig: RestoreDeps["getConfig"] = () =>
+    fakeConfigBox.value as ReturnType<RestoreDeps["getConfig"]>;
   return {
-    getConfig: () => ({ repositories: mockRepositories }) as never,
-    getExistingWorktree: mockGetExistingWorktree as never,
-    getAllPersistedSessions: mockGetAllPersistedSessions as never,
-    writeSessionState: mockWriteSessionState as never,
-    findSessionByThread: mockFindSessionByThread as never,
-    setActiveChange: mockSetActiveChange as never,
+    getConfig,
+    pool: buildRestorePool(),
+    getAllPersistedSessions: mockGetAllPersistedSessions,
+    writeSessionState: mockWriteSessionState,
+    findSessionByThread: mockFindSessionByThread,
+    setActiveChange: mockSetActiveChange,
     ...overrides,
   };
 }
@@ -196,7 +236,7 @@ describe("restoreWorkerSessions", () => {
       const mockSetActiveChange = mock.fn();
       const deps = makeDeps({
         getAllPersistedSessions: mock.fn(async () => [makePersistedState()]) as never,
-        getExistingWorktree: mock.fn(() => null) as never,
+        pool: buildRestorePool({ findByBranch: () => null }),
         setActiveChange: mockSetActiveChange as never,
       });
 
@@ -364,7 +404,20 @@ describe("restoreWorkerSessions", () => {
       };
       const mockSetActiveChange = mock.fn();
       const deps = makeDeps({
-        getExistingWorktree: mock.fn(() => customWorktree) as never,
+        pool: buildRestorePool({
+          findByBranch: () => ({
+            id: "custom",
+            repo: customWorktree.repoName,
+            worktreePath: customWorktree.worktreePath,
+            currentBranch: customWorktree.branchName,
+            status: "idle",
+            setupComplete: true,
+            setupVersionHash: null,
+            claimedBy: null,
+            lastUsedAt: new Date(),
+            createdAt: customWorktree.createdAt,
+          }),
+        }),
         getAllPersistedSessions: mock.fn(async () => [
           makePersistedState({ status: "pr_created" }),
         ]) as never,
@@ -373,8 +426,10 @@ describe("restoreWorkerSessions", () => {
 
       await restoreWorkerSessions(deps);
 
-      const changeState = mockSetActiveChange.mock.calls[0]!.arguments[1] as { worktree: unknown };
-      assert.equal(changeState.worktree, customWorktree);
+      const setActiveCall = mockSetActiveChange.mock.calls[0]!;
+      const callArgs = setActiveCall.arguments;
+      const changeState = callArgs[1] as { worktree: typeof customWorktree };
+      assert.deepEqual(changeState.worktree, customWorktree);
     });
   });
 
@@ -494,6 +549,105 @@ describe("restoreWorkerSessions", () => {
       const failedSession = mockWriteSessionState.mock.calls[0]!.arguments[0] as { status: string };
       assert.equal(failedSession.status, "failed");
     });
+
+    it("resolves branch conflict by giving the worker to the most-recently-active session", async () => {
+      const older = makePersistedState({
+        sessionId: "s-older",
+        status: "pr_created",
+        branch: "feat/contested",
+        channel: "C001",
+        threadTs: "1700000001.000001",
+        lastActivityAt: new Date("2026-04-01T10:00:00Z").toISOString(),
+      });
+      const newer = makePersistedState({
+        sessionId: "s-newer",
+        status: "pr_created",
+        branch: "feat/contested",
+        channel: "C002",
+        threadTs: "1700000002.000001",
+        lastActivityAt: new Date("2026-04-01T11:00:00Z").toISOString(),
+      });
+
+      interface CallRecord {
+        sessionId: string;
+        hasWorktree: boolean;
+      }
+      const setActiveCalls: CallRecord[] = [];
+
+      const getAllPersistedSessions: RestoreDeps["getAllPersistedSessions"] = async () => [
+        older,
+        newer,
+      ];
+      let findCallCount = 0;
+      const findSessionByThread: RestoreDeps["findSessionByThread"] = async () => {
+        findCallCount++;
+        return {
+          sessionId: `unified-${findCallCount}`,
+          channelId: `C00${findCallCount}`,
+          messageTs: `170000000${findCallCount}.000001`,
+          threadTs: `170000000${findCallCount}.000001`,
+          userId: "U001",
+          trigger: {
+            type: "reactions",
+            userId: "U001",
+            emoji: "robot_face",
+            messageTs: `170000000${findCallCount}.000001`,
+            messageText: "",
+          },
+          messages: [],
+          threadContext: [],
+          errors: [],
+          lastActivity: Date.now(),
+          createdAt: Date.now(),
+          triggerType: "reactions",
+        };
+      };
+      const setActiveChange: RestoreDeps["setActiveChange"] = (sessionId, change) => {
+        setActiveCalls.push({ sessionId, hasWorktree: change.worktree !== undefined });
+      };
+
+      const deps = makeDeps({
+        getAllPersistedSessions,
+        findSessionByThread,
+        setActiveChange,
+      });
+
+      await restoreWorkerSessions(deps);
+
+      assert.equal(setActiveCalls.length, 2);
+      // Newer session is processed first (sorted by lastActivityAt desc) and keeps the worker.
+      assert.equal(setActiveCalls[0]!.hasWorktree, true);
+      // Older session is processed second and is detached.
+      assert.equal(setActiveCalls[1]!.hasWorktree, false);
+    });
+
+    it("does not flag a conflict when the same sessionId appears twice", async () => {
+      // Defensive: persistence should never list a session twice, but the
+      // conflict guard must not trip on a self-match.
+      const persisted = makePersistedState({
+        sessionId: "s-self",
+        status: "pr_created",
+        branch: "feat/self",
+        channel: "C001",
+        threadTs: "1700000001.000001",
+      });
+      const setActiveCalls: boolean[] = [];
+
+      const getAllPersistedSessions: RestoreDeps["getAllPersistedSessions"] = async () => [
+        persisted,
+        persisted,
+      ];
+      const setActiveChange: RestoreDeps["setActiveChange"] = (_sessionId, change) => {
+        setActiveCalls.push(change.worktree !== undefined);
+      };
+
+      const deps = makeDeps({ getAllPersistedSessions, setActiveChange });
+
+      await restoreWorkerSessions(deps);
+
+      // Both calls bind the worker — same sessionId, not a conflict.
+      assert.deepEqual(setActiveCalls, [true, true]);
+    });
   });
 
   // ==========================================================================
@@ -567,23 +721,25 @@ describe("restoreWorkerSessions", () => {
   // ==========================================================================
 
   describe("classifySession logic", () => {
-    it("passes the correct repo config to getExistingWorktree", async () => {
-      const mockGetExistingWorktree = mock.fn<
-        (repo: RepositoryConfig, branch: string) => typeof defaultWorktree | null
-      >(() => defaultWorktree);
+    it("passes the correct repo and branch to pool.findByBranch", async () => {
+      const findByBranchCalls: Array<{ repo: string; branch: string }> = [];
       const deps = makeDeps({
         getAllPersistedSessions: mock.fn(async () => [
           makePersistedState({ repo: "my-repo", branch: "feat/test-branch" }),
         ]) as never,
-        getExistingWorktree: mockGetExistingWorktree as never,
+        pool: buildRestorePool({
+          findByBranch: (repo, branch) => {
+            findByBranchCalls.push({ repo, branch });
+            return null;
+          },
+        }),
       });
 
       await restoreWorkerSessions(deps);
 
-      assert.equal(mockGetExistingWorktree.mock.callCount(), 1);
-      const [repoArg, branchArg] = mockGetExistingWorktree.mock.calls[0]!.arguments;
-      assert.equal((repoArg as RepositoryConfig).name, "my-repo");
-      assert.equal(branchArg, "feat/test-branch");
+      assert.equal(findByBranchCalls.length, 1);
+      assert.equal(findByBranchCalls[0]!.repo, "my-repo");
+      assert.equal(findByBranchCalls[0]!.branch, "feat/test-branch");
     });
 
     it("uses the state's channel and threadTs for findSessionByThread", async () => {
