@@ -2,9 +2,15 @@ import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { textResult, errorResult } from "../../tools/helpers.js";
 import { findSeasonBySlug, validateNoOverlap } from "./data.js";
-import type { TriviaDataLayer, SeasonsState, SeasonEntry } from "./types.js";
+import type {
+  TriviaDataLayer,
+  SeasonsState,
+  SeasonEntry,
+  SeasonQuestionTypeWeights,
+} from "./types.js";
 
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const QUESTION_TYPE_KEYS = ["boolean", "choice"] as const;
 
 function dedupePreservingOrder(values: string[]): string[] {
   const seen = new Set<string>();
@@ -16,6 +22,41 @@ function dedupePreservingOrder(values: string[]): string[] {
     }
   }
   return out;
+}
+
+/**
+ * Validates a `questionTypes` map: only known keys, non-negative integer weights,
+ * at least one strictly positive. Returns the canonicalized weights object on
+ * success, or an error message string on failure.
+ */
+function validateQuestionTypes(
+  raw: Record<string, number>,
+): { ok: true; weights: SeasonQuestionTypeWeights } | { ok: false; error: string } {
+  const out: Partial<SeasonQuestionTypeWeights> = {};
+  let positiveCount = 0;
+  for (const [key, value] of Object.entries(raw)) {
+    if (!(QUESTION_TYPE_KEYS as readonly string[]).includes(key)) {
+      return {
+        ok: false,
+        error: `questionTypes contains unknown key '${key}' (allowed: ${QUESTION_TYPE_KEYS.join(", ")})`,
+      };
+    }
+    if (!Number.isFinite(value) || !Number.isInteger(value) || value < 0) {
+      return {
+        ok: false,
+        error: `questionTypes.${key} must be a non-negative integer (got ${value})`,
+      };
+    }
+    out[key as "boolean" | "choice"] = value;
+    if (value > 0) positiveCount++;
+  }
+  if (positiveCount === 0) {
+    return { ok: false, error: "questionTypes must have at least one strictly positive weight" };
+  }
+  return {
+    ok: true,
+    weights: { boolean: out.boolean ?? 0, choice: out.choice ?? 0 },
+  };
 }
 
 export function createUpsertSeasonTool(data: TriviaDataLayer) {
@@ -49,6 +90,16 @@ export function createUpsertSeasonTool(data: TriviaDataLayer) {
         .optional()
         .describe(
           "Season's category pool. Provided AND non-empty → the season uses EXACTLY this list (for themed seasons). Omitted OR empty → the season copies from categories.json (the baseline). Used only on CREATE; ignored on UPDATE (use add_categories/remove_categories with target slug to refine).",
+        ),
+      questionTypes: z
+        .object({
+          boolean: z.number().int().nonnegative().optional(),
+          choice: z.number().int().nonnegative().optional(),
+        })
+        .nullable()
+        .optional()
+        .describe(
+          'Optional per-season question-type weights, e.g. `{ "boolean": 2, "choice": 1 }`. Set on CREATE to scope a season to choice-only / boolean-only / mixed. On UPDATE: passing an object replaces the existing value; passing `null` clears the field (causing get_ideas to fall back to config.trivia.questionsTypes). Mid-season mutation is permitted (unlike startedAt).',
         ),
     },
     async (args) => {
@@ -91,12 +142,23 @@ export function createUpsertSeasonTool(data: TriviaDataLayer) {
           );
         }
 
+        let questionTypes: SeasonQuestionTypeWeights | undefined;
+        if (args.questionTypes !== undefined && args.questionTypes !== null) {
+          const sparse: Record<string, number> = {};
+          if (args.questionTypes.boolean !== undefined) sparse.boolean = args.questionTypes.boolean;
+          if (args.questionTypes.choice !== undefined) sparse.choice = args.questionTypes.choice;
+          const validated = validateQuestionTypes(sparse);
+          if (!validated.ok) return errorResult(validated.error);
+          questionTypes = validated.weights;
+        }
+
         const entry: SeasonEntry = {
           slug: args.slug,
           startedAt: args.startedAt,
           expectedEndAt: args.expectedEndAt,
           ...(args.endedAt !== undefined ? { endedAt: args.endedAt } : {}),
           categories,
+          ...(questionTypes !== undefined ? { questionTypes } : {}),
         };
 
         try {
@@ -115,6 +177,7 @@ export function createUpsertSeasonTool(data: TriviaDataLayer) {
           expectedEndAt: entry.expectedEndAt,
           endedAt: entry.endedAt ?? null,
           categoriesCount: entry.categories.length,
+          hasQuestionTypes: entry.questionTypes !== undefined,
         });
       }
 
@@ -128,6 +191,22 @@ export function createUpsertSeasonTool(data: TriviaDataLayer) {
         }
       }
 
+      // questionTypes UPDATE semantics:
+      //   - undefined  → keep existing value (omit-to-keep)
+      //   - null       → clear the field (fall back to config.trivia.questionsTypes)
+      //   - object     → validate and replace
+      let updatedQuestionTypes: SeasonQuestionTypeWeights | undefined = existing.questionTypes;
+      if (args.questionTypes === null) {
+        updatedQuestionTypes = undefined;
+      } else if (args.questionTypes !== undefined) {
+        const sparse: Record<string, number> = {};
+        if (args.questionTypes.boolean !== undefined) sparse.boolean = args.questionTypes.boolean;
+        if (args.questionTypes.choice !== undefined) sparse.choice = args.questionTypes.choice;
+        const validated = validateQuestionTypes(sparse);
+        if (!validated.ok) return errorResult(validated.error);
+        updatedQuestionTypes = validated.weights;
+      }
+
       const updated: SeasonEntry = {
         slug: existing.slug,
         startedAt: args.startedAt ?? existing.startedAt,
@@ -138,6 +217,7 @@ export function createUpsertSeasonTool(data: TriviaDataLayer) {
             ? { endedAt: existing.endedAt }
             : {}),
         categories: existing.categories,
+        ...(updatedQuestionTypes !== undefined ? { questionTypes: updatedQuestionTypes } : {}),
       };
 
       const effectiveEnd = updated.endedAt ?? updated.expectedEndAt;
@@ -169,6 +249,7 @@ export function createUpsertSeasonTool(data: TriviaDataLayer) {
         expectedEndAt: updated.expectedEndAt,
         endedAt: updated.endedAt ?? null,
         categoriesCount: updated.categories.length,
+        hasQuestionTypes: updated.questionTypes !== undefined,
       });
     },
   );

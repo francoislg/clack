@@ -91,6 +91,20 @@ When an admin asks to **edit a queued future season**:
 When an admin asks to **rename a future season**:
 
 - Slug is immutable. Call \`delete_season(oldSlug)\` then \`upsert_season(newSlug, ...)\`. Only valid while the season has not yet started.
+
+## Admin: question types per season
+
+Each season can also carry an optional \`questionTypes\` weight map (e.g. \`{ "boolean": 2, "choice": 1 }\` → roughly 2/3 true-false questions, 1/3 multiple-choice). When set, that map overrides the workspace-level \`config.trivia.questionsTypes\` default for whichever season is current per \`findCurrentSeason\`. When absent, the workspace config (or pure-boolean fallback) is used.
+
+When an admin asks to **set a season to only generate multiple-choice questions** (or only true-false, or a custom mix):
+
+- Call \`upsert_season(slug, { questionTypes: { boolean: <w1>, choice: <w2> } })\`. At least one weight must be strictly positive. Mid-season mutation is permitted (unlike \`startedAt\`) — the next \`get_ideas\` call picks up the new mix.
+
+When an admin asks to **clear a season's questionTypes** (let it fall back to the workspace default):
+
+- Call \`upsert_season(slug, { questionTypes: null })\`.
+
+Note: the choice-question option-count bounds live at \`config.trivia.choices.{min, max}\` and are workspace-wide — they cannot be overridden per season (purely a card-readability UX setting, not a gameplay parameter).
 `;
 
 export function getTriviaCheckInstruction(seasonsEnabled: boolean): string {

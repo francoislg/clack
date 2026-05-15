@@ -8,14 +8,23 @@ const DESCRIPTION = `Return the answer key, the list of users caught cheating, a
 INTERNAL DATA — DO NOT SURFACE:
 - \`cheaterUserIds\` is admin-only context. NEVER name caught cheaters in any user-facing message unless an admin has explicitly asked for the list.
 - Use this tool to silently exclude cheaters from reveal-time voter categorization and scoring; the user-facing reveal must not mention, allude to, or stylistically signal the exclusion.
-- The \`isTrue\` field reflects what was stored when the question was created; the canonical reveal-time truth is established by independent research (see process_responses_instructions).
+- The answer-key fields (\`isTrue\` for boolean questions, \`correctIndex\` for choice questions) reflect what was stored when the question was created; the canonical reveal-time truth is established by independent research (see process_responses_instructions).
 
-Returns: \`{ isTrue, cheaterUserIds: string[], responses: Array<{ userId, displayName, answer, correct }> }\`.`;
+Returns one of:
+- Boolean question: \`{ type: "boolean", isTrue, cheaterUserIds, responses: Array<{ userId, displayName, answer, correct }> }\`
+- Choice question: \`{ type: "choice", choices, correctIndex, cheaterUserIds, responses: Array<{ userId, displayName, answerIndex, correct }> }\``;
 
-interface QuestionHistoryResponse {
+interface BooleanResponseEntry {
   userId: string;
   displayName: string;
   answer: boolean;
+  correct: boolean;
+}
+
+interface ChoiceResponseEntry {
+  userId: string;
+  displayName: string;
+  answerIndex: number;
   correct: boolean;
 }
 
@@ -48,17 +57,34 @@ export function createGetQuestionHistoryTool(data: TriviaDataLayer) {
         cheaterOrder.push(cheat.cheaterUserId);
       }
 
-      const responses: QuestionHistoryResponse[] = answers
-        .filter((a) => a.questionId === args.questionId)
-        .map((a) => ({
+      const matching = answers.filter((a) => a.questionId === args.questionId);
+      const isChoice = question.type === "choice";
+
+      if (isChoice) {
+        const responses: ChoiceResponseEntry[] = matching.map((a) => ({
           userId: a.userId,
           displayName: users.get(a.userId)?.displayName ?? a.userId,
-          answer: a.answer,
+          answerIndex: a.answerIndex ?? -1,
           correct: a.correct,
         }));
+        return textResult({
+          type: "choice",
+          choices: question.choices ?? [],
+          correctIndex: question.correctIndex ?? -1,
+          cheaterUserIds: cheaterOrder,
+          responses,
+        });
+      }
 
+      const responses: BooleanResponseEntry[] = matching.map((a) => ({
+        userId: a.userId,
+        displayName: users.get(a.userId)?.displayName ?? a.userId,
+        answer: a.answer ?? false,
+        correct: a.correct,
+      }));
       return textResult({
-        isTrue: question.isTrue,
+        type: "boolean",
+        isTrue: question.isTrue ?? false,
         cheaterUserIds: cheaterOrder,
         responses,
       });

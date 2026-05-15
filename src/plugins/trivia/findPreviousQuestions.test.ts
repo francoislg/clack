@@ -130,3 +130,58 @@ describe("find_previous_questions response shape", () => {
     assert.equal(Object.prototype.hasOwnProperty.call(parsed, "isTrue"), false);
   });
 });
+
+describe("find_previous_questions choice-question shape", () => {
+  let data: TriviaDataLayer;
+
+  beforeEach(async () => {
+    data = createInMemoryDataLayer();
+    await data.saveQuestion({
+      id: "qc1",
+      type: "choice",
+      category: "Geography",
+      statement: "Which is the smallest planet?",
+      choices: ["Mercury", "Venus", "Earth", "Mars"],
+      correctIndex: 0,
+      emojis: ["🪐"],
+      createdAt: 100,
+    });
+    await data.saveQuestion({
+      id: "qb1",
+      type: "boolean",
+      category: "Geography",
+      statement: "The Earth is round.",
+      isTrue: true,
+      emojis: ["🌍"],
+      createdAt: 200,
+    });
+  });
+
+  it("choice rows include type and choices, never correctIndex or isTrue", async () => {
+    const tool = createFindPreviousQuestionsTool(data);
+    const result = await tool.handler(
+      { category: undefined, text: "planet", season: undefined, limit: undefined },
+      SESSION,
+    );
+    const parsed = parseToolResult(result);
+    const q = parsed.questions[0];
+    assert.equal(q.type, "choice");
+    assert.deepEqual(q.choices, ["Mercury", "Venus", "Earth", "Mars"]);
+    assert.equal(Object.prototype.hasOwnProperty.call(q, "correctIndex"), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(q, "isTrue"), false);
+  });
+
+  it("boolean rows include type but never choices/correctIndex/isTrue", async () => {
+    const tool = createFindPreviousQuestionsTool(data);
+    const result = await tool.handler(
+      { category: undefined, text: "Earth is round", season: undefined, limit: undefined },
+      SESSION,
+    );
+    const parsed = parseToolResult(result);
+    const q = parsed.questions[0];
+    assert.equal(q.type, "boolean");
+    assert.equal(Object.prototype.hasOwnProperty.call(q, "choices"), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(q, "correctIndex"), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(q, "isTrue"), false);
+  });
+});

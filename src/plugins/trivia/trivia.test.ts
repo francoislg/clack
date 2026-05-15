@@ -197,7 +197,12 @@ describe("trivia plugin", () => {
           id: `q${i}`,
           category: ["Science", "History", "Geography", "Art", "Music"][i],
           statement: "A statement that is definitely long enough to pass validation",
+          type: undefined,
           isTrue: true,
+          choices: undefined,
+          correctIndex: undefined,
+          suggestedDifficulty: undefined,
+          difficulty: undefined,
           emojis: ["🎯"],
           createdAt: i,
         });
@@ -232,7 +237,12 @@ describe("trivia plugin", () => {
           id: `q${i}`,
           category: categories[i],
           statement: "A statement that is definitely long enough to pass validation",
+          type: undefined,
           isTrue: true,
+          choices: undefined,
+          correctIndex: undefined,
+          suggestedDifficulty: undefined,
+          difficulty: undefined,
           emojis: ["🎯"],
           createdAt: i,
         });
@@ -266,7 +276,12 @@ describe("trivia plugin", () => {
           id: `q${i}`,
           category: allCategories[i],
           statement: "A statement that is definitely long enough to pass validation",
+          type: undefined,
           isTrue: true,
+          choices: undefined,
+          correctIndex: undefined,
+          suggestedDifficulty: undefined,
+          difficulty: undefined,
           emojis: ["🎯"],
           createdAt: i,
         });
@@ -381,7 +396,12 @@ describe("trivia plugin", () => {
         {
           category: "Science",
           statement: "Water boils at 100 degrees Celsius at sea level",
+          type: undefined,
           isTrue: true,
+          choices: undefined,
+          correctIndex: undefined,
+          suggestedDifficulty: undefined,
+          difficulty: undefined,
           emojis: ["🔬"],
         },
         SESSION,
@@ -404,7 +424,12 @@ describe("trivia plugin", () => {
         {
           category: "science",
           statement: "This is a long enough statement to test",
+          type: undefined,
           isTrue: true,
+          choices: undefined,
+          correctIndex: undefined,
+          suggestedDifficulty: undefined,
+          difficulty: undefined,
           emojis: ["🔬"],
         },
         SESSION,
@@ -421,7 +446,12 @@ describe("trivia plugin", () => {
         {
           category: "NonExistent",
           statement: "This is a long enough statement to test",
+          type: undefined,
           isTrue: true,
+          choices: undefined,
+          correctIndex: undefined,
+          suggestedDifficulty: undefined,
+          difficulty: undefined,
           emojis: ["🔬"],
         },
         SESSION,
@@ -439,7 +469,12 @@ describe("trivia plugin", () => {
         {
           category: "Science",
           statement: "Short",
+          type: undefined,
           isTrue: true,
+          choices: undefined,
+          correctIndex: undefined,
+          suggestedDifficulty: undefined,
+          difficulty: undefined,
           emojis: ["🔬"],
         },
         SESSION,
@@ -457,7 +492,12 @@ describe("trivia plugin", () => {
         {
           category: "Science",
           statement: longStatement,
+          type: undefined,
           isTrue: true,
+          choices: undefined,
+          correctIndex: undefined,
+          suggestedDifficulty: undefined,
+          difficulty: undefined,
           emojis: ["🔬"],
         },
         SESSION,
@@ -474,7 +514,12 @@ describe("trivia plugin", () => {
         {
           category: "Science",
           statement: "This is a long enough statement",
+          type: undefined,
           isTrue: true,
+          choices: undefined,
+          correctIndex: undefined,
+          suggestedDifficulty: undefined,
+          difficulty: undefined,
           emojis: [],
         },
         SESSION,
@@ -491,7 +536,12 @@ describe("trivia plugin", () => {
         {
           category: "Science",
           statement: "This is a long enough statement",
+          type: undefined,
           isTrue: true,
+          choices: undefined,
+          correctIndex: undefined,
+          suggestedDifficulty: undefined,
+          difficulty: undefined,
           emojis: ["🔬", "🧪", "⚗️", "🧬", "🔭"],
         },
         SESSION,
@@ -508,7 +558,12 @@ describe("trivia plugin", () => {
         {
           category: "Science",
           statement: "This is a long enough statement",
+          type: undefined,
           isTrue: true,
+          choices: undefined,
+          correctIndex: undefined,
+          suggestedDifficulty: undefined,
+          difficulty: undefined,
           emojis: ["🔬"],
         },
         SESSION,
@@ -524,7 +579,12 @@ describe("trivia plugin", () => {
         {
           category: "Science",
           statement: "This is a long enough statement",
+          type: undefined,
           isTrue: true,
+          choices: undefined,
+          correctIndex: undefined,
+          suggestedDifficulty: undefined,
+          difficulty: undefined,
           emojis: ["🔬", "🧪", "⚗️", "🧬"],
         },
         SESSION,
@@ -532,6 +592,56 @@ describe("trivia plugin", () => {
       const parsed = parseToolResult(result);
 
       assert.equal(parsed.saved, true);
+    });
+
+    it("persists suggestedDifficulty and difficulty when provided", async () => {
+      const tool = createSaveQuestionTool(data);
+      const result = await tool.handler(
+        {
+          category: "Science",
+          statement: "Water boils at 100 degrees Celsius at sea level",
+          type: undefined,
+          isTrue: true,
+          choices: undefined,
+          correctIndex: undefined,
+          suggestedDifficulty: "Medium",
+          difficulty: 7,
+          emojis: ["🔬"],
+        },
+        SESSION,
+      );
+      const parsed = parseToolResult(result);
+
+      assert.equal(parsed.saved, true);
+      assert.equal(parsed.question.suggestedDifficulty, "Medium");
+      assert.equal(parsed.question.difficulty, 7);
+
+      const questions = await data.loadQuestions();
+      assert.equal(questions[0].suggestedDifficulty, "Medium");
+      assert.equal(questions[0].difficulty, 7);
+    });
+
+    it("omits difficulty fields when not provided (legacy-compatible)", async () => {
+      const tool = createSaveQuestionTool(data);
+      const result = await tool.handler(
+        {
+          category: "Science",
+          statement: "Water boils at 100 degrees Celsius at sea level",
+          type: undefined,
+          isTrue: true,
+          choices: undefined,
+          correctIndex: undefined,
+          suggestedDifficulty: undefined,
+          difficulty: undefined,
+          emojis: ["🔬"],
+        },
+        SESSION,
+      );
+      const parsed = parseToolResult(result);
+
+      assert.equal(parsed.saved, true);
+      assert.equal(parsed.question.suggestedDifficulty, undefined);
+      assert.equal(parsed.question.difficulty, undefined);
     });
   });
 

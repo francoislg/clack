@@ -30,6 +30,14 @@ describe("get_question_history", () => {
     });
   });
 
+  it("returns type: 'boolean' on the canonical answer key for boolean questions", async () => {
+    const tool = createGetQuestionHistoryTool(data);
+    const result = await tool.handler({ questionId: "q42" }, SESSION);
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.type, "boolean");
+    assert.equal(parsed.isTrue, true);
+  });
+
   it("returns isTrue, grouped cheaters, and grouped responses for the requested question", async () => {
     await data.saveCheat({
       cheaterUserId: "U777",
@@ -231,5 +239,61 @@ describe("get_question_history", () => {
     assert.equal(Object.prototype.hasOwnProperty.call(parsed, "isTrue"), false);
     assert.equal(Object.prototype.hasOwnProperty.call(parsed, "cheaterUserIds"), false);
     assert.equal(Object.prototype.hasOwnProperty.call(parsed, "responses"), false);
+  });
+});
+
+describe("get_question_history — choice questions", () => {
+  let data: TriviaDataLayer;
+
+  beforeEach(async () => {
+    data = createInMemoryDataLayer();
+    await data.saveQuestion({
+      id: "qchoice",
+      type: "choice",
+      category: "Geography",
+      statement: "Which is the smallest planet?",
+      choices: ["Mercury", "Venus", "Earth", "Mars"],
+      correctIndex: 0,
+      emojis: ["🪐"],
+      createdAt: 100,
+    });
+  });
+
+  it("returns type, choices, and correctIndex for the canonical answer key", async () => {
+    const tool = createGetQuestionHistoryTool(data);
+    const result = await tool.handler({ questionId: "qchoice" }, SESSION);
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.type, "choice");
+    assert.deepEqual(parsed.choices, ["Mercury", "Venus", "Earth", "Mars"]);
+    assert.equal(parsed.correctIndex, 0);
+    assert.equal(Object.prototype.hasOwnProperty.call(parsed, "isTrue"), false);
+  });
+
+  it("response entries carry answerIndex (not answer) for choice answers", async () => {
+    await data.saveUser({ userId: "U1", displayName: "Alice", joinedAt: 1 });
+    await data.saveAnswer({
+      userId: "U1",
+      questionId: "qchoice",
+      answerIndex: 0,
+      correct: true,
+      timestamp: 1000,
+    });
+    await data.saveAnswer({
+      userId: "U2",
+      questionId: "qchoice",
+      answerIndex: 3,
+      correct: false,
+      timestamp: 1100,
+    });
+
+    const tool = createGetQuestionHistoryTool(data);
+    const result = await tool.handler({ questionId: "qchoice" }, SESSION);
+    const parsed = parseToolResult(result);
+
+    assert.equal(parsed.responses.length, 2);
+    for (const r of parsed.responses) {
+      assert.equal(typeof r.answerIndex, "number");
+      assert.equal(Object.prototype.hasOwnProperty.call(r, "answer"), false);
+    }
   });
 });

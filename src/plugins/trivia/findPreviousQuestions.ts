@@ -8,11 +8,22 @@ import type { TriviaDataLayer, TriviaQuestion } from "./types.js";
 // requested during a timeline gap (current season doesn't exist, so the result must be empty).
 const NO_MATCH_SENTINEL = "__no_match_sentinel__";
 
-// The response intentionally omits `isTrue` — the answer key is not search-safe
-// and is reachable only via the admin-tier `get_question_history` tool.
+// The response intentionally omits the answer-key fields (`isTrue` for boolean
+// questions, `correctIndex` for choice questions) — the answer key is not
+// search-safe and is reachable only via the admin-tier `get_question_history` tool.
+// For choice questions, `choices` is included (the option strings themselves are
+// not the answer key — only the `correctIndex` is).
 type SearchResultQuestion = Pick<
   TriviaQuestion,
-  "id" | "category" | "statement" | "emojis" | "createdAt" | "postedAt" | "messageLink"
+  | "id"
+  | "type"
+  | "category"
+  | "statement"
+  | "choices"
+  | "emojis"
+  | "createdAt"
+  | "postedAt"
+  | "messageLink"
 >;
 
 function toSearchResult(q: TriviaQuestion): SearchResultQuestion {
@@ -23,6 +34,8 @@ function toSearchResult(q: TriviaQuestion): SearchResultQuestion {
     emojis: q.emojis,
     createdAt: q.createdAt,
   };
+  if (q.type !== undefined) result.type = q.type;
+  if (q.choices !== undefined) result.choices = q.choices;
   if (q.postedAt !== undefined) result.postedAt = q.postedAt;
   if (q.messageLink !== undefined) result.messageLink = q.messageLink;
   return result;

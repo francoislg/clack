@@ -12,59 +12,104 @@ The Trivia plugin SHALL expose a `send_questions_instructions` MCP tool that ret
 
 The tool SHALL be gated to the `admin` role (scheduled runs execute with the creator's role, which is admin+ for any trivia setup). The tool SHALL accept no arguments in v1.
 
-The returned prompt SHALL open with a **Game Show Presenter persona** directive ("energetic, engaging, and fun — add showmanship to your delivery") and then instruct Claude through the following ten-step flow, preserving the substantive behavior of the live cron job prior to this change:
+The returned prompt SHALL open with a **Game Show Presenter persona** directive ("energetic, engaging, and fun — add showmanship to your delivery") and then **branch on `suggestedType` from `get_ideas`**:
 
-1. **Get category ideas and suggestions** — Call `get_ideas`. The tool returns `categories.ideas` (5 categories, excluding the last 10 used), `suggestedAnswer` (a boolean), and `suggestedDifficulty` (one of `"Easy"`, `"Medium"`, `"Hard"`). Pick one category from `categories.ideas`. Read both `suggestedAnswer` and `suggestedDifficulty` — they steer the next steps.
+**Boolean path** (`suggestedType: "boolean"`, the existing behavior):
+
+1. **Get category ideas and suggestions** — Call `get_ideas`. The tool returns `categories.ideas` (5 categories, excluding the last 10 used), `suggestedType: "boolean"`, `suggestedAnswer` (a boolean), and `suggestedDifficulty` (one of `"Easy"`, `"Medium"`, `"Hard"`). Pick one category from `categories.ideas`.
 2. **Research a TRUE fact** about that topic, aiming at the difficulty bucket named by `suggestedDifficulty` (Easy = 4–6 on the 1–10 scale, Medium = 7–8, Hard = 9–10).
-3. **Honor `suggestedAnswer`** — if `suggestedAnswer` is `true`, keep the statement TRUE. If `suggestedAnswer` is `false`, modify a key detail to make the statement FALSE (e.g., swap "shrimp" → "lobster"). The prompt SHALL NOT instruct Claude to "randomly decide" — the random choice has already been made server-side.
+3. **Honor `suggestedAnswer`** — if `suggestedAnswer` is `true`, keep the statement TRUE. If `suggestedAnswer` is `false`, modify a key detail to make the statement FALSE. The prompt SHALL NOT instruct Claude to "randomly decide" — the random choice has already been made server-side.
 4. **Duplicate check** — Call `find_previous_questions`; if a match is found, iterate from step 2.
 5. **Validate** the final statement through research — confirm it is actually TRUE or FALSE, matching the `suggestedAnswer` honored in step 3.
-6. **Difficulty gate** — Self-rate 1–10. The target range is the one named by `suggestedDifficulty` (Easy = 4–6, Medium = 7–8, Hard = 9–10). Reject and regenerate if the rating is ≤ 3/10; only proceed when ≥ 4/10. The bucket-mapped target supersedes the legacy "5–7/10 sweet spot" guidance.
+6. **Difficulty gate** — Self-rate 1–10. Reject and regenerate if the rating is ≤ 3/10; only proceed when ≥ 4/10.
 7. **Choose emojis** relating to the topic.
-8. **Save via `save_question`** with `{ category, statement, isTrue, emojis }`; retain the returned `questionId`. `isTrue` SHALL reflect the statement Claude actually produced (and, by the rule in step 3, SHOULD match `suggestedAnswer`).
-9. **Format using Block Kit `sections`** — no Markdown bold/italic, no `##` headers. A single section, plain text plus emojis. The 👍 (TRUE) marker MUST appear before the 👎 (FALSE) marker. The prompt SHALL encourage Claude to invent a style that fits the day and include at least one concrete example (without prescribing a rotation) so the delivery varies over time.
-10. **Deliver via `submit_response`** with `reactions: ["+1", "-1"]` in that exact order (ensures 👍 renders before 👎).
+8. **Save via `save_question`** with `{ type: "boolean", category, statement, isTrue, emojis }`; retain the returned `questionId`.
+9. **Format using Block Kit** — a single section with the statement plus 👍 (TRUE) / 👎 (FALSE) markers in that order.
+10. **Deliver via `submit_response`** with `reactions: ["+1", "-1"]` in that exact order.
 
-#### Scenario: Returns the full ten-step schedule prompt
+**Choice path** (`suggestedType: "choice"`):
+
+1. **Get category ideas and suggestions** — Call `get_ideas`. The tool returns `categories.ideas`, `suggestedType: "choice"`, `suggestedChoiceCount` (integer in active `[min, max]`), `suggestedCorrectIndex` (integer in `[0, suggestedChoiceCount)`), and `suggestedDifficulty`. Pick one category from `categories.ideas`.
+2. **Write the CORRECT answer first.** The correct answer SHALL be the option that occupies index `suggestedCorrectIndex`. The correct answer's index is locked by `suggestedCorrectIndex` — Claude MUST NOT rewrite the correct answer later to fix a gate failure, because that defeats the server-rolled correctness position.
+3. **Write `suggestedChoiceCount − 1` plausible-but-wrong distractors**, filling the remaining indices.
+4. **Distractor plausibility gate (REQUIRED — DO NOT SKIP):** rate each option (correct + every distractor) 1–10 on "how plausible does this sound as the correct answer to someone who doesn't know the topic" (NOT "how true is it"). Apply all four gate conditions:
+   - (a) correct answer plausibility ≥ 5
+   - (b) highest distractor plausibility ≥ 4
+   - (c) `correct − highest_distractor ≤ 4`
+   - (d) every distractor plausibility ≥ 2
+
+   If any condition fails, rewrite **only the failing distractor(s)**, never the correct answer. Retry budget: 3 distractor-rewrite passes per question. If the gate still fails after 3 passes, abandon the question and re-roll from `get_ideas`.
+5. **Difficulty gate** — Self-rate the question as a whole 1–10 against the `suggestedDifficulty` bucket. Reject and regenerate if ≤ 3/10.
+6. **Duplicate check** — Call `find_previous_questions` with a distinctive keyword from the statement; iterate if a match is found.
+7. **Choose emojis** relating to the topic.
+8. **Save via `save_question`** with `{ type: "choice", category, statement, emojis, choices, correctIndex }` where `correctIndex === suggestedCorrectIndex`; retain the returned `questionId`.
+9. **Format using Block Kit** — choose between two layouts:
+   - **Stacked** (one choice per line, `1️⃣ Option`): use when any choice text exceeds roughly 25 characters or choices read more naturally on separate lines.
+   - **Inline** (`1️⃣ A • 2️⃣ B • 3️⃣ C • 4️⃣ D`): use when all choices are short and read well on one line.
+10. **Deliver via `submit_response`** with `reactions` sized to `suggestedChoiceCount`:
+    - 2 → `["one", "two"]`
+    - 3 → `["one", "two", "three"]`
+    - 4 → `["one", "two", "three", "four"]`
+
+    Order matters — `:one:` first to ensure visual ordering matches the card layout.
+
+#### Scenario: Returns the full prompt with both paths
 
 - **WHEN** the tool is invoked
-- **THEN** it returns a non-empty string containing a numbered sequence covering all ten steps above
-- **AND** references the plugin's own tools (`get_ideas`, `find_previous_questions`, `save_question`) by their bare names
-- **AND** references `submit_response` for delivery
+- **THEN** it returns a non-empty string containing numbered sequences for BOTH the boolean path and the choice path
+- **AND** references `get_ideas`, `find_previous_questions`, `save_question`, and `submit_response` by their bare names
 
-#### Scenario: Prompt instructs Claude to honor suggestedAnswer
+#### Scenario: Prompt branches on suggestedType
 
 - **WHEN** the tool is invoked
-- **THEN** the returned text references `suggestedAnswer` from `get_ideas`
+- **THEN** the returned text explicitly directs Claude to branch on the `suggestedType` field from `get_ideas`
+- **AND** describes the boolean path and the choice path distinctly
+
+#### Scenario: Boolean path instructs Claude to honor suggestedAnswer
+
+- **WHEN** the tool is invoked
+- **THEN** the boolean section references `suggestedAnswer` from `get_ideas`
 - **AND** instructs Claude to keep the statement TRUE when `suggestedAnswer` is `true`
 - **AND** instructs Claude to modify a key detail to make the statement FALSE when `suggestedAnswer` is `false`
-- **AND** does NOT instruct Claude to "randomly decide" the truth value
 
-#### Scenario: Prompt instructs Claude to target suggestedDifficulty
-
-- **WHEN** the tool is invoked
-- **THEN** the returned text references `suggestedDifficulty` from `get_ideas`
-- **AND** spells out the bucket-to-1–10 mapping: Easy = 4–6, Medium = 7–8, Hard = 9–10
-- **AND** instructs Claude to aim the question at the bucket's range when researching and when self-rating
-
-#### Scenario: Prompt enforces the difficulty gate
+#### Scenario: Choice path instructs Claude to write correct answer at suggestedCorrectIndex
 
 - **WHEN** the tool is invoked
-- **THEN** the returned text contains an explicit rule that questions rated ≤ 3/10 MUST be rejected and regenerated
-- **AND** ties the target range to the bucket named by `suggestedDifficulty`
+- **THEN** the choice section instructs Claude to write the correct answer FIRST and place it at the index named by `suggestedCorrectIndex`
+- **AND** explicitly states that Claude MUST NOT rewrite the correct answer to fix a gate failure
 
-#### Scenario: Prompt enforces reaction ordering
-
-- **WHEN** the tool is invoked
-- **THEN** the returned text instructs Claude to pass `reactions: ["+1", "-1"]` to `submit_response`, in that order
-- **AND** instructs Claude that 👍 (TRUE) must be mentioned before 👎 (FALSE) in the message body
-
-#### Scenario: Prompt invites invented styles and provides at least one example
+#### Scenario: Choice path enforces distractor plausibility gate
 
 - **WHEN** the tool is invoked
-- **THEN** the returned text explicitly invites Claude to invent its own style each day
-- **AND** includes at least one concrete example for inspiration
-- **AND** does NOT prescribe a fixed rotation or a required set of named styles
+- **THEN** the choice section describes the plausibility rating (1–10 on "how plausible does this sound as the correct answer to someone who doesn't know the topic")
+- **AND** names all four gate conditions (correct ≥ 5, highest distractor ≥ 4, gap ≤ 4, every distractor ≥ 2)
+- **AND** instructs Claude to rewrite only the failing distractor(s) on gate failure
+- **AND** specifies a retry budget of 3 distractor-rewrite passes per question
+- **AND** instructs Claude to abandon the question and re-roll from `get_ideas` after retries are exhausted
+
+#### Scenario: Choice path describes both stacked and inline Block Kit layouts
+
+- **WHEN** the tool is invoked
+- **THEN** the choice section describes both stacked and inline layouts
+- **AND** instructs Claude to pick by readability (stacked for long choices, inline for short choices)
+
+#### Scenario: Choice path sizes reactions array to suggestedChoiceCount
+
+- **WHEN** the tool is invoked
+- **THEN** the choice section instructs Claude to pass `reactions` sized to `suggestedChoiceCount` to `submit_response`
+- **AND** specifies the exact arrays: `["one", "two"]` for 2 choices, `["one", "two", "three"]` for 3, `["one", "two", "three", "four"]` for 4
+- **AND** instructs Claude to keep `:one:` first
+
+#### Scenario: Boolean path enforces reaction ordering
+
+- **WHEN** the tool is invoked
+- **THEN** the boolean section instructs Claude to pass `reactions: ["+1", "-1"]` to `submit_response`, in that order
+
+#### Scenario: Difficulty gate present on both paths
+
+- **WHEN** the tool is invoked
+- **THEN** both the boolean section and the choice section reference the 1–10 difficulty self-rating
+- **AND** both reject questions rated ≤ 3/10
 
 #### Scenario: Tool is gated to admin
 
