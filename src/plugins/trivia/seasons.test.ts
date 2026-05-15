@@ -161,6 +161,7 @@ describe("upsert_season tool", () => {
         expectedEndAt: future + 30 * DAY,
         endedAt: undefined,
         categories: undefined,
+        questionTypes: undefined,
       },
       SESSION,
     );
@@ -183,6 +184,7 @@ describe("upsert_season tool", () => {
         expectedEndAt: Date.now() + 40 * DAY,
         endedAt: undefined,
         categories: ["Cephalopods", "Cephalopods", "Tides"], // duplicate is dropped
+        questionTypes: undefined,
       },
       SESSION,
     );
@@ -201,6 +203,7 @@ describe("upsert_season tool", () => {
         expectedEndAt: Date.now() + 80 * DAY,
         endedAt: undefined,
         categories: undefined,
+        questionTypes: undefined,
       },
       SESSION,
     );
@@ -219,6 +222,7 @@ describe("upsert_season tool", () => {
         expectedEndAt: Date.now() + 120 * DAY,
         endedAt: undefined,
         categories: [],
+        questionTypes: undefined,
       },
       SESSION,
     );
@@ -239,6 +243,7 @@ describe("upsert_season tool", () => {
         expectedEndAt: Date.now() + 30 * DAY,
         endedAt: undefined,
         categories: undefined,
+        questionTypes: undefined,
       },
       SESSION,
     );
@@ -256,6 +261,7 @@ describe("upsert_season tool", () => {
         expectedEndAt: Date.now() + DAY,
         endedAt: undefined,
         categories: undefined,
+        questionTypes: undefined,
       },
       SESSION,
     );
@@ -273,6 +279,7 @@ describe("upsert_season tool", () => {
         expectedEndAt: seeded.expectedEndAt + 30 * DAY,
         endedAt: undefined,
         categories: undefined,
+        questionTypes: undefined,
       },
       SESSION,
     );
@@ -293,6 +300,7 @@ describe("upsert_season tool", () => {
         expectedEndAt: undefined,
         endedAt,
         categories: undefined,
+        questionTypes: undefined,
       },
       SESSION,
     );
@@ -314,6 +322,7 @@ describe("upsert_season tool", () => {
         expectedEndAt: undefined,
         endedAt: undefined,
         categories: undefined,
+        questionTypes: undefined,
       },
       SESSION,
     );
@@ -338,6 +347,7 @@ describe("upsert_season tool", () => {
         expectedEndAt: undefined,
         endedAt: undefined,
         categories: undefined,
+        questionTypes: undefined,
       },
       SESSION,
     );
@@ -360,6 +370,7 @@ describe("upsert_season tool", () => {
         expectedEndAt: now + 35 * DAY, // would overlap b
         endedAt: undefined,
         categories: undefined,
+        questionTypes: undefined,
       },
       SESSION,
     );
@@ -377,6 +388,7 @@ describe("upsert_season tool", () => {
           expectedEndAt: Date.now() + 30 * DAY,
           endedAt: undefined,
           categories: undefined,
+          questionTypes: undefined,
         },
         SESSION,
       );
@@ -395,6 +407,7 @@ describe("upsert_season tool", () => {
         expectedEndAt: seeded.expectedEndAt + 5 * DAY,
         endedAt: undefined,
         categories: undefined,
+        questionTypes: undefined,
       },
       SESSION,
     );
@@ -416,6 +429,7 @@ describe("upsert_season tool", () => {
         expectedEndAt: now + 70 * DAY,
         endedAt: undefined,
         categories: undefined,
+        questionTypes: undefined,
       },
       SESSION,
     );
@@ -426,6 +440,7 @@ describe("upsert_season tool", () => {
         expectedEndAt: now + 110 * DAY,
         endedAt: undefined,
         categories: ["Marine"],
+        questionTypes: undefined,
       },
       SESSION,
     );
@@ -931,6 +946,7 @@ describe("find_previous_questions with timeline-based current", () => {
         startedAt: now + 10 * DAY,
         expectedEndAt: now + 40 * DAY,
         categories: ["Marine"],
+        questionTypes: undefined,
       },
     ]);
     const tool = createFindPreviousQuestionsTool(data);
@@ -988,6 +1004,7 @@ describe("add_categories with target dispatch", () => {
         startedAt: now + 30 * DAY,
         expectedEndAt: now + 60 * DAY,
         categories: ["Marine"],
+        questionTypes: undefined,
       },
     ]);
     const tool = createAddCategoriesTool(data);
@@ -1152,7 +1169,12 @@ describe("save_question validates against active pool", () => {
       {
         category: "Baseline-Only",
         statement: "A statement long enough to validate",
+        type: undefined,
         isTrue: true,
+        choices: undefined,
+        correctIndex: undefined,
+        suggestedDifficulty: undefined,
+        difficulty: undefined,
         emojis: ["🌊"],
       },
       SESSION,
@@ -1168,7 +1190,12 @@ describe("save_question validates against active pool", () => {
       {
         category: "Marine Biology",
         statement: "A statement long enough to validate",
+        type: undefined,
         isTrue: true,
+        choices: undefined,
+        correctIndex: undefined,
+        suggestedDifficulty: undefined,
+        difficulty: undefined,
         emojis: ["🌊"],
       },
       SESSION,
@@ -1232,5 +1259,18 @@ describe("trivia-check instruction variants", () => {
     assert.ok(on.includes("upsert_season"));
     assert.ok(on.includes("delete_season"));
     assert.ok(!on.includes("start_new_season"));
+  });
+
+  it("enabled variant documents per-season questionTypes management", () => {
+    const on = getTriviaCheckInstruction(true);
+    assert.ok(on.includes("questionTypes"));
+    assert.match(on, /question types per season/i);
+    assert.match(on, /multiple-choice/i);
+    assert.match(on, /trivia\.choices/);
+  });
+
+  it("disabled variant does not mention questionTypes", () => {
+    const off = getTriviaCheckInstruction(false);
+    assert.ok(!off.includes("questionTypes"));
   });
 });

@@ -1,12 +1,18 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { textResult, errorResult } from "../../tools/helpers.js";
-import type { TriviaDataLayer } from "./types.js";
+import type { TriviaDataLayer, SubmittedAnswer } from "./types.js";
 
 export function createSubmitAnswersTool(data: TriviaDataLayer) {
   return tool(
     "submit_answers",
-    "Submit a batch of user answers to a trivia question. Handles auto-registration and returns per-user results with updated stats.",
+    `Submit a batch of user answers to a trivia question.
+
+The question's stored \`type\` determines the answer shape required per entry:
+- BOOLEAN questions (\`type: "boolean"\` or absent): each entry MUST set \`answer: boolean\` and MUST NOT set \`answerIndex\`. Correctness is computed as \`answer === question.isTrue\`.
+- CHOICE questions (\`type: "choice"\`): each entry MUST set \`answerIndex: number\` (in [0, choices.length)) and MUST NOT set \`answer\`. Correctness is computed as \`answerIndex === question.correctIndex\`.
+
+A shape mismatch (boolean entry on a choice question or vice-versa) is rejected with a structured error. Entries that survive validation auto-register the user, stamp the current season tag, deduplicate, and contribute equally to per-user stats (one boolean correct and one choice correct both add 1 to totalCorrect).`,
     {
       questionId: z.string().describe("The trivia question ID"),
       messageLink: z.string().describe("Slack permalink to the trivia message"),
@@ -16,7 +22,17 @@ export function createSubmitAnswersTool(data: TriviaDataLayer) {
           z.object({
             userId: z.string().describe("The user's ID"),
             displayName: z.string().describe("The user's display name"),
-            answer: z.boolean().describe("The user's answer — true or false"),
+            answer: z
+              .boolean()
+              .optional()
+              .describe("Required for boolean questions; must be omitted for choice questions"),
+            answerIndex: z
+              .number()
+              .int()
+              .optional()
+              .describe(
+                "Required for choice questions (0-based index of the chosen reaction); must be omitted for boolean questions",
+              ),
           }),
         )
         .describe("Batch of user answers"),
@@ -27,6 +43,42 @@ export function createSubmitAnswersTool(data: TriviaDataLayer) {
       const question = questions.find((q) => q.id === args.questionId);
       if (!question) {
         return errorResult(`Question "${args.questionId}" not found.`);
+      }
+
+      const questionType = question.type ?? "boolean";
+
+      // Validate every entry's shape matches the question's type BEFORE writing anything.
+      for (let i = 0; i < args.answers.length; i++) {
+        const entry = args.answers[i];
+        if (questionType === "boolean") {
+          if (entry.answer === undefined) {
+            return errorResult(
+              `Answer entry ${i} (user ${entry.userId}): boolean questions require "answer".`,
+            );
+          }
+          if (entry.answerIndex !== undefined) {
+            return errorResult(
+              `Answer entry ${i} (user ${entry.userId}): boolean questions must not include "answerIndex".`,
+            );
+          }
+        } else {
+          if (entry.answerIndex === undefined) {
+            return errorResult(
+              `Answer entry ${i} (user ${entry.userId}): choice questions require "answerIndex".`,
+            );
+          }
+          if (entry.answer !== undefined) {
+            return errorResult(
+              `Answer entry ${i} (user ${entry.userId}): choice questions must not include "answer".`,
+            );
+          }
+          const choicesLength = question.choices?.length ?? 0;
+          if (entry.answerIndex < 0 || entry.answerIndex >= choicesLength) {
+            return errorResult(
+              `Answer entry ${i} (user ${entry.userId}): answerIndex (${entry.answerIndex}) must be in [0, ${choicesLength}).`,
+            );
+          }
+        }
       }
 
       // Stamp posting metadata on first submission
@@ -57,7 +109,10 @@ export function createSubmitAnswersTool(data: TriviaDataLayer) {
       const results: AnswerResult[] = [];
 
       for (const answerInput of args.answers) {
-        const correct = answerInput.answer === question.isTrue;
+        const correct =
+          questionType === "boolean"
+            ? answerInput.answer === question.isTrue
+            : answerInput.answerIndex === question.correctIndex;
 
         // Auto-register or update user
         if (!users.has(answerInput.userId)) {
@@ -86,23 +141,20 @@ export function createSubmitAnswersTool(data: TriviaDataLayer) {
 
         if (!skipped) {
           const seasonTag = currentSeason !== null ? { season: currentSeason } : {};
-          await data.saveAnswer({
+          const shape: Pick<SubmittedAnswer, "answer" | "answerIndex"> =
+            questionType === "boolean"
+              ? { answer: answerInput.answer }
+              : { answerIndex: answerInput.answerIndex };
+          const newAnswer: SubmittedAnswer = {
             userId: answerInput.userId,
             questionId: args.questionId,
-            answer: answerInput.answer,
+            ...shape,
             correct,
             timestamp: Date.now(),
             ...seasonTag,
-          });
-
-          existingAnswers.push({
-            userId: answerInput.userId,
-            questionId: args.questionId,
-            answer: answerInput.answer,
-            correct,
-            timestamp: Date.now(),
-            ...seasonTag,
-          });
+          };
+          await data.saveAnswer(newAnswer);
+          existingAnswers.push(newAnswer);
         }
 
         // Compute per-user stats

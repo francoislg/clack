@@ -1046,3 +1046,135 @@ describe("taskCards config", () => {
     assert.equal(getTaskCardMaxDetails(), DEFAULT_TASK_CARD_MAX_DETAILS);
   });
 });
+
+// ---------------------------------------------------------------------------
+// trivia.questionsTypes + trivia.choices
+// ---------------------------------------------------------------------------
+
+describe("trivia.questionsTypes config", () => {
+  const originalCwd = process.cwd();
+
+  beforeEach(() => {
+    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true });
+    mkdirSync(tmpBase, { recursive: true });
+    process.chdir(tmpBase);
+    writeSlackAuth();
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+  });
+
+  it("absent when trivia block is absent", () => {
+    writeConfig(minimalConfig());
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.trivia, undefined);
+  });
+
+  it("absent when trivia block lacks questionsTypes", () => {
+    writeConfig(minimalConfig({ trivia: {} }));
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.trivia?.questionsTypes, undefined);
+  });
+
+  it("parses a weighted mix", () => {
+    writeConfig(minimalConfig({ trivia: { questionsTypes: { boolean: 2, choice: 1 } } }));
+    const cfg = loadConfig(configPath, true);
+    assert.deepEqual(cfg.trivia?.questionsTypes, { boolean: 2, choice: 1 });
+  });
+
+  it("parses choice-only", () => {
+    writeConfig(minimalConfig({ trivia: { questionsTypes: { choice: 5 } } }));
+    const cfg = loadConfig(configPath, true);
+    assert.deepEqual(cfg.trivia?.questionsTypes, { boolean: 0, choice: 5 });
+  });
+
+  it("parses boolean-only", () => {
+    writeConfig(minimalConfig({ trivia: { questionsTypes: { boolean: 1 } } }));
+    const cfg = loadConfig(configPath, true);
+    assert.deepEqual(cfg.trivia?.questionsTypes, { boolean: 1, choice: 0 });
+  });
+
+  it("rejects all-zero weights", () => {
+    writeConfig(minimalConfig({ trivia: { questionsTypes: { boolean: 0, choice: 0 } } }));
+    assert.throws(() => loadConfig(configPath, true), /at least one strictly positive weight/);
+  });
+
+  it("rejects unknown keys", () => {
+    writeConfig(minimalConfig({ trivia: { questionsTypes: { boolean: 1, essay: 1 } } }));
+    assert.throws(() => loadConfig(configPath, true), /unknown key 'essay'/);
+  });
+
+  it("rejects negative weights", () => {
+    writeConfig(minimalConfig({ trivia: { questionsTypes: { boolean: -1, choice: 1 } } }));
+    assert.throws(() => loadConfig(configPath, true), /non-negative integer/);
+  });
+
+  it("rejects non-integer weights", () => {
+    writeConfig(minimalConfig({ trivia: { questionsTypes: { boolean: 1.5, choice: 1 } } }));
+    assert.throws(() => loadConfig(configPath, true), /non-negative integer/);
+  });
+
+  it("rejects non-object value", () => {
+    writeConfig(minimalConfig({ trivia: { questionsTypes: "boolean" } }));
+    assert.throws(() => loadConfig(configPath, true), /must be an object/);
+  });
+});
+
+describe("trivia.choices config", () => {
+  const originalCwd = process.cwd();
+
+  beforeEach(() => {
+    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true });
+    mkdirSync(tmpBase, { recursive: true });
+    process.chdir(tmpBase);
+    writeSlackAuth();
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+  });
+
+  it("absent when not configured", () => {
+    writeConfig(minimalConfig({ trivia: {} }));
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.trivia?.choices, undefined);
+  });
+
+  it("parses valid bounds", () => {
+    writeConfig(minimalConfig({ trivia: { choices: { min: 3, max: 4 } } }));
+    const cfg = loadConfig(configPath, true);
+    assert.deepEqual(cfg.trivia?.choices, { min: 3, max: 4 });
+  });
+
+  it("fills in defaults for partial bounds", () => {
+    writeConfig(minimalConfig({ trivia: { choices: { min: 3 } } }));
+    const cfg = loadConfig(configPath, true);
+    assert.deepEqual(cfg.trivia?.choices, { min: 3, max: 4 });
+  });
+
+  it("rejects min < 2", () => {
+    writeConfig(minimalConfig({ trivia: { choices: { min: 1, max: 4 } } }));
+    assert.throws(() => loadConfig(configPath, true), /min.*\[2, 4\]/);
+  });
+
+  it("rejects max > 4", () => {
+    writeConfig(minimalConfig({ trivia: { choices: { min: 2, max: 5 } } }));
+    assert.throws(() => loadConfig(configPath, true), /max.*\[2, 4\]/);
+  });
+
+  it("rejects min > max", () => {
+    writeConfig(minimalConfig({ trivia: { choices: { min: 4, max: 2 } } }));
+    assert.throws(() => loadConfig(configPath, true), /min.*> max/);
+  });
+
+  it("rejects non-integer bounds", () => {
+    writeConfig(minimalConfig({ trivia: { choices: { min: 2.5, max: 4 } } }));
+    assert.throws(() => loadConfig(configPath, true), /must be an integer/);
+  });
+
+  it("rejects non-object value", () => {
+    writeConfig(minimalConfig({ trivia: { choices: [2, 4] } }));
+    assert.throws(() => loadConfig(configPath, true), /must be an object/);
+  });
+});

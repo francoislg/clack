@@ -1,8 +1,26 @@
+/**
+ * Question shape discriminator. Absent on legacy rows; new writes always stamp it.
+ * - `"boolean"` → carries `isTrue: boolean`, no `choices`/`correctIndex`.
+ * - `"choice"` → carries `choices: string[]` + `correctIndex: number`, no `isTrue`.
+ */
+export type TriviaQuestionType = "boolean" | "choice";
+
 export interface TriviaQuestion {
   id: string;
   category: string;
   statement: string;
-  isTrue: boolean;
+  /** Discriminator. Absence reads as `"boolean"` for legacy rows. */
+  type?: TriviaQuestionType;
+  /** Truth value for boolean questions. Absent on choice questions. */
+  isTrue?: boolean;
+  /** Option list for choice questions (2–4 entries). Absent on boolean questions. */
+  choices?: string[];
+  /** 0-based index of the correct choice. Absent on boolean questions. */
+  correctIndex?: number;
+  /** Difficulty bucket targeted at generation time. Absent on legacy rows. */
+  suggestedDifficulty?: "Easy" | "Medium" | "Hard";
+  /** Claude's 1–10 self-rating from the difficulty gate. Absent on legacy rows. */
+  difficulty?: number;
   emojis: string[];
   createdAt: number;
   postedAt?: number;
@@ -21,7 +39,10 @@ export interface TriviaUser {
 export interface SubmittedAnswer {
   userId: string;
   questionId: string;
-  answer: boolean;
+  /** Set for answers to boolean questions. Mutually exclusive with `answerIndex`. */
+  answer?: boolean;
+  /** Set for answers to choice questions (0-based reaction index). Mutually exclusive with `answer`. */
+  answerIndex?: number;
   correct: boolean;
   timestamp: number;
   season?: string;
@@ -41,12 +62,24 @@ export interface TriviaSeasonsConfig {
   prompt: string;
 }
 
+/**
+ * Per-season question-type weights. Mirrors `config.trivia.questionsTypes` in shape.
+ * When set on a SeasonEntry, overrides the workspace-level config for the window
+ * during which this entry is current per `findCurrentSeason(state, now)`.
+ */
+export type SeasonQuestionTypeWeights = Record<"boolean" | "choice", number>;
+
 export interface SeasonEntry {
   slug: string;
   startedAt: number;
   expectedEndAt: number;
   endedAt?: number;
   categories: string[];
+  /**
+   * Optional per-season question-type weights. Absent → `get_ideas` falls back to
+   * `config.trivia.questionsTypes`. Mid-season mutation is permitted (unlike `startedAt`).
+   */
+  questionTypes?: SeasonQuestionTypeWeights;
 }
 
 export interface SeasonsState {
