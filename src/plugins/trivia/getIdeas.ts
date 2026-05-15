@@ -1,5 +1,6 @@
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { textResult } from "../../tools/helpers.js";
+import { findCurrentSeason } from "./data.js";
 import type { TriviaDataLayer } from "./types.js";
 
 type SuggestedDifficulty = "Easy" | "Medium" | "Hard";
@@ -17,10 +18,25 @@ export function createGetIdeasTool(data: TriviaDataLayer) {
     "Get 5 random trivia category suggestions (excluding categories used in the last 10 questions), plus a server-chosen `suggestedAnswer` (true/false) and `suggestedDifficulty` (Easy/Medium/Hard) hint that the question-flow prompt must honor.",
     {},
     async () => {
-      const categories = await data.loadCategories();
-      const questions = await data.loadQuestions();
+      const seasonsState = await data.loadSeasonsState();
+      const currentSeasonEntry = findCurrentSeason(seasonsState, Date.now());
+      // Source pool: the currently-active season's categories when one exists,
+      // otherwise (seasons disabled OR in a timeline gap) the legacy global pool.
+      const categories =
+        currentSeasonEntry !== null ? currentSeasonEntry.categories : await data.loadCategories();
+      const allQuestions = await data.loadQuestions();
+      // When a current season exists, "recent" means within the current season —
+      // keeps the exclusion signal honest across timeline transitions.
+      const questions =
+        currentSeasonEntry !== null
+          ? allQuestions.filter((q) => q.season === currentSeasonEntry.slug)
+          : allQuestions;
 
-      const recentCategories = new Set(questions.slice(-10).map((q) => q.category.toLowerCase()));
+      // Scale the exclusion window so small themed pools don't deadlock with an empty ideas array.
+      const exclusionWindow = Math.min(10, Math.floor(categories.length / 3));
+      const recentCategories = new Set(
+        questions.slice(-exclusionWindow).map((q) => q.category.toLowerCase()),
+      );
 
       const available = categories.filter((c) => !recentCategories.has(c.toLowerCase()));
 

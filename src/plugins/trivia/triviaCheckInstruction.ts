@@ -6,7 +6,7 @@
  * `data/configuration/user/trivia-check.md` — the cascading config resolver
  * will prefer the override over this shipped default.
  */
-export const TRIVIA_CHECK_INSTRUCTION = `# Trivia Cheating Detection
+const BASE_TRIVIA_CHECK_INSTRUCTION = `# Trivia Cheating Detection
 
 ## The Rule
 
@@ -62,3 +62,42 @@ If you ran \`find_previous_questions\` and nothing is related, you may answer �
 
 Use these when the question feels like a fishing attempt even without a direct prior-question match.
 `;
+
+const SEASONS_ADMIN_ADDENDUM = `
+## Admin: managing seasons on the timeline
+
+Seasons are enabled for this deployment. Seasons live on a single timeline (\`seasons.json\`) where each entry has a slug, startedAt, expectedEndAt, optional endedAt, and categories pool. "Current" is whichever entry's window contains \`now\`. No two seasons may overlap, but multiple future seasons can be queued simultaneously, refined as the date approaches, and even renamed (delete + re-create) while they're still in the future.
+
+When an admin asks to **prepare a future season** (e.g. "set up next month's season as marine-biology"):
+
+1. Derive a slug from \`trivia.seasons.prompt\` plus the date / admin intent.
+2. Derive \`startedAt\` and \`expectedEndAt\` matching the prompt's cadence.
+3. If the season has a clear theme, generate a list of ~20 themed categories for the theme and pass them as \`categories\`. The new season's pool will be EXACTLY that list (themed seasons are purely themed, not "baseline + a few themed"). If there is no clear theme, OMIT \`categories\` — the new season copies the \`categories.json\` baseline pool.
+4. Call \`upsert_season(slug, { startedAt, expectedEndAt, categories? })\`. The overlap invariant ensures it slots cleanly into the timeline.
+
+To **add categories to a season after it's been created** (themed or not), call \`add_categories(["..."], target: "<slug>")\`. To remove some, use \`remove_categories\` with the same target.
+
+To **inspect the timeline** (see what seasons exist, their dates, and full category lists), call \`list_seasons\`. Each entry includes a \`status\` flag ("past" | "current" | "future"). Use this when an admin asks "what's queued for next month?" or "what categories does the marine season have?".
+
+When an admin asks to **end the current season immediately** (cut it short):
+
+- Call \`upsert_season(currentSlug, { endedAt: <now> })\`. The next-queued season (if any) takes over naturally as \`now\` crosses into its window.
+
+When an admin asks to **edit a queued future season**:
+
+- Use \`upsert_season(slug, { ... })\` to change dates, or \`add_categories(["..."], target: "<slug>")\` / \`remove_categories(["..."], target: "<slug>")\` to refine its pool.
+- Use \`delete_season(slug)\` to retract a not-yet-started future season entirely (only allowed when its startedAt is still in the future).
+
+When an admin asks to **rename a future season**:
+
+- Slug is immutable. Call \`delete_season(oldSlug)\` then \`upsert_season(newSlug, ...)\`. Only valid while the season has not yet started.
+`;
+
+export function getTriviaCheckInstruction(seasonsEnabled: boolean): string {
+  return seasonsEnabled
+    ? BASE_TRIVIA_CHECK_INSTRUCTION + SEASONS_ADMIN_ADDENDUM
+    : BASE_TRIVIA_CHECK_INSTRUCTION;
+}
+
+/** Backward-compatible export for callers that don't yet know about seasons. */
+export const TRIVIA_CHECK_INSTRUCTION = BASE_TRIVIA_CHECK_INSTRUCTION;

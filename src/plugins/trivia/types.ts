@@ -7,8 +7,10 @@ export interface TriviaQuestion {
   createdAt: number;
   postedAt?: number;
   messageLink?: string;
+  season?: string;
 }
 
+// `cheatAttempts` is cumulative across seasons — season rollover does not reset it.
 export interface TriviaUser {
   userId: string;
   displayName: string;
@@ -22,6 +24,7 @@ export interface SubmittedAnswer {
   answer: boolean;
   correct: boolean;
   timestamp: number;
+  season?: string;
 }
 
 export interface CheatReport {
@@ -30,6 +33,24 @@ export interface CheatReport {
   reason: string;
   evidence?: string;
   detectedAt: string;
+  season?: string;
+}
+
+export interface TriviaSeasonsConfig {
+  enabled: boolean;
+  prompt: string;
+}
+
+export interface SeasonEntry {
+  slug: string;
+  startedAt: number;
+  expectedEndAt: number;
+  endedAt?: number;
+  categories: string[];
+}
+
+export interface SeasonsState {
+  seasons: SeasonEntry[];
 }
 
 export interface TriviaDataLayer {
@@ -44,4 +65,7 @@ export interface TriviaDataLayer {
   saveAnswer(a: SubmittedAnswer): Promise<void>;
   loadCheats(): Promise<CheatReport[]>;
   saveCheat(report: CheatReport): Promise<{ totalAttempts: number }>;
+  loadSeasonsState(): Promise<SeasonsState | null>;
+  saveSeasonsState(state: SeasonsState): Promise<void>;
+  getCurrentSeasonSlug(): Promise<string | null>;
 }

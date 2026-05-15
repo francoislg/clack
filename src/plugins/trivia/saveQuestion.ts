@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { textResult, errorResult } from "../../tools/helpers.js";
+import { findCurrentSeason } from "./data.js";
 import type { TriviaDataLayer, TriviaQuestion } from "./types.js";
 
 export function createSaveQuestionTool(data: TriviaDataLayer) {
@@ -25,16 +26,22 @@ export function createSaveQuestionTool(data: TriviaDataLayer) {
         return errorResult("Must provide 1-4 emojis");
       }
 
-      const categories = await data.loadCategories();
+      const seasonsState = await data.loadSeasonsState();
+      const currentSeasonEntry = findCurrentSeason(seasonsState, Date.now());
+      const categories =
+        currentSeasonEntry !== null ? currentSeasonEntry.categories : await data.loadCategories();
       const categoryLower = args.category.toLowerCase();
       const matchingCategory = categories.find((c) => c.toLowerCase() === categoryLower);
 
       if (!matchingCategory) {
-        return errorResult(
-          `Category "${args.category}" not found in the pool. Use add_categories to add it first.`,
-        );
+        const hint =
+          currentSeasonEntry !== null
+            ? `Category "${args.category}" is not in this season's pool. Use add_categories to add it (target: "current" for this season only, or "both" to also persist it in the default baseline).`
+            : `Category "${args.category}" not found in the pool. Use add_categories to add it first.`;
+        return errorResult(hint);
       }
 
+      const currentSeason = currentSeasonEntry?.slug ?? null;
       const question: TriviaQuestion = {
         id: randomUUID(),
         category: matchingCategory,
@@ -42,6 +49,7 @@ export function createSaveQuestionTool(data: TriviaDataLayer) {
         isTrue: args.isTrue,
         emojis: args.emojis,
         createdAt: Date.now(),
+        ...(currentSeason !== null ? { season: currentSeason } : {}),
       };
 
       await data.saveQuestion(question);

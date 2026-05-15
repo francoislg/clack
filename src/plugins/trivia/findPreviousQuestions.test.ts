@@ -43,7 +43,7 @@ describe("find_previous_questions response shape", () => {
   it("omits isTrue from every returned question (category-only search)", async () => {
     const tool = createFindPreviousQuestionsTool(data);
     const result = await tool.handler(
-      { category: "Science", text: undefined, limit: undefined },
+      { category: "Science", text: undefined, season: undefined, limit: undefined },
       SESSION,
     );
     const parsed = parseToolResult(result);
@@ -61,7 +61,7 @@ describe("find_previous_questions response shape", () => {
   it("omits isTrue from every returned question (text-only search)", async () => {
     const tool = createFindPreviousQuestionsTool(data);
     const result = await tool.handler(
-      { category: undefined, text: "boils", limit: undefined },
+      { category: undefined, text: "boils", season: undefined, limit: undefined },
       SESSION,
     );
     const parsed = parseToolResult(result);
@@ -73,7 +73,7 @@ describe("find_previous_questions response shape", () => {
   it("omits isTrue from every returned question (both filters)", async () => {
     const tool = createFindPreviousQuestionsTool(data);
     const result = await tool.handler(
-      { category: "Science", text: "Earth", limit: undefined },
+      { category: "Science", text: "Earth", season: undefined, limit: undefined },
       SESSION,
     );
     const parsed = parseToolResult(result);
@@ -86,7 +86,7 @@ describe("find_previous_questions response shape", () => {
   it("returns the search-safe field set", async () => {
     const tool = createFindPreviousQuestionsTool(data);
     const result = await tool.handler(
-      { category: undefined, text: "boils", limit: undefined },
+      { category: undefined, text: "boils", season: undefined, limit: undefined },
       SESSION,
     );
     const parsed = parseToolResult(result);
@@ -106,7 +106,7 @@ describe("find_previous_questions response shape", () => {
   it("omits postedAt and messageLink when not stored", async () => {
     const tool = createFindPreviousQuestionsTool(data);
     const result = await tool.handler(
-      { category: undefined, text: "Earth", limit: undefined },
+      { category: undefined, text: "Earth", season: undefined, limit: undefined },
       SESSION,
     );
     const parsed = parseToolResult(result);
@@ -120,7 +120,7 @@ describe("find_previous_questions response shape", () => {
   it("returns empty array for no matches without leaking answer keys elsewhere", async () => {
     const tool = createFindPreviousQuestionsTool(data);
     const result = await tool.handler(
-      { category: "Science", text: "Rome", limit: undefined },
+      { category: "Science", text: "Rome", season: undefined, limit: undefined },
       SESSION,
     );
     const parsed = parseToolResult(result);
