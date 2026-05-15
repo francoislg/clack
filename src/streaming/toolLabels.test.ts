@@ -161,7 +161,7 @@ describe("getToolLabel", () => {
     });
 
     it("returns static labels for worker tools", () => {
-      assert.equal(getToolLabel("mcp__clack__git_push", {}), "Pushing to remote");
+      assert.equal(getToolLabel("mcp__clack__git_push", {}), "Verifying & pushing to remote");
       assert.equal(getToolLabel("mcp__clack__ensure_pr", {}), "Creating pull request");
       assert.equal(getToolLabel("mcp__clack__merge_pr", {}), "Merging pull request");
     });

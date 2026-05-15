@@ -11,6 +11,50 @@ import type { ExecuteChangeOptions } from "./execution.js";
 import { createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
 import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
 import { startChangeWorkflow, handleFollowUp, type WorkflowDeps } from "./workflow.js";
+import type { ReleaseReason, Worker, WorkerPool } from "../workers/types.js";
+
+function buildMockPool(): WorkerPool {
+  return {
+    acquire: async (repo, branch, sessionId) => {
+      const existing = mockGetExistingWorktree(repo, branch);
+      const info = existing ?? (await mockCreateWorktree(repo, branch));
+      const worker: Worker = {
+        id: branch.replace(/\//g, "-"),
+        repo: repo.name,
+        worktreePath: info.worktreePath,
+        currentBranch: branch,
+        status: "busy",
+        setupComplete: existing !== null,
+        setupVersionHash: null,
+        claimedBy: sessionId,
+        lastUsedAt: new Date(),
+        createdAt: info.createdAt,
+      };
+      return worker;
+    },
+    release: async (_worker: Worker, _reason: ReleaseReason) => {},
+    findByBranch: (repoName, branch) => {
+      const repo = mockFindRepoByName(repoName, mockGetConfig());
+      if (!repo) return null;
+      const existing = mockGetExistingWorktree(repo, branch);
+      if (!existing) return null;
+      return {
+        id: branch.replace(/\//g, "-"),
+        repo: repoName,
+        worktreePath: existing.worktreePath,
+        currentBranch: branch,
+        status: "idle",
+        setupComplete: true,
+        setupVersionHash: null,
+        claimedBy: null,
+        lastUsedAt: new Date(),
+        createdAt: existing.createdAt,
+      };
+    },
+    list: () => [],
+    ensureMinimum: async () => {},
+  };
+}
 
 // ============================================================================
 // Mock Functions
@@ -37,6 +81,7 @@ const mockSetActiveChange =
 const mockClearActiveChange = mock.fn<(sessionId: string) => void>();
 const mockGetActiveChangeForUser =
   mock.fn<(userId: string) => { sessionId: string; change: ActiveChangeState } | undefined>();
+const mockCountActiveChangesForUser = mock.fn<(userId: string) => number>();
 const mockUpdateActiveChangeStatus = mock.fn<(sessionId: string, status: ChangeStatus) => void>();
 const mockAppendExecutionLog = mock.fn<(branch: string, message: string) => void>();
 const mockReadSessionState =
@@ -116,12 +161,12 @@ function makeDeps(): WorkflowDeps {
   return {
     getConfig: mockGetConfig,
     findRepoByName: mockFindRepoByName,
-    createWorktree: mockCreateWorktree,
-    getExistingWorktree: mockGetExistingWorktree,
+    pool: buildMockPool(),
     getActiveChange: mockGetActiveChange,
     setActiveChange: mockSetActiveChange,
     clearActiveChange: mockClearActiveChange,
     getActiveChangeForUser: mockGetActiveChangeForUser,
+    countActiveChangesForUser: mockCountActiveChangesForUser,
     updateActiveChangeStatus: mockUpdateActiveChangeStatus,
     appendExecutionLog: mockAppendExecutionLog,
     readSessionState: mockReadSessionState,
@@ -232,6 +277,7 @@ function resetMocks(): void {
   mockSetActiveChange.mock.resetCalls();
   mockClearActiveChange.mock.resetCalls();
   mockGetActiveChangeForUser.mock.resetCalls();
+  mockCountActiveChangesForUser.mock.resetCalls();
   mockUpdateActiveChangeStatus.mock.resetCalls();
   mockAppendExecutionLog.mock.resetCalls();
   mockReadSessionState.mock.resetCalls();
@@ -247,6 +293,7 @@ function resetMocks(): void {
   // Reset default implementations
   mockGetConfig.mock.mockImplementation(() => testConfig);
   mockGetActiveChangeForUser.mock.mockImplementation(() => undefined);
+  mockCountActiveChangesForUser.mock.mockImplementation(() => 0);
   mockGetExistingWorktree.mock.mockImplementation(() => null);
   mockCreateWorktree.mock.mockImplementation(async () => defaultWorktree);
   mockRunWorktreeSetup.mock.mockImplementation(async () => {});
@@ -289,11 +336,14 @@ beforeEach(resetMocks);
 // ============================================================================
 
 describe("startChangeWorkflow", () => {
-  it("returns error when user already has an active change", async () => {
-    mockGetActiveChangeForUser.mock.mockImplementation(() => ({
-      sessionId: "existing-session",
-      change: makeActiveChangeState(),
-    }));
+  function configWithCap(cap: number): AppConfig {
+    const cw = { enabled: true, ...testConfig.changesWorkflow, maxActiveChangesPerUser: cap };
+    const updated: AppConfig = { ...testConfig, changesWorkflow: cw };
+    return updated;
+  }
+
+  it("returns error when user already has an active change (default cap = 1)", async () => {
+    mockCountActiveChangesForUser.mock.mockImplementation(() => 1);
 
     const result = await startChangeWorkflow(
       makeRequest(),
@@ -305,6 +355,70 @@ describe("startChangeWorkflow", () => {
 
     assert.equal(result.success, false);
     assert.ok(result.error?.includes("already have an active change"));
+  });
+
+  it("allows multiple changes up to configured maxActiveChangesPerUser", async () => {
+    mockGetConfig.mock.mockImplementation(() => configWithCap(3));
+    mockCountActiveChangesForUser.mock.mockImplementation(() => 2);
+
+    const result = await startChangeWorkflow(
+      makeRequest(),
+      makePlan(),
+      "session-123",
+      undefined,
+      makeDeps(),
+    );
+
+    // 2 < 3 → the gate must NOT block. We don't assert success here because the
+    // post-gate happy path requires deeper mocking (executeChange, getSession,
+    // pr creation). What matters is that the gate-specific error is absent.
+    assert.equal(mockSetActiveChange.mock.callCount(), 1, "should reserve a slot past the gate");
+    assert.ok(
+      !result.error?.includes("already have"),
+      `gate should not block; got: ${result.error}`,
+    );
+  });
+
+  it("blocks when at the configured maxActiveChangesPerUser limit (>1)", async () => {
+    mockGetConfig.mock.mockImplementation(() => configWithCap(3));
+    mockCountActiveChangesForUser.mock.mockImplementation(() => 3);
+
+    const result = await startChangeWorkflow(
+      makeRequest(),
+      makePlan(),
+      "session-123",
+      undefined,
+      makeDeps(),
+    );
+
+    assert.equal(result.success, false);
+    assert.ok(result.error?.includes("limit 3"));
+    assert.ok(result.error?.includes("3 active change request"));
+  });
+
+  it("disables the per-user cap when maxActiveChangesPerUser=0", async () => {
+    mockGetConfig.mock.mockImplementation(() => configWithCap(0));
+    // Even with 50 in-flight, the gate should not block when cap is 0
+    mockCountActiveChangesForUser.mock.mockImplementation(() => 50);
+
+    const result = await startChangeWorkflow(
+      makeRequest(),
+      makePlan(),
+      "session-123",
+      undefined,
+      makeDeps(),
+    );
+
+    assert.equal(
+      mockCountActiveChangesForUser.mock.callCount(),
+      0,
+      "count helper should not be called when cap is 0",
+    );
+    assert.ok(
+      !result.error?.includes("already have"),
+      `gate should not block; got: ${result.error}`,
+    );
+    assert.equal(mockSetActiveChange.mock.callCount(), 1, "should reserve a slot past the gate");
   });
 
   it("returns error when target repo is not found", async () => {

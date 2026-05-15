@@ -2,6 +2,7 @@ import { logger } from "../logger.js";
 import { getByThread as getActiveRunByThread } from "./activeRuns.js";
 import { findSessionByThread, setAutoResponseActive } from "../sessions.js";
 import { getActiveChange } from "../changes/activeState.js";
+import { cancelQueuedSession } from "../workers/index.js";
 import type { ChangeStatus } from "../changes/types.js";
 
 const TERMINAL_STATUSES: ReadonlyArray<ChangeStatus> = ["completed", "failed", "cancelled"];
@@ -9,6 +10,12 @@ const TERMINAL_STATUSES: ReadonlyArray<ChangeStatus> = ["completed", "failed", "
 export interface StopResult {
   queryAborted: number;
   workerAborted: boolean;
+  /**
+   * True when the session was waiting on a worker (`pool.acquire` enqueued, no
+   * `ClaudeRunHandle` yet) and we cancelled the queue entry instead of stopping
+   * a running handle. Mutually exclusive with `workerAborted`.
+   */
+  queuedCancelled: boolean;
   sessionDisengaged: boolean;
 }
 
@@ -17,6 +24,7 @@ export interface StopPipelineDeps {
   findSessionByThread: typeof findSessionByThread;
   getActiveChange: typeof getActiveChange;
   setAutoResponseActive: typeof setAutoResponseActive;
+  cancelQueuedSession: typeof cancelQueuedSession;
 }
 
 export const defaultStopPipelineDeps: StopPipelineDeps = {
@@ -24,6 +32,7 @@ export const defaultStopPipelineDeps: StopPipelineDeps = {
   findSessionByThread,
   getActiveChange,
   setAutoResponseActive,
+  cancelQueuedSession,
 };
 
 /**
@@ -48,6 +57,7 @@ export async function stopThread(
   const result: StopResult = {
     queryAborted: 0,
     workerAborted: false,
+    queuedCancelled: false,
     sessionDisengaged: false,
   };
 
@@ -63,16 +73,25 @@ export async function stopThread(
 
   if (session) {
     const activeChange = deps.getActiveChange(session.sessionId);
-    if (
-      activeChange?.handle &&
-      !TERMINAL_STATUSES.includes(activeChange.status) &&
-      activeChange.handle.status === "running"
-    ) {
-      if (!activeChange.cancelledBy) {
-        activeChange.cancelledBy = { userId: triggeredByUserId, reason };
+    if (activeChange && !TERMINAL_STATUSES.includes(activeChange.status)) {
+      if (activeChange.handle && activeChange.handle.status === "running") {
+        if (!activeChange.cancelledBy) {
+          activeChange.cancelledBy = { userId: triggeredByUserId, reason };
+        }
+        await activeChange.handle.stop(reason);
+        result.workerAborted = true;
+      } else {
+        // No live handle — the session might be waiting on a worker (reusable
+        // mode, pool at capacity → queued). Cancel the queue entry so the
+        // awaiter in startChangeWorkflow rejects with `Cancelled` and the
+        // session unwinds cleanly.
+        if (deps.cancelQueuedSession(session.sessionId, reason)) {
+          if (!activeChange.cancelledBy) {
+            activeChange.cancelledBy = { userId: triggeredByUserId, reason };
+          }
+          result.queuedCancelled = true;
+        }
       }
-      await activeChange.handle.stop(reason);
-      result.workerAborted = true;
     }
 
     if (session.autoResponseActive !== false) {
@@ -82,7 +101,9 @@ export async function stopThread(
   }
 
   logger.info(
-    `stopThread channel=${channelId} thread=${threadTs} by=${triggeredByUserId} reason="${reason}" queryAborted=${result.queryAborted} workerAborted=${result.workerAborted} sessionDisengaged=${result.sessionDisengaged}`,
+    `stopThread channel=${channelId} thread=${threadTs} by=${triggeredByUserId} reason="${reason}" ` +
+      `queryAborted=${result.queryAborted} workerAborted=${result.workerAborted} ` +
+      `queuedCancelled=${result.queuedCancelled} sessionDisengaged=${result.sessionDisengaged}`,
   );
 
   return result;

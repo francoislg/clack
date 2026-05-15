@@ -22,6 +22,7 @@ function makeDeps(): MentionDeps {
 const mockStopThread = mock.fn<MentionDeps["stopThread"]>(async () => ({
   queryAborted: 0,
   workerAborted: false,
+  queuedCancelled: false,
   sessionDisengaged: false,
 }));
 

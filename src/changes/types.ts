@@ -14,6 +14,8 @@ export type TriggerType =
 
 export interface ChangeRequest {
   userId: string;
+  /** Slack display name (or real name) of the requester, resolved before the worker runs. */
+  userDisplayName?: string;
   message: string;
   triggerType: TriggerType;
   channel: string;

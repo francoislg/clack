@@ -291,6 +291,113 @@ describe("loadConfig", () => {
     assert.equal(cfg.directMessages.changesWorkflow?.enabled, true);
   });
 
+  it("omits reusableFolders when changesWorkflow has no reusableFolders block", () => {
+    writeSlackAuth();
+    writeConfig(
+      minimalConfig({
+        changesWorkflow: { enabled: true },
+      }),
+    );
+
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.changesWorkflow?.reusableFolders, undefined);
+  });
+
+  it("applies reusableFolders defaults when block is empty", () => {
+    writeSlackAuth();
+    writeConfig(
+      minimalConfig({
+        changesWorkflow: {
+          enabled: true,
+          reusableFolders: {},
+        },
+      }),
+    );
+
+    const cfg = loadConfig(configPath, true);
+    const rf = cfg.changesWorkflow?.reusableFolders;
+    assert.equal(rf?.enabled, false);
+    assert.equal(rf?.minimumProvisioned, 0);
+    assert.equal(rf?.maxConcurrent, 3);
+    assert.equal(rf?.maxQueueDepth, 5);
+    assert.equal(rf?.idleReleaseHours, 24);
+    assert.equal(rf?.dirtyTrackedQuarantine, true);
+  });
+
+  it("parses partial reusableFolders block applying defaults to missing fields", () => {
+    writeSlackAuth();
+    writeConfig(
+      minimalConfig({
+        changesWorkflow: {
+          enabled: true,
+          reusableFolders: {
+            enabled: true,
+            maxConcurrent: 5,
+          },
+        },
+      }),
+    );
+
+    const cfg = loadConfig(configPath, true);
+    const rf = cfg.changesWorkflow?.reusableFolders;
+    assert.equal(rf?.enabled, true);
+    assert.equal(rf?.maxConcurrent, 5);
+    assert.equal(rf?.minimumProvisioned, 0);
+    assert.equal(rf?.maxQueueDepth, 5);
+    assert.equal(rf?.idleReleaseHours, 24);
+    assert.equal(rf?.dirtyTrackedQuarantine, true);
+  });
+
+  it("parses full reusableFolders block", () => {
+    writeSlackAuth();
+    writeConfig(
+      minimalConfig({
+        changesWorkflow: {
+          enabled: true,
+          reusableFolders: {
+            enabled: true,
+            minimumProvisioned: 2,
+            maxConcurrent: 4,
+            maxQueueDepth: 10,
+            idleReleaseHours: 48,
+            dirtyTrackedQuarantine: false,
+          },
+        },
+      }),
+    );
+
+    const cfg = loadConfig(configPath, true);
+    const rf = cfg.changesWorkflow?.reusableFolders;
+    assert.equal(rf?.enabled, true);
+    assert.equal(rf?.minimumProvisioned, 2);
+    assert.equal(rf?.maxConcurrent, 4);
+    assert.equal(rf?.maxQueueDepth, 10);
+    assert.equal(rf?.idleReleaseHours, 48);
+    assert.equal(rf?.dirtyTrackedQuarantine, false);
+  });
+
+  it("falls back to defaults when reusableFolders fields have invalid types", () => {
+    writeSlackAuth();
+    writeConfig(
+      minimalConfig({
+        changesWorkflow: {
+          enabled: true,
+          reusableFolders: {
+            maxConcurrent: "three",
+            enabled: "yes",
+          },
+        },
+      }),
+    );
+
+    const cfg = loadConfig(configPath, true);
+    const rf = cfg.changesWorkflow?.reusableFolders;
+    // Non-number is ignored, default is used
+    assert.equal(rf?.maxConcurrent, 3);
+    // Non-bool is ignored, default is false
+    assert.equal(rf?.enabled, false);
+  });
+
   it("parses reactions.stop when provided", () => {
     writeSlackAuth();
     writeConfig(

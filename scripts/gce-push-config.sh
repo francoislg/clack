@@ -69,22 +69,30 @@ fi
 TMPLIST=$(mktemp)
 printf '%s\n' "${PATHS[@]}" > "$TMPLIST"
 
+# Build a space-separated list of pushed paths for the remote-side chown.
+# Scoped to just what we pushed so we don't chown the whole data tree
+# (which contains gigabytes of sessions / repos / mcp_packages).
+REMOTE_CHOWN_TARGETS=""
+for p in "${PATHS[@]}"; do
+    REMOTE_CHOWN_TARGETS+=" '$DATA_MOUNT_POINT/$p'"
+done
+
 echo -e "${YELLOW}Streaming paths to $REMOTE_DATA_DIR ...${NC}"
 
-# Make sure the remote data dir exists and is writable (it will already, on
-# any VM that's been through gce-deploy.sh, but be defensive).
-gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet \
-    --command="sudo mkdir -p '$REMOTE_DATA_DIR' && sudo chmod a+rwx '$REMOTE_DATA_DIR'"
-
+# Single SSH session: mkdir (defensive) + tar -x (from stdin) + scoped chown.
+# Consolidating into one call avoids ~10s of cumulative SSH setup overhead
+# vs the previous three-call approach.
 tar -C "$PROJECT_DIR" -cf - --files-from="$TMPLIST" \
     | gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet \
-        --command="sudo tar -C '$DATA_MOUNT_POINT' -xf -"
+        --command="
+set -e
+sudo mkdir -p '$REMOTE_DATA_DIR'
+sudo chmod a+rwx '$REMOTE_DATA_DIR'
+sudo tar -C '$DATA_MOUNT_POINT' -xf -
+sudo chown -R 1001:1001$REMOTE_CHOWN_TARGETS
+"
 
 rm -f "$TMPLIST"
-
-# Reapply ownership for the in-container clack user (UID 1001).
-gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet \
-    --command="sudo chown -R 1001:1001 '$REMOTE_DATA_DIR'"
 
 echo -e "${GREEN}✓ Config pushed${NC}"
 echo ""

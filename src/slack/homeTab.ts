@@ -5,6 +5,7 @@ import { getFailedMcpServers } from "../mcpStatus.js";
 import { loadRoles, getRole, hasOwner, type UserRole } from "../roles.js";
 import { canEditConfig, canManageRoles, canRequestChanges } from "../permissions.js";
 import { getActiveWorkers } from "../changes/activeState.js";
+import { getWorkerPoolSnapshot, type WorkerPoolSnapshot } from "../workers/index.js";
 import { listInstructionFiles } from "../configurationFiles.js";
 import { getReactionDelivery, getUserPreference } from "../userPreferences.js";
 import { getVisibleRepos, canWriteRepo } from "../repoAccess.js";
@@ -43,6 +44,7 @@ export interface HomeTabDeps {
   canManageRoles: (role: UserRole) => boolean;
   canRequestChanges: (role: UserRole) => boolean;
   getActiveWorkers: () => ActiveWorker[];
+  getWorkerPoolSnapshot: () => WorkerPoolSnapshot;
   listInstructionFiles: () => InstructionFileListing;
   getReactionDelivery: (userId: string) => Promise<string>;
   getUserPreference: <K extends keyof UserPreferences>(
@@ -71,6 +73,7 @@ export const defaultHomeTabDeps: HomeTabDeps = {
   canManageRoles,
   canRequestChanges,
   getActiveWorkers,
+  getWorkerPoolSnapshot,
   listInstructionFiles,
   getReactionDelivery,
   getUserPreference,
@@ -144,9 +147,11 @@ export async function buildHomeView(
   // Configuration & preferences section (config editing for admins, preferences for all)
   blocks.push(...buildConfigurationSection(userCanEdit, deps));
 
-  // Active workers section (only for devs and higher)
+  // Workers section — unified view of active changes (disposable mode) or
+  // the physical worker pool (reusable mode). Visible to devs and higher;
+  // quarantine-clear buttons are admin-gated server-side.
   if (userIsDev) {
-    blocks.push(...buildActiveWorkersSection(deps));
+    blocks.push(...buildWorkersSection(deps));
   }
 
   // Status section (visible to all)
@@ -623,66 +628,167 @@ export function buildStatusSection(
   return blocks;
 }
 
-export function buildActiveWorkersSection(deps: HomeTabDeps = defaultHomeTabDeps): KnownBlock[] {
-  const workers = deps.getActiveWorkers();
+const WORKER_STATUS_EMOJI: Record<string, string> = {
+  // Pool worker states (reusable mode)
+  idle: ":large_green_circle:",
+  busy: ":hammer_and_wrench:",
+  initializing: ":hourglass_flowing_sand:",
+  quarantined: ":warning:",
+  failed: ":x:",
+  // Active change states (disposable mode + busy reusable)
+  planning: ":thinking_face:",
+  executing: ":hammer_and_wrench:",
+  reviewing: ":eyes:",
+  merging: ":rocket:",
+  pr_created: ":white_check_mark:",
+  cancelled: ":no_entry_sign:",
+};
+
+function emojiFor(status: string): string {
+  return WORKER_STATUS_EMOJI[status] ?? ":hourglass:";
+}
+
+function slackDate(d: Date): string {
+  return `<!date^${Math.floor(d.getTime() / 1000)}^{date_short_pretty} at {time}|${d.toISOString()}>`;
+}
+
+/**
+ * Unified "Workers" section — shows physical pool state AND active change
+ * sessions in one place.
+ *
+ * Disposable mode: one row per active change request (description, status,
+ * branch, repo, requester, thread link, PR if any). This is the legacy view.
+ *
+ * Reusable mode: per repo, a counts header followed by one row per worker
+ * with id, status, branch, last-used time, claimant session (if busy), and a
+ * "Discard & restore" button when quarantined. A trailing context block per
+ * queued request shows who's waiting. Visible to all devs, but quarantine
+ * buttons are admin-gated server-side.
+ */
+export function buildWorkersSection(deps: HomeTabDeps = defaultHomeTabDeps): KnownBlock[] {
+  const snapshot = deps.getWorkerPoolSnapshot();
   const blocks: KnownBlock[] = [];
 
   blocks.push({
     type: "header",
-    text: {
-      type: "plain_text",
-      text: "Active Workers",
-      emoji: true,
-    },
+    text: { type: "plain_text", text: "Workers", emoji: true },
   });
 
-  if (workers.length === 0) {
+  if (!snapshot.reusable) {
+    // Disposable mode — list active change sessions.
+    const activeChanges = deps.getActiveWorkers();
+    if (activeChanges.length === 0) {
+      blocks.push({
+        type: "section",
+        text: { type: "mrkdwn", text: "_No active change requests._" },
+      });
+      blocks.push({ type: "divider" });
+      return blocks;
+    }
+    for (const w of activeChanges) {
+      const statusLabel = w.status.charAt(0).toUpperCase() + w.status.slice(1);
+      const threadLink = `https://slack.com/archives/${w.channel}/p${w.threadTs.replace(".", "")}`;
+      let text = `${emojiFor(w.status)} *${w.description}*\n`;
+      text += `• Status: ${statusLabel}\n`;
+      text += `• Branch: \`${w.branch}\`\n`;
+      text += `• Repo: ${w.repo}\n`;
+      text += `• By: ${w.userId === "auto-respond" ? "Auto-Respond" : `<@${w.userId}>`}\n`;
+      text += `• Thread: <${threadLink}|View thread>`;
+      if (w.prUrl) text += `\n• PR: <${w.prUrl}|View PR>`;
+      blocks.push({ type: "section", text: { type: "mrkdwn", text } });
+    }
+    blocks.push({ type: "divider" });
+    return blocks;
+  }
+
+  // Reusable mode.
+  if (snapshot.byRepo.length === 0) {
     blocks.push({
       type: "section",
       text: {
         type: "mrkdwn",
-        text: "_No active change requests_",
+        text: "_No workers provisioned yet — first change request will create one._",
       },
     });
-  } else {
-    // Status emoji mapping
-    const statusEmoji: Record<string, string> = {
-      planning: ":thinking_face:",
-      executing: ":hammer_and_wrench:",
-      reviewing: ":eyes:",
-      merging: ":rocket:",
-      cancelled: ":no_entry_sign:",
-    };
+    blocks.push({ type: "divider" });
+    return blocks;
+  }
 
-    for (const worker of workers) {
-      const emoji = statusEmoji[worker.status] || ":hourglass:";
-      const statusLabel = worker.status.charAt(0).toUpperCase() + worker.status.slice(1);
+  for (const repo of snapshot.byRepo) {
+    const counts = [
+      `:large_green_circle: ${repo.idle} idle`,
+      `:hammer_and_wrench: ${repo.busy} busy`,
+      `:hourglass_flowing_sand: ${repo.initializing} initializing`,
+      `:warning: ${repo.quarantined} quarantined`,
+      `:x: ${repo.failed} failed`,
+      `:bookmark_tabs: ${repo.queueDepth} queued`,
+    ].join(" · ");
+    blocks.push({
+      type: "section",
+      text: { type: "mrkdwn", text: `*${repo.repo}*\n${counts}` },
+    });
 
-      const threadLink = `https://slack.com/archives/${worker.channel}/p${worker.threadTs.replace(".", "")}`;
-
-      let text = `${emoji} *${worker.description}*\n`;
-      text += `• Status: ${statusLabel}\n`;
-      text += `• Branch: \`${worker.branch}\`\n`;
-      text += `• Repo: ${worker.repo}\n`;
-      text += `• By: ${worker.userId === "auto-respond" ? "Auto-Respond" : `<@${worker.userId}>`}\n`;
-      text += `• Thread: <${threadLink}|View thread>`;
-
-      if (worker.prUrl) {
-        text += `\n• PR: <${worker.prUrl}|View PR>`;
-      }
-
+    if (repo.workers.length === 0) {
       blocks.push({
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text,
-        },
+        type: "context",
+        elements: [
+          {
+            type: "mrkdwn",
+            text: "_No workers yet for this repo — will provision on first acquire._",
+          },
+        ],
+      });
+    }
+
+    for (const w of repo.workers) {
+      const branchLabel = w.currentBranch ?? "(detached)";
+      const claimedLine = w.claimedBy ? ` · session \`${w.claimedBy}\`` : "";
+      const setupLine = w.setupComplete ? "" : " · setup not complete";
+      const text = `${emojiFor(w.status)} \`${w.id}\` · ${w.status} · branch \`${branchLabel}\`${claimedLine}${setupLine} · last used ${slackDate(w.lastUsedAt)}`;
+
+      if (w.status === "quarantined") {
+        blocks.push({
+          type: "section",
+          text: { type: "mrkdwn", text },
+          accessory: {
+            type: "button",
+            style: "danger",
+            text: { type: "plain_text", text: "Discard & restore", emoji: true },
+            action_id: "clack_clear_quarantine",
+            value: `${repo.repo}/${w.id}`,
+            confirm: {
+              title: { type: "plain_text", text: "Discard local changes?" },
+              text: {
+                type: "mrkdwn",
+                text: `This runs \`git reset --hard HEAD\` and \`git clean -fd\` on \`${w.id}\`. Uncommitted changes will be lost.`,
+              },
+              confirm: { type: "plain_text", text: "Discard" },
+              deny: { type: "plain_text", text: "Cancel" },
+            },
+          },
+        });
+      } else {
+        blocks.push({
+          type: "context",
+          elements: [{ type: "mrkdwn", text }],
+        });
+      }
+    }
+
+    for (const q of repo.queued) {
+      blocks.push({
+        type: "context",
+        elements: [
+          {
+            type: "mrkdwn",
+            text: `:bookmark_tabs: queued: branch \`${q.branch}\` · session \`${q.sessionId}\` · since <!date^${Math.floor(q.enqueuedAt.getTime() / 1000)}^{time}|${q.enqueuedAt.toISOString()}>`,
+          },
+        ],
       });
     }
   }
 
   blocks.push({ type: "divider" });
-
   return blocks;
 }
 

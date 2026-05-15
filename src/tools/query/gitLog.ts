@@ -11,6 +11,7 @@ import { getRepositoriesDir } from "../../config.js";
 import { errorMessage } from "../../errors.js";
 import { logger } from "../../logger.js";
 import type { UserRole } from "../../roles.js";
+import { findLocalBranchSource } from "../../workers/index.js";
 
 export interface MinimalGit {
   raw(args: string[]): Promise<string>;
@@ -21,6 +22,11 @@ export interface GitLogDeps {
   getRepositoriesDir: () => string;
   existsSync: (path: string) => boolean;
   simpleGit: (opts: { baseDir: string }) => MinimalGit;
+  /**
+   * Prefer a worker's worktree when the branch is already checked out there
+   * (reusable mode only). Returns null to fall back to the main repo clone.
+   */
+  findLocalBranchSource: (repo: string, branch: string) => string | null;
 }
 
 export const defaultDeps: GitLogDeps = {
@@ -28,6 +34,7 @@ export const defaultDeps: GitLogDeps = {
   getRepositoriesDir,
   existsSync,
   simpleGit,
+  findLocalBranchSource,
 };
 
 const MAX_OUTPUT_CHARS = 100_000;
@@ -35,13 +42,19 @@ const MAX_OUTPUT_CHARS = 100_000;
 export function createGitLogTool(ctx: QueryToolContext, deps: GitLogDeps = defaultDeps) {
   return tool(
     "git_log",
-    "Run git log on a local repository clone with any supported git log arguments. Returns raw output plus shallow-clone metadata.",
+    "Run git log on a local repository clone with any supported git log arguments. Returns raw output plus shallow-clone metadata. When `branch` is provided and the branch is currently checked out in a reusable-pool worker, reads from that worker — useful when the worker has commits not yet pulled by the main clone.",
     {
       repo: z.string().describe("Repository name"),
       args: z
         .array(z.string())
         .optional()
         .describe('Git log arguments (e.g., ["--oneline", "-n", "10", "--author=John"])'),
+      branch: z
+        .string()
+        .optional()
+        .describe(
+          "Optional branch name. When the branch is currently checked out in a worker (reusable-pool mode), git log runs against the worker's worktree instead of the main clone.",
+        ),
     },
     async (input) => {
       const visibleRepos = deps.getVisibleRepos(ctx.role, ctx.config.repositories);
@@ -54,7 +67,12 @@ export function createGitLogTool(ctx: QueryToolContext, deps: GitLogDeps = defau
         );
       }
 
-      const repoPath = resolve(deps.getRepositoriesDir(), repo.name);
+      const mainRepoPath = resolve(deps.getRepositoriesDir(), repo.name);
+      // Local-worker shortcut: when the branch is checked out in a worker, use
+      // it. Falls back to the main clone when no worker has the branch or when
+      // reusable mode is off. Quarantined/failed workers are excluded.
+      const workerPath = input.branch ? deps.findLocalBranchSource(repo.name, input.branch) : null;
+      const repoPath = workerPath ?? mainRepoPath;
 
       if (!deps.existsSync(repoPath)) {
         return errorResult(`Repository "${repo.name}" has not been cloned yet.`);

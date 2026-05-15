@@ -187,6 +187,19 @@ export function updateActiveChangeStatus(
   }
 }
 
+/**
+ * Detach a session's worktree binding. Used by the idle-release sweep in
+ * reusable mode: the worker is freed back to the pool but the session stays
+ * alive with its branch intact. The next follow-up command re-acquires a
+ * worker (same or different) and re-binds via `setActiveChange`/direct mutation.
+ */
+export function detachActiveChangeWorktree(sessionId: string): void {
+  const change = activeChanges.get(sessionId);
+  if (!change) return;
+  change.worktree = undefined;
+  change.lastActivityAt = new Date();
+}
+
 export function updateActiveChangePrUrl(sessionId: string, prUrl: string): void {
   const change = activeChanges.get(sessionId);
   const ref = sessionRefs.get(sessionId);
@@ -200,6 +213,13 @@ export function updateActiveChangePrUrl(sessionId: string, prUrl: string): void 
 }
 
 /**
+ * Statuses that count as "actively executing" — these consume compute and gate
+ * concurrent requests. Idle states (`pr_created`, `completed`, `failed`,
+ * `cancelled`) are intentionally excluded.
+ */
+const ACTIVELY_EXECUTING_STATUSES: ChangeStatus[] = ["executing", "reviewing", "merging"];
+
+/**
  * Find an actively-executing change for a user.
  * Only returns changes consuming compute (executing, reviewing, merging).
  * Changes in pr_created state are idle and do NOT block new changes.
@@ -207,14 +227,29 @@ export function updateActiveChangePrUrl(sessionId: string, prUrl: string): void 
 export function getActiveChangeForUser(
   userId: string,
 ): { sessionId: string; change: ActiveChangeState } | undefined {
-  const activelyExecutingStatuses: ChangeStatus[] = ["executing", "reviewing", "merging"];
   for (const [sessionId, change] of activeChanges.entries()) {
     const ref = sessionRefs.get(sessionId);
-    if (ref && ref.userId === userId && activelyExecutingStatuses.includes(change.status)) {
+    if (ref && ref.userId === userId && ACTIVELY_EXECUTING_STATUSES.includes(change.status)) {
       return { sessionId, change };
     }
   }
   return undefined;
+}
+
+/**
+ * Count actively-executing changes for a user. Same status set as
+ * `getActiveChangeForUser`. Used by `startChangeWorkflow` to enforce the
+ * `changesWorkflow.maxActiveChangesPerUser` cap (0 = unlimited).
+ */
+export function countActiveChangesForUser(userId: string): number {
+  let count = 0;
+  for (const [sessionId, change] of activeChanges.entries()) {
+    const ref = sessionRefs.get(sessionId);
+    if (ref && ref.userId === userId && ACTIVELY_EXECUTING_STATUSES.includes(change.status)) {
+      count++;
+    }
+  }
+  return count;
 }
 
 /**

@@ -11,6 +11,9 @@ import { discoverSkillPluginInfo } from "./skillPlugins.js";
 import { loadPlugins } from "./plugins/registry.js";
 import { setLoadedPlugins } from "./plugins/state.js";
 import { restoreWorkerSessions } from "./changes/restore.js";
+import { runWorktreeInstall, runWorktreeSetup } from "./changes/execution.js";
+import { initializePoolForBoot, provisionMinimumWorkers } from "./workers/index.js";
+import { notifyOwnerOfQuarantine } from "./workers/quarantineNotifier.js";
 import { cleanupStaleSessionFolders } from "./changes/persistence.js";
 import { getActiveChangeBranches } from "./changes/activeState.js";
 import { validateInstructionFiles } from "./instructions.js";
@@ -204,12 +207,34 @@ async function main(): Promise<void> {
       logger.warn("Failed to ensure worktree directories:", error);
     }
 
+    // Reusable worker-pool: inject the setup runner and reconcile in-memory
+    // state with disk BEFORE session restore reads pool.findByBranch().
+    // No-op in disposable mode.
+    try {
+      await initializePoolForBoot(config, {
+        runSetup: async (repoName, worktreePath, branch) => {
+          await runWorktreeSetup(repoName, worktreePath, branch);
+        },
+        runInstall: async (repoName, worktreePath, branch) => {
+          await runWorktreeInstall(repoName, worktreePath, branch);
+        },
+        onQuarantine: notifyOwnerOfQuarantine,
+      });
+    } catch (error) {
+      logger.warn("Failed to initialize worker pool:", error);
+    }
+
     // Restore persisted worker sessions into memory (before monitor starts)
     try {
       await restoreWorkerSessions();
     } catch (error) {
       logger.warn("Failed to restore worker sessions:", error);
     }
+
+    // Warm-up: provision minimum workers per repo (fire-and-forget).
+    // Each worker's setup runs in the background; concurrent acquires await
+    // the in-flight `readyPromise` rather than spawning duplicate setup.
+    provisionMinimumWorkers(config, config.repositories);
   }
 
   // Step 3.8: Baseline token smoke test (fire-and-forget).

@@ -129,6 +129,8 @@ function makeDeps(): HomeTabDeps {
     toggleJob: mockToggleJob as Function as HomeTabDeps["toggleJob"],
     deleteJob: mockDeleteJob as Function as HomeTabDeps["deleteJob"],
     getJob: mockGetJob,
+    getRole: async () => "member",
+    clearQuarantinedWorker: async () => ({ ok: false, reason: "stubbed in tests" }),
     updateJob: mockUpdateJob as Function as HomeTabDeps["updateJob"],
     runJobNow: mockRunJobNow as Function as HomeTabDeps["runJobNow"],
   };

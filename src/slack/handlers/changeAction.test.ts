@@ -112,6 +112,12 @@ function makeClient(): App["client"] {
       postEphemeral: mockPostEphemeralFn,
       postMessage: mockPostMessageFn,
     },
+    users: {
+      info: async () => ({
+        ok: true,
+        user: { name: "alice", profile: { display_name: "Alice", real_name: "Alice Smith" } },
+      }),
+    },
   } as object as App["client"];
 }
 

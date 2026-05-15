@@ -10,6 +10,7 @@ import { setAuthenticatedRemote } from "../repositories.js";
 import type { WorktreeInfo } from "../worktrees.js";
 import type { ChangePlan, ChangeRequest, ExecutionResult } from "./types.js";
 import { appendExecutionLog } from "./persistence.js";
+import { getActiveChange } from "./activeState.js";
 import { detectPlatformError } from "../claude/messageParser.js";
 import { ClaudeMessageParser } from "../claude/messageParser.js";
 import { detectRuntime } from "../claude/utilities.js";
@@ -319,8 +320,8 @@ Important:
 - Do not make changes outside the scope of the request
 - If you encounter issues, report them via report_status
 - If git_push fails, report the error via report_status — do not retry unless you can fix the issue
-- For the PR title, use a concise description (max 72 chars)
-- For the PR summary, describe what was changed and why`;
+- For the PR title, use a concise description (max 72 chars) — do NOT put "Requested by" or the requester's name in the title
+- For the PR summary, describe what was changed and why. If the prompt provides a "Requested by:" line, include it verbatim at the top of the PR body (never in the title)`;
 
 /**
  * Execute the change in the worktree
@@ -382,11 +383,15 @@ export async function executeChange(opts: ExecuteChangeOptions): Promise<Executi
     }
   }
 
+  const requester = request.userDisplayName?.trim() || `Slack user ${request.userId}`;
+
   let prompt = `Implement this change:
 
 Description: ${plan.description}
 
 Original request: "${request.message}"
+
+Requested by: ${requester}
 
 Work in this branch: ${plan.branchName}`;
 
@@ -421,10 +426,12 @@ Follow the workflow steps in the system prompt. Report your final status using t
   });
   const workerTools = buildClackTools(workerCtx);
 
-  // Snapshot HEAD before the worker runs so we can detect "success but no commits"
-  // (the failure mode where the worker reports success via report_status without
-  // calling git_push, and the workflow has no other signal that nothing happened).
+  // Snapshot HEAD and prUrl before the worker runs so we can detect "success but
+  // no observable outcome" (the worker reports success but didn't commit AND
+  // didn't create a PR). A resumed run that only pushes existing commits and
+  // creates the PR is a real success even though HEAD doesn't move.
   const headBefore = await readBranchHead(worktree.worktreePath);
+  const prUrlBefore = getActiveChange(sessionId)?.prUrl;
 
   let capturedSdkSessionId: string | undefined;
   const result = await runClaudeInWorktree(worktree.repoName, {
@@ -453,15 +460,18 @@ Follow the workflow steps in the system prompt. Report your final status using t
   }
 
   const headAfter = await readBranchHead(worktree.worktreePath);
-  if (headBefore && headAfter && headBefore === headAfter) {
+  const prUrlAfter = getActiveChange(sessionId)?.prUrl;
+  const noNewCommits = !!headBefore && !!headAfter && headBefore === headAfter;
+  const noNewPr = prUrlBefore === prUrlAfter;
+  if (noNewCommits && noNewPr) {
     appendExecutionLog(
       plan.branchName,
-      "Worker reported success but no new commits were made — treating as no-op",
+      "Worker reported success but no new commits or PR were made — treating as no-op",
     );
     return {
       success: false,
       error:
-        "Worker completed without making any commits. See its status messages above for what it decided. Reply in the thread to ask it to actually implement the change.",
+        "Worker completed without making any commits or creating a PR. See its status messages above for what it decided. Reply in the thread to ask it to actually implement the change.",
       sdkSessionId: capturedSdkSessionId,
     };
   }
@@ -561,5 +571,66 @@ export async function runWorktreeSetup(
     if (branchName) {
       appendExecutionLog(branchName, "Worktree setup completed successfully");
     }
+  }
+}
+
+/**
+ * Run the per-repo install step (e.g., `pnpm install --frozen-lockfile`) in an
+ * existing worker just before work starts on a new branch. Reads
+ * `{repoName}/worktree_install_instructions.md` via the two-tier instructions
+ * chain. Idempotent and skipped silently when no file is configured.
+ *
+ * Distinct from `runWorktreeSetup` (heavy initial provisioning — runs once per
+ * worker). This install hook is light and runs on every branch switch.
+ */
+export async function runWorktreeInstall(
+  repoName: string,
+  worktreePath: string,
+  branchName?: string,
+  onEvent?: (event: StreamEvent) => void | Promise<void>,
+): Promise<void> {
+  const installPath = resolveInstructionFile(`${repoName}/worktree_install_instructions.md`);
+  if (!installPath) return;
+
+  let instructions: string;
+  try {
+    instructions = readFileSync(installPath, "utf-8");
+  } catch {
+    logger.warn(`Failed to read worktree install instructions at ${installPath}`);
+    return;
+  }
+  if (!instructions.trim()) return;
+
+  logger.info(`Running worktree install for ${repoName}${branchName ? ` (${branchName})` : ""}...`);
+  if (branchName) {
+    appendExecutionLog(branchName, `Running install step from ${installPath}`);
+  }
+
+  const result = await runClaudeInWorktree(repoName, {
+    prompt: instructions,
+    cwd: worktreePath,
+    systemPrompt: [
+      "You are running dependency install for a workspace that just switched branches.",
+      "Follow the instructions EXACTLY. Do not modify ports, .env, or other configuration.",
+      "Do not run heavy setup steps that were already done — only the install step.",
+      "Do not ask questions — just execute.",
+    ].join(" "),
+    allowedTools: ["Bash", "Read"],
+    disallowedTools: ["Task", "TaskOutput", "Write", "Edit", "Glob", "Grep"],
+    branchName,
+    onEvent,
+  });
+
+  if (!result.success) {
+    logger.warn(
+      `Worktree install failed for ${repoName}${branchName ? ` (${branchName})` : ""}: ${result.error}`,
+    );
+    if (branchName) {
+      appendExecutionLog(branchName, `Install step failed: ${result.error}`);
+    }
+    return;
+  }
+  if (branchName) {
+    appendExecutionLog(branchName, "Install step completed");
   }
 }

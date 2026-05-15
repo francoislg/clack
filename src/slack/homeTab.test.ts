@@ -12,7 +12,7 @@ import {
   buildRoleManagementSection,
   buildConfigurationSection,
   buildStatusSection,
-  buildActiveWorkersSection,
+  buildWorkersSection,
   buildHelpSection,
   buildSettingsModal,
   buildUserSelectModal,
@@ -81,6 +81,7 @@ function makeDeps(): HomeTabDeps {
     getJobs: mockGetJobs,
     getJobsByUser: mockGetJobsByUser,
     humanReadableSchedule: mockHumanReadableSchedule,
+    getWorkerPoolSnapshot: () => ({ reusable: false, byRepo: [] }),
   };
 }
 
@@ -320,7 +321,7 @@ describe("buildHomeView", () => {
     const deps = makeDeps();
     const view = await buildHomeView({ userId: "U001" }, deps);
     const headers = getHeaderTexts(view.blocks as KnownBlock[]);
-    assert.ok(headers.includes("Active Workers"));
+    assert.ok(headers.includes("Workers"));
   });
 
   it("does not include active workers section for members", async () => {
@@ -328,7 +329,7 @@ describe("buildHomeView", () => {
     const deps = makeDeps();
     const view = await buildHomeView({ userId: "U001" }, deps);
     const headers = getHeaderTexts(view.blocks as KnownBlock[]);
-    assert.ok(!headers.includes("Active Workers"));
+    assert.ok(!headers.includes("Workers"));
   });
 
   it("always includes status and help sections", async () => {
@@ -848,31 +849,31 @@ describe("buildStatusSection", () => {
 });
 
 // ============================================================================
-// buildActiveWorkersSection
+// buildWorkersSection — disposable mode (legacy active-changes view)
 // ============================================================================
 
-describe("buildActiveWorkersSection", () => {
+describe("buildWorkersSection (disposable mode)", () => {
   beforeEach(() => {
     setDefaultMocks("dev");
   });
 
-  it("starts with Active Workers header", () => {
+  it("starts with a 'Workers' header", () => {
     const deps = makeDeps();
-    const blocks = buildActiveWorkersSection(deps);
+    const blocks = buildWorkersSection(deps);
     assert.equal(blocks[0].type, "header");
     const headerBlock = blocks[0] as KnownBlock & { text: { text: string } };
-    assert.equal(headerBlock.text.text, "Active Workers");
+    assert.equal(headerBlock.text.text, "Workers");
   });
 
-  it("shows empty state when no workers", () => {
+  it("shows empty state when there are no active changes", () => {
     const deps = makeDeps();
     mockGetActiveWorkers.mock.mockImplementation(() => []);
-    const blocks = buildActiveWorkersSection(deps);
+    const blocks = buildWorkersSection(deps);
     const texts = getSectionTexts(blocks);
     assert.ok(texts.some((t) => t.includes("No active change requests")));
   });
 
-  it("displays worker details when workers exist", () => {
+  it("displays change details when active changes exist", () => {
     const deps = makeDeps();
     mockGetActiveWorkers.mock.mockImplementation(() => [
       {
@@ -887,7 +888,7 @@ describe("buildActiveWorkersSection", () => {
         startedAt: new Date(),
       },
     ]);
-    const blocks = buildActiveWorkersSection(deps);
+    const blocks = buildWorkersSection(deps);
     const texts = getSectionTexts(blocks);
     const workerBlock = texts.find((t) => t.includes("Fix the bug"));
     assert.ok(workerBlock);
@@ -912,7 +913,7 @@ describe("buildActiveWorkersSection", () => {
         startedAt: new Date(),
       },
     ]);
-    const blocks = buildActiveWorkersSection(deps);
+    const blocks = buildWorkersSection(deps);
     const texts = getSectionTexts(blocks);
     const workerBlock = texts.find((t) => t.includes("Add feature"));
     assert.ok(workerBlock);
@@ -921,7 +922,176 @@ describe("buildActiveWorkersSection", () => {
 
   it("ends with a divider", () => {
     const deps = makeDeps();
-    const blocks = buildActiveWorkersSection(deps);
+    const blocks = buildWorkersSection(deps);
+    assert.equal(blocks[blocks.length - 1].type, "divider");
+  });
+});
+
+// ============================================================================
+// buildWorkersSection — reusable mode (pool view)
+// ============================================================================
+
+describe("buildWorkersSection (reusable mode)", () => {
+  beforeEach(() => {
+    setDefaultMocks("admin");
+  });
+
+  it("falls back to the disposable view when reusable mode is off", () => {
+    const deps: HomeTabDeps = {
+      ...makeDeps(),
+      getWorkerPoolSnapshot: () => ({ reusable: false, byRepo: [] }),
+    };
+    mockGetActiveWorkers.mock.mockImplementation(() => []);
+    const blocks = buildWorkersSection(deps);
+    const texts = getSectionTexts(blocks);
+    // Disposable mode shows the active-changes empty state, not the pool message.
+    assert.ok(texts.some((t) => t.includes("No active change requests")));
+    assert.ok(!texts.some((t) => /Reusable worker pool is not active/.test(t)));
+  });
+
+  it("renders 'no workers yet' when pool is reusable but empty", () => {
+    const deps: HomeTabDeps = {
+      ...makeDeps(),
+      getWorkerPoolSnapshot: () => ({ reusable: true, byRepo: [] }),
+    };
+    const blocks = buildWorkersSection(deps);
+    const texts = getSectionTexts(blocks);
+    assert.ok(texts.some((t) => /No workers provisioned yet/.test(t)));
+  });
+
+  it("renders per-repo status counts", () => {
+    const deps: HomeTabDeps = {
+      ...makeDeps(),
+      getWorkerPoolSnapshot: () => ({
+        reusable: true,
+        byRepo: [
+          {
+            repo: "alpha",
+            idle: 1,
+            busy: 2,
+            initializing: 0,
+            quarantined: 0,
+            failed: 0,
+            queueDepth: 0,
+            workers: [],
+            queued: [],
+          },
+        ],
+      }),
+    };
+    const blocks = buildWorkersSection(deps);
+    const texts = getSectionTexts(blocks);
+    const repoText = texts.find((t) => t.includes("alpha"));
+    assert.ok(repoText);
+    assert.match(repoText!, /1 idle/);
+    assert.match(repoText!, /2 busy/);
+    assert.match(repoText!, /0 queued/);
+  });
+
+  it("emits a 'Discard & restore' button for each quarantined worker", () => {
+    const deps: HomeTabDeps = {
+      ...makeDeps(),
+      getWorkerPoolSnapshot: () => ({
+        reusable: true,
+        byRepo: [
+          {
+            repo: "alpha",
+            idle: 0,
+            busy: 0,
+            initializing: 0,
+            quarantined: 2,
+            failed: 0,
+            queueDepth: 0,
+            workers: [
+              {
+                id: "worker-1",
+                status: "quarantined",
+                currentBranch: "feat/x",
+                claimedBy: null,
+                setupComplete: true,
+                setupVersionHash: null,
+                lastUsedAt: new Date("2026-04-01"),
+                createdAt: new Date("2026-04-01"),
+              },
+              {
+                id: "worker-2",
+                status: "quarantined",
+                currentBranch: null,
+                claimedBy: null,
+                setupComplete: true,
+                setupVersionHash: null,
+                lastUsedAt: new Date("2026-04-02"),
+                createdAt: new Date("2026-04-02"),
+              },
+            ],
+            queued: [],
+          },
+        ],
+      }),
+    };
+    const blocks = buildWorkersSection(deps);
+    const sections = blocks.filter(
+      (
+        b,
+      ): b is KnownBlock & {
+        type: "section";
+        accessory?: { action_id?: string; value?: string };
+      } => b.type === "section",
+    );
+    const buttonValues = sections
+      .filter((s) => s.accessory?.action_id === "clack_clear_quarantine")
+      .map((s) => s.accessory?.value);
+    assert.deepEqual(buttonValues.sort(), ["alpha/worker-1", "alpha/worker-2"]);
+  });
+
+  it("renders queued requests as context blocks", () => {
+    const deps: HomeTabDeps = {
+      ...makeDeps(),
+      getWorkerPoolSnapshot: () => ({
+        reusable: true,
+        byRepo: [
+          {
+            repo: "alpha",
+            idle: 0,
+            busy: 3,
+            initializing: 0,
+            quarantined: 0,
+            failed: 0,
+            queueDepth: 2,
+            workers: [],
+            queued: [
+              {
+                sessionId: "sess-1",
+                branch: "feat/queued-1",
+                enqueuedAt: new Date("2026-04-01T12:00:00Z"),
+              },
+              {
+                sessionId: "sess-2",
+                branch: "feat/queued-2",
+                enqueuedAt: new Date("2026-04-01T12:01:00Z"),
+              },
+            ],
+          },
+        ],
+      }),
+    };
+    const blocks = buildWorkersSection(deps);
+    // Filter to queue rows specifically — when `workers` is empty, the section
+    // also emits a "no workers yet" context block which would otherwise inflate
+    // the count.
+    const queueBlocks = blocks.filter(
+      (b): b is KnownBlock & { type: "context"; elements: Array<{ text?: string }> } => {
+        if (b.type !== "context") return false;
+        const elements = (b as { elements?: Array<{ text?: string }> }).elements ?? [];
+        return elements.some((e) => typeof e.text === "string" && e.text.includes("queued:"));
+      },
+    );
+    assert.equal(queueBlocks.length, 2);
+  });
+
+  it("ends with a divider", () => {
+    const deps = makeDeps();
+    const blocks = buildWorkersSection(deps);
     assert.equal(blocks[blocks.length - 1].type, "divider");
   });
 });
