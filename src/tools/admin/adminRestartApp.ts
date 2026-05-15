@@ -6,7 +6,7 @@ import { restartAll } from "../../lifecycle.js";
 export function createAdminRestartAppTool() {
   return tool(
     "admin_restart_app",
-    "Perform a soft application restart: reload config, reset all caches, restart schedulers, re-sync repositories. The Slack connection stays up throughout.",
+    "Perform a soft application restart: reload config, reset all caches, reload plugins, restart schedulers, re-sync repositories. The Slack connection stays up throughout.",
     {
       _placeholder: z.boolean().optional().describe("Unused parameter (tool takes no input)"),
     },
