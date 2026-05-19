@@ -521,6 +521,29 @@ describe("SlackStreamer.handleEvent — tool_end", () => {
     assert.equal(groupTask!.status, "complete");
   });
 
+  it("keeps the per-tool label on a single-item group at completion", () => {
+    streamer.handleEvent({
+      type: "tool_start",
+      taskId: "task-1",
+      toolName: "Read",
+      toolArgs: { file_path: "/a.ts" },
+    });
+
+    mockStreamerObj.append.mock.resetCalls();
+    streamer.handleEvent({ type: "tool_end", taskId: "task-1" });
+
+    const chunks = getAppendedChunks(mockStreamerObj);
+    const completed = findChunk(chunks, "task-1");
+    assert.ok(completed);
+    assert.equal(completed!.status, "complete");
+    // Should NOT collapse to the group title "Searching codebase" when only one item ran.
+    assert.ok(
+      !completed!.title!.includes("Searching codebase"),
+      `single-item group should keep per-tool label, got "${completed!.title}"`,
+    );
+    assert.ok(completed!.title!.includes("Reading"));
+  });
+
   it("ignores tool_end for unknown taskId", () => {
     mockStreamerObj.append.mock.resetCalls();
 
