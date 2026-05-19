@@ -1,7 +1,9 @@
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
+import { CronExpressionParser } from "cron-parser";
 import type { UserRole } from "./roles.js";
 import { logger } from "./logger.js";
+import { isChannelId } from "./slack/channelResolver.js";
 
 export interface SlackAuthConfig {
   botToken: string;
@@ -156,12 +158,59 @@ export interface TriviaChoicesConfig {
   max: number;
 }
 
+/**
+ * One trivia game declared in config. The trivia plugin reconciles its cron jobs from this list
+ * on every load: each entry produces two plugin-managed cron jobs (`<name>:question` and `<name>:reveal`).
+ */
+export interface TriviaGame {
+  /** Unique identifier within `games[]`; used in `specKey` so renames diff cleanly. Must match `^[a-z0-9-]+$`, length 1–32. */
+  name: string;
+  /** Slack channel ID where this game runs (e.g. `C123ABC`). */
+  channel: string;
+  /** Cron expression for when the daily question is posted. */
+  questionCron: string;
+  /** Cron expression for when the answer is revealed. */
+  revealCron: string;
+  /** IANA timezone the cron expressions are interpreted in. */
+  timezone: string;
+  /** When `false`, the plugin skips this entry during cron reconcile AND per-game write tools refuse. Defaults to `true`. */
+  enabled?: boolean;
+}
+
+/** Game-name format: filesystem-safe kebab-case, 1–32 chars. */
+const TRIVIA_GAME_NAME_RE = /^[a-z0-9-]+$/;
+
+/**
+ * One off-day for the trivia plugin. Propagated by the trivia plugin into every cron job's
+ * `skipDates` field at reconcile time, where the scheduler evaluates them deterministically
+ * before opening a Claude session (see `cronScheduler.executeJob`).
+ */
+export interface OffDay {
+  /**
+   * `YYYY-MM-DD` for an exact date, or `MM-DD` for a date that recurs annually. Interpreted
+   * in the matching cron job's `timezone` at fire time.
+   */
+  date: string;
+  /** Human-readable label used in logs and (future) Home Tab display. Required, non-empty. */
+  label: string;
+}
+
 export interface TriviaConfig {
   seasons?: TriviaSeasonsConfig;
   /** Weighted-random map of question type → weight (workspace default; overridable per-season via SeasonEntry.questionTypes). */
   questionsTypes?: TriviaQuestionTypeWeights;
   /** Bounds for choice-question option counts. Defaults to `{ min: 2, max: 4 }`. */
   choices?: TriviaChoicesConfig;
+  /**
+   * Declarative trivia games. Each entry becomes two plugin-managed cron jobs (question + reveal).
+   * The trivia plugin reads this on every init and calls `sdk.reconcileCronJobs("trivia", …)`.
+   */
+  games?: TriviaGame[];
+  /**
+   * Plugin-level off-days. Shared by every entry in `games[]` — there is no per-game override.
+   * Propagated into each cron job's `skipDates` field at reconcile time.
+   */
+  offDays?: OffDay[];
 }
 
 /** Defaults applied when `trivia.choices` is absent or only partially specified. */
@@ -463,6 +512,176 @@ export function parseTriviaChoicesConfig(
   return { min, max };
 }
 
+/**
+ * Parse and validate `trivia.games[]`. Invalid entries are dropped with a logged warning so a
+ * single typo doesn't kill the whole list (mirrors auto-respond / scheduled-message resilience).
+ * Returns undefined when the field is absent; returns an empty array when explicitly `[]`.
+ */
+export function parseTriviaGames(raw: JsonValue | undefined): TriviaGame[] | undefined {
+  if (raw === undefined) return undefined;
+  if (!Array.isArray(raw)) {
+    logger.warn("Config 'trivia.games' must be an array — ignoring");
+    return [];
+  }
+
+  const out: TriviaGame[] = [];
+  const seenNames = new Set<string>();
+
+  for (let i = 0; i < raw.length; i++) {
+    const entry = raw[i];
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      logger.warn(`Config 'trivia.games[${i}]' must be an object — skipping`);
+      continue;
+    }
+    const e: JsonObject = entry;
+    const name = typeof e.name === "string" ? e.name : "";
+    const channel = typeof e.channel === "string" ? e.channel : "";
+    const questionCron = typeof e.questionCron === "string" ? e.questionCron : "";
+    const revealCron = typeof e.revealCron === "string" ? e.revealCron : "";
+    const timezone = typeof e.timezone === "string" ? e.timezone : "";
+
+    if (name.length === 0) {
+      logger.warn(`Config 'trivia.games[${i}].name' must be a non-empty string — skipping entry`);
+      continue;
+    }
+    if (name.length > 32) {
+      logger.warn(
+        `Config 'trivia.games[${i}].name' "${name}" exceeds 32 characters — skipping entry`,
+      );
+      continue;
+    }
+    if (!TRIVIA_GAME_NAME_RE.test(name)) {
+      logger.warn(
+        `Config 'trivia.games[${i}].name' "${name}" must match /^[a-z0-9-]+$/ (lowercase, digits, hyphens) — skipping entry`,
+      );
+      continue;
+    }
+    if (seenNames.has(name)) {
+      logger.warn(`Config 'trivia.games[${i}]' has duplicate name "${name}" — skipping entry`);
+      continue;
+    }
+    if (!isChannelId(channel)) {
+      logger.warn(
+        `Config 'trivia.games[${i}].channel' "${channel}" is not a Slack channel ID (expected C…/G…/D…) — skipping entry "${name}"`,
+      );
+      continue;
+    }
+    try {
+      CronExpressionParser.parse(questionCron, { tz: timezone || "UTC" });
+    } catch (err) {
+      logger.warn(
+        `Config 'trivia.games[${i}].questionCron' "${questionCron}" is invalid (${err instanceof Error ? err.message : String(err)}) — skipping entry "${name}"`,
+      );
+      continue;
+    }
+    try {
+      CronExpressionParser.parse(revealCron, { tz: timezone || "UTC" });
+    } catch (err) {
+      logger.warn(
+        `Config 'trivia.games[${i}].revealCron' "${revealCron}" is invalid (${err instanceof Error ? err.message : String(err)}) — skipping entry "${name}"`,
+      );
+      continue;
+    }
+    if (timezone.length === 0) {
+      logger.warn(
+        `Config 'trivia.games[${i}].timezone' must be a non-empty IANA tz string — skipping entry "${name}"`,
+      );
+      continue;
+    }
+
+    // Optional `enabled` flag: when present, must be boolean; defaults to true when absent.
+    let enabled = true;
+    if ("enabled" in e && e.enabled !== undefined) {
+      if (typeof e.enabled !== "boolean") {
+        logger.warn(
+          `Config 'trivia.games[${i}].enabled' must be a boolean — skipping entry "${name}"`,
+        );
+        continue;
+      }
+      enabled = e.enabled;
+    }
+
+    seenNames.add(name);
+    out.push({ name, channel, questionCron, revealCron, timezone, enabled });
+  }
+
+  return out;
+}
+
+/**
+ * Days-per-month lookup for off-day date validation. Index = month (1-based, 12 entries plus a
+ * leading 0 slot). February uses 29 to accept Feb 29 entries (recurring `MM-DD` form has no year
+ * to consult). Date.UTC would also "accept" Feb 30 by rolling forward, so we have to range-check
+ * ourselves.
+ */
+const DAYS_IN_MONTH = [0, 31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+function isRealCalendarDate(year: number | null, month: number, day: number): boolean {
+  if (month < 1 || month > 12) return false;
+  const maxDay = year === null ? DAYS_IN_MONTH[month] : new Date(year, month, 0).getDate();
+  return day >= 1 && day <= maxDay;
+}
+
+/**
+ * Parse and validate `trivia.offDays[]`. Invalid entries are dropped with a logged warning;
+ * the rest of the list survives. Matches the warn-and-drop pattern used by `parseTriviaGames`.
+ */
+export function parseOffDays(raw: JsonValue | undefined): OffDay[] | undefined {
+  if (raw === undefined) return undefined;
+  if (!Array.isArray(raw)) {
+    logger.warn("Config 'trivia.offDays' must be an array — ignoring");
+    return [];
+  }
+
+  const exactRe = /^(\d{4})-(\d{2})-(\d{2})$/;
+  const recurringRe = /^(\d{2})-(\d{2})$/;
+  const out: OffDay[] = [];
+
+  for (let i = 0; i < raw.length; i++) {
+    const entry = raw[i];
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      logger.warn(`Config 'trivia.offDays[${i}]' must be an object — skipping`);
+      continue;
+    }
+    const e: JsonObject = entry;
+    const date = typeof e.date === "string" ? e.date : "";
+    const label = typeof e.label === "string" ? e.label : "";
+
+    if (date.length === 0) {
+      logger.warn(`Config 'trivia.offDays[${i}].date' must be a non-empty string — skipping`);
+      continue;
+    }
+
+    const exactMatch = exactRe.exec(date);
+    const recurringMatch = recurringRe.exec(date);
+    if (!exactMatch && !recurringMatch) {
+      logger.warn(
+        `Config 'trivia.offDays[${i}].date' "${date}" must be YYYY-MM-DD or MM-DD — skipping`,
+      );
+      continue;
+    }
+
+    const year = exactMatch ? Number(exactMatch[1]) : null;
+    const month = Number((exactMatch ?? recurringMatch)![exactMatch ? 2 : 1]);
+    const day = Number((exactMatch ?? recurringMatch)![exactMatch ? 3 : 2]);
+    if (!isRealCalendarDate(year, month, day)) {
+      logger.warn(
+        `Config 'trivia.offDays[${i}].date' "${date}" is not a real calendar date — skipping`,
+      );
+      continue;
+    }
+
+    if (label.length === 0) {
+      logger.warn(`Config 'trivia.offDays[${i}].label' must be a non-empty string — skipping`);
+      continue;
+    }
+
+    out.push({ date, label });
+  }
+
+  return out;
+}
+
 function parseTriggerChangesWorkflow(
   raw: Record<string, unknown> | undefined,
 ): TriggerChangesWorkflowConfig | undefined {
@@ -758,6 +977,8 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
       triviaRaw.questionsTypes as JsonValue | undefined,
     );
     const choices = parseTriviaChoicesConfig(triviaRaw.choices as JsonValue | undefined);
+    const games = parseTriviaGames(triviaRaw.games as JsonValue | undefined);
+    const offDays = parseOffDays(triviaRaw.offDays as JsonValue | undefined);
     if (triviaSeasonsRaw) {
       const seasonsEnabled = bool(triviaSeasonsRaw, "enabled") ?? false;
       const seasonsPrompt = str(triviaSeasonsRaw, "prompt") ?? "";
@@ -765,16 +986,24 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
         logger.warn(
           "Config 'trivia.seasons.enabled' is true but 'trivia.seasons.prompt' is missing — disabling seasons",
         );
-        triviaConfig = { seasons: { enabled: false, prompt: "" }, questionsTypes, choices };
+        triviaConfig = {
+          seasons: { enabled: false, prompt: "" },
+          questionsTypes,
+          choices,
+          games,
+          offDays,
+        };
       } else {
         triviaConfig = {
           seasons: { enabled: seasonsEnabled, prompt: seasonsPrompt },
           questionsTypes,
           choices,
+          games,
+          offDays,
         };
       }
     } else {
-      triviaConfig = { questionsTypes, choices };
+      triviaConfig = { questionsTypes, choices, games, offDays };
     }
   }
   const reusableFoldersRaw = cwRaw && section(cwRaw, "reusableFolders");

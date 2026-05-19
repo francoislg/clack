@@ -2,356 +2,250 @@
 
 ## Purpose
 
-Plugin-owned instruction tools that return on-demand prompts for the Trivia game's scheduled runs (question posting, answer reveal) and an admin-facing setup recipe that creates the matching cron jobs. Cron job prompts are thin dispatchers; the substantive behavior lives in the plugin's TypeScript constants.
+The trivia plugin generates its scheduled-run prompts (question posting, answer reveal) inline as TypeScript constants in `src/plugins/trivia/scheduledPrompts.ts`. The plugin's `buildGameSpecs()` substitutes a `{game}` placeholder per cron spec at plugin load and hands the resulting `CronJobSpec[]` to `sdk.reconcileCronJobs("trivia", ...)`. There are no on-demand "fetch the prompt" MCP tools — admins create games by editing `config.trivia.games[]` and the plugin reconciles automatically. A blocking migration upgrades legacy dispatcher-style cron jobs into the declarative model.
 
 ## Requirements
 
-### Requirement: Send Questions Instructions Tool
-
-The Trivia plugin SHALL expose a `send_questions_instructions` MCP tool that returns, as plain text, the full prompt the scheduled "question posting" run must follow.
-
-The tool SHALL be gated to the `admin` role (scheduled runs execute with the creator's role, which is admin+ for any trivia setup). The tool SHALL accept no arguments in v1.
-
-The returned prompt SHALL open with a **Game Show Presenter persona** directive ("energetic, engaging, and fun — add showmanship to your delivery") and then **branch on `suggestedType` from `get_ideas`**:
-
-**Boolean path** (`suggestedType: "boolean"`, the existing behavior):
-
-1. **Get category ideas and suggestions** — Call `get_ideas`. The tool returns `categories.ideas` (5 categories, excluding the last 10 used), `suggestedType: "boolean"`, `suggestedAnswer` (a boolean), and `suggestedDifficulty` (one of `"Easy"`, `"Medium"`, `"Hard"`). Pick one category from `categories.ideas`.
-2. **Research a TRUE fact** about that topic, aiming at the difficulty bucket named by `suggestedDifficulty` (Easy = 4–6 on the 1–10 scale, Medium = 7–8, Hard = 9–10).
-3. **Honor `suggestedAnswer`** — if `suggestedAnswer` is `true`, keep the statement TRUE. If `suggestedAnswer` is `false`, modify a key detail to make the statement FALSE. The prompt SHALL NOT instruct Claude to "randomly decide" — the random choice has already been made server-side.
-4. **Duplicate check** — Call `find_previous_questions`; if a match is found, iterate from step 2.
-5. **Validate** the final statement through research — confirm it is actually TRUE or FALSE, matching the `suggestedAnswer` honored in step 3.
-6. **Difficulty gate** — Self-rate 1–10. Reject and regenerate if the rating is ≤ 3/10; only proceed when ≥ 4/10.
-7. **Choose emojis** relating to the topic.
-8. **Save via `save_question`** with `{ type: "boolean", category, statement, isTrue, emojis }`; retain the returned `questionId`.
-9. **Format using Block Kit** — a single section with the statement plus 👍 (TRUE) / 👎 (FALSE) markers in that order.
-10. **Deliver via `submit_response`** with `reactions: ["+1", "-1"]` in that exact order.
-
-**Choice path** (`suggestedType: "choice"`):
-
-1. **Get category ideas and suggestions** — Call `get_ideas`. The tool returns `categories.ideas`, `suggestedType: "choice"`, `suggestedChoiceCount` (integer in active `[min, max]`), `suggestedCorrectIndex` (integer in `[0, suggestedChoiceCount)`), and `suggestedDifficulty`. Pick one category from `categories.ideas`.
-2. **Write the CORRECT answer first.** The correct answer SHALL be the option that occupies index `suggestedCorrectIndex`. The correct answer's index is locked by `suggestedCorrectIndex` — Claude MUST NOT rewrite the correct answer later to fix a gate failure, because that defeats the server-rolled correctness position.
-3. **Write `suggestedChoiceCount − 1` plausible-but-wrong distractors**, filling the remaining indices.
-4. **Distractor plausibility gate (REQUIRED — DO NOT SKIP):** rate each option (correct + every distractor) 1–10 on "how plausible does this sound as the correct answer to someone who doesn't know the topic" (NOT "how true is it"). Apply all four gate conditions:
-   - (a) correct answer plausibility ≥ 5
-   - (b) highest distractor plausibility ≥ 4
-   - (c) `correct − highest_distractor ≤ 4`
-   - (d) every distractor plausibility ≥ 2
-
-   If any condition fails, rewrite **only the failing distractor(s)**, never the correct answer. Retry budget: 3 distractor-rewrite passes per question. If the gate still fails after 3 passes, abandon the question and re-roll from `get_ideas`.
-5. **Difficulty gate** — Self-rate the question as a whole 1–10 against the `suggestedDifficulty` bucket. Reject and regenerate if ≤ 3/10.
-6. **Duplicate check** — Call `find_previous_questions` with a distinctive keyword from the statement; iterate if a match is found.
-7. **Choose emojis** relating to the topic.
-8. **Save via `save_question`** with `{ type: "choice", category, statement, emojis, choices, correctIndex }` where `correctIndex === suggestedCorrectIndex`; retain the returned `questionId`.
-9. **Format using Block Kit** — choose between two layouts:
-   - **Stacked** (one choice per line, `1️⃣ Option`): use when any choice text exceeds roughly 25 characters or choices read more naturally on separate lines.
-   - **Inline** (`1️⃣ A • 2️⃣ B • 3️⃣ C • 4️⃣ D`): use when all choices are short and read well on one line.
-10. **Deliver via `submit_response`** with `reactions` sized to `suggestedChoiceCount`:
-    - 2 → `["one", "two"]`
-    - 3 → `["one", "two", "three"]`
-    - 4 → `["one", "two", "three", "four"]`
-
-    Order matters — `:one:` first to ensure visual ordering matches the card layout.
-
-#### Scenario: Returns the full prompt with both paths
-
-- **WHEN** the tool is invoked
-- **THEN** it returns a non-empty string containing numbered sequences for BOTH the boolean path and the choice path
-- **AND** references `get_ideas`, `find_previous_questions`, `save_question`, and `submit_response` by their bare names
-
-#### Scenario: Prompt branches on suggestedType
-
-- **WHEN** the tool is invoked
-- **THEN** the returned text explicitly directs Claude to branch on the `suggestedType` field from `get_ideas`
-- **AND** describes the boolean path and the choice path distinctly
-
-#### Scenario: Boolean path instructs Claude to honor suggestedAnswer
-
-- **WHEN** the tool is invoked
-- **THEN** the boolean section references `suggestedAnswer` from `get_ideas`
-- **AND** instructs Claude to keep the statement TRUE when `suggestedAnswer` is `true`
-- **AND** instructs Claude to modify a key detail to make the statement FALSE when `suggestedAnswer` is `false`
-
-#### Scenario: Choice path instructs Claude to write correct answer at suggestedCorrectIndex
-
-- **WHEN** the tool is invoked
-- **THEN** the choice section instructs Claude to write the correct answer FIRST and place it at the index named by `suggestedCorrectIndex`
-- **AND** explicitly states that Claude MUST NOT rewrite the correct answer to fix a gate failure
-
-#### Scenario: Choice path enforces distractor plausibility gate
-
-- **WHEN** the tool is invoked
-- **THEN** the choice section describes the plausibility rating (1–10 on "how plausible does this sound as the correct answer to someone who doesn't know the topic")
-- **AND** names all four gate conditions (correct ≥ 5, highest distractor ≥ 4, gap ≤ 4, every distractor ≥ 2)
-- **AND** instructs Claude to rewrite only the failing distractor(s) on gate failure
-- **AND** specifies a retry budget of 3 distractor-rewrite passes per question
-- **AND** instructs Claude to abandon the question and re-roll from `get_ideas` after retries are exhausted
-
-#### Scenario: Choice path describes both stacked and inline Block Kit layouts
-
-- **WHEN** the tool is invoked
-- **THEN** the choice section describes both stacked and inline layouts
-- **AND** instructs Claude to pick by readability (stacked for long choices, inline for short choices)
-
-#### Scenario: Choice path sizes reactions array to suggestedChoiceCount
-
-- **WHEN** the tool is invoked
-- **THEN** the choice section instructs Claude to pass `reactions` sized to `suggestedChoiceCount` to `submit_response`
-- **AND** specifies the exact arrays: `["one", "two"]` for 2 choices, `["one", "two", "three"]` for 3, `["one", "two", "three", "four"]` for 4
-- **AND** instructs Claude to keep `:one:` first
-
-#### Scenario: Boolean path enforces reaction ordering
-
-- **WHEN** the tool is invoked
-- **THEN** the boolean section instructs Claude to pass `reactions: ["+1", "-1"]` to `submit_response`, in that order
-
-#### Scenario: Difficulty gate present on both paths
-
-- **WHEN** the tool is invoked
-- **THEN** both the boolean section and the choice section reference the 1–10 difficulty self-rating
-- **AND** both reject questions rated ≤ 3/10
-
-#### Scenario: Tool is gated to admin
-
-- **WHEN** a session's user has role below `admin`
-- **THEN** the tool is absent from the session's MCP catalog
-
-### Requirement: Process Responses Instructions Tool
-
-The Trivia plugin SHALL expose a `process_responses_instructions` MCP tool that returns, as plain text, the full prompt the scheduled "answer reveal" run must follow.
-
-The tool SHALL be gated to the `admin` role. The tool SHALL accept no arguments in v1.
-
-The returned prompt SHALL open with the **Game Show Presenter persona** directive and then instruct Claude through the following step flow, preserving the substantive behavior of the live cron job prior to this change. The prompt SHALL NOT include any cheat-detection logic or calls to `save_cheating` — cheat detection is handled exclusively by the `trivia-check` interactive-session instruction. The prompt MAY consume cheat data via the admin-tier `get_question_history` tool for the sole purpose of silent voter exclusion; it MUST NOT surface cheater identities or any allusion to them in the user-facing reveal.
-
-1. **Find the most recent question message** — Call `fetch_channel_messages` with `limit ≥ 20`. Take the most recent bot message containing "TRIVIA" that does NOT contain "ANSWER", "REVEALED", or "VOTING RESULTS" (those are prior reveals). Verify the message has a `reactions` object.
-2. **Extract the statement** from that message (strip emojis/formatting, keep the core claim).
-3. **Validate truth** — Research thoroughly.
-4. **Compose an explanation** with supporting facts.
-5. **Double-check** research accuracy.
-6. **Resolve the questionId and load history** — Call `find_previous_questions` with a distinctive keyword from the extracted statement to locate the matching stored question; capture its `id`. Then call `get_question_history(questionId)` to obtain `cheaterUserIds` for that question. If `find_previous_questions` returns no match or multiple matches, the prompt SHALL direct Claude to refine the keyword or fall back to the most recently `createdAt` matching question; if still ambiguous, proceed with an empty cheater list and flag the ambiguity in an internal note (not surfaced in the reveal).
-7. **Check season status (only when `trivia.seasons.enabled` is `true`)** — Call `check_season_status` and capture both `currentSlug` and `isLastFireOfSeason`. When `seasons.enabled` is `false`, this step SHALL be omitted entirely from the prompt — `check_season_status` is not referenced.
-8. **Categorize reactions, excluding the bot AND silently excluding cheaters** — Before any analysis, remove the bot's own user ID from every reaction list (the bot's self-reactions must never count as votes). Claude SHALL determine the bot's user ID from its own session context rather than relying on a hardcoded value. Then remove every user ID present in `cheaterUserIds` (from step 6) from every reaction list. The exclusion is silent: Claude MUST NOT mention, allude to, or stylistically signal these removals in the user-facing reveal. After both removals, `:+1:` = TRUE vote; `:-1:` = FALSE vote. Identify fence-sitters (users who reacted with both `:+1:` AND `:-1:`) and wildcards (users who used other emojis) from the post-exclusion lists.
-9. **Partition voters** into four disjoint groups (human users only, bot AND cheaters excluded): **Correct** (voted the right answer, single reaction), **Incorrect** (voted the wrong answer, single reaction), **Fence-sitters** (both `:+1:` and `:-1:`), **Wildcards** (other emojis).
-10. **Submit answers BEFORE response** — Call `submit_answers` with `[{ userId, displayName, answer: boolean }]` including ONLY single-reaction voters from the post-exclusion partition (exclude fence-sitters, wildcards, AND cheaters from scoring). `answer: true` for `:+1:`, `false` for `:-1:`. Wait for completion. On failure, retry once; if it still fails, proceed with `submit_response` and mention that scoring failed. `submit_response` MUST NOT be called until `submit_answers` has completed.
-11. **Retrieve leaderboard scores** — Call `retrieve_scores`. When `seasons.enabled` is `true`, the default `season: "current"` SHALL be used (no explicit arg required); the returned leaderboard entries SHALL contain both current-season and all-time totals per the `trivia-batch-answers` spec. When `seasons.enabled` is `false`, the returned leaderboard SHALL contain cumulative totals only.
-12. **Deliver via `submit_response`** using Block Kit blocks (Clack's curated subset: divider, header, section, context, image). The prompt SHALL require a `header` block announcing the correct answer and a `section` block explaining why, and SHALL then direct Claude to present the voting results while keeping the four voter situations in mind — **CORRECT voters**, **INCORRECT voters**, **FENCE-SITTERS**, **WILDCARDS**. The prompt SHALL NOT prescribe a fixed number of sections, fixed headings, or fixed sub-group labels for the voting results; layout is left to Claude's Game Show Presenter judgment.
-    - For each of the four situations, the prompt SHALL instruct Claude to cover it ONLY if at least one qualifying user exists, and to OMIT it entirely (no heading, no placeholder, no "nobody here" line) when empty.
-    - Cheater identities MUST NOT appear anywhere in the reveal — no mention, callout, footnote, or aside. If silent cheater removal empties a situation, the prompt SHALL instruct Claude to omit it under the same "skip when empty" rule, without drawing attention to the absence.
-    - If nobody voted at all (after excluding the bot and cheaters), acknowledge with game-show humor. Do NOT include a leaderboard snippet.
-    - **When `trivia.seasons.enabled` is `true` AND step 7 reported `isLastFireOfSeason: true`**, the prompt SHALL additionally instruct Claude to render a **season-finale section** *above* the leaderboard table. The finale SHALL: name the closing season slug, give a brief Game-Show-Presenter wrap-up paragraph in persona, and call out the season MVP (the player at index 0 of the current-season-ordered leaderboard from step 11). The finale SHALL NOT preview the next season's slug — that is announced only after step 13 has run.
-    - **Leaderboard table shape**:
-      - When `seasons.enabled` is `false`: render the 2-row table (names row with medals + scores row), as before this change.
-      - When `seasons.enabled` is `true`: render the 3-row table (empty-cell + names; "Current Season" + current counts with per-row top-3 medals; "All Time" + total counts with per-row top-3 medals). Columns are ordered by `currentSeasonCorrect` descending; players with `currentSeasonCorrect: 0` AND `currentSeasonAnswered: 0` SHALL be omitted from the table. Medal assignment on the All Time row SHALL be computed independently of the Current Season row's medal assignment.
-13. **Close the current season and ensure continuity (only when `trivia.seasons.enabled` is `true` AND step 7 reported `isLastFireOfSeason: true`)** — As the final action of the reveal flow, after `submit_response` has been issued:
-    a. Call `upsert_season(currentSlug, { endedAt: <Date.now()> })` to stamp the actual end time on the closing season. This is idempotent.
-    b. Examine the `nextSeasonSlug` field from the step 7 `check_season_status` return. If non-null, a queued continuation already exists; do nothing further (the timeline takes over naturally). If `null`, call `upsert_season(<derived slug>, { startedAt: <now>, expectedEndAt: <derived from trivia.seasons.prompt>, categories?: [...themed] })` to create one. Arguments derived from `trivia.seasons.prompt`: slug per its style guidance; `expectedEndAt` per its cadence guidance; `categories` populated with ~20 themed entries ONLY when the prompt or slug implies a clear theme — these REPLACE the baseline (not augment); omit `categories` for non-themed seasons to copy from `categories.json`.
-    c. The reveal has already been delivered — do NOT post a follow-up message about season transitions. The finale section already announced the closing season; the new season (if any) will announce itself via its first question post.
-
-    When `seasons.enabled` is `false` OR step 7 reported `isLastFireOfSeason: false`, step 13 SHALL be omitted entirely.
-
-#### Scenario: Returns the full step flow
-
-- **WHEN** the tool is invoked
-- **THEN** it returns a non-empty string containing a numbered sequence covering all steps above
-- **AND** references `fetch_channel_messages`, `find_previous_questions`, `get_question_history`, `submit_answers`, `retrieve_scores`, and `submit_response` by name
-- **AND** does NOT reference `save_cheating`
-
-#### Scenario: Prompt enforces bot exclusion without a hardcoded ID
-
-- **WHEN** the tool is invoked
-- **THEN** the returned text directs Claude to exclude the bot's own user ID from all reaction lists before analysis
-- **AND** instructs Claude to determine the bot's ID from session context rather than hardcoding a specific value
-- **AND** the text does NOT contain any specific deployment's bot user ID
-
-#### Scenario: Prompt enforces silent cheater exclusion
-
-- **WHEN** the tool is invoked
-- **THEN** the returned text directs Claude to call `get_question_history` after locating the question and to remove every user ID in `cheaterUserIds` from every reaction list before voter categorization
-- **AND** explicitly forbids mentioning, alluding to, or stylistically signalling the removal in the user-facing reveal
-- **AND** instructs Claude to exclude those user IDs from the `submit_answers` payload as well
-
-#### Scenario: Prompt enforces submit_answers-before-submit_response ordering
-
-- **WHEN** the tool is invoked
-- **THEN** the returned text includes an explicit rule that `submit_response` MUST NOT be called until `submit_answers` has completed
-- **AND** describes the one-retry-then-proceed fallback for `submit_answers` failures
-
-#### Scenario: Prompt names the four voter situations to cover
-
-- **WHEN** the tool is invoked
-- **THEN** the returned text names all four voter situations Claude must keep in mind: CORRECT voters, INCORRECT voters, FENCE-SITTERS, and WILDCARDS
-- **AND** does NOT mandate fixed sub-group labels (e.g. "Nailed it!", "Not quite!") or a rigid four-subsection layout — Claude is free to arrange the voting results however the Game Show Presenter persona deems best
-
-#### Scenario: Prompt instructs to skip empty voter situations
-
-- **WHEN** the tool is invoked
-- **THEN** the returned text instructs Claude to cover each voter situation ONLY if at least one qualifying user exists
-- **AND** instructs Claude to omit empty situations entirely — no heading, no placeholder, no "nobody here" line
-- **AND** the same skip-when-empty rule applies to situations emptied by silent cheater removal, without drawing attention to the absence
-
-#### Scenario: Prompt contains no cheat-detection logic
-
-- **WHEN** the tool is invoked
-- **THEN** the returned text does NOT mention `save_cheating`
-- **AND** does NOT include any DM-the-owner step
-- **AND** does NOT include any `<@ASKER_ID>` placeholder
-
-#### Scenario: Prompt handles questionId resolution failure
-
-- **WHEN** the tool is invoked
-- **THEN** the returned text instructs Claude on what to do if `find_previous_questions` returns no match or multiple matches
-- **AND** the fallback is to refine the keyword or pick the most recently `createdAt` match, with an empty cheater list if still ambiguous
-- **AND** the ambiguity is recorded internally, not in the user-facing reveal
-
-#### Scenario: Seasons disabled — prompt omits all seasons logic
-
-- **GIVEN** `trivia.seasons.enabled` is `false`
-- **WHEN** the tool is invoked
-- **THEN** the returned text does NOT reference `check_season_status`, `start_new_season`, `currentSeasonCorrect`, `currentSeasonAnswered`, "season finale", or the 3-row leaderboard shape
-- **AND** the leaderboard rendering instructions describe the 2-row form (names + scores)
-
-#### Scenario: Seasons enabled, mid-season reveal — finale and rollover skipped
-
-- **GIVEN** `trivia.seasons.enabled` is `true`
-- **WHEN** the tool is invoked
-- **THEN** the returned text instructs Claude to call `check_season_status` early in the flow
-- **AND** instructs Claude to render the 3-row leaderboard regardless of season-end state
-- **AND** instructs Claude to render the finale section ONLY when `isLastFireOfSeason` is `true`
-- **AND** instructs Claude to call `start_new_season` as the final tool ONLY when `isLastFireOfSeason` is `true`
-
-#### Scenario: Seasons enabled, last-fire reveal — finale plus rollover, in that order
-
-- **GIVEN** `trivia.seasons.enabled` is `true` and the reveal flow detects `isLastFireOfSeason: true`
-- **WHEN** the tool is invoked
-- **THEN** the returned text instructs Claude that the finale section is rendered ABOVE the 3-row leaderboard table inside the same `submit_response` call
-- **AND** the returned text instructs Claude that `start_new_season` is the FINAL tool call of the flow, made after `submit_response` has been issued
-- **AND** the returned text instructs Claude NOT to preview the next season's slug in the finale section (because `start_new_season` has not yet run when the reveal is delivered)
-
-#### Scenario: Seasons enabled, prompt names retrieve_scores with default season
-
-- **GIVEN** `trivia.seasons.enabled` is `true`
-- **WHEN** the tool is invoked
-- **THEN** the returned text instructs Claude to call `retrieve_scores` with no explicit `season` argument
-- **AND** explains that the default (`"current"`) is the desired behavior for the leaderboard table
-
-### Requirement: Create Schedules Instructions Tool
-
-The Trivia plugin SHALL expose a `create_schedules_instructions` MCP tool, gated to the `admin` role, that returns plain-text instructions guiding Clack to create the two trivia cron jobs. The tool SHALL accept no arguments in v1.
-
-The fields the recipe SHALL fix across both schedules are only the structural ones; timing is elicited from the user, not defaulted:
-
-| Field            | Schedule A (question)                                                                                                                          | Schedule B (reveal)                                                                                                                                                                                 |
-| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `cronExpression` | **asked from the user** (no default)                                                                                                           | **asked from the user** (no default)                                                                                                                                                                |
-| `timezone`       | **asked from the user** if not clear from context                                                                                              | same as Schedule A                                                                                                                                                                                  |
-| `plugin`         | `trivia`                                                                                                                                       | `trivia`                                                                                                                                                                                            |
-| `requiredTools`  | `["mcp__trivia__send_questions_instructions", "mcp__trivia__get_ideas", "mcp__trivia__find_previous_questions", "mcp__trivia__save_question"]` | base: `["mcp__trivia__process_responses_instructions", "mcp__clack__fetch_channel_messages", "mcp__trivia__find_previous_questions", "mcp__trivia__get_question_history", "mcp__trivia__submit_answers", "mcp__trivia__retrieve_scores"]`; when `trivia.seasons.enabled` is `true`, also append `"mcp__trivia__check_season_status"`. The conditionally-called timeline tools (`upsert_season`, `delete_season`) are deliberately NOT in `requiredTools` — they fire only on the last reveal day / admin retraction; listing them would block every other day's reveal. |
-| thin `prompt`    | `"Call send_questions_instructions and follow the returned instructions exactly."`                                                             | `"Call process_responses_instructions and follow the returned instructions exactly."`                                                                                                               |
-| `channel`        | asked from the user                                                                                                                            | same as Schedule A                                                                                                                                                                                  |
-
-The returned instructions SHALL direct Clack to:
-
-1. **Detect duplicates first** — call `list_scheduled_messages` (or equivalent). If a trivia schedule already exists in the target channel, ask the user before creating or updating.
-2. **Ask for the channel** — unless the user specified one in the request. The two schedules SHALL be created in the same channel.
-3. **Ask for both times** — if the user did not provide times, Clack SHALL explicitly ask:
-   - The time and days of the week for Schedule A (when the question is posted).
-   - The time and days of the week for Schedule B (when the answer is revealed). Schedule B SHOULD be later on the same weekday(s) as Schedule A; Clack SHALL flag any user-provided configuration that would reveal the answer before the question is posted.
-   - The timezone, unless obvious from prior context. Clack SHALL NOT fabricate a default timezone.
-4. **Create Schedule A** (question posting) with the parameters tabulated above, using `create_scheduled_message` (or equivalent action tool).
-5. **Create Schedule B** (answer reveal) with the parameters tabulated above, in the same channel as Schedule A. When `trivia.seasons.enabled` is `true`, the `requiredTools` array SHALL append `mcp__trivia__check_season_status` ONLY to the base tools listed above. `upsert_season` and `delete_season` MUST NOT appear in `requiredTools` (they are conditionally called).
-6. **Confirm back to the user** — summarize both schedules (channel, cron, timezone, prompt) so the admin can verify.
-
-#### Scenario: Returns a complete setup recipe
-
-- **WHEN** the tool is invoked
-- **THEN** the returned text contains both schedule definitions matching the table
-- **AND** instructs Clack to check for existing schedules first
-- **AND** does NOT require any asker-ID capture or interpolation step
-
-#### Scenario: Recipe elicits times from the user — no hardcoded defaults
-
-- **WHEN** the tool is invoked
-- **THEN** the returned text instructs Clack to ASK the user for the posting time, the reveal time, the days of the week, and the timezone if any of these are not specified in the original request
-- **AND** does NOT specify a default cron expression for either schedule
-- **AND** does NOT specify a default timezone
-
-#### Scenario: Recipe fixes the structural, plugin-owned fields
-
-- **WHEN** the tool is invoked
-- **THEN** the returned text specifies `plugin: "trivia"` on both schedules
-- **AND** both schedules target the SAME channel (captured from user input)
-- **AND** Schedule B's configuration is to be created in the same channel as Schedule A
-
-#### Scenario: Recipe flags inverted timing
-
-- **WHEN** the user provides times such that Schedule B would fire before Schedule A on any given day
-- **THEN** the recipe instructs Clack to flag the inversion and ask the user to reconsider before creating the schedules
-
-#### Scenario: Recipe specifies the correct requiredTools per schedule
-
-- **WHEN** the tool is invoked
-- **THEN** Schedule A's `requiredTools` includes at minimum `send_questions_instructions`, `get_ideas`, `find_previous_questions`, and `save_question` (all as `mcp__trivia__*`)
-- **AND** Schedule B's `requiredTools` includes at minimum `process_responses_instructions`, `fetch_channel_messages` (as `mcp__clack__fetch_channel_messages`), `find_previous_questions`, `get_question_history`, and `submit_answers` (all trivia entries as `mcp__trivia__*`)
-
-#### Scenario: Recipe uses thin dispatcher prompts
-
-- **WHEN** the tool is invoked
-- **THEN** Schedule A's prompt is a one-line directive to call `send_questions_instructions` and follow its return
-- **AND** Schedule B's prompt is a one-line directive to call `process_responses_instructions` and follow its return
-- **AND** neither prompt inlines the persona, step sequence, voter-categorization, or formatting rules
-- **AND** Schedule B's prompt does NOT reference `save_cheating`, `post_to`, or any cheat-notification logic
-
-#### Scenario: Tool description triggers on setup intent
-
-- **WHEN** an admin says "set up trivia", "install trivia", or "create trivia schedules"
-- **THEN** Claude (based on the tool's description) calls `create_schedules_instructions` before attempting to create any cron jobs
-
-#### Scenario: Tool is gated to admin
-
-- **WHEN** a session's user has role below `admin`
-- **THEN** the tool is absent from the session's MCP catalog
-
 ### Requirement: Schedule Prompts Are Thin Dispatchers
 
-Cron jobs created via the setup recipe SHALL store prompts that only dispatch to the corresponding instruction tool; the scheduled behavior SHALL live in the plugin, not in `cron-jobs.json`.
+Cron jobs reconciled by `sdk.reconcileCronJobs("trivia", specs)` from `config.trivia.games[]` SHALL carry full prompts inlined by `buildGameSpecs()`. Each spec's `prompt` SHALL embed the game's `name` at the top (`"Game: <name>. ..."`) and pass `game: "<name>"` literally to every trivia tool call referenced in the prompt's step sequence.
 
-#### Scenario: Schedule A prompt is a thin dispatcher
+The prompt text itself SHALL come from constants in `src/plugins/trivia/scheduledPrompts.ts`:
 
-- **WHEN** Schedule A is created via the setup recipe
-- **THEN** its prompt consists of a short directive to call `send_questions_instructions` and follow the returned text
-- **AND** does not inline any of the step sequence, persona, or formatting rules
+- `SEND_QUESTIONS_INSTRUCTIONS` for the question-posting spec (`<name>:question`).
+- The return value of `getProcessResponsesInstructions(seasonsEnabled)` for the reveal spec (`<name>:reveal`).
 
-#### Scenario: Schedule B prompt is a thin dispatcher
+Each constant SHALL contain a `{game}` placeholder (used at every tool-call step that takes a `game` arg, plus a header line). `buildGameSpecs()` SHALL substitute `{game}` with the spec's `name` before assigning to `CronJobSpec.prompt`.
 
-- **WHEN** Schedule B is created via the setup recipe
-- **THEN** its prompt consists of a short directive to call `process_responses_instructions` and follow the returned text
-- **AND** does not inline any of the step sequence, persona, or formatting rules
-- **AND** does not reference cheat detection or owner DMs
+The persona directive ("PERSONA: You are a charismatic Game Show Presenter!...") SHALL be preserved at the top of both prompt constants. The substantive step flow (research, polarity self-check, duplicate check, difficulty gate, save, format, deliver) for the question post SHALL be preserved. The substantive step flow (fetch most recent question message, extract statement, validate truth, resolve questionId, load history, categorize voters, submit_answers before submit_response, retrieve_scores, deliver Block Kit reveal, season-finale and rollover when applicable) for the reveal SHALL be preserved.
 
-#### Scenario: Schedule B requiredTools omits seasons tools when seasons are disabled
+#### Scenario: buildGameSpecs substitutes the game name into both prompts
 
-- **GIVEN** `trivia.seasons.enabled` is `false`
-- **WHEN** the tool is invoked
-- **THEN** the returned text instructs Clack to set Schedule B's `requiredTools` to the base list only
-- **AND** the returned text does NOT reference `mcp__trivia__check_season_status` or `mcp__trivia__start_new_season`
+- **GIVEN** `config.trivia.games[]` contains `{ name: "main", questionCron: "0 9 * * *", revealCron: "0 17 * * *", timezone: "UTC", channel: "C123", enabled: true }`
+- **WHEN** `buildGameSpecs([main], seasonsEnabled: false)` is called
+- **THEN** the returned `specs` includes a `<name>:question` spec whose `prompt` contains the substring `Game: main` and references `game: "main"` at every tool-call step
+- **AND** the returned `specs` includes a `<name>:reveal` spec whose `prompt` similarly contains `Game: main` and references `game: "main"` at every tool-call step
 
-#### Scenario: Schedule B requiredTools appends only check_season_status when seasons are enabled
+#### Scenario: Disabled games are excluded from buildGameSpecs output
 
-- **GIVEN** `trivia.seasons.enabled` is `true`
-- **WHEN** the tool is invoked
-- **THEN** the returned text instructs Clack to set Schedule B's `requiredTools` to the base list PLUS `mcp__trivia__check_season_status`
-- **AND** the returned text does NOT include `mcp__trivia__upsert_season` or `mcp__trivia__delete_season` in `requiredTools`
-- **AND** the returned text does NOT reference `mcp__trivia__start_new_season` (the obsolete name)
+- **GIVEN** `config.trivia.games[]` contains `{ name: "retired", enabled: false, ... }` and `{ name: "main", enabled: true, ... }`
+- **WHEN** `buildGameSpecs(games, ...)` is called
+- **THEN** the returned `specs` includes `main:question` and `main:reveal`
+- **AND** does NOT include `retired:question` or `retired:reveal`
 
-### Requirement: Existing Trivia Cron Jobs Remain Functional
+#### Scenario: Per-game prompts are isolated from each other
 
-Cron jobs created before this change, which embed fat prompts inline, SHALL continue to execute correctly without modification.
+- **GIVEN** `config.trivia.games[]` contains both `main` and `sandbox`
+- **WHEN** `buildGameSpecs(games, ...)` is called
+- **THEN** the `main:question` spec's prompt contains `game: "main"` and NOT `game: "sandbox"`
+- **AND** the `sandbox:question` spec's prompt contains `game: "sandbox"` and NOT `game: "main"`
 
-The change SHALL NOT ship an automatic migration; admins MAY re-run `create_schedules_instructions` to replace those jobs with thin dispatchers when they choose.
+### Requirement: Question-posting prompt step flow
 
-#### Scenario: Pre-existing fat-prompt cron still runs
+The `SEND_QUESTIONS_INSTRUCTIONS` constant SHALL contain a numbered step flow that opens with the Game Show Presenter persona directive and a "Game: {game}" header, then directs Claude through:
 
-- **WHEN** a cron job exists with an inline multi-line prompt and `plugin: "trivia"` (or no plugin link)
-- **THEN** the scheduler triggers it with the inline prompt as before
-- **AND** the run completes as it did prior to this change
+1. **Get category ideas and suggestions** — Call `get_ideas(game: "{game}")`. Read `suggestedAnswer` and `suggestedDifficulty`. Pick one category from `categories.ideas`.
+2. **Write a statement with the correct polarity from the start** — branch on `suggestedAnswer`; never write true then flip.
+3. **Polarity self-check** — explicitly verify the statement's actual truth matches `suggestedAnswer`; rewrite if not.
+4. **Check for duplicates** — Call `find_previous_questions(game: "{game}", text: ...)`; iterate if a match exists in this game's history.
+5. **Validate through research** — confirm the statement is actually true/false.
+6. **Difficulty gate** — self-rate 1–10. Easy = 4–6, Medium = 7–8, Hard = 9–10. Reject and regenerate if ≤ 3/10.
+7. **Choose emojis** relating to the topic.
+8. **Save via `save_question(game: "{game}", category, statement, isTrue, emojis)`** — retain `questionId`.
+9. **Format using Block Kit `sections`** — 👍 (TRUE) before 👎 (FALSE).
+10. **Deliver via `submit_response`** with `reactions: ["+1", "-1"]`.
+
+The prompt SHALL invite Claude to invent a style each day and include at least one concrete example for inspiration.
+
+#### Scenario: Prompt content includes the game header and game-scoped tool calls
+
+- **GIVEN** `buildGameSpecs([{ name: "main", ... }], false)` was called
+- **WHEN** the `main:question` spec's `prompt` is inspected
+- **THEN** the prompt opens with the persona directive and a `Game: main` header
+- **AND** every reference to `get_ideas`, `find_previous_questions`, or `save_question` passes `game: "main"` as an argument
+
+#### Scenario: Prompt instructs Claude to honor suggestedAnswer
+
+- **WHEN** the prompt content is inspected
+- **THEN** the returned text references `suggestedAnswer` from `get_ideas`
+- **AND** instructs Claude to keep the statement TRUE when `suggestedAnswer` is `true`, FALSE otherwise
+- **AND** does NOT instruct Claude to "randomly decide" the truth value
+
+#### Scenario: Prompt enforces the difficulty gate
+
+- **WHEN** the prompt content is inspected
+- **THEN** the returned text contains an explicit rule that questions rated ≤ 3/10 MUST be rejected and regenerated
+- **AND** spells out the bucket-to-1–10 mapping (Easy = 4–6, Medium = 7–8, Hard = 9–10)
+
+#### Scenario: Prompt enforces reaction ordering
+
+- **WHEN** the prompt content is inspected
+- **THEN** the returned text instructs Claude to pass `reactions: ["+1", "-1"]` to `submit_response`, in that order
+- **AND** instructs Claude that 👍 (TRUE) must be mentioned before 👎 (FALSE) in the message body
+
+### Requirement: Answer-reveal prompt step flow
+
+The `getProcessResponsesInstructions(seasonsEnabled)` function SHALL return a prompt that opens with the Game Show Presenter persona directive and a "Game: {game}" header, then directs Claude through the reveal flow:
+
+1. **Fetch the most recent question message** via `fetch_channel_messages`.
+2. **Extract the statement** from that message.
+3. **Validate truth** via research.
+4. **Compose an explanation** with supporting facts.
+5. **Double-check** research accuracy.
+6. **Resolve questionId and load history** — Call `find_previous_questions(game: "{game}", text: ...)` to locate the question, then `get_question_history(game: "{game}", questionId)` for cheater list.
+7. **Check season status (only when seasons enabled)** — Call `check_season_status(game: "{game}")`.
+8. **Categorize reactions, excluding the bot AND silently excluding cheaters**.
+9. **Partition voters** into Correct / Incorrect / Fence-sitters / Wildcards.
+10. **Submit answers BEFORE response** — Call `submit_answers(game: "{game}", ...)` with single-reaction voters only. `submit_response` MUST NOT run until `submit_answers` completes.
+11. **Retrieve leaderboard scores** — Call `retrieve_scores(game: "{game}")`.
+12. **Deliver via `submit_response`** using Block Kit (header + section + voter situation coverage + leaderboard table).
+13. **Close the current season and ensure continuity (only when seasons enabled AND `isLastFireOfSeason: true`)** — As the final action, call `upsert_season(game: "{game}", slug: currentSlug, endedAt: <now>)` and (when no future season is queued) create a new starter season.
+
+The prompt SHALL NOT mention `save_cheating`, cheater identities, or any DM-the-owner step (cheat detection is the `trivia-check` instruction's responsibility, not the reveal flow's).
+
+#### Scenario: Reveal prompt content includes the game header and game-scoped tool calls
+
+- **GIVEN** `getProcessResponsesInstructions(true)` returns the seasons-enabled prompt template
+- **WHEN** `buildGameSpecs([{ name: "main", ... }], true)` substitutes `{game}` with `main`
+- **THEN** the resulting `main:reveal` spec's `prompt` opens with the persona directive and a `Game: main` header
+- **AND** every reference to `find_previous_questions`, `get_question_history`, `submit_answers`, `retrieve_scores`, `check_season_status`, or `upsert_season` passes `game: "main"` as an argument
+- **AND** the prompt does NOT reference `save_cheating`
+
+#### Scenario: Reveal prompt enforces bot exclusion without a hardcoded ID
+
+- **WHEN** the reveal prompt content is inspected
+- **THEN** the returned text directs Claude to exclude the bot's own user ID from all reaction lists before analysis
+- **AND** instructs Claude to determine the bot's ID from session context rather than hardcoding a specific value
+
+#### Scenario: Reveal prompt enforces silent cheater exclusion
+
+- **WHEN** the reveal prompt content is inspected
+- **THEN** the returned text directs Claude to call `get_question_history(game: "{game}", questionId: ...)` after locating the question and to remove every user ID in `cheaterUserIds` from every reaction list before voter categorization
+- **AND** explicitly forbids mentioning, alluding to, or stylistically signalling the removal in the user-facing reveal
+
+#### Scenario: Reveal prompt enforces submit_answers-before-submit_response ordering
+
+- **WHEN** the reveal prompt content is inspected
+- **THEN** the returned text includes an explicit rule that `submit_response` MUST NOT be called until `submit_answers(game: "{game}", ...)` has completed
+
+#### Scenario: Reveal prompt names the four voter situations
+
+- **WHEN** the reveal prompt content is inspected
+- **THEN** the returned text names all four voter situations Claude must cover: CORRECT voters, INCORRECT voters, FENCE-SITTERS, and WILDCARDS
+
+#### Scenario: Reveal prompt contains no cheat-detection logic
+
+- **WHEN** the reveal prompt content is inspected
+- **THEN** the returned text does NOT mention `save_cheating`
+- **AND** does NOT include any DM-the-owner step
+
+#### Scenario: Seasons disabled — reveal prompt omits all seasons logic
+
+- **GIVEN** `getProcessResponsesInstructions(false)` returns the seasons-disabled template
+- **WHEN** the returned prompt content is inspected
+- **THEN** the text does NOT reference `check_season_status`, `upsert_season`, `currentSeasonCorrect`, `currentSeasonAnswered`, "season finale", or the 3-row leaderboard shape
+
+#### Scenario: Seasons enabled — reveal prompt includes finale + rollover only on last-fire days
+
+- **GIVEN** `getProcessResponsesInstructions(true)` returns the seasons-enabled template
+- **WHEN** the returned prompt content is inspected
+- **THEN** the text instructs Claude to call `check_season_status(game: "{game}")` early
+- **AND** instructs Claude to render the 3-row leaderboard regardless of season-end state
+- **AND** instructs Claude to render the finale section ONLY when `isLastFireOfSeason` is `true`
+- **AND** instructs Claude to call `upsert_season(game: "{game}", slug: currentSlug, endedAt: <now>)` as the final tool ONLY when `isLastFireOfSeason` is `true`
+
+### Requirement: requiredTools per spec
+
+Each game's question spec SHALL have `requiredTools` equal to:
+
+```
+["mcp__trivia__get_ideas", "mcp__trivia__find_previous_questions", "mcp__trivia__save_question"]
+```
+
+Each game's reveal spec SHALL have `requiredTools` equal to:
+
+```
+base = [
+  "mcp__clack__fetch_channel_messages",
+  "mcp__trivia__find_previous_questions",
+  "mcp__trivia__get_question_history",
+  "mcp__trivia__submit_answers",
+  "mcp__trivia__retrieve_scores"
+]
+```
+
+When `trivia.seasons.enabled` is `true`, the reveal spec's `requiredTools` SHALL additionally include `"mcp__trivia__check_season_status"`. The conditionally-called timeline tools (`upsert_season`, `delete_season`) SHALL deliberately NOT be in `requiredTools` — they fire only on the last reveal day; listing them would block every other day's reveal.
+
+#### Scenario: Question spec requiredTools
+
+- **WHEN** `buildGameSpecs` produces a `<name>:question` spec
+- **THEN** the spec's `requiredTools` includes (at minimum) `mcp__trivia__get_ideas`, `mcp__trivia__find_previous_questions`, and `mcp__trivia__save_question`
+
+#### Scenario: Reveal spec requiredTools omits seasons tools when seasons are disabled
+
+- **GIVEN** `buildGameSpecs(games, seasonsEnabled: false)` is called
+- **WHEN** the resulting `<name>:reveal` spec is inspected
+- **THEN** `requiredTools` consists of the base list only — no `mcp__trivia__check_season_status`
+
+#### Scenario: Reveal spec requiredTools appends check_season_status when seasons are enabled
+
+- **GIVEN** `buildGameSpecs(games, seasonsEnabled: true)` is called
+- **WHEN** the resulting `<name>:reveal` spec is inspected
+- **THEN** `requiredTools` is the base list PLUS `mcp__trivia__check_season_status`
+- **AND** does NOT include `mcp__trivia__upsert_season` or `mcp__trivia__delete_season`
+
+### Requirement: Misconfigured reveal-before-question warning
+
+When `buildGameSpecs` is called, for each game whose `revealCron` would fire before `questionCron` on the next matching date in the game's timezone, the plugin SHALL emit a logger warning naming the game and both cron expressions. The specs SHALL still be returned (no rejection at build time) — the warning surfaces likely misconfigurations without blocking startup.
+
+#### Scenario: Reveal-before-question is warned but not blocked
+
+- **GIVEN** `config.trivia.games[]` contains `{ name: "main", questionCron: "0 17 * * *", revealCron: "0 9 * * *", ... }` (reveal at 9am, question at 5pm)
+- **WHEN** `buildGameSpecs([main], ...)` is called
+- **THEN** the function returns both `main:question` and `main:reveal` specs (no rejection)
+- **AND** a warning is logged identifying `main` and both cron expressions
+
+### Requirement: Legacy Trivia Cron Migration
+
+A blocking migration SHALL run at boot to convert pre-existing dispatcher-style trivia cron jobs into `config.trivia.games[]` entries and delete them from `cron-jobs.json`. The migration SHALL be idempotent and safe to run multiple times.
+
+A cron job is considered a candidate iff `plugin === "trivia"` AND `prompt` matches one of the known dispatcher patterns (`"Call send_questions_instructions and follow"` or `"Call process_responses_instructions and follow"`).
+
+For each pair of candidates sharing the same `channel` (one question + one reveal), the migration SHALL:
+1. Derive a `name` (e.g., `"legacy-<channel>"`, lowercased).
+2. Append a `TriviaGame` entry to `config.trivia.games[]` with `channel`, `questionCron`, `revealCron`, and `timezone`.
+3. Delete both source jobs from `cron-jobs.json`.
+
+The same migration ALSO moves any legacy flat-file trivia data (`data/plugins/trivia/{questions,answers,cheats,seasons}.json`) into a per-game directory under `data/plugins/trivia/games/<target>/`. The target is selected in this order: first newly-created `legacy-<channel>` from this run, else first pre-existing `config.trivia.games[]` entry, else a fallback `initialgame` entry with placeholder crons and `enabled: false`. See the `trivia-games` capability for the full data-move contract.
+
+Inline fat-prompt legacy cron jobs (whose `prompt` does NOT match a dispatcher pattern) SHALL be left untouched by the migration. Such jobs, on first scheduled fire post-upgrade, will fail at the first `mcp__trivia__*` tool call because the tool now requires a `game` argument the inline prompt does not pass. Operators SHALL delete and re-create these jobs by adding entries to `config.trivia.games[]`.
+
+#### Scenario: Dispatcher pair migrates cleanly
+
+- **GIVEN** two cron jobs in channel `C123` with `plugin === "trivia"`, one having `prompt` matching the question dispatcher and `cronExpression: "0 9 * * 1-5"`, the other matching the reveal dispatcher with `cronExpression: "0 15 * * 1-5"`
+- **WHEN** the migration runs
+- **THEN** `config.trivia.games[]` gains an entry matching `{ name: "legacy-c123", channel: "C123", questionCron: "0 9 * * 1-5", revealCron: "0 15 * * 1-5", timezone: <inherited> }`
+- **AND** both source jobs are removed from `cron-jobs.json`
+
+#### Scenario: Inline fat-prompt legacy job is left in place
+
+- **GIVEN** a cron job with `plugin === "trivia"` whose `prompt` is a heavily customized multi-line text (not a known dispatcher pattern)
+- **WHEN** the migration runs
+- **THEN** the job is NOT migrated
+- **AND** the job persists in `cron-jobs.json`
+- **AND** on its next scheduled fire, the first `mcp__trivia__*` tool call returns a "missing game argument" Zod error
+- **AND** the run aborts without writing any per-game data
+
+#### Scenario: Migration is idempotent
+
+- **GIVEN** the migration has run once and converted all candidates
+- **WHEN** the migration runs again on the next boot
+- **THEN** no candidates are found
+- **AND** the migration is a no-op (no writes to either file)
+
+#### Scenario: Unpaired candidate is flagged
+
+- **GIVEN** a single dispatcher-style job in channel `C123` with no matching pair (only a question, no reveal — or vice versa)
+- **WHEN** the migration runs
+- **THEN** the job is NOT migrated (a `TriviaGame` requires both question and reveal crons)
+- **AND** the job continues to fire

@@ -1178,3 +1178,485 @@ describe("trivia.choices config", () => {
     assert.throws(() => loadConfig(configPath, true), /must be an object/);
   });
 });
+
+describe("trivia.games config", () => {
+  const originalCwd = process.cwd();
+
+  beforeEach(() => {
+    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true });
+    mkdirSync(tmpBase, { recursive: true });
+    process.chdir(tmpBase);
+    writeSlackAuth();
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+  });
+
+  it("absent when not configured", () => {
+    writeConfig(minimalConfig({ trivia: {} }));
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.trivia?.games, undefined);
+  });
+
+  it("empty array is preserved as empty array", () => {
+    writeConfig(minimalConfig({ trivia: { games: [] } }));
+    const cfg = loadConfig(configPath, true);
+    assert.deepEqual(cfg.trivia?.games, []);
+  });
+
+  it("parses a valid single-game entry", () => {
+    writeConfig(
+      minimalConfig({
+        trivia: {
+          games: [
+            {
+              name: "ops-daily",
+              channel: "C123",
+              questionCron: "0 9 * * 1-5",
+              revealCron: "0 15 * * 1-5",
+              timezone: "America/Montreal",
+            },
+          ],
+        },
+      }),
+    );
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.trivia?.games?.length, 1);
+    assert.deepEqual(cfg.trivia?.games?.[0], {
+      name: "ops-daily",
+      channel: "C123",
+      questionCron: "0 9 * * 1-5",
+      revealCron: "0 15 * * 1-5",
+      timezone: "America/Montreal",
+      enabled: true,
+    });
+  });
+
+  it("drops entries with invalid cron expressions", () => {
+    writeConfig(
+      minimalConfig({
+        trivia: {
+          games: [
+            {
+              name: "good",
+              channel: "C1",
+              questionCron: "0 9 * * 1-5",
+              revealCron: "0 15 * * 1-5",
+              timezone: "UTC",
+            },
+            {
+              name: "bad",
+              channel: "C2",
+              questionCron: "not a cron",
+              revealCron: "0 15 * * *",
+              timezone: "UTC",
+            },
+          ],
+        },
+      }),
+    );
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.trivia?.games?.length, 1);
+    assert.equal(cfg.trivia?.games?.[0]?.name, "good");
+  });
+
+  it("drops entries with malformed channel", () => {
+    writeConfig(
+      minimalConfig({
+        trivia: {
+          games: [
+            {
+              name: "bad-channel",
+              channel: "#general", // not a channel ID
+              questionCron: "0 9 * * 1-5",
+              revealCron: "0 15 * * 1-5",
+              timezone: "UTC",
+            },
+          ],
+        },
+      }),
+    );
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.trivia?.games?.length, 0);
+  });
+
+  it("drops duplicate names but keeps the first", () => {
+    writeConfig(
+      minimalConfig({
+        trivia: {
+          games: [
+            {
+              name: "dup",
+              channel: "C1",
+              questionCron: "0 9 * * 1-5",
+              revealCron: "0 15 * * 1-5",
+              timezone: "UTC",
+            },
+            {
+              name: "dup",
+              channel: "C2",
+              questionCron: "0 10 * * 1-5",
+              revealCron: "0 16 * * 1-5",
+              timezone: "UTC",
+            },
+          ],
+        },
+      }),
+    );
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.trivia?.games?.length, 1);
+    assert.equal(cfg.trivia?.games?.[0]?.channel, "C1");
+  });
+
+  it("drops entries with empty name", () => {
+    writeConfig(
+      minimalConfig({
+        trivia: {
+          games: [
+            {
+              name: "",
+              channel: "C1",
+              questionCron: "0 9 * * 1-5",
+              revealCron: "0 15 * * 1-5",
+              timezone: "UTC",
+            },
+          ],
+        },
+      }),
+    );
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.trivia?.games?.length, 0);
+  });
+
+  it("drops entries with empty timezone", () => {
+    writeConfig(
+      minimalConfig({
+        trivia: {
+          games: [
+            {
+              name: "no-tz",
+              channel: "C1",
+              questionCron: "0 9 * * 1-5",
+              revealCron: "0 15 * * 1-5",
+              timezone: "",
+            },
+          ],
+        },
+      }),
+    );
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.trivia?.games?.length, 0);
+  });
+
+  it("drops entries whose name has uppercase letters", () => {
+    writeConfig(
+      minimalConfig({
+        trivia: {
+          games: [
+            {
+              name: "Main",
+              channel: "C1",
+              questionCron: "0 9 * * 1-5",
+              revealCron: "0 15 * * 1-5",
+              timezone: "UTC",
+            },
+          ],
+        },
+      }),
+    );
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.trivia?.games?.length, 0);
+  });
+
+  it("drops entries whose name has whitespace", () => {
+    writeConfig(
+      minimalConfig({
+        trivia: {
+          games: [
+            {
+              name: "has spaces",
+              channel: "C1",
+              questionCron: "0 9 * * 1-5",
+              revealCron: "0 15 * * 1-5",
+              timezone: "UTC",
+            },
+          ],
+        },
+      }),
+    );
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.trivia?.games?.length, 0);
+  });
+
+  it("drops entries whose name has path-traversal characters", () => {
+    writeConfig(
+      minimalConfig({
+        trivia: {
+          games: [
+            {
+              name: "../etc",
+              channel: "C1",
+              questionCron: "0 9 * * 1-5",
+              revealCron: "0 15 * * 1-5",
+              timezone: "UTC",
+            },
+            {
+              name: "a/b",
+              channel: "C2",
+              questionCron: "0 9 * * 1-5",
+              revealCron: "0 15 * * 1-5",
+              timezone: "UTC",
+            },
+          ],
+        },
+      }),
+    );
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.trivia?.games?.length, 0);
+  });
+
+  it("drops entries whose name exceeds 32 characters", () => {
+    writeConfig(
+      minimalConfig({
+        trivia: {
+          games: [
+            {
+              name: "a".repeat(33),
+              channel: "C1",
+              questionCron: "0 9 * * 1-5",
+              revealCron: "0 15 * * 1-5",
+              timezone: "UTC",
+            },
+          ],
+        },
+      }),
+    );
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.trivia?.games?.length, 0);
+  });
+
+  it("accepts a 32-character name", () => {
+    writeConfig(
+      minimalConfig({
+        trivia: {
+          games: [
+            {
+              name: "a".repeat(32),
+              channel: "C1",
+              questionCron: "0 9 * * 1-5",
+              revealCron: "0 15 * * 1-5",
+              timezone: "UTC",
+            },
+          ],
+        },
+      }),
+    );
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.trivia?.games?.length, 1);
+  });
+
+  it("defaults enabled to true when absent", () => {
+    writeConfig(
+      minimalConfig({
+        trivia: {
+          games: [
+            {
+              name: "default-enabled",
+              channel: "C1",
+              questionCron: "0 9 * * 1-5",
+              revealCron: "0 15 * * 1-5",
+              timezone: "UTC",
+            },
+          ],
+        },
+      }),
+    );
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.trivia?.games?.[0]?.enabled, true);
+  });
+
+  it("respects an explicit enabled: false", () => {
+    writeConfig(
+      minimalConfig({
+        trivia: {
+          games: [
+            {
+              name: "retired",
+              channel: "C1",
+              questionCron: "0 9 * * 1-5",
+              revealCron: "0 15 * * 1-5",
+              timezone: "UTC",
+              enabled: false,
+            },
+          ],
+        },
+      }),
+    );
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.trivia?.games?.[0]?.enabled, false);
+  });
+
+  it("drops entries where enabled is non-boolean", () => {
+    writeConfig(
+      minimalConfig({
+        trivia: {
+          games: [
+            {
+              name: "bad-enabled",
+              channel: "C1",
+              questionCron: "0 9 * * 1-5",
+              revealCron: "0 15 * * 1-5",
+              timezone: "UTC",
+              enabled: "true", // string, not boolean
+            },
+          ],
+        },
+      }),
+    );
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.trivia?.games?.length, 0);
+  });
+});
+
+describe("trivia.offDays config", () => {
+  const originalCwd = process.cwd();
+
+  beforeEach(() => {
+    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true });
+    mkdirSync(tmpBase, { recursive: true });
+    process.chdir(tmpBase);
+    writeSlackAuth();
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+  });
+
+  it("absent when not configured", () => {
+    writeConfig(minimalConfig({ trivia: {} }));
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.trivia?.offDays, undefined);
+  });
+
+  it("empty array is preserved as empty array", () => {
+    writeConfig(minimalConfig({ trivia: { offDays: [] } }));
+    const cfg = loadConfig(configPath, true);
+    assert.deepEqual(cfg.trivia?.offDays, []);
+  });
+
+  it("parses mixed YYYY-MM-DD and MM-DD entries", () => {
+    writeConfig(
+      minimalConfig({
+        trivia: {
+          offDays: [
+            { date: "12-25", label: "Christmas" },
+            { date: "2026-04-03", label: "Good Friday 2026" },
+          ],
+        },
+      }),
+    );
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.trivia?.offDays?.length, 2);
+    assert.deepEqual(cfg.trivia?.offDays?.[0], { date: "12-25", label: "Christmas" });
+    assert.deepEqual(cfg.trivia?.offDays?.[1], { date: "2026-04-03", label: "Good Friday 2026" });
+  });
+
+  it("drops entries with unparseable date format", () => {
+    writeConfig(
+      minimalConfig({
+        trivia: {
+          offDays: [
+            { date: "December 25", label: "Christmas" },
+            { date: "12-25", label: "Christmas (good)" },
+          ],
+        },
+      }),
+    );
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.trivia?.offDays?.length, 1);
+    assert.equal(cfg.trivia?.offDays?.[0]?.label, "Christmas (good)");
+  });
+
+  it("drops entries with invalid calendar dates (recurring)", () => {
+    writeConfig(
+      minimalConfig({
+        trivia: {
+          offDays: [
+            { date: "02-30", label: "Imaginary" },
+            { date: "13-01", label: "Bad month" },
+          ],
+        },
+      }),
+    );
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.trivia?.offDays?.length, 0);
+  });
+
+  it("drops entries with invalid calendar dates (exact)", () => {
+    writeConfig(
+      minimalConfig({
+        trivia: {
+          offDays: [
+            { date: "2025-02-29", label: "Not a leap year" },
+            { date: "2026-13-01", label: "Bad month" },
+          ],
+        },
+      }),
+    );
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.trivia?.offDays?.length, 0);
+  });
+
+  it("accepts Feb 29 in recurring MM-DD form (leap-year semantics)", () => {
+    writeConfig(
+      minimalConfig({
+        trivia: { offDays: [{ date: "02-29", label: "Leap day" }] },
+      }),
+    );
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.trivia?.offDays?.length, 1);
+  });
+
+  it("drops entries with missing or empty label", () => {
+    writeConfig(
+      minimalConfig({
+        trivia: {
+          offDays: [
+            { date: "12-25" }, // no label
+            { date: "01-01", label: "" }, // empty label
+            { date: "07-01", label: "Canada Day" }, // good
+          ],
+        },
+      }),
+    );
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.trivia?.offDays?.length, 1);
+    assert.equal(cfg.trivia?.offDays?.[0]?.label, "Canada Day");
+  });
+
+  it("drops non-object entries", () => {
+    writeConfig(
+      minimalConfig({
+        trivia: {
+          offDays: [
+            "12-25", // string, not object
+            { date: "12-25", label: "Christmas" },
+          ],
+        },
+      }),
+    );
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.trivia?.offDays?.length, 1);
+  });
+
+  it("ignoring a non-array offDays value coerces to empty array", () => {
+    writeConfig(
+      minimalConfig({
+        trivia: { offDays: "12-25" },
+      }),
+    );
+    const cfg = loadConfig(configPath, true);
+    assert.deepEqual(cfg.trivia?.offDays, []);
+  });
+});

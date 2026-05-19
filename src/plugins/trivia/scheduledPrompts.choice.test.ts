@@ -1,159 +1,114 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { createSendQuestionsInstructionsTool } from "./sendQuestionsInstructions.js";
-import { createProcessResponsesInstructionsTool } from "./processResponsesInstructions.js";
-import { parseToolResult } from "../../tools/testHelpers.js";
+import {
+  SEND_QUESTIONS_INSTRUCTIONS,
+  getProcessResponsesInstructions,
+} from "./scheduledPrompts.js";
 
-const SESSION = { sessionId: "test" };
-
-describe("send_questions_instructions — choice path", () => {
-  it("branches on suggestedType", async () => {
-    const tool = createSendQuestionsInstructionsTool();
-    const result = await tool.handler({}, SESSION);
-    const body = parseToolResult(result);
-    assert.match(body.prompt, /suggestedType/);
-    assert.match(body.prompt, /BOOLEAN PATH/);
-    assert.match(body.prompt, /CHOICE PATH/);
+describe("SEND_QUESTIONS_INSTRUCTIONS — choice path", () => {
+  it("branches on suggestedType", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /suggestedType/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /BOOLEAN PATH/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /CHOICE PATH/);
   });
 
-  it("instructs Claude to write the correct answer FIRST at suggestedCorrectIndex", async () => {
-    const tool = createSendQuestionsInstructionsTool();
-    const result = await tool.handler({}, SESSION);
-    const body = parseToolResult(result);
-    assert.match(body.prompt, /WRITE THE CORRECT ANSWER FIRST/i);
-    assert.match(body.prompt, /suggestedCorrectIndex/);
-    assert.match(body.prompt, /MUST NOT rewrite or swap the correct answer/i);
+  it("instructs Claude to write the correct answer FIRST at suggestedCorrectIndex", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /WRITE THE CORRECT ANSWER FIRST/i);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /suggestedCorrectIndex/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /MUST NOT rewrite or swap the correct answer/i);
   });
 
-  it("encodes the four-condition distractor plausibility gate", async () => {
-    const tool = createSendQuestionsInstructionsTool();
-    const result = await tool.handler({}, SESSION);
-    const body = parseToolResult(result);
-    assert.match(body.prompt, /DISTRACTOR PLAUSIBILITY GATE/);
-    assert.match(body.prompt, /correct answer plausibility ≥ 5/);
-    assert.match(body.prompt, /highest distractor plausibility ≥ 4/);
-    assert.match(body.prompt, /correct − highest_distractor ≤ 4/);
-    assert.match(body.prompt, /every distractor plausibility ≥ 2/);
+  it("encodes the four-condition distractor plausibility gate", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /DISTRACTOR PLAUSIBILITY GATE/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /correct answer plausibility ≥ 5/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /highest distractor plausibility ≥ 4/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /correct − highest_distractor ≤ 4/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /every distractor plausibility ≥ 2/);
   });
 
-  it("enforces rewrite-only-distractors and 3-pass retry budget", async () => {
-    const tool = createSendQuestionsInstructionsTool();
-    const result = await tool.handler({}, SESSION);
-    const body = parseToolResult(result);
-    assert.match(body.prompt, /REWRITE ONLY THE FAILING DISTRACTOR/i);
-    assert.match(body.prompt, /never the correct answer/i);
-    assert.match(body.prompt, /3 distractor-rewrite passes/);
-    assert.match(body.prompt, /ABANDON this question/i);
+  it("enforces rewrite-only-distractors and 3-pass retry budget", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /REWRITE ONLY THE FAILING DISTRACTOR/i);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /never the correct answer/i);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /3 distractor-rewrite passes/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /ABANDON this question/i);
   });
 
-  it("describes both stacked and inline Block Kit layouts", async () => {
-    const tool = createSendQuestionsInstructionsTool();
-    const result = await tool.handler({}, SESSION);
-    const body = parseToolResult(result);
-    assert.match(body.prompt, /Stacked/);
-    assert.match(body.prompt, /Inline/);
-    assert.match(body.prompt, /25 characters/);
+  it("describes both stacked and inline Block Kit layouts", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /Stacked/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /Inline/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /25 characters/);
   });
 
-  it("sizes reactions array to suggestedChoiceCount with :one: first", async () => {
-    const tool = createSendQuestionsInstructionsTool();
-    const result = await tool.handler({}, SESSION);
-    const body = parseToolResult(result);
-    assert.match(body.prompt, /reactions: \["one", "two"\]/);
-    assert.match(body.prompt, /reactions: \["one", "two", "three"\]/);
-    assert.match(body.prompt, /reactions: \["one", "two", "three", "four"\]/);
-    assert.match(body.prompt, /one.{0,4}must be the first reaction/);
+  it("sizes reactions array to suggestedChoiceCount with :one: first", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /reactions: \["one", "two"\]/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /reactions: \["one", "two", "three"\]/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /reactions: \["one", "two", "three", "four"\]/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /one.{0,4}must be the first reaction/);
   });
 
-  it('save_question call uses type: "choice" + choices + correctIndex', async () => {
-    const tool = createSendQuestionsInstructionsTool();
-    const result = await tool.handler({}, SESSION);
-    const body = parseToolResult(result);
-    assert.match(body.prompt, /type: "choice"/);
-    assert.match(body.prompt, /choices \(array of suggestedChoiceCount strings/);
-    assert.match(body.prompt, /correctIndex \(MUST equal suggestedCorrectIndex\)/);
+  it('save_question call uses type: "choice" + choices + correctIndex', () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /type: "choice"/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /choices \(array of suggestedChoiceCount strings/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /correctIndex \(MUST equal suggestedCorrectIndex\)/);
   });
 
-  it("preserves the boolean path unchanged (existing tests must still pass)", async () => {
-    const tool = createSendQuestionsInstructionsTool();
-    const result = await tool.handler({}, SESSION);
-    const body = parseToolResult(result);
-    // Spot-check key boolean-path text that pre-existed
-    assert.match(body.prompt, /Branch on suggestedAnswer/i);
-    assert.match(body.prompt, /POLARITY SELF-CHECK/);
-    assert.match(body.prompt, /"\+1", "-1"/);
+  it("preserves the boolean path unchanged (existing tests must still pass)", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /Branch on suggestedAnswer/i);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /POLARITY SELF-CHECK/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /"\+1", "-1"/);
   });
 });
 
-describe("process_responses_instructions — choice path", () => {
-  it("resolves question type BEFORE parsing reactions (re-ordering)", async () => {
-    const tool = createProcessResponsesInstructionsTool();
-    const result = await tool.handler({}, SESSION);
-    const body = parseToolResult(result);
-    // The resolution step still mentions capturing `id` and `type`
-    assert.match(body.prompt, /capture its `id` AND its `type`/);
-    assert.match(body.prompt, /BEFORE any reaction parsing/);
+describe("getProcessResponsesInstructions — choice path", () => {
+  it("resolves question type BEFORE parsing reactions (re-ordering)", () => {
+    const prompt = getProcessResponsesInstructions(false);
+    assert.match(prompt, /capture its `id` AND its `type`/);
+    assert.match(prompt, /BEFORE any reaction parsing/);
   });
 
-  it("describes the type-discriminated get_question_history return shape", async () => {
-    const tool = createProcessResponsesInstructionsTool();
-    const result = await tool.handler({}, SESSION);
-    const body = parseToolResult(result);
-    assert.match(body.prompt, /type: "boolean", isTrue/);
-    assert.match(body.prompt, /type: "choice", choices, correctIndex/);
+  it("describes the type-discriminated get_question_history return shape", () => {
+    const prompt = getProcessResponsesInstructions(false);
+    assert.match(prompt, /type: "boolean", isTrue/);
+    assert.match(prompt, /type: "choice", choices, correctIndex/);
   });
 
-  it("encodes numbered-emoji → index mapping (one→0, two→1, three→2, four→3)", async () => {
-    const tool = createProcessResponsesInstructionsTool();
-    const result = await tool.handler({}, SESSION);
-    const body = parseToolResult(result);
-    assert.match(body.prompt, /:one: → index 0/);
-    assert.match(body.prompt, /:two: → index 1/);
-    assert.match(body.prompt, /:three: → index 2/);
-    assert.match(body.prompt, /:four: → index 3/);
+  it("encodes numbered-emoji → index mapping (one→0, two→1, three→2, four→3)", () => {
+    const prompt = getProcessResponsesInstructions(false);
+    assert.match(prompt, /:one: → index 0/);
+    assert.match(prompt, /:two: → index 1/);
+    assert.match(prompt, /:three: → index 2/);
+    assert.match(prompt, /:four: → index 3/);
   });
 
-  it("silently voids multi-react voters on the choice path", async () => {
-    const tool = createProcessResponsesInstructionsTool();
-    const result = await tool.handler({}, SESSION);
-    const body = parseToolResult(result);
-    assert.match(body.prompt, /MULTI-REACT voters/);
-    assert.match(body.prompt, /SILENTLY VOIDED/i);
-    assert.match(body.prompt, /NEVER mentioned in the user-facing reveal/);
-    assert.match(body.prompt, /DO NOT surface multi-react voters/i);
+  it("silently voids multi-react voters on the choice path", () => {
+    const prompt = getProcessResponsesInstructions(false);
+    assert.match(prompt, /MULTI-REACT voters/);
+    assert.match(prompt, /SILENTLY VOIDED/i);
+    assert.match(prompt, /NEVER mentioned in the user-facing reveal/);
+    assert.match(prompt, /DO NOT surface multi-react voters/i);
   });
 
-  it("submit_answers payload shape branches by question.type", async () => {
-    const tool = createProcessResponsesInstructionsTool();
-    const result = await tool.handler({}, SESSION);
-    const body = parseToolResult(result);
-    // Boolean shape
-    assert.match(body.prompt, /\{ userId: "U123", displayName: "John Doe", answer: true \}/);
-    // Choice shape
-    assert.match(body.prompt, /\{ userId: "U123", displayName: "John Doe", answerIndex: 2 \}/);
+  it("submit_answers payload shape branches by question.type", () => {
+    const prompt = getProcessResponsesInstructions(false);
+    assert.match(prompt, /\{ userId: "U123", displayName: "John Doe", answer: true \}/);
+    assert.match(prompt, /\{ userId: "U123", displayName: "John Doe", answerIndex: 2 \}/);
   });
 
-  it("hard-fails choice reveals when the question cannot be resolved", async () => {
-    const tool = createProcessResponsesInstructionsTool();
-    const result = await tool.handler({}, SESSION);
-    const body = parseToolResult(result);
-    assert.match(body.prompt, /POST AN ADMIN-FACING ERROR/i);
-    assert.match(body.prompt, /Aborting the reveal/i);
-    assert.match(body.prompt, /CANNOT proceed because `correctIndex` is unknown/i);
-    assert.match(body.prompt, /Do NOT guess `correctIndex`/);
+  it("hard-fails choice reveals when the question cannot be resolved", () => {
+    const prompt = getProcessResponsesInstructions(false);
+    assert.match(prompt, /POST AN ADMIN-FACING ERROR/i);
+    assert.match(prompt, /Aborting the reveal/i);
+    assert.match(prompt, /CANNOT proceed because `correctIndex` is unknown/i);
+    assert.match(prompt, /Do NOT guess `correctIndex`/);
   });
 
-  it("preserves boolean best-effort fallback for unresolved boolean questions", async () => {
-    const tool = createProcessResponsesInstructionsTool();
-    const result = await tool.handler({}, SESSION);
-    const body = parseToolResult(result);
-    assert.match(body.prompt, /BOOLEAN reveals.*best-effort/s);
+  it("preserves boolean best-effort fallback for unresolved boolean questions", () => {
+    const prompt = getProcessResponsesInstructions(false);
+    assert.match(prompt, /BOOLEAN reveals.*best-effort/s);
   });
 
-  it("names three choice-path voter situations (no FENCE-SITTERS for choice)", async () => {
-    const tool = createProcessResponsesInstructionsTool();
-    const result = await tool.handler({}, SESSION);
-    const body = parseToolResult(result);
-    assert.match(body.prompt, /CHOICE PATH voter situations \(THREE/);
+  it("names three choice-path voter situations (no FENCE-SITTERS for choice)", () => {
+    const prompt = getProcessResponsesInstructions(false);
+    assert.match(prompt, /CHOICE PATH voter situations \(THREE/);
   });
 });
