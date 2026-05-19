@@ -24,6 +24,14 @@ Skipped runs are recorded in the job's history with `status: "skipped"` (distinc
 
 When a scheduled job has BOTH `skipConditions` and `requiredTools`, the required-tools gate runs before the skip branch. Claude must call the required tools before it can legitimately skip. This is intentional: the operator declared those tools as obligations for every run.
 
+### Off-Days (`skipDates`)
+
+Cron jobs may also carry a structured `skipDates` field — an array of `{ date, label }` entries where `date` is either `YYYY-MM-DD` (exact) or `MM-DD` (annually recurring). The scheduler evaluates `skipDates` **before** opening a Claude session: on a match the run is recorded as `status: "skipped"` and Claude is never invoked. This is the deterministic, free, off-day mechanism — use it for fixed-calendar skips like holidays, where `skipConditions` would be both wasteful (one Claude session per fire) and risky (the model could misread the date list).
+
+`skipDates` is evaluated first; if it matches, the `skipConditions` path is never reached. Skipped off-days still bump `lastRunAt`, still delete one-shot jobs, and never trigger the creator's failure DM — same bookkeeping as a `skipConditions` skip.
+
+For the trivia plugin specifically, `skipDates` is configured at the plugin level via `config.trivia.offDays` (shared by every game) rather than per-job. Other scheduled jobs do not currently expose a user-facing way to set `skipDates` — that surface may grow over time.
+
 ### Running a Scheduled Message on Demand
 
 Use `run_scheduled_message_now` when the user wants to re-fire an existing scheduled message — typically to retry a failed run, replay a past run with a different context, or replace a prior post that came out wrong. Only the job's creator or an admin can call it; other users get an error.
