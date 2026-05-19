@@ -915,6 +915,14 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
       const jobId = (action as { action_id: string }).action_id.split(":")[1];
       const job = await deps.getJob(jobId);
       if (!job) return;
+      // Defense in depth: plugin-managed jobs are reconciled from config — the Home Tab
+      // doesn't render an Edit affordance for them, but block any direct submission too.
+      if (job.pluginManaged) {
+        logger.warn(
+          `Refused to open edit modal for plugin-managed cron job ${jobId} (plugin: ${job.plugin ?? "unknown"})`,
+        );
+        return;
+      }
       await client.views.open({
         trigger_id: body.trigger_id,
         view: deps.buildCronJobModal(job),
@@ -989,6 +997,16 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
     await ack();
     try {
       const jobId = (action as { action_id: string }).action_id.split(":")[1];
+      // Defense in depth: the Home Tab strips the Delete button for plugin-managed jobs,
+      // but reject any direct invocation too. Plugin-managed jobs are removed by editing
+      // the plugin's config block, not the Home Tab.
+      const existing = await deps.getJob(jobId);
+      if (existing?.pluginManaged) {
+        logger.warn(
+          `Refused to delete plugin-managed cron job ${jobId} (plugin: ${existing.plugin ?? "unknown"})`,
+        );
+        return;
+      }
       await deps.deleteJob(jobId);
       const viewId = (body as unknown as { view?: { id: string } }).view?.id;
       if (viewId) {

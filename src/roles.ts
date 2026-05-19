@@ -38,7 +38,8 @@ export interface RolesConfig {
   devs: string[];
 }
 
-export type UserRole = "owner" | "admin" | "dev" | "member";
+// `"system"` is internal-only: not assignable, not returned by `getRole`.
+export type UserRole = "system" | "owner" | "admin" | "dev" | "member";
 
 const DEFAULT_ROLES: RolesConfig = {
   owner: null,
@@ -165,6 +166,11 @@ export async function setRole(
   userId: string,
   role: AssignableRole,
 ): Promise<{ success: boolean; error?: string }> {
+  // Defensive runtime guard for callers that cast past `AssignableRole`.
+  if ((role as UserRole) === "system" || (role as UserRole) === "owner") {
+    return { success: false, error: `Role "${role}" is not assignable.` };
+  }
+
   const roles = await loadRoles();
 
   if (roles.owner === userId) {

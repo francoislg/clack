@@ -18,6 +18,7 @@ import { migration as m16 } from "./016-topic-subfolders.js";
 import { migration as m17 } from "./017-split-topic-files.js";
 import { migration as m18 } from "./018-lazy-skill-references.js";
 import { migration as m19 } from "./019-trivia-games-migration.js";
+import { migration as m20 } from "./020-system-actor-on-plugin-crons.js";
 
 // Register migrations here in version order.
 export const migrations: Migration[] = [
@@ -40,4 +41,5 @@ export const migrations: Migration[] = [
   m17,
   m18,
   m19,
+  m20,
 ];

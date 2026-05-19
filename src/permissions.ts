@@ -6,28 +6,24 @@ import { getRole, type UserRole } from "./roles.js";
  * User-based functions take a userId, resolve the role, and are async.
  */
 
-/** Admin or owner can edit configuration/instruction files */
 export function canEditConfig(role: UserRole): boolean {
-  return role === "admin" || role === "owner";
+  return meetsMinimumRole(role, "admin");
 }
 
-/** Dev, admin, or owner can request code changes */
 export function canRequestChanges(role: UserRole): boolean {
-  return role === "dev" || role === "admin" || role === "owner";
+  return meetsMinimumRole(role, "dev");
 }
 
-/** Admin or owner can manage roles (add/remove admins and devs) */
 export function canManageRoles(role: UserRole): boolean {
-  return role === "admin" || role === "owner";
+  return meetsMinimumRole(role, "admin");
 }
 
-/** Only the owner can transfer ownership */
+// Literal `=== "owner"` on purpose — excludes the internal `"system"` tier.
 export function canTransferOwnership(role: UserRole): boolean {
   return role === "owner";
 }
 
-/** Role hierarchy for comparison (higher index = more powerful) */
-const ROLE_HIERARCHY: UserRole[] = ["member", "dev", "admin", "owner"];
+const ROLE_HIERARCHY: UserRole[] = ["member", "dev", "admin", "owner", "system"];
 
 /** Check whether a user's role meets or exceeds a minimum role threshold */
 export function meetsMinimumRole(userRole: UserRole, minRole: UserRole): boolean {

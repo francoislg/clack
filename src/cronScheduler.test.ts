@@ -4,11 +4,20 @@ import { WebClient } from "@slack/web-api";
 import {
   executeJob,
   matchesCron,
+  matchesSkipDate,
   notifyCreatorOfError,
   type CronSchedulerDeps,
+  type NotifyErrorDeps,
 } from "./cronScheduler.js";
 import type { CronJob } from "./cronJobs.js";
 import type { ClaudeResponse } from "./claude/index.js";
+import type { RolesConfig } from "./roles.js";
+
+function makeNotifyDeps(roles: RolesConfig): NotifyErrorDeps {
+  return {
+    loadRoles: async () => roles,
+  };
+}
 
 describe("cronScheduler", () => {
   describe("matchesCron", () => {
@@ -43,6 +52,56 @@ describe("cronScheduler", () => {
     it("fires when no lastRunAt is set", () => {
       const now = new Date("2026-03-31T09:00:30Z");
       assert.equal(matchesCron("0 9 * * *", now, "UTC", undefined), true);
+    });
+  });
+
+  describe("matchesSkipDate", () => {
+    it("returns null when entries is undefined", () => {
+      assert.equal(matchesSkipDate(undefined, new Date("2026-12-25T12:00:00Z"), "UTC"), null);
+    });
+
+    it("returns null when entries is empty", () => {
+      assert.equal(matchesSkipDate([], new Date("2026-12-25T12:00:00Z"), "UTC"), null);
+    });
+
+    it("matches exact YYYY-MM-DD entry", () => {
+      const entries = [{ date: "2026-12-25", label: "Christmas" }];
+      const match = matchesSkipDate(entries, new Date("2026-12-25T12:00:00Z"), "UTC");
+      assert.equal(match?.label, "Christmas");
+    });
+
+    it("matches recurring MM-DD entry", () => {
+      const entries = [{ date: "12-25", label: "Christmas" }];
+      const match = matchesSkipDate(entries, new Date("2027-12-25T12:00:00Z"), "UTC");
+      assert.equal(match?.label, "Christmas");
+    });
+
+    it("does not match a non-off-day", () => {
+      const entries = [{ date: "12-25", label: "Christmas" }];
+      assert.equal(matchesSkipDate(entries, new Date("2026-12-26T12:00:00Z"), "UTC"), null);
+    });
+
+    it("evaluates the date in the supplied timezone, not UTC", () => {
+      // 2026-12-24T20:00Z = 2026-12-25T07:00 in Sydney.
+      const entries = [{ date: "12-25", label: "Christmas" }];
+      const match = matchesSkipDate(entries, new Date("2026-12-24T20:00:00Z"), "Australia/Sydney");
+      assert.equal(match?.label, "Christmas");
+      // ...and the inverse: same moment in UTC is Dec 24, no match.
+      assert.equal(matchesSkipDate(entries, new Date("2026-12-24T20:00:00Z"), "UTC"), null);
+    });
+
+    it("returns the first matching entry when both YYYY-MM-DD and MM-DD would match", () => {
+      const entries = [
+        { date: "2026-12-25", label: "Christmas 2026" },
+        { date: "12-25", label: "Christmas (recurring)" },
+      ];
+      const match = matchesSkipDate(entries, new Date("2026-12-25T12:00:00Z"), "UTC");
+      assert.equal(match?.label, "Christmas 2026");
+    });
+
+    it("returns null on an invalid timezone instead of throwing", () => {
+      const entries = [{ date: "12-25", label: "Christmas" }];
+      assert.equal(matchesSkipDate(entries, new Date("2026-12-25T12:00:00Z"), "Not/AZone"), null);
     });
   });
 
@@ -150,6 +209,64 @@ describe("cronScheduler", () => {
       const args = postSpy.mock.calls[0].arguments[0];
       const text = args && "text" in args ? (args.text ?? "") : "";
       assert.match(text, /\/invite @Clack/);
+    });
+
+    describe("system-owned jobs", () => {
+      const systemJob: CronJob = {
+        id: "sys-1",
+        cronExpression: "0 9 * * *",
+        channel: "C456",
+        prompt: "test",
+        createdBy: null,
+        systemActor: "plugin:trivia",
+        createdAt: new Date().toISOString(),
+        enabled: true,
+        timezone: "UTC",
+        plugin: "trivia",
+        pluginManaged: true,
+        specKey: "game-a:question",
+      };
+
+      it("escalates to the deployment owner", async () => {
+        const client = new WebClient();
+        const openSpy = mock.method(client.conversations, "open", async () => ({
+          ok: true,
+          channel: { id: "D_OWNER" },
+        }));
+        const postSpy = mock.method(client.chat, "postMessage", async () => ({ ok: true }));
+
+        const deps = makeNotifyDeps({ owner: "U_OWNER", admins: [], devs: [] });
+        await notifyCreatorOfError(systemJob, client, "boom", deps);
+
+        // The Slack `ConversationsOpenArguments` is a union of shapes — when opening a user DM
+        // the variant has a `users` field that TS can't narrow without a guard.
+        const openCall = openSpy.mock.calls[0].arguments[0];
+        assert.ok(openCall && "users" in openCall);
+        assert.equal(openCall.users, "U_OWNER");
+        assert.equal(postSpy.mock.callCount(), 1);
+        const args = postSpy.mock.calls[0].arguments[0];
+        assert.equal(args?.channel, "D_OWNER");
+        const text = args && "text" in args ? (args.text ?? "") : "";
+        assert.match(text, /plugin:trivia/);
+        assert.match(text, /game-a:question/);
+        assert.match(text, /boom/);
+      });
+
+      it("logs and skips cleanly when no owner is configured", async () => {
+        const client = new WebClient();
+        const openSpy = mock.method(client.conversations, "open", async () => ({
+          ok: true,
+          channel: { id: "D_OWNER" },
+        }));
+        const postSpy = mock.method(client.chat, "postMessage", async () => ({ ok: true }));
+
+        const deps = makeNotifyDeps({ owner: null, admins: [], devs: [] });
+        // Must NOT throw.
+        await notifyCreatorOfError(systemJob, client, "boom", deps);
+
+        assert.equal(openSpy.mock.callCount(), 0, "no DM open attempted");
+        assert.equal(postSpy.mock.callCount(), 0, "no message posted");
+      });
     });
   });
 
@@ -315,6 +432,158 @@ describe("cronScheduler", () => {
       assert.equal(calls.updateJobRunStatus.length, 1);
       assert.equal(calls.updateJobRunStatus[0][1], "skipped");
       assert.equal(calls.updateJobRunStatus[0][3], "2026-05-08T09:00:00.000Z");
+    });
+  });
+
+  describe("executeJob (skipDates gate)", () => {
+    function fakeClient(): WebClient {
+      const client = new WebClient();
+      mock.method(client.auth, "test", async () => ({ ok: true, url: "https://t.slack.com/" }));
+      mock.method(client.conversations, "info", async () => ({
+        ok: true,
+        channel: { id: "C456", name: "ops", is_im: false },
+      }));
+      return client;
+    }
+
+    function baseJob(overrides: Partial<CronJob> = {}): CronJob {
+      return {
+        id: "job-skipdates-1",
+        cronExpression: "0 9 * * *",
+        channel: "C456",
+        prompt: "Trivia question",
+        createdBy: "U123",
+        createdAt: new Date().toISOString(),
+        enabled: true,
+        timezone: "UTC",
+        ...overrides,
+      };
+    }
+
+    function makeDeps(): {
+      deps: CronSchedulerDeps;
+      calls: {
+        processMessage: Parameters<CronSchedulerDeps["processMessage"]>[0][];
+        updateJobRunStatus: Parameters<CronSchedulerDeps["updateJobRunStatus"]>[];
+        deleteJob: Parameters<CronSchedulerDeps["deleteJob"]>[];
+        notifyCreatorOfError: Parameters<CronSchedulerDeps["notifyCreatorOfError"]>[];
+      };
+    } {
+      const calls = {
+        processMessage: [] as Parameters<CronSchedulerDeps["processMessage"]>[0][],
+        updateJobRunStatus: [] as Parameters<CronSchedulerDeps["updateJobRunStatus"]>[],
+        deleteJob: [] as Parameters<CronSchedulerDeps["deleteJob"]>[],
+        notifyCreatorOfError: [] as Parameters<CronSchedulerDeps["notifyCreatorOfError"]>[],
+      };
+      const deps: CronSchedulerDeps = {
+        processMessage: async (params) => {
+          calls.processMessage.push(params);
+          return { success: true, answer: "" };
+        },
+        updateJobRunStatus: async (...args) => {
+          calls.updateJobRunStatus.push(args);
+        },
+        deleteJob: async (...args) => {
+          calls.deleteJob.push(args);
+          return true;
+        },
+        notifyCreatorOfError: async (...args) => {
+          calls.notifyCreatorOfError.push(args);
+        },
+      };
+      return { deps, calls };
+    }
+
+    it("skips deterministically without opening a Claude session on a matched off-day", async () => {
+      const { deps, calls } = makeDeps();
+      const client = fakeClient();
+      const job = baseJob({
+        skipDates: [{ date: "12-25", label: "Christmas" }],
+      });
+      const asOf = new Date("2026-12-25T09:00:00.000Z");
+
+      await executeJob(job, client, deps, asOf);
+
+      assert.equal(calls.processMessage.length, 0, "Claude session should not be opened");
+      assert.equal(calls.updateJobRunStatus.length, 1);
+      assert.equal(calls.updateJobRunStatus[0][1], "skipped");
+      assert.equal(calls.updateJobRunStatus[0][2], undefined, "skipped runs have no responseTs");
+      assert.equal(
+        calls.updateJobRunStatus[0][3],
+        "2026-12-25T09:00:00.000Z",
+        "replayOf forwarded",
+      );
+    });
+
+    it("still fires on a non-off-day", async () => {
+      const { deps, calls } = makeDeps();
+      const client = fakeClient();
+      const job = baseJob({
+        skipDates: [{ date: "12-25", label: "Christmas" }],
+      });
+      const asOf = new Date("2026-12-26T09:00:00.000Z");
+
+      await executeJob(job, client, deps, asOf);
+
+      assert.equal(calls.processMessage.length, 1, "Claude session should be opened");
+    });
+
+    it("deletes a one-shot job when it skips on an off-day", async () => {
+      const { deps, calls } = makeDeps();
+      const client = fakeClient();
+      const job = baseJob({
+        oneShot: true,
+        skipDates: [{ date: "12-25", label: "Christmas" }],
+      });
+      const asOf = new Date("2026-12-25T09:00:00.000Z");
+
+      await executeJob(job, client, deps, asOf);
+
+      assert.equal(calls.deleteJob.length, 1);
+      assert.equal(calls.deleteJob[0][0], "job-skipdates-1");
+    });
+
+    it("skipDates wins over skipConditions when both could apply", async () => {
+      const { deps, calls } = makeDeps();
+      const client = fakeClient();
+      const job = baseJob({
+        skipDates: [{ date: "12-25", label: "Christmas" }],
+        skipConditions: "Skip if no PRs yesterday.",
+      });
+      const asOf = new Date("2026-12-25T09:00:00.000Z");
+
+      await executeJob(job, client, deps, asOf);
+
+      // The skipDates gate short-circuits — Claude is never asked to evaluate skipConditions.
+      assert.equal(calls.processMessage.length, 0);
+      assert.equal(calls.updateJobRunStatus[0][1], "skipped");
+    });
+
+    it("respects the job's timezone when evaluating the off-day", async () => {
+      const { deps, calls } = makeDeps();
+      const client = fakeClient();
+      const job = baseJob({
+        timezone: "Australia/Sydney",
+        skipDates: [{ date: "12-25", label: "Christmas" }],
+      });
+      // This moment is Dec 24 in UTC but Dec 25 in Sydney.
+      const asOf = new Date("2026-12-24T20:00:00.000Z");
+
+      await executeJob(job, client, deps, asOf);
+
+      assert.equal(calls.processMessage.length, 0);
+      assert.equal(calls.updateJobRunStatus[0][1], "skipped");
+    });
+
+    it("does not affect jobs without skipDates", async () => {
+      const { deps, calls } = makeDeps();
+      const client = fakeClient();
+
+      await executeJob(baseJob(), client, deps, new Date("2026-12-25T09:00:00.000Z"));
+
+      // No skipDates means the gate is a no-op and the run proceeds normally.
+      assert.equal(calls.processMessage.length, 1);
+      assert.equal(calls.updateJobRunStatus[0][1], "success");
     });
   });
 });
