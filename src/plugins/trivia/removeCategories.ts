@@ -2,6 +2,8 @@ import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { textResult, errorResult } from "../../tools/helpers.js";
 import { findCurrentSeason, findSeasonBySlug } from "./data.js";
+import { defaultGetGames, type GetGamesFn } from "./configBridge.js";
+import { requireGame } from "./gamesRegistry.js";
 import type { TriviaDataLayer, SeasonsState } from "./types.js";
 
 function removeMatches(
@@ -31,24 +33,38 @@ function replaceSeasonCategories(state: SeasonsState, slug: string, next: string
   };
 }
 
-export function createRemoveCategoriesTool(data: TriviaDataLayer) {
+export function createRemoveCategoriesTool(
+  data: TriviaDataLayer,
+  getGamesFn: GetGamesFn = defaultGetGames,
+) {
   return tool(
     "remove_categories",
-    'Remove categories from the trivia category pool. When seasons are enabled, `target` accepts "current" (the currently-active season), "default" (categories.json baseline), "both" (both), or any specific season slug. The currently-active season\'s pool cannot be emptied. Specific-slug removals cannot empty that season\'s pool either.',
+    "Remove categories from the trivia category pool. The `game` argument scopes any season-targeted writes to that game's seasons.json. The currently-active season's pool cannot be emptied. Specific-slug removals cannot empty that season's pool either.",
     {
+      game: z
+        .string()
+        .describe(
+          "Game name (must be present in config.trivia.games[]). Season-targeted writes apply to this game's seasons.json.",
+        ),
       categories: z.array(z.string()).describe("Categories to remove from the pool"),
       target: z
         .string()
         .optional()
         .describe(
-          'Where to remove from. "current" (default): the currently-active season. "default": categories.json. "both": current + default. Any other string: that season slug. Ignored when seasons are disabled.',
+          'Where to remove from. "current" (default): this game\'s currently-active season. "default": global categories.json. "both": current + default. Any other string: that season slug within this game.',
         ),
     },
     async (args) => {
-      const seasonsState = await data.loadSeasonsState();
+      try {
+        requireGame(getGamesFn(), args.game);
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : String(err));
+      }
+
+      const scoped = data.forGame(args.game);
+      const seasonsState = await scoped.loadSeasonsState();
 
       if (seasonsState === null) {
-        // Seasons disabled — legacy single-pool behavior. Guard against emptying the pool.
         const existing = await data.loadCategories();
         const { removed, notFound, next } = removeMatches(existing, args.categories);
         if (removed.length > 0 && next.length === 0) {
@@ -62,11 +78,10 @@ export function createRemoveCategoriesTool(data: TriviaDataLayer) {
 
       const target = args.target ?? "both";
 
-      // Specific slug target (anything not a special keyword)
       if (target !== "current" && target !== "default" && target !== "both") {
         const entry = findSeasonBySlug(seasonsState, target);
         if (entry === null) {
-          return errorResult(`No season with slug "${target}" on the timeline.`);
+          return errorResult(`No season with slug "${target}" on this game's timeline.`);
         }
         const { removed, notFound, next } = removeMatches(entry.categories, args.categories);
         if (removed.length > 0 && next.length === 0) {
@@ -75,12 +90,11 @@ export function createRemoveCategoriesTool(data: TriviaDataLayer) {
           );
         }
         if (removed.length > 0) {
-          await data.saveSeasonsState(replaceSeasonCategories(seasonsState, target, next));
+          await scoped.saveSeasonsState(replaceSeasonCategories(seasonsState, target, next));
         }
         return textResult({ target, removed, notFound, total: next.length });
       }
 
-      // "current" / "default" / "both" — multi-target dispatch.
       const currentSeason = findCurrentSeason(seasonsState, Date.now());
 
       const result: {
@@ -112,7 +126,7 @@ export function createRemoveCategoriesTool(data: TriviaDataLayer) {
           return textResult({
             ...result,
             warning:
-              "No current season (gap or seasons disabled) — current-targeted removal was a no-op.",
+              "No current season in this game (gap or seasons disabled) — current-targeted removal was a no-op.",
           });
         }
         const { removed, notFound, next } = removeMatches(
@@ -121,7 +135,7 @@ export function createRemoveCategoriesTool(data: TriviaDataLayer) {
         );
         if (removed.length > 0 && next.length === 0) {
           return errorResult(
-            "Refusing to remove: the currently-active season's pool would become empty.",
+            "Refusing to remove: this game's currently-active season's pool would become empty.",
           );
         }
         result.removed.current = removed;
@@ -134,7 +148,7 @@ export function createRemoveCategoriesTool(data: TriviaDataLayer) {
       }
 
       if (nextBaseline !== null) await data.saveCategories(nextBaseline);
-      if (nextState !== null && nextCurrent !== null) await data.saveSeasonsState(nextState);
+      if (nextState !== null && nextCurrent !== null) await scoped.saveSeasonsState(nextState);
 
       return textResult(result);
     },

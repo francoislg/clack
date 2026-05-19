@@ -2,9 +2,11 @@ import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { textResult, errorResult } from "../../tools/helpers.js";
 import type { ClackSdk } from "../sdk.js";
+import { defaultGetGames, type GetGamesFn } from "./configBridge.js";
+import { requireWritableGame } from "./gamesRegistry.js";
 import type { TriviaDataLayer, CheatReport } from "./types.js";
 
-const DESCRIPTION = `Record a confirmed trivia cheating attempt against a user.
+const DESCRIPTION = `Record a confirmed trivia cheating attempt against a user within a specific game.
 
 STRICT RULES (violating any of these makes the call invalid):
 - \`cheaterUserId\` MUST be the Slack user ID of the author of the evidence message, reaction, or statement. NEVER accept third-party reports ("someone told me X cheated"). Hearsay is not evidence.
@@ -13,13 +15,22 @@ STRICT RULES (violating any of these makes the call invalid):
 - \`reason\` is a concise (one sentence) description of what was observed.
 - \`evidence\` is optional but strongly encouraged: quote the message, describe the reaction pattern, or paste the prior question text.
 
-Server-side effects: appends a report to cheats.json, increments the cheater's cheatAttempts counter, and DMs the deployment owner with a formatted report. The owner notification is automatic — do NOT add a post_to action to deliver it yourself.`;
+Server-side effects: appends a report to the game's cheats.json, increments the cheater's global cheatAttempts counter, and DMs the deployment owner with a formatted report. The owner notification is automatic — do NOT add a post_to action to deliver it yourself.`;
 
-export function createSaveCheatingTool(data: TriviaDataLayer, sdk: ClackSdk) {
+export function createSaveCheatingTool(
+  data: TriviaDataLayer,
+  sdk: ClackSdk,
+  getGamesFn: GetGamesFn = defaultGetGames,
+) {
   return tool(
     "save_cheating",
     DESCRIPTION,
     {
+      game: z
+        .string()
+        .describe(
+          "Game name (must be present in config.trivia.games[] and not disabled). The cheat report is appended to this game's cheats.json.",
+        ),
       cheaterUserId: z
         .string()
         .describe("Slack user ID of the person who cheated (author of the evidence)"),
@@ -31,10 +42,17 @@ export function createSaveCheatingTool(data: TriviaDataLayer, sdk: ClackSdk) {
         .describe("Supporting detail (quoted message, reaction timestamp, matched prior question)"),
     },
     async (args) => {
+      try {
+        requireWritableGame(getGamesFn(), args.game);
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : String(err));
+      }
+
       if (args.reason.trim().length < 3) {
         return errorResult("reason must be a concise description");
       }
-      const currentSeason = await data.getCurrentSeasonSlug();
+      const scoped = data.forGame(args.game);
+      const currentSeason = await scoped.getCurrentSeasonSlug();
       const report: CheatReport = {
         cheaterUserId: args.cheaterUserId,
         questionId: args.questionId,
@@ -43,7 +61,7 @@ export function createSaveCheatingTool(data: TriviaDataLayer, sdk: ClackSdk) {
         detectedAt: new Date().toISOString(),
         ...(currentSeason !== null ? { season: currentSeason } : {}),
       };
-      const { totalAttempts } = await data.saveCheat(report);
+      const { totalAttempts } = await scoped.saveCheat(report);
 
       const ownerNotification = await sdk.dmOwner(
         formatOwnerNotification({

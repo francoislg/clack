@@ -1,6 +1,6 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { createInMemoryDataLayer } from "./testHelpers.js";
+import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "./testHelpers.js";
 import { createGetQuestionHistoryTool } from "./getQuestionHistory.js";
 import { parseToolResult } from "../../tools/testHelpers.js";
 import type { TriviaDataLayer } from "./types.js";
@@ -12,7 +12,7 @@ describe("get_question_history", () => {
 
   beforeEach(async () => {
     data = createInMemoryDataLayer();
-    await data.saveQuestion({
+    await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
       id: "q42",
       category: "Science",
       statement: "Octopuses have three hearts",
@@ -20,7 +20,7 @@ describe("get_question_history", () => {
       emojis: ["🐙"],
       createdAt: 100,
     });
-    await data.saveQuestion({
+    await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
       id: "q43",
       category: "History",
       statement: "Rome was founded in 753 BC",
@@ -31,27 +31,27 @@ describe("get_question_history", () => {
   });
 
   it("returns type: 'boolean' on the canonical answer key for boolean questions", async () => {
-    const tool = createGetQuestionHistoryTool(data);
-    const result = await tool.handler({ questionId: "q42" }, SESSION);
+    const tool = createGetQuestionHistoryTool(data, fixtureGetGames);
+    const result = await tool.handler({ game: FIXTURE_GAME_NAME, questionId: "q42" }, SESSION);
     const parsed = parseToolResult(result);
     assert.equal(parsed.type, "boolean");
     assert.equal(parsed.isTrue, true);
   });
 
   it("returns isTrue, grouped cheaters, and grouped responses for the requested question", async () => {
-    await data.saveCheat({
+    await data.forGame(FIXTURE_GAME_NAME).saveCheat({
       cheaterUserId: "U777",
       questionId: "q42",
       reason: "matched prior question",
       detectedAt: "2026-04-16T10:00:00.000Z",
     });
-    await data.saveCheat({
+    await data.forGame(FIXTURE_GAME_NAME).saveCheat({
       cheaterUserId: "U888",
       questionId: "q42",
       reason: "admitted in DM",
       detectedAt: "2026-04-16T10:05:00.000Z",
     });
-    await data.saveCheat({
+    await data.forGame(FIXTURE_GAME_NAME).saveCheat({
       cheaterUserId: "U999",
       questionId: "q43",
       reason: "different question",
@@ -62,28 +62,28 @@ describe("get_question_history", () => {
     await data.saveUser({ userId: "U2", displayName: "Bob", joinedAt: 2 });
     await data.saveUser({ userId: "U777", displayName: "Cheater Cathy", joinedAt: 3 });
 
-    await data.saveAnswer({
+    await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
       userId: "U1",
       questionId: "q42",
       answer: true,
       correct: true,
       timestamp: 1000,
     });
-    await data.saveAnswer({
+    await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
       userId: "U2",
       questionId: "q42",
       answer: false,
       correct: false,
       timestamp: 1100,
     });
-    await data.saveAnswer({
+    await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
       userId: "U777",
       questionId: "q42",
       answer: true,
       correct: true,
       timestamp: 1200,
     });
-    await data.saveAnswer({
+    await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
       userId: "U1",
       questionId: "q43",
       answer: true,
@@ -91,8 +91,8 @@ describe("get_question_history", () => {
       timestamp: 1300,
     });
 
-    const tool = createGetQuestionHistoryTool(data);
-    const result = await tool.handler({ questionId: "q42" }, SESSION);
+    const tool = createGetQuestionHistoryTool(data, fixtureGetGames);
+    const result = await tool.handler({ game: FIXTURE_GAME_NAME, questionId: "q42" }, SESSION);
     const parsed = parseToolResult(result);
 
     assert.equal(parsed.isTrue, true);
@@ -117,47 +117,47 @@ describe("get_question_history", () => {
   });
 
   it("deduplicates cheaters who were caught more than once on the same question", async () => {
-    await data.saveCheat({
+    await data.forGame(FIXTURE_GAME_NAME).saveCheat({
       cheaterUserId: "U777",
       questionId: "q42",
       reason: "first offense",
       detectedAt: "2026-04-16T10:00:00.000Z",
     });
-    await data.saveCheat({
+    await data.forGame(FIXTURE_GAME_NAME).saveCheat({
       cheaterUserId: "U777",
       questionId: "q42",
       reason: "second offense",
       detectedAt: "2026-04-16T10:05:00.000Z",
     });
 
-    const tool = createGetQuestionHistoryTool(data);
-    const result = await tool.handler({ questionId: "q42" }, SESSION);
+    const tool = createGetQuestionHistoryTool(data, fixtureGetGames);
+    const result = await tool.handler({ game: FIXTURE_GAME_NAME, questionId: "q42" }, SESSION);
     const parsed = parseToolResult(result);
 
     assert.deepEqual(parsed.cheaterUserIds, ["U777"]);
   });
 
   it("isolates data between questions", async () => {
-    await data.saveCheat({
+    await data.forGame(FIXTURE_GAME_NAME).saveCheat({
       cheaterUserId: "U777",
       questionId: "q42",
       reason: "x",
       detectedAt: "t1",
     });
-    await data.saveCheat({
+    await data.forGame(FIXTURE_GAME_NAME).saveCheat({
       cheaterUserId: "U888",
       questionId: "q43",
       reason: "y",
       detectedAt: "t2",
     });
-    await data.saveAnswer({
+    await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
       userId: "U1",
       questionId: "q42",
       answer: true,
       correct: true,
       timestamp: 1,
     });
-    await data.saveAnswer({
+    await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
       userId: "U2",
       questionId: "q43",
       answer: false,
@@ -165,9 +165,13 @@ describe("get_question_history", () => {
       timestamp: 2,
     });
 
-    const tool = createGetQuestionHistoryTool(data);
-    const result42 = parseToolResult(await tool.handler({ questionId: "q42" }, SESSION));
-    const result43 = parseToolResult(await tool.handler({ questionId: "q43" }, SESSION));
+    const tool = createGetQuestionHistoryTool(data, fixtureGetGames);
+    const result42 = parseToolResult(
+      await tool.handler({ game: FIXTURE_GAME_NAME, questionId: "q42" }, SESSION),
+    );
+    const result43 = parseToolResult(
+      await tool.handler({ game: FIXTURE_GAME_NAME, questionId: "q43" }, SESSION),
+    );
 
     assert.deepEqual(result42.cheaterUserIds, ["U777"]);
     assert.equal(result42.responses.length, 1);
@@ -179,7 +183,7 @@ describe("get_question_history", () => {
   });
 
   it("returns empty cheaters when no cheats were recorded for the question", async () => {
-    await data.saveAnswer({
+    await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
       userId: "U1",
       questionId: "q42",
       answer: true,
@@ -187,8 +191,8 @@ describe("get_question_history", () => {
       timestamp: 1,
     });
 
-    const tool = createGetQuestionHistoryTool(data);
-    const result = await tool.handler({ questionId: "q42" }, SESSION);
+    const tool = createGetQuestionHistoryTool(data, fixtureGetGames);
+    const result = await tool.handler({ game: FIXTURE_GAME_NAME, questionId: "q42" }, SESSION);
     const parsed = parseToolResult(result);
 
     assert.deepEqual(parsed.cheaterUserIds, []);
@@ -196,15 +200,15 @@ describe("get_question_history", () => {
   });
 
   it("returns empty responses for a freshly posted question with no answers yet", async () => {
-    await data.saveCheat({
+    await data.forGame(FIXTURE_GAME_NAME).saveCheat({
       cheaterUserId: "U777",
       questionId: "q42",
       reason: "x",
       detectedAt: "t1",
     });
 
-    const tool = createGetQuestionHistoryTool(data);
-    const result = await tool.handler({ questionId: "q42" }, SESSION);
+    const tool = createGetQuestionHistoryTool(data, fixtureGetGames);
+    const result = await tool.handler({ game: FIXTURE_GAME_NAME, questionId: "q42" }, SESSION);
     const parsed = parseToolResult(result);
 
     assert.deepEqual(parsed.responses, []);
@@ -212,7 +216,7 @@ describe("get_question_history", () => {
   });
 
   it("falls back displayName to userId when no user record exists", async () => {
-    await data.saveAnswer({
+    await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
       userId: "U999",
       questionId: "q42",
       answer: true,
@@ -220,8 +224,8 @@ describe("get_question_history", () => {
       timestamp: 1,
     });
 
-    const tool = createGetQuestionHistoryTool(data);
-    const result = await tool.handler({ questionId: "q42" }, SESSION);
+    const tool = createGetQuestionHistoryTool(data, fixtureGetGames);
+    const result = await tool.handler({ game: FIXTURE_GAME_NAME, questionId: "q42" }, SESSION);
     const parsed = parseToolResult(result);
 
     assert.equal(parsed.responses.length, 1);
@@ -230,8 +234,11 @@ describe("get_question_history", () => {
   });
 
   it("returns an error when questionId is unknown", async () => {
-    const tool = createGetQuestionHistoryTool(data);
-    const result = await tool.handler({ questionId: "does-not-exist" }, SESSION);
+    const tool = createGetQuestionHistoryTool(data, fixtureGetGames);
+    const result = await tool.handler(
+      { game: FIXTURE_GAME_NAME, questionId: "does-not-exist" },
+      SESSION,
+    );
     const parsed = parseToolResult(result);
 
     assert.ok(parsed.error);
@@ -247,7 +254,7 @@ describe("get_question_history — choice questions", () => {
 
   beforeEach(async () => {
     data = createInMemoryDataLayer();
-    await data.saveQuestion({
+    await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
       id: "qchoice",
       type: "choice",
       category: "Geography",
@@ -260,8 +267,8 @@ describe("get_question_history — choice questions", () => {
   });
 
   it("returns type, choices, and correctIndex for the canonical answer key", async () => {
-    const tool = createGetQuestionHistoryTool(data);
-    const result = await tool.handler({ questionId: "qchoice" }, SESSION);
+    const tool = createGetQuestionHistoryTool(data, fixtureGetGames);
+    const result = await tool.handler({ game: FIXTURE_GAME_NAME, questionId: "qchoice" }, SESSION);
     const parsed = parseToolResult(result);
     assert.equal(parsed.type, "choice");
     assert.deepEqual(parsed.choices, ["Mercury", "Venus", "Earth", "Mars"]);
@@ -271,14 +278,14 @@ describe("get_question_history — choice questions", () => {
 
   it("response entries carry answerIndex (not answer) for choice answers", async () => {
     await data.saveUser({ userId: "U1", displayName: "Alice", joinedAt: 1 });
-    await data.saveAnswer({
+    await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
       userId: "U1",
       questionId: "qchoice",
       answerIndex: 0,
       correct: true,
       timestamp: 1000,
     });
-    await data.saveAnswer({
+    await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
       userId: "U2",
       questionId: "qchoice",
       answerIndex: 3,
@@ -286,8 +293,8 @@ describe("get_question_history — choice questions", () => {
       timestamp: 1100,
     });
 
-    const tool = createGetQuestionHistoryTool(data);
-    const result = await tool.handler({ questionId: "qchoice" }, SESSION);
+    const tool = createGetQuestionHistoryTool(data, fixtureGetGames);
+    const result = await tool.handler({ game: FIXTURE_GAME_NAME, questionId: "qchoice" }, SESSION);
     const parsed = parseToolResult(result);
 
     assert.equal(parsed.responses.length, 2);

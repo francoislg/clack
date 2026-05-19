@@ -1,6 +1,6 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { createInMemoryDataLayer } from "./testHelpers.js";
+import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "./testHelpers.js";
 import { createGetIdeasTool } from "./getIdeas.js";
 import { createSaveQuestionTool } from "./saveQuestion.js";
 import { createSubmitAnswersTool } from "./submitAnswers.js";
@@ -46,17 +46,20 @@ describe("choice-questions end-to-end flow", () => {
       questionsTypes: { boolean: 0, choice: 1 },
       choices: { min: 4, max: 4 },
     });
-    const getIdeas = createGetIdeasTool(data, () => cfg);
-    const ideasResult = parseToolResult(await getIdeas.handler({}, SESSION));
+    const getIdeas = createGetIdeasTool(data, () => cfg, fixtureGetGames);
+    const ideasResult = parseToolResult(
+      await getIdeas.handler({ game: FIXTURE_GAME_NAME }, SESSION),
+    );
     assert.equal(ideasResult.suggestedType, "choice");
     assert.equal(ideasResult.suggestedChoiceCount, 4);
     assert.ok(ideasResult.suggestedCorrectIndex >= 0 && ideasResult.suggestedCorrectIndex < 4);
 
     // 2. save_question with that shape
-    const saveQuestion = createSaveQuestionTool(data, () => cfg);
+    const saveQuestion = createSaveQuestionTool(data, () => cfg, fixtureGetGames);
     const saved = parseToolResult(
       await saveQuestion.handler(
         {
+          game: FIXTURE_GAME_NAME,
           type: "choice",
           category: "Geography",
           statement: "Which is the smallest planet?",
@@ -74,10 +77,11 @@ describe("choice-questions end-to-end flow", () => {
     const questionId = saved.question.id;
 
     // 3. submit_answers with answerIndex entries
-    const submitAnswers = createSubmitAnswersTool(data);
+    const submitAnswers = createSubmitAnswersTool(data, fixtureGetGames);
     const answersResult = parseToolResult(
       await submitAnswers.handler(
         {
+          game: FIXTURE_GAME_NAME,
           questionId,
           messageLink: "https://slack/x",
           postedAt: 1000,
@@ -96,10 +100,16 @@ describe("choice-questions end-to-end flow", () => {
     assert.equal(answersResult.results[2].correct, true);
 
     // 4. find_previous_questions exposes choices but never correctIndex/isTrue
-    const findPrev = createFindPreviousQuestionsTool(data);
+    const findPrev = createFindPreviousQuestionsTool(data, fixtureGetGames);
     const findResult = parseToolResult(
       await findPrev.handler(
-        { category: undefined, text: "planet", season: undefined, limit: undefined },
+        {
+          game: FIXTURE_GAME_NAME,
+          category: undefined,
+          text: "planet",
+          season: undefined,
+          limit: undefined,
+        },
         SESSION,
       ),
     );
@@ -111,8 +121,10 @@ describe("choice-questions end-to-end flow", () => {
     assert.equal(Object.prototype.hasOwnProperty.call(found, "isTrue"), false);
 
     // 5. get_question_history returns the type-discriminated answer key
-    const history = createGetQuestionHistoryTool(data);
-    const histResult = parseToolResult(await history.handler({ questionId }, SESSION));
+    const history = createGetQuestionHistoryTool(data, fixtureGetGames);
+    const histResult = parseToolResult(
+      await history.handler({ game: FIXTURE_GAME_NAME, questionId }, SESSION),
+    );
     assert.equal(histResult.type, "choice");
     assert.equal(histResult.correctIndex, 0);
     assert.deepEqual(histResult.choices, ["Mercury", "Venus", "Earth", "Mars"]);
@@ -125,11 +137,11 @@ describe("choice-questions end-to-end flow", () => {
 
   it("mixed-config flow: many calls produce both boolean and choice questions", async () => {
     const cfg = makeConfig({ questionsTypes: { boolean: 1, choice: 1 } });
-    const getIdeas = createGetIdeasTool(data, () => cfg);
+    const getIdeas = createGetIdeasTool(data, () => cfg, fixtureGetGames);
     let booleans = 0;
     let choices = 0;
     for (let i = 0; i < 200; i++) {
-      const r = parseToolResult(await getIdeas.handler({}, SESSION));
+      const r = parseToolResult(await getIdeas.handler({ game: FIXTURE_GAME_NAME }, SESSION));
       if (r.suggestedType === "boolean") booleans++;
       else choices++;
     }
@@ -141,10 +153,11 @@ describe("choice-questions end-to-end flow", () => {
     const cfg = makeConfig({ questionsTypes: { boolean: 1, choice: 1 } });
 
     // Save a boolean question
-    const saveQuestion = createSaveQuestionTool(data, () => cfg);
+    const saveQuestion = createSaveQuestionTool(data, () => cfg, fixtureGetGames);
     const boolean = parseToolResult(
       await saveQuestion.handler(
         {
+          game: FIXTURE_GAME_NAME,
           type: "boolean",
           category: "Geography",
           statement: "The Earth is round.",
@@ -163,6 +176,7 @@ describe("choice-questions end-to-end flow", () => {
     const choice = parseToolResult(
       await saveQuestion.handler(
         {
+          game: FIXTURE_GAME_NAME,
           type: "choice",
           category: "Astronomy",
           statement: "Which is the smallest planet?",
@@ -178,9 +192,10 @@ describe("choice-questions end-to-end flow", () => {
     );
 
     // Submit one correct answer to each
-    const submit = createSubmitAnswersTool(data);
+    const submit = createSubmitAnswersTool(data, fixtureGetGames);
     await submit.handler(
       {
+        game: FIXTURE_GAME_NAME,
         questionId: boolean.question.id,
         messageLink: "https://slack/b",
         postedAt: 1000,
@@ -191,6 +206,7 @@ describe("choice-questions end-to-end flow", () => {
     const result = parseToolResult(
       await submit.handler(
         {
+          game: FIXTURE_GAME_NAME,
           questionId: choice.question.id,
           messageLink: "https://slack/c",
           postedAt: 2000,

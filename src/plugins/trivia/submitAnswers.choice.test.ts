@@ -1,6 +1,6 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { createInMemoryDataLayer } from "./testHelpers.js";
+import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "./testHelpers.js";
 import { createSubmitAnswersTool } from "./submitAnswers.js";
 import { parseToolResult } from "../../tools/testHelpers.js";
 import type { TriviaDataLayer, TriviaQuestion } from "./types.js";
@@ -42,13 +42,14 @@ describe("submit_answers — choice questions", () => {
   let data: TriviaDataLayer;
   beforeEach(async () => {
     data = createInMemoryDataLayer();
-    await data.saveQuestion(CHOICE_QUESTION);
+    await data.forGame(FIXTURE_GAME_NAME).saveQuestion(CHOICE_QUESTION);
   });
 
   it("records correctness via answerIndex === correctIndex", async () => {
-    const tool = createSubmitAnswersTool(data);
+    const tool = createSubmitAnswersTool(data, fixtureGetGames);
     const result = await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         questionId: "qchoice",
         messageLink: "https://slack/x",
         postedAt: 2_000,
@@ -64,7 +65,7 @@ describe("submit_answers — choice questions", () => {
     assert.equal(parsed.results[0].correct, true); // index 0 == correctIndex 0
     assert.equal(parsed.results[1].correct, false);
 
-    const stored = await data.loadAnswers();
+    const stored = await data.forGame(FIXTURE_GAME_NAME).loadAnswers();
     assert.equal(stored.length, 2);
     assert.equal(stored[0].answerIndex, 0);
     assert.equal(stored[0].answer, undefined);
@@ -73,9 +74,10 @@ describe("submit_answers — choice questions", () => {
   });
 
   it("rejects boolean entry on choice question", async () => {
-    const tool = createSubmitAnswersTool(data);
+    const tool = createSubmitAnswersTool(data, fixtureGetGames);
     const result = await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         questionId: "qchoice",
         messageLink: "https://slack/x",
         postedAt: 2_000,
@@ -88,10 +90,11 @@ describe("submit_answers — choice questions", () => {
   });
 
   it("rejects choice entry on boolean question", async () => {
-    await data.saveQuestion(BOOLEAN_QUESTION);
-    const tool = createSubmitAnswersTool(data);
+    await data.forGame(FIXTURE_GAME_NAME).saveQuestion(BOOLEAN_QUESTION);
+    const tool = createSubmitAnswersTool(data, fixtureGetGames);
     const result = await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         questionId: "qbool",
         messageLink: "https://slack/x",
         postedAt: 2_000,
@@ -104,9 +107,10 @@ describe("submit_answers — choice questions", () => {
   });
 
   it("rejects answerIndex out of range", async () => {
-    const tool = createSubmitAnswersTool(data);
+    const tool = createSubmitAnswersTool(data, fixtureGetGames);
     const result = await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         questionId: "qchoice",
         messageLink: "https://slack/x",
         postedAt: 2_000,
@@ -119,9 +123,10 @@ describe("submit_answers — choice questions", () => {
   });
 
   it("rejects entries that mix both answer and answerIndex", async () => {
-    const tool = createSubmitAnswersTool(data);
+    const tool = createSubmitAnswersTool(data, fixtureGetGames);
     const result = await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         questionId: "qchoice",
         messageLink: "https://slack/x",
         postedAt: 2_000,
@@ -134,9 +139,10 @@ describe("submit_answers — choice questions", () => {
   });
 
   it("dedup skips repeat answers from same user", async () => {
-    const tool = createSubmitAnswersTool(data);
+    const tool = createSubmitAnswersTool(data, fixtureGetGames);
     await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         questionId: "qchoice",
         messageLink: "https://slack/x",
         postedAt: 2_000,
@@ -146,6 +152,7 @@ describe("submit_answers — choice questions", () => {
     );
     const result = await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         questionId: "qchoice",
         messageLink: "https://slack/x",
         postedAt: 2_000,
@@ -156,16 +163,17 @@ describe("submit_answers — choice questions", () => {
     const parsed = parseToolResult(result);
     assert.equal(parsed.results[0].skipped, true);
 
-    const stored = await data.loadAnswers();
+    const stored = await data.forGame(FIXTURE_GAME_NAME).loadAnswers();
     assert.equal(stored.length, 1);
     assert.equal(stored[0].answerIndex, 0); // still the first answer
   });
 
   it("equal credit across types: 1 boolean correct + 1 choice correct → totalCorrect 2", async () => {
-    await data.saveQuestion(BOOLEAN_QUESTION);
-    const tool = createSubmitAnswersTool(data);
+    await data.forGame(FIXTURE_GAME_NAME).saveQuestion(BOOLEAN_QUESTION);
+    const tool = createSubmitAnswersTool(data, fixtureGetGames);
     await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         questionId: "qchoice",
         messageLink: "https://slack/x",
         postedAt: 2_000,
@@ -175,6 +183,7 @@ describe("submit_answers — choice questions", () => {
     );
     const result = await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         questionId: "qbool",
         messageLink: "https://slack/y",
         postedAt: 3_000,
@@ -192,10 +201,11 @@ describe("submit_answers — choice questions", () => {
 describe("submit_answers — legacy boolean rows (no type field)", () => {
   it("treats type-less question as boolean", async () => {
     const data = createInMemoryDataLayer();
-    await data.saveQuestion(LEGACY_BOOLEAN_QUESTION);
-    const tool = createSubmitAnswersTool(data);
+    await data.forGame(FIXTURE_GAME_NAME).saveQuestion(LEGACY_BOOLEAN_QUESTION);
+    const tool = createSubmitAnswersTool(data, fixtureGetGames);
     const result = await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         questionId: "qlegacy",
         messageLink: "https://slack/x",
         postedAt: 2_000,

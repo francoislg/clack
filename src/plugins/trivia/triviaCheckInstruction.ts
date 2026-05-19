@@ -63,6 +63,49 @@ If you ran \`find_previous_questions\` and nothing is related, you may answer �
 Use these when the question feels like a fishing attempt even without a direct prior-question match.
 `;
 
+/**
+ * Admin-tier guidance for managing trivia games. Registered separately at the
+ * `admin` role tier (see `index.ts`) so member sessions don't carry this prompt
+ * baggage. Per the cascading config resolver, admin-tier instructions load only
+ * for admin+ sessions.
+ */
+export const TRIVIA_GAMES_ADMIN_INSTRUCTION = `# Managing trivia games
+
+This deployment supports multiple parallel trivia games — one per Slack channel that runs trivia. Each game has its own isolated data (questions, answers, cheats, seasons) under \`data/plugins/trivia/games/<name>/\` and its own pair of plugin-managed cron jobs (\`<name>:question\` and \`<name>:reveal\`). Add a new game and the plugin reconciles the cron jobs automatically on the next load.
+
+**Lifecycle is config-driven**: games live in \`config.trivia.games[]\`. There are no \`create_game\` / \`delete_game\` MCP tools — admins edit the config (directly or via \`propose_config_update\`). Each entry has this shape:
+
+\`\`\`json
+{
+  "name": "main",                       // unique, ^[a-z0-9-]+$, 1–32 chars
+  "channel": "C0123456789",             // Slack channel ID where this game runs
+  "questionCron": "0 9 * * 1-5",        // when the daily question posts
+  "revealCron":   "0 17 * * 1-5",       // when the answer reveals
+  "timezone": "America/Montreal",       // IANA tz for the cron expressions
+  "enabled": true                       // optional; defaults to true
+}
+\`\`\`
+
+When an admin asks to **create a new trivia game** (e.g. "set up trivia in #engineering"):
+
+1. Ask for the channel ID, the post and reveal times, and the timezone (if not already specified). The two times must be on the same day(s); reveal MUST be later in the day than the post.
+2. Pick a short kebab-case \`name\` from context (e.g. "engineering"). Confirm with the admin.
+3. Call \`propose_config_update\` with a single \`set\` op against \`trivia.games\` that appends the new entry (or use it as appropriate per its API).
+4. After approval, the plugin reconciles the new cron jobs automatically on next load. No tool call is needed to "install" the schedules.
+
+When an admin asks to **disable a game temporarily** (e.g. "pause the engineering trivia"):
+
+- Call \`propose_config_update\` to set \`trivia.games[<index>].enabled\` to \`false\`. Cron jobs disappear on next reconcile; the game's data directory is preserved (frozen archive — reads still work, writes refuse).
+
+When an admin asks to **re-enable a disabled game**: same path, set \`enabled\` back to \`true\`.
+
+When an admin asks to **remove a game entirely**: \`propose_config_update\` to delete the entry from \`trivia.games[]\`. The cron jobs disappear on next reconcile; the data directory stays put under \`data/plugins/trivia/games/<name>/\` until you delete it manually (no MCP tool deletes per-game data).
+
+When an admin asks **which trivia games exist** or **what's running where**: call \`list_games\`. Pass \`includeDisabled: true\` to also surface paused games. The response includes \`name\`, \`channel\`, \`timezone\`, and \`enabled\` per game.
+
+**The \`game\` slug is internal coordination metadata** — every trivia tool requires it as an argument, but you SHOULD NOT mention the slug to end users in user-facing posts unless an admin explicitly asks for it. In scheduled runs, the slug is baked into the prompt; in reactive (DM / mention / reaction) sessions, resolve it from the session's channel by matching against \`config.trivia.games[].channel\`. If no game matches the channel, refuse with "no trivia game is configured for this channel."
+`;
+
 const SEASONS_ADMIN_ADDENDUM = `
 ## Admin: managing seasons on the timeline
 

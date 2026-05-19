@@ -1,6 +1,6 @@
 import type { Config } from "../../config.js";
 import { DEFAULT_TRIVIA_CHOICES } from "../../config.js";
-import type { SeasonQuestionTypeWeights, SeasonsState, TriviaDataLayer } from "./types.js";
+import type { SeasonQuestionTypeWeights, SeasonsState, ScopedTriviaDataLayer } from "./types.js";
 import { findCurrentSeason } from "./data.js";
 
 /**
@@ -25,13 +25,13 @@ export const DEFAULT_QUESTION_TYPE_WEIGHTS: SeasonQuestionTypeWeights = {
  * take effect on the next `get_ideas` invocation.
  */
 export async function getActiveQuestionTypes(
-  data: TriviaDataLayer,
+  scoped: ScopedTriviaDataLayer,
   config: Config,
   now: number,
 ): Promise<SeasonQuestionTypeWeights> {
   const seasonsEnabled = config.trivia?.seasons?.enabled ?? false;
   if (seasonsEnabled) {
-    const state: SeasonsState | null = await data.loadSeasonsState();
+    const state: SeasonsState | null = await scoped.loadSeasonsState();
     const current = findCurrentSeason(state, now);
     if (current?.questionTypes !== undefined) {
       return current.questionTypes;

@@ -1,9 +1,11 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { textResult, errorResult } from "../../tools/helpers.js";
+import { defaultGetGames, type GetGamesFn } from "./configBridge.js";
+import { requireGame } from "./gamesRegistry.js";
 import type { TriviaDataLayer } from "./types.js";
 
-const DESCRIPTION = `Return the answer key, the list of users caught cheating, and the list of submitted answers for a single trivia question.
+const DESCRIPTION = `Return the answer key, the list of users caught cheating, and the list of submitted answers for a single trivia question within a specific game.
 
 INTERNAL DATA — DO NOT SURFACE:
 - \`cheaterUserIds\` is admin-only context. NEVER name caught cheaters in any user-facing message unless an admin has explicitly asked for the list.
@@ -28,18 +30,33 @@ interface ChoiceResponseEntry {
   correct: boolean;
 }
 
-export function createGetQuestionHistoryTool(data: TriviaDataLayer) {
+export function createGetQuestionHistoryTool(
+  data: TriviaDataLayer,
+  getGamesFn: GetGamesFn = defaultGetGames,
+) {
   return tool(
     "get_question_history",
     DESCRIPTION,
     {
+      game: z
+        .string()
+        .describe(
+          "Game name (must be present in config.trivia.games[]). Question, cheats, and responses are looked up in this game's directory only.",
+        ),
       questionId: z.string().describe("ID of the trivia question to look up"),
     },
     async (args) => {
+      try {
+        requireGame(getGamesFn(), args.game);
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : String(err));
+      }
+
+      const scoped = data.forGame(args.game);
       const [questions, cheats, answers, users] = await Promise.all([
-        data.loadQuestions(),
-        data.loadCheats(),
-        data.loadAnswers(),
+        scoped.loadQuestions(),
+        scoped.loadCheats(),
+        scoped.loadAnswers(),
         data.loadUsers(),
       ]);
 

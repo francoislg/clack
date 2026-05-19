@@ -1,6 +1,6 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { createInMemoryDataLayer } from "./testHelpers.js";
+import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "./testHelpers.js";
 import { createFindPreviousQuestionsTool } from "./findPreviousQuestions.js";
 import { parseToolResult } from "../../tools/testHelpers.js";
 import type { TriviaDataLayer } from "./types.js";
@@ -12,7 +12,8 @@ describe("find_previous_questions response shape", () => {
 
   beforeEach(async () => {
     data = createInMemoryDataLayer();
-    await data.saveQuestion({
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion({
       id: "q1",
       category: "Science",
       statement: "Water boils at 100 degrees Celsius",
@@ -22,7 +23,7 @@ describe("find_previous_questions response shape", () => {
       postedAt: 1500,
       messageLink: "https://slack.com/archives/C/p1",
     });
-    await data.saveQuestion({
+    await scoped.saveQuestion({
       id: "q2",
       category: "Science",
       statement: "The Earth is flat",
@@ -30,7 +31,7 @@ describe("find_previous_questions response shape", () => {
       emojis: ["🌍"],
       createdAt: 2,
     });
-    await data.saveQuestion({
+    await scoped.saveQuestion({
       id: "q3",
       category: "History",
       statement: "Rome was founded in 753 BC",
@@ -41,9 +42,15 @@ describe("find_previous_questions response shape", () => {
   });
 
   it("omits isTrue from every returned question (category-only search)", async () => {
-    const tool = createFindPreviousQuestionsTool(data);
+    const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
     const result = await tool.handler(
-      { category: "Science", text: undefined, season: undefined, limit: undefined },
+      {
+        game: FIXTURE_GAME_NAME,
+        category: "Science",
+        text: undefined,
+        season: undefined,
+        limit: undefined,
+      },
       SESSION,
     );
     const parsed = parseToolResult(result);
@@ -59,9 +66,15 @@ describe("find_previous_questions response shape", () => {
   });
 
   it("omits isTrue from every returned question (text-only search)", async () => {
-    const tool = createFindPreviousQuestionsTool(data);
+    const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
     const result = await tool.handler(
-      { category: undefined, text: "boils", season: undefined, limit: undefined },
+      {
+        game: FIXTURE_GAME_NAME,
+        category: undefined,
+        text: "boils",
+        season: undefined,
+        limit: undefined,
+      },
       SESSION,
     );
     const parsed = parseToolResult(result);
@@ -71,9 +84,15 @@ describe("find_previous_questions response shape", () => {
   });
 
   it("omits isTrue from every returned question (both filters)", async () => {
-    const tool = createFindPreviousQuestionsTool(data);
+    const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
     const result = await tool.handler(
-      { category: "Science", text: "Earth", season: undefined, limit: undefined },
+      {
+        game: FIXTURE_GAME_NAME,
+        category: "Science",
+        text: "Earth",
+        season: undefined,
+        limit: undefined,
+      },
       SESSION,
     );
     const parsed = parseToolResult(result);
@@ -84,9 +103,15 @@ describe("find_previous_questions response shape", () => {
   });
 
   it("returns the search-safe field set", async () => {
-    const tool = createFindPreviousQuestionsTool(data);
+    const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
     const result = await tool.handler(
-      { category: undefined, text: "boils", season: undefined, limit: undefined },
+      {
+        game: FIXTURE_GAME_NAME,
+        category: undefined,
+        text: "boils",
+        season: undefined,
+        limit: undefined,
+      },
       SESSION,
     );
     const parsed = parseToolResult(result);
@@ -104,9 +129,15 @@ describe("find_previous_questions response shape", () => {
   });
 
   it("omits postedAt and messageLink when not stored", async () => {
-    const tool = createFindPreviousQuestionsTool(data);
+    const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
     const result = await tool.handler(
-      { category: undefined, text: "Earth", season: undefined, limit: undefined },
+      {
+        game: FIXTURE_GAME_NAME,
+        category: undefined,
+        text: "Earth",
+        season: undefined,
+        limit: undefined,
+      },
       SESSION,
     );
     const parsed = parseToolResult(result);
@@ -118,9 +149,15 @@ describe("find_previous_questions response shape", () => {
   });
 
   it("returns empty array for no matches without leaking answer keys elsewhere", async () => {
-    const tool = createFindPreviousQuestionsTool(data);
+    const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
     const result = await tool.handler(
-      { category: "Science", text: "Rome", season: undefined, limit: undefined },
+      {
+        game: FIXTURE_GAME_NAME,
+        category: "Science",
+        text: "Rome",
+        season: undefined,
+        limit: undefined,
+      },
       SESSION,
     );
     const parsed = parseToolResult(result);
@@ -136,7 +173,8 @@ describe("find_previous_questions choice-question shape", () => {
 
   beforeEach(async () => {
     data = createInMemoryDataLayer();
-    await data.saveQuestion({
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion({
       id: "qc1",
       type: "choice",
       category: "Geography",
@@ -146,7 +184,7 @@ describe("find_previous_questions choice-question shape", () => {
       emojis: ["🪐"],
       createdAt: 100,
     });
-    await data.saveQuestion({
+    await scoped.saveQuestion({
       id: "qb1",
       type: "boolean",
       category: "Geography",
@@ -158,9 +196,15 @@ describe("find_previous_questions choice-question shape", () => {
   });
 
   it("choice rows include type and choices, never correctIndex or isTrue", async () => {
-    const tool = createFindPreviousQuestionsTool(data);
+    const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
     const result = await tool.handler(
-      { category: undefined, text: "planet", season: undefined, limit: undefined },
+      {
+        game: FIXTURE_GAME_NAME,
+        category: undefined,
+        text: "planet",
+        season: undefined,
+        limit: undefined,
+      },
       SESSION,
     );
     const parsed = parseToolResult(result);
@@ -172,9 +216,15 @@ describe("find_previous_questions choice-question shape", () => {
   });
 
   it("boolean rows include type but never choices/correctIndex/isTrue", async () => {
-    const tool = createFindPreviousQuestionsTool(data);
+    const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
     const result = await tool.handler(
-      { category: undefined, text: "Earth is round", season: undefined, limit: undefined },
+      {
+        game: FIXTURE_GAME_NAME,
+        category: undefined,
+        text: "Earth is round",
+        season: undefined,
+        limit: undefined,
+      },
       SESSION,
     );
     const parsed = parseToolResult(result);

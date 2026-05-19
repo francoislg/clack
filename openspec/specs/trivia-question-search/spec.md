@@ -2,74 +2,106 @@
 
 ## Purpose
 
-Question creation and discovery for trivia questions, including validation, search, and storage.
+Question creation and discovery for trivia questions, including validation, search, and storage. All operations are scoped per-game: every tool takes a required `game: string` argument validated against `config.trivia.games[]`, and reads/writes target `data/plugins/trivia/games/<name>/`.
 
 ## Requirements
 
 ### Requirement: Find previous questions tool
 
-The system SHALL provide a `find_previous_questions` MCP tool (member role) that searches past trivia questions by category and/or statement text.
+The system SHALL provide a `find_previous_questions` MCP tool (member role) that searches past trivia questions by category and/or statement text within a specified game.
+
+The tool SHALL accept a required `game: string` argument. The name SHALL be validated against `config.trivia.games[]` per the `trivia-games` capability:
+- Unknown name → structured "unknown game" error.
+- `enabled: false` entry → success (read tools succeed against disabled games — frozen-archive semantics).
+
+All search I/O SHALL be scoped to `data/plugins/trivia/games/<name>/questions.json`. Cross-game search is not supported.
 
 The tool SHALL accept an optional `season` parameter (string, optional):
 
-- When `season` is omitted, the default SHALL be `"all"` — the tool searches across every entry in `questions.json` regardless of any `season` tag. This default ensures duplicate detection naturally spans seasons.
-- When `season` is `"current"`, the tool SHALL filter `questions.json` to entries whose `season` matches the currently-active season's slug (resolved via `findCurrentSeason(state, now)`). If `findCurrentSeason` returns `null` (gap), `"current"` resolves to no matches.
+- When `season` is omitted, the default SHALL be `"all"` — the tool searches across every entry in the game's `questions.json` regardless of any `season` tag. This default ensures duplicate detection naturally spans the game's seasons.
+- When `season` is `"current"`, the tool SHALL filter the game's `questions.json` to entries whose `season` matches the game's currently-active season's slug (resolved via `findCurrentSeason` against `data/plugins/trivia/games/<name>/seasons.json`). If `findCurrentSeason` returns `null` (gap), `"current"` resolves to no matches.
 - When `season` is any other string, the tool SHALL filter to entries whose `season` exactly matches the provided value.
 
-When `trivia.seasons.enabled` is `false`, the `season` parameter SHALL be silently ignored and the tool SHALL search across the entire `questions.json` (legacy behavior).
+When `trivia.seasons.enabled` is `false`, the `season` parameter SHALL be silently ignored and the tool SHALL search across the entire game's `questions.json`.
 
-#### Scenario: Search by category
+#### Scenario: Search by category within a game
 
-- **WHEN** `find_previous_questions` is called with `category: "Marine Biology"`
-- **THEN** the tool returns all questions whose `category` matches "Marine Biology"
+- **WHEN** `find_previous_questions` is called with `game: "main", category: "Marine Biology"`
+- **THEN** the tool returns all questions in `games/main/questions.json` whose `category` matches "Marine Biology"
 
-#### Scenario: Search by text
+#### Scenario: Search by text within a game
 
-- **WHEN** `find_previous_questions` is called with `text: "shrimp"`
-- **THEN** the tool returns all questions whose `statement` contains "shrimp" (case-insensitive)
+- **WHEN** `find_previous_questions` is called with `game: "main", text: "shrimp"`
+- **THEN** the tool returns all questions in `games/main/questions.json` whose `statement` contains "shrimp" (case-insensitive)
 
 #### Scenario: Search by both category and text
 
-- **WHEN** `find_previous_questions` is called with `category: "Marine Biology"` and `text: "hearts"`
-- **THEN** the tool returns questions matching both criteria (AND)
+- **WHEN** `find_previous_questions` is called with `game: "main", category: "Marine Biology", text: "hearts"`
+- **THEN** the tool returns questions in `games/main/questions.json` matching both criteria (AND)
 
-#### Scenario: No parameters provided
+#### Scenario: No search criteria provided
 
-- **WHEN** `find_previous_questions` is called with neither `category` nor `text`
-- **THEN** the tool returns an error indicating at least one search parameter is required
+- **WHEN** `find_previous_questions` is called with `game: "main"` and neither `category` nor `text`
+- **THEN** the tool returns an error indicating at least one search parameter (besides `game`) is required
 
 #### Scenario: No matches found
 
-- **WHEN** `find_previous_questions` is called with criteria that match no questions
+- **WHEN** `find_previous_questions` is called with criteria that match no questions in the named game
 - **THEN** the tool returns an empty result set
 
-#### Scenario: Default season is "all" — duplicate detection spans seasons
+#### Scenario: Game scoping prevents cross-game matches
 
-- **GIVEN** `trivia.seasons.enabled` is `true` with seasons `"spring-2026"` (history) and `"summer-2026"` (current)
-- **AND** a question with text "Mount Everest is..." exists in `questions.json` tagged `season: "spring-2026"`
-- **WHEN** `find_previous_questions` is called with `text: "Everest"` and no `season` argument
+- **GIVEN** a question with text "Mount Everest is..." exists in `games/main/questions.json`
+- **AND** no such question exists in `games/sandbox/questions.json`
+- **WHEN** `find_previous_questions` is called with `game: "sandbox", text: "Everest"`
+- **THEN** the result is empty
+
+#### Scenario: Unknown game rejected
+
+- **WHEN** `find_previous_questions` is called with `game: "ghost"` (not in `config.trivia.games[]`)
+- **THEN** the tool returns a structured "unknown game" error
+
+#### Scenario: Disabled game allows search (frozen archive)
+
+- **GIVEN** `config.trivia.games[]` contains `{ name: "retired", enabled: false, ... }`
+- **WHEN** `find_previous_questions` is called with `game: "retired", text: "..."`
+- **THEN** the tool succeeds and returns matching historical entries
+
+#### Scenario: Default season is "all" — duplicate detection spans seasons within the game
+
+- **GIVEN** `trivia.seasons.enabled` is `true` with seasons `"spring-2026"` (history) and `"summer-2026"` (current) in `games/main/seasons.json`
+- **AND** a question tagged `season: "spring-2026"` exists in `games/main/questions.json`
+- **WHEN** `find_previous_questions` is called with `game: "main", text: "..."` and no `season` argument
 - **THEN** the spring-2026 question is included in the result set
 
 #### Scenario: Explicit season filter scopes the search
 
-- **GIVEN** `questions.json` contains entries tagged `"spring-2026"` and `"summer-2026"`
-- **WHEN** `find_previous_questions` is called with `text: "..."` and `season: "summer-2026"`
+- **WHEN** `find_previous_questions` is called with `game: "main", text: "...", season: "summer-2026"`
 - **THEN** only entries tagged `"summer-2026"` are eligible for matching
 
 #### Scenario: Seasons disabled — season parameter ignored
 
 - **GIVEN** `trivia.seasons.enabled` is `false`
-- **WHEN** `find_previous_questions` is called with `season: "anything"`
-- **THEN** the search proceeds across the entire `questions.json` without any season filter
+- **WHEN** `find_previous_questions` is called with `game: "main", season: "anything"`
+- **THEN** the search proceeds across the entire `games/main/questions.json` without any season filter
 
 #### Scenario: "current" during a gap returns empty
 
-- **GIVEN** `trivia.seasons.enabled` is `true` but `findCurrentSeason(state, now)` returns `null` (timeline gap)
-- **WHEN** `find_previous_questions` is called with `season: "current"`
-- **THEN** the result is empty (no current season exists to match against)
+- **GIVEN** `findCurrentSeason(games/main/seasons.json, now)` returns `null`
+- **WHEN** `find_previous_questions` is called with `game: "main", season: "current"`
+- **THEN** the result is empty
 
 ### Requirement: save_question replaces generate_question
-The system SHALL provide a `save_question` MCP tool (member role) that saves a new trivia question. The tool SHALL accept one of two argument shapes determined by the `type` field:
+
+The system SHALL provide a `save_question` MCP tool (member role) that saves a new trivia question to a specified game.
+
+The tool SHALL accept a required `game: string` argument. The name SHALL be validated against `config.trivia.games[]` per the `trivia-games` capability:
+- Unknown name → structured "unknown game" error.
+- `enabled: false` entry → structured "game is disabled" error (write tool).
+
+The new question SHALL be appended to `data/plugins/trivia/games/<name>/questions.json` — never to a flat-file `questions.json` at the trivia root, and never to another game's file.
+
+The tool SHALL accept one of two argument shapes determined by the `type` field:
 
 **Boolean shape** (`type: "boolean"` or absent): `category`, `statement`, `isTrue`, and `emojis`. The stored record carries `type: "boolean"` (explicitly set, even when the caller omitted the field) and `isTrue`, and does NOT carry `choices` or `correctIndex`.
 
@@ -84,70 +116,90 @@ The tool SHALL validate (in addition to the existing statement-length checks):
 
 On validation failure, the tool SHALL return a structured error indicating which constraint failed.
 
-When `trivia.seasons.enabled` is `true` AND `findCurrentSeason(state, now)` returns a season, each new entry written to `questions.json` SHALL include a `season: string` field equal to that season's slug. When seasons are disabled OR `findCurrentSeason` returns `null` (gap), no `season` field is written.
+When `trivia.seasons.enabled` is `true` AND `findCurrentSeason(games/<name>/seasons.json, now)` returns a season, each new entry written to the game's `questions.json` SHALL include a `season: string` field equal to that season's slug. When seasons are disabled OR `findCurrentSeason` returns `null` (gap) for the game's timeline, no `season` field is written.
 
-Category validation reads from the currently-active season's `categories` when seasons are enabled with a current season; otherwise from `categories.json`.
+Category validation reads from the game's currently-active season's `categories` when seasons are enabled with a current season; otherwise from the global `categories.json` at the trivia root.
 
 #### Scenario: Save a valid boolean question
-- **WHEN** `save_question` is called with a valid category, statement, `isTrue`, and emojis (no `type` field)
-- **THEN** the question is saved to `questions.json` with `type: "boolean"`, the provided fields, plus a generated ID and `createdAt` timestamp
+
+- **WHEN** `save_question` is called with `game: "main"`, a valid category, statement, `isTrue`, and emojis (no `type` field)
+- **THEN** the question is appended to `games/main/questions.json` with `type: "boolean"`, the provided fields, plus a generated ID and `createdAt` timestamp
 
 #### Scenario: Save a valid choice question
-- **WHEN** `save_question` is called with `type: "choice"`, a valid category, statement, emojis, `choices` of length 4, and `correctIndex: 2`
-- **THEN** the question is saved to `questions.json` with `type: "choice"`, the provided choices and correctIndex, plus a generated ID and `createdAt` timestamp
+
+- **WHEN** `save_question` is called with `game: "main", type: "choice"`, a valid category, statement, emojis, `choices` of length 4, and `correctIndex: 2`
+- **THEN** the question is appended to `games/main/questions.json` with `type: "choice"`, the provided choices and correctIndex, plus a generated ID and `createdAt` timestamp
 
 #### Scenario: Statement too short
 
-- **WHEN** `save_question` is called with a statement shorter than 10 characters
+- **WHEN** `save_question` is called with `game: "main"` and a statement shorter than 10 characters
 - **THEN** the tool returns a validation error
 
 #### Scenario: Statement too long
 
-- **WHEN** `save_question` is called with a statement longer than 500 characters
+- **WHEN** `save_question` is called with `game: "main"` and a statement longer than 500 characters
 - **THEN** the tool returns a validation error
 
 #### Scenario: Choice question with correctIndex out of range
-- **WHEN** `save_question` is called with `type: "choice"`, `choices` of length 4, and `correctIndex: 4`
+
+- **WHEN** `save_question` is called with `game: "main", type: "choice"`, `choices` of length 4, and `correctIndex: 4`
 - **THEN** the tool returns a validation error indicating `correctIndex` must be in `[0, choices.length)`
 
 #### Scenario: Choice question with duplicate choices
-- **WHEN** `save_question` is called with `type: "choice"` and `choices: ["Paris", "London", "Paris", "Rome"]`
+
+- **WHEN** `save_question` is called with `game: "main", type: "choice"` and `choices: ["Paris", "London", "Paris", "Rome"]`
 - **THEN** the tool returns a validation error indicating choices must be unique
 
 #### Scenario: Choice question outside configured bounds
+
 - **GIVEN** active `trivia.choices` bounds of `min: 2, max: 4`
-- **WHEN** `save_question` is called with `type: "choice"` and `choices` of length 5
+- **WHEN** `save_question` is called with `game: "main", type: "choice"` and `choices` of length 5
 - **THEN** the tool returns a validation error indicating choices length is outside the bounds
 
 #### Scenario: Choice question with isTrue rejected
-- **WHEN** `save_question` is called with `type: "choice"` AND `isTrue: true`
+
+- **WHEN** `save_question` is called with `game: "main", type: "choice"` AND `isTrue: true`
 - **THEN** the tool returns a validation error indicating `isTrue` is invalid for choice questions
 
 #### Scenario: Boolean question with choices rejected
-- **WHEN** `save_question` is called with `type: "boolean"` AND `choices: ["A", "B"]`
+
+- **WHEN** `save_question` is called with `game: "main", type: "boolean"` AND `choices: ["A", "B"]`
 - **THEN** the tool returns a validation error indicating `choices` is invalid for boolean questions
 
-#### Scenario: New question carries the current season tag when seasons are enabled
+#### Scenario: Unknown game rejected
 
-- **GIVEN** `trivia.seasons.enabled` is `true` and `seasons.json#current` is `"august-2026"`
-- **WHEN** `save_question` is called with valid arguments
-- **THEN** the new entry in `questions.json` includes `season: "august-2026"`
+- **WHEN** `save_question` is called with `game: "ghost"`
+- **THEN** the tool returns a structured "unknown game" error
+- **AND** no file is created or modified
+
+#### Scenario: Disabled game refuses the write
+
+- **GIVEN** `config.trivia.games[]` contains `{ name: "retired", enabled: false, ... }`
+- **WHEN** `save_question` is called with `game: "retired"` and otherwise-valid args
+- **THEN** the tool returns a structured "game is disabled" error
+- **AND** `data/plugins/trivia/games/retired/questions.json` is unchanged
+
+#### Scenario: New question carries the current season tag
+
+- **GIVEN** `trivia.seasons.enabled` is `true` and `games/main/seasons.json` has a current entry with slug `"august-2026"`
+- **WHEN** `save_question` is called with `game: "main"` and valid arguments
+- **THEN** the new entry in `games/main/questions.json` includes `season: "august-2026"`
 
 #### Scenario: New question carries no season tag when seasons are disabled
 
 - **GIVEN** `trivia.seasons.enabled` is `false`
-- **WHEN** `save_question` is called with valid arguments
-- **THEN** the new entry in `questions.json` contains no `season` field
+- **WHEN** `save_question` is called with `game: "main"` and valid arguments
+- **THEN** the new entry in `games/main/questions.json` contains no `season` field
 
 ### Requirement: Find previous questions response excludes the answer key
 
 The `find_previous_questions` MCP tool SHALL NOT include the question's answer-key fields (`isTrue` for boolean questions, `correctIndex` for choice questions) in any element of its returned `questions` array, regardless of caller role. The tool SHALL return only search-safe metadata: `id`, `type` (when present on the stored record), `category`, `statement`, `emojis`, `createdAt`, and (when present on the stored record) `postedAt` and `messageLink`. For choice questions, the tool SHALL include the `choices` array (the choice strings themselves are not the answer key — the answer key is the `correctIndex`).
 
-This requirement closes a pre-existing exposure where any session at the `member` tier could prompt Clack into surfacing the canonical answer key for past questions through the search tool. The tool's gating remains `member`; the response shape is what changes.
+This requirement closes a pre-existing exposure where any session at the `member` tier could prompt Clack into surfacing the canonical answer key for past questions through the search tool. The tool's gating remains `member`; the response shape is what changes. This requirement is unaffected by the `game` argument — the answer-key exclusion applies to every game's results.
 
 #### Scenario: Boolean response payload omits isTrue
 
-- **WHEN** `find_previous_questions` is invoked with any combination of valid arguments and matches at least one stored boolean question
+- **WHEN** `find_previous_questions` is invoked with any combination of valid arguments (including `game`) and matches at least one stored boolean question
 - **THEN** every boolean element of the returned `questions` array contains `id`, `category`, `statement`, `emojis`, `createdAt`, and (when present on the stored record) `type`, `postedAt`, and `messageLink`
 - **AND** no element contains an `isTrue` field
 
@@ -160,17 +212,20 @@ This requirement closes a pre-existing exposure where any session at the `member
 
 #### Scenario: Empty result is unaffected
 
-- **WHEN** `find_previous_questions` is invoked with criteria that match no questions
+- **WHEN** `find_previous_questions` is invoked with criteria that match no questions in the named game
 - **THEN** the tool returns an empty `questions` array
 - **AND** no answer-key data is returned in any other field of the response
 
 ### Requirement: Get question history tool
 
-The Trivia plugin SHALL expose a `get_question_history` MCP tool that returns the answer key, the list of users caught cheating on the question, and the list of submitted answers, for a single question identified by `questionId`.
+The Trivia plugin SHALL expose a `get_question_history` MCP tool that returns the answer key, the list of users caught cheating on the question, and the list of submitted answers, for a single question identified by `questionId` within a specified game.
 
 The tool SHALL be gated to the `admin` role. The tool SHALL accept the following arguments:
 
-- `questionId` (string, required) — the ID of the trivia question to look up.
+- `game` (string, required) — the game slug; validated against `config.trivia.games[]` per the `trivia-games` capability. Read tool — succeeds against `enabled: false` games.
+- `questionId` (string, required) — the ID of the trivia question to look up within the named game.
+
+The tool SHALL look up the question only in `data/plugins/trivia/games/<game>/questions.json`, the cheat list only in `data/plugins/trivia/games/<game>/cheats.json`, and the answers only in `data/plugins/trivia/games/<game>/answers.json`. The `displayName` SHALL be looked up from the global `data/plugins/trivia/users.json`.
 
 The tool SHALL return the question's answer key in a type-discriminated shape:
 
@@ -179,57 +234,69 @@ The tool SHALL return the question's answer key in a type-discriminated shape:
 
 The tool SHALL also return:
 
-- `cheaterUserIds` (string array) — the deduplicated list of `cheaterUserId` values from every `cheats.json` entry whose `questionId` matches the requested question.
-- `responses` (array of objects) — every entry from `answers.json` whose `questionId` matches, projected to `{ userId, displayName, answer?, answerIndex?, correct }`. The `displayName` SHALL be looked up from `users.json`; when no user record exists, `displayName` SHALL fall back to `userId`. Each response entry carries `answer` for boolean-question answers and `answerIndex` for choice-question answers, mirroring the stored row's shape.
+- `cheaterUserIds` (string array) — the deduplicated list of `cheaterUserId` values from every entry in the named game's `cheats.json` whose `questionId` matches the requested question.
+- `responses` (array of objects) — every entry from the named game's `answers.json` whose `questionId` matches, projected to `{ userId, displayName, answer?, answerIndex?, correct }`. The `displayName` SHALL be looked up from the global `users.json`; when no user record exists, `displayName` SHALL fall back to `userId`. Each response entry carries `answer` for boolean-question answers and `answerIndex` for choice-question answers, mirroring the stored row's shape.
 
 The tool's description SHALL instruct Claude that cheater identities are internal — Claude MUST NOT name caught cheaters in any user-facing output unless an admin explicitly asks for the list.
 
-#### Scenario: Returns boolean answer key, cheaters, and responses
+#### Scenario: Returns boolean answer key, cheaters, and responses scoped to the game
 
-- **GIVEN** a question `q42` exists in `questions.json` with `type: "boolean"` (or absent) and `isTrue: true`
-- **AND** `cheats.json` contains two entries with `questionId: "q42"` and `cheaterUserId` values `"U777"` and `"U888"`, plus one entry with a different `questionId`
-- **AND** `answers.json` contains three entries with `questionId: "q42"` for users `U1`, `U2`, `U777`, plus an entry for a different `questionId`
-- **AND** `users.json` contains records for `U1`, `U2`, and `U777` with `displayName` fields
-- **WHEN** `get_question_history` is called with `questionId: "q42"`
+- **GIVEN** a question `q42` exists in `games/main/questions.json` with `type: "boolean"` (or absent) and `isTrue: true`
+- **AND** `games/main/cheats.json` contains two entries with `questionId: "q42"` and `cheaterUserId` values `"U777"` and `"U888"`, plus one entry with a different `questionId`
+- **AND** `games/main/answers.json` contains three entries with `questionId: "q42"` for users `U1`, `U2`, `U777`, plus an entry for a different `questionId`
+- **AND** the global `users.json` contains records for `U1`, `U2`, and `U777` with `displayName` fields
+- **WHEN** `get_question_history` is called with `game: "main", questionId: "q42"`
 - **THEN** the response contains `type: "boolean"` and `isTrue: true`
 - **AND** `cheaterUserIds` is the deduplicated set `["U777", "U888"]` (order is not significant)
-- **AND** `responses` contains exactly three entries, one per `q42` answer, each with the matching `userId`, the `displayName` from `users.json`, and the recorded `answer` and `correct`
-- **AND** no entries from other questions appear in any field of the response
+- **AND** `responses` contains exactly three entries, one per `q42` answer, each with the matching `userId`, the `displayName` from the global `users.json`, and the recorded `answer` and `correct`
+- **AND** no entries from other games' files appear in any field of the response
 
 #### Scenario: Returns choice answer key, cheaters, and responses
 
-- **GIVEN** a question `q50` exists in `questions.json` with `type: "choice"`, `choices: ["A", "B", "C", "D"]`, and `correctIndex: 1`
-- **AND** `answers.json` contains two entries with `questionId: "q50"` and `answerIndex` values `1` and `3`
-- **WHEN** `get_question_history` is called with `questionId: "q50"`
+- **GIVEN** a question `q50` exists in `games/main/questions.json` with `type: "choice"`, `choices: ["A", "B", "C", "D"]`, and `correctIndex: 1`
+- **AND** `games/main/answers.json` contains two entries with `questionId: "q50"` and `answerIndex` values `1` and `3`
+- **WHEN** `get_question_history` is called with `game: "main", questionId: "q50"`
 - **THEN** the response contains `type: "choice"`, `choices: ["A", "B", "C", "D"]`, and `correctIndex: 1`
 - **AND** `responses` contains two entries with `answerIndex` set (and `answer` absent)
 
-#### Scenario: Empty cheater list when no cheats recorded
+#### Scenario: Question scoped to wrong game returns not-found
 
-- **GIVEN** a question `q43` exists with no entries in `cheats.json`
-- **WHEN** `get_question_history` is called with `questionId: "q43"`
+- **GIVEN** question `q42` exists in `games/main/questions.json` but not in `games/sandbox/questions.json`
+- **WHEN** `get_question_history` is called with `game: "sandbox", questionId: "q42"`
+- **THEN** the tool returns a structured "question not found" error
+- **AND** no data from the `main` game leaks into the response
+
+#### Scenario: Empty cheater list when no cheats recorded for that game's question
+
+- **GIVEN** a question `q43` exists in `games/main/questions.json` with no entries in `games/main/cheats.json`
+- **WHEN** `get_question_history` is called with `game: "main", questionId: "q43"`
 - **THEN** `cheaterUserIds` is an empty array
-- **AND** `responses` reflects whatever answers exist for `q43` (possibly empty)
+- **AND** `responses` reflects whatever answers exist for `q43` in `games/main/answers.json` (possibly empty)
 
 #### Scenario: Empty responses for a freshly posted question
 
-- **GIVEN** a question `q44` was just saved by `save_question` and no `submit_answers` call has yet referenced it
-- **WHEN** `get_question_history` is called with `questionId: "q44"`
+- **GIVEN** a question `q44` was just saved by `save_question(game: "main", ...)` and no `submit_answers` call has yet referenced it
+- **WHEN** `get_question_history` is called with `game: "main", questionId: "q44"`
 - **THEN** `responses` is an empty array
-- **AND** `cheaterUserIds` reflects any cheats already recorded for `q44` (possibly empty)
+- **AND** `cheaterUserIds` reflects any cheats already recorded for `q44` in `games/main/cheats.json` (possibly empty)
 
 #### Scenario: displayName falls back to userId when user record missing
 
-- **GIVEN** `answers.json` contains an entry with `userId: "U999"` for question `q45`
-- **AND** `users.json` has no record for `U999`
-- **WHEN** `get_question_history` is called with `questionId: "q45"`
+- **GIVEN** `games/main/answers.json` contains an entry with `userId: "U999"` for question `q45`
+- **AND** the global `users.json` has no record for `U999`
+- **WHEN** `get_question_history` is called with `game: "main", questionId: "q45"`
 - **THEN** the corresponding entry in `responses` has `displayName: "U999"`
 
 #### Scenario: Unknown questionId returns an error
 
-- **WHEN** `get_question_history` is called with a `questionId` that does not appear in `questions.json`
+- **WHEN** `get_question_history` is called with a `questionId` that does not appear in the named game's `questions.json`
 - **THEN** the tool returns a structured error indicating the question was not found
 - **AND** the response contains no answer-key, `cheaterUserIds`, or `responses` fields
+
+#### Scenario: Unknown game rejected
+
+- **WHEN** `get_question_history` is called with `game: "ghost"`
+- **THEN** the tool returns a structured "unknown game" error
 
 #### Scenario: Tool is gated to admin
 
