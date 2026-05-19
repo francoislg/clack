@@ -461,6 +461,25 @@ The system SHALL provide a `create_scheduled_message` tool for creating cron job
 - **AND** subsequent runs of the job evaluate the conditions and may skip delivery
 - **AND** the tool response indicates that skip conditions were captured
 
+#### Scenario: Create with submitResponseMode
+
+- **WHEN** Claude calls `create_scheduled_message` with `submitResponseMode` set to one of `"always"`, `"optional"`, or `"skipped"`
+- **THEN** the tool stores the value on the cron job verbatim
+- **AND** subsequent runs use the mode to select the `submit_response` schema variant (see the `submit-response-mode` capability)
+- **AND** the tool response confirms the chosen mode
+
+#### Scenario: Create without submitResponseMode
+
+- **WHEN** Claude calls `create_scheduled_message` without `submitResponseMode` (field omitted)
+- **THEN** the tool stores the job with no `submitResponseMode` field
+- **AND** subsequent runs use today's auto-derivation rules (allowSkip from triggerType + skipConditions)
+
+#### Scenario: Invalid submitResponseMode is rejected
+
+- **WHEN** Claude calls `create_scheduled_message` with `submitResponseMode: "bogus"` (not one of the three valid values)
+- **THEN** the tool returns a validation error identifying the offending field
+- **AND** no cron job is created
+
 #### Scenario: Specify repositories for dynamic jobs
 - **WHEN** Claude calls `create_scheduled_message` with `repositories` array
 - **THEN** the tool validates that the creator has read access to the specified repositories
