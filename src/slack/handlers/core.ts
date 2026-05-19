@@ -26,6 +26,7 @@ import type { TriggerType } from "../../changes/types.js";
 import type { SlackImageFile, SlackFile } from "../slackFileBase.js";
 import type { AskClaudeOptions, ClaudeResponse } from "../../claude/index.js";
 import type { SessionInfo } from "../activeSessions.js";
+import type { UserRole } from "../../roles.js";
 
 /**
  * Default emoji applied to a user message when their follow-up is appended onto an
@@ -60,7 +61,11 @@ export interface CoreDeps {
   resolveChannelLabel: typeof resolveChannelLabel;
   resolveUserLabel: typeof resolveUserLabel;
   slackLink: typeof slackLink;
-  getClaudeOptions: (userId: string, triggerType: TriggerType) => Promise<AskClaudeOptions>;
+  getClaudeOptions: (
+    userId: string,
+    triggerType: TriggerType,
+    roleOverride?: UserRole,
+  ) => Promise<AskClaudeOptions>;
   getReactionDelivery: (userId: string) => Promise<string>;
   storeDmCoordinates: typeof storeDmCoordinates;
   executeAndDeliver: typeof executeAndDeliver;
@@ -129,6 +134,13 @@ export interface ProcessMessageParams {
   reactionEmoji?: string;
   /** autoRespond rule name — propagated onto the trigger when a rule matched. */
   autoRespondRuleName?: string;
+  /**
+   * Explicit role override that bypasses `getRole(userId)`. Used by the cron
+   * scheduler for plugin-managed jobs so they run as `"system"` instead of
+   * resolving the synthetic actor userId through `getRole` (which would return
+   * the default "member" tier and silently filter out plugin tools).
+   */
+  roleOverride?: UserRole;
 }
 
 interface ProcessingContext {
@@ -157,6 +169,8 @@ interface ProcessingContext {
   readonly reactionEmoji?: string;
   /** autoRespond rule name — propagated onto the trigger when a rule matched. */
   readonly autoRespondRuleName?: string;
+  /** Explicit role override (system jobs run as "system"; see ProcessMessageParams). */
+  readonly roleOverride?: UserRole;
 }
 
 /** Construct a `SessionTrigger` from the inputs we have at handler time. The switch on
@@ -487,6 +501,7 @@ export async function processMessage(
     jobId: params.jobId,
     reactionEmoji: params.reactionEmoji,
     autoRespondRuleName: params.autoRespondRuleName,
+    roleOverride: params.roleOverride,
   };
 
   const userLabel = await deps.resolveUserLabel(client, userId);
@@ -546,7 +561,7 @@ export async function processMessage(
   // 6. Build Claude options and execute. The active-runs registry replaces the previous
   // in-flight tracking wrapper — `askClaude` registers itself under (channelId, threadTs)
   // when the run is constructed and deregisters via the handle's `onTerminal` hook.
-  const claudeOptions = await deps.getClaudeOptions(userId, triggerType);
+  const claudeOptions = await deps.getClaudeOptions(userId, triggerType, ctx.roleOverride);
   const abortController = new AbortController();
 
   return deps.executeAndDeliver({

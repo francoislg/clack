@@ -19,7 +19,7 @@ import type { UserRole } from "./roles.js";
 // Role-based (synchronous) permission checks
 // ---------------------------------------------------------------------------
 
-const ALL_ROLES: UserRole[] = ["owner", "admin", "dev", "member"];
+const ALL_ROLES: UserRole[] = ["system", "owner", "admin", "dev", "member"];
 
 describe("canEditConfig", () => {
   it("allows admin and owner", () => {
@@ -74,7 +74,7 @@ describe("canTransferOwnership", () => {
 // ---------------------------------------------------------------------------
 
 describe("meetsMinimumRole", () => {
-  const roles: UserRole[] = ["member", "dev", "admin", "owner"];
+  const roles: UserRole[] = ["member", "dev", "admin", "owner", "system"];
 
   it("same role always meets its own threshold", () => {
     for (const role of roles) {
@@ -93,6 +93,20 @@ describe("meetsMinimumRole", () => {
     assert.equal(meetsMinimumRole("dev", "admin"), false);
     assert.equal(meetsMinimumRole("admin", "owner"), false);
   });
+
+  it("system sits above every user-facing role", () => {
+    assert.equal(meetsMinimumRole("system", "owner"), true);
+    assert.equal(meetsMinimumRole("system", "admin"), true);
+    assert.equal(meetsMinimumRole("system", "dev"), true);
+    assert.equal(meetsMinimumRole("system", "member"), true);
+  });
+
+  // Sanity guard: ownership-mutating code uses `role === "owner"` literals to
+  // exclude system. If a future refactor unifies the strings this test fails.
+  it('system is not literally equal to "owner"', () => {
+    const role: string = "system";
+    assert.equal(role === "owner", false);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -101,10 +115,17 @@ describe("meetsMinimumRole", () => {
 
 describe("permission matrix", () => {
   const expectations: Record<string, Record<UserRole, boolean>> = {
-    canEditConfig: { owner: true, admin: true, dev: false, member: false },
-    canRequestChanges: { owner: true, admin: true, dev: true, member: false },
-    canManageRoles: { owner: true, admin: true, dev: false, member: false },
-    canTransferOwnership: { owner: true, admin: false, dev: false, member: false },
+    canEditConfig: { system: true, owner: true, admin: true, dev: false, member: false },
+    canRequestChanges: { system: true, owner: true, admin: true, dev: true, member: false },
+    canManageRoles: { system: true, owner: true, admin: true, dev: false, member: false },
+    // canTransferOwnership uses literal `=== "owner"` — system is excluded by design.
+    canTransferOwnership: {
+      system: false,
+      owner: true,
+      admin: false,
+      dev: false,
+      member: false,
+    },
   };
 
   const fns: Record<string, (role: UserRole) => boolean> = {

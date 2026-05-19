@@ -29,14 +29,19 @@ export const defaultChangeWorkflowHelperDeps: ChangeWorkflowHelperDeps = {
 /**
  * Get Claude options for a user and trigger type.
  * Dynamic state (repos, sessions) is now queryable through clack tools.
+ *
+ * `roleOverride` lets callers (e.g. the cron scheduler for plugin-managed jobs)
+ * bypass `getRole(userId)` and run as a specific role — needed for system-owned
+ * jobs whose `userId` is a synthetic actor source, not a Slack user.
  */
 export async function getClaudeOptions(
   userId: string,
   triggerType: TriggerType,
+  roleOverride?: UserRole,
   deps: ChangeWorkflowHelperDeps = defaultChangeWorkflowHelperDeps,
 ): Promise<AskClaudeOptions> {
   const config = deps.getConfig();
-  const role = await deps.getRole(userId);
+  const role = roleOverride ?? (await deps.getRole(userId));
 
   const changesEnabled = deps.isChangesEnabledForTrigger(triggerType, config);
   const isChangeCapable = changesEnabled && deps.canRequestChanges(role);

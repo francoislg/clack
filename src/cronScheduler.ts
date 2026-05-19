@@ -1,6 +1,12 @@
 import { CronExpressionParser } from "cron-parser";
 import type { App } from "@slack/bolt";
-import { getEnabledJobs, updateJobRunStatus, deleteJob, type CronJob } from "./cronJobs.js";
+import {
+  getEnabledJobs,
+  updateJobRunStatus,
+  deleteJob,
+  type CronJob,
+  type SkipDate,
+} from "./cronJobs.js";
 import { processMessage } from "./slack/handlers/core.js";
 import { findSessionByMessage } from "./sessions.js";
 import { logger } from "./logger.js";
@@ -9,6 +15,8 @@ import { openDmChannel } from "./slack/channelResolver.js";
 import { errorMessage as toErrorMessage } from "./errors.js";
 import { isSlackAccessError } from "./slackErrors.js";
 import { humanReadableSchedule } from "./cronFormatter.js";
+import { resolveJobActor, actorDmTarget, actorDisplay, type Actor } from "./actor.js";
+import { loadRoles } from "./roles.js";
 
 // ============================================================================
 // Injectable deps (for tests; production uses module-level imports)
@@ -129,6 +137,50 @@ export function matchesCron(
 }
 
 // ============================================================================
+// Skip-Date Matching
+// ============================================================================
+
+/**
+ * Format `now` in `timezone` using `en-CA` (which emits `YYYY-MM-DD`), then return the
+ * `YYYY-MM-DD` and `MM-DD` slices used for skip-date comparison.
+ */
+function dateKeysInTimezone(now: Date, timezone: string): { ymd: string; md: string } {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const ymd = formatter.format(now);
+  return { ymd, md: ymd.slice(5) };
+}
+
+/**
+ * Return the first {@link SkipDate} entry that matches `now` in `timezone`, or `null` if no
+ * entry matches. An entry's `date` matches when it equals today's `YYYY-MM-DD` (exact) or
+ * today's `MM-DD` (recurring annually). First match wins; callers use the returned entry's
+ * `label` for logging.
+ */
+export function matchesSkipDate(
+  entries: SkipDate[] | undefined,
+  now: Date,
+  timezone: string,
+): SkipDate | null {
+  if (!entries || entries.length === 0) return null;
+  let keys: { ymd: string; md: string };
+  try {
+    keys = dateKeysInTimezone(now, timezone);
+  } catch (error) {
+    logger.error(`Invalid timezone "${timezone}" when evaluating skipDates:`, error);
+    return null;
+  }
+  for (const entry of entries) {
+    if (entry.date === keys.ymd || entry.date === keys.md) return entry;
+  }
+  return null;
+}
+
+// ============================================================================
 // Job Execution
 // ============================================================================
 
@@ -153,6 +205,20 @@ export async function executeJob(
   const replayOf = asOf?.toISOString();
 
   try {
+    // Deterministic skip-date gate. Evaluated before opening a Claude session so off-days
+    // cost nothing and cannot be misinterpreted by the model. Composes with `skipConditions`
+    // (which still runs inside `executeDynamicJob` when no skipDates entry matches).
+    const skipMatch = matchesSkipDate(job.skipDates, asOf ?? new Date(), job.timezone);
+    if (skipMatch) {
+      await deps.updateJobRunStatus(job.id, "skipped", undefined, replayOf);
+      logger.info(`Cron job ${job.id} skipped by skipDates (${skipMatch.label})`);
+      if (job.oneShot) {
+        await deps.deleteJob(job.id);
+        logger.info(`Cron job ${job.id} deleted (one-shot)`);
+      }
+      return;
+    }
+
     const outcome = await executeDynamicJob(job, client, deps, asOf);
 
     if (outcome.skipped) {
@@ -218,19 +284,24 @@ export async function executeDynamicJob(
   asOf?: Date,
 ): Promise<JobOutcome> {
   const messageTs = `${Date.now() / 1000}`;
+  const actor = await resolveJobActor(job);
+  // System actors have no real Slack userId; the systemActor source doubles
+  // as a stable identifier for session lookups and trigger metadata.
+  const effectiveUserId = actor.kind === "user" ? actor.userId : actor.source;
 
   const response = await deps.processMessage({
     client,
-    userId: job.createdBy,
+    userId: effectiveUserId,
     channelId: job.channel,
     messageTs,
     messageText: job.prompt,
     triggerType: "scheduled",
     silentThinking: true,
-    additionalSystemPrompt: buildAdditionalSystemPrompt(job, asOf),
+    additionalSystemPrompt: await buildAdditionalSystemPrompt(job, asOf),
     requiredTools: job.requiredTools,
     skipConditions: job.skipConditions,
     jobId: job.id,
+    roleOverride: actor.kind === "system" ? "system" : undefined,
   });
 
   if (response.skipped) {
@@ -238,12 +309,12 @@ export async function executeDynamicJob(
   }
 
   // Read back the session to capture the Slack message timestamp
-  const session = await findSessionByMessage(job.channel, messageTs, job.createdBy);
+  const session = await findSessionByMessage(job.channel, messageTs, effectiveUserId);
   return { skipped: false, responseTs: session?.responseTs };
 }
 
-function buildAdditionalSystemPrompt(job: CronJob, asOf?: Date): string {
-  const attribution = buildAttribution(job);
+async function buildAdditionalSystemPrompt(job: CronJob, asOf?: Date): Promise<string> {
+  const attribution = await buildAttribution(job);
   if (!asOf) return attribution;
   const iso = asOf.toISOString();
   const replayContext = [
@@ -264,30 +335,85 @@ function buildAdditionalSystemPrompt(job: CronJob, asOf?: Date): string {
 // Attribution
 // ============================================================================
 
-function buildAttribution(job: CronJob): string {
+async function buildAttribution(job: CronJob): Promise<string> {
   const schedule = humanReadableSchedule(job.cronExpression, job.timezone);
-  return `_Scheduled by <@${job.createdBy}> · ${schedule}_`;
+  const actor = await resolveJobActor(job);
+  return `_Scheduled by ${actorDisplay(actor)} · ${schedule}_`;
 }
 
 // ============================================================================
 // Error Notification
 // ============================================================================
 
+export interface NotifyErrorDeps {
+  loadRoles: typeof loadRoles;
+}
+
+const defaultNotifyDeps: NotifyErrorDeps = { loadRoles };
+
 export async function notifyCreatorOfError(
   job: CronJob,
   client: App["client"],
   errorMessage: string,
+  deps: NotifyErrorDeps = defaultNotifyDeps,
 ): Promise<void> {
-  const dmChannelId = await openDmChannel(client, job.createdBy);
+  const actor = await resolveJobActor(job);
+  const dmTarget = await resolveErrorDmTarget(actor, deps);
+  if (!dmTarget) {
+    logger.error(
+      `Cron job ${job.id} (${actorDisplay(actor)}) failed and no DM target is available: ${errorMessage}`,
+    );
+    return;
+  }
+
+  const dmChannelId = await openDmChannel(client, dmTarget.userId);
   if (!dmChannelId) return;
 
   try {
     const schedule = humanReadableSchedule(job.cronExpression, job.timezone);
-    const text = buildCreatorErrorText(job, schedule, errorMessage);
+    const text =
+      dmTarget.audience === "creator"
+        ? buildCreatorErrorText(job, schedule, errorMessage)
+        : buildOwnerErrorText(job, actor, schedule, errorMessage);
     await client.chat.postMessage({ channel: dmChannelId, text });
   } catch (dmError) {
-    logger.error(`Failed to DM creator ${job.createdBy} about cron error:`, dmError);
+    logger.error(`Failed to DM ${dmTarget.userId} about cron error:`, dmError);
   }
+}
+
+/**
+ * Pick the human Slack user to notify about a cron failure.
+ * - User-created jobs DM the creator.
+ * - System jobs escalate to the deployment owner (read from `roles.json`).
+ * Returns null when no DM target can be resolved (e.g. system job with no owner).
+ */
+async function resolveErrorDmTarget(
+  actor: Actor,
+  deps: NotifyErrorDeps,
+): Promise<{ userId: string; audience: "creator" | "owner" } | null> {
+  const direct = actorDmTarget(actor);
+  if (direct !== null) return { userId: direct, audience: "creator" };
+  const roles = await deps.loadRoles();
+  if (!roles.owner) return null;
+  return { userId: roles.owner, audience: "owner" };
+}
+
+function buildOwnerErrorText(
+  job: CronJob,
+  actor: Actor,
+  schedule: string,
+  errorMessage: string,
+): string {
+  const isDmTarget = job.channel.startsWith("D");
+  const target = isDmTarget ? `the DM channel \`${job.channel}\`` : `<#${job.channel}>`;
+  const source = actor.kind === "system" ? actor.source : "unknown";
+  const specLabel = job.specKey ? ` (\`${job.specKey}\`)` : "";
+
+  return (
+    `⚠️ A system-owned scheduled job from \`${source}\`${specLabel} to ${target} (${schedule}) failed:\n` +
+    `\`\`\`${errorMessage}\`\`\`\n` +
+    `It will try again at the next scheduled time.`
+  );
 }
 
 function buildCreatorErrorText(job: CronJob, schedule: string, errorMessage: string): string {

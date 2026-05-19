@@ -292,6 +292,17 @@ describe("getRole", () => {
     seedRoles({ owner: "U_OTHER", admins: ["U1"], devs: ["U1"] });
     assert.equal(await getRole("U1"), "admin");
   });
+
+  // Even if `roles.json` somehow contains the literal string "system" in any
+  // field, `getRole()` resolves users by exact userId match — it never returns
+  // the "system" tier.
+  it('never returns "system", even when roles.json contains that string', async () => {
+    seedRoles({ owner: "system", admins: ["system"], devs: ["system"] });
+    // The userId "system" maps to owner because owner takes precedence.
+    assert.equal(await getRole("system"), "owner");
+    // Any other userId falls through to "member".
+    assert.equal(await getRole("U_OTHER"), "member");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -449,6 +460,22 @@ describe("setRole", () => {
     const result = await setRole("U1", "dev");
     assert.equal(result.success, false);
     assert.ok(result.error?.includes("owner"));
+  });
+
+  it("rejects assigning system at runtime even if a caller casts past AssignableRole", async () => {
+    seedRoles({ owner: "U_OWNER", admins: [], devs: [] });
+    const result = await setRole("U2", "system" as "admin");
+    assert.equal(result.success, false);
+    assert.ok(result.error?.includes("not assignable"));
+    assert.equal(mockWriteFile.mock.callCount(), 0);
+  });
+
+  it("rejects assigning owner at runtime even if a caller casts past AssignableRole", async () => {
+    seedRoles({ owner: "U_OWNER", admins: [], devs: [] });
+    const result = await setRole("U2", "owner" as "admin");
+    assert.equal(result.success, false);
+    assert.ok(result.error?.includes("not assignable"));
+    assert.equal(mockWriteFile.mock.callCount(), 0);
   });
 });
 

@@ -6,6 +6,7 @@ const ROLE_LEVELS: Record<UserRole, number> = {
   dev: 1,
   admin: 2,
   owner: 3,
+  system: 4,
 };
 
 export function roleLevel(role: UserRole): number {

@@ -31,7 +31,7 @@ function makeDeps(overrides: Partial<ChangeWorkflowHelperDeps> = {}): ChangeWork
 describe("getClaudeOptions", () => {
   it("returns changesWorkflowEnabled true when all conditions are met", async () => {
     const deps = makeDeps();
-    const result = await getClaudeOptions("U001", "mentions", deps);
+    const result = await getClaudeOptions("U001", "mentions", undefined, deps);
 
     assert.equal(result.changesWorkflowEnabled, true);
     assert.equal(result.role, "dev");
@@ -42,7 +42,7 @@ describe("getClaudeOptions", () => {
       isChangesEnabledForTrigger: mock.fn(() => false),
     });
 
-    const result = await getClaudeOptions("U001", "mentions", deps);
+    const result = await getClaudeOptions("U001", "mentions", undefined, deps);
 
     assert.equal(result.changesWorkflowEnabled, false);
   });
@@ -52,7 +52,7 @@ describe("getClaudeOptions", () => {
       canRequestChanges: mock.fn(() => false),
     });
 
-    const result = await getClaudeOptions("U001", "mentions", deps);
+    const result = await getClaudeOptions("U001", "mentions", undefined, deps);
 
     assert.equal(result.changesWorkflowEnabled, false);
   });
@@ -62,7 +62,7 @@ describe("getClaudeOptions", () => {
       getChangeEnabledRepos: mock.fn(() => []),
     });
 
-    const result = await getClaudeOptions("U001", "mentions", deps);
+    const result = await getClaudeOptions("U001", "mentions", undefined, deps);
 
     assert.equal(result.changesWorkflowEnabled, false);
   });
@@ -77,7 +77,7 @@ describe("getClaudeOptions", () => {
       isChangesEnabledForTrigger: mockIsChangesEnabled,
     });
 
-    await getClaudeOptions("U001", "directMessages", deps);
+    await getClaudeOptions("U001", "directMessages", undefined, deps);
 
     assert.equal(mockIsChangesEnabled.mock.callCount(), 1);
     assert.equal(mockIsChangesEnabled.mock.calls[0]!.arguments[0], "directMessages");
@@ -88,7 +88,7 @@ describe("getClaudeOptions", () => {
     const mockGetRole = mock.fn<(userId: string) => Promise<UserRole>>(async () => "admin");
     const deps = makeDeps({ getRole: mockGetRole });
 
-    const result = await getClaudeOptions("U_ADMIN", "reactions", deps);
+    const result = await getClaudeOptions("U_ADMIN", "reactions", undefined, deps);
 
     assert.equal(result.role, "admin");
     assert.equal(mockGetRole.mock.callCount(), 1);
@@ -106,7 +106,7 @@ describe("getClaudeOptions", () => {
       getChangeEnabledRepos: mockGetChangeEnabledRepos,
     });
 
-    await getClaudeOptions("U001", "mentions", deps);
+    await getClaudeOptions("U001", "mentions", undefined, deps);
 
     assert.equal(mockGetChangeEnabledRepos.mock.callCount(), 1);
     assert.equal(mockGetChangeEnabledRepos.mock.calls[0]!.arguments[0], fakeConfig);
@@ -120,7 +120,7 @@ describe("getClaudeOptions", () => {
       getChangeEnabledRepos: mockGetChangeEnabledRepos,
     });
 
-    await getClaudeOptions("U001", "mentions", deps);
+    await getClaudeOptions("U001", "mentions", undefined, deps);
 
     assert.equal(mockGetChangeEnabledRepos.mock.callCount(), 0);
   });
@@ -132,7 +132,7 @@ describe("getClaudeOptions", () => {
       getChangeEnabledRepos: mockGetChangeEnabledRepos,
     });
 
-    await getClaudeOptions("U001", "mentions", deps);
+    await getClaudeOptions("U001", "mentions", undefined, deps);
 
     assert.equal(mockGetChangeEnabledRepos.mock.callCount(), 0);
   });
