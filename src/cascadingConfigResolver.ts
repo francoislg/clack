@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { getConfigurationDir, getDefaultConfigurationDir } from "./config.js";
 import type { UserRole } from "./roles.js";
-import { canEditConfig, canRequestChanges } from "./permissions.js";
+import { canEditConfig, canRequestChanges, meetsMinimumRole } from "./permissions.js";
 
 /** Known role directory names in cascade order (lowest to highest) */
 const ALL_ROLE_DIRS = ["user", "dev", "admin", "owner"] as const;
@@ -26,7 +26,7 @@ export function buildRoleChain(role: UserRole, changesWorkflowEnabled: boolean):
     chain.push("admin");
   }
 
-  if (role === "owner") {
+  if (meetsMinimumRole(role, "owner")) {
     chain.push("owner");
   }
 
