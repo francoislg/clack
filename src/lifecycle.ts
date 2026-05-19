@@ -25,7 +25,7 @@ import { clearPreferencesCache } from "./userPreferences.js";
 import { clearAutoRespondCache } from "./autoRespond.js";
 import { clearCronJobsCache } from "./cronJobs.js";
 import { loadPlugins } from "./plugins/registry.js";
-import { setLoadedPlugins } from "./plugins/state.js";
+import { getLoadedPlugins, setLoadedPlugins } from "./plugins/state.js";
 
 // ---------------------------------------------------------------------------
 // Dependency Injection
@@ -127,7 +127,22 @@ function startSchedulers(deps: LifecycleDeps = defaultLifecycleDeps): void {
   deps.startCleanupScheduler();
 
   if (config.claudeCode.watchMcpConfig) {
-    stopConfigWatcherFn = deps.startConfigWatcher();
+    // Pass a callback so the config-file watcher can trigger restartAll() without importing
+    // this module (which would create a circular dependency). Guarded by a "reload in flight"
+    // check so back-to-back fs.watch events don't pile up restarts.
+    stopConfigWatcherFn = deps.startConfigWatcher({
+      onConfigJsonChange: () => {
+        if (restartInProgress) {
+          deps.logger.info("Config.json change detected during in-flight restart — skipping");
+          return;
+        }
+        restartAll(deps).catch((err) => {
+          deps.logger.warn(
+            `Config-driven restart failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        });
+      },
+    });
   }
 
   deps.startCompletionMonitor();
@@ -237,6 +252,23 @@ export async function restartAll(
     // without touching any other subsystem. Always call setLoadedPlugins —
     // including with an empty result — so removing a plugin from config takes
     // effect on restart.
+    //
+    // BEFORE reloading, close any FSWatchers the prior generation registered via
+    // sdk.watchFile — otherwise both generations would fire on the next change,
+    // doubling work and confusing plugin authors.
+    const prior = getLoadedPlugins();
+    for (const result of prior.results) {
+      for (const watcher of result.watchers ?? []) {
+        try {
+          watcher.close();
+        } catch (err) {
+          logger.warn(
+            `Failed to close plugin watcher for ${result.name}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
+    }
+
     try {
       const pluginNames = config.plugins ?? [];
       const loaded = await deps.loadPlugins(pluginNames);

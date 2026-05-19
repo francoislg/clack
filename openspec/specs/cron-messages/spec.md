@@ -3,9 +3,7 @@
 ## Purpose
 
 Scheduled message system allowing users to create cron-based recurring or one-shot messages in Slack channels, executed either as dynamic Claude-powered sessions or static message posts, with tick-based scheduling, concurrency guards, and error notification.
-
 ## Requirements
-
 ### Requirement: Channel Input Resolution for Scheduled Message Creation
 
 The `create_scheduled_message` tool SHALL resolve its `channel` argument via the shared `resolveChannelId` helper before persisting a cron job, guaranteeing that the stored `channel` field is always a posting-capable Slack channel ID (never a raw user ID).
@@ -48,12 +46,23 @@ The system SHALL persist scheduled messages as cron jobs in `data/state/cron-job
 #### Scenario: Cron job structure
 
 - **WHEN** a cron job is created
-- **THEN** it SHALL contain: `id` (UUID), `cronExpression` (cron string), `channel` (Slack channel ID), `createdBy` (Slack user ID), `createdAt` (ISO timestamp), `enabled` (boolean), `timezone` (IANA timezone string)
+- **THEN** it SHALL contain: `id` (UUID), `cronExpression` (cron string), `channel` (Slack channel ID), `createdBy` (Slack user ID OR `null` for jobs that have no human creator), `createdAt` (ISO timestamp), `enabled` (boolean), `timezone` (IANA timezone string)
 - **AND** either `prompt` (string, for dynamic Claude-powered execution) or `staticMessage` (string, for direct posting), or both
 - **AND** optionally `oneShot` (boolean), `repositories` (string array), `lastRunAt` (ISO timestamp), `lastRunStatus` ("success", "error", or "skipped")
 - **AND** optionally `requiredTools` (string array of fully-qualified MCP tool names that must be called during a dynamic run before `submit_response` will deliver)
 - **AND** optionally `plugin` (name of a loaded Clack plugin the job is associated with — used to pick up the plugin's declared scheduled-run default required tools)
+- **AND** optionally `pluginManaged` (boolean; when `true`, the job was created by a plugin's `reconcileCronJobs` call and the Home Tab presents it as read-only with admin-override controls only — see the `plugin-cron-reconciliation` capability)
+- **AND** optionally `specKey` (string; stable identity within a plugin's reconcile owner — present when and only when `pluginManaged` is `true`)
 - **AND** optionally `skipConditions` (string; when set, the scheduled run evaluates these free-form conditions and may decline delivery via `submit_response` with `skip_response: true`)
+- **AND** optionally `systemActor` (string; identifies the non-user origin of a system-owned job — present when and only when `createdBy` is `null`. The value SHALL be a colon-delimited source identifier, with `"plugin:<ownerKey>"` reserved for jobs emitted by `sdk.reconcileCronJobs`)
+
+#### Scenario: createdBy is null only for system-owned jobs
+
+- **GIVEN** any persisted cron job
+- **WHEN** the row has `createdBy: null`
+- **THEN** the row SHALL also have `systemActor` set to a non-empty string
+- **AND** the row SHALL also have `pluginManaged: true` (when the system actor is a plugin reconcile owner — `systemActor` starting with `"plugin:"`)
+- **AND** conversely, any row with `createdBy` set to a non-empty string SHALL NOT have a `systemActor` field
 
 #### Scenario: Load jobs from disk
 
@@ -62,6 +71,9 @@ The system SHALL persist scheduled messages as cron jobs in `data/state/cron-job
 - **AND** if the file does not exist, initialize with an empty jobs array
 - **AND** jobs without a `requiredTools` field load normally (field is optional and defaults to absent)
 - **AND** jobs without a `skipConditions` field load normally (field is optional and defaults to absent)
+- **AND** jobs without `pluginManaged` / `specKey` fields load normally (both optional, defaults absent for user-created jobs)
+- **AND** jobs with `createdBy: null` and a `systemActor` field load normally without throwing
+- **AND** legacy jobs persisted with `createdBy: "<pluginName>"` and `pluginManaged: true` (pre-migration shape) are rewritten by the boot migration introduced in the `add-system-role-tier` change to `createdBy: null` + `systemActor: "plugin:<pluginName>"`
 
 #### Scenario: Persist jobs to disk
 
@@ -70,6 +82,10 @@ The system SHALL persist scheduled messages as cron jobs in `data/state/cron-job
 - **AND** update the in-memory cache atomically
 - **AND** include `requiredTools` in the serialized form when present
 - **AND** include `skipConditions` in the serialized form when present (omitted when unset or empty string)
+- **AND** include `pluginManaged: true` in the serialized form when the job was created via `reconcileCronJobs` (omitted for user-created jobs)
+- **AND** include `specKey` in the serialized form when `pluginManaged` is `true`
+- **AND** include `systemActor` in the serialized form when `createdBy` is `null` (omitted for user-created jobs)
+- **AND** serialize `createdBy: null` explicitly (NOT as an absent field) so the system-owned shape round-trips through JSON
 
 ### Requirement: Cron Job CRUD Operations
 
@@ -237,7 +253,7 @@ The system SHALL execute cron jobs through the standard `processMessage` pipelin
 #### Scenario: Dynamic job execution
 
 - **WHEN** a job with a `prompt` field fires
-- **THEN** the system SHALL invoke `processMessage` with `triggerType: "scheduled"`, the creator's `userId`, the target `channelId`, and the `prompt` as `messageText`
+- **THEN** the system SHALL invoke `processMessage` with `triggerType: "scheduled"`, the resolved actor's `userId` (or a synthetic placeholder when the actor is system — never a plugin-name string), the target `channelId`, and the `prompt` as `messageText`
 - **AND** pass `silentThinking: true` to suppress streaming UX
 - **AND** compute effective `requiredTools` as the union of (a) the job's explicit `requiredTools`, (b) the declared scheduled-run defaults of the plugin named in the job's `plugin` field (if any and the plugin is loaded). Pass the union as `ProcessMessageParams.requiredTools`
 - **AND** propagate the job's `skipConditions` (when set) into the session so the prompt builder injects the pre-check instructions and the tool server exposes `skip_response` on `submit_response`
@@ -261,11 +277,19 @@ The system SHALL execute cron jobs through the standard `processMessage` pipelin
 - **AND** `skipConditions` is ignored for static jobs (no Claude session exists to evaluate them)
 - **AND** no Claude session is created
 
-#### Scenario: Job runs as creator
+#### Scenario: User-created job runs as creator
 
-- **WHEN** a dynamic job executes
-- **THEN** the Claude session SHALL use the creator's role and repo access
+- **WHEN** a dynamic job with a non-null `createdBy` executes
+- **THEN** the Claude session SHALL use the creator's role (resolved via `getRole(createdBy)`) and repo access
 - **AND** have access to all query tools appropriate for the creator's role
+
+#### Scenario: System-owned job runs as system
+
+- **WHEN** a dynamic job with `createdBy: null` and `systemActor` set executes
+- **THEN** the Claude session SHALL run with role `"system"` (see the `user-roles` capability)
+- **AND** all plugin tools whose `minRole` is `"owner"` or lower SHALL be present in the catalog
+- **AND** tool gating via `meetsMinimumRole` SHALL admit every tier
+- **AND** the job's declared `requiredTools` SHALL therefore be satisfiable
 
 #### Scenario: One-shot job cleanup
 
@@ -296,8 +320,14 @@ The system SHALL execute cron jobs through the standard `processMessage` pipelin
 
 #### Scenario: Message attribution
 
-- **WHEN** a cron job posts a message (static or dynamic)
+- **WHEN** a user-created cron job (`createdBy` non-null) posts a message (static or dynamic)
 - **THEN** the message SHALL include attribution indicating the schedule and creator (e.g., "Scheduled by <@userId> -- Daily at 9:00 AM ET")
+
+#### Scenario: System job attribution
+
+- **WHEN** a system-owned cron job (`createdBy: null`) posts a message
+- **THEN** the message SHALL include attribution indicating the schedule and the system actor source (e.g., "Scheduled by System (plugin: trivia) -- Daily at 9:00 AM ET")
+- **AND** the attribution SHALL NOT render an `<@…>` mention for a non-user value
 
 #### Scenario: Run history entry includes replayOf when fired with asOf
 
@@ -308,13 +338,23 @@ The system SHALL execute cron jobs through the standard `processMessage` pipelin
 
 ### Requirement: Error Handling
 
-The system SHALL notify the creator on execution failure without retrying on the same tick.
+The system SHALL notify the responsible human on execution failure without retrying on the same tick.
 
-#### Scenario: Execution failure notification
+#### Scenario: Execution failure notification for user-created job
 
-- **WHEN** a cron job execution fails
-- **THEN** the system SHALL send a DM to the creator with the job name, target channel, and error message
+- **WHEN** a cron job with a non-null `createdBy` fails to execute
+- **THEN** the system SHALL send a DM to `createdBy` with the job name, target channel, and error message
 - **AND** update the job's `lastRunStatus` to `"error"`
+- **AND** the job SHALL remain enabled
+
+#### Scenario: Execution failure notification for system-owned job
+
+- **GIVEN** a cron job with `createdBy: null` and a `systemActor` value (e.g. `"plugin:trivia"`)
+- **WHEN** the job fails to execute
+- **THEN** the system SHALL send a DM to the deployment owner (the user identified by `roles.owner`) instead of attempting to DM the plugin name
+- **AND** the DM text SHALL identify the failed job by its `systemActor` source and `specKey` so the owner can locate it without a user mention
+- **AND** if no owner is currently configured, the failure SHALL be logged at `error` level and the DM step SHALL be skipped (no exception thrown)
+- **AND** the job's `lastRunStatus` SHALL be updated to `"error"`
 - **AND** the job SHALL remain enabled
 
 #### Scenario: No same-tick retry
@@ -323,16 +363,22 @@ The system SHALL notify the creator on execution failure without retrying on the
 - **THEN** the system SHALL NOT retry execution on the same tick
 - **AND** the job SHALL be eligible for execution on the next matching tick
 
-#### Scenario: Static job failure
+#### Scenario: Static job failure for user-created job
 
-- **WHEN** a static message post fails (e.g., bot not in channel)
-- **THEN** the system SHALL DM the creator with the error
+- **WHEN** a static message post fails (e.g., bot not in channel) for a job with a non-null `createdBy`
+- **THEN** the system SHALL DM `createdBy` with the error
+- **AND** update the job's `lastRunStatus` to `"error"`
+
+#### Scenario: Static job failure for system-owned job
+
+- **WHEN** a static message post fails for a job with `createdBy: null`
+- **THEN** the system SHALL escalate to the deployment owner via the same path as a dynamic system-job failure
 - **AND** update the job's `lastRunStatus` to `"error"`
 
 #### Scenario: Skip is not a failure
 
 - **WHEN** a dynamic job completes with a skipped response
-- **THEN** the system SHALL NOT DM the creator
+- **THEN** the system SHALL NOT DM anyone (creator or owner)
 - **AND** the job's `lastRunStatus` SHALL be `"skipped"` (not `"error"`)
 
 ### Requirement: Skip Conditions Field
@@ -367,3 +413,123 @@ The system SHALL support an optional free-form `skipConditions` string on cron j
 
 - **WHEN** `updateJob` is called without `skipConditions` in the parameters (undefined)
 - **THEN** the stored field is left unchanged
+
+### Requirement: Cron Job Skip Dates
+
+A `CronJob` MAY optionally carry a `skipDates: SkipDate[]` field. When set, the scheduler SHALL deterministically skip the run on any matching date — no Claude session is opened, and no tokens are spent.
+
+```ts
+interface SkipDate {
+  /** Either YYYY-MM-DD (exact date) or MM-DD (recurring annually). Interpreted in the job's timezone. */
+  date: string;
+  /** Human-readable label used in logs. Required, non-empty. */
+  label: string;
+}
+```
+
+The matcher SHALL format the comparison time in `job.timezone` as both `YYYY-MM-DD` and `MM-DD` and SHALL match an entry whose `date` equals either representation. First match wins.
+
+A skipped fire SHALL:
+- Update `lastRunAt` to the matched run time (preventing same-minute double-fire).
+- Append a `runs[]` entry with `status: "skipped"` (no `responseTs`).
+- Log an `info` line identifying the job and the matched label (e.g. `Cron job <id> skipped by skipDates (Christmas)`).
+- Honor `oneShot` deletion semantics the same as a `skipConditions` skip — a skipped off-day still counts as the one-shot's chance to fire.
+- NOT invoke `processMessage` (no Claude session is created).
+
+`skipDates` SHALL be evaluated BEFORE `skipConditions`. When both are set and a `skipDates` entry matches, the `skipConditions` path is never reached.
+
+#### Scenario: skipDates field is optional
+
+- **GIVEN** a `CronJob` with no `skipDates` field
+- **WHEN** the scheduler tick fires it
+- **THEN** the run proceeds normally (matching pre-change behavior)
+
+#### Scenario: Exact-date match skips without Claude
+
+- **GIVEN** a `CronJob` with `timezone: "America/Montreal"` and `skipDates: [{ date: "2026-12-25", label: "Christmas" }]`
+- **WHEN** the scheduler fires the job at `2026-12-25T09:00 America/Montreal`
+- **THEN** `processMessage` is NOT called
+- **AND** the job's `lastRunAt` is set to the fire time
+- **AND** a `runs[]` entry is appended with `status: "skipped"` and no `responseTs`
+- **AND** an info log mentions the matched label `"Christmas"`
+
+#### Scenario: Recurring MM-DD match skips
+
+- **GIVEN** a `CronJob` with `skipDates: [{ date: "12-25", label: "Christmas" }]`
+- **WHEN** the scheduler fires it on any year's December 25 in the job's timezone
+- **THEN** the run is skipped (same bookkeeping as the exact-date scenario)
+
+#### Scenario: skipDates evaluated in job timezone
+
+- **GIVEN** a `CronJob` with `timezone: "Australia/Sydney"` and `skipDates: [{ date: "12-25", label: "Christmas" }]`
+- **WHEN** the scheduler fires it at a moment that is `2026-12-24T20:00Z` (which is `2026-12-25T07:00 Sydney`)
+- **THEN** the run is skipped — the date check uses the Sydney calendar
+
+#### Scenario: Non-matching date fires normally
+
+- **GIVEN** a `CronJob` with `skipDates: [{ date: "12-25", label: "Christmas" }]`
+- **WHEN** the scheduler fires it on any date other than December 25 in `job.timezone`
+- **THEN** the run proceeds normally — `processMessage` is called, the standard outcome flow applies
+
+#### Scenario: skipDates takes precedence over skipConditions
+
+- **GIVEN** a `CronJob` with both `skipDates: [{ date: "12-25", label: "Christmas" }]` and `skipConditions: "Skip if no games yesterday."`
+- **WHEN** the scheduler fires it on December 25 in `job.timezone`
+- **THEN** the run is skipped via the `skipDates` gate
+- **AND** no Claude session is opened (the `skipConditions` evaluation never runs)
+
+#### Scenario: One-shot job skipped on an off-day is still deleted
+
+- **GIVEN** a `CronJob` with `oneShot: true` and `skipDates: [{ date: "12-25", label: "Christmas" }]`
+- **WHEN** the scheduler fires it on December 25
+- **THEN** the run is recorded as `status: "skipped"`
+- **AND** the job is deleted from storage (mirroring the existing one-shot-skipped behavior for `skipConditions`)
+
+#### Scenario: Replay respects skipDates against the replay date
+
+- **GIVEN** a `CronJob` with `skipDates: [{ date: "12-25", label: "Christmas" }]`
+- **WHEN** `run_scheduled_message_now` is invoked with `asOf: "2026-12-25T09:00 America/Montreal"`
+- **THEN** the replay is skipped — the date check uses `asOf`, not the current time
+- **AND** the appended `runs[]` entry records `replayOf` as documented for skipped replays in the existing scheduled-messages spec
+
+#### Scenario: Invalid skipDates entries are tolerated at runtime
+
+- **GIVEN** a `CronJob` whose `skipDates` somehow contains an entry with a malformed `date` (e.g. surviving a hand-edit to the JSON file)
+- **WHEN** the scheduler evaluates the gate
+- **THEN** the malformed entry does NOT match any date (the comparison naturally fails)
+- **AND** the run proceeds based on the remaining entries' matching status — no crash, no hard error
+
+### Requirement: SkipDates Serialization
+
+`CronJob` serialization (load/save of `cron-jobs.json`) SHALL preserve the `skipDates` field round-trip when present, and SHALL omit it from the serialized form when absent or empty. Pre-existing jobs without `skipDates` SHALL load normally (field defaults to absent).
+
+#### Scenario: skipDates round-trips through persistence
+
+- **GIVEN** a `CronJob` with `skipDates: [{ date: "12-25", label: "Christmas" }]` saved to `cron-jobs.json`
+- **WHEN** the scheduler reloads jobs from disk
+- **THEN** the reloaded job has the same `skipDates` array
+
+### Requirement: Plugin-Managed Cron Jobs Are Not Directly Editable Via User-Facing Tools
+
+The existing `update_scheduled_message`, `delete_scheduled_message`, and `create_scheduled_message` tools (and any equivalent Home-Tab edit/delete actions for user-created jobs) SHALL refuse to modify or delete jobs where `pluginManaged === true`. Toggling `enabled` SHALL still be permitted (this is the admin-override semantics).
+
+#### Scenario: Update tool rejects plugin-managed job
+
+- **GIVEN** a cron job with `pluginManaged === true`
+- **WHEN** Claude (or an admin tool call) invokes `update_scheduled_message` with that job's `id` and any field change (other than `enabled`)
+- **THEN** the tool returns an error indicating the job is plugin-managed and content edits go through the plugin's config
+
+#### Scenario: Delete tool rejects plugin-managed job
+
+- **GIVEN** a cron job with `pluginManaged === true`
+- **WHEN** Claude (or an admin tool call) invokes `delete_scheduled_message` with that job's `id`
+- **THEN** the tool returns an error indicating the job is plugin-managed and is removed by editing the plugin's config
+
+#### Scenario: Toggling enabled is permitted
+
+- **GIVEN** a cron job with `pluginManaged === true` and `enabled === true`
+- **WHEN** the Home Tab toggle for that job is clicked by an admin
+- **THEN** the job's `enabled` field flips to `false`
+- **AND** the job persists with `pluginManaged: true` unchanged
+- **AND** the next plugin reconcile preserves the admin's `enabled` value (per the `plugin-cron-reconciliation` capability)
+

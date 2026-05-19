@@ -216,4 +216,33 @@ describe("update_scheduled_message tool — skipConditions", () => {
     const unchanged = await getJob(job.id);
     assert.equal(unchanged?.cronExpression, "0 9 * * *", "no change should be persisted");
   });
+
+  it("rejects updates to plugin-managed jobs (even for admin)", async () => {
+    const job = await createJob({
+      cronExpression: "0 9 * * 1-5",
+      channel: "C123",
+      prompt: "embedded trivia prompt",
+      createdBy: "trivia",
+      timezone: "America/Montreal",
+      plugin: "trivia",
+      pluginManaged: true,
+      specKey: "ops-daily:question",
+    });
+
+    const ctx = buildCtx({ role: "admin" });
+    const tool = createUpdateScheduledMessageTool(ctx);
+    const result = await callHandler(tool, {
+      id: job.id,
+      prompt: "trying to overwrite the embedded prompt",
+    });
+
+    assert.equal(result.isError, true);
+    const parsed = parseToolResult(result);
+    assert.match(parsed.error, /managed by plugin "trivia"/);
+    assert.match(parsed.error, /data\/config\.json/);
+
+    // Verify the persisted job was NOT modified.
+    const unchanged = await getJob(job.id);
+    assert.equal(unchanged?.prompt, "embedded trivia prompt");
+  });
 });

@@ -104,4 +104,26 @@ describe("cancelScheduledMessage tool", () => {
     assert.equal(result.isError, true);
     assert.match(result.content[0].text, /not found/);
   });
+
+  it("rejects cancellation of plugin-managed jobs (even for admin)", async () => {
+    const job = await createJob({
+      cronExpression: "0 9 * * 1-5",
+      channel: "C123",
+      prompt: "embedded trivia prompt",
+      createdBy: "trivia",
+      timezone: "America/Montreal",
+      plugin: "trivia",
+      pluginManaged: true,
+      specKey: "ops-daily:question",
+    });
+
+    const ctx = buildCtx({ role: "admin" });
+    const tool = createCancelScheduledMessageTool(ctx);
+    const result = await callHandler(tool, { id: job.id });
+
+    assert.equal(result.isError, true);
+    const parsed = parseToolResult(result);
+    assert.match(parsed.error, /managed by plugin "trivia"/);
+    assert.match(parsed.error, /data\/config\.json/);
+  });
 });

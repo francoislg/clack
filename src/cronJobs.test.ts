@@ -14,6 +14,7 @@ import {
   updateJob,
   updateJobRunStatus,
   clearCronJobsCache,
+  findByPluginOwner,
 } from "./cronJobs.js";
 
 const originalCwd = process.cwd;
@@ -151,6 +152,69 @@ describe("cronJobs", () => {
       });
 
       assert.equal(job.skipConditions, undefined);
+    });
+
+    it("creates a system-owned job with createdBy: null + systemActor", async () => {
+      const job = await createJob({
+        cronExpression: "0 9 * * *",
+        channel: "C123",
+        prompt: "Run trivia",
+        createdBy: null,
+        systemActor: "plugin:trivia",
+        timezone: "UTC",
+        plugin: "trivia",
+        pluginManaged: true,
+        specKey: "game-a:question",
+      });
+
+      assert.equal(job.createdBy, null);
+      assert.equal(job.systemActor, "plugin:trivia");
+      assert.equal(job.pluginManaged, true);
+
+      // Round-trip
+      clearCronJobsCache();
+      const loaded = await getJob(job.id);
+      assert.ok(loaded);
+      assert.equal(loaded.createdBy, null);
+      assert.equal(loaded.systemActor, "plugin:trivia");
+    });
+
+    it("omits systemActor for user-created jobs", async () => {
+      const job = await createJob({
+        cronExpression: "0 9 * * *",
+        channel: "C123",
+        prompt: "ping",
+        createdBy: "U456",
+        timezone: "UTC",
+      });
+      assert.equal(job.systemActor, undefined);
+    });
+
+    it("rejects createdBy: null without systemActor", async () => {
+      await assert.rejects(
+        createJob({
+          cronExpression: "0 9 * * *",
+          channel: "C123",
+          prompt: "x",
+          createdBy: null,
+          timezone: "UTC",
+        }),
+        /createdBy: null requires a systemActor/,
+      );
+    });
+
+    it("rejects user createdBy combined with systemActor", async () => {
+      await assert.rejects(
+        createJob({
+          cronExpression: "0 9 * * *",
+          channel: "C123",
+          prompt: "x",
+          createdBy: "U456",
+          systemActor: "plugin:trivia",
+          timezone: "UTC",
+        }),
+        /systemActor must not be set when createdBy is a user ID/,
+      );
     });
   });
 
@@ -469,6 +533,115 @@ describe("cronJobs", () => {
       assert.equal(updated?.runs?.length, 25);
       assert.equal(updated?.runs?.[0].responseTs, "ts-0");
       assert.equal(updated?.runs?.[24].responseTs, "ts-24");
+    });
+  });
+
+  describe("pluginManaged + specKey persistence", () => {
+    it("createJob persists pluginManaged and specKey when supplied", async () => {
+      const job = await createJob({
+        cronExpression: "0 9 * * 1-5",
+        channel: "C123",
+        prompt: "Embedded trivia question prompt",
+        createdBy: "U1",
+        timezone: "America/Montreal",
+        plugin: "trivia",
+        pluginManaged: true,
+        specKey: "ops-daily:question",
+      });
+
+      assert.equal(job.pluginManaged, true);
+      assert.equal(job.specKey, "ops-daily:question");
+      assert.equal(job.plugin, "trivia");
+
+      clearCronJobsCache();
+      const reloaded = await getJob(job.id);
+      assert.equal(reloaded?.pluginManaged, true);
+      assert.equal(reloaded?.specKey, "ops-daily:question");
+    });
+
+    it("createJob omits pluginManaged and specKey when not supplied", async () => {
+      const job = await createJob({
+        cronExpression: "0 9 * * *",
+        channel: "C1",
+        prompt: "Plain user job",
+        createdBy: "U1",
+        timezone: "UTC",
+      });
+
+      assert.equal(job.pluginManaged, undefined);
+      assert.equal(job.specKey, undefined);
+    });
+
+    it("createJob throws when pluginManaged is true without a specKey", async () => {
+      await assert.rejects(
+        () =>
+          createJob({
+            cronExpression: "0 9 * * *",
+            channel: "C1",
+            prompt: "missing specKey",
+            createdBy: "trivia",
+            timezone: "UTC",
+            plugin: "trivia",
+            pluginManaged: true,
+            // specKey deliberately omitted — caught by the invariant guard
+          }),
+        /pluginManaged jobs must carry a specKey/,
+      );
+    });
+  });
+
+  describe("findByPluginOwner", () => {
+    it("returns only jobs matching plugin AND pluginManaged === true", async () => {
+      await createJob({
+        cronExpression: "0 9 * * *",
+        channel: "C1",
+        prompt: "trivia question",
+        createdBy: "U1",
+        timezone: "UTC",
+        plugin: "trivia",
+        pluginManaged: true,
+        specKey: "g1:question",
+      });
+      await createJob({
+        cronExpression: "0 15 * * *",
+        channel: "C1",
+        prompt: "trivia reveal",
+        createdBy: "U1",
+        timezone: "UTC",
+        plugin: "trivia",
+        pluginManaged: true,
+        specKey: "g1:reveal",
+      });
+      await createJob({
+        cronExpression: "0 10 * * *",
+        channel: "C2",
+        prompt: "weather",
+        createdBy: "U1",
+        timezone: "UTC",
+        plugin: "weather",
+        pluginManaged: true,
+        specKey: "morning",
+      });
+      await createJob({
+        cronExpression: "0 11 * * *",
+        channel: "C2",
+        prompt: "user-created job tagged trivia",
+        createdBy: "U2",
+        timezone: "UTC",
+        plugin: "trivia",
+        // pluginManaged absent — this is a user-created job that happens to tag the plugin
+      });
+
+      const triviaOwned = await findByPluginOwner("trivia");
+      assert.equal(triviaOwned.length, 2);
+      assert.ok(triviaOwned.every((j) => j.plugin === "trivia" && j.pluginManaged === true));
+
+      const weatherOwned = await findByPluginOwner("weather");
+      assert.equal(weatherOwned.length, 1);
+      assert.equal(weatherOwned[0].specKey, "morning");
+
+      const unknownOwned = await findByPluginOwner("nonexistent");
+      assert.equal(unknownOwned.length, 0);
     });
   });
 });

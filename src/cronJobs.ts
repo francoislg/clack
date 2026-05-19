@@ -8,6 +8,21 @@ import { fileExists } from "./fs.js";
 // Types
 // ============================================================================
 
+/**
+ * Structured calendar-date skip. When a `CronJob` carries any entries matching today's date
+ * (in the job's `timezone`), the scheduler skips the run deterministically — no Claude session
+ * is opened, no tokens are spent. Composes with `skipConditions`: evaluated first.
+ */
+export interface SkipDate {
+  /**
+   * `YYYY-MM-DD` for an exact calendar date, or `MM-DD` for a date that recurs annually.
+   * Compared against `today` formatted in `job.timezone`.
+   */
+  date: string;
+  /** Human-readable label, surfaced in info logs when the entry matches. */
+  label: string;
+}
+
 export interface CronRun {
   executedAt: string;
   status: "success" | "error" | "skipped";
@@ -27,7 +42,18 @@ export interface CronJob {
   channel: string;
   /** What Claude does each tick */
   prompt: string;
-  createdBy: string;
+  /**
+   * Slack user ID for user-created jobs; `null` for jobs owned by the bot itself
+   * (e.g. plugin-managed crons). When `null`, `systemActor` MUST be set to
+   * identify the non-user origin.
+   */
+  createdBy: string | null;
+  /**
+   * Non-user origin identifier for system-owned jobs. Set when and only when
+   * `createdBy === null`. The current shape is `"plugin:<ownerKey>"` for jobs
+   * emitted by `sdk.reconcileCronJobs`.
+   */
+  systemActor?: string;
   createdAt: string;
   enabled: boolean;
   timezone: string;
@@ -52,6 +78,24 @@ export interface CronJob {
    * Ignored for static jobs (no Claude session exists to evaluate them).
    */
   skipConditions?: string;
+  /**
+   * Structured date-based skip list. Evaluated by the scheduler before opening a Claude session
+   * (and before {@link skipConditions}). When today (in {@link timezone}) matches any entry, the
+   * run is recorded as `status: "skipped"` and `processMessage` is never invoked.
+   */
+  skipDates?: SkipDate[];
+  /**
+   * True when this job was created by a plugin's `reconcileCronJobs` call.
+   * Plugin-managed jobs are shown read-only on the Home Tab (toggle Enable/Disable only;
+   * no Edit, no Delete) and rejected by user-facing edit/delete tools. Absent for user-created jobs.
+   */
+  pluginManaged?: boolean;
+  /**
+   * Stable identity within a plugin's reconcile owner. Present iff `pluginManaged === true`.
+   * Combined with `plugin` (the owner key), it lets reconcile match an incoming spec to an
+   * existing job and update in place (preserving id/runs[]/enabled).
+   */
+  specKey?: string;
   /** Recent execution history (most recent last, capped at {@link MAX_RUNS}) */
   runs?: CronRun[];
 }
@@ -140,19 +184,47 @@ export async function getJobsByChannel(channelId: string): Promise<CronJob[]> {
   return jobs.filter((j) => j.channel === channelId);
 }
 
+export async function findByPluginOwner(ownerKey: string): Promise<CronJob[]> {
+  const jobs = await loadJobs();
+  return jobs.filter((j) => j.plugin === ownerKey && j.pluginManaged === true);
+}
+
 export interface CreateCronJobParams {
   cronExpression: string;
   channel: string;
   prompt: string;
-  createdBy: string;
+  /** Slack user ID, or `null` for system-owned jobs (then `systemActor` must be set). */
+  createdBy: string | null;
+  /** Required when and only when `createdBy === null`. */
+  systemActor?: string;
   timezone: string;
   oneShot?: boolean;
   requiredTools?: string[];
   plugin?: string;
   skipConditions?: string;
+  skipDates?: SkipDate[];
+  pluginManaged?: boolean;
+  specKey?: string;
 }
 
 export async function createJob(params: CreateCronJobParams): Promise<CronJob> {
+  // Invariant: pluginManaged jobs MUST carry a specKey (the reconcile loop uses it as a stable
+  // identity to upsert vs create). Catch plugin-author bugs early — if reconcileCronJobs forgot
+  // to set specKey, the resulting job would be orphaned (no way to match it on the next reconcile).
+  if (params.pluginManaged && !params.specKey) {
+    throw new Error(
+      "createJob: pluginManaged jobs must carry a specKey (plugin-author bug — reconcileCronJobs is the supported path for creating plugin-managed jobs)",
+    );
+  }
+
+  // Actor-identity invariants: createdBy: null ⇔ systemActor is set.
+  if (params.createdBy === null && !params.systemActor) {
+    throw new Error("createJob: createdBy: null requires a systemActor (e.g. 'plugin:<name>')");
+  }
+  if (params.createdBy !== null && params.systemActor) {
+    throw new Error("createJob: systemActor must not be set when createdBy is a user ID");
+  }
+
   const jobs = await loadJobs();
   const job: CronJob = {
     id: randomUUID().slice(0, 12),
@@ -163,12 +235,16 @@ export async function createJob(params: CreateCronJobParams): Promise<CronJob> {
     createdAt: new Date().toISOString(),
     enabled: true,
     timezone: params.timezone,
+    ...(params.systemActor ? { systemActor: params.systemActor } : {}),
     ...(params.oneShot && { oneShot: true }),
     ...(params.requiredTools && params.requiredTools.length > 0
       ? { requiredTools: params.requiredTools }
       : {}),
     ...(params.plugin ? { plugin: params.plugin } : {}),
     ...(params.skipConditions ? { skipConditions: params.skipConditions } : {}),
+    ...(params.skipDates && params.skipDates.length > 0 ? { skipDates: params.skipDates } : {}),
+    ...(params.pluginManaged ? { pluginManaged: true } : {}),
+    ...(params.specKey ? { specKey: params.specKey } : {}),
   };
   jobs.push(job);
   await saveState({ jobs });
@@ -199,6 +275,8 @@ export interface UpdateCronJobParams {
   plugin?: string;
   /** Pass empty string to clear; undefined leaves the field unchanged. */
   skipConditions?: string;
+  /** Pass an empty array to clear; undefined leaves the field unchanged. */
+  skipDates?: SkipDate[];
 }
 
 export async function updateJob(
@@ -222,6 +300,9 @@ export async function updateJob(
   }
   if (params.skipConditions !== undefined) {
     job.skipConditions = params.skipConditions.length > 0 ? params.skipConditions : undefined;
+  }
+  if (params.skipDates !== undefined) {
+    job.skipDates = params.skipDates.length > 0 ? params.skipDates : undefined;
   }
 
   await saveState({ jobs });

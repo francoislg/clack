@@ -203,7 +203,9 @@ function buildMigrationBanner(
 }
 
 function buildRoleBadge(role: UserRole): KnownBlock[] {
+  // "system" never appears here — Home Tab is only rendered for human users.
   const roleLabels: Record<UserRole, string> = {
+    system: "System",
     owner: "Owner",
     admin: "Admin",
     dev: "Dev",
@@ -211,6 +213,7 @@ function buildRoleBadge(role: UserRole): KnownBlock[] {
   };
 
   const roleEmojis: Record<UserRole, string> = {
+    system: ":robot_face:",
     owner: ":crown:",
     admin: ":shield:",
     dev: ":computer:",
@@ -1528,41 +1531,92 @@ async function buildScheduledMessagesSection(
   isAdmin: boolean,
   deps: HomeTabDeps = defaultHomeTabDeps,
 ): Promise<(KnownBlock | Block)[]> {
-  const jobs = isAdmin ? await deps.getJobs() : await deps.getJobsByUser(userId);
-  if (jobs.length === 0) return [];
+  const allJobs = isAdmin ? await deps.getJobs() : await deps.getJobsByUser(userId);
+  // Partition: user-created jobs go in the first section with full controls; plugin-managed
+  // jobs go in a separate admin-only section with read-only details + Enable/Disable only.
+  const userJobs = allJobs.filter((j) => !j.pluginManaged);
+  const pluginJobs = isAdmin ? allJobs.filter((j) => j.pluginManaged) : [];
 
   const blocks: (KnownBlock | Block)[] = [];
 
-  blocks.push({ type: "divider" });
-  blocks.push({
-    type: "header",
-    text: { type: "plain_text", text: "Scheduled Messages", emoji: true },
-  });
-
-  for (const job of jobs) {
-    const schedule = deps.humanReadableSchedule(job.cronExpression, job.timezone);
-    const statusLabel = !job.enabled
-      ? " _(paused)_"
-      : job.lastRunStatus === "error"
-        ? " :warning:"
-        : job.lastRunStatus === "skipped"
-          ? " _(last run skipped)_"
-          : "";
-    const typeLabel = job.oneShot ? " · _one-time_" : "";
-    const creator = isAdmin && job.createdBy !== userId ? ` · <@${job.createdBy}>` : "";
-
+  if (userJobs.length > 0) {
+    blocks.push({ type: "divider" });
     blocks.push({
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: `<#${job.channel}> · ${schedule}${typeLabel}${creator}${statusLabel}`,
-      },
-      accessory: {
-        type: "button",
-        text: { type: "plain_text", text: "Edit" },
-        action_id: `cron_edit_job:${job.id}`,
-      },
+      type: "header",
+      text: { type: "plain_text", text: "Scheduled Messages", emoji: true },
     });
+
+    for (const job of userJobs) {
+      const schedule = deps.humanReadableSchedule(job.cronExpression, job.timezone);
+      const statusLabel = !job.enabled
+        ? " _(paused)_"
+        : job.lastRunStatus === "error"
+          ? " :warning:"
+          : job.lastRunStatus === "skipped"
+            ? " _(last run skipped)_"
+            : "";
+      const typeLabel = job.oneShot ? " · _one-time_" : "";
+      // userJobs filters out pluginManaged rows, so createdBy is always a real userId here.
+      const creator =
+        isAdmin && job.createdBy !== null && job.createdBy !== userId
+          ? ` · <@${job.createdBy}>`
+          : "";
+
+      blocks.push({
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `<#${job.channel}> · ${schedule}${typeLabel}${creator}${statusLabel}`,
+        },
+        accessory: {
+          type: "button",
+          text: { type: "plain_text", text: "Edit" },
+          action_id: `cron_edit_job:${job.id}`,
+        },
+      });
+    }
+  }
+
+  if (pluginJobs.length > 0) {
+    blocks.push({ type: "divider" });
+    blocks.push({
+      type: "header",
+      text: { type: "plain_text", text: "Plugin Scheduled Messages", emoji: true },
+    });
+    blocks.push({
+      type: "context",
+      elements: [
+        {
+          type: "mrkdwn",
+          text: "Read-only — these are reconciled from plugin config. Edit `data/config.json` to change schedule/prompt; pause/resume from here.",
+        },
+      ],
+    });
+
+    for (const job of pluginJobs) {
+      const schedule = deps.humanReadableSchedule(job.cronExpression, job.timezone);
+      const statusLabel = !job.enabled
+        ? " _(paused)_"
+        : job.lastRunStatus === "error"
+          ? " :warning:"
+          : job.lastRunStatus === "skipped"
+            ? " _(last run skipped)_"
+            : "";
+      const ownerLabel = job.plugin ? ` · _plugin: ${job.plugin}_` : "";
+
+      blocks.push({
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `<#${job.channel}> · ${schedule}${ownerLabel}${statusLabel}`,
+        },
+        accessory: {
+          type: "button",
+          text: { type: "plain_text", text: job.enabled ? "Pause" : "Resume" },
+          action_id: `cron_toggle_job:${job.id}`,
+        },
+      });
+    }
   }
 
   return blocks;

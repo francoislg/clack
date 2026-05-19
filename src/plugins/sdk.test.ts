@@ -18,6 +18,12 @@ describe("ClackSdk", () => {
       getSlackClient: deps?.getSlackClient ?? (() => null),
       loadRoles: deps?.loadRoles ?? (async () => EMPTY_ROLES),
       openDmChannel: deps?.openDmChannel ?? (async () => null),
+      // Optional cron-CRUD deps: forward when the test injects them; the SDK falls back to
+      // the real persistence layer when absent (per `ClackSdkDeps` documentation).
+      findByPluginOwner: deps?.findByPluginOwner,
+      createJob: deps?.createJob,
+      updateJob: deps?.updateJob,
+      deleteJob: deps?.deleteJob,
     };
     return createClackSdk(pluginName, dataDir, fullDeps);
   }
@@ -213,6 +219,382 @@ describe("ClackSdk", () => {
       const result = await sdk.dmOwner("hi");
       assert.equal(result.ok, false);
       if (!result.ok) assert.match(result.error, /channel_not_found/);
+    });
+  });
+
+  describe("reconcileCronJobs", () => {
+    // Minimal in-memory store mimicking the cronJobs.ts persistence surface.
+    interface StoredJob {
+      id: string;
+      cronExpression: string;
+      channel: string;
+      prompt: string;
+      timezone: string;
+      createdBy: string | null;
+      systemActor?: string;
+      plugin?: string;
+      pluginManaged?: boolean;
+      specKey?: string;
+      enabled: boolean;
+      requiredTools?: string[];
+      skipConditions?: string;
+      skipDates?: Array<{ date: string; label: string }>;
+      runs?: Array<{ executedAt: string; status: "success" | "error" | "skipped" }>;
+      lastRunAt?: string;
+      lastRunStatus?: "success" | "error" | "skipped";
+    }
+
+    interface FakeStore {
+      jobs: StoredJob[];
+      deps: Partial<ClackSdkDeps>;
+    }
+
+    function makeFakeStore(): FakeStore {
+      const jobs: StoredJob[] = [];
+      let nextId = 1;
+      const deps: Partial<ClackSdkDeps> = {
+        findByPluginOwner: async (ownerKey: string) => {
+          // The real findByPluginOwner returns CronJob[]. The store's StoredJob is structurally
+          // compatible with the read-only fields used by reconcile (id, plugin, pluginManaged,
+          // specKey). Return a typed copy mapped through the CronJob shape.
+          return jobs
+            .filter((j) => j.plugin === ownerKey && j.pluginManaged === true)
+            .map((j) => ({
+              id: j.id,
+              cronExpression: j.cronExpression,
+              channel: j.channel,
+              prompt: j.prompt,
+              createdBy: j.createdBy,
+              ...(j.systemActor ? { systemActor: j.systemActor } : {}),
+              createdAt: "2026-01-01T00:00:00Z",
+              enabled: j.enabled,
+              timezone: j.timezone,
+              plugin: j.plugin,
+              pluginManaged: j.pluginManaged,
+              specKey: j.specKey,
+              requiredTools: j.requiredTools,
+              skipConditions: j.skipConditions,
+              skipDates: j.skipDates,
+              runs: j.runs,
+              lastRunAt: j.lastRunAt,
+              lastRunStatus: j.lastRunStatus,
+            }));
+        },
+        createJob: async (params) => {
+          const job: StoredJob = {
+            id: `job-${nextId++}`,
+            cronExpression: params.cronExpression,
+            channel: params.channel,
+            prompt: params.prompt,
+            timezone: params.timezone,
+            createdBy: params.createdBy,
+            ...(params.systemActor ? { systemActor: params.systemActor } : {}),
+            enabled: true,
+            plugin: params.plugin,
+            pluginManaged: params.pluginManaged,
+            specKey: params.specKey,
+            requiredTools: params.requiredTools,
+            skipConditions: params.skipConditions,
+            skipDates: params.skipDates,
+          };
+          jobs.push(job);
+          return {
+            id: job.id,
+            cronExpression: job.cronExpression,
+            channel: job.channel,
+            prompt: job.prompt,
+            createdBy: job.createdBy,
+            ...(job.systemActor ? { systemActor: job.systemActor } : {}),
+            createdAt: "2026-01-01T00:00:00Z",
+            enabled: job.enabled,
+            timezone: job.timezone,
+            plugin: job.plugin,
+            pluginManaged: job.pluginManaged,
+            specKey: job.specKey,
+          };
+        },
+        updateJob: async (jobId, updates) => {
+          const job = jobs.find((j) => j.id === jobId);
+          if (!job) return null;
+          if (updates.cronExpression !== undefined) job.cronExpression = updates.cronExpression;
+          if (updates.channel !== undefined) job.channel = updates.channel;
+          if (updates.prompt !== undefined) job.prompt = updates.prompt;
+          if (updates.timezone !== undefined) job.timezone = updates.timezone;
+          if (updates.requiredTools !== undefined) {
+            job.requiredTools =
+              updates.requiredTools.length > 0 ? updates.requiredTools : undefined;
+          }
+          if (updates.skipConditions !== undefined) {
+            job.skipConditions =
+              updates.skipConditions.length > 0 ? updates.skipConditions : undefined;
+          }
+          if (updates.skipDates !== undefined) {
+            job.skipDates = updates.skipDates.length > 0 ? updates.skipDates : undefined;
+          }
+          return {
+            id: job.id,
+            cronExpression: job.cronExpression,
+            channel: job.channel,
+            prompt: job.prompt,
+            createdBy: job.createdBy,
+            ...(job.systemActor ? { systemActor: job.systemActor } : {}),
+            createdAt: "2026-01-01T00:00:00Z",
+            enabled: job.enabled,
+            timezone: job.timezone,
+            plugin: job.plugin,
+            pluginManaged: job.pluginManaged,
+            specKey: job.specKey,
+          };
+        },
+        deleteJob: async (jobId) => {
+          const idx = jobs.findIndex((j) => j.id === jobId);
+          if (idx === -1) return false;
+          jobs.splice(idx, 1);
+          return true;
+        },
+      };
+      return { jobs, deps };
+    }
+
+    const validSpec = {
+      specKey: "ops:question",
+      cronExpression: "0 9 * * 1-5",
+      channel: "C123ABC",
+      prompt: "embedded prompt",
+      timezone: "America/Montreal",
+      requiredTools: ["mcp__trivia__get_ideas"],
+    };
+
+    it("creates a new spec as pluginManaged with the right owner", async () => {
+      const store = makeFakeStore();
+      const { sdk } = makeSdk("trivia", store.deps);
+
+      await sdk.reconcileCronJobs("trivia", [validSpec]);
+
+      assert.equal(store.jobs.length, 1);
+      assert.equal(store.jobs[0].plugin, "trivia");
+      assert.equal(store.jobs[0].pluginManaged, true);
+      assert.equal(store.jobs[0].specKey, "ops:question");
+      assert.equal(store.jobs[0].cronExpression, "0 9 * * 1-5");
+    });
+
+    it("persists new specs with createdBy: null and systemActor: plugin:<ownerKey>", async () => {
+      const store = makeFakeStore();
+      const { sdk } = makeSdk("trivia", store.deps);
+
+      await sdk.reconcileCronJobs("trivia", [validSpec]);
+
+      assert.equal(store.jobs[0].createdBy, null);
+      assert.equal(store.jobs[0].systemActor, "plugin:trivia");
+    });
+
+    it("empty spec list deletes all owner-managed jobs", async () => {
+      const store = makeFakeStore();
+      const { sdk } = makeSdk("trivia", store.deps);
+
+      await sdk.reconcileCronJobs("trivia", [validSpec]);
+      assert.equal(store.jobs.length, 1);
+
+      await sdk.reconcileCronJobs("trivia", []);
+      assert.equal(store.jobs.length, 0);
+    });
+
+    it("updates existing matching spec in place, preserving id/enabled", async () => {
+      const store = makeFakeStore();
+      const { sdk } = makeSdk("trivia", store.deps);
+
+      await sdk.reconcileCronJobs("trivia", [validSpec]);
+      const originalId = store.jobs[0].id;
+      // Simulate admin disabling the job from the Home Tab.
+      store.jobs[0].enabled = false;
+      store.jobs[0].runs = [{ executedAt: "2026-01-01T09:00:00Z", status: "success" }];
+
+      await sdk.reconcileCronJobs("trivia", [
+        { ...validSpec, cronExpression: "0 10 * * 1-5", prompt: "updated prompt" },
+      ]);
+
+      assert.equal(store.jobs.length, 1);
+      assert.equal(store.jobs[0].id, originalId, "id preserved across update");
+      assert.equal(store.jobs[0].enabled, false, "admin-disabled flag preserved");
+      assert.equal(store.jobs[0].cronExpression, "0 10 * * 1-5");
+      assert.equal(store.jobs[0].prompt, "updated prompt");
+      assert.equal(store.jobs[0].runs?.length, 1, "run history preserved");
+    });
+
+    it("removing a spec deletes the job even when admin had disabled it", async () => {
+      const store = makeFakeStore();
+      const { sdk } = makeSdk("trivia", store.deps);
+
+      await sdk.reconcileCronJobs("trivia", [validSpec]);
+      store.jobs[0].enabled = false;
+
+      await sdk.reconcileCronJobs("trivia", []);
+      assert.equal(store.jobs.length, 0);
+    });
+
+    it("does not touch jobs owned by other plugins or by users", async () => {
+      const store = makeFakeStore();
+      // Pre-seed: one weather-plugin job, one user-created job (no pluginManaged tag)
+      store.jobs.push({
+        id: "weather-1",
+        cronExpression: "0 8 * * *",
+        channel: "C111",
+        prompt: "weather",
+        timezone: "UTC",
+        createdBy: null,
+        systemActor: "plugin:weather",
+        plugin: "weather",
+        pluginManaged: true,
+        specKey: "morning",
+        enabled: true,
+      });
+      store.jobs.push({
+        id: "user-1",
+        cronExpression: "0 10 * * *",
+        channel: "C222",
+        prompt: "user job",
+        timezone: "UTC",
+        createdBy: "U_USER",
+        enabled: true,
+      });
+
+      const { sdk } = makeSdk("trivia", store.deps);
+      await sdk.reconcileCronJobs("trivia", [validSpec]);
+
+      assert.equal(store.jobs.length, 3, "weather + user + new trivia job all present");
+      assert.ok(store.jobs.find((j) => j.id === "weather-1"));
+      assert.ok(store.jobs.find((j) => j.id === "user-1"));
+
+      await sdk.reconcileCronJobs("trivia", []);
+      assert.equal(store.jobs.length, 2, "trivia gone, weather + user retained");
+    });
+
+    it("skips invalid specs but applies valid neighbors", async () => {
+      const store = makeFakeStore();
+      const { sdk } = makeSdk("trivia", store.deps);
+
+      await sdk.reconcileCronJobs("trivia", [
+        validSpec,
+        { ...validSpec, specKey: "bad", cronExpression: "not a cron" },
+      ]);
+
+      assert.equal(store.jobs.length, 1, "only the valid spec was applied");
+      assert.equal(store.jobs[0].specKey, "ops:question");
+    });
+
+    it("idempotent on repeat call with identical input", async () => {
+      const store = makeFakeStore();
+      const { sdk } = makeSdk("trivia", store.deps);
+
+      await sdk.reconcileCronJobs("trivia", [validSpec]);
+      const firstId = store.jobs[0].id;
+      const firstSnapshot = JSON.stringify(store.jobs[0]);
+
+      await sdk.reconcileCronJobs("trivia", [validSpec]);
+      assert.equal(store.jobs.length, 1);
+      assert.equal(store.jobs[0].id, firstId, "no recreation on identical input");
+      assert.equal(JSON.stringify(store.jobs[0]), firstSnapshot, "state unchanged");
+    });
+
+    it("throws on non-string ownerKey", async () => {
+      const store = makeFakeStore();
+      const { sdk } = makeSdk("trivia", store.deps);
+      await assert.rejects(
+        () => sdk.reconcileCronJobs("", [validSpec]),
+        /ownerKey must be a non-empty string/,
+      );
+    });
+
+    it("throws on non-array specs", async () => {
+      const store = makeFakeStore();
+      const { sdk } = makeSdk("trivia", store.deps);
+      // @ts-expect-error — testing runtime guard
+      await assert.rejects(() => sdk.reconcileCronJobs("trivia", null), /specs must be an array/);
+    });
+
+    describe("skipDates persistence", () => {
+      it("creates a job with skipDates when the spec carries them", async () => {
+        const store = makeFakeStore();
+        const { sdk } = makeSdk("trivia", store.deps);
+        const skipDates = [
+          { date: "12-25", label: "Christmas" },
+          { date: "01-01", label: "New Year's Day" },
+        ];
+
+        await sdk.reconcileCronJobs("trivia", [{ ...validSpec, skipDates }]);
+
+        assert.equal(store.jobs.length, 1);
+        assert.deepEqual(store.jobs[0].skipDates, skipDates);
+      });
+
+      it("creates a job without skipDates when the spec omits them", async () => {
+        const store = makeFakeStore();
+        const { sdk } = makeSdk("trivia", store.deps);
+
+        await sdk.reconcileCronJobs("trivia", [validSpec]);
+
+        assert.equal(store.jobs[0].skipDates, undefined);
+      });
+
+      it("updates skipDates in place on an existing job when the spec changes", async () => {
+        const store = makeFakeStore();
+        const { sdk } = makeSdk("trivia", store.deps);
+        const first = [{ date: "12-25", label: "Christmas" }];
+        const second = [
+          { date: "12-25", label: "Christmas" },
+          { date: "07-01", label: "Canada Day" },
+        ];
+
+        await sdk.reconcileCronJobs("trivia", [{ ...validSpec, skipDates: first }]);
+        const id = store.jobs[0].id;
+        await sdk.reconcileCronJobs("trivia", [{ ...validSpec, skipDates: second }]);
+
+        assert.equal(store.jobs.length, 1);
+        assert.equal(store.jobs[0].id, id, "same job, updated in place");
+        assert.deepEqual(store.jobs[0].skipDates, second);
+      });
+
+      it("clears skipDates when a subsequent spec omits them", async () => {
+        const store = makeFakeStore();
+        const { sdk } = makeSdk("trivia", store.deps);
+
+        await sdk.reconcileCronJobs("trivia", [
+          { ...validSpec, skipDates: [{ date: "12-25", label: "Christmas" }] },
+        ]);
+        assert.ok(store.jobs[0].skipDates);
+
+        await sdk.reconcileCronJobs("trivia", [validSpec]);
+        assert.equal(store.jobs[0].skipDates, undefined);
+      });
+    });
+  });
+
+  describe("watchFile", () => {
+    it("rejects ../ in relative paths", () => {
+      const { sdk } = makeSdk();
+      assert.throws(() => sdk.watchFile("../other/data.json", () => {}), /Path traversal/);
+    });
+
+    it("rejects absolute paths", () => {
+      const { sdk } = makeSdk();
+      assert.throws(() => sdk.watchFile("/etc/passwd", () => {}), /Absolute paths/);
+    });
+
+    it("does not throw when the file does not exist yet", () => {
+      const { sdk } = makeSdk();
+      const watcher = sdk.watchFile("future-file.json", () => {});
+      assert.ok(watcher, "returns a watcher even when the target is missing");
+      watcher.close();
+    });
+
+    it("tracks the watcher on the plugin's load result for teardown", () => {
+      const { sdk, harvest } = makeSdk("trivia");
+      const w1 = sdk.watchFile("file-1.json", () => {});
+      const w2 = sdk.watchFile("file-2.json", () => {});
+      const result = harvest();
+      assert.equal(result.watchers?.length, 2, "both watchers recorded for reload-time teardown");
+      w1.close();
+      w2.close();
     });
   });
 });

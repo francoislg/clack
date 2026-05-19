@@ -66,7 +66,8 @@ export function createUpdateScheduledMessageTool(ctx: QueryToolContext) {
         .optional()
         .describe(
           "Replace the list of required MCP tool names (e.g. 'mcp__trivia__submit_answers'). " +
-            "Pass an empty array to clear the requirement. Omit to leave unchanged.",
+            "Pass an empty array `[]` to clear all requirements. Omit this field entirely to leave " +
+            "the existing list unchanged. These two are different — `[]` is destructive.",
         ),
       plugin: z
         .string()
@@ -92,6 +93,17 @@ export function createUpdateScheduledMessageTool(ctx: QueryToolContext) {
       const isAdmin = canManageRoles(ctx.role);
       if (!isAdmin && job.createdBy !== ctx.userId) {
         return errorResult("You can only update your own scheduled messages.");
+      }
+
+      // Plugin-managed jobs are reconciled from plugin config; only the runtime `enabled`
+      // flag is admin-overridable. Toggling enabled goes through the Home Tab, not this tool.
+      if (job.pluginManaged) {
+        return errorResult(
+          `Scheduled message "${args.id}" is managed by plugin "${job.plugin ?? "unknown"}" — ` +
+            "its content (schedule, prompt, channel, timezone, requiredTools, skipConditions) is reconciled " +
+            "from the plugin's config block on every reload. To change it, edit the plugin's section in " +
+            "data/config.json. Pausing/resuming is available from the Home Tab.",
+        );
       }
 
       let newCronExpression: string | undefined;
