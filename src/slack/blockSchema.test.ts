@@ -249,6 +249,18 @@ describe("BlockSchema.parse — disallowed block types", () => {
     // standalone validator.
     assert.throws(() => BlockSchema.parse({ type: "table", rows: [["a", "b"]] }));
   });
+
+  it("emits a table-specific actionable error pointing at the sibling parameter", () => {
+    // Why: the generic "not supported / allowed types" message lets the model
+    // conclude "drop the table" on retry, which is the failure mode that ships
+    // a reveal with an empty scoreboard. The table-specific message names the
+    // correct location (top-level sibling) and forbids dropping it.
+    const result = BlockSchema.safeParse({ type: "table", rows: [["a", "b"]] });
+    assert.equal(result.success, false);
+    const message = result.success ? "" : result.error.issues[0]?.message;
+    assert.match(message, /top-level sibling parameter/);
+    assert.match(message, /Do NOT drop it/);
+  });
 });
 
 describe("BlockSchema passthrough behavior", () => {

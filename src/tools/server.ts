@@ -264,11 +264,25 @@ export function shouldAllowSkip(triggerType: TriggerType): boolean {
 
 /**
  * Decide whether to expose `skip_response` on `submit_response` for this run.
- * Combines the default policy (`shouldAllowSkip`) with a per-job opt-in for scheduled runs
- * that declare `skipConditions`. Extracted for testability — the override itself is trivial,
- * but it's worth pinning behavior explicitly because the schema changes based on the result.
+ *
+ * Precedence (highest to lowest):
+ * 1. `submitResponseMode === "always"` → `allowSkip = false`. Explicit no-skip override.
+ * 2. `submitResponseMode === "optional"` → `allowSkip = true`. Explicit skip-available override.
+ * 3. `submitResponseMode === "skipped"` → `allowSkip = true`. The downstream schema variant
+ *    (chosen separately) enforces that skip is REQUIRED.
+ * 4. Mode unset → today's auto-derivation: `shouldAllowSkip(triggerType)` OR
+ *    `triggerType === "scheduled" && skipConditions is non-empty`.
+ *
+ * The schema-variant selection (which decides whether the skipped-only schema is used) reads
+ * the mode directly; this function returns only the `allowSkip` boolean.
  */
-export function computeAllowSkip(triggerType: TriggerType, skipConditions?: string): boolean {
+export function computeAllowSkip(
+  triggerType: TriggerType,
+  skipConditions?: string,
+  submitResponseMode?: "always" | "optional" | "skipped",
+): boolean {
+  if (submitResponseMode === "always") return false;
+  if (submitResponseMode === "optional" || submitResponseMode === "skipped") return true;
   if (shouldAllowSkip(triggerType)) return true;
   return triggerType === "scheduled" && !!skipConditions && skipConditions.length > 0;
 }
@@ -458,9 +472,10 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
       // Pass the channel so post_to validation can reject duplicates.
       topLevelDeliveryChannel: triggerType === "scheduled" ? ctx.session.channelId : undefined,
       sessionChannelId: ctx.session.channelId,
-      allowSkip: computeAllowSkip(triggerType, ctx.skipConditions),
+      allowSkip: computeAllowSkip(triggerType, ctx.skipConditions, ctx.submitResponseMode),
       allowDisengage: shouldAllowDisengage(triggerType),
       allowPostTopLevel: shouldAllowPostTopLevel(triggerType),
+      ...(ctx.submitResponseMode ? { submitResponseMode: ctx.submitResponseMode } : {}),
       requiredTools: ctx.requiredTools,
       ...(ctx.hasPendingInput && { hasPendingInput: ctx.hasPendingInput }),
       ...(ctx.consumePendingPushedTexts && {

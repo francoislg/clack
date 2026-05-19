@@ -93,6 +93,19 @@ export interface QueryToolContext {
    */
   skipConditions?: string;
   /**
+   * Declarative override of the `submit_response` schema/gating behavior. See
+   * `CronJob.submitResponseMode` for the full contract. When unset, today's auto-derivation
+   * rules apply (allowSkip derived from triggerType + skipConditions). Propagated from the
+   * cron job through the scheduler → handler → tool-server build context chain.
+   */
+  submitResponseMode?: "always" | "optional" | "skipped";
+  /**
+   * Effective "now" for time-sensitive tools. Populated by `cronScheduler.executeJob` during
+   * replay (the same `asOf` parameter that drives the system prompt's REPLAY CONTEXT block).
+   * Real wall-clock `Date.now()` is used when absent.
+   */
+  asOf?: Date;
+  /**
    * Owns the session's MCP-server lifecycle — tracks session-start servers, attached
    * servers, the effective registry, and wraps every `setMcpServers` call so the
    * merge invariant is guaranteed. Populated by the session orchestrator and bound

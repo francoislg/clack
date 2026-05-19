@@ -1,16 +1,16 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "./testHelpers.js";
-import { createAddCategoriesTool } from "./addCategories.js";
-import { createRemoveCategoriesTool } from "./removeCategories.js";
-import { createGetIdeasTool } from "./getIdeas.js";
-import { createSaveQuestionTool } from "./saveQuestion.js";
-import { createFindPreviousQuestionsTool } from "./findPreviousQuestions.js";
-import { createSubmitAnswersTool } from "./submitAnswers.js";
-import { createRetrieveScoresTool } from "./retrieveScores.js";
-import { SEED_CATEGORIES } from "./seedCategories.js";
+import { createAddCategoriesTool } from "./tools/categories/addCategories.js";
+import { createRemoveCategoriesTool } from "./tools/categories/removeCategories.js";
+import { createGetIdeasTool } from "./tools/questions/getIdeas.js";
+import { createSaveQuestionTool } from "./tools/questions/saveQuestion.js";
+import { createFindPreviousQuestionsTool } from "./tools/questions/findPreviousQuestions.js";
+import { createSubmitAnswersTool } from "./tools/answers/submitAnswers.js";
+import { createRetrieveScoresTool } from "./tools/answers/retrieveScores.js";
+import { SEED_CATEGORIES } from "./core/seedCategories.js";
 import { parseToolResult } from "../../tools/testHelpers.js";
-import type { TriviaDataLayer, TriviaQuestion } from "./types.js";
+import type { TriviaDataLayer, TriviaQuestion } from "./core/types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -181,7 +181,7 @@ describe("trivia plugin", () => {
 
     it("returns up to 5 random categories with pool stats and suggestions", async () => {
       const tool = createGetIdeasTool(data, undefined, fixtureGetGames);
-      const result = await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION);
+      const result = await tool.handler({ game: FIXTURE_GAME_NAME, slot: undefined }, SESSION);
       const parsed = parseToolResult(result);
 
       assert.ok(Array.isArray(parsed.categories.ideas));
@@ -207,13 +207,14 @@ describe("trivia plugin", () => {
           correctIndex: undefined,
           suggestedDifficulty: undefined,
           difficulty: undefined,
+          slot: undefined,
           emojis: ["🎯"],
           createdAt: i,
         });
       }
 
       const tool = createGetIdeasTool(data, undefined, fixtureGetGames);
-      const result = await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION);
+      const result = await tool.handler({ game: FIXTURE_GAME_NAME, slot: undefined }, SESSION);
       const parsed = parseToolResult(result);
 
       assert.equal(parsed.categories.excluded, 3);
@@ -247,13 +248,14 @@ describe("trivia plugin", () => {
           correctIndex: undefined,
           suggestedDifficulty: undefined,
           difficulty: undefined,
+          slot: undefined,
           emojis: ["🎯"],
           createdAt: i,
         });
       }
 
       const tool = createGetIdeasTool(data, undefined, fixtureGetGames);
-      const result = await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION);
+      const result = await tool.handler({ game: FIXTURE_GAME_NAME, slot: undefined }, SESSION);
       const parsed = parseToolResult(result);
 
       assert.equal(parsed.categories.excluded, 3);
@@ -286,13 +288,14 @@ describe("trivia plugin", () => {
           correctIndex: undefined,
           suggestedDifficulty: undefined,
           difficulty: undefined,
+          slot: undefined,
           emojis: ["🎯"],
           createdAt: i,
         });
       }
 
       const tool = createGetIdeasTool(data, undefined, fixtureGetGames);
-      const result = await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION);
+      const result = await tool.handler({ game: FIXTURE_GAME_NAME, slot: undefined }, SESSION);
       const parsed = parseToolResult(result);
 
       // With scaled exclusion (pool=10 → window=3), only the last 3 categories are excluded
@@ -327,12 +330,16 @@ describe("trivia plugin", () => {
         try {
           // [answer=0.0, difficulty=0.0] → answer = (0.0 < 0.5) = true.
           stubRandomSequence([0.0, 0.0]);
-          const a = parseToolResult(await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION));
+          const a = parseToolResult(
+            await tool.handler({ game: FIXTURE_GAME_NAME, slot: undefined }, SESSION),
+          );
           assert.equal(a.suggestedAnswer, true);
 
           // [answer=0.99, difficulty=0.0] → answer = (0.99 < 0.5) = false.
           stubRandomSequence([0.99, 0.0]);
-          const b = parseToolResult(await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION));
+          const b = parseToolResult(
+            await tool.handler({ game: FIXTURE_GAME_NAME, slot: undefined }, SESSION),
+          );
           assert.equal(b.suggestedAnswer, false);
         } finally {
           restore();
@@ -345,43 +352,49 @@ describe("trivia plugin", () => {
           // [answer=0.0, difficulty=<value-under-test>].
           stubRandomSequence([0.0, 0.0]);
           assert.equal(
-            parseToolResult(await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION))
-              .suggestedDifficulty,
+            parseToolResult(
+              await tool.handler({ game: FIXTURE_GAME_NAME, slot: undefined }, SESSION),
+            ).suggestedDifficulty,
             "Easy",
           );
 
           stubRandomSequence([0.0, 0.2999]);
           assert.equal(
-            parseToolResult(await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION))
-              .suggestedDifficulty,
+            parseToolResult(
+              await tool.handler({ game: FIXTURE_GAME_NAME, slot: undefined }, SESSION),
+            ).suggestedDifficulty,
             "Easy",
           );
 
           stubRandomSequence([0.0, 0.3]);
           assert.equal(
-            parseToolResult(await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION))
-              .suggestedDifficulty,
+            parseToolResult(
+              await tool.handler({ game: FIXTURE_GAME_NAME, slot: undefined }, SESSION),
+            ).suggestedDifficulty,
             "Medium",
           );
 
           stubRandomSequence([0.0, 0.8999]);
           assert.equal(
-            parseToolResult(await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION))
-              .suggestedDifficulty,
+            parseToolResult(
+              await tool.handler({ game: FIXTURE_GAME_NAME, slot: undefined }, SESSION),
+            ).suggestedDifficulty,
             "Medium",
           );
 
           stubRandomSequence([0.0, 0.9]);
           assert.equal(
-            parseToolResult(await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION))
-              .suggestedDifficulty,
+            parseToolResult(
+              await tool.handler({ game: FIXTURE_GAME_NAME, slot: undefined }, SESSION),
+            ).suggestedDifficulty,
             "Hard",
           );
 
           stubRandomSequence([0.0, 0.9999]);
           assert.equal(
-            parseToolResult(await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION))
-              .suggestedDifficulty,
+            parseToolResult(
+              await tool.handler({ game: FIXTURE_GAME_NAME, slot: undefined }, SESSION),
+            ).suggestedDifficulty,
             "Hard",
           );
         } finally {
@@ -413,6 +426,7 @@ describe("trivia plugin", () => {
           correctIndex: undefined,
           suggestedDifficulty: undefined,
           difficulty: undefined,
+          slot: undefined,
           emojis: ["🔬"],
         },
         SESSION,
@@ -442,6 +456,7 @@ describe("trivia plugin", () => {
           correctIndex: undefined,
           suggestedDifficulty: undefined,
           difficulty: undefined,
+          slot: undefined,
           emojis: ["🔬"],
         },
         SESSION,
@@ -465,6 +480,7 @@ describe("trivia plugin", () => {
           correctIndex: undefined,
           suggestedDifficulty: undefined,
           difficulty: undefined,
+          slot: undefined,
           emojis: ["🔬"],
         },
         SESSION,
@@ -489,6 +505,7 @@ describe("trivia plugin", () => {
           correctIndex: undefined,
           suggestedDifficulty: undefined,
           difficulty: undefined,
+          slot: undefined,
           emojis: ["🔬"],
         },
         SESSION,
@@ -513,6 +530,7 @@ describe("trivia plugin", () => {
           correctIndex: undefined,
           suggestedDifficulty: undefined,
           difficulty: undefined,
+          slot: undefined,
           emojis: ["🔬"],
         },
         SESSION,
@@ -536,6 +554,7 @@ describe("trivia plugin", () => {
           correctIndex: undefined,
           suggestedDifficulty: undefined,
           difficulty: undefined,
+          slot: undefined,
           emojis: [],
         },
         SESSION,
@@ -559,6 +578,7 @@ describe("trivia plugin", () => {
           correctIndex: undefined,
           suggestedDifficulty: undefined,
           difficulty: undefined,
+          slot: undefined,
           emojis: ["🔬", "🧪", "⚗️", "🧬", "🔭"],
         },
         SESSION,
@@ -582,6 +602,7 @@ describe("trivia plugin", () => {
           correctIndex: undefined,
           suggestedDifficulty: undefined,
           difficulty: undefined,
+          slot: undefined,
           emojis: ["🔬"],
         },
         SESSION,
@@ -604,6 +625,7 @@ describe("trivia plugin", () => {
           correctIndex: undefined,
           suggestedDifficulty: undefined,
           difficulty: undefined,
+          slot: undefined,
           emojis: ["🔬", "🧪", "⚗️", "🧬"],
         },
         SESSION,
@@ -626,6 +648,7 @@ describe("trivia plugin", () => {
           correctIndex: undefined,
           suggestedDifficulty: "Medium",
           difficulty: 7,
+          slot: undefined,
           emojis: ["🔬"],
         },
         SESSION,
@@ -654,6 +677,7 @@ describe("trivia plugin", () => {
           correctIndex: undefined,
           suggestedDifficulty: undefined,
           difficulty: undefined,
+          slot: undefined,
           emojis: ["🔬"],
         },
         SESSION,

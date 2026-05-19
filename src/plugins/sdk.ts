@@ -38,6 +38,12 @@ export interface CronJobSpec {
   requiredTools?: string[];
   skipConditions?: string;
   /**
+   * Declarative override of the `submit_response` schema/gating behavior. See
+   * `CronJob.submitResponseMode` for the full contract. Omit to leave the resulting
+   * `CronJob.submitResponseMode` unset (today's auto-derivation rules apply).
+   */
+  submitResponseMode?: "always" | "optional" | "skipped";
+  /**
    * Structured calendar-date skip list. Propagated as-is into the resulting `CronJob.skipDates`.
    * Omit (or pass an empty array) to leave the job's `skipDates` unset.
    */
@@ -83,6 +89,14 @@ export interface ClackSdk {
    * surface to Claude.
    */
   dmOwner(text: string): Promise<{ ok: true } | { ok: false; error: string }>;
+  /**
+   * Lazily resolves the Slack WebClient at call time. Returns `null` when Slack
+   * hasn't connected yet (e.g. plugin tools created at plugin-load time, before
+   * the bot's socket session is up). Plugin authors needing direct Slack API access
+   * (e.g. `conversations.history` to read message reactions) should call this from
+   * inside their tool handler — never close over the result at module top-level.
+   */
+  getSlackClient(): App["client"] | null;
 }
 
 export type ClackPlugin = (sdk: ClackSdk) => Promise<void>;
@@ -332,6 +346,9 @@ export function createClackSdk(
             // updateJob treats empty string as "clear" — exactly what we want when a spec
             // drops skipConditions but the persisted job still has one.
             skipConditions: spec.skipConditions ?? "",
+            // updateJob treats `null` as "clear" — dropping submitResponseMode from a spec
+            // clears it from the persisted job.
+            submitResponseMode: spec.submitResponseMode ?? null,
             // updateJob treats an empty array as "clear" — same shape as requiredTools.
             skipDates: spec.skipDates ?? [],
           });
@@ -350,6 +367,7 @@ export function createClackSdk(
               ? { requiredTools: spec.requiredTools }
               : {}),
             ...(spec.skipConditions ? { skipConditions: spec.skipConditions } : {}),
+            ...(spec.submitResponseMode ? { submitResponseMode: spec.submitResponseMode } : {}),
             ...(spec.skipDates && spec.skipDates.length > 0 ? { skipDates: spec.skipDates } : {}),
           });
         }
@@ -363,6 +381,10 @@ export function createClackSdk(
           await remove(job.id);
         }
       }
+    },
+
+    getSlackClient(): App["client"] | null {
+      return deps.getSlackClient();
     },
 
     async dmOwner(text: string): Promise<{ ok: true } | { ok: false; error: string }> {

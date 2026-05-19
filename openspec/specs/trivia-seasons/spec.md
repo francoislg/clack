@@ -52,21 +52,29 @@ When `seasons.enabled` is `true`, the Trivia plugin SHALL maintain a `seasons.js
     "categories": string[],                  // the season's category pool (non-empty)
     "questionTypes": Record<"boolean" | "choice", number>?
                                              // OPTIONAL per-season question-type weights; when absent, get_ideas falls back to config.trivia.questionsTypes
+    "format": {
+      "questions": Array<{
+        "label"?: string,
+        "categories"?: string[],
+        "questionTypes"?: Record<"boolean" | "choice", number>
+      }>
+    }?                                       // OPTIONAL per-season question composition; when absent, behavior is single-question-per-fire
   }>
 }
 ```
 
 Invariants (enforced by `upsert_season` at write time, **per game**):
 
-1. Slug uniqueness *within this game's `seasons` array*. Two different games MAY use the same slug for their own seasons; the namespaces are independent.
+1. Slug uniqueness _within this game's `seasons` array_. Two different games MAY use the same slug for their own seasons; the namespaces are independent.
 2. Each entry satisfies `startedAt < (endedAt ?? expectedEndAt)`.
 3. Each entry's `categories` array is non-empty.
-4. No two entries' active windows `[startedAt, endedAt ?? expectedEndAt)` overlap *within the same game*.
+4. No two entries' active windows `[startedAt, endedAt ?? expectedEndAt)` overlap _within the same game_.
 5. When present, each entry's `questionTypes` map SHALL contain only the keys `"boolean"` and `"choice"`, each mapped to a non-negative integer (zero is allowed and means "never roll this type"), AND at least one key SHALL be mapped to a strictly positive value.
+6. When present, each entry's `format` SHALL satisfy the invariants in the "Per-season question format" requirement (non-empty `questions`, valid slot fields).
 
-Per-game `seasons.json` files SHALL be created lazily — when any tool resolves `game = "X"` and finds no `games/X/seasons.json` while `trivia.seasons.enabled` is `true`, the plugin SHALL seed a starter season into that file before continuing. The starter entry's `slug` is `season-YYYY-MM` (current UTC month), `startedAt` is `Date.now()`, `expectedEndAt` is end-of-current-UTC-month, and `categories` is a copy of the global `categories.json`.
+Per-game `seasons.json` files SHALL be created lazily — when any tool resolves `game = "X"` and finds no `games/X/seasons.json` while `trivia.seasons.enabled` is `true`, the plugin SHALL seed a starter season into that file before continuing. The starter entry's `slug` is `season-YYYY-MM` (current UTC month), `startedAt` is `Date.now()`, `expectedEndAt` is end-of-current-UTC-month, and `categories` is a copy of the global `categories.json`. The starter entry SHALL NOT carry a `format` field.
 
-The "current season" of a game at any moment is a *derived* concept: the unique entry in that game's `seasons.json` where `startedAt <= now < (endedAt ?? expectedEndAt)`, or `null` if `now` falls in a gap between entries.
+The "current season" of a game at any moment is a _derived_ concept: the unique entry in that game's `seasons.json` where `startedAt <= now < (endedAt ?? expectedEndAt)`, or `null` if `now` falls in a gap between entries.
 
 #### Scenario: Lazy bootstrap on first per-game tool call
 
@@ -79,6 +87,7 @@ The "current season" of a game at any moment is a *derived* concept: the unique 
 - **AND** the file contains a `seasons` array with exactly one entry
 - **AND** the entry's `slug` is non-empty, `startedAt < expectedEndAt`, and `categories` is a copy of the global `categories.json`
 - **AND** the entry has no `questionTypes` field
+- **AND** the entry has no `format` field
 
 #### Scenario: No bootstrap when seasons feature is disabled
 
@@ -130,6 +139,12 @@ The "current season" of a game at any moment is a *derived* concept: the unique 
 
 - **WHEN** an entry would be written with `questionTypes: { "boolean": 1, "trivia": 1 }` (unknown key)
 - **THEN** the write is rejected with a "questionTypes keys must be 'boolean' or 'choice'" error
+- **AND** the file is unchanged
+
+#### Scenario: Invalid format on write rejected
+
+- **WHEN** an entry would be written with `format: { questions: [] }`
+- **THEN** the write is rejected with a "format.questions must be non-empty" error
 - **AND** the file is unchanged
 
 ### Requirement: check_season_status tool
@@ -196,22 +211,46 @@ The tool SHALL accept a required `game: string` argument; the slug SHALL be vali
 
 The tool SHALL further accept:
 
-- `slug` (string, required) — non-empty kebab-case identifier. Treated as immutable: if the slug already exists *within the named game's timeline*, the call is an update of that entry; otherwise the call creates a new entry. Slug renaming is not supported (use `delete_season` + a new `upsert_season` for a not-yet-started entry). Slugs may collide with slugs in other games' timelines without issue.
+- `slug` (string, required) — non-empty kebab-case identifier. Treated as immutable: if the slug already exists _within the named game's timeline_, the call is an update of that entry; otherwise the call creates a new entry. Slug renaming is not supported (use `delete_season` + a new `upsert_season` for a not-yet-started entry). Slugs may collide with slugs in other games' timelines without issue.
 - `startedAt` (number, optional, unix-ms) — required on CREATE; on UPDATE, modifying it is rejected if the existing entry's `startedAt <= now` (the past is immutable).
 - `expectedEndAt` (number, optional, unix-ms) — required on CREATE; on UPDATE, the new value MUST still satisfy `startedAt < (endedAt ?? newExpectedEndAt)`.
 - `endedAt` (number, optional, unix-ms) — sets the actual end time. Used to mark a season as closed (e.g. at the last-fire reveal or for early termination by an admin).
 - `categories` (string[], optional) — the season's category pool. When provided AND non-empty, the new season's pool is **exactly** that list (replace, not augment — for purely themed seasons). When omitted OR empty, the new season's pool is copied from the global `categories.json` (the persistent baseline). Used only on CREATE; ignored on UPDATE (use `add_categories` / `remove_categories` with `target: <slug>` to refine an existing season's pool).
 - `questionTypes` (`Record<"boolean" | "choice", number>` | null, optional) — per-season question-type weights. On CREATE, stored verbatim on the new entry. On UPDATE, an object value replaces the entry's existing `questionTypes`; explicit `null` clears the field, causing `get_ideas` to fall back to `config.trivia.questionsTypes` for that entry. Mutating `questionTypes` on a season whose `startedAt <= now` IS PERMITTED (unlike `startedAt`).
+- `format` (`{ questions: Array<{ label?, categories?, questionTypes? }> }` | null, optional) — per-season question composition. On CREATE, stored verbatim on the new entry. On UPDATE, an object value replaces the entry's existing `format` wholesale; explicit `null` clears the field, causing the season to revert to single-question-per-fire behavior. Mutating `format` on a season whose `startedAt <= now` IS PERMITTED (the change takes effect on the next question-cron fire).
 
 The tool SHALL:
 
 1. Validate that `slug` is non-empty kebab-case.
 2. Load the named game's `seasons.json` (initialize from scratch if missing — same shape as lazy seeding).
-3. If creating: require both `startedAt` and `expectedEndAt`. Categories source — if `categories` arg is provided AND non-empty, use exactly that list (deduped, preserving first-occurrence order); otherwise copy the global `categories.json`. Reject if the resulting list is empty. Verify the new entry's `[startedAt, endedAt ?? expectedEndAt)` interval does not overlap any existing entry's interval *within the same game*. If `questionTypes` is provided, validate per the schema invariants.
-4. If updating: load the existing entry in the named game, apply the passed fields (omit-to-keep semantics; explicit `null` for `questionTypes` clears the field), re-validate the same invariants, and reject any attempt to mutate `startedAt` of an already-started season.
+3. If creating: require both `startedAt` and `expectedEndAt`. Categories source — if `categories` arg is provided AND non-empty, use exactly that list (deduped, preserving first-occurrence order); otherwise copy the global `categories.json`. Reject if the resulting list is empty. Verify the new entry's `[startedAt, endedAt ?? expectedEndAt)` interval does not overlap any existing entry's interval _within the same game_. If `questionTypes` is provided, validate per the schema invariants. If `format` is provided, validate per the format invariants.
+4. If updating: load the existing entry in the named game, apply the passed fields (omit-to-keep semantics; explicit `null` for `questionTypes` or `format` clears the respective field), re-validate the same invariants, and reject any attempt to mutate `startedAt` of an already-started season.
 5. Atomically write the new `games/<game>/seasons.json`.
 
-Return shape: `{ game, slug, action: "created" | "updated", startedAt, expectedEndAt, endedAt, categoriesCount, hasQuestionTypes }`.
+Return shape: `{ game, slug, action: "created" | "updated", startedAt, expectedEndAt, endedAt, categoriesCount, hasQuestionTypes, hasFormat, slotCount }`. `slotCount` is `format.questions.length` when `hasFormat`, else `0`.
+
+#### Scenario: Create a future season with format
+
+- **GIVEN** `games/main/seasons.json` contains only the active "may-2026" season
+- **WHEN** `upsert_season` is called with `game: "main", slug: "june-2026", startedAt: <June 1>, expectedEndAt: <June 30>, format: { questions: [{ label: "GK Boolean" }, { label: "History Choice", questionTypes: { boolean: 0, choice: 1 }, categories: ["History"] }] }`
+- **THEN** the response is `{ game: "main", slug: "june-2026", action: "created", hasFormat: true, slotCount: 2, ... }`
+- **AND** the new entry carries the provided `format` verbatim
+
+#### Scenario: Update a season's format mid-season
+
+- **GIVEN** the active "may-2026" season in `games/main/seasons.json` has `startedAt <= now` and a 1-slot format
+- **WHEN** `upsert_season(game: "main", slug: "may-2026", { format: { questions: [{ label: "A" }, { label: "B" }] } })` is called
+- **THEN** the response is `{ game: "main", slug: "may-2026", action: "updated", hasFormat: true, slotCount: 2, ... }`
+- **AND** the entry's `format` is the new 2-slot definition
+- **AND** the next question-cron fire posts 2 questions
+
+#### Scenario: Clear a season's format by passing null
+
+- **GIVEN** the active "may-2026" in `games/main/seasons.json` has a `format` with 3 slots
+- **WHEN** `upsert_season(game: "main", slug: "may-2026", { format: null })` is called
+- **THEN** the entry's `format` field is removed
+- **AND** the response carries `hasFormat: false, slotCount: 0`
+- **AND** the next question-cron fire posts a single question
 
 #### Scenario: Create a future season with questionTypes within a game
 
@@ -431,7 +470,11 @@ Entries SHALL be returned in their stored order. The full `categories` array is 
 
 When `seasons.enabled` is `true` AND `findCurrentSeason(games/<game>/seasons.json, now)` returns a season, the Trivia plugin SHALL stamp `season: <currentSlug>` onto every newly-written record in that game's `questions.json`, `answers.json`, and `cheats.json`. The `season` value SHALL be captured at the moment of write, so a record stamped during one season remains tagged with that slug even after the season has rolled over.
 
-When `findCurrentSeason` returns `null` (timeline gap) for the game's timeline, new records in that game's files SHALL NOT carry a `season` field.
+When the active season has a `format`, the Trivia plugin SHALL additionally stamp `slot: { index: number, label?: string }` onto every newly-written record in that game's `questions.json`. The `index` SHALL be the slot index supplied to `save_question`. The `label` SHALL be snapshotted from `format.questions[index].label` at write time (omitted when the slot has no label). The `slot` field SHALL NOT be present on `answers.json` or `cheats.json` records — those records carry game-level participation, not slot-level.
+
+When the active season has no `format`, no `slot` field SHALL be present on any new record.
+
+When `findCurrentSeason` returns `null` (timeline gap) for the game's timeline, new records in that game's files SHALL NOT carry a `season` field. Slot stamping is also suppressed in this case (no active season ⇒ no active format).
 
 The global `users.json` and `categories.json` SHALL NOT carry a `season` field — users and categories span seasons by design.
 
@@ -443,11 +486,25 @@ The global `users.json` and `categories.json` SHALL NOT carry a `season` field �
 - **THEN** the new entry in `games/main/questions.json` includes `season: "may-2026"`
 - **AND** the entry does NOT include `season: "sandbox-launch"`
 
+#### Scenario: save_question stamps slot when active season has a format
+
+- **GIVEN** the active season has `format: { questions: [{ label: "GK 1" }, { label: "History Choice" }] }`
+- **WHEN** `save_question` is called with `slot: { index: 1 }` and valid arguments
+- **THEN** the new entry in `games/main/questions.json` includes `slot: { index: 1, label: "History Choice" }`
+- **AND** the snapshotted label comes from `format.questions[1].label`, not the caller's `slot.label`
+
+#### Scenario: save_question does not stamp slot when no format
+
+- **GIVEN** the active season has no `format`
+- **WHEN** `save_question` is called
+- **THEN** the new entry has no `slot` field
+
 #### Scenario: submit_answers stamps season on each answer
 
 - **GIVEN** the active season in `games/main/seasons.json` is `"may-2026"`
 - **WHEN** `submit_answers` is called with `game: "main"` and records three new answer entries
 - **THEN** each entry in `games/main/answers.json` includes `season: "may-2026"`
+- **AND** none of the entries include a `slot` field (slot is a question-level concept)
 
 #### Scenario: save_cheating stamps season
 
@@ -460,50 +517,157 @@ The global `users.json` and `categories.json` SHALL NOT carry a `season` field �
 - **GIVEN** `findCurrentSeason(games/main/seasons.json, now)` returns `null`
 - **WHEN** any tag-stamping tool writes a new entry with `game: "main"`
 - **THEN** the new entry contains no `season` field
+- **AND** the new entry contains no `slot` field
 
 #### Scenario: Disabled config skips tagging
 
 - **GIVEN** `seasons.enabled` is `false`
 - **WHEN** any tool writes to a game's `questions.json`, `answers.json`, or `cheats.json`
 - **THEN** no `season` field is present on the new records
+- **AND** no `slot` field is present on the new records
+
+### Requirement: Per-season question format
+
+When `seasons.enabled` is `true`, the Trivia plugin SHALL accept an optional `format` field on each season entry in `data/plugins/trivia/games/<game>/seasons.json`. When present, the field MUST conform to:
+
+```
+format: {
+  questions: Array<{
+    label?: string,
+    categories?: string[],
+    questionTypes?: Record<"boolean" | "choice", number>
+  }>
+}
+```
+
+Invariants:
+
+1. `format.questions` MUST be a non-empty array (rejected with a "format.questions must be non-empty" error on write).
+2. Each slot's `label`, when present, MUST be a non-empty string after trim.
+3. Each slot's `categories`, when present, MUST be a non-empty array of strings (deduped, preserving first-occurrence order).
+4. Each slot's `questionTypes`, when present, MUST contain only the keys `"boolean"` and `"choice"`, each mapped to a non-negative integer, AND at least one key MUST be mapped to a strictly positive value.
+5. All slot fields are optional individually; an entirely empty slot (`{}`) is permitted and means "use season defaults for everything".
+
+When a season's `format` is absent, the season SHALL behave as before this change: each question-cron fire posts a single question rolled from the season's `categories` and `questionTypes`.
+
+When a season's `format` is present, each question-cron fire SHALL post `format.questions.length` questions (one per slot, in array order).
+
+#### Scenario: Season without format behaves as before
+
+- **GIVEN** a season entry with no `format` field
+- **WHEN** the question cron fires
+- **THEN** a single question is posted using the season's `categories` and `questionTypes` as today
+
+#### Scenario: Season with format posts one question per slot
+
+- **GIVEN** a season entry with `format: { questions: [{ label: "GK 1" }, { label: "History Choice", questionTypes: { boolean: 0, choice: 1 } }] }`
+- **WHEN** the question cron fires
+- **THEN** exactly two questions are posted in that order
+
+#### Scenario: Empty questions array rejected on write
+
+- **WHEN** `upsert_season` is called with `format: { questions: [] }`
+- **THEN** the call is rejected with a "format.questions must be non-empty" error
+- **AND** `seasons.json` is unchanged
+
+#### Scenario: Invalid slot.questionTypes rejected
+
+- **WHEN** `upsert_season` is called with `format: { questions: [{ questionTypes: { boolean: 0, choice: 0 } }] }`
+- **THEN** the call is rejected with a "questionTypes must have at least one positive weight" error
+
+#### Scenario: Empty slot is permitted
+
+- **WHEN** `upsert_season` is called with `format: { questions: [{}] }`
+- **THEN** the call succeeds; the slot inherits all defaults from the season at posting time
+
+### Requirement: save_question slot binding
+
+When the active season (per `findCurrentSeason(games/<game>/seasons.json, now)`) has a `format`, the `save_question` MCP tool SHALL require a `slot: { index: number, label?: string }` argument. The tool SHALL:
+
+1. Reject the call with a structured "slot required" error if `slot` is omitted.
+2. Reject the call with a structured "slot index out of range" error if `slot.index` is not in `[0, format.questions.length)`.
+3. Resolve the slot's effective `questionTypes` via the cascade `slot.questionTypes ?? season.questionTypes ?? config.trivia.questionsTypes` and reject the call with a "question type not permitted by slot" error if the question's actual type (boolean vs choice) is not in the slot's permitted set (weight > 0).
+4. Resolve the slot's effective `categories` via the cascade `slot.categories ?? season.categories` and reject the call with a "category not in slot pool" error if the question's `category` is not in that resolved pool.
+5. Snapshot `slot: { index, label }` onto the saved question record where `label` is taken from `format.questions[index].label` at the moment of write (NOT from the caller's `slot.label`, which is informational only).
+
+When the active season has no `format`, the `save_question` tool SHALL reject any `slot` argument with a structured "season has no format" error.
+
+#### Scenario: Save with valid slot succeeds and snapshots label
+
+- **GIVEN** the active season has `format: { questions: [{ label: "GK 1" }, { label: "History Choice", categories: ["History"], questionTypes: { choice: 1 } }] }`
+- **WHEN** `save_question` is called with `slot: { index: 1 }, category: "History", choices: [...], correctIndex: ...`
+- **THEN** the call succeeds
+- **AND** the saved question record carries `slot: { index: 1, label: "History Choice" }`
+
+#### Scenario: Missing slot argument when format present
+
+- **GIVEN** the active season has a `format`
+- **WHEN** `save_question` is called without a `slot` argument
+- **THEN** the call is rejected with a "slot required" error
+
+#### Scenario: Slot index out of range
+
+- **GIVEN** the active season has `format` with two slots (indices 0 and 1)
+- **WHEN** `save_question` is called with `slot: { index: 2 }`
+- **THEN** the call is rejected with a "slot index out of range" error
+
+#### Scenario: Question type not permitted by slot
+
+- **GIVEN** the active season's slot 1 has `questionTypes: { boolean: 0, choice: 1 }`
+- **WHEN** `save_question` is called with `slot: { index: 1 }` for a boolean question (no `choices` arg)
+- **THEN** the call is rejected with a "question type not permitted by slot" error
+
+#### Scenario: Category not in slot's resolved pool
+
+- **GIVEN** the active season has `categories: ["Science", "History", "Geography"]`
+- **AND** slot 0 has `categories: ["History"]` (slot narrows the pool)
+- **WHEN** `save_question` is called with `slot: { index: 0 }, category: "Science"`
+- **THEN** the call is rejected with a "category not in slot pool" error
+
+#### Scenario: Slot argument rejected when season has no format
+
+- **GIVEN** the active season has no `format` field
+- **WHEN** `save_question` is called with any `slot` argument
+- **THEN** the call is rejected with a "season has no format" error
 
 ### Requirement: Season-finale section in reveal flow
 
-When `seasons.enabled` is `true` AND `check_season_status` returns `isLastFireOfSeason: true` for the active game, the reveal flow SHALL render an additional **season-finale section** above the leaderboard table. The finale section SHALL summarize the closing season — its slug, the season MVP (player at index 0 of the current-season-ordered leaderboard from `retrieve_scores`), and a brief Game-Show-Presenter wrap-up paragraph in the persona's voice. The finale SHALL NOT preview the next season's slug — that is announced only AFTER the reveal flow's final tool calls have run.
+When `seasons.enabled` is `true` AND the `process_reveal_answers` tool's returned `seasonStatus.isLastFireOfSeason` is `true` for the active game, the reveal flow SHALL render an additional **season-finale section** above the leaderboard table. The finale section SHALL summarize the closing season — its slug (from `seasonStatus.currentSlug`), the season MVP (from `seasonStatus.mvp`, populated by the tool from the current-season-ordered leaderboard), and a brief Game-Show-Presenter wrap-up paragraph in the persona's voice. The finale SHALL NOT preview the next season's slug, even when `seasonStatus.newSeasonStarted` is present — that's left to a subsequent reveal to announce.
 
-When `isLastFireOfSeason` is `false`, no finale section is rendered.
+When `seasonStatus.isLastFireOfSeason` is `false` (or `seasonStatus` is absent because seasons are disabled), no finale section is rendered.
 
-When `seasons.enabled` is `false`, no finale section is rendered and `check_season_status` is not called.
+Season-end rollover (stamping `endedAt` on the closing season and, when no continuation is queued, creating a new starter season) SHALL happen INSIDE `process_reveal_answers` before the tool returns. The reveal renderer SHALL NOT call `upsert_season` as a follow-up step. The outcome of any rollover SHALL be reported in `seasonStatus.seasonClosed` and `seasonStatus.newSeasonStarted` for informational use by the renderer.
 
 #### Scenario: Mid-season reveal has no finale
 
-- **GIVEN** `seasons.enabled` is `true` and `isLastFireOfSeason` is `false`
+- **GIVEN** `seasons.enabled` is `true` and `seasonStatus.isLastFireOfSeason` is `false` in the returned payload
 - **WHEN** the reveal flow completes
 - **THEN** the posted reveal contains no "season finale" header, paragraph, or MVP callout
 
 #### Scenario: Season-end reveal includes finale before leaderboard
 
-- **GIVEN** `seasons.enabled` is `true` and `isLastFireOfSeason` is `true`
+- **GIVEN** `seasons.enabled` is `true` and `seasonStatus.isLastFireOfSeason` is `true` in the returned payload
 - **WHEN** the reveal flow completes
-- **THEN** the posted reveal contains a section announcing the closing season's slug and naming the MVP
+- **THEN** the posted reveal contains a section announcing the closing season's slug and naming the MVP from `seasonStatus.mvp`
 - **AND** the section appears above the 3-row leaderboard table
-- **AND** `upsert_season(game: "<game>", slug: currentSlug, { endedAt: now })` is called as the final step
+- **AND** `process_reveal_answers` already stamped `endedAt` on the closing season before returning (the renderer does NOT call `upsert_season`)
+- **AND** the renderer does NOT preview the new season's slug, even when `seasonStatus.newSeasonStarted` is present
 
 ### Requirement: 3-row dual-totals leaderboard rendering
 
-When `seasons.enabled` is `true` AND `findCurrentSeason(games/<game>/seasons.json, now)` returns a season for the active game, the leaderboard `table` parameter passed to `submit_response` at reveal time SHALL be a 3-row table:
+When the payload returned by `process_reveal_answers` includes a `seasonStatus` field (which the tool populates when and only when `trivia.seasons.enabled === true` AND a current season exists for the game), the leaderboard `table` parameter passed to `submit_response` at reveal time SHALL be a 3-row table:
 
 - **Row 1** — empty top-left cell, then one cell per player containing the player's `displayName` (NO medal prefix on this row).
 - **Row 2** — left cell text `"Current Season"`, then one cell per player containing `currentSeasonCorrect` as a string, with medal prefix `🥇 `, `🥈 `, `🥉 ` (Unicode characters, not Slack shortcodes) on the player(s) holding the top-3 current-season scores.
 - **Row 3** — left cell text `"All Time"`, then one cell per player containing `totalCorrect` as a string, with medal prefix `🥇 `, `🥈 `, `🥉 ` on the player(s) holding the top-3 all-time scores. The all-time medal assignment SHALL be independent of the current-season medal assignment.
 
-Column order SHALL be by `currentSeasonCorrect` descending; ties SHALL be broken by `totalCorrect` descending.
+Column order SHALL be by `currentSeasonCorrect` descending; ties SHALL be broken by `totalCorrect` descending. This ordering is already applied by the shared `computeLeaderboard` helper that the tool calls — the renderer SHALL NOT re-sort.
 
 Players who have not participated in the current season (i.e., `currentSeasonCorrect === 0` AND `currentSeasonAnswered === 0`) SHALL be omitted from the table.
 
 `column_settings` SHALL contain one entry per column with `{ "align": "center" }`. Where fewer than 3 players exist in the current season, medals SHALL be assigned in order to whichever players exist.
 
-When `seasons.enabled` is `false` OR `findCurrentSeason` returns `null` (gap), the leaderboard SHALL render as the prior 2-row form (names row + scores row).
+When the payload's `seasonStatus` field is absent (seasons disabled OR a current-season gap), the leaderboard SHALL render as the prior 2-row form (names row + scores row).
 
 #### Scenario: Three-or-more-player season-active reveal
 

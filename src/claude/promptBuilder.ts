@@ -24,6 +24,14 @@ export interface PromptOptions {
    */
   skipConditions?: string;
   /**
+   * Declarative `submit_response` mode override. When `"skipped"`, the prompt includes a
+   * hint telling Claude that the run's deliverable was produced by another required tool
+   * and the only valid `submit_response` call is `{ skip_response: true }` (the schema
+   * accepts nothing else). Other values render no extra guidance — the schema differences
+   * are surfaced through the tool listing.
+   */
+  submitResponseMode?: "always" | "optional" | "skipped";
+  /**
    * Effective MCP registry for the current session, used to render the "available
    * integrations" catalog block. Omit when attach_integration isn't available (worker
    * mode, or lazy-loading not configured yet) — the catalog is skipped entirely.
@@ -289,10 +297,13 @@ Use this context to understand the conversation flow and provide relevant answer
 
   // Skip evaluation — only for scheduled runs that opted in via `skipConditions`.
   // Rendered before the main task so Claude evaluates conditions first.
+  // Suppressed when `submitResponseMode === "skipped"`: the strict-skip semantic forces
+  // a skip regardless of conditions, so the pre-check section would be misleading noise.
   if (
     session.triggerType === "scheduled" &&
     options?.skipConditions &&
-    options.skipConditions.length > 0
+    options.skipConditions.length > 0 &&
+    options.submitResponseMode !== "skipped"
   ) {
     parts.push(
       [
@@ -301,6 +312,21 @@ Use this context to understand the conversation flow and provide relevant answer
         "",
         "Skip conditions:",
         options.skipConditions,
+      ].join("\n"),
+    );
+  }
+
+  // Skipped-mode hint — rendered when the cron job declares submitResponseMode: "skipped".
+  // Tells Claude the run's deliverable was produced by another required tool and
+  // `submit_response` is purely a run terminator. The schema enforces this structurally;
+  // the hint is for Claude's situational understanding (and to discourage Claude from
+  // attempting to "say something to the user" via blocks the schema would reject).
+  if (session.triggerType === "scheduled" && options?.submitResponseMode === "skipped") {
+    parts.push(
+      [
+        "RUN TERMINATOR — `submit_response` ONLY ACCEPTS `{ skip_response: true }`:",
+        "This run's actual deliverable is produced by one of the required tools listed elsewhere in this prompt (e.g. a plugin's posting tool). `submit_response` here is purely the run terminator — its schema accepts ONLY `{ skip_response: true }` and rejects every other field (`blocks`, `actions`, `table`, `reactions`, `message`, `post_top_level`, `disengage`).",
+        "Do NOT attempt to write a user-facing reply. After every required tool has been called, call `submit_response({ skip_response: true })` to end the run cleanly.",
       ].join("\n"),
     );
   }

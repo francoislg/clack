@@ -303,10 +303,11 @@ describe("validateTable — standalone table parameter", () => {
     assert.equal(validateTable(table, "table").length, 0);
   });
 
-  it("accepts a table with exactly 20 column_settings (the boundary)", () => {
+  it("accepts a table with exactly 20 column_settings (the boundary) when row width matches", () => {
+    const row = Array.from({ length: 20 }, (_, i) => `c${i}`);
     const table: AuthoredTableBlock = {
       type: "table",
-      rows: [["a"]],
+      rows: [row],
       column_settings: Array.from({ length: 20 }, () => ({ align: "left" as const })),
     };
     assert.equal(validateTable(table, "table").length, 0);
@@ -398,6 +399,56 @@ describe("validateTable — standalone table parameter", () => {
       0,
       "should not flag oversize rich_text cells",
     );
+  });
+
+  it("rejects ragged rows where row width disagrees with row 0", () => {
+    // Why: Slack renders ragged tables with misaligned columns — scores drift
+    // off their player headers. The seasons leaderboard's 3-row layout is the
+    // common trip-up (missing the empty top-left label cell on row 1).
+    const table: AuthoredTableBlock = {
+      type: "table",
+      rows: [
+        ["Alice", "Bob"],
+        ["Current Season", "5", "3"],
+        ["All Time", "9", "12"],
+      ],
+    };
+    const errors = validateTable(table, "table");
+    const row1 = errors.find((e) => e.field === "table.rows[1]");
+    const row2 = errors.find((e) => e.field === "table.rows[2]");
+    assert.ok(row1, "row 1 should be flagged as inconsistent with row 0");
+    assert.ok(row2, "row 2 should be flagged as inconsistent with row 0");
+    assert.equal(row1.currentLength, 3);
+    assert.equal(row1.limit, 2);
+  });
+
+  it("rejects column_settings whose length disagrees with row width", () => {
+    const table: AuthoredTableBlock = {
+      type: "table",
+      rows: [
+        ["", "Alice", "Bob"],
+        ["Current Season", "5", "3"],
+      ],
+      column_settings: [{ align: "center" }, { align: "center" }],
+    };
+    const errors = validateTable(table, "table");
+    const csError = errors.find((e) => e.field === "table.column_settings");
+    assert.ok(csError);
+    assert.equal(csError.currentLength, 2);
+    assert.equal(csError.limit, 3);
+  });
+
+  it("does not double-report column_settings mismatch when also over the entry cap", () => {
+    // The cap error already names the right fix; piling on a mismatch error
+    // when the entry count is already invalid would clutter the response.
+    const table: AuthoredTableBlock = {
+      type: "table",
+      rows: [["a"]],
+      column_settings: Array.from({ length: 21 }, () => ({ align: "left" as const })),
+    };
+    const errors = validateTable(table, "table");
+    const csErrors = errors.filter((e) => e.field === "table.column_settings");
+    assert.equal(csErrors.length, 1, "only the cap error should fire");
   });
 
   it("namespaces error field paths via the path prefix (e.g., post_to)", () => {

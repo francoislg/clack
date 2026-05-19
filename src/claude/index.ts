@@ -102,6 +102,18 @@ export interface AskClaudeOptions {
    */
   skipConditions?: string;
   /**
+   * Declarative override of `submit_response` schema/gating behavior. Threaded from the cron
+   * job through `processMessage` to the tool-server build context. See `CronJob.submitResponseMode`.
+   */
+  submitResponseMode?: "always" | "optional" | "skipped";
+  /**
+   * Effective "now" for time-sensitive tools. Threaded from the cron scheduler when a job is
+   * replayed with an explicit `asOf` parameter; absent for normal scheduler-tick fires.
+   * Tools that don't care ignore it; the trivia reveal processor reads it to define
+   * "what counts as unprocessed at this effective time."
+   */
+  asOf?: Date;
+  /**
    * Fires once per completed tool call (when its `tool_result` arrives from the SDK stream).
    * Populated for ALL tools the SDK dispatches — built-ins, clack MCP, plugin MCP, external MCP.
    * Use this to persist tool calls to the session incrementally for live debugging.
@@ -196,6 +208,8 @@ async function buildQuerySetup(
     availableFiles: options?.availableFiles,
     requiredTools: options?.requiredTools,
     skipConditions: options?.skipConditions,
+    submitResponseMode: options?.submitResponseMode,
+    asOf: options?.asOf,
     mcpManager: mcpSetup.manager,
     skillsManager,
     hasPendingInput,

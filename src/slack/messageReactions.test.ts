@@ -30,10 +30,13 @@ function makeFakeClient(behavior: (call: AddCall) => Promise<void> | void = asyn
 describe("addDeliveryReactions", () => {
   it("adds each emoji as a reaction in order", async () => {
     const { client, calls } = makeFakeClient();
-    await addDeliveryReactions(client, "C123", "1700000000.000100", [
-      "white_check_mark",
-      "thumbsup",
-    ]);
+    await addDeliveryReactions(
+      client,
+      "C123",
+      "1700000000.000100",
+      ["white_check_mark", "thumbsup"],
+      0,
+    );
     assert.deepEqual(calls, [
       { channel: "C123", timestamp: "1700000000.000100", name: "white_check_mark" },
       { channel: "C123", timestamp: "1700000000.000100", name: "thumbsup" },
@@ -42,7 +45,7 @@ describe("addDeliveryReactions", () => {
 
   it("is a no-op for an empty reactions array", async () => {
     const { client, calls } = makeFakeClient();
-    await addDeliveryReactions(client, "C123", "1700000000.000100", []);
+    await addDeliveryReactions(client, "C123", "1700000000.000100", [], 0);
     assert.deepEqual(calls, []);
   });
 
@@ -50,11 +53,13 @@ describe("addDeliveryReactions", () => {
     const { client, calls } = makeFakeClient(({ name }) => {
       if (name === "thumbsup") throw new Error("already_reacted");
     });
-    await addDeliveryReactions(client, "C123", "1700000000.000100", [
-      "white_check_mark",
-      "thumbsup",
-      "tada",
-    ]);
+    await addDeliveryReactions(
+      client,
+      "C123",
+      "1700000000.000100",
+      ["white_check_mark", "thumbsup", "tada"],
+      0,
+    );
     assert.equal(calls.length, 3);
     assert.deepEqual(
       calls.map((c) => c.name),
@@ -66,11 +71,13 @@ describe("addDeliveryReactions", () => {
     const { client, calls } = makeFakeClient(({ name }) => {
       if (name === "thumbsup") throw new Error("invalid_name");
     });
-    await addDeliveryReactions(client, "C123", "1700000000.000100", [
-      "white_check_mark",
-      "thumbsup",
-      "tada",
-    ]);
+    await addDeliveryReactions(
+      client,
+      "C123",
+      "1700000000.000100",
+      ["white_check_mark", "thumbsup", "tada"],
+      0,
+    );
     assert.equal(calls.length, 3);
   });
 });

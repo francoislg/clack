@@ -217,6 +217,13 @@ export interface SubmitResponseDeps {
   sessionChannelId?: string;
   /** When true, the skip_response parameter is available in the schema. */
   allowSkip?: boolean;
+  /**
+   * Declarative override of the schema/gating behavior. When `"skipped"`, the entire schema
+   * is replaced by `{ skip_response: z.literal(true) }`. Other values are honored by
+   * `computeAllowSkip` (which has already run by the time this is passed). See the
+   * `submit-response-mode` capability for the full contract.
+   */
+  submitResponseMode?: "always" | "optional" | "skipped";
   /** When true, the disengage parameter is available in the schema. */
   allowDisengage?: boolean;
   /**
@@ -479,6 +486,21 @@ const skipOnlyResponseSchema = {
   actions: skipOptionalActions,
 };
 
+// Schema for runs declared `submitResponseMode: "skipped"`. The ONLY accepted field is
+// `skip_response: true` — `blocks`, `actions`, `table`, `reactions`, `message`,
+// `post_top_level`, and `disengage` are all absent. Use when the run's actual deliverable
+// is produced by another required tool and `submit_response` is purely a run terminator.
+const skippedOnlyResponseSchema = {
+  skip_response: z
+    .literal(true)
+    .describe(
+      'REQUIRED to be `true`. This run\'s `submitResponseMode` is `"skipped"` — the actual deliverable ' +
+        "was produced by another required tool, and `submit_response` is purely the run terminator. " +
+        "The schema accepts ONLY `{ skip_response: true }` and nothing else. Do NOT include `blocks`, " +
+        "`actions`, `table`, `reactions`, `message`, `post_top_level`, or `disengage`.",
+    ),
+};
+
 // Schema variants with post_top_level added. We build them as distinct objects rather than
 // dynamic merges so zod's type inference stays precise at the tool boundary.
 const normalResponseSchemaWithPostTopLevel = {
@@ -512,6 +534,7 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
     topLevelDeliveryChannel,
     sessionChannelId,
     allowSkip,
+    submitResponseMode,
     allowDisengage,
     allowPostTopLevel,
     requiredTools,
@@ -524,21 +547,25 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
     getResponseActionBlocks = _getResponseActionBlocks,
   } = deps;
 
-  const schema = allowSkip
-    ? allowDisengage
-      ? allowPostTopLevel
-        ? skipEnabledResponseSchemaWithPostTopLevel
-        : skipEnabledResponseSchema
-      : allowPostTopLevel
-        ? skipOnlyResponseSchemaWithPostTopLevel
-        : skipOnlyResponseSchema
-    : allowDisengage
-      ? allowPostTopLevel
-        ? disengageEnabledResponseSchemaWithPostTopLevel
-        : disengageEnabledResponseSchema
-      : allowPostTopLevel
-        ? normalResponseSchemaWithPostTopLevel
-        : normalResponseSchema;
+  const isSkippedMode = submitResponseMode === "skipped";
+
+  const schema = isSkippedMode
+    ? skippedOnlyResponseSchema
+    : allowSkip
+      ? allowDisengage
+        ? allowPostTopLevel
+          ? skipEnabledResponseSchemaWithPostTopLevel
+          : skipEnabledResponseSchema
+        : allowPostTopLevel
+          ? skipOnlyResponseSchemaWithPostTopLevel
+          : skipOnlyResponseSchema
+      : allowDisengage
+        ? allowPostTopLevel
+          ? disengageEnabledResponseSchemaWithPostTopLevel
+          : disengageEnabledResponseSchema
+        : allowPostTopLevel
+          ? normalResponseSchemaWithPostTopLevel
+          : normalResponseSchema;
 
   // Safety net: if the pending-input gate fires this many times in one run, bypass it on
   // the next attempt. Prevents a permanent loop if the consume callback is missing/buggy
@@ -592,11 +619,16 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
             error: "Response already delivered — cannot skip after delivery.",
           });
         }
-        const message = "message" in args ? args.message : undefined;
-        if (message !== SKIP_ACKNOWLEDGMENT) {
-          return recordError(recorder, args, {
-            error: `To skip a response, the message field must be exactly: "${SKIP_ACKNOWLEDGMENT}"`,
-          });
+        // In "skipped" mode the schema accepts only `{ skip_response: true }` — there's no
+        // `message` field for Claude to mismatch on, and the safeguard is moot because the
+        // mode itself forces skipping. Skip the acknowledgment check entirely in that mode.
+        if (!isSkippedMode) {
+          const message = "message" in args ? args.message : undefined;
+          if (message !== SKIP_ACKNOWLEDGMENT) {
+            return recordError(recorder, args, {
+              error: `To skip a response, the message field must be exactly: "${SKIP_ACKNOWLEDGMENT}"`,
+            });
+          }
         }
         const wantsDisengage = "disengage" in args && args.disengage === true;
         responseCapture.setSkipped();

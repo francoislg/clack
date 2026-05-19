@@ -1,14 +1,43 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "./testHelpers.js";
-import { createGetIdeasTool } from "./getIdeas.js";
-import { createSaveQuestionTool } from "./saveQuestion.js";
-import { createSubmitAnswersTool } from "./submitAnswers.js";
-import { createFindPreviousQuestionsTool } from "./findPreviousQuestions.js";
-import { createGetQuestionHistoryTool } from "./getQuestionHistory.js";
+import { createGetIdeasTool } from "./tools/questions/getIdeas.js";
+import { createSaveQuestionTool } from "./tools/questions/saveQuestion.js";
+import { createSubmitAnswersTool } from "./tools/answers/submitAnswers.js";
+import { createFindPreviousQuestionsTool } from "./tools/questions/findPreviousQuestions.js";
+import { createGetQuestionHistoryTool } from "./tools/questions/getQuestionHistory.js";
+import {
+  createPostQuestionsTool,
+  type PostQuestionsSlackDeps,
+} from "./tools/questions/postQuestions.js";
 import { parseToolResult } from "../../tools/testHelpers.js";
 import type { Config } from "../../config.js";
-import type { TriviaDataLayer } from "./types.js";
+import type { TriviaDataLayer } from "./core/types.js";
+import type { ClackSdk } from "../sdk.js";
+
+function fakeSdk(): Pick<ClackSdk, "getSlackClient"> {
+  return { getSlackClient: () => null };
+}
+
+function postQuestionsDeps(): PostQuestionsSlackDeps {
+  let counter = 0;
+  return {
+    isAvailable() {
+      return null;
+    },
+    async postBlocks(args) {
+      counter++;
+      const ts = `170000000${counter}.000000`;
+      return {
+        ts,
+        permalink: `https://test.slack.com/archives/${args.channel}/p170000000${counter}000000`,
+      };
+    },
+    async addReactions() {
+      // best-effort, no-op for tests
+    },
+  };
+}
 
 const SESSION = { sessionId: "test" };
 
@@ -40,7 +69,7 @@ describe("choice-questions end-to-end flow", () => {
     await data.saveCategories(["Geography", "Astronomy", "History"]);
   });
 
-  it("get_ideas → save_question → submit_answers → find/history (choice path)", async () => {
+  it("get_ideas → save_question → post_questions → submit_answers → find/history (choice path)", async () => {
     // 1. get_ideas in pure-choice config → returns suggestedType: "choice" + count + correctIndex
     const cfg = makeConfig({
       questionsTypes: { boolean: 0, choice: 1 },
@@ -48,7 +77,7 @@ describe("choice-questions end-to-end flow", () => {
     });
     const getIdeas = createGetIdeasTool(data, () => cfg, fixtureGetGames);
     const ideasResult = parseToolResult(
-      await getIdeas.handler({ game: FIXTURE_GAME_NAME }, SESSION),
+      await getIdeas.handler({ game: FIXTURE_GAME_NAME, slot: undefined }, SESSION),
     );
     assert.equal(ideasResult.suggestedType, "choice");
     assert.equal(ideasResult.suggestedChoiceCount, 4);
@@ -68,6 +97,7 @@ describe("choice-questions end-to-end flow", () => {
           correctIndex: 0,
           suggestedDifficulty: undefined,
           difficulty: undefined,
+          slot: undefined,
           emojis: ["🪐"],
         },
         SESSION,
@@ -76,7 +106,42 @@ describe("choice-questions end-to-end flow", () => {
     assert.equal(saved.saved, true);
     const questionId = saved.question.id;
 
-    // 3. submit_answers with answerIndex entries
+    // 3. post_questions stamps postedAt + messageLink on the question record
+    const postQuestions = createPostQuestionsTool(
+      data,
+      fakeSdk(),
+      fixtureGetGames,
+      postQuestionsDeps(),
+    );
+    const postResult = parseToolResult(
+      await postQuestions.handler(
+        {
+          game: FIXTURE_GAME_NAME,
+          items: [
+            {
+              questionId,
+              blocks: [{ type: "section", text: { type: "mrkdwn", text: "Q?" } }],
+            },
+          ],
+        },
+        SESSION,
+      ),
+    );
+    assert.equal(postResult.results.length, 1);
+    assert.equal(postResult.results[0].ok, true);
+
+    // Verify the question record is stamped — process_reveal_answers' pending filter
+    // (postedAt !== undefined && processedAt === undefined) would now find it.
+    const storedAfterPost = (await data.forGame(FIXTURE_GAME_NAME).loadQuestions()).find(
+      (q) => q.id === questionId,
+    );
+    assert.ok(storedAfterPost?.postedAt !== undefined, "post_questions must stamp postedAt");
+    assert.ok(
+      storedAfterPost?.messageLink && storedAfterPost.messageLink.length > 0,
+      "post_questions must stamp messageLink",
+    );
+
+    // 4. submit_answers with answerIndex entries — answer collection only, no first-stamp
     const submitAnswers = createSubmitAnswersTool(data, fixtureGetGames);
     const answersResult = parseToolResult(
       await submitAnswers.handler(
@@ -141,7 +206,9 @@ describe("choice-questions end-to-end flow", () => {
     let booleans = 0;
     let choices = 0;
     for (let i = 0; i < 200; i++) {
-      const r = parseToolResult(await getIdeas.handler({ game: FIXTURE_GAME_NAME }, SESSION));
+      const r = parseToolResult(
+        await getIdeas.handler({ game: FIXTURE_GAME_NAME, slot: undefined }, SESSION),
+      );
       if (r.suggestedType === "boolean") booleans++;
       else choices++;
     }
@@ -166,6 +233,7 @@ describe("choice-questions end-to-end flow", () => {
           correctIndex: undefined,
           suggestedDifficulty: undefined,
           difficulty: undefined,
+          slot: undefined,
           emojis: ["🌍"],
         },
         SESSION,
@@ -185,6 +253,7 @@ describe("choice-questions end-to-end flow", () => {
           correctIndex: 0,
           suggestedDifficulty: undefined,
           difficulty: undefined,
+          slot: undefined,
           emojis: ["🪐"],
         },
         SESSION,

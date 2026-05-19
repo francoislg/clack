@@ -281,6 +281,93 @@ describe("cronJobs", () => {
     });
   });
 
+  describe("submitResponseMode", () => {
+    it("persists submitResponseMode when supplied to createJob", async () => {
+      const job = await createJob({
+        cronExpression: "0 9 * * *",
+        channel: "C123",
+        prompt: "Run trivia",
+        createdBy: "U456",
+        timezone: "UTC",
+        submitResponseMode: "skipped",
+      });
+
+      assert.equal(job.submitResponseMode, "skipped");
+
+      clearCronJobsCache();
+      const loaded = await getJob(job.id);
+      assert.equal(loaded?.submitResponseMode, "skipped");
+    });
+
+    it("omits submitResponseMode when not supplied", async () => {
+      const job = await createJob({
+        cronExpression: "0 9 * * *",
+        channel: "C123",
+        prompt: "ping",
+        createdBy: "U456",
+        timezone: "UTC",
+      });
+
+      assert.equal(job.submitResponseMode, undefined);
+    });
+
+    it("sets submitResponseMode on an existing job via updateJob", async () => {
+      const job = await createJob({
+        cronExpression: "0 9 * * *",
+        channel: "C123",
+        prompt: "ping",
+        createdBy: "U456",
+        timezone: "UTC",
+      });
+
+      const updated = await updateJob(job.id, { submitResponseMode: "optional" });
+      assert.equal(updated?.submitResponseMode, "optional");
+    });
+
+    it("replaces an existing submitResponseMode value", async () => {
+      const job = await createJob({
+        cronExpression: "0 9 * * *",
+        channel: "C123",
+        prompt: "ping",
+        createdBy: "U456",
+        timezone: "UTC",
+        submitResponseMode: "always",
+      });
+
+      const updated = await updateJob(job.id, { submitResponseMode: "skipped" });
+      assert.equal(updated?.submitResponseMode, "skipped");
+    });
+
+    it("clears submitResponseMode when passed null", async () => {
+      const job = await createJob({
+        cronExpression: "0 9 * * *",
+        channel: "C123",
+        prompt: "ping",
+        createdBy: "U456",
+        timezone: "UTC",
+        submitResponseMode: "skipped",
+      });
+
+      const updated = await updateJob(job.id, { submitResponseMode: null });
+      assert.equal(updated?.submitResponseMode, undefined);
+    });
+
+    it("leaves submitResponseMode unchanged when undefined", async () => {
+      const job = await createJob({
+        cronExpression: "0 9 * * *",
+        channel: "C123",
+        prompt: "ping",
+        createdBy: "U456",
+        timezone: "UTC",
+        submitResponseMode: "skipped",
+      });
+
+      const updated = await updateJob(job.id, { prompt: "New prompt" });
+      assert.equal(updated?.submitResponseMode, "skipped");
+      assert.equal(updated?.prompt, "New prompt");
+    });
+  });
+
   describe("getJobs", () => {
     it("returns all jobs", async () => {
       await createJob({

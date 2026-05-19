@@ -79,6 +79,20 @@ export interface CronJob {
    */
   skipConditions?: string;
   /**
+   * Declarative override of the `submit_response` schema/gating behavior. When set, it takes
+   * precedence over the auto-derivation from `triggerType` + `skipConditions`:
+   * - `"always"` — `skip_response` is NOT in the schema; the run MUST deliver.
+   * - `"optional"` — `skip_response` IS in the schema as an optional boolean.
+   * - `"skipped"` — the entire schema is replaced by `{ skip_response: z.literal(true) }`; the
+   *   run MUST decline delivery. Use when the run's actual deliverable is produced by another
+   *   required tool (e.g. trivia's `post_questions`) and `submit_response` is purely a
+   *   run terminator.
+   *
+   * When unset, today's auto-derivation rules apply unchanged. See the `submit-response-mode`
+   * capability for the full resolution table.
+   */
+  submitResponseMode?: "always" | "optional" | "skipped";
+  /**
    * Structured date-based skip list. Evaluated by the scheduler before opening a Claude session
    * (and before {@link skipConditions}). When today (in {@link timezone}) matches any entry, the
    * run is recorded as `status: "skipped"` and `processMessage` is never invoked.
@@ -112,6 +126,27 @@ const DEFAULT_STATE: CronJobState = { jobs: [] };
 
 let cached: CronJobState | null = null;
 
+const VALID_SUBMIT_RESPONSE_MODES = new Set(["always", "optional", "skipped"]);
+
+/**
+ * Drop `submitResponseMode` from jobs whose persisted value isn't one of the three valid
+ * strings. Logs a warning identifying the offending row(s). Other fields are trusted.
+ */
+function sanitizeLoadedJobs(jobs: CronJob[]): CronJob[] {
+  for (const job of jobs) {
+    if (
+      job.submitResponseMode !== undefined &&
+      !VALID_SUBMIT_RESPONSE_MODES.has(job.submitResponseMode)
+    ) {
+      logger.warn(
+        `Cron job ${job.id}: ignoring invalid submitResponseMode "${job.submitResponseMode}" (expected one of: always, optional, skipped). Falling back to auto-derivation.`,
+      );
+      job.submitResponseMode = undefined;
+    }
+  }
+  return jobs;
+}
+
 function getStateDir(): string {
   return resolve(process.cwd(), "data", "state");
 }
@@ -135,7 +170,7 @@ export async function loadJobs(): Promise<CronJob[]> {
   try {
     const content = await readFile(filePath, "utf-8");
     const parsed = JSON.parse(content) as Partial<CronJobState>;
-    cached = { jobs: parsed.jobs ?? [] };
+    cached = { jobs: sanitizeLoadedJobs(parsed.jobs ?? []) };
     return cached.jobs;
   } catch (error) {
     logger.error("Failed to load cron jobs:", error);
@@ -202,6 +237,7 @@ export interface CreateCronJobParams {
   requiredTools?: string[];
   plugin?: string;
   skipConditions?: string;
+  submitResponseMode?: "always" | "optional" | "skipped";
   skipDates?: SkipDate[];
   pluginManaged?: boolean;
   specKey?: string;
@@ -242,6 +278,7 @@ export async function createJob(params: CreateCronJobParams): Promise<CronJob> {
       : {}),
     ...(params.plugin ? { plugin: params.plugin } : {}),
     ...(params.skipConditions ? { skipConditions: params.skipConditions } : {}),
+    ...(params.submitResponseMode ? { submitResponseMode: params.submitResponseMode } : {}),
     ...(params.skipDates && params.skipDates.length > 0 ? { skipDates: params.skipDates } : {}),
     ...(params.pluginManaged ? { pluginManaged: true } : {}),
     ...(params.specKey ? { specKey: params.specKey } : {}),
@@ -275,6 +312,11 @@ export interface UpdateCronJobParams {
   plugin?: string;
   /** Pass empty string to clear; undefined leaves the field unchanged. */
   skipConditions?: string;
+  /**
+   * Pass one of the three values to set; pass `null` (or omit explicitly via `submitResponseMode: null`)
+   * to clear; leaving undefined keeps the existing value.
+   */
+  submitResponseMode?: "always" | "optional" | "skipped" | null;
   /** Pass an empty array to clear; undefined leaves the field unchanged. */
   skipDates?: SkipDate[];
 }
@@ -300,6 +342,10 @@ export async function updateJob(
   }
   if (params.skipConditions !== undefined) {
     job.skipConditions = params.skipConditions.length > 0 ? params.skipConditions : undefined;
+  }
+  if (params.submitResponseMode !== undefined) {
+    job.submitResponseMode =
+      params.submitResponseMode === null ? undefined : params.submitResponseMode;
   }
   if (params.skipDates !== undefined) {
     job.skipDates = params.skipDates.length > 0 ? params.skipDates : undefined;

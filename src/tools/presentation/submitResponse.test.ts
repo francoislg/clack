@@ -38,6 +38,7 @@ function makeDeps(
     }) => Promise<{ ok: true; ts?: string } | { ok: false; error: string }>;
     persistSnapshot: (id: string, snapshot: ResponseSnapshot) => Promise<void>;
     allowSkip: boolean;
+    submitResponseMode: "always" | "optional" | "skipped";
     allowDisengage: boolean;
     allowPostTopLevel: boolean;
     sessionChannelId: string;
@@ -81,6 +82,7 @@ function makeDeps(
     deliver: overrides.deliver,
     persistSnapshot: overrides.persistSnapshot,
     allowSkip: overrides.allowSkip,
+    submitResponseMode: overrides.submitResponseMode,
     allowDisengage: overrides.allowDisengage,
     allowPostTopLevel: overrides.allowPostTopLevel,
     sessionChannelId: overrides.sessionChannelId,
@@ -2027,6 +2029,77 @@ describe("createSubmitResponseTool", () => {
         /A new user message arrived/,
         "fallback wording when consume returned no texts",
       );
+    });
+  });
+
+  describe("submitResponseMode 'skipped'", () => {
+    it("accepts a plain { skip_response: true } call with no message field", async () => {
+      const deps = makeDeps({ allowSkip: true, submitResponseMode: "skipped" });
+      const toolDef = createSubmitResponseTool(deps);
+      const result = await toolDef.handler({ skip_response: true }, {});
+
+      const parsed = parseToolResult(result);
+      assert.equal(parsed.success, true);
+      assert.equal(parsed.skipped, true);
+    });
+
+    it("does not call deliver when in skipped mode", async () => {
+      const deliver = mock.fn(async () => ({ ok: true as const }));
+      const deps = makeDeps({ deliver, allowSkip: true, submitResponseMode: "skipped" });
+      const toolDef = createSubmitResponseTool(deps);
+      await toolDef.handler({ skip_response: true }, {});
+
+      assert.equal(deliver.mock.callCount(), 0);
+    });
+
+    it("does NOT require the SKIP_ACKNOWLEDGMENT message string in skipped mode", async () => {
+      // The acknowledgment safeguard is a check against accidental skips. In "skipped" mode
+      // the schema only accepts { skip_response: true } anyway, so the safeguard is moot.
+      const deps = makeDeps({ allowSkip: true, submitResponseMode: "skipped" });
+      const toolDef = createSubmitResponseTool(deps);
+      const result = await toolDef.handler({ skip_response: true }, {});
+
+      assert.notEqual(result.isError, true);
+    });
+
+    it("enforces the requiredTools gate before the skip", async () => {
+      const deps = makeDeps({
+        allowSkip: true,
+        submitResponseMode: "skipped",
+        requiredTools: ["mcp__trivia__post_questions"],
+        recorder: {
+          record: mock.fn(),
+          getHistory: mock.fn(() => []),
+        },
+      });
+      const toolDef = createSubmitResponseTool(deps);
+
+      const result = await toolDef.handler({ skip_response: true }, {});
+
+      assert.equal(result.isError, true);
+      const text = toolResultText(result);
+      assert.match(text, /mcp__trivia__post_questions/);
+    });
+
+    it("passes the requiredTools gate when the tool was called", async () => {
+      const deps = makeDeps({
+        allowSkip: true,
+        submitResponseMode: "skipped",
+        requiredTools: ["mcp__trivia__post_questions"],
+        recorder: {
+          record: mock.fn(),
+          getHistory: mock.fn(() => [
+            { tool: "mcp__trivia__post_questions", args: {}, result: {}, timestamp: 0 },
+          ]),
+        },
+      });
+      const toolDef = createSubmitResponseTool(deps);
+
+      const result = await toolDef.handler({ skip_response: true }, {});
+
+      const parsed = parseToolResult(result);
+      assert.equal(parsed.success, true);
+      assert.equal(parsed.skipped, true);
     });
   });
 });
