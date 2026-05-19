@@ -2,6 +2,8 @@ import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { textResult, errorResult } from "../../tools/helpers.js";
 import { findSeasonBySlug, validateNoOverlap } from "./data.js";
+import { defaultGetGames, type GetGamesFn } from "./configBridge.js";
+import { requireWritableGame } from "./gamesRegistry.js";
 import type {
   TriviaDataLayer,
   SeasonsState,
@@ -24,11 +26,6 @@ function dedupePreservingOrder(values: string[]): string[] {
   return out;
 }
 
-/**
- * Validates a `questionTypes` map: only known keys, non-negative integer weights,
- * at least one strictly positive. Returns the canonicalized weights object on
- * success, or an error message string on failure.
- */
 function validateQuestionTypes(
   raw: Record<string, number>,
 ): { ok: true; weights: SeasonQuestionTypeWeights } | { ok: false; error: string } {
@@ -59,28 +56,29 @@ function validateQuestionTypes(
   };
 }
 
-export function createUpsertSeasonTool(data: TriviaDataLayer) {
+export function createUpsertSeasonTool(
+  data: TriviaDataLayer,
+  getGamesFn: GetGamesFn = defaultGetGames,
+) {
   return tool(
     "upsert_season",
-    "Create a new trivia season or update an existing one (identified by slug). Slug is immutable — to rename, delete + upsert. Validates no overlap with other seasons' active windows. On CREATE: requires startedAt + expectedEndAt. If `categories` is provided (and non-empty), the new season's pool is EXACTLY that list — use this for themed seasons (e.g. 20 marine-biology categories for a marine-biology season). If `categories` is omitted or empty, the new season's pool is copied from categories.json (the persistent baseline). On UPDATE: applies omit-to-keep semantics; cannot mutate startedAt of an already-started season; `categories` is ignored on UPDATE — use add_categories/remove_categories with target slug to refine. Use endedAt to mark a season as closed.",
+    "Create a new trivia season or update an existing one (identified by slug) within a specific game. Slug is immutable — to rename, delete + upsert. Validates no overlap within this game's timeline. On CREATE: requires startedAt + expectedEndAt. If `categories` is provided (and non-empty), the new season's pool is EXACTLY that list — use this for themed seasons. If `categories` is omitted or empty, the new season's pool is copied from the global categories.json (the persistent baseline). On UPDATE: applies omit-to-keep semantics; cannot mutate startedAt of an already-started season; `categories` is ignored on UPDATE — use add_categories/remove_categories with target slug to refine. Use endedAt to mark a season as closed.",
     {
+      game: z
+        .string()
+        .describe(
+          "Game name (must be present in config.trivia.games[] and not disabled). The season operation targets this game's seasons.json.",
+        ),
       slug: z
         .string()
         .describe(
-          "Non-empty kebab-case identifier. Treated as immutable key (no rename via this tool).",
+          "Non-empty kebab-case identifier. Treated as immutable key (no rename via this tool). Unique within this game's timeline.",
         ),
-      startedAt: z
-        .number()
-        .optional()
-        .describe(
-          "Unix-ms when the season's active window begins. Required on CREATE; rejected on UPDATE if the existing entry has already started.",
-        ),
+      startedAt: z.number().optional().describe("Unix-ms when the season's active window begins."),
       expectedEndAt: z
         .number()
         .optional()
-        .describe(
-          "Unix-ms when the season's active window is expected to close. Required on CREATE.",
-        ),
+        .describe("Unix-ms when the season's active window is expected to close."),
       endedAt: z
         .number()
         .optional()
@@ -89,7 +87,7 @@ export function createUpsertSeasonTool(data: TriviaDataLayer) {
         .array(z.string())
         .optional()
         .describe(
-          "Season's category pool. Provided AND non-empty → the season uses EXACTLY this list (for themed seasons). Omitted OR empty → the season copies from categories.json (the baseline). Used only on CREATE; ignored on UPDATE (use add_categories/remove_categories with target slug to refine).",
+          "Season's category pool. Provided AND non-empty → the season uses EXACTLY this list. Omitted OR empty → copies from the global categories.json. Used only on CREATE.",
         ),
       questionTypes: z
         .object({
@@ -99,17 +97,24 @@ export function createUpsertSeasonTool(data: TriviaDataLayer) {
         .nullable()
         .optional()
         .describe(
-          'Optional per-season question-type weights, e.g. `{ "boolean": 2, "choice": 1 }`. Set on CREATE to scope a season to choice-only / boolean-only / mixed. On UPDATE: passing an object replaces the existing value; passing `null` clears the field (causing get_ideas to fall back to config.trivia.questionsTypes). Mid-season mutation is permitted (unlike startedAt).',
+          "Optional per-season question-type weights. On UPDATE: passing `null` clears the field. Mid-season mutation is permitted.",
         ),
     },
     async (args) => {
+      try {
+        requireWritableGame(getGamesFn(), args.game);
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : String(err));
+      }
+
       if (!SLUG_RE.test(args.slug)) {
         return errorResult(
           `Invalid slug "${args.slug}": must be non-empty kebab-case (lowercase letters/digits, segments separated by single hyphens).`,
         );
       }
 
-      const state = (await data.loadSeasonsState()) ?? { seasons: [] };
+      const scoped = data.forGame(args.game);
+      const state = (await scoped.loadSeasonsState()) ?? { seasons: [] };
       const existing = findSeasonBySlug(state, args.slug);
 
       if (existing === null) {
@@ -128,9 +133,6 @@ export function createUpsertSeasonTool(data: TriviaDataLayer) {
           );
         }
 
-        // Categories source:
-        //   - args.categories provided AND non-empty → use exactly that (replace-not-augment, for themed seasons)
-        //   - args.categories omitted OR empty → copy from categories.json baseline
         const providedCategories = (args.categories ?? []).filter((c) => c.length > 0);
         const categories =
           providedCategories.length > 0
@@ -168,9 +170,10 @@ export function createUpsertSeasonTool(data: TriviaDataLayer) {
         }
 
         const next: SeasonsState = { seasons: [...state.seasons, entry] };
-        await data.saveSeasonsState(next);
+        await scoped.saveSeasonsState(next);
 
         return textResult({
+          game: args.game,
           slug: entry.slug,
           action: "created",
           startedAt: entry.startedAt,
@@ -191,10 +194,6 @@ export function createUpsertSeasonTool(data: TriviaDataLayer) {
         }
       }
 
-      // questionTypes UPDATE semantics:
-      //   - undefined  → keep existing value (omit-to-keep)
-      //   - null       → clear the field (fall back to config.trivia.questionsTypes)
-      //   - object     → validate and replace
       let updatedQuestionTypes: SeasonQuestionTypeWeights | undefined = existing.questionTypes;
       if (args.questionTypes === null) {
         updatedQuestionTypes = undefined;
@@ -240,9 +239,10 @@ export function createUpsertSeasonTool(data: TriviaDataLayer) {
       }
 
       const nextSeasons = state.seasons.map((s) => (s.slug === args.slug ? updated : s));
-      await data.saveSeasonsState({ seasons: nextSeasons });
+      await scoped.saveSeasonsState({ seasons: nextSeasons });
 
       return textResult({
+        game: args.game,
         slug: updated.slug,
         action: "updated",
         startedAt: updated.startedAt,

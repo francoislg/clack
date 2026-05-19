@@ -1,6 +1,6 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { createInMemoryDataLayer } from "./testHelpers.js";
+import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "./testHelpers.js";
 import { createUpsertSeasonTool } from "./upsertSeason.js";
 import { createDeleteSeasonTool } from "./deleteSeason.js";
 import { createListSeasonsTool } from "./listSeasons.js";
@@ -28,7 +28,7 @@ const DAY = 24 * 60 * 60 * 1000;
 
 /** Seed the timeline with the given entries, in order. */
 async function seedTimeline(data: TriviaDataLayer, entries: SeasonEntry[]): Promise<void> {
-  await data.saveSeasonsState({ seasons: entries });
+  await data.forGame(FIXTURE_GAME_NAME).saveSeasonsState({ seasons: entries });
 }
 
 /** Convenience: seed a single "currently active" season. */
@@ -152,10 +152,11 @@ describe("upsert_season tool", () => {
   });
 
   it("create: appends a new entry to the timeline", async () => {
-    const tool = createUpsertSeasonTool(data);
+    const tool = createUpsertSeasonTool(data, fixtureGetGames);
     const future = Date.now() + 30 * DAY;
     const result = await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         slug: "test-season",
         startedAt: future,
         expectedEndAt: future + 30 * DAY,
@@ -169,16 +170,17 @@ describe("upsert_season tool", () => {
     assert.equal(parsed.slug, "test-season");
     assert.equal(parsed.action, "created");
 
-    const state = await data.loadSeasonsState();
+    const state = await data.forGame(FIXTURE_GAME_NAME).loadSeasonsState();
     assert.equal(state?.seasons.length, 1);
     assert.equal(state?.seasons[0].slug, "test-season");
     assert.deepEqual(state?.seasons[0].categories, ["Science", "History", "Geography"]);
   });
 
   it("create: provided categories REPLACE baseline (not augment), deduped", async () => {
-    const tool = createUpsertSeasonTool(data);
+    const tool = createUpsertSeasonTool(data, fixtureGetGames);
     const result = await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         slug: "marine",
         startedAt: Date.now() + 10 * DAY,
         expectedEndAt: Date.now() + 40 * DAY,
@@ -189,15 +191,16 @@ describe("upsert_season tool", () => {
       SESSION,
     );
     parseToolResult(result);
-    const state = await data.loadSeasonsState();
+    const state = await data.forGame(FIXTURE_GAME_NAME).loadSeasonsState();
     // Baseline ["Science", "History", "Geography"] is NOT included — only the provided list.
     assert.deepEqual(state?.seasons[0].categories, ["Cephalopods", "Tides"]);
   });
 
   it("create: omitting categories falls back to baseline (categories.json)", async () => {
-    const tool = createUpsertSeasonTool(data);
+    const tool = createUpsertSeasonTool(data, fixtureGetGames);
     const result = await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         slug: "default-pool",
         startedAt: Date.now() + 50 * DAY,
         expectedEndAt: Date.now() + 80 * DAY,
@@ -208,15 +211,16 @@ describe("upsert_season tool", () => {
       SESSION,
     );
     parseToolResult(result);
-    const state = await data.loadSeasonsState();
+    const state = await data.forGame(FIXTURE_GAME_NAME).loadSeasonsState();
     const created = state?.seasons.find((s) => s.slug === "default-pool");
     assert.deepEqual(created?.categories, ["Science", "History", "Geography"]);
   });
 
   it("create: empty categories array also falls back to baseline", async () => {
-    const tool = createUpsertSeasonTool(data);
+    const tool = createUpsertSeasonTool(data, fixtureGetGames);
     const result = await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         slug: "empty-cat-arg",
         startedAt: Date.now() + 90 * DAY,
         expectedEndAt: Date.now() + 120 * DAY,
@@ -227,7 +231,7 @@ describe("upsert_season tool", () => {
       SESSION,
     );
     parseToolResult(result);
-    const state = await data.loadSeasonsState();
+    const state = await data.forGame(FIXTURE_GAME_NAME).loadSeasonsState();
     const created = state?.seasons.find((s) => s.slug === "empty-cat-arg");
     assert.deepEqual(created?.categories, ["Science", "History", "Geography"]);
   });
@@ -238,6 +242,7 @@ describe("upsert_season tool", () => {
     const tool = createUpsertSeasonTool(freshData);
     const result = await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         slug: "empty-season",
         startedAt: Date.now() + DAY,
         expectedEndAt: Date.now() + 30 * DAY,
@@ -253,9 +258,10 @@ describe("upsert_season tool", () => {
 
   it("create: rejects overlap with existing season", async () => {
     await seedSingleActive(data);
-    const tool = createUpsertSeasonTool(data);
+    const tool = createUpsertSeasonTool(data, fixtureGetGames);
     const result = await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         slug: "overlapper",
         startedAt: Date.now() - DAY, // overlaps the seeded active season
         expectedEndAt: Date.now() + DAY,
@@ -271,9 +277,10 @@ describe("upsert_season tool", () => {
 
   it("create: permits back-to-back season (no overlap)", async () => {
     const seeded = await seedSingleActive(data);
-    const tool = createUpsertSeasonTool(data);
+    const tool = createUpsertSeasonTool(data, fixtureGetGames);
     const result = await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         slug: "next",
         startedAt: seeded.expectedEndAt,
         expectedEndAt: seeded.expectedEndAt + 30 * DAY,
@@ -285,16 +292,17 @@ describe("upsert_season tool", () => {
     );
     const parsed = parseToolResult(result);
     assert.equal(parsed.action, "created");
-    const state = await data.loadSeasonsState();
+    const state = await data.forGame(FIXTURE_GAME_NAME).loadSeasonsState();
     assert.equal(state?.seasons.length, 2);
   });
 
   it("update: sets endedAt on existing entry (idempotent rollover marker)", async () => {
     const seeded = await seedSingleActive(data);
-    const tool = createUpsertSeasonTool(data);
+    const tool = createUpsertSeasonTool(data, fixtureGetGames);
     const endedAt = Date.now();
     const result = await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         slug: seeded.slug,
         startedAt: undefined,
         expectedEndAt: undefined,
@@ -308,15 +316,16 @@ describe("upsert_season tool", () => {
     assert.equal(parsed.action, "updated");
     assert.equal(parsed.endedAt, endedAt);
 
-    const state = await data.loadSeasonsState();
+    const state = await data.forGame(FIXTURE_GAME_NAME).loadSeasonsState();
     assert.equal(state?.seasons[0].endedAt, endedAt);
   });
 
   it("update: rejects mutating startedAt of an already-started season", async () => {
     const seeded = await seedSingleActive(data);
-    const tool = createUpsertSeasonTool(data);
+    const tool = createUpsertSeasonTool(data, fixtureGetGames);
     const result = await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         slug: seeded.slug,
         startedAt: seeded.startedAt + 2 * DAY, // attempt to shift the past
         expectedEndAt: undefined,
@@ -339,9 +348,10 @@ describe("upsert_season tool", () => {
       categories: ["X"],
     };
     await seedTimeline(data, [future]);
-    const tool = createUpsertSeasonTool(data);
+    const tool = createUpsertSeasonTool(data, fixtureGetGames);
     const result = await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         slug: "future",
         startedAt: now + 15 * DAY, // not yet started, OK to shift
         expectedEndAt: undefined,
@@ -362,9 +372,10 @@ describe("upsert_season tool", () => {
       { slug: "a", startedAt: now + 10 * DAY, expectedEndAt: now + 20 * DAY, categories: ["X"] },
       { slug: "b", startedAt: now + 30 * DAY, expectedEndAt: now + 40 * DAY, categories: ["Y"] },
     ]);
-    const tool = createUpsertSeasonTool(data);
+    const tool = createUpsertSeasonTool(data, fixtureGetGames);
     const result = await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         slug: "a",
         startedAt: undefined,
         expectedEndAt: now + 35 * DAY, // would overlap b
@@ -379,10 +390,11 @@ describe("upsert_season tool", () => {
   });
 
   it("rejects invalid slug formats", async () => {
-    const tool = createUpsertSeasonTool(data);
+    const tool = createUpsertSeasonTool(data, fixtureGetGames);
     for (const bad of ["", "Has Spaces", "UPPER", "trailing-", "-leading", "doub--le"]) {
       const result = await tool.handler(
         {
+          game: FIXTURE_GAME_NAME,
           slug: bad,
           startedAt: Date.now() + DAY,
           expectedEndAt: Date.now() + 30 * DAY,
@@ -399,9 +411,10 @@ describe("upsert_season tool", () => {
 
   it("slug is the key — calling upsert with same slug is an update, not duplicate", async () => {
     const seeded = await seedSingleActive(data);
-    const tool = createUpsertSeasonTool(data);
+    const tool = createUpsertSeasonTool(data, fixtureGetGames);
     const result = await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         slug: seeded.slug,
         startedAt: undefined,
         expectedEndAt: seeded.expectedEndAt + 5 * DAY,
@@ -413,17 +426,18 @@ describe("upsert_season tool", () => {
     );
     const parsed = parseToolResult(result);
     assert.equal(parsed.action, "updated");
-    const state = await data.loadSeasonsState();
+    const state = await data.forGame(FIXTURE_GAME_NAME).loadSeasonsState();
     assert.equal(state?.seasons.length, 1);
     assert.equal(state?.seasons[0].expectedEndAt, seeded.expectedEndAt + 5 * DAY);
   });
 
   it("multi-prepare: two future seasons coexist", async () => {
     await seedSingleActive(data);
-    const tool = createUpsertSeasonTool(data);
+    const tool = createUpsertSeasonTool(data, fixtureGetGames);
     const now = Date.now();
     await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         slug: "future-a",
         startedAt: now + 40 * DAY,
         expectedEndAt: now + 70 * DAY,
@@ -435,6 +449,7 @@ describe("upsert_season tool", () => {
     );
     await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         slug: "future-b",
         startedAt: now + 80 * DAY,
         expectedEndAt: now + 110 * DAY,
@@ -444,7 +459,7 @@ describe("upsert_season tool", () => {
       },
       SESSION,
     );
-    const state = await data.loadSeasonsState();
+    const state = await data.forGame(FIXTURE_GAME_NAME).loadSeasonsState();
     assert.equal(state?.seasons.length, 3);
     const slugs = state?.seasons.map((s) => s.slug);
     assert.ok(slugs?.includes("future-a"));
@@ -480,21 +495,21 @@ describe("delete_season tool", () => {
         categories: ["Y"],
       },
     ]);
-    const tool = createDeleteSeasonTool(data);
-    const result = await tool.handler({ slug: "future" }, SESSION);
+    const tool = createDeleteSeasonTool(data, fixtureGetGames);
+    const result = await tool.handler({ game: FIXTURE_GAME_NAME, slug: "future" }, SESSION);
     const parsed = parseToolResult(result);
     assert.equal(parsed.deleted, "future");
     assert.equal(parsed.remaining, 1);
 
-    const state = await data.loadSeasonsState();
+    const state = await data.forGame(FIXTURE_GAME_NAME).loadSeasonsState();
     assert.equal(state?.seasons.length, 1);
     assert.equal(state?.seasons[0].slug, "active");
   });
 
   it("rejects deleting an already-started season", async () => {
     await seedSingleActive(data, { slug: "active" });
-    const tool = createDeleteSeasonTool(data);
-    const result = await tool.handler({ slug: "active" }, SESSION);
+    const tool = createDeleteSeasonTool(data, fixtureGetGames);
+    const result = await tool.handler({ game: FIXTURE_GAME_NAME, slug: "active" }, SESSION);
     const parsed = parseToolResult(result);
     assert.ok(parsed.error || parsed.isError);
   });
@@ -509,16 +524,16 @@ describe("delete_season tool", () => {
         categories: ["X"],
       },
     ]);
-    const tool = createDeleteSeasonTool(data);
-    const result = await tool.handler({ slug: "future-only" }, SESSION);
+    const tool = createDeleteSeasonTool(data, fixtureGetGames);
+    const result = await tool.handler({ game: FIXTURE_GAME_NAME, slug: "future-only" }, SESSION);
     const parsed = parseToolResult(result);
     assert.ok(parsed.error || parsed.isError);
   });
 
   it("rejects unknown slug", async () => {
     await seedSingleActive(data);
-    const tool = createDeleteSeasonTool(data);
-    const result = await tool.handler({ slug: "missing" }, SESSION);
+    const tool = createDeleteSeasonTool(data, fixtureGetGames);
+    const result = await tool.handler({ game: FIXTURE_GAME_NAME, slug: "missing" }, SESSION);
     const parsed = parseToolResult(result);
     assert.ok(parsed.error || parsed.isError);
   });
@@ -537,8 +552,8 @@ describe("list_seasons tool", () => {
   });
 
   it("rejects when seasons.json is missing", async () => {
-    const tool = createListSeasonsTool(data);
-    const result = await tool.handler({}, SESSION);
+    const tool = createListSeasonsTool(data, fixtureGetGames);
+    const result = await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION);
     const parsed = parseToolResult(result);
     assert.ok(parsed.error || parsed.isError);
   });
@@ -566,8 +581,8 @@ describe("list_seasons tool", () => {
         categories: ["Marine", "Coral"],
       },
     ]);
-    const tool = createListSeasonsTool(data);
-    const result = await tool.handler({}, SESSION);
+    const tool = createListSeasonsTool(data, fixtureGetGames);
+    const result = await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION);
     const parsed = parseToolResult(result);
 
     assert.equal(parsed.total, 3);
@@ -618,8 +633,8 @@ describe("check_season_status tool", () => {
   });
 
   it("missing seasons.json returns a structured error", async () => {
-    const tool = createCheckSeasonStatusTool(data, async () => []);
-    const result = await tool.handler({}, SESSION);
+    const tool = createCheckSeasonStatusTool(data, async () => [], fixtureGetGames);
+    const result = await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION);
     const parsed = parseToolResult(result);
     assert.ok(parsed.error || parsed.isError);
   });
@@ -634,8 +649,8 @@ describe("check_season_status tool", () => {
         categories: ["X"],
       },
     ]);
-    const tool = createCheckSeasonStatusTool(data, async () => []);
-    const result = await tool.handler({}, SESSION);
+    const tool = createCheckSeasonStatusTool(data, async () => [], fixtureGetGames);
+    const result = await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION);
     const parsed = parseToolResult(result);
     assert.equal(parsed.currentSlug, null);
     assert.equal(parsed.isInGap, true);
@@ -658,8 +673,12 @@ describe("check_season_status tool", () => {
         categories: ["Y"],
       },
     ]);
-    const tool = createCheckSeasonStatusTool(data, async () => [revealJob("0 18 * * *")]);
-    const result = await tool.handler({}, SESSION);
+    const tool = createCheckSeasonStatusTool(
+      data,
+      async () => [revealJob("0 18 * * *")],
+      fixtureGetGames,
+    );
+    const result = await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION);
     const parsed = parseToolResult(result);
     assert.equal(parsed.currentSlug, "active");
     assert.equal(parsed.nextSeasonSlug, "queued");
@@ -668,8 +687,12 @@ describe("check_season_status tool", () => {
 
   it("returns nulls for next when no future season is queued", async () => {
     await seedSingleActive(data);
-    const tool = createCheckSeasonStatusTool(data, async () => [revealJob("0 18 * * *")]);
-    const result = await tool.handler({}, SESSION);
+    const tool = createCheckSeasonStatusTool(
+      data,
+      async () => [revealJob("0 18 * * *")],
+      fixtureGetGames,
+    );
+    const result = await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION);
     const parsed = parseToolResult(result);
     assert.equal(parsed.nextSeasonSlug, null);
     assert.equal(parsed.nextSeasonStartsAt, null);
@@ -677,8 +700,8 @@ describe("check_season_status tool", () => {
 
   it("no trivia reveal cron warns and defaults isLastFireOfSeason to false", async () => {
     await seedSingleActive(data);
-    const tool = createCheckSeasonStatusTool(data, async () => []);
-    const result = await tool.handler({}, SESSION);
+    const tool = createCheckSeasonStatusTool(data, async () => [], fixtureGetGames);
+    const result = await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION);
     const parsed = parseToolResult(result);
     assert.equal(parsed.isLastFireOfSeason, false);
     assert.ok(parsed.warning);
@@ -695,8 +718,12 @@ describe("check_season_status tool", () => {
       },
     ]);
     // Note: this season is expired so findCurrentSeason returns null → isInGap path.
-    const tool = createCheckSeasonStatusTool(data, async () => [revealJob("0 18 * * 1-5")]);
-    const result = await tool.handler({}, SESSION);
+    const tool = createCheckSeasonStatusTool(
+      data,
+      async () => [revealJob("0 18 * * 1-5")],
+      fixtureGetGames,
+    );
+    const result = await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION);
     const parsed = parseToolResult(result);
     // Gap is hit because the only season's window is in the past.
     assert.equal(parsed.isInGap, true);
@@ -717,7 +744,7 @@ describe("retrieve_scores with timeline-based current", () => {
     await data.saveUser({ userId: "U2", displayName: "Bob", joinedAt: 0 });
 
     for (let i = 0; i < 5; i++) {
-      await data.saveAnswer({
+      await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
         userId: "U1",
         questionId: `q-spring-${i}`,
         answer: true,
@@ -727,7 +754,7 @@ describe("retrieve_scores with timeline-based current", () => {
       });
     }
     for (let i = 0; i < 3; i++) {
-      await data.saveAnswer({
+      await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
         userId: "U1",
         questionId: `q-summer-${i}`,
         answer: true,
@@ -737,7 +764,7 @@ describe("retrieve_scores with timeline-based current", () => {
       });
     }
     for (let i = 0; i < 2; i++) {
-      await data.saveAnswer({
+      await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
         userId: "U2",
         questionId: `q-spring-u2-${i}`,
         answer: true,
@@ -747,7 +774,7 @@ describe("retrieve_scores with timeline-based current", () => {
       });
     }
     for (let i = 0; i < 7; i++) {
-      await data.saveAnswer({
+      await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
         userId: "U2",
         questionId: `q-summer-u2-${i}`,
         answer: true,
@@ -761,9 +788,9 @@ describe("retrieve_scores with timeline-based current", () => {
   it("default season filter resolves to current via findCurrentSeason", async () => {
     // Make summer-2026 the active season.
     await seedSingleActive(data, { slug: "summer-2026" });
-    const tool = createRetrieveScoresTool(data);
+    const tool = createRetrieveScoresTool(data, fixtureGetGames);
     const result = await tool.handler(
-      { limit: undefined, sortBy: undefined, season: undefined },
+      { game: FIXTURE_GAME_NAME, limit: undefined, sortBy: undefined, season: undefined },
       SESSION,
     );
     const parsed = parseToolResult(result);
@@ -779,9 +806,9 @@ describe("retrieve_scores with timeline-based current", () => {
 
   it("historical season slug filters by that slug, all-time totals unchanged", async () => {
     await seedSingleActive(data, { slug: "summer-2026" });
-    const tool = createRetrieveScoresTool(data);
+    const tool = createRetrieveScoresTool(data, fixtureGetGames);
     const result = await tool.handler(
-      { limit: undefined, sortBy: undefined, season: "spring-2026" },
+      { game: FIXTURE_GAME_NAME, limit: undefined, sortBy: undefined, season: "spring-2026" },
       SESSION,
     );
     const parsed = parseToolResult(result);
@@ -790,9 +817,9 @@ describe("retrieve_scores with timeline-based current", () => {
   });
 
   it("seasons disabled (no seasons.json): season arg ignored", async () => {
-    const tool = createRetrieveScoresTool(data);
+    const tool = createRetrieveScoresTool(data, fixtureGetGames);
     const result = await tool.handler(
-      { limit: undefined, sortBy: undefined, season: "spring-2026" },
+      { game: FIXTURE_GAME_NAME, limit: undefined, sortBy: undefined, season: "spring-2026" },
       SESSION,
     );
     const parsed = parseToolResult(result);
@@ -816,7 +843,7 @@ describe("submit_answers dual totals", () => {
 
   it("includes currentSeason* when a current season exists", async () => {
     await seedSingleActive(data, { slug: "summer-2026" });
-    await data.saveQuestion({
+    await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
       id: "qx",
       category: "Science",
       statement: "A statement long enough to validate",
@@ -825,7 +852,7 @@ describe("submit_answers dual totals", () => {
       createdAt: 0,
       season: "summer-2026",
     });
-    await data.saveAnswer({
+    await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
       userId: "U1",
       questionId: "old-q",
       answer: true,
@@ -834,9 +861,10 @@ describe("submit_answers dual totals", () => {
       season: "spring-2026",
     });
 
-    const tool = createSubmitAnswersTool(data);
+    const tool = createSubmitAnswersTool(data, fixtureGetGames);
     const result = await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         questionId: "qx",
         messageLink: "https://slack/x",
         postedAt: 1,
@@ -861,7 +889,7 @@ describe("submit_answers dual totals", () => {
         categories: ["Science"],
       },
     ]);
-    await data.saveQuestion({
+    await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
       id: "qx",
       category: "Science",
       statement: "A statement long enough to validate",
@@ -869,9 +897,10 @@ describe("submit_answers dual totals", () => {
       emojis: ["🔬"],
       createdAt: 0,
     });
-    const tool = createSubmitAnswersTool(data);
+    const tool = createSubmitAnswersTool(data, fixtureGetGames);
     const result = await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         questionId: "qx",
         messageLink: "https://slack/x",
         postedAt: 1,
@@ -894,7 +923,7 @@ describe("find_previous_questions with timeline-based current", () => {
   beforeEach(async () => {
     data = createInMemoryDataLayer();
     await data.saveCategories(["Marine"]);
-    await data.saveQuestion({
+    await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
       id: "q1",
       category: "Marine",
       statement: "Octopuses have three hearts",
@@ -903,7 +932,7 @@ describe("find_previous_questions with timeline-based current", () => {
       createdAt: 1,
       season: "spring-2026",
     });
-    await data.saveQuestion({
+    await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
       id: "q2",
       category: "Marine",
       statement: "Sharks have no bones",
@@ -916,9 +945,15 @@ describe("find_previous_questions with timeline-based current", () => {
 
   it('default "all" returns both seasons\' matches', async () => {
     await seedSingleActive(data, { slug: "summer-2026" });
-    const tool = createFindPreviousQuestionsTool(data);
+    const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
     const result = await tool.handler(
-      { category: undefined, text: "octopus", season: undefined, limit: undefined },
+      {
+        game: FIXTURE_GAME_NAME,
+        category: undefined,
+        text: "octopus",
+        season: undefined,
+        limit: undefined,
+      },
       SESSION,
     );
     const parsed = parseToolResult(result);
@@ -928,9 +963,15 @@ describe("find_previous_questions with timeline-based current", () => {
 
   it('"current" scopes to whatever findCurrentSeason returns', async () => {
     await seedSingleActive(data, { slug: "summer-2026" });
-    const tool = createFindPreviousQuestionsTool(data);
+    const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
     const result = await tool.handler(
-      { category: "Marine", text: undefined, season: "current", limit: undefined },
+      {
+        game: FIXTURE_GAME_NAME,
+        category: "Marine",
+        text: undefined,
+        season: "current",
+        limit: undefined,
+      },
       SESSION,
     );
     const parsed = parseToolResult(result);
@@ -949,9 +990,15 @@ describe("find_previous_questions with timeline-based current", () => {
         questionTypes: undefined,
       },
     ]);
-    const tool = createFindPreviousQuestionsTool(data);
+    const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
     const result = await tool.handler(
-      { category: undefined, text: undefined, season: "current", limit: undefined },
+      {
+        game: FIXTURE_GAME_NAME,
+        category: undefined,
+        text: undefined,
+        season: "current",
+        limit: undefined,
+      },
       SESSION,
     );
     const parsed = parseToolResult(result);
@@ -973,19 +1020,25 @@ describe("add_categories with target dispatch", () => {
   });
 
   it("default target 'both' appends to baseline and current season", async () => {
-    const tool = createAddCategoriesTool(data);
-    await tool.handler({ categories: ["Quantum Physics"], target: undefined }, SESSION);
+    const tool = createAddCategoriesTool(data, fixtureGetGames);
+    await tool.handler(
+      { game: FIXTURE_GAME_NAME, categories: ["Quantum Physics"], target: undefined },
+      SESSION,
+    );
     const baseline = await data.loadCategories();
-    const state = await data.loadSeasonsState();
+    const state = await data.forGame(FIXTURE_GAME_NAME).loadSeasonsState();
     assert.ok(baseline.includes("Quantum Physics"));
     assert.ok(state?.seasons[0].categories.includes("Quantum Physics"));
   });
 
   it("target 'current' affects only the active season", async () => {
-    const tool = createAddCategoriesTool(data);
-    await tool.handler({ categories: ["Cephalopods"], target: "current" }, SESSION);
+    const tool = createAddCategoriesTool(data, fixtureGetGames);
+    await tool.handler(
+      { game: FIXTURE_GAME_NAME, categories: ["Cephalopods"], target: "current" },
+      SESSION,
+    );
     const baseline = await data.loadCategories();
-    const state = await data.loadSeasonsState();
+    const state = await data.forGame(FIXTURE_GAME_NAME).loadSeasonsState();
     assert.ok(!baseline.includes("Cephalopods"));
     assert.ok(state?.seasons[0].categories.includes("Cephalopods"));
   });
@@ -1007,9 +1060,12 @@ describe("add_categories with target dispatch", () => {
         questionTypes: undefined,
       },
     ]);
-    const tool = createAddCategoriesTool(data);
-    await tool.handler({ categories: ["Whales"], target: "future" }, SESSION);
-    const state = await data.loadSeasonsState();
+    const tool = createAddCategoriesTool(data, fixtureGetGames);
+    await tool.handler(
+      { game: FIXTURE_GAME_NAME, categories: ["Whales"], target: "future" },
+      SESSION,
+    );
+    const state = await data.forGame(FIXTURE_GAME_NAME).loadSeasonsState();
     const future = state?.seasons.find((s) => s.slug === "future");
     assert.ok(future?.categories.includes("Whales"));
     // Active season is unaffected.
@@ -1018,8 +1074,11 @@ describe("add_categories with target dispatch", () => {
   });
 
   it("target unknown-slug returns an error indication", async () => {
-    const tool = createAddCategoriesTool(data);
-    const result = await tool.handler({ categories: ["Foo"], target: "no-such-season" }, SESSION);
+    const tool = createAddCategoriesTool(data, fixtureGetGames);
+    const result = await tool.handler(
+      { game: FIXTURE_GAME_NAME, categories: ["Foo"], target: "no-such-season" },
+      SESSION,
+    );
     const parsed = parseToolResult(result);
     assert.ok(parsed.error);
   });
@@ -1036,8 +1095,11 @@ describe("add_categories with target dispatch", () => {
         categories: ["Science"],
       },
     ]);
-    const tool = createAddCategoriesTool(freshData);
-    const result = await tool.handler({ categories: ["Foo"], target: "current" }, SESSION);
+    const tool = createAddCategoriesTool(freshData, fixtureGetGames);
+    const result = await tool.handler(
+      { game: FIXTURE_GAME_NAME, categories: ["Foo"], target: "current" },
+      SESSION,
+    );
     const parsed = parseToolResult(result);
     assert.ok(parsed.warning);
     assert.equal(parsed.totals.current, null);
@@ -1054,18 +1116,24 @@ describe("remove_categories with target dispatch + non-empty guards", () => {
   });
 
   it("default 'both' removes from baseline and active", async () => {
-    const tool = createRemoveCategoriesTool(data);
-    await tool.handler({ categories: ["Science"], target: undefined }, SESSION);
+    const tool = createRemoveCategoriesTool(data, fixtureGetGames);
+    await tool.handler(
+      { game: FIXTURE_GAME_NAME, categories: ["Science"], target: undefined },
+      SESSION,
+    );
     const baseline = await data.loadCategories();
-    const state = await data.loadSeasonsState();
+    const state = await data.forGame(FIXTURE_GAME_NAME).loadSeasonsState();
     assert.ok(!baseline.includes("Science"));
     assert.ok(!state?.seasons[0].categories.includes("Science"));
   });
 
   it("rejects emptying the currently-active season's pool", async () => {
     await seedSingleActive(data, { categories: ["Only Topic"] });
-    const tool = createRemoveCategoriesTool(data);
-    const result = await tool.handler({ categories: ["Only Topic"], target: "current" }, SESSION);
+    const tool = createRemoveCategoriesTool(data, fixtureGetGames);
+    const result = await tool.handler(
+      { game: FIXTURE_GAME_NAME, categories: ["Only Topic"], target: "current" },
+      SESSION,
+    );
     const parsed = parseToolResult(result);
     assert.ok(parsed.error || parsed.isError);
   });
@@ -1086,17 +1154,23 @@ describe("remove_categories with target dispatch + non-empty guards", () => {
         categories: ["Single"],
       },
     ]);
-    const tool = createRemoveCategoriesTool(data);
-    const result = await tool.handler({ categories: ["Single"], target: "future" }, SESSION);
+    const tool = createRemoveCategoriesTool(data, fixtureGetGames);
+    const result = await tool.handler(
+      { game: FIXTURE_GAME_NAME, categories: ["Single"], target: "future" },
+      SESSION,
+    );
     const parsed = parseToolResult(result);
     assert.ok(parsed.error || parsed.isError);
   });
 
   it("target 'default' can drain categories.json (not the active read pool)", async () => {
-    const tool = createRemoveCategoriesTool(data);
-    await tool.handler({ categories: ["Science", "History"], target: "default" }, SESSION);
+    const tool = createRemoveCategoriesTool(data, fixtureGetGames);
+    await tool.handler(
+      { game: FIXTURE_GAME_NAME, categories: ["Science", "History"], target: "default" },
+      SESSION,
+    );
     const baseline = await data.loadCategories();
-    const state = await data.loadSeasonsState();
+    const state = await data.forGame(FIXTURE_GAME_NAME).loadSeasonsState();
     assert.deepEqual(baseline, []);
     assert.deepEqual(state?.seasons[0].categories, ["Science", "History"]);
   });
@@ -1116,8 +1190,8 @@ describe("get_ideas reads currentCategories via timeline", () => {
 
   it("uses the active season's pool when seasons.json exists with a current season", async () => {
     await seedSingleActive(data, { categories: ["Themed-1", "Themed-2", "Themed-3"] });
-    const tool = createGetIdeasTool(data);
-    const result = await tool.handler({}, SESSION);
+    const tool = createGetIdeasTool(data, undefined, fixtureGetGames);
+    const result = await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION);
     const parsed = parseToolResult(result);
     assert.equal(parsed.categories.total, 3);
     for (const idea of parsed.categories.ideas) {
@@ -1135,16 +1209,16 @@ describe("get_ideas reads currentCategories via timeline", () => {
         categories: ["Themed"],
       },
     ]);
-    const tool = createGetIdeasTool(data);
-    const result = await tool.handler({}, SESSION);
+    const tool = createGetIdeasTool(data, undefined, fixtureGetGames);
+    const result = await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION);
     const parsed = parseToolResult(result);
     // Gap → reads from categories.json (4 baseline entries).
     assert.equal(parsed.categories.total, 4);
   });
 
   it("falls back to categories.json when seasons.json is absent", async () => {
-    const tool = createGetIdeasTool(data);
-    const result = await tool.handler({}, SESSION);
+    const tool = createGetIdeasTool(data, undefined, fixtureGetGames);
+    const result = await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION);
     const parsed = parseToolResult(result);
     assert.equal(parsed.categories.total, 4);
   });
@@ -1164,9 +1238,10 @@ describe("save_question validates against active pool", () => {
 
   it("rejects a category that's in baseline but not the active season", async () => {
     await seedSingleActive(data, { categories: ["Marine Biology"] });
-    const tool = createSaveQuestionTool(data);
+    const tool = createSaveQuestionTool(data, undefined, fixtureGetGames);
     const result = await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         category: "Baseline-Only",
         statement: "A statement long enough to validate",
         type: undefined,
@@ -1185,9 +1260,10 @@ describe("save_question validates against active pool", () => {
 
   it("accepts a category in the active season's pool and stamps season", async () => {
     await seedSingleActive(data, { slug: "marine-fall", categories: ["Marine Biology"] });
-    const tool = createSaveQuestionTool(data);
+    const tool = createSaveQuestionTool(data, undefined, fixtureGetGames);
     const result = await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         category: "Marine Biology",
         statement: "A statement long enough to validate",
         type: undefined,

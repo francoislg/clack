@@ -4,6 +4,8 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { textResult, errorResult } from "../../tools/helpers.js";
 import { getConfig, type Config, DEFAULT_TRIVIA_CHOICES } from "../../config.js";
 import { findCurrentSeason } from "./data.js";
+import { defaultGetGames, type GetGamesFn } from "./configBridge.js";
+import { requireWritableGame } from "./gamesRegistry.js";
 import type { TriviaDataLayer, TriviaQuestion } from "./types.js";
 
 const DESCRIPTION = `Save a new trivia question.
@@ -30,11 +32,17 @@ export function createSaveQuestionTool(
       return null;
     }
   },
+  getGamesFn: GetGamesFn = defaultGetGames,
 ) {
   return tool(
     "save_question",
     DESCRIPTION,
     {
+      game: z
+        .string()
+        .describe(
+          "Game name (must be present in config.trivia.games[]). Determines which game's per-game data file receives the new question.",
+        ),
       type: z
         .enum(["boolean", "choice"])
         .optional()
@@ -74,6 +82,12 @@ export function createSaveQuestionTool(
       emojis: z.array(z.string()).describe("1-4 topic-relevant emojis"),
     },
     async (args) => {
+      try {
+        requireWritableGame(getGamesFn(), args.game);
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : String(err));
+      }
+
       if (args.statement.length < 10) {
         return errorResult("Statement must be at least 10 characters");
       }
@@ -132,7 +146,8 @@ export function createSaveQuestionTool(
         }
       }
 
-      const seasonsState = await data.loadSeasonsState();
+      const scoped = data.forGame(args.game);
+      const seasonsState = await scoped.loadSeasonsState();
       const currentSeasonEntry = findCurrentSeason(seasonsState, Date.now());
       const categories =
         currentSeasonEntry !== null ? currentSeasonEntry.categories : await data.loadCategories();
@@ -167,7 +182,7 @@ export function createSaveQuestionTool(
           ? { ...base, isTrue: args.isTrue }
           : { ...base, choices: args.choices, correctIndex: args.correctIndex };
 
-      await data.saveQuestion(question);
+      await scoped.saveQuestion(question);
 
       return textResult({ saved: true, question });
     },

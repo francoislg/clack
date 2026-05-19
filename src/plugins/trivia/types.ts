@@ -86,14 +86,18 @@ export interface SeasonsState {
   seasons: SeasonEntry[];
 }
 
-export interface TriviaDataLayer {
-  loadCategories(): Promise<string[]>;
-  saveCategories(categories: string[]): Promise<void>;
+/**
+ * Per-game data accessor — every method reads/writes inside `games/<name>/`.
+ * Obtained via `TriviaDataLayer.forGame(name)`.
+ *
+ * `saveCheat` is the one exception: it writes the cheat report into the named
+ * game's `cheats.json` but increments the cumulative `cheatAttempts` counter on
+ * the global `users.json`. The closure composes both writes for the caller.
+ */
+export interface ScopedTriviaDataLayer {
   loadQuestions(): Promise<TriviaQuestion[]>;
   saveQuestion(q: TriviaQuestion): Promise<void>;
   updateQuestion(id: string, updates: Partial<TriviaQuestion>): Promise<void>;
-  loadUsers(): Promise<Map<string, TriviaUser>>;
-  saveUser(u: TriviaUser): Promise<void>;
   loadAnswers(): Promise<SubmittedAnswer[]>;
   saveAnswer(a: SubmittedAnswer): Promise<void>;
   loadCheats(): Promise<CheatReport[]>;
@@ -101,4 +105,15 @@ export interface TriviaDataLayer {
   loadSeasonsState(): Promise<SeasonsState | null>;
   saveSeasonsState(state: SeasonsState): Promise<void>;
   getCurrentSeasonSlug(): Promise<string | null>;
+}
+
+export interface TriviaDataLayer {
+  /** Global — shared across all games. */
+  loadCategories(): Promise<string[]>;
+  saveCategories(categories: string[]): Promise<void>;
+  /** Global — shared across all games (incl. cumulative `cheatAttempts`). */
+  loadUsers(): Promise<Map<string, TriviaUser>>;
+  saveUser(u: TriviaUser): Promise<void>;
+  /** Per-game data accessor — every read/write is scoped to `games/<name>/`. */
+  forGame(name: string): ScopedTriviaDataLayer;
 }

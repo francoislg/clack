@@ -1,7 +1,9 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
-import { textResult } from "../../tools/helpers.js";
+import { textResult, errorResult } from "../../tools/helpers.js";
 import { findCurrentSeason } from "./data.js";
+import { defaultGetGames, type GetGamesFn } from "./configBridge.js";
+import { requireGame } from "./gamesRegistry.js";
 import type { TriviaDataLayer, TriviaQuestion } from "./types.js";
 
 // Sentinel for "filter to a slug that can't match any record"; used when season:"current" is
@@ -41,11 +43,19 @@ function toSearchResult(q: TriviaQuestion): SearchResultQuestion {
   return result;
 }
 
-export function createFindPreviousQuestionsTool(data: TriviaDataLayer) {
+export function createFindPreviousQuestionsTool(
+  data: TriviaDataLayer,
+  getGamesFn: GetGamesFn = defaultGetGames,
+) {
   return tool(
     "find_previous_questions",
     "Search past trivia questions by category and/or statement text to check what has been asked before. Defaults to searching across all seasons.",
     {
+      game: z
+        .string()
+        .describe(
+          "Game name (must be present in config.trivia.games[]). Search is scoped to this game's questions only.",
+        ),
       category: z
         .string()
         .optional()
@@ -68,19 +78,20 @@ export function createFindPreviousQuestionsTool(data: TriviaDataLayer) {
         .describe("Maximum number of questions to return (default 20, most recent first)"),
     },
     async (args) => {
-      const limit = args.limit ?? 20;
-      const questions = await data.loadQuestions();
+      try {
+        requireGame(getGamesFn(), args.game);
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : String(err));
+      }
 
-      const seasonsState = await data.loadSeasonsState();
+      const scoped = data.forGame(args.game);
+      const limit = args.limit ?? 20;
+      const questions = await scoped.loadQuestions();
+
+      const seasonsState = await scoped.loadSeasonsState();
       const seasonsEnabled = seasonsState !== null;
       const currentSeason = findCurrentSeason(seasonsState, Date.now());
       const seasonArg = args.season ?? "all";
-      // Resolve the filter:
-      //   - Seasons disabled (no seasons.json): ignore the arg entirely.
-      //   - "all": no filter.
-      //   - "current" with an active season: filter by that slug.
-      //   - "current" during a timeline gap: match nothing (no current season exists).
-      //   - Any other string: literal slug match.
       const seasonFilter: string | null =
         !seasonsEnabled || seasonArg === "all"
           ? null

@@ -1,7 +1,9 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
-import { textResult } from "../../tools/helpers.js";
+import { textResult, errorResult } from "../../tools/helpers.js";
 import { findCurrentSeason, findSeasonBySlug } from "./data.js";
+import { defaultGetGames, type GetGamesFn } from "./configBridge.js";
+import { requireGame } from "./gamesRegistry.js";
 import type { TriviaDataLayer, SeasonsState } from "./types.js";
 
 function appendUnique(
@@ -30,24 +32,38 @@ function replaceSeasonCategories(state: SeasonsState, slug: string, next: string
   };
 }
 
-export function createAddCategoriesTool(data: TriviaDataLayer) {
+export function createAddCategoriesTool(
+  data: TriviaDataLayer,
+  getGamesFn: GetGamesFn = defaultGetGames,
+) {
   return tool(
     "add_categories",
-    'Add new categories to the trivia category pool. When seasons are enabled, `target` accepts "current" (the currently-active season), "default" (the categories.json baseline that new seasons seed from), "both" (the default — use now and persist), or any specific season slug to refine a queued future season\'s pool.',
+    'Add new categories to the trivia category pool. The `game` argument scopes any season-targeted writes to that game\'s seasons.json; the global categories.json (target "default") is shared. When seasons are enabled, `target` accepts "current" (the named game\'s currently-active season), "default" (the global categories.json baseline), "both" (the default — use now and persist), or any specific season slug within the named game.',
     {
+      game: z
+        .string()
+        .describe(
+          "Game name (must be present in config.trivia.games[]). Season-targeted writes apply to this game's seasons.json.",
+        ),
       categories: z.array(z.string()).describe("Categories to add to the pool"),
       target: z
         .string()
         .optional()
         .describe(
-          'Where to add. "current": the currently-active season. "default": categories.json. "both" (default when seasons enabled): both. Any other string: that season slug. Ignored when seasons are disabled.',
+          'Where to add. "current": this game\'s currently-active season. "default": global categories.json. "both" (default when seasons enabled): both. Any other string: that season slug within this game.',
         ),
     },
     async (args) => {
-      const seasonsState = await data.loadSeasonsState();
+      try {
+        requireGame(getGamesFn(), args.game);
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : String(err));
+      }
+
+      const scoped = data.forGame(args.game);
+      const seasonsState = await scoped.loadSeasonsState();
 
       if (seasonsState === null) {
-        // Seasons disabled — legacy single-pool behavior.
         const existing = await data.loadCategories();
         const { added, alreadyExists } = appendUnique(existing, args.categories);
         if (added.length > 0) await data.saveCategories(existing);
@@ -56,25 +72,23 @@ export function createAddCategoriesTool(data: TriviaDataLayer) {
 
       const target = args.target ?? "both";
 
-      // Specific slug target (anything not a special keyword)
       if (target !== "current" && target !== "default" && target !== "both") {
         const entry = findSeasonBySlug(seasonsState, target);
         if (entry === null) {
           return textResult({
             added: [],
             alreadyExists: [],
-            error: `No season with slug "${target}" on the timeline.`,
+            error: `No season with slug "${target}" on this game's timeline.`,
           });
         }
         const next = [...entry.categories];
         const { added, alreadyExists } = appendUnique(next, args.categories);
         if (added.length > 0) {
-          await data.saveSeasonsState(replaceSeasonCategories(seasonsState, target, next));
+          await scoped.saveSeasonsState(replaceSeasonCategories(seasonsState, target, next));
         }
         return textResult({ target, added, alreadyExists, total: next.length });
       }
 
-      // "current" / "default" / "both" — multi-target dispatch.
       const currentSeason = findCurrentSeason(seasonsState, Date.now());
 
       const result: {
@@ -102,12 +116,12 @@ export function createAddCategoriesTool(data: TriviaDataLayer) {
       if (target === "current" || target === "both") {
         if (currentSeason === null) {
           result.warning =
-            "No current season (gap or seasons disabled) — current-targeted add was a no-op.";
+            "No current season in this game (gap or seasons disabled) — current-targeted add was a no-op.";
         } else {
           const next = [...currentSeason.categories];
           const { added, alreadyExists } = appendUnique(next, args.categories);
           if (added.length > 0) {
-            await data.saveSeasonsState(
+            await scoped.saveSeasonsState(
               replaceSeasonCategories(seasonsState, currentSeason.slug, next),
             );
           }

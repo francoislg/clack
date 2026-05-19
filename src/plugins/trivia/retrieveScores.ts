@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
-import { textResult } from "../../tools/helpers.js";
+import { textResult, errorResult } from "../../tools/helpers.js";
+import { defaultGetGames, type GetGamesFn } from "./configBridge.js";
+import { requireGame } from "./gamesRegistry.js";
 import type { TriviaDataLayer, SubmittedAnswer } from "./types.js";
 
 interface LeaderboardEntry {
@@ -26,17 +28,25 @@ function aggregate(
   return scoreMap;
 }
 
-export function createRetrieveScoresTool(data: TriviaDataLayer) {
+export function createRetrieveScoresTool(
+  data: TriviaDataLayer,
+  getGamesFn: GetGamesFn = defaultGetGames,
+) {
   return tool(
     "retrieve_scores",
-    "Retrieve the trivia leaderboard. When seasons are enabled, results include both current-season and all-time totals per user; use the season parameter to scope the leaderboard's primary ranking.",
+    "Retrieve the trivia leaderboard for a specific game. When seasons are enabled, results include both current-season and all-time totals per user; use the season parameter to scope the leaderboard's primary ranking.",
     {
+      game: z
+        .string()
+        .describe(
+          "Game name (must be present in config.trivia.games[]). Leaderboard is scoped to this game's answers only.",
+        ),
       limit: z.number().optional().describe("Number of top scores to return (default: 10)"),
       sortBy: z
         .enum(["totalCorrect", "accuracy"])
         .optional()
         .describe(
-          "Sort order. 'totalCorrect' (default): most wins first, accuracy as tiebreaker — best for leaderboards that show raw win counts. 'accuracy': highest accuracy % first, totalCorrect as tiebreaker (so a 5/5 player beats a 1/1 player) — best when ranking by skill rather than volume.",
+          "Sort order. 'totalCorrect' (default): most wins first, accuracy as tiebreaker. 'accuracy': highest accuracy % first, totalCorrect as tiebreaker.",
         ),
       season: z
         .string()
@@ -46,16 +56,22 @@ export function createRetrieveScoresTool(data: TriviaDataLayer) {
         ),
     },
     async (args) => {
+      try {
+        requireGame(getGamesFn(), args.game);
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : String(err));
+      }
+
+      const scoped = data.forGame(args.game);
       const limit = args.limit ?? 10;
       const sortBy = args.sortBy ?? "totalCorrect";
       const users = await data.loadUsers();
-      const allAnswers = await data.loadAnswers();
+      const allAnswers = await scoped.loadAnswers();
 
-      const currentSlug = await data.getCurrentSeasonSlug();
+      const currentSlug = await scoped.getCurrentSeasonSlug();
       const seasonsEnabled = currentSlug !== null;
       const seasonArg = args.season ?? (seasonsEnabled ? "current" : "all");
 
-      // Primary aggregation: respects the season filter.
       const primaryFilter: string | null =
         !seasonsEnabled || seasonArg === "all"
           ? null
@@ -66,11 +82,8 @@ export function createRetrieveScoresTool(data: TriviaDataLayer) {
         primaryFilter === null ? allAnswers : allAnswers.filter((a) => a.season === primaryFilter);
       const primaryMap = aggregate(primaryAnswers);
 
-      // All-time aggregation: no filter, used for the all-time totals field.
       const allTimeMap = aggregate(allAnswers);
 
-      // Current-season aggregation: independent of the season arg, used for the dual-totals
-      // shape so callers can always render a 3-row table.
       const currentSeasonMap =
         seasonsEnabled && currentSlug !== null
           ? aggregate(allAnswers.filter((a) => a.season === currentSlug))
@@ -110,7 +123,7 @@ export function createRetrieveScoresTool(data: TriviaDataLayer) {
       return textResult({
         leaderboard,
         totalPlayers: primaryMap.size,
-        totalQuestions: (await data.loadQuestions()).length,
+        totalQuestions: (await scoped.loadQuestions()).length,
         ...(seasonsEnabled ? { currentSeason: currentSlug, seasonFilter: seasonArg } : {}),
       });
     },

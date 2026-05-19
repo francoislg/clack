@@ -6,7 +6,7 @@ import {
   getActiveChoiceBounds,
   getActiveQuestionTypes,
 } from "./questionTypes.js";
-import type { SeasonsState, TriviaDataLayer, TriviaUser } from "./types.js";
+import type { ScopedTriviaDataLayer, SeasonsState } from "./types.js";
 
 function makeConfig(trivia?: Config["trivia"]): Config {
   return {
@@ -28,15 +28,11 @@ function makeConfig(trivia?: Config["trivia"]): Config {
   };
 }
 
-function makeDataLayer(state: SeasonsState | null): TriviaDataLayer {
+function makeScopedDataLayer(state: SeasonsState | null): ScopedTriviaDataLayer {
   return {
-    loadCategories: async () => [],
-    saveCategories: async () => {},
     loadQuestions: async () => [],
     saveQuestion: async () => {},
     updateQuestion: async () => {},
-    loadUsers: async () => new Map<string, TriviaUser>(),
-    saveUser: async () => {},
     loadAnswers: async () => [],
     saveAnswer: async () => {},
     loadCheats: async () => [],
@@ -52,14 +48,14 @@ const HOUR = 60 * 60 * 1000;
 
 describe("getActiveQuestionTypes", () => {
   it("defaults to pure boolean when no source is set", async () => {
-    const data = makeDataLayer(null);
+    const data = makeScopedDataLayer(null);
     const cfg = makeConfig();
     const weights = await getActiveQuestionTypes(data, cfg, NOW);
     assert.deepEqual(weights, DEFAULT_QUESTION_TYPE_WEIGHTS);
   });
 
   it("uses config.trivia.questionsTypes when seasons disabled", async () => {
-    const data = makeDataLayer(null);
+    const data = makeScopedDataLayer(null);
     const cfg = makeConfig({ questionsTypes: { boolean: 2, choice: 1 } });
     const weights = await getActiveQuestionTypes(data, cfg, NOW);
     assert.deepEqual(weights, { boolean: 2, choice: 1 });
@@ -77,7 +73,7 @@ describe("getActiveQuestionTypes", () => {
         },
       ],
     };
-    const data = makeDataLayer(state);
+    const data = makeScopedDataLayer(state);
     const cfg = makeConfig({
       questionsTypes: { boolean: 1, choice: 0 },
       // seasons block absent → seasons disabled
@@ -98,7 +94,7 @@ describe("getActiveQuestionTypes", () => {
         },
       ],
     };
-    const data = makeDataLayer(state);
+    const data = makeScopedDataLayer(state);
     const cfg = makeConfig({
       seasons: { enabled: true, prompt: "monthly" },
       questionsTypes: { boolean: 1, choice: 0 },
@@ -119,7 +115,7 @@ describe("getActiveQuestionTypes", () => {
         },
       ],
     };
-    const data = makeDataLayer(state);
+    const data = makeScopedDataLayer(state);
     const cfg = makeConfig({
       seasons: { enabled: true, prompt: "monthly" },
       questionsTypes: { boolean: 2, choice: 1 },
@@ -147,7 +143,7 @@ describe("getActiveQuestionTypes", () => {
         },
       ],
     };
-    const data = makeDataLayer(state);
+    const data = makeScopedDataLayer(state);
     const cfg = makeConfig({
       seasons: { enabled: true, prompt: "monthly" },
       questionsTypes: { boolean: 1, choice: 1 },
@@ -157,7 +153,7 @@ describe("getActiveQuestionTypes", () => {
   });
 
   it("falls back to default when seasons enabled but seasons.json is null", async () => {
-    const data = makeDataLayer(null);
+    const data = makeScopedDataLayer(null);
     const cfg = makeConfig({ seasons: { enabled: true, prompt: "monthly" } });
     const weights = await getActiveQuestionTypes(data, cfg, NOW);
     assert.deepEqual(weights, DEFAULT_QUESTION_TYPE_WEIGHTS);

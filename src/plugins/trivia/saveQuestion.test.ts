@@ -1,6 +1,6 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { createInMemoryDataLayer } from "./testHelpers.js";
+import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "./testHelpers.js";
 import { createSaveQuestionTool } from "./saveQuestion.js";
 import { parseToolResult } from "../../tools/testHelpers.js";
 import type { Config } from "../../config.js";
@@ -36,9 +36,10 @@ describe("save_question — boolean shape", () => {
   });
 
   it("saves a valid boolean question with explicit type", async () => {
-    const tool = createSaveQuestionTool(data, () => null);
+    const tool = createSaveQuestionTool(data, () => null, fixtureGetGames);
     const result = await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         type: "boolean",
         category: "Science",
         statement: "Water boils at 100C at sea level",
@@ -59,9 +60,10 @@ describe("save_question — boolean shape", () => {
   });
 
   it("saves boolean when type is omitted (default)", async () => {
-    const tool = createSaveQuestionTool(data, () => null);
+    const tool = createSaveQuestionTool(data, () => null, fixtureGetGames);
     const result = await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         type: undefined,
         category: "Science",
         statement: "Water boils at 100C at sea level",
@@ -81,9 +83,10 @@ describe("save_question — boolean shape", () => {
   });
 
   it("rejects boolean question with choices", async () => {
-    const tool = createSaveQuestionTool(data, () => null);
+    const tool = createSaveQuestionTool(data, () => null, fixtureGetGames);
     const result = await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         type: "boolean",
         category: "Science",
         statement: "Statement long enough to validate",
@@ -109,9 +112,14 @@ describe("save_question — choice shape", () => {
   });
 
   it("saves a valid 4-choice question", async () => {
-    const tool = createSaveQuestionTool(data, () => makeConfig({ choices: { min: 2, max: 4 } }));
+    const tool = createSaveQuestionTool(
+      data,
+      () => makeConfig({ choices: { min: 2, max: 4 } }),
+      fixtureGetGames,
+    );
     const result = await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         type: "choice",
         category: "Geography",
         statement: "Which is the smallest planet in our solar system?",
@@ -133,9 +141,10 @@ describe("save_question — choice shape", () => {
   });
 
   it("rejects correctIndex out of range (too high)", async () => {
-    const tool = createSaveQuestionTool(data, () => null);
+    const tool = createSaveQuestionTool(data, () => null, fixtureGetGames);
     const result = await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         type: "choice",
         category: "Geography",
         statement: "Pick one of four options here",
@@ -153,9 +162,10 @@ describe("save_question — choice shape", () => {
   });
 
   it("rejects correctIndex below zero", async () => {
-    const tool = createSaveQuestionTool(data, () => null);
+    const tool = createSaveQuestionTool(data, () => null, fixtureGetGames);
     const result = await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         type: "choice",
         category: "Geography",
         statement: "Pick one of three options here",
@@ -173,9 +183,10 @@ describe("save_question — choice shape", () => {
   });
 
   it("rejects exact duplicate choices", async () => {
-    const tool = createSaveQuestionTool(data, () => null);
+    const tool = createSaveQuestionTool(data, () => null, fixtureGetGames);
     const result = await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         type: "choice",
         category: "Geography",
         statement: "Pick the one true thing here",
@@ -193,9 +204,10 @@ describe("save_question — choice shape", () => {
   });
 
   it("rejects whitespace/case-equivalent duplicate choices", async () => {
-    const tool = createSaveQuestionTool(data, () => null);
+    const tool = createSaveQuestionTool(data, () => null, fixtureGetGames);
     const result = await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         type: "choice",
         category: "Geography",
         statement: "Pick the one true thing here",
@@ -213,9 +225,14 @@ describe("save_question — choice shape", () => {
   });
 
   it("rejects choices below configured min", async () => {
-    const tool = createSaveQuestionTool(data, () => makeConfig({ choices: { min: 3, max: 4 } }));
+    const tool = createSaveQuestionTool(
+      data,
+      () => makeConfig({ choices: { min: 3, max: 4 } }),
+      fixtureGetGames,
+    );
     const result = await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         type: "choice",
         category: "Geography",
         statement: "Pick the right option",
@@ -233,9 +250,14 @@ describe("save_question — choice shape", () => {
   });
 
   it("rejects choices above configured max", async () => {
-    const tool = createSaveQuestionTool(data, () => makeConfig({ choices: { min: 2, max: 3 } }));
+    const tool = createSaveQuestionTool(
+      data,
+      () => makeConfig({ choices: { min: 2, max: 3 } }),
+      fixtureGetGames,
+    );
     const result = await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         type: "choice",
         category: "Geography",
         statement: "Pick the right option",
@@ -253,9 +275,10 @@ describe("save_question — choice shape", () => {
   });
 
   it("rejects choice question with isTrue", async () => {
-    const tool = createSaveQuestionTool(data, () => null);
+    const tool = createSaveQuestionTool(data, () => null, fixtureGetGames);
     const result = await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         type: "choice",
         category: "Geography",
         statement: "Pick the right option",
@@ -273,9 +296,10 @@ describe("save_question — choice shape", () => {
   });
 
   it("rejects empty choice string", async () => {
-    const tool = createSaveQuestionTool(data, () => null);
+    const tool = createSaveQuestionTool(data, () => null, fixtureGetGames);
     const result = await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         type: "choice",
         category: "Geography",
         statement: "Pick the right option",
@@ -293,9 +317,10 @@ describe("save_question — choice shape", () => {
   });
 
   it("rejects choices longer than 100 chars", async () => {
-    const tool = createSaveQuestionTool(data, () => null);
+    const tool = createSaveQuestionTool(data, () => null, fixtureGetGames);
     const result = await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         type: "choice",
         category: "Geography",
         statement: "Pick the right option",
@@ -313,9 +338,10 @@ describe("save_question — choice shape", () => {
   });
 
   it("rejects choice question missing choices", async () => {
-    const tool = createSaveQuestionTool(data, () => null);
+    const tool = createSaveQuestionTool(data, () => null, fixtureGetGames);
     const result = await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         type: "choice",
         category: "Geography",
         statement: "Pick the right option",
@@ -333,9 +359,10 @@ describe("save_question — choice shape", () => {
   });
 
   it("rejects choice question missing correctIndex", async () => {
-    const tool = createSaveQuestionTool(data, () => null);
+    const tool = createSaveQuestionTool(data, () => null, fixtureGetGames);
     const result = await tool.handler(
       {
+        game: FIXTURE_GAME_NAME,
         type: "choice",
         category: "Geography",
         statement: "Pick the right option",

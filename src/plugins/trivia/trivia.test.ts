@@ -1,6 +1,6 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { createInMemoryDataLayer } from "./testHelpers.js";
+import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "./testHelpers.js";
 import { createAddCategoriesTool } from "./addCategories.js";
 import { createRemoveCategoriesTool } from "./removeCategories.js";
 import { createGetIdeasTool } from "./getIdeas.js";
@@ -62,9 +62,9 @@ describe("trivia plugin", () => {
     });
 
     it("adds new categories", async () => {
-      const tool = createAddCategoriesTool(data);
+      const tool = createAddCategoriesTool(data, fixtureGetGames);
       const result = await tool.handler(
-        { target: undefined, categories: ["Art", "Music"] },
+        { game: FIXTURE_GAME_NAME, target: undefined, categories: ["Art", "Music"] },
         SESSION,
       );
       const parsed = parseToolResult(result);
@@ -79,9 +79,13 @@ describe("trivia plugin", () => {
     });
 
     it("deduplicates existing categories (case-insensitive)", async () => {
-      const tool = createAddCategoriesTool(data);
+      const tool = createAddCategoriesTool(data, fixtureGetGames);
       const result = await tool.handler(
-        { target: undefined, categories: ["science", "HISTORY", "NewOne"] },
+        {
+          game: FIXTURE_GAME_NAME,
+          target: undefined,
+          categories: ["science", "HISTORY", "NewOne"],
+        },
         SESSION,
       );
       const parsed = parseToolResult(result);
@@ -92,9 +96,9 @@ describe("trivia plugin", () => {
     });
 
     it("returns correct totals when mixing new and existing", async () => {
-      const tool = createAddCategoriesTool(data);
+      const tool = createAddCategoriesTool(data, fixtureGetGames);
       const result = await tool.handler(
-        { target: undefined, categories: ["Science", "Novel1", "Novel2"] },
+        { game: FIXTURE_GAME_NAME, target: undefined, categories: ["Science", "Novel1", "Novel2"] },
         SESSION,
       );
       const parsed = parseToolResult(result);
@@ -111,9 +115,9 @@ describe("trivia plugin", () => {
     });
 
     it("removes categories by exact match (case-insensitive)", async () => {
-      const tool = createRemoveCategoriesTool(data);
+      const tool = createRemoveCategoriesTool(data, fixtureGetGames);
       const result = await tool.handler(
-        { target: undefined, categories: ["science", "HISTORY"] },
+        { game: FIXTURE_GAME_NAME, target: undefined, categories: ["science", "HISTORY"] },
         SESSION,
       );
       const parsed = parseToolResult(result);
@@ -129,9 +133,9 @@ describe("trivia plugin", () => {
     });
 
     it("reports not found for non-existent categories", async () => {
-      const tool = createRemoveCategoriesTool(data);
+      const tool = createRemoveCategoriesTool(data, fixtureGetGames);
       const result = await tool.handler(
-        { target: undefined, categories: ["Unknown", "Missing"] },
+        { game: FIXTURE_GAME_NAME, target: undefined, categories: ["Unknown", "Missing"] },
         SESSION,
       );
       const parsed = parseToolResult(result);
@@ -142,9 +146,9 @@ describe("trivia plugin", () => {
     });
 
     it("handles mixed removal (some exist, some don't)", async () => {
-      const tool = createRemoveCategoriesTool(data);
+      const tool = createRemoveCategoriesTool(data, fixtureGetGames);
       const result = await tool.handler(
-        { target: undefined, categories: ["Science", "Unknown"] },
+        { game: FIXTURE_GAME_NAME, target: undefined, categories: ["Science", "Unknown"] },
         SESSION,
       );
       const parsed = parseToolResult(result);
@@ -176,8 +180,8 @@ describe("trivia plugin", () => {
     });
 
     it("returns up to 5 random categories with pool stats and suggestions", async () => {
-      const tool = createGetIdeasTool(data);
-      const result = await tool.handler({}, SESSION);
+      const tool = createGetIdeasTool(data, undefined, fixtureGetGames);
+      const result = await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION);
       const parsed = parseToolResult(result);
 
       assert.ok(Array.isArray(parsed.categories.ideas));
@@ -193,7 +197,7 @@ describe("trivia plugin", () => {
       // Pool of 10 → exclusion window = min(10, 3) = 3. Saving 5 questions means only the
       // last 3 categories get excluded, not all 5.
       for (let i = 0; i < 5; i++) {
-        await data.saveQuestion({
+        await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
           id: `q${i}`,
           category: ["Science", "History", "Geography", "Art", "Music"][i],
           statement: "A statement that is definitely long enough to pass validation",
@@ -208,8 +212,8 @@ describe("trivia plugin", () => {
         });
       }
 
-      const tool = createGetIdeasTool(data);
-      const result = await tool.handler({}, SESSION);
+      const tool = createGetIdeasTool(data, undefined, fixtureGetGames);
+      const result = await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION);
       const parsed = parseToolResult(result);
 
       assert.equal(parsed.categories.excluded, 3);
@@ -233,7 +237,7 @@ describe("trivia plugin", () => {
         "Philosophy",
       ];
       for (let i = 0; i < 9; i++) {
-        await data.saveQuestion({
+        await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
           id: `q${i}`,
           category: categories[i],
           statement: "A statement that is definitely long enough to pass validation",
@@ -248,8 +252,8 @@ describe("trivia plugin", () => {
         });
       }
 
-      const tool = createGetIdeasTool(data);
-      const result = await tool.handler({}, SESSION);
+      const tool = createGetIdeasTool(data, undefined, fixtureGetGames);
+      const result = await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION);
       const parsed = parseToolResult(result);
 
       assert.equal(parsed.categories.excluded, 3);
@@ -272,7 +276,7 @@ describe("trivia plugin", () => {
         "Economics",
       ];
       for (let i = 0; i < allCategories.length; i++) {
-        await data.saveQuestion({
+        await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
           id: `q${i}`,
           category: allCategories[i],
           statement: "A statement that is definitely long enough to pass validation",
@@ -287,8 +291,8 @@ describe("trivia plugin", () => {
         });
       }
 
-      const tool = createGetIdeasTool(data);
-      const result = await tool.handler({}, SESSION);
+      const tool = createGetIdeasTool(data, undefined, fixtureGetGames);
+      const result = await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION);
       const parsed = parseToolResult(result);
 
       // With scaled exclusion (pool=10 → window=3), only the last 3 categories are excluded
@@ -319,16 +323,16 @@ describe("trivia plugin", () => {
       };
 
       it("suggestedAnswer takes both values across calls", async () => {
-        const tool = createGetIdeasTool(data);
+        const tool = createGetIdeasTool(data, undefined, fixtureGetGames);
         try {
           // [answer=0.0, difficulty=0.0] → answer = (0.0 < 0.5) = true.
           stubRandomSequence([0.0, 0.0]);
-          const a = parseToolResult(await tool.handler({}, SESSION));
+          const a = parseToolResult(await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION));
           assert.equal(a.suggestedAnswer, true);
 
           // [answer=0.99, difficulty=0.0] → answer = (0.99 < 0.5) = false.
           stubRandomSequence([0.99, 0.0]);
-          const b = parseToolResult(await tool.handler({}, SESSION));
+          const b = parseToolResult(await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION));
           assert.equal(b.suggestedAnswer, false);
         } finally {
           restore();
@@ -336,42 +340,48 @@ describe("trivia plugin", () => {
       });
 
       it("suggestedDifficulty buckets at 0.30 and 0.90 boundaries", async () => {
-        const tool = createGetIdeasTool(data);
+        const tool = createGetIdeasTool(data, undefined, fixtureGetGames);
         try {
           // [answer=0.0, difficulty=<value-under-test>].
           stubRandomSequence([0.0, 0.0]);
           assert.equal(
-            parseToolResult(await tool.handler({}, SESSION)).suggestedDifficulty,
+            parseToolResult(await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION))
+              .suggestedDifficulty,
             "Easy",
           );
 
           stubRandomSequence([0.0, 0.2999]);
           assert.equal(
-            parseToolResult(await tool.handler({}, SESSION)).suggestedDifficulty,
+            parseToolResult(await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION))
+              .suggestedDifficulty,
             "Easy",
           );
 
           stubRandomSequence([0.0, 0.3]);
           assert.equal(
-            parseToolResult(await tool.handler({}, SESSION)).suggestedDifficulty,
+            parseToolResult(await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION))
+              .suggestedDifficulty,
             "Medium",
           );
 
           stubRandomSequence([0.0, 0.8999]);
           assert.equal(
-            parseToolResult(await tool.handler({}, SESSION)).suggestedDifficulty,
+            parseToolResult(await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION))
+              .suggestedDifficulty,
             "Medium",
           );
 
           stubRandomSequence([0.0, 0.9]);
           assert.equal(
-            parseToolResult(await tool.handler({}, SESSION)).suggestedDifficulty,
+            parseToolResult(await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION))
+              .suggestedDifficulty,
             "Hard",
           );
 
           stubRandomSequence([0.0, 0.9999]);
           assert.equal(
-            parseToolResult(await tool.handler({}, SESSION)).suggestedDifficulty,
+            parseToolResult(await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION))
+              .suggestedDifficulty,
             "Hard",
           );
         } finally {
@@ -391,9 +401,10 @@ describe("trivia plugin", () => {
     });
 
     it("saves a valid question", async () => {
-      const tool = createSaveQuestionTool(data);
+      const tool = createSaveQuestionTool(data, undefined, fixtureGetGames);
       const result = await tool.handler(
         {
+          game: FIXTURE_GAME_NAME,
           category: "Science",
           statement: "Water boils at 100 degrees Celsius at sea level",
           type: undefined,
@@ -414,14 +425,15 @@ describe("trivia plugin", () => {
       assert.equal(parsed.question.statement, "Water boils at 100 degrees Celsius at sea level");
       assert.equal(parsed.question.isTrue, true);
 
-      const questions = await data.loadQuestions();
+      const questions = await data.forGame(FIXTURE_GAME_NAME).loadQuestions();
       assert.equal(questions.length, 1);
     });
 
     it("uses case-insensitive category match", async () => {
-      const tool = createSaveQuestionTool(data);
+      const tool = createSaveQuestionTool(data, undefined, fixtureGetGames);
       const result = await tool.handler(
         {
+          game: FIXTURE_GAME_NAME,
           category: "science",
           statement: "This is a long enough statement to test",
           type: undefined,
@@ -441,9 +453,10 @@ describe("trivia plugin", () => {
     });
 
     it("rejects category not in pool", async () => {
-      const tool = createSaveQuestionTool(data);
+      const tool = createSaveQuestionTool(data, undefined, fixtureGetGames);
       const result = await tool.handler(
         {
+          game: FIXTURE_GAME_NAME,
           category: "NonExistent",
           statement: "This is a long enough statement to test",
           type: undefined,
@@ -464,9 +477,10 @@ describe("trivia plugin", () => {
     });
 
     it("rejects statement shorter than 10 characters", async () => {
-      const tool = createSaveQuestionTool(data);
+      const tool = createSaveQuestionTool(data, undefined, fixtureGetGames);
       const result = await tool.handler(
         {
+          game: FIXTURE_GAME_NAME,
           category: "Science",
           statement: "Short",
           type: undefined,
@@ -487,9 +501,10 @@ describe("trivia plugin", () => {
 
     it("rejects statement longer than 500 characters", async () => {
       const longStatement = "a".repeat(501);
-      const tool = createSaveQuestionTool(data);
+      const tool = createSaveQuestionTool(data, undefined, fixtureGetGames);
       const result = await tool.handler(
         {
+          game: FIXTURE_GAME_NAME,
           category: "Science",
           statement: longStatement,
           type: undefined,
@@ -509,9 +524,10 @@ describe("trivia plugin", () => {
     });
 
     it("rejects empty emoji list", async () => {
-      const tool = createSaveQuestionTool(data);
+      const tool = createSaveQuestionTool(data, undefined, fixtureGetGames);
       const result = await tool.handler(
         {
+          game: FIXTURE_GAME_NAME,
           category: "Science",
           statement: "This is a long enough statement",
           type: undefined,
@@ -531,9 +547,10 @@ describe("trivia plugin", () => {
     });
 
     it("rejects emoji list with more than 4 emojis", async () => {
-      const tool = createSaveQuestionTool(data);
+      const tool = createSaveQuestionTool(data, undefined, fixtureGetGames);
       const result = await tool.handler(
         {
+          game: FIXTURE_GAME_NAME,
           category: "Science",
           statement: "This is a long enough statement",
           type: undefined,
@@ -553,9 +570,10 @@ describe("trivia plugin", () => {
     });
 
     it("accepts exactly 1 emoji", async () => {
-      const tool = createSaveQuestionTool(data);
+      const tool = createSaveQuestionTool(data, undefined, fixtureGetGames);
       const result = await tool.handler(
         {
+          game: FIXTURE_GAME_NAME,
           category: "Science",
           statement: "This is a long enough statement",
           type: undefined,
@@ -574,9 +592,10 @@ describe("trivia plugin", () => {
     });
 
     it("accepts exactly 4 emojis", async () => {
-      const tool = createSaveQuestionTool(data);
+      const tool = createSaveQuestionTool(data, undefined, fixtureGetGames);
       const result = await tool.handler(
         {
+          game: FIXTURE_GAME_NAME,
           category: "Science",
           statement: "This is a long enough statement",
           type: undefined,
@@ -595,9 +614,10 @@ describe("trivia plugin", () => {
     });
 
     it("persists suggestedDifficulty and difficulty when provided", async () => {
-      const tool = createSaveQuestionTool(data);
+      const tool = createSaveQuestionTool(data, undefined, fixtureGetGames);
       const result = await tool.handler(
         {
+          game: FIXTURE_GAME_NAME,
           category: "Science",
           statement: "Water boils at 100 degrees Celsius at sea level",
           type: undefined,
@@ -616,15 +636,16 @@ describe("trivia plugin", () => {
       assert.equal(parsed.question.suggestedDifficulty, "Medium");
       assert.equal(parsed.question.difficulty, 7);
 
-      const questions = await data.loadQuestions();
+      const questions = await data.forGame(FIXTURE_GAME_NAME).loadQuestions();
       assert.equal(questions[0].suggestedDifficulty, "Medium");
       assert.equal(questions[0].difficulty, 7);
     });
 
     it("omits difficulty fields when not provided (legacy-compatible)", async () => {
-      const tool = createSaveQuestionTool(data);
+      const tool = createSaveQuestionTool(data, undefined, fixtureGetGames);
       const result = await tool.handler(
         {
+          game: FIXTURE_GAME_NAME,
           category: "Science",
           statement: "Water boils at 100 degrees Celsius at sea level",
           type: undefined,
@@ -651,7 +672,7 @@ describe("trivia plugin", () => {
 
   describe("find_previous_questions", () => {
     beforeEach(async () => {
-      await data.saveQuestion({
+      await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
         id: "q1",
         category: "Science",
         statement: "Water boils at 100 degrees Celsius",
@@ -659,7 +680,7 @@ describe("trivia plugin", () => {
         emojis: ["🔬"],
         createdAt: 1,
       });
-      await data.saveQuestion({
+      await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
         id: "q2",
         category: "Science",
         statement: "The Earth is flat",
@@ -667,7 +688,7 @@ describe("trivia plugin", () => {
         emojis: ["🌍"],
         createdAt: 2,
       });
-      await data.saveQuestion({
+      await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
         id: "q3",
         category: "History",
         statement: "Rome was founded in 753 BC",
@@ -678,9 +699,15 @@ describe("trivia plugin", () => {
     });
 
     it("searches by category only", async () => {
-      const tool = createFindPreviousQuestionsTool(data);
+      const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
       const result = await tool.handler(
-        { category: "Science", text: undefined, season: undefined, limit: undefined },
+        {
+          game: FIXTURE_GAME_NAME,
+          category: "Science",
+          text: undefined,
+          season: undefined,
+          limit: undefined,
+        },
         SESSION,
       );
       const parsed = parseToolResult(result);
@@ -690,9 +717,15 @@ describe("trivia plugin", () => {
     });
 
     it("searches by text only", async () => {
-      const tool = createFindPreviousQuestionsTool(data);
+      const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
       const result = await tool.handler(
-        { category: undefined, text: "boils", season: undefined, limit: undefined },
+        {
+          game: FIXTURE_GAME_NAME,
+          category: undefined,
+          text: "boils",
+          season: undefined,
+          limit: undefined,
+        },
         SESSION,
       );
       const parsed = parseToolResult(result);
@@ -702,9 +735,15 @@ describe("trivia plugin", () => {
     });
 
     it("searches by both category and text (AND)", async () => {
-      const tool = createFindPreviousQuestionsTool(data);
+      const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
       const result = await tool.handler(
-        { category: "Science", text: "Earth", season: undefined, limit: undefined },
+        {
+          game: FIXTURE_GAME_NAME,
+          category: "Science",
+          text: "Earth",
+          season: undefined,
+          limit: undefined,
+        },
         SESSION,
       );
       const parsed = parseToolResult(result);
@@ -714,9 +753,15 @@ describe("trivia plugin", () => {
     });
 
     it("returns no results when both filters exclude all questions", async () => {
-      const tool = createFindPreviousQuestionsTool(data);
+      const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
       const result = await tool.handler(
-        { category: "Science", text: "Rome", season: undefined, limit: undefined },
+        {
+          game: FIXTURE_GAME_NAME,
+          category: "Science",
+          text: "Rome",
+          season: undefined,
+          limit: undefined,
+        },
         SESSION,
       );
       const parsed = parseToolResult(result);
@@ -726,9 +771,15 @@ describe("trivia plugin", () => {
     });
 
     it("is case-insensitive for category", async () => {
-      const tool = createFindPreviousQuestionsTool(data);
+      const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
       const result = await tool.handler(
-        { category: "science", text: undefined, season: undefined, limit: undefined },
+        {
+          game: FIXTURE_GAME_NAME,
+          category: "science",
+          text: undefined,
+          season: undefined,
+          limit: undefined,
+        },
         SESSION,
       );
       const parsed = parseToolResult(result);
@@ -737,9 +788,15 @@ describe("trivia plugin", () => {
     });
 
     it("is case-insensitive for text", async () => {
-      const tool = createFindPreviousQuestionsTool(data);
+      const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
       const result = await tool.handler(
-        { category: undefined, text: "EARTH", season: undefined, limit: undefined },
+        {
+          game: FIXTURE_GAME_NAME,
+          category: undefined,
+          text: "EARTH",
+          season: undefined,
+          limit: undefined,
+        },
         SESSION,
       );
       const parsed = parseToolResult(result);
@@ -748,9 +805,15 @@ describe("trivia plugin", () => {
     });
 
     it("returns all questions when neither category nor text is provided (up to limit)", async () => {
-      const tool = createFindPreviousQuestionsTool(data);
+      const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
       const result = await tool.handler(
-        { category: undefined, text: undefined, season: undefined, limit: undefined },
+        {
+          game: FIXTURE_GAME_NAME,
+          category: undefined,
+          text: undefined,
+          season: undefined,
+          limit: undefined,
+        },
         SESSION,
       );
       const parsed = parseToolResult(result);
@@ -766,7 +829,7 @@ describe("trivia plugin", () => {
 
   describe("submit_answers", () => {
     beforeEach(async () => {
-      await data.saveQuestion({
+      await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
         id: "q1",
         category: "Science",
         statement: "Water boils at 100 degrees Celsius",
@@ -777,9 +840,10 @@ describe("trivia plugin", () => {
     });
 
     it("batch saves multiple answers", async () => {
-      const tool = createSubmitAnswersTool(data);
+      const tool = createSubmitAnswersTool(data, fixtureGetGames);
       const result = await tool.handler(
         {
+          game: FIXTURE_GAME_NAME,
           questionId: "q1",
           messageLink: "https://slack.com/archives/C123/p456",
           postedAt: 1000,
@@ -805,9 +869,10 @@ describe("trivia plugin", () => {
     });
 
     it("auto-registers new users", async () => {
-      const tool = createSubmitAnswersTool(data);
+      const tool = createSubmitAnswersTool(data, fixtureGetGames);
       await tool.handler(
         {
+          game: FIXTURE_GAME_NAME,
           questionId: "q1",
           messageLink: "https://slack.com/archives/C123/p456",
           postedAt: 1000,
@@ -823,11 +888,12 @@ describe("trivia plugin", () => {
     });
 
     it("skips duplicate answers", async () => {
-      const tool = createSubmitAnswersTool(data);
+      const tool = createSubmitAnswersTool(data, fixtureGetGames);
 
       // First submission
       await tool.handler(
         {
+          game: FIXTURE_GAME_NAME,
           questionId: "q1",
           messageLink: "https://slack.com/archives/C123/p456",
           postedAt: 1000,
@@ -839,6 +905,7 @@ describe("trivia plugin", () => {
       // Second submission with same user/question
       const result = await tool.handler(
         {
+          game: FIXTURE_GAME_NAME,
           questionId: "q1",
           messageLink: "https://slack.com/archives/C123/p456",
           postedAt: 1000,
@@ -851,19 +918,20 @@ describe("trivia plugin", () => {
       assert.equal(parsed.results[0].skipped, true);
 
       // Only one answer should be saved
-      const answers = await data.loadAnswers();
+      const answers = await data.forGame(FIXTURE_GAME_NAME).loadAnswers();
       const userAnswers = answers.filter((a) => a.userId === "U1");
       assert.equal(userAnswers.length, 1);
       assert.equal(userAnswers[0].answer, true); // Original answer unchanged
     });
 
     it("stamps question with postedAt/messageLink on first submission", async () => {
-      const tool = createSubmitAnswersTool(data);
+      const tool = createSubmitAnswersTool(data, fixtureGetGames);
       const messageLink = "https://slack.com/archives/C123/p456";
       const postedAt = 1000;
 
       await tool.handler(
         {
+          game: FIXTURE_GAME_NAME,
           questionId: "q1",
           messageLink,
           postedAt,
@@ -872,20 +940,21 @@ describe("trivia plugin", () => {
         SESSION,
       );
 
-      const questions = await data.loadQuestions();
+      const questions = await data.forGame(FIXTURE_GAME_NAME).loadQuestions();
       const question = questions.find((q) => q.id === "q1");
       assert.equal(question?.messageLink, messageLink);
       assert.equal(question?.postedAt, postedAt);
     });
 
     it("does NOT overwrite postedAt on subsequent submissions", async () => {
-      const tool = createSubmitAnswersTool(data);
+      const tool = createSubmitAnswersTool(data, fixtureGetGames);
       const originalLink = "https://slack.com/archives/C123/p456";
       const originalPostedAt = 1000;
 
       // First submission
       await tool.handler(
         {
+          game: FIXTURE_GAME_NAME,
           questionId: "q1",
           messageLink: originalLink,
           postedAt: originalPostedAt,
@@ -897,6 +966,7 @@ describe("trivia plugin", () => {
       // Second submission
       await tool.handler(
         {
+          game: FIXTURE_GAME_NAME,
           questionId: "q1",
           messageLink: "https://different.com",
           postedAt: 2000,
@@ -905,7 +975,7 @@ describe("trivia plugin", () => {
         SESSION,
       );
 
-      const questions = await data.loadQuestions();
+      const questions = await data.forGame(FIXTURE_GAME_NAME).loadQuestions();
       const question = questions.find((q) => q.id === "q1");
       assert.equal(question?.messageLink, originalLink);
       assert.equal(question?.postedAt, originalPostedAt);
@@ -913,7 +983,7 @@ describe("trivia plugin", () => {
 
     it("computes currentStreak correctly", async () => {
       // Add a second question
-      await data.saveQuestion({
+      await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
         id: "q2",
         category: "History",
         statement: "Rome was founded in 753 BC",
@@ -922,11 +992,12 @@ describe("trivia plugin", () => {
         createdAt: 2,
       });
 
-      const tool = createSubmitAnswersTool(data);
+      const tool = createSubmitAnswersTool(data, fixtureGetGames);
 
       // First answer correct
       const r1 = await tool.handler(
         {
+          game: FIXTURE_GAME_NAME,
           questionId: "q1",
           messageLink: "https://slack.com/archives/C123/p456",
           postedAt: 1000,
@@ -939,6 +1010,7 @@ describe("trivia plugin", () => {
       // Second answer correct
       const r2 = await tool.handler(
         {
+          game: FIXTURE_GAME_NAME,
           questionId: "q2",
           messageLink: "https://slack.com/archives/C123/p789",
           postedAt: 2000,
@@ -951,7 +1023,7 @@ describe("trivia plugin", () => {
 
     it("resets currentStreak on incorrect answer", async () => {
       // Add a second question
-      await data.saveQuestion({
+      await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
         id: "q2",
         category: "History",
         statement: "Rome was founded in 753 BC",
@@ -960,11 +1032,12 @@ describe("trivia plugin", () => {
         createdAt: 2,
       });
 
-      const tool = createSubmitAnswersTool(data);
+      const tool = createSubmitAnswersTool(data, fixtureGetGames);
 
       // First answer correct
       await tool.handler(
         {
+          game: FIXTURE_GAME_NAME,
           questionId: "q1",
           messageLink: "https://slack.com/archives/C123/p456",
           postedAt: 1000,
@@ -976,6 +1049,7 @@ describe("trivia plugin", () => {
       // Second answer incorrect
       const r2 = await tool.handler(
         {
+          game: FIXTURE_GAME_NAME,
           questionId: "q2",
           messageLink: "https://slack.com/archives/C123/p789",
           postedAt: 2000,
@@ -993,9 +1067,9 @@ describe("trivia plugin", () => {
 
   describe("retrieve_scores", () => {
     it("returns empty leaderboard when no answers exist", async () => {
-      const tool = createRetrieveScoresTool(data);
+      const tool = createRetrieveScoresTool(data, fixtureGetGames);
       const result = await tool.handler(
-        { limit: undefined, sortBy: undefined, season: undefined },
+        { game: FIXTURE_GAME_NAME, limit: undefined, sortBy: undefined, season: undefined },
         SESSION,
       );
       const parsed = parseToolResult(result);
@@ -1009,21 +1083,21 @@ describe("trivia plugin", () => {
       await data.saveUser({ userId: "U2", displayName: "Bob", joinedAt: 2 });
 
       // Alice: 2 correct, 1 wrong
-      await data.saveAnswer({
+      await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
         userId: "U1",
         questionId: "q1",
         answer: true,
         correct: true,
         timestamp: 1,
       });
-      await data.saveAnswer({
+      await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
         userId: "U1",
         questionId: "q2",
         answer: true,
         correct: true,
         timestamp: 2,
       });
-      await data.saveAnswer({
+      await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
         userId: "U1",
         questionId: "q3",
         answer: false,
@@ -1032,7 +1106,7 @@ describe("trivia plugin", () => {
       });
 
       // Bob: 1 correct, 0 wrong
-      await data.saveAnswer({
+      await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
         userId: "U2",
         questionId: "q1",
         answer: true,
@@ -1040,9 +1114,9 @@ describe("trivia plugin", () => {
         timestamp: 4,
       });
 
-      const tool = createRetrieveScoresTool(data);
+      const tool = createRetrieveScoresTool(data, fixtureGetGames);
       const result = await tool.handler(
-        { limit: undefined, sortBy: undefined, season: undefined },
+        { game: FIXTURE_GAME_NAME, limit: undefined, sortBy: undefined, season: undefined },
         SESSION,
       );
       const parsed = parseToolResult(result);
@@ -1066,7 +1140,7 @@ describe("trivia plugin", () => {
       });
 
       for (let i = 1; i <= 3; i++) {
-        await data.saveAnswer({
+        await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
           userId: `U${i}`,
           questionId: "q1",
           answer: true,
@@ -1075,9 +1149,9 @@ describe("trivia plugin", () => {
         });
       }
 
-      const tool = createRetrieveScoresTool(data);
+      const tool = createRetrieveScoresTool(data, fixtureGetGames);
       const result = await tool.handler(
-        { limit: 2, sortBy: undefined, season: undefined },
+        { game: FIXTURE_GAME_NAME, limit: 2, sortBy: undefined, season: undefined },
         SESSION,
       );
       const parsed = parseToolResult(result);
@@ -1089,28 +1163,28 @@ describe("trivia plugin", () => {
       await data.saveUser({ userId: "U1", displayName: "Alice", joinedAt: 1 });
 
       // 3 correct, 1 wrong = 75% accuracy
-      await data.saveAnswer({
+      await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
         userId: "U1",
         questionId: "q1",
         answer: true,
         correct: true,
         timestamp: 1,
       });
-      await data.saveAnswer({
+      await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
         userId: "U1",
         questionId: "q2",
         answer: true,
         correct: true,
         timestamp: 2,
       });
-      await data.saveAnswer({
+      await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
         userId: "U1",
         questionId: "q3",
         answer: true,
         correct: true,
         timestamp: 3,
       });
-      await data.saveAnswer({
+      await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
         userId: "U1",
         questionId: "q4",
         answer: true,
@@ -1118,9 +1192,9 @@ describe("trivia plugin", () => {
         timestamp: 4,
       });
 
-      const tool = createRetrieveScoresTool(data);
+      const tool = createRetrieveScoresTool(data, fixtureGetGames);
       const result = await tool.handler(
-        { limit: undefined, sortBy: undefined, season: undefined },
+        { game: FIXTURE_GAME_NAME, limit: undefined, sortBy: undefined, season: undefined },
         SESSION,
       );
       const parsed = parseToolResult(result);
@@ -1133,21 +1207,21 @@ describe("trivia plugin", () => {
       await data.saveUser({ userId: "U2", displayName: "Bob", joinedAt: 2 });
 
       // Alice: 2/3 = 67%
-      await data.saveAnswer({
+      await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
         userId: "U1",
         questionId: "q1",
         answer: true,
         correct: true,
         timestamp: 1,
       });
-      await data.saveAnswer({
+      await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
         userId: "U1",
         questionId: "q2",
         answer: true,
         correct: true,
         timestamp: 2,
       });
-      await data.saveAnswer({
+      await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
         userId: "U1",
         questionId: "q3",
         answer: true,
@@ -1155,7 +1229,7 @@ describe("trivia plugin", () => {
         timestamp: 3,
       });
       // Bob: 1/1 = 100%
-      await data.saveAnswer({
+      await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
         userId: "U2",
         questionId: "q1",
         answer: true,
@@ -1163,9 +1237,9 @@ describe("trivia plugin", () => {
         timestamp: 4,
       });
 
-      const tool = createRetrieveScoresTool(data);
+      const tool = createRetrieveScoresTool(data, fixtureGetGames);
       const result = await tool.handler(
-        { limit: undefined, sortBy: undefined, season: undefined },
+        { game: FIXTURE_GAME_NAME, limit: undefined, sortBy: undefined, season: undefined },
         SESSION,
       );
       const parsed = parseToolResult(result);
@@ -1180,21 +1254,21 @@ describe("trivia plugin", () => {
       await data.saveUser({ userId: "U2", displayName: "Bob", joinedAt: 2 });
 
       // Alice: 2/3 = 67%
-      await data.saveAnswer({
+      await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
         userId: "U1",
         questionId: "q1",
         answer: true,
         correct: true,
         timestamp: 1,
       });
-      await data.saveAnswer({
+      await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
         userId: "U1",
         questionId: "q2",
         answer: true,
         correct: true,
         timestamp: 2,
       });
-      await data.saveAnswer({
+      await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
         userId: "U1",
         questionId: "q3",
         answer: true,
@@ -1202,7 +1276,7 @@ describe("trivia plugin", () => {
         timestamp: 3,
       });
       // Bob: 1/1 = 100%
-      await data.saveAnswer({
+      await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
         userId: "U2",
         questionId: "q1",
         answer: true,
@@ -1210,9 +1284,9 @@ describe("trivia plugin", () => {
         timestamp: 4,
       });
 
-      const tool = createRetrieveScoresTool(data);
+      const tool = createRetrieveScoresTool(data, fixtureGetGames);
       const result = await tool.handler(
-        { limit: undefined, sortBy: "accuracy", season: undefined },
+        { game: FIXTURE_GAME_NAME, limit: undefined, sortBy: "accuracy", season: undefined },
         SESSION,
       );
       const parsed = parseToolResult(result);
@@ -1228,7 +1302,7 @@ describe("trivia plugin", () => {
 
       // Both 100% — Alice 5/5, Bob 1/1
       for (let i = 1; i <= 5; i++) {
-        await data.saveAnswer({
+        await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
           userId: "U1",
           questionId: `q${i}`,
           answer: true,
@@ -1236,7 +1310,7 @@ describe("trivia plugin", () => {
           timestamp: i,
         });
       }
-      await data.saveAnswer({
+      await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
         userId: "U2",
         questionId: "q6",
         answer: true,
@@ -1244,9 +1318,9 @@ describe("trivia plugin", () => {
         timestamp: 6,
       });
 
-      const tool = createRetrieveScoresTool(data);
+      const tool = createRetrieveScoresTool(data, fixtureGetGames);
       const result = await tool.handler(
-        { limit: undefined, sortBy: "accuracy", season: undefined },
+        { game: FIXTURE_GAME_NAME, limit: undefined, sortBy: "accuracy", season: undefined },
         SESSION,
       );
       const parsed = parseToolResult(result);
@@ -1260,21 +1334,21 @@ describe("trivia plugin", () => {
       await data.saveUser({ userId: "U1", displayName: "Alice", joinedAt: 1 });
 
       // 1 correct, 2 wrong = 33.33...% accuracy, should round to 33
-      await data.saveAnswer({
+      await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
         userId: "U1",
         questionId: "q1",
         answer: true,
         correct: true,
         timestamp: 1,
       });
-      await data.saveAnswer({
+      await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
         userId: "U1",
         questionId: "q2",
         answer: true,
         correct: false,
         timestamp: 2,
       });
-      await data.saveAnswer({
+      await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
         userId: "U1",
         questionId: "q3",
         answer: true,
@@ -1282,9 +1356,9 @@ describe("trivia plugin", () => {
         timestamp: 3,
       });
 
-      const tool = createRetrieveScoresTool(data);
+      const tool = createRetrieveScoresTool(data, fixtureGetGames);
       const result = await tool.handler(
-        { limit: undefined, sortBy: undefined, season: undefined },
+        { game: FIXTURE_GAME_NAME, limit: undefined, sortBy: undefined, season: undefined },
         SESSION,
       );
       const parsed = parseToolResult(result);

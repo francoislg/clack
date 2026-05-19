@@ -1,9 +1,14 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { textResult, errorResult } from "../../tools/helpers.js";
+import { defaultGetGames, type GetGamesFn } from "./configBridge.js";
+import { requireWritableGame } from "./gamesRegistry.js";
 import type { TriviaDataLayer, SubmittedAnswer } from "./types.js";
 
-export function createSubmitAnswersTool(data: TriviaDataLayer) {
+export function createSubmitAnswersTool(
+  data: TriviaDataLayer,
+  getGamesFn: GetGamesFn = defaultGetGames,
+) {
   return tool(
     "submit_answers",
     `Submit a batch of user answers to a trivia question.
@@ -14,6 +19,11 @@ The question's stored \`type\` determines the answer shape required per entry:
 
 A shape mismatch (boolean entry on a choice question or vice-versa) is rejected with a structured error. Entries that survive validation auto-register the user, stamp the current season tag, deduplicate, and contribute equally to per-user stats (one boolean correct and one choice correct both add 1 to totalCorrect).`,
     {
+      game: z
+        .string()
+        .describe(
+          "Game name (must be present in config.trivia.games[] and not disabled). The target question must exist in this game's questions.json.",
+        ),
       questionId: z.string().describe("The trivia question ID"),
       messageLink: z.string().describe("Slack permalink to the trivia message"),
       postedAt: z.number().describe("Timestamp when the question was posted to Slack"),
@@ -38,8 +48,16 @@ A shape mismatch (boolean entry on a choice question or vice-versa) is rejected 
         .describe("Batch of user answers"),
     },
     async (args) => {
+      try {
+        requireWritableGame(getGamesFn(), args.game);
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : String(err));
+      }
+
+      const scoped = data.forGame(args.game);
+
       // Load the question
-      const questions = await data.loadQuestions();
+      const questions = await scoped.loadQuestions();
       const question = questions.find((q) => q.id === args.questionId);
       if (!question) {
         return errorResult(`Question "${args.questionId}" not found.`);
@@ -83,18 +101,17 @@ A shape mismatch (boolean entry on a choice question or vice-versa) is rejected 
 
       // Stamp posting metadata on first submission
       if (!question.postedAt) {
-        await data.updateQuestion(args.questionId, {
+        await scoped.updateQuestion(args.questionId, {
           postedAt: args.postedAt,
           messageLink: args.messageLink,
         });
       }
 
       // Load existing state
-      const existingAnswers = await data.loadAnswers();
+      const existingAnswers = await scoped.loadAnswers();
       const users = await data.loadUsers();
-      const currentSeason = await data.getCurrentSeasonSlug();
+      const currentSeason = await scoped.getCurrentSeasonSlug();
 
-      // Process each answer
       interface AnswerResult {
         userId: string;
         displayName: string;
@@ -114,7 +131,7 @@ A shape mismatch (boolean entry on a choice question or vice-versa) is rejected 
             ? answerInput.answer === question.isTrue
             : answerInput.answerIndex === question.correctIndex;
 
-        // Auto-register or update user
+        // Auto-register or update user (global users.json)
         if (!users.has(answerInput.userId)) {
           await data.saveUser({
             userId: answerInput.userId,
@@ -134,7 +151,7 @@ A shape mismatch (boolean entry on a choice question or vice-versa) is rejected 
           }
         }
 
-        // Check for duplicates
+        // Check for duplicates (per-game)
         const skipped = existingAnswers.some(
           (a) => a.userId === answerInput.userId && a.questionId === args.questionId,
         );
@@ -153,11 +170,11 @@ A shape mismatch (boolean entry on a choice question or vice-versa) is rejected 
             timestamp: Date.now(),
             ...seasonTag,
           };
-          await data.saveAnswer(newAnswer);
+          await scoped.saveAnswer(newAnswer);
           existingAnswers.push(newAnswer);
         }
 
-        // Compute per-user stats
+        // Compute per-user stats over this game's answers only
         const userAnswers = existingAnswers
           .filter((a) => a.userId === answerInput.userId)
           .sort((a, b) => a.timestamp - b.timestamp);

@@ -1,3 +1,4 @@
+import type { TriviaGame } from "../../config.js";
 import type {
   TriviaQuestion,
   TriviaUser,
@@ -5,17 +6,115 @@ import type {
   CheatReport,
   SeasonsState,
   TriviaDataLayer,
+  ScopedTriviaDataLayer,
 } from "./types.js";
 import { findCurrentSeason } from "./data.js";
 
-/** In-memory implementation of TriviaDataLayer, for unit tests. */
+/** Conventional fixture name used throughout the trivia test suite. */
+export const FIXTURE_GAME_NAME = "main";
+
+/**
+ * Default fixture: one enabled game named `"main"`. Test files that need games
+ * registered (which is most of them, since every per-game tool requires `game`)
+ * inject `() => FIXTURE_GAMES` as the `getGamesFn` parameter on tool factories.
+ */
+export const FIXTURE_GAMES: readonly TriviaGame[] = [
+  {
+    name: FIXTURE_GAME_NAME,
+    channel: "C100000000",
+    questionCron: "0 9 * * 1-5",
+    revealCron: "0 17 * * 1-5",
+    timezone: "UTC",
+    enabled: true,
+  },
+];
+
+/** Convenience: the standard `getGamesFn` test injection. */
+export const fixtureGetGames = () => FIXTURE_GAMES;
+
+/**
+ * Per-game in-memory storage cell. The factory below maintains one cell per game
+ * name and lazily creates new ones on `forGame(name)` — mirrors how the real SDK
+ * data layer treats unregistered games as "empty until first write."
+ */
+interface GameCell {
+  questions: TriviaQuestion[];
+  answers: SubmittedAnswer[];
+  cheats: CheatReport[];
+  seasonsState: SeasonsState | null;
+}
+
+/**
+ * In-memory implementation of TriviaDataLayer, for unit tests.
+ *
+ * - Categories and users are global (shared across all games), matching production.
+ * - Per-game arrays are isolated per `name` and accessed via `forGame(name)`.
+ * - No lazy season-bootstrap (the production behavior depends on `getConfig()`,
+ *   which tests typically don't load); seed `seasonsState` explicitly via
+ *   `forGame(name).saveSeasonsState(state)` when needed.
+ */
 export function createInMemoryDataLayer(): TriviaDataLayer {
   let categories: string[] = [];
-  const questions: TriviaQuestion[] = [];
   const users = new Map<string, TriviaUser>();
-  const answers: SubmittedAnswer[] = [];
-  const cheats: CheatReport[] = [];
-  let seasonsState: SeasonsState | null = null;
+  const gameCells = new Map<string, GameCell>();
+
+  function cellFor(name: string): GameCell {
+    let cell = gameCells.get(name);
+    if (cell === undefined) {
+      cell = { questions: [], answers: [], cheats: [], seasonsState: null };
+      gameCells.set(name, cell);
+    }
+    return cell;
+  }
+
+  function forGame(name: string): ScopedTriviaDataLayer {
+    const cell = cellFor(name);
+    return {
+      async loadQuestions() {
+        return [...cell.questions];
+      },
+      async saveQuestion(q) {
+        cell.questions.push(q);
+      },
+      async updateQuestion(id, updates) {
+        const idx = cell.questions.findIndex((q) => q.id === id);
+        if (idx === -1) return;
+        cell.questions[idx] = { ...cell.questions[idx], ...updates };
+      },
+      async loadAnswers() {
+        return [...cell.answers];
+      },
+      async saveAnswer(a) {
+        cell.answers.push(a);
+      },
+      async loadCheats() {
+        return [...cell.cheats];
+      },
+      async saveCheat(report) {
+        cell.cheats.push(report);
+        const existing = users.get(report.cheaterUserId);
+        const next: TriviaUser = existing
+          ? { ...existing, cheatAttempts: (existing.cheatAttempts ?? 0) + 1 }
+          : {
+              userId: report.cheaterUserId,
+              displayName: report.cheaterUserId,
+              joinedAt: Date.now(),
+              cheatAttempts: 1,
+            };
+        users.set(report.cheaterUserId, next);
+        return { totalAttempts: next.cheatAttempts ?? 1 };
+      },
+      async loadSeasonsState() {
+        return cell.seasonsState === null ? null : structuredClone(cell.seasonsState);
+      },
+      async saveSeasonsState(state) {
+        cell.seasonsState = structuredClone(state);
+      },
+      async getCurrentSeasonSlug() {
+        return findCurrentSeason(cell.seasonsState, Date.now())?.slug ?? null;
+      },
+    };
+  }
 
   return {
     async loadCategories() {
@@ -24,54 +123,12 @@ export function createInMemoryDataLayer(): TriviaDataLayer {
     async saveCategories(c) {
       categories = [...c];
     },
-    async loadQuestions() {
-      return [...questions];
-    },
-    async saveQuestion(q) {
-      questions.push(q);
-    },
-    async updateQuestion(id, updates) {
-      const idx = questions.findIndex((q) => q.id === id);
-      if (idx === -1) return;
-      questions[idx] = { ...questions[idx], ...updates };
-    },
     async loadUsers() {
       return new Map(users);
     },
     async saveUser(u) {
       users.set(u.userId, u);
     },
-    async loadAnswers() {
-      return [...answers];
-    },
-    async saveAnswer(a) {
-      answers.push(a);
-    },
-    async loadCheats() {
-      return [...cheats];
-    },
-    async saveCheat(report) {
-      cheats.push(report);
-      const existing = users.get(report.cheaterUserId);
-      const next: TriviaUser = existing
-        ? { ...existing, cheatAttempts: (existing.cheatAttempts ?? 0) + 1 }
-        : {
-            userId: report.cheaterUserId,
-            displayName: report.cheaterUserId,
-            joinedAt: Date.now(),
-            cheatAttempts: 1,
-          };
-      users.set(report.cheaterUserId, next);
-      return { totalAttempts: next.cheatAttempts ?? 1 };
-    },
-    async loadSeasonsState() {
-      return seasonsState === null ? null : structuredClone(seasonsState);
-    },
-    async saveSeasonsState(state) {
-      seasonsState = structuredClone(state);
-    },
-    async getCurrentSeasonSlug() {
-      return findCurrentSeason(seasonsState, Date.now())?.slug ?? null;
-    },
+    forGame,
   };
 }
