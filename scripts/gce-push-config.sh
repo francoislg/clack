@@ -6,10 +6,30 @@
 # remote copy. Everything else on the persistent disk (sessions, state,
 # repositories, stateful plugins, etc.) is left alone.
 #
+# Before pushing, the script checks each manifest path against the VM and
+# aborts if the VM has divergent edits (e.g. config.json edits made through
+# the bot's Home Tab). Pass --force to overwrite anyway.
+#
 # First-time setup:
 #   cp data/.deploy-include.example data/.deploy-include
 #   $EDITOR data/.deploy-include   # add per-instance project paths
 set -e
+
+FORCE=false
+for arg in "$@"; do
+    case "$arg" in
+        -f|--force) FORCE=true ;;
+        -h|--help)
+            echo "Usage: $0 [--force]"
+            echo "  --force, -f   skip the VM-divergence safety check"
+            exit 0
+            ;;
+        *)
+            echo "Unknown argument: $arg" >&2
+            exit 1
+            ;;
+    esac
+done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/gce-common.sh"
@@ -62,6 +82,75 @@ echo ""
 if [ "$MISSING" = "true" ]; then
     echo -e "${RED}Fix the missing paths in $MANIFEST and retry.${NC}"
     exit 1
+fi
+
+# ============================================
+# Pre-push: detect VM-side divergence
+# ============================================
+# Files in the manifest can be edited from the VM too (e.g. config.json gets
+# updated when admins use the Home Tab). Pushing local blindly would clobber
+# those edits — happened more than once. Fetch all manifest paths from the
+# VM into a temp dir, diff each, and refuse to push if anything diverges
+# (unless --force was passed).
+if [ "$FORCE" != "true" ]; then
+    TMP_REMOTE=$(mktemp -d)
+    # shellcheck disable=SC2064
+    trap "rm -rf '$TMP_REMOTE'" EXIT
+
+    REMOTE_FETCH_ARGS=""
+    for p in "${PATHS[@]}"; do
+        REMOTE_FETCH_ARGS+=" '$p'"
+    done
+
+    echo -e "${YELLOW}Checking VM for divergent edits...${NC}"
+    gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet \
+        --command="sudo tar -C '$DATA_MOUNT_POINT' -cf -$REMOTE_FETCH_ARGS" 2>/dev/null \
+        | tar -C "$TMP_REMOTE" -xf -
+
+    CONFLICTING=()
+    for p in "${PATHS[@]}"; do
+        LOCAL="$PROJECT_DIR/$p"
+        REMOTE="$TMP_REMOTE/$p"
+        # Path may not yet exist on the VM (e.g. brand-new plugin) — that's fine.
+        [ ! -e "$REMOTE" ] && continue
+        if ! diff -ruq "$LOCAL" "$REMOTE" >/dev/null 2>&1; then
+            CONFLICTING+=("$p")
+        fi
+    done
+
+    if [ "${#CONFLICTING[@]}" -gt 0 ]; then
+        echo ""
+        echo -e "${RED}⚠ VM has changes that differ from local for:${NC}"
+        for p in "${CONFLICTING[@]}"; do
+            echo "  • $p"
+        done
+        echo ""
+        echo -e "${YELLOW}Diff (- local, + VM) — first 40 lines per path:${NC}"
+        for p in "${CONFLICTING[@]}"; do
+            echo "--- $p ---"
+            diff -ruN "$PROJECT_DIR/$p" "$TMP_REMOTE/$p" | head -40
+            echo ""
+        done
+
+        if [ -t 0 ]; then
+            read -p "Overwrite VM with local? (y/n) " -n 1 -r
+            echo ""
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                echo -e "${YELLOW}Aborted. To reconcile:${NC}"
+                echo "  1. Pull the VM's version of conflicting paths into local"
+                echo "  2. Merge with your local edits"
+                echo "  3. Re-run scripts/gce-push-config.sh"
+                exit 1
+            fi
+        else
+            echo -e "${RED}Non-interactive shell: aborting to avoid clobbering VM edits.${NC}"
+            echo "Re-run with --force to overwrite anyway."
+            exit 1
+        fi
+    else
+        echo -e "${GREEN}✓ No VM-side divergence — safe to push${NC}"
+    fi
+    echo ""
 fi
 
 # Tar's --files-from reads the list of paths to include. Write to a tempfile
