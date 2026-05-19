@@ -161,7 +161,9 @@ export class SlackStreamer {
               this.openGroup = null;
               this.activeTasks.delete(existingSlackId);
             } else {
-              const title = this.groupTitle(this.openGroup.title);
+              const title = this.groupTitle(
+                this.taskLabels.get(existingSlackId) ?? this.openGroup.title,
+              );
               this.append([
                 {
                   type: "task_update",
@@ -308,7 +310,7 @@ export class SlackStreamer {
         if (this.openGroup?.slackId === slackId) {
           this.openGroup.pending--;
           const done = this.openGroup.pending === 0;
-          const title = this.groupTitle(this.openGroup.title);
+          const title = this.groupTitle(this.taskLabels.get(slackId) ?? this.openGroup.title);
           this.append([
             { type: "task_update", id: slackId, title, status: done ? "complete" : "in_progress" },
           ]);
@@ -499,7 +501,7 @@ export class SlackStreamer {
     if (entry.isGroup && this.openGroup?.slackId === slackId) {
       return this.openGroup.count > 1
         ? `${this.openGroup.title} (${this.openGroup.count})`
-        : this.openGroup.title;
+        : (this.taskLabels.get(slackId) ?? this.openGroup.title);
     }
     if (entry.baseTitle) return entry.baseTitle;
     return this.taskLabels.get(slackId);

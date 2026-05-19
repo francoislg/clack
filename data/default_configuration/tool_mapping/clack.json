@@ -50,8 +50,16 @@
       "group": "lookups",
       "itemDetail": "channel \"{query}\""
     },
-    "list_config_files": "Listing config files",
-    "read_config_file": "Reading config {role}/{file}",
+    "list_config_files": {
+      "label": "Listing config files",
+      "group": "configuration",
+      "itemDetail": "List files"
+    },
+    "read_config_file": {
+      "label": "Reading config {role}/{file}",
+      "group": "configuration",
+      "itemDetail": "{role}/{file}"
+    },
     "fetch_channel_messages": {
       "label": "Reading messages in <#{channel_id}>",
       "group": "messages",
@@ -142,6 +150,36 @@
       "group": "scheduled_messages",
       "itemDetail": "Update {id}"
     },
+    "run_scheduled_message_now": {
+      "label": "Re-running scheduled message {id}",
+      "group": "scheduled_messages",
+      "itemDetail": "Re-run {id}"
+    },
+    "add_auto_respond_rule": {
+      "label": "Adding auto-respond rule",
+      "group": "auto_respond",
+      "itemDetail": "Add rule"
+    },
+    "update_auto_respond_rule": {
+      "label": "Updating auto-respond rule {id}",
+      "group": "auto_respond",
+      "itemDetail": "Update {id}"
+    },
+    "delete_auto_respond_rule": {
+      "label": "Deleting auto-respond rule {id}",
+      "group": "auto_respond",
+      "itemDetail": "Delete {id}"
+    },
+    "toggle_auto_respond_rule": {
+      "label": "Toggling auto-respond rule {id}",
+      "group": "auto_respond",
+      "itemDetail": "Toggle {id}"
+    },
+    "list_auto_respond_rules": {
+      "label": "Listing auto-respond rules",
+      "group": "auto_respond",
+      "itemDetail": "List all"
+    },
     "admin_read_file": {
       "label": "Admin - Reading {path}",
       "group": "admin",
@@ -181,6 +219,8 @@
     "lookups": "Looking up in Slack",
     "reminders": "Managing reminders",
     "scheduled_messages": "Managing scheduled messages",
+    "auto_respond": "Managing auto-respond rules",
+    "configuration": "Reading Clack configuration",
     "admin": "Admin actions"
   }
 }
