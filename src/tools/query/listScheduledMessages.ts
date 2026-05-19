@@ -44,6 +44,7 @@ export function createListScheduledMessagesTool(ctx: QueryToolContext) {
           enabled: j.enabled,
           oneShot: j.oneShot ?? false,
           createdBy: j.createdBy,
+          systemActor: j.systemActor ?? null,
           lastRunAt: j.lastRunAt ?? null,
           lastRunStatus: j.lastRunStatus ?? null,
           requiredTools: j.requiredTools ?? null,

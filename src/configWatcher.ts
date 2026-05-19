@@ -75,13 +75,25 @@ function reinstallPinned(trigger: string): void {
     });
 }
 
+export interface ConfigWatcherOptions {
+  /**
+   * Called (debounced) when `data/config.json` changes on disk. When provided, the watcher
+   * piggybacks on the existing config-watcher infrastructure to trigger a full lifecycle
+   * reload — the only safe way to surface config changes to every cache and scheduler
+   * without duplicating the reset logic. Omit to disable config-file watching (e.g. in tests
+   * where the lifecycle module isn't wired up).
+   */
+  onConfigJsonChange?: () => void;
+}
+
 /**
  * Watch config files for changes and invalidate caches.
  * Returns a stop function that closes all watchers.
  */
-export function startConfigWatcher(): () => void {
+export function startConfigWatcher(opts: ConfigWatcherOptions = {}): () => void {
   const mcpPath = join(process.cwd(), "data", "mcp.json");
   const envPath = join(process.cwd(), "data", "auth", ".env");
+  const configJsonPath = join(process.cwd(), "data", "config.json");
   const defaultConfigDir = getDefaultConfigurationDir();
   const userConfigDir = getConfigurationDir();
 
@@ -101,6 +113,21 @@ export function startConfigWatcher(): () => void {
   if (mcpWatcher) {
     watchers.push(mcpWatcher);
     watched.push("mcp.json");
+  }
+
+  if (opts.onConfigJsonChange) {
+    const configJsonWatcher = watchFile(
+      configJsonPath,
+      () => {
+        logger.info("Config file changed (data/config.json) — triggering full reload");
+        opts.onConfigJsonChange?.();
+      },
+      "config.json",
+    );
+    if (configJsonWatcher) {
+      watchers.push(configJsonWatcher);
+      watched.push("config.json");
+    }
   }
 
   const envWatcher = watchFile(

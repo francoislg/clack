@@ -30,6 +30,17 @@ export function createCancelScheduledMessageTool(ctx: QueryToolContext) {
         );
       }
 
+      // Plugin-managed jobs are created and removed by the plugin's reconcile loop. Cancelling
+      // them through this tool would leave the config out of sync; the job would reappear on the
+      // next reload. Removal goes through editing the plugin's config block.
+      if (job.pluginManaged) {
+        return errorResult(
+          `Scheduled message "${args.id}" is managed by plugin "${job.plugin ?? "unknown"}" — ` +
+            "it cannot be cancelled through this tool. Remove the matching entry from the plugin's " +
+            "section in data/config.json instead.",
+        );
+      }
+
       try {
         await deleteJob(args.id);
         return textResult({
