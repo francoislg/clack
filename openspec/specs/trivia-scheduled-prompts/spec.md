@@ -12,12 +12,14 @@ Cron jobs reconciled by `sdk.reconcileCronJobs("trivia", specs)` from `config.tr
 
 The prompt text itself SHALL come from constants in `src/plugins/trivia/scheduledPrompts.ts`:
 
-- `SEND_QUESTIONS_INSTRUCTIONS` for the question-posting spec (`<name>:question`).
-- The return value of `getProcessResponsesInstructions(seasonsEnabled)` for the reveal spec (`<name>:reveal`).
+- `SEND_QUESTIONS_INSTRUCTIONS` for the question-posting spec (`<name>:question`). Unchanged: this prompt remains the substantive Claude-driven flow for generating, validating, and posting a new question.
+- `PROCESS_REVEAL_INSTRUCTIONS` for the reveal spec (`<name>:reveal`). This is a **renderer brief**, not a step-by-step orchestration prompt. It SHALL direct Claude to perform exactly two actions: (a) call `process_reveal_answers(game: "<name>")` and read its returned payload, then (b) render the payload as a Slack reveal using the Game Show Presenter persona via `submit_response`.
 
 Each constant SHALL contain a `{game}` placeholder (used at every tool-call step that takes a `game` arg, plus a header line). `buildGameSpecs()` SHALL substitute `{game}` with the spec's `name` before assigning to `CronJobSpec.prompt`.
 
-The persona directive ("PERSONA: You are a charismatic Game Show Presenter!...") SHALL be preserved at the top of both prompt constants. The substantive step flow (research, polarity self-check, duplicate check, difficulty gate, save, format, deliver) for the question post SHALL be preserved. The substantive step flow (fetch most recent question message, extract statement, validate truth, resolve questionId, load history, categorize voters, submit_answers before submit_response, retrieve_scores, deliver Block Kit reveal, season-finale and rollover when applicable) for the reveal SHALL be preserved.
+The persona directive ("PERSONA: You are a charismatic Game Show Presenter!...") SHALL be preserved at the top of both prompt constants. The substantive step flow for the question post (research, polarity self-check, duplicate check, difficulty gate, save, format, deliver) SHALL be preserved. For the reveal, the prompt is now structurally short — the deterministic work (find the pending question, fetch reactions, exclude bot + cheaters + multi-react voters, score answers, fetch the leaderboard, run season rollover when applicable) is performed inside `process_reveal_answers`; the prompt SHALL NOT enumerate these steps.
+
+The `getProcessResponsesInstructions(seasonsEnabled)` function, the `buildSeasonsAwarePrompt()` helper, the `SEASONS_CHECK_STEP` constant, and the `SEASONS_LEADERBOARD_OVERRIDE` constant SHALL be removed. The reveal prompt is no longer seasons-aware via prompt mutation; seasons-specific rendering decisions are driven by the `seasonStatus` field of the tool's returned payload.
 
 #### Scenario: buildGameSpecs substitutes the game name into both prompts
 
@@ -52,17 +54,20 @@ The `SEND_QUESTIONS_INSTRUCTIONS` constant SHALL contain a numbered step flow th
 6. **Difficulty gate** — self-rate 1–10. Easy = 4–6, Medium = 7–8, Hard = 9–10. Reject and regenerate if ≤ 3/10.
 7. **Choose emojis** relating to the topic.
 8. **Save via `save_question(game: "{game}", category, statement, isTrue, emojis)`** — retain `questionId`.
-9. **Format using Block Kit `sections`** — 👍 (TRUE) before 👎 (FALSE).
-10. **Deliver via `submit_response`** with `reactions: ["+1", "-1"]`.
+9. **Format using Block Kit** — build the question card blocks (header / warm-up section / card / closer context for boolean; header / section / card with numbered choice layout / context for choice). For boolean questions, the card body SHALL include "👍 TRUE • 👎 FALSE" with 👍 listed before 👎. For choice questions, the numbered-emoji prefix (1️⃣ … 4️⃣) in the card body SHALL match the stored `choices` array order so the bot's automatic reactions align with each option's index.
+10. **Post via `post_questions(game: "{game}", items: [{ questionId, blocks }])`** — the tool resolves the channel from game config and derives the reactions from the stored question's type, so the prompt does NOT instruct Claude to specify a channel or a `reactions` list.
+11. **Terminate via `submit_response({ skip_response: true })`** — no user-facing reply is needed; the run's deliverable is the `post_questions` result.
 
 The prompt SHALL invite Claude to invent a style each day and include at least one concrete example for inspiration.
+
+The prompt SHALL NOT instruct Claude to pass `reactions: [...]` to any tool. Reactions are derived inside `post_questions` and SHALL NOT appear in the prompt's tool-call instructions.
 
 #### Scenario: Prompt content includes the game header and game-scoped tool calls
 
 - **GIVEN** `buildGameSpecs([{ name: "main", ... }], false)` was called
 - **WHEN** the `main:question` spec's `prompt` is inspected
 - **THEN** the prompt opens with the persona directive and a `Game: main` header
-- **AND** every reference to `get_ideas`, `find_previous_questions`, or `save_question` passes `game: "main"` as an argument
+- **AND** every reference to `get_ideas`, `find_previous_questions`, `save_question`, or `post_questions` passes `game: "main"` as an argument
 
 #### Scenario: Prompt instructs Claude to honor suggestedAnswer
 
@@ -77,122 +82,178 @@ The prompt SHALL invite Claude to invent a style each day and include at least o
 - **THEN** the returned text contains an explicit rule that questions rated ≤ 3/10 MUST be rejected and regenerated
 - **AND** spells out the bucket-to-1–10 mapping (Easy = 4–6, Medium = 7–8, Hard = 9–10)
 
-#### Scenario: Prompt enforces reaction ordering
+#### Scenario: Prompt routes posting through post_questions
 
 - **WHEN** the prompt content is inspected
-- **THEN** the returned text instructs Claude to pass `reactions: ["+1", "-1"]` to `submit_response`, in that order
-- **AND** instructs Claude that 👍 (TRUE) must be mentioned before 👎 (FALSE) in the message body
+- **THEN** the returned text instructs Claude to call `post_questions(game: "{game}", items: [{ questionId, blocks }])` after `save_question`
+- **AND** does NOT instruct Claude to call `submit_response` with `reactions` to deliver the question
+- **AND** does NOT instruct Claude to pass a `channel` or a `reactions` field to `post_questions`
+
+#### Scenario: Prompt terminates with skip_response
+
+- **WHEN** the prompt content is inspected
+- **THEN** the returned text instructs Claude to call `submit_response({ skip_response: true })` after `post_questions`
+- **AND** does NOT instruct Claude to render a user-facing reply for the question-posting run
+
+#### Scenario: Card body lists 👍 before 👎 for boolean questions
+
+- **WHEN** the prompt content is inspected
+- **THEN** the returned text instructs Claude to put 👍 (TRUE) before 👎 (FALSE) in the boolean question card body
+- **AND** notes that the bot's automatic reactions match this order
+
+#### Scenario: Numbered-emoji prefix order matches stored choices order
+
+- **WHEN** the prompt content is inspected for the choice path
+- **THEN** the returned text instructs Claude to prefix each choice with 1️⃣ / 2️⃣ / 3️⃣ / 4️⃣ in the same order as the stored `choices` array
+- **AND** explains that the bot's automatic numeric reactions align to those indices
 
 ### Requirement: Answer-reveal prompt step flow
 
-The `getProcessResponsesInstructions(seasonsEnabled)` function SHALL return a prompt that opens with the Game Show Presenter persona directive and a "Game: {game}" header, then directs Claude through the reveal flow:
+The `PROCESS_REVEAL_INSTRUCTIONS` constant SHALL open with the Game Show Presenter persona directive and a "Game: {game}" header, then direct Claude through a renderer flow consisting of exactly two steps:
 
-1. **Fetch the most recent question message** via `fetch_channel_messages`.
-2. **Extract the statement** from that message.
-3. **Validate truth** via research.
-4. **Compose an explanation** with supporting facts.
-5. **Double-check** research accuracy.
-6. **Resolve questionId and load history** — Call `find_previous_questions(game: "{game}", text: ...)` to locate the question, then `get_question_history(game: "{game}", questionId)` for cheater list.
-7. **Check season status (only when seasons enabled)** — Call `check_season_status(game: "{game}")`.
-8. **Categorize reactions, excluding the bot AND silently excluding cheaters**.
-9. **Partition voters** into Correct / Incorrect / Fence-sitters / Wildcards.
-10. **Submit answers BEFORE response** — Call `submit_answers(game: "{game}", ...)` with single-reaction voters only. `submit_response` MUST NOT run until `submit_answers` completes.
-11. **Retrieve leaderboard scores** — Call `retrieve_scores(game: "{game}")`.
-12. **Deliver via `submit_response`** using Block Kit (header + section + voter situation coverage + leaderboard table).
-13. **Close the current season and ensure continuity (only when seasons enabled AND `isLastFireOfSeason: true`)** — As the final action, call `upsert_season(game: "{game}", slug: currentSlug, endedAt: <now>)` and (when no future season is queued) create a new starter season.
+1. **Call `process_reveal_answers(game: "{game}")`** and read its returned payload. The prompt SHALL describe the payload's shape (the `reveals[]`, `leaderboard`, and optional `seasonStatus` fields) so Claude can render it without inventing structure.
+2. **Render the payload via `submit_response`** using the Game Show Presenter voice and the Block Kit conventions previously used by the reveal flow:
+   - A `header` block announcing the verdict (e.g. "🎯 THE ANSWER IS TRUE!", "🎲 IT'S FALSE!", or the equivalent for choice questions).
+   - A `section` block explaining WHY the statement is true / false using the question's facts.
+   - A `divider` block.
+   - One `section` block per non-empty voter situation (correct / incorrect / fence-sitters [boolean only] / wildcards). Empty situations SHALL be omitted with no placeholder.
+   - A `context` block as a closer that introduces the leaderboard.
+   - A top-level `table` parameter rendering the leaderboard. When `seasonStatus` is present in the payload, the renderer SHALL use the 3-row dual-totals shape (names / Current Season / All Time); otherwise the 2-row shape (names / scores).
+   - When `seasonStatus.isLastFireOfSeason` is `true`, the renderer SHALL include an extra `section` block above the leaderboard table summarizing the closing season and naming `seasonStatus.mvp`. The renderer SHALL NOT preview the new season's slug (that's left to a future fire to announce).
 
-The prompt SHALL NOT mention `save_cheating`, cheater identities, or any DM-the-owner step (cheat detection is the `trivia-check` instruction's responsibility, not the reveal flow's).
+The prompt SHALL NOT enumerate cheater filtering, multi-react voiding, the order of `submit_answers` vs `submit_response`, `find_previous_questions` keyword search, or season rollover tool calls — all of those concerns are handled inside `process_reveal_answers` and absent from the payload. The prompt SHALL NOT reference `save_cheating`. The prompt SHALL NOT predict the timing of future reveals.
 
-#### Scenario: Reveal prompt content includes the game header and game-scoped tool calls
+When the payload's `reveals` array is empty (no pending questions and no reprocessing requested), the renderer SHALL post an acknowledgement using the Game Show Presenter voice (e.g. "No verdict to deliver today — the question bank is quiet!"). The cumulative leaderboard table SHALL still render.
 
-- **GIVEN** `getProcessResponsesInstructions(true)` returns the seasons-enabled prompt template
-- **WHEN** `buildGameSpecs([{ name: "main", ... }], true)` substitutes `{game}` with `main`
-- **THEN** the resulting `main:reveal` spec's `prompt` opens with the persona directive and a `Game: main` header
-- **AND** every reference to `find_previous_questions`, `get_question_history`, `submit_answers`, `retrieve_scores`, `check_season_status`, or `upsert_season` passes `game: "main"` as an argument
-- **AND** the prompt does NOT reference `save_cheating`
-
-#### Scenario: Reveal prompt enforces bot exclusion without a hardcoded ID
+#### Scenario: Reveal prompt references the new tool by name
 
 - **WHEN** the reveal prompt content is inspected
-- **THEN** the returned text directs Claude to exclude the bot's own user ID from all reaction lists before analysis
-- **AND** instructs Claude to determine the bot's ID from session context rather than hardcoding a specific value
+- **THEN** the returned text references `process_reveal_answers(game: "{game}")` as the first step
+- **AND** does NOT reference `fetch_channel_messages`, `find_previous_questions`, `get_question_history`, `submit_answers`, `retrieve_scores`, `check_season_status`, or `upsert_season` as required tool calls
 
-#### Scenario: Reveal prompt enforces silent cheater exclusion
-
-- **WHEN** the reveal prompt content is inspected
-- **THEN** the returned text directs Claude to call `get_question_history(game: "{game}", questionId: ...)` after locating the question and to remove every user ID in `cheaterUserIds` from every reaction list before voter categorization
-- **AND** explicitly forbids mentioning, alluding to, or stylistically signalling the removal in the user-facing reveal
-
-#### Scenario: Reveal prompt enforces submit_answers-before-submit_response ordering
+#### Scenario: Reveal prompt does not enumerate deterministic steps
 
 - **WHEN** the reveal prompt content is inspected
-- **THEN** the returned text includes an explicit rule that `submit_response` MUST NOT be called until `submit_answers(game: "{game}", ...)` has completed
+- **THEN** the text does NOT contain instructions to categorize voters, exclude the bot, exclude cheaters, void multi-react voters, or order `submit_answers` before `submit_response`
+- **AND** the text does NOT contain "INTERNAL STEP, NEVER SURFACE" or analogous guardrail language for these steps (they are structurally absent from the payload)
 
-#### Scenario: Reveal prompt names the four voter situations
-
-- **WHEN** the reveal prompt content is inspected
-- **THEN** the returned text names all four voter situations Claude must cover: CORRECT voters, INCORRECT voters, FENCE-SITTERS, and WILDCARDS
-
-#### Scenario: Reveal prompt contains no cheat-detection logic
+#### Scenario: Reveal prompt describes the payload's seasonStatus shape
 
 - **WHEN** the reveal prompt content is inspected
-- **THEN** the returned text does NOT mention `save_cheating`
-- **AND** does NOT include any DM-the-owner step
+- **THEN** the text describes the optional `seasonStatus` field of the payload, including `isLastFireOfSeason`, `mvp`, and the renderer's branching rule (3-row leaderboard when `seasonStatus` is present, 2-row otherwise)
+- **AND** instructs the renderer to add a finale `section` block above the leaderboard only when `isLastFireOfSeason` is `true`
 
-#### Scenario: Seasons disabled — reveal prompt omits all seasons logic
+#### Scenario: Empty reveals payload yields an acknowledgement message
 
-- **GIVEN** `getProcessResponsesInstructions(false)` returns the seasons-disabled template
-- **WHEN** the returned prompt content is inspected
-- **THEN** the text does NOT reference `check_season_status`, `upsert_season`, `currentSeasonCorrect`, `currentSeasonAnswered`, "season finale", or the 3-row leaderboard shape
-
-#### Scenario: Seasons enabled — reveal prompt includes finale + rollover only on last-fire days
-
-- **GIVEN** `getProcessResponsesInstructions(true)` returns the seasons-enabled template
-- **WHEN** the returned prompt content is inspected
-- **THEN** the text instructs Claude to call `check_season_status(game: "{game}")` early
-- **AND** instructs Claude to render the 3-row leaderboard regardless of season-end state
-- **AND** instructs Claude to render the finale section ONLY when `isLastFireOfSeason` is `true`
-- **AND** instructs Claude to call `upsert_season(game: "{game}", slug: currentSlug, endedAt: <now>)` as the final tool ONLY when `isLastFireOfSeason` is `true`
+- **WHEN** the reveal prompt content is inspected
+- **THEN** the text directs Claude to post an in-persona acknowledgement when the payload's `reveals` array is `[]`
+- **AND** instructs Claude to still render the cumulative leaderboard table in that case
 
 ### Requirement: requiredTools per spec
 
 Each game's question spec SHALL have `requiredTools` equal to:
 
 ```
-["mcp__trivia__get_ideas", "mcp__trivia__find_previous_questions", "mcp__trivia__save_question"]
+[
+  "mcp__trivia__get_ideas",
+  "mcp__trivia__find_previous_questions",
+  "mcp__trivia__save_question",
+  "mcp__trivia__post_questions"
+]
 ```
 
 Each game's reveal spec SHALL have `requiredTools` equal to:
 
 ```
-base = [
-  "mcp__clack__fetch_channel_messages",
-  "mcp__trivia__find_previous_questions",
-  "mcp__trivia__get_question_history",
-  "mcp__trivia__submit_answers",
-  "mcp__trivia__retrieve_scores"
-]
+["mcp__trivia__process_reveal_answers"]
 ```
 
-When `trivia.seasons.enabled` is `true`, the reveal spec's `requiredTools` SHALL additionally include `"mcp__trivia__check_season_status"`. The conditionally-called timeline tools (`upsert_season`, `delete_season`) SHALL deliberately NOT be in `requiredTools` — they fire only on the last reveal day; listing them would block every other day's reveal.
+The reveal `requiredTools` list SHALL be the SAME regardless of `trivia.seasons.enabled`. Seasons-specific behavior is handled inside `process_reveal_answers`; the spec's required-tools list SHALL NOT vary with that flag.
 
-#### Scenario: Question spec requiredTools
+#### Scenario: Question spec requiredTools includes post_questions
 
 - **WHEN** `buildGameSpecs` produces a `<name>:question` spec
-- **THEN** the spec's `requiredTools` includes (at minimum) `mcp__trivia__get_ideas`, `mcp__trivia__find_previous_questions`, and `mcp__trivia__save_question`
+- **THEN** the spec's `requiredTools` includes (at minimum) `mcp__trivia__get_ideas`, `mcp__trivia__find_previous_questions`, `mcp__trivia__save_question`, and `mcp__trivia__post_questions`
+- **AND** the order of entries does NOT affect correctness
 
-#### Scenario: Reveal spec requiredTools omits seasons tools when seasons are disabled
+#### Scenario: Reveal spec requiredTools is a single-element list
 
 - **GIVEN** `buildGameSpecs(games, seasonsEnabled: false)` is called
 - **WHEN** the resulting `<name>:reveal` spec is inspected
-- **THEN** `requiredTools` consists of the base list only — no `mcp__trivia__check_season_status`
+- **THEN** `requiredTools` equals `["mcp__trivia__process_reveal_answers"]`
+- **AND** does NOT include `mcp__clack__fetch_channel_messages`, `mcp__trivia__find_previous_questions`, `mcp__trivia__get_question_history`, `mcp__trivia__submit_answers`, `mcp__trivia__retrieve_scores`, `mcp__trivia__check_season_status`, or `mcp__trivia__post_questions`
 
-#### Scenario: Reveal spec requiredTools appends check_season_status when seasons are enabled
+#### Scenario: Reveal spec requiredTools is identical when seasons are enabled
 
 - **GIVEN** `buildGameSpecs(games, seasonsEnabled: true)` is called
 - **WHEN** the resulting `<name>:reveal` spec is inspected
-- **THEN** `requiredTools` is the base list PLUS `mcp__trivia__check_season_status`
-- **AND** does NOT include `mcp__trivia__upsert_season` or `mcp__trivia__delete_season`
+- **THEN** `requiredTools` equals `["mcp__trivia__process_reveal_answers"]`
+- **AND** the list is byte-identical to the seasons-disabled case
+
+### Requirement: Reveal prompt branches on reveals.length
+
+The `PROCESS_REVEAL_INSTRUCTIONS` constant SHALL direct Claude to branch its rendering on the returned payload's `reveals.length`:
+
+- **`reveals.length === 1`** (single-question fire): Use today's layout — header verdict, why-section, divider, full per-voter-bucket sections (correct / incorrect / fence-sitters [boolean only] / wildcards), context closer, cumulative leaderboard table. The `roundSummary` field SHALL be ignored in this branch (the single voter-bucket sections already convey the same information).
+
+- **`reveals.length > 1`** (multi-question fire, produced by a season with a `format`): Render
+  1. One `header` block introducing the multi-question reveal (e.g. "🎯 ROUND RECAP — N QUESTIONS!").
+  2. ONE `section` block per question containing a brief verdict line ("Q1: TRUE! It's [statement-summary]. ⏤ [single-line voter teaser]" — e.g. "Alice and Bob nailed it; Carol fell for the trap"). The per-question section SHALL be ≤ 2 short sentences and SHALL NOT enumerate every voter individually.
+  3. ONE `divider` block.
+  4. ONE `section` block titled "Round Summary" listing each player from `roundSummary.perPlayer` as `<@USERID>: <correct>/<totalQuestions>` (or similar in-persona phrasing), with a `🏆` prefix on players carrying `roundMvp: true`. The order matches the payload's `perPlayer` order (sorted by correct desc, name asc).
+  5. ONE `context` block as a closer.
+  6. The top-level `table` parameter with the cumulative leaderboard (same shape as today — 2-row or 3-row based on `seasonStatus`).
+  7. When `seasonStatus.isLastFireOfSeason` is `true`, the season-finale `section` block goes above the leaderboard table as today.
+
+- **`reveals.length === 0`** (no pending questions): Today's "no verdict to deliver today" acknowledgement, leaderboard still renders.
+
+The prompt SHALL forbid Claude from doing its own per-player counting — it MUST consume `roundSummary.perPlayer` verbatim and use `roundMvp` for the trophy marker, not its own derivation.
+
+The prompt SHALL clarify that the multi-question branch trades the verbose per-voter-bucket layout for brief per-question verdicts + an aggregate round summary, and that this is intentional for readability when N > 1.
+
+#### Scenario: Single-question reveal uses today's layout
+
+- **WHEN** the reveal prompt is inspected
+- **THEN** the text describes the length-1 branch as the existing verbose layout (header → why-section → divider → per-bucket sections → context → leaderboard)
+- **AND** does NOT instruct Claude to add a separate round-summary section in this branch
+
+#### Scenario: Multi-question reveal includes a Round Summary
+
+- **WHEN** the reveal prompt is inspected
+- **THEN** the text describes the length-N branch with: header, brief per-question verdict sections, divider, "Round Summary" section sourced from `roundSummary.perPlayer`, context closer, leaderboard table
+- **AND** instructs Claude to keep per-question verdicts to ≤ 2 short sentences each
+- **AND** instructs Claude to mark `roundMvp: true` players with `🏆`
+
+#### Scenario: Prompt forbids Claude-side counting
+
+- **WHEN** the reveal prompt is inspected
+- **THEN** the text explicitly instructs Claude to read `roundSummary.perPlayer.correct` / `.answered` AS-IS
+- **AND** forbids Claude from tallying `reveals[].voters.correct` itself
+
+#### Scenario: Length-0 branch acknowledges with humor
+
+- **WHEN** the reveal prompt is inspected
+- **THEN** the text directs Claude to post an in-persona "no verdict today" acknowledgement when `reveals.length === 0`
+- **AND** the cumulative leaderboard still renders
+
+### Requirement: buildGameSpecs does not peek into seasons state
+
+`buildGameSpecs` SHALL NOT read any per-game `seasons.json` file when generating cron specs. Spec generation SHALL be a pure function of `config.trivia.games[]` (and the global `trivia.seasons.enabled` flag, for the optional behavior described in `trivia-seasons`).
+
+Format-driven branching SHALL happen ENTIRELY at run time, inside `get_ideas`'s payload and the prompt's interpretation of that payload. Mutating a season's `format` via `upsert_season` SHALL NOT require any cron-spec reconcile — the change is visible on the next question-cron fire.
+
+#### Scenario: buildGameSpecs output is independent of seasons.json content
+
+- **GIVEN** two test runs of `buildGameSpecs` with identical `config.trivia.games[]` but different `games/<game>/seasons.json` contents (one with a multi-slot format, one with no format)
+- **WHEN** the two outputs are compared
+- **THEN** the resulting cron-spec arrays are byte-identical
+
+#### Scenario: Format mutation does not require cron reconcile
+
+- **GIVEN** an admin updates a season's `format` via `upsert_season`
+- **WHEN** the next question cron for that game fires
+- **THEN** the run loads the new format from `get_ideas` and posts accordingly
+- **AND** `sdk.reconcileCronJobs` is not called as a side effect of the format change
 
 ### Requirement: Misconfigured reveal-before-question warning
 
@@ -212,6 +273,7 @@ A blocking migration SHALL run at boot to convert pre-existing dispatcher-style 
 A cron job is considered a candidate iff `plugin === "trivia"` AND `prompt` matches one of the known dispatcher patterns (`"Call send_questions_instructions and follow"` or `"Call process_responses_instructions and follow"`).
 
 For each pair of candidates sharing the same `channel` (one question + one reveal), the migration SHALL:
+
 1. Derive a `name` (e.g., `"legacy-<channel>"`, lowercased).
 2. Append a `TriviaGame` entry to `config.trivia.games[]` with `channel`, `questionCron`, `revealCron`, and `timezone`.
 3. Delete both source jobs from `cron-jobs.json`.

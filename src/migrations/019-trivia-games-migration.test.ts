@@ -520,4 +520,206 @@ describe("migration 019: trivia games", () => {
     const newJobsFile = parsedJobsFile(out);
     assert.equal(newJobsFile?.jobs.length, 0);
   });
+
+  describe("processedAt back-fill on questions.json move", () => {
+    interface ParsedQuestion {
+      id: string;
+      category: string;
+      statement: string;
+      type?: "boolean" | "choice";
+      isTrue?: boolean;
+      emojis: string[];
+      createdAt: number;
+      postedAt?: number;
+      processedAt?: number;
+      messageLink?: string;
+      difficulty?: number;
+      suggestedDifficulty?: "Easy" | "Medium" | "Hard";
+      season?: string;
+    }
+
+    function isQuestionArray(value: unknown): value is ParsedQuestion[] {
+      if (!Array.isArray(value)) return false;
+      return value.every(
+        (v) =>
+          typeof v === "object" &&
+          v !== null &&
+          "id" in v &&
+          typeof (v as { id: unknown }).id === "string",
+      );
+    }
+
+    function parsedQuestions(out: StaticOutput, gameName: string): ParsedQuestion[] | null {
+      const v = out[`${PLUGIN_TRIVIA}/games/${gameName}/questions.json`];
+      if (typeof v !== "string") return null;
+      const parsed: unknown = JSON.parse(v);
+      return isQuestionArray(parsed) ? parsed : null;
+    }
+
+    it("stamps processedAt = postedAt on legacy already-posted questions during the move", () => {
+      const out = runWithFlatData(
+        { jobs: [] },
+        { repositories: [] },
+        {
+          questions: JSON.stringify([
+            {
+              id: "q1",
+              category: "X",
+              statement: "S1",
+              isTrue: true,
+              emojis: ["x"],
+              createdAt: 100,
+              postedAt: 200,
+              messageLink: "https://x.slack.com/archives/C1/p200000",
+            },
+            {
+              id: "q2",
+              category: "Y",
+              statement: "S2",
+              isTrue: false,
+              emojis: ["y"],
+              createdAt: 300,
+              postedAt: 400,
+              messageLink: "https://x.slack.com/archives/C1/p400000",
+            },
+          ]),
+        },
+      );
+      const moved = parsedQuestions(out, FALLBACK_GAME_NAME);
+      assert.ok(moved);
+      assert.equal(moved.length, 2);
+      assert.equal(moved[0].id, "q1");
+      assert.equal(moved[0].processedAt, 200);
+      assert.equal(moved[1].id, "q2");
+      assert.equal(moved[1].processedAt, 400);
+    });
+
+    it("does NOT stamp processedAt on entries with no postedAt (never-posted draft)", () => {
+      const out = runWithFlatData(
+        { jobs: [] },
+        { repositories: [] },
+        {
+          questions: JSON.stringify([
+            {
+              id: "q1",
+              category: "X",
+              statement: "draft",
+              isTrue: true,
+              emojis: ["x"],
+              createdAt: 100,
+              // no postedAt
+            },
+          ]),
+        },
+      );
+      const moved = parsedQuestions(out, FALLBACK_GAME_NAME);
+      assert.ok(moved);
+      assert.equal(moved[0].processedAt, undefined);
+    });
+
+    it("preserves an existing processedAt rather than overwriting it", () => {
+      const out = runWithFlatData(
+        { jobs: [] },
+        { repositories: [] },
+        {
+          questions: JSON.stringify([
+            {
+              id: "q1",
+              category: "X",
+              statement: "S",
+              isTrue: true,
+              emojis: ["x"],
+              createdAt: 100,
+              postedAt: 200,
+              processedAt: 999, // pre-existing
+            },
+          ]),
+        },
+      );
+      const moved = parsedQuestions(out, FALLBACK_GAME_NAME);
+      assert.ok(moved);
+      assert.equal(moved[0].processedAt, 999);
+    });
+
+    it("preserves all other question fields untouched", () => {
+      const out = runWithFlatData(
+        { jobs: [] },
+        { repositories: [] },
+        {
+          questions: JSON.stringify([
+            {
+              id: "q1",
+              category: "Cephalopods",
+              statement: "Octopuses have nine brains",
+              type: "boolean",
+              isTrue: true,
+              emojis: ["🐙"],
+              createdAt: 100,
+              postedAt: 200,
+              messageLink: "https://x.slack.com/archives/C1/p200000",
+              difficulty: 7,
+              suggestedDifficulty: "Medium",
+              season: "summer-2026",
+            },
+          ]),
+        },
+      );
+      const moved = parsedQuestions(out, FALLBACK_GAME_NAME);
+      assert.ok(moved);
+      const entry = moved[0];
+      assert.equal(entry.id, "q1");
+      assert.equal(entry.category, "Cephalopods");
+      assert.equal(entry.statement, "Octopuses have nine brains");
+      assert.equal(entry.type, "boolean");
+      assert.equal(entry.isTrue, true);
+      assert.deepEqual(entry.emojis, ["🐙"]);
+      assert.equal(entry.createdAt, 100);
+      assert.equal(entry.postedAt, 200);
+      assert.equal(entry.processedAt, 200);
+      assert.equal(entry.messageLink, "https://x.slack.com/archives/C1/p200000");
+      assert.equal(entry.difficulty, 7);
+      assert.equal(entry.suggestedDifficulty, "Medium");
+      assert.equal(entry.season, "summer-2026");
+    });
+
+    it("answers.json / cheats.json / seasons.json are moved byte-for-byte (no transformation)", () => {
+      const answersContent =
+        '[{"userId":"U1","questionId":"q1","answer":true,"correct":true,"timestamp":201}]';
+      const cheatsContent =
+        '[{"cheaterUserId":"U2","questionId":"q1","reason":"r","detectedAt":"2026-01-01"}]';
+      const seasonsContent =
+        '{"seasons":[{"slug":"s1","startedAt":1,"expectedEndAt":100,"categories":["X"]}]}';
+      const out = runWithFlatData(
+        { jobs: [] },
+        { repositories: [] },
+        {
+          questions: "[]",
+          answers: answersContent,
+          cheats: cheatsContent,
+          seasons: seasonsContent,
+        },
+      );
+      assert.equal(
+        out[`${PLUGIN_TRIVIA}/games/${FALLBACK_GAME_NAME}/answers.json`],
+        answersContent,
+      );
+      assert.equal(out[`${PLUGIN_TRIVIA}/games/${FALLBACK_GAME_NAME}/cheats.json`], cheatsContent);
+      assert.equal(
+        out[`${PLUGIN_TRIVIA}/games/${FALLBACK_GAME_NAME}/seasons.json`],
+        seasonsContent,
+      );
+    });
+
+    it("malformed questions.json passes through unchanged (no crash)", () => {
+      const malformed = "not valid json {{{";
+      const out = runWithFlatData({ jobs: [] }, { repositories: [] }, { questions: malformed });
+      assert.equal(out[`${PLUGIN_TRIVIA}/games/${FALLBACK_GAME_NAME}/questions.json`], malformed);
+    });
+
+    it("empty questions.json array is moved as-is", () => {
+      const out = runWithFlatData({ jobs: [] }, { repositories: [] }, { questions: "[]" });
+      const moved = parsedQuestions(out, FALLBACK_GAME_NAME);
+      assert.deepEqual(moved, []);
+    });
+  });
 });

@@ -125,6 +125,12 @@ export interface ProcessMessageParams {
    * `skip_response` so Claude can decline delivery. Only meaningful for `triggerType: "scheduled"`.
    */
   skipConditions?: string;
+  /**
+   * Declarative override of `submit_response` schema/gating behavior. Threaded from the cron
+   * scheduler when the originating job declares a mode. See `CronJob.submitResponseMode` for
+   * the contract. Only meaningful for `triggerType: "scheduled"`.
+   */
+  submitResponseMode?: "always" | "optional" | "skipped";
   /** Pre-analysis verdict from the autoRespond gate. Forwarded onto the session trigger at
    *  creation (autoRespond only) AND onto each assistant message appended during this run. */
   preAnalysis?: string;
@@ -141,6 +147,12 @@ export interface ProcessMessageParams {
    * the default "member" tier and silently filter out plugin tools).
    */
   roleOverride?: UserRole;
+  /**
+   * Effective "now" for time-sensitive tools. Threaded onto the Claude session/tool context
+   * so tools (e.g. `process_reveal_answers`) can read it instead of relying on the
+   * system-prompt REPLAY CONTEXT block. Populated by the cron scheduler on replay runs.
+   */
+  asOf?: Date;
 }
 
 interface ProcessingContext {
@@ -158,6 +170,10 @@ interface ProcessingContext {
   readonly additionalSystemPrompt?: string;
   readonly requiredTools?: string[];
   readonly skipConditions?: string;
+  /** Declarative submit_response mode override from the originating cron job. */
+  readonly submitResponseMode?: "always" | "optional" | "skipped";
+  /** Effective "now" for time-sensitive tools (replay support). Threaded into Claude options. */
+  readonly asOf?: Date;
   /** Image files from the triggering Slack message (stored on the trigger). */
   readonly imageFiles?: SlackImageFile[];
   /** Pre-analysis verdict from the autoRespond gate. Stamped onto the session's trigger
@@ -471,7 +487,9 @@ export async function processMessage(
       // conversation. Configurable via `reactions.queuedFollowup` (null/empty disables).
       const ackEmoji = resolveQueuedFollowupReaction(config);
       if (ackEmoji) {
-        await addDeliveryReactions(client, channelId, messageTs, [ackEmoji]);
+        addDeliveryReactions(client, channelId, messageTs, [ackEmoji]).catch((err) =>
+          logger.warn(`addDeliveryReactions threw: ${err}`),
+        );
       }
       return { success: true, skipped: true, answer: "" };
     } catch (err) {
@@ -496,6 +514,8 @@ export async function processMessage(
     additionalSystemPrompt: params.additionalSystemPrompt,
     requiredTools: params.requiredTools,
     skipConditions: params.skipConditions,
+    submitResponseMode: params.submitResponseMode,
+    asOf: params.asOf,
     imageFiles: params.imageFiles,
     preAnalysis: params.preAnalysis,
     jobId: params.jobId,
@@ -575,6 +595,8 @@ export async function processMessage(
       availableFiles,
       requiredTools: ctx.requiredTools,
       skipConditions: ctx.skipConditions,
+      submitResponseMode: ctx.submitResponseMode,
+      asOf: ctx.asOf,
     },
     abortController,
     silentThinking,

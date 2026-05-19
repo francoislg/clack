@@ -12,8 +12,6 @@ import { errorMessage as toErrorMessage } from "../../errors.js";
 import type { AskClaudeOptions, ClaudeResponse } from "../../claude/index.js";
 import type { DeliverFn, ToolCallRecord } from "../../tools/types.js";
 import { getErrorBlocksWithRetry, asSlackBlocks, type SlackBlocks } from "../blocks.js";
-import { extractDisplayText } from "../blockText.js";
-import type { Block } from "../blockSchema.js";
 import {
   updateSession,
   addError,
@@ -29,6 +27,7 @@ import { getConfig } from "../../config.js";
 import { getClaudeOptions } from "./changeWorkflowHelper.js";
 import { handleAutoExecuteActions } from "./autoExecute.js";
 import { addDeliveryReactions } from "../messageReactions.js";
+import { notificationText } from "../messagePoster.js";
 import { SlackStreamer } from "../../streaming/slackStreamer.js";
 import { getUserInfo } from "../userCache.js";
 import { getUserPreference } from "../../userPreferences.js";
@@ -238,17 +237,6 @@ export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promis
 // ============================================================
 
 /**
- * Extract a plain-text notification string from rendered blocks.
- * Used as the `text:` parameter in `chat.postMessage` — Slack displays it in
- * push notifications and as a screen-reader fallback (never shown inline when
- * blocks are present). Truncated to 500 chars to keep notifications short.
- */
-function notificationText(blocks: SlackBlocks): string {
-  const text = extractDisplayText(blocks as Block[]);
-  return text.length > 500 ? text.slice(0, 497) + "..." : text;
-}
-
-/**
  * Build the DeliverFn that Claude's submit_response tool calls.
  * Tries the streamer first, falls back to chat.postMessage.
  */
@@ -316,7 +304,9 @@ function buildDeliverFn(ctx: DeliveryContext): DeliverFn {
           }
         }
         if (opts.reactions?.length && ts) {
-          await addDeliveryReactions(ctx.client, ctx.targetChannel, ts, opts.reactions);
+          addDeliveryReactions(ctx.client, ctx.targetChannel, ts, opts.reactions).catch((err) =>
+            logger.warn(`addDeliveryReactions threw: ${err}`),
+          );
         }
         return { ok: true as const, ts };
       }
@@ -329,7 +319,9 @@ function buildDeliverFn(ctx: DeliveryContext): DeliverFn {
           ctx.alreadyDelivered = true;
           await sendResponseNotification(ctx);
           if (opts.reactions?.length && ts) {
-            await addDeliveryReactions(ctx.client, ctx.targetChannel, ts, opts.reactions);
+            addDeliveryReactions(ctx.client, ctx.targetChannel, ts, opts.reactions).catch((err) =>
+              logger.warn(`addDeliveryReactions threw: ${err}`),
+            );
           }
           return { ok: true as const, ts };
         }
@@ -346,7 +338,9 @@ function buildDeliverFn(ctx: DeliveryContext): DeliverFn {
       ts = result.ts;
       ctx.alreadyDelivered = true;
       if (opts.reactions?.length && ts) {
-        await addDeliveryReactions(ctx.client, ctx.targetChannel, ts, opts.reactions);
+        addDeliveryReactions(ctx.client, ctx.targetChannel, ts, opts.reactions).catch((err) =>
+          logger.warn(`addDeliveryReactions threw: ${err}`),
+        );
       }
       return { ok: true as const, ts };
     } catch (error) {
@@ -378,7 +372,9 @@ function buildDirectDeliverFn(ctx: DeliveryContext): DeliverFn {
         await ctx.deps.updateSession(ctx.session.sessionId, { responseTs: ts });
       }
       if (opts.reactions?.length && ts) {
-        await addDeliveryReactions(ctx.client, ctx.targetChannel, ts, opts.reactions);
+        addDeliveryReactions(ctx.client, ctx.targetChannel, ts, opts.reactions).catch((err) =>
+          logger.warn(`addDeliveryReactions threw: ${err}`),
+        );
       }
       return { ok: true as const, ts };
     } catch (error) {

@@ -138,7 +138,9 @@ export async function postAnswerToChannel(
 
   const reactions = opts.reactions ?? snapshot.reactions;
   if (ts && reactions && reactions.length > 0) {
-    await addDeliveryReactions(client, targetChannel, ts, reactions);
+    addDeliveryReactions(client, targetChannel, ts, reactions).catch((err) =>
+      logger.warn(`addDeliveryReactions threw: ${err}`),
+    );
   }
 
   return { ok: true, ts };

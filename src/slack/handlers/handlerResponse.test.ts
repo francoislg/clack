@@ -1175,6 +1175,17 @@ describe("executeAndDeliver — deliver function", () => {
 type DeliverOpts = { blocks: object[]; reactions?: string[] };
 type DeliverResult = Promise<{ ok: true; ts?: string } | { ok: false; error: string }>;
 
+async function waitForReactionAddCalls(
+  fn: { mock: { callCount(): number } },
+  expected: number,
+  timeoutMs = 2000,
+): Promise<void> {
+  const start = Date.now();
+  while (fn.mock.callCount() < expected && Date.now() - start < timeoutMs) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
 describe("executeAndDeliver — delivery reactions", () => {
   it("adds reactions after successful delivery via streamer", async () => {
     resetStreamerInstance({ messageTs: "1700000000.000100" });
@@ -1198,6 +1209,7 @@ describe("executeAndDeliver — delivery reactions", () => {
     });
 
     const reactionsAdd = mockReactionsAdd;
+    await waitForReactionAddCalls(reactionsAdd, 2);
     assert.equal(reactionsAdd.mock.callCount(), 2);
     const firstCall = reactionsAdd.mock.calls[0].arguments[0] as {
       name: string;
@@ -1237,6 +1249,7 @@ describe("executeAndDeliver — delivery reactions", () => {
     });
 
     const reactionsAdd = mockReactionsAdd;
+    await waitForReactionAddCalls(reactionsAdd, 1);
     assert.equal(reactionsAdd.mock.callCount(), 1);
     const call = reactionsAdd.mock.calls[0].arguments[0] as { name: string };
     assert.equal(call.name, "white_check_mark");

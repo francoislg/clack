@@ -1,0 +1,183 @@
+import { z } from "zod";
+import { tool } from "@anthropic-ai/claude-agent-sdk";
+import { textResult, errorResult } from "../../../../tools/helpers.js";
+import { getConfig, type Config } from "../../../../config.js";
+import { findCurrentSeason } from "../../core/seasonTimeline.js";
+import { getActiveChoiceBounds, resolveQuestionTypes } from "../../domain/questionTypes.js";
+import { resolveSlotCategories } from "../../domain/seasonFormat.js";
+import { weightedPick } from "../../domain/weightedPick.js";
+import { defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
+import { requireGame } from "../../core/gamesRegistry.js";
+import type { TriviaDataLayer, TriviaQuestionType } from "../../core/types.js";
+
+type SuggestedDifficulty = "Easy" | "Medium" | "Hard";
+
+function pickSuggestedDifficulty(): SuggestedDifficulty {
+  const r = Math.random();
+  if (r < 0.3) return "Easy";
+  if (r < 0.9) return "Medium";
+  return "Hard";
+}
+
+/** Inclusive uniform integer in `[min, max]`. */
+function randomIntInclusive(min: number, max: number): number {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+const DESCRIPTION = `Get 5 random trivia category suggestions (excluding recently used categories), plus server-rolled metadata the question-flow prompt must honor.
+
+Always returns:
+- \`format\`: \`{ slotCount, slots: [{ index, label?, categories }] }\` when the active season defines a \`format\` (multi-slot composition), else \`null\`. \`slots[i].categories\` is the slot's RESOLVED pool (slot.categories ?? season.categories).
+- \`slot\` (number): echoes the request's \`slot\` argument (default 0).
+- \`categories.ideas\`: 5 random categories drawn from the active source pool (slot's resolved pool when format is present, season's categories otherwise)
+- \`suggestedType\`: \`"boolean"\` or \`"choice"\` — picked from active questionsTypes weights (slot.questionTypes → season.questionTypes → config.trivia.questionsTypes → boolean default)
+- \`suggestedDifficulty\`: \`"Easy" | "Medium" | "Hard"\`
+
+When suggestedType is \`"boolean"\`, also returns:
+- \`suggestedAnswer\` (boolean): the truth value the statement MUST have
+
+When suggestedType is \`"choice"\`, also returns:
+- \`suggestedChoiceCount\` (integer in active [min, max]): the number of options
+- \`suggestedCorrectIndex\` (integer in [0, suggestedChoiceCount)): the 0-based index of the correct option
+
+Each call rolls suggestions independently — no caching across slot indices. When the active season has a \`format\`, loop slots 0..slotCount-1 with separate calls; do NOT pre-roll all slots up front.
+
+The type / answer / index rolls are server-side to prevent Claude from biasing the polarity, choice count, or correct position.`;
+
+export function createGetIdeasTool(
+  data: TriviaDataLayer,
+  getConfigFn: () => Config | null = () => {
+    try {
+      return getConfig();
+    } catch {
+      return null;
+    }
+  },
+  getGamesFn: GetGamesFn = defaultGetGames,
+) {
+  return tool(
+    "get_ideas",
+    DESCRIPTION,
+    {
+      game: z
+        .string()
+        .describe(
+          "Game name (must be present in config.trivia.games[]). Recent-category exclusion is scoped to this game's question history.",
+        ),
+      slot: z
+        .number()
+        .int()
+        .nonnegative()
+        .optional()
+        .describe(
+          "Slot index within the active season's format. Default 0. When the active season has no format, only 0 is permitted. When format is present, must be in [0, slotCount).",
+        ),
+    },
+    async (args) => {
+      try {
+        requireGame(getGamesFn(), args.game);
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : String(err));
+      }
+
+      const scoped = data.forGame(args.game);
+      const config = getConfigFn();
+      const now = Date.now();
+      const slotArg = args.slot ?? 0;
+
+      const seasonsState = await scoped.loadSeasonsState();
+      const currentSeasonEntry = findCurrentSeason(seasonsState, now);
+
+      const seasonFormat = currentSeasonEntry?.format;
+      if (seasonFormat !== undefined) {
+        if (slotArg < 0 || slotArg >= seasonFormat.questions.length) {
+          return errorResult(
+            `slot index ${slotArg} out of range — active season "${currentSeasonEntry?.slug}" has ${seasonFormat.questions.length} slot(s).`,
+          );
+        }
+      } else if (slotArg !== 0) {
+        return errorResult(
+          "season has no format — slot argument must be 0 (or omitted) for the single-question flow.",
+        );
+      }
+
+      const seasonCategories =
+        currentSeasonEntry !== null ? currentSeasonEntry.categories : await data.loadCategories();
+      const slotCategories =
+        seasonFormat !== undefined
+          ? resolveSlotCategories(seasonFormat.questions[slotArg], seasonCategories)
+          : seasonCategories;
+
+      const allQuestions = await scoped.loadQuestions();
+      const questions =
+        currentSeasonEntry !== null
+          ? allQuestions.filter((q) => q.season === currentSeasonEntry.slug)
+          : allQuestions;
+
+      const exclusionWindow = Math.min(10, Math.floor(slotCategories.length / 3));
+      const recentCategories = new Set(
+        questions.slice(-exclusionWindow).map((q) => q.category.toLowerCase()),
+      );
+
+      const available = slotCategories.filter((c) => !recentCategories.has(c.toLowerCase()));
+
+      const pool = [...available];
+      const ideas: string[] = [];
+      const count = Math.min(5, pool.length);
+      for (let i = 0; i < count; i++) {
+        const idx = Math.floor(Math.random() * pool.length);
+        ideas.push(pool[idx]);
+        pool.splice(idx, 1);
+      }
+
+      const formatMeta =
+        seasonFormat !== undefined
+          ? {
+              slotCount: seasonFormat.questions.length,
+              slots: seasonFormat.questions.map((q, i) => ({
+                index: i,
+                ...(q.label !== undefined ? { label: q.label } : {}),
+                categories: resolveSlotCategories(q, seasonCategories),
+              })),
+            }
+          : null;
+
+      const weights = resolveQuestionTypes(
+        currentSeasonEntry,
+        seasonFormat !== undefined ? slotArg : null,
+        config,
+      );
+      const picked: TriviaQuestionType = weightedPick(weights) ?? "boolean";
+
+      const suggestedDifficulty = pickSuggestedDifficulty();
+
+      const base = {
+        format: formatMeta,
+        slot: slotArg,
+        categories: {
+          ideas,
+          total: slotCategories.length,
+          excluded: recentCategories.size,
+        },
+        suggestedType: picked,
+        suggestedDifficulty,
+      };
+
+      if (picked === "choice") {
+        const bounds = config !== null ? getActiveChoiceBounds(config) : { min: 2, max: 4 };
+        const suggestedChoiceCount = randomIntInclusive(bounds.min, bounds.max);
+        const suggestedCorrectIndex = randomIntInclusive(0, suggestedChoiceCount - 1);
+        return textResult({
+          ...base,
+          suggestedChoiceCount,
+          suggestedCorrectIndex,
+        });
+      }
+
+      return textResult({
+        ...base,
+        suggestedAnswer: Math.random() < 0.5,
+      });
+    },
+  );
+}

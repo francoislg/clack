@@ -1,27 +1,29 @@
 import type { ClackSdk, ClackPlugin } from "../sdk.js";
 import { getConfig, type TriviaGame, type OffDay } from "../../config.js";
 import { logger } from "../../logger.js";
-import { createSdkDataLayer } from "./data.js";
-import { SEED_CATEGORIES } from "./seedCategories.js";
-import { createAddCategoriesTool } from "./addCategories.js";
-import { createRemoveCategoriesTool } from "./removeCategories.js";
-import { createGetIdeasTool } from "./getIdeas.js";
-import { createSaveQuestionTool } from "./saveQuestion.js";
-import { createFindPreviousQuestionsTool } from "./findPreviousQuestions.js";
-import { createGetQuestionHistoryTool } from "./getQuestionHistory.js";
-import { createSubmitAnswersTool } from "./submitAnswers.js";
-import { createRetrieveScoresTool } from "./retrieveScores.js";
-import { createSaveCheatingTool } from "./saveCheating.js";
-import { createListGamesTool } from "./listGames.js";
-import { createCheckSeasonStatusTool } from "./checkSeasonStatus.js";
-import { createUpsertSeasonTool } from "./upsertSeason.js";
-import { createDeleteSeasonTool } from "./deleteSeason.js";
-import { createListSeasonsTool } from "./listSeasons.js";
+import { createSdkDataLayer } from "./core/dataLayer.js";
+import { SEED_CATEGORIES } from "./core/seedCategories.js";
+import { createAddCategoriesTool } from "./tools/categories/addCategories.js";
+import { createRemoveCategoriesTool } from "./tools/categories/removeCategories.js";
+import { createGetIdeasTool } from "./tools/questions/getIdeas.js";
+import { createSaveQuestionTool } from "./tools/questions/saveQuestion.js";
+import { createPostQuestionsTool } from "./tools/questions/postQuestions.js";
+import { createFindPreviousQuestionsTool } from "./tools/questions/findPreviousQuestions.js";
+import { createGetQuestionHistoryTool } from "./tools/questions/getQuestionHistory.js";
+import { createSubmitAnswersTool } from "./tools/answers/submitAnswers.js";
+import { createRetrieveScoresTool } from "./tools/answers/retrieveScores.js";
+import { createSaveCheatingTool } from "./tools/answers/saveCheating.js";
+import { createListGamesTool } from "./tools/games/listGames.js";
+import { createCheckSeasonStatusTool } from "./tools/seasons/checkSeasonStatus.js";
+import { createUpsertSeasonTool } from "./tools/seasons/upsertSeason.js";
+import { createDeleteSeasonTool } from "./tools/seasons/deleteSeason.js";
+import { createListSeasonsTool } from "./tools/seasons/listSeasons.js";
+import { createProcessRevealAnswersTool } from "./tools/reveal/processRevealAnswers.js";
 import {
   getTriviaCheckInstruction,
   TRIVIA_GAMES_ADMIN_INSTRUCTION,
-} from "./triviaCheckInstruction.js";
-import { buildGameSpecs } from "./buildGameSpecs.js";
+} from "./prompts/triviaCheckInstruction.js";
+import { buildGameSpecs } from "./domain/buildGameSpecs.js";
 
 function isSeasonsEnabled(): boolean {
   try {
@@ -67,6 +69,7 @@ export const triviaPlugin: ClackPlugin = async (sdk: ClackSdk) => {
     createSaveQuestionTool(data),
     "Saving trivia question — {game}/{category}",
   );
+  sdk.registerTool("admin", createPostQuestionsTool(data, sdk), "Posting trivia question — {game}");
   sdk.registerTool(
     "member",
     createFindPreviousQuestionsTool(data),
@@ -78,6 +81,11 @@ export const triviaPlugin: ClackPlugin = async (sdk: ClackSdk) => {
     "Loading trivia question history — {game}",
   );
   sdk.registerTool("admin", createSubmitAnswersTool(data), "Submitting trivia answers — {game}");
+  sdk.registerTool(
+    "admin",
+    createProcessRevealAnswersTool(data, sdk),
+    "Processing trivia reveal — {game}",
+  );
   sdk.registerTool("member", createRetrieveScoresTool(data), "Retrieving trivia scores — {game}");
   sdk.registerTool("member", createListGamesTool(), "Listing trivia games");
 
@@ -122,7 +130,7 @@ export const triviaPlugin: ClackPlugin = async (sdk: ClackSdk) => {
   } catch {
     // Config not loaded (tests): leave games empty so reconcile is a no-op.
   }
-  const specs = buildGameSpecs(games, seasonsEnabled, offDays);
+  const specs = buildGameSpecs(games, offDays);
   await sdk.reconcileCronJobs("trivia", specs);
   if (games.length > 0) {
     logger.info(

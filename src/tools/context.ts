@@ -21,6 +21,16 @@ export interface BuildQueryContextParams {
   requiredTools?: string[];
   skipConditions?: string;
   /**
+   * Declarative override of `submit_response` schema/gating behavior. Propagated to the tool
+   * server when building `submit_response`. See `CronJob.submitResponseMode` for the contract.
+   */
+  submitResponseMode?: "always" | "optional" | "skipped";
+  /**
+   * Effective "now" for time-sensitive tools. Populated by the cron scheduler during replay
+   * runs. Real wall-clock `Date.now()` is used by tools when absent.
+   */
+  asOf?: Date;
+  /**
    * MCP server lifecycle manager for this session. Owns session-start servers,
    * attached servers, and the effective registry; guarantees the merge invariant
    * on every `setMcpServers` call. Bound to the SDK Query by the orchestrator.

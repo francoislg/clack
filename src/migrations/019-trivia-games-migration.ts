@@ -19,6 +19,14 @@ import { logger } from "../logger.js";
  *      c. Otherwise, a fallback `initialgame` entry with placeholder cron
  *         expressions and `enabled: false`. The operator renames + enables.
  *
+ *    During the move, `questions.json` is rewritten to stamp `processedAt =
+ *    postedAt` on every entry that has `postedAt` set but no `processedAt`. This
+ *    back-fills the new `processedAt` marker on legacy questions so the
+ *    `process_reveal_answers` tool's default mode doesn't treat already-revealed
+ *    questions as pending. Entries with no `postedAt` (never posted to Slack)
+ *    are left untouched. Other moved files (answers, cheats, seasons) are
+ *    copied byte-for-byte.
+ *
  * Idempotent: once any per-game data file exists under `games/<name>/`, the
  * data-move step is a no-op. Once the dispatcher cron jobs are gone, step 1 is
  * a no-op.
@@ -74,6 +82,56 @@ interface ConfigShape {
 
 const QUESTION_DISPATCHER_RE = /Call\s+send_questions_instructions\s+and\s+follow/i;
 const REVEAL_DISPATCHER_RE = /Call\s+process_responses_instructions\s+and\s+follow/i;
+
+/**
+ * Migration-local shape: a question row may have any number of extra fields
+ * we don't care about; we only read/write `postedAt` and `processedAt`.
+ */
+interface QuestionRowWithTimestamps {
+  postedAt?: number;
+  processedAt?: number;
+  [key: string]: number | string | boolean | string[] | undefined;
+}
+
+function hasPostedAtNumber(
+  value: unknown,
+): value is QuestionRowWithTimestamps & { postedAt: number } {
+  if (typeof value !== "object" || value === null) return false;
+  if (!("postedAt" in value)) return false;
+  const candidate: { postedAt: unknown } = value as { postedAt: unknown };
+  return typeof candidate.postedAt === "number";
+}
+
+function hasProcessedAtNumber(value: object): boolean {
+  if (!("processedAt" in value)) return false;
+  const candidate: { processedAt: unknown } = value as { processedAt: unknown };
+  return typeof candidate.processedAt === "number";
+}
+
+/**
+ * Stamp `processedAt = postedAt` on every entry that has `postedAt` set but no
+ * `processedAt`. Pure function; returns the new content string. Unknown extra
+ * fields on each entry are preserved.
+ */
+function backfillProcessedAt(content: string): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    // Malformed — return the original bytes unchanged. The operator deals with it later.
+    return content;
+  }
+  if (!Array.isArray(parsed)) return content;
+  let mutated = false;
+  const out = parsed.map((entry: unknown) => {
+    if (!hasPostedAtNumber(entry)) return entry;
+    if (hasProcessedAtNumber(entry)) return entry;
+    mutated = true;
+    return { ...entry, processedAt: entry.postedAt };
+  });
+  if (!mutated) return content;
+  return JSON.stringify(out, null, 2) + (content.endsWith("\n") ? "\n" : "");
+}
 
 const FALLBACK_GAME_NAME = "initialgame";
 const PLUGIN_TRIVIA = "data/plugins/trivia";
@@ -241,7 +299,9 @@ export const migration: Migration = {
         const dstPath = `${PLUGIN_TRIVIA}/games/${dataTargetName}/${file}`;
         const content = files[srcPath];
         if (content === null) continue;
-        movedFiles[dstPath] = content;
+        // For questions.json, back-fill processedAt = postedAt during the move so legacy
+        // already-revealed questions aren't picked up as pending by process_reveal_answers.
+        movedFiles[dstPath] = file === "questions.json" ? backfillProcessedAt(content) : content;
         movedFiles[srcPath] = { delete: true };
       }
     }

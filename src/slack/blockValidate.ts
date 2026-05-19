@@ -179,6 +179,8 @@ export function validateTable(
     });
   }
 
+  const firstRowWidth = rows[0]?.length ?? 0;
+
   rows.forEach((row, ri) => {
     if (row.length > TABLE_MAX_CELLS_PER_ROW) {
       errors.push({
@@ -186,6 +188,18 @@ export function validateTable(
         message: `${pathPrefix} row ${ri} has ${row.length} cells, exceeding the ${TABLE_MAX_CELLS_PER_ROW}-cell limit.`,
         currentLength: row.length,
         limit: TABLE_MAX_CELLS_PER_ROW,
+      });
+    }
+    // Why: Slack renders ragged rows as a visually broken table (cells shift
+    // columns, scores misalign with names). The most common authoring mistake
+    // is forgetting the empty top-left label cell on row 1 of a 3-row
+    // leaderboard. Reject and name the offending row so the model fixes it.
+    if (ri > 0 && row.length !== firstRowWidth) {
+      errors.push({
+        field: `${pathPrefix}.rows[${ri}]`,
+        message: `${pathPrefix} row ${ri} has ${row.length} cells but row 0 has ${firstRowWidth}. All rows must have the same number of cells — pad with empty strings if a header/label cell is missing.`,
+        currentLength: row.length,
+        limit: firstRowWidth,
       });
     }
     row.forEach((cell, ci) => {
@@ -201,13 +215,28 @@ export function validateTable(
     });
   });
 
-  if (block.column_settings && block.column_settings.length > TABLE_MAX_COLUMN_SETTINGS) {
-    errors.push({
-      field: `${pathPrefix}.column_settings`,
-      message: `${pathPrefix} column_settings has ${block.column_settings.length} entries, exceeding the ${TABLE_MAX_COLUMN_SETTINGS}-entry limit.`,
-      currentLength: block.column_settings.length,
-      limit: TABLE_MAX_COLUMN_SETTINGS,
-    });
+  if (block.column_settings) {
+    if (block.column_settings.length > TABLE_MAX_COLUMN_SETTINGS) {
+      errors.push({
+        field: `${pathPrefix}.column_settings`,
+        message: `${pathPrefix} column_settings has ${block.column_settings.length} entries, exceeding the ${TABLE_MAX_COLUMN_SETTINGS}-entry limit.`,
+        currentLength: block.column_settings.length,
+        limit: TABLE_MAX_COLUMN_SETTINGS,
+      });
+    }
+    // Why: Slack pairs column_settings by index; a mismatch silently drops the
+    // alignment on extra/missing columns. Fail loudly so the model fixes it.
+    if (
+      block.column_settings.length !== firstRowWidth &&
+      block.column_settings.length <= TABLE_MAX_COLUMN_SETTINGS
+    ) {
+      errors.push({
+        field: `${pathPrefix}.column_settings`,
+        message: `${pathPrefix} column_settings has ${block.column_settings.length} entries but the table has ${firstRowWidth} columns. Provide one entry per column or omit column_settings entirely.`,
+        currentLength: block.column_settings.length,
+        limit: firstRowWidth,
+      });
+    }
   }
 
   return errors;

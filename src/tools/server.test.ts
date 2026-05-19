@@ -405,6 +405,33 @@ describe("computeAllowSkip", () => {
     assert.equal(computeAllowSkip("directMessages", "Skip if X"), false);
     assert.equal(computeAllowSkip("reactions", "Skip if X"), false);
   });
+
+  it('submitResponseMode "always" denies skip regardless of trigger or skipConditions', () => {
+    assert.equal(computeAllowSkip("autoRespond", undefined, "always"), false);
+    assert.equal(computeAllowSkip("scheduled", "Skip if X", "always"), false);
+    assert.equal(computeAllowSkip("threadReply", undefined, "always"), false);
+  });
+
+  it('submitResponseMode "optional" allows skip regardless of trigger or skipConditions', () => {
+    assert.equal(computeAllowSkip("scheduled", undefined, "optional"), true);
+    assert.equal(computeAllowSkip("scheduled", "", "optional"), true);
+    assert.equal(computeAllowSkip("mentions", undefined, "optional"), true);
+    assert.equal(computeAllowSkip("directMessages", undefined, "optional"), true);
+  });
+
+  it('submitResponseMode "skipped" returns allowSkip=true (the variant-selection handles strictness)', () => {
+    assert.equal(computeAllowSkip("scheduled", undefined, "skipped"), true);
+    assert.equal(computeAllowSkip("scheduled", "Skip if X", "skipped"), true);
+    assert.equal(computeAllowSkip("autoRespond", undefined, "skipped"), true);
+  });
+
+  it("unset submitResponseMode preserves today's auto-derivation", () => {
+    // Same expectations as before — mode unset must be byte-identical to the pre-change behavior
+    assert.equal(computeAllowSkip("autoRespond"), true);
+    assert.equal(computeAllowSkip("scheduled", "Skip if X"), true);
+    assert.equal(computeAllowSkip("scheduled"), false);
+    assert.equal(computeAllowSkip("reactions"), false);
+  });
 });
 
 describe("shouldAllowDisengage", () => {

@@ -300,8 +300,10 @@ export async function executeDynamicJob(
     additionalSystemPrompt: await buildAdditionalSystemPrompt(job, asOf),
     requiredTools: job.requiredTools,
     skipConditions: job.skipConditions,
+    submitResponseMode: job.submitResponseMode,
     jobId: job.id,
     roleOverride: actor.kind === "system" ? "system" : undefined,
+    asOf,
   });
 
   if (response.skipped) {

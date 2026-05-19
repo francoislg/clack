@@ -781,4 +781,67 @@ describe("buildPrompt", () => {
       );
     });
   });
+
+  // ---- submitResponseMode: "skipped" run-terminator hint ----
+  describe("submitResponseMode 'skipped' hint", () => {
+    it("renders the run-terminator hint for scheduled runs with mode 'skipped'", () => {
+      const session = makeSession({ triggerType: "scheduled" });
+      const prompt = buildPrompt(session, { submitResponseMode: "skipped" });
+
+      assert.ok(prompt.includes("RUN TERMINATOR"));
+      assert.ok(prompt.includes("skip_response: true"));
+      assert.ok(prompt.includes("rejects every other field"));
+    });
+
+    it("suppresses the SKIP EVALUATION block when mode is 'skipped' (even if skipConditions is set)", () => {
+      const session = makeSession({ triggerType: "scheduled" });
+      const prompt = buildPrompt(session, {
+        skipConditions: "Skip if no PRs were merged in the last 24 hours.",
+        submitResponseMode: "skipped",
+      });
+
+      assert.ok(prompt.includes("RUN TERMINATOR"));
+      assert.ok(
+        !prompt.includes("SKIP EVALUATION"),
+        "the strict-skip semantic forces a skip regardless of conditions — the pre-check would be misleading",
+      );
+    });
+
+    it("does NOT render the terminator hint for mode 'always'", () => {
+      const session = makeSession({ triggerType: "scheduled" });
+      const prompt = buildPrompt(session, { submitResponseMode: "always" });
+      assert.ok(!prompt.includes("RUN TERMINATOR"));
+    });
+
+    it("does NOT render the terminator hint for mode 'optional'", () => {
+      const session = makeSession({ triggerType: "scheduled" });
+      const prompt = buildPrompt(session, { submitResponseMode: "optional" });
+      assert.ok(!prompt.includes("RUN TERMINATOR"));
+    });
+
+    it("does NOT render the terminator hint when mode is unset", () => {
+      const session = makeSession({ triggerType: "scheduled" });
+      const prompt = buildPrompt(session);
+      assert.ok(!prompt.includes("RUN TERMINATOR"));
+    });
+
+    it("does NOT render the terminator hint for non-scheduled triggers", () => {
+      const session = makeSession({ triggerType: "mentions" });
+      const prompt = buildPrompt(session, { submitResponseMode: "skipped" });
+      assert.ok(
+        !prompt.includes("RUN TERMINATOR"),
+        "submitResponseMode lives on cron jobs — only scheduled triggers should see this hint",
+      );
+    });
+
+    it("'optional' mode still renders SKIP EVALUATION when skipConditions is set", () => {
+      const session = makeSession({ triggerType: "scheduled" });
+      const prompt = buildPrompt(session, {
+        skipConditions: "Skip on weekends.",
+        submitResponseMode: "optional",
+      });
+      assert.ok(prompt.includes("SKIP EVALUATION"));
+      assert.ok(!prompt.includes("RUN TERMINATOR"));
+    });
+  });
 });

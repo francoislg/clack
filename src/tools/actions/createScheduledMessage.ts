@@ -123,6 +123,18 @@ export function createCreateScheduledMessageTool(
             "the scheduled task's relevance depends on external state (e.g., 'Skip if no PRs " +
             "were merged in the last 24 hours.'). Written in plain language; evaluated by Claude.",
         ),
+      submitResponseMode: z
+        .enum(["always", "optional", "skipped"])
+        .optional()
+        .describe(
+          "Declarative override of how `submit_response` behaves for this run. " +
+            '`"always"` (default-equivalent): the run must deliver a response — no skip. ' +
+            '`"optional"`: the run may decline via `submit_response({ skip_response: true })`. ' +
+            '`"skipped"`: the run MUST decline — `submit_response` accepts ONLY `{ skip_response: true }` ' +
+            'and rejects every other field. Use `"skipped"` when the run\'s actual deliverable is produced ' +
+            "by another required tool (e.g. a plugin's posting tool) and `submit_response` is purely " +
+            "a run terminator. Omit to let today's auto-derivation rules apply.",
+        ),
     },
     async (args) => {
       if (!ctx.slackClient) {
@@ -172,6 +184,7 @@ export function createCreateScheduledMessageTool(
           requiredTools: args.requiredTools,
           plugin: args.plugin,
           skipConditions: args.skipConditions,
+          submitResponseMode: args.submitResponseMode,
         });
 
         const schedule = humanReadableSchedule(cronExpression, args.timezone);
@@ -185,6 +198,7 @@ export function createCreateScheduledMessageTool(
           nextRun,
           type: "dynamic",
           oneShot: args.oneShot ?? false,
+          ...(args.submitResponseMode ? { submitResponseMode: args.submitResponseMode } : {}),
         });
       } catch (error) {
         logger.error("Failed to create scheduled message:", error);

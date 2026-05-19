@@ -238,6 +238,7 @@ describe("ClackSdk", () => {
       enabled: boolean;
       requiredTools?: string[];
       skipConditions?: string;
+      submitResponseMode?: "always" | "optional" | "skipped";
       skipDates?: Array<{ date: string; label: string }>;
       runs?: Array<{ executedAt: string; status: "success" | "error" | "skipped" }>;
       lastRunAt?: string;
@@ -274,6 +275,7 @@ describe("ClackSdk", () => {
               specKey: j.specKey,
               requiredTools: j.requiredTools,
               skipConditions: j.skipConditions,
+              submitResponseMode: j.submitResponseMode,
               skipDates: j.skipDates,
               runs: j.runs,
               lastRunAt: j.lastRunAt,
@@ -295,6 +297,7 @@ describe("ClackSdk", () => {
             specKey: params.specKey,
             requiredTools: params.requiredTools,
             skipConditions: params.skipConditions,
+            submitResponseMode: params.submitResponseMode,
             skipDates: params.skipDates,
           };
           jobs.push(job);
@@ -327,6 +330,10 @@ describe("ClackSdk", () => {
           if (updates.skipConditions !== undefined) {
             job.skipConditions =
               updates.skipConditions.length > 0 ? updates.skipConditions : undefined;
+          }
+          if (updates.submitResponseMode !== undefined) {
+            job.submitResponseMode =
+              updates.submitResponseMode === null ? undefined : updates.submitResponseMode;
           }
           if (updates.skipDates !== undefined) {
             job.skipDates = updates.skipDates.length > 0 ? updates.skipDates : undefined;
@@ -565,6 +572,49 @@ describe("ClackSdk", () => {
 
         await sdk.reconcileCronJobs("trivia", [validSpec]);
         assert.equal(store.jobs[0].skipDates, undefined);
+      });
+    });
+
+    describe("submitResponseMode propagation", () => {
+      it("persists submitResponseMode through createJob when the spec sets it", async () => {
+        const store = makeFakeStore();
+        const { sdk } = makeSdk("trivia", store.deps);
+
+        await sdk.reconcileCronJobs("trivia", [{ ...validSpec, submitResponseMode: "skipped" }]);
+
+        assert.equal(store.jobs.length, 1);
+        assert.equal(store.jobs[0].submitResponseMode, "skipped");
+      });
+
+      it("omits submitResponseMode when the spec does not set it", async () => {
+        const store = makeFakeStore();
+        const { sdk } = makeSdk("trivia", store.deps);
+
+        await sdk.reconcileCronJobs("trivia", [validSpec]);
+
+        assert.equal(store.jobs[0].submitResponseMode, undefined);
+      });
+
+      it("updates submitResponseMode in place when the spec changes the value", async () => {
+        const store = makeFakeStore();
+        const { sdk } = makeSdk("trivia", store.deps);
+
+        await sdk.reconcileCronJobs("trivia", [{ ...validSpec, submitResponseMode: "always" }]);
+        assert.equal(store.jobs[0].submitResponseMode, "always");
+
+        await sdk.reconcileCronJobs("trivia", [{ ...validSpec, submitResponseMode: "skipped" }]);
+        assert.equal(store.jobs[0].submitResponseMode, "skipped");
+      });
+
+      it("clears submitResponseMode when a subsequent spec omits it", async () => {
+        const store = makeFakeStore();
+        const { sdk } = makeSdk("trivia", store.deps);
+
+        await sdk.reconcileCronJobs("trivia", [{ ...validSpec, submitResponseMode: "skipped" }]);
+        assert.equal(store.jobs[0].submitResponseMode, "skipped");
+
+        await sdk.reconcileCronJobs("trivia", [validSpec]);
+        assert.equal(store.jobs[0].submitResponseMode, undefined);
       });
     });
   });

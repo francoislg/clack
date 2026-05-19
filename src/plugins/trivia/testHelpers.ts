@@ -7,8 +7,8 @@ import type {
   SeasonsState,
   TriviaDataLayer,
   ScopedTriviaDataLayer,
-} from "./types.js";
-import { findCurrentSeason } from "./data.js";
+} from "./core/types.js";
+import { findCurrentSeason } from "./core/seasonTimeline.js";
 
 /** Conventional fixture name used throughout the trivia test suite. */
 export const FIXTURE_GAME_NAME = "main";
@@ -86,6 +86,11 @@ export function createInMemoryDataLayer(): TriviaDataLayer {
       },
       async saveAnswer(a) {
         cell.answers.push(a);
+      },
+      async deleteAnswersForQuestion(questionId) {
+        const before = cell.answers.length;
+        cell.answers = cell.answers.filter((a) => a.questionId !== questionId);
+        return before - cell.answers.length;
       },
       async loadCheats() {
         return [...cell.cheats];

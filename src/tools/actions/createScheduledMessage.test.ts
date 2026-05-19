@@ -61,6 +61,7 @@ interface CallArgs {
   dayOfWeek?: string;
   timezone?: string;
   skipConditions?: string;
+  submitResponseMode?: "always" | "optional" | "skipped";
 }
 
 type CreateTool = ReturnType<typeof createCreateScheduledMessageTool>;
@@ -78,6 +79,7 @@ function callHandler(tool: CreateTool, args: CallArgs) {
       requiredTools: undefined,
       plugin: undefined,
       skipConditions: undefined,
+      submitResponseMode: undefined,
       ...args,
     },
     { sessionId: "test" },
@@ -291,6 +293,7 @@ describe("createScheduledMessage tool", () => {
         oneShot: undefined,
         plugin: undefined,
         skipConditions: undefined,
+        submitResponseMode: undefined,
       },
       { sessionId: "test" },
     );
@@ -321,6 +324,7 @@ describe("createScheduledMessage tool", () => {
         oneShot: undefined,
         plugin: undefined,
         skipConditions: undefined,
+        submitResponseMode: undefined,
       },
       { sessionId: "test" },
     );
@@ -361,5 +365,37 @@ describe("createScheduledMessage tool", () => {
 
     const jobs = await getJobs();
     assert.equal(jobs[0].skipConditions, undefined);
+  });
+
+  it("persists submitResponseMode when supplied", async () => {
+    const ctx = buildCtx();
+    const deps = makeDeps();
+    const tool = createCreateScheduledMessageTool(ctx, deps);
+    const result = await callHandler(tool, {
+      channel: "C456",
+      prompt: "post a thing",
+      submitResponseMode: "skipped",
+    });
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.ok, true);
+    assert.equal(parsed.submitResponseMode, "skipped");
+
+    const jobs = await getJobs();
+    assert.equal(jobs.length, 1);
+    assert.equal(jobs[0].submitResponseMode, "skipped");
+  });
+
+  it("omits submitResponseMode from the saved record when not supplied", async () => {
+    const ctx = buildCtx();
+    const deps = makeDeps();
+    const tool = createCreateScheduledMessageTool(ctx, deps);
+    await callHandler(tool, {
+      channel: "C456",
+      prompt: "default mode",
+    });
+
+    const jobs = await getJobs();
+    assert.equal(jobs[0].submitResponseMode, undefined);
   });
 });

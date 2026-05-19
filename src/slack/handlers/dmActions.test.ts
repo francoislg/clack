@@ -7,6 +7,22 @@ import type { SessionInfo } from "../activeSessions.js";
 import type { DmActionsDeps } from "./dmActions.js";
 import { postAnswerToChannel, resolveOrigin, registerDmActionHandlers } from "./dmActions.js";
 
+/**
+ * Polls `calls.length` until it reaches `expected` or the timeout elapses.
+ * Used by tests covering fire-and-forget `addDeliveryReactions` — the helper has
+ * a 150ms delay between adds, so tests can't assert call count synchronously.
+ */
+async function waitForReactionCalls(
+  calls: { name: string }[],
+  expected: number,
+  timeoutMs = 2000,
+): Promise<void> {
+  const start = Date.now();
+  while (calls.length < expected && Date.now() - start < timeoutMs) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
 // ============================================================================
 // Type definitions for mocks
 // ============================================================================
@@ -224,6 +240,9 @@ describe("postAnswerToChannel", () => {
       reactions: ["white_check_mark", "thumbsup"],
     });
 
+    // addDeliveryReactions is fire-and-forget with a 150ms delay between calls.
+    await waitForReactionCalls(calls, 2);
+
     assert.equal(calls.length, 2);
     assert.deepEqual(
       calls.map((c) => c.name),
@@ -240,6 +259,8 @@ describe("postAnswerToChannel", () => {
 
     const snapshot = makeSnapshot({ reactions: ["eyes"] });
     await postAnswerToChannel(client, snapshot, "C100", undefined, deps);
+
+    await waitForReactionCalls(calls, 1);
 
     assert.deepEqual(
       calls.map((c) => c.name),

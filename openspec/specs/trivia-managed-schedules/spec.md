@@ -1,19 +1,22 @@
 # trivia-managed-schedules Specification
 
 ## Purpose
+
 TBD - created by archiving change add-trivia-games. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Trivia Games Config Schema
 
 The system SHALL accept an optional `trivia.games: TriviaGame[]` array in `data/config.json`. Each entry declares one trivia game with its own channel and two schedules (question + reveal):
 
 ```ts
 interface TriviaGame {
-  name: string;              // unique identifier within games[], used in specKey
-  channel: string;           // Slack channel ID (C…/G…/D…)
-  questionCron: string;      // cron expression for question posting
-  revealCron: string;        // cron expression for answer reveal
-  timezone: string;          // IANA timezone (e.g., "America/Montreal")
+  name: string; // unique identifier within games[], used in specKey
+  channel: string; // Slack channel ID (C…/G…/D…)
+  questionCron: string; // cron expression for question posting
+  revealCron: string; // cron expression for answer reveal
+  timezone: string; // IANA timezone (e.g., "America/Montreal")
 }
 ```
 
@@ -81,7 +84,7 @@ The trivia plugin's init function SHALL read `config.trivia.games[]` on every in
 - **AND** the question spec's `cronExpression === "0 9 * * 1-5"`
 - **AND** the reveal spec's `cronExpression === "0 15 * * 1-5"`
 - **AND** the question spec's `prompt` includes the boolean and choice path text from `SEND_QUESTIONS_INSTRUCTIONS`
-- **AND** the reveal spec's `prompt` matches `getProcessResponsesInstructions(seasonsEnabled)`
+- **AND** the reveal spec's `prompt` matches `PROCESS_REVEAL_INSTRUCTIONS` with `{game}` substituted to `"ops"`
 
 #### Scenario: Multi-game produces 2N specs
 
@@ -91,25 +94,34 @@ The trivia plugin's init function SHALL read `config.trivia.games[]` on every in
 
 ### Requirement: Required Tools Derive From Seasons Gate
 
-For each game's two specs, the `requiredTools` array SHALL be derived from the workspace `trivia.seasons.enabled` flag at reconcile time:
+For each game's two specs, the `requiredTools` array SHALL be:
 
-- **Question spec** `requiredTools`: `["mcp__trivia__get_ideas", "mcp__trivia__find_previous_questions", "mcp__trivia__save_question"]` (independent of seasons).
-- **Reveal spec** `requiredTools`: `["mcp__clack__fetch_channel_messages", "mcp__trivia__find_previous_questions", "mcp__trivia__get_question_history", "mcp__trivia__submit_answers", "mcp__trivia__retrieve_scores"]`. When `trivia.seasons.enabled === true`, ALSO append `"mcp__trivia__check_season_status"`.
+- **Question spec** `requiredTools`: `["mcp__trivia__get_ideas", "mcp__trivia__find_previous_questions", "mcp__trivia__save_question", "mcp__trivia__post_questions"]`. The `post_questions` entry ensures the cron run cannot terminate without having dispatched the question to Slack and stamped its `postedAt`/`messageLink` on the question record. The list is independent of seasons.
+- **Reveal spec** `requiredTools`: `["mcp__trivia__process_reveal_answers"]` — a single-tool list. The reveal job's only hot-path tool is the `process_reveal_answers` tool, which internally absorbs the deterministic work previously performed by `fetch_channel_messages`, `find_previous_questions`, `get_question_history`, `submit_answers`, `retrieve_scores`, and `check_season_status`.
 
-`mcp__trivia__upsert_season` and `mcp__trivia__delete_season` SHALL NOT appear in `requiredTools` even when seasons are enabled — they are conditionally called (end-of-season rollover, admin retraction) and would block every other day's reveal if required.
+The reveal spec's `requiredTools` list SHALL NOT vary with `trivia.seasons.enabled`. Seasons-specific behavior (the `seasonStatus` field, season rollover) lives inside `process_reveal_answers`. Neither `mcp__trivia__check_season_status` nor `mcp__trivia__upsert_season` nor `mcp__trivia__delete_season` SHALL appear in the reveal spec's `requiredTools` — they are not invoked by the reveal hot path under any seasons configuration.
 
-#### Scenario: Reveal spec omits check_season_status when seasons disabled
+#### Scenario: Question spec requiredTools includes post_questions
+
+- **GIVEN** `buildGameSpecs(games, ...)` is called
+- **WHEN** the resulting `<name>:question` spec is inspected
+- **THEN** `requiredTools` includes `mcp__trivia__post_questions` alongside `mcp__trivia__get_ideas`, `mcp__trivia__find_previous_questions`, and `mcp__trivia__save_question`
+- **AND** the list is the same regardless of `trivia.seasons.enabled`
+
+#### Scenario: Reveal spec requiredTools is the single-tool list when seasons are disabled
 
 - **GIVEN** `config.trivia.seasons.enabled === false` (or absent)
 - **WHEN** the trivia plugin builds the reveal spec for any game
-- **THEN** the spec's `requiredTools` does NOT include `"mcp__trivia__check_season_status"`
+- **THEN** the spec's `requiredTools` equals `["mcp__trivia__process_reveal_answers"]`
+- **AND** does NOT include `mcp__clack__fetch_channel_messages`, `mcp__trivia__find_previous_questions`, `mcp__trivia__get_question_history`, `mcp__trivia__submit_answers`, `mcp__trivia__retrieve_scores`, or `mcp__trivia__post_questions`
 
-#### Scenario: Reveal spec includes check_season_status when seasons enabled
+#### Scenario: Reveal spec requiredTools is the same single-tool list when seasons are enabled
 
 - **GIVEN** `config.trivia.seasons.enabled === true`
 - **WHEN** the trivia plugin builds the reveal spec for any game
-- **THEN** the spec's `requiredTools` includes `"mcp__trivia__check_season_status"`
-- **AND** does NOT include `"mcp__trivia__upsert_season"` or `"mcp__trivia__delete_season"`
+- **THEN** the spec's `requiredTools` equals `["mcp__trivia__process_reveal_answers"]`
+- **AND** the list is byte-identical to the seasons-disabled case
+- **AND** does NOT include `mcp__trivia__check_season_status`, `mcp__trivia__upsert_season`, `mcp__trivia__delete_season`, or `mcp__trivia__post_questions`
 
 ### Requirement: Trivia Off-Days Config
 
@@ -125,6 +137,7 @@ interface OffDay {
 ```
 
 Validation rules:
+
 - `date` SHALL match either `^\d{4}-\d{2}-\d{2}$` (exact date) or `^\d{2}-\d{2}$` (recurring), AND SHALL represent a real calendar date (no `02-30`, no `13-01`).
 - `label` SHALL be a non-empty string.
 - Invalid entries SHALL be dropped with a logged warning identifying the array index and the failed rule. Loading SHALL NOT throw — the rest of the config loads normally.
@@ -218,4 +231,3 @@ When constructing specs for a game, the trivia plugin SHALL compare the next-fir
 - **GIVEN** a game with `questionCron: "0 9 * * 1-5"` and `revealCron: "0 15 * * 1-5"`
 - **WHEN** the trivia plugin reconciles
 - **THEN** no warning is logged
-

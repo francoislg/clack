@@ -3,7 +3,9 @@
 ## Purpose
 
 Scheduled message system allowing users to create cron-based recurring or one-shot messages in Slack channels, executed either as dynamic Claude-powered sessions or static message posts, with tick-based scheduling, concurrency guards, and error notification.
+
 ## Requirements
+
 ### Requirement: Channel Input Resolution for Scheduled Message Creation
 
 The `create_scheduled_message` tool SHALL resolve its `channel` argument via the shared `resolveChannelId` helper before persisting a cron job, guaranteeing that the stored `channel` field is always a posting-capable Slack channel ID (never a raw user ID).
@@ -55,6 +57,7 @@ The system SHALL persist scheduled messages as cron jobs in `data/state/cron-job
 - **AND** optionally `specKey` (string; stable identity within a plugin's reconcile owner — present when and only when `pluginManaged` is `true`)
 - **AND** optionally `skipConditions` (string; when set, the scheduled run evaluates these free-form conditions and may decline delivery via `submit_response` with `skip_response: true`)
 - **AND** optionally `systemActor` (string; identifies the non-user origin of a system-owned job — present when and only when `createdBy` is `null`. The value SHALL be a colon-delimited source identifier, with `"plugin:<ownerKey>"` reserved for jobs emitted by `sdk.reconcileCronJobs`)
+- **AND** optionally `submitResponseMode` (one of `"always" | "optional" | "skipped"`; when set, overrides the auto-derived `allowSkip` rule and selects the `submit_response` schema variant — see the `submit-response-mode` capability)
 
 #### Scenario: createdBy is null only for system-owned jobs
 
@@ -72,6 +75,7 @@ The system SHALL persist scheduled messages as cron jobs in `data/state/cron-job
 - **AND** jobs without a `requiredTools` field load normally (field is optional and defaults to absent)
 - **AND** jobs without a `skipConditions` field load normally (field is optional and defaults to absent)
 - **AND** jobs without `pluginManaged` / `specKey` fields load normally (both optional, defaults absent for user-created jobs)
+- **AND** jobs without a `submitResponseMode` field load normally (field is optional and defaults to absent; auto-derivation rules apply unchanged)
 - **AND** jobs with `createdBy: null` and a `systemActor` field load normally without throwing
 - **AND** legacy jobs persisted with `createdBy: "<pluginName>"` and `pluginManaged: true` (pre-migration shape) are rewritten by the boot migration introduced in the `add-system-role-tier` change to `createdBy: null` + `systemActor: "plugin:<pluginName>"`
 
@@ -82,6 +86,7 @@ The system SHALL persist scheduled messages as cron jobs in `data/state/cron-job
 - **AND** update the in-memory cache atomically
 - **AND** include `requiredTools` in the serialized form when present
 - **AND** include `skipConditions` in the serialized form when present (omitted when unset or empty string)
+- **AND** include `submitResponseMode` in the serialized form when present (omitted when unset)
 - **AND** include `pluginManaged: true` in the serialized form when the job was created via `reconcileCronJobs` (omitted for user-created jobs)
 - **AND** include `specKey` in the serialized form when `pluginManaged` is `true`
 - **AND** include `systemActor` in the serialized form when `createdBy` is `null` (omitted for user-created jobs)
@@ -430,6 +435,7 @@ interface SkipDate {
 The matcher SHALL format the comparison time in `job.timezone` as both `YYYY-MM-DD` and `MM-DD` and SHALL match an entry whose `date` equals either representation. First match wins.
 
 A skipped fire SHALL:
+
 - Update `lastRunAt` to the matched run time (preventing same-minute double-fire).
 - Append a `runs[]` entry with `status: "skipped"` (no `responseTs`).
 - Log an `info` line identifying the job and the matched label (e.g. `Cron job <id> skipped by skipDates (Christmas)`).
@@ -533,3 +539,43 @@ The existing `update_scheduled_message`, `delete_scheduled_message`, and `create
 - **AND** the job persists with `pluginManaged: true` unchanged
 - **AND** the next plugin reconcile preserves the admin's `enabled` value (per the `plugin-cron-reconciliation` capability)
 
+### Requirement: submitResponseMode CRUD
+
+The cron job CRUD operations (`createCronJob`, `updateJob`) SHALL accept and persist the optional `submitResponseMode` field. `updateJob` SHALL follow the same semantics as the existing optional fields: explicit value overwrites, undefined leaves unchanged, an empty/`null` value clears the field.
+
+#### Scenario: Create with submitResponseMode
+
+- **WHEN** a cron job is created with `submitResponseMode: "skipped"`
+- **THEN** the field is stored on the cron job record verbatim
+- **AND** the field is included when the job is serialized to disk
+
+#### Scenario: Create without submitResponseMode
+
+- **WHEN** a cron job is created without `submitResponseMode` (field omitted)
+- **THEN** the stored cron job has no `submitResponseMode` field
+- **AND** the run fires under today's auto-derivation rules
+
+#### Scenario: Update sets submitResponseMode
+
+- **WHEN** `updateJob` is called with `submitResponseMode: "optional"`
+- **THEN** the field is stored on the cron job record verbatim
+- **AND** subsequent runs use the new value
+
+#### Scenario: Update clears submitResponseMode
+
+- **WHEN** `updateJob` is called with `submitResponseMode: null` (or an empty string)
+- **THEN** the field is removed from the cron job record
+- **AND** subsequent runs fall back to auto-derivation rules
+
+#### Scenario: Update leaves submitResponseMode unchanged
+
+- **WHEN** `updateJob` is called without `submitResponseMode` in the parameters (undefined)
+- **THEN** the stored field is left unchanged
+
+#### Scenario: reconcileCronJobs propagates the field
+
+- **GIVEN** a plugin-managed cron job whose spec sets `submitResponseMode: "skipped"`
+- **WHEN** `reconcileCronJobs` runs
+- **THEN** the corresponding `updateJob` (or `createJob`) call includes `submitResponseMode: "skipped"`
+- **AND** the persisted row carries the field after reconcile
+- **AND** dropping the field from a subsequent spec (with the same specKey) clears the persisted value (matching `skipConditions` semantics)
