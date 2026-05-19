@@ -89,13 +89,43 @@ Managed via the Home Tab in Slack. Per-repo access control with `read` and `writ
 - `data/default_configuration/` — shipped defaults (checked into git)
 - `data/configuration/` — user overrides (gitignored, takes precedence)
 - Template variables like `{BOT_NAME}` are substituted at runtime (see `src/claude/promptBuilder.ts`)
-- Per-repo instructions: `{repo}/changes_instructions.md` and `{repo}/worktree_setup_instructions.md`
+- Per-repo instructions: `{repo}/changes_instructions.md`, `{repo}/worktree_setup_instructions.md`, optional `{repo}/worktree_install_instructions.md` (light pre-work install — runs on every branch switch when reusable pool is active), optional `{repo}/worktree_dirty_ignore.txt` (npm-style globs excluded from the dirty-quarantine check)
 - Admins can edit instruction overrides from the Home Tab
 - **Baseline vs topic files**: `{role}/*.md` at the top level are _baseline_ files — always loaded. `{role}/topics/<topic>/*.md` are _topic_ files — loaded only when `attach_integration("<topic>")` activates that topic mid-session. Both layers cascade through the role chain (member → dev → admin → owner) the same way; baseline resolution explicitly skips the `topics/` folder. See `src/cascadingConfigResolver.ts` and the MCP registry in `data/config.json` (`mcpServers: { <name>: { alwaysLoad, description } }`) which governs which integrations get lazy-loaded via the catalog
 
 ### Changes Workflow
 
 Optional feature (gated by `changesWorkflow.enabled`). Dev+ users request changes → Claude creates a git worktree, implements changes, pushes a branch, opens a PR. Follow-ups (review, update, merge, close) happen in the same Slack thread. A background monitor detects externally merged/closed PRs and cleans up worktrees.
+
+#### Worktree models — disposable vs reusable pool
+
+Two worktree models behind a config flag (`changesWorkflow.reusableFolders.enabled`, default `false`):
+
+- **Disposable** (default): each change creates a fresh `data/worktrees/<repo>/<branch-name>/` directory, runs full setup (`worktree_setup_instructions.md` — e.g. `pnpm install`), and `rm -rf`s it when the PR closes. Setup cost paid on every request.
+- **Reusable pool**: a bounded pool of long-lived `data/worktrees/<repo>/worker-N/` folders. Each worker runs the heavy setup once at creation; subsequent requests on different branches reuse the worker via `git checkout -B <branch> origin/<default>` and run only the idempotent `worktree_install_instructions.md` step (e.g. `pnpm install --frozen-lockfile`). Workers persist their state in `data/state/workers.json` + `<worker>/.clack-worker-state.json` sidecars.
+
+Reusable pool config block (under `changesWorkflow.reusableFolders`):
+- `enabled` — turn the pool on
+- `minimumProvisioned` — workers warmed at boot per repo (sequential per-repo to avoid port-allocation races; start with 1)
+- `maxConcurrent` — hard cap on pool size per repo
+- `maxQueueDepth` — FIFO queue bound; requests beyond this are rejected with `PoolExhausted`
+- `idleReleaseHours` — busy workers idle past this duration on a `pr_created` session with no live handle get detached (clean: `git checkout origin/<default>` + clear claim, the session re-acquires on the next follow-up) or quarantined (dirty)
+- `dirtyTrackedQuarantine` — when modified-tracked files are present at release/switch, the worker is quarantined instead of releasing; the owner gets a DM and admins see a "Discard & restore" button in the Home Tab
+
+The pool implementation lives in `src/workers/`. `DisposablePool` and `ReusablePool` both implement `WorkerPool` from `src/workers/types.ts`; the factory in `src/workers/index.ts` picks based on the config flag. `src/changes/workflow.ts`, `src/changes/monitor.ts`, and `src/changes/restore.ts` depend on the abstract interface.
+
+### Trivia plugin: optional Seasons
+
+The trivia plugin ships an optional **seasons** feature, gated by `config.trivia.seasons = { enabled, prompt }`. When enabled:
+
+- Each question / answer / cheat record carries a `season: string` tag stamped at write time.
+- `data/plugins/trivia/seasons.json` tracks `{ current, currentStartedAt, currentExpectedEndAt, currentCategories, history[] }`. The plugin creates this file on first boot after enabling, seeded from `categories.json` (which becomes the persistent baseline that every new season starts from).
+- Two new admin-gated MCP tools: `check_season_status` (reads the reveal cron and tells Claude whether today is the season's last fire) and `start_new_season(slug, expectedEndAt, themeExtras?)` (closes the current season and promotes a new one). The same tool serves both auto-rollover (final step of the season-end reveal) and admin-initiated mid-season rollover.
+- `add_categories` / `remove_categories` gain a `target: "current" | "default" | "both"` arg (default `"both"`), letting admins make a category usable just this season, just future seasons, or both.
+- `get_ideas` reads from `currentCategories` when enabled; `save_question` validates against it; `find_previous_questions` defaults to scanning across all seasons (for duplicate detection), while `retrieve_scores` defaults to the current season (for the "today's standings" view).
+- The reveal flow renders a 3-row leaderboard table (Current Season + All Time, medals awarded independently per row) and, on the season's last fire, an additional finale section above the table.
+
+When `trivia.seasons.enabled` is `false` or absent, behavior is identical to pre-seasons trivia in every observable respect.
 
 ### Data Directory Layout
 
@@ -105,9 +135,9 @@ All runtime data lives in `data/` (mostly gitignored):
 - `auth/` — credentials (slack.json, github.json, .env, github-app.pem)
 - `repositories/` — cloned repos
 - `sessions/` — persisted Q&A sessions
-- `worktrees/` — git worktrees for Changes Workflow
+- `worktrees/` — git worktrees for Changes Workflow (`<repo>/<branch>/` in disposable mode, `<repo>/worker-N/` in reusable mode)
 - `worktree-sessions/` — persisted change sessions
-- `state/` — roles, user preferences, migration version
+- `state/` — roles, user preferences, migration version, `workers.json` (reusable pool state)
 - `default_configuration/` — shipped instruction defaults
 - `configuration/` — user instruction overrides (gitignored)
 
@@ -157,12 +187,24 @@ src/
 │   ├── workflow.ts       # Change lifecycle
 │   ├── execution.ts      # Worker-mode Claude execution
 │   ├── detection.ts      # Change request detection
-│   ├── monitor.ts        # Background PR status monitor
+│   ├── monitor.ts        # Background PR status monitor + idle-release sweep
 │   ├── pr.ts             # PR template resolution
 │   ├── persistence.ts    # Change session persistence
 │   ├── restore.ts        # Session restoration after restart
 │   ├── askClaudeWorktree.ts # Claude invocation in worktree
 │   └── types.ts          # Change types
+├── workers/              # Worker-pool implementation (used by changes/)
+│   ├── types.ts          # WorkerPool interface, Worker record, queue entry
+│   ├── index.ts          # Factory, singleton accessor, boot init + helpers
+│   ├── disposablePool.ts # Per-branch disposable model (default)
+│   ├── reusablePool.ts   # Long-lived worker-N folders with queueing
+│   ├── persistence.ts    # workers.json + sidecar I/O + disk reconciliation
+│   ├── queue.ts          # Per-repo FIFO with cancellable entries
+│   ├── branchSwitch.ts   # git checkout + dirty-quarantine on switch
+│   ├── quarantine.ts     # Dirty-file detection, sidecar I/O, ignore globs
+│   ├── setupVersion.ts   # Hash of worktree_setup_instructions.md
+│   ├── errors.ts         # PoolExhausted, DirtyWorkerQuarantined, etc.
+│   └── quarantineNotifier.ts # Owner DM on quarantine
 └── migrations/           # Data migration system
     ├── boot.ts           # Blocking migration runner
     ├── engine.ts         # Claude-powered migration engine
