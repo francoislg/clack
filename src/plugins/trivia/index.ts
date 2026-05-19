@@ -1,5 +1,5 @@
 import type { ClackSdk, ClackPlugin } from "../sdk.js";
-import { getConfig } from "../../config.js";
+import { getConfig, type TriviaGame, type OffDay } from "../../config.js";
 import { logger } from "../../logger.js";
 import { createSdkDataLayer } from "./data.js";
 import { SEED_CATEGORIES } from "./seedCategories.js";
@@ -12,14 +12,16 @@ import { createGetQuestionHistoryTool } from "./getQuestionHistory.js";
 import { createSubmitAnswersTool } from "./submitAnswers.js";
 import { createRetrieveScoresTool } from "./retrieveScores.js";
 import { createSaveCheatingTool } from "./saveCheating.js";
-import { createSendQuestionsInstructionsTool } from "./sendQuestionsInstructions.js";
-import { createProcessResponsesInstructionsTool } from "./processResponsesInstructions.js";
-import { createCreateSchedulesInstructionsTool } from "./createSchedulesInstructions.js";
+import { createListGamesTool } from "./listGames.js";
 import { createCheckSeasonStatusTool } from "./checkSeasonStatus.js";
 import { createUpsertSeasonTool } from "./upsertSeason.js";
 import { createDeleteSeasonTool } from "./deleteSeason.js";
 import { createListSeasonsTool } from "./listSeasons.js";
-import { getTriviaCheckInstruction } from "./triviaCheckInstruction.js";
+import {
+  getTriviaCheckInstruction,
+  TRIVIA_GAMES_ADMIN_INSTRUCTION,
+} from "./triviaCheckInstruction.js";
+import { buildGameSpecs } from "./buildGameSpecs.js";
 
 function isSeasonsEnabled(): boolean {
   try {
@@ -31,61 +33,53 @@ function isSeasonsEnabled(): boolean {
   }
 }
 
-function initialSlug(now: Date): string {
-  const yyyy = now.getUTCFullYear();
-  const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
-  return `season-${yyyy}-${mm}`;
-}
-
-function endOfCurrentMonthUtc(now: Date): number {
-  return Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999);
-}
-
 export const triviaPlugin: ClackPlugin = async (sdk: ClackSdk) => {
   const data = createSdkDataLayer(sdk);
   const seasonsEnabled = isSeasonsEnabled();
 
-  // Seed categories on first load
+  // Seed global categories on first load
   const categories = await data.loadCategories();
   if (categories.length === 0) {
     await data.saveCategories(SEED_CATEGORIES);
   }
 
-  // Initialize seasons.json on first boot after enabling seasons.
-  // Pre-existing entries stay untagged — they contribute to All Time but not to the new Current Season.
-  if (seasonsEnabled && (await data.loadSeasonsState()) === null) {
-    const now = new Date();
-    const baseline = await data.loadCategories();
-    const slug = initialSlug(now);
-    await data.saveSeasonsState({
-      seasons: [
-        {
-          slug,
-          startedAt: now.getTime(),
-          expectedEndAt: endOfCurrentMonthUtc(now),
-          categories: [...baseline],
-        },
-      ],
-    });
-    logger.info(
-      `[plugin:trivia] initialized seasons.json with "${slug}" (seeded ${baseline.length} categories)`,
-    );
-  }
+  // Per-game seasons bootstrap is LAZY (lives in `data.forGame(name).loadSeasonsState`):
+  // when a game's seasons.json is missing and `trivia.seasons.enabled` is true, the
+  // first per-game tool call seeds the starter season. This avoids tying the bootstrap
+  // to a `create_game` event that doesn't exist in the config-driven model — admins
+  // just add a config entry and the file appears on first use.
 
   sdk.addInstruction("user", "trivia-check", getTriviaCheckInstruction(seasonsEnabled));
+  // Admin-tier guidance for game management — only loaded in admin+ sessions, so
+  // member sessions stay lean. Per cascadingConfigResolver, "admin" instructions
+  // cascade up but not down.
+  sdk.addInstruction("admin", "trivia-games", TRIVIA_GAMES_ADMIN_INSTRUCTION);
 
-  sdk.registerTool("owner", createAddCategoriesTool(data), "Adding trivia categories");
-  sdk.registerTool("owner", createRemoveCategoriesTool(data), "Removing trivia categories");
-  sdk.registerTool("owner", createGetIdeasTool(data), "Getting trivia category ideas");
-  sdk.registerTool("owner", createSaveQuestionTool(data), "Saving trivia question — {category}");
+  sdk.registerTool("admin", createAddCategoriesTool(data), "Adding trivia categories — {game}");
+  sdk.registerTool(
+    "admin",
+    createRemoveCategoriesTool(data),
+    "Removing trivia categories — {game}",
+  );
+  sdk.registerTool("admin", createGetIdeasTool(data), "Getting trivia category ideas — {game}");
+  sdk.registerTool(
+    "admin",
+    createSaveQuestionTool(data),
+    "Saving trivia question — {game}/{category}",
+  );
   sdk.registerTool(
     "member",
     createFindPreviousQuestionsTool(data),
-    "Searching past trivia questions",
+    "Searching past trivia questions — {game}",
   );
-  sdk.registerTool("admin", createGetQuestionHistoryTool(data), "Loading trivia question history");
-  sdk.registerTool("owner", createSubmitAnswersTool(data), "Submitting trivia answers");
-  sdk.registerTool("member", createRetrieveScoresTool(data), "Retrieving trivia scores");
+  sdk.registerTool(
+    "admin",
+    createGetQuestionHistoryTool(data),
+    "Loading trivia question history — {game}",
+  );
+  sdk.registerTool("admin", createSubmitAnswersTool(data), "Submitting trivia answers — {game}");
+  sdk.registerTool("member", createRetrieveScoresTool(data), "Retrieving trivia scores — {game}");
+  sdk.registerTool("member", createListGamesTool(), "Listing trivia games");
 
   // Hidden from Slack task cards — the recorded user must not see this fire.
   sdk.registerTool("member", createSaveCheatingTool(data, sdk), {
@@ -93,30 +87,46 @@ export const triviaPlugin: ClackPlugin = async (sdk: ClackSdk) => {
     hidden: true,
   });
 
-  // Instruction tools — called on-demand by admins (setup) and by scheduled runs (dispatch).
-  sdk.registerTool(
-    "admin",
-    createCreateSchedulesInstructionsTool(seasonsEnabled),
-    "Fetching trivia setup instructions",
-  );
-  sdk.registerTool(
-    "admin",
-    createSendQuestionsInstructionsTool(),
-    "Fetching question-posting instructions",
-  );
-  sdk.registerTool(
-    "admin",
-    createProcessResponsesInstructionsTool(seasonsEnabled),
-    "Fetching response-processing instructions",
-  );
-
   if (seasonsEnabled) {
-    sdk.registerTool("admin", createCheckSeasonStatusTool(data), "Checking trivia season status");
-    sdk.registerTool("admin", createUpsertSeasonTool(data), "Upserting trivia season — {slug}");
-    sdk.registerTool("admin", createDeleteSeasonTool(data), "Deleting trivia season — {slug}");
-    sdk.registerTool("admin", createListSeasonsTool(data), "Listing trivia seasons");
+    sdk.registerTool(
+      "admin",
+      createCheckSeasonStatusTool(data),
+      "Checking trivia season status — {game}",
+    );
+    sdk.registerTool(
+      "admin",
+      createUpsertSeasonTool(data),
+      "Upserting trivia season — {game}/{slug}",
+    );
+    sdk.registerTool(
+      "admin",
+      createDeleteSeasonTool(data),
+      "Deleting trivia season — {game}/{slug}",
+    );
+    sdk.registerTool("admin", createListSeasonsTool(data), "Listing trivia seasons — {game}");
     logger.info(
       "[plugin:trivia] seasons enabled — registered check_season_status, upsert_season, delete_season, list_seasons",
+    );
+  }
+
+  // Reconcile plugin-managed cron jobs from `config.trivia.games[]`. Passing the full spec list
+  // (even when empty) is the contract: the SDK deletes prior plugin-managed trivia jobs whose
+  // specKey isn't in the new list, so removing a game from config makes its jobs disappear.
+  // Disabled games (`enabled: false`) are filtered out inside buildGameSpecs.
+  let games: TriviaGame[] = [];
+  let offDays: OffDay[] | undefined;
+  try {
+    const triviaCfg = getConfig().trivia;
+    games = triviaCfg?.games ?? [];
+    offDays = triviaCfg?.offDays;
+  } catch {
+    // Config not loaded (tests): leave games empty so reconcile is a no-op.
+  }
+  const specs = buildGameSpecs(games, seasonsEnabled, offDays);
+  await sdk.reconcileCronJobs("trivia", specs);
+  if (games.length > 0) {
+    logger.info(
+      `[plugin:trivia] reconciled ${specs.length} cron job specs across ${games.length} game(s)`,
     );
   }
 };

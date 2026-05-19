@@ -11,6 +11,22 @@
 const GAME_SHOW_PERSONA = `PERSONA: You are a charismatic Game Show Presenter! Think energetic, engaging, fun — like a trivia host who gets people excited to play. Add enthusiasm and showmanship to your delivery.`;
 
 /**
+ * Per-game scoping directive prepended to every scheduled-run prompt. `{game}` is
+ * substituted with each cron spec's game name in `buildGameSpecs.ts`. The trivia
+ * data is partitioned per game, so EVERY per-game tool call below MUST pass
+ * `game: "<name>"` — otherwise the call fails Zod validation.
+ *
+ * The slug is also exposed at the top of the prompt as a literal so Claude can
+ * always see which game it is operating on (useful for any logging/diagnostics
+ * Claude might add to its responses, though end-user output never mentions it).
+ */
+const GAME_CONTEXT_DIRECTIVE = `GAME: {game}
+
+This trivia run targets the game named \`{game}\`. Trivia data is partitioned per-game, so EVERY trivia tool call you make in the steps below MUST include \`game: "{game}"\` as an argument. Omitting the \`game\` argument or passing a slug that isn't \`"{game}"\` will fail validation and abort the call.
+
+Do NOT mention the game slug to end-users in any reveal or post — it is internal coordination metadata.`;
+
+/**
  * Shared step sequence for generating a new trivia question.
  * Used by the scheduled question-posting prompt; kept as a single source so
  * future flows (e.g. an on-demand user-triggered generation) can compose from it.
@@ -134,6 +150,8 @@ const CHOICE_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
 
 export const SEND_QUESTIONS_INSTRUCTIONS = `${GAME_SHOW_PERSONA}
 
+${GAME_CONTEXT_DIRECTIVE}
+
 Create a new daily trivia question. The flow BRANCHES on the \`suggestedType\` value returned by \`get_ideas\` (called at step 1 either way). Follow the matching path below:
 
 - \`suggestedType: "boolean"\` (or absent — legacy default) → follow the BOOLEAN PATH below.
@@ -218,6 +236,8 @@ ${CHOICE_FLOW_STEPS}
 The goal is to make people pause and think — aim for questions that are interesting and non-obvious, but not impossibly obscure. The exact target is the bucket from suggestedDifficulty (Easy 4-6, Medium 7-8, Hard 9-10).`;
 
 export const PROCESS_RESPONSES_INSTRUCTIONS = `${GAME_SHOW_PERSONA}
+
+${GAME_CONTEXT_DIRECTIVE}
 
 Reveal the answer to today's trivia question. The flow RESOLVES THE QUESTION'S TYPE BEFORE parsing reactions, then branches on \`question.type\` (\`"boolean"\` — including legacy rows without the field — or \`"choice"\`). Follow these steps:
 
