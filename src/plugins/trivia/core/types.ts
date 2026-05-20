@@ -1,16 +1,27 @@
 /**
- * Question shape discriminator. Absent on legacy rows; new writes always stamp it.
+ * Answer-shape discriminator (renamed from `type`). Absent only on pre-migration legacy rows;
+ * the v021 migration stamps every existing record. New writes always set it.
  * - `"boolean"` → carries `isTrue: boolean`, no `choices`/`correctIndex`.
  * - `"choice"` → carries `choices: string[]` + `correctIndex: number`, no `isTrue`.
  */
-export type TriviaQuestionType = "boolean" | "choice";
+export type TriviaAnswersFormat = "boolean" | "choice";
+
+/**
+ * Source discriminator orthogonal to `answersFormat`.
+ * - `"fact"` → static knowledge; no WebSearch.
+ * - `"topical"` → recent newsworthy event; written after a `WebSearch` step.
+ *   Topical records carry `sourceUrl` (required) and optionally `eventDate`.
+ */
+export type TriviaQuestionType = "fact" | "topical";
 
 export interface TriviaQuestion {
   id: string;
   category: string;
   statement: string;
-  /** Discriminator. Absence reads as `"boolean"` for legacy rows. */
-  type?: TriviaQuestionType;
+  /** Answer-shape discriminator. Absence reads as `"boolean"` for pre-migration legacy rows only. */
+  answersFormat?: TriviaAnswersFormat;
+  /** Fact-vs-topical discriminator. Absence reads as `"fact"` for pre-migration legacy rows only. */
+  questionType?: TriviaQuestionType;
   /** Truth value for boolean questions. Absent on choice questions. */
   isTrue?: boolean;
   /** Option list for choice questions (2–4 entries). Absent on boolean questions. */
@@ -25,6 +36,17 @@ export interface TriviaQuestion {
   createdAt: number;
   postedAt?: number;
   messageLink?: string;
+  /**
+   * Lens name that was used when generating this question. Recorded from
+   * `contextPriority[i]` (the entry Claude actually used). Empty / no-lens
+   * outcomes are stored as absence. Only meaningful when `trivia.contexts`
+   * was configured at write time.
+   */
+  context?: string;
+  /** Citation URL — REQUIRED on topical questions, forbidden on fact questions. */
+  sourceUrl?: string;
+  /** ISO 8601 date (YYYY-MM-DD) of the underlying event. Topical only. */
+  eventDate?: string;
   /**
    * UUID stamped by `post_questions` per call. Every fresh item posted in one call shares the
    * same value; idempotency-skipped items keep their original value (which may be undefined on
@@ -81,11 +103,26 @@ export interface TriviaSeasonsConfig {
 }
 
 /**
- * Per-season question-type weights. Mirrors `config.trivia.questionsTypes` in shape.
+ * Per-season answer-format weights. Mirrors `config.trivia.answersFormat` in shape.
  * When set on a SeasonEntry, overrides the workspace-level config for the window
  * during which this entry is current per `findCurrentSeason(state, now)`.
  */
-export type SeasonQuestionTypeWeights = Record<"boolean" | "choice", number>;
+export type SeasonAnswersFormatWeights = Record<"boolean" | "choice", number>;
+
+/**
+ * Per-season fact-vs-topical weights. Mirrors `config.trivia.questionType` in shape.
+ * When set on a SeasonEntry, overrides the workspace-level config.
+ */
+export type SeasonQuestionTypeWeights = Record<"fact" | "topical", number>;
+
+/**
+ * Per-season lens entry. Same shape as `TriviaContextEntry` from config. Empty `name`
+ * is allowed and means "no specific lean."
+ */
+export interface SeasonContextEntry {
+  name: string;
+  weight?: number;
+}
 
 /**
  * One ordered slot in a season's question format. Optional per-slot overrides:
@@ -94,13 +131,16 @@ export type SeasonQuestionTypeWeights = Record<"boolean" | "choice", number>;
  *   Not a literal string to copy into question text.
  * - `categories` — narrows the slot's category pool. Falls back to the season's
  *   `categories` when absent.
- * - `questionTypes` — slot-specific weights. Falls back to season → config → default
- *   when absent.
+ * - `answersFormat` — slot-specific answer-format weights. Falls back to season → config → default.
+ * - `questionType` — slot-specific fact/topical weights. Falls back to season → config → default.
+ * - `contexts` — slot-specific lens list. Falls back to season → config (or absent).
  */
 export interface SeasonFormatSlot {
   label?: string;
   categories?: string[];
-  questionTypes?: SeasonQuestionTypeWeights;
+  answersFormat?: SeasonAnswersFormatWeights;
+  questionType?: SeasonQuestionTypeWeights;
+  contexts?: SeasonContextEntry[];
 }
 
 /**
@@ -119,10 +159,20 @@ export interface SeasonEntry {
   endedAt?: number;
   categories: string[];
   /**
-   * Optional per-season question-type weights. Absent → `get_ideas` falls back to
-   * `config.trivia.questionsTypes`. Mid-season mutation is permitted (unlike `startedAt`).
+   * Optional per-season answer-format weights. Absent → `get_ideas` falls back to
+   * `config.trivia.answersFormat`. Mid-season mutation is permitted (unlike `startedAt`).
    */
-  questionTypes?: SeasonQuestionTypeWeights;
+  answersFormat?: SeasonAnswersFormatWeights;
+  /**
+   * Optional per-season fact-vs-topical weights. Absent → falls back to `config.trivia.questionType`.
+   * Mid-season mutation is permitted.
+   */
+  questionType?: SeasonQuestionTypeWeights;
+  /**
+   * Optional per-season lens list. Absent → falls back to `config.trivia.contexts`
+   * (which itself may be absent). Mid-season mutation is permitted.
+   */
+  contexts?: SeasonContextEntry[];
   /**
    * Optional per-season question composition. Mid-season mutation is permitted —
    * changes take effect on the next question-cron fire.

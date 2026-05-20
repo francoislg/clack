@@ -34,7 +34,7 @@ describe("get_question_history", () => {
     const tool = createGetQuestionHistoryTool(data, fixtureGetGames);
     const result = await tool.handler({ game: FIXTURE_GAME_NAME, questionId: "q42" }, SESSION);
     const parsed = parseToolResult(result);
-    assert.equal(parsed.type, "boolean");
+    assert.equal(parsed.answersFormat, "boolean");
     assert.equal(parsed.isTrue, true);
   });
 
@@ -256,7 +256,7 @@ describe("get_question_history — choice questions", () => {
     data = createInMemoryDataLayer();
     await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
       id: "qchoice",
-      type: "choice",
+      answersFormat: "choice",
       category: "Geography",
       statement: "Which is the smallest planet?",
       choices: ["Mercury", "Venus", "Earth", "Mars"],
@@ -266,11 +266,11 @@ describe("get_question_history — choice questions", () => {
     });
   });
 
-  it("returns type, choices, and correctIndex for the canonical answer key", async () => {
+  it("returns answersFormat, choices, and correctIndex for the canonical answer key", async () => {
     const tool = createGetQuestionHistoryTool(data, fixtureGetGames);
     const result = await tool.handler({ game: FIXTURE_GAME_NAME, questionId: "qchoice" }, SESSION);
     const parsed = parseToolResult(result);
-    assert.equal(parsed.type, "choice");
+    assert.equal(parsed.answersFormat, "choice");
     assert.deepEqual(parsed.choices, ["Mercury", "Venus", "Earth", "Mars"]);
     assert.equal(parsed.correctIndex, 0);
     assert.equal(Object.prototype.hasOwnProperty.call(parsed, "isTrue"), false);

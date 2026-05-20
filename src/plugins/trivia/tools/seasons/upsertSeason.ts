@@ -4,12 +4,19 @@ import { textResult, errorResult } from "../../../../tools/helpers.js";
 import { findSeasonBySlug, validateNoOverlap } from "../../core/seasonTimeline.js";
 import { defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
 import { requireWritableGame } from "../../core/gamesRegistry.js";
-import { validateQuestionTypes, validateFormat } from "../../domain/seasonFormat.js";
+import {
+  validateAnswersFormat,
+  validateQuestionType,
+  validateContexts,
+  validateFormat,
+} from "../../domain/seasonFormat.js";
 import type {
   TriviaDataLayer,
   SeasonsState,
   SeasonEntry,
+  SeasonAnswersFormatWeights,
   SeasonQuestionTypeWeights,
+  SeasonContextEntry,
   SeasonFormat,
 } from "../../core/types.js";
 
@@ -27,13 +34,36 @@ function dedupePreservingOrder(values: string[]): string[] {
   return out;
 }
 
+const contextEntryShape = z.object({
+  name: z.string(),
+  weight: z.number().positive().optional(),
+});
+
+const slotShape = z.object({
+  label: z.string().optional(),
+  categories: z.array(z.string()).optional(),
+  answersFormat: z
+    .object({
+      boolean: z.number().int().nonnegative().optional(),
+      choice: z.number().int().nonnegative().optional(),
+    })
+    .optional(),
+  questionType: z
+    .object({
+      fact: z.number().int().nonnegative().optional(),
+      topical: z.number().int().nonnegative().optional(),
+    })
+    .optional(),
+  contexts: z.array(contextEntryShape).optional(),
+});
+
 export function createUpsertSeasonTool(
   data: TriviaDataLayer,
   getGamesFn: GetGamesFn = defaultGetGames,
 ) {
   return tool(
     "upsert_season",
-    "Create a new trivia season or update an existing one (identified by slug) within a specific game. Slug is immutable — to rename, delete + upsert. Validates no overlap within this game's timeline. On CREATE: requires startedAt + expectedEndAt. If `categories` is provided (and non-empty), the new season's pool is EXACTLY that list — use this for themed seasons. If `categories` is omitted or empty, the new season's pool is copied from the global categories.json (the persistent baseline). On UPDATE: applies omit-to-keep semantics; cannot mutate startedAt of an already-started season; `categories` is ignored on UPDATE — use add_categories/remove_categories with target slug to refine. Use endedAt to mark a season as closed.",
+    "Create a new trivia season or update an existing one (identified by slug) within a specific game. Slug is immutable — to rename, delete + upsert. Validates no overlap within this game's timeline. On CREATE: requires startedAt + expectedEndAt. If `categories` is provided (and non-empty), the new season's pool is EXACTLY that list — use this for themed seasons. If `categories` is omitted or empty, the new season's pool is copied from the global categories.json. On UPDATE: applies omit-to-keep semantics; cannot mutate startedAt of an already-started season; `categories` is ignored on UPDATE — use add_categories/remove_categories with target slug to refine. `answersFormat`, `questionType`, and `contexts` accept `null` on UPDATE to clear the field. Use endedAt to mark a season as closed.",
     {
       game: z
         .string()
@@ -60,7 +90,7 @@ export function createUpsertSeasonTool(
         .describe(
           "Season's category pool. Provided AND non-empty → the season uses EXACTLY this list. Omitted OR empty → copies from the global categories.json. Used only on CREATE.",
         ),
-      questionTypes: z
+      answersFormat: z
         .object({
           boolean: z.number().int().nonnegative().optional(),
           choice: z.number().int().nonnegative().optional(),
@@ -68,23 +98,29 @@ export function createUpsertSeasonTool(
         .nullable()
         .optional()
         .describe(
-          "Optional per-season question-type weights. On UPDATE: passing `null` clears the field. Mid-season mutation is permitted.",
+          "Optional per-season answer-format weights (boolean/choice). On UPDATE: passing `null` clears the field. Mid-season mutation permitted.",
+        ),
+      questionType: z
+        .object({
+          fact: z.number().int().nonnegative().optional(),
+          topical: z.number().int().nonnegative().optional(),
+        })
+        .nullable()
+        .optional()
+        .describe(
+          "Optional per-season fact-vs-topical weights. On UPDATE: passing `null` clears the field. Mid-season mutation permitted.",
+        ),
+      contexts: z
+        .array(contextEntryShape)
+        .nullable()
+        .optional()
+        .describe(
+          "Optional per-season lens list (e.g. Quebec, International, academic). On UPDATE: passing `null` clears the field. Mid-season mutation permitted.",
         ),
       format: z
         .object({
           questions: z
-            .array(
-              z.object({
-                label: z.string().optional(),
-                categories: z.array(z.string()).optional(),
-                questionTypes: z
-                  .object({
-                    boolean: z.number().int().nonnegative().optional(),
-                    choice: z.number().int().nonnegative().optional(),
-                  })
-                  .optional(),
-              }),
-            )
+            .array(slotShape)
             .describe(
               "Ordered list of question slots posted per question-cron fire (one item per slot).",
             ),
@@ -92,7 +128,7 @@ export function createUpsertSeasonTool(
         .nullable()
         .optional()
         .describe(
-          "Optional per-season question composition. When set, each question-cron fire posts `format.questions.length` questions in slot order. Each slot may narrow `label` / `categories` / `questionTypes`; missing fields cascade to the season's defaults. On UPDATE: object value replaces the whole format; explicit `null` clears the field; mid-season mutation is permitted.",
+          "Optional per-season question composition. When set, each question-cron fire posts `format.questions.length` questions in slot order. Each slot may narrow `label` / `categories` / `answersFormat` / `questionType` / `contexts`; missing fields cascade to the season's defaults. On UPDATE: object value replaces the whole format; explicit `null` clears the field; mid-season mutation permitted.",
         ),
     },
     async (args) => {
@@ -139,14 +175,31 @@ export function createUpsertSeasonTool(
           );
         }
 
-        let questionTypes: SeasonQuestionTypeWeights | undefined;
-        if (args.questionTypes !== undefined && args.questionTypes !== null) {
+        let answersFormatWeights: SeasonAnswersFormatWeights | undefined;
+        if (args.answersFormat !== undefined && args.answersFormat !== null) {
           const sparse: Record<string, number> = {};
-          if (args.questionTypes.boolean !== undefined) sparse.boolean = args.questionTypes.boolean;
-          if (args.questionTypes.choice !== undefined) sparse.choice = args.questionTypes.choice;
-          const validated = validateQuestionTypes(sparse);
+          if (args.answersFormat.boolean !== undefined) sparse.boolean = args.answersFormat.boolean;
+          if (args.answersFormat.choice !== undefined) sparse.choice = args.answersFormat.choice;
+          const validated = validateAnswersFormat(sparse);
           if (!validated.ok) return errorResult(validated.error);
-          questionTypes = validated.value;
+          answersFormatWeights = validated.value;
+        }
+
+        let questionTypeWeights: SeasonQuestionTypeWeights | undefined;
+        if (args.questionType !== undefined && args.questionType !== null) {
+          const sparse: Record<string, number> = {};
+          if (args.questionType.fact !== undefined) sparse.fact = args.questionType.fact;
+          if (args.questionType.topical !== undefined) sparse.topical = args.questionType.topical;
+          const validated = validateQuestionType(sparse);
+          if (!validated.ok) return errorResult(validated.error);
+          questionTypeWeights = validated.value;
+        }
+
+        let contexts: SeasonContextEntry[] | undefined;
+        if (args.contexts !== undefined && args.contexts !== null) {
+          const validated = validateContexts(args.contexts);
+          if (!validated.ok) return errorResult(validated.error);
+          contexts = validated.value;
         }
 
         let format: SeasonFormat | undefined;
@@ -162,7 +215,9 @@ export function createUpsertSeasonTool(
           expectedEndAt: args.expectedEndAt,
           ...(args.endedAt !== undefined ? { endedAt: args.endedAt } : {}),
           categories,
-          ...(questionTypes !== undefined ? { questionTypes } : {}),
+          ...(answersFormatWeights !== undefined ? { answersFormat: answersFormatWeights } : {}),
+          ...(questionTypeWeights !== undefined ? { questionType: questionTypeWeights } : {}),
+          ...(contexts !== undefined ? { contexts } : {}),
           ...(format !== undefined ? { format } : {}),
         };
 
@@ -183,7 +238,9 @@ export function createUpsertSeasonTool(
           expectedEndAt: entry.expectedEndAt,
           endedAt: entry.endedAt ?? null,
           categoriesCount: entry.categories.length,
-          hasQuestionTypes: entry.questionTypes !== undefined,
+          hasAnswersFormat: entry.answersFormat !== undefined,
+          hasQuestionType: entry.questionType !== undefined,
+          hasContexts: entry.contexts !== undefined,
           hasFormat: entry.format !== undefined,
           slotCount: entry.format?.questions.length ?? 0,
         });
@@ -199,16 +256,37 @@ export function createUpsertSeasonTool(
         }
       }
 
-      let updatedQuestionTypes: SeasonQuestionTypeWeights | undefined = existing.questionTypes;
-      if (args.questionTypes === null) {
-        updatedQuestionTypes = undefined;
-      } else if (args.questionTypes !== undefined) {
+      let updatedAnswersFormat: SeasonAnswersFormatWeights | undefined = existing.answersFormat;
+      if (args.answersFormat === null) {
+        updatedAnswersFormat = undefined;
+      } else if (args.answersFormat !== undefined) {
         const sparse: Record<string, number> = {};
-        if (args.questionTypes.boolean !== undefined) sparse.boolean = args.questionTypes.boolean;
-        if (args.questionTypes.choice !== undefined) sparse.choice = args.questionTypes.choice;
-        const validated = validateQuestionTypes(sparse);
+        if (args.answersFormat.boolean !== undefined) sparse.boolean = args.answersFormat.boolean;
+        if (args.answersFormat.choice !== undefined) sparse.choice = args.answersFormat.choice;
+        const validated = validateAnswersFormat(sparse);
         if (!validated.ok) return errorResult(validated.error);
-        updatedQuestionTypes = validated.value;
+        updatedAnswersFormat = validated.value;
+      }
+
+      let updatedQuestionType: SeasonQuestionTypeWeights | undefined = existing.questionType;
+      if (args.questionType === null) {
+        updatedQuestionType = undefined;
+      } else if (args.questionType !== undefined) {
+        const sparse: Record<string, number> = {};
+        if (args.questionType.fact !== undefined) sparse.fact = args.questionType.fact;
+        if (args.questionType.topical !== undefined) sparse.topical = args.questionType.topical;
+        const validated = validateQuestionType(sparse);
+        if (!validated.ok) return errorResult(validated.error);
+        updatedQuestionType = validated.value;
+      }
+
+      let updatedContexts: SeasonContextEntry[] | undefined = existing.contexts;
+      if (args.contexts === null) {
+        updatedContexts = undefined;
+      } else if (args.contexts !== undefined) {
+        const validated = validateContexts(args.contexts);
+        if (!validated.ok) return errorResult(validated.error);
+        updatedContexts = validated.value;
       }
 
       let updatedFormat: SeasonFormat | undefined = existing.format;
@@ -230,7 +308,9 @@ export function createUpsertSeasonTool(
             ? { endedAt: existing.endedAt }
             : {}),
         categories: existing.categories,
-        ...(updatedQuestionTypes !== undefined ? { questionTypes: updatedQuestionTypes } : {}),
+        ...(updatedAnswersFormat !== undefined ? { answersFormat: updatedAnswersFormat } : {}),
+        ...(updatedQuestionType !== undefined ? { questionType: updatedQuestionType } : {}),
+        ...(updatedContexts !== undefined ? { contexts: updatedContexts } : {}),
         ...(updatedFormat !== undefined ? { format: updatedFormat } : {}),
       };
 
@@ -264,7 +344,9 @@ export function createUpsertSeasonTool(
         expectedEndAt: updated.expectedEndAt,
         endedAt: updated.endedAt ?? null,
         categoriesCount: updated.categories.length,
-        hasQuestionTypes: updated.questionTypes !== undefined,
+        hasAnswersFormat: updated.answersFormat !== undefined,
+        hasQuestionType: updated.questionType !== undefined,
+        hasContexts: updated.contexts !== undefined,
         hasFormat: updated.format !== undefined,
         slotCount: updated.format?.questions.length ?? 0,
       });

@@ -1,6 +1,12 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { validateFormat, validateQuestionTypes, resolveSlotCategories } from "./seasonFormat.js";
+import {
+  validateFormat,
+  validateAnswersFormat,
+  validateQuestionType,
+  validateContexts,
+  resolveSlotCategories,
+} from "./seasonFormat.js";
 
 describe("validateFormat", () => {
   it("accepts an empty slot `{}`", () => {
@@ -15,7 +21,9 @@ describe("validateFormat", () => {
         {
           label: "History Choice",
           categories: ["History", "Ancient Civilizations"],
-          questionTypes: { boolean: 0, choice: 1 },
+          answersFormat: { boolean: 0, choice: 1 },
+          questionType: { fact: 1, topical: 0 },
+          contexts: [{ name: "academic", weight: 2 }],
         },
       ],
     });
@@ -24,7 +32,9 @@ describe("validateFormat", () => {
       assert.deepEqual(r.value.questions[0], {
         label: "History Choice",
         categories: ["History", "Ancient Civilizations"],
-        questionTypes: { boolean: 0, choice: 1 },
+        answersFormat: { boolean: 0, choice: 1 },
+        questionType: { fact: 1, topical: 0 },
+        contexts: [{ name: "academic", weight: 2 }],
       });
     }
   });
@@ -81,20 +91,34 @@ describe("validateFormat", () => {
     assert.equal(r.ok, false);
   });
 
-  it("rejects slot questionTypes with all-zero weights", () => {
+  it("rejects slot answersFormat with all-zero weights", () => {
     const r = validateFormat({
-      questions: [{ questionTypes: { boolean: 0, choice: 0 } }],
+      questions: [{ answersFormat: { boolean: 0, choice: 0 } }],
     });
     assert.equal(r.ok, false);
     if (!r.ok) assert.match(r.error, /positive weight/);
   });
 
-  it("rejects slot questionTypes with unknown keys", () => {
+  it("rejects slot answersFormat with unknown keys", () => {
     const r = validateFormat({
-      questions: [{ questionTypes: { boolean: 1, essay: 1 } }],
+      questions: [{ answersFormat: { boolean: 1, essay: 1 } }],
     });
     assert.equal(r.ok, false);
     if (!r.ok) assert.match(r.error, /unknown key/);
+  });
+
+  it("rejects slot questionType with all-zero weights", () => {
+    const r = validateFormat({
+      questions: [{ questionType: { fact: 0, topical: 0 } }],
+    });
+    assert.equal(r.ok, false);
+    if (!r.ok) assert.match(r.error, /positive weight/);
+  });
+
+  it("rejects slot contexts with empty array", () => {
+    const r = validateFormat({ questions: [{ contexts: [] }] });
+    assert.equal(r.ok, false);
+    if (!r.ok) assert.match(r.error, /non-empty/);
   });
 
   it("identifies which slot failed in the error message", () => {
@@ -110,7 +134,7 @@ describe("validateFormat", () => {
       questions: [
         { label: "Q1" },
         { label: "Q2", categories: ["History"] },
-        { label: "Q3", questionTypes: { choice: 1 } },
+        { label: "Q3", answersFormat: { choice: 1 } },
       ],
     });
     assert.equal(r.ok, true);
@@ -118,36 +142,104 @@ describe("validateFormat", () => {
   });
 });
 
-describe("validateQuestionTypes", () => {
+describe("validateAnswersFormat", () => {
   it("accepts a positive boolean weight", () => {
-    const r = validateQuestionTypes({ boolean: 1 });
+    const r = validateAnswersFormat({ boolean: 1 });
     assert.equal(r.ok, true);
     if (r.ok) assert.deepEqual(r.value, { boolean: 1, choice: 0 });
   });
 
   it("accepts mixed positive weights", () => {
-    const r = validateQuestionTypes({ boolean: 2, choice: 1 });
+    const r = validateAnswersFormat({ boolean: 2, choice: 1 });
     assert.equal(r.ok, true);
     if (r.ok) assert.deepEqual(r.value, { boolean: 2, choice: 1 });
   });
 
   it("rejects all-zero", () => {
-    const r = validateQuestionTypes({ boolean: 0, choice: 0 });
+    const r = validateAnswersFormat({ boolean: 0, choice: 0 });
     assert.equal(r.ok, false);
   });
 
   it("rejects unknown keys", () => {
-    const r = validateQuestionTypes({ boolean: 1, essay: 1 });
+    const r = validateAnswersFormat({ boolean: 1, essay: 1 });
     assert.equal(r.ok, false);
   });
 
   it("rejects negative values", () => {
-    const r = validateQuestionTypes({ boolean: -1 });
+    const r = validateAnswersFormat({ boolean: -1 });
     assert.equal(r.ok, false);
   });
 
   it("rejects non-integer values", () => {
-    const r = validateQuestionTypes({ boolean: 1.5 });
+    const r = validateAnswersFormat({ boolean: 1.5 });
+    assert.equal(r.ok, false);
+  });
+});
+
+describe("validateQuestionType", () => {
+  it("accepts a positive fact weight", () => {
+    const r = validateQuestionType({ fact: 1 });
+    assert.equal(r.ok, true);
+    if (r.ok) assert.deepEqual(r.value, { fact: 1, topical: 0 });
+  });
+
+  it("accepts mixed positive weights", () => {
+    const r = validateQuestionType({ fact: 3, topical: 1 });
+    assert.equal(r.ok, true);
+    if (r.ok) assert.deepEqual(r.value, { fact: 3, topical: 1 });
+  });
+
+  it("rejects all-zero", () => {
+    const r = validateQuestionType({ fact: 0, topical: 0 });
+    assert.equal(r.ok, false);
+  });
+
+  it("rejects unknown keys", () => {
+    const r = validateQuestionType({ fact: 1, news: 1 });
+    assert.equal(r.ok, false);
+  });
+});
+
+describe("validateContexts", () => {
+  it("accepts a single-entry list", () => {
+    const r = validateContexts([{ name: "Quebec" }]);
+    assert.equal(r.ok, true);
+    if (r.ok) assert.deepEqual(r.value, [{ name: "Quebec" }]);
+  });
+
+  it("accepts entries with weights", () => {
+    const r = validateContexts([
+      { name: "Quebec", weight: 5 },
+      { name: "International", weight: 1 },
+    ]);
+    assert.equal(r.ok, true);
+    if (r.ok) {
+      assert.deepEqual(r.value, [
+        { name: "Quebec", weight: 5 },
+        { name: "International", weight: 1 },
+      ]);
+    }
+  });
+
+  it("accepts the empty-string name as a first-class entry", () => {
+    const r = validateContexts([{ name: "Quebec", weight: 3 }, { name: "" }]);
+    assert.equal(r.ok, true);
+    if (r.ok) assert.equal(r.value.length, 2);
+  });
+
+  it("rejects an empty array", () => {
+    const r = validateContexts([]);
+    assert.equal(r.ok, false);
+  });
+
+  it("rejects duplicate names", () => {
+    const r = validateContexts([{ name: "Quebec" }, { name: "Quebec" }]);
+    assert.equal(r.ok, false);
+    if (!r.ok) assert.match(r.error, /duplicate/);
+  });
+
+  it("rejects non-positive weights", () => {
+    const r = validateContexts([{ name: "Quebec", weight: 0 }]);
     assert.equal(r.ok, false);
   });
 });

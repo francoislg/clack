@@ -319,12 +319,12 @@ async function processOneTarget(
   );
   const cleaned = cleanReactionLists(rawReactions, botUserId, cheaterIds);
 
-  const questionType: "boolean" | "choice" = question.type ?? "boolean";
+  const answersFormat: "boolean" | "choice" = question.answersFormat ?? "boolean";
   let buckets: VoterBuckets;
   let scoredBoolean: Array<{ userId: string; answer: boolean }> = [];
   let scoredChoice: Array<{ userId: string; answerIndex: number }> = [];
 
-  if (questionType === "boolean") {
+  if (answersFormat === "boolean") {
     const isTrue = question.isTrue ?? false;
     const result = categorizeBoolean(cleaned, isTrue, users);
     buckets = result.buckets;
@@ -347,7 +347,7 @@ async function processOneTarget(
   const currentSlug = await scoped.getCurrentSeasonSlug();
   const seasonTag = currentSlug !== null ? { season: currentSlug } : {};
 
-  if (questionType === "boolean") {
+  if (answersFormat === "boolean") {
     const isTrue = question.isTrue ?? false;
     for (const entry of scoredBoolean) {
       await ensureUser(entry.userId, users, data, now);
@@ -380,7 +380,7 @@ async function processOneTarget(
   await scoped.updateQuestion(question.id, { processedAt: now });
 
   const revealAnswer: RevealAnswer =
-    questionType === "boolean"
+    answersFormat === "boolean"
       ? { type: "boolean", isTrue: question.isTrue ?? false }
       : {
           type: "choice",

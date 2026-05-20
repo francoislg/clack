@@ -4,26 +4,36 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { textResult, errorResult } from "../../../../tools/helpers.js";
 import { getConfig, type Config, DEFAULT_TRIVIA_CHOICES } from "../../../../config.js";
 import { findCurrentSeason } from "../../core/seasonTimeline.js";
-import { resolveQuestionTypes } from "../../domain/questionTypes.js";
+import { resolveAnswersFormat } from "../../domain/questionTypes.js";
+import { resolveQuestionType } from "../../domain/factTopical.js";
+import { resolveContexts } from "../../domain/contexts.js";
 import { resolveSlotCategories } from "../../domain/seasonFormat.js";
 import { defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
 import { requireWritableGame } from "../../core/gamesRegistry.js";
 import type { TriviaDataLayer, TriviaQuestion } from "../../core/types.js";
 
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
 const DESCRIPTION = `Save a new trivia question.
 
-Two shapes are accepted, determined by \`type\`:
+Two shapes are accepted, determined by \`answersFormat\`:
 
-BOOLEAN (default — \`type: "boolean"\` or absent):
-- Required: \`category\`, \`statement\`, \`isTrue\`, \`emojis\`.
-- The stored record carries \`type: "boolean"\` and \`isTrue\`; no \`choices\`/\`correctIndex\`.
+BOOLEAN (\`answersFormat: "boolean"\`):
+- Required: \`category\`, \`statement\`, \`questionType\`, \`isTrue\`, \`emojis\`.
+- The stored record carries \`answersFormat: "boolean"\` and \`isTrue\`; no \`choices\`/\`correctIndex\`.
 
-CHOICE (\`type: "choice"\`):
-- Required: \`category\`, \`statement\`, \`emojis\`, \`choices\` (string[], length within active [min, max]), \`correctIndex\` (0-based).
-- The stored record carries \`type: "choice"\`, \`choices\`, and \`correctIndex\`; no \`isTrue\`.
+CHOICE (\`answersFormat: "choice"\`):
+- Required: \`category\`, \`statement\`, \`questionType\`, \`emojis\`, \`choices\` (string[], length within active [min, max]), \`correctIndex\` (0-based).
+- The stored record carries \`answersFormat: "choice"\`, \`choices\`, and \`correctIndex\`; no \`isTrue\`.
 - Exactly ONE correct answer per question — validated at this tool's boundary.
 
-Validation rejects: out-of-range correctIndex; duplicate or whitespace/case-equivalent choices; choices outside the configured \`trivia.choices.{min, max}\` bounds; choice strings outside 1–100 chars after trim; passing \`isTrue\` with type "choice" or \`choices\`/\`correctIndex\` with type "boolean".`;
+ADDITIONAL FIELDS (both shapes):
+- \`questionType\` (REQUIRED): \`"fact"\` or \`"topical"\`. Must match the value rolled by \`get_ideas\`.
+- \`sourceUrl\` (REQUIRED when \`questionType: "topical"\`, FORBIDDEN when \`questionType: "fact"\`): HTTPS citation URL.
+- \`eventDate\` (OPTIONAL, only when \`questionType: "topical"\`): ISO 8601 calendar date (YYYY-MM-DD).
+- \`context\` (OPTIONAL): the lens name used (from \`contextPriority\`). Empty string omits the field on the record. Non-empty values must appear in the active \`contexts\` list.
+
+Validation rejects: out-of-range correctIndex; duplicate or whitespace/case-equivalent choices; choices outside the configured \`trivia.choices.{min, max}\` bounds; choice strings outside 1–100 chars after trim; passing \`isTrue\` with \`answersFormat: "choice"\` or \`choices\`/\`correctIndex\` with \`answersFormat: "boolean"\`; topical without sourceUrl; sourceUrl on fact; non-HTTPS sourceUrl; eventDate without topical; malformed eventDate; context not in the active contexts list.`;
 
 export function createSaveQuestionTool(
   data: TriviaDataLayer,
@@ -45,28 +55,50 @@ export function createSaveQuestionTool(
         .describe(
           "Game name (must be present in config.trivia.games[]). Determines which game's per-game data file receives the new question.",
         ),
-      type: z
-        .enum(["boolean", "choice"])
-        .optional()
-        .describe('Question shape: "boolean" (default) or "choice".'),
+      answersFormat: z.enum(["boolean", "choice"]).describe('Answer shape: "boolean" or "choice".'),
+      questionType: z
+        .enum(["fact", "topical"])
+        .describe(
+          'Source axis: "fact" for static knowledge, "topical" for recent events (requires sourceUrl).',
+        ),
       category: z.string().describe("The category from the pool (must exist)"),
       statement: z.string().describe("The trivia statement"),
       isTrue: z
         .boolean()
         .optional()
-        .describe("REQUIRED for boolean questions. MUST NOT be set for choice questions."),
+        .describe(
+          'REQUIRED for boolean questions. MUST NOT be set when answersFormat is "choice".',
+        ),
       choices: z
         .array(z.string())
         .optional()
         .describe(
-          "REQUIRED for choice questions (length within active [min, max]). MUST NOT be set for boolean questions.",
+          'REQUIRED for choice questions (length within active [min, max]). MUST NOT be set when answersFormat is "boolean".',
         ),
       correctIndex: z
         .number()
         .int()
         .optional()
         .describe(
-          "REQUIRED for choice questions (0-based, in [0, choices.length)). MUST NOT be set for boolean questions.",
+          'REQUIRED for choice questions (0-based, in [0, choices.length)). MUST NOT be set when answersFormat is "boolean".',
+        ),
+      sourceUrl: z
+        .string()
+        .optional()
+        .describe(
+          'REQUIRED when questionType is "topical" (HTTPS URL). FORBIDDEN when questionType is "fact".',
+        ),
+      eventDate: z
+        .string()
+        .optional()
+        .describe(
+          "OPTIONAL on topical questions: ISO 8601 calendar date of the event (YYYY-MM-DD). Forbidden on fact questions.",
+        ),
+      context: z
+        .string()
+        .optional()
+        .describe(
+          "OPTIONAL: the lens (from contextPriority) used to generate the question. Empty string = no lens. Non-empty must appear in the active contexts list at this slot/season/config tier.",
         ),
       suggestedDifficulty: z
         .enum(["Easy", "Medium", "Hard"])
@@ -109,9 +141,11 @@ export function createSaveQuestionTool(
         return errorResult("Must provide 1-4 emojis");
       }
 
-      const type = args.type ?? "boolean";
+      const answersFormat = args.answersFormat;
+      const questionType = args.questionType;
 
-      if (type === "boolean") {
+      // Validate answersFormat-discriminated fields
+      if (answersFormat === "boolean") {
         if (args.isTrue === undefined) {
           return errorResult('Boolean questions require "isTrue".');
         }
@@ -157,6 +191,31 @@ export function createSaveQuestionTool(
         }
       }
 
+      // Validate topical-vs-fact fields
+      if (questionType === "topical") {
+        if (args.sourceUrl === undefined || args.sourceUrl.length === 0) {
+          return errorResult('Topical questions require "sourceUrl" (an HTTPS citation URL).');
+        }
+        if (!args.sourceUrl.startsWith("https://")) {
+          return errorResult('"sourceUrl" must use https://.');
+        }
+        // Basic shape: must have a host after the scheme.
+        const hostPart = args.sourceUrl.slice("https://".length).split("/")[0];
+        if (hostPart.length === 0 || !hostPart.includes(".")) {
+          return errorResult('"sourceUrl" must include a valid host.');
+        }
+      } else {
+        if (args.sourceUrl !== undefined) {
+          return errorResult('"sourceUrl" is only permitted on topical questions.');
+        }
+        if (args.eventDate !== undefined) {
+          return errorResult('"eventDate" is only permitted on topical questions.');
+        }
+      }
+      if (args.eventDate !== undefined && !ISO_DATE_RE.test(args.eventDate)) {
+        return errorResult('"eventDate" must be ISO 8601 calendar date (YYYY-MM-DD).');
+      }
+
       const scoped = data.forGame(args.game);
       const seasonsState = await scoped.loadSeasonsState();
       const currentSeasonEntry = findCurrentSeason(seasonsState, Date.now());
@@ -200,14 +259,52 @@ export function createSaveQuestionTool(
         return errorResult(hint);
       }
 
+      const slotIndexForResolution =
+        seasonFormat !== undefined && args.slot !== undefined ? args.slot.index : null;
+
       if (seasonFormat !== undefined && args.slot !== undefined) {
-        const slotWeights = resolveQuestionTypes(currentSeasonEntry, args.slot.index, config);
-        const weightForType = type === "boolean" ? slotWeights.boolean : slotWeights.choice;
-        if (weightForType <= 0) {
+        const slotAnswersWeights = resolveAnswersFormat(
+          currentSeasonEntry,
+          args.slot.index,
+          config,
+        );
+        const weightForAnswers =
+          answersFormat === "boolean" ? slotAnswersWeights.boolean : slotAnswersWeights.choice;
+        if (weightForAnswers <= 0) {
           return errorResult(
-            `Slot ${args.slot.index} does not permit "${type}" questions (questionTypes for this slot has zero weight on "${type}"). Re-roll get_ideas — its suggestedType reflects the slot's permitted types.`,
+            `Slot ${args.slot.index} does not permit "${answersFormat}" answers (answersFormat for this slot has zero weight on "${answersFormat}"). Re-roll get_ideas — its suggestedAnswersFormat reflects the slot's permitted formats.`,
           );
         }
+        const slotQuestionTypeWeights = resolveQuestionType(
+          currentSeasonEntry,
+          args.slot.index,
+          config,
+        );
+        const weightForQuestionType =
+          questionType === "fact" ? slotQuestionTypeWeights.fact : slotQuestionTypeWeights.topical;
+        if (weightForQuestionType <= 0) {
+          return errorResult(
+            `Slot ${args.slot.index} does not permit "${questionType}" questions (questionType for this slot has zero weight on "${questionType}"). Re-roll get_ideas — its suggestedQuestionType reflects the slot's permitted types.`,
+          );
+        }
+      }
+
+      // Context validation
+      const resolvedContexts = resolveContexts(currentSeasonEntry, slotIndexForResolution, config);
+      let storedContext: string | null = null;
+      if (args.context !== undefined && args.context.length > 0) {
+        if (resolvedContexts === null) {
+          return errorResult(
+            `"context" was provided but no contexts are configured for this slot/season/config. Remove the context argument or configure contexts first.`,
+          );
+        }
+        if (!resolvedContexts.some((c) => c.name === args.context)) {
+          const available = resolvedContexts.map((c) => `"${c.name}"`).join(", ");
+          return errorResult(
+            `Context "${args.context}" is not in the active contexts list (${available}).`,
+          );
+        }
+        storedContext = args.context;
       }
 
       const currentSeasonSlug = currentSeasonEntry?.slug ?? null;
@@ -224,7 +321,8 @@ export function createSaveQuestionTool(
         id: randomUUID(),
         category: matchingCategory,
         statement: args.statement,
-        type,
+        answersFormat,
+        questionType,
         emojis: args.emojis,
         createdAt: Date.now(),
         ...(currentSeasonSlug !== null ? { season: currentSeasonSlug } : {}),
@@ -233,10 +331,13 @@ export function createSaveQuestionTool(
           ? { suggestedDifficulty: args.suggestedDifficulty }
           : {}),
         ...(args.difficulty !== undefined ? { difficulty: args.difficulty } : {}),
+        ...(storedContext !== null ? { context: storedContext } : {}),
+        ...(args.sourceUrl !== undefined ? { sourceUrl: args.sourceUrl } : {}),
+        ...(args.eventDate !== undefined ? { eventDate: args.eventDate } : {}),
       };
 
       const question: TriviaQuestion =
-        type === "boolean"
+        answersFormat === "boolean"
           ? { ...base, isTrue: args.isTrue }
           : { ...base, choices: args.choices, correctIndex: args.correctIndex };
 

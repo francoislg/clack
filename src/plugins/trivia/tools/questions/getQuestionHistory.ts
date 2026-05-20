@@ -75,7 +75,14 @@ export function createGetQuestionHistoryTool(
       }
 
       const matching = answers.filter((a) => a.questionId === args.questionId);
-      const isChoice = question.type === "choice";
+      const answersFormat = question.answersFormat ?? "boolean";
+      const isChoice = answersFormat === "choice";
+      const questionType = question.questionType ?? "fact";
+
+      const extras: Record<string, string | undefined> = {};
+      if (question.context !== undefined) extras.context = question.context;
+      if (question.sourceUrl !== undefined) extras.sourceUrl = question.sourceUrl;
+      if (question.eventDate !== undefined) extras.eventDate = question.eventDate;
 
       if (isChoice) {
         const responses: ChoiceResponseEntry[] = matching.map((a) => ({
@@ -85,11 +92,13 @@ export function createGetQuestionHistoryTool(
           correct: a.correct,
         }));
         return textResult({
-          type: "choice",
+          answersFormat: "choice",
+          questionType,
           choices: question.choices ?? [],
           correctIndex: question.correctIndex ?? -1,
           cheaterUserIds: cheaterOrder,
           responses,
+          ...extras,
         });
       }
 
@@ -100,10 +109,12 @@ export function createGetQuestionHistoryTool(
         correct: a.correct,
       }));
       return textResult({
-        type: "boolean",
+        answersFormat: "boolean",
+        questionType,
         isTrue: question.isTrue ?? false,
         cheaterUserIds: cheaterOrder,
         responses,
+        ...extras,
       });
     },
   );

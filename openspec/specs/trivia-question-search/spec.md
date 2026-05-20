@@ -159,18 +159,26 @@ The tool SHALL accept a required `game: string` argument. The name SHALL be vali
 
 The new question SHALL be appended to `data/plugins/trivia/games/<name>/questions.json` — never to a flat-file `questions.json` at the trivia root, and never to another game's file.
 
-The tool SHALL accept one of two argument shapes determined by the `type` field:
+The tool SHALL accept the following discriminated argument shapes determined by the `answersFormat` field:
 
-**Boolean shape** (`type: "boolean"` or absent): `category`, `statement`, `isTrue`, and `emojis`. The stored record carries `type: "boolean"` (explicitly set, even when the caller omitted the field) and `isTrue`, and does NOT carry `choices` or `correctIndex`.
+**Boolean shape** (`answersFormat: "boolean"`): `category`, `statement`, `isTrue`, `emojis`, and (per `trivia-topical-questions`) a required `questionType: "fact" | "topical"`. The stored record carries `answersFormat: "boolean"`, `questionType`, and `isTrue`, and does NOT carry `choices` or `correctIndex`.
 
-**Choice shape** (`type: "choice"`): `category`, `statement`, `emojis`, `choices: string[]` (length within active `[min, max]` bounds from `trivia.choices`, default `[2, 4]`), and `correctIndex: number` (integer in `[0, choices.length)`). The stored record carries `type: "choice"`, `choices`, and `correctIndex`, and does NOT carry `isTrue`.
+**Choice shape** (`answersFormat: "choice"`): `category`, `statement`, `emojis`, `choices: string[]` (length within active `[min, max]` bounds from `trivia.choices`, default `[2, 4]`), `correctIndex: number` (integer in `[0, choices.length)`), and `questionType: "fact" | "topical"`. The stored record carries `answersFormat: "choice"`, `questionType`, `choices`, and `correctIndex`, and does NOT carry `isTrue`.
+
+In both shapes, the tool SHALL additionally accept (per `trivia-topical-questions` and `trivia-question-contexts`):
+
+- `sourceUrl?: string` — required when `questionType: "topical"`, forbidden when `questionType: "fact"`. Must be `https://`-prefixed.
+- `eventDate?: string` — optional ISO 8601 calendar date (`YYYY-MM-DD`); permitted only when `questionType: "topical"`.
+- `context?: string` — optional lens name. When non-empty, must appear in the active `contexts` resolved for this question's slot/season/config; when empty or absent, the persisted record omits the `context` field. When `contexts` is not configured at any cascade tier, a non-empty `context` argument is rejected.
 
 The tool SHALL validate (in addition to the existing statement-length checks):
 
-- `type` is either `"boolean"`, `"choice"`, or absent (treated as `"boolean"`).
+- `answersFormat` MUST be `"boolean"` or `"choice"` (required field).
+- `questionType` MUST be `"fact"` or `"topical"` (required field).
 - For the choice shape: `choices.length` is within the active `[min, max]` bounds, `correctIndex` is an integer in `[0, choices.length)`, every choice string is 1–100 characters after trimming, and `new Set(choices.map(c => c.trim().toLowerCase())).size === choices.length` (no duplicate or whitespace/case-equivalent choice strings).
 - For the choice shape: `isTrue` is not provided.
 - For the boolean shape: `choices` and `correctIndex` are not provided.
+- `sourceUrl` / `eventDate` / `context` rules as listed above.
 
 On validation failure, the tool SHALL return a structured error indicating which constraint failed.
 
@@ -178,15 +186,31 @@ When `trivia.seasons.enabled` is `true` AND `findCurrentSeason(games/<name>/seas
 
 Category validation reads from the game's currently-active season's `categories` when seasons are enabled with a current season; otherwise from the global `categories.json` at the trivia root.
 
-#### Scenario: Save a valid boolean question
+#### Scenario: Save a valid fact boolean question
 
-- **WHEN** `save_question` is called with `game: "main"`, a valid category, statement, `isTrue`, and emojis (no `type` field)
-- **THEN** the question is appended to `games/main/questions.json` with `type: "boolean"`, the provided fields, plus a generated ID and `createdAt` timestamp
+- **WHEN** `save_question` is called with `game: "main"`, `answersFormat: "boolean"`, `questionType: "fact"`, a valid category, statement, `isTrue`, and emojis
+- **THEN** the question is appended to `games/main/questions.json` with `answersFormat: "boolean"`, `questionType: "fact"`, the provided fields, plus a generated ID and `createdAt` timestamp
+- **AND** the record carries no `sourceUrl` or `eventDate` field
 
-#### Scenario: Save a valid choice question
+#### Scenario: Save a valid fact choice question
 
-- **WHEN** `save_question` is called with `game: "main", type: "choice"`, a valid category, statement, emojis, `choices` of length 4, and `correctIndex: 2`
-- **THEN** the question is appended to `games/main/questions.json` with `type: "choice"`, the provided choices and correctIndex, plus a generated ID and `createdAt` timestamp
+- **WHEN** `save_question` is called with `game: "main"`, `answersFormat: "choice"`, `questionType: "fact"`, a valid category, statement, emojis, `choices` of length 4, and `correctIndex: 2`
+- **THEN** the question is appended to `games/main/questions.json` with `answersFormat: "choice"`, `questionType: "fact"`, the provided choices and correctIndex, plus a generated ID and `createdAt` timestamp
+
+#### Scenario: Save a valid topical choice question
+
+- **WHEN** `save_question` is called with `game: "main"`, `answersFormat: "choice"`, `questionType: "topical"`, valid category/statement/emojis/choices/correctIndex, `sourceUrl: "https://example.com/article"`, and `eventDate: "2026-05-19"`
+- **THEN** the question is appended to `games/main/questions.json` with all fields, including `sourceUrl` and `eventDate`
+
+#### Scenario: answersFormat field is required
+
+- **WHEN** `save_question` is called without an `answersFormat` field
+- **THEN** the tool returns a validation error indicating `answersFormat` is required
+
+#### Scenario: questionType field is required
+
+- **WHEN** `save_question` is called with `answersFormat: "boolean"` but no `questionType` field
+- **THEN** the tool returns a validation error indicating `questionType` is required
 
 #### Scenario: Statement too short
 
@@ -200,28 +224,28 @@ Category validation reads from the game's currently-active season's `categories`
 
 #### Scenario: Choice question with correctIndex out of range
 
-- **WHEN** `save_question` is called with `game: "main", type: "choice"`, `choices` of length 4, and `correctIndex: 4`
+- **WHEN** `save_question` is called with `game: "main"`, `answersFormat: "choice"`, `choices` of length 4, and `correctIndex: 4`
 - **THEN** the tool returns a validation error indicating `correctIndex` must be in `[0, choices.length)`
 
 #### Scenario: Choice question with duplicate choices
 
-- **WHEN** `save_question` is called with `game: "main", type: "choice"` and `choices: ["Paris", "London", "Paris", "Rome"]`
+- **WHEN** `save_question` is called with `game: "main"`, `answersFormat: "choice"`, and `choices: ["Paris", "London", "Paris", "Rome"]`
 - **THEN** the tool returns a validation error indicating choices must be unique
 
 #### Scenario: Choice question outside configured bounds
 
 - **GIVEN** active `trivia.choices` bounds of `min: 2, max: 4`
-- **WHEN** `save_question` is called with `game: "main", type: "choice"` and `choices` of length 5
+- **WHEN** `save_question` is called with `game: "main"`, `answersFormat: "choice"`, and `choices` of length 5
 - **THEN** the tool returns a validation error indicating choices length is outside the bounds
 
 #### Scenario: Choice question with isTrue rejected
 
-- **WHEN** `save_question` is called with `game: "main", type: "choice"` AND `isTrue: true`
+- **WHEN** `save_question` is called with `game: "main"`, `answersFormat: "choice"`, AND `isTrue: true`
 - **THEN** the tool returns a validation error indicating `isTrue` is invalid for choice questions
 
 #### Scenario: Boolean question with choices rejected
 
-- **WHEN** `save_question` is called with `game: "main", type: "boolean"` AND `choices: ["A", "B"]`
+- **WHEN** `save_question` is called with `game: "main"`, `answersFormat: "boolean"`, AND `choices: ["A", "B"]`
 - **THEN** the tool returns a validation error indicating `choices` is invalid for boolean questions
 
 #### Scenario: Unknown game rejected
@@ -251,20 +275,20 @@ Category validation reads from the game's currently-active season's `categories`
 
 ### Requirement: Find previous questions response excludes the answer key
 
-The `find_previous_questions` MCP tool SHALL NOT include the question's answer-key fields (`isTrue` for boolean questions, `correctIndex` for choice questions) in any element of its returned `questions` array, regardless of caller role. The tool SHALL return only search-safe metadata: `id`, `type` (when present on the stored record), `category`, `statement`, `emojis`, `createdAt`, and (when present on the stored record) `postedAt` and `messageLink`. For choice questions, the tool SHALL include the `choices` array (the choice strings themselves are not the answer key — the answer key is the `correctIndex`).
+The `find_previous_questions` MCP tool SHALL NOT include the question's answer-key fields (`isTrue` for boolean questions, `correctIndex` for choice questions) in any element of its returned `questions` array, regardless of caller role. The tool SHALL return only search-safe metadata: `id`, `answersFormat`, `questionType`, `category`, `statement`, `emojis`, `createdAt`, and (when present on the stored record) `postedAt`, `messageLink`, `context`, `sourceUrl`, and `eventDate`. For choice questions, the tool SHALL include the `choices` array (the choice strings themselves are not the answer key — the answer key is the `correctIndex`).
 
 This requirement closes a pre-existing exposure where any session at the `member` tier could prompt Clack into surfacing the canonical answer key for past questions through the search tool. The tool's gating remains `member`; the response shape is what changes. This requirement is unaffected by the `game` argument — the answer-key exclusion applies to every game's results.
 
 #### Scenario: Boolean response payload omits isTrue
 
 - **WHEN** `find_previous_questions` is invoked with any combination of valid arguments (including `game`) and matches at least one stored boolean question
-- **THEN** every boolean element of the returned `questions` array contains `id`, `category`, `statement`, `emojis`, `createdAt`, and (when present on the stored record) `type`, `postedAt`, and `messageLink`
+- **THEN** every boolean element of the returned `questions` array contains `id`, `answersFormat`, `questionType`, `category`, `statement`, `emojis`, `createdAt`, and (when present on the stored record) `postedAt`, `messageLink`, `context`, `sourceUrl`, `eventDate`
 - **AND** no element contains an `isTrue` field
 
 #### Scenario: Choice response payload omits correctIndex but includes choices
 
 - **WHEN** `find_previous_questions` is invoked and matches at least one stored choice question
-- **THEN** every choice element of the returned `questions` array contains `id`, `type: "choice"`, `category`, `statement`, `emojis`, `choices`, `createdAt`, and (when present on the stored record) `postedAt` and `messageLink`
+- **THEN** every choice element of the returned `questions` array contains `id`, `answersFormat: "choice"`, `questionType`, `category`, `statement`, `emojis`, `choices`, `createdAt`, and (when present on the stored record) `postedAt`, `messageLink`, `context`, `sourceUrl`, `eventDate`
 - **AND** no element contains a `correctIndex` field
 - **AND** no element contains an `isTrue` field
 
@@ -285,10 +309,12 @@ The tool SHALL be gated to the `admin` role. The tool SHALL accept the following
 
 The tool SHALL look up the question only in `data/plugins/trivia/games/<game>/questions.json`, the cheat list only in `data/plugins/trivia/games/<game>/cheats.json`, and the answers only in `data/plugins/trivia/games/<game>/answers.json`. The `displayName` SHALL be looked up from the global `data/plugins/trivia/users.json`.
 
-The tool SHALL return the question's answer key in a type-discriminated shape:
+The tool SHALL return the question's answer key in an answersFormat-discriminated shape:
 
-- For boolean questions: `type: "boolean"` and `isTrue: boolean`.
-- For choice questions: `type: "choice"`, `choices: string[]`, and `correctIndex: number`.
+- For boolean questions: `answersFormat: "boolean"`, `questionType: "fact" | "topical"`, and `isTrue: boolean`.
+- For choice questions: `answersFormat: "choice"`, `questionType: "fact" | "topical"`, `choices: string[]`, and `correctIndex: number`.
+
+When the resolved question record carries `context`, `sourceUrl`, or `eventDate`, the tool SHALL include those fields in the response payload.
 
 The tool SHALL also return:
 
@@ -299,64 +325,20 @@ The tool's description SHALL instruct Claude that cheater identities are interna
 
 #### Scenario: Returns boolean answer key, cheaters, and responses scoped to the game
 
-- **GIVEN** a question `q42` exists in `games/main/questions.json` with `type: "boolean"` (or absent) and `isTrue: true`
-- **AND** `games/main/cheats.json` contains two entries with `questionId: "q42"` and `cheaterUserId` values `"U777"` and `"U888"`, plus one entry with a different `questionId`
-- **AND** `games/main/answers.json` contains three entries with `questionId: "q42"` for users `U1`, `U2`, `U777`, plus an entry for a different `questionId`
-- **AND** the global `users.json` contains records for `U1`, `U2`, and `U777` with `displayName` fields
-- **WHEN** `get_question_history` is called with `game: "main", questionId: "q42"`
-- **THEN** the response contains `type: "boolean"` and `isTrue: true`
-- **AND** `cheaterUserIds` is the deduplicated set `["U777", "U888"]` (order is not significant)
-- **AND** `responses` contains exactly three entries, one per `q42` answer, each with the matching `userId`, the `displayName` from the global `users.json`, and the recorded `answer` and `correct`
-- **AND** no entries from other games' files appear in any field of the response
+- **WHEN** `get_question_history` is called with `game: "main"` and a `questionId` for a boolean question in that game
+- **THEN** the response includes `answersFormat: "boolean"`, `questionType`, `isTrue`, plus the `cheaterUserIds` and `responses` arrays scoped to that game
 
 #### Scenario: Returns choice answer key, cheaters, and responses
 
-- **GIVEN** a question `q50` exists in `games/main/questions.json` with `type: "choice"`, `choices: ["A", "B", "C", "D"]`, and `correctIndex: 1`
-- **AND** `games/main/answers.json` contains two entries with `questionId: "q50"` and `answerIndex` values `1` and `3`
-- **WHEN** `get_question_history` is called with `game: "main", questionId: "q50"`
-- **THEN** the response contains `type: "choice"`, `choices: ["A", "B", "C", "D"]`, and `correctIndex: 1`
-- **AND** `responses` contains two entries with `answerIndex` set (and `answer` absent)
+- **WHEN** `get_question_history` is called for a choice question
+- **THEN** the response includes `answersFormat: "choice"`, `questionType`, `choices`, `correctIndex`, plus `cheaterUserIds` and `responses` arrays
 
-#### Scenario: Question scoped to wrong game returns not-found
+#### Scenario: Topical question history includes sourceUrl
 
-- **GIVEN** question `q42` exists in `games/main/questions.json` but not in `games/sandbox/questions.json`
-- **WHEN** `get_question_history` is called with `game: "sandbox", questionId: "q42"`
-- **THEN** the tool returns a structured "question not found" error
-- **AND** no data from the `main` game leaks into the response
+- **WHEN** `get_question_history` is called for a topical question with a stored `sourceUrl`
+- **THEN** the response includes `sourceUrl` and (when present) `eventDate`
 
-#### Scenario: Empty cheater list when no cheats recorded for that game's question
+#### Scenario: Question with context surfaces the context value
 
-- **GIVEN** a question `q43` exists in `games/main/questions.json` with no entries in `games/main/cheats.json`
-- **WHEN** `get_question_history` is called with `game: "main", questionId: "q43"`
-- **THEN** `cheaterUserIds` is an empty array
-- **AND** `responses` reflects whatever answers exist for `q43` in `games/main/answers.json` (possibly empty)
-
-#### Scenario: Empty responses for a freshly posted question
-
-- **GIVEN** a question `q44` was just saved by `save_question(game: "main", ...)` and no `submit_answers` call has yet referenced it
-- **WHEN** `get_question_history` is called with `game: "main", questionId: "q44"`
-- **THEN** `responses` is an empty array
-- **AND** `cheaterUserIds` reflects any cheats already recorded for `q44` in `games/main/cheats.json` (possibly empty)
-
-#### Scenario: displayName falls back to userId when user record missing
-
-- **GIVEN** `games/main/answers.json` contains an entry with `userId: "U999"` for question `q45`
-- **AND** the global `users.json` has no record for `U999`
-- **WHEN** `get_question_history` is called with `game: "main", questionId: "q45"`
-- **THEN** the corresponding entry in `responses` has `displayName: "U999"`
-
-#### Scenario: Unknown questionId returns an error
-
-- **WHEN** `get_question_history` is called with a `questionId` that does not appear in the named game's `questions.json`
-- **THEN** the tool returns a structured error indicating the question was not found
-- **AND** the response contains no answer-key, `cheaterUserIds`, or `responses` fields
-
-#### Scenario: Unknown game rejected
-
-- **WHEN** `get_question_history` is called with `game: "ghost"`
-- **THEN** the tool returns a structured "unknown game" error
-
-#### Scenario: Tool is gated to admin
-
-- **WHEN** a session's user has role below `admin`
-- **THEN** `get_question_history` is absent from the session's MCP catalog
+- **WHEN** `get_question_history` is called for a question whose record carries `context: "Quebec"`
+- **THEN** the response includes `context: "Quebec"`

@@ -135,19 +135,33 @@ When an admin asks to **rename a future season**:
 
 - Slug is immutable. Call \`delete_season(oldSlug)\` then \`upsert_season(newSlug, ...)\`. Only valid while the season has not yet started.
 
-## Admin: question types per season
+## Admin: answer formats per season
 
-Each season can also carry an optional \`questionTypes\` weight map (e.g. \`{ "boolean": 2, "choice": 1 }\` → roughly 2/3 true-false questions, 1/3 multiple-choice). When set, that map overrides the workspace-level \`config.trivia.questionsTypes\` default for whichever season is current per \`findCurrentSeason\`. When absent, the workspace config (or pure-boolean fallback) is used.
+Each season can also carry an optional \`answersFormat\` weight map (e.g. \`{ "boolean": 2, "choice": 1 }\` → roughly 2/3 true-false questions, 1/3 multiple-choice). When set, that map overrides the workspace-level \`config.trivia.answersFormat\` default for whichever season is current per \`findCurrentSeason\`. When absent, the workspace config (or pure-boolean fallback) is used.
 
 When an admin asks to **set a season to only generate multiple-choice questions** (or only true-false, or a custom mix):
 
-- Call \`upsert_season(slug, { questionTypes: { boolean: <w1>, choice: <w2> } })\`. At least one weight must be strictly positive. Mid-season mutation is permitted (unlike \`startedAt\`) — the next \`get_ideas\` call picks up the new mix.
+- Call \`upsert_season(slug, { answersFormat: { boolean: <w1>, choice: <w2> } })\`. At least one weight must be strictly positive. Mid-season mutation is permitted (unlike \`startedAt\`) — the next \`get_ideas\` call picks up the new mix.
 
-When an admin asks to **clear a season's questionTypes** (let it fall back to the workspace default):
+When an admin asks to **clear a season's answersFormat** (let it fall back to the workspace default):
 
-- Call \`upsert_season(slug, { questionTypes: null })\`.
+- Call \`upsert_season(slug, { answersFormat: null })\`.
 
 Note: the choice-question option-count bounds live at \`config.trivia.choices.{min, max}\` and are workspace-wide — they cannot be overridden per season (purely a card-readability UX setting, not a gameplay parameter).
+
+## Admin: question type per season (fact vs topical)
+
+Independent from \`answersFormat\`, each season can carry a \`questionType\` weight map for the fact-vs-topical axis: \`{ "fact": <w1>, "topical": <w2> }\`. \`"fact"\` questions are static-knowledge; \`"topical"\` questions force Claude to use \`WebSearch\` to find a recent newsworthy event before writing the question.
+
+- Call \`upsert_season(slug, { questionType: { fact: 3, topical: 1 } })\` to bias the season toward topical questions (here, roughly 1/4 of fires will be topical).
+- Call \`upsert_season(slug, { questionType: null })\` to clear and fall back to \`config.trivia.questionType\` (or the \`{ fact: 1, topical: 0 }\` default).
+
+## Admin: contexts (lens) per season
+
+A season may also carry an optional \`contexts\` axis — a list of lenses Claude tries in priority order when generating each question (e.g. \`"Quebec"\`, \`"International"\`, \`"academic"\`, \`"pop culture"\`, or the empty string for "no specific lean"). \`get_ideas\` returns a freshly-rolled weighted-random ordering each call; Claude descends the list only when the current lens yields no usable question.
+
+- Call \`upsert_season(slug, { contexts: [{ name: "Quebec", weight: 5 }, { name: "International", weight: 1 }] })\` to bias toward Quebec-flavored questions with International as a fallback.
+- Call \`upsert_season(slug, { contexts: null })\` to clear and fall back to \`config.trivia.contexts\` (or generate without a lens).
 
 ## Admin: per-season question composition (format)
 
@@ -155,7 +169,9 @@ Each season can carry an optional \`format\` field — an ordered list of questi
 
 - \`label\` — creative hint surfaced to Claude as the slot's flavor (e.g. "Lightning Round", "Historical Choice"). NOT a literal string to copy into the question text.
 - \`categories\` — narrows the slot's category pool. Omitted → inherits the season's \`categories\`.
-- \`questionTypes\` — overrides the season's \`questionTypes\` for this slot. Omitted → falls back to season → config → boolean default.
+- \`answersFormat\` — overrides the season's \`answersFormat\` for this slot. Omitted → falls back to season → config → boolean default.
+- \`questionType\` — overrides the season's \`questionType\` for this slot (fact vs topical weights).
+- \`contexts\` — overrides the season's \`contexts\` for this slot (e.g. one slot uses regional lenses; another uses audience lenses).
 
 The resolution cascade for each slot is: \`slot.* ?? season.* ?? config default\`. Empty slot \`{}\` is permitted and means "use season defaults for everything".
 
@@ -169,7 +185,7 @@ When an admin asks **what slots a season has**, look at the season entry returne
 
 ## Admin: auto-rollover is now "repeat" semantics
 
-When a season's last reveal fires AND no future season is queued, the trivia plugin creates a continuation season automatically. As of this change, the continuation INHERITS \`categories\`, \`questionTypes\`, AND \`format\` from the closing season (deep-copied; the old behavior of resetting \`categories\` to the global baseline is gone). The continuation slug is \`season-YYYY-MM\` for the next UTC month; \`expectedEndAt\` is end-of-that-month (this part is unchanged).
+When a season's last reveal fires AND no future season is queued, the trivia plugin creates a continuation season automatically. As of this change, the continuation INHERITS \`categories\`, \`answersFormat\`, \`questionType\`, \`contexts\`, AND \`format\` from the closing season (deep-copied; the old behavior of resetting \`categories\` to the global baseline is gone). The continuation slug is \`season-YYYY-MM\` for the next UTC month; \`expectedEndAt\` is end-of-that-month (this part is unchanged).
 
 To **break the inheritance chain** — i.e. you want next month's season to look different from this one's — stage a future season explicitly via \`upsert_season(newSlug, { startedAt: <future>, expectedEndAt: ..., categories: [...], format?: {...} })\` BEFORE the current season's last fire. Staged future seasons are honored as-is; the inheritance rule only kicks in when there's nothing queued.
 `;

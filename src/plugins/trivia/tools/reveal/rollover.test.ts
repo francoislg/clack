@@ -126,12 +126,12 @@ describe("applySeasonRollover", () => {
     assert.equal(state.seasons[1].startedAt, now);
   });
 
-  it("continuation inherits questionTypes from closing season", () => {
+  it("continuation inherits answersFormat from closing season", () => {
     const now = Date.UTC(2026, 4, 31, 12, 0, 0, 0);
     const state = makeActiveState(now, "season-2026-05");
-    state.seasons[0].questionTypes = { boolean: 0, choice: 1 };
+    state.seasons[0].answersFormat = { boolean: 0, choice: 1 };
     applySeasonRollover(state, "season-2026-05", now);
-    assert.deepEqual(state.seasons[1].questionTypes, { boolean: 0, choice: 1 });
+    assert.deepEqual(state.seasons[1].answersFormat, { boolean: 0, choice: 1 });
   });
 
   it("continuation inherits format from closing season (deep-copied)", () => {
@@ -139,11 +139,11 @@ describe("applySeasonRollover", () => {
     const state = makeActiveState(now, "season-2026-05");
     state.seasons[0].format = {
       questions: [
-        { label: "GK", questionTypes: { boolean: 1, choice: 0 } },
+        { label: "GK", answersFormat: { boolean: 1, choice: 0 } },
         {
           label: "History Choice",
           categories: ["History"],
-          questionTypes: { boolean: 0, choice: 1 },
+          answersFormat: { boolean: 0, choice: 1 },
         },
       ],
     };
@@ -159,12 +159,12 @@ describe("applySeasonRollover", () => {
     assert.equal(state.seasons[0].format?.questions[0].label, "GK");
   });
 
-  it("continuation: absent fields stay absent (no questionTypes, no format on closing → none on continuation)", () => {
+  it("continuation: absent fields stay absent (no answersFormat, no format on closing → none on continuation)", () => {
     const now = Date.UTC(2026, 4, 31, 12, 0, 0, 0);
     const state = makeActiveState(now, "season-2026-05");
-    // Closing season has no questionTypes and no format
+    // Closing season has no answersFormat and no format
     applySeasonRollover(state, "season-2026-05", now);
-    assert.equal(state.seasons[1].questionTypes, undefined);
+    assert.equal(state.seasons[1].answersFormat, undefined);
     assert.equal(state.seasons[1].format, undefined);
     // categories ARE still inherited
     assert.deepEqual(state.seasons[1].categories, ["Science"]);

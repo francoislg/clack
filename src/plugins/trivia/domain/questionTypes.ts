@@ -1,7 +1,7 @@
 import type { Config } from "../../../config.js";
 import { DEFAULT_TRIVIA_CHOICES } from "../../../config.js";
 import type {
-  SeasonQuestionTypeWeights,
+  SeasonAnswersFormatWeights,
   SeasonsState,
   SeasonEntry,
   ScopedTriviaDataLayer,
@@ -10,61 +10,61 @@ import { findCurrentSeason } from "../core/seasonTimeline.js";
 
 /**
  * Built-in fallback when neither a current season nor workspace config provides
- * `questionsTypes`. Equivalent to pre-choice-questions behavior.
+ * `answersFormat`. Equivalent to pre-choice-questions behavior.
  */
-export const DEFAULT_QUESTION_TYPE_WEIGHTS: SeasonQuestionTypeWeights = {
+export const DEFAULT_ANSWERS_FORMAT_WEIGHTS: SeasonAnswersFormatWeights = {
   boolean: 1,
   choice: 0,
 };
 
 /**
- * Pure resolver for question-type weights given an already-resolved season entry
- * (possibly null) and optional slot index.
+ * Pure resolver for answers-format weights (boolean vs choice) given an already-resolved
+ * season entry (possibly null) and optional slot index.
  *
  * Priority order (first non-null source wins):
- *   1. Slot's `questionTypes` — when `currentSeason.format` is present, `slotIndex`
- *      is in range, and that slot has a `questionTypes` field.
- *   2. Season's top-level `questionTypes`.
- *   3. `config.trivia.questionsTypes` — workspace default.
- *   4. `DEFAULT_QUESTION_TYPE_WEIGHTS` — pure-boolean fallback.
+ *   1. Slot's `answersFormat` — when `currentSeason.format` is present, `slotIndex`
+ *      is in range, and that slot has an `answersFormat` field.
+ *   2. Season's top-level `answersFormat`.
+ *   3. `config.trivia.answersFormat` — workspace default.
+ *   4. `DEFAULT_ANSWERS_FORMAT_WEIGHTS` — pure-boolean fallback.
  */
-export function resolveQuestionTypes(
+export function resolveAnswersFormat(
   currentSeason: SeasonEntry | null,
   slotIndex: number | null,
   config: Config | null,
-): SeasonQuestionTypeWeights {
+): SeasonAnswersFormatWeights {
   if (currentSeason !== null && slotIndex !== null && currentSeason.format !== undefined) {
     const slot = currentSeason.format.questions[slotIndex];
-    if (slot?.questionTypes !== undefined) {
-      return slot.questionTypes;
+    if (slot?.answersFormat !== undefined) {
+      return slot.answersFormat;
     }
   }
-  if (currentSeason?.questionTypes !== undefined) {
-    return currentSeason.questionTypes;
+  if (currentSeason?.answersFormat !== undefined) {
+    return currentSeason.answersFormat;
   }
-  if (config?.trivia?.questionsTypes !== undefined) {
-    return config.trivia.questionsTypes;
+  if (config?.trivia?.answersFormat !== undefined) {
+    return config.trivia.answersFormat;
   }
-  return DEFAULT_QUESTION_TYPE_WEIGHTS;
+  return DEFAULT_ANSWERS_FORMAT_WEIGHTS;
 }
 
 /**
- * Resolves the active question-type weights for `get_ideas` (no slot — pre-format
+ * Resolves the active answers-format weights for `get_ideas` (no slot — pre-format
  * behavior). Loads the current season state on every call by design (no caching)
  * so mid-season `upsert_season` edits take effect on the next invocation.
  */
-export async function getActiveQuestionTypes(
+export async function getActiveAnswersFormat(
   scoped: ScopedTriviaDataLayer,
   config: Config,
   now: number,
-): Promise<SeasonQuestionTypeWeights> {
+): Promise<SeasonAnswersFormatWeights> {
   const seasonsEnabled = config.trivia?.seasons?.enabled ?? false;
   let current: SeasonEntry | null = null;
   if (seasonsEnabled) {
     const state: SeasonsState | null = await scoped.loadSeasonsState();
     current = findCurrentSeason(state, now);
   }
-  return resolveQuestionTypes(current, null, config);
+  return resolveAnswersFormat(current, null, config);
 }
 
 /**

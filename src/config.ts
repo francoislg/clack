@@ -142,11 +142,29 @@ export interface TriviaSeasonsConfig {
 }
 
 /**
- * Weighted-random map of question type → weight. Weights are non-negative integers;
+ * Weighted-random map of answer format → weight. Weights are non-negative integers;
  * at least one weight MUST be strictly positive. `get_ideas` re-normalizes at roll time.
  * Absent / `{ boolean: 1 }` → pure-boolean behavior (equivalent to pre-choice-questions).
  */
-export type TriviaQuestionTypeWeights = Record<"boolean" | "choice", number>;
+export type TriviaAnswersFormatWeights = Record<"boolean" | "choice", number>;
+
+/**
+ * Weighted-random map for the orthogonal fact-vs-topical axis. `fact` questions draw
+ * from static knowledge; `topical` questions invoke `WebSearch` to find a recent
+ * newsworthy event. Defaults to `{ fact: 1, topical: 0 }` (pre-topical behavior).
+ */
+export type TriviaQuestionTypeWeights = Record<"fact" | "topical", number>;
+
+/**
+ * One entry in the optional `trivia.contexts` axis. `name` is the lens label (any string,
+ * including the empty string which means "no specific lean"). `weight` defaults to 1; higher
+ * weight means the lens is more likely to be tried first when `get_ideas` rolls
+ * `contextPriority`. See the `trivia-question-contexts` capability spec.
+ */
+export interface TriviaContextEntry {
+  name: string;
+  weight?: number;
+}
 
 /**
  * Bounds for the number of options in a `choice` question. Both bounds must satisfy
@@ -197,8 +215,12 @@ export interface OffDay {
 
 export interface TriviaConfig {
   seasons?: TriviaSeasonsConfig;
-  /** Weighted-random map of question type → weight (workspace default; overridable per-season via SeasonEntry.questionTypes). */
-  questionsTypes?: TriviaQuestionTypeWeights;
+  /** Weighted-random map of answer format → weight (workspace default; overridable per-season via SeasonEntry.answersFormat). */
+  answersFormat?: TriviaAnswersFormatWeights;
+  /** Weighted-random map of question type (fact vs topical) → weight. Workspace default; overridable per-season / per-slot. */
+  questionType?: TriviaQuestionTypeWeights;
+  /** Optional lens axis. When present, get_ideas returns a `contextPriority` array Claude descends through. */
+  contexts?: TriviaContextEntry[];
   /** Bounds for choice-question option counts. Defaults to `{ min: 2, max: 4 }`. */
   choices?: TriviaChoicesConfig;
   /**
@@ -214,7 +236,10 @@ export interface TriviaConfig {
 }
 
 /** Defaults applied when `trivia.choices` is absent or only partially specified. */
-export const DEFAULT_TRIVIA_CHOICES: TriviaChoicesConfig = { min: 2, max: 4 };
+export const DEFAULT_TRIVIA_CHOICES: TriviaChoicesConfig = { min: 4, max: 4 };
+
+/** Built-in fallback when no `questionType` weights are set at any cascade tier. */
+export const DEFAULT_QUESTION_TYPE_WEIGHTS: TriviaQuestionTypeWeights = { fact: 1, topical: 0 };
 
 export interface TaskCardsConfig {
   /** Default cap on detail lines rendered per grouped tool task card. */
@@ -444,22 +469,23 @@ function parseTaskCardsConfig(raw: TaskCardsRaw | undefined): TaskCardsConfig | 
   return { maxDetailsPerGroup: val };
 }
 
-const QUESTION_TYPE_KEYS = ["boolean", "choice"] as const;
+const ANSWERS_FORMAT_KEYS = ["boolean", "choice"] as const;
+const QUESTION_TYPE_KEYS = ["fact", "topical"] as const;
 
-export function parseTriviaQuestionsTypes(
+export function parseTriviaAnswersFormat(
   raw: JsonValue | undefined,
-): TriviaQuestionTypeWeights | undefined {
+): TriviaAnswersFormatWeights | undefined {
   if (raw === undefined) return undefined;
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    throw new Error("Config 'trivia.questionsTypes' must be an object");
+    throw new Error("Config 'trivia.answersFormat' must be an object");
   }
   const entries: JsonObject = raw;
-  const out: Partial<TriviaQuestionTypeWeights> = {};
+  const out: Partial<TriviaAnswersFormatWeights> = {};
   let positiveCount = 0;
   for (const [key, value] of Object.entries(entries)) {
-    if (!(QUESTION_TYPE_KEYS as readonly string[]).includes(key)) {
+    if (!(ANSWERS_FORMAT_KEYS as readonly string[]).includes(key)) {
       throw new Error(
-        `Config 'trivia.questionsTypes' contains unknown key '${key}' (allowed: ${QUESTION_TYPE_KEYS.join(", ")})`,
+        `Config 'trivia.answersFormat' contains unknown key '${key}' (allowed: ${ANSWERS_FORMAT_KEYS.join(", ")})`,
       );
     }
     if (
@@ -469,7 +495,7 @@ export function parseTriviaQuestionsTypes(
       value < 0
     ) {
       throw new Error(
-        `Config 'trivia.questionsTypes.${key}' must be a non-negative integer (got ${JSON.stringify(value)})`,
+        `Config 'trivia.answersFormat.${key}' must be a non-negative integer (got ${JSON.stringify(value)})`,
       );
     }
     out[key as "boolean" | "choice"] = value;
@@ -477,13 +503,89 @@ export function parseTriviaQuestionsTypes(
   }
   if (positiveCount === 0) {
     throw new Error(
-      "Config 'trivia.questionsTypes' must have at least one strictly positive weight",
+      "Config 'trivia.answersFormat' must have at least one strictly positive weight",
     );
   }
   return {
     boolean: out.boolean ?? 0,
     choice: out.choice ?? 0,
   };
+}
+
+export function parseTriviaQuestionType(
+  raw: JsonValue | undefined,
+): TriviaQuestionTypeWeights | undefined {
+  if (raw === undefined) return undefined;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("Config 'trivia.questionType' must be an object");
+  }
+  const entries: JsonObject = raw;
+  const out: Partial<TriviaQuestionTypeWeights> = {};
+  let positiveCount = 0;
+  for (const [key, value] of Object.entries(entries)) {
+    if (!(QUESTION_TYPE_KEYS as readonly string[]).includes(key)) {
+      throw new Error(
+        `Config 'trivia.questionType' contains unknown key '${key}' (allowed: ${QUESTION_TYPE_KEYS.join(", ")})`,
+      );
+    }
+    if (
+      typeof value !== "number" ||
+      !Number.isFinite(value) ||
+      !Number.isInteger(value) ||
+      value < 0
+    ) {
+      throw new Error(
+        `Config 'trivia.questionType.${key}' must be a non-negative integer (got ${JSON.stringify(value)})`,
+      );
+    }
+    out[key as "fact" | "topical"] = value;
+    if (value > 0) positiveCount++;
+  }
+  if (positiveCount === 0) {
+    throw new Error("Config 'trivia.questionType' must have at least one strictly positive weight");
+  }
+  return {
+    fact: out.fact ?? 0,
+    topical: out.topical ?? 0,
+  };
+}
+
+export function parseTriviaContexts(raw: JsonValue | undefined): TriviaContextEntry[] | undefined {
+  if (raw === undefined) return undefined;
+  if (!Array.isArray(raw)) {
+    throw new Error("Config 'trivia.contexts' must be an array");
+  }
+  if (raw.length === 0) {
+    throw new Error("Config 'trivia.contexts' must be non-empty when present");
+  }
+  const out: TriviaContextEntry[] = [];
+  const seenNames = new Set<string>();
+  for (let i = 0; i < raw.length; i++) {
+    const entry = raw[i];
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new Error(`Config 'trivia.contexts[${i}]' must be an object`);
+    }
+    const e: JsonObject = entry;
+    const name = e.name;
+    if (typeof name !== "string") {
+      throw new Error(`Config 'trivia.contexts[${i}].name' must be a string`);
+    }
+    if (seenNames.has(name)) {
+      throw new Error(`Config 'trivia.contexts[${i}]' has duplicate name '${name}'`);
+    }
+    seenNames.add(name);
+    let weight: number | undefined;
+    if (e.weight !== undefined) {
+      if (typeof e.weight !== "number" || !Number.isFinite(e.weight) || e.weight <= 0) {
+        throw new Error(
+          `Config 'trivia.contexts[${i}].weight' must be a positive number (got ${JSON.stringify(e.weight)})`,
+        );
+      }
+      weight = e.weight;
+    }
+    out.push(weight === undefined ? { name } : { name, weight });
+  }
+  return out;
 }
 
 export function parseTriviaChoicesConfig(
@@ -973,9 +1075,11 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
   const triviaSeasonsRaw = triviaRaw ? section(triviaRaw, "seasons") : undefined;
   let triviaConfig: TriviaConfig | undefined;
   if (triviaRaw) {
-    const questionsTypes = parseTriviaQuestionsTypes(
-      triviaRaw.questionsTypes as JsonValue | undefined,
+    const answersFormat = parseTriviaAnswersFormat(
+      triviaRaw.answersFormat as JsonValue | undefined,
     );
+    const questionType = parseTriviaQuestionType(triviaRaw.questionType as JsonValue | undefined);
+    const contexts = parseTriviaContexts(triviaRaw.contexts as JsonValue | undefined);
     const choices = parseTriviaChoicesConfig(triviaRaw.choices as JsonValue | undefined);
     const games = parseTriviaGames(triviaRaw.games as JsonValue | undefined);
     const offDays = parseOffDays(triviaRaw.offDays as JsonValue | undefined);
@@ -988,7 +1092,9 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
         );
         triviaConfig = {
           seasons: { enabled: false, prompt: "" },
-          questionsTypes,
+          answersFormat,
+          questionType,
+          contexts,
           choices,
           games,
           offDays,
@@ -996,14 +1102,16 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
       } else {
         triviaConfig = {
           seasons: { enabled: seasonsEnabled, prompt: seasonsPrompt },
-          questionsTypes,
+          answersFormat,
+          questionType,
+          contexts,
           choices,
           games,
           offDays,
         };
       }
     } else {
-      triviaConfig = { questionsTypes, choices, games, offDays };
+      triviaConfig = { answersFormat, questionType, contexts, choices, games, offDays };
     }
   }
   const reusableFoldersRaw = cwRaw && section(cwRaw, "reusableFolders");

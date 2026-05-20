@@ -3,10 +3,13 @@ import assert from "node:assert/strict";
 import { SEND_QUESTIONS_INSTRUCTIONS } from "./scheduledPrompts.js";
 
 describe("SEND_QUESTIONS_INSTRUCTIONS — choice path", () => {
-  it("branches on suggestedType", () => {
-    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /suggestedType/);
-    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /BOOLEAN PATH/);
-    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /CHOICE PATH/);
+  it("branches on suggestedAnswersFormat × suggestedQuestionType (4 paths)", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /suggestedAnswersFormat/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /suggestedQuestionType/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /FACT-BOOLEAN PATH/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /FACT-CHOICE PATH/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /TOPICAL-BOOLEAN PATH/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /TOPICAL-CHOICE PATH/);
   });
 
   it("instructs Claude to write the correct answer FIRST at suggestedCorrectIndex", () => {
@@ -50,8 +53,8 @@ describe("SEND_QUESTIONS_INSTRUCTIONS — choice path", () => {
     assert.match(SEND_QUESTIONS_INSTRUCTIONS, /1️⃣ for index 0, 2️⃣ for index 1/);
   });
 
-  it('save_question call uses type: "choice" + choices + correctIndex', () => {
-    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /type: "choice"/);
+  it('save_question call uses answersFormat: "choice" + choices + correctIndex', () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /answersFormat: "choice"/);
     assert.match(SEND_QUESTIONS_INSTRUCTIONS, /choices \(array of suggestedChoiceCount strings/);
     assert.match(SEND_QUESTIONS_INSTRUCTIONS, /correctIndex \(MUST equal suggestedCorrectIndex\)/);
   });

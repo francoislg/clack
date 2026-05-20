@@ -27,7 +27,20 @@ This trivia run targets the game named \`{game}\`. Trivia data is partitioned pe
 Do NOT mention the game slug to end-users in any reveal or post — it is internal coordination metadata.`;
 
 /**
- * Shared step sequence for generating a new trivia question.
+ * Optional context-priority preamble shared across all generation paths.
+ * When `get_ideas` returns a `contextPriority` array, this guidance tells Claude
+ * how to descend the lens list. It is irrelevant when contextPriority is absent.
+ */
+const CONTEXT_PRIORITY_PREAMBLE = `CONTEXTS (LENSES) — when get_ideas returns \`contextPriority: string[]\`:
+   - The array is a freshly-rolled weighted-random ordering of every configured lens. Try \`contextPriority[0]\` FIRST — write the question with that lens as the angle/perspective.
+   - Empty-string entries mean "no specific lean" — generate without applying a lens.
+   - Only descend to \`contextPriority[1]\`, \`[2]\`, etc. when the current lens GENUINELY yields no usable question (e.g. for topical: no recent newsworthy event in that lens; for fact: nothing interesting at the intersection of category × lens). A reflexive descent defeats the purpose of weights.
+   - When you write the question with a non-empty lens, pass \`context: "<the lens you used>"\` to \`save_question\` so the lens is recorded.
+   - If you exhaust every entry in \`contextPriority\` without producing a usable question, re-call \`get_ideas\` to re-roll all the suggestions (fresh categories AND fresh contextPriority).
+   - When the get_ideas response does NOT include \`contextPriority\`, ignore lens handling entirely and pass no \`context\` arg to \`save_question\`.`;
+
+/**
+ * Shared step sequence for generating a new FACT-typed boolean trivia question.
  * Used by the scheduled question-posting prompt; kept as a single source so
  * future flows (e.g. an on-demand user-triggered generation) can compose from it.
  */
@@ -36,6 +49,7 @@ const QUESTION_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
      - categories.ideas: 5 random categories (excludes the last 10 used).
      - suggestedAnswer (boolean): the truth value the final statement MUST have.
      - suggestedDifficulty ("Easy" | "Medium" | "Hard"): the bucket to aim at.
+     - contextPriority (optional, only when contexts are configured): see CONTEXTS guidance above.
    - Pick one category from categories.ideas.
    - Read suggestedAnswer and suggestedDifficulty — both steer the next steps.
 
@@ -92,22 +106,26 @@ const QUESTION_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
 
 8. SAVE TO DATABASE:
    - Call save_question with:
+     - answersFormat: "boolean"
+     - questionType: "fact"
      - category (the one you picked from get_ideas)
      - statement (your trivia statement)
      - isTrue (boolean)
      - emojis (array of emoji strings)
      - suggestedDifficulty (the bucket from get_ideas in step 1)
      - difficulty (your 1–10 self-rating from step 6)
+     - context (only when a non-empty contextPriority entry was used; omit otherwise)
      - slot: \`{ index: i }\` — REQUIRED when the active season has a format (the get_ideas response will carry \`format: { slotCount, slots: [...] }\` then). MUST be OMITTED when format is null.
    - Store the returned questionId AND its slot.index for the post step.`;
 
 const CHOICE_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
    - Call get_ideas. For the CHOICE PATH, it returns:
      - categories.ideas: 5 random categories (excludes the last 10 used).
-     - suggestedType: "choice"
+     - suggestedAnswersFormat: "choice"
      - suggestedChoiceCount (integer): the number of options the question MUST have.
      - suggestedCorrectIndex (integer in [0, suggestedChoiceCount)): the 0-based index where the correct answer MUST be placed.
      - suggestedDifficulty ("Easy" | "Medium" | "Hard"): the bucket to aim at.
+     - contextPriority (optional, only when contexts are configured): see CONTEXTS guidance above.
    - Pick one category from categories.ideas.
 
 2. WRITE THE CORRECT ANSWER FIRST (REQUIRED — NEVER SHIFT THE CORRECT POSITION):
@@ -139,7 +157,8 @@ const CHOICE_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
 
 7. SAVE TO DATABASE:
    - Call save_question with:
-     - type: "choice"
+     - answersFormat: "choice"
+     - questionType: "fact"
      - category (the one you picked from get_ideas)
      - statement (a single-sentence question prompt — what is being asked)
      - choices (array of suggestedChoiceCount strings — the correct answer at suggestedCorrectIndex, distractors at the other positions)
@@ -147,8 +166,116 @@ const CHOICE_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
      - emojis (array of 1-4 emoji strings)
      - suggestedDifficulty (the bucket from get_ideas in step 1)
      - difficulty (your 1–10 self-rating from step 5)
+     - context (only when a non-empty contextPriority entry was used; omit otherwise)
      - slot: \`{ index: i }\` — REQUIRED when the active season has a format. MUST be OMITTED when format is null.
    - Store the returned questionId AND its slot.index for the post step.`;
+
+/**
+ * Topical-boolean flow: prefixes a WebSearch research step in front of the
+ * fact-boolean gates. The polarity / duplicate-check / difficulty / save gates
+ * are otherwise identical, but `save_question` carries `questionType: "topical"`
+ * + the captured `sourceUrl` (and optional `eventDate`).
+ */
+const TOPICAL_BOOLEAN_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
+   - Call get_ideas. For the TOPICAL BOOLEAN PATH, it returns:
+     - categories.ideas: 5 random categories.
+     - suggestedAnswersFormat: "boolean"
+     - suggestedQuestionType: "topical"
+     - suggestedAnswer (boolean): the truth value the final statement MUST have.
+     - suggestedDifficulty ("Easy" | "Medium" | "Hard"): the bucket to aim at.
+     - contextPriority (optional, only when contexts are configured): see CONTEXTS guidance above.
+   - Pick one category from categories.ideas.
+
+2. RESEARCH A RECENT EVENT VIA WebSearch (REQUIRED — DO NOT SKIP):
+   - Compose a WebSearch query that combines the chosen category, the chosen lens from contextPriority[0] (if applicable), and a recency hint (e.g. "this week", "yesterday", "last few days", a recent year).
+   - Aim for events from the last day or two. Go back further (up to a week) only if nothing notable surfaced from the most recent days.
+   - Pick ONE specific newsworthy event from the results to anchor the question on. Capture:
+     - sourceUrl: the most authoritative URL that supports the claim (must begin with https://).
+     - eventDate (optional but encouraged): the ISO 8601 date (YYYY-MM-DD) the event occurred, when easy to determine.
+   - If the current lens (contextPriority[0]) yielded no usable event, descend per the CONTEXTS guidance. If every lens fails, re-call get_ideas.
+
+3. WRITE A STATEMENT WITH THE CORRECT POLARITY FROM THE START:
+   Branch on suggestedAnswer — do NOT write a true statement and try to flip it later.
+   - If suggestedAnswer is TRUE: state a verified true fact drawn from the event.
+   - If suggestedAnswer is FALSE: write a plausible-sounding FALSE statement about the event — swap a date, a name, a place, or a number to something subtly incorrect; or assert a tempting misconception about the event that is contradicted by the actual reporting.
+   Aim at the difficulty bucket from suggestedDifficulty (Easy → 4-6, Medium → 7-8, Hard → 9-10).
+
+4. POLARITY SELF-CHECK (REQUIRED GATE):
+   - "suggestedAnswer was: <true | false>"
+   - "My statement asserts something that is actually: <true | false>"
+   - "Do these match? <yes | no>"
+   If "no", rewrite the statement from step 3.
+
+5. CHECK FOR DUPLICATES:
+   - Call find_previous_questions with a distinctive keyword from the statement.
+   - If the same event was already asked about (even with different polarity or angle), pick a different event from your WebSearch results (or re-search).
+
+6. DIFFICULTY GATE (REQUIRED): same 1-10 self-rating rules as the fact path; reject and re-roll if ≤ 3/10.
+
+7. Choose 1-4 fun emojis related to the event/topic.
+
+8. SAVE TO DATABASE:
+   - Call save_question with:
+     - answersFormat: "boolean"
+     - questionType: "topical"
+     - category (from get_ideas)
+     - statement (your trivia statement)
+     - isTrue (boolean)
+     - sourceUrl (REQUIRED — the https:// URL you captured in step 2)
+     - eventDate (when known — YYYY-MM-DD)
+     - emojis
+     - suggestedDifficulty
+     - difficulty (your self-rating)
+     - context (the lens you used, when non-empty)
+     - slot: \`{ index: i }\` — REQUIRED when the active season has a format. MUST be OMITTED when format is null.
+   - Store the returned questionId AND its slot.index for the post step.`;
+
+/**
+ * Topical-choice flow: prefixes a WebSearch research step in front of the
+ * fact-choice distractor / difficulty gates.
+ */
+const TOPICAL_CHOICE_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
+   - Call get_ideas. For the TOPICAL CHOICE PATH, it returns:
+     - categories.ideas: 5 random categories.
+     - suggestedAnswersFormat: "choice"
+     - suggestedQuestionType: "topical"
+     - suggestedChoiceCount (integer): the number of options the question MUST have.
+     - suggestedCorrectIndex (integer in [0, suggestedChoiceCount)): the index where the correct answer MUST be placed.
+     - suggestedDifficulty ("Easy" | "Medium" | "Hard"): the bucket to aim at.
+     - contextPriority (optional, only when contexts are configured): see CONTEXTS guidance above.
+   - Pick one category from categories.ideas.
+
+2. RESEARCH A RECENT EVENT VIA WebSearch (REQUIRED — DO NOT SKIP):
+   - Same WebSearch + lens-descent rules as the topical boolean path. Capture sourceUrl and (when known) eventDate from the chosen event.
+
+3. WRITE THE CORRECT ANSWER FIRST (REQUIRED — NEVER SHIFT THE CORRECT POSITION):
+   - Anchor the correct option on a verified fact drawn from the event. This option occupies suggestedCorrectIndex.
+   - Write (suggestedChoiceCount − 1) plausible distractors — confident-sounding wrong options drawn from the same news domain (e.g. other people in the story, other recent similar events, related-but-wrong dates/places/numbers).
+
+4. DISTRACTOR PLAUSIBILITY GATE (REQUIRED): same four-condition rule as the fact-choice path. Rewrite only failing distractors, never the correct answer. 3-pass retry budget; otherwise re-roll from get_ideas.
+
+5. CHECK FOR DUPLICATES: same as topical boolean path.
+
+6. DIFFICULTY GATE (REQUIRED): same as the fact path.
+
+7. Choose 1-4 fun emojis.
+
+8. SAVE TO DATABASE:
+   - Call save_question with:
+     - answersFormat: "choice"
+     - questionType: "topical"
+     - category
+     - statement (single-sentence question prompt)
+     - choices (array; correct answer at suggestedCorrectIndex)
+     - correctIndex (MUST equal suggestedCorrectIndex)
+     - sourceUrl (REQUIRED)
+     - eventDate (when known)
+     - emojis
+     - suggestedDifficulty
+     - difficulty
+     - context (the lens you used, when non-empty)
+     - slot: \`{ index: i }\` — REQUIRED when the active season has a format.
+   - Store the returned questionId for the post step.`;
 
 export const SEND_QUESTIONS_INSTRUCTIONS = `${GAME_SHOW_PERSONA}
 
@@ -156,31 +283,45 @@ ${GAME_CONTEXT_DIRECTIVE}
 
 Create today's trivia question(s). Begin with ONE call to \`get_ideas({ game: "{game}" })\` (no slot arg). Inspect the response's \`format\` field — it dispatches the OUTER flow:
 
-- \`format: null\` → SINGLE-QUESTION FLOW. The active season has no format. Run the question-generation flow ONCE using this first \`get_ideas\` payload's \`suggestedType\` / \`suggestedAnswer\` / etc. Then format the question card and call \`post_questions\` with ONE item.
+- \`format: null\` → SINGLE-QUESTION FLOW. The active season has no format. Run the question-generation flow ONCE using this first \`get_ideas\` payload's \`suggestedAnswersFormat\` / \`suggestedQuestionType\` / \`suggestedAnswer\` / etc. Then format the question card and call \`post_questions\` with ONE item.
 
 - \`format: { slotCount: N, slots: [...] }\` → MULTI-SLOT FLOW. The active season has a format with N slots. For \`i\` from 0 to N-1:
   1. Use the get_ideas payload that corresponds to slot \`i\`:
      - For \`i === 0\`: use the OPENING get_ideas payload (it rolled for slot 0 by default).
-     - For \`i >= 1\`: make a FRESH \`get_ideas({ game: "{game}", slot: i })\` call. Do NOT reuse slot 0's \`suggestedAnswer\` / \`suggestedDifficulty\` — each slot must roll its own. (Pre-rolling all suggestions up front is forbidden.)
+     - For \`i >= 1\`: make a FRESH \`get_ideas({ game: "{game}", slot: i })\` call. Do NOT reuse slot 0's rolls — each slot must roll its own. (Pre-rolling all suggestions up front is forbidden.)
   2. Read \`format.slots[i].label\` as a creative HINT for this slot's flavor (e.g. "Lightning Round", "Historical Choice") — set your tone for this slot, but do NOT copy the label literally into the question text.
-  3. Run the question-generation flow below (branches on \`suggestedType\`) for THIS slot.
+  3. Run the question-generation flow below (4-way branch on \`suggestedAnswersFormat\` × \`suggestedQuestionType\`) for THIS slot.
   4. When saving, pass \`slot: { index: i }\` to \`save_question\`. Store the returned \`questionId\` paired with \`i\` for the post step.
   Repeat until all N slots have been generated and saved. Then build the question cards (one set of blocks per slot, in slot order) and call \`post_questions\` ONCE with an N-item \`items\` array.
 
-In both flows, the per-question/per-slot generation BRANCHES on the \`suggestedType\` value returned by \`get_ideas\`:
+${CONTEXT_PRIORITY_PREAMBLE}
 
-- \`suggestedType: "boolean"\` (or absent — legacy default) → follow the BOOLEAN PATH below.
-- \`suggestedType: "choice"\` → follow the CHOICE PATH below.
+In both flows, per-question/per-slot generation DISPATCHES on a 2-axis matrix: \`suggestedAnswersFormat\` × \`suggestedQuestionType\` — producing four paths:
 
-Duplicate detection (step 4 below) stays GAME-SCOPED, not slot-scoped — a question that appeared in slot 0 yesterday is still a duplicate if it shows up in slot 2 today. Always call \`find_previous_questions\` with just \`game\` + text; do NOT filter by slot.
+| | \`suggestedAnswersFormat: "boolean"\` | \`suggestedAnswersFormat: "choice"\` |
+|---|---|---|
+| \`suggestedQuestionType: "fact"\` | FACT-BOOLEAN PATH | FACT-CHOICE PATH |
+| \`suggestedQuestionType: "topical"\` | TOPICAL-BOOLEAN PATH (requires WebSearch + sourceUrl) | TOPICAL-CHOICE PATH (requires WebSearch + sourceUrl) |
 
-=== BOOLEAN PATH (per question / per slot) ===
+Both topical paths REQUIRE the \`WebSearch\` tool to find a recent newsworthy event, and pass the resulting source URL to \`save_question\`. The fact paths never call WebSearch.
+
+Duplicate detection (find_previous_questions) stays GAME-SCOPED, not slot-scoped — a question that appeared in slot 0 yesterday is still a duplicate if it shows up in slot 2 today. Always call \`find_previous_questions\` with just \`game\` + text; do NOT filter by slot.
+
+=== FACT-BOOLEAN PATH (per question / per slot) ===
 
 ${QUESTION_FLOW_STEPS}
 
-=== CHOICE PATH (per question / per slot) ===
+=== FACT-CHOICE PATH (per question / per slot) ===
 
 ${CHOICE_FLOW_STEPS}
+
+=== TOPICAL-BOOLEAN PATH (per question / per slot) ===
+
+${TOPICAL_BOOLEAN_FLOW_STEPS}
+
+=== TOPICAL-CHOICE PATH (per question / per slot) ===
+
+${TOPICAL_CHOICE_FLOW_STEPS}
 
 === FORMAT & POST (BOTH FLOWS, BOTH PATHS) ===
 
@@ -193,6 +334,8 @@ ${CHOICE_FLOW_STEPS}
       - SINGLE-QUESTION FLOW, **and** every question after the first in MULTI-SLOT FLOW (slots 1..N-1): the show banner (e.g. "🎯 TRIVIA TIME!"). Vary the wording daily ("📣 STEP RIGHT UP!", "🎲 DAILY BRAIN TEASER", "🎯 TRIVIA TIME!", etc.).
       - MULTI-SLOT FLOW, FIRST question only (slot 0): a calmer date-stamped round opener that anchors today's round, e.g. "🗓️ Trivia for Wednesday, May 20", "📅 Trivia — May 20", "🎟️ Today's Trivia Round · May 20". Use today's actual date (weekday + month + day, OR month + day — your call). Keep it noticeably less shouty than the show banner; this is the "round header" for the batch, not the per-question hype line. Subsequent slots in the same batch go back to the normal show-banner style.
    2. \`section\` block (mrkdwn) — your warm-up patter. 1-2 short sentences that build anticipation. This is where the Game Show voice shines.
+      - **TOPICAL QUESTIONS (questionType: "topical") MUST FLAG THEMSELVES.** The warm-up patter SHALL signal that this is a current-events / news question — e.g. "Hot off the presses!", "Straight from this week's headlines:", "Today in the news:", "If you've been doomscrolling lately, this one's for you:", "Ripped from yesterday's news:", etc. Do NOT use static-knowledge framings like "dig into your knowledge vault", "what you remember from school", "trivia masters take note", or anything implying memorized facts — those mislead viewers about what kind of question to expect. Pair the news framing with the same game-show energy. Vary the exact wording each day.
+      - **FACT QUESTIONS (questionType: "fact")** keep the standard knowledge-vault framing — that's the default voice.
    3. \`card\` block — the trivia card itself:
       - \`title\`: \`{ type: "mrkdwn", text: "<emoji> <Category>" }\` — JUST the category from step 1, with a topic-fitting emoji prefix. No "TRIVIA TIME" here, no flavor text.
       - \`body\`: \`{ type: "mrkdwn", text: "<statement>\\n\\n👍 TRUE  •  👎 FALSE" }\` — the statement, blank line, then the vote line. ALWAYS 👍 (TRUE) first, then 👎 (FALSE) — this order matters.
@@ -219,7 +362,7 @@ ${CHOICE_FLOW_STEPS}
 
    Add game show flair to the header, patter, and closer — "Step right up!", "The stakes are high!", "Who will be crowned champion?", "Let's see who's got the smarts!" — make it entertaining, and feel free to come up with your own openers. The card itself stays clean: category title, statement + vote line in the body, nothing else.
 
-   CHOICE-PATH CARD BODY (when suggestedType was "choice"):
+   CHOICE-PATH CARD BODY (when suggestedAnswersFormat was "choice"):
    - The card body still shows the statement on the first line, blank line, then the OPTIONS. Choose between two layouts based on readability:
      - **Stacked** (preferred when any choice text exceeds roughly 25 characters or choices read more naturally on separate lines):
        \`\`\`

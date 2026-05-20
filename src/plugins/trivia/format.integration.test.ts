@@ -63,7 +63,7 @@ function postQuestionsDeps(): PostQuestionsSlackDeps {
 
 const SEASONS_ON = makeConfig({
   seasons: { enabled: true, prompt: "Monthly" },
-  questionsTypes: { boolean: 1, choice: 0 },
+  answersFormat: { boolean: 1, choice: 0 },
 });
 
 describe("Trivia question-format end-to-end flow", () => {
@@ -98,7 +98,9 @@ describe("Trivia question-format end-to-end flow", () => {
           expectedEndAt: undefined,
           endedAt: undefined,
           categories: undefined,
-          questionTypes: undefined,
+          answersFormat: undefined,
+          questionType: undefined,
+          contexts: undefined,
           format: {
             questions: [
               { label: "GK Boolean" },
@@ -121,7 +123,7 @@ describe("Trivia question-format end-to-end flow", () => {
     assert.equal(slot0.format.slotCount, 2);
     assert.equal(slot0.format.slots[0].label, "GK Boolean");
     assert.equal(slot0.slot, 0);
-    assert.equal(slot0.suggestedType, "boolean");
+    assert.equal(slot0.suggestedAnswersFormat, "boolean");
     assert.equal(slot0.categories.total, 4);
 
     // 3. save_question for slot 0 with a Science boolean
@@ -130,7 +132,11 @@ describe("Trivia question-format end-to-end flow", () => {
       await saveQuestion.handler(
         {
           game: FIXTURE_GAME_NAME,
-          type: "boolean",
+          answersFormat: "boolean",
+          questionType: "fact",
+          sourceUrl: undefined,
+          eventDate: undefined,
+          context: undefined,
           category: "Science",
           statement: "Water freezes at zero Celsius at sea level.",
           isTrue: true,
@@ -161,7 +167,11 @@ describe("Trivia question-format end-to-end flow", () => {
       await saveQuestion.handler(
         {
           game: FIXTURE_GAME_NAME,
-          type: "boolean",
+          answersFormat: "boolean",
+          questionType: "fact",
+          sourceUrl: undefined,
+          eventDate: undefined,
+          context: undefined,
           category: "Sports", // not in slot 1's narrowed pool
           statement: "Some plausible statement here.",
           isTrue: false,
@@ -182,7 +192,11 @@ describe("Trivia question-format end-to-end flow", () => {
       await saveQuestion.handler(
         {
           game: FIXTURE_GAME_NAME,
-          type: "boolean",
+          answersFormat: "boolean",
+          questionType: "fact",
+          sourceUrl: undefined,
+          eventDate: undefined,
+          context: undefined,
           category: "History",
           statement: "Napoleon was crowned Emperor in 1804.",
           isTrue: true,
@@ -244,7 +258,7 @@ describe("Trivia question-format end-to-end flow", () => {
     assert.equal(byCategory.get("History")?.season, "active");
   });
 
-  it("auto-rollover continuation inherits categories, questionTypes, and format from closing season", async () => {
+  it("auto-rollover continuation inherits categories, answersFormat, and format from closing season", async () => {
     const now = Date.UTC(2026, 4, 31, 12, 0, 0, 0); // May 31, 2026 — last day of month
     const state = {
       seasons: [
@@ -253,10 +267,10 @@ describe("Trivia question-format end-to-end flow", () => {
           startedAt: now - 30 * DAY,
           expectedEndAt: now + 1,
           categories: ["Marine Biology", "Cephalopods", "Tides"],
-          questionTypes: { boolean: 0, choice: 1 } as const,
+          answersFormat: { boolean: 0, choice: 1 } as const,
           format: {
             questions: [
-              { label: "GK", questionTypes: { boolean: 1, choice: 0 } },
+              { label: "GK", answersFormat: { boolean: 1, choice: 0 } },
               { label: "History", categories: ["Marine Biology"] },
             ],
           },
@@ -271,8 +285,8 @@ describe("Trivia question-format end-to-end flow", () => {
     assert.equal(continuation.slug, "season-2026-06");
     // categories inherited — NOT global baseline
     assert.deepEqual(continuation.categories, ["Marine Biology", "Cephalopods", "Tides"]);
-    // questionTypes inherited
-    assert.deepEqual(continuation.questionTypes, { boolean: 0, choice: 1 });
+    // answersFormat inherited
+    assert.deepEqual(continuation.answersFormat, { boolean: 0, choice: 1 });
     // format inherited (deep-copied)
     assert.equal(continuation.format?.questions.length, 2);
     assert.equal(continuation.format?.questions[0].label, "GK");

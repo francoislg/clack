@@ -9,7 +9,8 @@ const SESSION = { sessionId: "test" };
 
 const CHOICE_QUESTION: TriviaQuestion = {
   id: "qchoice",
-  type: "choice",
+  answersFormat: "choice",
+  questionType: "fact",
   category: "Geography",
   statement: "Which is the smallest planet?",
   choices: ["Mercury", "Venus", "Earth", "Mars"],
@@ -20,7 +21,8 @@ const CHOICE_QUESTION: TriviaQuestion = {
 
 const BOOLEAN_QUESTION: TriviaQuestion = {
   id: "qbool",
-  type: "boolean",
+  answersFormat: "boolean",
+  questionType: "fact",
   category: "Geography",
   statement: "The Earth is round.",
   isTrue: true,
@@ -30,7 +32,7 @@ const BOOLEAN_QUESTION: TriviaQuestion = {
 
 const LEGACY_BOOLEAN_QUESTION: TriviaQuestion = {
   id: "qlegacy",
-  // no type field — should read as boolean
+  // no answersFormat field — should read as boolean (legacy pre-migration row)
   category: "Geography",
   statement: "Pre-change boolean question.",
   isTrue: false,
