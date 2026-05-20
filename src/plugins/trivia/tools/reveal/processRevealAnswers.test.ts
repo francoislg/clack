@@ -58,6 +58,7 @@ interface QuestionSeed {
   createdAt?: number;
   postedAt?: number;
   processedAt?: number;
+  batchId?: string;
   ts: string; // canonical Slack ts string
 }
 
@@ -75,6 +76,7 @@ async function seedQuestion(data: TriviaDataLayer, seed: QuestionSeed): Promise<
     postedAt: seed.postedAt ?? 200,
     messageLink: permalink(seed.ts),
     processedAt: seed.processedAt,
+    batchId: seed.batchId,
   };
   await data.forGame(FIXTURE_GAME_NAME).saveQuestion(q);
 }
@@ -163,14 +165,34 @@ describe("process_reveal_answers — default mode", () => {
     assert.deepEqual(body.leaderboard, []);
   });
 
-  it("picks the oldest pending when multiple are pending; leaves the rest unprocessed", async () => {
+  it("one batch of three pending questions reveals all three in postedAt order", async () => {
     const data = createInMemoryDataLayer();
-    await seedQuestion(data, { id: "old", isTrue: true, postedAt: 100, ts: "1700000001.000000" });
-    await seedQuestion(data, { id: "newer", isTrue: true, postedAt: 200, ts: "1700000002.000000" });
+    await seedQuestion(data, {
+      id: "Q1",
+      isTrue: true,
+      postedAt: 100,
+      ts: "1700000001.000000",
+      batchId: "batch-A",
+    });
+    await seedQuestion(data, {
+      id: "Q2",
+      isTrue: true,
+      postedAt: 200,
+      ts: "1700000002.000000",
+      batchId: "batch-A",
+    });
+    await seedQuestion(data, {
+      id: "Q3",
+      isTrue: true,
+      postedAt: 300,
+      ts: "1700000003.000000",
+      batchId: "batch-A",
+    });
 
     const reactions = new Map<string, SlackReactionLike[]>([
       ["1700000001.000000", [{ emoji: "+1", users: ["U1"] }]],
       ["1700000002.000000", [{ emoji: "+1", users: ["U1"] }]],
+      ["1700000003.000000", [{ emoji: "+1", users: ["U1"] }]],
     ]);
     const tool = createProcessRevealAnswersTool(
       data,
@@ -186,11 +208,197 @@ describe("process_reveal_answers — default mode", () => {
     );
     const body = parseToolResult(result);
 
-    assert.equal(body.reveals.length, 1);
-    assert.equal(body.reveals[0].questionId, "old");
+    assert.equal(body.reveals.length, 3);
+    assert.deepEqual(
+      body.reveals.map((r: { questionId: string }) => r.questionId),
+      ["Q1", "Q2", "Q3"],
+    );
+    for (const id of ["Q1", "Q2", "Q3"]) {
+      assert.ok((await getQuestion(data, id))?.processedAt !== undefined, `${id} stamped`);
+    }
+  });
 
-    const newer = await getQuestion(data, "newer");
-    assert.equal(newer?.processedAt, undefined);
+  it("oldest batch wins when two batches are pending; younger batch stays pending", async () => {
+    const data = createInMemoryDataLayer();
+    await seedQuestion(data, {
+      id: "A1",
+      isTrue: true,
+      postedAt: 100,
+      ts: "1700000001.000000",
+      batchId: "batch-A",
+    });
+    await seedQuestion(data, {
+      id: "A2",
+      isTrue: true,
+      postedAt: 110,
+      ts: "1700000001.100000",
+      batchId: "batch-A",
+    });
+    await seedQuestion(data, {
+      id: "B1",
+      isTrue: true,
+      postedAt: 500,
+      ts: "1700000005.000000",
+      batchId: "batch-B",
+    });
+    await seedQuestion(data, {
+      id: "B2",
+      isTrue: true,
+      postedAt: 510,
+      ts: "1700000005.100000",
+      batchId: "batch-B",
+    });
+
+    const reactions = new Map<string, SlackReactionLike[]>([
+      ["1700000001.000000", [{ emoji: "+1", users: ["U1"] }]],
+      ["1700000001.100000", [{ emoji: "+1", users: ["U1"] }]],
+      ["1700000005.000000", [{ emoji: "+1", users: ["U1"] }]],
+      ["1700000005.100000", [{ emoji: "+1", users: ["U1"] }]],
+    ]);
+    const tool = createProcessRevealAnswersTool(
+      data,
+      makeFakeSdk(),
+      fixtureGetGames,
+      noJobs,
+      makeSlackDeps(reactions),
+    );
+
+    const body = parseToolResult(
+      await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+    );
+
+    assert.equal(body.reveals.length, 2);
+    assert.deepEqual(
+      body.reveals.map((r: { questionId: string }) => r.questionId),
+      ["A1", "A2"],
+    );
+    assert.ok((await getQuestion(data, "B1"))?.processedAt === undefined);
+    assert.ok((await getQuestion(data, "B2"))?.processedAt === undefined);
+  });
+
+  it("successive fires drain the backlog one batch at a time", async () => {
+    const data = createInMemoryDataLayer();
+    await seedQuestion(data, {
+      id: "A1",
+      isTrue: true,
+      postedAt: 100,
+      ts: "1700000001.000000",
+      batchId: "batch-A",
+    });
+    await seedQuestion(data, {
+      id: "B1",
+      isTrue: true,
+      postedAt: 500,
+      ts: "1700000005.000000",
+      batchId: "batch-B",
+    });
+
+    const reactions = new Map<string, SlackReactionLike[]>([
+      ["1700000001.000000", [{ emoji: "+1", users: ["U1"] }]],
+      ["1700000005.000000", [{ emoji: "+1", users: ["U1"] }]],
+    ]);
+    const tool = createProcessRevealAnswersTool(
+      data,
+      makeFakeSdk(),
+      fixtureGetGames,
+      noJobs,
+      makeSlackDeps(reactions),
+    );
+
+    const first = parseToolResult(
+      await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+    );
+    assert.equal(first.reveals.length, 1);
+    assert.equal(first.reveals[0].questionId, "A1");
+
+    const second = parseToolResult(
+      await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+    );
+    assert.equal(second.reveals.length, 1);
+    assert.equal(second.reveals[0].questionId, "B1");
+  });
+
+  it("legacy pending row without batchId is treated as a singleton", async () => {
+    const data = createInMemoryDataLayer();
+    await seedQuestion(data, {
+      id: "Q_legacy",
+      isTrue: true,
+      postedAt: 50,
+      ts: "1700000000.500000",
+      // batchId omitted
+    });
+    await seedQuestion(data, {
+      id: "fresh1",
+      isTrue: true,
+      postedAt: 200,
+      ts: "1700000002.000000",
+      batchId: "batch-A",
+    });
+    await seedQuestion(data, {
+      id: "fresh2",
+      isTrue: true,
+      postedAt: 210,
+      ts: "1700000002.100000",
+      batchId: "batch-A",
+    });
+
+    const reactions = new Map<string, SlackReactionLike[]>([
+      ["1700000000.500000", [{ emoji: "+1", users: ["U1"] }]],
+      ["1700000002.000000", [{ emoji: "+1", users: ["U1"] }]],
+      ["1700000002.100000", [{ emoji: "+1", users: ["U1"] }]],
+    ]);
+    const tool = createProcessRevealAnswersTool(
+      data,
+      makeFakeSdk(),
+      fixtureGetGames,
+      noJobs,
+      makeSlackDeps(reactions),
+    );
+
+    const body = parseToolResult(
+      await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+    );
+
+    assert.equal(body.reveals.length, 1);
+    assert.equal(body.reveals[0].questionId, "Q_legacy");
+    assert.ok((await getQuestion(data, "fresh1"))?.processedAt === undefined);
+    assert.ok((await getQuestion(data, "fresh2"))?.processedAt === undefined);
+  });
+
+  it("two legacy rows without batchId do not merge into one group", async () => {
+    const data = createInMemoryDataLayer();
+    await seedQuestion(data, {
+      id: "legacy_old",
+      isTrue: true,
+      postedAt: 50,
+      ts: "1700000000.500000",
+    });
+    await seedQuestion(data, {
+      id: "legacy_newer",
+      isTrue: true,
+      postedAt: 150,
+      ts: "1700000001.500000",
+    });
+
+    const reactions = new Map<string, SlackReactionLike[]>([
+      ["1700000000.500000", [{ emoji: "+1", users: ["U1"] }]],
+      ["1700000001.500000", [{ emoji: "+1", users: ["U1"] }]],
+    ]);
+    const tool = createProcessRevealAnswersTool(
+      data,
+      makeFakeSdk(),
+      fixtureGetGames,
+      noJobs,
+      makeSlackDeps(reactions),
+    );
+
+    const body = parseToolResult(
+      await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+    );
+
+    assert.equal(body.reveals.length, 1);
+    assert.equal(body.reveals[0].questionId, "legacy_old");
+    assert.ok((await getQuestion(data, "legacy_newer"))?.processedAt === undefined);
   });
 
   it("idempotency: second default-mode call returns reveals:[] after the first stamped processedAt", async () => {

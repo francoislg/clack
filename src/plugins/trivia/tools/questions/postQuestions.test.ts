@@ -445,3 +445,128 @@ describe("post_questions tool", () => {
     assert.equal(calls.postBlocksCalls[0].channel, "C_CUSTOM_CHANNEL");
   });
 });
+
+describe("post_questions tool — batchId", () => {
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+  it("stamps a shared batchId on every fresh item in one call", async () => {
+    const data = createInMemoryDataLayer();
+    await seedQuestion(data, { id: "Q1" });
+    await seedQuestion(data, { id: "Q2" });
+
+    const { deps } = fakeSlackDeps();
+    const tool = createPostQuestionsTool(data, fakeSdk(), fixtureGetGames, deps);
+
+    await tool.handler(
+      {
+        game: FIXTURE_GAME_NAME,
+        items: [
+          { questionId: "Q1", blocks: SAMPLE_BLOCKS },
+          { questionId: "Q2", blocks: SAMPLE_BLOCKS },
+        ],
+      },
+      SESSION,
+    );
+
+    const stored = await data.forGame(FIXTURE_GAME_NAME).loadQuestions();
+    const q1 = stored.find((q) => q.id === "Q1");
+    const q2 = stored.find((q) => q.id === "Q2");
+    assert.ok(q1?.batchId, "Q1 must have a batchId");
+    assert.ok(q2?.batchId, "Q2 must have a batchId");
+    assert.match(q1.batchId, UUID_RE);
+    assert.equal(q1.batchId, q2.batchId, "both items in the same call share one batchId");
+  });
+
+  it("idempotent-skipped item keeps its original batchId", async () => {
+    const data = createInMemoryDataLayer();
+    await seedQuestion(data, {
+      id: "Q1",
+      postedAt: 1000,
+      messageLink: "https://existing/p1",
+      batchId: "preexisting-batch",
+    });
+    await seedQuestion(data, { id: "Q2" });
+
+    const { deps } = fakeSlackDeps();
+    const tool = createPostQuestionsTool(data, fakeSdk(), fixtureGetGames, deps);
+
+    await tool.handler(
+      {
+        game: FIXTURE_GAME_NAME,
+        items: [
+          { questionId: "Q1", blocks: SAMPLE_BLOCKS },
+          { questionId: "Q2", blocks: SAMPLE_BLOCKS },
+        ],
+      },
+      SESSION,
+    );
+
+    const stored = await data.forGame(FIXTURE_GAME_NAME).loadQuestions();
+    const q1 = stored.find((q) => q.id === "Q1");
+    const q2 = stored.find((q) => q.id === "Q2");
+    assert.equal(q1?.batchId, "preexisting-batch", "skipped item retains its original batchId");
+    assert.ok(q2?.batchId, "fresh item gets a batchId");
+    assert.notEqual(q2.batchId, "preexisting-batch", "fresh item's batchId is a new UUID");
+    assert.match(q2.batchId, UUID_RE);
+  });
+
+  it("batchId is independent across separate calls", async () => {
+    const data = createInMemoryDataLayer();
+    await seedQuestion(data, { id: "Q1" });
+    await seedQuestion(data, { id: "Q2" });
+
+    const { deps } = fakeSlackDeps();
+    const tool = createPostQuestionsTool(data, fakeSdk(), fixtureGetGames, deps);
+
+    await tool.handler(
+      { game: FIXTURE_GAME_NAME, items: [{ questionId: "Q1", blocks: SAMPLE_BLOCKS }] },
+      SESSION,
+    );
+    await tool.handler(
+      { game: FIXTURE_GAME_NAME, items: [{ questionId: "Q2", blocks: SAMPLE_BLOCKS }] },
+      SESSION,
+    );
+
+    const stored = await data.forGame(FIXTURE_GAME_NAME).loadQuestions();
+    const q1Batch = stored.find((q) => q.id === "Q1")?.batchId;
+    const q2Batch = stored.find((q) => q.id === "Q2")?.batchId;
+    assert.ok(q1Batch);
+    assert.ok(q2Batch);
+    assert.notEqual(q1Batch, q2Batch, "separate calls produce different batchIds");
+  });
+
+  it("when every item is idempotent-skipped, no batchId mutation occurs", async () => {
+    const data = createInMemoryDataLayer();
+    await seedQuestion(data, {
+      id: "Q1",
+      postedAt: 1000,
+      messageLink: "https://existing/p1",
+      batchId: "batch-aaaa",
+    });
+    await seedQuestion(data, {
+      id: "Q2",
+      postedAt: 2000,
+      messageLink: "https://existing/p2",
+      batchId: "batch-bbbb",
+    });
+
+    const { deps, calls } = fakeSlackDeps();
+    const tool = createPostQuestionsTool(data, fakeSdk(), fixtureGetGames, deps);
+
+    await tool.handler(
+      {
+        game: FIXTURE_GAME_NAME,
+        items: [
+          { questionId: "Q1", blocks: SAMPLE_BLOCKS },
+          { questionId: "Q2", blocks: SAMPLE_BLOCKS },
+        ],
+      },
+      SESSION,
+    );
+
+    assert.equal(calls.postBlocksCalls.length, 0, "no Slack posts on full-skip");
+    const stored = await data.forGame(FIXTURE_GAME_NAME).loadQuestions();
+    assert.equal(stored.find((q) => q.id === "Q1")?.batchId, "batch-aaaa");
+    assert.equal(stored.find((q) => q.id === "Q2")?.batchId, "batch-bbbb");
+  });
+});

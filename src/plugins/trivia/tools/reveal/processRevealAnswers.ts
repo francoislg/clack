@@ -37,7 +37,7 @@ const REVEAL_INSTRUCTION_NAME = "process_responses_instructions";
 
 const DESCRIPTION = `Process the trivia reveal for a game in one call: fetch the question's Slack message, exclude the bot + flagged cheaters + (for choice questions) multi-react voters, categorize the remaining voters, persist their scored answers, return the leaderboard, and (when seasons are enabled) the season status. Replaces the previous orchestration that called fetch_channel_messages, find_previous_questions, get_question_history, submit_answers, retrieve_scores, and (with seasons) check_season_status as separate steps.
 
-DEFAULT BEHAVIOR (\`reprocessQuestionIds\` absent or empty): processes the OLDEST question in the game where \`postedAt\` is set and \`processedAt\` is unset. Stamps \`processedAt\` before returning. If no question is pending, returns \`reveals: []\` and a current leaderboard.
+DEFAULT BEHAVIOR (\`reprocessQuestionIds\` absent or empty): processes EVERY question in the OLDEST pending BATCH, where batches are groups of questions sharing the same \`batchId\` (stamped by \`post_questions\` per call; one cron-fire batch = one shared id). Questions with an undefined \`batchId\` (legacy rows) are each treated as their own singleton batch. The oldest batch is the one whose smallest \`postedAt\` is earliest; ties broken by lexicographic comparison of the group key. Stamps \`processedAt\` on each processed question before returning. Other pending batches stay pending — they drain one batch per fire on subsequent reveal runs. If no question is pending, returns \`reveals: []\` and a current leaderboard.
 
 REPROCESS MODE (\`reprocessQuestionIds\` non-empty — DESTRUCTIVE): for EACH listed questionId, hard-deletes the prior \`SubmittedAnswer\` rows for that question, then re-derives scoring from the CURRENT Slack reactions and the CURRENT cheats list (which may now include cheaters flagged after the original reveal). Stamps \`processedAt\` (overwriting prior values). Does NOT pick up unrelated pending questions in this mode.
 
@@ -133,7 +133,7 @@ export function createProcessRevealAnswersTool(
       // ── Question selection ──────────────────────────────────────────────
       const targets: TriviaQuestion[] = isReprocessMode
         ? selectReprocessTargets(allQuestions, reprocessIds, perIdErrors)
-        : selectOldestPending(allQuestions);
+        : selectOldestPendingBatch(allQuestions);
 
       // ── Bot user ID (singleton per session, fetch once) ─────────────────
       let botUserId = "";
@@ -206,11 +206,32 @@ export function createProcessRevealAnswersTool(
 // Internal orchestration helpers
 // ────────────────────────────────────────────────────────────────────────────
 
-function selectOldestPending(questions: TriviaQuestion[]): TriviaQuestion[] {
-  const pending = questions
-    .filter((q) => q.postedAt !== undefined && q.processedAt === undefined)
-    .sort((a, b) => (a.postedAt ?? 0) - (b.postedAt ?? 0));
-  return pending.length > 0 ? [pending[0]] : [];
+function selectOldestPendingBatch(questions: TriviaQuestion[]): TriviaQuestion[] {
+  const pending = questions.filter((q) => q.postedAt !== undefined && q.processedAt === undefined);
+  if (pending.length === 0) return [];
+
+  const groups = new Map<
+    string,
+    { key: string; minPostedAt: number; questions: TriviaQuestion[] }
+  >();
+  for (const q of pending) {
+    const key = q.batchId ?? `__singleton__:${q.id}`;
+    const existing = groups.get(key);
+    const postedAt = q.postedAt ?? 0;
+    if (existing === undefined) {
+      groups.set(key, { key, minPostedAt: postedAt, questions: [q] });
+    } else {
+      existing.questions.push(q);
+      if (postedAt < existing.minPostedAt) existing.minPostedAt = postedAt;
+    }
+  }
+
+  const sorted = [...groups.values()].sort((a, b) => {
+    if (a.minPostedAt !== b.minPostedAt) return a.minPostedAt - b.minPostedAt;
+    return a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
+  });
+
+  return sorted[0].questions.sort((a, b) => (a.postedAt ?? 0) - (b.postedAt ?? 0));
 }
 
 function selectReprocessTargets(

@@ -17,7 +17,7 @@ Per item:
 - Loads the question from games/<game>/questions.json (errors if missing).
 - Posts the supplied Block Kit blocks via chat.postMessage to the channel resolved from config.trivia.games[<game>].channel.
 - Fetches the message's permalink via chat.getPermalink.
-- Stamps the question record with postedAt (epoch ms derived from the Slack ts) and messageLink (the permalink).
+- Stamps the question record with postedAt (epoch ms derived from the Slack ts), messageLink (the permalink), and batchId (a UUID shared by every fresh item posted in this single call; used by process_reveal_answers to group questions into one reveal).
 - Attaches vote reactions derived from the question's stored type:
   - type "boolean" (or absent) → ["+1", "-1"].
   - type "choice" → ["one", "two", "three", "four"].slice(0, choices.length).
@@ -156,6 +156,7 @@ export function createPostQuestionsTool(
 
       const scoped = data.forGame(args.game);
       const results: PostQuestionsItemResult[] = [];
+      const batchId = crypto.randomUUID();
 
       for (const item of args.items) {
         try {
@@ -191,6 +192,7 @@ export function createPostQuestionsTool(
           await scoped.updateQuestion(item.questionId, {
             postedAt: tsToPostedAt(ts),
             messageLink: permalink,
+            batchId,
           });
 
           const reactions = deriveReactions(question);

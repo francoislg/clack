@@ -117,6 +117,17 @@ describe("SEND_QUESTIONS_INSTRUCTIONS — format-aware multi-slot loop", () => {
     assert.match(SEND_QUESTIONS_INSTRUCTIONS, /GAME-SCOPED, not slot-scoped/);
     assert.match(SEND_QUESTIONS_INSTRUCTIONS, /do NOT filter by slot/i);
   });
+
+  it("instructs the slot-0 header to be a date-stamped round opener distinct from the show banner", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /FIRST question only \(slot 0\)/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /date-stamped round opener/i);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /Trivia for/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /less shouty than the show banner/i);
+    assert.match(
+      SEND_QUESTIONS_INSTRUCTIONS,
+      /Subsequent slots in the same batch go back to the normal show-banner style/,
+    );
+  });
 });
 
 describe("PROCESS_REVEAL_INSTRUCTIONS — multi-question branch", () => {
@@ -220,6 +231,10 @@ describe("PROCESS_REVEAL_INSTRUCTIONS — renderer brief", () => {
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /2-ROW TABLE/);
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /`seasonStatus` IS PRESENT/);
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /`seasonStatus` IS ABSENT/);
+  });
+
+  it("uses 2-row layout when seasonStatus.hasPriorSeasons is false (single-season case)", () => {
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /hasPriorSeasons` IS `false`/);
   });
 
   it("forbids predicting reveal timing", () => {
