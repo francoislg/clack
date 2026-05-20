@@ -26,6 +26,11 @@ import { clearAutoRespondCache } from "./autoRespond.js";
 import { clearCronJobsCache } from "./cronJobs.js";
 import { loadPlugins } from "./plugins/registry.js";
 import { getLoadedPlugins, setLoadedPlugins } from "./plugins/state.js";
+import {
+  registerAction as registerPluginAction,
+  registerView as registerPluginView,
+  unregisterByPluginName as unregisterPluginInteractivity,
+} from "./slack/pluginActionRegistry.js";
 
 // ---------------------------------------------------------------------------
 // Dependency Injection
@@ -267,12 +272,27 @@ export async function restartAll(
           );
         }
       }
+      // Plugin action/view handlers from the prior generation must be cleared
+      // before re-running init — otherwise stale handlers from the old closures
+      // would race the freshly-registered ones.
+      unregisterPluginInteractivity(result.name);
     }
 
     try {
       const pluginNames = config.plugins ?? [];
       const loaded = await deps.loadPlugins(pluginNames);
       deps.setLoadedPlugins(loaded);
+      // Install the new generation's action/view handlers in the central registry.
+      // The wildcard listener in slack/app.ts routes through this on every Slack
+      // interaction whose action_id / callback_id begins with `plugin:`.
+      for (const result of loaded.results) {
+        for (const entry of result.actionHandlers) {
+          registerPluginAction(entry.key, entry.handler, result.name);
+        }
+        for (const entry of result.viewHandlers) {
+          registerPluginView(entry.key, entry.handler, result.name);
+        }
+      }
     } catch (error) {
       warnings.push(
         `Plugin reload failed: ${error instanceof Error ? error.message : String(error)}`,

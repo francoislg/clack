@@ -14,6 +14,7 @@ import type { RoleDir } from "../cascadingConfigResolver.js";
 import type { ToolEntryObject } from "../streaming/toolMappingLoader.js";
 import { openDmChannel, isChannelId } from "../slack/channelResolver.js";
 import { getSlackClient as defaultGetSlackClient } from "../slack/app.js";
+import type { PluginActionHandler, PluginViewHandler } from "../slack/pluginActionRegistry.js";
 import { logger } from "../logger.js";
 import { findByPluginOwner, createJob, updateJob, deleteJob, type SkipDate } from "../cronJobs.js";
 
@@ -97,6 +98,43 @@ export interface ClackSdk {
    * inside their tool handler — never close over the result at module top-level.
    */
   getSlackClient(): App["client"] | null;
+  /**
+   * Register a Slack action handler scoped to this plugin. The `key` is the
+   * suffix the plugin owns; the SDK prefixes it as `plugin:<pluginName>:<key>`
+   * before recording the handler. Pass a string for an exact-match suffix or a
+   * RegExp for a pattern (whose `^` is stripped before splicing the prefix).
+   *
+   * @example
+   * sdk.registerAction("answer", async ({ ack, body, client }) => {
+   *   await ack();
+   *   // open a modal etc.
+   * });
+   * // → Slack action_id `plugin:trivia:answer` is now routed to this handler
+   */
+  registerAction(key: string | RegExp, handler: PluginActionHandler): void;
+  /**
+   * Register a Slack view-submission handler scoped to this plugin. The `key`
+   * is the suffix; the SDK prefixes it as `plugin:<pluginName>:<key>` to form
+   * the modal's `callback_id`.
+   *
+   * @example
+   * sdk.registerView("freeform-modal", async ({ ack, view, body }) => {
+   *   await ack();
+   *   // process modal submission
+   * });
+   */
+  registerView(key: string | RegExp, handler: PluginViewHandler): void;
+  /**
+   * Returns the full prefixed Slack action_id for a plugin-owned key, e.g.
+   * `plugin:trivia:answer`. Use this when building Block Kit payloads so the
+   * `action_id` matches the matcher the wildcard dispatcher routes on.
+   */
+  actionId(key: string): string;
+  /**
+   * Returns the full prefixed Slack modal `callback_id` for a plugin-owned key,
+   * e.g. `plugin:trivia:freeform-modal`. Use this when calling `views.open`.
+   */
+  viewCallbackId(key: string): string;
 }
 
 export type ClackPlugin = (sdk: ClackSdk) => Promise<void>;
@@ -118,6 +156,21 @@ export interface RegisteredTool {
   pushTo: (target: SdkMcpToolDefinition<AnyZodRawShape>[]) => void;
 }
 
+/**
+ * Captured Slack interactivity registrations. Persisted on the load result so the
+ * lifecycle layer can clear them from the central registry on plugin reload before
+ * the new init re-registers fresh entries.
+ */
+export interface RegisteredActionEntry {
+  key: string | RegExp;
+  handler: PluginActionHandler;
+}
+
+export interface RegisteredViewEntry {
+  key: string | RegExp;
+  handler: PluginViewHandler;
+}
+
 export interface PluginLoadResult {
   name: string;
   instructions: RegisteredInstruction[];
@@ -133,6 +186,14 @@ export interface PluginLoadResult {
    * do not exercise the watch API.
    */
   watchers?: FSWatcher[];
+  /**
+   * Slack action handlers registered via `sdk.registerAction`. The lifecycle layer
+   * passes each entry into the plugin action registry on load, and clears every
+   * entry owned by this plugin on reload before re-running its init.
+   */
+  actionHandlers: RegisteredActionEntry[];
+  /** Slack view-submission handlers registered via `sdk.registerView`. */
+  viewHandlers: RegisteredViewEntry[];
 }
 
 // ============================================================================
@@ -221,7 +282,28 @@ export function createClackSdk(
   const tools: RegisteredTool[] = [];
   const toolMappings = new Map<string, ToolMapping>();
   const watchers: FSWatcher[] = [];
+  const actionHandlers: RegisteredActionEntry[] = [];
+  const viewHandlers: RegisteredViewEntry[] = [];
   const pluginDataDir = join(dataDir, pluginName);
+  const pluginPrefix = `plugin:${pluginName}:`;
+
+  function buildFullKey(key: string | RegExp): string | RegExp {
+    if (typeof key === "string") {
+      if (key.startsWith("plugin:")) {
+        throw new Error(
+          `Plugin "${pluginName}" attempted to register a key starting with "plugin:" ("${key}"). The SDK auto-prefixes; pass only the suffix.`,
+        );
+      }
+      return pluginPrefix + key;
+    }
+    if (key.source.startsWith("plugin:") || key.source.startsWith("^plugin:")) {
+      throw new Error(
+        `Plugin "${pluginName}" attempted to register a RegExp whose source starts with "plugin:" (source: "${key.source}"). The SDK auto-prefixes; the source should match the suffix only.`,
+      );
+    }
+    const cleaned = key.source.replace(/^\^/, "");
+    return new RegExp("^" + pluginPrefix + cleaned, key.flags);
+  }
 
   const sdk: ClackSdk = {
     addInstruction(role: RoleDir, filename: string, content: string): void {
@@ -387,6 +469,34 @@ export function createClackSdk(
       return deps.getSlackClient();
     },
 
+    registerAction(key: string | RegExp, handler: PluginActionHandler): void {
+      const fullKey = buildFullKey(key);
+      actionHandlers.push({ key: fullKey, handler });
+    },
+
+    registerView(key: string | RegExp, handler: PluginViewHandler): void {
+      const fullKey = buildFullKey(key);
+      viewHandlers.push({ key: fullKey, handler });
+    },
+
+    actionId(key: string): string {
+      if (key.startsWith("plugin:")) {
+        throw new Error(
+          `Plugin "${pluginName}" called actionId() with a key starting with "plugin:" ("${key}"). The SDK auto-prefixes; pass only the suffix.`,
+        );
+      }
+      return pluginPrefix + key;
+    },
+
+    viewCallbackId(key: string): string {
+      if (key.startsWith("plugin:")) {
+        throw new Error(
+          `Plugin "${pluginName}" called viewCallbackId() with a key starting with "plugin:" ("${key}"). The SDK auto-prefixes; pass only the suffix.`,
+        );
+      }
+      return pluginPrefix + key;
+    },
+
     async dmOwner(text: string): Promise<{ ok: true } | { ok: false; error: string }> {
       const client = deps.getSlackClient();
       if (!client) {
@@ -441,6 +551,8 @@ export function createClackSdk(
         toolMappings,
         mcpServer,
         watchers,
+        actionHandlers,
+        viewHandlers,
       };
     },
   };

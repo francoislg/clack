@@ -1,6 +1,12 @@
-import { App } from "@slack/bolt";
+import { App, type BlockAction, type ViewSubmitAction } from "@slack/bolt";
 import { getConfig } from "../config.js";
 import { logger } from "../logger.js";
+import {
+  dispatchAction as dispatchPluginAction,
+  dispatchView as dispatchPluginView,
+  logOrphanAction,
+  logOrphanView,
+} from "./pluginActionRegistry.js";
 import { registerNewQueryHandler } from "./handlers/newQuery.js";
 import { registerRetryHandler } from "./handlers/retry.js";
 import { registerResendHandler } from "./handlers/resend.js";
@@ -96,6 +102,25 @@ export function createSlackApp(deps: AppDeps = defaultAppDeps): App {
   deps.registerMentionHandler(app);
   deps.registerMessageChangedHandler(app);
   deps.registerAutoRespondHandler(app);
+
+  // Plugin-owned interactivity: one wildcard listener routes every
+  // `plugin:`-prefixed action_id / callback_id through the central registry.
+  // Plugins call `sdk.registerAction` / `sdk.registerView` to populate it.
+  app.action<BlockAction>(/^plugin:/, async (args) => {
+    await args.ack();
+    const fullId = args.action.action_id;
+    const result = await dispatchPluginAction(fullId, args);
+    if (!result.handled) logOrphanAction(fullId);
+  });
+
+  app.view<ViewSubmitAction>(/^plugin:/, async (args) => {
+    const fullId = args.view.callback_id;
+    const result = await dispatchPluginView(fullId, args);
+    if (!result.handled) {
+      await args.ack();
+      logOrphanView(fullId);
+    }
+  });
 
   return app;
 }

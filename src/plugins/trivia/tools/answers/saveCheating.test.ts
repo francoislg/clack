@@ -31,6 +31,10 @@ function makeFakeSdk(opts: FakeSdkOptions = {}): {
       return result;
     },
     getSlackClient: () => null,
+    registerAction: () => {},
+    registerView: () => {},
+    actionId: (key: string) => `plugin:test:${key}`,
+    viewCallbackId: (key: string) => `plugin:test:${key}`,
   };
   return { sdk, dmOwnerCalls };
 }

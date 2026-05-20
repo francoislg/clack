@@ -837,6 +837,8 @@ describe("loadToolMappings plugin integration", () => {
       tools: [],
       toolMappings,
       mcpServer: createSdkMcpServer({ name, version: "1.0.0", tools: [] }),
+      actionHandlers: [],
+      viewHandlers: [],
     };
   }
 

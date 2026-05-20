@@ -29,6 +29,7 @@ const mockAppInstance = {
   client: mockClient,
   event: mock.fn(),
   action: mock.fn(),
+  view: mock.fn(),
   command: mock.fn(),
   message: mock.fn(),
 };
@@ -117,6 +118,8 @@ function resetAllMocks() {
   mockGetConfig.mock.resetCalls();
   mockLogger.info.mock.resetCalls();
   mockLogger.debug.mock.resetCalls();
+  mockAppInstance.action.mock.resetCalls();
+  mockAppInstance.view.mock.resetCalls();
 }
 
 function getConstructorConfig(): AppConstructorConfig {
@@ -176,6 +179,26 @@ describe("createSlackApp", () => {
     createSlackApp(deps);
 
     assert.equal(mockRegisterMentionHandler.mock.callCount(), 1);
+  });
+
+  it("installs a single wildcard plugin-interactivity listener for actions and views", () => {
+    const deps = makeDeps();
+    createSlackApp(deps);
+
+    // The wildcard listener uses /^plugin:/. Find it among the recorded action() calls.
+    const actionCalls = mockAppInstance.action.mock.calls;
+    const pluginActionCalls = actionCalls.filter((c) => {
+      const matcher = c.arguments[0];
+      return matcher instanceof RegExp && matcher.source === "^plugin:";
+    });
+    assert.equal(pluginActionCalls.length, 1, "exactly one wildcard plugin action listener");
+
+    const viewCalls = mockAppInstance.view.mock.calls;
+    const pluginViewCalls = viewCalls.filter((c) => {
+      const matcher = c.arguments[0];
+      return matcher instanceof RegExp && matcher.source === "^plugin:";
+    });
+    assert.equal(pluginViewCalls.length, 1, "exactly one wildcard plugin view listener");
   });
 
   it("always registers messageChanged handler", () => {
