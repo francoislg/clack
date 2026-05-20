@@ -72,6 +72,14 @@ describe("SEND_QUESTIONS_INSTRUCTIONS (boolean path)", () => {
     assert.match(SEND_QUESTIONS_INSTRUCTIONS, /Example/);
     assert.doesNotMatch(SEND_QUESTIONS_INSTRUCTIONS, /rotate between them/);
   });
+
+  it("instructs Claude to retry partial failures with appendToPreviousBatch: true", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /appendToPreviousBatch:\s*true/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /retry/i);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /failed items/i);
+    // Negative: must NOT instruct Claude to pass a raw batchId string argument.
+    assert.doesNotMatch(SEND_QUESTIONS_INSTRUCTIONS, /batchId:\s*["']/);
+  });
 });
 
 describe("SEND_QUESTIONS_INSTRUCTIONS — format-aware multi-slot loop", () => {

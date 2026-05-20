@@ -159,7 +159,11 @@ describe("post_questions tool", () => {
     const tool = createPostQuestionsTool(data, fakeSdk(), fixtureGetGames, deps);
 
     const result = await tool.handler(
-      { game: FIXTURE_GAME_NAME, items: [{ questionId: "Q1", blocks: SAMPLE_BLOCKS }] },
+      {
+        game: FIXTURE_GAME_NAME,
+        items: [{ questionId: "Q1", blocks: SAMPLE_BLOCKS }],
+        appendToPreviousBatch: undefined,
+      },
       SESSION,
     );
 
@@ -200,7 +204,11 @@ describe("post_questions tool", () => {
     const tool = createPostQuestionsTool(data, fakeSdk(), fixtureGetGames, deps);
 
     await tool.handler(
-      { game: FIXTURE_GAME_NAME, items: [{ questionId: "Q3", blocks: SAMPLE_BLOCKS }] },
+      {
+        game: FIXTURE_GAME_NAME,
+        items: [{ questionId: "Q3", blocks: SAMPLE_BLOCKS }],
+        appendToPreviousBatch: undefined,
+      },
       SESSION,
     );
 
@@ -221,7 +229,11 @@ describe("post_questions tool", () => {
     const tool = createPostQuestionsTool(data, fakeSdk(), fixtureGetGames, deps);
 
     await tool.handler(
-      { game: FIXTURE_GAME_NAME, items: [{ questionId: "Q4", blocks: SAMPLE_BLOCKS }] },
+      {
+        game: FIXTURE_GAME_NAME,
+        items: [{ questionId: "Q4", blocks: SAMPLE_BLOCKS }],
+        appendToPreviousBatch: undefined,
+      },
       SESSION,
     );
 
@@ -251,6 +263,7 @@ describe("post_questions tool", () => {
           { questionId: "Q2", blocks: SAMPLE_BLOCKS },
           { questionId: "Q3", blocks: SAMPLE_BLOCKS },
         ],
+        appendToPreviousBatch: undefined,
       },
       SESSION,
     );
@@ -284,7 +297,11 @@ describe("post_questions tool", () => {
     const tool = createPostQuestionsTool(data, fakeSdk(), fixtureGetGames, deps);
 
     const result = await tool.handler(
-      { game: FIXTURE_GAME_NAME, items: [{ questionId: "Q1", blocks: SAMPLE_BLOCKS }] },
+      {
+        game: FIXTURE_GAME_NAME,
+        items: [{ questionId: "Q1", blocks: SAMPLE_BLOCKS }],
+        appendToPreviousBatch: undefined,
+      },
       SESSION,
     );
 
@@ -325,6 +342,7 @@ describe("post_questions tool", () => {
           { questionId: "Q3-missing", blocks: SAMPLE_BLOCKS },
           { questionId: "Q2", blocks: SAMPLE_BLOCKS },
         ],
+        appendToPreviousBatch: undefined,
       },
       SESSION,
     );
@@ -346,7 +364,11 @@ describe("post_questions tool", () => {
     const tool = createPostQuestionsTool(data, fakeSdk(), fixtureGetGames, deps);
 
     const result = await tool.handler(
-      { game: "no-such-game", items: [{ questionId: "Q1", blocks: SAMPLE_BLOCKS }] },
+      {
+        game: "no-such-game",
+        items: [{ questionId: "Q1", blocks: SAMPLE_BLOCKS }],
+        appendToPreviousBatch: undefined,
+      },
       SESSION,
     );
 
@@ -371,7 +393,11 @@ describe("post_questions tool", () => {
     const tool = createPostQuestionsTool(data, fakeSdk(), disabledGames, deps);
 
     const result = await tool.handler(
-      { game: "retired", items: [{ questionId: "Q1", blocks: SAMPLE_BLOCKS }] },
+      {
+        game: "retired",
+        items: [{ questionId: "Q1", blocks: SAMPLE_BLOCKS }],
+        appendToPreviousBatch: undefined,
+      },
       SESSION,
     );
 
@@ -388,7 +414,11 @@ describe("post_questions tool", () => {
     const tool = createPostQuestionsTool(data, fakeSdk(), fixtureGetGames, deps);
 
     const result = await tool.handler(
-      { game: FIXTURE_GAME_NAME, items: [{ questionId: "Q1", blocks: SAMPLE_BLOCKS }] },
+      {
+        game: FIXTURE_GAME_NAME,
+        items: [{ questionId: "Q1", blocks: SAMPLE_BLOCKS }],
+        appendToPreviousBatch: undefined,
+      },
       SESSION,
     );
 
@@ -406,7 +436,11 @@ describe("post_questions tool", () => {
     const tool = createPostQuestionsTool(data, fakeSdk(), fixtureGetGames, deps);
 
     const result = await tool.handler(
-      { game: FIXTURE_GAME_NAME, items: [{ questionId: "Q1", blocks: SAMPLE_BLOCKS }] },
+      {
+        game: FIXTURE_GAME_NAME,
+        items: [{ questionId: "Q1", blocks: SAMPLE_BLOCKS }],
+        appendToPreviousBatch: undefined,
+      },
       SESSION,
     );
 
@@ -438,7 +472,11 @@ describe("post_questions tool", () => {
     const tool = createPostQuestionsTool(data, fakeSdk(), customGames, deps);
 
     await tool.handler(
-      { game: "main", items: [{ questionId: "Q1", blocks: SAMPLE_BLOCKS }] },
+      {
+        game: "main",
+        items: [{ questionId: "Q1", blocks: SAMPLE_BLOCKS }],
+        appendToPreviousBatch: undefined,
+      },
       SESSION,
     );
 
@@ -464,6 +502,7 @@ describe("post_questions tool — batchId", () => {
           { questionId: "Q1", blocks: SAMPLE_BLOCKS },
           { questionId: "Q2", blocks: SAMPLE_BLOCKS },
         ],
+        appendToPreviousBatch: undefined,
       },
       SESSION,
     );
@@ -497,6 +536,7 @@ describe("post_questions tool — batchId", () => {
           { questionId: "Q1", blocks: SAMPLE_BLOCKS },
           { questionId: "Q2", blocks: SAMPLE_BLOCKS },
         ],
+        appendToPreviousBatch: undefined,
       },
       SESSION,
     );
@@ -519,11 +559,19 @@ describe("post_questions tool — batchId", () => {
     const tool = createPostQuestionsTool(data, fakeSdk(), fixtureGetGames, deps);
 
     await tool.handler(
-      { game: FIXTURE_GAME_NAME, items: [{ questionId: "Q1", blocks: SAMPLE_BLOCKS }] },
+      {
+        game: FIXTURE_GAME_NAME,
+        items: [{ questionId: "Q1", blocks: SAMPLE_BLOCKS }],
+        appendToPreviousBatch: undefined,
+      },
       SESSION,
     );
     await tool.handler(
-      { game: FIXTURE_GAME_NAME, items: [{ questionId: "Q2", blocks: SAMPLE_BLOCKS }] },
+      {
+        game: FIXTURE_GAME_NAME,
+        items: [{ questionId: "Q2", blocks: SAMPLE_BLOCKS }],
+        appendToPreviousBatch: undefined,
+      },
       SESSION,
     );
 
@@ -560,6 +608,7 @@ describe("post_questions tool — batchId", () => {
           { questionId: "Q1", blocks: SAMPLE_BLOCKS },
           { questionId: "Q2", blocks: SAMPLE_BLOCKS },
         ],
+        appendToPreviousBatch: undefined,
       },
       SESSION,
     );
@@ -568,5 +617,286 @@ describe("post_questions tool — batchId", () => {
     const stored = await data.forGame(FIXTURE_GAME_NAME).loadQuestions();
     assert.equal(stored.find((q) => q.id === "Q1")?.batchId, "batch-aaaa");
     assert.equal(stored.find((q) => q.id === "Q2")?.batchId, "batch-bbbb");
+  });
+});
+
+describe("post_questions tool — appendToPreviousBatch", () => {
+  it("reuses the most-recent batch's UUID when the flag is true", async () => {
+    const data = createInMemoryDataLayer();
+    await seedQuestion(data, {
+      id: "Q1",
+      postedAt: 1000,
+      messageLink: "https://existing/p1",
+      batchId: "batch-AAA",
+    });
+    await seedQuestion(data, {
+      id: "Q2",
+      postedAt: 2000,
+      messageLink: "https://existing/p2",
+      batchId: "batch-AAA",
+    });
+    await seedQuestion(data, { id: "Q3" });
+
+    const { deps } = fakeSlackDeps({
+      postResults: [{ ts: "1700000003.000000", permalink: "https://x/p3" }],
+    });
+    const tool = createPostQuestionsTool(data, fakeSdk(), fixtureGetGames, deps);
+
+    await tool.handler(
+      {
+        game: FIXTURE_GAME_NAME,
+        items: [{ questionId: "Q3", blocks: SAMPLE_BLOCKS }],
+        appendToPreviousBatch: true,
+      },
+      SESSION,
+    );
+
+    const stored = await data.forGame(FIXTURE_GAME_NAME).loadQuestions();
+    assert.equal(stored.find((q) => q.id === "Q3")?.batchId, "batch-AAA");
+    assert.equal(stored.find((q) => q.id === "Q1")?.batchId, "batch-AAA");
+    assert.equal(stored.find((q) => q.id === "Q2")?.batchId, "batch-AAA");
+  });
+
+  it("default behavior is preserved when the flag is absent or false", async () => {
+    const data = createInMemoryDataLayer();
+    await seedQuestion(data, {
+      id: "Q1",
+      postedAt: 1000,
+      messageLink: "https://existing/p1",
+      batchId: "batch-AAA",
+    });
+    await seedQuestion(data, { id: "Q2" });
+
+    // First sub-call: flag absent.
+    const { deps: depsA } = fakeSlackDeps({
+      postResults: [{ ts: "1700000002.000000", permalink: "https://x/p2" }],
+    });
+    const toolA = createPostQuestionsTool(data, fakeSdk(), fixtureGetGames, depsA);
+    await toolA.handler(
+      {
+        game: FIXTURE_GAME_NAME,
+        items: [{ questionId: "Q2", blocks: SAMPLE_BLOCKS }],
+        appendToPreviousBatch: undefined,
+      },
+      SESSION,
+    );
+    const afterAbsent = (await data.forGame(FIXTURE_GAME_NAME).loadQuestions()).find(
+      (q) => q.id === "Q2",
+    );
+    assert.ok(afterAbsent?.batchId, "Q2 must have a batchId");
+    assert.notEqual(
+      afterAbsent.batchId,
+      "batch-AAA",
+      "absent flag must NOT reuse the previous batch",
+    );
+
+    // Second sub-call: flag explicitly false on a fresh question Q3.
+    await seedQuestion(data, { id: "Q3" });
+    const { deps: depsB } = fakeSlackDeps({
+      postResults: [{ ts: "1700000003.000000", permalink: "https://x/p3" }],
+    });
+    const toolB = createPostQuestionsTool(data, fakeSdk(), fixtureGetGames, depsB);
+    await toolB.handler(
+      {
+        game: FIXTURE_GAME_NAME,
+        items: [{ questionId: "Q3", blocks: SAMPLE_BLOCKS }],
+        appendToPreviousBatch: false,
+      },
+      SESSION,
+    );
+    const afterFalse = (await data.forGame(FIXTURE_GAME_NAME).loadQuestions()).find(
+      (q) => q.id === "Q3",
+    );
+    assert.ok(afterFalse?.batchId);
+    assert.notEqual(
+      afterFalse.batchId,
+      "batch-AAA",
+      "false flag must NOT reuse the previous batch",
+    );
+  });
+
+  it("most-recent batch is the group with the largest max(postedAt)", async () => {
+    const data = createInMemoryDataLayer();
+    await seedQuestion(data, {
+      id: "Q1",
+      postedAt: 100,
+      messageLink: "x",
+      batchId: "batch-OLD",
+    });
+    await seedQuestion(data, {
+      id: "Q2",
+      postedAt: 200,
+      messageLink: "x",
+      batchId: "batch-OLD",
+    });
+    await seedQuestion(data, {
+      id: "Q3",
+      postedAt: 150,
+      messageLink: "x",
+      batchId: "batch-NEW",
+    });
+    await seedQuestion(data, {
+      id: "Q4",
+      postedAt: 300,
+      messageLink: "x",
+      batchId: "batch-NEW",
+    });
+    await seedQuestion(data, { id: "Q5" });
+
+    const { deps } = fakeSlackDeps({
+      postResults: [{ ts: "1700000005.000000", permalink: "https://x/p5" }],
+    });
+    const tool = createPostQuestionsTool(data, fakeSdk(), fixtureGetGames, deps);
+
+    await tool.handler(
+      {
+        game: FIXTURE_GAME_NAME,
+        items: [{ questionId: "Q5", blocks: SAMPLE_BLOCKS }],
+        appendToPreviousBatch: true,
+      },
+      SESSION,
+    );
+
+    const q5 = (await data.forGame(FIXTURE_GAME_NAME).loadQuestions()).find((q) => q.id === "Q5");
+    assert.equal(q5?.batchId, "batch-NEW", "should pick the batch with the largest max(postedAt)");
+  });
+
+  it("multiple fresh items in one append-mode call all share the resolved batchId", async () => {
+    const data = createInMemoryDataLayer();
+    await seedQuestion(data, {
+      id: "Q1",
+      postedAt: 1000,
+      messageLink: "x",
+      batchId: "batch-AAA",
+    });
+    await seedQuestion(data, { id: "Q4" });
+    await seedQuestion(data, { id: "Q5" });
+
+    const { deps } = fakeSlackDeps({
+      postResults: [
+        { ts: "1700000004.000000", permalink: "https://x/p4" },
+        { ts: "1700000005.000000", permalink: "https://x/p5" },
+      ],
+    });
+    const tool = createPostQuestionsTool(data, fakeSdk(), fixtureGetGames, deps);
+
+    await tool.handler(
+      {
+        game: FIXTURE_GAME_NAME,
+        items: [
+          { questionId: "Q4", blocks: SAMPLE_BLOCKS },
+          { questionId: "Q5", blocks: SAMPLE_BLOCKS },
+        ],
+        appendToPreviousBatch: true,
+      },
+      SESSION,
+    );
+
+    const stored = await data.forGame(FIXTURE_GAME_NAME).loadQuestions();
+    assert.equal(stored.find((q) => q.id === "Q4")?.batchId, "batch-AAA");
+    assert.equal(stored.find((q) => q.id === "Q5")?.batchId, "batch-AAA");
+  });
+
+  it("rejects atomically when the previous batch has a revealed question", async () => {
+    const data = createInMemoryDataLayer();
+    await seedQuestion(data, {
+      id: "Q1",
+      postedAt: 1000,
+      messageLink: "x",
+      batchId: "batch-AAA",
+      processedAt: 5000,
+    });
+    await seedQuestion(data, {
+      id: "Q2",
+      postedAt: 1500,
+      messageLink: "x",
+      batchId: "batch-AAA",
+    });
+    await seedQuestion(data, { id: "Q3" });
+
+    const { deps, calls } = fakeSlackDeps();
+    const tool = createPostQuestionsTool(data, fakeSdk(), fixtureGetGames, deps);
+
+    const result = await tool.handler(
+      {
+        game: FIXTURE_GAME_NAME,
+        items: [{ questionId: "Q3", blocks: SAMPLE_BLOCKS }],
+        appendToPreviousBatch: true,
+      },
+      SESSION,
+    );
+
+    assert.equal(result.isError, true, "expected top-level error result");
+    const errorText = JSON.stringify(result);
+    assert.match(errorText, /batch-AAA/);
+    assert.match(errorText, /Q1/);
+    assert.equal(calls.postBlocksCalls.length, 0, "no Slack post should be made");
+
+    const q3 = (await data.forGame(FIXTURE_GAME_NAME).loadQuestions()).find((q) => q.id === "Q3");
+    assert.equal(q3?.postedAt, undefined, "Q3 must NOT be stamped");
+    assert.equal(q3?.batchId, undefined, "Q3 must NOT receive a batchId");
+  });
+
+  it("rejects atomically when no previous batch exists", async () => {
+    const data = createInMemoryDataLayer();
+    await seedQuestion(data, { id: "Q1" }); // no batchId, no postedAt
+
+    const { deps, calls } = fakeSlackDeps();
+    const tool = createPostQuestionsTool(data, fakeSdk(), fixtureGetGames, deps);
+
+    const result = await tool.handler(
+      {
+        game: FIXTURE_GAME_NAME,
+        items: [{ questionId: "Q1", blocks: SAMPLE_BLOCKS }],
+        appendToPreviousBatch: true,
+      },
+      SESSION,
+    );
+
+    assert.equal(result.isError, true);
+    const errorText = JSON.stringify(result);
+    assert.match(errorText, new RegExp(FIXTURE_GAME_NAME));
+    assert.equal(calls.postBlocksCalls.length, 0);
+
+    const q1 = (await data.forGame(FIXTURE_GAME_NAME).loadQuestions()).find((q) => q.id === "Q1");
+    assert.equal(q1?.postedAt, undefined);
+    assert.equal(q1?.batchId, undefined);
+  });
+
+  it("short-circuits before idempotent-skip when the previous batch is already revealed", async () => {
+    const data = createInMemoryDataLayer();
+    // The most-recent batch has been revealed.
+    await seedQuestion(data, {
+      id: "Q1",
+      postedAt: 5000,
+      messageLink: "x",
+      batchId: "batch-AAA",
+      processedAt: 6000,
+    });
+    // Items in the call are themselves already posted (would normally be idempotent-skipped).
+    await seedQuestion(data, {
+      id: "Q2",
+      postedAt: 2000,
+      messageLink: "https://existing/p2",
+      batchId: "batch-BBB",
+    });
+
+    const { deps, calls } = fakeSlackDeps();
+    const tool = createPostQuestionsTool(data, fakeSdk(), fixtureGetGames, deps);
+
+    const result = await tool.handler(
+      {
+        game: FIXTURE_GAME_NAME,
+        items: [{ questionId: "Q2", blocks: SAMPLE_BLOCKS }],
+        appendToPreviousBatch: true,
+      },
+      SESSION,
+    );
+
+    // Should be a top-level error (NOT a `results` array with idempotent-ok entries).
+    assert.equal(result.isError, true);
+    const errorText = JSON.stringify(result);
+    assert.match(errorText, /batch-AAA/);
+    assert.equal(calls.postBlocksCalls.length, 0);
   });
 });

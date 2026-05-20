@@ -55,7 +55,7 @@ The `SEND_QUESTIONS_INSTRUCTIONS` constant SHALL contain a numbered step flow th
 7. **Choose emojis** relating to the topic.
 8. **Save via `save_question(game: "{game}", category, statement, isTrue, emojis)`** — retain `questionId`.
 9. **Format using Block Kit** — build the question card blocks (header / warm-up section / card / closer context for boolean; header / section / card with numbered choice layout / context for choice). For boolean questions, the card body SHALL include "👍 TRUE • 👎 FALSE" with 👍 listed before 👎. For choice questions, the numbered-emoji prefix (1️⃣ … 4️⃣) in the card body SHALL match the stored `choices` array order so the bot's automatic reactions align with each option's index.
-10. **Post via `post_questions(game: "{game}", items: [{ questionId, blocks }])`** — the tool resolves the channel from game config and derives the reactions from the stored question's type, so the prompt does NOT instruct Claude to specify a channel or a `reactions` list.
+10. **Post via `post_questions(game: "{game}", items: [{ questionId, blocks }])`** — the tool resolves the channel from game config and derives the reactions from the stored question's type, so the prompt does NOT instruct Claude to specify a channel or a `reactions` list. When the call returns one or more `results[].ok === false` entries, make a follow-up `post_questions` call carrying only the failed items AND pass `appendToPreviousBatch: true` so the retried items share the original batch's `batchId` and reveal together with the original successes.
 11. **Terminate via `submit_response({ skip_response: true })`** — no user-facing reply is needed; the run's deliverable is the `post_questions` result.
 
 The prompt SHALL invite Claude to invent a style each day and include at least one concrete example for inspiration.
@@ -106,6 +106,34 @@ The prompt SHALL NOT instruct Claude to pass `reactions: [...]` to any tool. Rea
 - **WHEN** the prompt content is inspected for the choice path
 - **THEN** the returned text instructs Claude to prefix each choice with 1️⃣ / 2️⃣ / 3️⃣ / 4️⃣ in the same order as the stored `choices` array
 - **AND** explains that the bot's automatic numeric reactions align to those indices
+
+### Requirement: Question-posting prompt instructs retry-with-appendToPreviousBatch
+
+The `SEND_QUESTIONS_INSTRUCTIONS` constant SHALL contain an explicit retry clause attached to the `post_questions` step (step 10). The clause SHALL tell Claude that when a `post_questions` call returns one or more `results[].ok === false` entries, Claude SHALL make a follow-up `post_questions` call carrying only the failed items AND pass `appendToPreviousBatch: true` so the retried items share the original batch's `batchId` and reveal together with the original successes.
+
+The clause SHALL name the flag (`appendToPreviousBatch`) literally and SHALL state the value (`true`) literally so the prompt is unambiguous.
+
+The clause SHALL NOT instruct Claude to extract a `batchId` value from the prior response and pass it as a string. The batch-identifier handling is internal to the tool; Claude only flips the boolean.
+
+The clause SHALL apply to BOTH outer flows (single-question and multi-slot). In the single-question flow it covers the rare case of one item failing in isolation; in the multi-slot flow it covers the common case of one slot's blocks being rejected while sibling slots post successfully.
+
+#### Scenario: Prompt names appendToPreviousBatch in the retry clause
+
+- **WHEN** the `SEND_QUESTIONS_INSTRUCTIONS` constant is inspected
+- **THEN** the returned text contains the literal string `appendToPreviousBatch`
+- **AND** contains the literal value `true` in proximity to that flag name (e.g. `appendToPreviousBatch: true`)
+- **AND** explicitly ties the flag to the retry-of-failed-items scenario (not to brand-new batches)
+
+#### Scenario: Prompt does NOT instruct Claude to thread a raw batchId string
+
+- **WHEN** the `SEND_QUESTIONS_INSTRUCTIONS` constant is inspected
+- **THEN** the returned text does NOT instruct Claude to read a `batchId` value out of the prior tool result and pass it as a `batchId: "..."` argument to `post_questions`
+- **AND** does NOT contain instructions equivalent to "pass the previous call's batchId on retry"
+
+#### Scenario: Prompt covers both single-question and multi-slot retry paths
+
+- **WHEN** the `SEND_QUESTIONS_INSTRUCTIONS` constant is inspected
+- **THEN** the retry clause is positioned so it applies regardless of whether the outer flow is single-question or multi-slot (e.g. it lives in the shared step 10 / "POST" section, not nested inside the multi-slot branch alone)
 
 ### Requirement: Answer-reveal prompt step flow
 
