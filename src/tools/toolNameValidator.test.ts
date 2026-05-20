@@ -60,6 +60,8 @@ function stubPlugin(name: string, toolNames: string[]): PluginLoadResult {
     tools: toolNames.map((t) => stubRegisteredTool(t)),
     toolMappings: new Map(),
     mcpServer: createSdkMcpServer({ name, version: "1.0.0", tools: [] }),
+    actionHandlers: [],
+    viewHandlers: [],
   };
 }
 

@@ -647,4 +647,83 @@ describe("ClackSdk", () => {
       w2.close();
     });
   });
+
+  describe("registerAction / registerView", () => {
+    it("prefixes a literal string key with plugin:<name>:", () => {
+      const { sdk, harvest } = makeSdk("trivia");
+      sdk.registerAction("answer", async () => {});
+      const result = harvest();
+      assert.equal(result.actionHandlers.length, 1);
+      assert.equal(result.actionHandlers[0].key, "plugin:trivia:answer");
+    });
+
+    it("prefixes a RegExp key by splicing into the source", () => {
+      const { sdk, harvest } = makeSdk("trivia");
+      sdk.registerAction(/^answer:[a-z0-9-]+$/, async () => {});
+      const result = harvest();
+      const key = result.actionHandlers[0].key;
+      assert.ok(key instanceof RegExp, "key should be a RegExp");
+      assert.equal(key.source, "^plugin:trivia:answer:[a-z0-9-]+$");
+    });
+
+    it("preserves RegExp flags when prefixing", () => {
+      const { sdk, harvest } = makeSdk("trivia");
+      sdk.registerAction(/^answer:foo$/i, async () => {});
+      const result = harvest();
+      const key = result.actionHandlers[0].key;
+      assert.ok(key instanceof RegExp);
+      assert.equal(key.flags, "i");
+    });
+
+    it("rejects a literal key that already starts with plugin:", () => {
+      const { sdk } = makeSdk("trivia");
+      assert.throws(
+        () => sdk.registerAction("plugin:trivia:answer", async () => {}),
+        /auto-prefixes/,
+      );
+    });
+
+    it("rejects a RegExp whose source starts with plugin:", () => {
+      const { sdk } = makeSdk("trivia");
+      assert.throws(
+        () => sdk.registerAction(/^plugin:trivia:answer$/, async () => {}),
+        /auto-prefixes/,
+      );
+    });
+
+    it("registerView mirrors registerAction prefix semantics", () => {
+      const { sdk, harvest } = makeSdk("trivia");
+      sdk.registerView("freeform-modal", async () => {});
+      sdk.registerView(/^freeform-modal:[a-z0-9-]+$/, async () => {});
+      const result = harvest();
+      assert.equal(result.viewHandlers.length, 2);
+      assert.equal(result.viewHandlers[0].key, "plugin:trivia:freeform-modal");
+      const re = result.viewHandlers[1].key;
+      assert.ok(re instanceof RegExp);
+      assert.equal(re.source, "^plugin:trivia:freeform-modal:[a-z0-9-]+$");
+    });
+
+    it("harvest exposes empty arrays when nothing was registered", () => {
+      const { harvest } = makeSdk("trivia");
+      const result = harvest();
+      assert.deepEqual(result.actionHandlers, []);
+      assert.deepEqual(result.viewHandlers, []);
+    });
+
+    it("actionId returns the prefixed string", () => {
+      const { sdk } = makeSdk("trivia");
+      assert.equal(sdk.actionId("answer"), "plugin:trivia:answer");
+      assert.equal(sdk.actionId("answer:q-123"), "plugin:trivia:answer:q-123");
+    });
+
+    it("viewCallbackId returns the prefixed string", () => {
+      const { sdk } = makeSdk("trivia");
+      assert.equal(sdk.viewCallbackId("freeform-modal"), "plugin:trivia:freeform-modal");
+    });
+
+    it("actionId rejects keys that already include the prefix", () => {
+      const { sdk } = makeSdk("trivia");
+      assert.throws(() => sdk.actionId("plugin:trivia:answer"), /auto-prefixes/);
+    });
+  });
 });
