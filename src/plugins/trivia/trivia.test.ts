@@ -201,7 +201,11 @@ describe("trivia plugin", () => {
           id: `q${i}`,
           category: ["Science", "History", "Geography", "Art", "Music"][i],
           statement: "A statement that is definitely long enough to pass validation",
-          type: undefined,
+          answersFormat: "boolean",
+          questionType: "fact",
+          sourceUrl: undefined,
+          eventDate: undefined,
+          context: undefined,
           isTrue: true,
           choices: undefined,
           correctIndex: undefined,
@@ -242,7 +246,11 @@ describe("trivia plugin", () => {
           id: `q${i}`,
           category: categories[i],
           statement: "A statement that is definitely long enough to pass validation",
-          type: undefined,
+          answersFormat: "boolean",
+          questionType: "fact",
+          sourceUrl: undefined,
+          eventDate: undefined,
+          context: undefined,
           isTrue: true,
           choices: undefined,
           correctIndex: undefined,
@@ -282,7 +290,11 @@ describe("trivia plugin", () => {
           id: `q${i}`,
           category: allCategories[i],
           statement: "A statement that is definitely long enough to pass validation",
-          type: undefined,
+          answersFormat: "boolean",
+          questionType: "fact",
+          sourceUrl: undefined,
+          eventDate: undefined,
+          context: undefined,
           isTrue: true,
           choices: undefined,
           correctIndex: undefined,
@@ -307,8 +319,11 @@ describe("trivia plugin", () => {
     });
 
     // Distribution tests use an empty category pool so the idea-pick loop
-    // consumes zero Math.random() calls. Only the two suggestion picks remain:
-    // [answer, difficulty]. This decouples the tests from internal call ordering.
+    // consumes zero Math.random() calls. Per-call random sequence (boolean-only
+    // default weights → no contextPriority because contexts is unconfigured):
+    //   [answersFormat, questionType, difficulty, suggestedAnswer]
+    // This decouples the tests from internal call ordering — adjust the
+    // sequence if a new random consumer is added inside get_ideas.
     describe("suggestion distribution", () => {
       const originalRandom = Math.random;
 
@@ -328,15 +343,17 @@ describe("trivia plugin", () => {
       it("suggestedAnswer takes both values across calls", async () => {
         const tool = createGetIdeasTool(data, undefined, fixtureGetGames);
         try {
-          // [answer=0.0, difficulty=0.0] → answer = (0.0 < 0.5) = true.
-          stubRandomSequence([0.0, 0.0]);
+          // [answersFormat=0.0, questionType=0.0, difficulty=0.0, suggestedAnswer=0.0]
+          // suggestedAnswer = (0.0 < 0.5) = true
+          stubRandomSequence([0.0, 0.0, 0.0, 0.0]);
           const a = parseToolResult(
             await tool.handler({ game: FIXTURE_GAME_NAME, slot: undefined }, SESSION),
           );
           assert.equal(a.suggestedAnswer, true);
 
-          // [answer=0.99, difficulty=0.0] → answer = (0.99 < 0.5) = false.
-          stubRandomSequence([0.99, 0.0]);
+          // [answersFormat=0.0, questionType=0.0, difficulty=0.0, suggestedAnswer=0.99]
+          // suggestedAnswer = (0.99 < 0.5) = false
+          stubRandomSequence([0.0, 0.0, 0.0, 0.99]);
           const b = parseToolResult(
             await tool.handler({ game: FIXTURE_GAME_NAME, slot: undefined }, SESSION),
           );
@@ -349,8 +366,8 @@ describe("trivia plugin", () => {
       it("suggestedDifficulty buckets at 0.30 and 0.90 boundaries", async () => {
         const tool = createGetIdeasTool(data, undefined, fixtureGetGames);
         try {
-          // [answer=0.0, difficulty=<value-under-test>].
-          stubRandomSequence([0.0, 0.0]);
+          // [answersFormat, questionType, difficulty, suggestedAnswer]
+          stubRandomSequence([0.0, 0.0, 0.0, 0.0]);
           assert.equal(
             parseToolResult(
               await tool.handler({ game: FIXTURE_GAME_NAME, slot: undefined }, SESSION),
@@ -358,7 +375,7 @@ describe("trivia plugin", () => {
             "Easy",
           );
 
-          stubRandomSequence([0.0, 0.2999]);
+          stubRandomSequence([0.0, 0.0, 0.2999, 0.0]);
           assert.equal(
             parseToolResult(
               await tool.handler({ game: FIXTURE_GAME_NAME, slot: undefined }, SESSION),
@@ -366,7 +383,7 @@ describe("trivia plugin", () => {
             "Easy",
           );
 
-          stubRandomSequence([0.0, 0.3]);
+          stubRandomSequence([0.0, 0.0, 0.3, 0.0]);
           assert.equal(
             parseToolResult(
               await tool.handler({ game: FIXTURE_GAME_NAME, slot: undefined }, SESSION),
@@ -374,7 +391,7 @@ describe("trivia plugin", () => {
             "Medium",
           );
 
-          stubRandomSequence([0.0, 0.8999]);
+          stubRandomSequence([0.0, 0.0, 0.8999, 0.0]);
           assert.equal(
             parseToolResult(
               await tool.handler({ game: FIXTURE_GAME_NAME, slot: undefined }, SESSION),
@@ -382,7 +399,7 @@ describe("trivia plugin", () => {
             "Medium",
           );
 
-          stubRandomSequence([0.0, 0.9]);
+          stubRandomSequence([0.0, 0.0, 0.9, 0.0]);
           assert.equal(
             parseToolResult(
               await tool.handler({ game: FIXTURE_GAME_NAME, slot: undefined }, SESSION),
@@ -390,7 +407,7 @@ describe("trivia plugin", () => {
             "Hard",
           );
 
-          stubRandomSequence([0.0, 0.9999]);
+          stubRandomSequence([0.0, 0.0, 0.9999, 0.0]);
           assert.equal(
             parseToolResult(
               await tool.handler({ game: FIXTURE_GAME_NAME, slot: undefined }, SESSION),
@@ -420,7 +437,11 @@ describe("trivia plugin", () => {
           game: FIXTURE_GAME_NAME,
           category: "Science",
           statement: "Water boils at 100 degrees Celsius at sea level",
-          type: undefined,
+          answersFormat: "boolean",
+          questionType: "fact",
+          sourceUrl: undefined,
+          eventDate: undefined,
+          context: undefined,
           isTrue: true,
           choices: undefined,
           correctIndex: undefined,
@@ -450,7 +471,11 @@ describe("trivia plugin", () => {
           game: FIXTURE_GAME_NAME,
           category: "science",
           statement: "This is a long enough statement to test",
-          type: undefined,
+          answersFormat: "boolean",
+          questionType: "fact",
+          sourceUrl: undefined,
+          eventDate: undefined,
+          context: undefined,
           isTrue: true,
           choices: undefined,
           correctIndex: undefined,
@@ -474,7 +499,11 @@ describe("trivia plugin", () => {
           game: FIXTURE_GAME_NAME,
           category: "NonExistent",
           statement: "This is a long enough statement to test",
-          type: undefined,
+          answersFormat: "boolean",
+          questionType: "fact",
+          sourceUrl: undefined,
+          eventDate: undefined,
+          context: undefined,
           isTrue: true,
           choices: undefined,
           correctIndex: undefined,
@@ -499,7 +528,11 @@ describe("trivia plugin", () => {
           game: FIXTURE_GAME_NAME,
           category: "Science",
           statement: "Short",
-          type: undefined,
+          answersFormat: "boolean",
+          questionType: "fact",
+          sourceUrl: undefined,
+          eventDate: undefined,
+          context: undefined,
           isTrue: true,
           choices: undefined,
           correctIndex: undefined,
@@ -524,7 +557,11 @@ describe("trivia plugin", () => {
           game: FIXTURE_GAME_NAME,
           category: "Science",
           statement: longStatement,
-          type: undefined,
+          answersFormat: "boolean",
+          questionType: "fact",
+          sourceUrl: undefined,
+          eventDate: undefined,
+          context: undefined,
           isTrue: true,
           choices: undefined,
           correctIndex: undefined,
@@ -548,7 +585,11 @@ describe("trivia plugin", () => {
           game: FIXTURE_GAME_NAME,
           category: "Science",
           statement: "This is a long enough statement",
-          type: undefined,
+          answersFormat: "boolean",
+          questionType: "fact",
+          sourceUrl: undefined,
+          eventDate: undefined,
+          context: undefined,
           isTrue: true,
           choices: undefined,
           correctIndex: undefined,
@@ -572,7 +613,11 @@ describe("trivia plugin", () => {
           game: FIXTURE_GAME_NAME,
           category: "Science",
           statement: "This is a long enough statement",
-          type: undefined,
+          answersFormat: "boolean",
+          questionType: "fact",
+          sourceUrl: undefined,
+          eventDate: undefined,
+          context: undefined,
           isTrue: true,
           choices: undefined,
           correctIndex: undefined,
@@ -596,7 +641,11 @@ describe("trivia plugin", () => {
           game: FIXTURE_GAME_NAME,
           category: "Science",
           statement: "This is a long enough statement",
-          type: undefined,
+          answersFormat: "boolean",
+          questionType: "fact",
+          sourceUrl: undefined,
+          eventDate: undefined,
+          context: undefined,
           isTrue: true,
           choices: undefined,
           correctIndex: undefined,
@@ -619,7 +668,11 @@ describe("trivia plugin", () => {
           game: FIXTURE_GAME_NAME,
           category: "Science",
           statement: "This is a long enough statement",
-          type: undefined,
+          answersFormat: "boolean",
+          questionType: "fact",
+          sourceUrl: undefined,
+          eventDate: undefined,
+          context: undefined,
           isTrue: true,
           choices: undefined,
           correctIndex: undefined,
@@ -642,7 +695,11 @@ describe("trivia plugin", () => {
           game: FIXTURE_GAME_NAME,
           category: "Science",
           statement: "Water boils at 100 degrees Celsius at sea level",
-          type: undefined,
+          answersFormat: "boolean",
+          questionType: "fact",
+          sourceUrl: undefined,
+          eventDate: undefined,
+          context: undefined,
           isTrue: true,
           choices: undefined,
           correctIndex: undefined,
@@ -671,7 +728,11 @@ describe("trivia plugin", () => {
           game: FIXTURE_GAME_NAME,
           category: "Science",
           statement: "Water boils at 100 degrees Celsius at sea level",
-          type: undefined,
+          answersFormat: "boolean",
+          questionType: "fact",
+          sourceUrl: undefined,
+          eventDate: undefined,
+          context: undefined,
           isTrue: true,
           choices: undefined,
           correctIndex: undefined,

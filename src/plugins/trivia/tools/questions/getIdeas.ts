@@ -3,12 +3,14 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { textResult, errorResult } from "../../../../tools/helpers.js";
 import { getConfig, type Config } from "../../../../config.js";
 import { findCurrentSeason } from "../../core/seasonTimeline.js";
-import { getActiveChoiceBounds, resolveQuestionTypes } from "../../domain/questionTypes.js";
+import { getActiveChoiceBounds, resolveAnswersFormat } from "../../domain/questionTypes.js";
+import { resolveQuestionType } from "../../domain/factTopical.js";
+import { resolveContexts, rollContextPriority } from "../../domain/contexts.js";
 import { resolveSlotCategories } from "../../domain/seasonFormat.js";
 import { weightedPick } from "../../domain/weightedPick.js";
 import { defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
 import { requireGame } from "../../core/gamesRegistry.js";
-import type { TriviaDataLayer, TriviaQuestionType } from "../../core/types.js";
+import type { TriviaDataLayer, TriviaAnswersFormat, TriviaQuestionType } from "../../core/types.js";
 
 type SuggestedDifficulty = "Easy" | "Medium" | "Hard";
 
@@ -30,19 +32,21 @@ Always returns:
 - \`format\`: \`{ slotCount, slots: [{ index, label?, categories }] }\` when the active season defines a \`format\` (multi-slot composition), else \`null\`. \`slots[i].categories\` is the slot's RESOLVED pool (slot.categories ?? season.categories).
 - \`slot\` (number): echoes the request's \`slot\` argument (default 0).
 - \`categories.ideas\`: 5 random categories drawn from the active source pool (slot's resolved pool when format is present, season's categories otherwise)
-- \`suggestedType\`: \`"boolean"\` or \`"choice"\` — picked from active questionsTypes weights (slot.questionTypes → season.questionTypes → config.trivia.questionsTypes → boolean default)
+- \`suggestedAnswersFormat\`: \`"boolean"\` or \`"choice"\` — picked from active answersFormat weights (slot.answersFormat → season.answersFormat → config.trivia.answersFormat → boolean default)
+- \`suggestedQuestionType\`: \`"fact"\` or \`"topical"\` — picked INDEPENDENTLY from active questionType weights (slot.questionType → season.questionType → config.trivia.questionType → fact default). \`"topical"\` REQUIRES Claude to use \`WebSearch\` and capture a \`sourceUrl\` when saving.
 - \`suggestedDifficulty\`: \`"Easy" | "Medium" | "Hard"\`
+- \`contextPriority\` (optional): freshly-rolled weighted-random ordering of every configured lens. Present only when \`trivia.contexts\` is configured at any cascade tier. Claude tries \`contextPriority[0]\` first; descends the list only when the current lens yields no usable question.
 
-When suggestedType is \`"boolean"\`, also returns:
+When suggestedAnswersFormat is \`"boolean"\`, also returns:
 - \`suggestedAnswer\` (boolean): the truth value the statement MUST have
 
-When suggestedType is \`"choice"\`, also returns:
+When suggestedAnswersFormat is \`"choice"\`, also returns:
 - \`suggestedChoiceCount\` (integer in active [min, max]): the number of options
 - \`suggestedCorrectIndex\` (integer in [0, suggestedChoiceCount)): the 0-based index of the correct option
 
 Each call rolls suggestions independently — no caching across slot indices. When the active season has a \`format\`, loop slots 0..slotCount-1 with separate calls; do NOT pre-roll all slots up front.
 
-The type / answer / index rolls are server-side to prevent Claude from biasing the polarity, choice count, or correct position.`;
+The format / type / answer / index / context rolls are server-side to prevent Claude from biasing them.`;
 
 export function createGetIdeasTool(
   data: TriviaDataLayer,
@@ -142,12 +146,25 @@ export function createGetIdeasTool(
             }
           : null;
 
-      const weights = resolveQuestionTypes(
+      const slotIndexForResolution = seasonFormat !== undefined ? slotArg : null;
+
+      const answersFormatWeights = resolveAnswersFormat(
         currentSeasonEntry,
-        seasonFormat !== undefined ? slotArg : null,
+        slotIndexForResolution,
         config,
       );
-      const picked: TriviaQuestionType = weightedPick(weights) ?? "boolean";
+      const pickedAnswersFormat: TriviaAnswersFormat =
+        weightedPick(answersFormatWeights) ?? "boolean";
+
+      const questionTypeWeights = resolveQuestionType(
+        currentSeasonEntry,
+        slotIndexForResolution,
+        config,
+      );
+      const pickedQuestionType: TriviaQuestionType = weightedPick(questionTypeWeights) ?? "fact";
+
+      const contexts = resolveContexts(currentSeasonEntry, slotIndexForResolution, config);
+      const contextPriority = contexts !== null ? rollContextPriority(contexts) : null;
 
       const suggestedDifficulty = pickSuggestedDifficulty();
 
@@ -159,12 +176,14 @@ export function createGetIdeasTool(
           total: slotCategories.length,
           excluded: recentCategories.size,
         },
-        suggestedType: picked,
+        suggestedAnswersFormat: pickedAnswersFormat,
+        suggestedQuestionType: pickedQuestionType,
         suggestedDifficulty,
+        ...(contextPriority !== null ? { contextPriority } : {}),
       };
 
-      if (picked === "choice") {
-        const bounds = config !== null ? getActiveChoiceBounds(config) : { min: 2, max: 4 };
+      if (pickedAnswersFormat === "choice") {
+        const bounds = config !== null ? getActiveChoiceBounds(config) : { min: 4, max: 4 };
         const suggestedChoiceCount = randomIntInclusive(bounds.min, bounds.max);
         const suggestedCorrectIndex = randomIntInclusive(0, suggestedChoiceCount - 1);
         return textResult({

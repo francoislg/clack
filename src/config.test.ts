@@ -1048,10 +1048,10 @@ describe("taskCards config", () => {
 });
 
 // ---------------------------------------------------------------------------
-// trivia.questionsTypes + trivia.choices
+// trivia.answersFormat + trivia.choices
 // ---------------------------------------------------------------------------
 
-describe("trivia.questionsTypes config", () => {
+describe("trivia.answersFormat config", () => {
   const originalCwd = process.cwd();
 
   beforeEach(() => {
@@ -1071,52 +1071,52 @@ describe("trivia.questionsTypes config", () => {
     assert.equal(cfg.trivia, undefined);
   });
 
-  it("absent when trivia block lacks questionsTypes", () => {
+  it("absent when trivia block lacks answersFormat", () => {
     writeConfig(minimalConfig({ trivia: {} }));
     const cfg = loadConfig(configPath, true);
-    assert.equal(cfg.trivia?.questionsTypes, undefined);
+    assert.equal(cfg.trivia?.answersFormat, undefined);
   });
 
   it("parses a weighted mix", () => {
-    writeConfig(minimalConfig({ trivia: { questionsTypes: { boolean: 2, choice: 1 } } }));
+    writeConfig(minimalConfig({ trivia: { answersFormat: { boolean: 2, choice: 1 } } }));
     const cfg = loadConfig(configPath, true);
-    assert.deepEqual(cfg.trivia?.questionsTypes, { boolean: 2, choice: 1 });
+    assert.deepEqual(cfg.trivia?.answersFormat, { boolean: 2, choice: 1 });
   });
 
   it("parses choice-only", () => {
-    writeConfig(minimalConfig({ trivia: { questionsTypes: { choice: 5 } } }));
+    writeConfig(minimalConfig({ trivia: { answersFormat: { choice: 5 } } }));
     const cfg = loadConfig(configPath, true);
-    assert.deepEqual(cfg.trivia?.questionsTypes, { boolean: 0, choice: 5 });
+    assert.deepEqual(cfg.trivia?.answersFormat, { boolean: 0, choice: 5 });
   });
 
   it("parses boolean-only", () => {
-    writeConfig(minimalConfig({ trivia: { questionsTypes: { boolean: 1 } } }));
+    writeConfig(minimalConfig({ trivia: { answersFormat: { boolean: 1 } } }));
     const cfg = loadConfig(configPath, true);
-    assert.deepEqual(cfg.trivia?.questionsTypes, { boolean: 1, choice: 0 });
+    assert.deepEqual(cfg.trivia?.answersFormat, { boolean: 1, choice: 0 });
   });
 
   it("rejects all-zero weights", () => {
-    writeConfig(minimalConfig({ trivia: { questionsTypes: { boolean: 0, choice: 0 } } }));
+    writeConfig(minimalConfig({ trivia: { answersFormat: { boolean: 0, choice: 0 } } }));
     assert.throws(() => loadConfig(configPath, true), /at least one strictly positive weight/);
   });
 
   it("rejects unknown keys", () => {
-    writeConfig(minimalConfig({ trivia: { questionsTypes: { boolean: 1, essay: 1 } } }));
+    writeConfig(minimalConfig({ trivia: { answersFormat: { boolean: 1, essay: 1 } } }));
     assert.throws(() => loadConfig(configPath, true), /unknown key 'essay'/);
   });
 
   it("rejects negative weights", () => {
-    writeConfig(minimalConfig({ trivia: { questionsTypes: { boolean: -1, choice: 1 } } }));
+    writeConfig(minimalConfig({ trivia: { answersFormat: { boolean: -1, choice: 1 } } }));
     assert.throws(() => loadConfig(configPath, true), /non-negative integer/);
   });
 
   it("rejects non-integer weights", () => {
-    writeConfig(minimalConfig({ trivia: { questionsTypes: { boolean: 1.5, choice: 1 } } }));
+    writeConfig(minimalConfig({ trivia: { answersFormat: { boolean: 1.5, choice: 1 } } }));
     assert.throws(() => loadConfig(configPath, true), /non-negative integer/);
   });
 
   it("rejects non-object value", () => {
-    writeConfig(minimalConfig({ trivia: { questionsTypes: "boolean" } }));
+    writeConfig(minimalConfig({ trivia: { answersFormat: "boolean" } }));
     assert.throws(() => loadConfig(configPath, true), /must be an object/);
   });
 });

@@ -31,7 +31,7 @@ function makeConfig(trivia: Config["trivia"]): Config {
 
 const SEASONS_ON_CONFIG = makeConfig({
   seasons: { enabled: true, prompt: "Monthly" },
-  questionsTypes: { boolean: 1, choice: 0 },
+  answersFormat: { boolean: 1, choice: 0 },
 });
 
 async function seedSeason(
@@ -139,11 +139,11 @@ describe("get_ideas — format meta and slot routing", () => {
     assert.ok(parsed.categories);
   });
 
-  it("uses slot.questionTypes when set (overrides season questionTypes)", async () => {
+  it("uses slot.answersFormat when set (overrides season answersFormat)", async () => {
     await seedSeason(data, {
-      questionTypes: { boolean: 1, choice: 0 },
+      answersFormat: { boolean: 1, choice: 0 },
       format: {
-        questions: [{ questionTypes: { boolean: 0, choice: 1 } }],
+        questions: [{ answersFormat: { boolean: 0, choice: 1 } }],
       },
     });
     const tool = createGetIdeasTool(data, () => SEASONS_ON_CONFIG, fixtureGetGames);
@@ -152,13 +152,13 @@ describe("get_ideas — format meta and slot routing", () => {
       const parsed = parseToolResult(
         await tool.handler({ game: FIXTURE_GAME_NAME, slot: 0 }, SESSION),
       );
-      assert.equal(parsed.suggestedType, "choice", `iteration ${i}`);
+      assert.equal(parsed.suggestedAnswersFormat, "choice", `iteration ${i}`);
     }
   });
 
-  it("falls back to season.questionTypes when slot has none", async () => {
+  it("falls back to season.answersFormat when slot has none", async () => {
     await seedSeason(data, {
-      questionTypes: { boolean: 0, choice: 1 },
+      answersFormat: { boolean: 0, choice: 1 },
       format: { questions: [{}] },
     });
     const tool = createGetIdeasTool(data, () => SEASONS_ON_CONFIG, fixtureGetGames);
@@ -166,24 +166,24 @@ describe("get_ideas — format meta and slot routing", () => {
       const parsed = parseToolResult(
         await tool.handler({ game: FIXTURE_GAME_NAME, slot: 0 }, SESSION),
       );
-      assert.equal(parsed.suggestedType, "choice", `iteration ${i}`);
+      assert.equal(parsed.suggestedAnswersFormat, "choice", `iteration ${i}`);
     }
   });
 
-  it("falls back to config when neither slot nor season has questionTypes", async () => {
+  it("falls back to config when neither slot nor season has answersFormat", async () => {
     await seedSeason(data, {
       format: { questions: [{}] },
     });
     const cfg = makeConfig({
       seasons: { enabled: true, prompt: "Monthly" },
-      questionsTypes: { boolean: 0, choice: 1 },
+      answersFormat: { boolean: 0, choice: 1 },
     });
     const tool = createGetIdeasTool(data, () => cfg, fixtureGetGames);
     for (let i = 0; i < 10; i++) {
       const parsed = parseToolResult(
         await tool.handler({ game: FIXTURE_GAME_NAME, slot: 0 }, SESSION),
       );
-      assert.equal(parsed.suggestedType, "choice", `iteration ${i}`);
+      assert.equal(parsed.suggestedAnswersFormat, "choice", `iteration ${i}`);
     }
   });
 

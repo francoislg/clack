@@ -100,7 +100,7 @@ describe("SEND_QUESTIONS_INSTRUCTIONS — format-aware multi-slot loop", () => {
 
   it("explicitly forbids pre-rolling suggestions across slots", () => {
     assert.match(SEND_QUESTIONS_INSTRUCTIONS, /Pre-rolling all suggestions up front is forbidden/);
-    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /Do NOT reuse slot 0's `suggestedAnswer`/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /Do NOT reuse slot 0's rolls/);
   });
 
   it("clarifies that slot.label is a creative hint, not literal", () => {
@@ -135,6 +135,67 @@ describe("SEND_QUESTIONS_INSTRUCTIONS — format-aware multi-slot loop", () => {
       SEND_QUESTIONS_INSTRUCTIONS,
       /Subsequent slots in the same batch go back to the normal show-banner style/,
     );
+  });
+});
+
+describe("SEND_QUESTIONS_INSTRUCTIONS — topical paths", () => {
+  it("documents the 4-way dispatch matrix", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /suggestedAnswersFormat.*suggestedQuestionType/s);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /FACT-BOOLEAN PATH/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /FACT-CHOICE PATH/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /TOPICAL-BOOLEAN PATH/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /TOPICAL-CHOICE PATH/);
+  });
+
+  it("topical paths require WebSearch as a research step", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /RESEARCH A RECENT EVENT VIA WebSearch/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /WebSearch query/);
+  });
+
+  it("topical paths require capturing sourceUrl", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /sourceUrl.*https:\/\//);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /sourceUrl \(REQUIRED/);
+  });
+
+  it("topical save_question call passes questionType: 'topical'", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /questionType: "topical"/);
+  });
+
+  it("fact save_question call passes questionType: 'fact'", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /questionType: "fact"/);
+  });
+
+  it("aims topical research at the last day or two with up-to-a-week fallback", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /last day or two/i);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /up to a week/i);
+  });
+});
+
+describe("SEND_QUESTIONS_INSTRUCTIONS — contexts (lens) handling", () => {
+  it("includes the CONTEXTS preamble", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /CONTEXTS \(LENSES\)/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /contextPriority\[0\]/);
+  });
+
+  it("describes the priority-list descent rule", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /Try `contextPriority\[0\]` FIRST/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /Only descend.*contextPriority\[1\]/s);
+  });
+
+  it("treats empty-string entries as 'no specific lean'", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /Empty-string entries mean "no specific lean"/);
+  });
+
+  it("instructs Claude to pass context to save_question when a non-empty lens was used", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /pass `context: "<the lens you used>"`/);
+  });
+
+  it("instructs Claude to re-call get_ideas when contextPriority is exhausted", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /re-call `get_ideas`/);
+  });
+
+  it("explains that absent contextPriority means generate without a lens", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /does NOT include `contextPriority`/);
   });
 });
 

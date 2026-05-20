@@ -97,8 +97,14 @@ export function applySeasonRollover(
       startedAt: now,
       expectedEndAt,
       categories: [...closingSnapshot.categories],
-      ...(closingSnapshot.questionTypes !== undefined
-        ? { questionTypes: { ...closingSnapshot.questionTypes } }
+      ...(closingSnapshot.answersFormat !== undefined
+        ? { answersFormat: { ...closingSnapshot.answersFormat } }
+        : {}),
+      ...(closingSnapshot.questionType !== undefined
+        ? { questionType: { ...closingSnapshot.questionType } }
+        : {}),
+      ...(closingSnapshot.contexts !== undefined
+        ? { contexts: closingSnapshot.contexts.map((c) => ({ ...c })) }
         : {}),
       ...(closingSnapshot.format !== undefined
         ? {
@@ -106,8 +112,14 @@ export function applySeasonRollover(
               questions: closingSnapshot.format.questions.map((slot) => ({
                 ...(slot.label !== undefined ? { label: slot.label } : {}),
                 ...(slot.categories !== undefined ? { categories: [...slot.categories] } : {}),
-                ...(slot.questionTypes !== undefined
-                  ? { questionTypes: { ...slot.questionTypes } }
+                ...(slot.answersFormat !== undefined
+                  ? { answersFormat: { ...slot.answersFormat } }
+                  : {}),
+                ...(slot.questionType !== undefined
+                  ? { questionType: { ...slot.questionType } }
+                  : {}),
+                ...(slot.contexts !== undefined
+                  ? { contexts: slot.contexts.map((c) => ({ ...c })) }
                   : {}),
               })),
             },

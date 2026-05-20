@@ -70,16 +70,16 @@ describe("choice-questions end-to-end flow", () => {
   });
 
   it("get_ideas → save_question → post_questions → submit_answers → find/history (choice path)", async () => {
-    // 1. get_ideas in pure-choice config → returns suggestedType: "choice" + count + correctIndex
+    // 1. get_ideas in pure-choice config → returns suggestedAnswersFormat: "choice" + count + correctIndex
     const cfg = makeConfig({
-      questionsTypes: { boolean: 0, choice: 1 },
+      answersFormat: { boolean: 0, choice: 1 },
       choices: { min: 4, max: 4 },
     });
     const getIdeas = createGetIdeasTool(data, () => cfg, fixtureGetGames);
     const ideasResult = parseToolResult(
       await getIdeas.handler({ game: FIXTURE_GAME_NAME, slot: undefined }, SESSION),
     );
-    assert.equal(ideasResult.suggestedType, "choice");
+    assert.equal(ideasResult.suggestedAnswersFormat, "choice");
     assert.equal(ideasResult.suggestedChoiceCount, 4);
     assert.ok(ideasResult.suggestedCorrectIndex >= 0 && ideasResult.suggestedCorrectIndex < 4);
 
@@ -89,7 +89,11 @@ describe("choice-questions end-to-end flow", () => {
       await saveQuestion.handler(
         {
           game: FIXTURE_GAME_NAME,
-          type: "choice",
+          answersFormat: "choice",
+          questionType: "fact",
+          sourceUrl: undefined,
+          eventDate: undefined,
+          context: undefined,
           category: "Geography",
           statement: "Which is the smallest planet?",
           isTrue: undefined,
@@ -182,7 +186,7 @@ describe("choice-questions end-to-end flow", () => {
     );
     assert.equal(findResult.count, 1);
     const found = findResult.questions[0];
-    assert.equal(found.type, "choice");
+    assert.equal(found.answersFormat, "choice");
     assert.deepEqual(found.choices, ["Mercury", "Venus", "Earth", "Mars"]);
     assert.equal(Object.prototype.hasOwnProperty.call(found, "correctIndex"), false);
     assert.equal(Object.prototype.hasOwnProperty.call(found, "isTrue"), false);
@@ -192,7 +196,7 @@ describe("choice-questions end-to-end flow", () => {
     const histResult = parseToolResult(
       await history.handler({ game: FIXTURE_GAME_NAME, questionId }, SESSION),
     );
-    assert.equal(histResult.type, "choice");
+    assert.equal(histResult.answersFormat, "choice");
     assert.equal(histResult.correctIndex, 0);
     assert.deepEqual(histResult.choices, ["Mercury", "Venus", "Earth", "Mars"]);
     assert.equal(histResult.responses.length, 3);
@@ -203,7 +207,7 @@ describe("choice-questions end-to-end flow", () => {
   });
 
   it("mixed-config flow: many calls produce both boolean and choice questions", async () => {
-    const cfg = makeConfig({ questionsTypes: { boolean: 1, choice: 1 } });
+    const cfg = makeConfig({ answersFormat: { boolean: 1, choice: 1 } });
     const getIdeas = createGetIdeasTool(data, () => cfg, fixtureGetGames);
     let booleans = 0;
     let choices = 0;
@@ -211,7 +215,7 @@ describe("choice-questions end-to-end flow", () => {
       const r = parseToolResult(
         await getIdeas.handler({ game: FIXTURE_GAME_NAME, slot: undefined }, SESSION),
       );
-      if (r.suggestedType === "boolean") booleans++;
+      if (r.suggestedAnswersFormat === "boolean") booleans++;
       else choices++;
     }
     assert.ok(booleans > 50, `boolean count too low: ${booleans}`);
@@ -219,7 +223,7 @@ describe("choice-questions end-to-end flow", () => {
   });
 
   it("equal scoring: one boolean correct + one choice correct → totalCorrect 2", async () => {
-    const cfg = makeConfig({ questionsTypes: { boolean: 1, choice: 1 } });
+    const cfg = makeConfig({ answersFormat: { boolean: 1, choice: 1 } });
 
     // Save a boolean question
     const saveQuestion = createSaveQuestionTool(data, () => cfg, fixtureGetGames);
@@ -227,7 +231,11 @@ describe("choice-questions end-to-end flow", () => {
       await saveQuestion.handler(
         {
           game: FIXTURE_GAME_NAME,
-          type: "boolean",
+          answersFormat: "boolean",
+          questionType: "fact",
+          sourceUrl: undefined,
+          eventDate: undefined,
+          context: undefined,
           category: "Geography",
           statement: "The Earth is round.",
           isTrue: true,
@@ -247,7 +255,11 @@ describe("choice-questions end-to-end flow", () => {
       await saveQuestion.handler(
         {
           game: FIXTURE_GAME_NAME,
-          type: "choice",
+          answersFormat: "choice",
+          questionType: "fact",
+          sourceUrl: undefined,
+          eventDate: undefined,
+          context: undefined,
           category: "Astronomy",
           statement: "Which is the smallest planet?",
           isTrue: undefined,

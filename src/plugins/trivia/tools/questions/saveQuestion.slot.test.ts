@@ -51,10 +51,14 @@ async function seedSeason(
 
 const BASE_ARGS = {
   game: FIXTURE_GAME_NAME,
-  type: "boolean" as const,
+  answersFormat: "boolean" as const,
+  questionType: "fact" as const,
   category: "Science",
   statement: "Water boils at 100 C at sea level.",
   isTrue: true,
+  sourceUrl: undefined,
+  eventDate: undefined,
+  context: undefined,
   choices: undefined,
   correctIndex: undefined,
   suggestedDifficulty: undefined,
@@ -97,7 +101,7 @@ describe("save_question — slot binding", () => {
 
   it("rejects question whose type is not permitted by the slot", async () => {
     await seedSeason(data, {
-      format: { questions: [{ questionTypes: { boolean: 0, choice: 1 } }] },
+      format: { questions: [{ answersFormat: { boolean: 0, choice: 1 } }] },
     });
     const tool = createSaveQuestionTool(data, () => SEASONS_ON, fixtureGetGames);
     // Boolean question into a choice-only slot

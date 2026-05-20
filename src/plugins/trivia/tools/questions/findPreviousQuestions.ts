@@ -18,7 +18,8 @@ const NO_MATCH_SENTINEL = "__no_match_sentinel__";
 type SearchResultQuestion = Pick<
   TriviaQuestion,
   | "id"
-  | "type"
+  | "answersFormat"
+  | "questionType"
   | "category"
   | "statement"
   | "choices"
@@ -31,6 +32,9 @@ type SearchResultQuestion = Pick<
   | "slot"
   | "suggestedDifficulty"
   | "difficulty"
+  | "context"
+  | "sourceUrl"
+  | "eventDate"
 >;
 
 function toSearchResult(q: TriviaQuestion): SearchResultQuestion {
@@ -41,7 +45,8 @@ function toSearchResult(q: TriviaQuestion): SearchResultQuestion {
     emojis: q.emojis,
     createdAt: q.createdAt,
   };
-  if (q.type !== undefined) result.type = q.type;
+  if (q.answersFormat !== undefined) result.answersFormat = q.answersFormat;
+  if (q.questionType !== undefined) result.questionType = q.questionType;
   if (q.choices !== undefined) result.choices = q.choices;
   if (q.postedAt !== undefined) result.postedAt = q.postedAt;
   if (q.messageLink !== undefined) result.messageLink = q.messageLink;
@@ -50,6 +55,9 @@ function toSearchResult(q: TriviaQuestion): SearchResultQuestion {
   if (q.slot !== undefined) result.slot = q.slot;
   if (q.suggestedDifficulty !== undefined) result.suggestedDifficulty = q.suggestedDifficulty;
   if (q.difficulty !== undefined) result.difficulty = q.difficulty;
+  if (q.context !== undefined) result.context = q.context;
+  if (q.sourceUrl !== undefined) result.sourceUrl = q.sourceUrl;
+  if (q.eventDate !== undefined) result.eventDate = q.eventDate;
   return result;
 }
 

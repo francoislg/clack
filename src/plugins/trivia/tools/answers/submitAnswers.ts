@@ -63,12 +63,12 @@ A shape mismatch (boolean entry on a choice question or vice-versa) is rejected 
         return errorResult(`Question "${args.questionId}" not found.`);
       }
 
-      const questionType = question.type ?? "boolean";
+      const answersFormat = question.answersFormat ?? "boolean";
 
-      // Validate every entry's shape matches the question's type BEFORE writing anything.
+      // Validate every entry's shape matches the question's answers format BEFORE writing anything.
       for (let i = 0; i < args.answers.length; i++) {
         const entry = args.answers[i];
-        if (questionType === "boolean") {
+        if (answersFormat === "boolean") {
           if (entry.answer === undefined) {
             return errorResult(
               `Answer entry ${i} (user ${entry.userId}): boolean questions require "answer".`,
@@ -127,7 +127,7 @@ A shape mismatch (boolean entry on a choice question or vice-versa) is rejected 
 
       for (const answerInput of args.answers) {
         const correct =
-          questionType === "boolean"
+          answersFormat === "boolean"
             ? answerInput.answer === question.isTrue
             : answerInput.answerIndex === question.correctIndex;
 
@@ -159,7 +159,7 @@ A shape mismatch (boolean entry on a choice question or vice-versa) is rejected 
         if (!skipped) {
           const seasonTag = currentSeason !== null ? { season: currentSeason } : {};
           const shape: Pick<SubmittedAnswer, "answer" | "answerIndex"> =
-            questionType === "boolean"
+            answersFormat === "boolean"
               ? { answer: answerInput.answer }
               : { answerIndex: answerInput.answerIndex };
           const newAnswer: SubmittedAnswer = {

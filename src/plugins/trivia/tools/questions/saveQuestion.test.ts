@@ -35,15 +35,19 @@ describe("save_question — boolean shape", () => {
     await data.saveCategories(["Science"]);
   });
 
-  it("saves a valid boolean question with explicit type", async () => {
+  it("saves a valid boolean question with explicit answersFormat", async () => {
     const tool = createSaveQuestionTool(data, () => null, fixtureGetGames);
     const result = await tool.handler(
       {
         game: FIXTURE_GAME_NAME,
-        type: "boolean",
+        answersFormat: "boolean",
+        questionType: "fact",
         category: "Science",
         statement: "Water boils at 100C at sea level",
         isTrue: true,
+        sourceUrl: undefined,
+        eventDate: undefined,
+        context: undefined,
         choices: undefined,
         correctIndex: undefined,
         suggestedDifficulty: undefined,
@@ -55,20 +59,24 @@ describe("save_question — boolean shape", () => {
     );
     const parsed = parseToolResult(result);
     assert.equal(parsed.saved, true);
-    assert.equal(parsed.question.type, "boolean");
+    assert.equal(parsed.question.answersFormat, "boolean");
     assert.equal(parsed.question.isTrue, true);
     assert.equal(parsed.question.choices, undefined);
   });
 
-  it("saves boolean when type is omitted (default)", async () => {
+  it("saves boolean when answersFormat is omitted (default)", async () => {
     const tool = createSaveQuestionTool(data, () => null, fixtureGetGames);
     const result = await tool.handler(
       {
         game: FIXTURE_GAME_NAME,
-        type: undefined,
+        answersFormat: "boolean",
+        questionType: "fact",
         category: "Science",
         statement: "Water boils at 100C at sea level",
         isTrue: false,
+        sourceUrl: undefined,
+        eventDate: undefined,
+        context: undefined,
         choices: undefined,
         correctIndex: undefined,
         suggestedDifficulty: undefined,
@@ -80,7 +88,7 @@ describe("save_question — boolean shape", () => {
     );
     const parsed = parseToolResult(result);
     assert.equal(parsed.saved, true);
-    assert.equal(parsed.question.type, "boolean");
+    assert.equal(parsed.question.answersFormat, "boolean");
     assert.equal(parsed.question.isTrue, false);
   });
 
@@ -89,10 +97,14 @@ describe("save_question — boolean shape", () => {
     const result = await tool.handler(
       {
         game: FIXTURE_GAME_NAME,
-        type: "boolean",
+        answersFormat: "boolean",
+        questionType: "fact",
         category: "Science",
         statement: "Statement long enough to validate",
         isTrue: true,
+        sourceUrl: undefined,
+        eventDate: undefined,
+        context: undefined,
         choices: ["A", "B"],
         correctIndex: undefined,
         suggestedDifficulty: undefined,
@@ -123,10 +135,14 @@ describe("save_question — choice shape", () => {
     const result = await tool.handler(
       {
         game: FIXTURE_GAME_NAME,
-        type: "choice",
+        answersFormat: "choice",
+        questionType: "fact",
         category: "Geography",
         statement: "Which is the smallest planet in our solar system?",
         isTrue: undefined,
+        sourceUrl: undefined,
+        eventDate: undefined,
+        context: undefined,
         choices: ["Mercury", "Venus", "Earth", "Mars"],
         correctIndex: 0,
         suggestedDifficulty: undefined,
@@ -138,7 +154,7 @@ describe("save_question — choice shape", () => {
     );
     const parsed = parseToolResult(result);
     assert.equal(parsed.saved, true);
-    assert.equal(parsed.question.type, "choice");
+    assert.equal(parsed.question.answersFormat, "choice");
     assert.equal(parsed.question.correctIndex, 0);
     assert.deepEqual(parsed.question.choices, ["Mercury", "Venus", "Earth", "Mars"]);
     assert.equal(parsed.question.isTrue, undefined);
@@ -149,10 +165,14 @@ describe("save_question — choice shape", () => {
     const result = await tool.handler(
       {
         game: FIXTURE_GAME_NAME,
-        type: "choice",
+        answersFormat: "choice",
+        questionType: "fact",
         category: "Geography",
         statement: "Pick one of four options here",
         isTrue: undefined,
+        sourceUrl: undefined,
+        eventDate: undefined,
+        context: undefined,
         choices: ["A", "B", "C", "D"],
         correctIndex: 4,
         suggestedDifficulty: undefined,
@@ -171,11 +191,15 @@ describe("save_question — choice shape", () => {
     const result = await tool.handler(
       {
         game: FIXTURE_GAME_NAME,
-        type: "choice",
+        answersFormat: "choice",
+        questionType: "fact",
         category: "Geography",
-        statement: "Pick one of three options here",
+        statement: "Pick one of four options here",
         isTrue: undefined,
-        choices: ["A", "B", "C"],
+        sourceUrl: undefined,
+        eventDate: undefined,
+        context: undefined,
+        choices: ["A", "B", "C", "D"],
         correctIndex: -1,
         suggestedDifficulty: undefined,
         difficulty: undefined,
@@ -185,7 +209,7 @@ describe("save_question — choice shape", () => {
       SESSION,
     );
     const parsed = parseToolResult(result);
-    assert.match(parsed.error, /correctIndex \(-1\) must be in \[0, 3\)/);
+    assert.match(parsed.error, /correctIndex \(-1\) must be in \[0, 4\)/);
   });
 
   it("rejects exact duplicate choices", async () => {
@@ -193,10 +217,14 @@ describe("save_question — choice shape", () => {
     const result = await tool.handler(
       {
         game: FIXTURE_GAME_NAME,
-        type: "choice",
+        answersFormat: "choice",
+        questionType: "fact",
         category: "Geography",
         statement: "Pick the one true thing here",
         isTrue: undefined,
+        sourceUrl: undefined,
+        eventDate: undefined,
+        context: undefined,
         choices: ["Paris", "London", "Paris", "Rome"],
         correctIndex: 0,
         suggestedDifficulty: undefined,
@@ -215,10 +243,14 @@ describe("save_question — choice shape", () => {
     const result = await tool.handler(
       {
         game: FIXTURE_GAME_NAME,
-        type: "choice",
+        answersFormat: "choice",
+        questionType: "fact",
         category: "Geography",
         statement: "Pick the one true thing here",
         isTrue: undefined,
+        sourceUrl: undefined,
+        eventDate: undefined,
+        context: undefined,
         choices: ["Paris", "  PARIS  ", "London", "Rome"],
         correctIndex: 0,
         suggestedDifficulty: undefined,
@@ -241,10 +273,14 @@ describe("save_question — choice shape", () => {
     const result = await tool.handler(
       {
         game: FIXTURE_GAME_NAME,
-        type: "choice",
+        answersFormat: "choice",
+        questionType: "fact",
         category: "Geography",
         statement: "Pick the right option",
         isTrue: undefined,
+        sourceUrl: undefined,
+        eventDate: undefined,
+        context: undefined,
         choices: ["A", "B"],
         correctIndex: 0,
         suggestedDifficulty: undefined,
@@ -267,7 +303,11 @@ describe("save_question — choice shape", () => {
     const result = await tool.handler(
       {
         game: FIXTURE_GAME_NAME,
-        type: "choice",
+        answersFormat: "choice",
+        questionType: "fact",
+        sourceUrl: undefined,
+        eventDate: undefined,
+        context: undefined,
         category: "Geography",
         statement: "Pick the right option",
         isTrue: undefined,
@@ -289,10 +329,14 @@ describe("save_question — choice shape", () => {
     const result = await tool.handler(
       {
         game: FIXTURE_GAME_NAME,
-        type: "choice",
+        answersFormat: "choice",
+        questionType: "fact",
         category: "Geography",
         statement: "Pick the right option",
         isTrue: true,
+        sourceUrl: undefined,
+        eventDate: undefined,
+        context: undefined,
         choices: ["A", "B"],
         correctIndex: 0,
         suggestedDifficulty: undefined,
@@ -311,11 +355,15 @@ describe("save_question — choice shape", () => {
     const result = await tool.handler(
       {
         game: FIXTURE_GAME_NAME,
-        type: "choice",
+        answersFormat: "choice",
+        questionType: "fact",
         category: "Geography",
         statement: "Pick the right option",
         isTrue: undefined,
-        choices: ["A", "  ", "C"],
+        sourceUrl: undefined,
+        eventDate: undefined,
+        context: undefined,
+        choices: ["A", "  ", "C", "D"],
         correctIndex: 0,
         suggestedDifficulty: undefined,
         difficulty: undefined,
@@ -333,11 +381,15 @@ describe("save_question — choice shape", () => {
     const result = await tool.handler(
       {
         game: FIXTURE_GAME_NAME,
-        type: "choice",
+        answersFormat: "choice",
+        questionType: "fact",
         category: "Geography",
         statement: "Pick the right option",
         isTrue: undefined,
-        choices: ["A".repeat(101), "B", "C"],
+        sourceUrl: undefined,
+        eventDate: undefined,
+        context: undefined,
+        choices: ["A".repeat(101), "B", "C", "D"],
         correctIndex: 0,
         suggestedDifficulty: undefined,
         difficulty: undefined,
@@ -355,10 +407,14 @@ describe("save_question — choice shape", () => {
     const result = await tool.handler(
       {
         game: FIXTURE_GAME_NAME,
-        type: "choice",
+        answersFormat: "choice",
+        questionType: "fact",
         category: "Geography",
         statement: "Pick the right option",
         isTrue: undefined,
+        sourceUrl: undefined,
+        eventDate: undefined,
+        context: undefined,
         choices: undefined,
         correctIndex: 0,
         suggestedDifficulty: undefined,
@@ -377,10 +433,14 @@ describe("save_question — choice shape", () => {
     const result = await tool.handler(
       {
         game: FIXTURE_GAME_NAME,
-        type: "choice",
+        answersFormat: "choice",
+        questionType: "fact",
         category: "Geography",
         statement: "Pick the right option",
         isTrue: undefined,
+        sourceUrl: undefined,
+        eventDate: undefined,
+        context: undefined,
         choices: ["A", "B"],
         correctIndex: undefined,
         suggestedDifficulty: undefined,

@@ -183,7 +183,7 @@ describe("find_previous_questions choice-question shape", () => {
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion({
       id: "qc1",
-      type: "choice",
+      answersFormat: "choice",
       category: "Geography",
       statement: "Which is the smallest planet?",
       choices: ["Mercury", "Venus", "Earth", "Mars"],
@@ -193,7 +193,7 @@ describe("find_previous_questions choice-question shape", () => {
     });
     await scoped.saveQuestion({
       id: "qb1",
-      type: "boolean",
+      answersFormat: "boolean",
       category: "Geography",
       statement: "The Earth is round.",
       isTrue: true,
@@ -202,7 +202,7 @@ describe("find_previous_questions choice-question shape", () => {
     });
   });
 
-  it("choice rows include type and choices, never correctIndex or isTrue", async () => {
+  it("choice rows include answersFormat and choices, never correctIndex or isTrue", async () => {
     const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
     const result = await tool.handler(
       {
@@ -217,7 +217,7 @@ describe("find_previous_questions choice-question shape", () => {
     );
     const parsed = parseToolResult(result);
     const q = parsed.questions[0];
-    assert.equal(q.type, "choice");
+    assert.equal(q.answersFormat, "choice");
     assert.deepEqual(q.choices, ["Mercury", "Venus", "Earth", "Mars"]);
     assert.equal(Object.prototype.hasOwnProperty.call(q, "correctIndex"), false);
     assert.equal(Object.prototype.hasOwnProperty.call(q, "isTrue"), false);
@@ -228,7 +228,7 @@ describe("find_previous_questions choice-question shape", () => {
     const scoped = local.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion({
       id: "qx",
-      type: "boolean",
+      answersFormat: "boolean",
       category: "Science",
       statement: "Water is wet.",
       isTrue: true,
@@ -265,7 +265,7 @@ describe("find_previous_questions choice-question shape", () => {
     assert.equal(Object.prototype.hasOwnProperty.call(q, "isTrue"), false);
   });
 
-  it("boolean rows include type but never choices/correctIndex/isTrue", async () => {
+  it("boolean rows include answersFormat but never choices/correctIndex/isTrue", async () => {
     const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
     const result = await tool.handler(
       {
@@ -280,7 +280,7 @@ describe("find_previous_questions choice-question shape", () => {
     );
     const parsed = parseToolResult(result);
     const q = parsed.questions[0];
-    assert.equal(q.type, "boolean");
+    assert.equal(q.answersFormat, "boolean");
     assert.equal(Object.prototype.hasOwnProperty.call(q, "choices"), false);
     assert.equal(Object.prototype.hasOwnProperty.call(q, "correctIndex"), false);
     assert.equal(Object.prototype.hasOwnProperty.call(q, "isTrue"), false);

@@ -28,7 +28,7 @@ function makeConfig(trivia: Config["trivia"]): Config {
   };
 }
 
-describe("get_ideas weighted-random suggestedType", () => {
+describe("get_ideas weighted-random suggestedAnswersFormat", () => {
   let data: TriviaDataLayer;
   const originalRandom = Math.random;
 
@@ -47,27 +47,27 @@ describe("get_ideas weighted-random suggestedType", () => {
   };
 
   it("pure-boolean config: every call returns boolean + suggestedAnswer", async () => {
-    const cfg = makeConfig({ questionsTypes: { boolean: 1, choice: 0 } });
+    const cfg = makeConfig({ answersFormat: { boolean: 1, choice: 0 } });
     const tool = createGetIdeasTool(data, () => cfg, fixtureGetGames);
     stubRng([0.5, 0.5, 0.5]); // type-roll → boolean (single positive weight); answer→true; difficulty→Medium
     const parsed = parseToolResult(
       await tool.handler({ game: FIXTURE_GAME_NAME, slot: undefined }, SESSION),
     );
-    assert.equal(parsed.suggestedType, "boolean");
+    assert.equal(parsed.suggestedAnswersFormat, "boolean");
     assert.equal(typeof parsed.suggestedAnswer, "boolean");
     assert.equal(parsed.suggestedChoiceCount, undefined);
     assert.equal(parsed.suggestedCorrectIndex, undefined);
   });
 
   it("pure-choice config: every call returns choice + count/correctIndex", async () => {
-    const cfg = makeConfig({ questionsTypes: { boolean: 0, choice: 1 } });
+    const cfg = makeConfig({ answersFormat: { boolean: 0, choice: 1 } });
     const tool = createGetIdeasTool(data, () => cfg, fixtureGetGames);
     // rolls: type(→choice), count(uniform [2,4]), correctIndex(uniform [0, count)), difficulty
     stubRng([0.5, 0.99, 0.5, 0.5]);
     const parsed = parseToolResult(
       await tool.handler({ game: FIXTURE_GAME_NAME, slot: undefined }, SESSION),
     );
-    assert.equal(parsed.suggestedType, "choice");
+    assert.equal(parsed.suggestedAnswersFormat, "choice");
     assert.equal(typeof parsed.suggestedChoiceCount, "number");
     assert.ok(parsed.suggestedChoiceCount >= 2 && parsed.suggestedChoiceCount <= 4);
     assert.equal(typeof parsed.suggestedCorrectIndex, "number");
@@ -77,7 +77,7 @@ describe("get_ideas weighted-random suggestedType", () => {
   });
 
   it("mixed config (2:1): distribution is approximately 2/3 boolean over many rolls", async () => {
-    const cfg = makeConfig({ questionsTypes: { boolean: 2, choice: 1 } });
+    const cfg = makeConfig({ answersFormat: { boolean: 2, choice: 1 } });
     const tool = createGetIdeasTool(data, () => cfg, fixtureGetGames);
     Math.random = originalRandom; // real RNG for distribution
     const N = 1500;
@@ -87,7 +87,7 @@ describe("get_ideas weighted-random suggestedType", () => {
       const parsed = parseToolResult(
         await tool.handler({ game: FIXTURE_GAME_NAME, slot: undefined }, SESSION),
       );
-      if (parsed.suggestedType === "boolean") booleans++;
+      if (parsed.suggestedAnswersFormat === "boolean") booleans++;
       else choices++;
     }
     const ratio = booleans / N;
@@ -97,7 +97,7 @@ describe("get_ideas weighted-random suggestedType", () => {
 
   it("respects active choice bounds: { min: 4, max: 4 } always rolls 4", async () => {
     const cfg = makeConfig({
-      questionsTypes: { boolean: 0, choice: 1 },
+      answersFormat: { boolean: 0, choice: 1 },
       choices: { min: 4, max: 4 },
     });
     const tool = createGetIdeasTool(data, () => cfg, fixtureGetGames);
@@ -113,7 +113,7 @@ describe("get_ideas weighted-random suggestedType", () => {
 
   it("suggestedCorrectIndex distribution is uniform over many rolls", async () => {
     const cfg = makeConfig({
-      questionsTypes: { boolean: 0, choice: 1 },
+      answersFormat: { boolean: 0, choice: 1 },
       choices: { min: 4, max: 4 },
     });
     const tool = createGetIdeasTool(data, () => cfg, fixtureGetGames);
@@ -137,7 +137,7 @@ describe("get_ideas weighted-random suggestedType", () => {
     const parsed = parseToolResult(
       await tool.handler({ game: FIXTURE_GAME_NAME, slot: undefined }, SESSION),
     );
-    assert.equal(parsed.suggestedType, "boolean");
+    assert.equal(parsed.suggestedAnswersFormat, "boolean");
   });
 
   it("current season's questionTypes overrides config (seasons enabled)", async () => {
@@ -150,13 +150,13 @@ describe("get_ideas weighted-random suggestedType", () => {
           startedAt: now - 1000,
           expectedEndAt: now + 100_000,
           categories: ["X"],
-          questionTypes: { boolean: 0, choice: 1 },
+          answersFormat: { boolean: 0, choice: 1 },
         },
       ],
     });
     const cfg = makeConfig({
       seasons: { enabled: true, prompt: "monthly" },
-      questionsTypes: { boolean: 1, choice: 0 },
+      answersFormat: { boolean: 1, choice: 0 },
     });
     const tool = createGetIdeasTool(data, () => cfg, fixtureGetGames);
     Math.random = originalRandom;
@@ -164,7 +164,7 @@ describe("get_ideas weighted-random suggestedType", () => {
       const parsed = parseToolResult(
         await tool.handler({ game: FIXTURE_GAME_NAME, slot: undefined }, SESSION),
       );
-      assert.equal(parsed.suggestedType, "choice");
+      assert.equal(parsed.suggestedAnswersFormat, "choice");
     }
   });
 });

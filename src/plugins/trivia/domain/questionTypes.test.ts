@@ -2,10 +2,10 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { Config } from "../../../config.js";
 import {
-  DEFAULT_QUESTION_TYPE_WEIGHTS,
+  DEFAULT_ANSWERS_FORMAT_WEIGHTS,
   getActiveChoiceBounds,
-  getActiveQuestionTypes,
-  resolveQuestionTypes,
+  getActiveAnswersFormat,
+  resolveAnswersFormat,
 } from "./questionTypes.js";
 import type { ScopedTriviaDataLayer, SeasonsState, SeasonEntry } from "../core/types.js";
 
@@ -48,18 +48,18 @@ function makeScopedDataLayer(state: SeasonsState | null): ScopedTriviaDataLayer 
 const NOW = 1_700_000_000_000;
 const HOUR = 60 * 60 * 1000;
 
-describe("getActiveQuestionTypes", () => {
+describe("getActiveAnswersFormat", () => {
   it("defaults to pure boolean when no source is set", async () => {
     const data = makeScopedDataLayer(null);
     const cfg = makeConfig();
-    const weights = await getActiveQuestionTypes(data, cfg, NOW);
-    assert.deepEqual(weights, DEFAULT_QUESTION_TYPE_WEIGHTS);
+    const weights = await getActiveAnswersFormat(data, cfg, NOW);
+    assert.deepEqual(weights, DEFAULT_ANSWERS_FORMAT_WEIGHTS);
   });
 
-  it("uses config.trivia.questionsTypes when seasons disabled", async () => {
+  it("uses config.trivia.answersFormat when seasons disabled", async () => {
     const data = makeScopedDataLayer(null);
-    const cfg = makeConfig({ questionsTypes: { boolean: 2, choice: 1 } });
-    const weights = await getActiveQuestionTypes(data, cfg, NOW);
+    const cfg = makeConfig({ answersFormat: { boolean: 2, choice: 1 } });
+    const weights = await getActiveAnswersFormat(data, cfg, NOW);
     assert.deepEqual(weights, { boolean: 2, choice: 1 });
   });
 
@@ -71,20 +71,20 @@ describe("getActiveQuestionTypes", () => {
           startedAt: NOW - HOUR,
           expectedEndAt: NOW + HOUR,
           categories: ["A"],
-          questionTypes: { boolean: 0, choice: 5 },
+          answersFormat: { boolean: 0, choice: 5 },
         },
       ],
     };
     const data = makeScopedDataLayer(state);
     const cfg = makeConfig({
-      questionsTypes: { boolean: 1, choice: 0 },
+      answersFormat: { boolean: 1, choice: 0 },
       // seasons block absent → seasons disabled
     });
-    const weights = await getActiveQuestionTypes(data, cfg, NOW);
+    const weights = await getActiveAnswersFormat(data, cfg, NOW);
     assert.deepEqual(weights, { boolean: 1, choice: 0 });
   });
 
-  it("uses current season's questionTypes when seasons enabled and field is set", async () => {
+  it("uses current season's answersFormat when seasons enabled and field is set", async () => {
     const state: SeasonsState = {
       seasons: [
         {
@@ -92,20 +92,20 @@ describe("getActiveQuestionTypes", () => {
           startedAt: NOW - HOUR,
           expectedEndAt: NOW + HOUR,
           categories: ["A"],
-          questionTypes: { boolean: 0, choice: 5 },
+          answersFormat: { boolean: 0, choice: 5 },
         },
       ],
     };
     const data = makeScopedDataLayer(state);
     const cfg = makeConfig({
       seasons: { enabled: true, prompt: "monthly" },
-      questionsTypes: { boolean: 1, choice: 0 },
+      answersFormat: { boolean: 1, choice: 0 },
     });
-    const weights = await getActiveQuestionTypes(data, cfg, NOW);
+    const weights = await getActiveAnswersFormat(data, cfg, NOW);
     assert.deepEqual(weights, { boolean: 0, choice: 5 });
   });
 
-  it("falls back to config when current season lacks questionTypes", async () => {
+  it("falls back to config when current season lacks answersFormat", async () => {
     const state: SeasonsState = {
       seasons: [
         {
@@ -113,16 +113,16 @@ describe("getActiveQuestionTypes", () => {
           startedAt: NOW - HOUR,
           expectedEndAt: NOW + HOUR,
           categories: ["A"],
-          // no questionTypes
+          // no answersFormat
         },
       ],
     };
     const data = makeScopedDataLayer(state);
     const cfg = makeConfig({
       seasons: { enabled: true, prompt: "monthly" },
-      questionsTypes: { boolean: 2, choice: 1 },
+      answersFormat: { boolean: 2, choice: 1 },
     });
-    const weights = await getActiveQuestionTypes(data, cfg, NOW);
+    const weights = await getActiveAnswersFormat(data, cfg, NOW);
     assert.deepEqual(weights, { boolean: 2, choice: 1 });
   });
 
@@ -134,35 +134,35 @@ describe("getActiveQuestionTypes", () => {
           startedAt: NOW - 10 * HOUR,
           expectedEndAt: NOW - 5 * HOUR,
           categories: ["A"],
-          questionTypes: { boolean: 0, choice: 1 },
+          answersFormat: { boolean: 0, choice: 1 },
         },
         {
           slug: "future",
           startedAt: NOW + 5 * HOUR,
           expectedEndAt: NOW + 10 * HOUR,
           categories: ["A"],
-          questionTypes: { boolean: 0, choice: 1 },
+          answersFormat: { boolean: 0, choice: 1 },
         },
       ],
     };
     const data = makeScopedDataLayer(state);
     const cfg = makeConfig({
       seasons: { enabled: true, prompt: "monthly" },
-      questionsTypes: { boolean: 1, choice: 1 },
+      answersFormat: { boolean: 1, choice: 1 },
     });
-    const weights = await getActiveQuestionTypes(data, cfg, NOW);
+    const weights = await getActiveAnswersFormat(data, cfg, NOW);
     assert.deepEqual(weights, { boolean: 1, choice: 1 });
   });
 
   it("falls back to default when seasons enabled but seasons.json is null", async () => {
     const data = makeScopedDataLayer(null);
     const cfg = makeConfig({ seasons: { enabled: true, prompt: "monthly" } });
-    const weights = await getActiveQuestionTypes(data, cfg, NOW);
-    assert.deepEqual(weights, DEFAULT_QUESTION_TYPE_WEIGHTS);
+    const weights = await getActiveAnswersFormat(data, cfg, NOW);
+    assert.deepEqual(weights, DEFAULT_ANSWERS_FORMAT_WEIGHTS);
   });
 });
 
-describe("resolveQuestionTypes (slot-aware)", () => {
+describe("resolveAnswersFormat (slot-aware)", () => {
   const baseSeason: SeasonEntry = {
     slug: "active",
     startedAt: NOW - HOUR,
@@ -170,38 +170,38 @@ describe("resolveQuestionTypes (slot-aware)", () => {
     categories: ["X"],
   };
 
-  it("slot.questionTypes wins over season + config", () => {
+  it("slot.answersFormat wins over season + config", () => {
     const season: SeasonEntry = {
       ...baseSeason,
-      questionTypes: { boolean: 1, choice: 0 },
+      answersFormat: { boolean: 1, choice: 0 },
       format: {
         questions: [
-          { questionTypes: { boolean: 0, choice: 5 } },
-          {}, // no questionTypes
+          { answersFormat: { boolean: 0, choice: 5 } },
+          {}, // no answersFormat
         ],
       },
     };
-    const cfg = makeConfig({ questionsTypes: { boolean: 1, choice: 1 } });
-    assert.deepEqual(resolveQuestionTypes(season, 0, cfg), { boolean: 0, choice: 5 });
+    const cfg = makeConfig({ answersFormat: { boolean: 1, choice: 1 } });
+    assert.deepEqual(resolveAnswersFormat(season, 0, cfg), { boolean: 0, choice: 5 });
   });
 
-  it("slot without questionTypes falls back to season's questionTypes", () => {
+  it("slot without answersFormat falls back to season's answersFormat", () => {
     const season: SeasonEntry = {
       ...baseSeason,
-      questionTypes: { boolean: 0, choice: 3 },
-      format: { questions: [{}] }, // slot 0 has no questionTypes
+      answersFormat: { boolean: 0, choice: 3 },
+      format: { questions: [{}] }, // slot 0 has no answersFormat
     };
-    const cfg = makeConfig({ questionsTypes: { boolean: 1, choice: 1 } });
-    assert.deepEqual(resolveQuestionTypes(season, 0, cfg), { boolean: 0, choice: 3 });
+    const cfg = makeConfig({ answersFormat: { boolean: 1, choice: 1 } });
+    assert.deepEqual(resolveAnswersFormat(season, 0, cfg), { boolean: 0, choice: 3 });
   });
 
-  it("season without questionTypes (slot also empty) falls back to config", () => {
+  it("season without answersFormat (slot also empty) falls back to config", () => {
     const season: SeasonEntry = {
       ...baseSeason,
       format: { questions: [{}] },
     };
-    const cfg = makeConfig({ questionsTypes: { boolean: 2, choice: 1 } });
-    assert.deepEqual(resolveQuestionTypes(season, 0, cfg), { boolean: 2, choice: 1 });
+    const cfg = makeConfig({ answersFormat: { boolean: 2, choice: 1 } });
+    assert.deepEqual(resolveAnswersFormat(season, 0, cfg), { boolean: 2, choice: 1 });
   });
 
   it("all sources absent → DEFAULT", () => {
@@ -209,27 +209,27 @@ describe("resolveQuestionTypes (slot-aware)", () => {
       ...baseSeason,
       format: { questions: [{}] },
     };
-    const cfg = makeConfig(); // no questionsTypes
-    assert.deepEqual(resolveQuestionTypes(season, 0, cfg), DEFAULT_QUESTION_TYPE_WEIGHTS);
+    const cfg = makeConfig(); // no answersFormat
+    assert.deepEqual(resolveAnswersFormat(season, 0, cfg), DEFAULT_ANSWERS_FORMAT_WEIGHTS);
   });
 
   it("null season + null config defaults", () => {
-    assert.deepEqual(resolveQuestionTypes(null, null, null), DEFAULT_QUESTION_TYPE_WEIGHTS);
+    assert.deepEqual(resolveAnswersFormat(null, null, null), DEFAULT_ANSWERS_FORMAT_WEIGHTS);
   });
 
-  it("slotIndex: null with no format uses season-level questionTypes", () => {
+  it("slotIndex: null with no format uses season-level answersFormat", () => {
     const season: SeasonEntry = {
       ...baseSeason,
-      questionTypes: { boolean: 0, choice: 1 },
+      answersFormat: { boolean: 0, choice: 1 },
     };
     const cfg = makeConfig();
-    assert.deepEqual(resolveQuestionTypes(season, null, cfg), { boolean: 0, choice: 1 });
+    assert.deepEqual(resolveAnswersFormat(season, null, cfg), { boolean: 0, choice: 1 });
   });
 });
 
 describe("getActiveChoiceBounds", () => {
-  it("defaults to { min: 2, max: 4 } when not configured", () => {
-    assert.deepEqual(getActiveChoiceBounds(makeConfig()), { min: 2, max: 4 });
+  it("defaults to { min: 4, max: 4 } when not configured", () => {
+    assert.deepEqual(getActiveChoiceBounds(makeConfig()), { min: 4, max: 4 });
   });
 
   it("returns workspace bounds when configured", () => {
@@ -238,8 +238,6 @@ describe("getActiveChoiceBounds", () => {
   });
 
   it("ignores season state — bounds are workspace-only", () => {
-    // Conceptual check: even with seasons enabled, the function takes no SeasonEntry
-    // and consults no per-season override. Its signature accepts only `Config`.
     const cfg = makeConfig({
       seasons: { enabled: true, prompt: "monthly" },
       choices: { min: 2, max: 3 },

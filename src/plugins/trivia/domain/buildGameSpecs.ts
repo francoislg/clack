@@ -7,6 +7,9 @@ import {
   PROCESS_REVEAL_INSTRUCTIONS,
 } from "../prompts/scheduledPrompts.js";
 
+// `WebSearch` is intentionally NOT in this list — it is a built-in Claude tool, globally
+// enabled at session start in `src/claude/index.ts` (see `tools` array). Topical questions
+// (`questionType: "topical"`) rely on it; the prompt instructs Claude to call it directly.
 const QUESTION_REQUIRED_TOOLS = [
   "mcp__trivia__get_ideas",
   "mcp__trivia__find_previous_questions",

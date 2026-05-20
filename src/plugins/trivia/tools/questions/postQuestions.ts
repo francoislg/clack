@@ -32,10 +32,10 @@ Idempotency: a question whose postedAt is already set is skipped (returned with 
 
 Per-item failures (missing question, Slack errors, etc.) are isolated: the call returns a results array with per-item { ok, ts?, permalink?, error? } so other items still process.`;
 
-/** Derive the vote reactions for a question from its stored type. */
+/** Derive the vote reactions for a question from its stored answers format. */
 export function deriveReactions(question: TriviaQuestion): string[] {
-  const type = question.type ?? "boolean";
-  if (type === "boolean") {
+  const answersFormat = question.answersFormat ?? "boolean";
+  if (answersFormat === "boolean") {
     return ["+1", "-1"];
   }
   const choiceCount = question.choices?.length ?? 0;
