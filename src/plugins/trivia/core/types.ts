@@ -157,6 +157,12 @@ export interface SeasonEntry {
   startedAt: number;
   expectedEndAt: number;
   endedAt?: number;
+  /**
+   * Optional short human-readable narrative label (e.g. "Halloween Spooktacular").
+   * Surfaced by `get_ideas` and the first-fire opener in the question-posting prompt.
+   * Never inferred from other fields; admins set it explicitly via `upsert_season`.
+   */
+  theme?: string;
   categories: string[];
   /**
    * Optional per-season answer-format weights. Absent → `get_ideas` falls back to

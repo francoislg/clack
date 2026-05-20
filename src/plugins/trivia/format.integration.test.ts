@@ -101,6 +101,7 @@ describe("Trivia question-format end-to-end flow", () => {
           answersFormat: undefined,
           questionType: undefined,
           contexts: undefined,
+          theme: undefined,
           format: {
             questions: [
               { label: "GK Boolean" },

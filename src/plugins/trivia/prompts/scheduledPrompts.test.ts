@@ -322,3 +322,64 @@ describe("PROCESS_REVEAL_INSTRUCTIONS — renderer brief", () => {
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /STILL render the cumulative leaderboard/);
   });
 });
+
+describe("SEND_QUESTIONS_INSTRUCTIONS — new-season opener branch", () => {
+  it("references firstFireOfSeason as the trigger signal", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /firstFireOfSeason/);
+  });
+
+  it("describes the header + section opener block shape", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /header.*block/i);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /section.*block/i);
+  });
+
+  it("instructs Unicode 🆕 character (not :new: shortcode) in the opener header", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /🆕/);
+    // The prompt MUST also explicitly warn against using the :new: shortcode at least once in
+    // the opener context, mirroring the existing emoji-rule pattern used for table cells.
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /:new:/);
+    assert.match(
+      SEND_QUESTIONS_INSTRUCTIONS,
+      /NEVER the `:new:` shortcode|never.*:new:|NOT the.*:new:/i,
+    );
+  });
+
+  it("explicitly forbids rendering opener blocks when firstFireOfSeason is false", () => {
+    // The prompt should contain a "do NOT" / "no opener" gate so Claude knows
+    // not to ship opener blocks on mid-season fires.
+    assert.match(
+      SEND_QUESTIONS_INSTRUCTIONS,
+      /firstFireOfSeason === false|firstFireOfSeason\b[^.]*false/,
+    );
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /do NOT render any opener blocks|no opener blocks/i);
+  });
+
+  it("explicitly forbids mentioning a theme when the theme field is absent", () => {
+    // Defends against fabrication, category-enumeration fallback, and "no theme yet" phrasings.
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /theme/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /do NOT (fabricate|mention)/i);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /no theme/i);
+  });
+
+  it("positions the opener branch outside the single-vs-multi-slot split (applies to both flows)", () => {
+    // The opener should live BEFORE the per-question card layout (step 9 onwards) so it
+    // attaches at the FRONT of the message regardless of outer flow.
+    const openerIdx = SEND_QUESTIONS_INSTRUCTIONS.search(/NEW-SEASON OPENER/);
+    const step9Idx = SEND_QUESTIONS_INSTRUCTIONS.search(/9\.\s*BUILD THE QUESTION CARD BLOCKS/);
+    assert.ok(openerIdx > 0, "opener section should exist");
+    assert.ok(step9Idx > 0, "step 9 should exist");
+    assert.ok(
+      openerIdx < step9Idx,
+      "opener branch must appear BEFORE step 9 (so it prepends to the message)",
+    );
+    // And the prompt should explicitly call out the both-flows applicability.
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /BOTH outer flows|BOTH FLOWS/);
+  });
+
+  it("attaches the opener to items[0] once in multi-slot flow (not per slot)", () => {
+    assert.match(
+      SEND_QUESTIONS_INSTRUCTIONS,
+      /prepended ONCE|opener.*ONCE|does NOT repeat per slot/i,
+    );
+  });
+});

@@ -22,6 +22,14 @@ import type {
 
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
+function normalizeTheme(raw: string): { ok: true; value: string } | { ok: false; error: string } {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    return { ok: false, error: "theme must be non-empty (pass null to clear)." };
+  }
+  return { ok: true, value: trimmed };
+}
+
 function dedupePreservingOrder(values: string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
@@ -63,7 +71,7 @@ export function createUpsertSeasonTool(
 ) {
   return tool(
     "upsert_season",
-    "Create a new trivia season or update an existing one (identified by slug) within a specific game. Slug is immutable — to rename, delete + upsert. Validates no overlap within this game's timeline. On CREATE: requires startedAt + expectedEndAt. If `categories` is provided (and non-empty), the new season's pool is EXACTLY that list — use this for themed seasons. If `categories` is omitted or empty, the new season's pool is copied from the global categories.json. On UPDATE: applies omit-to-keep semantics; cannot mutate startedAt of an already-started season; `categories` is ignored on UPDATE — use add_categories/remove_categories with target slug to refine. `answersFormat`, `questionType`, and `contexts` accept `null` on UPDATE to clear the field. Use endedAt to mark a season as closed.",
+    "Create a new trivia season or update an existing one (identified by slug) within a specific game. Slug is immutable — to rename, delete + upsert. Validates no overlap within this game's timeline. On CREATE: requires startedAt + expectedEndAt. If `categories` is provided (and non-empty), the new season's pool is EXACTLY that list — use this for themed seasons. If `categories` is omitted or empty, the new season's pool is copied from the global categories.json. On UPDATE: applies omit-to-keep semantics; cannot mutate startedAt of an already-started season; `categories` is ignored on UPDATE — use add_categories/remove_categories with target slug to refine. `theme`, `answersFormat`, `questionType`, and `contexts` all accept `null` on UPDATE to clear the field. `theme` is a short human-readable narrative label (e.g. \"Halloween Spooktacular\") surfaced at the top of the season's first question post. Use endedAt to mark a season as closed.",
     {
       game: z
         .string()
@@ -89,6 +97,13 @@ export function createUpsertSeasonTool(
         .optional()
         .describe(
           "Season's category pool. Provided AND non-empty → the season uses EXACTLY this list. Omitted OR empty → copies from the global categories.json. Used only on CREATE.",
+        ),
+      theme: z
+        .string()
+        .nullable()
+        .optional()
+        .describe(
+          'Optional short human-readable narrative label (e.g. "Halloween Spooktacular") surfaced at the top of the season\'s first question post. On UPDATE: passing `null` clears the field; omitting preserves the existing value. Empty / whitespace-only strings are rejected.',
         ),
       answersFormat: z
         .object({
@@ -209,11 +224,19 @@ export function createUpsertSeasonTool(
           format = validated.value;
         }
 
+        let theme: string | undefined;
+        if (args.theme !== undefined && args.theme !== null) {
+          const normalized = normalizeTheme(args.theme);
+          if (!normalized.ok) return errorResult(normalized.error);
+          theme = normalized.value;
+        }
+
         const entry: SeasonEntry = {
           slug: args.slug,
           startedAt: args.startedAt,
           expectedEndAt: args.expectedEndAt,
           ...(args.endedAt !== undefined ? { endedAt: args.endedAt } : {}),
+          ...(theme !== undefined ? { theme } : {}),
           categories,
           ...(answersFormatWeights !== undefined ? { answersFormat: answersFormatWeights } : {}),
           ...(questionTypeWeights !== undefined ? { questionType: questionTypeWeights } : {}),
@@ -238,6 +261,7 @@ export function createUpsertSeasonTool(
           expectedEndAt: entry.expectedEndAt,
           endedAt: entry.endedAt ?? null,
           categoriesCount: entry.categories.length,
+          hasTheme: entry.theme !== undefined,
           hasAnswersFormat: entry.answersFormat !== undefined,
           hasQuestionType: entry.questionType !== undefined,
           hasContexts: entry.contexts !== undefined,
@@ -298,6 +322,15 @@ export function createUpsertSeasonTool(
         updatedFormat = validated.value;
       }
 
+      let updatedTheme: string | undefined = existing.theme;
+      if (args.theme === null) {
+        updatedTheme = undefined;
+      } else if (args.theme !== undefined) {
+        const normalized = normalizeTheme(args.theme);
+        if (!normalized.ok) return errorResult(normalized.error);
+        updatedTheme = normalized.value;
+      }
+
       const updated: SeasonEntry = {
         slug: existing.slug,
         startedAt: args.startedAt ?? existing.startedAt,
@@ -307,6 +340,7 @@ export function createUpsertSeasonTool(
           : existing.endedAt !== undefined
             ? { endedAt: existing.endedAt }
             : {}),
+        ...(updatedTheme !== undefined ? { theme: updatedTheme } : {}),
         categories: existing.categories,
         ...(updatedAnswersFormat !== undefined ? { answersFormat: updatedAnswersFormat } : {}),
         ...(updatedQuestionType !== undefined ? { questionType: updatedQuestionType } : {}),
@@ -344,6 +378,7 @@ export function createUpsertSeasonTool(
         expectedEndAt: updated.expectedEndAt,
         endedAt: updated.endedAt ?? null,
         categoriesCount: updated.categories.length,
+        hasTheme: updated.theme !== undefined,
         hasAnswersFormat: updated.answersFormat !== undefined,
         hasQuestionType: updated.questionType !== undefined,
         hasContexts: updated.contexts !== undefined,
