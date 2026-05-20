@@ -173,6 +173,7 @@ describe("choice-questions end-to-end flow", () => {
           category: undefined,
           text: "planet",
           season: undefined,
+          recentBatchFromNow: undefined,
           limit: undefined,
         },
         SESSION,

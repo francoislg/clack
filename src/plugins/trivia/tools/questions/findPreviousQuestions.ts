@@ -59,7 +59,7 @@ export function createFindPreviousQuestionsTool(
 ) {
   return tool(
     "find_previous_questions",
-    "Search past trivia questions by category and/or statement text to check what has been asked before. Defaults to searching across all seasons.",
+    "Search past trivia questions by category and/or statement text to check what has been asked before. Defaults to searching across all seasons. Pass `recentBatchFromNow: N` to fetch the Nth most recently posted batch as of now (1 = latest, 2 = the one before that, etc.).",
     {
       game: z
         .string()
@@ -79,6 +79,14 @@ export function createFindPreviousQuestionsTool(
         .optional()
         .describe(
           'Season filter: "all" (default — scans every season, the right choice for duplicate detection), "current" (scopes to the active season), or any historical season slug.',
+        ),
+      recentBatchFromNow: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe(
+          "Select the Nth most recently posted batch AS OF THE CURRENT MOMENT. 1 = the latest batch, 2 = the one before that, and so on. Ranks batches by their max(postedAt) anchored to NOW — this is NOT a season-relative position and NOT an absolute index. Other filters (category, text, season) are applied to the question pool BEFORE grouping; the selected batch is then returned in full (capped by limit). Legacy questions with no batchId are excluded from this view.",
         ),
       limit: z
         .number()
@@ -115,6 +123,43 @@ export function createFindPreviousQuestionsTool(
         if (seasonFilter !== null && q.season !== seasonFilter) return false;
         return true;
       });
+
+      if (args.recentBatchFromNow !== undefined) {
+        const batched = filtered.filter((q) => q.postedAt !== undefined && q.batchId !== undefined);
+        const groups = new Map<string, TriviaQuestion[]>();
+        for (const q of batched) {
+          const key = q.batchId as string;
+          const bucket = groups.get(key);
+          if (bucket) bucket.push(q);
+          else groups.set(key, [q]);
+        }
+        const ranked = [...groups.entries()]
+          .map(([batchId, items]) => ({
+            batchId,
+            items,
+            maxPostedAt: Math.max(...items.map((q) => q.postedAt as number)),
+          }))
+          .sort((a, b) => {
+            if (b.maxPostedAt !== a.maxPostedAt) return b.maxPostedAt - a.maxPostedAt;
+            return a.batchId.localeCompare(b.batchId);
+          });
+
+        const selected = ranked[args.recentBatchFromNow - 1];
+        if (!selected) {
+          return textResult({ questions: [], count: 0, total: 0 });
+        }
+
+        const batchQuestions = [...selected.items]
+          .sort((a, b) => (a.postedAt as number) - (b.postedAt as number))
+          .slice(0, limit)
+          .map(toSearchResult);
+
+        return textResult({
+          questions: batchQuestions,
+          count: batchQuestions.length,
+          total: selected.items.length,
+        });
+      }
 
       const sorted = filtered
         .sort((a, b) => b.createdAt - a.createdAt)

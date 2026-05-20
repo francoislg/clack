@@ -26,6 +26,13 @@ export interface TriviaQuestion {
   postedAt?: number;
   messageLink?: string;
   /**
+   * UUID stamped by `post_questions` per call. Every fresh item posted in one call shares the
+   * same value; idempotency-skipped items keep their original value (which may be undefined on
+   * legacy rows). `process_reveal_answers` groups pending questions by this field to reveal one
+   * batch per fire.
+   */
+  batchId?: string;
+  /**
    * Stamped by `process_reveal_answers` when the question's reveal has run. Absence means
    * pending. Legacy rows are treated as pending until either back-filled or written.
    */
