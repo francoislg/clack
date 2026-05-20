@@ -208,4 +208,28 @@ describe("applySeasonRollover", () => {
     assert.equal(out.seasonClosed, true);
     assert.ok(out.newSeasonStarted);
   });
+
+  it("auto-continuation season does NOT inherit `theme` from the closing season", () => {
+    const now = Date.UTC(2026, 9, 31, 12, 0, 0, 0); // Oct 31
+    const state: SeasonsState = {
+      seasons: [
+        {
+          slug: "season-2026-10",
+          startedAt: now - 30 * 24 * 60 * 60 * 1000,
+          expectedEndAt: now + 1,
+          categories: ["Horror Movies", "Folklore"],
+          theme: "Halloween Spooktacular",
+        },
+      ],
+    };
+    const out = applySeasonRollover(state, "season-2026-10", now);
+    assert.equal(out.seasonClosed, true);
+    assert.ok(out.newSeasonStarted);
+    const continuation = state.seasons[1];
+    assert.equal(continuation.slug, "season-2026-11");
+    assert.equal(continuation.theme, undefined);
+    assert.ok(!Object.prototype.hasOwnProperty.call(continuation, "theme"));
+    // categories still inherited (sanity)
+    assert.deepEqual(continuation.categories, ["Horror Movies", "Folklore"]);
+  });
 });

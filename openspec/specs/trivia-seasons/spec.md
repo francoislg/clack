@@ -49,6 +49,9 @@ When `seasons.enabled` is `true`, the Trivia plugin SHALL maintain a `seasons.js
     "startedAt": number,                     // unix-ms when the season's active window begins
     "expectedEndAt": number,                 // unix-ms when the season's active window is expected to close
     "endedAt": number?,                      // unix-ms when the season was actually closed; absent for not-yet-ended seasons
+    "theme": string?,                        // OPTIONAL short human-readable narrative label (e.g. "Halloween Spooktacular").
+                                             // Trimmed string; omitted/absent when no theme is configured. Surfaced by get_ideas
+                                             // and the question-posting opener; never inferred from other fields.
     "categories": string[],                  // the season's category pool (non-empty)
     "answersFormat": Record<"boolean" | "choice", number>?
                                              // OPTIONAL per-season answers-format weights; renamed from "questionTypes" pre-change.
@@ -82,8 +85,9 @@ Invariants (enforced by `upsert_season` at write time, **per game**):
 6. When present, each entry's `questionType` map SHALL contain only the keys `"fact"` and `"topical"`, each mapped to a non-negative integer, AND at least one key SHALL be mapped to a strictly positive value.
 7. When present, each entry's `contexts` array SHALL be non-empty; every entry's `name` MUST be a string (empty string allowed); when present, `weight` MUST be a positive number; the array's `name` values MUST be unique.
 8. When present, each entry's `format` SHALL satisfy the invariants in the "Per-season question format" requirement (non-empty `questions`, valid slot fields including any of the new `answersFormat` / `questionType` / `contexts` slot overrides).
+9. When present, each entry's `theme` SHALL be a non-empty trimmed string. An empty-after-trim value SHALL be rejected by `upsert_season` (callers should pass `null` to clear instead).
 
-Per-game `seasons.json` files SHALL be created lazily — when any tool resolves `game = "X"` and finds no `games/X/seasons.json` while `trivia.seasons.enabled` is `true`, the plugin SHALL seed a starter season into that file before continuing. The starter entry's `slug` is `season-YYYY-MM` (current UTC month), `startedAt` is `Date.now()`, `expectedEndAt` is end-of-current-UTC-month, and `categories` is a copy of the global `categories.json`. The starter entry SHALL NOT carry a `format`, `answersFormat`, `questionType`, or `contexts` field.
+Per-game `seasons.json` files SHALL be created lazily — when any tool resolves `game = "X"` and finds no `games/X/seasons.json` while `trivia.seasons.enabled` is `true`, the plugin SHALL seed a starter season into that file before continuing. The starter entry's `slug` is `season-YYYY-MM` (current UTC month), `startedAt` is `Date.now()`, `expectedEndAt` is end-of-current-UTC-month, and `categories` is a copy of the global `categories.json`. The starter entry SHALL NOT carry a `format`, `answersFormat`, `questionType`, `contexts`, or `theme` field.
 
 The "current season" of a game at any moment is a _derived_ concept: the unique entry in that game's `seasons.json` where `startedAt <= now < (endedAt ?? expectedEndAt)`, or `null` if `now` falls in a gap between entries.
 
@@ -97,7 +101,7 @@ The "current season" of a game at any moment is a _derived_ concept: the unique 
 - **THEN** `data/plugins/trivia/games/staging/seasons.json` is created before the tool returns
 - **AND** the file contains a `seasons` array with exactly one entry
 - **AND** the entry's `slug` is non-empty, `startedAt < expectedEndAt`, and `categories` is a copy of the global `categories.json`
-- **AND** the entry has no `answersFormat`, `questionType`, `contexts`, or `format` field
+- **AND** the entry has no `answersFormat`, `questionType`, `contexts`, `theme`, or `format` field
 
 #### Scenario: No bootstrap when seasons feature is disabled
 
@@ -174,6 +178,12 @@ The "current season" of a game at any moment is a _derived_ concept: the unique 
 - **WHEN** an entry would be written with `format: { questions: [] }`
 - **THEN** the write is rejected with a "format.questions must be non-empty" error
 
+#### Scenario: Empty-string theme is rejected
+
+- **WHEN** an entry would be written with `theme: ""` or `theme: "   "` (whitespace-only)
+- **THEN** the write is rejected with a "theme must be non-empty" error
+- **AND** the season entry retains its prior `theme` value (or remains theme-less on CREATE)
+
 ### Requirement: check_season_status tool
 
 When `seasons.enabled` is `true`, the Trivia plugin SHALL expose a `check_season_status` MCP tool gated to the `admin` role.
@@ -243,6 +253,7 @@ The tool SHALL further accept:
 - `expectedEndAt` (number, optional, unix-ms) — required on CREATE; on UPDATE, the new value MUST still satisfy `startedAt < (endedAt ?? newExpectedEndAt)`.
 - `endedAt` (number, optional, unix-ms) — sets the actual end time.
 - `categories` (string[], optional) — the season's category pool. Replace-or-baseline semantics on CREATE; ignored on UPDATE.
+- `theme` (string | null, optional) — NEW per-season human-readable narrative label. On CREATE, when provided as a non-empty trimmed string, stored verbatim; omitted leaves the season theme-less. On UPDATE, an object/string value replaces the entry's existing `theme`; explicit `null` clears the field; omission preserves the existing value. Empty / whitespace-only strings are rejected on both CREATE and UPDATE.
 - `answersFormat` (`Record<"boolean" | "choice", number>` | null, optional) — per-season answers-format weights (renamed from `questionTypes`). On CREATE, stored verbatim. On UPDATE, an object value replaces the entry's existing `answersFormat`; explicit `null` clears the field. Mutation post-`startedAt` is permitted.
 - `questionType` (`Record<"fact" | "topical", number>` | null, optional) — NEW per-season fact/topical weights. Same create/update/clear semantics as `answersFormat`. Mutation post-`startedAt` is permitted.
 - `contexts` (`Array<{ name: string; weight?: number }>` | null, optional) — NEW per-season lens weights. Same create/update/clear semantics. Mutation post-`startedAt` is permitted.
@@ -252,18 +263,19 @@ The tool SHALL:
 
 1. Validate that `slug` is non-empty kebab-case.
 2. Load the named game's `seasons.json` (initialize from scratch if missing).
-3. If creating: require both `startedAt` and `expectedEndAt`. Categories source — if `categories` arg is provided AND non-empty, use exactly that list (deduped); otherwise copy the global `categories.json`. Reject if the resulting list is empty. Verify no-overlap invariant. Validate `answersFormat`, `questionType`, `contexts`, `format` per their respective invariants.
-4. If updating: load the existing entry, apply the passed fields (omit-to-keep semantics; explicit `null` for `answersFormat` / `questionType` / `contexts` / `format` clears the respective field), re-validate, and reject any attempt to mutate `startedAt` of an already-started season.
+3. If creating: require both `startedAt` and `expectedEndAt`. Categories source — if `categories` arg is provided AND non-empty, use exactly that list (deduped); otherwise copy the global `categories.json`. Reject if the resulting list is empty. Validate `theme` (when provided) is a non-empty trimmed string. Verify no-overlap invariant. Validate `answersFormat`, `questionType`, `contexts`, `format` per their respective invariants.
+4. If updating: load the existing entry, apply the passed fields (omit-to-keep semantics; explicit `null` for `theme` / `answersFormat` / `questionType` / `contexts` / `format` clears the respective field), re-validate, and reject any attempt to mutate `startedAt` of an already-started season.
 5. Atomically write the new `games/<game>/seasons.json`.
 
-Return shape: `{ game, slug, action: "created" | "updated", startedAt, expectedEndAt, endedAt, categoriesCount, hasAnswersFormat, hasQuestionType, hasContexts, hasFormat, slotCount }`. `slotCount` is `format.questions.length` when `hasFormat`, else `0`.
+Return shape: `{ game, slug, action: "created" | "updated", startedAt, expectedEndAt, endedAt, categoriesCount, hasTheme, hasAnswersFormat, hasQuestionType, hasContexts, hasFormat, slotCount }`. `slotCount` is `format.questions.length` when `hasFormat`, else `0`. `hasTheme` is `true` iff the resulting entry has a non-empty `theme` string.
 
 #### Scenario: Create a future season with format
 
 - **GIVEN** `games/main/seasons.json` contains only the active "may-2026" season
 - **WHEN** `upsert_season` is called with `game: "main", slug: "june-2026", startedAt: <June 1>, expectedEndAt: <June 30>, format: { questions: [{ label: "GK Boolean" }, { label: "History Choice", answersFormat: { boolean: 0, choice: 1 }, categories: ["History"] }] }`
-- **THEN** the response is `{ game: "main", slug: "june-2026", action: "created", hasFormat: true, slotCount: 2, ... }`
+- **THEN** the response is `{ game: "main", slug: "june-2026", action: "created", hasFormat: true, slotCount: 2, hasTheme: false, ... }`
 - **AND** the new entry carries the provided `format` verbatim
+- **AND** the new entry has no `theme` field
 
 #### Scenario: Update a season's format mid-season
 
@@ -311,6 +323,39 @@ Return shape: `{ game, slug, action: "created" | "updated", startedAt, expectedE
 - **WHEN** `upsert_season(game: "main", slug: "may-2026", { contexts: null })` is called
 - **THEN** the entry's `contexts` field is removed
 - **AND** subsequent `get_ideas` calls fall back to `config.trivia.contexts` (or omit `contextPriority` entirely if not configured there either)
+
+#### Scenario: Create a future season with a theme
+
+- **WHEN** `upsert_season` is called with `game: "main", slug: "halloween-2026", startedAt: <Oct 1>, expectedEndAt: <Oct 31>, theme: "Halloween Spooktacular"`
+- **THEN** the response carries `action: "created", hasTheme: true`
+- **AND** the new entry's `theme` is `"Halloween Spooktacular"`
+
+#### Scenario: Add a theme to an existing season
+
+- **GIVEN** the active "may-2026" season has no `theme` field
+- **WHEN** `upsert_season(game: "main", slug: "may-2026", { theme: "Music Mayhem" })` is called
+- **THEN** the response carries `action: "updated", hasTheme: true`
+- **AND** the entry's `theme` is `"Music Mayhem"`
+
+#### Scenario: Clear a season's theme by passing null
+
+- **GIVEN** the active "may-2026" season has `theme: "Music Mayhem"`
+- **WHEN** `upsert_season(game: "main", slug: "may-2026", { theme: null })` is called
+- **THEN** the entry's `theme` field is removed
+- **AND** the response carries `hasTheme: false`
+
+#### Scenario: Omitting theme on update preserves the existing value
+
+- **GIVEN** the active "may-2026" season has `theme: "Music Mayhem"`
+- **WHEN** `upsert_season(game: "main", slug: "may-2026", { expectedEndAt: <T+1d> })` is called (no `theme` field on the call)
+- **THEN** the entry's `theme` remains `"Music Mayhem"` unchanged
+
+#### Scenario: Mid-season theme edit does not retroactively re-trigger an opener
+
+- **GIVEN** the active "may-2026" season has been live for 5 days and 5 questions have been posted (each stamped with `season: "may-2026"`)
+- **WHEN** `upsert_season(game: "main", slug: "may-2026", { theme: "Music Mayhem" })` is called
+- **THEN** subsequent `get_ideas` calls return `firstFireOfSeason: false` and `theme: "Music Mayhem"`
+- **AND** no second opener is rendered on the next question-cron fire
 
 #### Scenario: Create a themed future season (categories replace baseline)
 

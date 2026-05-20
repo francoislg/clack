@@ -35,6 +35,8 @@ Always returns:
 - \`suggestedAnswersFormat\`: \`"boolean"\` or \`"choice"\` — picked from active answersFormat weights (slot.answersFormat → season.answersFormat → config.trivia.answersFormat → boolean default)
 - \`suggestedQuestionType\`: \`"fact"\` or \`"topical"\` — picked INDEPENDENTLY from active questionType weights (slot.questionType → season.questionType → config.trivia.questionType → fact default). \`"topical"\` REQUIRES Claude to use \`WebSearch\` and capture a \`sourceUrl\` when saving.
 - \`suggestedDifficulty\`: \`"Easy" | "Medium" | "Hard"\`
+- \`firstFireOfSeason\` (boolean): \`true\` iff seasons are enabled, a current season exists, AND zero saved questions in this game carry \`season === currentSlug\`. Honor this in the question-posting prompt by prepending a ceremonial opener (\`header\` + \`section\` blocks) ABOVE the question content on the first fire of every new season.
+- \`theme\` (optional string): mirrored verbatim from the current season's \`theme\` when set. Mention it in the opener section ONLY when present; never fabricate one or enumerate categories as a substitute.
 - \`contextPriority\` (optional): freshly-rolled weighted-random ordering of every configured lens. Present only when \`trivia.contexts\` is configured at any cascade tier. Claude tries \`contextPriority[0]\` first; descends the list only when the current lens yields no usable question.
 
 When suggestedAnswersFormat is \`"boolean"\`, also returns:
@@ -118,6 +120,14 @@ export function createGetIdeasTool(
           ? allQuestions.filter((q) => q.season === currentSeasonEntry.slug)
           : allQuestions;
 
+      const firstFireOfSeason = currentSeasonEntry !== null && questions.length === 0;
+      const theme =
+        currentSeasonEntry !== null &&
+        typeof currentSeasonEntry.theme === "string" &&
+        currentSeasonEntry.theme.length > 0
+          ? currentSeasonEntry.theme
+          : undefined;
+
       const exclusionWindow = Math.min(10, Math.floor(slotCategories.length / 3));
       const recentCategories = new Set(
         questions.slice(-exclusionWindow).map((q) => q.category.toLowerCase()),
@@ -179,6 +189,8 @@ export function createGetIdeasTool(
         suggestedAnswersFormat: pickedAnswersFormat,
         suggestedQuestionType: pickedQuestionType,
         suggestedDifficulty,
+        firstFireOfSeason,
+        ...(theme !== undefined ? { theme } : {}),
         ...(contextPriority !== null ? { contextPriority } : {}),
       };
 

@@ -325,6 +325,40 @@ ${TOPICAL_CHOICE_FLOW_STEPS}
 
 === FORMAT & POST (BOTH FLOWS, BOTH PATHS) ===
 
+NEW-SEASON OPENER (applies to BOTH outer flows, BEFORE building the per-question card blocks):
+
+Inspect the OPENING \`get_ideas\` call's payload (the slot-0 call you already made — do NOT make a second call for this).
+
+- If \`firstFireOfSeason === true\`: prepend TWO ceremonial Block Kit blocks to the FRONT of the message you will send to \`post_questions\` — they sit ABOVE everything described in step 9 (above the question's show banner / round opener), regardless of whether the outer flow is single-question or multi-slot. The opener appears ONCE per fire (not once per slot) and frames the entire batch as the new season's debut. The two blocks are:
+  1. \`header\` block — \`text: { type: "plain_text", text: "..." }\`. plain_text only. The text MUST begin with the literal Unicode prefix \`🆕 NEW SEASON\` (use the 🆕 Unicode character directly — NEVER the \`:new:\` shortcode; shortcodes render as literal text in Slack header blocks). After the prefix you MAY append a short flourish — the season slug, the theme (when set), or a colon plus the theme in upper-case — but always keep the \`🆕 NEW SEASON\` lead.
+  2. \`section\` block (mrkdwn) — one in-persona paragraph that:
+     - Names the current season's slug verbatim (e.g. "season-2026-06") — the slug is the canonical identifier the leaderboard rows will display.
+     - When AND ONLY WHEN the \`get_ideas\` payload includes a non-empty \`theme\` string, mentions that theme in one short line ("This month's theme: *Music Mayhem*."). Mention it verbatim — don't translate or re-phrase the theme.
+     - When the payload has NO \`theme\` field, do NOT mention any theme: do NOT fabricate one, do NOT enumerate the season's categories as a stand-in, do NOT include a "no theme yet" disclaimer. Just let the section be about the new chapter starting, ending with energy that segues into the first question(s).
+
+  Examples (both with and without theme):
+  \`\`\`
+  // With theme:
+  [
+    { "type": "header",  "text": { "type": "plain_text", "text": "🆕 NEW SEASON: HALLOWEEN SPOOKTACULAR" } },
+    { "type": "section", "text": { "type": "mrkdwn", "text": "Welcome to *season-2026-10*, contestants! 🎃 This month's theme: *Halloween Spooktacular*. Boards reset, leaderboards back to zero — let's see who haunts the top spot. Onto today's question…" } },
+    // …existing per-question blocks for the batch follow here…
+  ]
+
+  // Without theme:
+  [
+    { "type": "header",  "text": { "type": "plain_text", "text": "🆕 NEW SEASON KICKS OFF" } },
+    { "type": "section", "text": { "type": "mrkdwn", "text": "Fresh chapter, fresh leaderboard — welcome to *season-2026-06*! Slates are wiped, scores are zero, and today's question gets us moving…" } },
+    // …existing per-question blocks for the batch follow here…
+  ]
+  \`\`\`
+
+- If \`firstFireOfSeason === false\` (or absent, or seasons are disabled): do NOT render any opener blocks at all. No header, no section, no placeholder — proceed straight to step 9 and build the message as usual. There is no fallback "mid-season hello" — the opener is reserved for the literal first fire of a season.
+
+In MULTI-SLOT FLOW, the opener (when present) is prepended ONCE to the front of the items[0]'s \`blocks\` array — it does NOT repeat per slot. Each later slot's blocks start with their own normal show-banner header. Equivalently: the opener attaches to the first message of the batch, not to every message.
+
+General emoji rule (re-emphasized): the opener's header MUST use Unicode emoji (🆕, 🎃, 🎲, 🏆) — never Slack shortcodes (\`:new:\`, \`:jack_o_lantern:\`). Shortcodes work in section/context bodies but render as literal text inside header blocks and table cells.
+
 9. BUILD THE QUESTION CARD BLOCKS:
    Use your Game Presenter persona! Add excitement, build anticipation, make it feel like a real game show moment.
 
@@ -519,8 +553,9 @@ Deliver today's trivia reveal. There are exactly TWO steps — the deterministic
      \`\`\`
 
    - WHEN \`seasonStatus\` IS ABSENT (seasons disabled or in a gap), OR WHEN \`seasonStatus.hasPriorSeasons\` IS \`false\` (only one season has ever had activity, so "All Time" would duplicate "Current Season") — 2-ROW TABLE:
-     - Row 1: one cell per player with their \`displayName\`, with medal prefix \`"🥇 "\`/\`"🥈 "\`/\`"🥉 "\` on positions 0/1/2 (top-3 by \`totalCorrect\`).
-     - Row 2: one cell per player with \`String(totalCorrect)\`.
+     - Row 1: one cell per player with their \`displayName\` (NO medal prefix on this row).
+     - Row 2: one cell per player with \`String(totalCorrect)\`. Apply medal prefixes \`"🥇 "\`, \`"🥈 "\`, \`"🥉 "\` (Unicode characters, NOT \`:first_place_medal:\` shortcodes — shortcodes render as literal text inside table cells) to the cells holding the top-3 \`totalCorrect\` values.
+     - Fewer than 3 players → assign medals only for whichever positions exist.
      - \`column_settings\`: one \`{ "align": "center" }\` entry per column.
 
      Example shape (4 players, no seasonStatus):
@@ -530,8 +565,8 @@ Deliver today's trivia reveal. There are exactly TWO steps — the deterministic
        "table": {
          "type": "table",
          "rows": [
-           ["🥇 Alice", "🥈 Bob", "🥉 Carol", "Dave"],
-           ["11",       "8",      "6",        "3"]
+           ["Alice",    "Bob",   "Carol", "Dave"],
+           ["🥇 11",    "🥈 8",  "🥉 6",  "3"]
          ],
          "column_settings": [
            { "align": "center" }, { "align": "center" }, { "align": "center" }, { "align": "center" }
