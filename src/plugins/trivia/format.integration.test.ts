@@ -221,6 +221,7 @@ describe("Trivia question-format end-to-end flow", () => {
               blocks: [{ type: "section", text: { type: "mrkdwn", text: "Q2" } }],
             },
           ],
+          appendToPreviousBatch: undefined,
         },
         SESSION,
       ),

@@ -123,6 +123,7 @@ describe("choice-questions end-to-end flow", () => {
               blocks: [{ type: "section", text: { type: "mrkdwn", text: "Q?" } }],
             },
           ],
+          appendToPreviousBatch: undefined,
         },
         SESSION,
       ),

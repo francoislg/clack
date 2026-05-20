@@ -249,6 +249,8 @@ ${CHOICE_FLOW_STEPS}
 
     Check the \`results[i].ok\` field for each item in the return value. If any \`ok: false\`, the per-item error explains what went wrong.
 
+    RETRY ON PARTIAL FAILURE: when one or more \`results[].ok === false\` come back from the call above (typical cause: Slack rejects one item's blocks with \`invalid_blocks\`), do NOT abandon the run. Build a follow-up \`post_questions\` call carrying ONLY the failed items (rebuild their blocks if the failure was due to oversized content), AND pass \`appendToPreviousBatch: true\`. That flag tells the tool to reuse the original call's \`batchId\` so the retried items reveal together with the original successes — without it the retry would land in a separate batch and the reveal would split across two cron fires. Do NOT instead try to thread a raw \`batchId\` string yourself; the flag is the only contract. The flag applies in BOTH the single-question and the multi-slot flow.
+
 11. END THE RUN:
     Call \`submit_response({ skip_response: true })\` to terminate the run cleanly. No user-facing reply is needed — the trivia question itself is the deliverable.
 
