@@ -50,6 +50,8 @@ const mockAppendAssistantMessage = mock.fn<
   NonNullable<HandlerResponseDeps["appendAssistantMessage"]>
 >(async () => null);
 
+const mockAppendStagedIntents = mock.fn<HandlerResponseDeps["appendStagedIntents"]>(async () => {});
+
 const mockUpdateSession = mock.fn<(...args: never[]) => Promise<void>>(async () => {});
 const mockAddError = mock.fn<(...args: never[]) => Promise<void>>(async () => {});
 const mockSetAutoResponseActive = mock.fn<(...args: never[]) => Promise<void>>(async () => {});
@@ -99,6 +101,7 @@ function resetStreamerInstance(overrides?: {
 function makeDeps(): HandlerResponseDeps {
   return {
     askClaude: askClaudeAdapter,
+    appendStagedIntents: mockAppendStagedIntents,
     analyzeError: mockAnalyzeError as never,
     updateSession: mockUpdateSession as never,
     addError: mockAddError as never,
@@ -192,6 +195,7 @@ function getPostMessageMock(_client: App["client"]) {
 
 beforeEach(() => {
   mockAskClaude.mock.resetCalls();
+  mockAppendStagedIntents.mock.resetCalls();
   mockUpdateSession.mock.resetCalls();
   mockAddError.mock.resetCalls();
   mockGetErrorBlocksWithRetry.mock.resetCalls();
@@ -362,16 +366,18 @@ describe("executeAndDeliver — success handling", () => {
     });
 
     // answer + lastResponse + toolCalls now flow through appendAssistantMessage.
-    // stagedIntents still goes through updateSession (per-turn ephemeral, not part of the log).
+    // stagedIntents flows through appendStagedIntents (merge semantics — see
+    // persistResponseState).
     assert.equal(mockAppendAssistantMessage.mock.callCount(), 1);
     assert.equal(mockAppendAssistantMessage.mock.calls[0].arguments[0], "session-1");
     const appended = mockAppendAssistantMessage.mock.calls[0].arguments[1];
     assert.equal(appended.text, "the answer");
     assert.ok(appended.payload);
     assert.ok(appended.toolCalls);
-    assert.equal(mockUpdateSession.mock.callCount(), 1);
-    const updates = mockUpdateSession.mock.calls[0].arguments[1] as Partial<SessionContext>;
-    assert.ok(updates.stagedIntents);
+    assert.equal(mockAppendStagedIntents.mock.callCount(), 1);
+    assert.equal(mockAppendStagedIntents.mock.calls[0].arguments[0], "session-1");
+    const persistedIntents = mockAppendStagedIntents.mock.calls[0].arguments[1];
+    assert.ok(persistedIntents.r1);
   });
 
   it("does not call updateSession when there are no extra fields", async () => {
@@ -392,7 +398,7 @@ describe("executeAndDeliver — success handling", () => {
     assert.equal(mockUpdateSession.mock.callCount(), 0);
   });
 
-  it("does not call updateSession for empty stagedIntents", async () => {
+  it("does not call appendStagedIntents for empty stagedIntents", async () => {
     mockAskClaude.mock.mockImplementation(async () => ({
       success: true,
       answer: "answer",
@@ -407,7 +413,7 @@ describe("executeAndDeliver — success handling", () => {
       deps,
     });
 
-    assert.equal(mockUpdateSession.mock.callCount(), 0);
+    assert.equal(mockAppendStagedIntents.mock.callCount(), 0);
   });
 
   it("does not call updateSession for empty toolCallHistory", async () => {

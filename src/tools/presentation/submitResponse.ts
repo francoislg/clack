@@ -2,7 +2,14 @@ import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { IntentStore, ResponseCapture, ToolCallRecorder } from "../server.js";
-import type { Action, DeliverFn, ResponseSnapshot, SubmitResponsePayload } from "../types.js";
+import type {
+  Action,
+  DeliverFn,
+  ResponseSnapshot,
+  StagedIntent,
+  SubmitResponsePayload,
+} from "../types.js";
+import { appendStagedIntents as _appendStagedIntents } from "../../sessions.js";
 import { textResult } from "../helpers.js";
 import { DISMISSAL_PHRASES_INLINE } from "../../claude/dismissalPhrases.js";
 import {
@@ -256,6 +263,12 @@ export interface SubmitResponseDeps {
   validateTable?: typeof _validateTable;
   validateActionButtonLabels?: typeof _validateActionButtonLabels;
   getResponseActionBlocks?: typeof _getResponseActionBlocks;
+  /**
+   * Persists referenced staged intents to the session BEFORE the message is
+   * delivered, so a fast button click can't outrun the writeback. Default
+   * impl writes through `sessions.appendStagedIntents` (merge semantics).
+   */
+  appendStagedIntents?: (sessionId: string, intents: Record<string, StagedIntent>) => Promise<void>;
 }
 
 /**
@@ -545,6 +558,7 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
     validateTable = _validateTable,
     validateActionButtonLabels = _validateActionButtonLabels,
     getResponseActionBlocks = _getResponseActionBlocks,
+    appendStagedIntents = _appendStagedIntents,
   } = deps;
 
   const isSkippedMode = submitResponseMode === "skipped";
@@ -792,6 +806,21 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
 
       const reactions =
         "reactions" in args && Array.isArray(args.reactions) ? args.reactions : undefined;
+
+      // Persist every staged intent referenced by an action (top-level or nested
+      // inside post_to) BEFORE delivery. Otherwise a fast button click can land
+      // before persistResponseState runs at turn end, and the click handler — which
+      // reads from session.stagedIntents on disk — sees no intent for the ref and
+      // returns the misleading "expired" error.
+      const referencedIntents: Record<string, StagedIntent> = {};
+      for (const { action } of flattenActions(actions)) {
+        if (!("ref" in action) || !action.ref) continue;
+        const intent = intentStore.resolve(action.ref);
+        if (intent) referencedIntents[action.ref] = intent;
+      }
+      if (Object.keys(referencedIntents).length > 0) {
+        await appendStagedIntents(sessionId, referencedIntents);
+      }
 
       if (deliver) {
         const deliveryResult = await deliver({

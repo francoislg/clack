@@ -877,6 +877,26 @@ export async function getStagedIntent(
   return session.stagedIntents[ref];
 }
 
+/**
+ * Merge new staged intents into session.stagedIntents under the session lock.
+ * Used by submit_response (write-through before delivering the button-bearing
+ * message) and by persistResponseState (defense-in-depth at turn end). Existing
+ * refs are preserved so a follow-up turn that stages a different intent does
+ * not invalidate the buttons posted by an earlier turn.
+ */
+export async function appendStagedIntents(
+  sessionId: string,
+  newIntents: Record<string, StagedIntent>,
+): Promise<void> {
+  if (Object.keys(newIntents).length === 0) return;
+  await withSessionLock(sessionId, async () => {
+    const session = await getSession(sessionId);
+    if (!session) return null;
+    const merged = { ...session.stagedIntents, ...newIntents };
+    return updateSessionUnlocked(sessionId, { stagedIntents: merged });
+  });
+}
+
 export async function deleteSession(sessionId: string): Promise<void> {
   // Clean up in-memory state
   const session = sessionCache.get(sessionId);

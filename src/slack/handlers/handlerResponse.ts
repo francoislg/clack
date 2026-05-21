@@ -18,6 +18,7 @@ import {
   setAutoResponseActive,
   createSession,
   appendAssistantMessage,
+  appendStagedIntents,
 } from "../../sessions.js";
 import type { SessionAssistantMessage } from "../../sessions.js";
 import { askClaude } from "../../claude/index.js";
@@ -42,6 +43,7 @@ export interface HandlerResponseDeps {
    *  Production code always receives the default via `defaultHandlerResponseDeps`. */
   appendAssistantMessage?: typeof appendAssistantMessage;
   updateSession: typeof updateSession;
+  appendStagedIntents: typeof appendStagedIntents;
   addError: typeof addError;
   setAutoResponseActive: typeof setAutoResponseActive;
   /** Optional: when present, top-level posts create a follow-up session tied to the new thread. */
@@ -66,6 +68,7 @@ export const defaultHandlerResponseDeps: HandlerResponseDeps = {
   analyzeError,
   appendAssistantMessage,
   updateSession,
+  appendStagedIntents,
   addError,
   setAutoResponseActive,
   createSession,
@@ -717,9 +720,11 @@ async function persistResponseState(
   await append(session.sessionId, assistantMessage);
 
   if (response.stagedIntents && Object.keys(response.stagedIntents).length > 0) {
-    await ctx.deps.updateSession(session.sessionId, {
-      stagedIntents: response.stagedIntents,
-    });
+    // Merge (not replace): a subsequent turn that stages a different intent
+    // must not invalidate refs still attached to buttons posted by earlier
+    // turns. The primary writer is now submit_response (before delivery); this
+    // is a defense-in-depth pass that also captures orphan intents.
+    await ctx.deps.appendStagedIntents(session.sessionId, response.stagedIntents);
   }
 }
 
