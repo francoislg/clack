@@ -10,10 +10,13 @@ import {
   updateSession,
   appendUserMessage,
   appendAssistantMessage,
+  appendStagedIntents,
+  getStagedIntent,
   getSession,
   getSessionPath,
 } from "./sessions.js";
 import type { SessionContext, SessionAssistantMessage } from "./sessions.js";
+import type { StagedIntent } from "./tools/types.js";
 
 describe("parseSessionId", () => {
   it("parses a valid session ID into channelId, messageTs, and userId", () => {
@@ -491,5 +494,117 @@ describe("appendUserMessage / appendAssistantMessage", () => {
     assert.ok(final);
     // N replies (trigger holds the triggering message)
     assert.equal(final.messages.length, N);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// appendStagedIntents merge semantics — ensures a follow-up turn that stages
+// a different intent does not invalidate refs still wired to buttons posted
+// by an earlier turn.
+// ---------------------------------------------------------------------------
+describe("appendStagedIntents", () => {
+  const tmpBase = resolve(tmpdir(), `sessions-intents-${process.pid}`);
+  const sessionsDir = join(tmpBase, "data", "sessions");
+  const originalCwd = process.cwd();
+
+  beforeEach(() => {
+    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true });
+    mkdirSync(sessionsDir, { recursive: true });
+    process.chdir(tmpBase);
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true });
+  });
+
+  it("merges new intents into existing stagedIntents instead of replacing", async () => {
+    const session = await createSession({
+      channelId: "C500",
+      messageTs: "5000.0005",
+      threadTs: "5000.0005",
+      userId: "UEEE",
+      trigger: {
+        type: "mentions",
+        userId: "UEEE",
+        messageTs: "5000.0005",
+        messageText: "merge test",
+      },
+    });
+
+    const first: StagedIntent = {
+      type: "change",
+      branch: "feat/a",
+      description: "a",
+      repo: "r",
+    };
+    const second: StagedIntent = {
+      type: "config_update",
+      file: "user/identity.md",
+      content: "b",
+    };
+
+    await appendStagedIntents(session.sessionId, { "ref-a": first });
+    await appendStagedIntents(session.sessionId, { "ref-b": second });
+
+    const a = await getStagedIntent(session.sessionId, "ref-a");
+    const b = await getStagedIntent(session.sessionId, "ref-b");
+    assert.deepEqual(a, first, "earlier turn's intent must survive a later append");
+    assert.deepEqual(b, second);
+  });
+
+  it("is a no-op for an empty intent map", async () => {
+    const session = await createSession({
+      channelId: "C501",
+      messageTs: "5001.0005",
+      threadTs: "5001.0005",
+      userId: "UFFF",
+      trigger: {
+        type: "mentions",
+        userId: "UFFF",
+        messageTs: "5001.0005",
+        messageText: "empty test",
+      },
+    });
+
+    await appendStagedIntents(session.sessionId, {});
+
+    const stored = await getSession(session.sessionId);
+    assert.ok(stored);
+    assert.equal(stored.stagedIntents, undefined);
+  });
+
+  it("overwrites a same-key ref on later append (last writer wins)", async () => {
+    const session = await createSession({
+      channelId: "C502",
+      messageTs: "5002.0005",
+      threadTs: "5002.0005",
+      userId: "UGGG",
+      trigger: {
+        type: "mentions",
+        userId: "UGGG",
+        messageTs: "5002.0005",
+        messageText: "overwrite test",
+      },
+    });
+
+    const v1: StagedIntent = {
+      type: "change",
+      branch: "feat/v1",
+      description: "v1",
+      repo: "r",
+    };
+    const v2: StagedIntent = {
+      type: "change",
+      branch: "feat/v2",
+      description: "v2",
+      repo: "r",
+    };
+
+    await appendStagedIntents(session.sessionId, { "ref-x": v1 });
+    await appendStagedIntents(session.sessionId, { "ref-x": v2 });
+
+    const got = await getStagedIntent(session.sessionId, "ref-x");
+    assert.deepEqual(got, v2);
   });
 });

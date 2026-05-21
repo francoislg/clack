@@ -37,6 +37,10 @@ function makeDeps(
       reactions?: string[];
     }) => Promise<{ ok: true; ts?: string } | { ok: false; error: string }>;
     persistSnapshot: (id: string, snapshot: ResponseSnapshot) => Promise<void>;
+    appendStagedIntents: (
+      sessionId: string,
+      intents: Record<string, StagedIntent>,
+    ) => Promise<void>;
     allowSkip: boolean;
     submitResponseMode: "always" | "optional" | "skipped";
     allowDisengage: boolean;
@@ -81,6 +85,7 @@ function makeDeps(
     sessionId: overrides.sessionId ?? "sess-123",
     deliver: overrides.deliver,
     persistSnapshot: overrides.persistSnapshot,
+    appendStagedIntents: overrides.appendStagedIntents ?? (async () => {}),
     allowSkip: overrides.allowSkip,
     submitResponseMode: overrides.submitResponseMode,
     allowDisengage: overrides.allowDisengage,
@@ -844,6 +849,95 @@ describe("createSubmitResponseTool", () => {
 
       const parsed = parseToolResult(result);
       assert.equal(parsed.success, true);
+    });
+  });
+
+  describe("staged intent write-through", () => {
+    it("persists referenced intents to the session BEFORE calling deliver", async () => {
+      // Resolves a "change" intent that the button action will reference.
+      const intent: StagedIntent = {
+        type: "change",
+        branch: "feat/x",
+        description: "do x",
+        repo: "r",
+      };
+      const order: string[] = [];
+
+      const deps = makeDeps({
+        intentStore: {
+          stage: () => "ref-X",
+          resolve: (ref: string) => (ref === "ref-X" ? intent : undefined),
+          getAll: () => new Map([["ref-X", intent]]),
+        },
+        appendStagedIntents: async (sessionId, intents) => {
+          order.push(`persist:${sessionId}:${Object.keys(intents).join(",")}`);
+        },
+        deliver: async () => {
+          order.push("deliver");
+          return { ok: true as const };
+        },
+      });
+
+      await callTool(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Apply?" } }],
+        actions: [{ type: "change", ref: "ref-X" }],
+      });
+
+      assert.deepEqual(order, ["persist:sess-123:ref-X", "deliver"]);
+    });
+
+    it("skips the persist call when no ref-bearing actions are present", async () => {
+      let persistCalls = 0;
+      const deps = makeDeps({
+        appendStagedIntents: async () => {
+          persistCalls++;
+        },
+        deliver: async () => ({ ok: true as const }),
+      });
+
+      await callTool(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Hi" } }],
+        actions: [{ type: "followup", label: "More", prompt: "more" }],
+      });
+
+      assert.equal(persistCalls, 0);
+    });
+
+    it("persists nested intents from post_to.actions too", async () => {
+      const intent: StagedIntent = {
+        type: "config_update",
+        file: "user/identity.md",
+        content: "x",
+      };
+      const persisted: Record<string, StagedIntent>[] = [];
+
+      const deps = makeDeps({
+        intentStore: {
+          stage: () => "ref-Y",
+          resolve: (ref: string) => (ref === "ref-Y" ? intent : undefined),
+          getAll: () => new Map([["ref-Y", intent]]),
+        },
+        appendStagedIntents: async (_sessionId, intents) => {
+          persisted.push(intents);
+        },
+        deliver: async () => ({ ok: true as const }),
+      });
+
+      await callTool(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Cross-post" } }],
+        actions: [
+          {
+            type: "post_to",
+            channel: "C001",
+            blocks: [{ type: "section", text: { type: "mrkdwn", text: "Mirror" } }],
+            actions: [{ type: "config_update", ref: "ref-Y" }],
+          },
+        ],
+      });
+
+      assert.equal(persisted.length, 1);
+      assert.ok(persisted[0]["ref-Y"]);
+      assert.equal(persisted[0]["ref-Y"].type, "config_update");
     });
   });
 
