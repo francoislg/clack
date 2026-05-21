@@ -50,6 +50,9 @@ export function createListScheduledMessagesTool(ctx: QueryToolContext) {
           requiredTools: j.requiredTools ?? null,
           plugin: j.plugin ?? null,
           skipConditions: j.skipConditions ?? null,
+          // When set to "skipped", `lastRunStatus: "skipped"` is the expected terminator behavior —
+          // the deliverable is a domain tool (e.g. post_questions for trivia), not submit_response.
+          submitResponseMode: j.submitResponseMode ?? null,
           totalRuns: (j.runs ?? []).length,
           recentRuns: await formatRuns(j, ctx),
         })),

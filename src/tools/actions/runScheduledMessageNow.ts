@@ -41,7 +41,14 @@ export function createRunScheduledMessageNowTool(
       "Permissions: the job's creator OR an admin can run a scheduled message; other users cannot. " +
       "Limits: tool calls during the run use real wall-clock time (you must translate relative date " +
       "phrases to absolute dates anchored on `asOf`); `skipConditions` evaluate against present-time state, " +
-      "so a replay may post when the original skipped or vice versa.",
+      "so a replay may post when the original skipped or vice versa. " +
+      "Interpreting `skipped: true`: it can mean three different things. " +
+      '(a) The job declares `submitResponseMode: "skipped"` (plugin-managed jobs like trivia question fires) — ' +
+      "the result also carries `expectedSkip: true`, meaning the deliverable was the job's domain tool (e.g. " +
+      "`post_questions`) and skipping `submit_response` is the designed terminator behavior, NOT a failure. " +
+      "Report the run as successful. " +
+      "(b) `skipConditions` matched at runtime — Claude decided not to post. " +
+      "(c) A `skipDates` entry matched (off-day). Without `expectedSkip: true`, treat `skipped: true` as a real skip.",
     {
       id: z.string().describe("The scheduled message ID to run."),
       asOf: z
@@ -118,11 +125,22 @@ export function createRunScheduledMessageNowTool(
         return errorResult(`Failed to run scheduled message: ${errorMessage(err)}`);
       }
 
+      const expectedSkip = outcome.skipped && job.submitResponseMode === "skipped";
+
       return textResult({
         ok: true,
         id: job.id,
         ...(args.asOf ? { asOf: args.asOf } : {}),
         skipped: outcome.skipped,
+        ...(expectedSkip
+          ? {
+              expectedSkip: true,
+              note:
+                "This job is configured with submitResponseMode:'skipped' — its actual deliverable " +
+                "is a domain tool (e.g. post_questions for trivia), and skipping submit_response is " +
+                "the designed terminator behavior. The run completed normally.",
+            }
+          : {}),
         ...(outcome.responseTs ? { responseTs: outcome.responseTs } : {}),
         ...(args.replaceResponseTs
           ? {

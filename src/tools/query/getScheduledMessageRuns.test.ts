@@ -35,11 +35,6 @@ function stubSlackClient(): WebClient {
   return client;
 }
 
-interface ToolHandlerResult {
-  content: Array<{ text: string }>;
-  isError?: boolean;
-}
-
 describe("get_scheduled_message_runs tool — skipped outcome", () => {
   let tempDir: string;
 
@@ -87,5 +82,46 @@ describe("get_scheduled_message_runs tool — skipped outcome", () => {
 
     assert.equal(result.isError, true);
     assert.match(toolResultText(result), /not found/i);
+  });
+
+  it("surfaces submitResponseMode and an explanatory note when job is in skipped mode", async () => {
+    const job = await createJob({
+      cronExpression: "0 9 * * *",
+      channel: "C456",
+      prompt: "Post trivia questions",
+      createdBy: "U123",
+      timezone: "UTC",
+      submitResponseMode: "skipped",
+    });
+
+    await updateJobRunStatus(job.id, "skipped");
+    await updateJobRunStatus(job.id, "skipped");
+
+    const tool = createGetScheduledMessageRunsTool(buildCtx({ slackClient: stubSlackClient() }));
+    const result = await tool.handler({ id: job.id }, { sessionId: "test" });
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.submitResponseMode, "skipped");
+    assert.match(parsed.note, /terminator behavior/);
+    assert.equal(parsed.count, 2);
+  });
+
+  it("does not include the note when submitResponseMode is unset", async () => {
+    const job = await createJob({
+      cronExpression: "0 9 * * *",
+      channel: "C456",
+      prompt: "Summarize PRs",
+      createdBy: "U123",
+      timezone: "UTC",
+    });
+
+    await updateJobRunStatus(job.id, "success", "111.222");
+
+    const tool = createGetScheduledMessageRunsTool(buildCtx({ slackClient: stubSlackClient() }));
+    const result = await tool.handler({ id: job.id }, { sessionId: "test" });
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.submitResponseMode, undefined);
+    assert.equal(parsed.note, undefined);
   });
 });

@@ -24,11 +24,6 @@ function buildCtx(overrides: Partial<QueryToolContext> = {}): QueryToolContext {
   } as QueryToolContext;
 }
 
-interface ToolHandlerResult {
-  content: Array<{ text: string }>;
-  isError?: boolean;
-}
-
 describe("list_scheduled_messages tool — skipConditions and skipped status", () => {
   let tempDir: string;
 
@@ -82,6 +77,38 @@ describe("list_scheduled_messages tool — skipConditions and skipped status", (
 
     const parsed = parseToolResult(result);
     assert.equal(parsed.scheduled_messages[0].skipConditions, null);
+  });
+
+  it("surfaces submitResponseMode when set, and null when unset", async () => {
+    await createJob({
+      cronExpression: "0 9 * * *",
+      channel: "C456",
+      prompt: "Trivia question fire",
+      createdBy: "U123",
+      timezone: "UTC",
+      submitResponseMode: "skipped",
+    });
+    await createJob({
+      cronExpression: "0 10 * * *",
+      channel: "C456",
+      prompt: "PR summary",
+      createdBy: "U123",
+      timezone: "UTC",
+    });
+
+    const tool = createListScheduledMessagesTool(buildCtx());
+    const result = await tool.handler(
+      { channel: undefined, all: undefined },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseToolResult(result);
+    const trivia = parsed.scheduled_messages.find(
+      (m: { prompt: string }) => m.prompt === "Trivia question fire",
+    );
+    const pr = parsed.scheduled_messages.find((m: { prompt: string }) => m.prompt === "PR summary");
+    assert.equal(trivia.submitResponseMode, "skipped");
+    assert.equal(pr.submitResponseMode, null);
   });
 
   it("surfaces lastRunStatus 'skipped' distinctly from 'success' and 'error'", async () => {

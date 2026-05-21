@@ -9,7 +9,11 @@ import { slackLink } from "../../slack/logContext.js";
 export function createGetScheduledMessageRunsTool(ctx: QueryToolContext) {
   return tool(
     "get_scheduled_message_runs",
-    "Get the full run history for a scheduled message. Use this when you need more than the last 5 runs returned by list_scheduled_messages.",
+    "Get the full run history for a scheduled message. Use this when you need more than the last 5 runs returned by list_scheduled_messages. " +
+      'Interpreting `status: "skipped"`: if the response carries `submitResponseMode: "skipped"`, ' +
+      "every skipped run is an *expected* terminator-skip — the job's deliverable is a domain tool " +
+      "(e.g. post_questions for trivia), not submit_response. Treat those skipped rows as successful runs. " +
+      "Without that field, `skipped` means skipConditions or skipDates matched and the job posted nothing.",
     {
       id: z.string().describe("The scheduled message ID"),
     },
@@ -24,9 +28,22 @@ export function createGetScheduledMessageRunsTool(ctx: QueryToolContext) {
         return errorResult("You can only view your own scheduled messages.");
       }
 
+      const skippedIsExpected = job.submitResponseMode === "skipped";
+      const meta = {
+        ...(job.submitResponseMode ? { submitResponseMode: job.submitResponseMode } : {}),
+        ...(skippedIsExpected
+          ? {
+              note:
+                "This job uses submitResponseMode:'skipped'. Runs with status:'skipped' are the " +
+                "designed terminator behavior — the job delivers via its domain tool (e.g. post_questions). " +
+                "Treat them as successful runs, not failures or no-ops.",
+            }
+          : {}),
+      };
+
       const runs = job.runs ?? [];
       if (runs.length === 0 || !ctx.slackClient) {
-        return textResult({ ok: true, id: job.id, count: 0, runs: [] });
+        return textResult({ ok: true, id: job.id, count: 0, runs: [], ...meta });
       }
 
       const formatted = await Promise.all(
@@ -39,7 +56,13 @@ export function createGetScheduledMessageRunsTool(ctx: QueryToolContext) {
         })),
       );
 
-      return textResult({ ok: true, id: job.id, count: formatted.length, runs: formatted });
+      return textResult({
+        ok: true,
+        id: job.id,
+        count: formatted.length,
+        runs: formatted,
+        ...meta,
+      });
     },
   );
 }

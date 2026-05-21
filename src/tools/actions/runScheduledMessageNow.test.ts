@@ -268,6 +268,65 @@ describe("runScheduledMessageNow tool", () => {
     assert.match(textAt(result, 0), /not found/);
   });
 
+  it("flags expectedSkip when job has submitResponseMode:'skipped' and outcome skipped", async () => {
+    const job = await createJob({
+      cronExpression: "0 9 * * *",
+      channel: "C1",
+      prompt: "Post trivia questions",
+      createdBy: "U123",
+      timezone: "UTC",
+      submitResponseMode: "skipped",
+    });
+
+    const { deps } = makeDeps({ skipped: true });
+    const tool = createRunScheduledMessageNowTool(buildCtx(), deps);
+    const result = await call(tool, { id: job.id, asOf: undefined, replaceResponseTs: undefined });
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.ok, true);
+    assert.equal(parsed.skipped, true);
+    assert.equal(parsed.expectedSkip, true);
+    assert.match(parsed.note, /designed terminator behavior/);
+  });
+
+  it("does not flag expectedSkip when job has no submitResponseMode and outcome skipped", async () => {
+    const job = await createJob({
+      cronExpression: "0 9 * * *",
+      channel: "C1",
+      prompt: "Summarize PRs",
+      createdBy: "U123",
+      timezone: "UTC",
+    });
+
+    const { deps } = makeDeps({ skipped: true });
+    const tool = createRunScheduledMessageNowTool(buildCtx(), deps);
+    const result = await call(tool, { id: job.id, asOf: undefined, replaceResponseTs: undefined });
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.skipped, true);
+    assert.equal(parsed.expectedSkip, undefined);
+    assert.equal(parsed.note, undefined);
+  });
+
+  it("does not flag expectedSkip on submitResponseMode:'skipped' jobs when not skipped", async () => {
+    const job = await createJob({
+      cronExpression: "0 9 * * *",
+      channel: "C1",
+      prompt: "Post trivia questions",
+      createdBy: "U123",
+      timezone: "UTC",
+      submitResponseMode: "skipped",
+    });
+
+    const { deps } = makeDeps({ skipped: false, responseTs: "1.2" });
+    const tool = createRunScheduledMessageNowTool(buildCtx(), deps);
+    const result = await call(tool, { id: job.id, asOf: undefined, replaceResponseTs: undefined });
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.skipped, false);
+    assert.equal(parsed.expectedSkip, undefined);
+  });
+
   it("rejects invalid asOf", async () => {
     const job = await createJob({
       cronExpression: "0 9 * * *",
