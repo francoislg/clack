@@ -16,24 +16,29 @@ const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 const DESCRIPTION = `Save a new trivia question.
 
-Two shapes are accepted, determined by \`answersFormat\`:
+Three shapes are accepted, determined by \`answersFormat\`:
 
 BOOLEAN (\`answersFormat: "boolean"\`):
 - Required: \`category\`, \`statement\`, \`questionType\`, \`isTrue\`, \`emojis\`.
-- The stored record carries \`answersFormat: "boolean"\` and \`isTrue\`; no \`choices\`/\`correctIndex\`.
+- The stored record carries \`answersFormat: "boolean"\` and \`isTrue\`; no \`choices\`/\`correctIndex\`/\`expectedAnswer\`.
 
 CHOICE (\`answersFormat: "choice"\`):
 - Required: \`category\`, \`statement\`, \`questionType\`, \`emojis\`, \`choices\` (string[], length within active [min, max]), \`correctIndex\` (0-based).
-- The stored record carries \`answersFormat: "choice"\`, \`choices\`, and \`correctIndex\`; no \`isTrue\`.
+- The stored record carries \`answersFormat: "choice"\`, \`choices\`, and \`correctIndex\`; no \`isTrue\`/\`expectedAnswer\`.
 - Exactly ONE correct answer per question — validated at this tool's boundary.
 
-ADDITIONAL FIELDS (both shapes):
+FREEFORM (\`answersFormat: "freeform"\`):
+- Required: \`category\`, \`statement\`, \`questionType\`, \`emojis\`, \`expectedAnswer\` (the canonical correct answer, ≤ 200 chars).
+- Optional: \`acceptableAnswers\` (string[] of pre-enumerated valid variants the reveal-time judge should also accept), \`gradingNotes\` (one short sentence refining acceptance — e.g. "Accept any major Canadian city").
+- The stored record carries \`answersFormat: "freeform"\` and \`expectedAnswer\`; no \`isTrue\`/\`choices\`/\`correctIndex\`. The user types their answer into a Slack modal; a small fast model judges submissions at reveal time, rejecting multi-guess "shotgun" answers (e.g. "Paris or London") as incorrect even when one guess matches.
+
+ADDITIONAL FIELDS (all shapes):
 - \`questionType\` (REQUIRED): \`"fact"\` or \`"topical"\`. Must match the value rolled by \`get_ideas\`.
 - \`sourceUrl\` (REQUIRED when \`questionType: "topical"\`, FORBIDDEN when \`questionType: "fact"\`): HTTPS citation URL.
 - \`eventDate\` (OPTIONAL, only when \`questionType: "topical"\`): ISO 8601 calendar date (YYYY-MM-DD).
 - \`context\` (OPTIONAL): the lens name used (from \`contextPriority\`). Empty string omits the field on the record. Non-empty values must appear in the active \`contexts\` list.
 
-Validation rejects: out-of-range correctIndex; duplicate or whitespace/case-equivalent choices; choices outside the configured \`trivia.choices.{min, max}\` bounds; choice strings outside 1–100 chars after trim; passing \`isTrue\` with \`answersFormat: "choice"\` or \`choices\`/\`correctIndex\` with \`answersFormat: "boolean"\`; topical without sourceUrl; sourceUrl on fact; non-HTTPS sourceUrl; eventDate without topical; malformed eventDate; context not in the active contexts list.`;
+Validation rejects: out-of-range correctIndex; duplicate or whitespace/case-equivalent choices; choices outside the configured \`trivia.choices.{min, max}\` bounds; choice strings outside 1–100 chars after trim; cross-format field collisions (e.g. \`isTrue\` with \`answersFormat: "choice"\`, \`expectedAnswer\` with \`"boolean"\`, \`choices\` with \`"freeform"\`); freeform without \`expectedAnswer\` or with \`expectedAnswer\` over 200 chars; topical without sourceUrl; sourceUrl on fact; non-HTTPS sourceUrl; eventDate without topical; malformed eventDate; context not in the active contexts list.`;
 
 export function createSaveQuestionTool(
   data: TriviaDataLayer,
@@ -55,7 +60,9 @@ export function createSaveQuestionTool(
         .describe(
           "Game name (must be present in config.trivia.games[]). Determines which game's per-game data file receives the new question.",
         ),
-      answersFormat: z.enum(["boolean", "choice"]).describe('Answer shape: "boolean" or "choice".'),
+      answersFormat: z
+        .enum(["boolean", "choice", "freeform"])
+        .describe('Answer shape: "boolean", "choice", or "freeform" (user types the answer).'),
       questionType: z
         .enum(["fact", "topical"])
         .describe(
@@ -67,20 +74,38 @@ export function createSaveQuestionTool(
         .boolean()
         .optional()
         .describe(
-          'REQUIRED for boolean questions. MUST NOT be set when answersFormat is "choice".',
+          'REQUIRED for boolean questions. MUST NOT be set when answersFormat is "choice" or "freeform".',
         ),
       choices: z
         .array(z.string())
         .optional()
         .describe(
-          'REQUIRED for choice questions (length within active [min, max]). MUST NOT be set when answersFormat is "boolean".',
+          'REQUIRED for choice questions (length within active [min, max]). MUST NOT be set when answersFormat is "boolean" or "freeform".',
         ),
       correctIndex: z
         .number()
         .int()
         .optional()
         .describe(
-          'REQUIRED for choice questions (0-based, in [0, choices.length)). MUST NOT be set when answersFormat is "boolean".',
+          'REQUIRED for choice questions (0-based, in [0, choices.length)). MUST NOT be set when answersFormat is "boolean" or "freeform".',
+        ),
+      expectedAnswer: z
+        .string()
+        .optional()
+        .describe(
+          'REQUIRED for freeform questions: the canonical answer (shortest 100%-correct form). MUST NOT be set when answersFormat is "boolean" or "choice".',
+        ),
+      acceptableAnswers: z
+        .array(z.string())
+        .optional()
+        .describe(
+          'OPTIONAL on freeform questions: pre-enumerated semantic variants the judge should also accept. MUST NOT be set when answersFormat is "boolean" or "choice".',
+        ),
+      gradingNotes: z
+        .string()
+        .optional()
+        .describe(
+          'OPTIONAL on freeform questions: a one-sentence hint to the reveal-time judge about edge cases (e.g. "Accept any major Canadian city"). MUST NOT be set when answersFormat is "boolean" or "choice".',
         ),
       sourceUrl: z
         .string()
@@ -155,7 +180,16 @@ export function createSaveQuestionTool(
         if (args.correctIndex !== undefined) {
           return errorResult('Boolean questions must not include "correctIndex".');
         }
-      } else {
+        if (args.expectedAnswer !== undefined) {
+          return errorResult('Boolean questions must not include "expectedAnswer".');
+        }
+        if (args.acceptableAnswers !== undefined) {
+          return errorResult('Boolean questions must not include "acceptableAnswers".');
+        }
+        if (args.gradingNotes !== undefined) {
+          return errorResult('Boolean questions must not include "gradingNotes".');
+        }
+      } else if (answersFormat === "choice") {
         if (args.isTrue !== undefined) {
           return errorResult('Choice questions must not include "isTrue".');
         }
@@ -164,6 +198,15 @@ export function createSaveQuestionTool(
         }
         if (args.correctIndex === undefined) {
           return errorResult('Choice questions require "correctIndex".');
+        }
+        if (args.expectedAnswer !== undefined) {
+          return errorResult('Choice questions must not include "expectedAnswer".');
+        }
+        if (args.acceptableAnswers !== undefined) {
+          return errorResult('Choice questions must not include "acceptableAnswers".');
+        }
+        if (args.gradingNotes !== undefined) {
+          return errorResult('Choice questions must not include "gradingNotes".');
         }
         const config = getConfigFn();
         const bounds = config?.trivia?.choices ?? DEFAULT_TRIVIA_CHOICES;
@@ -188,6 +231,42 @@ export function createSaveQuestionTool(
         const normalized = args.choices.map((c) => c.trim().toLowerCase());
         if (new Set(normalized).size !== normalized.length) {
           return errorResult("Choices must be unique (after trimming and case-folding).");
+        }
+      } else {
+        // freeform
+        if (args.isTrue !== undefined) {
+          return errorResult('Freeform questions must not include "isTrue".');
+        }
+        if (args.choices !== undefined) {
+          return errorResult('Freeform questions must not include "choices".');
+        }
+        if (args.correctIndex !== undefined) {
+          return errorResult('Freeform questions must not include "correctIndex".');
+        }
+        if (args.expectedAnswer === undefined || args.expectedAnswer.trim().length === 0) {
+          return errorResult(
+            'Freeform questions require "expectedAnswer" (the canonical correct answer).',
+          );
+        }
+        if (args.expectedAnswer.length > 200) {
+          return errorResult(
+            `"expectedAnswer" must be at most 200 characters (got ${args.expectedAnswer.length}).`,
+          );
+        }
+        if (args.acceptableAnswers !== undefined) {
+          for (let i = 0; i < args.acceptableAnswers.length; i++) {
+            const trimmed = args.acceptableAnswers[i].trim();
+            if (trimmed.length < 1 || trimmed.length > 200) {
+              return errorResult(
+                `acceptableAnswers[${i}] must be 1-200 characters after trim (got ${trimmed.length}).`,
+              );
+            }
+          }
+        }
+        if (args.gradingNotes !== undefined && args.gradingNotes.length > 500) {
+          return errorResult(
+            `"gradingNotes" must be at most 500 characters (got ${args.gradingNotes.length}).`,
+          );
         }
       }
 
@@ -268,8 +347,7 @@ export function createSaveQuestionTool(
           args.slot.index,
           config,
         );
-        const weightForAnswers =
-          answersFormat === "boolean" ? slotAnswersWeights.boolean : slotAnswersWeights.choice;
+        const weightForAnswers = slotAnswersWeights[answersFormat];
         if (weightForAnswers <= 0) {
           return errorResult(
             `Slot ${args.slot.index} does not permit "${answersFormat}" answers (answersFormat for this slot has zero weight on "${answersFormat}"). Re-roll get_ideas — its suggestedAnswersFormat reflects the slot's permitted formats.`,
@@ -339,7 +417,16 @@ export function createSaveQuestionTool(
       const question: TriviaQuestion =
         answersFormat === "boolean"
           ? { ...base, isTrue: args.isTrue }
-          : { ...base, choices: args.choices, correctIndex: args.correctIndex };
+          : answersFormat === "choice"
+            ? { ...base, choices: args.choices, correctIndex: args.correctIndex }
+            : {
+                ...base,
+                expectedAnswer: args.expectedAnswer ?? "",
+                ...(args.acceptableAnswers !== undefined
+                  ? { acceptableAnswers: args.acceptableAnswers }
+                  : {}),
+                ...(args.gradingNotes !== undefined ? { gradingNotes: args.gradingNotes } : {}),
+              };
 
       await scoped.saveQuestion(question);
 

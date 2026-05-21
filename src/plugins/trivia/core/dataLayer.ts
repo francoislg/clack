@@ -1,5 +1,6 @@
 import type { ClackSdk } from "../../sdk.js";
 import { getConfig } from "../../../config.js";
+import { logger } from "../../../logger.js";
 import { findCurrentSeason } from "./seasonTimeline.js";
 import type {
   TriviaQuestion,
@@ -94,6 +95,23 @@ export function createSdkDataLayer(sdk: ClackSdk): TriviaDataLayer {
       await sdk.writeFile(aPath, JSON.stringify(answers, null, 2));
     }
 
+    async function updateAnswer(
+      userId: string,
+      questionId: string,
+      partial: Partial<SubmittedAnswer>,
+    ): Promise<void> {
+      const answers = await loadAnswers();
+      const idx = answers.findIndex((a) => a.userId === userId && a.questionId === questionId);
+      if (idx === -1) {
+        logger.warn(
+          `[plugin:trivia] updateAnswer: no row found for (userId=${userId}, questionId=${questionId})`,
+        );
+        return;
+      }
+      answers[idx] = { ...answers[idx], ...partial };
+      await sdk.writeFile(aPath, JSON.stringify(answers, null, 2));
+    }
+
     async function deleteAnswersForQuestion(questionId: string): Promise<number> {
       const answers = await loadAnswers();
       const before = answers.length;
@@ -173,6 +191,7 @@ export function createSdkDataLayer(sdk: ClackSdk): TriviaDataLayer {
       updateQuestion,
       loadAnswers,
       saveAnswer,
+      updateAnswer,
       deleteAnswersForQuestion,
       loadCheats,
       saveCheat,

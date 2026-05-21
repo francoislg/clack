@@ -32,7 +32,7 @@ describe("validateFormat", () => {
       assert.deepEqual(r.value.questions[0], {
         label: "History Choice",
         categories: ["History", "Ancient Civilizations"],
-        answersFormat: { boolean: 0, choice: 1 },
+        answersFormat: { boolean: 0, choice: 1, freeform: 0 },
         questionType: { fact: 1, topical: 0 },
         contexts: [{ name: "academic", weight: 2 }],
       });
@@ -146,13 +146,13 @@ describe("validateAnswersFormat", () => {
   it("accepts a positive boolean weight", () => {
     const r = validateAnswersFormat({ boolean: 1 });
     assert.equal(r.ok, true);
-    if (r.ok) assert.deepEqual(r.value, { boolean: 1, choice: 0 });
+    if (r.ok) assert.deepEqual(r.value, { boolean: 1, choice: 0, freeform: 0 });
   });
 
   it("accepts mixed positive weights", () => {
     const r = validateAnswersFormat({ boolean: 2, choice: 1 });
     assert.equal(r.ok, true);
-    if (r.ok) assert.deepEqual(r.value, { boolean: 2, choice: 1 });
+    if (r.ok) assert.deepEqual(r.value, { boolean: 2, choice: 1, freeform: 0 });
   });
 
   it("rejects all-zero", () => {

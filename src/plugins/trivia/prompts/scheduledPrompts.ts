@@ -277,6 +277,113 @@ const TOPICAL_CHOICE_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
      - slot: \`{ index: i }\` — REQUIRED when the active season has a format.
    - Store the returned questionId for the post step.`;
 
+/**
+ * Fact-freeform flow: Claude writes a statement plus a canonical expectedAnswer.
+ * Optionally enumerates acceptableAnswers (variants) and gradingNotes. The
+ * reveal-time judge (a small fast model) scores user-typed answers against
+ * these fields. The card posts with an "Answer" button (added by post_questions
+ * automatically) — Claude does NOT add the button itself.
+ */
+const FREEFORM_FACT_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
+   - Call get_ideas. For the FACT FREEFORM PATH, it returns:
+     - categories.ideas: 5 random categories.
+     - suggestedAnswersFormat: "freeform"
+     - suggestedQuestionType: "fact"
+     - suggestedDifficulty ("Easy" | "Medium" | "Hard"): the bucket to aim at.
+     - contextPriority (optional, only when contexts are configured): see CONTEXTS guidance above.
+   - Pick one category from categories.ideas.
+
+2. WRITE THE QUESTION (REQUIRED — SHORT, UNAMBIGUOUS):
+   - Write a single-sentence prompt that has ONE clearly correct answer when read literally.
+   - The question should NOT be answerable with just yes/no — that's the boolean path. Free-form questions ask for a name, a number, a place, a date, a phrase, a quote, etc.
+   - Avoid prompts whose answer is many words long. Aim for 1-4 word answers (1-30 characters).
+
+3. WRITE THE EXPECTED ANSWER (REQUIRED — CANONICAL FORM ONLY):
+   - This is the shortest 100%-perfect answer you would accept. Trim it: no articles ("the"), no qualifiers ("the city of"), no punctuation noise. The judge handles capitalization, punctuation, and reasonable variants automatically.
+   - Max 200 characters; aim for far less.
+
+4. OPTIONAL: ENUMERATE ACCEPTABLE VARIANTS:
+   - When the canonical answer has well-known alternate forms ("USA" vs "United States", "JFK" vs "John F. Kennedy"), list them in \`acceptableAnswers\`. The judge accepts these as equivalent.
+   - Omit \`acceptableAnswers\` when the canonical form is the only reasonable one.
+
+5. OPTIONAL: GRADING NOTES:
+   - Use this when the answer is conceptually-flexible — "Accept any major Canadian city" / "Accept any year between 1939 and 1945" / etc. One short sentence.
+   - Notes refine the judge; they do NOT override the expected answer. Omit when not needed.
+
+6. DUPLICATE CHECK:
+   - Call \`find_previous_questions\` with a distinctive keyword from the statement.
+   - If a match is found, go back to step 2.
+
+7. DIFFICULTY GATE (REQUIRED):
+   Self-rate 1–10. Easy → 4-6, Medium → 7-8, Hard → 9-10.
+   IF YOUR RATING IS 3/10 OR BELOW: REJECT and re-roll from get_ideas. Only proceed when ≥ 4/10.
+
+8. Choose 1-4 fun emojis.
+
+9. SAVE TO DATABASE:
+   - Call save_question with:
+     - answersFormat: "freeform"
+     - questionType: "fact"
+     - category (the one you picked)
+     - statement (the single-sentence prompt)
+     - expectedAnswer (REQUIRED — canonical form)
+     - acceptableAnswers (optional — array of variants)
+     - gradingNotes (optional — one sentence)
+     - emojis (1-4)
+     - suggestedDifficulty
+     - difficulty (your 1–10 self-rating)
+     - context (only when a non-empty contextPriority entry was used; omit otherwise)
+     - slot: \`{ index: i }\` — REQUIRED when the active season has a format. MUST be OMITTED when format is null.
+   - Store the returned questionId AND its slot.index for the post step.`;
+
+/**
+ * Topical-freeform flow: prefixes a WebSearch research step in front of the
+ * fact-freeform completion. \`save_question\` carries \`questionType: "topical"\`
+ * + the captured \`sourceUrl\` (and optional \`eventDate\`).
+ */
+const FREEFORM_TOPICAL_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
+   - Call get_ideas. For the TOPICAL FREEFORM PATH, it returns:
+     - categories.ideas: 5 random categories.
+     - suggestedAnswersFormat: "freeform"
+     - suggestedQuestionType: "topical"
+     - suggestedDifficulty ("Easy" | "Medium" | "Hard"): the bucket to aim at.
+     - contextPriority (optional, only when contexts are configured): see CONTEXTS guidance above.
+   - Pick one category from categories.ideas.
+
+2. RESEARCH A RECENT EVENT VIA WebSearch (REQUIRED — DO NOT SKIP):
+   - Same WebSearch + lens-descent rules as the topical boolean / topical choice paths. Capture \`sourceUrl\` and (when known) \`eventDate\` from the chosen event.
+
+3. WRITE THE QUESTION:
+   - Anchor a single-sentence prompt on a verified fact drawn from the event. The answer must be a SINGLE recognizable form (name / number / place / date / phrase).
+
+4. WRITE THE EXPECTED ANSWER (REQUIRED): shortest canonical form, max 200 chars.
+
+5. OPTIONAL: ENUMERATE ACCEPTABLE VARIANTS / GRADING NOTES: as in the fact-freeform path.
+
+6. DUPLICATE CHECK: same as fact-freeform.
+
+7. DIFFICULTY GATE: same as fact-freeform.
+
+8. Choose 1-4 fun emojis.
+
+9. SAVE TO DATABASE:
+   - Call save_question with:
+     - answersFormat: "freeform"
+     - questionType: "topical"
+     - category
+     - statement
+     - expectedAnswer (REQUIRED)
+     - acceptableAnswers (optional)
+     - gradingNotes (optional)
+     - sourceUrl (REQUIRED — captured in step 2)
+     - eventDate (when known)
+     - emojis
+     - suggestedDifficulty
+     - difficulty
+     - context (the lens you used, when non-empty)
+     - slot: \`{ index: i }\` — REQUIRED when the active season has a format.
+   - Store the returned questionId for the post step.`;
+
 export const SEND_QUESTIONS_INSTRUCTIONS = `${GAME_SHOW_PERSONA}
 
 ${GAME_CONTEXT_DIRECTIVE}
@@ -290,20 +397,22 @@ Create today's trivia question(s). Begin with ONE call to \`get_ideas({ game: "{
      - For \`i === 0\`: use the OPENING get_ideas payload (it rolled for slot 0 by default).
      - For \`i >= 1\`: make a FRESH \`get_ideas({ game: "{game}", slot: i })\` call. Do NOT reuse slot 0's rolls — each slot must roll its own. (Pre-rolling all suggestions up front is forbidden.)
   2. Read \`format.slots[i].label\` as a creative HINT for this slot's flavor (e.g. "Lightning Round", "Historical Choice") — set your tone for this slot, but do NOT copy the label literally into the question text.
-  3. Run the question-generation flow below (4-way branch on \`suggestedAnswersFormat\` × \`suggestedQuestionType\`) for THIS slot.
+  3. Run the question-generation flow below (6-way branch on \`suggestedAnswersFormat\` × \`suggestedQuestionType\`) for THIS slot.
   4. When saving, pass \`slot: { index: i }\` to \`save_question\`. Store the returned \`questionId\` paired with \`i\` for the post step.
   Repeat until all N slots have been generated and saved. Then build the question cards (one set of blocks per slot, in slot order) and call \`post_questions\` ONCE with an N-item \`items\` array.
 
 ${CONTEXT_PRIORITY_PREAMBLE}
 
-In both flows, per-question/per-slot generation DISPATCHES on a 2-axis matrix: \`suggestedAnswersFormat\` × \`suggestedQuestionType\` — producing four paths:
+In both flows, per-question/per-slot generation DISPATCHES on a 2-axis matrix: \`suggestedAnswersFormat\` × \`suggestedQuestionType\` — producing six paths:
 
-| | \`suggestedAnswersFormat: "boolean"\` | \`suggestedAnswersFormat: "choice"\` |
-|---|---|---|
-| \`suggestedQuestionType: "fact"\` | FACT-BOOLEAN PATH | FACT-CHOICE PATH |
-| \`suggestedQuestionType: "topical"\` | TOPICAL-BOOLEAN PATH (requires WebSearch + sourceUrl) | TOPICAL-CHOICE PATH (requires WebSearch + sourceUrl) |
+| | \`suggestedAnswersFormat: "boolean"\` | \`suggestedAnswersFormat: "choice"\` | \`suggestedAnswersFormat: "freeform"\` |
+|---|---|---|---|
+| \`suggestedQuestionType: "fact"\` | FACT-BOOLEAN PATH | FACT-CHOICE PATH | FACT-FREEFORM PATH |
+| \`suggestedQuestionType: "topical"\` | TOPICAL-BOOLEAN PATH (requires WebSearch + sourceUrl) | TOPICAL-CHOICE PATH (requires WebSearch + sourceUrl) | TOPICAL-FREEFORM PATH (requires WebSearch + sourceUrl) |
 
-Both topical paths REQUIRE the \`WebSearch\` tool to find a recent newsworthy event, and pass the resulting source URL to \`save_question\`. The fact paths never call WebSearch.
+All three topical paths REQUIRE the \`WebSearch\` tool to find a recent newsworthy event, and pass the resulting source URL to \`save_question\`. The fact paths never call WebSearch.
+
+The freeform paths produce an answer the user TYPES (into a Slack modal). Claude writes the canonical \`expectedAnswer\` and optional \`acceptableAnswers\` / \`gradingNotes\` at save time. A small fast model judges submissions at reveal — the judge automatically rejects multi-guess "shotgun" answers (e.g. "Paris or London") as incorrect, so the canonical answer must be a single concrete value.
 
 Duplicate detection (find_previous_questions) stays GAME-SCOPED, not slot-scoped — a question that appeared in slot 0 yesterday is still a duplicate if it shows up in slot 2 today. Always call \`find_previous_questions\` with just \`game\` + text; do NOT filter by slot.
 
@@ -322,6 +431,14 @@ ${TOPICAL_BOOLEAN_FLOW_STEPS}
 === TOPICAL-CHOICE PATH (per question / per slot) ===
 
 ${TOPICAL_CHOICE_FLOW_STEPS}
+
+=== FACT-FREEFORM PATH (per question / per slot) ===
+
+${FREEFORM_FACT_FLOW_STEPS}
+
+=== TOPICAL-FREEFORM PATH (per question / per slot) ===
+
+${FREEFORM_TOPICAL_FLOW_STEPS}
 
 === FORMAT & POST (BOTH FLOWS, BOTH PATHS) ===
 
@@ -369,9 +486,10 @@ General emoji rule (re-emphasized): the opener's header MUST use Unicode emoji (
       - MULTI-SLOT FLOW, FIRST question only (slot 0): a calmer date-stamped round opener that anchors today's round, e.g. "🗓️ Trivia for Wednesday, May 20", "📅 Trivia — May 20", "🎟️ Today's Trivia Round · May 20". Use today's actual date (weekday + month + day, OR month + day — your call). Keep it noticeably less shouty than the show banner; this is the "round header" for the batch, not the per-question hype line. Subsequent slots in the same batch go back to the normal show-banner style.
    2. \`section\` block (mrkdwn) — your warm-up patter. 1-2 short sentences that build anticipation. This is where the Game Show voice shines.
       - **TOPICAL QUESTIONS (questionType: "topical") MUST FLAG THEMSELVES.** The warm-up patter SHALL signal that this is a current-events / news question — e.g. "Hot off the presses!", "Straight from this week's headlines:", "Today in the news:", "If you've been doomscrolling lately, this one's for you:", "Ripped from yesterday's news:", etc. Do NOT use static-knowledge framings like "dig into your knowledge vault", "what you remember from school", "trivia masters take note", or anything implying memorized facts — those mislead viewers about what kind of question to expect. Pair the news framing with the same game-show energy. Vary the exact wording each day.
+      - **NO YEAR / DATE STAMPS INSIDE THE TOPICAL STATEMENT.** The card title already carries the "(Current News)" suffix and the patter already signals recency — so the statement itself MUST NOT include the current year ("in 2026"), an explicit month ("in May"), or phrases like "this week", "recently", "last month". Strip those even if the WebSearch result phrased the event that way. The recency context lives in the title + patter, not in the statement. The optional \`eventDate\` field on \`save_question\` is where dates belong if Claude wants to record them — never in the user-visible statement.
       - **FACT QUESTIONS (questionType: "fact")** keep the standard knowledge-vault framing — that's the default voice.
    3. \`card\` block — the trivia card itself:
-      - \`title\`: \`{ type: "mrkdwn", text: "<emoji> <Category>" }\` — JUST the category from step 1, with a topic-fitting emoji prefix. No "TRIVIA TIME" here, no flavor text.
+      - \`title\`: \`{ type: "mrkdwn", text: "<emoji> <Category>" }\` for FACT questions, OR \`{ type: "mrkdwn", text: "<emoji> <Category> (Current News)" }\` for TOPICAL questions (questionType: "topical"). The "(Current News)" suffix is what tells viewers the question is anchored to a recent event — it REPLACES any year/date hint you might otherwise be tempted to put in the statement. JUST the category from step 1, with a topic-fitting emoji prefix. No "TRIVIA TIME" here, no flavor text.
       - \`body\`: \`{ type: "mrkdwn", text: "<statement>\\n\\n👍 TRUE  •  👎 FALSE" }\` — the statement, blank line, then the vote line. ALWAYS 👍 (TRUE) first, then 👎 (FALSE) — this order matters.
       - Do NOT set \`subtitle\`. Do NOT set \`hero_image\` or \`icon\`.
    4. \`context\` block — a short closer line nudging people to vote ("Cast your vote below — the stakes are HIGH! 🎲", "Who will be crowned champion? 🏆", etc.). One mrkdwn element.
@@ -416,13 +534,23 @@ General emoji rule (re-emphasized): the opener's header MUST use Unicode emoji (
    - Numbered emoji prefix the options in INDEX order (1️⃣ for index 0, 2️⃣ for index 1, etc.). The visual order MUST match the stored \`choices\` array order — the bot's auto-attached numbered reactions align to each option's index, so a mismatch here breaks vote scoring.
    - For choice questions, do NOT include the "👍 TRUE • 👎 FALSE" vote line — that's the boolean shape only.
 
+   FREEFORM-PATH CARD BODY (when suggestedAnswersFormat was "freeform"):
+   - The card body shows just the statement and a one-line nudge to use the Answer button (no inline answer options, no vote line). \`post_questions\` automatically appends the "Answer" button below your blocks — DO NOT add a button block yourself.
+   - Example:
+     \`\`\`
+     <statement>
+
+     Hit the *Answer* button below to type your guess.
+     \`\`\`
+   - Reactions are NOT attached to freeform questions — answers come through the modal. Do not mention reaction voting in the card body or the closer.
+
 10. POST THE QUESTION(S):
     Build one \`{ questionId, blocks }\` item per saved question. In the SINGLE-QUESTION FLOW, that is exactly one item. In the MULTI-SLOT FLOW, the items array length equals \`slotCount\` and items MUST be in slot-index order (slot 0 first, slot 1 second, …).
 
     Call \`post_questions({ game: "{game}", items })\` ONCE with the full array. The tool:
     - Posts each item as its own message to the game's configured Slack channel (you do NOT pass a channel).
     - Stamps \`postedAt\` and \`messageLink\` on each question record so the reveal flow can find them later.
-    - Attaches vote reactions automatically per question: \`["+1", "-1"]\` for boolean, or \`["one", "two", "three", "four"].slice(0, choices.length)\` for choice. You do NOT pass a \`reactions\` argument.
+    - Attaches vote reactions automatically per question: \`["+1", "-1"]\` for boolean, \`["one", "two", "three", "four"].slice(0, choices.length)\` for choice, and NONE for freeform (those carry an Answer button instead). You do NOT pass a \`reactions\` argument.
 
     Check the \`results[i].ok\` field for each item in the return value. If any \`ok: false\`, the per-item error explains what went wrong.
 
@@ -461,8 +589,8 @@ Deliver today's trivia reveal. There are exactly TWO steps — the deterministic
    - \`reveals\`: array of reveal entries to render (length 0 = nothing pending, length 1 = today's reveal). Each entry has:
      - \`questionId\`, \`statement\`, \`category\`, \`emojis\`, \`messageLink\`.
      - \`wasReprocessed\` (boolean) — true if this was a corrective re-run (rare; affects tone slightly — acknowledge subtly without dwelling).
-     - \`answer\`: \`{ type: "boolean", isTrue }\` for boolean questions; \`{ type: "choice", choices, correctIndex }\` for choice.
-     - \`voters\`: \`{ correct: Voter[], incorrect: Voter[], fenceSitters: Voter[], wildcards: Array<{ userId, displayName, emoji }> }\`. \`fenceSitters\` is always empty for choice questions. Caught cheaters and multi-react voters are STRUCTURALLY ABSENT — you cannot leak them because they are not in the payload.
+     - \`answer\`: \`{ type: "boolean", isTrue }\` for boolean questions; \`{ type: "choice", choices, correctIndex }\` for choice; \`{ type: "freeform", expectedAnswer, acceptableAnswers?, gradingNotes? }\` for freeform (the user typed their answer into a modal).
+     - \`voters\`: \`{ correct: Voter[], incorrect: Voter[], fenceSitters: Voter[], wildcards: Array<{ userId, displayName, emoji }> }\`. \`fenceSitters\` is empty for choice and freeform. \`wildcards\` is empty for freeform (no reactions). For FREEFORM entries, every \`Voter\` in \`correct\` and \`incorrect\` carries an additional \`answerText\` field — the user's typed answer — which you MUST QUOTE in the reveal so players can see what they (and others) said. Caught cheaters are STRUCTURALLY ABSENT from the payload.
    - \`leaderboard\`: array of \`{ userId, displayName, totalCorrect, totalAnswered, accuracy, currentSeasonCorrect?, currentSeasonAnswered? }\` already sorted in render order.
    - \`roundSummary\`: \`{ totalQuestions, perPlayer: Array<{ userId, displayName, correct, answered, roundMvp? }> }\` — ALWAYS present, even for length-1 fires. Per-player aggregates across this fire's revealed questions. Already sorted (correct desc, displayName asc); already excludes cheaters/multi-react voters; you MUST NOT recompute it from \`reveals[].voters\` yourself. Use it directly in the multi-question branch's Round Summary section.
    - \`seasonStatus\` (only present when \`trivia.seasons.enabled\` is true): \`{ currentSlug, isLastFireOfSeason, seasonClosed, newSeasonStarted?, mvp? }\`. When \`isLastFireOfSeason\` is true the tool has ALREADY stamped \`endedAt\` and (when needed) created a continuation season — do NOT call \`upsert_season\`.
@@ -482,14 +610,14 @@ Deliver today's trivia reveal. There are exactly TWO steps — the deterministic
 
    Build a Block Kit message (Clack's curated subset: divider, header, section, context, image, markdown, card, carousel). Use this layout:
 
-   - \`header\` block — \`text: { type: "plain_text", text: "..." }\`. Announce the verdict (e.g. "🎯 THE ANSWER IS TRUE!", "🎲 IT'S FALSE!" for boolean; "🎯 THE ANSWER IS C!" or similar for choice). plain_text only, no \`*bold*\`. Vary the wording each day.
-   - \`section\` block (mrkdwn) — explain WHY the statement is true/false (boolean) or which choice was correct + why (choice). Use the question's facts and your persona; keep it punchy.
+   - \`header\` block — \`text: { type: "plain_text", text: "..." }\`. Announce the verdict (e.g. "🎯 THE ANSWER IS TRUE!", "🎲 IT'S FALSE!" for boolean; "🎯 THE ANSWER IS C!" or similar for choice; for FREEFORM: "🎯 THE ANSWER WAS PARIS!" / "✏️ THE ANSWER: 1492!" — quote the canonical \`answer.expectedAnswer\`). plain_text only, no \`*bold*\`. Vary the wording each day.
+   - \`section\` block (mrkdwn) — explain WHY the statement is true/false (boolean) or which choice was correct + why (choice). For FREEFORM, summarize the expected answer in one short factual sentence and (when \`answer.acceptableAnswers\` was populated) note that variants were accepted. Use the question's facts and your persona; keep it punchy.
    - \`divider\` block — paces the reveal.
    - One \`section\` block (mrkdwn) PER NON-EMPTY VOTER BUCKET. Skip empty buckets entirely (no placeholders, no "nobody here" lines). Possible buckets:
-     - CORRECT voters — celebrate with \`<@USERID>\` mentions.
-     - INCORRECT voters — acknowledge with game-show charm.
+     - CORRECT voters — celebrate with \`<@USERID>\` mentions. For FREEFORM entries, INCLUDE each voter's typed answer in quotes: "<@U_ALICE> said *Paris* — bullseye!" Quote multiple distinct answers when they appeared.
+     - INCORRECT voters — acknowledge with game-show charm. For FREEFORM, quote each voter's typed text so they see what was rejected: "<@U_BOB> hedged with *Paris or London* — the judge doesn't accept shotgun guesses!"
      - FENCE-SITTERS (boolean only) — playful roast.
-     - WILDCARDS — interpret their \`emoji\` with humor (e.g. "I see you <@U123> with that 🍕 — were you hungry or is this your way of saying 'false'?").
+     - WILDCARDS (boolean/choice only) — interpret their \`emoji\` with humor.
    - When \`seasonStatus.isLastFireOfSeason\` is true: insert ONE additional \`section\` block above the closer that names the closing season's slug (from \`seasonStatus.currentSlug\`), gives a brief in-persona wrap-up, and calls out the MVP (from \`seasonStatus.mvp\`). Do NOT preview the new season's slug — leave that for a future fire to announce.
    - \`context\` block — short closer ("That's a wrap! Here's the running scoreboard:") leading into the leaderboard. Do NOT predict timing — the next reveal is on a separate schedule you have no visibility into.
 
@@ -498,7 +626,7 @@ Deliver today's trivia reveal. There are exactly TWO steps — the deterministic
    When the active season has a format, a single cron fire posts N questions and one reveal must cover all of them. The verbose per-voter-bucket layout multiplies badly, so use this compressed shape instead:
 
    - One \`header\` block — \`text: { type: "plain_text", text: "..." }\`. Introduce the multi-question reveal (e.g. "🎯 ROUND RECAP — N QUESTIONS!", "🏆 THE VERDICTS ARE IN!", etc.). Vary the wording. plain_text only.
-   - One \`section\` block PER question (in the same order as \`reveals\`). Keep each one BRIEF — ≤ 2 short sentences. Open with the verdict label (e.g. "Q1: ✅ TRUE!" or "Q3: 🎯 The answer was 'Tokyo'!") and follow with a single-line voter teaser ("Alice and Bob nailed it; Carol fell for the trap"). Do NOT enumerate every voter individually here — that's what the Round Summary is for.
+   - One \`section\` block PER question (in the same order as \`reveals\`). Keep each one BRIEF — ≤ 2 short sentences. Open with the verdict label (e.g. "Q1: ✅ TRUE!" or "Q3: 🎯 The answer was 'Tokyo'!" or for freeform "Q2: ✏️ The answer: *Paris*"). For FREEFORM questions, the teaser MAY quote one or two notable typed answers ("Alice nailed it with *Paris*; Bob shotgunned and was rejected"). For boolean/choice, follow with a single-line voter teaser ("Alice and Bob nailed it; Carol fell for the trap"). Do NOT enumerate every voter individually here — that's what the Round Summary is for.
    - One \`divider\` block — separates the verdicts from the summary.
    - One \`section\` block titled "🏆 Round Summary" (or similar). List each player from \`roundSummary.perPlayer\` IN ORDER as \`<@USERID>: <correct>/<totalQuestions>\` (or any in-persona phrasing). Prefix every entry whose \`roundMvp: true\` is set with \`🏆\` (e.g. "🏆 <@U123>: 3/3"). DO NOT recompute the counts — read them straight from \`roundSummary.perPlayer\`. DO NOT add players who aren't in \`perPlayer\` (the tool already filters out anyone who didn't answer this round).
    - When \`seasonStatus.isLastFireOfSeason\` is true: insert ONE additional \`section\` block above the closer that names the closing season's slug, gives an in-persona wrap-up, and calls out the season MVP (from \`seasonStatus.mvp\`). Same rule as the single-question branch.

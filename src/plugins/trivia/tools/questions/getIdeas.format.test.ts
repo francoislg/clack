@@ -31,7 +31,7 @@ function makeConfig(trivia: Config["trivia"]): Config {
 
 const SEASONS_ON_CONFIG = makeConfig({
   seasons: { enabled: true, prompt: "Monthly" },
-  answersFormat: { boolean: 1, choice: 0 },
+  answersFormat: { boolean: 1, choice: 0, freeform: 0 },
 });
 
 async function seedSeason(
@@ -141,9 +141,9 @@ describe("get_ideas — format meta and slot routing", () => {
 
   it("uses slot.answersFormat when set (overrides season answersFormat)", async () => {
     await seedSeason(data, {
-      answersFormat: { boolean: 1, choice: 0 },
+      answersFormat: { boolean: 1, choice: 0, freeform: 0 },
       format: {
-        questions: [{ answersFormat: { boolean: 0, choice: 1 } }],
+        questions: [{ answersFormat: { boolean: 0, choice: 1, freeform: 0 } }],
       },
     });
     const tool = createGetIdeasTool(data, () => SEASONS_ON_CONFIG, fixtureGetGames);
@@ -158,7 +158,7 @@ describe("get_ideas — format meta and slot routing", () => {
 
   it("falls back to season.answersFormat when slot has none", async () => {
     await seedSeason(data, {
-      answersFormat: { boolean: 0, choice: 1 },
+      answersFormat: { boolean: 0, choice: 1, freeform: 0 },
       format: { questions: [{}] },
     });
     const tool = createGetIdeasTool(data, () => SEASONS_ON_CONFIG, fixtureGetGames);
@@ -176,7 +176,7 @@ describe("get_ideas — format meta and slot routing", () => {
     });
     const cfg = makeConfig({
       seasons: { enabled: true, prompt: "Monthly" },
-      answersFormat: { boolean: 0, choice: 1 },
+      answersFormat: { boolean: 0, choice: 1, freeform: 0 },
     });
     const tool = createGetIdeasTool(data, () => cfg, fixtureGetGames);
     for (let i = 0; i < 10; i++) {

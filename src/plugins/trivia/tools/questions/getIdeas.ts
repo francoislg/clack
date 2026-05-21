@@ -32,7 +32,7 @@ Always returns:
 - \`format\`: \`{ slotCount, slots: [{ index, label?, categories }] }\` when the active season defines a \`format\` (multi-slot composition), else \`null\`. \`slots[i].categories\` is the slot's RESOLVED pool (slot.categories ?? season.categories).
 - \`slot\` (number): echoes the request's \`slot\` argument (default 0).
 - \`categories.ideas\`: 5 random categories drawn from the active source pool (slot's resolved pool when format is present, season's categories otherwise)
-- \`suggestedAnswersFormat\`: \`"boolean"\` or \`"choice"\` — picked from active answersFormat weights (slot.answersFormat → season.answersFormat → config.trivia.answersFormat → boolean default)
+- \`suggestedAnswersFormat\`: \`"boolean"\`, \`"choice"\`, or \`"freeform"\` — picked from active answersFormat weights (slot.answersFormat → season.answersFormat → config.trivia.answersFormat → boolean default). \`"freeform"\` means the user types their answer into a Slack modal; Claude writes the canonical answer and a small fast model judges submissions at reveal.
 - \`suggestedQuestionType\`: \`"fact"\` or \`"topical"\` — picked INDEPENDENTLY from active questionType weights (slot.questionType → season.questionType → config.trivia.questionType → fact default). \`"topical"\` REQUIRES Claude to use \`WebSearch\` and capture a \`sourceUrl\` when saving.
 - \`suggestedDifficulty\`: \`"Easy" | "Medium" | "Hard"\`
 - \`firstFireOfSeason\` (boolean): \`true\` iff seasons are enabled, a current season exists, AND zero saved questions in this game carry \`season === currentSlug\`. Honor this in the question-posting prompt by prepending a ceremonial opener (\`header\` + \`section\` blocks) ABOVE the question content on the first fire of every new season.
@@ -45,6 +45,8 @@ When suggestedAnswersFormat is \`"boolean"\`, also returns:
 When suggestedAnswersFormat is \`"choice"\`, also returns:
 - \`suggestedChoiceCount\` (integer in active [min, max]): the number of options
 - \`suggestedCorrectIndex\` (integer in [0, suggestedChoiceCount)): the 0-based index of the correct option
+
+When suggestedAnswersFormat is \`"freeform"\`, no extra fields are returned — Claude writes the canonical \`expectedAnswer\` directly (no server-rolled correctness hint).
 
 Each call rolls suggestions independently — no caching across slot indices. When the active season has a \`format\`, loop slots 0..slotCount-1 with separate calls; do NOT pre-roll all slots up front.
 
@@ -203,6 +205,12 @@ export function createGetIdeasTool(
           suggestedChoiceCount,
           suggestedCorrectIndex,
         });
+      }
+
+      if (pickedAnswersFormat === "freeform") {
+        // Freeform has no server-rolled correctness hint — the model writes the
+        // expected answer directly. Only the base fields are returned.
+        return textResult(base);
       }
 
       return textResult({

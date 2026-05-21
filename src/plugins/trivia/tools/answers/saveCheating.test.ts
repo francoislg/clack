@@ -35,6 +35,9 @@ function makeFakeSdk(opts: FakeSdkOptions = {}): {
     registerView: () => {},
     actionId: (key: string) => `plugin:test:${key}`,
     viewCallbackId: (key: string) => `plugin:test:${key}`,
+    askClaude: async () => {
+      throw new Error("askClaude not used in saveCheating tests");
+    },
   };
   return { sdk, dmOwnerCalls };
 }

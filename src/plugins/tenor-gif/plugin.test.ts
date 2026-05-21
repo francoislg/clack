@@ -1,7 +1,10 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { createClackSdk } from "../sdk.js";
 import { tenorGifPlugin } from "./index.js";
+
+async function* emptyClackQuery(): AsyncGenerator<SDKMessage, void, void> {}
 
 describe("tenor-gif plugin load", () => {
   it("registers one instruction and one tool with the expected names", async () => {
@@ -9,6 +12,7 @@ describe("tenor-gif plugin load", () => {
       getSlackClient: () => null,
       loadRoles: async () => ({ owner: null, admins: [], devs: [] }),
       openDmChannel: async () => null,
+      clackQuery: emptyClackQuery,
     });
 
     await tenorGifPlugin(sdk);

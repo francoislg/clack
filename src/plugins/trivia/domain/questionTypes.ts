@@ -1,20 +1,16 @@
-import type { Config } from "../../../config.js";
+import type { Config, TriviaAnswersFormatWeights } from "../../../config.js";
 import { DEFAULT_TRIVIA_CHOICES } from "../../../config.js";
-import type {
-  SeasonAnswersFormatWeights,
-  SeasonsState,
-  SeasonEntry,
-  ScopedTriviaDataLayer,
-} from "../core/types.js";
+import type { SeasonsState, SeasonEntry, ScopedTriviaDataLayer } from "../core/types.js";
 import { findCurrentSeason } from "../core/seasonTimeline.js";
 
 /**
  * Built-in fallback when neither a current season nor workspace config provides
  * `answersFormat`. Equivalent to pre-choice-questions behavior.
  */
-export const DEFAULT_ANSWERS_FORMAT_WEIGHTS: SeasonAnswersFormatWeights = {
+export const DEFAULT_ANSWERS_FORMAT_WEIGHTS: TriviaAnswersFormatWeights = {
   boolean: 1,
   choice: 0,
+  freeform: 0,
 };
 
 /**
@@ -32,7 +28,7 @@ export function resolveAnswersFormat(
   currentSeason: SeasonEntry | null,
   slotIndex: number | null,
   config: Config | null,
-): SeasonAnswersFormatWeights {
+): TriviaAnswersFormatWeights {
   if (currentSeason !== null && slotIndex !== null && currentSeason.format !== undefined) {
     const slot = currentSeason.format.questions[slotIndex];
     if (slot?.answersFormat !== undefined) {
@@ -57,7 +53,7 @@ export async function getActiveAnswersFormat(
   scoped: ScopedTriviaDataLayer,
   config: Config,
   now: number,
-): Promise<SeasonAnswersFormatWeights> {
+): Promise<TriviaAnswersFormatWeights> {
   const seasonsEnabled = config.trivia?.seasons?.enabled ?? false;
   let current: SeasonEntry | null = null;
   if (seasonsEnabled) {

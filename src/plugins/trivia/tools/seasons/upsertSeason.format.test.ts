@@ -50,7 +50,11 @@ describe("upsert_season — format argument", () => {
     assert.equal(entry?.format?.questions.length, 2);
     assert.equal(entry?.format?.questions[0].label, "Q1");
     assert.deepEqual(entry?.format?.questions[1].categories, ["History"]);
-    assert.deepEqual(entry?.format?.questions[1].answersFormat, { boolean: 0, choice: 1 });
+    assert.deepEqual(entry?.format?.questions[1].answersFormat, {
+      boolean: 0,
+      choice: 1,
+      freeform: 0,
+    });
   });
 
   it("create omits format when not passed (hasFormat: false, slotCount: 0)", async () => {

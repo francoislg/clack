@@ -129,9 +129,9 @@ describe("applySeasonRollover", () => {
   it("continuation inherits answersFormat from closing season", () => {
     const now = Date.UTC(2026, 4, 31, 12, 0, 0, 0);
     const state = makeActiveState(now, "season-2026-05");
-    state.seasons[0].answersFormat = { boolean: 0, choice: 1 };
+    state.seasons[0].answersFormat = { boolean: 0, choice: 1, freeform: 0 };
     applySeasonRollover(state, "season-2026-05", now);
-    assert.deepEqual(state.seasons[1].answersFormat, { boolean: 0, choice: 1 });
+    assert.deepEqual(state.seasons[1].answersFormat, { boolean: 0, choice: 1, freeform: 0 });
   });
 
   it("continuation inherits format from closing season (deep-copied)", () => {
@@ -139,11 +139,11 @@ describe("applySeasonRollover", () => {
     const state = makeActiveState(now, "season-2026-05");
     state.seasons[0].format = {
       questions: [
-        { label: "GK", answersFormat: { boolean: 1, choice: 0 } },
+        { label: "GK", answersFormat: { boolean: 1, choice: 0, freeform: 0 } },
         {
           label: "History Choice",
           categories: ["History"],
-          answersFormat: { boolean: 0, choice: 1 },
+          answersFormat: { boolean: 0, choice: 1, freeform: 0 },
         },
       ],
     };

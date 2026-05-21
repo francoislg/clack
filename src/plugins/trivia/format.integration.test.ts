@@ -14,8 +14,11 @@ import type { TriviaDataLayer } from "./core/types.js";
 import type { ClackSdk } from "../sdk.js";
 import { applySeasonRollover } from "./tools/reveal/rollover.js";
 
-function fakeSdk(): Pick<ClackSdk, "getSlackClient"> {
-  return { getSlackClient: () => null };
+function fakeSdk(): Pick<ClackSdk, "getSlackClient" | "actionId"> {
+  return {
+    getSlackClient: () => null,
+    actionId: (key: string) => `plugin:trivia:${key}`,
+  };
 }
 
 const SESSION = { sessionId: "test" };
@@ -63,7 +66,7 @@ function postQuestionsDeps(): PostQuestionsSlackDeps {
 
 const SEASONS_ON = makeConfig({
   seasons: { enabled: true, prompt: "Monthly" },
-  answersFormat: { boolean: 1, choice: 0 },
+  answersFormat: { boolean: 1, choice: 0, freeform: 0 },
 });
 
 describe("Trivia question-format end-to-end flow", () => {
@@ -138,6 +141,9 @@ describe("Trivia question-format end-to-end flow", () => {
           sourceUrl: undefined,
           eventDate: undefined,
           context: undefined,
+          expectedAnswer: undefined,
+          acceptableAnswers: undefined,
+          gradingNotes: undefined,
           category: "Science",
           statement: "Water freezes at zero Celsius at sea level.",
           isTrue: true,
@@ -173,6 +179,9 @@ describe("Trivia question-format end-to-end flow", () => {
           sourceUrl: undefined,
           eventDate: undefined,
           context: undefined,
+          expectedAnswer: undefined,
+          acceptableAnswers: undefined,
+          gradingNotes: undefined,
           category: "Sports", // not in slot 1's narrowed pool
           statement: "Some plausible statement here.",
           isTrue: false,
@@ -198,6 +207,9 @@ describe("Trivia question-format end-to-end flow", () => {
           sourceUrl: undefined,
           eventDate: undefined,
           context: undefined,
+          expectedAnswer: undefined,
+          acceptableAnswers: undefined,
+          gradingNotes: undefined,
           category: "History",
           statement: "Napoleon was crowned Emperor in 1804.",
           isTrue: true,
@@ -268,10 +280,10 @@ describe("Trivia question-format end-to-end flow", () => {
           startedAt: now - 30 * DAY,
           expectedEndAt: now + 1,
           categories: ["Marine Biology", "Cephalopods", "Tides"],
-          answersFormat: { boolean: 0, choice: 1 } as const,
+          answersFormat: { boolean: 0, choice: 1, freeform: 0 } as const,
           format: {
             questions: [
-              { label: "GK", answersFormat: { boolean: 1, choice: 0 } },
+              { label: "GK", answersFormat: { boolean: 1, choice: 0, freeform: 0 } },
               { label: "History", categories: ["Marine Biology"] },
             ],
           },
@@ -287,7 +299,7 @@ describe("Trivia question-format end-to-end flow", () => {
     // categories inherited — NOT global baseline
     assert.deepEqual(continuation.categories, ["Marine Biology", "Cephalopods", "Tides"]);
     // answersFormat inherited
-    assert.deepEqual(continuation.answersFormat, { boolean: 0, choice: 1 });
+    assert.deepEqual(continuation.answersFormat, { boolean: 0, choice: 1, freeform: 0 });
     // format inherited (deep-copied)
     assert.equal(continuation.format?.questions.length, 2);
     assert.equal(continuation.format?.questions[0].label, "GK");

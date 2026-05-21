@@ -10,15 +10,12 @@ import {
   validateContexts,
   validateFormat,
 } from "../../domain/seasonFormat.js";
+import type { TriviaDataLayer, SeasonsState, SeasonEntry, SeasonFormat } from "../../core/types.js";
 import type {
-  TriviaDataLayer,
-  SeasonsState,
-  SeasonEntry,
-  SeasonAnswersFormatWeights,
-  SeasonQuestionTypeWeights,
-  SeasonContextEntry,
-  SeasonFormat,
-} from "../../core/types.js";
+  TriviaAnswersFormatWeights,
+  TriviaQuestionTypeWeights,
+  TriviaContextEntry,
+} from "../../../../config.js";
 
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -54,6 +51,7 @@ const slotShape = z.object({
     .object({
       boolean: z.number().int().nonnegative().optional(),
       choice: z.number().int().nonnegative().optional(),
+      freeform: z.number().int().nonnegative().optional(),
     })
     .optional(),
   questionType: z
@@ -109,11 +107,12 @@ export function createUpsertSeasonTool(
         .object({
           boolean: z.number().int().nonnegative().optional(),
           choice: z.number().int().nonnegative().optional(),
+          freeform: z.number().int().nonnegative().optional(),
         })
         .nullable()
         .optional()
         .describe(
-          "Optional per-season answer-format weights (boolean/choice). On UPDATE: passing `null` clears the field. Mid-season mutation permitted.",
+          "Optional per-season answer-format weights (boolean/choice/freeform). On UPDATE: passing `null` clears the field. Mid-season mutation permitted.",
         ),
       questionType: z
         .object({
@@ -190,7 +189,7 @@ export function createUpsertSeasonTool(
           );
         }
 
-        let answersFormatWeights: SeasonAnswersFormatWeights | undefined;
+        let answersFormatWeights: TriviaAnswersFormatWeights | undefined;
         if (args.answersFormat !== undefined && args.answersFormat !== null) {
           const sparse: Record<string, number> = {};
           if (args.answersFormat.boolean !== undefined) sparse.boolean = args.answersFormat.boolean;
@@ -200,7 +199,7 @@ export function createUpsertSeasonTool(
           answersFormatWeights = validated.value;
         }
 
-        let questionTypeWeights: SeasonQuestionTypeWeights | undefined;
+        let questionTypeWeights: TriviaQuestionTypeWeights | undefined;
         if (args.questionType !== undefined && args.questionType !== null) {
           const sparse: Record<string, number> = {};
           if (args.questionType.fact !== undefined) sparse.fact = args.questionType.fact;
@@ -210,7 +209,7 @@ export function createUpsertSeasonTool(
           questionTypeWeights = validated.value;
         }
 
-        let contexts: SeasonContextEntry[] | undefined;
+        let contexts: TriviaContextEntry[] | undefined;
         if (args.contexts !== undefined && args.contexts !== null) {
           const validated = validateContexts(args.contexts);
           if (!validated.ok) return errorResult(validated.error);
@@ -280,7 +279,7 @@ export function createUpsertSeasonTool(
         }
       }
 
-      let updatedAnswersFormat: SeasonAnswersFormatWeights | undefined = existing.answersFormat;
+      let updatedAnswersFormat: TriviaAnswersFormatWeights | undefined = existing.answersFormat;
       if (args.answersFormat === null) {
         updatedAnswersFormat = undefined;
       } else if (args.answersFormat !== undefined) {
@@ -292,7 +291,7 @@ export function createUpsertSeasonTool(
         updatedAnswersFormat = validated.value;
       }
 
-      let updatedQuestionType: SeasonQuestionTypeWeights | undefined = existing.questionType;
+      let updatedQuestionType: TriviaQuestionTypeWeights | undefined = existing.questionType;
       if (args.questionType === null) {
         updatedQuestionType = undefined;
       } else if (args.questionType !== undefined) {
@@ -304,7 +303,7 @@ export function createUpsertSeasonTool(
         updatedQuestionType = validated.value;
       }
 
-      let updatedContexts: SeasonContextEntry[] | undefined = existing.contexts;
+      let updatedContexts: TriviaContextEntry[] | undefined = existing.contexts;
       if (args.contexts === null) {
         updatedContexts = undefined;
       } else if (args.contexts !== undefined) {

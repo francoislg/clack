@@ -137,11 +137,11 @@ When an admin asks to **rename a future season**:
 
 ## Admin: answer formats per season
 
-Each season can also carry an optional \`answersFormat\` weight map (e.g. \`{ "boolean": 2, "choice": 1 }\` → roughly 2/3 true-false questions, 1/3 multiple-choice). When set, that map overrides the workspace-level \`config.trivia.answersFormat\` default for whichever season is current per \`findCurrentSeason\`. When absent, the workspace config (or pure-boolean fallback) is used.
+Each season can also carry an optional \`answersFormat\` weight map (e.g. \`{ "boolean": 2, "choice": 1 }\` → roughly 2/3 true-false questions, 1/3 multiple-choice; or \`{ "boolean": 1, "choice": 1, "freeform": 1 }\` to also roll free-form questions where the user types their answer into a Slack modal). When set, that map overrides the workspace-level \`config.trivia.answersFormat\` default for whichever season is current per \`findCurrentSeason\`. When absent, the workspace config (or pure-boolean fallback) is used. Keys you omit read as zero — \`{ "choice": 1 }\` is shorthand for \`{ "boolean": 0, "choice": 1, "freeform": 0 }\`.
 
 When an admin asks to **set a season to only generate multiple-choice questions** (or only true-false, or a custom mix):
 
-- Call \`upsert_season(slug, { answersFormat: { boolean: <w1>, choice: <w2> } })\`. At least one weight must be strictly positive. Mid-season mutation is permitted (unlike \`startedAt\`) — the next \`get_ideas\` call picks up the new mix.
+- Call \`upsert_season(slug, { answersFormat: { boolean: <w1>, choice: <w2>, freeform: <w3> } })\` (any subset; omitted keys default to 0). At least one weight must be strictly positive. Mid-season mutation is permitted (unlike \`startedAt\`) — the next \`get_ideas\` call picks up the new mix.
 
 When an admin asks to **clear a season's answersFormat** (let it fall back to the workspace default):
 

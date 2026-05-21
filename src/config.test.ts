@@ -1080,19 +1080,19 @@ describe("trivia.answersFormat config", () => {
   it("parses a weighted mix", () => {
     writeConfig(minimalConfig({ trivia: { answersFormat: { boolean: 2, choice: 1 } } }));
     const cfg = loadConfig(configPath, true);
-    assert.deepEqual(cfg.trivia?.answersFormat, { boolean: 2, choice: 1 });
+    assert.deepEqual(cfg.trivia?.answersFormat, { boolean: 2, choice: 1, freeform: 0 });
   });
 
   it("parses choice-only", () => {
     writeConfig(minimalConfig({ trivia: { answersFormat: { choice: 5 } } }));
     const cfg = loadConfig(configPath, true);
-    assert.deepEqual(cfg.trivia?.answersFormat, { boolean: 0, choice: 5 });
+    assert.deepEqual(cfg.trivia?.answersFormat, { boolean: 0, choice: 5, freeform: 0 });
   });
 
   it("parses boolean-only", () => {
     writeConfig(minimalConfig({ trivia: { answersFormat: { boolean: 1 } } }));
     const cfg = loadConfig(configPath, true);
-    assert.deepEqual(cfg.trivia?.answersFormat, { boolean: 1, choice: 0 });
+    assert.deepEqual(cfg.trivia?.answersFormat, { boolean: 1, choice: 0, freeform: 0 });
   });
 
   it("rejects all-zero weights", () => {

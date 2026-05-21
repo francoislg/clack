@@ -24,13 +24,9 @@ import { clearRolesCache } from "./roles.js";
 import { clearPreferencesCache } from "./userPreferences.js";
 import { clearAutoRespondCache } from "./autoRespond.js";
 import { clearCronJobsCache } from "./cronJobs.js";
-import { loadPlugins } from "./plugins/registry.js";
-import { getLoadedPlugins, setLoadedPlugins } from "./plugins/state.js";
-import {
-  registerAction as registerPluginAction,
-  registerView as registerPluginView,
-  unregisterByPluginName as unregisterPluginInteractivity,
-} from "./slack/pluginActionRegistry.js";
+import { loadAndInstallPlugins } from "./plugins/registry.js";
+import { getLoadedPlugins } from "./plugins/state.js";
+import { unregisterByPluginName as unregisterPluginInteractivity } from "./slack/pluginActionRegistry.js";
 
 // ---------------------------------------------------------------------------
 // Dependency Injection
@@ -64,8 +60,7 @@ export interface LifecycleDeps {
   clearPreferencesCache: typeof clearPreferencesCache;
   clearAutoRespondCache: typeof clearAutoRespondCache;
   clearCronJobsCache: typeof clearCronJobsCache;
-  loadPlugins: typeof loadPlugins;
-  setLoadedPlugins: typeof setLoadedPlugins;
+  loadAndInstallPlugins: typeof loadAndInstallPlugins;
 }
 
 export const defaultLifecycleDeps: LifecycleDeps = {
@@ -96,8 +91,7 @@ export const defaultLifecycleDeps: LifecycleDeps = {
   clearPreferencesCache,
   clearAutoRespondCache,
   clearCronJobsCache,
-  loadPlugins,
-  setLoadedPlugins,
+  loadAndInstallPlugins,
 };
 
 // ---------------------------------------------------------------------------
@@ -280,19 +274,7 @@ export async function restartAll(
 
     try {
       const pluginNames = config.plugins ?? [];
-      const loaded = await deps.loadPlugins(pluginNames);
-      deps.setLoadedPlugins(loaded);
-      // Install the new generation's action/view handlers in the central registry.
-      // The wildcard listener in slack/app.ts routes through this on every Slack
-      // interaction whose action_id / callback_id begins with `plugin:`.
-      for (const result of loaded.results) {
-        for (const entry of result.actionHandlers) {
-          registerPluginAction(entry.key, entry.handler, result.name);
-        }
-        for (const entry of result.viewHandlers) {
-          registerPluginView(entry.key, entry.handler, result.name);
-        }
-      }
+      await deps.loadAndInstallPlugins(pluginNames);
     } catch (error) {
       warnings.push(
         `Plugin reload failed: ${error instanceof Error ? error.message : String(error)}`,

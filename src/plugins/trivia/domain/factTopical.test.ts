@@ -32,6 +32,7 @@ function makeScopedDataLayer(state: SeasonsState | null): ScopedTriviaDataLayer 
     updateQuestion: async () => {},
     loadAnswers: async () => [],
     saveAnswer: async () => {},
+    updateAnswer: async () => {},
     deleteAnswersForQuestion: async () => 0,
     loadCheats: async () => [],
     saveCheat: async () => ({ totalAttempts: 0 }),

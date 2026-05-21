@@ -23,9 +23,12 @@ const SESSION = { sessionId: "test" };
 // FIXTURE_GAMES.channel — kept in sync with testHelpers.ts.
 const FIXTURE_CHANNEL = "C100000000";
 
-function fakeSdk(): Pick<ClackSdk, "getSlackClient"> {
+function fakeSdk(): Pick<ClackSdk, "getSlackClient" | "actionId"> {
   // Slack deps are injected directly in tests, so the sdk's getSlackClient is never called.
-  return { getSlackClient: () => null };
+  return {
+    getSlackClient: () => null,
+    actionId: (key: string) => `plugin:trivia:${key}`,
+  };
 }
 
 interface FakeSlackOpts {
@@ -161,6 +164,20 @@ describe("deriveReactions", () => {
 
     const choices4 = { ...choices2, choices: ["a", "b", "c", "d"] };
     assert.deepEqual(deriveReactions(choices4), ["one", "two", "three", "four"]);
+  });
+
+  it("returns [] for freeform questions (answered via modal, not reactions)", () => {
+    const q: TriviaQuestion = {
+      id: "x",
+      category: "C",
+      statement: "s",
+      answersFormat: "freeform",
+      questionType: "fact",
+      expectedAnswer: "Paris",
+      emojis: ["⚡"],
+      createdAt: 0,
+    };
+    assert.deepEqual(deriveReactions(q), []);
   });
 });
 
@@ -474,6 +491,86 @@ describe("post_questions tool", () => {
     const stored = (await data.forGame(FIXTURE_GAME_NAME).loadQuestions())[0];
     assert.equal(stored.postedAt, 1700000001500);
     assert.equal(stored.messageLink, "https://x/p1");
+  });
+
+  it("refuses the WHOLE batch atomically when any item's blocks fail Slack runtime validation", async () => {
+    const data = createInMemoryDataLayer();
+    await seedQuestion(data, { id: "Q1" });
+    await seedQuestion(data, { id: "Q2" });
+    await seedQuestion(data, { id: "Q3" });
+
+    const { deps, calls } = fakeSlackDeps();
+    const tool = createPostQuestionsTool(data, fakeSdk(), fixtureGetGames, deps);
+
+    // Header text > 150 chars violates Slack's runtime header cap. Q1 and Q3
+    // have valid blocks; Q2 alone is bad. The whole batch must be refused.
+    const badBlocks: ZodBlock[] = [
+      { type: "header", text: { type: "plain_text", text: "a".repeat(151) } },
+    ];
+
+    const result = await tool.handler(
+      {
+        game: FIXTURE_GAME_NAME,
+        items: [
+          { questionId: "Q1", blocks: SAMPLE_BLOCKS },
+          { questionId: "Q2", blocks: badBlocks },
+          { questionId: "Q3", blocks: SAMPLE_BLOCKS },
+        ],
+        appendToPreviousBatch: undefined,
+      },
+      SESSION,
+    );
+
+    assert.equal(result.isError, true, "expected a top-level error result");
+    const errorText = JSON.stringify(result);
+    assert.match(errorText, /items\[1\]/);
+    assert.match(errorText, /Q2/);
+
+    // No Slack calls of any kind.
+    assert.equal(calls.postBlocksCalls.length, 0);
+    assert.equal(calls.addReactionsCalls.length, 0);
+
+    // No question record was mutated.
+    const stored = await data.forGame(FIXTURE_GAME_NAME).loadQuestions();
+    for (const q of stored) {
+      assert.equal(q.postedAt, undefined, `${q.id} must not be stamped`);
+      assert.equal(q.batchId, undefined, `${q.id} must not get a batchId`);
+      assert.equal(q.messageLink, undefined, `${q.id} must not get a messageLink`);
+    }
+  });
+
+  it("aggregates validation failures across multiple items into one error", async () => {
+    const data = createInMemoryDataLayer();
+    await seedQuestion(data, { id: "Q1" });
+    await seedQuestion(data, { id: "Q2" });
+
+    const { deps, calls } = fakeSlackDeps();
+    const tool = createPostQuestionsTool(data, fakeSdk(), fixtureGetGames, deps);
+
+    const tooLongHeader: ZodBlock[] = [
+      { type: "header", text: { type: "plain_text", text: "h".repeat(151) } },
+    ];
+    const tooLongSection: ZodBlock[] = [
+      { type: "section", text: { type: "mrkdwn", text: "s".repeat(3001) } },
+    ];
+
+    const result = await tool.handler(
+      {
+        game: FIXTURE_GAME_NAME,
+        items: [
+          { questionId: "Q1", blocks: tooLongHeader },
+          { questionId: "Q2", blocks: tooLongSection },
+        ],
+        appendToPreviousBatch: undefined,
+      },
+      SESSION,
+    );
+
+    assert.equal(result.isError, true);
+    const errorText = JSON.stringify(result);
+    assert.match(errorText, /Q1/);
+    assert.match(errorText, /Q2/);
+    assert.equal(calls.postBlocksCalls.length, 0);
   });
 
   it("uses the channel from game config, not from args", async () => {

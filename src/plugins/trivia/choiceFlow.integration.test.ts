@@ -15,8 +15,11 @@ import type { Config } from "../../config.js";
 import type { TriviaDataLayer } from "./core/types.js";
 import type { ClackSdk } from "../sdk.js";
 
-function fakeSdk(): Pick<ClackSdk, "getSlackClient"> {
-  return { getSlackClient: () => null };
+function fakeSdk(): Pick<ClackSdk, "getSlackClient" | "actionId"> {
+  return {
+    getSlackClient: () => null,
+    actionId: (key: string) => `plugin:trivia:${key}`,
+  };
 }
 
 function postQuestionsDeps(): PostQuestionsSlackDeps {
@@ -72,7 +75,7 @@ describe("choice-questions end-to-end flow", () => {
   it("get_ideas → save_question → post_questions → submit_answers → find/history (choice path)", async () => {
     // 1. get_ideas in pure-choice config → returns suggestedAnswersFormat: "choice" + count + correctIndex
     const cfg = makeConfig({
-      answersFormat: { boolean: 0, choice: 1 },
+      answersFormat: { boolean: 0, choice: 1, freeform: 0 },
       choices: { min: 4, max: 4 },
     });
     const getIdeas = createGetIdeasTool(data, () => cfg, fixtureGetGames);
@@ -94,6 +97,9 @@ describe("choice-questions end-to-end flow", () => {
           sourceUrl: undefined,
           eventDate: undefined,
           context: undefined,
+          expectedAnswer: undefined,
+          acceptableAnswers: undefined,
+          gradingNotes: undefined,
           category: "Geography",
           statement: "Which is the smallest planet?",
           isTrue: undefined,
@@ -207,7 +213,7 @@ describe("choice-questions end-to-end flow", () => {
   });
 
   it("mixed-config flow: many calls produce both boolean and choice questions", async () => {
-    const cfg = makeConfig({ answersFormat: { boolean: 1, choice: 1 } });
+    const cfg = makeConfig({ answersFormat: { boolean: 1, choice: 1, freeform: 0 } });
     const getIdeas = createGetIdeasTool(data, () => cfg, fixtureGetGames);
     let booleans = 0;
     let choices = 0;
@@ -223,7 +229,7 @@ describe("choice-questions end-to-end flow", () => {
   });
 
   it("equal scoring: one boolean correct + one choice correct → totalCorrect 2", async () => {
-    const cfg = makeConfig({ answersFormat: { boolean: 1, choice: 1 } });
+    const cfg = makeConfig({ answersFormat: { boolean: 1, choice: 1, freeform: 0 } });
 
     // Save a boolean question
     const saveQuestion = createSaveQuestionTool(data, () => cfg, fixtureGetGames);
@@ -236,6 +242,9 @@ describe("choice-questions end-to-end flow", () => {
           sourceUrl: undefined,
           eventDate: undefined,
           context: undefined,
+          expectedAnswer: undefined,
+          acceptableAnswers: undefined,
+          gradingNotes: undefined,
           category: "Geography",
           statement: "The Earth is round.",
           isTrue: true,
@@ -260,6 +269,9 @@ describe("choice-questions end-to-end flow", () => {
           sourceUrl: undefined,
           eventDate: undefined,
           context: undefined,
+          expectedAnswer: undefined,
+          acceptableAnswers: undefined,
+          gradingNotes: undefined,
           category: "Astronomy",
           statement: "Which is the smallest planet?",
           isTrue: undefined,
