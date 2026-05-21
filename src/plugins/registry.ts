@@ -6,6 +6,11 @@ import { createClackSdk, type ClackPlugin, type PluginLoadResult } from "./sdk.j
 import { triviaPlugin } from "./trivia/index.js";
 import { tenorGifPlugin } from "./tenor-gif/index.js";
 import { giphyPlugin } from "./giphy/index.js";
+import { setLoadedPlugins } from "./state.js";
+import {
+  registerAction as registerPluginAction,
+  registerView as registerPluginView,
+} from "../slack/pluginActionRegistry.js";
 
 // ============================================================================
 // Built-in Plugin Registry
@@ -114,4 +119,35 @@ export async function loadPlugins(pluginNames: string[]): Promise<LoadedPlugins>
   }
 
   return { results };
+}
+
+/**
+ * Install every plugin's harvested Slack action/view handlers into the central
+ * dispatcher. Exposed for the lifecycle layer's reload path (which clears the
+ * prior generation before re-installing). Most callers should use
+ * `loadAndInstallPlugins` instead.
+ */
+export function installPluginInteractivity(plugins: LoadedPlugins): void {
+  for (const result of plugins.results) {
+    for (const entry of result.actionHandlers) {
+      registerPluginAction(entry.key, entry.handler, result.name);
+    }
+    for (const entry of result.viewHandlers) {
+      registerPluginView(entry.key, entry.handler, result.name);
+    }
+  }
+}
+
+/**
+ * Load plugins, publish to global state, and install Slack interactivity in
+ * one shot. These three steps must run together — splitting them once let a
+ * cold-start path forget the install step, silently breaking every plugin
+ * button click. Soft-restart callers must tear down the prior generation
+ * (close watchers + `unregisterByPluginName`) before calling this.
+ */
+export async function loadAndInstallPlugins(pluginNames: string[]): Promise<LoadedPlugins> {
+  const loaded = await loadPlugins(pluginNames);
+  setLoadedPlugins(loaded);
+  installPluginInteractivity(loaded);
+  return loaded;
 }

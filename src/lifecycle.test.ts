@@ -45,10 +45,9 @@ function createMockDeps(): {
   const mockClearPreferencesCache = mock.fn();
   const mockClearAutoRespondCache = mock.fn();
   const mockClearCronJobsCache = mock.fn();
-  const mockLoadPlugins = mock.fn(
+  const mockLoadAndInstallPlugins = mock.fn(
     async (_pluginNames: string[]): Promise<LoadedPlugins> => ({ results: [] }),
   );
-  const mockSetLoadedPlugins = mock.fn((_plugins: LoadedPlugins): void => {});
 
   const mocks = {
     mockLoadConfig,
@@ -77,8 +76,7 @@ function createMockDeps(): {
     mockClearPreferencesCache,
     mockClearAutoRespondCache,
     mockClearCronJobsCache,
-    mockLoadPlugins,
-    mockSetLoadedPlugins,
+    mockLoadAndInstallPlugins,
   };
 
   const deps: LifecycleDeps = {
@@ -110,8 +108,7 @@ function createMockDeps(): {
     clearPreferencesCache: mockClearPreferencesCache,
     clearAutoRespondCache: mockClearAutoRespondCache,
     clearCronJobsCache: mockClearCronJobsCache,
-    loadPlugins: mockLoadPlugins,
-    setLoadedPlugins: mockSetLoadedPlugins,
+    loadAndInstallPlugins: mockLoadAndInstallPlugins,
   };
 
   return { deps, mocks };
@@ -187,14 +184,15 @@ describe("restartAll", () => {
     mocks.mockLoadConfig.mock.mockImplementation(() => configWithPlugins);
     mocks.mockGetConfig.mock.mockImplementation(() => configWithPlugins);
     const harvested: LoadedPlugins = { results: [] };
-    mocks.mockLoadPlugins.mock.mockImplementation(async () => harvested);
+    mocks.mockLoadAndInstallPlugins.mock.mockImplementation(async () => harvested);
 
     await restartAll(deps);
 
-    assert.equal(mocks.mockLoadPlugins.mock.callCount(), 1);
-    assert.deepEqual(mocks.mockLoadPlugins.mock.calls[0].arguments[0], ["trivia", "giphy"]);
-    assert.equal(mocks.mockSetLoadedPlugins.mock.callCount(), 1);
-    assert.strictEqual(mocks.mockSetLoadedPlugins.mock.calls[0].arguments[0], harvested);
+    assert.equal(mocks.mockLoadAndInstallPlugins.mock.callCount(), 1);
+    assert.deepEqual(mocks.mockLoadAndInstallPlugins.mock.calls[0].arguments[0], [
+      "trivia",
+      "giphy",
+    ]);
   });
 
   it("clears plugin state when config has no plugins", async () => {
@@ -203,14 +201,13 @@ describe("restartAll", () => {
     // so a previously-loaded plugin set is cleared.
     await restartAll(deps);
 
-    assert.equal(mocks.mockLoadPlugins.mock.callCount(), 1);
-    assert.deepEqual(mocks.mockLoadPlugins.mock.calls[0].arguments[0], []);
-    assert.equal(mocks.mockSetLoadedPlugins.mock.callCount(), 1);
+    assert.equal(mocks.mockLoadAndInstallPlugins.mock.callCount(), 1);
+    assert.deepEqual(mocks.mockLoadAndInstallPlugins.mock.calls[0].arguments[0], []);
   });
 
   it("surfaces plugin reload failures as warnings without aborting", async () => {
     const { deps, mocks } = createMockDeps();
-    mocks.mockLoadPlugins.mock.mockImplementation(async () => {
+    mocks.mockLoadAndInstallPlugins.mock.mockImplementation(async () => {
       throw new Error("plugin import failed");
     });
 

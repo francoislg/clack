@@ -27,7 +27,7 @@ describe("upsert_season — answersFormat argument", () => {
         expectedEndAt: future + 30 * DAY,
         endedAt: undefined,
         categories: undefined,
-        answersFormat: { boolean: 2, choice: 1 },
+        answersFormat: { boolean: 2, choice: 1, freeform: 0 },
         questionType: undefined,
         contexts: undefined,
         theme: undefined,
@@ -41,7 +41,7 @@ describe("upsert_season — answersFormat argument", () => {
 
     const state = await data.forGame(FIXTURE_GAME_NAME).loadSeasonsState();
     const entry = state?.seasons.find((s) => s.slug === "with-types");
-    assert.deepEqual(entry?.answersFormat, { boolean: 2, choice: 1 });
+    assert.deepEqual(entry?.answersFormat, { boolean: 2, choice: 1, freeform: 0 });
   });
 
   it("create omits answersFormat when not passed (hasAnswersFormat: false)", async () => {
@@ -112,7 +112,7 @@ describe("upsert_season — answersFormat argument", () => {
 
     const state = await data.forGame(FIXTURE_GAME_NAME).loadSeasonsState();
     const entry = state?.seasons.find((s) => s.slug === "to-update");
-    assert.deepEqual(entry?.answersFormat, { boolean: 0, choice: 5 });
+    assert.deepEqual(entry?.answersFormat, { boolean: 0, choice: 5, freeform: 0 });
   });
 
   it("update with answersFormat: null clears the field", async () => {
@@ -126,7 +126,7 @@ describe("upsert_season — answersFormat argument", () => {
         expectedEndAt: future + 30 * DAY,
         endedAt: undefined,
         categories: undefined,
-        answersFormat: { boolean: 2, choice: 1 },
+        answersFormat: { boolean: 2, choice: 1, freeform: 0 },
         questionType: undefined,
         contexts: undefined,
         theme: undefined,
@@ -169,7 +169,7 @@ describe("upsert_season — answersFormat argument", () => {
         expectedEndAt: future + 30 * DAY,
         endedAt: undefined,
         categories: undefined,
-        answersFormat: { boolean: 3, choice: 2 },
+        answersFormat: { boolean: 3, choice: 2, freeform: 0 },
         questionType: undefined,
         contexts: undefined,
         theme: undefined,
@@ -199,7 +199,7 @@ describe("upsert_season — answersFormat argument", () => {
 
     const state = await data.forGame(FIXTURE_GAME_NAME).loadSeasonsState();
     const entry = state?.seasons.find((s) => s.slug === "preserve-types");
-    assert.deepEqual(entry?.answersFormat, { boolean: 3, choice: 2 });
+    assert.deepEqual(entry?.answersFormat, { boolean: 3, choice: 2, freeform: 0 });
   });
 
   it("rejects all-zero weight map", async () => {
@@ -242,7 +242,7 @@ describe("upsert_season — answersFormat argument", () => {
           startedAt: start,
           expectedEndAt: end,
           categories: ["Science"],
-          answersFormat: { boolean: 1, choice: 0 },
+          answersFormat: { boolean: 1, choice: 0, freeform: 0 },
         },
       ],
     });
@@ -256,7 +256,7 @@ describe("upsert_season — answersFormat argument", () => {
         expectedEndAt: undefined,
         endedAt: undefined,
         categories: undefined,
-        answersFormat: { boolean: 0, choice: 5 },
+        answersFormat: { boolean: 0, choice: 5, freeform: 0 },
         questionType: undefined,
         contexts: undefined,
         theme: undefined,
@@ -269,6 +269,6 @@ describe("upsert_season — answersFormat argument", () => {
 
     const state = await data2.forGame(FIXTURE_GAME_NAME).loadSeasonsState();
     const entry = state?.seasons.find((s) => s.slug === "active");
-    assert.deepEqual(entry?.answersFormat, { boolean: 0, choice: 5 });
+    assert.deepEqual(entry?.answersFormat, { boolean: 0, choice: 5, freeform: 0 });
   });
 });

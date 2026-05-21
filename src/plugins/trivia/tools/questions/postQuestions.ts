@@ -1,7 +1,9 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { textResult, errorResult } from "../../../../tools/helpers.js";
-import { BlockSchema } from "../../../../slack/blockSchema.js";
+import type { KnownBlock } from "@slack/types";
+import { BlockSchema, type Block } from "../../../../slack/blockSchema.js";
+import { validateBlocks } from "../../../../slack/blockValidate.js";
 import { postStructuredMessage } from "../../../../slack/messagePoster.js";
 import type { SlackBlocks } from "../../../../slack/blocks.js";
 import { addDeliveryReactions } from "../../../../slack/messageReactions.js";
@@ -30,13 +32,46 @@ batchId selection:
 
 Idempotency: a question whose postedAt is already set is skipped (returned with ok: true and the prior ts/permalink). Re-calling with the same items is a no-op. Idempotent-skip semantics are identical regardless of \`appendToPreviousBatch\`.
 
-Per-item failures (missing question, Slack errors, etc.) are isolated: the call returns a results array with per-item { ok, ts?, permalink?, error? } so other items still process.`;
+Block validation is performed up-front for EVERY item against Slack's per-block runtime limits (header length, section length, table shape, etc.). If ANY item's blocks fail validation, the WHOLE call is refused atomically — no Slack posts, no record mutations — and the error lists every offending field across every item. Fix all of them and retry the entire batch together; do NOT retry partial items, which would post questions out of order.
+
+Per-item failures AFTER pre-flight validation (missing question, Slack runtime errors, etc.) are isolated: the call returns a results array with per-item { ok, ts?, permalink?, error? } so other items still process.`;
+
+/**
+ * Append a Slack `actions` block with one `Answer` button to a freeform
+ * question card. `actionId` namespaces the id under `plugin:trivia:` so the
+ * wildcard dispatcher routes the click back to the trivia plugin's handler.
+ */
+export function appendFreeformAnswerButton(
+  blocks: SlackBlocks,
+  actionId: (key: string) => string,
+  questionId: string,
+): SlackBlocks {
+  return [
+    ...blocks,
+    {
+      type: "actions",
+      block_id: `freeform-answer-actions:${questionId}`,
+      elements: [
+        {
+          type: "button",
+          action_id: actionId(`freeform-answer:${questionId}`),
+          text: { type: "plain_text", text: "Answer", emoji: true },
+          style: "primary",
+        },
+      ],
+    },
+  ];
+}
 
 /** Derive the vote reactions for a question from its stored answers format. */
 export function deriveReactions(question: TriviaQuestion): string[] {
   const answersFormat = question.answersFormat ?? "boolean";
   if (answersFormat === "boolean") {
     return ["+1", "-1"];
+  }
+  if (answersFormat === "freeform") {
+    // Freeform answers come through a modal, not reactions.
+    return [];
   }
   const choiceCount = question.choices?.length ?? 0;
   return ["one", "two", "three", "four"].slice(0, choiceCount);
@@ -135,7 +170,7 @@ export interface PostQuestionsSlackDeps {
 
 /** Build the production `PostQuestionsSlackDeps` by lazily resolving the Slack client from the SDK. */
 export function defaultPostQuestionsSlackDeps(
-  sdk: Pick<ClackSdk, "getSlackClient">,
+  sdk: Pick<ClackSdk, "getSlackClient" | "actionId">,
 ): PostQuestionsSlackDeps {
   return {
     isAvailable() {
@@ -156,7 +191,7 @@ export function defaultPostQuestionsSlackDeps(
 
 export function createPostQuestionsTool(
   data: TriviaDataLayer,
-  sdk: Pick<ClackSdk, "getSlackClient">,
+  sdk: Pick<ClackSdk, "getSlackClient" | "actionId">,
   getGamesFn: GetGamesFn = defaultGetGames,
   slackDeps: PostQuestionsSlackDeps = defaultPostQuestionsSlackDeps(sdk),
 ) {
@@ -207,6 +242,28 @@ export function createPostQuestionsTool(
         return errorResult(unavailable);
       }
 
+      // Pre-flight block validation across the WHOLE batch. If any item's blocks
+      // violate a Slack runtime limit (header length, section length, table shape,
+      // etc.), refuse the entire call atomically. Without this, a single bad item
+      // would fail at chat.postMessage while its sibling items succeed; the model
+      // would then retry just the failures and the questions would land out of
+      // order in the channel.
+      const validationDetails: string[] = [];
+      for (let i = 0; i < args.items.length; i++) {
+        const item = args.items[i];
+        const itemErrors = validateBlocks(item.blocks as Block[]);
+        for (const e of itemErrors) {
+          validationDetails.push(
+            `items[${i}] (questionId "${item.questionId}") ${e.field}: ${e.message}`,
+          );
+        }
+      }
+      if (validationDetails.length > 0) {
+        return errorResult(
+          `post_questions refused the WHOLE batch because at least one item's blocks violate Slack's runtime limits. No Slack posts were made, no question records were mutated. Fix every listed field and retry the entire batch in one call — do NOT retry partial items, which would post questions out of order.\n${validationDetails.join("\n")}`,
+        );
+      }
+
       const scoped = data.forGame(args.game);
       const results: PostQuestionsItemResult[] = [];
 
@@ -255,9 +312,15 @@ export function createPostQuestionsTool(
             continue;
           }
 
+          const baseBlocks = item.blocks as SlackBlocks;
+          const blocksWithAnswerButton =
+            question.answersFormat === "freeform"
+              ? appendFreeformAnswerButton(baseBlocks, sdk.actionId, question.id)
+              : baseBlocks;
+
           const { ts, permalink } = await slackDeps.postBlocks({
             channel: game.channel,
-            blocks: item.blocks as SlackBlocks,
+            blocks: blocksWithAnswerButton,
           });
 
           // Stamp the question record BEFORE attempting reactions. Reactions are
@@ -266,6 +329,7 @@ export function createPostQuestionsTool(
             postedAt: tsToPostedAt(ts),
             messageLink: permalink,
             batchId,
+            postedBlocks: blocksWithAnswerButton as KnownBlock[],
           });
 
           const reactions = deriveReactions(question);

@@ -17,6 +17,8 @@ import { getSlackClient as defaultGetSlackClient } from "../slack/app.js";
 import type { PluginActionHandler, PluginViewHandler } from "../slack/pluginActionRegistry.js";
 import { logger } from "../logger.js";
 import { findByPluginOwner, createJob, updateJob, deleteJob, type SkipDate } from "../cronJobs.js";
+import { clackQuery as defaultClackQuery } from "../claude/query.js";
+import { detectRuntime } from "../claude/utilities.js";
 
 // ============================================================================
 // Types
@@ -24,6 +26,31 @@ import { findByPluginOwner, createJob, updateJob, deleteJob, type SkipDate } fro
 
 /** Tool mapping entry — same format as tool_mapping JSON config entries. */
 export type ToolMapping = string | ToolEntryObject;
+
+/**
+ * Single-turn Claude call routed through `clackQuery` — inherits the
+ * deployment's auth (OAuth or API key) the same way every other lightweight
+ * Haiku call in Clack does.
+ */
+export interface AskClaudeOptions {
+  model: string;
+  system?: string;
+  messages: Array<{ role: "user" | "assistant"; content: string }>;
+  /** No-op; the Agent SDK doesn't expose a per-call output cap. */
+  max_tokens?: number;
+  /** No-op; the Agent SDK doesn't expose temperature on `query`. */
+  temperature?: number;
+}
+
+export interface AskClaudeResult {
+  text: string;
+  /** `"end_turn"` on success; otherwise the result subtype (e.g. `"error_max_turns"`). */
+  stopReason: string;
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+  };
+}
 
 /**
  * Declarative shape of a cron job a plugin wants to own. Passed to {@link ClackSdk.reconcileCronJobs}.
@@ -135,6 +162,8 @@ export interface ClackSdk {
    * e.g. `plugin:trivia:freeform-modal`. Use this when calling `views.open`.
    */
   viewCallbackId(key: string): string;
+  /** Single-turn Claude call routed through the Agent SDK's `query`. */
+  askClaude(opts: AskClaudeOptions): Promise<AskClaudeResult>;
 }
 
 export type ClackPlugin = (sdk: ClackSdk) => Promise<void>;
@@ -224,6 +253,7 @@ export interface ClackSdkDeps {
   createJob?: typeof createJob;
   updateJob?: typeof updateJob;
   deleteJob?: typeof deleteJob;
+  clackQuery: typeof defaultClackQuery;
 }
 
 export const defaultClackSdkDeps: ClackSdkDeps = {
@@ -234,6 +264,7 @@ export const defaultClackSdkDeps: ClackSdkDeps = {
   createJob,
   updateJob,
   deleteJob,
+  clackQuery: defaultClackQuery,
 };
 
 const WATCH_DEBOUNCE_MS = 500;
@@ -495,6 +526,73 @@ export function createClackSdk(
         );
       }
       return pluginPrefix + key;
+    },
+
+    async askClaude(opts: AskClaudeOptions): Promise<AskClaudeResult> {
+      const promptParts: string[] = [];
+      if (opts.system !== undefined && opts.system.length > 0) {
+        promptParts.push(opts.system);
+      }
+      for (const m of opts.messages) {
+        promptParts.push(m.content);
+      }
+      const prompt = promptParts.join("\n\n");
+
+      let text = "";
+      let lastAssistantText = "";
+      let stopReason = "unknown";
+      let inputTokens = 0;
+      let outputTokens = 0;
+
+      for await (const message of deps.clackQuery({
+        prompt,
+        options: {
+          cwd: process.cwd(),
+          executable: detectRuntime(),
+          model: opts.model,
+          permissionMode: "bypassPermissions",
+          disallowedTools: [
+            "Write",
+            "Edit",
+            "NotebookEdit",
+            "Bash",
+            "Task",
+            "TaskOutput",
+            "Read",
+            "Glob",
+            "Grep",
+          ],
+          maxTurns: 1,
+        },
+      })) {
+        if (message.type === "assistant" && message.message?.content) {
+          lastAssistantText = "";
+          for (const block of message.message.content) {
+            if ("text" in block && typeof block.text === "string") {
+              lastAssistantText += block.text;
+            }
+          }
+        }
+        if (message.type === "result") {
+          if (message.subtype === "success") {
+            stopReason = "end_turn";
+            text = (message.result || lastAssistantText).trim();
+          } else {
+            stopReason = message.subtype ?? "error";
+            text = lastAssistantText.trim();
+          }
+          if (message.usage) {
+            inputTokens = message.usage.input_tokens ?? 0;
+            outputTokens = message.usage.output_tokens ?? 0;
+          }
+        }
+      }
+
+      return {
+        text,
+        stopReason,
+        usage: { inputTokens, outputTokens },
+      };
     },
 
     async dmOwner(text: string): Promise<{ ok: true } | { ok: false; error: string }> {

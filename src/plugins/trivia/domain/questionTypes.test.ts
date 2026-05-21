@@ -36,6 +36,7 @@ function makeScopedDataLayer(state: SeasonsState | null): ScopedTriviaDataLayer 
     updateQuestion: async () => {},
     loadAnswers: async () => [],
     saveAnswer: async () => {},
+    updateAnswer: async () => {},
     deleteAnswersForQuestion: async () => 0,
     loadCheats: async () => [],
     saveCheat: async () => ({ totalAttempts: 0 }),
@@ -58,9 +59,9 @@ describe("getActiveAnswersFormat", () => {
 
   it("uses config.trivia.answersFormat when seasons disabled", async () => {
     const data = makeScopedDataLayer(null);
-    const cfg = makeConfig({ answersFormat: { boolean: 2, choice: 1 } });
+    const cfg = makeConfig({ answersFormat: { boolean: 2, choice: 1, freeform: 0 } });
     const weights = await getActiveAnswersFormat(data, cfg, NOW);
-    assert.deepEqual(weights, { boolean: 2, choice: 1 });
+    assert.deepEqual(weights, { boolean: 2, choice: 1, freeform: 0 });
   });
 
   it("ignores season state when seasons.enabled is false", async () => {
@@ -71,17 +72,17 @@ describe("getActiveAnswersFormat", () => {
           startedAt: NOW - HOUR,
           expectedEndAt: NOW + HOUR,
           categories: ["A"],
-          answersFormat: { boolean: 0, choice: 5 },
+          answersFormat: { boolean: 0, choice: 5, freeform: 0 },
         },
       ],
     };
     const data = makeScopedDataLayer(state);
     const cfg = makeConfig({
-      answersFormat: { boolean: 1, choice: 0 },
+      answersFormat: { boolean: 1, choice: 0, freeform: 0 },
       // seasons block absent → seasons disabled
     });
     const weights = await getActiveAnswersFormat(data, cfg, NOW);
-    assert.deepEqual(weights, { boolean: 1, choice: 0 });
+    assert.deepEqual(weights, { boolean: 1, choice: 0, freeform: 0 });
   });
 
   it("uses current season's answersFormat when seasons enabled and field is set", async () => {
@@ -92,17 +93,17 @@ describe("getActiveAnswersFormat", () => {
           startedAt: NOW - HOUR,
           expectedEndAt: NOW + HOUR,
           categories: ["A"],
-          answersFormat: { boolean: 0, choice: 5 },
+          answersFormat: { boolean: 0, choice: 5, freeform: 0 },
         },
       ],
     };
     const data = makeScopedDataLayer(state);
     const cfg = makeConfig({
       seasons: { enabled: true, prompt: "monthly" },
-      answersFormat: { boolean: 1, choice: 0 },
+      answersFormat: { boolean: 1, choice: 0, freeform: 0 },
     });
     const weights = await getActiveAnswersFormat(data, cfg, NOW);
-    assert.deepEqual(weights, { boolean: 0, choice: 5 });
+    assert.deepEqual(weights, { boolean: 0, choice: 5, freeform: 0 });
   });
 
   it("falls back to config when current season lacks answersFormat", async () => {
@@ -120,10 +121,10 @@ describe("getActiveAnswersFormat", () => {
     const data = makeScopedDataLayer(state);
     const cfg = makeConfig({
       seasons: { enabled: true, prompt: "monthly" },
-      answersFormat: { boolean: 2, choice: 1 },
+      answersFormat: { boolean: 2, choice: 1, freeform: 0 },
     });
     const weights = await getActiveAnswersFormat(data, cfg, NOW);
-    assert.deepEqual(weights, { boolean: 2, choice: 1 });
+    assert.deepEqual(weights, { boolean: 2, choice: 1, freeform: 0 });
   });
 
   it("falls back to config when seasons enabled but in a gap (no current entry)", async () => {
@@ -134,24 +135,24 @@ describe("getActiveAnswersFormat", () => {
           startedAt: NOW - 10 * HOUR,
           expectedEndAt: NOW - 5 * HOUR,
           categories: ["A"],
-          answersFormat: { boolean: 0, choice: 1 },
+          answersFormat: { boolean: 0, choice: 1, freeform: 0 },
         },
         {
           slug: "future",
           startedAt: NOW + 5 * HOUR,
           expectedEndAt: NOW + 10 * HOUR,
           categories: ["A"],
-          answersFormat: { boolean: 0, choice: 1 },
+          answersFormat: { boolean: 0, choice: 1, freeform: 0 },
         },
       ],
     };
     const data = makeScopedDataLayer(state);
     const cfg = makeConfig({
       seasons: { enabled: true, prompt: "monthly" },
-      answersFormat: { boolean: 1, choice: 1 },
+      answersFormat: { boolean: 1, choice: 1, freeform: 0 },
     });
     const weights = await getActiveAnswersFormat(data, cfg, NOW);
-    assert.deepEqual(weights, { boolean: 1, choice: 1 });
+    assert.deepEqual(weights, { boolean: 1, choice: 1, freeform: 0 });
   });
 
   it("falls back to default when seasons enabled but seasons.json is null", async () => {
@@ -173,26 +174,26 @@ describe("resolveAnswersFormat (slot-aware)", () => {
   it("slot.answersFormat wins over season + config", () => {
     const season: SeasonEntry = {
       ...baseSeason,
-      answersFormat: { boolean: 1, choice: 0 },
+      answersFormat: { boolean: 1, choice: 0, freeform: 0 },
       format: {
         questions: [
-          { answersFormat: { boolean: 0, choice: 5 } },
+          { answersFormat: { boolean: 0, choice: 5, freeform: 0 } },
           {}, // no answersFormat
         ],
       },
     };
-    const cfg = makeConfig({ answersFormat: { boolean: 1, choice: 1 } });
-    assert.deepEqual(resolveAnswersFormat(season, 0, cfg), { boolean: 0, choice: 5 });
+    const cfg = makeConfig({ answersFormat: { boolean: 1, choice: 1, freeform: 0 } });
+    assert.deepEqual(resolveAnswersFormat(season, 0, cfg), { boolean: 0, choice: 5, freeform: 0 });
   });
 
   it("slot without answersFormat falls back to season's answersFormat", () => {
     const season: SeasonEntry = {
       ...baseSeason,
-      answersFormat: { boolean: 0, choice: 3 },
+      answersFormat: { boolean: 0, choice: 3, freeform: 0 },
       format: { questions: [{}] }, // slot 0 has no answersFormat
     };
-    const cfg = makeConfig({ answersFormat: { boolean: 1, choice: 1 } });
-    assert.deepEqual(resolveAnswersFormat(season, 0, cfg), { boolean: 0, choice: 3 });
+    const cfg = makeConfig({ answersFormat: { boolean: 1, choice: 1, freeform: 0 } });
+    assert.deepEqual(resolveAnswersFormat(season, 0, cfg), { boolean: 0, choice: 3, freeform: 0 });
   });
 
   it("season without answersFormat (slot also empty) falls back to config", () => {
@@ -200,8 +201,8 @@ describe("resolveAnswersFormat (slot-aware)", () => {
       ...baseSeason,
       format: { questions: [{}] },
     };
-    const cfg = makeConfig({ answersFormat: { boolean: 2, choice: 1 } });
-    assert.deepEqual(resolveAnswersFormat(season, 0, cfg), { boolean: 2, choice: 1 });
+    const cfg = makeConfig({ answersFormat: { boolean: 2, choice: 1, freeform: 0 } });
+    assert.deepEqual(resolveAnswersFormat(season, 0, cfg), { boolean: 2, choice: 1, freeform: 0 });
   });
 
   it("all sources absent → DEFAULT", () => {
@@ -220,10 +221,14 @@ describe("resolveAnswersFormat (slot-aware)", () => {
   it("slotIndex: null with no format uses season-level answersFormat", () => {
     const season: SeasonEntry = {
       ...baseSeason,
-      answersFormat: { boolean: 0, choice: 1 },
+      answersFormat: { boolean: 0, choice: 1, freeform: 0 },
     };
     const cfg = makeConfig();
-    assert.deepEqual(resolveAnswersFormat(season, null, cfg), { boolean: 0, choice: 1 });
+    assert.deepEqual(resolveAnswersFormat(season, null, cfg), {
+      boolean: 0,
+      choice: 1,
+      freeform: 0,
+    });
   });
 });
 

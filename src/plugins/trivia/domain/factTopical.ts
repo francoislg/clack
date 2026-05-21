@@ -1,11 +1,6 @@
-import type { Config } from "../../../config.js";
+import type { Config, TriviaQuestionTypeWeights } from "../../../config.js";
 import { DEFAULT_QUESTION_TYPE_WEIGHTS } from "../../../config.js";
-import type {
-  SeasonQuestionTypeWeights,
-  SeasonsState,
-  SeasonEntry,
-  ScopedTriviaDataLayer,
-} from "../core/types.js";
+import type { SeasonsState, SeasonEntry, ScopedTriviaDataLayer } from "../core/types.js";
 import { findCurrentSeason } from "../core/seasonTimeline.js";
 
 /**
@@ -23,7 +18,7 @@ export function resolveQuestionType(
   currentSeason: SeasonEntry | null,
   slotIndex: number | null,
   config: Config | null,
-): SeasonQuestionTypeWeights {
+): TriviaQuestionTypeWeights {
   if (currentSeason !== null && slotIndex !== null && currentSeason.format !== undefined) {
     const slot = currentSeason.format.questions[slotIndex];
     if (slot?.questionType !== undefined) {
@@ -47,7 +42,7 @@ export async function getActiveQuestionType(
   scoped: ScopedTriviaDataLayer,
   config: Config,
   now: number,
-): Promise<SeasonQuestionTypeWeights> {
+): Promise<TriviaQuestionTypeWeights> {
   const seasonsEnabled = config.trivia?.seasons?.enabled ?? false;
   let current: SeasonEntry | null = null;
   if (seasonsEnabled) {

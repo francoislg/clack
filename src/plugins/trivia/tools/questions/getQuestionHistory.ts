@@ -13,21 +13,25 @@ INTERNAL DATA — DO NOT SURFACE:
 - The answer-key fields (\`isTrue\` for boolean questions, \`correctIndex\` for choice questions) reflect what was stored when the question was created; the canonical reveal-time truth is established by independent research (see process_responses_instructions).
 
 Returns one of:
-- Boolean question: \`{ type: "boolean", isTrue, cheaterUserIds, responses: Array<{ userId, displayName, answer, correct }> }\`
-- Choice question: \`{ type: "choice", choices, correctIndex, cheaterUserIds, responses: Array<{ userId, displayName, answerIndex, correct }> }\``;
+- Boolean question: \`{ type: "boolean", isTrue, cheaterUserIds, responses: Array<{ userId, displayName, answer, correct? }> }\`
+- Choice question: \`{ type: "choice", choices, correctIndex, cheaterUserIds, responses: Array<{ userId, displayName, answerIndex, correct? }> }\`
+
+The \`correct\` field on a response is OPTIONAL. Absence means the row is a pending freeform-answer
+submission waiting on reveal-time judging — those rows are not yet scored and should not be counted
+toward correctness statistics. Boolean and choice answers always carry a synchronous \`correct\` boolean.`;
 
 interface BooleanResponseEntry {
   userId: string;
   displayName: string;
   answer: boolean;
-  correct: boolean;
+  correct?: boolean;
 }
 
 interface ChoiceResponseEntry {
   userId: string;
   displayName: string;
   answerIndex: number;
-  correct: boolean;
+  correct?: boolean;
 }
 
 export function createGetQuestionHistoryTool(
@@ -85,12 +89,15 @@ export function createGetQuestionHistoryTool(
       if (question.eventDate !== undefined) extras.eventDate = question.eventDate;
 
       if (isChoice) {
-        const responses: ChoiceResponseEntry[] = matching.map((a) => ({
-          userId: a.userId,
-          displayName: users.get(a.userId)?.displayName ?? a.userId,
-          answerIndex: a.answerIndex ?? -1,
-          correct: a.correct,
-        }));
+        const responses: ChoiceResponseEntry[] = matching.map((a) => {
+          const entry: ChoiceResponseEntry = {
+            userId: a.userId,
+            displayName: users.get(a.userId)?.displayName ?? a.userId,
+            answerIndex: a.answerIndex ?? -1,
+          };
+          if (a.correct !== undefined) entry.correct = a.correct;
+          return entry;
+        });
         return textResult({
           answersFormat: "choice",
           questionType,
@@ -102,12 +109,15 @@ export function createGetQuestionHistoryTool(
         });
       }
 
-      const responses: BooleanResponseEntry[] = matching.map((a) => ({
-        userId: a.userId,
-        displayName: users.get(a.userId)?.displayName ?? a.userId,
-        answer: a.answer ?? false,
-        correct: a.correct,
-      }));
+      const responses: BooleanResponseEntry[] = matching.map((a) => {
+        const entry: BooleanResponseEntry = {
+          userId: a.userId,
+          displayName: users.get(a.userId)?.displayName ?? a.userId,
+          answer: a.answer ?? false,
+        };
+        if (a.correct !== undefined) entry.correct = a.correct;
+        return entry;
+      });
       return textResult({
         answersFormat: "boolean",
         questionType,

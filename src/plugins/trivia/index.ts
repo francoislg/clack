@@ -24,6 +24,7 @@ import {
   TRIVIA_GAMES_ADMIN_INSTRUCTION,
 } from "./prompts/triviaCheckInstruction.js";
 import { buildGameSpecs } from "./domain/buildGameSpecs.js";
+import { registerFreeformHandlers } from "./freeform/handlers.js";
 
 function isSeasonsEnabled(): boolean {
   try {
@@ -116,6 +117,18 @@ export const triviaPlugin: ClackPlugin = async (sdk: ClackSdk) => {
       "[plugin:trivia] seasons enabled — registered check_season_status, upsert_season, delete_season, list_seasons",
     );
   }
+
+  registerFreeformHandlers({
+    data,
+    sdk,
+    getGameNames: () => {
+      try {
+        return (getConfig().trivia?.games ?? []).map((g) => g.name);
+      } catch {
+        return [];
+      }
+    },
+  });
 
   // Reconcile plugin-managed cron jobs from `config.trivia.games[]`. Passing the full spec list
   // (even when empty) is the contract: the SDK deletes prior plugin-managed trivia jobs whose

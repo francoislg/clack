@@ -1,10 +1,20 @@
+import type { KnownBlock } from "@slack/types";
+import type {
+  TriviaAnswersFormatWeights,
+  TriviaQuestionTypeWeights,
+  TriviaContextEntry,
+} from "../../../config.js";
+
 /**
  * Answer-shape discriminator (renamed from `type`). Absent only on pre-migration legacy rows;
  * the v021 migration stamps every existing record. New writes always set it.
  * - `"boolean"` → carries `isTrue: boolean`, no `choices`/`correctIndex`.
  * - `"choice"` → carries `choices: string[]` + `correctIndex: number`, no `isTrue`.
+ * - `"freeform"` → carries `expectedAnswer: string` and optional `acceptableAnswers[]`
+ *   / `gradingNotes`; no `isTrue`/`choices`/`correctIndex`. Answers come through a
+ *   modal (not Slack reactions) and are judged at reveal time by a small model.
  */
-export type TriviaAnswersFormat = "boolean" | "choice";
+export type TriviaAnswersFormat = "boolean" | "choice" | "freeform";
 
 /**
  * Source discriminator orthogonal to `answersFormat`.
@@ -22,12 +32,28 @@ export interface TriviaQuestion {
   answersFormat?: TriviaAnswersFormat;
   /** Fact-vs-topical discriminator. Absence reads as `"fact"` for pre-migration legacy rows only. */
   questionType?: TriviaQuestionType;
-  /** Truth value for boolean questions. Absent on choice questions. */
+  /** Truth value for boolean questions. Absent on choice and freeform questions. */
   isTrue?: boolean;
-  /** Option list for choice questions (2–4 entries). Absent on boolean questions. */
+  /** Option list for choice questions (2–4 entries). Absent on boolean and freeform questions. */
   choices?: string[];
-  /** 0-based index of the correct choice. Absent on boolean questions. */
+  /** 0-based index of the correct choice. Absent on boolean and freeform questions. */
   correctIndex?: number;
+  /**
+   * Canonical expected answer for freeform questions — the shortest correct form
+   * Claude would accept as a 100%-perfect answer. Required when
+   * `answersFormat === "freeform"`; forbidden otherwise.
+   */
+  expectedAnswer?: string;
+  /**
+   * Optional pre-enumerated semantic variants Claude would also accept (e.g.
+   * canonical-plus-common-forms). Freeform-only.
+   */
+  acceptableAnswers?: string[];
+  /**
+   * Optional hint to the reveal-time judge about acceptable answer forms or
+   * specific judging considerations. Freeform-only.
+   */
+  gradingNotes?: string;
   /** Difficulty bucket targeted at generation time. Absent on legacy rows. */
   suggestedDifficulty?: "Easy" | "Medium" | "Hard";
   /** Claude's 1–10 self-rating from the difficulty gate. Absent on legacy rows. */
@@ -36,6 +62,14 @@ export interface TriviaQuestion {
   createdAt: number;
   postedAt?: number;
   messageLink?: string;
+  /**
+   * Block Kit blocks the question was posted with. Stamped by `post_questions`
+   * so consumers that want to `chat.update` the card (e.g. the freeform
+   * roster footer) have an immutable base to rebuild from. Edits compose
+   * `[...postedBlocks, …new blocks]` rather than mutating this field, so each
+   * edit starts fresh. Absent on legacy / pre-feature rows.
+   */
+  postedBlocks?: KnownBlock[];
   /**
    * Lens name that was used when generating this question. Recorded from
    * `contextPriority[i]` (the entry Claude actually used). Empty / no-lens
@@ -79,11 +113,24 @@ export interface TriviaUser {
 export interface SubmittedAnswer {
   userId: string;
   questionId: string;
-  /** Set for answers to boolean questions. Mutually exclusive with `answerIndex`. */
+  /** Set for answers to boolean questions. Mutually exclusive with `answerIndex` / `answerText`. */
   answer?: boolean;
-  /** Set for answers to choice questions (0-based reaction index). Mutually exclusive with `answer`. */
+  /** Set for answers to choice questions (0-based reaction index). Mutually exclusive with `answer` / `answerText`. */
   answerIndex?: number;
-  correct: boolean;
+  /**
+   * Set for answers to freeform questions — the user's typed text from the modal.
+   * Mutually exclusive with `answer` / `answerIndex`.
+   */
+  answerText?: string;
+  /**
+   * Correctness verdict.
+   * - `true` / `false` → scored row, contributes to leaderboard counts.
+   * - `undefined` → pending freeform submission awaiting reveal-time validation.
+   *   Aggregators (computeLeaderboard, getQuestionHistory schema, stat counts)
+   *   SHALL exclude these rows entirely until the reveal flips them.
+   * Boolean and choice answers always have a synchronously-computed boolean here.
+   */
+  correct?: boolean;
   timestamp: number;
   season?: string;
 }
@@ -103,28 +150,6 @@ export interface TriviaSeasonsConfig {
 }
 
 /**
- * Per-season answer-format weights. Mirrors `config.trivia.answersFormat` in shape.
- * When set on a SeasonEntry, overrides the workspace-level config for the window
- * during which this entry is current per `findCurrentSeason(state, now)`.
- */
-export type SeasonAnswersFormatWeights = Record<"boolean" | "choice", number>;
-
-/**
- * Per-season fact-vs-topical weights. Mirrors `config.trivia.questionType` in shape.
- * When set on a SeasonEntry, overrides the workspace-level config.
- */
-export type SeasonQuestionTypeWeights = Record<"fact" | "topical", number>;
-
-/**
- * Per-season lens entry. Same shape as `TriviaContextEntry` from config. Empty `name`
- * is allowed and means "no specific lean."
- */
-export interface SeasonContextEntry {
-  name: string;
-  weight?: number;
-}
-
-/**
  * One ordered slot in a season's question format. Optional per-slot overrides:
  *
  * - `label` — creative hint fed to Claude at posting time (e.g. "Lightning Round").
@@ -138,9 +163,9 @@ export interface SeasonContextEntry {
 export interface SeasonFormatSlot {
   label?: string;
   categories?: string[];
-  answersFormat?: SeasonAnswersFormatWeights;
-  questionType?: SeasonQuestionTypeWeights;
-  contexts?: SeasonContextEntry[];
+  answersFormat?: TriviaAnswersFormatWeights;
+  questionType?: TriviaQuestionTypeWeights;
+  contexts?: TriviaContextEntry[];
 }
 
 /**
@@ -168,17 +193,17 @@ export interface SeasonEntry {
    * Optional per-season answer-format weights. Absent → `get_ideas` falls back to
    * `config.trivia.answersFormat`. Mid-season mutation is permitted (unlike `startedAt`).
    */
-  answersFormat?: SeasonAnswersFormatWeights;
+  answersFormat?: TriviaAnswersFormatWeights;
   /**
    * Optional per-season fact-vs-topical weights. Absent → falls back to `config.trivia.questionType`.
    * Mid-season mutation is permitted.
    */
-  questionType?: SeasonQuestionTypeWeights;
+  questionType?: TriviaQuestionTypeWeights;
   /**
    * Optional per-season lens list. Absent → falls back to `config.trivia.contexts`
    * (which itself may be absent). Mid-season mutation is permitted.
    */
-  contexts?: SeasonContextEntry[];
+  contexts?: TriviaContextEntry[];
   /**
    * Optional per-season question composition. Mid-season mutation is permitted —
    * changes take effect on the next question-cron fire.
@@ -204,6 +229,17 @@ export interface ScopedTriviaDataLayer {
   updateQuestion(id: string, updates: Partial<TriviaQuestion>): Promise<void>;
   loadAnswers(): Promise<SubmittedAnswer[]>;
   saveAnswer(a: SubmittedAnswer): Promise<void>;
+  /**
+   * Merge `partial` into the existing row matched by `(userId, questionId)`. Used
+   * to flip `correct` from `undefined` to the judged verdict on freeform answers
+   * at reveal time, and to update `answerText` on modal edits. No-op (logged
+   * warn) when no row matches.
+   */
+  updateAnswer(
+    userId: string,
+    questionId: string,
+    partial: Partial<SubmittedAnswer>,
+  ): Promise<void>;
   /**
    * Hard-delete every `SubmittedAnswer` for the named questionId. Returns the count removed.
    * Used by `process_reveal_answers` when reprocessing — the canonical source of truth is the

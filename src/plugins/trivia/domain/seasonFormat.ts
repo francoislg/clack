@@ -1,120 +1,35 @@
-import type {
-  SeasonFormat,
-  SeasonFormatSlot,
-  SeasonAnswersFormatWeights,
-  SeasonQuestionTypeWeights,
-  SeasonContextEntry,
-} from "../core/types.js";
-
-const ANSWERS_FORMAT_KEYS = ["boolean", "choice"] as const;
-const QUESTION_TYPE_KEYS = ["fact", "topical"] as const;
+import type { SeasonFormat, SeasonFormatSlot } from "../core/types.js";
+import {
+  validateAnswersFormatMap,
+  validateQuestionTypeMap,
+  validateContextsList,
+  type TriviaAnswersFormatWeights,
+  type TriviaQuestionTypeWeights,
+  type TriviaContextEntry,
+} from "../../../config.js";
 
 export type ValidateResult<T> = { ok: true; value: T } | { ok: false; error: string };
 
 /**
- * Validate an `answersFormat` map. Returns a normalized weights object (both keys
- * present, missing keys defaulted to 0) on success.
- *
- * Rules: keys must be in {"boolean", "choice"}; values must be non-negative integers;
- * at least one value must be strictly positive.
+ * Thin wrappers over the shared validators from `config.ts` — same allow-lists,
+ * same normalization rules. The labels are shortened so the `upsert_season`
+ * tool's error messages read naturally for Claude (the workspace-config variants
+ * use longer `"Config 'trivia.*'"` labels).
  */
 export function validateAnswersFormat(
   raw: Record<string, number>,
-): ValidateResult<SeasonAnswersFormatWeights> {
-  const out: Partial<SeasonAnswersFormatWeights> = {};
-  let positiveCount = 0;
-  for (const [key, value] of Object.entries(raw)) {
-    if (!(ANSWERS_FORMAT_KEYS as readonly string[]).includes(key)) {
-      return {
-        ok: false,
-        error: `answersFormat contains unknown key '${key}' (allowed: ${ANSWERS_FORMAT_KEYS.join(", ")})`,
-      };
-    }
-    if (!Number.isFinite(value) || !Number.isInteger(value) || value < 0) {
-      return {
-        ok: false,
-        error: `answersFormat.${key} must be a non-negative integer (got ${value})`,
-      };
-    }
-    out[key as "boolean" | "choice"] = value;
-    if (value > 0) positiveCount++;
-  }
-  if (positiveCount === 0) {
-    return { ok: false, error: "answersFormat must have at least one strictly positive weight" };
-  }
-  return { ok: true, value: { boolean: out.boolean ?? 0, choice: out.choice ?? 0 } };
+): ValidateResult<TriviaAnswersFormatWeights> {
+  return validateAnswersFormatMap(raw, "answersFormat");
 }
 
-/**
- * Validate a `questionType` (fact-vs-topical) map. Returns a normalized weights object
- * (both keys present, missing keys defaulted to 0) on success.
- */
 export function validateQuestionType(
   raw: Record<string, number>,
-): ValidateResult<SeasonQuestionTypeWeights> {
-  const out: Partial<SeasonQuestionTypeWeights> = {};
-  let positiveCount = 0;
-  for (const [key, value] of Object.entries(raw)) {
-    if (!(QUESTION_TYPE_KEYS as readonly string[]).includes(key)) {
-      return {
-        ok: false,
-        error: `questionType contains unknown key '${key}' (allowed: ${QUESTION_TYPE_KEYS.join(", ")})`,
-      };
-    }
-    if (!Number.isFinite(value) || !Number.isInteger(value) || value < 0) {
-      return {
-        ok: false,
-        error: `questionType.${key} must be a non-negative integer (got ${value})`,
-      };
-    }
-    out[key as "fact" | "topical"] = value;
-    if (value > 0) positiveCount++;
-  }
-  if (positiveCount === 0) {
-    return { ok: false, error: "questionType must have at least one strictly positive weight" };
-  }
-  return { ok: true, value: { fact: out.fact ?? 0, topical: out.topical ?? 0 } };
+): ValidateResult<TriviaQuestionTypeWeights> {
+  return validateQuestionTypeMap(raw, "questionType");
 }
 
-interface RawContextEntry {
-  name?: unknown;
-  weight?: unknown;
-}
-
-/**
- * Validate a contexts list. Returns a normalized array on success.
- *
- * Rules: array must be non-empty; every entry has a string `name` (empty string allowed);
- * `weight` (when present) is a positive number; names are unique.
- */
-export function validateContexts(raw: RawContextEntry[]): ValidateResult<SeasonContextEntry[]> {
-  if (!Array.isArray(raw) || raw.length === 0) {
-    return { ok: false, error: "contexts must be a non-empty array when present" };
-  }
-  const out: SeasonContextEntry[] = [];
-  const seenNames = new Set<string>();
-  for (let i = 0; i < raw.length; i++) {
-    const entry = raw[i];
-    if (typeof entry.name !== "string") {
-      return { ok: false, error: `contexts[${i}].name must be a string` };
-    }
-    if (seenNames.has(entry.name)) {
-      return { ok: false, error: `contexts[${i}] has duplicate name '${entry.name}'` };
-    }
-    seenNames.add(entry.name);
-    let weight: number | undefined;
-    if (entry.weight !== undefined) {
-      if (typeof entry.weight !== "number" || !Number.isFinite(entry.weight) || entry.weight <= 0) {
-        return {
-          ok: false,
-          error: `contexts[${i}].weight must be a positive number (got ${String(entry.weight)})`,
-        };
-      }
-      weight = entry.weight;
-    }
-    out.push(weight === undefined ? { name: entry.name } : { name: entry.name, weight });
-  }
-  return { ok: true, value: out };
+export function validateContexts(raw: unknown): ValidateResult<TriviaContextEntry[]> {
+  return validateContextsList(raw, "contexts");
 }
 
 function dedupePreservingOrder(values: string[]): string[] {
@@ -134,7 +49,7 @@ interface RawSlot {
   categories?: string[];
   answersFormat?: Record<string, number> | null;
   questionType?: Record<string, number> | null;
-  contexts?: RawContextEntry[] | null;
+  contexts?: unknown[] | null;
 }
 
 interface RawFormat {

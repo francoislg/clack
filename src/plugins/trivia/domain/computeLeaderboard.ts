@@ -35,9 +35,13 @@ interface Counts {
 function aggregate(answers: SubmittedAnswer[]): Map<string, Counts> {
   const scoreMap = new Map<string, Counts>();
   for (const answer of answers) {
+    // Skip pending freeform rows entirely — they're not yet scored and must not
+    // affect totalAnswered or totalCorrect until the reveal-time judge flips
+    // `correct` to a boolean.
+    if (answer.correct === undefined) continue;
     const entry = scoreMap.get(answer.userId) ?? { totalCorrect: 0, totalAnswered: 0 };
     entry.totalAnswered++;
-    if (answer.correct) entry.totalCorrect++;
+    if (answer.correct === true) entry.totalCorrect++;
     scoreMap.set(answer.userId, entry);
   }
   return scoreMap;

@@ -144,9 +144,17 @@ export interface TriviaSeasonsConfig {
 /**
  * Weighted-random map of answer format → weight. Weights are non-negative integers;
  * at least one weight MUST be strictly positive. `get_ideas` re-normalizes at roll time.
- * Absent / `{ boolean: 1 }` → pure-boolean behavior (equivalent to pre-choice-questions).
+ *
+ * All keys are required in the normalized in-memory shape — `0` means "never roll
+ * this format". The validator below accepts config input where any key is omitted
+ * (defaults to 0) so config authors can write `{ choice: 1 }` and get
+ * `{ boolean: 0, choice: 1, freeform: 0 }` at runtime.
  */
-export type TriviaAnswersFormatWeights = Record<"boolean" | "choice", number>;
+export interface TriviaAnswersFormatWeights {
+  boolean: number;
+  choice: number;
+  freeform: number;
+}
 
 /**
  * Weighted-random map for the orthogonal fact-vs-topical axis. `fact` questions draw
@@ -469,24 +477,41 @@ function parseTaskCardsConfig(raw: TaskCardsRaw | undefined): TaskCardsConfig | 
   return { maxDetailsPerGroup: val };
 }
 
-const ANSWERS_FORMAT_KEYS = ["boolean", "choice"] as const;
+/**
+ * The exhaustive set of valid `answersFormat` keys, exported as the single
+ * source of truth so the workspace-config validator, the season validator, and
+ * the per-slot validator all stay in sync as new formats are added.
+ */
+export const ANSWERS_FORMAT_KEYS = ["boolean", "choice", "freeform"] as const;
 const QUESTION_TYPE_KEYS = ["fact", "topical"] as const;
 
-export function parseTriviaAnswersFormat(
-  raw: JsonValue | undefined,
-): TriviaAnswersFormatWeights | undefined {
-  if (raw === undefined) return undefined;
+/**
+ * Validate an arbitrary value as a `TriviaAnswersFormatWeights` map. Used by:
+ *
+ * - `parseTriviaAnswersFormat` for `config.trivia.answersFormat` (workspace-level)
+ * - `parseSeasonAnswersFormat` in `src/plugins/trivia/domain/seasonFormat.ts`
+ *   for `SeasonEntry.answersFormat` and `SeasonFormatSlot.answersFormat`
+ *
+ * Returns a tagged result so each caller can wrap it in its own error shape
+ * (throw at boot vs. structured tool error). `fieldLabel` is splice into the
+ * message — e.g. `"trivia.answersFormat"` for boot, `"answersFormat"` for the
+ * season tool.
+ */
+export function validateAnswersFormatMap(
+  raw: unknown,
+  fieldLabel: string,
+): { ok: true; value: TriviaAnswersFormatWeights } | { ok: false; error: string } {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    throw new Error("Config 'trivia.answersFormat' must be an object");
+    return { ok: false, error: `'${fieldLabel}' must be an object` };
   }
-  const entries: JsonObject = raw;
   const out: Partial<TriviaAnswersFormatWeights> = {};
   let positiveCount = 0;
-  for (const [key, value] of Object.entries(entries)) {
+  for (const [key, value] of Object.entries(raw)) {
     if (!(ANSWERS_FORMAT_KEYS as readonly string[]).includes(key)) {
-      throw new Error(
-        `Config 'trivia.answersFormat' contains unknown key '${key}' (allowed: ${ANSWERS_FORMAT_KEYS.join(", ")})`,
-      );
+      return {
+        ok: false,
+        error: `'${fieldLabel}' contains unknown key '${key}' (allowed: ${ANSWERS_FORMAT_KEYS.join(", ")})`,
+      };
     }
     if (
       typeof value !== "number" ||
@@ -494,21 +519,88 @@ export function parseTriviaAnswersFormat(
       !Number.isInteger(value) ||
       value < 0
     ) {
-      throw new Error(
-        `Config 'trivia.answersFormat.${key}' must be a non-negative integer (got ${JSON.stringify(value)})`,
-      );
+      return {
+        ok: false,
+        error: `'${fieldLabel}.${key}' must be a non-negative integer (got ${JSON.stringify(value)})`,
+      };
     }
-    out[key as "boolean" | "choice"] = value;
+    out[key as (typeof ANSWERS_FORMAT_KEYS)[number]] = value;
     if (value > 0) positiveCount++;
   }
   if (positiveCount === 0) {
-    throw new Error(
-      "Config 'trivia.answersFormat' must have at least one strictly positive weight",
-    );
+    return {
+      ok: false,
+      error: `'${fieldLabel}' must have at least one strictly positive weight`,
+    };
   }
   return {
-    boolean: out.boolean ?? 0,
-    choice: out.choice ?? 0,
+    ok: true,
+    value: {
+      boolean: out.boolean ?? 0,
+      choice: out.choice ?? 0,
+      freeform: out.freeform ?? 0,
+    },
+  };
+}
+
+export function parseTriviaAnswersFormat(
+  raw: JsonValue | undefined,
+): TriviaAnswersFormatWeights | undefined {
+  if (raw === undefined) return undefined;
+  const result = validateAnswersFormatMap(raw, "Config 'trivia.answersFormat'");
+  if (!result.ok) throw new Error(result.error);
+  return result.value;
+}
+
+/**
+ * Validate an arbitrary value as a `TriviaQuestionTypeWeights` map. Symmetric to
+ * `validateAnswersFormatMap` — used by:
+ *
+ * - `parseTriviaQuestionType` for `config.trivia.questionType` (workspace-level)
+ * - `validateQuestionType` in `src/plugins/trivia/domain/seasonFormat.ts` for
+ *   `SeasonEntry.questionType` / `SeasonFormatSlot.questionType`
+ *
+ * Returns a tagged result so each caller wraps it in its own error shape.
+ */
+export function validateQuestionTypeMap(
+  raw: unknown,
+  fieldLabel: string,
+): { ok: true; value: TriviaQuestionTypeWeights } | { ok: false; error: string } {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { ok: false, error: `'${fieldLabel}' must be an object` };
+  }
+  const out: Partial<TriviaQuestionTypeWeights> = {};
+  let positiveCount = 0;
+  for (const [key, value] of Object.entries(raw)) {
+    if (!(QUESTION_TYPE_KEYS as readonly string[]).includes(key)) {
+      return {
+        ok: false,
+        error: `'${fieldLabel}' contains unknown key '${key}' (allowed: ${QUESTION_TYPE_KEYS.join(", ")})`,
+      };
+    }
+    if (
+      typeof value !== "number" ||
+      !Number.isFinite(value) ||
+      !Number.isInteger(value) ||
+      value < 0
+    ) {
+      return {
+        ok: false,
+        error: `'${fieldLabel}.${key}' must be a non-negative integer (got ${JSON.stringify(value)})`,
+      };
+    }
+    out[key as (typeof QUESTION_TYPE_KEYS)[number]] = value;
+    if (value > 0) positiveCount++;
+  }
+  if (positiveCount === 0) {
+    return {
+      ok: false,
+      error: `'${fieldLabel}' must have at least one strictly positive weight`,
+    };
+  }
+  return {
+    ok: true,
+    value: { fact: out.fact ?? 0, topical: out.topical ?? 0 },
   };
 }
 
@@ -516,76 +608,64 @@ export function parseTriviaQuestionType(
   raw: JsonValue | undefined,
 ): TriviaQuestionTypeWeights | undefined {
   if (raw === undefined) return undefined;
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    throw new Error("Config 'trivia.questionType' must be an object");
-  }
-  const entries: JsonObject = raw;
-  const out: Partial<TriviaQuestionTypeWeights> = {};
-  let positiveCount = 0;
-  for (const [key, value] of Object.entries(entries)) {
-    if (!(QUESTION_TYPE_KEYS as readonly string[]).includes(key)) {
-      throw new Error(
-        `Config 'trivia.questionType' contains unknown key '${key}' (allowed: ${QUESTION_TYPE_KEYS.join(", ")})`,
-      );
-    }
-    if (
-      typeof value !== "number" ||
-      !Number.isFinite(value) ||
-      !Number.isInteger(value) ||
-      value < 0
-    ) {
-      throw new Error(
-        `Config 'trivia.questionType.${key}' must be a non-negative integer (got ${JSON.stringify(value)})`,
-      );
-    }
-    out[key as "fact" | "topical"] = value;
-    if (value > 0) positiveCount++;
-  }
-  if (positiveCount === 0) {
-    throw new Error("Config 'trivia.questionType' must have at least one strictly positive weight");
-  }
-  return {
-    fact: out.fact ?? 0,
-    topical: out.topical ?? 0,
-  };
+  const result = validateQuestionTypeMap(raw, "Config 'trivia.questionType'");
+  if (!result.ok) throw new Error(result.error);
+  return result.value;
 }
 
-export function parseTriviaContexts(raw: JsonValue | undefined): TriviaContextEntry[] | undefined {
-  if (raw === undefined) return undefined;
+/**
+ * Validate an arbitrary value as a `TriviaContextEntry[]` list. Symmetric to the
+ * answersFormat / questionType validators. Used by:
+ *
+ * - `parseTriviaContexts` for `config.trivia.contexts` (workspace-level)
+ * - `validateContexts` in `src/plugins/trivia/domain/seasonFormat.ts` for
+ *   `SeasonEntry.contexts` / `SeasonFormatSlot.contexts`
+ */
+export function validateContextsList(
+  raw: unknown,
+  fieldLabel: string,
+): { ok: true; value: TriviaContextEntry[] } | { ok: false; error: string } {
   if (!Array.isArray(raw)) {
-    throw new Error("Config 'trivia.contexts' must be an array");
+    return { ok: false, error: `'${fieldLabel}' must be an array` };
   }
   if (raw.length === 0) {
-    throw new Error("Config 'trivia.contexts' must be non-empty when present");
+    return { ok: false, error: `'${fieldLabel}' must be non-empty when present` };
   }
   const out: TriviaContextEntry[] = [];
   const seenNames = new Set<string>();
   for (let i = 0; i < raw.length; i++) {
-    const entry = raw[i];
+    const entry: unknown = raw[i];
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-      throw new Error(`Config 'trivia.contexts[${i}]' must be an object`);
+      return { ok: false, error: `'${fieldLabel}[${i}]' must be an object` };
     }
-    const e: JsonObject = entry;
-    const name = e.name;
-    if (typeof name !== "string") {
-      throw new Error(`Config 'trivia.contexts[${i}].name' must be a string`);
+    const e = entry as { name?: unknown; weight?: unknown };
+    if (typeof e.name !== "string") {
+      return { ok: false, error: `'${fieldLabel}[${i}].name' must be a string` };
     }
-    if (seenNames.has(name)) {
-      throw new Error(`Config 'trivia.contexts[${i}]' has duplicate name '${name}'`);
+    if (seenNames.has(e.name)) {
+      return { ok: false, error: `'${fieldLabel}[${i}]' has duplicate name '${e.name}'` };
     }
-    seenNames.add(name);
+    seenNames.add(e.name);
     let weight: number | undefined;
     if (e.weight !== undefined) {
       if (typeof e.weight !== "number" || !Number.isFinite(e.weight) || e.weight <= 0) {
-        throw new Error(
-          `Config 'trivia.contexts[${i}].weight' must be a positive number (got ${JSON.stringify(e.weight)})`,
-        );
+        return {
+          ok: false,
+          error: `'${fieldLabel}[${i}].weight' must be a positive number (got ${JSON.stringify(e.weight)})`,
+        };
       }
       weight = e.weight;
     }
-    out.push(weight === undefined ? { name } : { name, weight });
+    out.push(weight === undefined ? { name: e.name } : { name: e.name, weight });
   }
-  return out;
+  return { ok: true, value: out };
+}
+
+export function parseTriviaContexts(raw: JsonValue | undefined): TriviaContextEntry[] | undefined {
+  if (raw === undefined) return undefined;
+  const result = validateContextsList(raw, "Config 'trivia.contexts'");
+  if (!result.ok) throw new Error(result.error);
+  return result.value;
 }
 
 export function parseTriviaChoicesConfig(

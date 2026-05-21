@@ -17,6 +17,13 @@ import {
 import { cleanReactionLists, categorizeBoolean, categorizeChoice } from "./categorize.js";
 import { pickSeasonMvp, applySeasonRollover } from "./rollover.js";
 import { computeRoundSummary } from "./roundSummary.js";
+import {
+  buildJudgePrompt,
+  parseJudgeResponse,
+  DEFAULT_JUDGE_MODEL,
+  type JudgeQuestionGroup,
+  type JudgeVerdict,
+} from "../../freeform/judge.js";
 import type { ClackSdk } from "../../../sdk.js";
 import type {
   TriviaDataLayer,
@@ -89,7 +96,7 @@ export function defaultRevealSlackDeps(sdk: Pick<ClackSdk, "getSlackClient">): R
 
 export function createProcessRevealAnswersTool(
   data: TriviaDataLayer,
-  sdk: Pick<ClackSdk, "getSlackClient">,
+  sdk: Pick<ClackSdk, "getSlackClient" | "askClaude">,
   getGamesFn: GetGamesFn = defaultGetGames,
   jobsLoader: () => Promise<CronJob[]> = loadJobs,
   slackDeps: RevealSlackDeps = defaultRevealSlackDeps(sdk),
@@ -146,10 +153,37 @@ export function createProcessRevealAnswersTool(
       }
 
       // ── Process each target ─────────────────────────────────────────────
-      const reveals: ProcessRevealEntry[] = [];
       const users = await data.loadUsers();
 
-      for (const question of targets) {
+      // Split freeform targets out: they go through the inline Haiku judge
+      // (no Slack reactions to read). Boolean/choice questions stay on the
+      // reaction-based path. Reprocess mode is explicitly rejected for freeform
+      // — there's no public reactions source to re-derive from.
+      const freeformTargets: TriviaQuestion[] = [];
+      const reactionTargets: TriviaQuestion[] = [];
+      for (const q of targets) {
+        if ((q.answersFormat ?? "boolean") === "freeform") {
+          if (isReprocessMode) {
+            perIdErrors.push({
+              questionId: q.id,
+              error:
+                "reprocess mode is not supported for freeform questions (no reactions to re-derive from)",
+            });
+            continue;
+          }
+          freeformTargets.push(q);
+        } else {
+          reactionTargets.push(q);
+        }
+      }
+
+      // Resolve both paths into a map keyed by questionId, then re-assemble the
+      // `reveals` array in the ORIGINAL `targets` order so the renderer sees
+      // questions in the same chronological order they were posted (matters most
+      // for multi-slot mixed-format batches).
+      const entriesById = new Map<string, ProcessRevealEntry>();
+
+      for (const question of reactionTargets) {
         const entry = await processOneTarget({
           question,
           isReprocessMode,
@@ -161,7 +195,25 @@ export function createProcessRevealAnswersTool(
           slackDeps,
           perIdErrors,
         });
-        if (entry !== null) reveals.push(entry);
+        if (entry !== null) entriesById.set(question.id, entry);
+      }
+
+      if (freeformTargets.length > 0) {
+        const freeformEntries = await processFreeformTargets({
+          questions: freeformTargets,
+          now,
+          users,
+          scoped,
+          sdk,
+          perIdErrors,
+        });
+        for (const entry of freeformEntries) entriesById.set(entry.questionId, entry);
+      }
+
+      const reveals: ProcessRevealEntry[] = [];
+      for (const target of targets) {
+        const entry = entriesById.get(target.id);
+        if (entry !== undefined) reveals.push(entry);
       }
 
       // ── Leaderboard ─────────────────────────────────────────────────────
@@ -319,7 +371,18 @@ async function processOneTarget(
   );
   const cleaned = cleanReactionLists(rawReactions, botUserId, cheaterIds);
 
-  const answersFormat: "boolean" | "choice" = question.answersFormat ?? "boolean";
+  const rawAnswersFormat = question.answersFormat ?? "boolean";
+  if (rawAnswersFormat === "freeform") {
+    // Freeform reveal is implemented separately (batch Haiku judge) — the
+    // caller routes freeform questions through that path before reaching here.
+    // Defensive guard: if we get here with freeform, treat as a per-id error.
+    perIdErrors.push({
+      questionId: question.id,
+      error: "freeform questions cannot be processed through the reaction-based reveal path",
+    });
+    return null;
+  }
+  const answersFormat: "boolean" | "choice" = rawAnswersFormat;
   let buckets: VoterBuckets;
   let scoredBoolean: Array<{ userId: string; answer: boolean }> = [];
   let scoredChoice: Array<{ userId: string; answerIndex: number }> = [];
@@ -410,6 +473,154 @@ async function ensureUser(
   const u: TriviaUser = { userId, displayName: userId, joinedAt: now };
   users.set(userId, u);
   await data.saveUser(u);
+}
+
+interface ProcessFreeformParams {
+  questions: TriviaQuestion[];
+  now: number;
+  users: Map<string, TriviaUser>;
+  scoped: ReturnType<TriviaDataLayer["forGame"]>;
+  sdk: Pick<ClackSdk, "askClaude">;
+  perIdErrors: Array<{ questionId: string; error: string }>;
+}
+
+/**
+ * Reveal-time judging for the freeform answer format. Collects every pending
+ * row for each freeform question in the batch, sends them to Haiku in ONE
+ * batched call, applies per-row verdicts via `updateAnswer`, and emits reveal
+ * entries with the quoted `answerText` in voter buckets.
+ *
+ * When the judge call fails or returns malformed output, all pending rows for
+ * the affected questions are marked `correct: false` so they don't stay stuck
+ * pending across runs, and a per-question error is surfaced in the payload.
+ */
+async function processFreeformTargets(
+  params: ProcessFreeformParams,
+): Promise<ProcessRevealEntry[]> {
+  const { questions, now, users, scoped, sdk, perIdErrors } = params;
+  const allAnswers = await scoped.loadAnswers();
+
+  // Build judge groups for questions that have at least one pending submission.
+  // Keep a map of (questionId -> submissions) so we can apply verdicts and build
+  // voter buckets after the judge returns.
+  const groups: JudgeQuestionGroup[] = [];
+  const submissionsByQuestion = new Map<
+    string,
+    Array<{ key: string; userId: string; answerText: string }>
+  >();
+
+  questions.forEach((question, qIdx) => {
+    const pendingRows = allAnswers.filter(
+      (a) => a.questionId === question.id && a.correct === undefined,
+    );
+    const subs = pendingRows.map((row, sIdx) => ({
+      key: `${qIdx + 1}.${sIdx + 1}`,
+      userId: row.userId,
+      answerText: row.answerText ?? "",
+    }));
+    submissionsByQuestion.set(question.id, subs);
+    groups.push({ question, submissions: subs });
+  });
+
+  // Skip the judge call entirely when no submission exists across the batch.
+  const hasAnySubmission = groups.some((g) => g.submissions.length > 0);
+  let verdicts: JudgeVerdict[] = [];
+  let judgeFailed = false;
+  if (hasAnySubmission) {
+    const prompt = buildJudgePrompt(groups);
+    try {
+      const response = await sdk.askClaude({
+        model: DEFAULT_JUDGE_MODEL,
+        system: prompt.system,
+        messages: prompt.messages,
+        max_tokens: 1500,
+      });
+      verdicts = parseJudgeResponse(response.text);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn(`[trivia:freeform] judge call/parse failed: ${msg}`);
+      judgeFailed = true;
+    }
+  }
+
+  // Index verdicts by key for fast lookup.
+  const verdictByKey = new Map<string, JudgeVerdict>();
+  for (const v of verdicts) verdictByKey.set(v.key, v);
+
+  const entries: ProcessRevealEntry[] = [];
+  for (const question of questions) {
+    if (!question.messageLink) {
+      perIdErrors.push({
+        questionId: question.id,
+        error: "freeform question is missing messageLink",
+      });
+      continue;
+    }
+    const subs = submissionsByQuestion.get(question.id) ?? [];
+
+    const correctVoters: Array<{
+      userId: string;
+      displayName: string;
+      answerText: string;
+    }> = [];
+    const incorrectVoters: Array<{
+      userId: string;
+      displayName: string;
+      answerText: string;
+    }> = [];
+
+    for (const sub of subs) {
+      let verdict = verdictByKey.get(sub.key);
+      // Judge failure or missing verdict: commit the row as incorrect with a
+      // clear reason rather than leaving it pending forever.
+      if (verdict === undefined) {
+        verdict = {
+          key: sub.key,
+          correct: false,
+          reason: judgeFailed ? "judge-error" : "judge-missing-verdict",
+        };
+      }
+      await scoped.updateAnswer(sub.userId, question.id, { correct: verdict.correct });
+      const displayName = users.get(sub.userId)?.displayName ?? sub.userId;
+      const target = verdict.correct ? correctVoters : incorrectVoters;
+      target.push({ userId: sub.userId, displayName, answerText: sub.answerText });
+    }
+
+    if (judgeFailed && subs.length > 0) {
+      perIdErrors.push({
+        questionId: question.id,
+        error:
+          "freeform judge call failed — submissions committed as incorrect (reason: judge-error)",
+      });
+    }
+
+    await scoped.updateQuestion(question.id, { processedAt: now });
+
+    entries.push({
+      questionId: question.id,
+      statement: question.statement,
+      category: question.category,
+      emojis: question.emojis ?? [],
+      messageLink: question.messageLink,
+      wasReprocessed: false,
+      answer: {
+        type: "freeform",
+        expectedAnswer: question.expectedAnswer ?? "",
+        ...(question.acceptableAnswers !== undefined
+          ? { acceptableAnswers: question.acceptableAnswers }
+          : {}),
+        ...(question.gradingNotes !== undefined ? { gradingNotes: question.gradingNotes } : {}),
+      },
+      voters: {
+        correct: correctVoters,
+        incorrect: incorrectVoters,
+        fenceSitters: [],
+        wildcards: [],
+      },
+    });
+  }
+
+  return entries;
 }
 
 interface SeasonStatusParams {

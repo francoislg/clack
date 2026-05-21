@@ -1,5 +1,5 @@
-import type { Config } from "../../../config.js";
-import type { SeasonContextEntry, SeasonEntry } from "../core/types.js";
+import type { Config, TriviaContextEntry } from "../../../config.js";
+import type { SeasonEntry } from "../core/types.js";
 
 /**
  * Pure resolver for the contexts (lens) axis. Returns `null` when no cascade tier
@@ -17,7 +17,7 @@ export function resolveContexts(
   currentSeason: SeasonEntry | null,
   slotIndex: number | null,
   config: Config | null,
-): SeasonContextEntry[] | null {
+): TriviaContextEntry[] | null {
   if (currentSeason !== null && slotIndex !== null && currentSeason.format !== undefined) {
     const slot = currentSeason.format.questions[slotIndex];
     if (slot?.contexts !== undefined) {
@@ -44,7 +44,7 @@ export function resolveContexts(
  * Returns a `string[]` of `name` values (NOT the full entries) because that's all
  * downstream (Claude's prompt + `save_question.context` validation) needs to see.
  */
-export function rollContextPriority(contexts: SeasonContextEntry[]): string[] {
+export function rollContextPriority(contexts: TriviaContextEntry[]): string[] {
   if (contexts.length === 0) return [];
 
   // Mutable copy of remaining (entry, effective weight) pairs.

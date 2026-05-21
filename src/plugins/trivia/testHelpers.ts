@@ -87,6 +87,13 @@ export function createInMemoryDataLayer(): TriviaDataLayer {
       async saveAnswer(a) {
         cell.answers.push(a);
       },
+      async updateAnswer(userId, questionId, partial) {
+        const idx = cell.answers.findIndex(
+          (a) => a.userId === userId && a.questionId === questionId,
+        );
+        if (idx === -1) return;
+        cell.answers[idx] = { ...cell.answers[idx], ...partial };
+      },
       async deleteAnswersForQuestion(questionId) {
         const before = cell.answers.length;
         cell.answers = cell.answers.filter((a) => a.questionId !== questionId);

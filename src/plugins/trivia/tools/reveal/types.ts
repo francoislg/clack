@@ -3,6 +3,11 @@ import type { LeaderboardEntry } from "../../domain/computeLeaderboard.js";
 export interface Voter {
   userId: string;
   displayName: string;
+  /**
+   * Set for freeform reveal entries — the user's typed answer text, quoted in
+   * the rendered verdict. Absent for boolean/choice voter entries.
+   */
+  answerText?: string;
 }
 
 export interface WildcardVoter extends Voter {
@@ -12,14 +17,20 @@ export interface WildcardVoter extends Voter {
 export interface VoterBuckets {
   correct: Voter[];
   incorrect: Voter[];
-  /** Always `[]` for choice questions (the bucket only applies to boolean). */
+  /** Always `[]` for choice and freeform questions (the bucket only applies to boolean). */
   fenceSitters: Voter[];
   wildcards: WildcardVoter[];
 }
 
 export type RevealAnswer =
   | { type: "boolean"; isTrue: boolean }
-  | { type: "choice"; choices: string[]; correctIndex: number };
+  | { type: "choice"; choices: string[]; correctIndex: number }
+  | {
+      type: "freeform";
+      expectedAnswer: string;
+      acceptableAnswers?: string[];
+      gradingNotes?: string;
+    };
 
 export interface ProcessRevealEntry {
   questionId: string;

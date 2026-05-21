@@ -174,16 +174,19 @@ A shape mismatch (boolean entry on a choice question or vice-versa) is rejected 
           existingAnswers.push(newAnswer);
         }
 
-        // Compute per-user stats over this game's answers only
+        // Compute per-user stats over this game's answers only.
+        // Pending freeform rows (`correct === undefined`) are excluded entirely —
+        // they neither count as answered nor break a streak.
         const userAnswers = existingAnswers
           .filter((a) => a.userId === answerInput.userId)
           .sort((a, b) => a.timestamp - b.timestamp);
-        const totalCorrect = userAnswers.filter((a) => a.correct).length;
-        const totalAnswered = userAnswers.length;
+        const scoredAnswers = userAnswers.filter((a) => a.correct !== undefined);
+        const totalCorrect = scoredAnswers.filter((a) => a.correct === true).length;
+        const totalAnswered = scoredAnswers.length;
 
         let currentStreak = 0;
-        for (let i = userAnswers.length - 1; i >= 0; i--) {
-          if (userAnswers[i].correct) currentStreak++;
+        for (let i = scoredAnswers.length - 1; i >= 0; i--) {
+          if (scoredAnswers[i].correct === true) currentStreak++;
           else break;
         }
 
@@ -197,8 +200,10 @@ A shape mismatch (boolean entry on a choice question or vice-versa) is rejected 
           currentStreak,
         };
         if (currentSeason !== null) {
-          const currentSeasonAnswers = userAnswers.filter((a) => a.season === currentSeason);
-          result.currentSeasonCorrect = currentSeasonAnswers.filter((a) => a.correct).length;
+          const currentSeasonAnswers = scoredAnswers.filter((a) => a.season === currentSeason);
+          result.currentSeasonCorrect = currentSeasonAnswers.filter(
+            (a) => a.correct === true,
+          ).length;
           result.currentSeasonAnswered = currentSeasonAnswers.length;
         }
         results.push(result);

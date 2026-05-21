@@ -61,6 +61,9 @@ const BASE_ARGS = {
   context: undefined,
   choices: undefined,
   correctIndex: undefined,
+  expectedAnswer: undefined,
+  acceptableAnswers: undefined,
+  gradingNotes: undefined,
   suggestedDifficulty: undefined,
   difficulty: undefined,
   emojis: ["💧"],
@@ -101,7 +104,7 @@ describe("save_question — slot binding", () => {
 
   it("rejects question whose type is not permitted by the slot", async () => {
     await seedSeason(data, {
-      format: { questions: [{ answersFormat: { boolean: 0, choice: 1 } }] },
+      format: { questions: [{ answersFormat: { boolean: 0, choice: 1, freeform: 0 } }] },
     });
     const tool = createSaveQuestionTool(data, () => SEASONS_ON, fixtureGetGames);
     // Boolean question into a choice-only slot

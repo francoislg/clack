@@ -4,12 +4,43 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdtempSync } from "node:fs";
 import { z } from "zod";
-import { tool } from "@anthropic-ai/claude-agent-sdk";
+import { tool, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { WebClient } from "@slack/web-api";
 import { createClackSdk, type ClackSdkDeps } from "./sdk.js";
 import type { RolesConfig } from "../roles.js";
 
 const EMPTY_ROLES: RolesConfig = { owner: null, admins: [], devs: [] };
+
+async function* emptyClackQuery(): AsyncGenerator<SDKMessage, void, void> {}
+
+type ScriptedStep =
+  | { kind: "assistant"; text: string }
+  | { kind: "success"; text: string; inputTokens: number; outputTokens: number }
+  | { kind: "error"; subtype: "error_max_turns" | "error_during_execution" };
+
+/** Drive `askClaude` against a deterministic sequence of SDK messages. */
+function scriptedQueryResult(steps: ScriptedStep[]): ReturnType<ClackSdkDeps["clackQuery"]> {
+  async function* gen(): AsyncGenerator<SDKMessage, void, void> {
+    for (const step of steps) {
+      if (step.kind === "assistant") {
+        yield {
+          type: "assistant",
+          message: { content: [{ type: "text", text: step.text }] },
+        } as SDKMessage;
+      } else if (step.kind === "success") {
+        yield {
+          type: "result",
+          subtype: "success",
+          result: step.text,
+          usage: { input_tokens: step.inputTokens, output_tokens: step.outputTokens },
+        } as SDKMessage;
+      } else {
+        yield { type: "result", subtype: step.subtype } as SDKMessage;
+      }
+    }
+  }
+  return gen();
+}
 
 describe("ClackSdk", () => {
   function makeSdk(pluginName = "test-plugin", deps?: Partial<ClackSdkDeps>) {
@@ -24,6 +55,7 @@ describe("ClackSdk", () => {
       createJob: deps?.createJob,
       updateJob: deps?.updateJob,
       deleteJob: deps?.deleteJob,
+      clackQuery: deps?.clackQuery ?? (() => emptyClackQuery()),
     };
     return createClackSdk(pluginName, dataDir, fullDeps);
   }
@@ -724,6 +756,56 @@ describe("ClackSdk", () => {
     it("actionId rejects keys that already include the prefix", () => {
       const { sdk } = makeSdk("trivia");
       assert.throws(() => sdk.actionId("plugin:trivia:answer"), /auto-prefixes/);
+    });
+  });
+
+  describe("askClaude", () => {
+    it("flattens system + messages into one prompt and returns assistant text + usage", async () => {
+      let capturedPrompt: string | undefined;
+      let capturedModel: string | undefined;
+
+      const fakeClackQuery: ClackSdkDeps["clackQuery"] = (params) => {
+        capturedPrompt = params.prompt;
+        if (typeof params.options?.model === "string") capturedModel = params.options.model;
+        return scriptedQueryResult([
+          { kind: "assistant", text: "Paris" },
+          { kind: "success", text: "Paris", inputTokens: 12, outputTokens: 3 },
+        ]);
+      };
+
+      const { sdk } = makeSdk("trivia", { clackQuery: fakeClackQuery });
+
+      const out = await sdk.askClaude({
+        model: "claude-haiku-4-5-20251001",
+        system: "You are a strict judge.",
+        messages: [{ role: "user", content: "What is the capital of France?" }],
+        max_tokens: 100,
+      });
+
+      assert.equal(out.text, "Paris");
+      assert.equal(out.stopReason, "end_turn");
+      assert.equal(out.usage.inputTokens, 12);
+      assert.equal(out.usage.outputTokens, 3);
+      assert.equal(capturedModel, "claude-haiku-4-5-20251001");
+      assert.match(capturedPrompt ?? "", /strict judge/);
+      assert.match(capturedPrompt ?? "", /capital of France/);
+    });
+
+    it("surfaces non-success result subtypes as stopReason", async () => {
+      const fakeClackQuery: ClackSdkDeps["clackQuery"] = () =>
+        scriptedQueryResult([
+          { kind: "assistant", text: "partial" },
+          { kind: "error", subtype: "error_max_turns" },
+        ]);
+      const { sdk } = makeSdk("trivia", { clackQuery: fakeClackQuery });
+
+      const out = await sdk.askClaude({
+        model: "haiku",
+        messages: [{ role: "user", content: "go" }],
+      });
+
+      assert.equal(out.stopReason, "error_max_turns");
+      assert.equal(out.text, "partial");
     });
   });
 });

@@ -17,8 +17,15 @@ const SESSION = { sessionId: "test" };
 
 // `null` from sdk.getSlackClient() is fine here; the test always overrides slackDeps so
 // the production default-deps factory never resolves the (null) client.
-function makeFakeSdk(): Pick<ClackSdk, "getSlackClient"> {
-  return { getSlackClient: () => null };
+function makeFakeSdk(
+  askClaudeImpl: ClackSdk["askClaude"] = async () => {
+    throw new Error("askClaude not stubbed for this test");
+  },
+): Pick<ClackSdk, "getSlackClient" | "askClaude"> {
+  return {
+    getSlackClient: () => null,
+    askClaude: askClaudeImpl,
+  };
 }
 
 /**
@@ -838,6 +845,330 @@ describe("process_reveal_answers — reprocess mode", () => {
     assert.equal(body.reveals[0].questionId, "q-real");
     assert.ok(Array.isArray(body.errors));
     assert.ok(body.errors.some((e: { questionId: string }) => e.questionId === "q-bogus"));
+  });
+});
+
+describe("process_reveal_answers — freeform reveal", () => {
+  async function seedFreeformQuestion(
+    data: TriviaDataLayer,
+    id: string,
+    ts: string,
+    overrides: Partial<TriviaQuestion> = {},
+  ): Promise<void> {
+    const q: TriviaQuestion = {
+      id,
+      category: "Geography",
+      statement: "What is the capital of France?",
+      answersFormat: "freeform",
+      questionType: "fact",
+      expectedAnswer: "Paris",
+      acceptableAnswers: ["Paris, France"],
+      emojis: ["🌍"],
+      createdAt: 100,
+      postedAt: 200,
+      messageLink: permalink(ts),
+      ...overrides,
+    };
+    await data.forGame(FIXTURE_GAME_NAME).saveQuestion(q);
+  }
+
+  async function seedPendingAnswer(
+    data: TriviaDataLayer,
+    userId: string,
+    questionId: string,
+    answerText: string,
+  ): Promise<void> {
+    await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
+      userId,
+      questionId,
+      answerText,
+      timestamp: Date.now(),
+    });
+    await data.saveUser({ userId, displayName: userId, joinedAt: Date.now() });
+  }
+
+  it("invokes the judge once and applies verdicts to every submission", async () => {
+    const data = createInMemoryDataLayer();
+    await seedFreeformQuestion(data, "qf1", "1700000000.111111");
+    await seedPendingAnswer(data, "U_alice", "qf1", "Paris");
+    await seedPendingAnswer(data, "U_bob", "qf1", "Paris or London");
+
+    let askCallCount = 0;
+    const sdk = makeFakeSdk(async () => {
+      askCallCount++;
+      return {
+        text: JSON.stringify({
+          verdicts: [
+            { key: "1.1", correct: true },
+            { key: "1.2", correct: false, reason: "multiple-guess" },
+          ],
+        }),
+        stopReason: "end_turn",
+        usage: { inputTokens: 100, outputTokens: 50 },
+      };
+    });
+
+    const slackDeps: RevealSlackDeps = {
+      isAvailable: () => null,
+      fetchBotUserId: async () => "",
+      fetchMessageReactions: async () => [],
+    };
+    const tool = createProcessRevealAnswersTool(data, sdk, fixtureGetGames, noJobs, slackDeps);
+
+    const result = await tool.handler(
+      { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined },
+      SESSION,
+    );
+    const body = parseToolResult(result);
+
+    assert.equal(askCallCount, 1, "exactly one judge call per reveal batch");
+    assert.equal(body.reveals.length, 1);
+    const reveal = body.reveals[0];
+    assert.equal(reveal.answer.type, "freeform");
+    assert.equal(reveal.answer.expectedAnswer, "Paris");
+    assert.equal(reveal.voters.correct.length, 1);
+    assert.equal(reveal.voters.correct[0].userId, "U_alice");
+    assert.equal(reveal.voters.correct[0].answerText, "Paris");
+    assert.equal(reveal.voters.incorrect.length, 1);
+    assert.equal(reveal.voters.incorrect[0].userId, "U_bob");
+    assert.equal(reveal.voters.incorrect[0].answerText, "Paris or London");
+    assert.deepEqual(reveal.voters.fenceSitters, []);
+    assert.deepEqual(reveal.voters.wildcards, []);
+
+    // Verdicts persisted on the rows.
+    const rows = await getAnswers(data);
+    const alice = rows.find((r) => r.userId === "U_alice");
+    const bob = rows.find((r) => r.userId === "U_bob");
+    assert.equal(alice?.correct, true);
+    assert.equal(bob?.correct, false);
+
+    // processedAt stamped.
+    const q = await getQuestion(data, "qf1");
+    assert.notEqual(q?.processedAt, undefined);
+  });
+
+  it("skips the judge entirely when no submissions exist", async () => {
+    const data = createInMemoryDataLayer();
+    await seedFreeformQuestion(data, "qf-empty", "1700000000.222222");
+
+    let askCallCount = 0;
+    const sdk = makeFakeSdk(async () => {
+      askCallCount++;
+      throw new Error("should not be called");
+    });
+
+    const slackDeps: RevealSlackDeps = {
+      isAvailable: () => null,
+      fetchBotUserId: async () => "",
+      fetchMessageReactions: async () => [],
+    };
+    const tool = createProcessRevealAnswersTool(data, sdk, fixtureGetGames, noJobs, slackDeps);
+
+    const result = await tool.handler(
+      { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined },
+      SESSION,
+    );
+    const body = parseToolResult(result);
+
+    assert.equal(askCallCount, 0, "no judge call when there are no submissions");
+    assert.equal(body.reveals.length, 1);
+    assert.deepEqual(body.reveals[0].voters.correct, []);
+    assert.deepEqual(body.reveals[0].voters.incorrect, []);
+  });
+
+  it("commits rows as incorrect with reason judge-error when the judge call fails", async () => {
+    const data = createInMemoryDataLayer();
+    await seedFreeformQuestion(data, "qf-err", "1700000000.333333");
+    await seedPendingAnswer(data, "U_alice", "qf-err", "Paris");
+
+    const sdk = makeFakeSdk(async () => {
+      throw new Error("network blew up");
+    });
+    const slackDeps: RevealSlackDeps = {
+      isAvailable: () => null,
+      fetchBotUserId: async () => "",
+      fetchMessageReactions: async () => [],
+    };
+    const tool = createProcessRevealAnswersTool(data, sdk, fixtureGetGames, noJobs, slackDeps);
+
+    const result = await tool.handler(
+      { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined },
+      SESSION,
+    );
+    const body = parseToolResult(result);
+    const reveal = body.reveals[0];
+    assert.equal(reveal.voters.incorrect.length, 1);
+    assert.equal(reveal.voters.incorrect[0].userId, "U_alice");
+
+    const rows = await getAnswers(data);
+    const alice = rows.find((r) => r.userId === "U_alice");
+    assert.equal(alice?.correct, false);
+
+    assert.ok(body.errors !== undefined);
+    assert.ok(body.errors.some((e: { error: string }) => /judge-error/.test(e.error)));
+  });
+
+  it("rejects reprocess mode for freeform questions", async () => {
+    const data = createInMemoryDataLayer();
+    await seedFreeformQuestion(data, "qf-repro", "1700000000.444444", { processedAt: 999 });
+
+    const sdk = makeFakeSdk();
+    const slackDeps: RevealSlackDeps = {
+      isAvailable: () => null,
+      fetchBotUserId: async () => "",
+      fetchMessageReactions: async () => [],
+    };
+    const tool = createProcessRevealAnswersTool(data, sdk, fixtureGetGames, noJobs, slackDeps);
+
+    const result = await tool.handler(
+      { game: FIXTURE_GAME_NAME, reprocessQuestionIds: ["qf-repro"] },
+      SESSION,
+    );
+    const body = parseToolResult(result);
+    assert.ok(body.errors !== undefined);
+    assert.ok(
+      body.errors.some((e: { error: string }) =>
+        /reprocess mode is not supported for freeform/.test(e.error),
+      ),
+    );
+  });
+
+  it("handles multiple freeform questions in one batch with one judge call", async () => {
+    const data = createInMemoryDataLayer();
+    await seedFreeformQuestion(data, "qfA", "1700000001.000000", {
+      statement: "What is the capital of France?",
+      expectedAnswer: "Paris",
+      postedAt: 100,
+      batchId: "batch-multi",
+    });
+    await seedFreeformQuestion(data, "qfB", "1700000002.000000", {
+      statement: "Who wrote Hamlet?",
+      expectedAnswer: "Shakespeare",
+      postedAt: 200,
+      batchId: "batch-multi",
+    });
+    // qfA: alice correct, bob wrong
+    await seedPendingAnswer(data, "U_alice", "qfA", "Paris");
+    await seedPendingAnswer(data, "U_bob", "qfA", "London");
+    // qfB: alice wrong, bob correct
+    await seedPendingAnswer(data, "U_alice", "qfB", "Marlowe");
+    await seedPendingAnswer(data, "U_bob", "qfB", "Shakespeare");
+
+    let askCallCount = 0;
+    const sdk = makeFakeSdk(async () => {
+      askCallCount++;
+      return {
+        text: JSON.stringify({
+          verdicts: [
+            { key: "1.1", correct: true },
+            { key: "1.2", correct: false },
+            { key: "2.1", correct: false },
+            { key: "2.2", correct: true },
+          ],
+        }),
+        stopReason: "end_turn",
+        usage: { inputTokens: 100, outputTokens: 50 },
+      };
+    });
+
+    const slackDeps: RevealSlackDeps = {
+      isAvailable: () => null,
+      fetchBotUserId: async () => "",
+      fetchMessageReactions: async () => [],
+    };
+    const tool = createProcessRevealAnswersTool(data, sdk, fixtureGetGames, noJobs, slackDeps);
+
+    const result = await tool.handler(
+      { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined },
+      SESSION,
+    );
+    const body = parseToolResult(result);
+
+    assert.equal(askCallCount, 1, "single judge call for the whole batch");
+    assert.equal(body.reveals.length, 2);
+
+    // Reveals appear in postedAt order (qfA before qfB)
+    assert.equal(body.reveals[0].questionId, "qfA");
+    assert.equal(body.reveals[1].questionId, "qfB");
+
+    // qfA verdicts
+    const a = body.reveals[0];
+    assert.equal(a.voters.correct.length, 1);
+    assert.equal(a.voters.correct[0].userId, "U_alice");
+    assert.equal(a.voters.correct[0].answerText, "Paris");
+    assert.equal(a.voters.incorrect.length, 1);
+    assert.equal(a.voters.incorrect[0].userId, "U_bob");
+
+    // qfB verdicts (bob is correct here)
+    const b = body.reveals[1];
+    assert.equal(b.voters.correct.length, 1);
+    assert.equal(b.voters.correct[0].userId, "U_bob");
+    assert.equal(b.voters.correct[0].answerText, "Shakespeare");
+    assert.equal(b.voters.incorrect.length, 1);
+    assert.equal(b.voters.incorrect[0].userId, "U_alice");
+
+    // Leaderboard sums across both questions: each user has one correct answer
+    assert.equal(body.leaderboard.length, 2);
+    const aliceRow = body.leaderboard.find((r: { userId: string }) => r.userId === "U_alice");
+    const bobRow = body.leaderboard.find((r: { userId: string }) => r.userId === "U_bob");
+    assert.equal(aliceRow?.totalCorrect, 1);
+    assert.equal(aliceRow?.totalAnswered, 2);
+    assert.equal(bobRow?.totalCorrect, 1);
+    assert.equal(bobRow?.totalAnswered, 2);
+  });
+
+  it("preserves the original target order in mixed boolean + freeform batches", async () => {
+    const data = createInMemoryDataLayer();
+    // Posted order: boolean (Q1), freeform (Q2), boolean (Q3) — same batch
+    await seedQuestion(data, {
+      id: "Q1",
+      isTrue: true,
+      ts: "1700000001.000000",
+      postedAt: 100,
+      batchId: "mixed",
+    });
+    await seedFreeformQuestion(data, "Q2", "1700000002.000000", {
+      expectedAnswer: "Paris",
+      postedAt: 200,
+      batchId: "mixed",
+    });
+    await seedQuestion(data, {
+      id: "Q3",
+      isTrue: false,
+      ts: "1700000003.000000",
+      postedAt: 300,
+      batchId: "mixed",
+    });
+    await seedPendingAnswer(data, "U_alice", "Q2", "Paris");
+
+    const sdk = makeFakeSdk(async () => ({
+      text: JSON.stringify({ verdicts: [{ key: "1.1", correct: true }] }),
+      stopReason: "end_turn",
+      usage: { inputTokens: 1, outputTokens: 1 },
+    }));
+    const slackDeps: RevealSlackDeps = {
+      isAvailable: () => null,
+      fetchBotUserId: async () => "",
+      fetchMessageReactions: async () => [],
+    };
+    const tool = createProcessRevealAnswersTool(data, sdk, fixtureGetGames, noJobs, slackDeps);
+
+    const result = await tool.handler(
+      { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined },
+      SESSION,
+    );
+    const body = parseToolResult(result);
+
+    assert.equal(body.reveals.length, 3);
+    // Original posted order is preserved across the mixed-format split.
+    assert.deepEqual(
+      body.reveals.map((r: { questionId: string }) => r.questionId),
+      ["Q1", "Q2", "Q3"],
+    );
+    // And the middle reveal is correctly typed as freeform.
+    assert.equal(body.reveals[1].answer.type, "freeform");
+    assert.equal(body.reveals[0].answer.type, "boolean");
+    assert.equal(body.reveals[2].answer.type, "boolean");
   });
 });
 
