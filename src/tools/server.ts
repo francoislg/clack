@@ -477,6 +477,11 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
       allowSkip: computeAllowSkip(triggerType, ctx.skipConditions, ctx.submitResponseMode),
       allowDisengage: shouldAllowDisengage(triggerType),
       allowPostTopLevel: shouldAllowPostTopLevel(triggerType),
+      // Top-level multi-message fields gated to scheduled (cron) context only. In DM,
+      // @mention, reaction, etc. the trigger channel is the user's space and multi-message
+      // there is almost never what they want — they'd ask via post_to with an explicit
+      // channel. post_to's own multi-message fields are NOT gated by this flag.
+      allowMultiMessage: ctx.allowMultiMessage ?? false,
       // Cap on additional_messages.length at every layer (top-level and inside post_to).
       // Sourced from config.submitResponse.maxAdditionalMessages. Falls back to the schema's
       // built-in default when absent (e.g., tests that build deps directly).

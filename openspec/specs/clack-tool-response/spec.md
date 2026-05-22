@@ -892,22 +892,28 @@ The `submit_response` tool SHALL accept an optional top-level `table` parameter,
 - **THEN** the cross-posted message receives the `blocks` argument unchanged (no table appended)
 - **AND** the snapshot stores no `table` field
 
-### Requirement: Multi-Message Fields Always Available
+### Requirement: Multi-Message Top-Level Fields Gated To Scheduled Trigger
 
-The `submit_response` tool SHALL expose two optional fields, `additional_messages` and `thread_replies`, on the top-level schema in EVERY trigger context (DM, @mention, reaction, auto-respond, scheduled, worker mode). The fields are NOT gated by trigger type or by any deps flag. Discipline is enforced solely by the schema field descriptions, which instruct Claude to use them ONLY when the user explicitly asks for multiple messages.
+The `submit_response` tool SHALL expose two optional fields, `additional_messages` and `thread_replies`, on the top-level schema ONLY when `SubmitResponseDeps.allowMultiMessage === true`. The scheduled (cron) trigger handler SHALL set this flag; every other trigger handler (DM, @mention, reaction, auto-respond, thread-reply, Changes Workflow worker mode) SHALL leave it unset, hiding the fields from Claude entirely. The rationale: in non-scheduled contexts the trigger channel is the user's conversation space, and `additional_messages` posts top-level to that channel — almost never what the user wants (they'd ask via a `post_to` action with an explicit `channel` instead). The `post_to.additional_messages` / `post_to.thread_replies` fields stay available everywhere (see *Multi-Message Inside post_to*).
 
-#### Scenario: Every trigger exposes both fields
+#### Scenario: Scheduled trigger exposes both fields
 
-- **GIVEN** a `submit_response` tool built for any trigger context
+- **GIVEN** a `submit_response` tool built from deps with `allowMultiMessage: true`
 - **WHEN** the tool's input schema is inspected
 - **THEN** the schema contains both `additional_messages` and `thread_replies` as optional fields
-- **AND** their descriptions begin with "ONLY use when the user explicitly asks for multiple messages"
 
-#### Scenario: Discipline is prompt-only
+#### Scenario: DM / @mention / reaction / auto-respond / worker triggers hide both fields
 
-- **WHEN** Claude is invoked without an explicit user request for multiple messages
-- **THEN** Claude SHALL default to a single response in `blocks` (the field descriptions teach this)
-- **AND** the schema does NOT structurally prevent multi-message usage — operators rely on Claude honoring the description
+- **GIVEN** a `submit_response` tool built from deps with `allowMultiMessage` unset (DM, @mention, reaction, auto-respond, thread-reply, worker)
+- **WHEN** the tool's input schema is inspected
+- **THEN** neither `additional_messages` nor `thread_replies` is present
+- **AND** any value Claude passes for those fields is silently dropped by zod's default non-strict parsing
+
+#### Scenario: allowMultiMessage is derived from session.triggerType
+
+- **WHEN** the query-mode context builder (`src/claude/index.ts`) constructs `QueryToolContext`
+- **THEN** `allowMultiMessage` is set to `session.triggerType === "scheduled"`
+- **AND** no other handler path enables the flag
 
 ### Requirement: Multi-Message Inside post_to
 

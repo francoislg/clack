@@ -52,6 +52,7 @@ function makeDeps(
     submitResponseMode: "always" | "optional" | "skipped";
     allowDisengage: boolean;
     allowPostTopLevel: boolean;
+    allowMultiMessage: boolean;
     maxAdditionalMessages: number;
     sessionThreadTs: string;
     sessionChannelId: string;
@@ -99,6 +100,7 @@ function makeDeps(
     submitResponseMode: overrides.submitResponseMode,
     allowDisengage: overrides.allowDisengage,
     allowPostTopLevel: overrides.allowPostTopLevel,
+    allowMultiMessage: overrides.allowMultiMessage,
     maxAdditionalMessages: overrides.maxAdditionalMessages,
     sessionThreadTs: overrides.sessionThreadTs,
     sessionChannelId: overrides.sessionChannelId,
@@ -2287,17 +2289,22 @@ describe("createSubmitResponseTool", () => {
       return z.object(createSubmitResponseTool(deps).inputSchema);
     }
 
-    it("always exposes additional_messages and thread_replies (not gated by trigger)", () => {
-      // Multi-message fields are always present in the schema. Discipline is enforced
-      // by the field descriptions ("ONLY use when explicitly asked"), not by gating.
-      const dmDeps = makeDeps();
+    it("hides additional_messages and thread_replies when allowMultiMessage is unset (DM/mention/etc.)", () => {
+      const dmDeps = makeDeps(); // allowMultiMessage NOT set
       const dmShape = Object.keys(createSubmitResponseTool(dmDeps).inputSchema);
-      assert.equal(dmShape.includes("additional_messages"), true);
-      assert.equal(dmShape.includes("thread_replies"), true);
+      assert.equal(dmShape.includes("additional_messages"), false);
+      assert.equal(dmShape.includes("thread_replies"), false);
+    });
+
+    it("exposes additional_messages and thread_replies when allowMultiMessage: true (scheduled)", () => {
+      const cronDeps = makeDeps({ allowMultiMessage: true });
+      const cronShape = Object.keys(createSubmitResponseTool(cronDeps).inputSchema);
+      assert.equal(cronShape.includes("additional_messages"), true);
+      assert.equal(cronShape.includes("thread_replies"), true);
     });
 
     it("accepts up to configured cap on additional_messages and rejects above", () => {
-      const deps = makeDeps({ maxAdditionalMessages: 3 });
+      const deps = makeDeps({ allowMultiMessage: true, maxAdditionalMessages: 3 });
       const schema = inputSchemaOf(deps);
       const msg = {
         blocks: [{ type: "section", text: { type: "mrkdwn", text: "follow" } }],
@@ -2318,7 +2325,7 @@ describe("createSubmitResponseTool", () => {
     });
 
     it("caps thread_replies at 20 regardless of config", () => {
-      const deps = makeDeps({ maxAdditionalMessages: 3 });
+      const deps = makeDeps({ allowMultiMessage: true, maxAdditionalMessages: 3 });
       const schema = inputSchemaOf(deps);
       const msg = {
         blocks: [{ type: "section", text: { type: "mrkdwn", text: "reply" } }],
@@ -2339,7 +2346,7 @@ describe("createSubmitResponseTool", () => {
     });
 
     it("rejects primary-only fields inside a follow-up message payload", () => {
-      const deps = makeDeps();
+      const deps = makeDeps({ allowMultiMessage: true });
       const schema = inputSchemaOf(deps);
       const followWithMessage = schema.safeParse({
         blocks: [{ type: "section", text: { type: "mrkdwn", text: "primary" } }],
@@ -2407,6 +2414,7 @@ describe("createSubmitResponseTool", () => {
         postTopLevel?: boolean;
       }> = [];
       const deps = makeDeps({
+        allowMultiMessage: true,
         sessionThreadTs: "9999.1111", // present, but additional_messages should ignore it
         deliver: async ({
           threadTs,
@@ -2446,6 +2454,7 @@ describe("createSubmitResponseTool", () => {
     it("delivers primary top-level + thread_replies under primary.ts", async () => {
       const deliveries: Array<{ threadTs?: string; postTopLevel?: boolean }> = [];
       const deps = makeDeps({
+        allowMultiMessage: true,
         allowPostTopLevel: true,
         deliver: async ({
           threadTs,
@@ -2484,6 +2493,7 @@ describe("createSubmitResponseTool", () => {
     it("mid-batch delivery failure stops and reports the failing index", async () => {
       let callCount = 0;
       const deps = makeDeps({
+        allowMultiMessage: true,
         deliver: async ({ postTopLevel }: { postTopLevel?: boolean }) => {
           callCount++;
           // Call 1 = primary (no postTopLevel) → success

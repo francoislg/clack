@@ -116,9 +116,18 @@ export interface QueryToolContext {
    */
   submitResponseMode?: "always" | "optional" | "skipped";
   /**
+   * When true, `submit_response` exposes the top-level `additional_messages` and
+   * `thread_replies` fields. Only the scheduled (cron) trigger flips this on; other
+   * triggers (DM, @mention, reaction, auto-respond, thread-reply, worker) leave it unset
+   * so the schema hides the fields and Claude can't reach for multi-message-to-trigger-channel
+   * in a context where the trigger channel is the user's conversation space.
+   * The `post_to` action's own multi-message fields are NOT gated by this flag.
+   */
+  allowMultiMessage?: boolean;
+  /**
    * Per-installation cap on `additional_messages.length`. Sourced from
    * `config.submitResponse.maxAdditionalMessages` (default 5, valid [1, 10]). Applied at
-   * the top level and inside every `post_to` action.
+   * the top level (when `allowMultiMessage: true`) and inside every `post_to` action.
    */
   maxAdditionalMessages?: number;
   /**
@@ -183,7 +192,17 @@ export type ToolBuildContext = QueryToolContext | WorkerToolContext;
 // Staged Intents
 // ============================================================================
 
-export type StagedIntentType = "change" | "config_update" | "update" | "review" | "merge" | "close";
+export type StagedIntentType =
+  | "change"
+  | "config_update"
+  | "update"
+  | "review"
+  | "merge"
+  | "close"
+  | "skill_create"
+  | "skill_update"
+  | "skill_disable"
+  | "skill_restore";
 
 export interface StagedChangeIntent {
   type: "change";
@@ -240,13 +259,42 @@ export interface StagedCloseIntent {
   instructions: string;
 }
 
+export interface StagedSkillCreateIntent {
+  type: "skill_create";
+  slug: string;
+  description: string;
+  body: string;
+  ownerUserId: string;
+}
+
+export interface StagedSkillUpdateIntent {
+  type: "skill_update";
+  slug: string;
+  description?: string;
+  body?: string;
+}
+
+export interface StagedSkillDisableIntent {
+  type: "skill_disable";
+  slug: string;
+}
+
+export interface StagedSkillRestoreIntent {
+  type: "skill_restore";
+  slug: string;
+}
+
 export type StagedIntent =
   | StagedChangeIntent
   | StagedConfigUpdateIntent
   | StagedUpdateIntent
   | StagedReviewIntent
   | StagedMergeIntent
-  | StagedCloseIntent;
+  | StagedCloseIntent
+  | StagedSkillCreateIntent
+  | StagedSkillUpdateIntent
+  | StagedSkillDisableIntent
+  | StagedSkillRestoreIntent;
 
 // ============================================================================
 // submit_response Payload

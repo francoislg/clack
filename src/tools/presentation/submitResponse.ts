@@ -285,7 +285,7 @@ function buildAdditionalMessagesField(cap: number) {
     .max(cap)
     .optional()
     .describe(
-      `Additional top-level channel messages, posted as separate Slack messages alongside the primary. ONLY use when the user explicitly asks for multiple messages (e.g. "send each as its own message", "split into ${cap} posts", "post these separately"). Default to a single response in \`blocks\` — multi-message responses are jarring when not requested. Maximum ${cap} entries.`,
+      `Additional top-level channel messages, posted as separate Slack messages alongside the primary IN THE SAME CHANNEL AS THIS SESSION'S TRIGGER. ONLY use when the user explicitly asks for multiple messages in the current channel (e.g. "send each as its own message", "split into ${cap} posts" — when posted by a scheduled cron job whose target IS the current channel). To send multiple messages to a DIFFERENT channel, use one or more \`post_to\` actions with an explicit \`channel\` argument instead — \`additional_messages\` cannot route elsewhere. Default to a single response in \`blocks\`. Maximum ${cap} entries.`,
     );
 }
 
@@ -300,7 +300,7 @@ function buildThreadRepliesField() {
     .max(THREAD_REPLIES_MAX)
     .optional()
     .describe(
-      `Additional thread-reply messages, posted under the primary's thread context (under the primary's ts when \`post_top_level: true\`, otherwise in the existing thread). ONLY use when the user explicitly asks for threaded follow-ups (e.g. "post the summary in the channel and put details in the thread"). Default to a single response in \`blocks\`. Maximum ${THREAD_REPLIES_MAX} entries.`,
+      `Additional thread-reply messages, posted under the primary's thread context IN THE SAME CHANNEL AS THIS SESSION'S TRIGGER (under the primary's ts when \`post_top_level: true\`, otherwise in the existing thread). ONLY use when the user explicitly asks for threaded follow-ups in the current channel (e.g. "post the summary in the channel and put details in the thread"). To thread replies under a message in a DIFFERENT channel, use a \`post_to\` action with \`thread_replies\` instead. Default to a single response in \`blocks\`. Maximum ${THREAD_REPLIES_MAX} entries.`,
     );
 }
 
@@ -339,9 +339,20 @@ export interface SubmitResponseDeps {
    */
   allowPostTopLevel?: boolean;
   /**
+   * When true, the top-level `additional_messages` and `thread_replies` fields are
+   * exposed on the schema. Only the scheduled (cron) trigger handler sets this. In DM,
+   * @mention, reaction, auto-respond, thread-reply, and worker contexts the trigger
+   * channel is the user's conversation space — posting additional top-level messages
+   * there is almost never what they want (they'd ask for a `post_to` with an explicit
+   * `channel` instead). The `post_to` action's OWN `additional_messages` /
+   * `thread_replies` fields are NOT gated by this flag — `post_to` carries an explicit
+   * `channel`, so the destination is unambiguous.
+   */
+  allowMultiMessage?: boolean;
+  /**
    * Inclusive cap on `additional_messages.length` at every layer. Sourced from
-   * `config.submitResponse.maxAdditionalMessages` (default 5). Applied to the top level
-   * and inside every `post_to` action.
+   * `config.submitResponse.maxAdditionalMessages` (default 5). Applied at the top level
+   * (when `allowMultiMessage: true`) and inside every `post_to` action.
    */
   maxAdditionalMessages?: number;
   /**
@@ -880,13 +891,15 @@ interface SubmitResponseArgs {
 
 /**
  * Compose the input schema from the orthogonal flags on `deps`:
- *   - allowSkip, allowDisengage, allowPostTopLevel
+ *   - allowSkip, allowDisengage, allowPostTopLevel, allowMultiMessage
  *   - submitResponseMode === "skipped" short-circuits everything else.
  *
- * `additional_messages` and `thread_replies` are ALWAYS exposed (not gated by trigger).
- * The schema description tells Claude to use them only when explicitly asked —
- * discipline is prompt-only. The configured cap on `additional_messages` is baked into
- * the schema at build time.
+ * Top-level `additional_messages` and `thread_replies` are gated on `allowMultiMessage`.
+ * Only the scheduled (cron) trigger sets it. In DM, @mention, reaction, auto-respond,
+ * thread-reply, and worker contexts the fields are hidden from Claude entirely — the
+ * trigger channel is the user's conversation space and multi-message there is almost
+ * never what they want. The `post_to.additional_messages` / `post_to.thread_replies`
+ * fields stay available everywhere because `post_to` carries an explicit `channel`.
  */
 function buildSubmitResponseSchema(
   deps: Pick<
@@ -895,6 +908,7 @@ function buildSubmitResponseSchema(
     | "allowSkip"
     | "allowDisengage"
     | "allowPostTopLevel"
+    | "allowMultiMessage"
     | "maxAdditionalMessages"
   >,
 ): Record<string, z.ZodTypeAny> {
@@ -917,9 +931,11 @@ function buildSubmitResponseSchema(
     base.post_top_level = postTopLevelField;
   }
 
-  const cap = deps.maxAdditionalMessages ?? DEFAULT_MAX_ADDITIONAL_MESSAGES;
-  base.additional_messages = buildAdditionalMessagesField(cap);
-  base.thread_replies = buildThreadRepliesField();
+  if (deps.allowMultiMessage) {
+    const cap = deps.maxAdditionalMessages ?? DEFAULT_MAX_ADDITIONAL_MESSAGES;
+    base.additional_messages = buildAdditionalMessagesField(cap);
+    base.thread_replies = buildThreadRepliesField();
+  }
 
   return base;
 }
@@ -954,6 +970,7 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
     allowSkip: deps.allowSkip,
     allowDisengage: deps.allowDisengage,
     allowPostTopLevel: deps.allowPostTopLevel,
+    allowMultiMessage: deps.allowMultiMessage,
     maxAdditionalMessages: deps.maxAdditionalMessages,
   });
 
