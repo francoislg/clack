@@ -209,6 +209,53 @@ describe("postAnswerToChannel", () => {
     assert.equal(result.ts, "1700.999");
   });
 
+  it("omits unfurl flags when neither opts.suppressUnfurls nor snapshot.suppressUnfurls is set", async () => {
+    const deps = makeDeps();
+    const client = makeClient();
+    const snapshot = makeSnapshot();
+
+    await postAnswerToChannel(client, snapshot, "C100", undefined, deps);
+
+    const callArgs = mockPostMessage.mock.calls[0]!.arguments[0] as {
+      unfurl_links?: false;
+      unfurl_media?: false;
+    };
+    assert.equal("unfurl_links" in callArgs, false);
+    assert.equal("unfurl_media" in callArgs, false);
+  });
+
+  it("sets unfurl flags to false when opts.suppressUnfurls is true", async () => {
+    const deps = makeDeps();
+    const client = makeClient();
+    const snapshot = makeSnapshot();
+
+    await postAnswerToChannel(client, snapshot, "C100", undefined, deps, {
+      suppressUnfurls: true,
+    });
+
+    const callArgs = mockPostMessage.mock.calls[0]!.arguments[0] as {
+      unfurl_links?: false;
+      unfurl_media?: false;
+    };
+    assert.equal(callArgs.unfurl_links, false);
+    assert.equal(callArgs.unfurl_media, false);
+  });
+
+  it("sets unfurl flags to false when snapshot.suppressUnfurls is true (deferred button-click path)", async () => {
+    const deps = makeDeps();
+    const client = makeClient();
+    const snapshot = makeSnapshot({ suppressUnfurls: true });
+
+    await postAnswerToChannel(client, snapshot, "C100", undefined, deps);
+
+    const callArgs = mockPostMessage.mock.calls[0]!.arguments[0] as {
+      unfurl_links?: false;
+      unfurl_media?: false;
+    };
+    assert.equal(callArgs.unfurl_links, false);
+    assert.equal(callArgs.unfurl_media, false);
+  });
+
   // -------------------------------------------------------------------------
   // post_to message-content parity: actions + reactions on cross-posted messages
   // -------------------------------------------------------------------------
