@@ -55,20 +55,65 @@ function formatSubDaily(
   dayOfMonth: string,
   dayOfWeek: string,
 ): string | null {
-  if (dayOfMonth !== "*" || dayOfWeek !== "*") return null;
-  if (hour !== "*" && !/^\*\/\d+$/.test(hour)) return null;
+  if (dayOfMonth !== "*") return null;
 
-  const hourStep = hour === "*" ? 1 : Number(hour.slice(2));
+  const hourInfo = parseHourField(hour);
+  if (!hourInfo) return null;
+
   const minuteSuffix = minute === "0" ? "" : ` at :${minute.padStart(2, "0")}`;
 
-  if (hourStep > 1) return `Every ${hourStep} hours${minuteSuffix}`;
+  let base: string;
+  if (hourInfo.step > 1) {
+    base = `Every ${hourInfo.step} hours${minuteSuffix}`;
+  } else {
+    const minuteStep = parseMinuteStep(minute);
+    if (minute === "*" || minuteStep === 1) {
+      base = "Every minute";
+    } else if (minuteStep) {
+      base = `Every ${minuteStep} minutes`;
+    } else {
+      base = `Every hour${minuteSuffix}`;
+    }
+  }
 
-  const minuteStep = parseMinuteStep(minute);
-  if (minute === "*") return "Every minute";
-  if (minuteStep === 1) return "Every minute";
-  if (minuteStep) return `Every ${minuteStep} minutes`;
+  const hourRangeSuffix = hourInfo.range
+    ? ` from ${formatHour(hourInfo.range[0])} to ${formatHour(hourInfo.range[1])}`
+    : "";
+  const dayOfWeekSuffix = formatDayOfWeekSuffix(dayOfWeek);
 
-  return `Every hour${minuteSuffix}`;
+  return `${base}${hourRangeSuffix}${dayOfWeekSuffix}`;
+}
+
+function parseHourField(hour: string): { step: number; range?: [number, number] } | null {
+  if (hour === "*") return { step: 1 };
+  const stepMatch = /^\*\/(\d+)$/.exec(hour);
+  if (stepMatch) return { step: Number(stepMatch[1]) };
+  const rangeMatch = /^(\d+)-(\d+)$/.exec(hour);
+  if (rangeMatch) {
+    const start = Number(rangeMatch[1]);
+    const end = Number(rangeMatch[2]);
+    if (start >= 0 && end <= 23 && start <= end) {
+      return { step: 1, range: [start, end] };
+    }
+  }
+  return null;
+}
+
+function formatHour(h: number): string {
+  if (h === 0) return "12 AM";
+  if (h === 12) return "12 PM";
+  if (h < 12) return `${h} AM`;
+  return `${h - 12} PM`;
+}
+
+function formatDayOfWeekSuffix(dayOfWeek: string): string {
+  if (dayOfWeek === "*") return "";
+  const days = parseDayOfWeek(dayOfWeek);
+  if (days.length === 0 || days.length === 7) return "";
+  if (days.length === 5 && !days.includes("Sat") && !days.includes("Sun")) {
+    return " on weekdays";
+  }
+  return ` on ${days.join(", ")}`;
 }
 
 // Recognizes step forms (`*/N`) and their list-form equivalents (`0,30` → 30).
