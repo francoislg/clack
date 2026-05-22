@@ -63,6 +63,13 @@ const mockPostAnswerToChannel = mock.fn<
     snapshot: ResponseSnapshot,
     targetChannel: string,
     targetThreadTs?: string,
+    deps?: unknown,
+    opts?: {
+      sessionId?: string;
+      actions?: unknown;
+      reactions?: string[];
+      suppressUnfurls?: boolean;
+    },
   ) => Promise<{ ok: boolean; ts?: string }>
 >(async () => ({ ok: true }));
 const mockResolveOrigin = mock.fn<
