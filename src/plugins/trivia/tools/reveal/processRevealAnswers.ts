@@ -580,7 +580,10 @@ async function processFreeformTargets(
           reason: judgeFailed ? "judge-error" : "judge-missing-verdict",
         };
       }
-      await scoped.updateAnswer(sub.userId, question.id, { correct: verdict.correct });
+      await scoped.updateAnswer(sub.userId, question.id, {
+        correct: verdict.correct,
+        ...(verdict.reason !== undefined ? { judgeReason: verdict.reason } : {}),
+      });
       const displayName = users.get(sub.userId)?.displayName ?? sub.userId;
       const target = verdict.correct ? correctVoters : incorrectVoters;
       target.push({ userId: sub.userId, displayName, answerText: sub.answerText });
