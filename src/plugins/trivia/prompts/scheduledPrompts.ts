@@ -49,6 +49,8 @@ const QUESTION_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
      - categories.ideas: 5 random categories (excludes the last 10 used).
      - suggestedAnswer (boolean): the truth value the final statement MUST have.
      - suggestedDifficulty ("Easy" | "Medium" | "Hard"): the bucket to aim at.
+     - suggestedDifficultyRange ([min, max]): the inclusive 1–10 target range for that bucket on THIS game type. Aim inside it at step 6.
+     - minimumDifficultyThreshold (integer): self-ratings strictly below this number must be REJECTED at step 6.
      - contextPriority (optional, only when contexts are configured): see CONTEXTS guidance above.
    - Pick one category from categories.ideas.
    - Read suggestedAnswer and suggestedDifficulty — both steer the next steps.
@@ -58,14 +60,17 @@ const QUESTION_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
    - If suggestedAnswer is TRUE: research a verified true fact about the topic and state it directly. The statement must be actually true.
    - If suggestedAnswer is FALSE: write a plausible-sounding FALSE statement about the topic from the start. Pick one of these angles:
      a) A common misconception people believe but is wrong (e.g. "Humans only use 10% of their brain").
-     b) A confidently-stated claim that is contradicted by the actual record (e.g. wrong inventor, wrong date, wrong location, wrong superlative).
-     c) A real fact with one key detail swapped to something incorrect (e.g. "shrimp" → "lobster", "1969" → "1971"). The underlying real fact must remain a real fact — only the surfaced statement is wrong.
+     b) A confidently-stated claim that is contradicted by the actual record (e.g. wrong inventor, wrong location, wrong superlative).
+     c) A real fact with one key detail swapped to something incorrect (e.g. "shrimp" → "lobster", "Stockholm" → "Oslo"). The underlying real fact must remain a real fact — only the surfaced statement is wrong.
      Do not start from a true fact and ask "how do I flip this?" — start from "what false-but-plausible statement can I write about this topic?"
 
-   Aim at the difficulty bucket from suggestedDifficulty using this 1-10 mapping (you will self-rate against the same scale in step 6):
-   - Easy → 4-6 on the 1-10 scale.
-   - Medium → 7-8.
-   - Hard → 9-10.
+   AVOID YEAR/DATE ANCHORING (HARD CONSTRAINT). Don't make the truth value hinge on a specific year, exact date, or numeric quantity that players can't reasonably verify — that turns the question into a memorization test rather than a thinking test. Concretely:
+     - DON'T: "The Berlin Wall fell in 1989." / "Mount Tambora erupted in 1815." — answering correctly just means remembering a number, and a knowledgeable player can't tell whether the year is right.
+     - DO: "The Berlin Wall fell during the Reagan administration." / "Mount Tambora's eruption caused a worldwide volcanic winter the following year." — the truth value hinges on something verifiable from understanding.
+     - When you DO need to swap a number to make a FALSE statement, swap the WHAT (the agent, the mechanism, the location, the consequence), NOT the WHEN. Year-swap distractors ("1969" → "1971") are forbidden.
+     - Year context is fine as flavor when the year is famous in its own right (1969 moon landing, 1989 Berlin Wall, 2008 financial crisis) — but the truth value still must NOT hinge on the year being correct.
+
+   Aim at the inclusive 1-10 range from \`suggestedDifficultyRange\` (the bucket's target band on THIS game type — freeform's bands are softer than boolean/choice's). You will self-rate against the same 1-10 scale in step 6.
 
    Do NOT randomize the polarity yourself; the random pick has already been made server-side.
 
@@ -85,22 +90,19 @@ const QUESTION_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
 5. VALIDATE through research that the statement's actual truth matches suggestedAnswer (true → actually true; false → actually false). If validation reveals a mismatch (e.g. a "false" statement turned out to be accidentally true, or vice versa), return to step 2 and rewrite — do not patch.
 
 6. DIFFICULTY RATING (REQUIRED GATE):
-   Self-rate the question on the 1-10 scale. The TARGET RANGE is the bucket named by suggestedDifficulty:
-   - Easy → 4-6.
-   - Medium → 7-8.
-   - Hard → 9-10.
+   Self-rate the question on the 1-10 scale. The TARGET RANGE is \`suggestedDifficultyRange\` (the range get_ideas returned for THIS game type's bucket).
 
    General intuition for the scale:
    - 1-3 = too obvious, most people would know immediately.
    - 4-6 = good balance — makes you think but is solvable.
    - 7-10 = very challenging, obscure knowledge required.
 
-   IF YOUR RATING IS 3/10 OR BELOW:
+   IF YOUR RATING IS STRICTLY BELOW \`minimumDifficultyThreshold\` (the integer get_ideas returned):
    - REJECT the question.
    - Go back to step 2 and generate a completely new question.
-   - Keep iterating until the question rates at least 4/10.
+   - Keep iterating until the question rates at or above \`minimumDifficultyThreshold\`.
 
-   ONLY PROCEED TO STEP 7 if the difficulty is 4/10 or higher. Prefer ratings inside the target range for suggestedDifficulty.
+   ONLY PROCEED TO STEP 7 once the rating meets the threshold. Prefer ratings inside \`suggestedDifficultyRange\`.
 
 7. Choose fun emojis that relate to the topic.
 
@@ -125,12 +127,19 @@ const CHOICE_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
      - suggestedChoiceCount (integer): the number of options the question MUST have.
      - suggestedCorrectIndex (integer in [0, suggestedChoiceCount)): the 0-based index where the correct answer MUST be placed.
      - suggestedDifficulty ("Easy" | "Medium" | "Hard"): the bucket to aim at.
+     - suggestedDifficultyRange ([min, max]) and minimumDifficultyThreshold (integer): the bucket's target band and reject-below cutoff for THIS game type — used at step 5.
      - contextPriority (optional, only when contexts are configured): see CONTEXTS guidance above.
    - Pick one category from categories.ideas.
 
 2. WRITE THE CORRECT ANSWER FIRST (REQUIRED — NEVER SHIFT THE CORRECT POSITION):
    - Research a verified true fact about the topic and write the correct option text FIRST. This option will occupy the index named by suggestedCorrectIndex. The correct answer's POSITION is LOCKED — you MUST NOT rewrite or swap the correct answer later to fix a gate failure, because that defeats the server-rolled suggestedCorrectIndex (which is what keeps the leaderboard fair).
    - Then write (suggestedChoiceCount − 1) plausible-but-wrong distractors. Each distractor should be a confident-sounding but incorrect option a knowledgeable person could be tempted by — not joke filler.
+
+   AVOID YEAR/DATE QUESTIONS (HARD CONSTRAINT). Don't write questions whose options are all years, exact dates, or close numeric values that players can't reasonably distinguish (e.g. "In what year did X happen? A) 1972 B) 1976 C) 1980"). That's a memory test, not a thinking test. Concretely:
+     - DON'T: questions where all options are years/dates, OR where the correct answer is a year/date the player can't reason their way to.
+     - DO: questions where the options are WHAT (people, places, events, mechanisms, causes, outcomes) — things players can reason about.
+     - If the topic naturally suggests a date question ("when did X happen?"), reframe to WHAT happened, WHO did it, WHERE it happened, or WHY it mattered.
+     - This rule overrides "use what you researched" — if your research only surfaces date-anchored facts about this category, re-call \`get_ideas\` for a different category rather than writing a year question.
 
 3. DISTRACTOR PLAUSIBILITY GATE (REQUIRED — DO NOT SKIP):
    Rate each option (correct + every distractor) 1–10 on "how plausible does this sound as the correct answer to someone who doesn't know the topic" (NOT "how true is it"). Apply ALL FOUR conditions:
@@ -146,12 +155,9 @@ const CHOICE_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
    - If a match is found, go back to step 2 and write a different question.
 
 5. DIFFICULTY GATE (REQUIRED):
-   Self-rate the question as a whole on the 1–10 scale. The TARGET RANGE is the bucket named by suggestedDifficulty:
-   - Easy → 4-6.
-   - Medium → 7-8.
-   - Hard → 9-10.
+   Self-rate the question as a whole on the 1–10 scale. The TARGET RANGE is \`suggestedDifficultyRange\` from get_ideas.
 
-   IF YOUR RATING IS 3/10 OR BELOW: REJECT and re-roll from get_ideas. Only proceed when ≥ 4/10.
+   IF YOUR RATING IS STRICTLY BELOW \`minimumDifficultyThreshold\`: REJECT and re-roll from get_ideas. Only proceed at or above the threshold.
 
 6. Choose 1-4 fun emojis that relate to the topic.
 
@@ -183,6 +189,7 @@ const TOPICAL_BOOLEAN_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
      - suggestedQuestionType: "topical"
      - suggestedAnswer (boolean): the truth value the final statement MUST have.
      - suggestedDifficulty ("Easy" | "Medium" | "Hard"): the bucket to aim at.
+     - suggestedDifficultyRange ([min, max]) and minimumDifficultyThreshold (integer): the bucket's target band and reject-below cutoff for THIS game type — used at step 6.
      - contextPriority (optional, only when contexts are configured): see CONTEXTS guidance above.
    - Pick one category from categories.ideas.
 
@@ -198,7 +205,7 @@ const TOPICAL_BOOLEAN_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
    Branch on suggestedAnswer — do NOT write a true statement and try to flip it later.
    - If suggestedAnswer is TRUE: state a verified true fact drawn from the event.
    - If suggestedAnswer is FALSE: write a plausible-sounding FALSE statement about the event — swap a date, a name, a place, or a number to something subtly incorrect; or assert a tempting misconception about the event that is contradicted by the actual reporting.
-   Aim at the difficulty bucket from suggestedDifficulty (Easy → 4-6, Medium → 7-8, Hard → 9-10).
+   Aim inside \`suggestedDifficultyRange\` (the inclusive 1–10 band get_ideas returned for THIS game type's bucket).
 
 4. POLARITY SELF-CHECK (REQUIRED GATE):
    - "suggestedAnswer was: <true | false>"
@@ -210,7 +217,7 @@ const TOPICAL_BOOLEAN_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
    - Call find_previous_questions with a distinctive keyword from the statement.
    - If the same event was already asked about (even with different polarity or angle), pick a different event from your WebSearch results (or re-search).
 
-6. DIFFICULTY GATE (REQUIRED): same 1-10 self-rating rules as the fact path; reject and re-roll if ≤ 3/10.
+6. DIFFICULTY GATE (REQUIRED): same 1-10 self-rating rules as the fact path; aim inside \`suggestedDifficultyRange\`, reject and re-roll if strictly below \`minimumDifficultyThreshold\`.
 
 7. Choose 1-4 fun emojis related to the event/topic.
 
@@ -242,6 +249,7 @@ const TOPICAL_CHOICE_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
      - suggestedChoiceCount (integer): the number of options the question MUST have.
      - suggestedCorrectIndex (integer in [0, suggestedChoiceCount)): the index where the correct answer MUST be placed.
      - suggestedDifficulty ("Easy" | "Medium" | "Hard"): the bucket to aim at.
+     - suggestedDifficultyRange ([min, max]) and minimumDifficultyThreshold (integer): the bucket's target band and reject-below cutoff for THIS game type — used at step 6.
      - contextPriority (optional, only when contexts are configured): see CONTEXTS guidance above.
    - Pick one category from categories.ideas.
 
@@ -256,7 +264,7 @@ const TOPICAL_CHOICE_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
 
 5. CHECK FOR DUPLICATES: same as topical boolean path.
 
-6. DIFFICULTY GATE (REQUIRED): same as the fact path.
+6. DIFFICULTY GATE (REQUIRED): same as the fact path — aim inside \`suggestedDifficultyRange\`, reject and re-roll if strictly below \`minimumDifficultyThreshold\`.
 
 7. Choose 1-4 fun emojis.
 
@@ -291,6 +299,7 @@ const FREEFORM_FACT_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
      - suggestedQuestionType: "fact"
      - suggestedAnswerShape: one of "name" | "place" | "phrase" | "title" | "date" | "number" | "other" — the SHAPE the answer must take. Non-negotiable.
      - suggestedDifficulty ("Easy" | "Medium" | "Hard"): the bucket to aim at.
+     - suggestedDifficultyRange ([min, max]) and minimumDifficultyThreshold (integer): the bucket's target band and reject-below cutoff for THIS game type (freeform's bands are softer than boolean/choice's) — used at step 7.
      - contextPriority (optional, only when contexts are configured): see CONTEXTS guidance above.
    - Pick one category from categories.ideas.
 
@@ -301,12 +310,18 @@ const FREEFORM_FACT_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
      - "place" → a city, country, region, landmark, geographical feature, planet, or fictional location.
      - "phrase" → a quote, idiom, motto, slogan, line of dialogue, common saying.
      - "title" → the name of a creative work — a movie, book, song, album, TV show, video game, play, painting.
-     - "date" → a year, decade, era, or month-day combination. Not a count.
-     - "number" → a count, measurement, quantity, age, or score. A bare value, not a date.
+     - "date" → a TIME PERIOD only. NEVER a specific calendar date (month + day, or full YYYY-MM-DD — those are intrinsically impossible to recall and feel like a memory test, not trivia). Choose the granularity that matches the era:
+       - "year" — only when the year itself is famous in its own right (e.g. 1969 moon landing, 1989 Berlin Wall, 2008 financial crisis). If a knowledgeable person couldn't name the exact year unprompted, use decade instead.
+       - "decade" — the default for 20th-century or earlier events that aren't year-famous. NOT for events of the last ~30 years (those feel too recent to need decade granularity).
+       - "era / century / millennium" — reserved for historical questions (pre-1900 / pre-1500 respectively). Don't use these for modern history.
+     - "number" → a count, measurement, quantity, age, or score. A BARE VALUE, NEVER A DATE. If your answer is a year, you picked the wrong shape — switch to "date".
      - "other" → an unconventional answer shape that doesn't fit any of the categories above. Reach for something Claude wouldn't pick by default — e.g. a chemical formula, a sports score, a paired outcome, a measurement with non-standard units, a color, a currency amount, an acronym treated as the answer itself, a velocity, an emoji-based response. Must still be a short, unambiguous value with one canonical form.
    - The question should NOT be answerable with just yes/no — that's the boolean path.
    - Aim for 1-4 word answers (1-30 characters).
-   - LEEWAY: ONLY relevant when suggestedAnswerShape is "date" or "number" AND exact recall is unrealistic — state the accepted tolerance EXPLICITLY in the question itself (e.g. "(within 5 years)", "(±10 km)", "(to the nearest decade)"). Scale to difficulty: Easy → generous, Medium → moderate, Hard → tight or exact. For "name" / "place" / "phrase" shapes: SKIP this entirely — the judge handles capitalization, punctuation, and reasonable variants automatically.
+   - LEEWAY:
+     - For \`date\` shape: MANDATORY. Always state the accepted tolerance EXPLICITLY in the question itself — never expect exact recall. Defaults: "year" → "(within 5 years)" on Easy/Medium, "(within 2 years)" on Hard; "decade" → "(to the nearest decade)"; "century" / "millennium" → no leeway suffix needed (the granularity IS the tolerance). Set \`gradingNotes\` to restate the absolute range anchored on \`expectedAnswer\` (e.g. "Accept any year in [1964, 1974] (±5 of 1969).").
+     - For \`number\` shape: relevant when exact recall is unrealistic — same tolerance pattern as date ("(±10 km)", "(within 100)"). Skip when the number is small and exact (e.g. "How many sides does a hexagon have?").
+     - For "name" / "place" / "phrase" / "title" / "other" shapes: SKIP — the judge handles capitalization, punctuation, and reasonable variants automatically.
 
 3. WRITE THE EXPECTED ANSWER (REQUIRED — CANONICAL FORM ONLY):
    - This is the shortest 100%-perfect answer you would accept. Trim it: no articles ("the"), no qualifiers ("the city of"), no punctuation noise. The judge handles capitalization, punctuation, and reasonable variants automatically.
@@ -319,15 +334,15 @@ const FREEFORM_FACT_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
 5. OPTIONAL: GRADING NOTES:
    - Use this when the answer is conceptually-flexible — "Accept any major Canadian city" / "Accept 'JFK' or 'John Kennedy' as variants of 'John F. Kennedy'" / etc. One short sentence.
    - Notes refine the judge; they do NOT override the expected answer. Omit when not needed.
-   - REQUIRED when step 2 stated a date/number tolerance: restate the EXACT tolerance here in absolute terms anchored on \`expectedAnswer\` — e.g. "Accept any year in [1939, 1949] (±5 of 1944)." The judge follows this strictly, so be precise.
+   - REQUIRED when step 2 stated a date/number tolerance (always required for \`date\` shape — see LEEWAY above): restate the EXACT tolerance here in absolute terms anchored on \`expectedAnswer\` — e.g. "Accept any year in [1939, 1949] (±5 of 1944)." The judge follows this strictly, so be precise.
 
 6. DUPLICATE CHECK:
    - Call \`find_previous_questions\` with a distinctive keyword from the statement.
    - If a match is found, go back to step 2.
 
 7. DIFFICULTY GATE (REQUIRED):
-   Self-rate 1–10. Easy → 4-6, Medium → 7-8, Hard → 9-10.
-   IF YOUR RATING IS 3/10 OR BELOW: REJECT and re-roll from get_ideas. Only proceed when ≥ 4/10.
+   Self-rate 1–10. The TARGET RANGE is \`suggestedDifficultyRange\` from get_ideas (freeform bands sit lower than boolean/choice — a freeform "Hard" might be [7, 8], not [9, 10]).
+   IF YOUR RATING IS STRICTLY BELOW \`minimumDifficultyThreshold\`: REJECT and re-roll from get_ideas. Only proceed at or above the threshold.
 
 8. Choose 1-4 fun emojis.
 
@@ -359,6 +374,7 @@ const FREEFORM_TOPICAL_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
      - suggestedQuestionType: "topical"
      - suggestedAnswerShape: one of "name" | "place" | "phrase" | "title" | "date" | "number" | "other" — see fact-freeform path for per-shape descriptions. Non-negotiable.
      - suggestedDifficulty ("Easy" | "Medium" | "Hard"): the bucket to aim at.
+     - suggestedDifficultyRange ([min, max]) and minimumDifficultyThreshold (integer): the bucket's target band and reject-below cutoff for THIS game type (freeform's bands are softer than boolean/choice's) — used at step 7.
      - contextPriority (optional, only when contexts are configured): see CONTEXTS guidance above.
    - Pick one category from categories.ideas.
 
@@ -573,7 +589,7 @@ General emoji rule (re-emphasized): the opener's header MUST use Unicode emoji (
 11. END THE RUN:
     Call \`submit_response({ skip_response: true })\` to terminate the run cleanly. No user-facing reply is needed — the trivia question itself is the deliverable.
 
-The goal is to make people pause and think — aim for questions that are interesting and non-obvious, but not impossibly obscure. The exact target is the bucket from suggestedDifficulty (Easy 4-6, Medium 7-8, Hard 9-10).`;
+The goal is to make people pause and think — aim for questions that are interesting and non-obvious, but not impossibly obscure. The exact target is \`suggestedDifficultyRange\` returned by get_ideas (the bucket's per-game-type band).`;
 
 /**
  * Reveal-side prompt. A renderer brief, NOT an orchestration walkthrough.

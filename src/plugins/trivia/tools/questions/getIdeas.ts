@@ -5,12 +5,15 @@ import { getConfig, type Config } from "../../../../config.js";
 import { findCurrentSeason } from "../../core/seasonTimeline.js";
 import { getActiveChoiceBounds, resolveAnswersFormat } from "../../domain/questionTypes.js";
 import { resolveQuestionType } from "../../domain/factTopical.js";
+import { resolveAnswerShape } from "../../domain/answerShape.js";
 import { resolveContexts, rollContextPriority } from "../../domain/contexts.js";
+import { resolveDifficultyRanges } from "../../domain/difficulty.js";
 import { resolveSlotCategories } from "../../domain/seasonFormat.js";
 import { weightedPick } from "../../domain/weightedPick.js";
 import { defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
 import { requireGame } from "../../core/gamesRegistry.js";
 import type { TriviaDataLayer, TriviaAnswersFormat, TriviaQuestionType } from "../../core/types.js";
+import type { TriviaAnswerShape } from "../../../../config.js";
 
 type SuggestedDifficulty = "Easy" | "Medium" | "Hard";
 
@@ -35,6 +38,8 @@ Always returns:
 - \`suggestedAnswersFormat\`: \`"boolean"\`, \`"choice"\`, or \`"freeform"\` — picked from active answersFormat weights (slot.answersFormat → season.answersFormat → config.trivia.answersFormat → boolean default). \`"freeform"\` means the user types their answer into a Slack modal; Claude writes the canonical answer and a small fast model judges submissions at reveal.
 - \`suggestedQuestionType\`: \`"fact"\` or \`"topical"\` — picked INDEPENDENTLY from active questionType weights (slot.questionType → season.questionType → config.trivia.questionType → fact default). \`"topical"\` REQUIRES Claude to use \`WebSearch\` and capture a \`sourceUrl\` when saving.
 - \`suggestedDifficulty\`: \`"Easy" | "Medium" | "Hard"\`
+- \`suggestedDifficultyRange\`: \`[min, max]\` — the inclusive 1–10 target range for the picked bucket on this game type (resolved through slot → season → config → built-in default; freeform is softer than boolean/choice by default). The self-rating in the DIFFICULTY GATE step MUST aim inside this range.
+- \`minimumDifficultyThreshold\` (integer in [1, 10]): self-ratings strictly below this value MUST be REJECTED at the DIFFICULTY GATE. Resolves through the same cascade — defaults to 4 for boolean/choice, 2 for freeform.
 - \`firstFireOfSeason\` (boolean): \`true\` iff seasons are enabled, a current season exists, AND zero saved questions in this game carry \`season === currentSlug\`. Honor this in the question-posting prompt by prepending a ceremonial opener (\`header\` + \`section\` blocks) ABOVE the question content on the first fire of every new season.
 - \`theme\` (optional string): mirrored verbatim from the current season's \`theme\` when set. Mention it in the opener section ONLY when present; never fabricate one or enumerate categories as a substitute.
 - \`contextPriority\` (optional): freshly-rolled weighted-random ordering of every configured lens. Present only when \`trivia.contexts\` is configured at any cascade tier. Claude tries \`contextPriority[0]\` first; descends the list only when the current lens yields no usable question.
@@ -46,7 +51,8 @@ When suggestedAnswersFormat is \`"choice"\`, also returns:
 - \`suggestedChoiceCount\` (integer in active [min, max]): the number of options
 - \`suggestedCorrectIndex\` (integer in [0, suggestedChoiceCount)): the 0-based index of the correct option
 
-When suggestedAnswersFormat is \`"freeform"\`, no extra fields are returned — Claude writes the canonical \`expectedAnswer\` directly (no server-rolled correctness hint).
+When suggestedAnswersFormat is \`"freeform"\`, also returns:
+- \`suggestedAnswerShape\`: one of \`"name" | "place" | "phrase" | "title" | "date" | "number" | "other"\` — picked from active answerShape weights (slot.answerShape → season.answerShape → config.trivia.answerShape → uniform default). The question MUST be answered by a value of that shape; this exists to break Claude's strong default bias toward numeric answers. \`"other"\` is a wildcard where Claude reaches for an unconventional answer shape.
 
 Each call rolls suggestions independently — no caching across slot indices. When the active season has a \`format\`, loop slots 0..slotCount-1 with separate calls; do NOT pre-roll all slots up front.
 
@@ -180,6 +186,21 @@ export function createGetIdeasTool(
 
       const suggestedDifficulty = pickSuggestedDifficulty();
 
+      const difficultyRanges = resolveDifficultyRanges(
+        currentSeasonEntry,
+        slotIndexForResolution,
+        config,
+        pickedAnswersFormat,
+      );
+      const bucketKey =
+        suggestedDifficulty === "Easy"
+          ? "easy"
+          : suggestedDifficulty === "Medium"
+            ? "medium"
+            : "hard";
+      const suggestedDifficultyRange = difficultyRanges[bucketKey];
+      const minimumDifficultyThreshold = difficultyRanges.minimumThreshold;
+
       const base = {
         format: formatMeta,
         slot: slotArg,
@@ -191,6 +212,8 @@ export function createGetIdeasTool(
         suggestedAnswersFormat: pickedAnswersFormat,
         suggestedQuestionType: pickedQuestionType,
         suggestedDifficulty,
+        suggestedDifficultyRange,
+        minimumDifficultyThreshold,
         firstFireOfSeason,
         ...(theme !== undefined ? { theme } : {}),
         ...(contextPriority !== null ? { contextPriority } : {}),
@@ -208,9 +231,13 @@ export function createGetIdeasTool(
       }
 
       if (pickedAnswersFormat === "freeform") {
-        // Freeform has no server-rolled correctness hint — the model writes the
-        // expected answer directly. Only the base fields are returned.
-        return textResult(base);
+        const answerShapeWeights = resolveAnswerShape(
+          currentSeasonEntry,
+          slotIndexForResolution,
+          config,
+        );
+        const pickedAnswerShape: TriviaAnswerShape = weightedPick(answerShapeWeights) ?? "name";
+        return textResult({ ...base, suggestedAnswerShape: pickedAnswerShape });
       }
 
       return textResult({

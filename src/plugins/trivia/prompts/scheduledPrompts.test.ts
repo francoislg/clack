@@ -16,9 +16,10 @@ describe("SEND_QUESTIONS_INSTRUCTIONS (boolean path)", () => {
     assert.match(SEND_QUESTIONS_INSTRUCTIONS, /submit_response/);
   });
 
-  it("enforces the difficulty gate", () => {
-    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /3\/10/);
-    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /4\/10/);
+  it("enforces the difficulty gate via minimumDifficultyThreshold", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /minimumDifficultyThreshold/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /REJECT/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /STRICTLY BELOW/);
   });
 
   it("routes posting through post_questions, not submit_response with reactions", () => {
@@ -57,14 +58,16 @@ describe("SEND_QUESTIONS_INSTRUCTIONS (boolean path)", () => {
     assert.match(SEND_QUESTIONS_INSTRUCTIONS, /rewrite/i);
   });
 
-  it("instructs Claude to target suggestedDifficulty with the bucket-to-1-10 mapping", () => {
-    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /suggestedDifficulty/);
-    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /Easy/);
-    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /Medium/);
-    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /Hard/);
-    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /Easy.*4-6/s);
-    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /Medium.*7-8/s);
-    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /Hard.*9-10/s);
+  it("targets suggestedDifficulty via the per-game-type suggestedDifficultyRange returned by get_ideas", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /suggestedDifficulty\b/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /suggestedDifficultyRange/);
+    // The hardcoded Easy/Medium/Hard → 4-6/7-8/9-10 mapping must NOT be baked into the
+    // prompt anymore — those numbers vary per game type (freeform is softer) and live in
+    // the get_ideas response now.
+    assert.doesNotMatch(SEND_QUESTIONS_INSTRUCTIONS, /Easy\s*(?:→|->|=)\s*4-6/);
+    assert.doesNotMatch(SEND_QUESTIONS_INSTRUCTIONS, /Medium\s*(?:→|->|=)\s*7-8/);
+    assert.doesNotMatch(SEND_QUESTIONS_INSTRUCTIONS, /Hard\s*(?:→|->|=)\s*9-10/);
+    assert.doesNotMatch(SEND_QUESTIONS_INSTRUCTIONS, /Easy 4-6, Medium 7-8/);
   });
 
   it("invites invented styles rather than prescribing a rotation", () => {

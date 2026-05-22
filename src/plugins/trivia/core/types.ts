@@ -4,6 +4,7 @@ import type {
   TriviaQuestionTypeWeights,
   TriviaAnswerShapeWeights,
   TriviaContextEntry,
+  TriviaDifficultyConfig,
 } from "../../../config.js";
 
 /**
@@ -176,6 +177,12 @@ export interface SeasonFormatSlot {
   questionType?: TriviaQuestionTypeWeights;
   answerShape?: TriviaAnswerShapeWeights;
   contexts?: TriviaContextEntry[];
+  /**
+   * Slot-specific per-game-type difficulty overrides. Fields cascade independently —
+   * a slot can override just `freeform.hard` without losing the season's `easy`/`medium`.
+   * Falls back to season → config → `DEFAULT_DIFFICULTY_RANGES[format]`.
+   */
+  difficulty?: TriviaDifficultyConfig;
 }
 
 /**
@@ -219,6 +226,14 @@ export interface SeasonEntry {
    * (which itself may be absent). Mid-season mutation is permitted.
    */
   contexts?: TriviaContextEntry[];
+  /**
+   * Optional per-season per-game-type difficulty overrides. Each game type
+   * (boolean/choice/freeform) is independently overridable; within each game type,
+   * easy/medium/hard/minimumThreshold cascade independently. Absent → falls back
+   * to `config.trivia.difficulty` → `DEFAULT_DIFFICULTY_RANGES[format]`. Mid-season
+   * mutation is permitted.
+   */
+  difficulty?: TriviaDifficultyConfig;
   /**
    * Optional per-season question composition. Mid-season mutation is permitted —
    * changes take effect on the next question-cron fire.

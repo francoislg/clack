@@ -2,10 +2,14 @@ import type { SeasonFormat, SeasonFormatSlot } from "../core/types.js";
 import {
   validateAnswersFormatMap,
   validateQuestionTypeMap,
+  validateAnswerShapeMap,
   validateContextsList,
+  validateTriviaDifficultyMap,
   type TriviaAnswersFormatWeights,
   type TriviaQuestionTypeWeights,
+  type TriviaAnswerShapeWeights,
   type TriviaContextEntry,
+  type TriviaDifficultyConfig,
 } from "../../../config.js";
 
 export type ValidateResult<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -28,8 +32,18 @@ export function validateQuestionType(
   return validateQuestionTypeMap(raw, "questionType");
 }
 
+export function validateAnswerShape(
+  raw: Record<string, number>,
+): ValidateResult<TriviaAnswerShapeWeights> {
+  return validateAnswerShapeMap(raw, "answerShape");
+}
+
 export function validateContexts(raw: unknown): ValidateResult<TriviaContextEntry[]> {
   return validateContextsList(raw, "contexts");
+}
+
+export function validateDifficulty(raw: unknown): ValidateResult<TriviaDifficultyConfig> {
+  return validateTriviaDifficultyMap(raw, "difficulty");
 }
 
 function dedupePreservingOrder(values: string[]): string[] {
@@ -49,7 +63,9 @@ interface RawSlot {
   categories?: string[];
   answersFormat?: Record<string, number> | null;
   questionType?: Record<string, number> | null;
+  answerShape?: Record<string, number> | null;
   contexts?: unknown[] | null;
+  difficulty?: unknown | null;
 }
 
 interface RawFormat {
@@ -116,12 +132,26 @@ export function validateFormat(raw: RawFormat | null | undefined): ValidateResul
       }
       out.questionType = validated.value;
     }
+    if (slot.answerShape !== undefined && slot.answerShape !== null) {
+      const validated = validateAnswerShape(slot.answerShape);
+      if (!validated.ok) {
+        return { ok: false, error: `format.questions[${i}]: ${validated.error}` };
+      }
+      out.answerShape = validated.value;
+    }
     if (slot.contexts !== undefined && slot.contexts !== null) {
       const validated = validateContexts(slot.contexts);
       if (!validated.ok) {
         return { ok: false, error: `format.questions[${i}]: ${validated.error}` };
       }
       out.contexts = validated.value;
+    }
+    if (slot.difficulty !== undefined && slot.difficulty !== null) {
+      const validated = validateDifficulty(slot.difficulty);
+      if (!validated.ok) {
+        return { ok: false, error: `format.questions[${i}]: ${validated.error}` };
+      }
+      out.difficulty = validated.value;
     }
     normalized.push(out);
   }

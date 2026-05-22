@@ -7,14 +7,18 @@ import { requireWritableGame } from "../../core/gamesRegistry.js";
 import {
   validateAnswersFormat,
   validateQuestionType,
+  validateAnswerShape,
   validateContexts,
+  validateDifficulty,
   validateFormat,
 } from "../../domain/seasonFormat.js";
 import type { TriviaDataLayer, SeasonsState, SeasonEntry, SeasonFormat } from "../../core/types.js";
 import type {
   TriviaAnswersFormatWeights,
   TriviaQuestionTypeWeights,
+  TriviaAnswerShapeWeights,
   TriviaContextEntry,
+  TriviaDifficultyConfig,
 } from "../../../../config.js";
 
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -44,6 +48,34 @@ const contextEntryShape = z.object({
   weight: z.number().positive().optional(),
 });
 
+const answerShapeZod = z.object({
+  name: z.number().int().nonnegative().optional(),
+  place: z.number().int().nonnegative().optional(),
+  phrase: z.number().int().nonnegative().optional(),
+  title: z.number().int().nonnegative().optional(),
+  date: z.number().int().nonnegative().optional(),
+  number: z.number().int().nonnegative().optional(),
+  other: z.number().int().nonnegative().optional(),
+});
+
+const difficultyRangeTuple = z.tuple([
+  z.number().int().min(1).max(10),
+  z.number().int().min(1).max(10),
+]);
+
+const difficultyRangesInputZod = z.object({
+  easy: difficultyRangeTuple.optional(),
+  medium: difficultyRangeTuple.optional(),
+  hard: difficultyRangeTuple.optional(),
+  minimumThreshold: z.number().int().min(1).max(10).optional(),
+});
+
+const triviaDifficultyZod = z.object({
+  boolean: difficultyRangesInputZod.optional(),
+  choice: difficultyRangesInputZod.optional(),
+  freeform: difficultyRangesInputZod.optional(),
+});
+
 const slotShape = z.object({
   label: z.string().optional(),
   categories: z.array(z.string()).optional(),
@@ -60,8 +92,30 @@ const slotShape = z.object({
       topical: z.number().int().nonnegative().optional(),
     })
     .optional(),
+  answerShape: answerShapeZod.optional(),
   contexts: z.array(contextEntryShape).optional(),
+  difficulty: triviaDifficultyZod.optional(),
 });
+
+function buildAnswerShapeSparse(input: {
+  name?: number;
+  place?: number;
+  phrase?: number;
+  title?: number;
+  date?: number;
+  number?: number;
+  other?: number;
+}): Record<string, number> {
+  const sparse: Record<string, number> = {};
+  if (input.name !== undefined) sparse.name = input.name;
+  if (input.place !== undefined) sparse.place = input.place;
+  if (input.phrase !== undefined) sparse.phrase = input.phrase;
+  if (input.title !== undefined) sparse.title = input.title;
+  if (input.date !== undefined) sparse.date = input.date;
+  if (input.number !== undefined) sparse.number = input.number;
+  if (input.other !== undefined) sparse.other = input.other;
+  return sparse;
+}
 
 export function createUpsertSeasonTool(
   data: TriviaDataLayer,
@@ -69,7 +123,7 @@ export function createUpsertSeasonTool(
 ) {
   return tool(
     "upsert_season",
-    "Create a new trivia season or update an existing one (identified by slug) within a specific game. Slug is immutable — to rename, delete + upsert. Validates no overlap within this game's timeline. On CREATE: requires startedAt + expectedEndAt. If `categories` is provided (and non-empty), the new season's pool is EXACTLY that list — use this for themed seasons. If `categories` is omitted or empty, the new season's pool is copied from the global categories.json. On UPDATE: applies omit-to-keep semantics; cannot mutate startedAt of an already-started season; `categories` is ignored on UPDATE — use add_categories/remove_categories with target slug to refine. `theme`, `answersFormat`, `questionType`, and `contexts` all accept `null` on UPDATE to clear the field. `theme` is a short human-readable narrative label (e.g. \"Halloween Spooktacular\") surfaced at the top of the season's first question post. Use endedAt to mark a season as closed.",
+    "Create a new trivia season or update an existing one (identified by slug) within a specific game. Slug is immutable — to rename, delete + upsert. Validates no overlap within this game's timeline. On CREATE: requires startedAt + expectedEndAt. If `categories` is provided (and non-empty), the new season's pool is EXACTLY that list — use this for themed seasons. If `categories` is omitted or empty, the new season's pool is copied from the global categories.json. On UPDATE: applies omit-to-keep semantics; cannot mutate startedAt of an already-started season; `categories` is ignored on UPDATE — use add_categories/remove_categories with target slug to refine. `theme`, `answersFormat`, `questionType`, `answerShape`, and `contexts` all accept `null` on UPDATE to clear the field. `theme` is a short human-readable narrative label (e.g. \"Halloween Spooktacular\") surfaced at the top of the season's first question post. Use endedAt to mark a season as closed.",
     {
       game: z
         .string()
@@ -124,12 +178,24 @@ export function createUpsertSeasonTool(
         .describe(
           "Optional per-season fact-vs-topical weights. On UPDATE: passing `null` clears the field. Mid-season mutation permitted.",
         ),
+      answerShape: answerShapeZod
+        .nullable()
+        .optional()
+        .describe(
+          "Optional per-season freeform answer-shape weights (name/place/phrase/title/date/number/other). Affects freeform questions only — boolean/choice ignore. `other` is a wildcard slot where Claude picks an unconventional shape. On UPDATE: passing `null` clears the field. Mid-season mutation permitted.",
+        ),
       contexts: z
         .array(contextEntryShape)
         .nullable()
         .optional()
         .describe(
           "Optional per-season lens list (e.g. Quebec, International, academic). On UPDATE: passing `null` clears the field. Mid-season mutation permitted.",
+        ),
+      difficulty: triviaDifficultyZod
+        .nullable()
+        .optional()
+        .describe(
+          "Optional per-season per-game-type difficulty overrides. Object keyed by `boolean` / `choice` / `freeform`; each value is a sparse `{ easy?: [min, max], medium?: [min, max], hard?: [min, max], minimumThreshold?: integer }` on the 1–10 scale. Fields cascade independently — overriding just `freeform.hard` is fine. On UPDATE: passing `null` clears the field. Mid-season mutation permitted.",
         ),
       format: z
         .object({
@@ -142,7 +208,7 @@ export function createUpsertSeasonTool(
         .nullable()
         .optional()
         .describe(
-          "Optional per-season question composition. When set, each question-cron fire posts `format.questions.length` questions in slot order. Each slot may narrow `label` / `categories` / `answersFormat` / `questionType` / `contexts`; missing fields cascade to the season's defaults. On UPDATE: object value replaces the whole format; explicit `null` clears the field; mid-season mutation permitted.",
+          "Optional per-season question composition. When set, each question-cron fire posts `format.questions.length` questions in slot order. Each slot may narrow `label` / `categories` / `answersFormat` / `questionType` / `answerShape` / `contexts` / `difficulty`; missing fields cascade to the season's defaults. On UPDATE: object value replaces the whole format; explicit `null` clears the field; mid-season mutation permitted.",
         ),
     },
     async (args) => {
@@ -209,11 +275,25 @@ export function createUpsertSeasonTool(
           questionTypeWeights = validated.value;
         }
 
+        let answerShapeWeights: TriviaAnswerShapeWeights | undefined;
+        if (args.answerShape !== undefined && args.answerShape !== null) {
+          const validated = validateAnswerShape(buildAnswerShapeSparse(args.answerShape));
+          if (!validated.ok) return errorResult(validated.error);
+          answerShapeWeights = validated.value;
+        }
+
         let contexts: TriviaContextEntry[] | undefined;
         if (args.contexts !== undefined && args.contexts !== null) {
           const validated = validateContexts(args.contexts);
           if (!validated.ok) return errorResult(validated.error);
           contexts = validated.value;
+        }
+
+        let difficulty: TriviaDifficultyConfig | undefined;
+        if (args.difficulty !== undefined && args.difficulty !== null) {
+          const validated = validateDifficulty(args.difficulty);
+          if (!validated.ok) return errorResult(validated.error);
+          difficulty = validated.value;
         }
 
         let format: SeasonFormat | undefined;
@@ -239,7 +319,9 @@ export function createUpsertSeasonTool(
           categories,
           ...(answersFormatWeights !== undefined ? { answersFormat: answersFormatWeights } : {}),
           ...(questionTypeWeights !== undefined ? { questionType: questionTypeWeights } : {}),
+          ...(answerShapeWeights !== undefined ? { answerShape: answerShapeWeights } : {}),
           ...(contexts !== undefined ? { contexts } : {}),
+          ...(difficulty !== undefined ? { difficulty } : {}),
           ...(format !== undefined ? { format } : {}),
         };
 
@@ -263,7 +345,9 @@ export function createUpsertSeasonTool(
           hasTheme: entry.theme !== undefined,
           hasAnswersFormat: entry.answersFormat !== undefined,
           hasQuestionType: entry.questionType !== undefined,
+          hasAnswerShape: entry.answerShape !== undefined,
           hasContexts: entry.contexts !== undefined,
+          hasDifficulty: entry.difficulty !== undefined,
           hasFormat: entry.format !== undefined,
           slotCount: entry.format?.questions.length ?? 0,
         });
@@ -303,6 +387,15 @@ export function createUpsertSeasonTool(
         updatedQuestionType = validated.value;
       }
 
+      let updatedAnswerShape: TriviaAnswerShapeWeights | undefined = existing.answerShape;
+      if (args.answerShape === null) {
+        updatedAnswerShape = undefined;
+      } else if (args.answerShape !== undefined) {
+        const validated = validateAnswerShape(buildAnswerShapeSparse(args.answerShape));
+        if (!validated.ok) return errorResult(validated.error);
+        updatedAnswerShape = validated.value;
+      }
+
       let updatedContexts: TriviaContextEntry[] | undefined = existing.contexts;
       if (args.contexts === null) {
         updatedContexts = undefined;
@@ -310,6 +403,15 @@ export function createUpsertSeasonTool(
         const validated = validateContexts(args.contexts);
         if (!validated.ok) return errorResult(validated.error);
         updatedContexts = validated.value;
+      }
+
+      let updatedDifficulty: TriviaDifficultyConfig | undefined = existing.difficulty;
+      if (args.difficulty === null) {
+        updatedDifficulty = undefined;
+      } else if (args.difficulty !== undefined) {
+        const validated = validateDifficulty(args.difficulty);
+        if (!validated.ok) return errorResult(validated.error);
+        updatedDifficulty = validated.value;
       }
 
       let updatedFormat: SeasonFormat | undefined = existing.format;
@@ -343,7 +445,9 @@ export function createUpsertSeasonTool(
         categories: existing.categories,
         ...(updatedAnswersFormat !== undefined ? { answersFormat: updatedAnswersFormat } : {}),
         ...(updatedQuestionType !== undefined ? { questionType: updatedQuestionType } : {}),
+        ...(updatedAnswerShape !== undefined ? { answerShape: updatedAnswerShape } : {}),
         ...(updatedContexts !== undefined ? { contexts: updatedContexts } : {}),
+        ...(updatedDifficulty !== undefined ? { difficulty: updatedDifficulty } : {}),
         ...(updatedFormat !== undefined ? { format: updatedFormat } : {}),
       };
 
@@ -380,7 +484,9 @@ export function createUpsertSeasonTool(
         hasTheme: updated.theme !== undefined,
         hasAnswersFormat: updated.answersFormat !== undefined,
         hasQuestionType: updated.questionType !== undefined,
+        hasAnswerShape: updated.answerShape !== undefined,
         hasContexts: updated.contexts !== undefined,
+        hasDifficulty: updated.difficulty !== undefined,
         hasFormat: updated.format !== undefined,
         slotCount: updated.format?.questions.length ?? 0,
       });
