@@ -29,6 +29,7 @@
       "group": "admin",
       "itemDetail": "Delete message"
     },
+    "random_roll": "Rolling {count|1} dice ({min}-{max})",
     "list_repositories": "Listing repositories",
     "git_log": "Reading git history {repo}",
     "deepen_history": "Loading more history",
