@@ -2,12 +2,12 @@ import type { SeasonFormat, SeasonFormatSlot } from "../core/types.js";
 import {
   validateAnswersFormatMap,
   validateQuestionTypeMap,
-  validateAnswerShapeMap,
+  validateFreeformAnswerShapeMap,
   validateContextsList,
   validateTriviaDifficultyMap,
   type TriviaAnswersFormatWeights,
   type TriviaQuestionTypeWeights,
-  type TriviaAnswerShapeWeights,
+  type TriviaFreeformAnswerShapeWeights,
   type TriviaContextEntry,
   type TriviaDifficultyConfig,
 } from "../../../config.js";
@@ -32,10 +32,10 @@ export function validateQuestionType(
   return validateQuestionTypeMap(raw, "questionType");
 }
 
-export function validateAnswerShape(
+export function validateFreeformAnswerShape(
   raw: Record<string, number>,
-): ValidateResult<TriviaAnswerShapeWeights> {
-  return validateAnswerShapeMap(raw, "answerShape");
+): ValidateResult<TriviaFreeformAnswerShapeWeights> {
+  return validateFreeformAnswerShapeMap(raw, "freeformAnswerShape");
 }
 
 export function validateContexts(raw: unknown): ValidateResult<TriviaContextEntry[]> {
@@ -63,7 +63,7 @@ interface RawSlot {
   categories?: string[];
   answersFormat?: Record<string, number> | null;
   questionType?: Record<string, number> | null;
-  answerShape?: Record<string, number> | null;
+  freeformAnswerShape?: Record<string, number> | null;
   contexts?: unknown[] | null;
   difficulty?: unknown | null;
 }
@@ -132,12 +132,12 @@ export function validateFormat(raw: RawFormat | null | undefined): ValidateResul
       }
       out.questionType = validated.value;
     }
-    if (slot.answerShape !== undefined && slot.answerShape !== null) {
-      const validated = validateAnswerShape(slot.answerShape);
+    if (slot.freeformAnswerShape !== undefined && slot.freeformAnswerShape !== null) {
+      const validated = validateFreeformAnswerShape(slot.freeformAnswerShape);
       if (!validated.ok) {
         return { ok: false, error: `format.questions[${i}]: ${validated.error}` };
       }
-      out.answerShape = validated.value;
+      out.freeformAnswerShape = validated.value;
     }
     if (slot.contexts !== undefined && slot.contexts !== null) {
       const validated = validateContexts(slot.contexts);

@@ -211,7 +211,7 @@ describe("get_ideas — format meta and slot routing", () => {
   });
 });
 
-describe("get_ideas — suggestedAnswerShape (freeform branch)", () => {
+describe("get_ideas — suggestedFreeformAnswerShape (freeform branch)", () => {
   let data: TriviaDataLayer;
   const FREEFORM_CONFIG = makeConfig({
     seasons: { enabled: true, prompt: "Monthly" },
@@ -230,7 +230,7 @@ describe("get_ideas — suggestedAnswerShape (freeform branch)", () => {
       await tool.handler({ game: FIXTURE_GAME_NAME, slot: undefined }, SESSION),
     );
     assert.equal(parsed.suggestedAnswersFormat, "boolean");
-    assert.equal(parsed.suggestedAnswerShape, undefined);
+    assert.equal(parsed.suggestedFreeformAnswerShape, undefined);
   });
 
   it("rolls one of the legal shapes on freeform with uniform default", async () => {
@@ -244,22 +244,22 @@ describe("get_ideas — suggestedAnswerShape (freeform branch)", () => {
       assert.equal(parsed.suggestedAnswersFormat, "freeform");
       assert.ok(
         ["name", "place", "phrase", "title", "date", "number", "other"].includes(
-          parsed.suggestedAnswerShape,
+          parsed.suggestedFreeformAnswerShape,
         ),
-        `unexpected shape: ${parsed.suggestedAnswerShape}`,
+        `unexpected shape: ${parsed.suggestedFreeformAnswerShape}`,
       );
-      seen.add(parsed.suggestedAnswerShape);
+      seen.add(parsed.suggestedFreeformAnswerShape);
     }
     assert.ok(seen.size > 1, `uniform default should hit multiple shapes — only saw ${[...seen]}`);
   });
 
-  it("honors slot.answerShape (overrides season + config)", async () => {
+  it("honors slot.freeformAnswerShape (overrides season + config)", async () => {
     await seedSeason(data, {
-      answerShape: { name: 0, place: 0, phrase: 0, title: 0, date: 1, number: 0, other: 0 },
+      freeformAnswerShape: { name: 0, place: 0, phrase: 0, title: 0, date: 1, number: 0, other: 0 },
       format: {
         questions: [
           {
-            answerShape: {
+            freeformAnswerShape: {
               name: 1,
               place: 0,
               phrase: 0,
@@ -277,13 +277,13 @@ describe("get_ideas — suggestedAnswerShape (freeform branch)", () => {
       const parsed = parseToolResult(
         await tool.handler({ game: FIXTURE_GAME_NAME, slot: 0 }, SESSION),
       );
-      assert.equal(parsed.suggestedAnswerShape, "name", `iteration ${i}`);
+      assert.equal(parsed.suggestedFreeformAnswerShape, "name", `iteration ${i}`);
     }
   });
 
-  it("falls back to season.answerShape when slot has none", async () => {
+  it("falls back to season.freeformAnswerShape when slot has none", async () => {
     await seedSeason(data, {
-      answerShape: { name: 0, place: 1, phrase: 0, title: 0, date: 0, number: 0, other: 0 },
+      freeformAnswerShape: { name: 0, place: 1, phrase: 0, title: 0, date: 0, number: 0, other: 0 },
       format: { questions: [{}] },
     });
     const tool = createGetIdeasTool(data, () => FREEFORM_CONFIG, fixtureGetGames);
@@ -291,25 +291,25 @@ describe("get_ideas — suggestedAnswerShape (freeform branch)", () => {
       const parsed = parseToolResult(
         await tool.handler({ game: FIXTURE_GAME_NAME, slot: 0 }, SESSION),
       );
-      assert.equal(parsed.suggestedAnswerShape, "place", `iteration ${i}`);
+      assert.equal(parsed.suggestedFreeformAnswerShape, "place", `iteration ${i}`);
     }
   });
 
-  it("falls back to config.trivia.answerShape when neither slot nor season has it", async () => {
+  it("falls back to config.trivia.freeformAnswerShape when neither slot nor season has it", async () => {
     await seedSeason(data, {
       format: { questions: [{}] },
     });
     const cfg = makeConfig({
       seasons: { enabled: true, prompt: "Monthly" },
       answersFormat: { boolean: 0, choice: 0, freeform: 1 },
-      answerShape: { name: 0, place: 0, phrase: 1, title: 0, date: 0, number: 0, other: 0 },
+      freeformAnswerShape: { name: 0, place: 0, phrase: 1, title: 0, date: 0, number: 0, other: 0 },
     });
     const tool = createGetIdeasTool(data, () => cfg, fixtureGetGames);
     for (let i = 0; i < 10; i++) {
       const parsed = parseToolResult(
         await tool.handler({ game: FIXTURE_GAME_NAME, slot: 0 }, SESSION),
       );
-      assert.equal(parsed.suggestedAnswerShape, "phrase", `iteration ${i}`);
+      assert.equal(parsed.suggestedFreeformAnswerShape, "phrase", `iteration ${i}`);
     }
   });
 });

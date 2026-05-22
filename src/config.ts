@@ -171,9 +171,16 @@ export type TriviaQuestionTypeWeights = Record<"fact" | "topical", number>;
  * counts, measurements); a uniform default gives names/places/phrases an even
  * shot. See `prompts/scheduledPrompts.ts` for the per-shape guidance.
  */
-export type TriviaAnswerShape = "name" | "place" | "phrase" | "title" | "date" | "number" | "other";
+export type TriviaFreeformAnswerShape =
+  | "name"
+  | "place"
+  | "phrase"
+  | "title"
+  | "date"
+  | "number"
+  | "other";
 
-export type TriviaAnswerShapeWeights = Record<TriviaAnswerShape, number>;
+export type TriviaFreeformAnswerShapeWeights = Record<TriviaFreeformAnswerShape, number>;
 
 /**
  * One entry in the optional `trivia.contexts` axis. `name` is the lens label (any string,
@@ -274,7 +281,7 @@ export interface TriviaConfig {
   /** Weighted-random map of question type (fact vs topical) → weight. Workspace default; overridable per-season / per-slot. */
   questionType?: TriviaQuestionTypeWeights;
   /** Weighted-random map of freeform answer shape → weight. Workspace default; overridable per-season / per-slot. Freeform-branch only. */
-  answerShape?: TriviaAnswerShapeWeights;
+  freeformAnswerShape?: TriviaFreeformAnswerShapeWeights;
   /** Optional lens axis. When present, get_ideas returns a `contextPriority` array Claude descends through. */
   contexts?: TriviaContextEntry[];
   /** Bounds for choice-question option counts. Defaults to `{ min: 2, max: 4 }`. */
@@ -304,8 +311,8 @@ export const DEFAULT_TRIVIA_CHOICES: TriviaChoicesConfig = { min: 4, max: 4 };
 /** Built-in fallback when no `questionType` weights are set at any cascade tier. */
 export const DEFAULT_QUESTION_TYPE_WEIGHTS: TriviaQuestionTypeWeights = { fact: 1, topical: 0 };
 
-/** Built-in fallback when no `answerShape` weights are set at any cascade tier. Uniform across all five shapes. */
-export const DEFAULT_ANSWER_SHAPE_WEIGHTS: TriviaAnswerShapeWeights = {
+/** Built-in fallback when no `freeformAnswerShape` weights are set at any cascade tier. Uniform across all five shapes. */
+export const DEFAULT_FREEFORM_ANSWER_SHAPE_WEIGHTS: TriviaFreeformAnswerShapeWeights = {
   name: 1,
   place: 1,
   phrase: 1,
@@ -377,6 +384,21 @@ export interface SkillPluginEntry {
 
 export type SkillPluginRegistry = Record<string, SkillPluginEntry>;
 
+/**
+ * Per-installation tuning for `submit_response`. Only `maxAdditionalMessages` lives here
+ * today — it bounds how many sibling messages a single scheduled-mode batch (or a single
+ * `post_to` action) may carry. The 20-cap on `thread_replies` is intentionally fixed and
+ * does NOT live here; see the multi-message design doc for the rationale.
+ */
+export interface SubmitResponseConfig {
+  /** Inclusive cap on `additional_messages.length`. Default 5, valid range [1, 10]. */
+  maxAdditionalMessages: number;
+}
+
+export const DEFAULT_MAX_ADDITIONAL_MESSAGES = 5;
+const MAX_ADDITIONAL_MESSAGES_MIN = 1;
+const MAX_ADDITIONAL_MESSAGES_MAX = 10;
+
 export interface Config {
   slack: SlackConfig;
   slackApp?: SlackAppConfig;
@@ -414,6 +436,11 @@ export interface Config {
    * loading (passed via `--plugin-dir` at session start, same as pre-lazy behavior).
    */
   skillPlugins?: SkillPluginRegistry;
+  /**
+   * Per-installation tuning for `submit_response`. Currently only carries the
+   * `maxAdditionalMessages` cap. Absent → defaults applied at parse time.
+   */
+  submitResponse?: SubmitResponseConfig;
   /**
    * Workspace-global user-facing language. BCP-47 short code. When absent or `"en"`,
    * the bot behaves identically to its pre-localization state. When set to `"fr"`,
@@ -571,7 +598,7 @@ function parseTaskCardsConfig(raw: TaskCardsRaw | undefined): TaskCardsConfig | 
  */
 export const ANSWERS_FORMAT_KEYS = ["boolean", "choice", "freeform"] as const;
 const QUESTION_TYPE_KEYS = ["fact", "topical"] as const;
-export const ANSWER_SHAPE_KEYS = [
+export const FREEFORM_ANSWER_SHAPE_KEYS = [
   "name",
   "place",
   "phrase",
@@ -710,27 +737,27 @@ export function parseTriviaQuestionType(
 }
 
 /**
- * Validate an arbitrary value as a `TriviaAnswerShapeWeights` map. Symmetric to the
+ * Validate an arbitrary value as a `TriviaFreeformAnswerShapeWeights` map. Symmetric to the
  * answersFormat / questionType validators. Used by:
  *
- * - `parseTriviaAnswerShape` for `config.trivia.answerShape` (workspace-level)
- * - `validateAnswerShape` in `src/plugins/trivia/domain/seasonFormat.ts` for
- *   `SeasonEntry.answerShape` / `SeasonFormatSlot.answerShape`
+ * - `parseTriviaFreeformAnswerShape` for `config.trivia.freeformAnswerShape` (workspace-level)
+ * - `validateFreeformAnswerShape` in `src/plugins/trivia/domain/seasonFormat.ts` for
+ *   `SeasonEntry.freeformAnswerShape` / `SeasonFormatSlot.freeformAnswerShape`
  */
-export function validateAnswerShapeMap(
+export function validateFreeformAnswerShapeMap(
   raw: unknown,
   fieldLabel: string,
-): { ok: true; value: TriviaAnswerShapeWeights } | { ok: false; error: string } {
+): { ok: true; value: TriviaFreeformAnswerShapeWeights } | { ok: false; error: string } {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return { ok: false, error: `'${fieldLabel}' must be an object` };
   }
-  const out: Partial<TriviaAnswerShapeWeights> = {};
+  const out: Partial<TriviaFreeformAnswerShapeWeights> = {};
   let positiveCount = 0;
   for (const [key, value] of Object.entries(raw)) {
-    if (!(ANSWER_SHAPE_KEYS as readonly string[]).includes(key)) {
+    if (!(FREEFORM_ANSWER_SHAPE_KEYS as readonly string[]).includes(key)) {
       return {
         ok: false,
-        error: `'${fieldLabel}' contains unknown key '${key}' (allowed: ${ANSWER_SHAPE_KEYS.join(", ")})`,
+        error: `'${fieldLabel}' contains unknown key '${key}' (allowed: ${FREEFORM_ANSWER_SHAPE_KEYS.join(", ")})`,
       };
     }
     if (
@@ -744,7 +771,7 @@ export function validateAnswerShapeMap(
         error: `'${fieldLabel}.${key}' must be a non-negative integer (got ${JSON.stringify(value)})`,
       };
     }
-    out[key as (typeof ANSWER_SHAPE_KEYS)[number]] = value;
+    out[key as (typeof FREEFORM_ANSWER_SHAPE_KEYS)[number]] = value;
     if (value > 0) positiveCount++;
   }
   if (positiveCount === 0) {
@@ -767,11 +794,11 @@ export function validateAnswerShapeMap(
   };
 }
 
-export function parseTriviaAnswerShape(
+export function parseTriviaFreeformAnswerShape(
   raw: JsonValue | undefined,
-): TriviaAnswerShapeWeights | undefined {
+): TriviaFreeformAnswerShapeWeights | undefined {
   if (raw === undefined) return undefined;
-  const result = validateAnswerShapeMap(raw, "Config 'trivia.answerShape'");
+  const result = validateFreeformAnswerShapeMap(raw, "Config 'trivia.freeformAnswerShape'");
   if (!result.ok) throw new Error(result.error);
   return result.value;
 }
@@ -1304,6 +1331,31 @@ export function parseSkillPluginRegistry(
   return registry;
 }
 
+export function parseSubmitResponseConfig(raw: JsonValue | undefined): SubmitResponseConfig {
+  const fallback: SubmitResponseConfig = {
+    maxAdditionalMessages: DEFAULT_MAX_ADDITIONAL_MESSAGES,
+  };
+  if (raw === undefined) return fallback;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("Config 'submitResponse' must be an object");
+  }
+
+  const entry: JsonObject = raw;
+  const maxRaw = entry.maxAdditionalMessages;
+  if (maxRaw === undefined) return fallback;
+
+  if (typeof maxRaw !== "number" || !Number.isInteger(maxRaw)) {
+    throw new Error("Config 'submitResponse.maxAdditionalMessages' must be an integer");
+  }
+  if (maxRaw < MAX_ADDITIONAL_MESSAGES_MIN || maxRaw > MAX_ADDITIONAL_MESSAGES_MAX) {
+    throw new Error(
+      `Config 'submitResponse.maxAdditionalMessages' must be in [${MAX_ADDITIONAL_MESSAGES_MIN}, ${MAX_ADDITIONAL_MESSAGES_MAX}] (got ${maxRaw})`,
+    );
+  }
+
+  return { maxAdditionalMessages: maxRaw };
+}
+
 const VALID_MERGE_STRATEGIES = ["squash", "merge", "rebase"] as const;
 const VALID_ROLES: readonly UserRole[] = ["member", "dev", "admin", "owner"];
 
@@ -1441,7 +1493,9 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
       triviaRaw.answersFormat as JsonValue | undefined,
     );
     const questionType = parseTriviaQuestionType(triviaRaw.questionType as JsonValue | undefined);
-    const answerShape = parseTriviaAnswerShape(triviaRaw.answerShape as JsonValue | undefined);
+    const freeformAnswerShape = parseTriviaFreeformAnswerShape(
+      triviaRaw.freeformAnswerShape as JsonValue | undefined,
+    );
     const contexts = parseTriviaContexts(triviaRaw.contexts as JsonValue | undefined);
     const choices = parseTriviaChoicesConfig(triviaRaw.choices as JsonValue | undefined);
     const difficulty = parseTriviaDifficulty(triviaRaw.difficulty as JsonValue | undefined);
@@ -1458,7 +1512,7 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
           seasons: { enabled: false, prompt: "" },
           answersFormat,
           questionType,
-          answerShape,
+          freeformAnswerShape,
           contexts,
           choices,
           difficulty,
@@ -1470,7 +1524,7 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
           seasons: { enabled: seasonsEnabled, prompt: seasonsPrompt },
           answersFormat,
           questionType,
-          answerShape,
+          freeformAnswerShape,
           contexts,
           choices,
           difficulty,
@@ -1482,7 +1536,7 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
       triviaConfig = {
         answersFormat,
         questionType,
-        answerShape,
+        freeformAnswerShape,
         contexts,
         choices,
         difficulty,
@@ -1594,6 +1648,7 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
     trivia: triviaConfig,
     mcpServers: parseMcpServerRegistry(c.mcpServers as JsonValue | undefined),
     skillPlugins: parseSkillPluginRegistry(c.skillPlugins as JsonValue | undefined),
+    submitResponse: parseSubmitResponseConfig(c.submitResponse as JsonValue | undefined),
     language: isSupportedLanguage(c.language) ? c.language : undefined,
   };
 

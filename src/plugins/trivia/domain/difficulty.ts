@@ -4,7 +4,7 @@ import type { SeasonEntry, TriviaAnswersFormat } from "../core/types.js";
 
 /**
  * Pure resolver for per-game-type difficulty ranges. Mirrors `resolveAnswersFormat` /
- * `resolveAnswerShape`, but with per-field merge instead of whole-object replace —
+ * `resolveFreeformAnswerShape`, but with per-field merge instead of whole-object replace —
  * each tier can override any subset of `easy` / `medium` / `hard` / `minimumThreshold`
  * and the missing fields cascade from the next tier.
  *

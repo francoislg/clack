@@ -297,7 +297,7 @@ const FREEFORM_FACT_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
      - categories.ideas: 5 random categories.
      - suggestedAnswersFormat: "freeform"
      - suggestedQuestionType: "fact"
-     - suggestedAnswerShape: one of "name" | "place" | "phrase" | "title" | "date" | "number" | "other" — the SHAPE the answer must take. Non-negotiable.
+     - suggestedFreeformAnswerShape: one of "name" | "place" | "phrase" | "title" | "date" | "number" | "other" — the SHAPE the answer must take. Non-negotiable.
      - suggestedDifficulty ("Easy" | "Medium" | "Hard"): the bucket to aim at.
      - suggestedDifficultyRange ([min, max]) and minimumDifficultyThreshold (integer): the bucket's target band and reject-below cutoff for THIS game type (freeform's bands are softer than boolean/choice's) — used at step 7.
      - contextPriority (optional, only when contexts are configured): see CONTEXTS guidance above.
@@ -305,7 +305,7 @@ const FREEFORM_FACT_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
 
 2. WRITE THE QUESTION (REQUIRED — SHORT, UNAMBIGUOUS):
    - Write a single-sentence prompt that has ONE clearly correct answer when read literally.
-   - The answer MUST match suggestedAnswerShape:
+   - The answer MUST match suggestedFreeformAnswerShape:
      - "name" → the proper noun of a person, character, brand, organization, animal species, etc.
      - "place" → a city, country, region, landmark, geographical feature, planet, or fictional location.
      - "phrase" → a quote, idiom, motto, slogan, line of dialogue, common saying.
@@ -372,7 +372,7 @@ const FREEFORM_TOPICAL_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
      - categories.ideas: 5 random categories.
      - suggestedAnswersFormat: "freeform"
      - suggestedQuestionType: "topical"
-     - suggestedAnswerShape: one of "name" | "place" | "phrase" | "title" | "date" | "number" | "other" — see fact-freeform path for per-shape descriptions. Non-negotiable.
+     - suggestedFreeformAnswerShape: one of "name" | "place" | "phrase" | "title" | "date" | "number" | "other" — see fact-freeform path for per-shape descriptions. Non-negotiable.
      - suggestedDifficulty ("Easy" | "Medium" | "Hard"): the bucket to aim at.
      - suggestedDifficultyRange ([min, max]) and minimumDifficultyThreshold (integer): the bucket's target band and reject-below cutoff for THIS game type (freeform's bands are softer than boolean/choice's) — used at step 7.
      - contextPriority (optional, only when contexts are configured): see CONTEXTS guidance above.
@@ -382,7 +382,7 @@ const FREEFORM_TOPICAL_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
    - Same WebSearch + lens-descent rules as the topical boolean / topical choice paths. Capture \`sourceUrl\` and (when known) \`eventDate\` from the chosen event.
 
 3. WRITE THE QUESTION:
-   - Anchor a single-sentence prompt on a verified fact drawn from the event. The answer must match suggestedAnswerShape (see fact-freeform step 2). LEEWAY applies only to "date" / "number" shapes; skip for "name" / "place" / "phrase".
+   - Anchor a single-sentence prompt on a verified fact drawn from the event. The answer must match suggestedFreeformAnswerShape (see fact-freeform step 2). LEEWAY applies only to "date" / "number" shapes; skip for "name" / "place" / "phrase".
 
 4. WRITE THE EXPECTED ANSWER (REQUIRED): shortest canonical form, max 200 chars.
 
