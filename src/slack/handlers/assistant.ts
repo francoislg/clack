@@ -2,6 +2,7 @@ import type { App, AssistantConfig } from "@slack/bolt";
 import { Assistant } from "@slack/bolt";
 import { getConfig } from "../../config.js";
 import { logger } from "../../logger.js";
+import { t } from "../../i18n/t.js";
 import { findSessionByThread, updateSession, type SessionContext } from "../../sessions.js";
 import { extractAttachments, type ExtractedAttachments } from "../fileExtractor.js";
 import { PerThreadContextStore } from "./assistantContextStore.js";
@@ -144,19 +145,25 @@ export function registerAssistant(app: App, deps: AssistantDeps = defaultAssista
       const ctx = event.assistant_thread?.context;
       logger.debug(`Assistant threadStarted: channel_id=${ctx?.channel_id ?? "none"}`);
 
-      await say("Hi! Ask me anything about the codebase.");
+      await say(t("assistant.greeting"));
       await saveThreadContext();
 
       const prompts: Array<{ title: string; message: string }> = [];
       if (ctx?.channel_id) {
         prompts.push({
-          title: "Check recent messages",
-          message: "Check the recent messages in the channel and summarize what's being discussed",
+          title: t("assistant.prompt_check_recent_title"),
+          message: t("assistant.prompt_check_recent_message"),
         });
       }
       prompts.push(
-        { title: "Debug something", message: "Help me debug something in the codebase" },
-        { title: "Tell me something funny", message: "Tell me something funny about the codebase" },
+        {
+          title: t("assistant.prompt_debug_title"),
+          message: t("assistant.prompt_debug_message"),
+        },
+        {
+          title: t("assistant.prompt_funny_title"),
+          message: t("assistant.prompt_funny_message"),
+        },
       );
       await setSuggestedPrompts({ prompts });
     },
@@ -205,11 +212,11 @@ export function registerAssistant(app: App, deps: AssistantDeps = defaultAssista
         return;
       }
 
-      await setStatus("Thinking...");
+      await setStatus(t("assistant.thinking_status"));
 
       const contextChannelId = await resolveContextChannelId(client, msg, getThreadContext, deps);
 
-      const messageText = hasText ? msg.text! : "Answer based on the attached image(s).";
+      const messageText = hasText ? msg.text! : t("assistant.fallback_image_only");
 
       await deps.processMessage({
         client,

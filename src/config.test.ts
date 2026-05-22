@@ -1660,3 +1660,55 @@ describe("trivia.offDays config", () => {
     assert.deepEqual(cfg.trivia?.offDays, []);
   });
 });
+
+describe("language config", () => {
+  beforeEach(() => {
+    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true });
+    mkdirSync(tmpBase, { recursive: true });
+    process.chdir(tmpBase);
+    writeSlackAuth();
+  });
+
+  afterEach(() => {
+    process.chdir(resolve(tmpBase, ".."));
+    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true });
+  });
+
+  it("is undefined when the field is absent", () => {
+    writeConfig(minimalConfig());
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.language, undefined);
+  });
+
+  it("accepts 'en'", () => {
+    writeConfig(minimalConfig({ language: "en" }));
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.language, "en");
+  });
+
+  it("accepts 'fr'", () => {
+    writeConfig(minimalConfig({ language: "fr" }));
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.language, "fr");
+  });
+
+  it("rejects an unsupported language code with a descriptive error", () => {
+    writeConfig(minimalConfig({ language: "de" }));
+    assert.throws(
+      () => loadConfig(configPath, true),
+      (err: unknown) =>
+        err instanceof Error &&
+        err.message.includes("language") &&
+        err.message.includes("en") &&
+        err.message.includes("fr"),
+    );
+  });
+
+  it("rejects a non-string language with a descriptive error", () => {
+    writeConfig(minimalConfig({ language: 42 }));
+    assert.throws(
+      () => loadConfig(configPath, true),
+      (err: unknown) => err instanceof Error && err.message.includes("language"),
+    );
+  });
+});

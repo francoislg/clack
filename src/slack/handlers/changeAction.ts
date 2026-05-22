@@ -1,6 +1,7 @@
 import type { App, BlockAction } from "@slack/bolt";
 import { errorMessage } from "../../errors.js";
 import { logger } from "../../logger.js";
+import { t } from "../../i18n/t.js";
 import {
   findSessionByThread,
   getStagedIntent,
@@ -101,7 +102,7 @@ export async function triggerChangeWorkflow(
     await client.chat.postMessage({
       channel: channelId,
       thread_ts: threadTs,
-      text: "Could not find an active session for this thread.",
+      text: t("errors.no_active_session"),
     });
     return;
   }
@@ -182,7 +183,7 @@ export async function triggerChangeWorkflow(
     await client.chat.postMessage({
       channel: streamChannel,
       thread_ts: streamThreadTs,
-      text: `Change request failed unexpectedly: ${deps.errorMessage(error)}`,
+      text: t("errors.change_failed_unexpectedly", { error: deps.errorMessage(error) }),
     });
   }
 }
@@ -204,7 +205,7 @@ export function registerChangeActionHandler(
       await client.chat.postEphemeral({
         channel: body.channel?.id ?? "",
         user: userId,
-        text: "You don't have permission to start changes. Requires dev role or higher.",
+        text: t("errors.change_permission_denied"),
       });
       return;
     }
@@ -231,7 +232,7 @@ export function registerChangeActionHandler(
         channel: sessionInfo.channelId,
         user: userId,
         thread_ts: sessionInfo.threadTs,
-        text: "Sorry, this change request has expired. Please try again.",
+        text: t("errors.change_expired"),
       });
       return;
     }

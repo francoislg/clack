@@ -290,6 +290,40 @@ describe("runPreAnalysis", () => {
     assert.equal(capturedOptions!.maxTurns, 1);
   });
 
+  it("does NOT inject the language directive — pre-analysis is internal reasoning", async () => {
+    // The pre-analysis path builds its systemPrompt inline (not through
+    // buildSystemPrompt), so the LANGUAGE directive must never appear regardless
+    // of `config.language`. This structural assertion guards against accidental
+    // future coupling between the two paths.
+    let capturedOptions: QueryCallArg["options"];
+    mockQuery.mock.mockImplementation((...args: unknown[]) => {
+      capturedOptions = (args[0] as QueryCallArg).options;
+      return asyncIterableOf([{ type: "result", subtype: "success", result: "skip" }]);
+    });
+
+    await runPreAnalysis(
+      "bonjour",
+      "Alice",
+      "Clack",
+      "Skip noise",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      makeDeps(),
+    );
+
+    const systemPrompt = capturedOptions!.systemPrompt!;
+    assert.ok(
+      !systemPrompt.includes("LANGUAGE\n"),
+      "pre-analysis system prompt must not contain the LANGUAGE directive",
+    );
+    assert.ok(
+      !systemPrompt.includes("Français"),
+      "pre-analysis system prompt must not name any non-English language",
+    );
+  });
+
   it("includes attributed recent messages and author in the prompt", async () => {
     let capturedPrompt = "";
     mockQuery.mock.mockImplementation((...args: unknown[]) => {

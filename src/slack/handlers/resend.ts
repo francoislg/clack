@@ -1,5 +1,6 @@
 import type { App, BlockAction } from "@slack/bolt";
 import { logger } from "../../logger.js";
+import { t } from "../../i18n/t.js";
 import { getSession } from "../../sessions.js";
 import { latestAssistantText, latestAssistantPayload } from "../../sessions/selectors.js";
 import { getStructuredResponseBlocks, asSlackBlocks } from "../blocks.js";
@@ -36,7 +37,7 @@ export function registerResendHandler(app: App, deps: ResendDeps = defaultResend
     if (!session || !sessionInfo || !answerText) {
       logger.error("Could not restore session for resend");
       await respond({
-        text: "Sorry, the session has expired. Please start a new query.",
+        text: t("errors.session_expired"),
         replace_original: true,
       });
       return;
@@ -56,7 +57,7 @@ export function registerResendHandler(app: App, deps: ResendDeps = defaultResend
 
     await client.chat.postMessage({
       channel: body.channel!.id,
-      text: "The message was sent again.",
+      text: t("errors.resend_sent"),
     });
   });
 }

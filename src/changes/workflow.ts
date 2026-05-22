@@ -1,4 +1,5 @@
 import { getConfig, findRepoByName } from "../config.js";
+import { t } from "../i18n/t.js";
 import type { WorktreeInfo } from "../worktrees.js";
 import type {
   ChangeRequest,
@@ -250,8 +251,8 @@ export async function startChangeWorkflow(
         if (onAck) {
           const text =
             position === 1
-              ? `:hourglass_flowing_sand: Waiting for a worker on \`${plan.targetRepo}\` — next in line.`
-              : `:hourglass_flowing_sand: Queued at position ${position} for a worker on \`${plan.targetRepo}\`.`;
+              ? t("changes.queue.next_in_line", { repo: plan.targetRepo })
+              : t("changes.queue.queued_at", { position, repo: plan.targetRepo });
           // Fire-and-forget: a Slack hiccup must not cause the queued acquire to fail.
           onAck(text).catch((err) =>
             deps.appendExecutionLog(plan.branchName, `Queue ack post failed: ${errorMessage(err)}`),
@@ -271,7 +272,7 @@ export async function startChangeWorkflow(
     deps.clearActiveChange(sessionId);
     return {
       success: false,
-      error: `Failed to create workspace: ${errorMessage(err)}`,
+      error: t("changes.create_workspace_failed", { error: errorMessage(err) }),
     };
   }
 

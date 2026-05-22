@@ -1,5 +1,6 @@
 import { getConfig } from "../config.js";
 import type { McpServerRegistry, SkillPluginRegistry } from "../config.js";
+import { LANGUAGE_METADATA, type Lang } from "../i18n/languages.js";
 import { loadInstructions } from "../instructions.js";
 import type { UserRole } from "../roles.js";
 import type { SessionContext } from "../sessions.js";
@@ -8,6 +9,27 @@ import type { SlackImageFile, SlackFile } from "../slack/slackFileBase.js";
 import { DISMISSAL_PHRASES_INLINE } from "./dismissalPhrases.js";
 import { buildIntegrationsCatalog } from "./integrationsCatalog.js";
 import { buildSkillPacksCatalog } from "./skillPacksCatalog.js";
+
+/**
+ * Render the LANGUAGE directive when a non-English language is configured.
+ * Returns `""` when `lang === "en"`, with no trailing whitespace so callers can
+ * concatenate unconditionally and preserve byte-identical output for the default path.
+ */
+export function renderLanguageDirective(lang: Lang): string {
+  if (lang === "en") return "";
+  const meta = LANGUAGE_METADATA[lang];
+  return `LANGUAGE
+All output shown to users must be written in ${meta.native} (${meta.english}). This includes:
+  • Your final response delivered via submit_response
+  • Any text fields in tool calls that produce user-visible content (button labels, message text, modal content)
+  • Status messages, errors, and explanations
+
+Write in natural, idiomatic ${meta.native}. Don't translate English idioms literally. If a technical term has no good equivalent, use the English term inline rather than inventing awkward phrasing.
+
+Internal reasoning, tool names, file paths, code identifiers, and proper nouns stay in their original form.
+
+`;
+}
 /** Subset of AskClaudeOptions needed for prompt construction. */
 export interface PromptOptions {
   role?: UserRole;
@@ -53,10 +75,12 @@ export function buildSystemPrompt(options?: PromptOptions): string {
     BOT_NAME: config.slackApp?.name || "Clack",
   };
 
-  return loadInstructions(role, {
+  const cascaded = loadInstructions(role, {
     changesWorkflowEnabled,
     variables,
   });
+
+  return renderLanguageDirective(config.language ?? "en") + cascaded;
 }
 
 function formatSpeaker(msg: { userId: string; username?: string; displayName?: string }): string {

@@ -412,7 +412,7 @@ describe("buildRoleManagementSection", () => {
 
   it("starts with a Role Management header", async () => {
     const deps = makeDeps();
-    const blocks = await buildRoleManagementSection("U_OWNER", "owner", deps);
+    const blocks = await buildRoleManagementSection("owner", deps);
     assert.equal(blocks[0].type, "header");
     const headerBlock = blocks[0] as KnownBlock & { text: { text: string } };
     assert.equal(headerBlock.text.text, "Role Management");
@@ -420,7 +420,7 @@ describe("buildRoleManagementSection", () => {
 
   it("shows owner with transfer button when user is owner", async () => {
     const deps = makeDeps();
-    const blocks = await buildRoleManagementSection("U_OWNER", "owner", deps);
+    const blocks = await buildRoleManagementSection("owner", deps);
     const ownerSection = blocks.find((b) => {
       if (b.type !== "section") return false;
       const section = b as KnownBlock & { text?: { text: string } };
@@ -433,7 +433,7 @@ describe("buildRoleManagementSection", () => {
 
   it("shows owner without transfer button for non-owner admin", async () => {
     const deps = makeDeps();
-    const blocks = await buildRoleManagementSection("U_ADMIN", "admin", deps);
+    const blocks = await buildRoleManagementSection("admin", deps);
     const ownerSection = blocks.find((b) => {
       if (b.type !== "section") return false;
       const section = b as KnownBlock & { text?: { text: string } };
@@ -446,7 +446,7 @@ describe("buildRoleManagementSection", () => {
 
   it("shows admins list with add button", async () => {
     const deps = makeDeps();
-    const blocks = await buildRoleManagementSection("U_OWNER", "owner", deps);
+    const blocks = await buildRoleManagementSection("owner", deps);
     const adminSection = blocks.find((b) => {
       if (b.type !== "section") return false;
       const section = b as KnownBlock & { text?: { text: string } };
@@ -467,7 +467,7 @@ describe("buildRoleManagementSection", () => {
       admins: ["U_ADMIN1"],
       devs: [],
     }));
-    const blocks = await buildRoleManagementSection("U_OWNER", "owner", deps);
+    const blocks = await buildRoleManagementSection("owner", deps);
     const adminActions = blocks.find((b) => {
       if (!isActionBlock(b)) return false;
       return b.elements.some((e) => (e as { action_id?: string }).action_id === "remove_admin");
@@ -477,7 +477,7 @@ describe("buildRoleManagementSection", () => {
 
   it("does not show remove admin button when no admins", async () => {
     const deps = makeDeps();
-    const blocks = await buildRoleManagementSection("U_OWNER", "owner", deps);
+    const blocks = await buildRoleManagementSection("owner", deps);
     const allActionElements = blocks.filter(isActionBlock).flatMap((b) => b.elements);
     const removeAdmin = allActionElements.find(
       (e) => (e as { action_id?: string }).action_id === "remove_admin",
@@ -487,7 +487,7 @@ describe("buildRoleManagementSection", () => {
 
   it("shows devs list with add button", async () => {
     const deps = makeDeps();
-    const blocks = await buildRoleManagementSection("U_OWNER", "owner", deps);
+    const blocks = await buildRoleManagementSection("owner", deps);
     const devSection = blocks.find((b) => {
       if (b.type !== "section") return false;
       const section = b as KnownBlock & { text?: { text: string } };
@@ -508,7 +508,7 @@ describe("buildRoleManagementSection", () => {
       admins: [],
       devs: ["U_DEV1"],
     }));
-    const blocks = await buildRoleManagementSection("U_OWNER", "owner", deps);
+    const blocks = await buildRoleManagementSection("owner", deps);
     const devActions = blocks.find((b) => {
       if (!isActionBlock(b)) return false;
       return b.elements.some((e) => (e as { action_id?: string }).action_id === "remove_dev");
@@ -518,7 +518,7 @@ describe("buildRoleManagementSection", () => {
 
   it("ends with a divider", async () => {
     const deps = makeDeps();
-    const blocks = await buildRoleManagementSection("U_OWNER", "owner", deps);
+    const blocks = await buildRoleManagementSection("owner", deps);
     assert.equal(blocks[blocks.length - 1].type, "divider");
   });
 });

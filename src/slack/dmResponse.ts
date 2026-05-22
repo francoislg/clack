@@ -1,5 +1,6 @@
 import { updateSession, type SessionContext } from "../sessions.js";
 import { activeSessions, type SessionInfo } from "./activeSessions.js";
+import { t } from "../i18n/t.js";
 
 export interface DmResponseDeps {
   updateSession: (
@@ -24,20 +25,20 @@ export function getDmSynthesisActions(sessionId: string) {
       elements: [
         {
           type: "button" as const,
-          text: { type: "plain_text" as const, text: "Accept", emoji: true },
+          text: { type: "plain_text" as const, text: t("dm.synthesis.accept"), emoji: true },
           style: "primary" as const,
           action_id: "clack_dm_accept_synthesis",
           value: sessionId,
         },
         {
           type: "button" as const,
-          text: { type: "plain_text" as const, text: "Edit", emoji: true },
+          text: { type: "plain_text" as const, text: t("dm.synthesis.edit"), emoji: true },
           action_id: "clack_dm_edit_synthesis",
           value: sessionId,
         },
         {
           type: "button" as const,
-          text: { type: "plain_text" as const, text: "Reject", emoji: true },
+          text: { type: "plain_text" as const, text: t("dm.synthesis.reject"), emoji: true },
           style: "danger" as const,
           action_id: "clack_dm_reject",
           value: sessionId,
@@ -55,20 +56,24 @@ export function getDmPostAcceptActions(sessionId: string) {
       elements: [
         {
           type: "button" as const,
-          text: { type: "plain_text" as const, text: "Update original post", emoji: true },
+          text: {
+            type: "plain_text" as const,
+            text: t("dm.synthesis.update_original"),
+            emoji: true,
+          },
           style: "primary" as const,
           action_id: "clack_dm_update_post",
           value: sessionId,
         },
         {
           type: "button" as const,
-          text: { type: "plain_text" as const, text: "Post new reply", emoji: true },
+          text: { type: "plain_text" as const, text: t("dm.synthesis.post_new"), emoji: true },
           action_id: "clack_dm_post_new",
           value: sessionId,
         },
         {
           type: "button" as const,
-          text: { type: "plain_text" as const, text: "Cancel", emoji: true },
+          text: { type: "plain_text" as const, text: t("dm.synthesis.cancel"), emoji: true },
           style: "danger" as const,
           action_id: "clack_dm_reject",
           value: sessionId,

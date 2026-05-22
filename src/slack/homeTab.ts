@@ -15,6 +15,7 @@ import { getRules, type AutoRespondRule } from "../autoRespond.js";
 import { getJobs, getJobsByUser, type CronJob } from "../cronJobs.js";
 import { humanReadableSchedule } from "../cronFormatter.js";
 import { truncate } from "../text.js";
+import { t } from "../i18n/t.js";
 import type { ActiveWorker } from "../changes/activeState.js";
 import type { InstructionFileListing } from "../configurationFiles.js";
 import type { Config, RepositoryConfig } from "../config.js";
@@ -130,7 +131,7 @@ export async function buildHomeView(
 
   // Role management section (only for admins/owner)
   if (userIsAdmin) {
-    blocks.push(...(await buildRoleManagementSection(userId, role, deps)));
+    blocks.push(...(await buildRoleManagementSection(role, deps)));
   }
 
   // Auto-respond section (admin only)
@@ -176,18 +177,17 @@ export async function buildHomeView(
   };
 }
 
-function buildMigrationBanner(
-  errors: import("../migrations/types.js").MigrationError[],
-  isAdmin: boolean,
-): KnownBlock[] {
+function buildMigrationBanner(errors: MigrationError[], isAdmin: boolean): KnownBlock[] {
   const errorList = errors
-    .map((e) => `• *${e.migrationName}* (v${e.version}): ${e.error}`)
+    .map((e) =>
+      t("home.migration.entry", { name: e.migrationName, version: e.version, error: e.error }),
+    )
     .join("\n");
 
-  let text = `:warning: *Migration Error*\n\n${errorList}`;
+  let text = `${t("home.migration.title")}\n\n${errorList}`;
 
   if (isAdmin) {
-    text += `\n\n_Check the logs for details and restart Clack after resolving the issue._`;
+    text += `\n\n${t("home.migration.admin_hint")}`;
   }
 
   return [
@@ -205,11 +205,11 @@ function buildMigrationBanner(
 function buildRoleBadge(role: UserRole): KnownBlock[] {
   // "system" never appears here — Home Tab is only rendered for human users.
   const roleLabels: Record<UserRole, string> = {
-    system: "System",
-    owner: "Owner",
-    admin: "Admin",
-    dev: "Dev",
-    member: "Member",
+    system: t("home.role.system"),
+    owner: t("home.role.owner"),
+    admin: t("home.role.admin"),
+    dev: t("home.role.dev"),
+    member: t("home.role.member"),
   };
 
   const roleEmojis: Record<UserRole, string> = {
@@ -225,7 +225,7 @@ function buildRoleBadge(role: UserRole): KnownBlock[] {
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `${roleEmojis[role]} *Your Role:* ${roleLabels[role]}`,
+        text: t("home.role.badge", { emoji: roleEmojis[role], label: roleLabels[role] }),
       },
     },
     { type: "divider" },
@@ -233,9 +233,7 @@ function buildRoleBadge(role: UserRole): KnownBlock[] {
 }
 
 function buildClaimOwnershipSection(ownerDisabled: boolean): KnownBlock[] {
-  const message = ownerDisabled
-    ? ":warning: The current owner is inactive. As an admin, you can claim ownership."
-    : ":wave: *Welcome!* This bot has no owner yet. Claim ownership to manage it.";
+  const message = ownerDisabled ? t("home.ownership.disabled_owner") : t("home.ownership.no_owner");
 
   return [
     {
@@ -248,7 +246,7 @@ function buildClaimOwnershipSection(ownerDisabled: boolean): KnownBlock[] {
         type: "button",
         text: {
           type: "plain_text",
-          text: "Claim Ownership",
+          text: t("home.ownership.claim_button"),
           emoji: true,
         },
         style: "primary",
@@ -260,7 +258,6 @@ function buildClaimOwnershipSection(ownerDisabled: boolean): KnownBlock[] {
 }
 
 export async function buildRoleManagementSection(
-  userId: string,
   role: UserRole,
   deps: HomeTabDeps = defaultHomeTabDeps,
 ): Promise<KnownBlock[]> {
@@ -271,7 +268,7 @@ export async function buildRoleManagementSection(
     type: "header",
     text: {
       type: "plain_text",
-      text: "Role Management",
+      text: t("home.roles.header"),
       emoji: true,
     },
   });
@@ -282,7 +279,7 @@ export async function buildRoleManagementSection(
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `:crown: *Owner:* <@${roles.owner}>`,
+        text: t("home.roles.owner_line", { mention: `<@${roles.owner}>` }),
       },
     };
 
@@ -292,7 +289,7 @@ export async function buildRoleManagementSection(
         type: "button",
         text: {
           type: "plain_text",
-          text: "Transfer",
+          text: t("home.roles.transfer_button"),
           emoji: true,
         },
         action_id: "transfer_ownership",
@@ -304,13 +301,13 @@ export async function buildRoleManagementSection(
 
   // Admins section
   const adminList =
-    roles.admins.length > 0 ? roles.admins.map((id) => `<@${id}>`).join(", ") : "_None_";
+    roles.admins.length > 0 ? roles.admins.map((id) => `<@${id}>`).join(", ") : t("common.none");
 
   blocks.push({
     type: "section",
     text: {
       type: "mrkdwn",
-      text: `:shield: *Admins:* ${adminList}`,
+      text: t("home.roles.admins_line", { list: adminList }),
     },
   });
 
@@ -321,7 +318,7 @@ export async function buildRoleManagementSection(
         type: "button",
         text: {
           type: "plain_text",
-          text: "+ Add Admin",
+          text: t("home.roles.add_admin"),
           emoji: true,
         },
         action_id: "add_admin",
@@ -332,7 +329,7 @@ export async function buildRoleManagementSection(
               type: "button" as const,
               text: {
                 type: "plain_text" as const,
-                text: "- Remove Admin",
+                text: t("home.roles.remove_admin"),
                 emoji: true,
               },
               action_id: "remove_admin",
@@ -343,13 +340,14 @@ export async function buildRoleManagementSection(
   });
 
   // Devs section
-  const devList = roles.devs.length > 0 ? roles.devs.map((id) => `<@${id}>`).join(", ") : "_None_";
+  const devList =
+    roles.devs.length > 0 ? roles.devs.map((id) => `<@${id}>`).join(", ") : t("common.none");
 
   blocks.push({
     type: "section",
     text: {
       type: "mrkdwn",
-      text: `:computer: *Devs:* ${devList}`,
+      text: t("home.roles.devs_line", { list: devList }),
     },
   });
 
@@ -360,7 +358,7 @@ export async function buildRoleManagementSection(
         type: "button",
         text: {
           type: "plain_text",
-          text: "+ Add Dev",
+          text: t("home.roles.add_dev"),
           emoji: true,
         },
         action_id: "add_dev",
@@ -371,7 +369,7 @@ export async function buildRoleManagementSection(
               type: "button" as const,
               text: {
                 type: "plain_text" as const,
-                text: "- Remove Dev",
+                text: t("home.roles.remove_dev"),
                 emoji: true,
               },
               action_id: "remove_dev",
@@ -403,7 +401,7 @@ export function buildConfigurationSection(
     type: "header",
     text: {
       type: "plain_text",
-      text: "Configuration",
+      text: t("home.config.header"),
       emoji: true,
     },
   });
@@ -414,9 +412,13 @@ export function buildConfigurationSection(
     const listing = deps.listInstructionFiles();
 
     for (const roleEntry of listing.roles) {
-      const roleLabel = `${roleEntry.role.charAt(0).toUpperCase() + roleEntry.role.slice(1)} Config`;
+      const roleName = roleEntry.role.charAt(0).toUpperCase() + roleEntry.role.slice(1);
+      const roleLabel = `${roleName} ${t("home.config.role_suffix")}`;
       const emoji = roleEmojis[roleEntry.role] ?? "";
-      const label = emoji ? `${emoji} Edit ${roleLabel}` : `Edit ${roleLabel}`;
+      const label = t("home.config.edit_role_button", {
+        prefix: emoji ? `${emoji} ` : "",
+        label: roleLabel,
+      });
       buttons.push({
         type: "button",
         text: { type: "plain_text", text: label, emoji: true },
@@ -427,9 +429,9 @@ export function buildConfigurationSection(
 
     // Pre-analysis context — distinct top-level field, rendered as its own button
     const preAnalysisEmoji = roleEmojis["pre-analysis"] ?? "";
-    const preAnalysisLabel = preAnalysisEmoji
-      ? `${preAnalysisEmoji} Edit Pre-Analysis Context`
-      : "Edit Pre-Analysis Context";
+    const preAnalysisLabel = t("home.config.edit_pre_analysis_button", {
+      prefix: preAnalysisEmoji ? `${preAnalysisEmoji} ` : "",
+    });
     buttons.push({
       type: "button",
       text: { type: "plain_text", text: preAnalysisLabel, emoji: true },
@@ -443,7 +445,7 @@ export function buildConfigurationSection(
         type: "button",
         text: {
           type: "plain_text",
-          text: `:file_folder: Edit ${repoEntry.repo} Config`,
+          text: t("home.config.edit_repo_button", { repo: repoEntry.repo }),
           emoji: true,
         },
         action_id: `view_config_dir:${repoEntry.repo}`,
@@ -457,7 +459,7 @@ export function buildConfigurationSection(
     type: "button",
     text: {
       type: "plain_text",
-      text: ":gear: Personal Preferences",
+      text: t("home.config.personal_preferences_button"),
       emoji: true,
     },
     action_id: "open_settings",
@@ -471,7 +473,7 @@ export function buildConfigurationSection(
       elements: [
         {
           type: "mrkdwn",
-          text: "_Chat with me to edit core config files (config.json, mcp.json, .env, tool mappings) or restart the app._",
+          text: t("home.config.chat_hint"),
         },
       ],
     });
@@ -483,7 +485,7 @@ export function buildConfigurationSection(
 }
 
 function formatAccessTag(role: UserRole): string {
-  return role === "member" ? "all" : `${role}+`;
+  return role === "member" ? t("home.status.access_all") : t("home.status.access_plus", { role });
 }
 
 export function buildStatusSection(
@@ -499,7 +501,7 @@ export function buildStatusSection(
       type: "header",
       text: {
         type: "plain_text",
-        text: "Status",
+        text: t("home.status.header"),
         emoji: true,
       },
     },
@@ -514,9 +516,9 @@ export function buildStatusSection(
         const readTag = formatAccessTag(r.access?.read ?? "member");
         if (deps.canWriteRepo(role, r)) {
           const writeTag = formatAccessTag(r.access!.write!);
-          line += `\n   _read: ${readTag} · write: ${writeTag}_`;
+          line += `\n   ${t("home.status.repo_access_writable", { read: readTag, write: writeTag })}`;
         } else {
-          line += `\n   _read: ${readTag} · read-only_`;
+          line += `\n   ${t("home.status.repo_access_readonly", { read: readTag })}`;
         }
       }
       return line;
@@ -527,7 +529,7 @@ export function buildStatusSection(
     type: "section",
     text: {
       type: "mrkdwn",
-      text: `:file_folder: *Repositories:*\n${repoList}`,
+      text: t("home.status.repositories_block", { list: repoList }),
     },
   });
 
@@ -555,15 +557,14 @@ export function buildStatusSection(
       }
     }
 
-    const lines: string[] = [":electric_plug: *MCP Servers:*"];
-    lines.push(`• *Always loaded:* ${always.length > 0 ? always.join(", ") : "_(none)_"}`);
-    lines.push(`• *On demand:* ${onDemand.length > 0 ? onDemand.join(", ") : "_(none)_"}`);
-
     blocks.push({
       type: "section",
       text: {
         type: "mrkdwn",
-        text: lines.join("\n"),
+        text: t("home.status.mcp_servers_block", {
+          always: always.length > 0 ? always.join(", ") : t("common.none_paren"),
+          onDemand: onDemand.length > 0 ? onDemand.join(", ") : t("common.none_paren"),
+        }),
       },
     });
   }
@@ -575,7 +576,11 @@ export function buildStatusSection(
   const skillPlugins = deps.discoverSkillPluginInfo();
   if (skillPlugins.length > 0) {
     const format = (p: SkillPluginInfo) =>
-      `• *${p.name}*${p.skillCount > 0 ? ` (${p.skillCount} skills)` : ""}`;
+      t("home.status.skill_plugin_entry", {
+        name: p.name,
+        suffix:
+          p.skillCount > 0 ? t("home.status.skill_count_suffix", { count: p.skillCount }) : "",
+      });
     const eager = skillPlugins
       .filter((p) => !p.lazyLoad)
       .map(format)
@@ -585,13 +590,13 @@ export function buildStatusSection(
       .map(format)
       .join("\n");
     const sections: string[] = [];
-    if (eager) sections.push(`_Eager (always loaded):_\n${eager}`);
-    if (lazy) sections.push(`_Lazy (on-demand via load_skill):_\n${lazy}`);
+    if (eager) sections.push(t("home.status.skill_eager_section", { list: eager }));
+    if (lazy) sections.push(t("home.status.skill_lazy_section", { list: lazy }));
     blocks.push({
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `:jigsaw: *Skill Plugins:*\n${sections.join("\n\n")}`,
+        text: t("home.status.skill_plugins_block", { sections: sections.join("\n\n") }),
       },
     });
   }
@@ -599,30 +604,34 @@ export function buildStatusSection(
   // Clack Plugins (loaded via plugins config)
   const clackPlugins = deps.getLoadedClackPlugins();
   if (clackPlugins.length > 0) {
-    const pluginList = clackPlugins.map((p) => `• *${p.name}* (${p.toolCount} tools)`).join("\n");
+    const pluginList = clackPlugins
+      .map((p) => t("home.status.clack_plugin_entry", { name: p.name, count: p.toolCount }))
+      .join("\n");
     blocks.push({
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `:package: *Plugins:*\n${pluginList}`,
+        text: t("home.status.clack_plugins_block", { list: pluginList }),
       },
     });
   }
 
   // Trigger methods
-  const methods: string[] = [`:${config.reactions.trigger}: Reaction`];
+  const methods: string[] = [
+    t("home.status.trigger_reaction", { emoji: config.reactions.trigger }),
+  ];
   if (config.directMessages.enabled) {
-    methods.push(":speech_balloon: Direct Messages");
+    methods.push(t("home.status.trigger_dm"));
   }
   if (config.mentions.enabled) {
-    methods.push(":mega: @Mentions");
+    methods.push(t("home.status.trigger_mention"));
   }
 
   blocks.push({
     type: "section",
     text: {
       type: "mrkdwn",
-      text: `:zap: *Trigger Methods:* ${methods.join(", ")}`,
+      text: t("home.status.trigger_methods", { methods: methods.join(", ") }),
     },
   });
 
@@ -674,7 +683,7 @@ export function buildWorkersSection(deps: HomeTabDeps = defaultHomeTabDeps): Kno
 
   blocks.push({
     type: "header",
-    text: { type: "plain_text", text: "Workers", emoji: true },
+    text: { type: "plain_text", text: t("home.workers.header"), emoji: true },
   });
 
   if (!snapshot.reusable) {
@@ -683,7 +692,7 @@ export function buildWorkersSection(deps: HomeTabDeps = defaultHomeTabDeps): Kno
     if (activeChanges.length === 0) {
       blocks.push({
         type: "section",
-        text: { type: "mrkdwn", text: "_No active change requests._" },
+        text: { type: "mrkdwn", text: t("home.workers.no_active_changes") },
       });
       blocks.push({ type: "divider" });
       return blocks;
@@ -692,12 +701,14 @@ export function buildWorkersSection(deps: HomeTabDeps = defaultHomeTabDeps): Kno
       const statusLabel = w.status.charAt(0).toUpperCase() + w.status.slice(1);
       const threadLink = `https://slack.com/archives/${w.channel}/p${w.threadTs.replace(".", "")}`;
       let text = `${emojiFor(w.status)} *${w.description}*\n`;
-      text += `• Status: ${statusLabel}\n`;
-      text += `• Branch: \`${w.branch}\`\n`;
-      text += `• Repo: ${w.repo}\n`;
-      text += `• By: ${w.userId === "auto-respond" ? "Auto-Respond" : `<@${w.userId}>`}\n`;
-      text += `• Thread: <${threadLink}|View thread>`;
-      if (w.prUrl) text += `\n• PR: <${w.prUrl}|View PR>`;
+      text += `${t("home.workers.status_line", { label: statusLabel })}\n`;
+      text += `${t("home.workers.branch_line", { branch: w.branch })}\n`;
+      text += `${t("home.workers.repo_line", { repo: w.repo })}\n`;
+      const byLabel =
+        w.userId === "auto-respond" ? t("home.workers.auto_respond_label") : `<@${w.userId}>`;
+      text += `${t("home.workers.by_line", { by: byLabel })}\n`;
+      text += t("home.workers.thread_line", { url: threadLink });
+      if (w.prUrl) text += t("home.workers.pr_line", { url: w.prUrl });
       blocks.push({ type: "section", text: { type: "mrkdwn", text } });
     }
     blocks.push({ type: "divider" });
@@ -710,7 +721,7 @@ export function buildWorkersSection(deps: HomeTabDeps = defaultHomeTabDeps): Kno
       type: "section",
       text: {
         type: "mrkdwn",
-        text: "_No workers provisioned yet — first change request will create one._",
+        text: t("home.workers.no_workers_yet"),
       },
     });
     blocks.push({ type: "divider" });
@@ -718,14 +729,14 @@ export function buildWorkersSection(deps: HomeTabDeps = defaultHomeTabDeps): Kno
   }
 
   for (const repo of snapshot.byRepo) {
-    const counts = [
-      `:large_green_circle: ${repo.idle} idle`,
-      `:hammer_and_wrench: ${repo.busy} busy`,
-      `:hourglass_flowing_sand: ${repo.initializing} initializing`,
-      `:warning: ${repo.quarantined} quarantined`,
-      `:x: ${repo.failed} failed`,
-      `:bookmark_tabs: ${repo.queueDepth} queued`,
-    ].join(" · ");
+    const counts = t("home.workers.counts", {
+      idle: repo.idle,
+      busy: repo.busy,
+      init: repo.initializing,
+      quar: repo.quarantined,
+      failed: repo.failed,
+      queued: repo.queueDepth,
+    });
     blocks.push({
       type: "section",
       text: { type: "mrkdwn", text: `*${repo.repo}*\n${counts}` },
@@ -737,17 +748,25 @@ export function buildWorkersSection(deps: HomeTabDeps = defaultHomeTabDeps): Kno
         elements: [
           {
             type: "mrkdwn",
-            text: "_No workers yet for this repo — will provision on first acquire._",
+            text: t("home.workers.no_workers_for_repo"),
           },
         ],
       });
     }
 
     for (const w of repo.workers) {
-      const branchLabel = w.currentBranch ?? "(detached)";
-      const claimedLine = w.claimedBy ? ` · session \`${w.claimedBy}\`` : "";
-      const setupLine = w.setupComplete ? "" : " · setup not complete";
-      const text = `${emojiFor(w.status)} \`${w.id}\` · ${w.status} · branch \`${branchLabel}\`${claimedLine}${setupLine} · last used ${slackDate(w.lastUsedAt)}`;
+      const branchLabel = w.currentBranch ?? t("home.workers.detached");
+      const claimedLine = w.claimedBy ? t("home.workers.session_suffix", { id: w.claimedBy }) : "";
+      const setupLine = w.setupComplete ? "" : t("home.workers.setup_incomplete_suffix");
+      const text = t("home.workers.worker_line", {
+        emoji: emojiFor(w.status),
+        id: w.id,
+        status: w.status,
+        branch: branchLabel,
+        claimed: claimedLine,
+        setup: setupLine,
+        when: slackDate(w.lastUsedAt),
+      });
 
       if (w.status === "quarantined") {
         blocks.push({
@@ -756,17 +775,17 @@ export function buildWorkersSection(deps: HomeTabDeps = defaultHomeTabDeps): Kno
           accessory: {
             type: "button",
             style: "danger",
-            text: { type: "plain_text", text: "Discard & restore", emoji: true },
+            text: { type: "plain_text", text: t("home.workers.discard_restore"), emoji: true },
             action_id: "clack_clear_quarantine",
             value: `${repo.repo}/${w.id}`,
             confirm: {
-              title: { type: "plain_text", text: "Discard local changes?" },
+              title: { type: "plain_text", text: t("home.workers.discard_title") },
               text: {
                 type: "mrkdwn",
-                text: `This runs \`git reset --hard HEAD\` and \`git clean -fd\` on \`${w.id}\`. Uncommitted changes will be lost.`,
+                text: t("home.workers.discard_text", { id: w.id }),
               },
-              confirm: { type: "plain_text", text: "Discard" },
-              deny: { type: "plain_text", text: "Cancel" },
+              confirm: { type: "plain_text", text: t("home.workers.discard_confirm") },
+              deny: { type: "plain_text", text: t("common.cancel") },
             },
           },
         });
@@ -779,12 +798,17 @@ export function buildWorkersSection(deps: HomeTabDeps = defaultHomeTabDeps): Kno
     }
 
     for (const q of repo.queued) {
+      const when = `<!date^${Math.floor(q.enqueuedAt.getTime() / 1000)}^{time}|${q.enqueuedAt.toISOString()}>`;
       blocks.push({
         type: "context",
         elements: [
           {
             type: "mrkdwn",
-            text: `:bookmark_tabs: queued: branch \`${q.branch}\` · session \`${q.sessionId}\` · since <!date^${Math.floor(q.enqueuedAt.getTime() / 1000)}^{time}|${q.enqueuedAt.toISOString()}>`,
+            text: t("home.workers.queued_entry", {
+              branch: q.branch,
+              session: q.sessionId,
+              when,
+            }),
           },
         ],
       });
@@ -800,22 +824,18 @@ export function buildHelpSection(deps: HomeTabDeps = defaultHomeTabDeps): KnownB
 
   const triggerInstructions: string[] = [];
 
-  triggerInstructions.push(
-    `• *Reaction:* React to any message with :${config.reactions.trigger}: to ask about it`,
-  );
+  triggerInstructions.push(t("home.help.reaction", { emoji: config.reactions.trigger }));
 
   if (config.directMessages.enabled) {
-    triggerInstructions.push("• *Direct Message:* Send me a DM with your question");
+    triggerInstructions.push(t("home.help.dm"));
   }
 
   if (config.mentions.enabled) {
-    triggerInstructions.push("• *Mention:* @mention me in any channel with your question");
+    triggerInstructions.push(t("home.help.mention"));
   }
 
   if (config.reactions.stop) {
-    triggerInstructions.push(
-      `• *Stop:* React with :${config.reactions.stop}: (or type it inline in a short message) to cancel current work and silence me in a thread`,
-    );
+    triggerInstructions.push(t("home.help.stop", { emoji: config.reactions.stop }));
   }
 
   return [
@@ -823,7 +843,7 @@ export function buildHelpSection(deps: HomeTabDeps = defaultHomeTabDeps): KnownB
       type: "header",
       text: {
         type: "plain_text",
-        text: "Help",
+        text: t("home.help.header"),
         emoji: true,
       },
     },
@@ -831,7 +851,7 @@ export function buildHelpSection(deps: HomeTabDeps = defaultHomeTabDeps): KnownB
       type: "section",
       text: {
         type: "mrkdwn",
-        text: "*How to use this bot:*",
+        text: t("home.help.how_to_use"),
       },
     },
     {
@@ -846,7 +866,7 @@ export function buildHelpSection(deps: HomeTabDeps = defaultHomeTabDeps): KnownB
       elements: [
         {
           type: "mrkdwn",
-          text: "_I analyze your codebase and answer questions in plain language._",
+          text: t("home.help.context"),
         },
       ],
     },
@@ -863,35 +883,35 @@ export async function buildSettingsModal(
   const notifyOnResponse = await deps.getUserPreference(userId, "notifyOnResponse");
 
   const dmOption = {
-    text: { type: "plain_text" as const, text: "Direct Message" },
+    text: { type: "plain_text" as const, text: t("home.settings.delivery_dm_label") },
     description: {
       type: "plain_text" as const,
-      text: "Get a private DM thread to refine before sharing.",
+      text: t("home.settings.delivery_dm_description"),
     },
     value: "dm",
   };
   const threadOption = {
-    text: { type: "plain_text" as const, text: "Thread" },
+    text: { type: "plain_text" as const, text: t("home.settings.delivery_thread_label") },
     description: {
       type: "plain_text" as const,
-      text: "Answer posted directly in the channel thread.",
+      text: t("home.settings.delivery_thread_description"),
     },
     value: "thread",
   };
 
   const notifyOnOption = {
-    text: { type: "plain_text" as const, text: "On" },
+    text: { type: "plain_text" as const, text: t("home.settings.notify_on_label") },
     description: {
       type: "plain_text" as const,
-      text: "If the response takes longer than 60 seconds, post a follow-up so you get a Slack notification.",
+      text: t("home.settings.notify_on_description"),
     },
     value: "true",
   };
   const notifyOffOption = {
-    text: { type: "plain_text" as const, text: "Off" },
+    text: { type: "plain_text" as const, text: t("home.settings.notify_off_label") },
     description: {
       type: "plain_text" as const,
-      text: "No extra message — just the streamed answer.",
+      text: t("home.settings.notify_off_description"),
     },
     value: "false",
   };
@@ -901,22 +921,22 @@ export async function buildSettingsModal(
     callback_id: "settings_modal",
     title: {
       type: "plain_text",
-      text: "Settings",
+      text: t("home.settings.title"),
     },
     submit: {
       type: "plain_text",
-      text: "Save",
+      text: t("common.save"),
     },
     close: {
       type: "plain_text",
-      text: "Cancel",
+      text: t("common.cancel"),
     },
     blocks: [
       {
         type: "section",
         text: {
           type: "mrkdwn",
-          text: "*Reaction delivery*\nHow would you like to receive answers when you react with the trigger emoji?",
+          text: t("home.settings.delivery_label"),
         },
       },
       {
@@ -936,7 +956,7 @@ export async function buildSettingsModal(
         type: "section",
         text: {
           type: "mrkdwn",
-          text: "*Response notification*\nIf the response takes longer than 60 seconds, post a follow-up message so you get a Slack notification?",
+          text: t("home.settings.notify_label"),
         },
       },
       {
@@ -967,11 +987,11 @@ export function buildUserSelectModal(title: string, actionId: string, placeholde
     },
     submit: {
       type: "plain_text",
-      text: "Submit",
+      text: t("common.submit"),
     },
     close: {
       type: "plain_text",
-      text: "Cancel",
+      text: t("common.cancel"),
     },
     blocks: [
       {
@@ -987,7 +1007,7 @@ export function buildUserSelectModal(title: string, actionId: string, placeholde
         },
         label: {
           type: "plain_text",
-          text: "Select User",
+          text: t("home.user_select.label"),
         },
       },
     ],
@@ -1022,13 +1042,13 @@ export function buildConfigFilePickerModal(
         type: "section",
         text: {
           type: "mrkdwn",
-          text: `\`${file.filename}\`${label}\n_Too large for modal editor_`,
+          text: `\`${file.filename}\`${label}\n${t("home.config.too_large")}`,
         },
         accessory: {
           type: "button",
           text: {
             type: "plain_text",
-            text: "Chat to Edit",
+            text: t("home.config.chat_to_edit"),
           },
           action_id: "chat_edit_config_file",
           value: `${dir}/${file.filename}`,
@@ -1045,7 +1065,7 @@ export function buildConfigFilePickerModal(
           type: "button",
           text: {
             type: "plain_text",
-            text: "Edit",
+            text: t("common.edit"),
           },
           action_id: "edit_config_file",
           value: `${dir}/${file.filename}`,
@@ -1062,7 +1082,7 @@ export function buildConfigFilePickerModal(
           type: "button",
           text: {
             type: "plain_text",
-            text: "+ Create New File",
+            text: t("home.config.create_new_file"),
           },
           action_id: "create_config_file",
           value: dir,
@@ -1071,7 +1091,7 @@ export function buildConfigFilePickerModal(
     });
   }
 
-  const titleText = `${dir}/ Instructions`;
+  const titleText = t("home.config.instructions_title", { dir });
   const truncatedTitle = truncate(titleText, 24);
 
   return {
@@ -1082,7 +1102,7 @@ export function buildConfigFilePickerModal(
     },
     close: {
       type: "plain_text",
-      text: "Close",
+      text: t("common.close"),
     },
     blocks,
   };
@@ -1113,7 +1133,7 @@ export function buildConfigEditorModal(
   if (fileState === "default-only") {
     blocks.push({
       type: "context",
-      elements: [{ type: "mrkdwn", text: "_Default — no custom override_" }],
+      elements: [{ type: "mrkdwn", text: t("home.config.default_only") }],
     });
   }
 
@@ -1129,7 +1149,7 @@ export function buildConfigEditorModal(
     },
     label: {
       type: "plain_text",
-      text: "Content",
+      text: t("home.config.content_label"),
     },
   });
 
@@ -1137,7 +1157,7 @@ export function buildConfigEditorModal(
   const actionElements: object[] = [
     {
       type: "button",
-      text: { type: "plain_text", text: "Chat to Edit" },
+      text: { type: "plain_text", text: t("home.config.chat_to_edit") },
       action_id: "chat_edit_config_file",
       value: `${dir}/${filename}`,
     },
@@ -1146,7 +1166,7 @@ export function buildConfigEditorModal(
   if (fileState === "has-override") {
     actionElements.push({
       type: "button",
-      text: { type: "plain_text", text: "Reset to Default" },
+      text: { type: "plain_text", text: t("home.config.reset_to_default") },
       style: "danger",
       action_id: "delete_config_file",
       value: `${dir}/${filename}`,
@@ -1154,7 +1174,7 @@ export function buildConfigEditorModal(
   } else if (fileState === "custom-only") {
     actionElements.push({
       type: "button",
-      text: { type: "plain_text", text: "Delete File" },
+      text: { type: "plain_text", text: t("home.config.delete_file") },
       style: "danger",
       action_id: "delete_config_file",
       value: `${dir}/${filename}`,
@@ -1163,7 +1183,8 @@ export function buildConfigEditorModal(
 
   blocks.push({ type: "actions", elements: actionElements } as KnownBlock);
 
-  const submitLabel = fileState === "default-only" ? "Create Override" : "Save";
+  const submitLabel =
+    fileState === "default-only" ? t("home.config.create_override") : t("common.save");
 
   const metadata: EditorMetadata = {
     dir,
@@ -1189,7 +1210,7 @@ export function buildConfigEditorModal(
     },
     close: {
       type: "plain_text",
-      text: "Back",
+      text: t("common.back"),
     },
     private_metadata: JSON.stringify(metadata),
     blocks,
@@ -1206,15 +1227,15 @@ export function buildConfigCreateFileModal(dir: string): View {
     callback_id: "config_create_modal",
     title: {
       type: "plain_text",
-      text: "Create New File",
+      text: t("home.config.create_new_file_title"),
     },
     submit: {
       type: "plain_text",
-      text: "Create",
+      text: t("common.create"),
     },
     close: {
       type: "plain_text",
-      text: "Back",
+      text: t("common.back"),
     },
     private_metadata: JSON.stringify({ dir }),
     blocks: [
@@ -1226,16 +1247,16 @@ export function buildConfigCreateFileModal(dir: string): View {
           action_id: "filename",
           placeholder: {
             type: "plain_text",
-            text: "my-instructions",
+            text: t("home.config.filename_placeholder"),
           },
         },
         label: {
           type: "plain_text",
-          text: "Filename",
+          text: t("home.config.filename_label"),
         },
         hint: {
           type: "plain_text",
-          text: ".md extension is added automatically",
+          text: t("home.config.filename_hint"),
         },
       },
       {
@@ -1247,12 +1268,12 @@ export function buildConfigCreateFileModal(dir: string): View {
           multiline: true,
           placeholder: {
             type: "plain_text",
-            text: "Enter instruction content...",
+            text: t("home.config.content_placeholder"),
           },
         },
         label: {
           type: "plain_text",
-          text: "Content",
+          text: t("home.config.content_label"),
         },
       },
     ],
@@ -1281,18 +1302,18 @@ export function buildRemoveUserModal(title: string, actionId: string, users: str
     },
     submit: {
       type: "plain_text",
-      text: "Remove",
+      text: t("common.remove"),
     },
     close: {
       type: "plain_text",
-      text: "Cancel",
+      text: t("common.cancel"),
     },
     blocks: [
       {
         type: "section",
         text: {
           type: "mrkdwn",
-          text: `Select a user to remove:`,
+          text: t("home.user_remove.prompt"),
         },
       },
       {
@@ -1303,13 +1324,13 @@ export function buildRemoveUserModal(title: string, actionId: string, users: str
           action_id: "selected_user",
           placeholder: {
             type: "plain_text",
-            text: "Select user to remove",
+            text: t("home.user_remove.placeholder"),
           },
           options,
         },
         label: {
           type: "plain_text",
-          text: "User",
+          text: t("home.user_remove.label"),
         },
       },
     ],
@@ -1329,13 +1350,13 @@ async function buildAutoRespondSection(
   blocks.push({ type: "divider" });
   blocks.push({
     type: "header",
-    text: { type: "plain_text", text: "Auto-Respond" },
+    text: { type: "plain_text", text: t("home.auto_respond.header") },
   });
 
   if (rules.length === 0) {
     blocks.push({
       type: "section",
-      text: { type: "mrkdwn", text: "_No auto-respond rules configured._" },
+      text: { type: "mrkdwn", text: t("home.auto_respond.empty") },
     });
   } else {
     for (const rule of rules) {
@@ -1344,10 +1365,12 @@ async function buildAutoRespondSection(
         ? ` · ${rule.userFilters.map((u) => `<@${u}>`).join(", ")}`
         : "";
       const keywords = rule.keywords?.length
-        ? ` · Keywords: ${rule.keywords.map((k) => `\`${k}\``).join(", ")}`
+        ? t("home.auto_respond.keywords_suffix", {
+            list: rule.keywords.map((k) => `\`${k}\``).join(", "),
+          })
         : "";
-      const preAnalysis = rule.preAnalysisContext ? " · Pre-analysis" : "";
-      const status = rule.enabled ? "" : " _(paused)_";
+      const preAnalysis = rule.preAnalysisContext ? t("home.auto_respond.pre_analysis_suffix") : "";
+      const status = rule.enabled ? "" : t("home.auto_respond.paused_suffix");
 
       blocks.push({
         type: "section",
@@ -1357,7 +1380,7 @@ async function buildAutoRespondSection(
         },
         accessory: {
           type: "button",
-          text: { type: "plain_text", text: "Edit" },
+          text: { type: "plain_text", text: t("common.edit") },
           action_id: `ai_edit_rule:${rule.id}`,
         },
       });
@@ -1369,7 +1392,7 @@ async function buildAutoRespondSection(
     elements: [
       {
         type: "button",
-        text: { type: "plain_text", text: "+ Add Rule" },
+        text: { type: "plain_text", text: t("home.auto_respond.add_rule") },
         action_id: "ai_add_rule",
         style: "primary",
       },
@@ -1385,7 +1408,7 @@ export function buildAutoRespondModal(rule?: AutoRespondRule): View {
     {
       type: "input",
       block_id: "channels_block",
-      label: { type: "plain_text", text: "Channels" },
+      label: { type: "plain_text", text: t("home.auto_respond.channels_label") },
       element: {
         type: "multi_conversations_select",
         action_id: "channels",
@@ -1394,13 +1417,13 @@ export function buildAutoRespondModal(rule?: AutoRespondRule): View {
           include: ["public", "private"],
           exclude_bot_users: true,
         },
-        placeholder: { type: "plain_text", text: "Select channels to watch" },
+        placeholder: { type: "plain_text", text: t("home.auto_respond.channels_placeholder") },
       },
     },
     {
       type: "input",
       block_id: "users_block",
-      label: { type: "plain_text", text: "Filter by users/bots (optional)" },
+      label: { type: "plain_text", text: t("home.auto_respond.users_label") },
       optional: true,
       element: {
         type: "multi_users_select",
@@ -1408,14 +1431,14 @@ export function buildAutoRespondModal(rule?: AutoRespondRule): View {
         ...(rule?.userFilters && { initial_users: rule.userFilters }),
         placeholder: {
           type: "plain_text",
-          text: "Leave empty to match all messages",
+          text: t("home.auto_respond.users_placeholder"),
         },
       },
     },
     {
       type: "input",
       block_id: "keywords_block",
-      label: { type: "plain_text", text: "Keywords (optional)" },
+      label: { type: "plain_text", text: t("home.auto_respond.keywords_label") },
       optional: true,
       element: {
         type: "plain_text_input",
@@ -1423,14 +1446,14 @@ export function buildAutoRespondModal(rule?: AutoRespondRule): View {
         ...(rule?.keywords && { initial_value: rule.keywords.join(", ") }),
         placeholder: {
           type: "plain_text",
-          text: "e.g., CRITICAL, timeout, OOM — comma-separated",
+          text: t("home.auto_respond.keywords_placeholder"),
         },
       },
     },
     {
       type: "input",
       block_id: "extra_context_block",
-      label: { type: "plain_text", text: "Extra context (optional)" },
+      label: { type: "plain_text", text: t("home.auto_respond.extra_context_label") },
       optional: true,
       element: {
         type: "plain_text_input",
@@ -1439,14 +1462,14 @@ export function buildAutoRespondModal(rule?: AutoRespondRule): View {
         ...(rule?.extraContext && { initial_value: rule.extraContext }),
         placeholder: {
           type: "plain_text",
-          text: "e.g., This is a Sentry error alert. Focus on the stack trace and find the relevant code path.",
+          text: t("home.auto_respond.extra_context_placeholder"),
         },
       },
     },
     {
       type: "input",
       block_id: "pre_analysis_block",
-      label: { type: "plain_text", text: "Pre-analysis context (optional)" },
+      label: { type: "plain_text", text: t("home.auto_respond.pre_analysis_label") },
       optional: true,
       element: {
         type: "plain_text_input",
@@ -1457,12 +1480,12 @@ export function buildAutoRespondModal(rule?: AutoRespondRule): View {
         }),
         placeholder: {
           type: "plain_text",
-          text: "e.g., Only respond if this is an actionable error — leave empty to skip pre-analysis",
+          text: t("home.auto_respond.pre_analysis_placeholder"),
         },
       },
       hint: {
         type: "plain_text",
-        text: "When set, a fast AI check determines if the message is worth responding to before launching a full response.",
+        text: t("home.auto_respond.pre_analysis_hint"),
       },
     },
     {
@@ -1470,7 +1493,7 @@ export function buildAutoRespondModal(rule?: AutoRespondRule): View {
       elements: [
         {
           type: "mrkdwn",
-          text: "The bot must be a member of selected channels to receive messages.",
+          text: t("home.auto_respond.context_hint"),
         },
       ],
     },
@@ -1487,23 +1510,25 @@ export function buildAutoRespondModal(rule?: AutoRespondRule): View {
           type: "button",
           text: {
             type: "plain_text",
-            text: rule.enabled ? "Disable Rule" : "Enable Rule",
+            text: rule.enabled
+              ? t("home.auto_respond.disable_rule")
+              : t("home.auto_respond.enable_rule"),
           },
           action_id: `ai_toggle_rule:${rule.id}`,
         },
         {
           type: "button",
-          text: { type: "plain_text", text: "Delete Rule" },
+          text: { type: "plain_text", text: t("home.auto_respond.delete_rule") },
           action_id: `ai_delete_rule:${rule.id}`,
           style: "danger",
           confirm: {
-            title: { type: "plain_text", text: "Delete rule?" },
+            title: { type: "plain_text", text: t("home.auto_respond.delete_confirm_title") },
             text: {
               type: "plain_text",
-              text: "This will permanently remove this auto-respond rule.",
+              text: t("home.auto_respond.delete_confirm_text"),
             },
-            confirm: { type: "plain_text", text: "Delete" },
-            deny: { type: "plain_text", text: "Cancel" },
+            confirm: { type: "plain_text", text: t("common.delete") },
+            deny: { type: "plain_text", text: t("common.cancel") },
             style: "danger",
           },
         },
@@ -1515,9 +1540,14 @@ export function buildAutoRespondModal(rule?: AutoRespondRule): View {
     type: "modal",
     callback_id: isEdit ? "ai_edit_rule_modal" : "ai_add_rule_modal",
     private_metadata: isEdit ? rule.id : "",
-    title: { type: "plain_text", text: isEdit ? "Edit Rule" : "Add Rule" },
-    submit: { type: "plain_text", text: "Save" },
-    close: { type: "plain_text", text: "Cancel" },
+    title: {
+      type: "plain_text",
+      text: isEdit
+        ? t("home.auto_respond.modal_title_edit")
+        : t("home.auto_respond.modal_title_add"),
+    },
+    submit: { type: "plain_text", text: t("common.save") },
+    close: { type: "plain_text", text: t("common.cancel") },
     blocks,
   };
 }
@@ -1543,19 +1573,19 @@ async function buildScheduledMessagesSection(
     blocks.push({ type: "divider" });
     blocks.push({
       type: "header",
-      text: { type: "plain_text", text: "Scheduled Messages", emoji: true },
+      text: { type: "plain_text", text: t("home.scheduled.header"), emoji: true },
     });
 
     for (const job of userJobs) {
       const schedule = deps.humanReadableSchedule(job.cronExpression, job.timezone);
       const statusLabel = !job.enabled
-        ? " _(paused)_"
+        ? t("home.scheduled.paused_suffix")
         : job.lastRunStatus === "error"
           ? " :warning:"
           : job.lastRunStatus === "skipped"
-            ? " _(last run skipped)_"
+            ? t("home.scheduled.skipped_suffix")
             : "";
-      const typeLabel = job.oneShot ? " · _one-time_" : "";
+      const typeLabel = job.oneShot ? t("home.scheduled.one_time_suffix") : "";
       // userJobs filters out pluginManaged rows, so createdBy is always a real userId here.
       const creator =
         isAdmin && job.createdBy !== null && job.createdBy !== userId
@@ -1570,7 +1600,7 @@ async function buildScheduledMessagesSection(
         },
         accessory: {
           type: "button",
-          text: { type: "plain_text", text: "Edit" },
+          text: { type: "plain_text", text: t("common.edit") },
           action_id: `cron_edit_job:${job.id}`,
         },
       });
@@ -1581,14 +1611,14 @@ async function buildScheduledMessagesSection(
     blocks.push({ type: "divider" });
     blocks.push({
       type: "header",
-      text: { type: "plain_text", text: "Plugin Scheduled Messages", emoji: true },
+      text: { type: "plain_text", text: t("home.scheduled.plugin_header"), emoji: true },
     });
     blocks.push({
       type: "context",
       elements: [
         {
           type: "mrkdwn",
-          text: "Read-only — these are reconciled from plugin config. Edit `data/config.json` to change schedule/prompt; pause/resume from here.",
+          text: t("home.scheduled.plugin_hint"),
         },
       ],
     });
@@ -1596,13 +1626,15 @@ async function buildScheduledMessagesSection(
     for (const job of pluginJobs) {
       const schedule = deps.humanReadableSchedule(job.cronExpression, job.timezone);
       const statusLabel = !job.enabled
-        ? " _(paused)_"
+        ? t("home.scheduled.paused_suffix")
         : job.lastRunStatus === "error"
           ? " :warning:"
           : job.lastRunStatus === "skipped"
-            ? " _(last run skipped)_"
+            ? t("home.scheduled.skipped_suffix")
             : "";
-      const ownerLabel = job.plugin ? ` · _plugin: ${job.plugin}_` : "";
+      const ownerLabel = job.plugin
+        ? t("home.scheduled.plugin_suffix", { plugin: job.plugin })
+        : "";
 
       blocks.push({
         type: "section",
@@ -1612,7 +1644,10 @@ async function buildScheduledMessagesSection(
         },
         accessory: {
           type: "button",
-          text: { type: "plain_text", text: job.enabled ? "Pause" : "Resume" },
+          text: {
+            type: "plain_text",
+            text: job.enabled ? t("home.scheduled.pause") : t("home.scheduled.resume"),
+          },
           action_id: `cron_toggle_job:${job.id}`,
         },
       });
@@ -1628,7 +1663,7 @@ export function buildCronJobModal(job?: CronJob): View {
     {
       type: "input",
       block_id: "cron_channel_block",
-      label: { type: "plain_text", text: "Channel" },
+      label: { type: "plain_text", text: t("home.scheduled.channel_label") },
       element: {
         type: "conversations_select",
         action_id: "channel",
@@ -1637,31 +1672,31 @@ export function buildCronJobModal(job?: CronJob): View {
           include: ["public", "private"],
           exclude_bot_users: true,
         },
-        placeholder: { type: "plain_text", text: "Select a channel" },
+        placeholder: { type: "plain_text", text: t("home.scheduled.channel_placeholder") },
       },
     },
     {
       type: "input",
       block_id: "cron_expression_block",
-      label: { type: "plain_text", text: "Cron Expression" },
+      label: { type: "plain_text", text: t("home.scheduled.cron_label") },
       element: {
         type: "plain_text_input",
         action_id: "cron_expression",
         ...(job?.cronExpression && { initial_value: job.cronExpression }),
         placeholder: {
           type: "plain_text",
-          text: "e.g. 0 9 * * * (daily at 9am)",
+          text: t("home.scheduled.cron_placeholder"),
         },
       },
       hint: {
         type: "plain_text",
-        text: "5-field cron: minute hour day-of-month month day-of-week",
+        text: t("home.scheduled.cron_hint"),
       },
     },
     {
       type: "input",
       block_id: "cron_prompt_block",
-      label: { type: "plain_text", text: "Prompt (dynamic content)" },
+      label: { type: "plain_text", text: t("home.scheduled.prompt_label") },
       optional: true,
       element: {
         type: "plain_text_input",
@@ -1670,14 +1705,14 @@ export function buildCronJobModal(job?: CronJob): View {
         ...(job?.prompt && { initial_value: job.prompt }),
         placeholder: {
           type: "plain_text",
-          text: "What should Claude do? e.g. Summarize merged PRs from today",
+          text: t("home.scheduled.prompt_placeholder"),
         },
       },
     },
     {
       type: "input",
       block_id: "cron_skip_conditions_block",
-      label: { type: "plain_text", text: "Skip conditions (optional)" },
+      label: { type: "plain_text", text: t("home.scheduled.skip_label") },
       optional: true,
       element: {
         type: "plain_text_input",
@@ -1686,12 +1721,12 @@ export function buildCronJobModal(job?: CronJob): View {
         ...(job?.skipConditions && { initial_value: job.skipConditions }),
         placeholder: {
           type: "plain_text",
-          text: "e.g. Skip if no PRs were merged in the last 24 hours",
+          text: t("home.scheduled.skip_placeholder"),
         },
       },
       hint: {
         type: "plain_text",
-        text: "When set, Claude evaluates these before each run and may skip posting. Leave empty to always post.",
+        text: t("home.scheduled.skip_hint"),
       },
     },
     {
@@ -1699,7 +1734,7 @@ export function buildCronJobModal(job?: CronJob): View {
       elements: [
         {
           type: "mrkdwn",
-          text: "Claude will generate content each time this runs. The bot must be a member of the selected channel.",
+          text: t("home.scheduled.context_hint"),
         },
       ],
     },
@@ -1713,39 +1748,39 @@ export function buildCronJobModal(job?: CronJob): View {
       elements: [
         {
           type: "button",
-          text: { type: "plain_text", text: "Send Now" },
+          text: { type: "plain_text", text: t("home.scheduled.send_now") },
           action_id: `cron_run_job:${job.id}`,
           confirm: {
-            title: { type: "plain_text", text: "Send now?" },
+            title: { type: "plain_text", text: t("home.scheduled.send_confirm_title") },
             text: {
               type: "plain_text",
-              text: "This will execute the scheduled message immediately. The regular schedule is not affected.",
+              text: t("home.scheduled.send_confirm_text"),
             },
-            confirm: { type: "plain_text", text: "Send Now" },
-            deny: { type: "plain_text", text: "Cancel" },
+            confirm: { type: "plain_text", text: t("home.scheduled.send_now") },
+            deny: { type: "plain_text", text: t("common.cancel") },
           },
         },
         {
           type: "button",
           text: {
             type: "plain_text",
-            text: job.enabled ? "Disable" : "Enable",
+            text: job.enabled ? t("home.scheduled.disable") : t("home.scheduled.enable"),
           },
           action_id: `cron_toggle_job:${job.id}`,
         },
         {
           type: "button",
-          text: { type: "plain_text", text: "Delete" },
+          text: { type: "plain_text", text: t("common.delete") },
           action_id: `cron_delete_job:${job.id}`,
           style: "danger",
           confirm: {
-            title: { type: "plain_text", text: "Delete scheduled message?" },
+            title: { type: "plain_text", text: t("home.scheduled.delete_confirm_title") },
             text: {
               type: "plain_text",
-              text: "This will permanently remove this scheduled message.",
+              text: t("home.scheduled.delete_confirm_text"),
             },
-            confirm: { type: "plain_text", text: "Delete" },
-            deny: { type: "plain_text", text: "Cancel" },
+            confirm: { type: "plain_text", text: t("common.delete") },
+            deny: { type: "plain_text", text: t("common.cancel") },
             style: "danger",
           },
         },
@@ -1759,10 +1794,10 @@ export function buildCronJobModal(job?: CronJob): View {
     private_metadata: isEdit ? job.id : "",
     title: {
       type: "plain_text",
-      text: isEdit ? "Edit Schedule" : "Add Schedule",
+      text: isEdit ? t("home.scheduled.modal_title_edit") : t("home.scheduled.modal_title_add"),
     },
-    submit: { type: "plain_text", text: "Save" },
-    close: { type: "plain_text", text: "Cancel" },
+    submit: { type: "plain_text", text: t("common.save") },
+    close: { type: "plain_text", text: t("common.cancel") },
     blocks,
   };
 }

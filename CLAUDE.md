@@ -36,6 +36,7 @@ npx tsc              # Type-check without emitting (use to verify changes)
 - Functional style preferred; minimal class usage
 - `async/await` throughout; no raw Promise chains
 - Explicit TypeScript types; avoid `any`
+- **User-facing strings emitted by TypeScript code MUST go through `t()`** from `src/i18n/t.js`. Add the key to `src/i18n/strings/en.ts` (source of truth) and `src/i18n/strings/fr.ts` (parity test enforces). Internal logs, dev-facing console messages, and tool descriptions Claude reads stay English.
 
 ## Architecture
 

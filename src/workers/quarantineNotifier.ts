@@ -3,13 +3,20 @@ import { errorMessage } from "../errors.js";
 import { loadRoles } from "../roles.js";
 import { getSlackClient } from "../slack/app.js";
 import { openDmChannel } from "../slack/channelResolver.js";
+import { unfurlOptions } from "../slack/unfurlOptions.js";
+import { t } from "../i18n/t.js";
 import type { QuarantineEvent } from "./reusablePool.js";
 
-const TRIGGER_LABELS: Record<QuarantineEvent["trigger"], string> = {
-  release: "PR completion",
-  branch_switch: "branch switch",
-  idle_release: "idle-release sweep",
-};
+function triggerLabel(trigger: QuarantineEvent["trigger"]): string {
+  switch (trigger) {
+    case "release":
+      return t("changes.quarantine.trigger_release");
+    case "branch_switch":
+      return t("changes.quarantine.trigger_branch_switch");
+    case "idle_release":
+      return t("changes.quarantine.trigger_idle_release");
+  }
+}
 
 /**
  * Hooks the notifier needs. Both are injected so tests can stub them without
@@ -22,7 +29,11 @@ const TRIGGER_LABELS: Record<QuarantineEvent["trigger"], string> = {
  */
 export interface QuarantineNotifierDeps {
   getOwnerUserId: () => Promise<string | null>;
-  sendOwnerDm: (ownerUserId: string, text: string) => Promise<boolean>;
+  sendOwnerDm: (
+    ownerUserId: string,
+    text: string,
+    options?: { suppressUnfurls?: boolean },
+  ) => Promise<boolean>;
 }
 
 async function defaultGetOwnerUserId(): Promise<string | null> {
@@ -35,7 +46,11 @@ async function defaultGetOwnerUserId(): Promise<string | null> {
   }
 }
 
-async function defaultSendOwnerDm(ownerUserId: string, text: string): Promise<boolean> {
+async function defaultSendOwnerDm(
+  ownerUserId: string,
+  text: string,
+  options: { suppressUnfurls?: boolean } = {},
+): Promise<boolean> {
   const client = getSlackClient();
   if (!client) {
     logger.warn(`quarantine-notify: no Slack client available`);
@@ -44,7 +59,11 @@ async function defaultSendOwnerDm(ownerUserId: string, text: string): Promise<bo
   const dmChannel = await openDmChannel(client, ownerUserId);
   if (!dmChannel) return false; // openDmChannel logs internally
   try {
-    await client.chat.postMessage({ channel: dmChannel, text });
+    await client.chat.postMessage({
+      channel: dmChannel,
+      text,
+      ...unfurlOptions(options.suppressUnfurls),
+    });
     return true;
   } catch (err) {
     logger.warn(
@@ -72,6 +91,7 @@ export const defaultQuarantineNotifierDeps: QuarantineNotifierDeps = {
 export async function notifyOwnerOfQuarantine(
   event: QuarantineEvent,
   deps: QuarantineNotifierDeps = defaultQuarantineNotifierDeps,
+  options: { suppressUnfurls?: boolean } = {},
 ): Promise<void> {
   const owner = await deps.getOwnerUserId();
   if (!owner) {
@@ -81,24 +101,27 @@ export async function notifyOwnerOfQuarantine(
     return;
   }
 
-  const triggerLabel = TRIGGER_LABELS[event.trigger];
   const filesPreview = event.dirtyFiles
     .slice(0, 10)
     .map((f) => `• \`${f}\``)
     .join("\n");
   const moreFiles =
-    event.dirtyFiles.length > 10 ? `\n…and ${event.dirtyFiles.length - 10} more` : "";
+    event.dirtyFiles.length > 10
+      ? t("changes.quarantine.more_files", { n: event.dirtyFiles.length - 10 })
+      : "";
+
+  const branchLabel = event.branch ?? t("changes.quarantine.branch_detached");
 
   const text = [
-    `:warning: Worker \`${event.workerId}\` quarantined`,
-    `*Repo:* ${event.repo}`,
-    `*Branch:* ${event.branch ?? "(detached)"}`,
-    `*Trigger:* ${triggerLabel}`,
-    `*Dirty tracked files (${event.dirtyFiles.length}):*`,
+    t("changes.quarantine.title", { workerId: event.workerId }),
+    t("changes.quarantine.repo", { repo: event.repo }),
+    t("changes.quarantine.branch", { branch: branchLabel }),
+    t("changes.quarantine.trigger", { trigger: triggerLabel(event.trigger) }),
+    t("changes.quarantine.dirty_header", { count: event.dirtyFiles.length }),
     `${filesPreview}${moreFiles}`,
     "",
-    `The worker is excluded from acquire until cleared. Discard the changes via the Home Tab "Discard & restore" button (or remove \`.clack-quarantine.json\` from \`${event.worktreePath}\` manually) once you've decided what to do.`,
+    t("changes.quarantine.footer", { path: event.worktreePath }),
   ].join("\n");
 
-  await deps.sendOwnerDm(owner, text);
+  await deps.sendOwnerDm(owner, text, { suppressUnfurls: options.suppressUnfurls });
 }
