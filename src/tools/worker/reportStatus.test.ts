@@ -53,7 +53,10 @@ describe("reportStatus tool", () => {
 
     const ctx = makeCtx();
     const toolDef = createReportStatusTool(ctx, deps);
-    const result = await toolDef.handler({ message: "Work is done!" }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { message: "Work is done!", suppress_unfurls: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseToolResult(result);
     assert.equal(parsed.success, true);
@@ -76,7 +79,10 @@ describe("reportStatus tool", () => {
     mockGetSlackClient.mock.mockImplementation(() => null);
 
     const toolDef = createReportStatusTool(makeCtx(), deps);
-    const result = await toolDef.handler({ message: "Status update" }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { message: "Status update", suppress_unfurls: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseToolResult(result);
     assert.ok(parsed.error);
@@ -91,7 +97,10 @@ describe("reportStatus tool", () => {
     });
 
     const toolDef = createReportStatusTool(makeCtx(), deps);
-    const result = await toolDef.handler({ message: "Hello" }, { sessionId: "test" });
+    const result = await toolDef.handler(
+      { message: "Hello", suppress_unfurls: undefined },
+      { sessionId: "test" },
+    );
 
     const parsed = parseToolResult(result);
     assert.ok(parsed.error);
@@ -105,7 +114,7 @@ describe("reportStatus tool", () => {
 
     const ctx = makeCtx({ channelId: "C999", threadTs: "99.99" });
     const toolDef = createReportStatusTool(ctx, deps);
-    await toolDef.handler({ message: "test" }, { sessionId: "test" });
+    await toolDef.handler({ message: "test", suppress_unfurls: undefined }, { sessionId: "test" });
 
     const callArgs = mockPostMessage.mock.calls[0]!.arguments[0] as {
       channel: string;
@@ -120,11 +129,40 @@ describe("reportStatus tool", () => {
 
     const toolDef = createReportStatusTool(makeCtx(), deps);
     await toolDef.handler(
-      { message: "Build completed successfully with 0 errors" },
+      { message: "Build completed successfully with 0 errors", suppress_unfurls: undefined },
       { sessionId: "test" },
     );
 
     const callArgs = mockPostMessage.mock.calls[0]!.arguments[0] as { text: string };
     assert.equal(callArgs.text, "Build completed successfully with 0 errors");
+  });
+
+  it("omits unfurl flags when suppress_unfurls is not set", async () => {
+    const { deps, mockPostMessage } = makeDeps();
+    const toolDef = createReportStatusTool(makeCtx(), deps);
+    await toolDef.handler(
+      { message: "status", suppress_unfurls: undefined },
+      { sessionId: "test" },
+    );
+
+    const callArgs = mockPostMessage.mock.calls[0]!.arguments[0] as {
+      unfurl_links?: false;
+      unfurl_media?: false;
+    };
+    assert.equal("unfurl_links" in callArgs, false);
+    assert.equal("unfurl_media" in callArgs, false);
+  });
+
+  it("sets unfurl_links and unfurl_media to false when suppress_unfurls is true", async () => {
+    const { deps, mockPostMessage } = makeDeps();
+    const toolDef = createReportStatusTool(makeCtx(), deps);
+    await toolDef.handler({ message: "status", suppress_unfurls: true }, { sessionId: "test" });
+
+    const callArgs = mockPostMessage.mock.calls[0]!.arguments[0] as {
+      unfurl_links?: false;
+      unfurl_media?: false;
+    };
+    assert.equal(callArgs.unfurl_links, false);
+    assert.equal(callArgs.unfurl_media, false);
   });
 });

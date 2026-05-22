@@ -150,6 +150,7 @@ interface CallToolRawArgs {
   skip_response?: boolean;
   disengage?: boolean;
   post_top_level?: boolean;
+  suppress_unfurls?: boolean;
 }
 
 async function callToolRawTopLevel(deps: ReturnType<typeof makeDeps>, args: CallToolRawArgs) {
@@ -1506,6 +1507,67 @@ describe("createSubmitResponseTool", () => {
       });
 
       assert.notEqual(result.isError, true);
+    });
+  });
+
+  describe("suppress_unfurls", () => {
+    it("passes suppressUnfurls: true to deliver when the field is set", async () => {
+      const deliverCalls: { suppressUnfurls?: boolean }[] = [];
+      const deliver = async (opts: {
+        blocks: object[];
+        suppressUnfurls?: boolean;
+      }): Promise<{ ok: true; ts?: string } | { ok: false; error: string }> => {
+        deliverCalls.push({ suppressUnfurls: opts.suppressUnfurls });
+        return { ok: true, ts: "1.0" };
+      };
+      const deps = makeDeps({ deliver });
+      await callToolRawTopLevel(deps, {
+        suppress_unfurls: true,
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Quiet please" } }],
+        actions: [],
+      });
+
+      assert.equal(deliverCalls.length, 1);
+      assert.equal(deliverCalls[0].suppressUnfurls, true);
+    });
+
+    it("omits suppressUnfurls on deliver when the field is not set", async () => {
+      const deliverCalls: { suppressUnfurls?: boolean }[] = [];
+      const deliver = async (opts: {
+        blocks: object[];
+        suppressUnfurls?: boolean;
+      }): Promise<{ ok: true; ts?: string } | { ok: false; error: string }> => {
+        deliverCalls.push({ suppressUnfurls: opts.suppressUnfurls });
+        return { ok: true, ts: "1.0" };
+      };
+      const deps = makeDeps({ deliver });
+      await callTool(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Normal" } }],
+        actions: [],
+      });
+
+      assert.equal(deliverCalls.length, 1);
+      assert.equal(deliverCalls[0].suppressUnfurls, undefined);
+    });
+
+    it("omits suppressUnfurls on deliver when the field is explicitly false", async () => {
+      const deliverCalls: { suppressUnfurls?: boolean }[] = [];
+      const deliver = async (opts: {
+        blocks: object[];
+        suppressUnfurls?: boolean;
+      }): Promise<{ ok: true; ts?: string } | { ok: false; error: string }> => {
+        deliverCalls.push({ suppressUnfurls: opts.suppressUnfurls });
+        return { ok: true, ts: "1.0" };
+      };
+      const deps = makeDeps({ deliver });
+      await callToolRawTopLevel(deps, {
+        suppress_unfurls: false,
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Normal" } }],
+        actions: [],
+      });
+
+      assert.equal(deliverCalls.length, 1);
+      assert.equal(deliverCalls[0].suppressUnfurls, undefined);
     });
   });
 

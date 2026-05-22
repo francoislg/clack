@@ -12,6 +12,7 @@ import { findSessionByMessage } from "./sessions.js";
 import { logger } from "./logger.js";
 import { resolveChannelLabel, slackLink } from "./slack/logContext.js";
 import { openDmChannel } from "./slack/channelResolver.js";
+import { unfurlOptions } from "./slack/unfurlOptions.js";
 import { errorMessage as toErrorMessage } from "./errors.js";
 import { isSlackAccessError } from "./slackErrors.js";
 import { humanReadableSchedule } from "./cronFormatter.js";
@@ -358,6 +359,7 @@ export async function notifyCreatorOfError(
   client: App["client"],
   errorMessage: string,
   deps: NotifyErrorDeps = defaultNotifyDeps,
+  options: { suppressUnfurls?: boolean } = {},
 ): Promise<void> {
   const actor = await resolveJobActor(job);
   const dmTarget = await resolveErrorDmTarget(actor, deps);
@@ -377,7 +379,11 @@ export async function notifyCreatorOfError(
       dmTarget.audience === "creator"
         ? buildCreatorErrorText(job, schedule, errorMessage)
         : buildOwnerErrorText(job, actor, schedule, errorMessage);
-    await client.chat.postMessage({ channel: dmChannelId, text });
+    await client.chat.postMessage({
+      channel: dmChannelId,
+      text,
+      ...unfurlOptions(options.suppressUnfurls),
+    });
   } catch (dmError) {
     logger.error(`Failed to DM ${dmTarget.userId} about cron error:`, dmError);
   }

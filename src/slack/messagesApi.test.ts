@@ -332,6 +332,42 @@ interface MockConversationsConfig {
   throwOnOpen?: boolean;
 }
 
+interface PostMessageCall {
+  channel: string;
+  text: string;
+  blocks?: object[];
+  unfurl_links?: false;
+  unfurl_media?: false;
+}
+
+interface MockedFn {
+  mock: {
+    calls: Array<{ arguments: [PostMessageCall] }>;
+  };
+}
+
+function isMockedFn(value: unknown): value is MockedFn {
+  if (typeof value !== "function") return false;
+  const maybe = value as { mock?: { calls?: unknown } };
+  return (
+    typeof maybe.mock === "object" &&
+    maybe.mock !== null &&
+    Array.isArray((maybe.mock as { calls?: unknown }).calls)
+  );
+}
+
+function getPostMessageCall(client: App["client"], index: number): PostMessageCall {
+  const fn = client.chat.postMessage;
+  if (!isMockedFn(fn)) {
+    throw new Error("client.chat.postMessage is not a mock");
+  }
+  const call = fn.mock.calls[index];
+  if (!call) {
+    throw new Error(`postMessage call ${index} not found`);
+  }
+  return call.arguments[0];
+}
+
 function makeClient(config: MockConversationsConfig = {}): App["client"] {
   const postMessageFn = mock.fn(async () => ({ ok: true, ts: "msg-ts" }));
   const filesUploadV2Fn = mock.fn(async () => ({ ok: true }));
@@ -697,6 +733,22 @@ describe("sendDirectMessage", () => {
     const client = makeClient({ throwOnOpen: true });
     await assert.doesNotReject(() => sendDirectMessage(client, "U1", "hello"));
   });
+
+  it("omits unfurl_links and unfurl_media when suppressUnfurls is not set", async () => {
+    const client = makeClient({ openChannel: "DM_CHAN" });
+    await sendDirectMessage(client, "U1", "hello");
+    const call = getPostMessageCall(client, 0);
+    assert.equal("unfurl_links" in call, false);
+    assert.equal("unfurl_media" in call, false);
+  });
+
+  it("sets unfurl_links and unfurl_media to false when suppressUnfurls is true", async () => {
+    const client = makeClient({ openChannel: "DM_CHAN" });
+    await sendDirectMessage(client, "U1", "hello", undefined, { suppressUnfurls: true });
+    const call = getPostMessageCall(client, 0);
+    assert.equal(call.unfurl_links, false);
+    assert.equal(call.unfurl_media, false);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -785,5 +837,36 @@ describe("sendErrorReport", () => {
         analysis: "analysis",
       }),
     );
+  });
+
+  it("omits unfurl_links and unfurl_media when suppressUnfurls is not set", async () => {
+    const client = makeClient({ openChannel: "DM_CHAN" });
+    await sendErrorReport(client, "U1", {
+      sessionId: "sess-1",
+      errorMessage: "err",
+      conversationTrace: [],
+      analysis: "analysis",
+    });
+    const call = getPostMessageCall(client, 0);
+    assert.equal("unfurl_links" in call, false);
+    assert.equal("unfurl_media" in call, false);
+  });
+
+  it("sets unfurl_links and unfurl_media to false when suppressUnfurls is true", async () => {
+    const client = makeClient({ openChannel: "DM_CHAN" });
+    await sendErrorReport(
+      client,
+      "U1",
+      {
+        sessionId: "sess-1",
+        errorMessage: "err",
+        conversationTrace: [],
+        analysis: "analysis",
+      },
+      { suppressUnfurls: true },
+    );
+    const call = getPostMessageCall(client, 0);
+    assert.equal(call.unfurl_links, false);
+    assert.equal(call.unfurl_media, false);
   });
 });

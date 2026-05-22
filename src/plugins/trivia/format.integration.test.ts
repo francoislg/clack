@@ -103,7 +103,9 @@ describe("Trivia question-format end-to-end flow", () => {
           categories: undefined,
           answersFormat: undefined,
           questionType: undefined,
+          answerShape: undefined,
           contexts: undefined,
+          difficulty: undefined,
           theme: undefined,
           format: {
             questions: [
@@ -249,6 +251,7 @@ describe("Trivia question-format end-to-end flow", () => {
             },
           ],
           appendToPreviousBatch: undefined,
+          suppress_unfurls: undefined,
         },
         SESSION,
       ),

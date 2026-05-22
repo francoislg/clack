@@ -252,6 +252,47 @@ describe("ClackSdk", () => {
       assert.equal(result.ok, false);
       if (!result.ok) assert.match(result.error, /channel_not_found/);
     });
+
+    it("omits unfurl flags when suppressUnfurls is not set", async () => {
+      const client = new WebClient();
+      const postSpy = mock.method(client.chat, "postMessage", async () => ({
+        ok: true,
+        ts: "1.0",
+      }));
+      const { sdk } = makeSdk("trivia", {
+        getSlackClient: () => client,
+        loadRoles: async () => ({ owner: "U_OWNER", admins: [], devs: [] }),
+        openDmChannel: async () => "D_OWNER",
+      });
+
+      await sdk.dmOwner("hi");
+
+      const args = postSpy.mock.calls[0].arguments[0];
+      assert.ok(args);
+      assert.equal("unfurl_links" in args, false);
+      assert.equal("unfurl_media" in args, false);
+    });
+
+    it("sets unfurl_links and unfurl_media to false when suppressUnfurls is true", async () => {
+      const client = new WebClient();
+      const postSpy = mock.method(client.chat, "postMessage", async () => ({
+        ok: true,
+        ts: "1.0",
+      }));
+      const { sdk } = makeSdk("trivia", {
+        getSlackClient: () => client,
+        loadRoles: async () => ({ owner: "U_OWNER", admins: [], devs: [] }),
+        openDmChannel: async () => "D_OWNER",
+      });
+
+      await sdk.dmOwner("hi", { suppressUnfurls: true });
+
+      const args = postSpy.mock.calls[0].arguments[0];
+      assert.ok(args && "unfurl_links" in args);
+      assert.equal(args.unfurl_links, false);
+      assert.ok(args && "unfurl_media" in args);
+      assert.equal(args.unfurl_media, false);
+    });
   });
 
   describe("reconcileCronJobs", () => {

@@ -15,9 +15,15 @@ function makeEvent(over: Partial<QuarantineEvent> = {}): QuarantineEvent {
   };
 }
 
+interface PostedDm {
+  ownerUserId: string;
+  text: string;
+  options?: { suppressUnfurls?: boolean };
+}
+
 interface MakeDepsOptions {
   owner?: string | null;
-  posted?: Array<{ ownerUserId: string; text: string }>;
+  posted?: PostedDm[];
   dmResult?: boolean;
 }
 
@@ -27,8 +33,8 @@ function makeDeps(opts: MakeDepsOptions = {}): QuarantineNotifierDeps {
   const dmResult = opts.dmResult === undefined ? true : opts.dmResult;
   return {
     getOwnerUserId: async () => owner,
-    sendOwnerDm: async (ownerUserId, text) => {
-      posted.push({ ownerUserId, text });
+    sendOwnerDm: async (ownerUserId, text, options) => {
+      posted.push({ ownerUserId, text, options });
       return dmResult;
     },
   };
@@ -36,7 +42,7 @@ function makeDeps(opts: MakeDepsOptions = {}): QuarantineNotifierDeps {
 
 describe("notifyOwnerOfQuarantine", () => {
   it("posts a DM to the owner with the dirty file list", async () => {
-    const posted: Array<{ ownerUserId: string; text: string }> = [];
+    const posted: PostedDm[] = [];
     const deps = makeDeps({ posted });
 
     await notifyOwnerOfQuarantine(makeEvent({ dirtyFiles: ["a.ts", "b.ts"] }), deps);
@@ -50,7 +56,7 @@ describe("notifyOwnerOfQuarantine", () => {
   });
 
   it("is a no-op when no owner is configured", async () => {
-    const posted: Array<{ ownerUserId: string; text: string }> = [];
+    const posted: PostedDm[] = [];
     const deps = makeDeps({ owner: null, posted });
 
     await notifyOwnerOfQuarantine(makeEvent(), deps);
@@ -58,7 +64,7 @@ describe("notifyOwnerOfQuarantine", () => {
   });
 
   it("does not throw when sendOwnerDm reports failure", async () => {
-    const posted: Array<{ ownerUserId: string; text: string }> = [];
+    const posted: PostedDm[] = [];
     const deps = makeDeps({ posted, dmResult: false });
 
     await assert.doesNotReject(notifyOwnerOfQuarantine(makeEvent(), deps));
@@ -66,7 +72,7 @@ describe("notifyOwnerOfQuarantine", () => {
   });
 
   it("truncates the file list when there are more than 10 dirty files", async () => {
-    const posted: Array<{ ownerUserId: string; text: string }> = [];
+    const posted: PostedDm[] = [];
     const deps = makeDeps({ posted });
 
     const files = Array.from({ length: 15 }, (_, i) => `file-${i}.ts`);
@@ -78,7 +84,7 @@ describe("notifyOwnerOfQuarantine", () => {
   });
 
   it("labels each trigger correctly", async () => {
-    const posted: Array<{ ownerUserId: string; text: string }> = [];
+    const posted: PostedDm[] = [];
     const deps = makeDeps({ posted });
 
     await notifyOwnerOfQuarantine(makeEvent({ trigger: "branch_switch" }), deps);
@@ -92,10 +98,26 @@ describe("notifyOwnerOfQuarantine", () => {
   });
 
   it("formats detached HEAD branch as '(detached)'", async () => {
-    const posted: Array<{ ownerUserId: string; text: string }> = [];
+    const posted: PostedDm[] = [];
     const deps = makeDeps({ posted });
 
     await notifyOwnerOfQuarantine(makeEvent({ branch: null }), deps);
     assert.match(posted[0]!.text, /\(detached\)/);
+  });
+
+  it("does not pass suppressUnfurls when the option is omitted", async () => {
+    const posted: PostedDm[] = [];
+    const deps = makeDeps({ posted });
+
+    await notifyOwnerOfQuarantine(makeEvent(), deps);
+    assert.equal(posted[0]!.options?.suppressUnfurls, undefined);
+  });
+
+  it("forwards suppressUnfurls: true to sendOwnerDm", async () => {
+    const posted: PostedDm[] = [];
+    const deps = makeDeps({ posted });
+
+    await notifyOwnerOfQuarantine(makeEvent(), deps, { suppressUnfurls: true });
+    assert.equal(posted[0]!.options?.suppressUnfurls, true);
   });
 });

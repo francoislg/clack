@@ -134,6 +134,7 @@ describe("choice-questions end-to-end flow", () => {
             },
           ],
           appendToPreviousBatch: undefined,
+          suppress_unfurls: undefined,
         },
         SESSION,
       ),

@@ -51,6 +51,13 @@ export type DeliverFn = (opts: {
    * thread.
    */
   postTopLevel?: boolean;
+  /**
+   * When true, the underlying `chat.postMessage` call disables Slack link and media
+   * unfurling (both `unfurl_links: false` and `unfurl_media: false`). When absent or
+   * false, Slack's default unfurling applies. Sourced from `submit_response`'s
+   * `suppress_unfurls` field.
+   */
+  suppressUnfurls?: boolean;
 }) => Promise<{ ok: true; ts?: string } | { ok: false; error: string }>;
 
 // ============================================================================
@@ -252,6 +259,12 @@ export interface ResponseSnapshot {
   table?: AuthoredTableBlock;
   actions?: Action[];
   reactions?: string[];
+  /**
+   * When true, the deferred `post_to` delivery (auto-execute or button-click)
+   * disables Slack link/media unfurling on the cross-posted message. Captured
+   * from the `post_to` action's `suppress_unfurls` field at snapshot time.
+   */
+  suppressUnfurls?: boolean;
 }
 
 // Continuation actions
@@ -302,6 +315,12 @@ export interface PostToAction {
    * Same semantics as top-level `submit_response.reactions`.
    */
   reactions?: string[];
+  /**
+   * Optional. When true, disables Slack link/media unfurling on the
+   * cross-posted message. Forwarded into the snapshot so the deferred
+   * button-click path can replay it.
+   */
+  suppress_unfurls?: boolean;
   /** Internal: resolved content entry ID set by submit_response before delivery (not from Claude) */
   _snapshotId?: string;
 }

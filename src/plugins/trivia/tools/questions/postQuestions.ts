@@ -161,7 +161,7 @@ const SLACK_UNAVAILABLE_ERROR =
  */
 export interface PostQuestionsSlackDeps {
   isAvailable(): string | null;
-  postBlocks(opts: { channel: string; blocks: SlackBlocks }): Promise<{
+  postBlocks(opts: { channel: string; blocks: SlackBlocks; suppressUnfurls?: boolean }): Promise<{
     ts: string;
     permalink: string;
   }>;
@@ -227,6 +227,12 @@ export function createPostQuestionsTool(
         .optional()
         .describe(
           "When true, the tool reuses the game's most-recent batchId for every fresh item in this call instead of minting a new one. Use ONLY when retrying items that failed in an earlier post_questions call within the same run, so the retried items reveal together with the original successes. The call fails atomically (no Slack posts, no record mutations) if there is no prior batch for the game, or if the resolved previous batch contains any question whose processedAt is set (already revealed). Default false.",
+        ),
+      suppress_unfurls: z
+        .boolean()
+        .optional()
+        .describe(
+          "When true, disables Slack's link and image previews on every question message posted in this batch. Use when items contain URLs whose previews would add noise or spoil the answer (e.g., topical questions with source links).",
         ),
     },
     async (args) => {
@@ -321,6 +327,9 @@ export function createPostQuestionsTool(
           const { ts, permalink } = await slackDeps.postBlocks({
             channel: game.channel,
             blocks: blocksWithAnswerButton,
+            ...(args.suppress_unfurls !== undefined && {
+              suppressUnfurls: args.suppress_unfurls,
+            }),
           });
 
           // Stamp the question record BEFORE attempting reactions. Reactions are

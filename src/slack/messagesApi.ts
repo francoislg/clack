@@ -9,6 +9,12 @@ import {
   extractMessageText,
   resolveReactionUsernames,
 } from "./messageBuilder.js";
+import { unfurlOptions } from "./unfurlOptions.js";
+
+export interface SendMessageOptions {
+  /** When true, disables Slack link/media unfurling on the posted message. */
+  suppressUnfurls?: boolean;
+}
 
 export interface FetchThreadContextOptions {
   fetchUserNames?: boolean;
@@ -138,6 +144,7 @@ export async function sendDirectMessage(
   userId: string,
   text: string,
   blocks?: object[],
+  options: SendMessageOptions = {},
 ): Promise<void> {
   const channelId = await openDmChannel(client, userId);
   if (!channelId) return;
@@ -146,6 +153,7 @@ export async function sendDirectMessage(
       channel: channelId,
       text,
       ...(blocks && { blocks }),
+      ...unfurlOptions(options.suppressUnfurls),
     });
   } catch (error) {
     logger.error("Failed to send direct message:", error);
@@ -164,6 +172,7 @@ export async function sendErrorReport(
   client: App["client"],
   userId: string,
   options: ErrorReportOptions,
+  postOptions: SendMessageOptions = {},
 ): Promise<void> {
   const { sessionId, errorMessage, conversationTrace, stderrOutput, analysis } = options;
 
@@ -216,6 +225,7 @@ export async function sendErrorReport(
       channel: channelId,
       text: "Error Report - An error occurred while processing your request.",
       blocks,
+      ...unfurlOptions(postOptions.suppressUnfurls),
     });
 
     // Upload full error report as a threaded reply to the error message
