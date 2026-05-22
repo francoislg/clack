@@ -210,3 +210,106 @@ describe("get_ideas — format meta and slot routing", () => {
     assert.deepEqual(a.format, b.format);
   });
 });
+
+describe("get_ideas — suggestedAnswerShape (freeform branch)", () => {
+  let data: TriviaDataLayer;
+  const FREEFORM_CONFIG = makeConfig({
+    seasons: { enabled: true, prompt: "Monthly" },
+    answersFormat: { boolean: 0, choice: 0, freeform: 1 },
+  });
+
+  beforeEach(async () => {
+    data = createInMemoryDataLayer();
+    await data.saveCategories(["Baseline-1", "Baseline-2"]);
+  });
+
+  it("is omitted on boolean / choice branches", async () => {
+    await seedSeason(data);
+    const tool = createGetIdeasTool(data, () => SEASONS_ON_CONFIG, fixtureGetGames);
+    const parsed = parseToolResult(
+      await tool.handler({ game: FIXTURE_GAME_NAME, slot: undefined }, SESSION),
+    );
+    assert.equal(parsed.suggestedAnswersFormat, "boolean");
+    assert.equal(parsed.suggestedAnswerShape, undefined);
+  });
+
+  it("rolls one of the legal shapes on freeform with uniform default", async () => {
+    await seedSeason(data);
+    const tool = createGetIdeasTool(data, () => FREEFORM_CONFIG, fixtureGetGames);
+    const seen = new Set<string>();
+    for (let i = 0; i < 50; i++) {
+      const parsed = parseToolResult(
+        await tool.handler({ game: FIXTURE_GAME_NAME, slot: undefined }, SESSION),
+      );
+      assert.equal(parsed.suggestedAnswersFormat, "freeform");
+      assert.ok(
+        ["name", "place", "phrase", "title", "date", "number", "other"].includes(
+          parsed.suggestedAnswerShape,
+        ),
+        `unexpected shape: ${parsed.suggestedAnswerShape}`,
+      );
+      seen.add(parsed.suggestedAnswerShape);
+    }
+    assert.ok(seen.size > 1, `uniform default should hit multiple shapes — only saw ${[...seen]}`);
+  });
+
+  it("honors slot.answerShape (overrides season + config)", async () => {
+    await seedSeason(data, {
+      answerShape: { name: 0, place: 0, phrase: 0, title: 0, date: 1, number: 0, other: 0 },
+      format: {
+        questions: [
+          {
+            answerShape: {
+              name: 1,
+              place: 0,
+              phrase: 0,
+              title: 0,
+              date: 0,
+              number: 0,
+              other: 0,
+            },
+          },
+        ],
+      },
+    });
+    const tool = createGetIdeasTool(data, () => FREEFORM_CONFIG, fixtureGetGames);
+    for (let i = 0; i < 10; i++) {
+      const parsed = parseToolResult(
+        await tool.handler({ game: FIXTURE_GAME_NAME, slot: 0 }, SESSION),
+      );
+      assert.equal(parsed.suggestedAnswerShape, "name", `iteration ${i}`);
+    }
+  });
+
+  it("falls back to season.answerShape when slot has none", async () => {
+    await seedSeason(data, {
+      answerShape: { name: 0, place: 1, phrase: 0, title: 0, date: 0, number: 0, other: 0 },
+      format: { questions: [{}] },
+    });
+    const tool = createGetIdeasTool(data, () => FREEFORM_CONFIG, fixtureGetGames);
+    for (let i = 0; i < 10; i++) {
+      const parsed = parseToolResult(
+        await tool.handler({ game: FIXTURE_GAME_NAME, slot: 0 }, SESSION),
+      );
+      assert.equal(parsed.suggestedAnswerShape, "place", `iteration ${i}`);
+    }
+  });
+
+  it("falls back to config.trivia.answerShape when neither slot nor season has it", async () => {
+    await seedSeason(data, {
+      format: { questions: [{}] },
+    });
+    const cfg = makeConfig({
+      seasons: { enabled: true, prompt: "Monthly" },
+      answersFormat: { boolean: 0, choice: 0, freeform: 1 },
+      answerShape: { name: 0, place: 0, phrase: 1, title: 0, date: 0, number: 0, other: 0 },
+    });
+    const tool = createGetIdeasTool(data, () => cfg, fixtureGetGames);
+    for (let i = 0; i < 10; i++) {
+      const parsed = parseToolResult(
+        await tool.handler({ game: FIXTURE_GAME_NAME, slot: 0 }, SESSION),
+      );
+      assert.equal(parsed.suggestedAnswerShape, "phrase", `iteration ${i}`);
+    }
+  });
+});
