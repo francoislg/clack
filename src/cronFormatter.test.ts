@@ -61,6 +61,46 @@ describe("humanReadableSchedule", () => {
     assert.equal(result, "Every hour at :0,15");
   });
 
+  it("formats sub-daily with hour range and weekday restriction", () => {
+    const result = humanReadableSchedule("*/15 10-14 * * 1-5", "UTC");
+    assert.equal(result, "Every 15 minutes from 10 AM to 2 PM on weekdays");
+  });
+
+  it("formats hourly with weekday restriction", () => {
+    const result = humanReadableSchedule("0 * * * 1-5", "UTC");
+    assert.equal(result, "Every hour on weekdays");
+  });
+
+  it("formats hourly with hour range", () => {
+    const result = humanReadableSchedule("0 9-17 * * *", "UTC");
+    assert.equal(result, "Every hour from 9 AM to 5 PM");
+  });
+
+  it("formats sub-daily with single-day restriction", () => {
+    const result = humanReadableSchedule("*/30 * * * 1", "UTC");
+    assert.equal(result, "Every 30 minutes on Mon");
+  });
+
+  it("formats every-N-hours with weekday restriction", () => {
+    const result = humanReadableSchedule("0 */2 * * 1-5", "UTC");
+    assert.equal(result, "Every 2 hours on weekdays");
+  });
+
+  it("formats sub-daily across midnight-anchored hour range", () => {
+    const result = humanReadableSchedule("0 0-6 * * *", "UTC");
+    assert.equal(result, "Every hour from 12 AM to 6 AM");
+  });
+
+  it("treats 0-6 dayOfWeek as every day in sub-daily form", () => {
+    const result = humanReadableSchedule("*/15 * * * 0-6", "UTC");
+    assert.equal(result, "Every 15 minutes");
+  });
+
+  it("falls through to weekly form when hour is a single value", () => {
+    const result = humanReadableSchedule("0 9 * * 1-5", "UTC");
+    assert.match(result, /Weekdays at/);
+  });
+
   it("returns raw expression for invalid cron", () => {
     const result = humanReadableSchedule("invalid", "UTC");
     assert.equal(result, "invalid");
