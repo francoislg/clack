@@ -5,10 +5,12 @@ import type { IntentStore, ResponseCapture, ToolCallRecorder } from "../server.j
 import type {
   Action,
   DeliverFn,
+  MessagePayload,
   ResponseSnapshot,
   StagedIntent,
   SubmitResponsePayload,
 } from "../types.js";
+import { DEFAULT_MAX_ADDITIONAL_MESSAGES } from "../../config.js";
 import { appendStagedIntents as _appendStagedIntents } from "../../sessions.js";
 import { textResult } from "../helpers.js";
 import { DISMISSAL_PHRASES_INLINE } from "../../claude/dismissalPhrases.js";
@@ -28,6 +30,17 @@ import {
   validateTable as _validateTable,
 } from "../../slack/blockValidate.js";
 import { extractDisplayText } from "../../slack/blockText.js";
+
+// Caps for multi-message batches — declared at module top because they're referenced by
+// `postToActionSchema` (immediate `.max(...)` calls evaluated at module load).
+// - POST_TO_ADDITIONAL_MESSAGES_MAX is the schema-level absolute upper bound on
+//   `additional_messages.length` inside a post_to. The configured per-installation cap
+//   (from `submitResponse.maxAdditionalMessages`) is tighter and is enforced at runtime
+//   so the error can name the config path. Top-level `additional_messages` uses the
+//   configured value directly as its schema cap (it's known at tool-build time).
+// - THREAD_REPLIES_MAX is the fixed sanity ceiling for `thread_replies`; not configurable.
+const POST_TO_ADDITIONAL_MESSAGES_MAX = 10;
+const THREAD_REPLIES_MAX = 20;
 
 // Action schemas for submit_response
 const followupActionSchema = z.object({
@@ -124,6 +137,25 @@ const postToActionSchema = z.object({
     .describe(
       "Optional interactive buttons rendered on the cross-posted message. Same action types as top-level (followup, choice, change, config_update, update). Nested `post_to` is rejected. Click handlers route back to the original session, so ref-based actions resolve against the original intentStore.",
     ),
+  // Multi-message support for post_to publishing. `z.lazy` because `messagePayloadSchema`
+  // is declared after this object (it depends on `actionSchema`, which depends on this).
+  // Schema cap is the absolute upper bound (POST_TO_ADDITIONAL_MESSAGES_MAX); the actual
+  // per-installation cap from config.submitResponse.maxAdditionalMessages is enforced at
+  // runtime so the error can name the config path.
+  additional_messages: z
+    .array(z.lazy((): z.ZodType<MessagePayload> => messagePayloadSchema))
+    .max(POST_TO_ADDITIONAL_MESSAGES_MAX)
+    .optional()
+    .describe(
+      "Additional top-level channel messages posted to this post_to's target channel (separate Slack messages, no thread_ts). ONLY use when the user explicitly asks for multiple cross-posted messages (e.g. 'post each item separately to #channel'). Default to a single cross-post in `blocks`. Capped per-installation via `submitResponse.maxAdditionalMessages` (default 5).",
+    ),
+  thread_replies: z
+    .array(z.lazy((): z.ZodType<MessagePayload> => messagePayloadSchema))
+    .max(THREAD_REPLIES_MAX)
+    .optional()
+    .describe(
+      "Reply messages threaded under this post_to's own cross-posted message (delivered with the cross-post's returned ts as their thread_ts). ONLY use when the user explicitly asks for an 'announcement at top of channel with details in the thread' pattern for the cross-post. Default to a single cross-post in `blocks`. Capped at 20.",
+    ),
 });
 
 const changeActionSchema = z.object({
@@ -211,6 +243,67 @@ const actionSchema = z.discriminatedUnion(
 // Ref-based action types that need validation
 const REF_ACTION_TYPES = new Set(["change", "config_update", "update"]);
 
+// Per-message follow-up payload used by `additional_messages` / `thread_replies` at
+// every layer (top-level and inside a post_to). Strict-mode: every primary-only signal
+// — `message`, `post_top_level`, `disengage`, `skip_response`, `suppress_unfurls`, plus
+// recursive `additional_messages`/`thread_replies` — triggers an "unrecognized key"
+// error at the schema boundary.
+const messagePayloadSchema: z.ZodType<MessagePayload> = z
+  .object({
+    blocks: z
+      .array(BlockSchema)
+      .min(1)
+      .describe(
+        "Slack Block Kit blocks (Clack's curated subset) for this follow-up message. Same rules as the primary blocks field.",
+      ),
+    table: tableBlockSchema
+      .optional()
+      .describe("Optional Slack table block, appended at the bottom of this follow-up message."),
+    actions: z
+      .array(z.lazy((): z.ZodType<Action> => actionSchema))
+      .optional()
+      .describe(
+        "Optional interactive buttons rendered on this follow-up message. Same action types as the primary actions field. Nested `post_to` inside this follow-up's actions is NOT allowed when this follow-up is itself inside a `post_to` (the existing nested-post_to rule extends to walk through followers).",
+      ),
+    reactions: z
+      .array(z.string())
+      .optional()
+      .describe(
+        "Emoji reactions to add to this follow-up message after delivery. Same semantics as the primary reactions field.",
+      ),
+  })
+  .strict();
+
+/**
+ * Builder for the top-level `additional_messages` schema field — each entry is delivered as
+ * a separate **top-level channel message** (no `thread_ts`). The cap is sourced from
+ * `SubmitResponseDeps.maxAdditionalMessages` (default 5) so it's known at tool-build time.
+ */
+function buildAdditionalMessagesField(cap: number) {
+  return z
+    .array(messagePayloadSchema)
+    .max(cap)
+    .optional()
+    .describe(
+      `Additional top-level channel messages, posted as separate Slack messages alongside the primary. ONLY use when the user explicitly asks for multiple messages (e.g. "send each as its own message", "split into ${cap} posts", "post these separately"). Default to a single response in \`blocks\` — multi-message responses are jarring when not requested. Maximum ${cap} entries.`,
+    );
+}
+
+/**
+ * Builder for the top-level `thread_replies` schema field — each entry is delivered as a
+ * **thread reply** under the primary (when the primary is top-level) or in the existing
+ * thread context. Fixed cap of THREAD_REPLIES_MAX.
+ */
+function buildThreadRepliesField() {
+  return z
+    .array(messagePayloadSchema)
+    .max(THREAD_REPLIES_MAX)
+    .optional()
+    .describe(
+      `Additional thread-reply messages, posted under the primary's thread context (under the primary's ts when \`post_top_level: true\`, otherwise in the existing thread). ONLY use when the user explicitly asks for threaded follow-ups (e.g. "post the summary in the channel and put details in the thread"). Default to a single response in \`blocks\`. Maximum ${THREAD_REPLIES_MAX} entries.`,
+    );
+}
+
 const SKIP_ACKNOWLEDGMENT =
   "I acknowledge that responding to this would serve no purpose, so I am skipping it.";
 
@@ -246,6 +339,19 @@ export interface SubmitResponseDeps {
    */
   allowPostTopLevel?: boolean;
   /**
+   * Inclusive cap on `additional_messages.length` at every layer. Sourced from
+   * `config.submitResponse.maxAdditionalMessages` (default 5). Applied to the top level
+   * and inside every `post_to` action.
+   */
+  maxAdditionalMessages?: number;
+  /**
+   * The session's existing thread timestamp. Used as the `thread_ts` on `additional_messages`
+   * sibling delivery so follow-ups land in the same thread as the primary. When unset and
+   * additional_messages is invoked, the batch loop falls back to whatever thread context
+   * the primary delivery established (i.e. the streamer's thread).
+   */
+  sessionThreadTs?: string;
+  /**
    * Fully-qualified MCP tool names that must appear in the recorder's history before delivery
    * is accepted. Enforced by a gate at the top of the handler.
    */
@@ -279,10 +385,16 @@ export interface SubmitResponseDeps {
 }
 
 /**
- * Walks every action in the response — both top-level entries and entries
- * nested inside `post_to.actions` — yielding each with a path label like
- * `"actions[0]"` or `"actions[0].actions[1]"`. Used by validators that should
- * treat nested actions identically to top-level ones.
+ * Walks every action in the response, including those reachable through `post_to`
+ * subtrees AND multi-message followers (additional_messages / thread_replies, both
+ * at the top level and inside a `post_to`). Yields each with a path label like
+ * `"actions[0]"`, `"actions[0].actions[1]"`, or
+ * `"additional_messages[2].actions[0].thread_replies[1].actions[0]"`.
+ *
+ * The `parentIsPostTo` flag is STICKY — once any ancestor in the walk is a `post_to`,
+ * all descendants carry `parentIsPostTo: true`. That makes the "nested post_to" check
+ * trivial (any flat action with parentIsPostTo === true that is itself a post_to is
+ * rejected) regardless of how deep through follower-message subtrees the nesting goes.
  */
 interface FlatAction {
   action: Action;
@@ -290,58 +402,138 @@ interface FlatAction {
   parentIsPostTo: boolean;
 }
 
-function flattenActions(actions: z.infer<typeof actionSchema>[]): FlatAction[] {
-  const flat: FlatAction[] = [];
+/**
+ * Internal recursive walker. Descends into:
+ *  - the action's own nested `actions` (if it's a `post_to`)
+ *  - the action's `additional_messages[*].actions` (if it's a `post_to`)
+ *  - the action's `thread_replies[*].actions` (if it's a `post_to`)
+ *
+ * Each descent flips `parentIsPostTo` to true (sticky), so the nested-post_to check
+ * catches everything underneath, including post_to-inside-post_to-follower.
+ */
+function flattenActionsRecursive(
+  actions: Action[],
+  pathPrefix: string,
+  parentIsPostTo: boolean,
+  out: FlatAction[],
+): void {
   actions.forEach((action, i) => {
-    const path = `actions[${i}]`;
-    flat.push({ action, path, parentIsPostTo: false });
-    if (action.type === "post_to" && action.actions) {
-      action.actions.forEach((nested, j) => {
-        flat.push({
-          action: nested,
-          path: `${path}.actions[${j}]`,
-          parentIsPostTo: true,
-        });
+    const path = `${pathPrefix}[${i}]`;
+    out.push({ action, path, parentIsPostTo });
+    if (action.type !== "post_to") return;
+    // Inside a post_to subtree, every descendant has parentIsPostTo=true (sticky).
+    if (action.actions && action.actions.length > 0) {
+      flattenActionsRecursive(action.actions, `${path}.actions`, true, out);
+    }
+    if (action.additional_messages) {
+      action.additional_messages.forEach((msg, mi) => {
+        if (msg.actions && msg.actions.length > 0) {
+          flattenActionsRecursive(
+            msg.actions,
+            `${path}.additional_messages[${mi}].actions`,
+            true,
+            out,
+          );
+        }
+      });
+    }
+    if (action.thread_replies) {
+      action.thread_replies.forEach((msg, mi) => {
+        if (msg.actions && msg.actions.length > 0) {
+          flattenActionsRecursive(msg.actions, `${path}.thread_replies[${mi}].actions`, true, out);
+        }
       });
     }
   });
+}
+
+function flattenActions(actions: Action[]): FlatAction[] {
+  const flat: FlatAction[] = [];
+  flattenActionsRecursive(actions, "actions", false, flat);
   return flat;
 }
 
-function validateRefActions(
-  actions: z.infer<typeof actionSchema>[],
-  intentStore: IntentStore,
-): string | null {
-  for (const { action, path } of flattenActions(actions)) {
+/**
+ * Batch-aware walker: yields actions from the top-level primary plus every
+ * `additional_messages[*].actions` and `thread_replies[*].actions` at the top level,
+ * each routed through `flattenActions` so post_to subtrees are descended too.
+ *
+ * Used by every validator that needs to see ALL ref-actions / post_to actions / button
+ * labels in the batch (ref coverage, intent coverage, duplicate-channel guard, etc.).
+ */
+function walkBatchActions(args: {
+  actions?: Action[];
+  additional_messages?: MessagePayload[];
+  thread_replies?: MessagePayload[];
+}): FlatAction[] {
+  const flat: FlatAction[] = [];
+  if (args.actions && args.actions.length > 0) {
+    flattenActionsRecursive(args.actions, "actions", false, flat);
+  }
+  if (args.additional_messages) {
+    args.additional_messages.forEach((msg, mi) => {
+      if (msg.actions && msg.actions.length > 0) {
+        flattenActionsRecursive(msg.actions, `additional_messages[${mi}].actions`, false, flat);
+      }
+    });
+  }
+  if (args.thread_replies) {
+    args.thread_replies.forEach((msg, mi) => {
+      if (msg.actions && msg.actions.length > 0) {
+        flattenActionsRecursive(msg.actions, `thread_replies[${mi}].actions`, false, flat);
+      }
+    });
+  }
+  return flat;
+}
+
+/**
+ * Walks a pre-flattened action list and collects every ref-action whose `ref` is unknown
+ * (or whose stored intent type disagrees with the action type). Returns all errors so
+ * the §7 aggregator can surface a complete picture in one round-trip.
+ */
+function validateRefActions(flat: FlatAction[], intentStore: IntentStore): string[] {
+  const errors: string[] = [];
+  for (const { action, path } of flat) {
     if (!REF_ACTION_TYPES.has(action.type) || !("ref" in action)) continue;
     const intent = intentStore.resolve(action.ref);
     if (!intent) {
-      return `${path}: Action type "${action.type}" references unknown ref "${action.ref}". Call the corresponding action tool first (e.g., propose_change, request_merge).`;
+      errors.push(
+        `${path}: Action type "${action.type}" references unknown ref "${action.ref}". Call the corresponding action tool first (e.g., propose_change, request_merge).`,
+      );
+      continue;
     }
     if (intent.type !== action.type) {
-      return `${path}: Ref "${action.ref}" is a "${intent.type}" intent but action type is "${action.type}".`;
+      errors.push(
+        `${path}: Ref "${action.ref}" is a "${intent.type}" intent but action type is "${action.type}".`,
+      );
     }
   }
-  return null;
+  return errors;
 }
 
-function validatePostToActions(
-  actions: z.infer<typeof actionSchema>[],
-  topLevelDeliveryChannel?: string,
-): string | null {
-  for (const { action, path, parentIsPostTo } of flattenActions(actions)) {
+function validatePostToActions(flat: FlatAction[], topLevelDeliveryChannel?: string): string[] {
+  const errors: string[] = [];
+  for (const { action, path, parentIsPostTo } of flat) {
     if (action.type !== "post_to") continue;
     // Nested post_to is rejected — the recursion has no useful semantics
     // (cross-posted message that itself triggers another cross-post) and would
-    // complicate auto-delivery and snapshot persistence.
+    // complicate auto-delivery and snapshot persistence. The sticky
+    // `parentIsPostTo` flag means this catches post_to nested through follower
+    // subtrees too (e.g., `actions[0].additional_messages[1].actions[0]` of type post_to).
     if (parentIsPostTo) {
-      return `${path}: Nested post_to is not supported. Use a separate top-level post_to action instead.`;
+      errors.push(
+        `${path}: Nested post_to is not supported. Use a separate top-level post_to action instead.`,
+      );
+      continue;
     }
     if (action.auto && !action.channel) {
-      return `${path}: post_to with auto: true requires an explicit channel ID. Provide the target channel (e.g., "C0APQ9JU865"). Use list_repositories or check the conversation context for channel IDs.`;
+      errors.push(
+        `${path}: post_to with auto: true requires an explicit channel ID. Provide the target channel (e.g., "C0APQ9JU865"). Use list_repositories or check the conversation context for channel IDs.`,
+      );
     }
     if (action.blocks.length === 0) {
-      return `${path}: post_to action has empty blocks. Provide at least one block to post.`;
+      errors.push(`${path}: post_to action has empty blocks. Provide at least one block to post.`);
     }
     // In scheduled mode, submit_response already delivers top-level to the target channel.
     // A post_to targeting the same channel without a thread would duplicate the message.
@@ -350,21 +542,23 @@ function validatePostToActions(
       action.channel === topLevelDeliveryChannel &&
       !action.thread_ts
     ) {
-      return `${path}: submit_response already posts top-level to channel ${topLevelDeliveryChannel}. Remove this post_to action — it would duplicate the message. Use post_to only for a DIFFERENT channel or a specific thread.`;
+      errors.push(
+        `${path}: submit_response already posts top-level to channel ${topLevelDeliveryChannel}. Remove this post_to action — it would duplicate the message. Use post_to only for a DIFFERENT channel or a specific thread.`,
+      );
     }
   }
-  return null;
+  return errors;
 }
 
 function validateStagedIntentsCoverage(
-  actions: z.infer<typeof actionSchema>[],
+  flat: FlatAction[],
   intentStore: IntentStore,
 ): string | null {
   const allIntents = intentStore.getAll();
   if (allIntents.size === 0) return null;
 
   const actionRefs = new Set<string>();
-  for (const { action } of flattenActions(actions)) {
+  for (const { action } of flat) {
     if ("ref" in action && action.ref) {
       actionRefs.add(action.ref);
     }
@@ -389,6 +583,121 @@ function buildTexts(blocks: readonly Block[], message?: string) {
   return { answerText, displayText };
 }
 
+const SLACK_MESSAGE_TEXT_LIMIT = 10000;
+
+/**
+ * A single deliverable message in the batch, paired with the path prefix used in
+ * batch-error path labels. Yielded by `enumerateBatchMessages` and consumed by the
+ * per-message validation loop in the §7 aggregator.
+ */
+interface BatchMessage {
+  blocks: Block[];
+  table?: AuthoredTableBlock;
+  message?: string;
+  pathPrefix: string;
+}
+
+/**
+ * Enumerate every message in the batch as `{ blocks, table?, message?, pathPrefix }`:
+ *  - primary (pathPrefix: "")
+ *  - each `additional_messages[i]` (pathPrefix: "additional_messages[i]")
+ *  - each `thread_replies[i]` (pathPrefix: "thread_replies[i]")
+ *  - each `post_to` action's own blocks (pathPrefix: "actions[i]")
+ *  - each `post_to.additional_messages[j]` (pathPrefix: "actions[i].additional_messages[j]")
+ *  - each `post_to.thread_replies[j]` (pathPrefix: "actions[i].thread_replies[j]")
+ *
+ * The `message` preamble is only carried on the primary — followers don't expose it.
+ */
+function enumerateBatchMessages(args: SubmitResponseArgs): BatchMessage[] {
+  const messages: BatchMessage[] = [];
+  if (args.blocks && args.blocks.length > 0) {
+    messages.push({
+      blocks: args.blocks,
+      ...(args.table && { table: args.table }),
+      ...(args.message && { message: args.message }),
+      pathPrefix: "",
+    });
+  }
+  args.additional_messages?.forEach((msg, i) => {
+    messages.push({
+      blocks: msg.blocks,
+      ...(msg.table && { table: msg.table }),
+      pathPrefix: `additional_messages[${i}]`,
+    });
+  });
+  args.thread_replies?.forEach((msg, i) => {
+    messages.push({
+      blocks: msg.blocks,
+      ...(msg.table && { table: msg.table }),
+      pathPrefix: `thread_replies[${i}]`,
+    });
+  });
+  args.actions?.forEach((action, i) => {
+    if (action.type !== "post_to") return;
+    messages.push({
+      blocks: action.blocks,
+      ...(action.table && { table: action.table }),
+      pathPrefix: `actions[${i}]`,
+    });
+    action.additional_messages?.forEach((msg, j) => {
+      messages.push({
+        blocks: msg.blocks,
+        ...(msg.table && { table: msg.table }),
+        pathPrefix: `actions[${i}].additional_messages[${j}]`,
+      });
+    });
+    action.thread_replies?.forEach((msg, j) => {
+      messages.push({
+        blocks: msg.blocks,
+        ...(msg.table && { table: msg.table }),
+        pathPrefix: `actions[${i}].thread_replies[${j}]`,
+      });
+    });
+  });
+  return messages;
+}
+
+/**
+ * Per-message validation: block schema + table schema + length budget. Each Slack message
+ * gets its own 10,000-char budget (the Slack `chat.postMessage` text limit) — no aggregate
+ * sum across the batch. Returns a flat list of error strings, each path-prefixed.
+ *
+ * Used by the §7 aggregator to validate the primary AND each follower (`additional_messages[i]`,
+ * `thread_replies[i]`, and the analogous fields inside every `post_to` action).
+ *
+ * Exported for direct unit testing.
+ */
+export function validateSingleMessage(args: {
+  blocks: Block[];
+  table?: AuthoredTableBlock;
+  /** Optional preamble — counted toward this message's length budget. */
+  message?: string;
+  pathPrefix: string;
+  validateBlocks: typeof _validateBlocks;
+  validateTable: typeof _validateTable;
+}): string[] {
+  const errors: string[] = [];
+  const blockErrors = args.validateBlocks(args.blocks);
+  for (const e of blockErrors) {
+    errors.push(`${args.pathPrefix}${args.pathPrefix ? "." : ""}${e.field}: ${e.message}`);
+  }
+  if (args.table) {
+    const tableField = args.pathPrefix ? `${args.pathPrefix}.table` : "table";
+    const tableErrors = args.validateTable(args.table, tableField);
+    for (const e of tableErrors) {
+      errors.push(`${e.field}: ${e.message}`);
+    }
+  }
+  const { displayText } = buildTexts(args.blocks, args.message);
+  if (displayText.length > SLACK_MESSAGE_TEXT_LIMIT) {
+    const where = args.pathPrefix || "primary";
+    errors.push(
+      `${where}: response_too_long — text (${displayText.length} chars) exceeds the ${SLACK_MESSAGE_TEXT_LIMIT}-char per-message limit. Shorten this message; each message in a multi-message batch has its own budget.`,
+    );
+  }
+  return errors;
+}
+
 function recordError(recorder: ToolCallRecorder, args: unknown, errData: Record<string, unknown>) {
   recorder.record("submit_response", args as Record<string, unknown>, errData);
   return { ...textResult(errData), isError: true as const };
@@ -402,6 +711,12 @@ interface SubmitResponseSuccessResult {
   delivered?: boolean;
   blocksCount?: number;
   actionsCount?: number;
+  /**
+   * Total messages posted to Slack (primary + every follower delivered before any failure).
+   * Omitted on skip path and when no `deliver` callback is configured (test contexts).
+   * Helps Claude confirm a multi-message batch landed as expected.
+   */
+  messagesDelivered?: number;
 }
 
 function recordSuccess<TArgs extends object>(
@@ -540,27 +855,74 @@ const skippedOnlyResponseSchema = {
     ),
 };
 
-// Schema variants with post_top_level added. We build them as distinct objects rather than
-// dynamic merges so zod's type inference stays precise at the tool boundary.
-const normalResponseSchemaWithPostTopLevel = {
-  ...normalResponseSchema,
-  post_top_level: postTopLevelField,
-};
+/**
+ * Permissive union over every possible field the dynamically-composed `submit_response`
+ * schema can carry. The handler runtime-narrows via `"x" in args` everywhere, so the
+ * type only needs to expose the union of valid fields — zod's runtime parse is the
+ * source of truth for which are actually present in a given call.
+ *
+ * Used as a cast at the handler entry to recover field types after `buildSubmitResponseSchema`
+ * returns `Record<string, z.ZodTypeAny>` (which loses per-variant inference).
+ */
+interface SubmitResponseArgs {
+  message?: string;
+  blocks?: Block[];
+  table?: AuthoredTableBlock;
+  reactions?: string[];
+  actions?: Action[];
+  suppress_unfurls?: boolean;
+  skip_response?: boolean;
+  disengage?: boolean;
+  post_top_level?: boolean;
+  additional_messages?: MessagePayload[];
+  thread_replies?: MessagePayload[];
+}
 
-const disengageEnabledResponseSchemaWithPostTopLevel = {
-  ...disengageEnabledResponseSchema,
-  post_top_level: postTopLevelField,
-};
+/**
+ * Compose the input schema from the orthogonal flags on `deps`:
+ *   - allowSkip, allowDisengage, allowPostTopLevel
+ *   - submitResponseMode === "skipped" short-circuits everything else.
+ *
+ * `additional_messages` and `thread_replies` are ALWAYS exposed (not gated by trigger).
+ * The schema description tells Claude to use them only when explicitly asked —
+ * discipline is prompt-only. The configured cap on `additional_messages` is baked into
+ * the schema at build time.
+ */
+function buildSubmitResponseSchema(
+  deps: Pick<
+    SubmitResponseDeps,
+    | "submitResponseMode"
+    | "allowSkip"
+    | "allowDisengage"
+    | "allowPostTopLevel"
+    | "maxAdditionalMessages"
+  >,
+): Record<string, z.ZodTypeAny> {
+  if (deps.submitResponseMode === "skipped") {
+    return skippedOnlyResponseSchema;
+  }
 
-const skipEnabledResponseSchemaWithPostTopLevel = {
-  ...skipEnabledResponseSchema,
-  post_top_level: postTopLevelField,
-};
+  let base: Record<string, z.ZodTypeAny>;
+  if (deps.allowSkip && deps.allowDisengage) {
+    base = { ...skipEnabledResponseSchema };
+  } else if (deps.allowSkip) {
+    base = { ...skipOnlyResponseSchema };
+  } else if (deps.allowDisengage) {
+    base = { ...disengageEnabledResponseSchema };
+  } else {
+    base = { ...normalResponseSchema };
+  }
 
-const skipOnlyResponseSchemaWithPostTopLevel = {
-  ...skipOnlyResponseSchema,
-  post_top_level: postTopLevelField,
-};
+  if (deps.allowPostTopLevel) {
+    base.post_top_level = postTopLevelField;
+  }
+
+  const cap = deps.maxAdditionalMessages ?? DEFAULT_MAX_ADDITIONAL_MESSAGES;
+  base.additional_messages = buildAdditionalMessagesField(cap);
+  base.thread_replies = buildThreadRepliesField();
+
+  return base;
+}
 
 export function createSubmitResponseTool(deps: SubmitResponseDeps) {
   const {
@@ -572,10 +934,8 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
     persistSnapshot,
     topLevelDeliveryChannel,
     sessionChannelId,
-    allowSkip,
+    sessionThreadTs,
     submitResponseMode,
-    allowDisengage,
-    allowPostTopLevel,
     requiredTools,
     hasPendingInput,
     consumePendingPushedTexts,
@@ -589,23 +949,13 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
 
   const isSkippedMode = submitResponseMode === "skipped";
 
-  const schema = isSkippedMode
-    ? skippedOnlyResponseSchema
-    : allowSkip
-      ? allowDisengage
-        ? allowPostTopLevel
-          ? skipEnabledResponseSchemaWithPostTopLevel
-          : skipEnabledResponseSchema
-        : allowPostTopLevel
-          ? skipOnlyResponseSchemaWithPostTopLevel
-          : skipOnlyResponseSchema
-      : allowDisengage
-        ? allowPostTopLevel
-          ? disengageEnabledResponseSchemaWithPostTopLevel
-          : disengageEnabledResponseSchema
-        : allowPostTopLevel
-          ? normalResponseSchemaWithPostTopLevel
-          : normalResponseSchema;
+  const schema = buildSubmitResponseSchema({
+    submitResponseMode: deps.submitResponseMode,
+    allowSkip: deps.allowSkip,
+    allowDisengage: deps.allowDisengage,
+    allowPostTopLevel: deps.allowPostTopLevel,
+    maxAdditionalMessages: deps.maxAdditionalMessages,
+  });
 
   // Safety net: if the pending-input gate fires this many times in one run, bypass it on
   // the next attempt. Prevents a permanent loop if the consume callback is missing/buggy
@@ -618,7 +968,11 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
     "submit_response",
     "Submit the final response to the user. IMPORTANT: calling this tool ENDS the conversation — you cannot take any further actions afterward. If your response mentions doing something (e.g., 'Let me set that up', 'I'll create a PR'), you MUST have already called the relevant tools BEFORE calling submit_response. Never promise future actions in your response text — either do them first or don't mention them. This defines what the user sees: text sections and interactive buttons. Always call this tool to deliver your response.",
     schema,
-    async (args) => {
+    async (rawArgs) => {
+      // Cast: `buildSubmitResponseSchema` returns `Record<string, z.ZodTypeAny>`, which loses
+      // per-variant field inference. The runtime checks below (`"x" in args` + ad-hoc Array.isArray)
+      // narrow before each use; the cast just restores the field types after the runtime parse.
+      const args = rawArgs as SubmitResponseArgs;
       // --- Pending-input gate: refuse delivery while `sendUpdate` has queued user input
       // Claude hasn't observed yet. The error result inlines the queued texts so Claude
       // can address them in the current turn (the SDK only surfaces queued messages at
@@ -697,53 +1051,8 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
         });
       }
 
-      // Validate the source blocks (friendly error with field path, current length, limit).
-      const blockErrors = validateBlocks(blocks);
-      if (blockErrors.length > 0) {
-        return recordError(recorder, args, {
-          error: "invalid_blocks",
-          details: blockErrors.map((e) => `${e.field}: ${e.message}`),
-        });
-      }
-
-      // Validate the optional top-level `table` parameter.
       const table: AuthoredTableBlock | undefined =
         "table" in args && args.table ? (args.table as AuthoredTableBlock) : undefined;
-      if (table) {
-        const tableErrors = validateTable(table, "table");
-        if (tableErrors.length > 0) {
-          return recordError(recorder, args, {
-            error: "invalid_blocks",
-            details: tableErrors.map((e) => `${e.field}: ${e.message}`),
-          });
-        }
-      }
-
-      // Validate the blocks (and optional table) attached to each post_to action.
-      for (let i = 0; i < actions.length; i++) {
-        const action = actions[i];
-        if (action.type !== "post_to") continue;
-        const postToErrors = validateBlocks(action.blocks);
-        if (postToErrors.length > 0) {
-          return recordError(recorder, args, {
-            error: "invalid_blocks",
-            details: postToErrors.map((e) => `actions[${i}].${e.field}: ${e.message}`),
-          });
-        }
-        if (action.table) {
-          const postToTableErrors = validateTable(
-            action.table as AuthoredTableBlock,
-            `actions[${i}].table`,
-          );
-          if (postToTableErrors.length > 0) {
-            return recordError(recorder, args, {
-              error: "invalid_blocks",
-              details: postToTableErrors.map((e) => `${e.field}: ${e.message}`),
-            });
-          }
-        }
-      }
-
       const wantsPostTopLevel = "post_top_level" in args && args.post_top_level === true;
 
       // When the response itself is posted top-level to the session's channel, guard against
@@ -751,19 +1060,47 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
       const effectiveTopLevelChannel =
         topLevelDeliveryChannel ?? (wantsPostTopLevel ? sessionChannelId : undefined);
 
-      const refError = validateRefActions(actions, intentStore);
-      if (refError) {
-        return recordError(recorder, args, { error: refError });
+      // --- §7 collect-all aggregator: every validation error in the batch goes into one
+      // `details: string[]` so Claude can fix everything in a single retry instead of
+      // per-error round-trips. The earlier early-return gates (pending-input, required-tools,
+      // skip path) are NOT part of this — they're pre-validation handler-level gates.
+
+      const errors: string[] = [];
+
+      // Per-message validation: blocks, table, length budget. Each message gets its own
+      // 10,000-char budget — no aggregate sum across the batch.
+      const batchMessages = enumerateBatchMessages(args);
+      for (const m of batchMessages) {
+        errors.push(
+          ...validateSingleMessage({
+            blocks: m.blocks,
+            ...(m.table && { table: m.table }),
+            ...(m.message && { message: m.message }),
+            pathPrefix: m.pathPrefix,
+            validateBlocks,
+            validateTable,
+          }),
+        );
       }
 
-      const postToError = validatePostToActions(actions, effectiveTopLevelChannel);
-      if (postToError) {
-        return recordError(recorder, args, { error: postToError });
-      }
+      // Walk the full batch once — primary actions plus every follower's actions, descending
+      // into post_to subtrees. The same FlatAction[] feeds every batch-wide validator.
+      const flatActions = walkBatchActions(args);
+      errors.push(...validateRefActions(flatActions, intentStore));
+      errors.push(...validatePostToActions(flatActions, effectiveTopLevelChannel));
+      const intentCoverageError = validateStagedIntentsCoverage(flatActions, intentStore);
+      if (intentCoverageError) errors.push(intentCoverageError);
 
-      const intentCoverageError = validateStagedIntentsCoverage(actions, intentStore);
-      if (intentCoverageError) {
-        return recordError(recorder, args, { error: intentCoverageError });
+      if (errors.length > 0) {
+        // Preserve backward-compatible error shape when there's a single error: surface it
+        // directly in `error` (matches today's "error contains the human-readable message"
+        // contract). For multi-error batches, use `error: "invalid_batch"` and put every
+        // path-prefixed error in `details`. Documented in design.md decision 5 / task 7.2.
+        return recordError(
+          recorder,
+          args,
+          errors.length === 1 ? { error: errors[0] } : { error: "invalid_batch", details: errors },
+        );
       }
 
       const message = "message" in args ? args.message : undefined;
@@ -772,17 +1109,9 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
         blocks,
         ...(table && { table }),
         actions,
+        ...(args.additional_messages && { additionalMessages: args.additional_messages }),
+        ...(args.thread_replies && { threadReplies: args.thread_replies }),
       };
-
-      const { displayText } = buildTexts(blocks, message);
-
-      const SLACK_MESSAGE_TEXT_LIMIT = 10000;
-      if (displayText.length > SLACK_MESSAGE_TEXT_LIMIT) {
-        return recordError(recorder, args, {
-          error: "response_too_long",
-          details: `Total response text (${displayText.length} chars) exceeds the ${SLACK_MESSAGE_TEXT_LIMIT}-char limit. Significantly shorten your answer — summarize key points and offer followup actions to expand on specific areas.`,
-        });
-      }
 
       // Persist per-button blocks (and any table/actions/reactions) for each post_to action
       // so the deferred button-click delivery can replay them after an arbitrary delay.
@@ -799,6 +1128,14 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
               ...(action.reactions &&
                 action.reactions.length > 0 && { reactions: action.reactions }),
               ...(action.suppress_unfurls === true && { suppressUnfurls: true }),
+              ...(action.additional_messages &&
+                action.additional_messages.length > 0 && {
+                  additional_messages: action.additional_messages,
+                }),
+              ...(action.thread_replies &&
+                action.thread_replies.length > 0 && {
+                  thread_replies: action.thread_replies,
+                }),
             });
             action._snapshotId = snapshotId;
           }
@@ -851,6 +1188,16 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
 
       const wantsSuppressUnfurls = "suppress_unfurls" in args && args.suppress_unfurls === true;
 
+      // --- Sequential delivery: primary first (consumes the streamer), then every follower
+      // via plain chat.postMessage:
+      //   - additional_messages: each as a separate TOP-LEVEL channel message (no thread_ts).
+      //   - thread_replies: threaded replies — under primary.ts when primary is top-level,
+      //     otherwise in the session's existing thread.
+      // Followers bypass the `alreadyDelivered` guard inside `DeliverFn` so the primary's
+      // streamer consumption doesn't block them.
+      let messagesDelivered = 0;
+      let primaryTs: string | undefined;
+
       if (deliver) {
         const deliveryResult = await deliver({
           blocks: renderedBlocks,
@@ -862,8 +1209,68 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
         if (!deliveryResult.ok) {
           return recordError(recorder, args, {
             error: "delivery_failed",
-            details: deliveryResult.error,
+            details: `primary: ${deliveryResult.error}`,
           });
+        }
+        messagesDelivered = 1;
+        primaryTs = deliveryResult.ts;
+
+        // Follower delivery mode: top-level (no thread_ts) for additional_messages,
+        // threaded (thread_ts set) for thread_replies.
+        type FollowerEntry =
+          | { msg: MessagePayload; mode: "topLevel"; path: string }
+          | { msg: MessagePayload; mode: "thread"; threadTs: string; path: string };
+        const followers: FollowerEntry[] = [];
+
+        if (args.additional_messages) {
+          args.additional_messages.forEach((msg, i) => {
+            followers.push({ msg, mode: "topLevel", path: `additional_messages[${i}]` });
+          });
+        }
+        if (args.thread_replies) {
+          // Thread context: primary's ts when posted top-level; otherwise the session's
+          // existing thread. If neither, fall back to primaryTs (still puts them in a thread).
+          const replyThreadTs = wantsPostTopLevel ? primaryTs : (sessionThreadTs ?? primaryTs);
+          if (replyThreadTs) {
+            args.thread_replies.forEach((msg, i) => {
+              followers.push({
+                msg,
+                mode: "thread",
+                threadTs: replyThreadTs,
+                path: `thread_replies[${i}]`,
+              });
+            });
+          }
+        }
+
+        for (const follower of followers) {
+          // Render this follower's blocks + actions through the same renderer as the
+          // primary. The renderer accepts a SubmitResponsePayload shape — followers
+          // have no `message` preamble and may have no actions.
+          const followerPayload: SubmitResponsePayload = {
+            blocks: follower.msg.blocks,
+            ...(follower.msg.table && { table: follower.msg.table }),
+            actions: follower.msg.actions ?? [],
+          };
+          const followerRendered = getStructuredResponseBlocks(followerPayload, sessionId);
+          const followerResult = await deliver({
+            blocks: followerRendered,
+            ...(follower.msg.reactions?.length && { reactions: follower.msg.reactions }),
+            ...(follower.mode === "thread"
+              ? { threadTs: follower.threadTs }
+              : { postTopLevel: true }),
+            ...(wantsSuppressUnfurls && { suppressUnfurls: true }),
+          });
+          if (!followerResult.ok) {
+            // Validation-atomic, not delivery-atomic: stop the batch and report which message
+            // failed. Already-posted messages stay — Claude can recover on the next turn.
+            return recordError(recorder, args, {
+              error: "delivery_failed",
+              details: `${follower.path}: ${followerResult.error}`,
+              messagesDelivered,
+            });
+          }
+          messagesDelivered++;
         }
       }
 
@@ -882,6 +1289,7 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
         delivered: !!deliver,
         blocksCount: blocks.length,
         actionsCount: actions.length,
+        ...(messagesDelivered > 0 && { messagesDelivered }),
         ...(wantsDisengage && { disengaged: true as const }),
         ...(wantsPostTopLevel && { postedTopLevel: true as const }),
       };

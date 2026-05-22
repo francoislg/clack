@@ -195,6 +195,12 @@ async function buildQuerySetup(
     config.skillPlugins,
   );
 
+  // Multi-message support (additional_messages = top-level channel posts;
+  // thread_replies = threaded replies) is ALWAYS exposed in the schema — Claude is
+  // disciplined by the field descriptions to use them only when the user explicitly
+  // asks for multiple messages. The configured cap (default 5) is passed through.
+  const maxAdditionalMessages = config.submitResponse?.maxAdditionalMessages;
+
   const toolCtx = buildQueryContext({
     userId: session.userId,
     role: options?.role ?? "member",
@@ -209,6 +215,7 @@ async function buildQuerySetup(
     requiredTools: options?.requiredTools,
     skipConditions: options?.skipConditions,
     submitResponseMode: options?.submitResponseMode,
+    ...(maxAdditionalMessages !== undefined && { maxAdditionalMessages }),
     asOf: options?.asOf,
     mcpManager: mcpSetup.manager,
     skillsManager,

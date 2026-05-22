@@ -15,10 +15,11 @@ import {
   decodeActionValue,
   asSlackBlocks,
 } from "../blocks.js";
-import type { Block } from "../blockSchema.js";
+import type { AuthoredTableBlock, Block } from "../blockSchema.js";
 import type { SectionBlock } from "@slack/types";
 import { addDeliveryReactions } from "../messageReactions.js";
 import { unfurlOptions } from "../unfurlOptions.js";
+import { extractDisplayText } from "../blockText.js";
 
 /** Fallback for callers that only have a plain-text answer (no structured blocks). */
 function textToBlocks(text: string): Block[] {
@@ -149,7 +150,67 @@ export async function postAnswerToChannel(
     );
   }
 
+  // Replay multi-message followers persisted on the snapshot. Mirrors the submit_response
+  // delivery semantics:
+  //  - `additional_messages` are separate TOP-LEVEL channel messages (no thread_ts) in the
+  //    same target channel as the primary cross-post.
+  //  - `thread_replies` are replies threaded under the primary cross-post (`ts` returned above).
+  const additional = snapshot.additional_messages ?? [];
+  const replies = snapshot.thread_replies ?? [];
+  for (const msg of additional) {
+    await deliverFollower(client, opts.sessionId, msg, {
+      channel: targetChannel,
+      threadTs: undefined, // top-level channel post
+      suppressUnfurls,
+      deps,
+    });
+  }
+  if (replies.length > 0 && ts) {
+    for (const msg of replies) {
+      await deliverFollower(client, opts.sessionId, msg, {
+        channel: targetChannel,
+        threadTs: ts, // threaded under primary's ts
+        suppressUnfurls,
+        deps,
+      });
+    }
+  }
+
   return { ok: true, ts };
+}
+
+/** Render and post one follower message in a post_to batch. */
+async function deliverFollower(
+  client: App["client"],
+  sessionId: string | undefined,
+  msg: { blocks: Block[]; table?: AuthoredTableBlock; actions?: Action[]; reactions?: string[] },
+  ctx: {
+    channel: string;
+    /** When set: posted as thread reply. When undefined: posted as top-level channel message. */
+    threadTs: string | undefined;
+    suppressUnfurls?: boolean;
+    deps: DmActionsDeps;
+  },
+): Promise<void> {
+  const contentBlocks = ctx.deps.getStructuredAcceptedBlocks(msg.blocks, msg.table);
+  const renderedActionBlocks =
+    msg.actions && msg.actions.length > 0 && sessionId
+      ? getResponseActionBlocks(msg.actions, sessionId)
+      : [];
+  const followerText = extractDisplayText(msg.blocks);
+  const followerResult = await client.chat.postMessage({
+    channel: ctx.channel,
+    ...(ctx.threadTs ? { thread_ts: ctx.threadTs } : {}),
+    blocks: ctx.deps.asSlackBlocks([...contentBlocks, ...renderedActionBlocks]),
+    text: followerText,
+    ...unfurlOptions(ctx.suppressUnfurls),
+  });
+  const followerTs = followerResult.ts ?? undefined;
+  if (followerTs && msg.reactions && msg.reactions.length > 0) {
+    addDeliveryReactions(client, ctx.channel, followerTs, msg.reactions).catch((err) =>
+      logger.warn(`addDeliveryReactions threw: ${err}`),
+    );
+  }
 }
 
 /** Resolve originChannel and originThreadTs from session + sessionInfo. */

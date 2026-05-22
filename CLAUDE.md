@@ -62,6 +62,7 @@ Claude is given a local MCP server (built in `src/tools/server.ts`). Key rules:
 - Claude **must** call `submit_response` to deliver answers — it cannot just print text
 - Action tools (`propose_change`, `request_update`, etc.) stage intents that become Slack buttons
 - Worker tools (`git_push`, `ensure_pr`, etc.) are only available in the Changes Workflow
+- **Multi-message responses** — `submit_response` accepts optional `additional_messages` (each posted as a **separate top-level channel message** alongside the primary) and `thread_replies` (each posted as a **threaded reply** under the primary's ts when posted top-level, otherwise in the existing thread). Same fields exist on every `post_to` action (cross-posted equivalents). **Both fields are always available in the schema in every trigger context** — discipline is prompt-only: Claude is instructed to use them ONLY when the user explicitly asks for multiple messages. Cap on `additional_messages` is configurable via `submitResponse.maxAdditionalMessages` (default 5, range `[1, 10]`); `thread_replies` capped at a fixed 20.
 
 Query tools (role-gated):
 

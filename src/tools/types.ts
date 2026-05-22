@@ -58,6 +58,15 @@ export type DeliverFn = (opts: {
    * `suppress_unfurls` field.
    */
   suppressUnfurls?: boolean;
+  /**
+   * Explicit thread timestamp for follow-up messages in a multi-message batch.
+   * `additional_messages` siblings carry the session's existing thread ts; `thread_replies`
+   * carry the primary's returned ts (used when `postTopLevel: true`). When set, the
+   * implementation posts via `chat.postMessage` with this `thread_ts` and does NOT touch
+   * the streamer — the primary delivery already consumed it. Takes precedence over
+   * `postTopLevel` (a non-empty thread target always wins).
+   */
+  threadTs?: string;
 }) => Promise<{ ok: true; ts?: string } | { ok: false; error: string }>;
 
 // ============================================================================
@@ -106,6 +115,12 @@ export interface QueryToolContext {
    * cron job through the scheduler → handler → tool-server build context chain.
    */
   submitResponseMode?: "always" | "optional" | "skipped";
+  /**
+   * Per-installation cap on `additional_messages.length`. Sourced from
+   * `config.submitResponse.maxAdditionalMessages` (default 5, valid [1, 10]). Applied at
+   * the top level and inside every `post_to` action.
+   */
+  maxAdditionalMessages?: number;
   /**
    * Effective "now" for time-sensitive tools. Populated by `cronScheduler.executeJob` during
    * replay (the same `asOf` parameter that drives the system prompt's REPLAY CONTEXT block).
@@ -265,6 +280,17 @@ export interface ResponseSnapshot {
    * from the `post_to` action's `suppress_unfurls` field at snapshot time.
    */
   suppressUnfurls?: boolean;
+  /**
+   * Optional sibling messages persisted alongside the primary. Replayed by the
+   * button-click and auto-execute delivery paths after the primary lands, using
+   * the post_to's `thread_ts` as the shared thread context.
+   */
+  additional_messages?: MessagePayload[];
+  /**
+   * Optional reply messages persisted alongside the primary. Replayed under the
+   * primary's returned `ts` (the post_to lands top-level; replies thread under it).
+   */
+  thread_replies?: MessagePayload[];
 }
 
 // Continuation actions
@@ -321,6 +347,18 @@ export interface PostToAction {
    * button-click path can replay it.
    */
   suppress_unfurls?: boolean;
+  /**
+   * Optional sibling messages posted in the same thread as this post_to's primary.
+   * Requires `thread_ts` to be set on this action (siblings need a shared thread
+   * context). Capped per-installation by `submitResponse.maxAdditionalMessages`.
+   */
+  additional_messages?: MessagePayload[];
+  /**
+   * Optional replies posted under this post_to's own message timestamp. Requires
+   * `thread_ts` to be ABSENT on this action (the post_to itself must land
+   * top-level so replies can thread under it). Capped at 20.
+   */
+  thread_replies?: MessagePayload[];
   /** Internal: resolved content entry ID set by submit_response before delivery (not from Claude) */
   _snapshotId?: string;
 }
@@ -356,6 +394,19 @@ export type Action =
 
 export type ActionType = Action["type"];
 
+/**
+ * Shape of a single follow-up message inside `additional_messages` / `thread_replies`
+ * (both at the top level of `submit_response` and inside a `post_to` action). Same
+ * surface as the primary message minus the session-level signals (`message`,
+ * `post_top_level`, `disengage`, `skip_response`) that only make sense once per call.
+ */
+export interface MessagePayload {
+  blocks: Block[];
+  table?: AuthoredTableBlock;
+  actions?: Action[];
+  reactions?: string[];
+}
+
 export interface SubmitResponsePayload {
   /** Conversational preamble shown to user but excluded from snapshots and post_to */
   message?: string;
@@ -373,6 +424,17 @@ export interface SubmitResponsePayload {
    */
   table?: AuthoredTableBlock;
   actions: Action[];
+  /**
+   * Sibling messages posted in the same thread as the primary. Only present when
+   * the run's deps set `allowMultiMessage: true` (today, scheduled-trigger only).
+   * Mutually exclusive with `threadReplies`. Bounded by `submitResponse.maxAdditionalMessages`.
+   */
+  additionalMessages?: MessagePayload[];
+  /**
+   * Replies posted under the primary top-level message. Only valid when the primary
+   * was delivered with `post_top_level: true`. Bounded by a fixed sanity ceiling of 20.
+   */
+  threadReplies?: MessagePayload[];
 }
 
 // ============================================================================
