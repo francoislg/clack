@@ -26,6 +26,11 @@ export interface BuildQueryContextParams {
    */
   submitResponseMode?: "always" | "optional" | "skipped";
   /**
+   * Per-installation cap on `additional_messages.length`. Sourced from
+   * `config.submitResponse.maxAdditionalMessages` (default 5, range [1, 10]).
+   */
+  maxAdditionalMessages?: number;
+  /**
    * Effective "now" for time-sensitive tools. Populated by the cron scheduler during replay
    * runs. Real wall-clock `Date.now()` is used by tools when absent.
    */

@@ -16,6 +16,7 @@ import {
   getConfig,
   getTaskCardMaxDetails,
   DEFAULT_TASK_CARD_MAX_DETAILS,
+  DEFAULT_MAX_ADDITIONAL_MESSAGES,
   type Config,
   type RepositoryConfig,
 } from "./config.js";
@@ -1709,6 +1710,93 @@ describe("language config", () => {
     assert.throws(
       () => loadConfig(configPath, true),
       (err: unknown) => err instanceof Error && err.message.includes("language"),
+    );
+  });
+});
+
+describe("submitResponse config", () => {
+  beforeEach(() => {
+    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true });
+    mkdirSync(tmpBase, { recursive: true });
+    process.chdir(tmpBase);
+    writeSlackAuth();
+  });
+
+  afterEach(() => {
+    process.chdir(resolve(tmpBase, ".."));
+    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true });
+  });
+
+  it("defaults maxAdditionalMessages to 5 when the section is absent", () => {
+    writeConfig(minimalConfig());
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.submitResponse?.maxAdditionalMessages, DEFAULT_MAX_ADDITIONAL_MESSAGES);
+    assert.equal(DEFAULT_MAX_ADDITIONAL_MESSAGES, 5);
+  });
+
+  it("defaults maxAdditionalMessages to 5 when the section is empty", () => {
+    writeConfig(minimalConfig({ submitResponse: {} }));
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.submitResponse?.maxAdditionalMessages, DEFAULT_MAX_ADDITIONAL_MESSAGES);
+  });
+
+  it("accepts a valid in-range integer (3)", () => {
+    writeConfig(minimalConfig({ submitResponse: { maxAdditionalMessages: 3 } }));
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.submitResponse?.maxAdditionalMessages, 3);
+  });
+
+  it("accepts the boundary value 1", () => {
+    writeConfig(minimalConfig({ submitResponse: { maxAdditionalMessages: 1 } }));
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.submitResponse?.maxAdditionalMessages, 1);
+  });
+
+  it("accepts the boundary value 10", () => {
+    writeConfig(minimalConfig({ submitResponse: { maxAdditionalMessages: 10 } }));
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.submitResponse?.maxAdditionalMessages, 10);
+  });
+
+  it("rejects 0 (below range)", () => {
+    writeConfig(minimalConfig({ submitResponse: { maxAdditionalMessages: 0 } }));
+    assert.throws(
+      () => loadConfig(configPath, true),
+      (err: unknown) =>
+        err instanceof Error && err.message.includes("submitResponse.maxAdditionalMessages"),
+    );
+  });
+
+  it("rejects 11 (above range)", () => {
+    writeConfig(minimalConfig({ submitResponse: { maxAdditionalMessages: 11 } }));
+    assert.throws(
+      () => loadConfig(configPath, true),
+      (err: unknown) =>
+        err instanceof Error && err.message.includes("submitResponse.maxAdditionalMessages"),
+    );
+  });
+
+  it("rejects a non-integer (4.5)", () => {
+    writeConfig(minimalConfig({ submitResponse: { maxAdditionalMessages: 4.5 } }));
+    assert.throws(
+      () => loadConfig(configPath, true),
+      (err: unknown) => err instanceof Error && err.message.includes("integer"),
+    );
+  });
+
+  it("rejects a string value", () => {
+    writeConfig(minimalConfig({ submitResponse: { maxAdditionalMessages: "five" } }));
+    assert.throws(
+      () => loadConfig(configPath, true),
+      (err: unknown) => err instanceof Error && err.message.includes("integer"),
+    );
+  });
+
+  it("rejects a non-object submitResponse section", () => {
+    writeConfig(minimalConfig({ submitResponse: "nope" }));
+    assert.throws(
+      () => loadConfig(configPath, true),
+      (err: unknown) => err instanceof Error && err.message.includes("submitResponse"),
     );
   });
 });

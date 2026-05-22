@@ -477,6 +477,16 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
       allowSkip: computeAllowSkip(triggerType, ctx.skipConditions, ctx.submitResponseMode),
       allowDisengage: shouldAllowDisengage(triggerType),
       allowPostTopLevel: shouldAllowPostTopLevel(triggerType),
+      // Cap on additional_messages.length at every layer (top-level and inside post_to).
+      // Sourced from config.submitResponse.maxAdditionalMessages. Falls back to the schema's
+      // built-in default when absent (e.g., tests that build deps directly).
+      ...(ctx.maxAdditionalMessages !== undefined && {
+        maxAdditionalMessages: ctx.maxAdditionalMessages,
+      }),
+      // Thread context for thread_replies delivery when the primary is not posted top-level
+      // (replies go in the existing thread). Not used by additional_messages, which are
+      // always top-level channel posts.
+      ...(ctx.session.threadTs && { sessionThreadTs: ctx.session.threadTs }),
       ...(ctx.submitResponseMode ? { submitResponseMode: ctx.submitResponseMode } : {}),
       requiredTools: ctx.requiredTools,
       ...(ctx.hasPendingInput && { hasPendingInput: ctx.hasPendingInput }),

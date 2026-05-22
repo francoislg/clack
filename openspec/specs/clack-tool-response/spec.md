@@ -892,3 +892,313 @@ The `submit_response` tool SHALL accept an optional top-level `table` parameter,
 - **THEN** the cross-posted message receives the `blocks` argument unchanged (no table appended)
 - **AND** the snapshot stores no `table` field
 
+### Requirement: Multi-Message Fields Always Available
+
+The `submit_response` tool SHALL expose two optional fields, `additional_messages` and `thread_replies`, on the top-level schema in EVERY trigger context (DM, @mention, reaction, auto-respond, scheduled, worker mode). The fields are NOT gated by trigger type or by any deps flag. Discipline is enforced solely by the schema field descriptions, which instruct Claude to use them ONLY when the user explicitly asks for multiple messages.
+
+#### Scenario: Every trigger exposes both fields
+
+- **GIVEN** a `submit_response` tool built for any trigger context
+- **WHEN** the tool's input schema is inspected
+- **THEN** the schema contains both `additional_messages` and `thread_replies` as optional fields
+- **AND** their descriptions begin with "ONLY use when the user explicitly asks for multiple messages"
+
+#### Scenario: Discipline is prompt-only
+
+- **WHEN** Claude is invoked without an explicit user request for multiple messages
+- **THEN** Claude SHALL default to a single response in `blocks` (the field descriptions teach this)
+- **AND** the schema does NOT structurally prevent multi-message usage — operators rely on Claude honoring the description
+
+### Requirement: Multi-Message Inside post_to
+
+The `post_to` action SHALL accept the same `additional_messages` and `thread_replies` optional fields as the top-level surface, with the same shape and caps. These fields SHALL behave identically to the top-level fields: `additional_messages` are each delivered as a separate top-level channel message to the post_to's target channel; `thread_replies` are each delivered as a thread reply under the post_to's cross-posted message ts. The fields are available on every `post_to` action regardless of trigger context.
+
+#### Scenario: post_to in any trigger context can carry followers
+
+- **GIVEN** a session in any trigger context (e.g., a DM)
+- **WHEN** Claude calls `submit_response` with a `post_to` action that includes `additional_messages: [...]`
+- **THEN** the schema accepts the `additional_messages` inside `post_to`
+- **AND** validation, snapshot persistence, and delivery proceed for the post_to batch
+
+#### Scenario: post_to additional_messages are independent top-level posts
+
+- **WHEN** a `post_to` action with `additional_messages` is delivered (via auto-execute or button click)
+- **THEN** the primary cross-post lands per the post_to's `channel`/`thread_ts` rules
+- **AND** each `additional_messages[i]` is posted to the same `channel` as a separate top-level message (no `thread_ts`), regardless of the post_to's own `thread_ts`
+
+#### Scenario: post_to thread_replies thread under the cross-post
+
+- **WHEN** a `post_to` action with `thread_replies` is delivered
+- **THEN** the primary cross-post returns a `ts`
+- **AND** each `thread_replies[i]` is posted with `thread_ts` equal to that returned `ts`
+
+### Requirement: Configurable additional_messages Cap
+
+The system SHALL accept an optional `submitResponse.maxAdditionalMessages: number` field in `config.json`, default `5`, validated at boot to integer range `[1, 10]` inclusive. The validated value SHALL be threaded through `QueryToolContext` and `SubmitResponseDeps` and used as the upper bound on the length of any `additional_messages` array — at the top level (when allowed) and inside every `post_to` action.
+
+#### Scenario: Config absent defaults to 5
+
+- **WHEN** `config.json` has no `submitResponse` section, OR has `submitResponse: {}` without `maxAdditionalMessages`
+- **THEN** the parsed config carries `maxAdditionalMessages: 5`
+- **AND** the field flows through to `SubmitResponseDeps.maxAdditionalMessages`
+
+#### Scenario: Config value within range is accepted
+
+- **WHEN** `config.json` has `submitResponse: { maxAdditionalMessages: 3 }`
+- **THEN** `loadConfig` accepts the value
+- **AND** the schema cap on `additional_messages` becomes 3 at every layer
+
+#### Scenario: Config value below range is rejected at boot
+
+- **WHEN** `config.json` has `submitResponse: { maxAdditionalMessages: 0 }`
+- **THEN** `loadConfig` throws an error identifying the path and the valid range `[1, 10]`
+
+#### Scenario: Config value above range is rejected at boot
+
+- **WHEN** `config.json` has `submitResponse: { maxAdditionalMessages: 11 }`
+- **THEN** `loadConfig` throws an error identifying the path and the valid range `[1, 10]`
+
+#### Scenario: Non-integer config value is rejected
+
+- **WHEN** `config.json` has `submitResponse: { maxAdditionalMessages: 4.5 }`
+- **THEN** `loadConfig` throws an error stating the value must be an integer
+
+#### Scenario: additional_messages exceeding configured cap is rejected
+
+- **GIVEN** `maxAdditionalMessages: 3`
+- **WHEN** Claude calls `submit_response` with `additional_messages` of length 4
+- **THEN** the schema parse rejects with a zod "array too long" error naming the field path and the cap (since `additional_messages` uses `z.array(...).max(cap)` with the configured value)
+- **AND** delivery is NOT attempted
+
+#### Scenario: post_to.additional_messages uses the same configured cap
+
+- **GIVEN** `maxAdditionalMessages: 3`
+- **WHEN** Claude calls `submit_response` with a `post_to` action whose `additional_messages` has length 5
+- **THEN** the schema parse rejects with a zod "array too long" error naming the action path
+
+### Requirement: thread_replies Sanity Ceiling
+
+The number of entries in any `thread_replies` array — at the top level (when allowed) and inside `post_to` actions — SHALL be bounded by a fixed sanity ceiling of `20`. This ceiling is NOT configurable and is enforced at the schema level (via `z.array(...).max(20)`).
+
+#### Scenario: thread_replies up to 20 entries is accepted
+
+- **WHEN** Claude calls `submit_response` (or a `post_to`) with `thread_replies` of length 20
+- **THEN** the schema parse succeeds
+- **AND** the batch validation proceeds (other gates may still reject for other reasons)
+
+#### Scenario: thread_replies exceeding 20 entries is rejected
+
+- **WHEN** Claude calls `submit_response` (or a `post_to`) with `thread_replies` of length 21
+- **THEN** the schema parse rejects with the standard zod "array too long" error naming the field path and the 20-entry maximum
+- **AND** delivery is NOT attempted
+
+### Requirement: Per-Message Payload Shape
+
+Each entry in `additional_messages`, `thread_replies`, `post_to.additional_messages`, and `post_to.thread_replies` SHALL be a `MessagePayload` object with the following shape: `blocks: Block[]` (required, at least one), `table?: TableBlock`, `actions?: Action[]`, `reactions?: string[]`. The fields `message`, `post_top_level`, `disengage`, `skip_response`, and `suppress_unfurls` SHALL NOT be present on `MessagePayload` — they are session-level signals carried only on the primary `submit_response` payload. `MessagePayload` is defined as a strict (`.strict()`) zod object so unknown keys produce an "unrecognized key" error at the schema boundary.
+
+#### Scenario: MessagePayload accepts blocks plus optional fields
+
+- **WHEN** an `additional_messages[i]` entry has `{ blocks, table, actions, reactions }`
+- **THEN** the schema accepts the entry
+- **AND** each optional field is validated by the same validators that handle the corresponding primary-level field
+
+#### Scenario: MessagePayload rejects primary-only fields
+
+- **WHEN** an `additional_messages[i]` entry includes `message`, `post_top_level`, `disengage`, or `skip_response`
+- **THEN** zod rejects with an "unrecognized key" error naming the offending field and the entry index
+
+#### Scenario: MessagePayload requires non-empty blocks
+
+- **WHEN** an `additional_messages[i]` entry has `blocks: []`
+- **THEN** zod rejects with the standard "array too short" error naming the field path and the minimum of 1
+
+### Requirement: Atomic Batch Validation With Aggregated Errors
+
+The `submit_response` tool SHALL validate every gate across the whole batch — primary, every `additional_messages` entry, every `thread_replies` entry, every `post_to` and its own `additional_messages` / `thread_replies` entries — collecting ALL errors before deciding to deliver. If any error exists, the entire batch SHALL be refused. For a single error, the tool SHALL return `{ error: "<the error message>" }` (backward-compatible with existing per-error tags). For multiple errors, the tool SHALL return `{ error: "invalid_batch", details: string[] }` where each entry in `details` carries a path identifying the offending location (e.g., `additional_messages[1].blocks[0].text`). No partial delivery SHALL occur.
+
+#### Scenario: All-valid batch passes validation
+
+- **WHEN** every block, table, label, ref, intent-coverage, and length gate passes across the primary and all followers
+- **THEN** validation produces no errors
+- **AND** the tool proceeds to sequential delivery
+
+#### Scenario: Single error in primary refuses whole batch
+
+- **WHEN** the primary has a 200-char `header.text` (exceeds 150-char limit) and all followers are valid
+- **THEN** the tool returns `{ error: "<field>: <message>" }` carrying the primary's error directly
+- **AND** does NOT call `deliver` for any message
+
+#### Scenario: Single error in a follower refuses whole batch
+
+- **WHEN** the primary is valid but `additional_messages[1]` has an invalid block
+- **THEN** the tool returns `{ error: "additional_messages[1].<field>: <message>" }`
+- **AND** delivery is NOT attempted for any message
+
+#### Scenario: Multiple errors across batch returned together
+
+- **WHEN** the primary has an oversize header AND `additional_messages[0]` has an invalid block AND `thread_replies[2].actions[0].ref` is unknown
+- **THEN** the result is `{ error: "invalid_batch", details: [...] }`, with `details` containing a separate entry for EACH error, each with its own path
+- **AND** no partial delivery occurs
+- **AND** Claude can fix all issues in a single retry
+
+#### Scenario: Ref-coverage walks the full batch
+
+- **GIVEN** Claude staged a `propose_change` intent (ref X) earlier in the run
+- **WHEN** Claude places the change action inside `thread_replies[0].actions[1]` and nowhere else
+- **THEN** `validateStagedIntentsCoverage` accepts the response (the intent is covered by a thread reply)
+- **AND** delivery proceeds
+
+#### Scenario: post_to duplicate-channel guard sees the full batch
+
+- **WHEN** Claude calls `submit_response` with `post_top_level: true` (delivering primary to channel `C_SESSION`) AND a `post_to` action with `channel: "C_SESSION"` and no `thread_ts` is placed inside `thread_replies[0].actions[0]`
+- **THEN** `validatePostToActions` walks all batch levels and detects the duplicate
+- **AND** returns an error pathed to `thread_replies[0].actions[0]`
+
+#### Scenario: Length limit applies per message
+
+- **GIVEN** the 10,000-char Slack message text limit
+- **WHEN** the primary's displayed text is 9,500 chars AND `additional_messages[0]`'s displayed text is also 9,500 chars
+- **THEN** both messages independently pass the length gate
+- **AND** the sum is NOT checked against the limit (each Slack message gets its own budget)
+
+### Requirement: Sequential Batch Delivery
+
+After all validation passes, the tool SHALL deliver messages sequentially in the order: primary first, then each `additional_messages[i]` in order, then each `thread_replies[i]` in order. The streamer (thinking indicator) SHALL be consumed exactly once, by the primary delivery. Each follower message SHALL be delivered via the same `DeliverFn`:
+
+- `additional_messages[i]` SHALL be delivered as a **separate top-level channel message** (no `thread_ts`), via `deliver({ ..., postTopLevel: true })`. The follower-delivery path inside `DeliverFn` bypasses the `alreadyDelivered` guard so multiple top-level posts in one batch are allowed.
+- `thread_replies[i]` SHALL be delivered as a **threaded reply** via `deliver({ ..., threadTs })`. The thread context is the primary's returned `ts` when the primary was posted top-level, otherwise the session's existing thread `ts` (with fallback to the primary's `ts` if the session thread ts isn't wired).
+
+If a mid-batch Slack delivery fails, the tool SHALL return `{ error: "delivery_failed", details: "<path>: <reason>", messagesDelivered: <count> }` to Claude and stop the batch — already-posted messages remain (no rollback).
+
+#### Scenario: Primary consumes the streamer; followers post via chat.postMessage
+
+- **GIVEN** a thinking-indicator streamer is active in the thread
+- **WHEN** the tool delivers a batch of primary + 2 `additional_messages`
+- **THEN** the streamer is consumed exactly once (during primary delivery)
+- **AND** the primary is posted at the streamer's position
+- **AND** each follower is posted via `chat.postMessage` without streamer interaction
+
+#### Scenario: additional_messages each post top-level to the channel
+
+- **GIVEN** the session is processing any trigger (DM, @mention, scheduled, etc.) and Claude submits `additional_messages: [m1, m2]`
+- **WHEN** the tool delivers the batch
+- **THEN** the primary is delivered through the existing path for its trigger context
+- **AND** `m1` and `m2` are each delivered with `postTopLevel: true` (no `thread_ts`) so each lands as a separate top-level channel message in the session's target channel
+
+#### Scenario: thread_replies use primary's ts as thread_ts when posted top-level
+
+- **GIVEN** `post_top_level: true` and `thread_replies: [m1, m2]`
+- **WHEN** the primary is delivered top-level and returns `ts: "1234.5678"`
+- **THEN** `m1` is delivered with `threadTs: "1234.5678"`
+- **AND** `m2` is delivered with `threadTs: "1234.5678"`
+
+#### Scenario: thread_replies use the existing thread ts when primary is a thread reply
+
+- **GIVEN** the session is processing a thread reply (existing thread ts `9999.1111`) and Claude submits `thread_replies: [m1, m2]` without `post_top_level`
+- **WHEN** the tool delivers the batch
+- **THEN** the primary is delivered as a thread reply to `9999.1111`
+- **AND** `m1` and `m2` are each delivered with `threadTs: "9999.1111"`
+
+#### Scenario: Mid-batch delivery failure stops the batch
+
+- **WHEN** the primary delivers successfully but the second `additional_messages` call returns `{ ok: false, error: "channel_archived" }`
+- **THEN** the tool returns `{ error: "delivery_failed", details: "additional_messages[1]: channel_archived", messagesDelivered: 2 }`
+- **AND** does NOT attempt to deliver later messages in the batch
+- **AND** does NOT attempt to delete the already-posted primary or `additional_messages[0]`
+
+#### Scenario: Success result reports delivered counts
+
+- **WHEN** a batch of primary + 3 `additional_messages` delivers successfully
+- **THEN** the tool's success result includes `messagesDelivered: 4` so Claude sees confirmation
+- **AND** the result also includes the existing `blocksCount`/`actionsCount` for the primary
+
+### Requirement: DeliverFn Follower Path
+
+The `DeliverFn` type SHALL accept an optional `threadTs?: string` parameter. The implementation SHALL handle a **follower-delivery path**: when `alreadyDelivered === true` AND either `threadTs` OR `postTopLevel` is set, the implementation SHALL bypass the `alreadyDelivered` guard and post via `chat.postMessage`:
+
+- `threadTs` set → post with that `thread_ts` (threaded reply)
+- `postTopLevel: true` set (without `threadTs`) → post to channel without `thread_ts` (top-level message)
+
+Neither follower path SHALL touch the streamer (the streamer was consumed by the primary). When neither follower flag is set and `alreadyDelivered` is true, the implementation SHALL return `{ ok: false, error: "Response already delivered" }` (existing duplicate-primary guard). When `alreadyDelivered` is false, the existing primary-delivery branches apply unchanged.
+
+#### Scenario: threadTs after primary routes to chat.postMessage with thread_ts
+
+- **GIVEN** `alreadyDelivered === true`
+- **WHEN** `deliver({ blocks, threadTs: "1234.5678" })` is called
+- **THEN** the implementation calls `client.chat.postMessage` with the channel and `thread_ts: "1234.5678"`
+- **AND** does NOT touch the streamer
+
+#### Scenario: postTopLevel after primary routes to top-level channel post
+
+- **GIVEN** `alreadyDelivered === true`
+- **WHEN** `deliver({ blocks, postTopLevel: true })` is called
+- **THEN** the implementation calls `client.chat.postMessage` with the channel and NO `thread_ts`
+- **AND** does NOT touch the streamer or attempt to delete it
+
+#### Scenario: Duplicate primary delivery is still rejected
+
+- **GIVEN** `alreadyDelivered === true`
+- **WHEN** `deliver({ blocks })` is called without `threadTs` or `postTopLevel`
+- **THEN** the implementation returns `{ ok: false, error: "Response already delivered" }`
+
+#### Scenario: Existing single-message callers unaffected
+
+- **WHEN** a caller invokes `deliver({ blocks, reactions })` once (no follower flags) and `alreadyDelivered` was false
+- **THEN** the existing behavior (post via streamer or fallback to thread reply) applies unchanged
+
+### Requirement: Snapshot Persistence Per post_to Captures Followers
+
+When a `post_to` action carries `additional_messages` or `thread_replies`, the snapshot record persisted at submit time SHALL include those followers alongside the existing `text`/`blocks`/`table`/`actions`/`reactions` fields. The button-click delivery path AND the auto-execute delivery path SHALL replay the primary then the followers in sequence using the same semantics as the top-level batch:
+
+- `snapshot.additional_messages[i]` are posted as separate **top-level channel messages** to the post_to's target channel (no `thread_ts`), regardless of the post_to's own `thread_ts`.
+- `snapshot.thread_replies[i]` are posted as **threaded replies** with `thread_ts` equal to the primary cross-post's returned `ts`.
+
+One `post_to` action SHALL correspond to ONE snapshot ID — followers do not get their own snapshot IDs.
+
+#### Scenario: Snapshot stores followers when present
+
+- **WHEN** a `post_to` action with `additional_messages: [...]` is processed by `submit_response`
+- **THEN** the persisted snapshot record contains the followers under the same shape (`additional_messages` field on the snapshot)
+- **AND** one snapshot ID is generated for the action and stored on `action._snapshotId`
+
+#### Scenario: Snapshot omits followers when absent
+
+- **WHEN** a `post_to` action has no followers
+- **THEN** the persisted snapshot record does NOT include empty `additional_messages` or `thread_replies` fields (no spurious empty arrays)
+
+#### Scenario: Button-click replays additional_messages as top-level posts
+
+- **GIVEN** a `post_to` snapshot persisted with `{ blocks, additional_messages: [m1, m2] }`
+- **WHEN** the user clicks the post_to button
+- **THEN** the handler posts the primary cross-post to the target channel
+- **AND** posts `m1` and `m2` to the same channel as separate top-level messages (no `thread_ts`)
+
+#### Scenario: Button-click replays thread_replies threaded under the primary
+
+- **GIVEN** a `post_to` snapshot persisted with `{ blocks, thread_replies: [r1, r2] }`
+- **WHEN** the user clicks the post_to button
+- **THEN** the handler posts the primary cross-post (capturing returned `ts`)
+- **AND** posts `r1` and `r2` with `thread_ts` equal to that returned `ts`
+
+#### Scenario: Nested post_to inside post_to followers is still rejected
+
+- **WHEN** a `post_to` action's `additional_messages[0].actions[0]` is itself a `post_to`
+- **THEN** the batch validator rejects with an error stating that nested `post_to` is not supported (the existing nested-post_to rule extends to walk inside post_to followers via the sticky `parentIsPostTo` flag)
+- **AND** the error path identifies the offending location
+
+### Requirement: Tool Description Names Explicit-Request Use Cases
+
+The schema descriptions for `additional_messages` and `thread_replies` (both top-level and inside `post_to`) SHALL begin with explicit "ONLY use when the user explicitly asks for multiple messages" language. They SHALL describe each as defaulting to a single response. They SHALL NOT describe these fields as generic message-splitting tools or imply that Claude should reach for them on its own initiative.
+
+#### Scenario: additional_messages description leads with explicit-request restriction
+
+- **WHEN** the schema for `additional_messages` is built (top-level or inside `post_to`)
+- **THEN** the description states the field's purpose ("additional top-level channel messages") and the explicit-request restriction ("ONLY use when the user explicitly asks")
+- **AND** notes that the default is a single response in `blocks`
+
+#### Scenario: thread_replies description leads with explicit-request restriction
+
+- **WHEN** the schema for `thread_replies` is built (top-level or inside `post_to`)
+- **THEN** the description states the field's purpose ("threaded replies under the primary") and the explicit-request restriction
+- **AND** notes that the default is a single response in `blocks`
+

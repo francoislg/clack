@@ -4,7 +4,11 @@ import { z } from "zod";
 import type { IntentStore, ResponseCapture, ToolCallRecorder } from "../server.js";
 import type { StagedIntent, ResponseSnapshot } from "../types.js";
 import { parseToolResult, toolResultText } from "../testHelpers.js";
-import { createSubmitResponseTool, type SubmitResponseDeps } from "./submitResponse.js";
+import {
+  createSubmitResponseTool,
+  validateSingleMessage,
+  type SubmitResponseDeps,
+} from "./submitResponse.js";
 
 // ---------------------------------------------------------------------------
 // Block function mocks — injected via SubmitResponseDeps
@@ -35,6 +39,9 @@ function makeDeps(
     deliver: (opts: {
       blocks: object[];
       reactions?: string[];
+      postTopLevel?: boolean;
+      threadTs?: string;
+      suppressUnfurls?: boolean;
     }) => Promise<{ ok: true; ts?: string } | { ok: false; error: string }>;
     persistSnapshot: (id: string, snapshot: ResponseSnapshot) => Promise<void>;
     appendStagedIntents: (
@@ -45,6 +52,8 @@ function makeDeps(
     submitResponseMode: "always" | "optional" | "skipped";
     allowDisengage: boolean;
     allowPostTopLevel: boolean;
+    maxAdditionalMessages: number;
+    sessionThreadTs: string;
     sessionChannelId: string;
     topLevelDeliveryChannel: string;
     requiredTools: string[];
@@ -90,6 +99,8 @@ function makeDeps(
     submitResponseMode: overrides.submitResponseMode,
     allowDisengage: overrides.allowDisengage,
     allowPostTopLevel: overrides.allowPostTopLevel,
+    maxAdditionalMessages: overrides.maxAdditionalMessages,
+    sessionThreadTs: overrides.sessionThreadTs,
     sessionChannelId: overrides.sessionChannelId,
     topLevelDeliveryChannel: overrides.topLevelDeliveryChannel,
     requiredTools: overrides.requiredTools,
@@ -118,6 +129,8 @@ interface ToolAction {
   actions?: ToolAction[];
   reactions?: string[];
   table?: unknown;
+  additional_messages?: { blocks?: unknown[]; actions?: ToolAction[] }[];
+  thread_replies?: { blocks?: unknown[]; actions?: ToolAction[] }[];
 }
 
 interface CallToolArgs {
@@ -141,6 +154,13 @@ async function callTool(deps: ReturnType<typeof makeDeps>, args: CallToolArgs) {
  * variant-only fields (skip_response, disengage, post_top_level) use this to pass args
  * without needing to construct the exact inferred zod type.
  */
+interface CallToolFollowerArgs {
+  blocks?: unknown[];
+  table?: unknown;
+  actions?: ToolAction[];
+  reactions?: string[];
+}
+
 interface CallToolRawArgs {
   message?: string;
   blocks?: unknown[];
@@ -151,6 +171,8 @@ interface CallToolRawArgs {
   disengage?: boolean;
   post_top_level?: boolean;
   suppress_unfurls?: boolean;
+  additional_messages?: CallToolFollowerArgs[];
+  thread_replies?: CallToolFollowerArgs[];
 }
 
 async function callToolRawTopLevel(deps: ReturnType<typeof makeDeps>, args: CallToolRawArgs) {
@@ -546,8 +568,10 @@ describe("createSubmitResponseTool", () => {
 
       assert.equal("isError" in result && result.isError, true);
       const parsed = parseToolResult(result);
-      assert.equal(parsed.error, "response_too_long");
-      assert.ok(parsed.details.includes("10000"));
+      // Under the §7 collect-all aggregator: a single length error surfaces directly
+      // in `parsed.error`. Multi-error batches use `error: "invalid_batch"` + `details[]`.
+      assert.match(parsed.error, /response_too_long/);
+      assert.match(parsed.error, /10000/);
     });
 
     it("includes message length in the total", async () => {
@@ -562,7 +586,7 @@ describe("createSubmitResponseTool", () => {
       // message + "\n\n" + body = 5000 + 2 + 5001 = 10003 > 10000
       assert.equal("isError" in result && result.isError, true);
       const parsed = parseToolResult(result);
-      assert.equal(parsed.error, "response_too_long");
+      assert.match(parsed.error, /response_too_long/);
     });
 
     it("records the error in recorder", async () => {
@@ -588,7 +612,7 @@ describe("createSubmitResponseTool", () => {
 
       assert.equal(recorded.length, 1);
       const [, , resultData] = recorded[0] as [string, unknown, { error: string }];
-      assert.equal(resultData.error, "response_too_long");
+      assert.match(resultData.error, /response_too_long/);
     });
   });
 
@@ -611,9 +635,10 @@ describe("createSubmitResponseTool", () => {
 
       assert.equal("isError" in result && result.isError, true);
       const parsed = parseToolResult(result);
-      assert.equal(parsed.error, "invalid_blocks");
-      assert.ok(Array.isArray(parsed.details));
-      assert.ok(parsed.details[0].includes("section[0].text"));
+      // §7 aggregator: a single block error surfaces directly in `parsed.error` as a
+      // path-prefixed string. The block validator's field name is preserved.
+      assert.match(parsed.error, /section\[0\]\.text/);
+      assert.match(parsed.error, /text too long/);
     });
 
     it("does not deliver or capture when blocks are invalid", async () => {
@@ -752,7 +777,10 @@ describe("createSubmitResponseTool", () => {
       assert.equal("isError" in result && result.isError, true);
       const parsed = parseToolResult(result);
       assert.equal(parsed.error, "delivery_failed");
-      assert.equal(parsed.details, "channel_not_found");
+      // §8 prefixes the failing message's path so multi-message batches can identify
+      // which message failed. Primary failures carry the `primary:` prefix.
+      assert.match(parsed.details, /channel_not_found/);
+      assert.match(parsed.details, /^primary:/);
     });
 
     it("records delivery failure in recorder", async () => {
@@ -775,7 +803,7 @@ describe("createSubmitResponseTool", () => {
       assert.equal(recorded.length, 1);
       const [, , resultData] = recorded[0] as [string, unknown, { error: string; details: string }];
       assert.equal(resultData.error, "delivery_failed");
-      assert.equal(resultData.details, "timeout");
+      assert.match(resultData.details, /^primary:.*timeout/);
     });
 
     it("still captures response when no deliver function is provided", async () => {
@@ -1978,12 +2006,8 @@ describe("createSubmitResponseTool", () => {
 
       assert.equal("isError" in result && result.isError, true);
       const parsed = parseToolResult(result);
-      assert.equal(parsed.error, "invalid_blocks");
-      assert.ok(
-        Array.isArray(parsed.details) &&
-          parsed.details.some((d: string) => d.startsWith("table.rows:")),
-        `expected error details to surface table.rows path, got: ${JSON.stringify(parsed.details)}`,
-      );
+      // §7 aggregator: single error surfaces directly in `parsed.error`.
+      assert.match(parsed.error, /^table\.rows:/);
     });
 
     it("validates table inside a post_to action with a path-prefixed namespace", async () => {
@@ -2017,12 +2041,7 @@ describe("createSubmitResponseTool", () => {
 
       assert.equal("isError" in result && result.isError, true);
       const parsed = parseToolResult(result);
-      assert.equal(parsed.error, "invalid_blocks");
-      assert.ok(
-        Array.isArray(parsed.details) &&
-          parsed.details.some((d: string) => d.startsWith("actions[0].table.rows:")),
-        `expected post_to.table path prefix, got: ${JSON.stringify(parsed.details)}`,
-      );
+      assert.match(parsed.error, /^actions\[0\]\.table\.rows:/);
     });
 
     it("persists post_to.table into the per-button snapshot", async () => {
@@ -2256,6 +2275,449 @@ describe("createSubmitResponseTool", () => {
       const parsed = parseToolResult(result);
       assert.equal(parsed.success, true);
       assert.equal(parsed.skipped, true);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // §3.5 — multi-message schema gating (additional_messages / thread_replies)
+  // ---------------------------------------------------------------------------
+
+  describe("multi-message schema gating", () => {
+    function inputSchemaOf(deps: ReturnType<typeof makeDeps>) {
+      return z.object(createSubmitResponseTool(deps).inputSchema);
+    }
+
+    it("always exposes additional_messages and thread_replies (not gated by trigger)", () => {
+      // Multi-message fields are always present in the schema. Discipline is enforced
+      // by the field descriptions ("ONLY use when explicitly asked"), not by gating.
+      const dmDeps = makeDeps();
+      const dmShape = Object.keys(createSubmitResponseTool(dmDeps).inputSchema);
+      assert.equal(dmShape.includes("additional_messages"), true);
+      assert.equal(dmShape.includes("thread_replies"), true);
+    });
+
+    it("accepts up to configured cap on additional_messages and rejects above", () => {
+      const deps = makeDeps({ maxAdditionalMessages: 3 });
+      const schema = inputSchemaOf(deps);
+      const msg = {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "follow" } }],
+      };
+      const withinCap = schema.safeParse({
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "primary" } }],
+        actions: [],
+        additional_messages: [msg, msg, msg],
+      });
+      assert.equal(withinCap.success, true);
+
+      const overCap = schema.safeParse({
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "primary" } }],
+        actions: [],
+        additional_messages: [msg, msg, msg, msg],
+      });
+      assert.equal(overCap.success, false);
+    });
+
+    it("caps thread_replies at 20 regardless of config", () => {
+      const deps = makeDeps({ maxAdditionalMessages: 3 });
+      const schema = inputSchemaOf(deps);
+      const msg = {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "reply" } }],
+      };
+      const at20 = schema.safeParse({
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "primary" } }],
+        actions: [],
+        thread_replies: Array.from({ length: 20 }, () => msg),
+      });
+      assert.equal(at20.success, true);
+
+      const over20 = schema.safeParse({
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "primary" } }],
+        actions: [],
+        thread_replies: Array.from({ length: 21 }, () => msg),
+      });
+      assert.equal(over20.success, false);
+    });
+
+    it("rejects primary-only fields inside a follow-up message payload", () => {
+      const deps = makeDeps();
+      const schema = inputSchemaOf(deps);
+      const followWithMessage = schema.safeParse({
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "primary" } }],
+        actions: [],
+        additional_messages: [
+          {
+            blocks: [{ type: "section", text: { type: "mrkdwn", text: "follow" } }],
+            message: "this is primary-only",
+          },
+        ],
+      });
+      assert.equal(followWithMessage.success, false);
+
+      const followWithDisengage = schema.safeParse({
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "primary" } }],
+        actions: [],
+        additional_messages: [
+          {
+            blocks: [{ type: "section", text: { type: "mrkdwn", text: "follow" } }],
+            disengage: true,
+          },
+        ],
+      });
+      assert.equal(followWithDisengage.success, false);
+
+      const followWithPostTopLevel = schema.safeParse({
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "primary" } }],
+        actions: [],
+        thread_replies: [
+          {
+            blocks: [{ type: "section", text: { type: "mrkdwn", text: "reply" } }],
+            post_top_level: true,
+          },
+        ],
+      });
+      assert.equal(followWithPostTopLevel.success, false);
+    });
+
+    it("post_to accepts additional_messages and thread_replies in any context", () => {
+      const deps = makeDeps();
+      const schema = inputSchemaOf(deps);
+      const result = schema.safeParse({
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "primary" } }],
+        actions: [
+          {
+            type: "post_to",
+            blocks: [{ type: "section", text: { type: "mrkdwn", text: "cross-post" } }],
+            additional_messages: [
+              { blocks: [{ type: "section", text: { type: "mrkdwn", text: "follow" } }] },
+            ],
+            thread_replies: [
+              { blocks: [{ type: "section", text: { type: "mrkdwn", text: "reply" } }] },
+            ],
+          },
+        ],
+      });
+      assert.equal(result.success, true);
+    });
+
+    // -------- §8 — sequential delivery (primary + followers) --------
+
+    it("delivers primary + additional_messages as separate top-level channel messages", async () => {
+      const deliveries: Array<{
+        threadTs?: string;
+        postTopLevel?: boolean;
+      }> = [];
+      const deps = makeDeps({
+        sessionThreadTs: "9999.1111", // present, but additional_messages should ignore it
+        deliver: async ({
+          threadTs,
+          postTopLevel,
+        }: {
+          threadTs?: string;
+          postTopLevel?: boolean;
+        }) => {
+          deliveries.push({
+            ...(threadTs && { threadTs }),
+            ...(postTopLevel && { postTopLevel: true }),
+          });
+          return { ok: true as const, ts: `${1000 + deliveries.length}.0` };
+        },
+      });
+      const result = await callToolRawTopLevel(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "primary" } }],
+        actions: [],
+        additional_messages: [
+          { blocks: [{ type: "section", text: { type: "mrkdwn", text: "follow 1" } }] },
+          { blocks: [{ type: "section", text: { type: "mrkdwn", text: "follow 2" } }] },
+        ],
+      });
+      const parsed = parseToolResult(result);
+      assert.equal(parsed.success, true);
+      assert.equal(parsed.messagesDelivered, 3);
+      // Primary delivered without postTopLevel (default thread/streamer path).
+      assert.equal(deliveries[0].postTopLevel, undefined);
+      assert.equal(deliveries[0].threadTs, undefined);
+      // Followers: each as a separate TOP-LEVEL channel message (no threadTs).
+      assert.equal(deliveries[1].postTopLevel, true);
+      assert.equal(deliveries[1].threadTs, undefined);
+      assert.equal(deliveries[2].postTopLevel, true);
+      assert.equal(deliveries[2].threadTs, undefined);
+    });
+
+    it("delivers primary top-level + thread_replies under primary.ts", async () => {
+      const deliveries: Array<{ threadTs?: string; postTopLevel?: boolean }> = [];
+      const deps = makeDeps({
+        allowPostTopLevel: true,
+        deliver: async ({
+          threadTs,
+          postTopLevel,
+        }: {
+          threadTs?: string;
+          postTopLevel?: boolean;
+        }) => {
+          deliveries.push({
+            ...(threadTs && { threadTs }),
+            ...(postTopLevel && { postTopLevel: true }),
+          });
+          // Primary lands top-level and returns its ts; replies thread under it.
+          if (deliveries.length === 1) return { ok: true as const, ts: "5555.2222" };
+          return { ok: true as const };
+        },
+      });
+      const result = await callToolRawTopLevel(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "primary" } }],
+        actions: [],
+        post_top_level: true,
+        thread_replies: [
+          { blocks: [{ type: "section", text: { type: "mrkdwn", text: "reply 1" } }] },
+          { blocks: [{ type: "section", text: { type: "mrkdwn", text: "reply 2" } }] },
+        ],
+      });
+      const parsed = parseToolResult(result);
+      assert.equal(parsed.success, true);
+      assert.equal(parsed.messagesDelivered, 3);
+      assert.equal(deliveries[0].postTopLevel, true);
+      assert.equal(deliveries[0].threadTs, undefined);
+      assert.equal(deliveries[1].threadTs, "5555.2222");
+      assert.equal(deliveries[2].threadTs, "5555.2222");
+    });
+
+    it("mid-batch delivery failure stops and reports the failing index", async () => {
+      let callCount = 0;
+      const deps = makeDeps({
+        deliver: async ({ postTopLevel }: { postTopLevel?: boolean }) => {
+          callCount++;
+          // Call 1 = primary (no postTopLevel) → success
+          // Call 2 = additional_messages[0] (postTopLevel=true) → success
+          // Call 3 = additional_messages[1] (postTopLevel=true) → fail
+          if (callCount === 1 && !postTopLevel) return { ok: true as const, ts: "1.0" };
+          if (callCount === 2 && postTopLevel) return { ok: true as const, ts: "2.0" };
+          if (callCount === 3 && postTopLevel) {
+            return { ok: false as const, error: "channel_archived" };
+          }
+          return { ok: false as const, error: "unexpected delivery call shape" };
+        },
+      });
+      const result = await callToolRawTopLevel(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "primary" } }],
+        actions: [],
+        additional_messages: [
+          { blocks: [{ type: "section", text: { type: "mrkdwn", text: "follow 1" } }] },
+          { blocks: [{ type: "section", text: { type: "mrkdwn", text: "follow 2" } }] },
+          { blocks: [{ type: "section", text: { type: "mrkdwn", text: "follow 3" } }] },
+        ],
+      });
+      const parsed = parseToolResult(result);
+      assert.equal(parsed.error, "delivery_failed");
+      assert.match(parsed.details, /additional_messages\[1\]/);
+      assert.match(parsed.details, /channel_archived/);
+      assert.equal(parsed.messagesDelivered, 2); // primary + follow 1
+    });
+
+    // -------- §7 — collect-all aggregator: multi-error batch returns invalid_batch --------
+
+    it("multi-error batch returns invalid_batch with details[]", async () => {
+      // Trigger two distinct errors at once: an unknown ref AND a missing intent coverage.
+      const intentStore: IntentStore = {
+        stage: mock.fn<(intent: StagedIntent) => string>(() => "staged-1"),
+        resolve: mock.fn<(ref: string) => StagedIntent | undefined>(() => undefined),
+        getAll: mock.fn<() => Map<string, StagedIntent>>(
+          () =>
+            new Map([
+              ["uncovered-ref", { type: "change", branch: "feat/x", description: "", repo: "r" }],
+            ]),
+        ),
+      };
+      const deps = makeDeps({ intentStore });
+      const result = await callTool(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "primary" } }],
+        actions: [{ type: "change", ref: "unknown-ref" }],
+      });
+
+      assert.equal("isError" in result && result.isError, true);
+      const parsed = parseToolResult(result);
+      assert.equal(parsed.error, "invalid_batch");
+      assert.ok(Array.isArray(parsed.details));
+      assert.ok(parsed.details.length >= 2);
+      assert.ok(parsed.details.some((d: string) => /unknown ref/.test(d)));
+      assert.ok(parsed.details.some((d: string) => /didn't include/.test(d)));
+    });
+
+    // -------- §6 — per-message validateSingleMessage helper --------
+
+    it("validateSingleMessage: each message gets its own 10000-char length budget", () => {
+      const longSection = {
+        type: "section" as const,
+        text: { type: "mrkdwn" as const, text: "x".repeat(2500) },
+      };
+      // Single message ~2500 chars — under budget.
+      const errors = validateSingleMessage({
+        blocks: [longSection],
+        pathPrefix: "additional_messages[0]",
+        validateBlocks: () => [],
+        validateTable: () => [],
+      });
+      assert.deepEqual(errors, []);
+    });
+
+    it("validateSingleMessage: rejects when single message exceeds budget", () => {
+      const longSection = {
+        type: "section" as const,
+        text: { type: "mrkdwn" as const, text: "x".repeat(10001) },
+      };
+      const errors = validateSingleMessage({
+        blocks: [longSection],
+        pathPrefix: "thread_replies[2]",
+        validateBlocks: () => [],
+        validateTable: () => [],
+      });
+      assert.equal(errors.length, 1);
+      assert.match(errors[0], /thread_replies\[2\]/);
+      assert.match(errors[0], /response_too_long/);
+    });
+
+    it("validateSingleMessage: block errors are path-prefixed", () => {
+      const errors = validateSingleMessage({
+        blocks: [
+          {
+            type: "header" as const,
+            text: { type: "plain_text" as const, text: "h" },
+          },
+        ],
+        pathPrefix: "additional_messages[0]",
+        validateBlocks: () => [
+          {
+            field: "blocks[0].text.text",
+            message: "too long",
+            currentLength: 200,
+            limit: 150,
+          },
+        ],
+        validateTable: () => [],
+      });
+      assert.equal(errors.length, 1);
+      assert.match(errors[0], /^additional_messages\[0\]\.blocks\[0\]\.text\.text:/);
+    });
+
+    // -------- §5 — batch walker integration via the handler --------
+
+    it("ref inside thread_replies[0].actions is detected by validateRefActions", async () => {
+      const deps = makeDeps();
+      const result = await callToolRawTopLevel(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "primary" } }],
+        actions: [],
+        post_top_level: true,
+        thread_replies: [
+          {
+            blocks: [{ type: "section", text: { type: "mrkdwn", text: "reply" } }],
+            actions: [{ type: "change", ref: "missing-ref" }],
+          },
+        ],
+      });
+      assert.equal("isError" in result && result.isError, true);
+      const parsed = parseToolResult(result);
+      assert.ok(
+        parsed.error.includes("thread_replies[0].actions[0]"),
+        `expected path-prefixed error, got: ${parsed.error}`,
+      );
+      assert.ok(parsed.error.includes("missing-ref"));
+    });
+
+    it("post_to inside additional_messages[0].actions is allowed at top batch level", async () => {
+      const deps = makeDeps();
+      const result = await callToolRawTopLevel(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "primary" } }],
+        actions: [],
+        additional_messages: [
+          {
+            blocks: [{ type: "section", text: { type: "mrkdwn", text: "follow" } }],
+            actions: [
+              {
+                type: "post_to",
+                blocks: [{ type: "section", text: { type: "mrkdwn", text: "cross-post" } }],
+              },
+            ],
+          },
+        ],
+      });
+      const parsed = parseToolResult(result);
+      assert.equal(parsed.success, true);
+    });
+
+    it("nested post_to inside post_to's additional_messages follower is rejected", async () => {
+      const deps = makeDeps();
+      const result = await callTool(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "primary" } }],
+        actions: [
+          {
+            type: "post_to",
+            blocks: [{ type: "section", text: { type: "mrkdwn", text: "cross-post" } }],
+            thread_ts: "1234.5678", // required for additional_messages
+            additional_messages: [
+              {
+                blocks: [{ type: "section", text: { type: "mrkdwn", text: "follow" } }],
+                actions: [
+                  {
+                    type: "post_to",
+                    blocks: [{ type: "section", text: { type: "mrkdwn", text: "evil-nested" } }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      });
+      assert.equal("isError" in result && result.isError, true);
+      const parsed = parseToolResult(result);
+      assert.ok(
+        parsed.error.includes("Nested post_to is not supported"),
+        `expected nested post_to rejection, got: ${parsed.error}`,
+      );
+      assert.ok(parsed.error.includes("additional_messages[0].actions[0]"));
+    });
+
+    it("intent coverage satisfied by a ref inside additional_messages follower", async () => {
+      const intentStore: IntentStore = {
+        stage: mock.fn<(intent: StagedIntent) => string>(() => "ref-x"),
+        resolve: mock.fn<(ref: string) => StagedIntent | undefined>((ref) =>
+          ref === "ref-x"
+            ? { type: "change", branch: "feat/x", description: "", repo: "r" }
+            : undefined,
+        ),
+        getAll: mock.fn<() => Map<string, StagedIntent>>(
+          () =>
+            new Map([["ref-x", { type: "change", branch: "feat/x", description: "", repo: "r" }]]),
+        ),
+      };
+      const deps = makeDeps({ intentStore });
+      const result = await callToolRawTopLevel(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "primary" } }],
+        actions: [],
+        additional_messages: [
+          {
+            blocks: [{ type: "section", text: { type: "mrkdwn", text: "follow" } }],
+            actions: [{ type: "change", ref: "ref-x" }],
+          },
+        ],
+      });
+      const parsed = parseToolResult(result);
+      assert.equal(parsed.success, true, `expected success, got: ${JSON.stringify(parsed)}`);
+    });
+
+    it("post_to thread_replies capped at 20", () => {
+      const deps = makeDeps();
+      const schema = inputSchemaOf(deps);
+      const msg = { blocks: [{ type: "section", text: { type: "mrkdwn", text: "reply" } }] };
+      const over20 = schema.safeParse({
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "primary" } }],
+        actions: [
+          {
+            type: "post_to",
+            blocks: [{ type: "section", text: { type: "mrkdwn", text: "cross-post" } }],
+            thread_replies: Array.from({ length: 21 }, () => msg),
+          },
+        ],
+      });
+      assert.equal(over20.success, false);
     });
   });
 });

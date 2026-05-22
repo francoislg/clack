@@ -246,6 +246,36 @@ export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promis
  */
 function buildDeliverFn(ctx: DeliveryContext): DeliverFn {
   return async (opts) => {
+    // Follower delivery (multi-message batch): the primary has already consumed the streamer,
+    // and we want to bypass the `alreadyDelivered` guard for subsequent posts in the batch.
+    // Two flavors:
+    //   - `threadTs` set: thread reply (thread_replies field). Posts with thread_ts.
+    //   - `postTopLevel` true AND already delivered: separate top-level channel message
+    //     (additional_messages field). Posts to the channel without thread_ts.
+    //   When neither is set on a follower call, fall through (and the alreadyDelivered guard
+    //   below rejects it as a duplicate primary).
+    if (ctx.alreadyDelivered && (opts.threadTs || opts.postTopLevel)) {
+      try {
+        const result = await ctx.client.chat.postMessage({
+          channel: ctx.targetChannel,
+          ...(opts.threadTs && { thread_ts: opts.threadTs }),
+          text: notificationText(opts.blocks),
+          blocks: opts.blocks,
+          ...unfurlOptions(opts.suppressUnfurls),
+        });
+        const ts = result.ts;
+        if (opts.reactions?.length && ts) {
+          addDeliveryReactions(ctx.client, ctx.targetChannel, ts, opts.reactions).catch((err) =>
+            logger.warn(`addDeliveryReactions threw: ${err}`),
+          );
+        }
+        return { ok: true as const, ts };
+      } catch (error) {
+        logger.error("Follower delivery failed:", error);
+        return { ok: false as const, error: ctx.deps.toErrorMessage(error) };
+      }
+    }
+
     if (ctx.alreadyDelivered) {
       return { ok: false as const, error: "Response already delivered" };
     }
@@ -362,6 +392,30 @@ function buildDeliverFn(ctx: DeliveryContext): DeliverFn {
  */
 function buildDirectDeliverFn(ctx: DeliveryContext): DeliverFn {
   return async (opts) => {
+    // Follower delivery: post-primary calls bypass the `alreadyDelivered` guard. Both
+    // thread-reply (`threadTs`) and top-level (`postTopLevel`) flavors are supported.
+    if (ctx.alreadyDelivered && (opts.threadTs || opts.postTopLevel)) {
+      try {
+        const result = await ctx.client.chat.postMessage({
+          channel: ctx.targetChannel,
+          ...(opts.threadTs && { thread_ts: opts.threadTs }),
+          text: notificationText(opts.blocks),
+          blocks: opts.blocks,
+          ...unfurlOptions(opts.suppressUnfurls),
+        });
+        const ts = result.ts;
+        if (opts.reactions?.length && ts) {
+          addDeliveryReactions(ctx.client, ctx.targetChannel, ts, opts.reactions).catch((err) =>
+            logger.warn(`addDeliveryReactions threw: ${err}`),
+          );
+        }
+        return { ok: true as const, ts };
+      } catch (error) {
+        logger.error("Direct follower delivery failed:", error);
+        return { ok: false as const, error: ctx.deps.toErrorMessage(error) };
+      }
+    }
+
     if (ctx.alreadyDelivered) {
       return { ok: false as const, error: "Response already delivered" };
     }
