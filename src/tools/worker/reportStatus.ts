@@ -4,6 +4,7 @@ import type { App } from "@slack/bolt";
 import type { WorkerToolContext } from "../types.js";
 import { textResult, errorResult } from "../helpers.js";
 import { getSlackClient } from "../../slack/app.js";
+import { unfurlOptions } from "../../slack/unfurlOptions.js";
 import { errorMessage } from "../../errors.js";
 
 export interface ReportStatusDeps {
@@ -23,6 +24,13 @@ export function createReportStatusTool(
     "Post a status message to the Slack thread for this change. Use this to report progress, completion, or errors.",
     {
       message: z.string().describe("The message to post to the Slack thread"),
+      suppress_unfurls: z
+        .boolean()
+        .optional()
+        .describe(
+          "Set to true to disable Slack link and image previews on this status message. " +
+            "Default behavior previews links — useful for PRs, dashboards, etc.",
+        ),
     },
     async (args) => {
       try {
@@ -36,6 +44,7 @@ export function createReportStatusTool(
           channel: ctx.channelId,
           thread_ts: ctx.threadTs,
           text: args.message,
+          ...unfurlOptions(args.suppress_unfurls),
         });
 
         return textResult({ success: true });

@@ -4,6 +4,7 @@ import type { ChatStreamer } from "@slack/web-api";
 import { logger as defaultLogger } from "../logger.js";
 import { getToolLabel, getToolGroup, getToolDetails } from "./toolLabels.js";
 import type { StreamEvent } from "./types.js";
+import { unfurlOptions } from "../slack/unfurlOptions.js";
 
 export interface SlackStreamerLogger {
   warn: (...args: unknown[]) => void;
@@ -596,7 +597,9 @@ export async function finalizeStreamedWorkflow(
     prUrl?: string;
   },
   label: string,
+  options: { suppressUnfurls?: boolean } = {},
 ): Promise<void> {
+  const unfurl = unfurlOptions(options.suppressUnfurls);
   if (result.success) {
     await streamer.stop();
     // If the streamer died mid-run, the frozen in-progress task is all the
@@ -604,14 +607,14 @@ export async function finalizeStreamedWorkflow(
     // confirmation (the PR URL if available).
     if (streamer.hasFailed) {
       const message = result.prUrl ? `${label} complete: ${result.prUrl}` : `${label} complete.`;
-      await client.chat.postMessage({ channel, thread_ts: threadTs, text: message });
+      await client.chat.postMessage({ channel, thread_ts: threadTs, text: message, ...unfurl });
     }
   } else if (result.cancelled && result.cancelledBy) {
     const reason = result.cancelledBy.reason ? `: ${result.cancelledBy.reason}` : "";
     const message = `This work session was cancelled by <@${result.cancelledBy.userId}>${reason}`;
     if (streamer.hasFailed) {
       await streamer.stop();
-      await client.chat.postMessage({ channel, thread_ts: threadTs, text: message });
+      await client.chat.postMessage({ channel, thread_ts: threadTs, text: message, ...unfurl });
     } else {
       await streamer.stop({ markdownText: message });
     }
@@ -619,7 +622,7 @@ export async function finalizeStreamedWorkflow(
     const message = `${label} failed: ${result.error}`;
     if (streamer.hasFailed) {
       await streamer.stop();
-      await client.chat.postMessage({ channel, thread_ts: threadTs, text: message });
+      await client.chat.postMessage({ channel, thread_ts: threadTs, text: message, ...unfurl });
     } else {
       await streamer.stop({ markdownText: message });
     }

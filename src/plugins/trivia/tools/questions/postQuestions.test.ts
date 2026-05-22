@@ -41,7 +41,11 @@ interface FakeSlackOpts {
 }
 
 interface FakeSlackCalls {
-  postBlocksCalls: Array<{ channel: string; blocks: SlackBlocks }>;
+  postBlocksCalls: Array<{
+    channel: string;
+    blocks: SlackBlocks;
+    suppressUnfurls?: boolean;
+  }>;
   addReactionsCalls: Array<{ channel: string; ts: string; reactions: string[] }>;
 }
 
@@ -196,6 +200,7 @@ describe("post_questions tool", () => {
         game: FIXTURE_GAME_NAME,
         items: [{ questionId: "Q1", blocks: SAMPLE_BLOCKS }],
         appendToPreviousBatch: undefined,
+        suppress_unfurls: undefined,
       },
       SESSION,
     );
@@ -245,6 +250,7 @@ describe("post_questions tool", () => {
         game: FIXTURE_GAME_NAME,
         items: [{ questionId: "Q3", blocks: SAMPLE_BLOCKS }],
         appendToPreviousBatch: undefined,
+        suppress_unfurls: undefined,
       },
       SESSION,
     );
@@ -274,6 +280,7 @@ describe("post_questions tool", () => {
         game: FIXTURE_GAME_NAME,
         items: [{ questionId: "Q4", blocks: SAMPLE_BLOCKS }],
         appendToPreviousBatch: undefined,
+        suppress_unfurls: undefined,
       },
       SESSION,
     );
@@ -305,6 +312,7 @@ describe("post_questions tool", () => {
           { questionId: "Q3", blocks: SAMPLE_BLOCKS },
         ],
         appendToPreviousBatch: undefined,
+        suppress_unfurls: undefined,
       },
       SESSION,
     );
@@ -342,6 +350,7 @@ describe("post_questions tool", () => {
         game: FIXTURE_GAME_NAME,
         items: [{ questionId: "Q1", blocks: SAMPLE_BLOCKS }],
         appendToPreviousBatch: undefined,
+        suppress_unfurls: undefined,
       },
       SESSION,
     );
@@ -384,6 +393,7 @@ describe("post_questions tool", () => {
           { questionId: "Q2", blocks: SAMPLE_BLOCKS },
         ],
         appendToPreviousBatch: undefined,
+        suppress_unfurls: undefined,
       },
       SESSION,
     );
@@ -409,6 +419,7 @@ describe("post_questions tool", () => {
         game: "no-such-game",
         items: [{ questionId: "Q1", blocks: SAMPLE_BLOCKS }],
         appendToPreviousBatch: undefined,
+        suppress_unfurls: undefined,
       },
       SESSION,
     );
@@ -438,6 +449,7 @@ describe("post_questions tool", () => {
         game: "retired",
         items: [{ questionId: "Q1", blocks: SAMPLE_BLOCKS }],
         appendToPreviousBatch: undefined,
+        suppress_unfurls: undefined,
       },
       SESSION,
     );
@@ -459,6 +471,7 @@ describe("post_questions tool", () => {
         game: FIXTURE_GAME_NAME,
         items: [{ questionId: "Q1", blocks: SAMPLE_BLOCKS }],
         appendToPreviousBatch: undefined,
+        suppress_unfurls: undefined,
       },
       SESSION,
     );
@@ -481,6 +494,7 @@ describe("post_questions tool", () => {
         game: FIXTURE_GAME_NAME,
         items: [{ questionId: "Q1", blocks: SAMPLE_BLOCKS }],
         appendToPreviousBatch: undefined,
+        suppress_unfurls: undefined,
       },
       SESSION,
     );
@@ -517,6 +531,7 @@ describe("post_questions tool", () => {
           { questionId: "Q3", blocks: SAMPLE_BLOCKS },
         ],
         appendToPreviousBatch: undefined,
+        suppress_unfurls: undefined,
       },
       SESSION,
     );
@@ -562,6 +577,7 @@ describe("post_questions tool", () => {
           { questionId: "Q2", blocks: tooLongSection },
         ],
         appendToPreviousBatch: undefined,
+        suppress_unfurls: undefined,
       },
       SESSION,
     );
@@ -597,11 +613,63 @@ describe("post_questions tool", () => {
         game: "main",
         items: [{ questionId: "Q1", blocks: SAMPLE_BLOCKS }],
         appendToPreviousBatch: undefined,
+        suppress_unfurls: undefined,
       },
       SESSION,
     );
 
     assert.equal(calls.postBlocksCalls[0].channel, "C_CUSTOM_CHANNEL");
+  });
+
+  it("omits suppressUnfurls in postBlocks call when suppress_unfurls is not set", async () => {
+    const data = createInMemoryDataLayer();
+    await seedQuestion(data, { id: "Q1" });
+    const { deps, calls } = fakeSlackDeps({
+      postResults: [{ ts: "1.0", permalink: "https://x/p" }],
+    });
+    const tool = createPostQuestionsTool(data, fakeSdk(), fixtureGetGames, deps);
+
+    await tool.handler(
+      {
+        game: FIXTURE_GAME_NAME,
+        items: [{ questionId: "Q1", blocks: SAMPLE_BLOCKS }],
+        appendToPreviousBatch: undefined,
+        suppress_unfurls: undefined,
+      },
+      SESSION,
+    );
+
+    assert.equal("suppressUnfurls" in calls.postBlocksCalls[0], false);
+  });
+
+  it("forwards suppress_unfurls: true to every item's postBlocks call", async () => {
+    const data = createInMemoryDataLayer();
+    await seedQuestion(data, { id: "Q1" });
+    await seedQuestion(data, { id: "Q2" });
+    const { deps, calls } = fakeSlackDeps({
+      postResults: [
+        { ts: "1.0", permalink: "https://x/p1" },
+        { ts: "2.0", permalink: "https://x/p2" },
+      ],
+    });
+    const tool = createPostQuestionsTool(data, fakeSdk(), fixtureGetGames, deps);
+
+    await tool.handler(
+      {
+        game: FIXTURE_GAME_NAME,
+        items: [
+          { questionId: "Q1", blocks: SAMPLE_BLOCKS },
+          { questionId: "Q2", blocks: SAMPLE_BLOCKS },
+        ],
+        appendToPreviousBatch: undefined,
+        suppress_unfurls: true,
+      },
+      SESSION,
+    );
+
+    assert.equal(calls.postBlocksCalls.length, 2);
+    assert.equal(calls.postBlocksCalls[0].suppressUnfurls, true);
+    assert.equal(calls.postBlocksCalls[1].suppressUnfurls, true);
   });
 });
 
@@ -624,6 +692,7 @@ describe("post_questions tool — batchId", () => {
           { questionId: "Q2", blocks: SAMPLE_BLOCKS },
         ],
         appendToPreviousBatch: undefined,
+        suppress_unfurls: undefined,
       },
       SESSION,
     );
@@ -658,6 +727,7 @@ describe("post_questions tool — batchId", () => {
           { questionId: "Q2", blocks: SAMPLE_BLOCKS },
         ],
         appendToPreviousBatch: undefined,
+        suppress_unfurls: undefined,
       },
       SESSION,
     );
@@ -684,6 +754,7 @@ describe("post_questions tool — batchId", () => {
         game: FIXTURE_GAME_NAME,
         items: [{ questionId: "Q1", blocks: SAMPLE_BLOCKS }],
         appendToPreviousBatch: undefined,
+        suppress_unfurls: undefined,
       },
       SESSION,
     );
@@ -692,6 +763,7 @@ describe("post_questions tool — batchId", () => {
         game: FIXTURE_GAME_NAME,
         items: [{ questionId: "Q2", blocks: SAMPLE_BLOCKS }],
         appendToPreviousBatch: undefined,
+        suppress_unfurls: undefined,
       },
       SESSION,
     );
@@ -730,6 +802,7 @@ describe("post_questions tool — batchId", () => {
           { questionId: "Q2", blocks: SAMPLE_BLOCKS },
         ],
         appendToPreviousBatch: undefined,
+        suppress_unfurls: undefined,
       },
       SESSION,
     );
@@ -768,6 +841,7 @@ describe("post_questions tool — appendToPreviousBatch", () => {
         game: FIXTURE_GAME_NAME,
         items: [{ questionId: "Q3", blocks: SAMPLE_BLOCKS }],
         appendToPreviousBatch: true,
+        suppress_unfurls: undefined,
       },
       SESSION,
     );
@@ -798,6 +872,7 @@ describe("post_questions tool — appendToPreviousBatch", () => {
         game: FIXTURE_GAME_NAME,
         items: [{ questionId: "Q2", blocks: SAMPLE_BLOCKS }],
         appendToPreviousBatch: undefined,
+        suppress_unfurls: undefined,
       },
       SESSION,
     );
@@ -822,6 +897,7 @@ describe("post_questions tool — appendToPreviousBatch", () => {
         game: FIXTURE_GAME_NAME,
         items: [{ questionId: "Q3", blocks: SAMPLE_BLOCKS }],
         appendToPreviousBatch: false,
+        suppress_unfurls: undefined,
       },
       SESSION,
     );
@@ -874,6 +950,7 @@ describe("post_questions tool — appendToPreviousBatch", () => {
         game: FIXTURE_GAME_NAME,
         items: [{ questionId: "Q5", blocks: SAMPLE_BLOCKS }],
         appendToPreviousBatch: true,
+        suppress_unfurls: undefined,
       },
       SESSION,
     );
@@ -909,6 +986,7 @@ describe("post_questions tool — appendToPreviousBatch", () => {
           { questionId: "Q5", blocks: SAMPLE_BLOCKS },
         ],
         appendToPreviousBatch: true,
+        suppress_unfurls: undefined,
       },
       SESSION,
     );
@@ -943,6 +1021,7 @@ describe("post_questions tool — appendToPreviousBatch", () => {
         game: FIXTURE_GAME_NAME,
         items: [{ questionId: "Q3", blocks: SAMPLE_BLOCKS }],
         appendToPreviousBatch: true,
+        suppress_unfurls: undefined,
       },
       SESSION,
     );
@@ -970,6 +1049,7 @@ describe("post_questions tool — appendToPreviousBatch", () => {
         game: FIXTURE_GAME_NAME,
         items: [{ questionId: "Q1", blocks: SAMPLE_BLOCKS }],
         appendToPreviousBatch: true,
+        suppress_unfurls: undefined,
       },
       SESSION,
     );
@@ -1010,6 +1090,7 @@ describe("post_questions tool — appendToPreviousBatch", () => {
         game: FIXTURE_GAME_NAME,
         items: [{ questionId: "Q2", blocks: SAMPLE_BLOCKS }],
         appendToPreviousBatch: true,
+        suppress_unfurls: undefined,
       },
       SESSION,
     );

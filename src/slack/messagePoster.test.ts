@@ -12,6 +12,8 @@ interface PostCall {
   text: string;
   blocks: SlackBlocks;
   thread_ts?: string;
+  unfurl_links?: false;
+  unfurl_media?: false;
 }
 
 interface LinkCall {
@@ -158,5 +160,34 @@ describe("postStructuredMessage", () => {
     await postStructuredMessage(client, { channel: "C1", blocks });
     assert.equal(client.postCalls[0].text.length, 500);
     assert.ok(client.postCalls[0].text.endsWith("..."));
+  });
+
+  it("omits unfurl_links and unfurl_media when suppressUnfurls is not set", async () => {
+    const client = makeClient({ postTs: "1.0", permalink: "https://x/p" });
+    await postStructuredMessage(client, { channel: "C1", blocks: sampleBlocks });
+    assert.equal("unfurl_links" in client.postCalls[0], false);
+    assert.equal("unfurl_media" in client.postCalls[0], false);
+  });
+
+  it("omits unfurl_links and unfurl_media when suppressUnfurls is false", async () => {
+    const client = makeClient({ postTs: "1.0", permalink: "https://x/p" });
+    await postStructuredMessage(client, {
+      channel: "C1",
+      blocks: sampleBlocks,
+      suppressUnfurls: false,
+    });
+    assert.equal("unfurl_links" in client.postCalls[0], false);
+    assert.equal("unfurl_media" in client.postCalls[0], false);
+  });
+
+  it("sets both unfurl_links and unfurl_media to false when suppressUnfurls is true", async () => {
+    const client = makeClient({ postTs: "1.0", permalink: "https://x/p" });
+    await postStructuredMessage(client, {
+      channel: "C1",
+      blocks: sampleBlocks,
+      suppressUnfurls: true,
+    });
+    assert.equal(client.postCalls[0].unfurl_links, false);
+    assert.equal(client.postCalls[0].unfurl_media, false);
   });
 });

@@ -14,6 +14,7 @@ import type { RoleDir } from "../cascadingConfigResolver.js";
 import type { ToolEntryObject } from "../streaming/toolMappingLoader.js";
 import { openDmChannel, isChannelId } from "../slack/channelResolver.js";
 import { getSlackClient as defaultGetSlackClient } from "../slack/app.js";
+import { unfurlOptions } from "../slack/unfurlOptions.js";
 import type { PluginActionHandler, PluginViewHandler } from "../slack/pluginActionRegistry.js";
 import { logger } from "../logger.js";
 import { findByPluginOwner, createJob, updateJob, deleteJob, type SkipDate } from "../cronJobs.js";
@@ -115,8 +116,14 @@ export interface ClackSdk {
    * recipient is decided here (not by Claude) — this is the safe path for plugins
    * that need to notify the owner without exposing user-targeted DMing as a tool
    * surface to Claude.
+   *
+   * Pass `{ suppressUnfurls: true }` to disable Slack's link/media unfurling on
+   * the resulting message (sets both `unfurl_links: false` and `unfurl_media: false`).
    */
-  dmOwner(text: string): Promise<{ ok: true } | { ok: false; error: string }>;
+  dmOwner(
+    text: string,
+    options?: { suppressUnfurls?: boolean },
+  ): Promise<{ ok: true } | { ok: false; error: string }>;
   /**
    * Lazily resolves the Slack WebClient at call time. Returns `null` when Slack
    * hasn't connected yet (e.g. plugin tools created at plugin-load time, before
@@ -595,7 +602,10 @@ export function createClackSdk(
       };
     },
 
-    async dmOwner(text: string): Promise<{ ok: true } | { ok: false; error: string }> {
+    async dmOwner(
+      text: string,
+      options: { suppressUnfurls?: boolean } = {},
+    ): Promise<{ ok: true } | { ok: false; error: string }> {
       const client = deps.getSlackClient();
       if (!client) {
         const error = "Slack client is not connected";
@@ -618,7 +628,11 @@ export function createClackSdk(
       }
 
       try {
-        await client.chat.postMessage({ channel: dmChannelId, text });
+        await client.chat.postMessage({
+          channel: dmChannelId,
+          text,
+          ...unfurlOptions(options.suppressUnfurls),
+        });
         return { ok: true };
       } catch (err) {
         const error = err instanceof Error ? err.message : String(err);

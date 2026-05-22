@@ -29,6 +29,7 @@ import { getClaudeOptions } from "./changeWorkflowHelper.js";
 import { handleAutoExecuteActions } from "./autoExecute.js";
 import { addDeliveryReactions } from "../messageReactions.js";
 import { notificationText } from "../messagePoster.js";
+import { unfurlOptions } from "../unfurlOptions.js";
 import { SlackStreamer } from "../../streaming/slackStreamer.js";
 import { getUserInfo } from "../userCache.js";
 import { getUserPreference } from "../../userPreferences.js";
@@ -274,6 +275,7 @@ function buildDeliverFn(ctx: DeliveryContext): DeliverFn {
           channel: ctx.targetChannel,
           text: fallbackText,
           blocks: opts.blocks,
+          ...unfurlOptions(opts.suppressUnfurls),
         });
         ts = result.ts;
         ctx.alreadyDelivered = true;
@@ -337,6 +339,7 @@ function buildDeliverFn(ctx: DeliveryContext): DeliverFn {
         thread_ts: ctx.targetThread,
         text: notificationText(opts.blocks),
         blocks: opts.blocks,
+        ...unfurlOptions(opts.suppressUnfurls),
       });
       ts = result.ts;
       ctx.alreadyDelivered = true;
@@ -368,6 +371,7 @@ function buildDirectDeliverFn(ctx: DeliveryContext): DeliverFn {
         channel: ctx.targetChannel,
         text: notificationText(opts.blocks),
         blocks: opts.blocks,
+        ...unfurlOptions(opts.suppressUnfurls),
       });
       ctx.alreadyDelivered = true;
       const ts = result.ts;

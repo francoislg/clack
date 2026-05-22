@@ -49,6 +49,7 @@ import { createGetSessionTraceTool } from "./query/getSessionTrace.js";
 import { createAttachIntegrationTool } from "./query/attachIntegration.js";
 import { createListSkillPackSkillsTool } from "./query/listSkillPackSkills.js";
 import { createLoadSkillTool } from "./query/loadSkill.js";
+import { createRandomRollTool } from "./query/randomRoll.js";
 import { createUsersCache } from "../slack/usersCache.js";
 import { createEmojiCache } from "../slack/emojiCache.js";
 import { createChannelsCache } from "../slack/channelsCache.js";
@@ -330,6 +331,7 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
   tools.push(createListRepositoriesTool(ctx));
   tools.push(createGitLogTool(ctx));
   tools.push(createDeepenHistoryTool(ctx));
+  tools.push(createRandomRollTool());
 
   if (ctx.slackClient) {
     const usersCache = createUsersCache(ctx.slackClient);

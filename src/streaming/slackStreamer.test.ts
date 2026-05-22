@@ -88,6 +88,8 @@ interface PostMessageCallArgs {
   channel?: string;
   thread_ts?: string;
   text?: string;
+  unfurl_links?: false;
+  unfurl_media?: false;
 }
 
 interface MockedPostMessageHandle {
@@ -976,6 +978,69 @@ describe("finalizeStreamedWorkflow", () => {
     const pm = client.chat.postMessage;
     assertIsMockedPostMessage(pm);
     assert.equal(pm.mock.callCount(), 0);
+  });
+
+  it("omits unfurl flags on the fallback post when suppressUnfurls is not set", async () => {
+    const mockStreamerObj = makeMockChatStreamer();
+    mockStreamerObj.append.mock.mockImplementation(async () => {
+      throw new Error("broken");
+    });
+    const client = makeClient({ chatStreamer: mockStreamerObj });
+    const streamer = new SlackStreamer({
+      client,
+      channel: "C_CHAN",
+      threadTs: "1234.5678",
+      teamId: "T_TEAM",
+      logger: mockLogger.logger,
+    });
+    await streamer.start();
+
+    await finalizeStreamedWorkflow(
+      streamer,
+      client,
+      "C_CHAN",
+      "1234.5678",
+      { success: false, error: "oops" },
+      "Update",
+    );
+
+    const pm = client.chat.postMessage;
+    assertIsMockedPostMessage(pm);
+    const args = pm.mock.calls[0]?.arguments[0] ?? {};
+    assert.equal("unfurl_links" in args, false);
+    assert.equal("unfurl_media" in args, false);
+  });
+
+  it("sets unfurl_links and unfurl_media to false on the fallback post when suppressUnfurls is true", async () => {
+    const mockStreamerObj = makeMockChatStreamer();
+    mockStreamerObj.append.mock.mockImplementation(async () => {
+      throw new Error("broken");
+    });
+    const client = makeClient({ chatStreamer: mockStreamerObj });
+    const streamer = new SlackStreamer({
+      client,
+      channel: "C_CHAN",
+      threadTs: "1234.5678",
+      teamId: "T_TEAM",
+      logger: mockLogger.logger,
+    });
+    await streamer.start();
+
+    await finalizeStreamedWorkflow(
+      streamer,
+      client,
+      "C_CHAN",
+      "1234.5678",
+      { success: false, error: "oops" },
+      "Update",
+      { suppressUnfurls: true },
+    );
+
+    const pm = client.chat.postMessage;
+    assertIsMockedPostMessage(pm);
+    const args = pm.mock.calls[0]?.arguments[0] ?? {};
+    assert.equal(args.unfurl_links, false);
+    assert.equal(args.unfurl_media, false);
   });
 });
 

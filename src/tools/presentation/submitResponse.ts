@@ -101,6 +101,13 @@ const postToActionSchema = z.object({
     .describe(
       "Explicit target thread timestamp. Omit for a top-level channel post (e.g., 'in the channel').",
     ),
+  suppress_unfurls: z
+    .boolean()
+    .optional()
+    .describe(
+      "Set to true to disable Slack link/image previews on the cross-posted message. Independent of the top-level submit_response.suppress_unfurls — each post_to controls its own message. " +
+        'Honor the same explicit triggers as the top-level field: "don\'t expand links", "don\'t unfurl URLs", "don\'t expand URLs", "no link previews", or any clear paraphrase.',
+    ),
   ...messageContentFields,
   // Override the fragment's `blocks` description for post_to context.
   blocks: z
@@ -405,6 +412,22 @@ function recordSuccess<TArgs extends object>(
   recorder.record("submit_response", args, result);
 }
 
+const suppressUnfurlsField = z
+  .boolean()
+  .optional()
+  .describe(
+    "Set to true to disable Slack's link and image previews on this message. Default behavior " +
+      "previews links — useful for PR URLs, dashboards, etc. " +
+      'EXPLICIT TRIGGERS: when the user (or a scheduled prompt) says any of "don\'t expand links", ' +
+      '"don\'t unfurl URLs", "don\'t expand URLs", "no link previews", "no unfurls", or any clear ' +
+      "paraphrase of the same intent, set this to true. Honor the directive in both query mode " +
+      "(DM / mention / thread conversations where the user is designing the message) and " +
+      "scheduled mode (cron job prompts that include the directive). " +
+      "Also set this on your own judgment when the response includes a URL whose preview would " +
+      "add noise or spoil the answer (e.g., quoting a JIRA ticket URL the user shared, or any " +
+      "answer where the link's title gives away what you'd say next).",
+  );
+
 // Schema for the normal response path
 const normalResponseSchema = {
   message: z
@@ -421,6 +444,7 @@ const normalResponseSchema = {
     .describe(
       "Interactive buttons for the user to click. Use an empty array for casual/conversational responses that don't need actions.",
     ),
+  suppress_unfurls: suppressUnfurlsField,
 };
 
 const disengageField = z
@@ -487,6 +511,7 @@ const skipEnabledResponseSchema = {
   disengage: disengageField,
   blocks: skipOptionalBlocks,
   actions: skipOptionalActions,
+  suppress_unfurls: suppressUnfurlsField,
 };
 
 // Schema with skip_response only (no disengage) — used by scheduled runs that opted in via
@@ -497,6 +522,7 @@ const skipOnlyResponseSchema = {
   skip_response: skipResponseField,
   blocks: skipOptionalBlocks,
   actions: skipOptionalActions,
+  suppress_unfurls: suppressUnfurlsField,
 };
 
 // Schema for runs declared `submitResponseMode: "skipped"`. The ONLY accepted field is
@@ -772,6 +798,7 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
               ...(action.actions && action.actions.length > 0 && { actions: action.actions }),
               ...(action.reactions &&
                 action.reactions.length > 0 && { reactions: action.reactions }),
+              ...(action.suppress_unfurls === true && { suppressUnfurls: true }),
             });
             action._snapshotId = snapshotId;
           }
@@ -822,11 +849,14 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
         await appendStagedIntents(sessionId, referencedIntents);
       }
 
+      const wantsSuppressUnfurls = "suppress_unfurls" in args && args.suppress_unfurls === true;
+
       if (deliver) {
         const deliveryResult = await deliver({
           blocks: renderedBlocks,
           ...(reactions?.length && { reactions }),
           ...(wantsPostTopLevel && { postTopLevel: true }),
+          ...(wantsSuppressUnfurls && { suppressUnfurls: true }),
         });
 
         if (!deliveryResult.ok) {

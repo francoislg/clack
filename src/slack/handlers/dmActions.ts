@@ -18,6 +18,7 @@ import {
 import type { Block } from "../blockSchema.js";
 import type { SectionBlock } from "@slack/types";
 import { addDeliveryReactions } from "../messageReactions.js";
+import { unfurlOptions } from "../unfurlOptions.js";
 
 /** Fallback for callers that only have a plain-text answer (no structured blocks). */
 function textToBlocks(text: string): Block[] {
@@ -112,7 +113,12 @@ export async function postAnswerToChannel(
   targetChannel: string,
   targetThreadTs?: string,
   deps: DmActionsDeps = defaultDmActionsDeps,
-  opts: { sessionId?: string; actions?: Action[]; reactions?: string[] } = {},
+  opts: {
+    sessionId?: string;
+    actions?: Action[];
+    reactions?: string[];
+    suppressUnfurls?: boolean;
+  } = {},
 ): Promise<{ ok: boolean; ts?: string }> {
   const contentBlocks = deps.getStructuredAcceptedBlocks(snapshot.blocks, snapshot.table);
 
@@ -125,13 +131,13 @@ export async function postAnswerToChannel(
       ? getResponseActionBlocks(actions, opts.sessionId)
       : [];
 
+  const suppressUnfurls = opts.suppressUnfurls ?? snapshot.suppressUnfurls;
   const result = await client.chat.postMessage({
     channel: targetChannel,
     ...(targetThreadTs ? { thread_ts: targetThreadTs } : {}),
     blocks: deps.asSlackBlocks([...contentBlocks, ...renderedActionBlocks]),
     text: snapshot.text,
-    unfurl_links: false,
-    unfurl_media: false,
+    ...unfurlOptions(suppressUnfurls),
   });
 
   const ts = result.ts ?? undefined;
