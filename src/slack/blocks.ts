@@ -10,6 +10,7 @@ import type { AuthoredTableBlock, Block } from "./blockSchema.js";
 import { prepareBlocks, prepareTable } from "./blockPrepare.js";
 import type { BlockValidationError } from "./blockValidate.js";
 import type { SubmitResponsePayload, Action } from "../tools/types.js";
+import { t } from "../i18n/t.js";
 
 /** Slack Block Kit block array type — used by all block builders */
 export type SlackBlocks = (KnownBlock | SlackRawBlock)[];
@@ -18,15 +19,25 @@ export type SlackBlocks = (KnownBlock | SlackRawBlock)[];
 // Structured Response Rendering (new path — from submit_response tool)
 // ============================================================================
 
-/** Default button labels for each action type */
-const DEFAULT_LABELS: Record<string, string> = {
-  choice: "Select",
-  followup: "Continue",
-  post_to: "Post to thread",
-  change: "Start Change",
-  config_update: "Apply Update",
-  update: "Update",
-};
+/** Default button labels for each action type, resolved at call time so the
+ * active language wins (helpers cannot be called at module init — `t()` reads
+ * `getConfig()` which may not be loaded yet). */
+function defaultActionLabel(actionType: Action["type"]): string {
+  switch (actionType) {
+    case "choice":
+      return t("blocks.action_label_choice");
+    case "followup":
+      return t("blocks.action_label_followup");
+    case "post_to":
+      return t("blocks.action_label_post_to");
+    case "change":
+      return t("blocks.action_label_change");
+    case "config_update":
+      return t("blocks.action_label_config_update");
+    case "update":
+      return t("blocks.action_label_update");
+  }
+}
 
 /** Button styles for action types */
 const ACTION_STYLES: Record<string, "primary" | "danger" | undefined> = {
@@ -119,7 +130,7 @@ export function decodeActionValue(value: string): {
 
 /** Map an Action to a Slack button element */
 function actionToButton(action: Action, sessionId: string, index: number): Button {
-  const label = ("label" in action && action.label) || DEFAULT_LABELS[action.type] || action.type;
+  const label = ("label" in action && action.label) || defaultActionLabel(action.type);
   const style = ACTION_STYLES[action.type];
 
   // Append index to action_id to guarantee uniqueness within a message.
@@ -261,7 +272,7 @@ export function getErrorBlocksWithRetry(sessionId: string): SlackBlocks {
     type: "section",
     text: {
       type: "mrkdwn",
-      text: ":warning: Claude seems to have crashed, maybe try again?",
+      text: t("blocks.crash_error"),
     },
   };
   const actions: ActionsBlock = {
@@ -271,7 +282,7 @@ export function getErrorBlocksWithRetry(sessionId: string): SlackBlocks {
         type: "button",
         text: {
           type: "plain_text",
-          text: "🔄 Try Again",
+          text: t("blocks.try_again_button"),
           emoji: true,
         },
         action_id: "clack_retry",

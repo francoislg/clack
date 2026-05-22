@@ -4,6 +4,7 @@
  */
 import type { App } from "@slack/bolt";
 import { errorMessage } from "../../errors.js";
+import { t } from "../../i18n/t.js";
 import type { ClaudeResponse } from "../../claude/index.js";
 import type { Action, PostToAction } from "../../tools/types.js";
 import type { UserRole } from "../../roles.js";
@@ -138,7 +139,7 @@ export async function handleAutoExecuteActions(
             await client.chat.postMessage({
               channel: channelId,
               thread_ts: threadTs,
-              text: `Configuration file \`${intent.file}\` has been updated.`,
+              text: t("errors.config_updated", { file: intent.file }),
             });
           } catch (err) {
             logger.error("Auto-execute config update error:", err);
@@ -146,7 +147,10 @@ export async function handleAutoExecuteActions(
               .postMessage({
                 channel: channelId,
                 thread_ts: threadTs,
-                text: `Failed to update \`${intent.file}\`: ${errorMessage(err)}`,
+                text: t("errors.config_update_failed", {
+                  file: intent.file,
+                  error: errorMessage(err),
+                }),
               })
               .catch(() => {});
           }
@@ -217,7 +221,7 @@ export async function handleAutoExecuteActions(
         await client.chat.postMessage({
           channel: channelId,
           thread_ts: threadTs,
-          text: `Auto-execute failed: ${errorMessage(error)}`,
+          text: t("errors.auto_execute_failed", { error: errorMessage(error) }),
         });
       } catch {
         // Best effort — don't let error reporting crash the flow
@@ -262,7 +266,7 @@ async function handlePostToAutoExecute(
         .postMessage({
           channel: channelId,
           thread_ts: threadTs,
-          text: "Could not auto-post: response content was not found.",
+          text: t("errors.auto_post_no_content"),
         })
         .catch(() => {});
       continue;
@@ -296,6 +300,7 @@ async function handlePostToAutoExecute(
           sessionId,
           ...(action.actions && action.actions.length > 0 && { actions: action.actions }),
           ...(action.reactions && action.reactions.length > 0 && { reactions: action.reactions }),
+          ...(action.suppress_unfurls === true && { suppressUnfurls: true }),
         },
       );
       // Track top-level posts so thread replies can find this session
@@ -308,7 +313,7 @@ async function handlePostToAutoExecute(
         await client.chat.postMessage({
           channel: channelId,
           thread_ts: threadTs,
-          text: `Failed to post: ${errorMessage(error)}`,
+          text: t("errors.auto_post_failed", { error: errorMessage(error) }),
         });
       } catch {
         // Best effort

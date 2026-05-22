@@ -1,6 +1,7 @@
 import type { App } from "@slack/bolt";
 import { getConfig } from "../../config.js";
 import { logger } from "../../logger.js";
+import { t } from "../../i18n/t.js";
 import { resolveChannelLabel, resolveUserLabel, slackLink } from "../logContext.js";
 import { extractAttachments } from "../fileExtractor.js";
 import { processMessage } from "./core.js";
@@ -71,7 +72,7 @@ export function registerMentionHandler(app: App, deps: MentionDeps = defaultMent
       await client.chat.postMessage({
         channel: event.channel,
         thread_ts: event.ts,
-        text: "Hi! Please include a question when mentioning me, or tag me in a thread and I'll read the conversation.",
+        text: t("errors.mention_no_question"),
       });
       return;
     }

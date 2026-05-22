@@ -4,6 +4,7 @@ import { CronExpressionParser } from "cron-parser";
 import type { UserRole } from "./roles.js";
 import { logger } from "./logger.js";
 import { isChannelId } from "./slack/channelResolver.js";
+import { SUPPORTED_LANGUAGES, isSupportedLanguage, type Lang } from "./i18n/languages.js";
 
 export interface SlackAuthConfig {
   botToken: string;
@@ -164,6 +165,17 @@ export interface TriviaAnswersFormatWeights {
 export type TriviaQuestionTypeWeights = Record<"fact" | "topical", number>;
 
 /**
+ * The shape Claude should aim for when writing a freeform-answer question. Rolled
+ * by `get_ideas` on the freeform branch only — boolean/choice questions ignore it.
+ * Exists to break Claude's strong default bias toward numeric answers (years,
+ * counts, measurements); a uniform default gives names/places/phrases an even
+ * shot. See `prompts/scheduledPrompts.ts` for the per-shape guidance.
+ */
+export type TriviaAnswerShape = "name" | "place" | "phrase" | "title" | "date" | "number" | "other";
+
+export type TriviaAnswerShapeWeights = Record<TriviaAnswerShape, number>;
+
+/**
  * One entry in the optional `trivia.contexts` axis. `name` is the lens label (any string,
  * including the empty string which means "no specific lean"). `weight` defaults to 1; higher
  * weight means the lens is more likely to be tried first when `get_ideas` rolls
@@ -183,6 +195,40 @@ export interface TriviaChoicesConfig {
   min: number;
   max: number;
 }
+
+/**
+ * Inclusive integer range on the 1–10 difficulty self-rating scale used by the
+ * question-generation prompts. Tuple form `[min, max]` with `1 <= min <= max <= 10`.
+ */
+export type DifficultyRange = [number, number];
+
+/**
+ * Per-bucket target difficulty ranges + the REJECT-below-this threshold for one
+ * answers-format game type (boolean / choice / freeform). Every field is required
+ * in the fully-resolved shape — the cascade fills missing fields from the next tier.
+ */
+export interface DifficultyRanges {
+  easy: DifficultyRange;
+  medium: DifficultyRange;
+  hard: DifficultyRange;
+  /** Self-ratings strictly below this number cause REJECT-and-re-roll. Integer in [1, 10]. */
+  minimumThreshold: number;
+}
+
+/**
+ * Sparse input shape — every field optional. Used at config / season / slot tiers so
+ * authors can override just `freeform.hard` without restating `easy`/`medium`.
+ */
+export type DifficultyRangesInput = Partial<DifficultyRanges>;
+
+/**
+ * Per-answers-format difficulty config. Each game type (boolean / choice / freeform)
+ * is independently configurable; freeform defaults to softer ranges since typing an
+ * answer is intrinsically harder than picking from a list.
+ */
+export type TriviaDifficultyConfig = Partial<
+  Record<"boolean" | "choice" | "freeform", DifficultyRangesInput>
+>;
 
 /**
  * One trivia game declared in config. The trivia plugin reconciles its cron jobs from this list
@@ -227,10 +273,19 @@ export interface TriviaConfig {
   answersFormat?: TriviaAnswersFormatWeights;
   /** Weighted-random map of question type (fact vs topical) → weight. Workspace default; overridable per-season / per-slot. */
   questionType?: TriviaQuestionTypeWeights;
+  /** Weighted-random map of freeform answer shape → weight. Workspace default; overridable per-season / per-slot. Freeform-branch only. */
+  answerShape?: TriviaAnswerShapeWeights;
   /** Optional lens axis. When present, get_ideas returns a `contextPriority` array Claude descends through. */
   contexts?: TriviaContextEntry[];
   /** Bounds for choice-question option counts. Defaults to `{ min: 2, max: 4 }`. */
   choices?: TriviaChoicesConfig;
+  /**
+   * Per-game-type difficulty ranges. Each format (boolean/choice/freeform) has its own
+   * target ranges for the Easy/Medium/Hard buckets plus a reject-below threshold.
+   * Workspace default; overridable per-season / per-slot. Fields cascade independently —
+   * a season can override just `freeform.hard` without losing the workspace's `easy`/`medium`.
+   */
+  difficulty?: TriviaDifficultyConfig;
   /**
    * Declarative trivia games. Each entry becomes two plugin-managed cron jobs (question + reveal).
    * The trivia plugin reads this on every init and calls `sdk.reconcileCronJobs("trivia", …)`.
@@ -248,6 +303,32 @@ export const DEFAULT_TRIVIA_CHOICES: TriviaChoicesConfig = { min: 4, max: 4 };
 
 /** Built-in fallback when no `questionType` weights are set at any cascade tier. */
 export const DEFAULT_QUESTION_TYPE_WEIGHTS: TriviaQuestionTypeWeights = { fact: 1, topical: 0 };
+
+/** Built-in fallback when no `answerShape` weights are set at any cascade tier. Uniform across all five shapes. */
+export const DEFAULT_ANSWER_SHAPE_WEIGHTS: TriviaAnswerShapeWeights = {
+  name: 1,
+  place: 1,
+  phrase: 1,
+  title: 1,
+  date: 1,
+  number: 1,
+  other: 1,
+};
+
+/**
+ * Built-in fallback difficulty ranges per answers-format. Freeform is shifted -2 points
+ * across every bucket (and the reject threshold) because typing the answer is intrinsically
+ * harder than picking from boolean/choice; the same 1–10 rating against a softer target
+ * keeps the difficulty perception roughly equal across formats.
+ */
+export const DEFAULT_DIFFICULTY_RANGES: Record<
+  "boolean" | "choice" | "freeform",
+  DifficultyRanges
+> = {
+  boolean: { easy: [4, 6], medium: [7, 8], hard: [9, 10], minimumThreshold: 4 },
+  choice: { easy: [4, 6], medium: [7, 8], hard: [9, 10], minimumThreshold: 4 },
+  freeform: { easy: [2, 4], medium: [5, 6], hard: [7, 8], minimumThreshold: 2 },
+};
 
 export interface TaskCardsConfig {
   /** Default cap on detail lines rendered per grouped tool task card. */
@@ -333,6 +414,12 @@ export interface Config {
    * loading (passed via `--plugin-dir` at session start, same as pre-lazy behavior).
    */
   skillPlugins?: SkillPluginRegistry;
+  /**
+   * Workspace-global user-facing language. BCP-47 short code. When absent or `"en"`,
+   * the bot behaves identically to its pre-localization state. When set to `"fr"`,
+   * `t()`-rendered UI strings and Claude's user-facing output flip to French.
+   */
+  language?: Lang;
 }
 
 const DEFAULTS: Partial<Config> = {
@@ -484,6 +571,15 @@ function parseTaskCardsConfig(raw: TaskCardsRaw | undefined): TaskCardsConfig | 
  */
 export const ANSWERS_FORMAT_KEYS = ["boolean", "choice", "freeform"] as const;
 const QUESTION_TYPE_KEYS = ["fact", "topical"] as const;
+export const ANSWER_SHAPE_KEYS = [
+  "name",
+  "place",
+  "phrase",
+  "title",
+  "date",
+  "number",
+  "other",
+] as const;
 
 /**
  * Validate an arbitrary value as a `TriviaAnswersFormatWeights` map. Used by:
@@ -614,6 +710,73 @@ export function parseTriviaQuestionType(
 }
 
 /**
+ * Validate an arbitrary value as a `TriviaAnswerShapeWeights` map. Symmetric to the
+ * answersFormat / questionType validators. Used by:
+ *
+ * - `parseTriviaAnswerShape` for `config.trivia.answerShape` (workspace-level)
+ * - `validateAnswerShape` in `src/plugins/trivia/domain/seasonFormat.ts` for
+ *   `SeasonEntry.answerShape` / `SeasonFormatSlot.answerShape`
+ */
+export function validateAnswerShapeMap(
+  raw: unknown,
+  fieldLabel: string,
+): { ok: true; value: TriviaAnswerShapeWeights } | { ok: false; error: string } {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { ok: false, error: `'${fieldLabel}' must be an object` };
+  }
+  const out: Partial<TriviaAnswerShapeWeights> = {};
+  let positiveCount = 0;
+  for (const [key, value] of Object.entries(raw)) {
+    if (!(ANSWER_SHAPE_KEYS as readonly string[]).includes(key)) {
+      return {
+        ok: false,
+        error: `'${fieldLabel}' contains unknown key '${key}' (allowed: ${ANSWER_SHAPE_KEYS.join(", ")})`,
+      };
+    }
+    if (
+      typeof value !== "number" ||
+      !Number.isFinite(value) ||
+      !Number.isInteger(value) ||
+      value < 0
+    ) {
+      return {
+        ok: false,
+        error: `'${fieldLabel}.${key}' must be a non-negative integer (got ${JSON.stringify(value)})`,
+      };
+    }
+    out[key as (typeof ANSWER_SHAPE_KEYS)[number]] = value;
+    if (value > 0) positiveCount++;
+  }
+  if (positiveCount === 0) {
+    return {
+      ok: false,
+      error: `'${fieldLabel}' must have at least one strictly positive weight`,
+    };
+  }
+  return {
+    ok: true,
+    value: {
+      name: out.name ?? 0,
+      place: out.place ?? 0,
+      phrase: out.phrase ?? 0,
+      title: out.title ?? 0,
+      date: out.date ?? 0,
+      number: out.number ?? 0,
+      other: out.other ?? 0,
+    },
+  };
+}
+
+export function parseTriviaAnswerShape(
+  raw: JsonValue | undefined,
+): TriviaAnswerShapeWeights | undefined {
+  if (raw === undefined) return undefined;
+  const result = validateAnswerShapeMap(raw, "Config 'trivia.answerShape'");
+  if (!result.ok) throw new Error(result.error);
+  return result.value;
+}
+
+/**
  * Validate an arbitrary value as a `TriviaContextEntry[]` list. Symmetric to the
  * answersFormat / questionType validators. Used by:
  *
@@ -664,6 +827,118 @@ export function validateContextsList(
 export function parseTriviaContexts(raw: JsonValue | undefined): TriviaContextEntry[] | undefined {
   if (raw === undefined) return undefined;
   const result = validateContextsList(raw, "Config 'trivia.contexts'");
+  if (!result.ok) throw new Error(result.error);
+  return result.value;
+}
+
+const DIFFICULTY_BUCKET_KEYS = ["easy", "medium", "hard"] as const;
+const DIFFICULTY_FORMAT_KEYS = ["boolean", "choice", "freeform"] as const;
+
+function validateDifficultyRange(
+  raw: unknown,
+  fieldLabel: string,
+): { ok: true; value: DifficultyRange } | { ok: false; error: string } {
+  if (!Array.isArray(raw) || raw.length !== 2) {
+    return { ok: false, error: `'${fieldLabel}' must be a [min, max] tuple` };
+  }
+  const [min, max] = raw;
+  if (typeof min !== "number" || !Number.isInteger(min) || min < 1 || min > 10) {
+    return {
+      ok: false,
+      error: `'${fieldLabel}[0]' must be an integer in [1, 10] (got ${JSON.stringify(min)})`,
+    };
+  }
+  if (typeof max !== "number" || !Number.isInteger(max) || max < 1 || max > 10) {
+    return {
+      ok: false,
+      error: `'${fieldLabel}[1]' must be an integer in [1, 10] (got ${JSON.stringify(max)})`,
+    };
+  }
+  if (min > max) {
+    return { ok: false, error: `'${fieldLabel}' min (${min}) must be <= max (${max})` };
+  }
+  return { ok: true, value: [min, max] };
+}
+
+/**
+ * Validate one game-type's `DifficultyRangesInput` — a sparse object where any of
+ * `easy` / `medium` / `hard` / `minimumThreshold` may be omitted (cascade fills them).
+ * Used by the workspace-config validator AND the season/slot validators.
+ */
+export function validateDifficultyRangesMap(
+  raw: unknown,
+  fieldLabel: string,
+): { ok: true; value: DifficultyRangesInput } | { ok: false; error: string } {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { ok: false, error: `'${fieldLabel}' must be an object` };
+  }
+  const entries = raw as JsonObject;
+  const out: DifficultyRangesInput = {};
+  for (const key of Object.keys(entries)) {
+    if (
+      !(DIFFICULTY_BUCKET_KEYS as readonly string[]).includes(key) &&
+      key !== "minimumThreshold"
+    ) {
+      return {
+        ok: false,
+        error: `'${fieldLabel}' contains unknown key '${key}' (allowed: easy, medium, hard, minimumThreshold)`,
+      };
+    }
+  }
+  for (const bucket of DIFFICULTY_BUCKET_KEYS) {
+    if (entries[bucket] === undefined) continue;
+    const r = validateDifficultyRange(entries[bucket], `${fieldLabel}.${bucket}`);
+    if (!r.ok) return r;
+    out[bucket] = r.value;
+  }
+  if (entries.minimumThreshold !== undefined) {
+    const t = entries.minimumThreshold;
+    if (typeof t !== "number" || !Number.isInteger(t) || t < 1 || t > 10) {
+      return {
+        ok: false,
+        error: `'${fieldLabel}.minimumThreshold' must be an integer in [1, 10] (got ${JSON.stringify(t)})`,
+      };
+    }
+    out.minimumThreshold = t;
+  }
+  return { ok: true, value: out };
+}
+
+/**
+ * Validate `config.trivia.difficulty` (or its season / slot equivalents) — a sparse
+ * object keyed by answers-format with each value a `DifficultyRangesInput`.
+ */
+export function validateTriviaDifficultyMap(
+  raw: unknown,
+  fieldLabel: string,
+): { ok: true; value: TriviaDifficultyConfig } | { ok: false; error: string } {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { ok: false, error: `'${fieldLabel}' must be an object` };
+  }
+  const entries = raw as JsonObject;
+  const out: TriviaDifficultyConfig = {};
+  for (const key of Object.keys(entries)) {
+    if (!(DIFFICULTY_FORMAT_KEYS as readonly string[]).includes(key)) {
+      return {
+        ok: false,
+        error: `'${fieldLabel}' contains unknown key '${key}' (allowed: ${DIFFICULTY_FORMAT_KEYS.join(", ")})`,
+      };
+    }
+  }
+  for (const fmt of DIFFICULTY_FORMAT_KEYS) {
+    if (entries[fmt] === undefined) continue;
+    const r = validateDifficultyRangesMap(entries[fmt], `${fieldLabel}.${fmt}`);
+    if (!r.ok) return r;
+    out[fmt] = r.value;
+  }
+  return { ok: true, value: out };
+}
+
+export function parseTriviaDifficulty(
+  raw: JsonValue | undefined,
+): TriviaDifficultyConfig | undefined {
+  if (raw === undefined) return undefined;
+  const result = validateTriviaDifficultyMap(raw, "Config 'trivia.difficulty'");
   if (!result.ok) throw new Error(result.error);
   return result.value;
 }
@@ -1123,6 +1398,13 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
     }
   }
 
+  // Validate language if provided
+  if (c.language !== undefined && !isSupportedLanguage(c.language)) {
+    throw new Error(
+      `Config 'language' must be one of: ${SUPPORTED_LANGUAGES.join(", ")} (got ${JSON.stringify(c.language)})`,
+    );
+  }
+
   // Validate slackApp if provided
   const slackAppRaw = section(c, "slackApp");
   if (slackAppRaw) {
@@ -1159,8 +1441,10 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
       triviaRaw.answersFormat as JsonValue | undefined,
     );
     const questionType = parseTriviaQuestionType(triviaRaw.questionType as JsonValue | undefined);
+    const answerShape = parseTriviaAnswerShape(triviaRaw.answerShape as JsonValue | undefined);
     const contexts = parseTriviaContexts(triviaRaw.contexts as JsonValue | undefined);
     const choices = parseTriviaChoicesConfig(triviaRaw.choices as JsonValue | undefined);
+    const difficulty = parseTriviaDifficulty(triviaRaw.difficulty as JsonValue | undefined);
     const games = parseTriviaGames(triviaRaw.games as JsonValue | undefined);
     const offDays = parseOffDays(triviaRaw.offDays as JsonValue | undefined);
     if (triviaSeasonsRaw) {
@@ -1174,8 +1458,10 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
           seasons: { enabled: false, prompt: "" },
           answersFormat,
           questionType,
+          answerShape,
           contexts,
           choices,
+          difficulty,
           games,
           offDays,
         };
@@ -1184,14 +1470,25 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
           seasons: { enabled: seasonsEnabled, prompt: seasonsPrompt },
           answersFormat,
           questionType,
+          answerShape,
           contexts,
           choices,
+          difficulty,
           games,
           offDays,
         };
       }
     } else {
-      triviaConfig = { answersFormat, questionType, contexts, choices, games, offDays };
+      triviaConfig = {
+        answersFormat,
+        questionType,
+        answerShape,
+        contexts,
+        choices,
+        difficulty,
+        games,
+        offDays,
+      };
     }
   }
   const reusableFoldersRaw = cwRaw && section(cwRaw, "reusableFolders");
@@ -1297,6 +1594,7 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
     trivia: triviaConfig,
     mcpServers: parseMcpServerRegistry(c.mcpServers as JsonValue | undefined),
     skillPlugins: parseSkillPluginRegistry(c.skillPlugins as JsonValue | undefined),
+    language: isSupportedLanguage(c.language) ? c.language : undefined,
   };
 
   return merged;

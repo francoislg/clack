@@ -1,7 +1,9 @@
 import { loadRoles } from "../roles.js";
 import { getSlackClient } from "../slack/app.js";
 import { openDmChannel } from "../slack/channelResolver.js";
+import { unfurlOptions } from "../slack/unfurlOptions.js";
 import { logger } from "../logger.js";
+import { t } from "../i18n/t.js";
 import type { MigrationError } from "./types.js";
 
 /**
@@ -25,7 +27,10 @@ export async function getAdmin(): Promise<string | null> {
 /**
  * Send a DM to the admin. Returns true if sent successfully.
  */
-export async function dmAdmin(message: string): Promise<boolean> {
+export async function dmAdmin(
+  message: string,
+  options: { suppressUnfurls?: boolean } = {},
+): Promise<boolean> {
   const adminId = await getAdmin();
   if (!adminId) {
     logger.warn("No admin configured for migration DM");
@@ -48,6 +53,7 @@ export async function dmAdmin(message: string): Promise<boolean> {
     await client.chat.postMessage({
       channel: channelId,
       text: message,
+      ...unfurlOptions(options.suppressUnfurls),
     });
     return true;
   } catch (error) {
@@ -87,9 +93,7 @@ export async function handleMigrationFailure(
   };
 
   // Try to DM admin
-  const dmSent = await dmAdmin(
-    `:warning: *Migration failed: ${migrationName}* (v${version})\n\n${error}\n\nCheck the logs for details and restart Clack after resolving the issue.`,
-  );
+  const dmSent = await dmAdmin(t("migrations.admin_dm", { name: migrationName, version, error }));
 
   if (!dmSent) {
     logger.warn(`Could not DM admin about migration failure. Error will be shown on home tab.`);
