@@ -26,6 +26,12 @@ export interface BuildQueryContextParams {
    */
   submitResponseMode?: "always" | "optional" | "skipped";
   /**
+   * When true, `submit_response` exposes top-level `additional_messages` and `thread_replies`.
+   * Only the scheduled (cron) trigger sets this; everywhere else the fields are hidden.
+   * Multi-message inside `post_to` actions is always available.
+   */
+  allowMultiMessage?: boolean;
+  /**
    * Per-installation cap on `additional_messages.length`. Sourced from
    * `config.submitResponse.maxAdditionalMessages` (default 5, range [1, 10]).
    */

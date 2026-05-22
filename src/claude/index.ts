@@ -195,10 +195,13 @@ async function buildQuerySetup(
     config.skillPlugins,
   );
 
-  // Multi-message support (additional_messages = top-level channel posts;
-  // thread_replies = threaded replies) is ALWAYS exposed in the schema — Claude is
-  // disciplined by the field descriptions to use them only when the user explicitly
-  // asks for multiple messages. The configured cap (default 5) is passed through.
+  // Top-level multi-message fields (additional_messages = top-level channel posts;
+  // thread_replies = threaded replies) are gated to the scheduled (cron) trigger only.
+  // In DM, @mention, reaction, auto-respond, thread-reply, and worker contexts the schema
+  // hides these fields — the trigger channel is the user's conversation space and multi-
+  // message there is almost never what they want (they'd use post_to with an explicit
+  // channel). post_to's own multi-message fields are always available regardless.
+  const allowMultiMessage = session.triggerType === "scheduled";
   const maxAdditionalMessages = config.submitResponse?.maxAdditionalMessages;
 
   const toolCtx = buildQueryContext({
@@ -215,6 +218,7 @@ async function buildQuerySetup(
     requiredTools: options?.requiredTools,
     skipConditions: options?.skipConditions,
     submitResponseMode: options?.submitResponseMode,
+    allowMultiMessage,
     ...(maxAdditionalMessages !== undefined && { maxAdditionalMessages }),
     asOf: options?.asOf,
     mcpManager: mcpSetup.manager,
