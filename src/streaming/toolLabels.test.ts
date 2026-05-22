@@ -1,7 +1,12 @@
 import { describe, it, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { getToolLabel, getToolGroup, getToolDetails } from "./toolLabels.js";
-import { __setServerOverridesForTest, resetToolMappingCache } from "./toolMappingLoader.js";
+import {
+  __setServerOverridesForTest,
+  resetToolMappingCache,
+  registerArgEnricher,
+  clearArgEnrichers,
+} from "./toolMappingLoader.js";
 
 // ---------------------------------------------------------------------------
 // getToolLabel
@@ -531,5 +536,30 @@ describe("server tool-mapping overrides", () => {
     __setServerOverridesForTest(new Map());
     // sentry has its own mapping file with no override — labels should be untouched.
     assert.equal(getToolLabel("mcp__sentry__list_issues", {}), "Listing Sentry issues");
+  });
+});
+
+describe("getToolLabel with arg enrichers", () => {
+  afterEach(() => {
+    clearArgEnrichers();
+  });
+
+  it("renders {name|id} using a registered enricher", () => {
+    registerArgEnricher("mcp__clack__cancel_scheduled_message", (args) => ({
+      ...args,
+      name: "Morning roundup",
+    }));
+    assert.equal(
+      getToolLabel("mcp__clack__cancel_scheduled_message", { id: "abc123" }),
+      "Cancelling scheduled message Morning roundup",
+    );
+  });
+
+  it("falls back to {id} when enricher does not supply a name", () => {
+    registerArgEnricher("mcp__clack__cancel_scheduled_message", (args) => args);
+    assert.equal(
+      getToolLabel("mcp__clack__cancel_scheduled_message", { id: "abc123" }),
+      "Cancelling scheduled message abc123",
+    );
   });
 });

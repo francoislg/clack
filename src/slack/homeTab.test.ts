@@ -1442,3 +1442,116 @@ describe("buildCronJobModal — skipConditions input", () => {
     }
   });
 });
+
+describe("buildCronJobModal — name input", () => {
+  function jobWith(overrides: Partial<CronJob> = {}): CronJob {
+    return {
+      id: "job-1",
+      cronExpression: "0 9 * * *",
+      channel: "C456",
+      prompt: "Summarize PRs",
+      createdBy: "U001",
+      createdAt: new Date().toISOString(),
+      enabled: true,
+      timezone: "UTC",
+      ...overrides,
+    };
+  }
+
+  function findNameInput(view: View): KnownBlock | undefined {
+    const blocks = view.blocks as KnownBlock[];
+    return blocks.find((b) => "block_id" in b && b.block_id === "cron_name_block");
+  }
+
+  it("includes a name input block as the first input", () => {
+    const modal = buildCronJobModal(jobWith());
+    const input = findNameInput(modal);
+    assert.ok(input, "modal should include the name input block");
+    if (input.type === "input" && "max_length" in input.element) {
+      assert.equal(input.element.max_length, 80);
+    }
+  });
+
+  it("pre-fills initial_value with the stored job.name", () => {
+    const modal = buildCronJobModal(jobWith({ name: "Morning PR roundup" }));
+    const input = findNameInput(modal);
+    assert.ok(input);
+    if (input.type === "input" && "initial_value" in input.element) {
+      assert.equal(input.element.initial_value, "Morning PR roundup");
+    }
+  });
+
+  it("leaves initial_value undefined when the job has no name", () => {
+    const modal = buildCronJobModal(jobWith());
+    const input = findNameInput(modal);
+    assert.ok(input);
+    if (input.type === "input" && "initial_value" in input.element) {
+      assert.equal(input.element.initial_value, undefined);
+    }
+  });
+});
+
+describe("buildHomeView — schedule name prefix", () => {
+  function baseJob(overrides: Partial<CronJob> = {}): CronJob {
+    return {
+      id: "job-1",
+      cronExpression: "0 9 * * *",
+      channel: "C456",
+      prompt: "Summarize PRs",
+      createdBy: "U001",
+      createdAt: new Date().toISOString(),
+      enabled: true,
+      timezone: "UTC",
+      ...overrides,
+    };
+  }
+
+  function findScheduleRowText(view: View): string | undefined {
+    const blocks = view.blocks as KnownBlock[];
+    for (const b of blocks) {
+      if (b.type === "section" && b.text?.type === "mrkdwn" && b.text.text.includes("<#C456>")) {
+        return b.text.text;
+      }
+    }
+    return undefined;
+  }
+
+  it("prepends a bold name and em-dash to the row when job.name is set", async () => {
+    setDefaultMocks("member");
+    mockGetJobsByUser.mock.mockImplementation(async () => [baseJob({ name: "Morning roundup" })]);
+
+    const deps = makeDeps();
+    const view = await buildHomeView({ userId: "U001" }, deps);
+    const text = findScheduleRowText(view);
+    assert.ok(text);
+    assert.ok(text.startsWith("*Morning roundup* — "), `expected name prefix, got: ${text}`);
+  });
+
+  it("renders no prefix when job.name is absent", async () => {
+    setDefaultMocks("member");
+    mockGetJobsByUser.mock.mockImplementation(async () => [baseJob()]);
+
+    const deps = makeDeps();
+    const view = await buildHomeView({ userId: "U001" }, deps);
+    const text = findScheduleRowText(view);
+    assert.ok(text);
+    assert.ok(text.startsWith("<#C456>"), `expected channel-led row, got: ${text}`);
+  });
+
+  it("strips mrkdwn special chars from the name to keep the row intact", async () => {
+    setDefaultMocks("member");
+    mockGetJobsByUser.mock.mockImplementation(async () => [
+      baseJob({ name: "*Sneaky* <link> & _italic_ ~strike~" }),
+    ]);
+
+    const deps = makeDeps();
+    const view = await buildHomeView({ userId: "U001" }, deps);
+    const text = findScheduleRowText(view);
+    assert.ok(text);
+    // The opening + closing bold markers belong to the wrapping, not the name content.
+    // After escape, the body between the markers should contain none of `*`, `_`, `~`, `<`, `>`, `&`.
+    const match = text.match(/^\*(.+?)\* — /);
+    assert.ok(match, `expected bold-wrapped name prefix, got: ${text}`);
+    assert.equal(match[1], "Sneaky link  italic strike");
+  });
+});

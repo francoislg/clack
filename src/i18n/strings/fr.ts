@@ -206,6 +206,10 @@ export const fr: Partial<Record<StringKey, string>> = {
   "home.scheduled.resume": "Reprendre",
   "home.scheduled.modal_title_edit": "Modifier la programmation",
   "home.scheduled.modal_title_add": "Ajouter une programmation",
+  "home.scheduled.name_label": "Nom",
+  "home.scheduled.name_placeholder": "p.ex. Récap matinal des PR",
+  "home.scheduled.name_hint":
+    "Libellé court affiché dans la page d'accueil et les cartes d'outils (1-80 caractères).",
   "home.scheduled.channel_label": "Canal",
   "home.scheduled.channel_placeholder": "Sélectionnez un canal",
   "home.scheduled.cron_label": "Expression cron",

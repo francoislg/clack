@@ -15,7 +15,9 @@ import {
   updateJobRunStatus,
   clearCronJobsCache,
   findByPluginOwner,
+  getJobByIdFromCache,
 } from "./cronJobs.js";
+import { writeFile } from "node:fs/promises";
 
 const originalCwd = process.cwd;
 
@@ -37,6 +39,7 @@ describe("cronJobs", () => {
   describe("createJob", () => {
     it("creates a job and returns it", async () => {
       const job = await createJob({
+        name: "Test schedule",
         cronExpression: "0 9 * * *",
         channel: "C123",
         prompt: "Summarize PRs",
@@ -56,6 +59,7 @@ describe("cronJobs", () => {
 
     it("creates a one-shot job", async () => {
       const job = await createJob({
+        name: "Test schedule",
         cronExpression: "0 0 1 1 *",
         channel: "C123",
         prompt: "New year summary",
@@ -69,6 +73,7 @@ describe("cronJobs", () => {
 
     it("persists requiredTools on the job", async () => {
       const job = await createJob({
+        name: "Test schedule",
         cronExpression: "0 9 * * *",
         channel: "C123",
         prompt: "Run trivia",
@@ -88,6 +93,7 @@ describe("cronJobs", () => {
 
     it("omits requiredTools field when not supplied (backwards compatible)", async () => {
       const job = await createJob({
+        name: "Test schedule",
         cronExpression: "0 9 * * *",
         channel: "C123",
         prompt: "Summarize PRs",
@@ -100,6 +106,7 @@ describe("cronJobs", () => {
 
     it("omits requiredTools when supplied as empty array", async () => {
       const job = await createJob({
+        name: "Test schedule",
         cronExpression: "0 9 * * *",
         channel: "C123",
         prompt: "Summarize PRs",
@@ -113,6 +120,7 @@ describe("cronJobs", () => {
 
     it("persists skipConditions when supplied", async () => {
       const job = await createJob({
+        name: "Test schedule",
         cronExpression: "0 9 * * *",
         channel: "C123",
         prompt: "Summarize PRs",
@@ -131,6 +139,7 @@ describe("cronJobs", () => {
 
     it("omits skipConditions when not supplied (backwards compatible)", async () => {
       const job = await createJob({
+        name: "Test schedule",
         cronExpression: "0 9 * * *",
         channel: "C123",
         prompt: "Summarize PRs",
@@ -143,6 +152,7 @@ describe("cronJobs", () => {
 
     it("omits skipConditions when supplied as empty string", async () => {
       const job = await createJob({
+        name: "Test schedule",
         cronExpression: "0 9 * * *",
         channel: "C123",
         prompt: "Summarize PRs",
@@ -156,6 +166,7 @@ describe("cronJobs", () => {
 
     it("creates a system-owned job with createdBy: null + systemActor", async () => {
       const job = await createJob({
+        name: "Test schedule",
         cronExpression: "0 9 * * *",
         channel: "C123",
         prompt: "Run trivia",
@@ -181,6 +192,7 @@ describe("cronJobs", () => {
 
     it("omits systemActor for user-created jobs", async () => {
       const job = await createJob({
+        name: "Test schedule",
         cronExpression: "0 9 * * *",
         channel: "C123",
         prompt: "ping",
@@ -193,6 +205,7 @@ describe("cronJobs", () => {
     it("rejects createdBy: null without systemActor", async () => {
       await assert.rejects(
         createJob({
+          name: "Test schedule",
           cronExpression: "0 9 * * *",
           channel: "C123",
           prompt: "x",
@@ -206,6 +219,7 @@ describe("cronJobs", () => {
     it("rejects user createdBy combined with systemActor", async () => {
       await assert.rejects(
         createJob({
+          name: "Test schedule",
           cronExpression: "0 9 * * *",
           channel: "C123",
           prompt: "x",
@@ -221,6 +235,7 @@ describe("cronJobs", () => {
   describe("updateJob (skipConditions)", () => {
     it("sets skipConditions on an existing job", async () => {
       const job = await createJob({
+        name: "Test schedule",
         cronExpression: "0 9 * * *",
         channel: "C123",
         prompt: "Summarize PRs",
@@ -236,6 +251,7 @@ describe("cronJobs", () => {
 
     it("replaces an existing skipConditions value", async () => {
       const job = await createJob({
+        name: "Test schedule",
         cronExpression: "0 9 * * *",
         channel: "C123",
         prompt: "Summarize PRs",
@@ -251,6 +267,7 @@ describe("cronJobs", () => {
 
     it("clears skipConditions when passed empty string", async () => {
       const job = await createJob({
+        name: "Test schedule",
         cronExpression: "0 9 * * *",
         channel: "C123",
         prompt: "Summarize PRs",
@@ -266,6 +283,7 @@ describe("cronJobs", () => {
 
     it("leaves skipConditions unchanged when undefined", async () => {
       const job = await createJob({
+        name: "Test schedule",
         cronExpression: "0 9 * * *",
         channel: "C123",
         prompt: "Summarize PRs",
@@ -284,6 +302,7 @@ describe("cronJobs", () => {
   describe("submitResponseMode", () => {
     it("persists submitResponseMode when supplied to createJob", async () => {
       const job = await createJob({
+        name: "Test schedule",
         cronExpression: "0 9 * * *",
         channel: "C123",
         prompt: "Run trivia",
@@ -301,6 +320,7 @@ describe("cronJobs", () => {
 
     it("omits submitResponseMode when not supplied", async () => {
       const job = await createJob({
+        name: "Test schedule",
         cronExpression: "0 9 * * *",
         channel: "C123",
         prompt: "ping",
@@ -313,6 +333,7 @@ describe("cronJobs", () => {
 
     it("sets submitResponseMode on an existing job via updateJob", async () => {
       const job = await createJob({
+        name: "Test schedule",
         cronExpression: "0 9 * * *",
         channel: "C123",
         prompt: "ping",
@@ -326,6 +347,7 @@ describe("cronJobs", () => {
 
     it("replaces an existing submitResponseMode value", async () => {
       const job = await createJob({
+        name: "Test schedule",
         cronExpression: "0 9 * * *",
         channel: "C123",
         prompt: "ping",
@@ -340,6 +362,7 @@ describe("cronJobs", () => {
 
     it("clears submitResponseMode when passed null", async () => {
       const job = await createJob({
+        name: "Test schedule",
         cronExpression: "0 9 * * *",
         channel: "C123",
         prompt: "ping",
@@ -354,6 +377,7 @@ describe("cronJobs", () => {
 
     it("leaves submitResponseMode unchanged when undefined", async () => {
       const job = await createJob({
+        name: "Test schedule",
         cronExpression: "0 9 * * *",
         channel: "C123",
         prompt: "ping",
@@ -371,6 +395,7 @@ describe("cronJobs", () => {
   describe("getJobs", () => {
     it("returns all jobs", async () => {
       await createJob({
+        name: "Test schedule",
         cronExpression: "0 9 * * *",
         channel: "C1",
         prompt: "Job 1",
@@ -378,6 +403,7 @@ describe("cronJobs", () => {
         timezone: "UTC",
       });
       await createJob({
+        name: "Test schedule",
         cronExpression: "0 10 * * *",
         channel: "C2",
         prompt: "Job 2",
@@ -393,6 +419,7 @@ describe("cronJobs", () => {
   describe("getEnabledJobs", () => {
     it("returns only enabled jobs", async () => {
       const job = await createJob({
+        name: "Test schedule",
         cronExpression: "0 9 * * *",
         channel: "C1",
         prompt: "Job 1",
@@ -400,6 +427,7 @@ describe("cronJobs", () => {
         timezone: "UTC",
       });
       await createJob({
+        name: "Test schedule",
         cronExpression: "0 10 * * *",
         channel: "C2",
         prompt: "Job 2",
@@ -416,6 +444,7 @@ describe("cronJobs", () => {
   describe("getJobsByUser", () => {
     it("filters by user", async () => {
       await createJob({
+        name: "Test schedule",
         cronExpression: "0 9 * * *",
         channel: "C1",
         prompt: "Job 1",
@@ -423,6 +452,7 @@ describe("cronJobs", () => {
         timezone: "UTC",
       });
       await createJob({
+        name: "Test schedule",
         cronExpression: "0 10 * * *",
         channel: "C2",
         prompt: "Job 2",
@@ -439,6 +469,7 @@ describe("cronJobs", () => {
   describe("toggleJob", () => {
     it("toggles enabled state", async () => {
       const job = await createJob({
+        name: "Test schedule",
         cronExpression: "0 9 * * *",
         channel: "C1",
         prompt: "Test",
@@ -462,6 +493,7 @@ describe("cronJobs", () => {
   describe("deleteJob", () => {
     it("deletes a job", async () => {
       const job = await createJob({
+        name: "Test schedule",
         cronExpression: "0 9 * * *",
         channel: "C1",
         prompt: "Test",
@@ -485,6 +517,7 @@ describe("cronJobs", () => {
   describe("updateJobRunStatus", () => {
     it("updates run status", async () => {
       const job = await createJob({
+        name: "Test schedule",
         cronExpression: "0 9 * * *",
         channel: "C1",
         prompt: "Test",
@@ -501,6 +534,7 @@ describe("cronJobs", () => {
 
     it("records a run with responseTs", async () => {
       const job = await createJob({
+        name: "Test schedule",
         cronExpression: "0 9 * * *",
         channel: "C1",
         prompt: "Test",
@@ -519,6 +553,7 @@ describe("cronJobs", () => {
 
     it("records a run without responseTs on error", async () => {
       const job = await createJob({
+        name: "Test schedule",
         cronExpression: "0 9 * * *",
         channel: "C1",
         prompt: "Test",
@@ -536,6 +571,7 @@ describe("cronJobs", () => {
 
     it("records a skipped run without responseTs", async () => {
       const job = await createJob({
+        name: "Test schedule",
         cronExpression: "0 9 * * *",
         channel: "C1",
         prompt: "Test",
@@ -554,6 +590,7 @@ describe("cronJobs", () => {
 
     it("replaces prior error status when a skipped run occurs", async () => {
       const job = await createJob({
+        name: "Test schedule",
         cronExpression: "0 9 * * *",
         channel: "C1",
         prompt: "Test",
@@ -571,6 +608,7 @@ describe("cronJobs", () => {
 
     it("records replayOf on a replay run", async () => {
       const job = await createJob({
+        name: "Test schedule",
         cronExpression: "0 9 * * *",
         channel: "C1",
         prompt: "Test",
@@ -590,6 +628,7 @@ describe("cronJobs", () => {
 
     it("omits replayOf when not supplied", async () => {
       const job = await createJob({
+        name: "Test schedule",
         cronExpression: "0 9 * * *",
         channel: "C1",
         prompt: "Test",
@@ -605,6 +644,7 @@ describe("cronJobs", () => {
 
     it("accumulates all runs without cap", async () => {
       const job = await createJob({
+        name: "Test schedule",
         cronExpression: "0 9 * * *",
         channel: "C1",
         prompt: "Test",
@@ -626,6 +666,7 @@ describe("cronJobs", () => {
   describe("pluginManaged + specKey persistence", () => {
     it("createJob persists pluginManaged and specKey when supplied", async () => {
       const job = await createJob({
+        name: "Test schedule",
         cronExpression: "0 9 * * 1-5",
         channel: "C123",
         prompt: "Embedded trivia question prompt",
@@ -648,6 +689,7 @@ describe("cronJobs", () => {
 
     it("createJob omits pluginManaged and specKey when not supplied", async () => {
       const job = await createJob({
+        name: "Test schedule",
         cronExpression: "0 9 * * *",
         channel: "C1",
         prompt: "Plain user job",
@@ -663,6 +705,7 @@ describe("cronJobs", () => {
       await assert.rejects(
         () =>
           createJob({
+            name: "Test schedule",
             cronExpression: "0 9 * * *",
             channel: "C1",
             prompt: "missing specKey",
@@ -680,6 +723,7 @@ describe("cronJobs", () => {
   describe("findByPluginOwner", () => {
     it("returns only jobs matching plugin AND pluginManaged === true", async () => {
       await createJob({
+        name: "Test schedule",
         cronExpression: "0 9 * * *",
         channel: "C1",
         prompt: "trivia question",
@@ -690,6 +734,7 @@ describe("cronJobs", () => {
         specKey: "g1:question",
       });
       await createJob({
+        name: "Test schedule",
         cronExpression: "0 15 * * *",
         channel: "C1",
         prompt: "trivia reveal",
@@ -700,6 +745,7 @@ describe("cronJobs", () => {
         specKey: "g1:reveal",
       });
       await createJob({
+        name: "Test schedule",
         cronExpression: "0 10 * * *",
         channel: "C2",
         prompt: "weather",
@@ -710,6 +756,7 @@ describe("cronJobs", () => {
         specKey: "morning",
       });
       await createJob({
+        name: "Test schedule",
         cronExpression: "0 11 * * *",
         channel: "C2",
         prompt: "user-created job tagged trivia",
@@ -729,6 +776,133 @@ describe("cronJobs", () => {
 
       const unknownOwned = await findByPluginOwner("nonexistent");
       assert.equal(unknownOwned.length, 0);
+    });
+  });
+
+  describe("name field", () => {
+    it("persists the name on create", async () => {
+      const job = await createJob({
+        name: "Morning PR roundup",
+        cronExpression: "0 9 * * *",
+        channel: "C1",
+        prompt: "Summarize PRs",
+        createdBy: "U1",
+        timezone: "UTC",
+      });
+      assert.equal(job.name, "Morning PR roundup");
+      const fetched = await getJob(job.id);
+      assert.equal(fetched?.name, "Morning PR roundup");
+    });
+
+    it("loads a legacy nameless job without error", async () => {
+      const legacyShape = {
+        jobs: [
+          {
+            id: "legacy01",
+            cronExpression: "0 9 * * *",
+            channel: "C1",
+            prompt: "legacy",
+            createdBy: "U1",
+            createdAt: new Date().toISOString(),
+            enabled: true,
+            timezone: "UTC",
+          },
+        ],
+      };
+      await writeFile(
+        join(tempDir, "data", "state", "cron-jobs.json"),
+        JSON.stringify(legacyShape, null, 2),
+      );
+      clearCronJobsCache();
+      const jobs = await getJobs();
+      assert.equal(jobs.length, 1);
+      assert.equal(jobs[0].name, undefined);
+    });
+
+    it("overwrites name on update with a non-empty string", async () => {
+      const job = await createJob({
+        name: "Old label",
+        cronExpression: "0 9 * * *",
+        channel: "C1",
+        prompt: "x",
+        createdBy: "U1",
+        timezone: "UTC",
+      });
+      const updated = await updateJob(job.id, { name: "New label" });
+      assert.equal(updated?.name, "New label");
+    });
+
+    it("clears name on update with an empty string", async () => {
+      const job = await createJob({
+        name: "Some label",
+        cronExpression: "0 9 * * *",
+        channel: "C1",
+        prompt: "x",
+        createdBy: "U1",
+        timezone: "UTC",
+      });
+      const updated = await updateJob(job.id, { name: "" });
+      assert.equal(updated?.name, undefined);
+    });
+
+    it("trims whitespace-only names to clear", async () => {
+      const job = await createJob({
+        name: "Some label",
+        cronExpression: "0 9 * * *",
+        channel: "C1",
+        prompt: "x",
+        createdBy: "U1",
+        timezone: "UTC",
+      });
+      const updated = await updateJob(job.id, { name: "   " });
+      assert.equal(updated?.name, undefined);
+    });
+
+    it("leaves name untouched on update without name key", async () => {
+      const job = await createJob({
+        name: "Stable label",
+        cronExpression: "0 9 * * *",
+        channel: "C1",
+        prompt: "x",
+        createdBy: "U1",
+        timezone: "UTC",
+      });
+      const updated = await updateJob(job.id, { prompt: "new prompt" });
+      assert.equal(updated?.name, "Stable label");
+      assert.equal(updated?.prompt, "new prompt");
+    });
+  });
+
+  describe("getJobByIdFromCache", () => {
+    it("returns the job synchronously when cache is warm", async () => {
+      const job = await createJob({
+        name: "Test",
+        cronExpression: "0 9 * * *",
+        channel: "C1",
+        prompt: "x",
+        createdBy: "U1",
+        timezone: "UTC",
+      });
+      const fromCache = getJobByIdFromCache(job.id);
+      assert.equal(fromCache?.id, job.id);
+      assert.equal(fromCache?.name, "Test");
+    });
+
+    it("returns null when cache is cold", () => {
+      clearCronJobsCache();
+      assert.equal(getJobByIdFromCache("anything"), null);
+    });
+
+    it("returns null when id is not in the cache", async () => {
+      await createJob({
+        name: "Test",
+        cronExpression: "0 9 * * *",
+        channel: "C1",
+        prompt: "x",
+        createdBy: "U1",
+        timezone: "UTC",
+      });
+      assert.equal(getJobByIdFromCache("does-not-exist"), null);
     });
   });
 });

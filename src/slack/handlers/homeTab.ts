@@ -1034,12 +1034,21 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
   // Edit cron job modal submission
   app.view<ViewSubmitAction>("cron_edit_job_modal", async ({ ack, view, body, client }) => {
     const jobId = view.private_metadata;
+    const nameRaw = view.state.values.cron_name_block?.cron_name.value ?? "";
+    const name = nameRaw.trim();
     const channel = view.state.values.cron_channel_block.channel.selected_conversation;
     const cronExpression = view.state.values.cron_expression_block.cron_expression.value;
     const prompt = view.state.values.cron_prompt_block.prompt.value;
     const skipConditions =
       view.state.values.cron_skip_conditions_block?.skip_conditions.value ?? "";
 
+    if (name.length === 0) {
+      await ack({
+        response_action: "errors",
+        errors: { cron_name_block: "Provide a short descriptive name" },
+      });
+      return;
+    }
     if (!channel) {
       await ack({ response_action: "errors", errors: { cron_channel_block: "Select a channel" } });
       return;
@@ -1069,6 +1078,7 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
     await ack();
     try {
       await deps.updateJob(jobId, {
+        name,
         channel,
         cronExpression,
         prompt,

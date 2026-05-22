@@ -127,9 +127,9 @@
       "itemDetail": "Cancel"
     },
     "create_scheduled_message": {
-      "label": "Scheduling message to <#{channel}>",
+      "label": "Scheduling '{name}' to <#{channel}>",
       "group": "scheduled_messages",
-      "itemDetail": "Schedule to <#{channel}>"
+      "itemDetail": "Schedule '{name}' to <#{channel}>"
     },
     "list_scheduled_messages": {
       "label": "Listing scheduled messages",
@@ -137,24 +137,24 @@
       "itemDetail": "List all"
     },
     "get_scheduled_message_runs": {
-      "label": "Fetching runs for schedule {id}",
+      "label": "Fetching runs for schedule {name|id}",
       "group": "scheduled_messages",
-      "itemDetail": "Fetch runs for {id}"
+      "itemDetail": "Fetch runs for {name|id}"
     },
     "cancel_scheduled_message": {
-      "label": "Cancelling scheduled message {id}",
+      "label": "Cancelling scheduled message {name|id}",
       "group": "scheduled_messages",
-      "itemDetail": "Cancel {id}"
+      "itemDetail": "Cancel {name|id}"
     },
     "update_scheduled_message": {
-      "label": "Updating scheduled message {id}",
+      "label": "Updating scheduled message {name|id}",
       "group": "scheduled_messages",
-      "itemDetail": "Update {id}"
+      "itemDetail": "Update {name|id}"
     },
     "run_scheduled_message_now": {
-      "label": "Re-running scheduled message {id}",
+      "label": "Re-running scheduled message {name|id}",
       "group": "scheduled_messages",
-      "itemDetail": "Re-run {id}"
+      "itemDetail": "Re-run {name|id}"
     },
     "add_auto_respond_rule": {
       "label": "Adding auto-respond rule",

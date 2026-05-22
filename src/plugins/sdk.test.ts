@@ -303,6 +303,7 @@ describe("ClackSdk", () => {
       channel: string;
       prompt: string;
       timezone: string;
+      name?: string;
       createdBy: string | null;
       systemActor?: string;
       plugin?: string;
@@ -356,12 +357,14 @@ describe("ClackSdk", () => {
             }));
         },
         createJob: async (params) => {
+          const trimmedName = params.name?.trim();
           const job: StoredJob = {
             id: `job-${nextId++}`,
             cronExpression: params.cronExpression,
             channel: params.channel,
             prompt: params.prompt,
             timezone: params.timezone,
+            ...(trimmedName && trimmedName.length > 0 ? { name: trimmedName } : {}),
             createdBy: params.createdBy,
             ...(params.systemActor ? { systemActor: params.systemActor } : {}),
             enabled: true,
@@ -410,6 +413,10 @@ describe("ClackSdk", () => {
           }
           if (updates.skipDates !== undefined) {
             job.skipDates = updates.skipDates.length > 0 ? updates.skipDates : undefined;
+          }
+          if (updates.name !== undefined) {
+            const trimmed = updates.name.trim();
+            job.name = trimmed.length > 0 ? trimmed : undefined;
           }
           return {
             id: job.id,
@@ -688,6 +695,77 @@ describe("ClackSdk", () => {
 
         await sdk.reconcileCronJobs("trivia", [validSpec]);
         assert.equal(store.jobs[0].submitResponseMode, undefined);
+      });
+    });
+
+    describe("name field", () => {
+      it("persists name when spec carries one (new entry)", async () => {
+        const store = makeFakeStore();
+        const { sdk } = makeSdk("trivia", store.deps);
+
+        await sdk.reconcileCronJobs("trivia", [{ ...validSpec, name: "Trivia: daily question" }]);
+
+        assert.equal(store.jobs[0].name, "Trivia: daily question");
+      });
+
+      it("creates a nameless job when spec omits name", async () => {
+        const store = makeFakeStore();
+        const { sdk } = makeSdk("trivia", store.deps);
+
+        await sdk.reconcileCronJobs("trivia", [validSpec]);
+
+        assert.equal(store.jobs[0].name, undefined);
+      });
+
+      it("adopts a name on re-reconcile when the spec now has one", async () => {
+        const store = makeFakeStore();
+        const { sdk } = makeSdk("trivia", store.deps);
+
+        await sdk.reconcileCronJobs("trivia", [validSpec]);
+        assert.equal(store.jobs[0].name, undefined);
+
+        await sdk.reconcileCronJobs("trivia", [{ ...validSpec, name: "Game A — daily" }]);
+        assert.equal(store.jobs[0].name, "Game A — daily");
+      });
+
+      it("leaves the persisted name untouched when re-reconciled spec omits name", async () => {
+        const store = makeFakeStore();
+        const { sdk } = makeSdk("trivia", store.deps);
+
+        await sdk.reconcileCronJobs("trivia", [{ ...validSpec, name: "Initial name" }]);
+        assert.equal(store.jobs[0].name, "Initial name");
+
+        await sdk.reconcileCronJobs("trivia", [validSpec]);
+        assert.equal(store.jobs[0].name, "Initial name");
+      });
+
+      it("overwrites name when the spec provides a different one", async () => {
+        const store = makeFakeStore();
+        const { sdk } = makeSdk("trivia", store.deps);
+
+        await sdk.reconcileCronJobs("trivia", [{ ...validSpec, name: "Old" }]);
+        await sdk.reconcileCronJobs("trivia", [{ ...validSpec, name: "New" }]);
+
+        assert.equal(store.jobs[0].name, "New");
+      });
+
+      it("skips a spec whose name is too long", async () => {
+        const store = makeFakeStore();
+        const { sdk } = makeSdk("trivia", store.deps);
+        const oversized = "x".repeat(81);
+
+        await sdk.reconcileCronJobs("trivia", [{ ...validSpec, name: oversized }]);
+
+        assert.equal(store.jobs.length, 0);
+      });
+
+      it("skips a spec whose name is whitespace-only", async () => {
+        const store = makeFakeStore();
+        const { sdk } = makeSdk("trivia", store.deps);
+
+        await sdk.reconcileCronJobs("trivia", [{ ...validSpec, name: "   " }]);
+
+        assert.equal(store.jobs.length, 0);
       });
     });
   });

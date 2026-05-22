@@ -83,6 +83,15 @@ export function createUpdateScheduledMessageTool(ctx: QueryToolContext) {
           "Free-form conditions under which this run should skip posting (evaluated by Claude " +
             "at each run). Pass an empty string to clear. Omit to leave unchanged.",
         ),
+      name: z
+        .string()
+        .max(80)
+        .optional()
+        .describe(
+          "New short descriptive label for the schedule (up to 80 chars). Surfaced in the Home " +
+            "Tab and in task cards. Omit to leave the existing name unchanged. Pass an empty " +
+            "string to clear it. Pass a non-empty string to replace it.",
+        ),
     },
     async (args) => {
       const job = await getJob(args.id);
@@ -155,6 +164,7 @@ export function createUpdateScheduledMessageTool(ctx: QueryToolContext) {
           ...(args.requiredTools !== undefined && { requiredTools: args.requiredTools }),
           ...(args.plugin !== undefined && { plugin: args.plugin }),
           ...(args.skipConditions !== undefined && { skipConditions: args.skipConditions }),
+          ...(args.name !== undefined && { name: args.name }),
         });
 
         if (!updated) {

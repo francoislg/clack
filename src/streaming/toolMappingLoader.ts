@@ -500,3 +500,71 @@ export function resetToolMappingCache(): void {
 export function __setServerOverridesForTest(overrides: Map<string, ServerOverride>): void {
   cachedServerOverrides = overrides;
 }
+
+// ---------------------------------------------------------------------------
+// Per-tool args enrichers
+// ---------------------------------------------------------------------------
+
+/**
+ * JSON-shaped value space for tool call arguments. Tool args come off the MCP wire as
+ * JSON, so values are constrained to JSON primitives + arrays + nested objects of the
+ * same shape.
+ */
+export type ToolArgValue = string | number | boolean | null | ToolArgValue[] | ToolArgs;
+export interface ToolArgs {
+  [key: string]: ToolArgValue;
+}
+
+/**
+ * Synchronous hook for augmenting a tool call's args before label interpolation. Enrichers
+ * let call-site code surface synthetic args (e.g. a `name` looked up from external state
+ * by `id`) that Claude did not directly pass. Use this when a `{name|id}`-style fallback
+ * template needs an arg the tool's schema doesn't carry.
+ *
+ * Enrichers MUST be synchronous — label generation is on the streaming hot path.
+ */
+export type ArgEnricher = (args: ToolArgs) => ToolArgs;
+
+const argEnrichers = new Map<string, ArgEnricher[]>();
+
+/**
+ * Register an enricher for a fully-qualified MCP tool name (e.g. `mcp__clack__cancel_scheduled_message`).
+ * Registering the same function reference twice for the same tool name is a no-op.
+ */
+export function registerArgEnricher(toolName: string, fn: ArgEnricher): void {
+  const existing = argEnrichers.get(toolName);
+  if (!existing) {
+    argEnrichers.set(toolName, [fn]);
+    return;
+  }
+  if (existing.includes(fn)) return;
+  existing.push(fn);
+}
+
+/**
+ * Run any enrichers registered for `toolName` against `args`, in registration order. When an
+ * enricher throws, the system logs a warning and falls back to the args produced by the
+ * preceding enricher (or the original args if the first enricher throws). Label generation
+ * never crashes on enricher failure.
+ */
+export function applyArgEnrichers(toolName: string, args: ToolArgs): ToolArgs {
+  const enrichers = argEnrichers.get(toolName);
+  if (!enrichers || enrichers.length === 0) return args;
+  let current = args;
+  for (const enricher of enrichers) {
+    try {
+      current = enricher(current);
+    } catch (err) {
+      logger.warn(
+        `Tool arg enricher for ${toolName} threw — falling back to un-enriched args:`,
+        err,
+      );
+    }
+  }
+  return current;
+}
+
+/** Test-only: clear all registered enrichers. */
+export function clearArgEnrichers(): void {
+  argEnrichers.clear();
+}

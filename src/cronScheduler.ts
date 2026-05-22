@@ -4,12 +4,14 @@ import {
   getEnabledJobs,
   updateJobRunStatus,
   deleteJob,
+  getJobByIdFromCache,
   type CronJob,
   type SkipDate,
 } from "./cronJobs.js";
 import { processMessage } from "./slack/handlers/core.js";
 import { findSessionByMessage } from "./sessions.js";
 import { logger } from "./logger.js";
+import { registerArgEnricher, type ToolArgs } from "./streaming/toolMappingLoader.js";
 import { resolveChannelLabel, slackLink } from "./slack/logContext.js";
 import { openDmChannel } from "./slack/channelResolver.js";
 import { unfurlOptions } from "./slack/unfurlOptions.js";
@@ -52,8 +54,33 @@ export function startCronScheduler(client: App["client"]): void {
     clearInterval(tickInterval);
   }
   slackClient = client;
+  registerCronNameEnrichers();
   tickInterval = setInterval(tick, 60_000);
   logger.info("Cron scheduler started (60s tick)");
+}
+
+// Tools whose only identity is `id` but whose task-card template uses `{name|id}`.
+// The streamer never sees a `name` arg on these calls — registering a tiny enricher
+// for each one lets the in-memory cron-jobs cache supply it.
+const CRON_LOOKUP_TOOLS = [
+  "mcp__clack__cancel_scheduled_message",
+  "mcp__clack__update_scheduled_message",
+  "mcp__clack__run_scheduled_message_now",
+  "mcp__clack__get_scheduled_message_runs",
+];
+
+function cronNameEnricher(args: ToolArgs): ToolArgs {
+  const id = typeof args.id === "string" ? args.id : "";
+  if (!id) return args;
+  const job = getJobByIdFromCache(id);
+  if (!job?.name) return args;
+  return { ...args, name: job.name };
+}
+
+function registerCronNameEnrichers(): void {
+  for (const toolName of CRON_LOOKUP_TOOLS) {
+    registerArgEnricher(toolName, cronNameEnricher);
+  }
 }
 
 export function stopCronScheduler(): void {

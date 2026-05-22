@@ -3,7 +3,9 @@ import {
   loadServerOverrides,
   interpolateLabel,
   applyArgConfigs,
+  applyArgEnrichers,
   type ResolvedToolMapping,
+  type ToolArgs,
 } from "./toolMappingLoader.js";
 import { getTaskCardMaxDetails } from "../config.js";
 
@@ -58,6 +60,9 @@ function resolve(
   const mappingKey = override?.mappingName ?? serverName;
   const labelSuffix = override?.label;
   const hasOverride = override !== undefined;
+  // Run registered arg enrichers first so synthetic args (e.g. {name} looked up from a
+  // cron job by id) are visible to applyArgConfigs and the template interpolator.
+  const enrichedArgs = applyArgEnrichers(toolName, toolArgs as ToolArgs);
   const mapping = loadToolMappings().get(mappingKey);
   if (!mapping)
     return {
@@ -67,10 +72,10 @@ function resolve(
       labelSuffix,
       hasOverride,
       mapping,
-      args: toolArgs,
+      args: enrichedArgs,
       truncations: new Map(),
     };
-  const { args, truncations } = applyArgConfigs(toolArgs, mapping.argConfigs);
+  const { args, truncations } = applyArgConfigs(enrichedArgs, mapping.argConfigs);
   return {
     serverName,
     rawToolName,
