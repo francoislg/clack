@@ -103,7 +103,7 @@ describe("Trivia question-format end-to-end flow", () => {
           categories: undefined,
           answersFormat: undefined,
           questionType: undefined,
-          answerShape: undefined,
+          freeformAnswerShape: undefined,
           contexts: undefined,
           difficulty: undefined,
           theme: undefined,

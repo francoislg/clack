@@ -5,7 +5,7 @@ import { getConfig, type Config } from "../../../../config.js";
 import { findCurrentSeason } from "../../core/seasonTimeline.js";
 import { getActiveChoiceBounds, resolveAnswersFormat } from "../../domain/questionTypes.js";
 import { resolveQuestionType } from "../../domain/factTopical.js";
-import { resolveAnswerShape } from "../../domain/answerShape.js";
+import { resolveFreeformAnswerShape } from "../../domain/freeformAnswerShape.js";
 import { resolveContexts, rollContextPriority } from "../../domain/contexts.js";
 import { resolveDifficultyRanges } from "../../domain/difficulty.js";
 import { resolveSlotCategories } from "../../domain/seasonFormat.js";
@@ -13,7 +13,7 @@ import { weightedPick } from "../../domain/weightedPick.js";
 import { defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
 import { requireGame } from "../../core/gamesRegistry.js";
 import type { TriviaDataLayer, TriviaAnswersFormat, TriviaQuestionType } from "../../core/types.js";
-import type { TriviaAnswerShape } from "../../../../config.js";
+import type { TriviaFreeformAnswerShape } from "../../../../config.js";
 
 type SuggestedDifficulty = "Easy" | "Medium" | "Hard";
 
@@ -52,7 +52,7 @@ When suggestedAnswersFormat is \`"choice"\`, also returns:
 - \`suggestedCorrectIndex\` (integer in [0, suggestedChoiceCount)): the 0-based index of the correct option
 
 When suggestedAnswersFormat is \`"freeform"\`, also returns:
-- \`suggestedAnswerShape\`: one of \`"name" | "place" | "phrase" | "title" | "date" | "number" | "other"\` — picked from active answerShape weights (slot.answerShape → season.answerShape → config.trivia.answerShape → uniform default). The question MUST be answered by a value of that shape; this exists to break Claude's strong default bias toward numeric answers. \`"other"\` is a wildcard where Claude reaches for an unconventional answer shape.
+- \`suggestedFreeformAnswerShape\`: one of \`"name" | "place" | "phrase" | "title" | "date" | "number" | "other"\` — picked from active freeformAnswerShape weights (slot.freeformAnswerShape → season.freeformAnswerShape → config.trivia.freeformAnswerShape → uniform default). The question MUST be answered by a value of that shape; this exists to break Claude's strong default bias toward numeric answers. \`"other"\` is a wildcard where Claude reaches for an unconventional answer shape.
 
 Each call rolls suggestions independently — no caching across slot indices. When the active season has a \`format\`, loop slots 0..slotCount-1 with separate calls; do NOT pre-roll all slots up front.
 
@@ -231,13 +231,14 @@ export function createGetIdeasTool(
       }
 
       if (pickedAnswersFormat === "freeform") {
-        const answerShapeWeights = resolveAnswerShape(
+        const freeformAnswerShapeWeights = resolveFreeformAnswerShape(
           currentSeasonEntry,
           slotIndexForResolution,
           config,
         );
-        const pickedAnswerShape: TriviaAnswerShape = weightedPick(answerShapeWeights) ?? "name";
-        return textResult({ ...base, suggestedAnswerShape: pickedAnswerShape });
+        const pickedFreeformAnswerShape: TriviaFreeformAnswerShape =
+          weightedPick(freeformAnswerShapeWeights) ?? "name";
+        return textResult({ ...base, suggestedFreeformAnswerShape: pickedFreeformAnswerShape });
       }
 
       return textResult({

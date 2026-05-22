@@ -2,7 +2,7 @@ import type { KnownBlock } from "@slack/types";
 import type {
   TriviaAnswersFormatWeights,
   TriviaQuestionTypeWeights,
-  TriviaAnswerShapeWeights,
+  TriviaFreeformAnswerShapeWeights,
   TriviaContextEntry,
   TriviaDifficultyConfig,
 } from "../../../config.js";
@@ -167,7 +167,7 @@ export interface TriviaSeasonsConfig {
  *   `categories` when absent.
  * - `answersFormat` — slot-specific answer-format weights. Falls back to season → config → default.
  * - `questionType` — slot-specific fact/topical weights. Falls back to season → config → default.
- * - `answerShape` — slot-specific freeform answer-shape weights. Falls back to season → config → default. Freeform-branch only.
+ * - `freeformAnswerShape` — slot-specific freeform answer-shape weights. Falls back to season → config → default. Freeform-branch only.
  * - `contexts` — slot-specific lens list. Falls back to season → config (or absent).
  */
 export interface SeasonFormatSlot {
@@ -175,7 +175,7 @@ export interface SeasonFormatSlot {
   categories?: string[];
   answersFormat?: TriviaAnswersFormatWeights;
   questionType?: TriviaQuestionTypeWeights;
-  answerShape?: TriviaAnswerShapeWeights;
+  freeformAnswerShape?: TriviaFreeformAnswerShapeWeights;
   contexts?: TriviaContextEntry[];
   /**
    * Slot-specific per-game-type difficulty overrides. Fields cascade independently —
@@ -217,10 +217,10 @@ export interface SeasonEntry {
    */
   questionType?: TriviaQuestionTypeWeights;
   /**
-   * Optional per-season freeform answer-shape weights. Absent → falls back to `config.trivia.answerShape`.
+   * Optional per-season freeform answer-shape weights. Absent → falls back to `config.trivia.freeformAnswerShape`.
    * Freeform-branch only; ignored by boolean/choice. Mid-season mutation is permitted.
    */
-  answerShape?: TriviaAnswerShapeWeights;
+  freeformAnswerShape?: TriviaFreeformAnswerShapeWeights;
   /**
    * Optional per-season lens list. Absent → falls back to `config.trivia.contexts`
    * (which itself may be absent). Mid-season mutation is permitted.

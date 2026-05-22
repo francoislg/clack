@@ -19,7 +19,7 @@ function baseArgs(slug: string, future: number) {
     theme: undefined,
     answersFormat: undefined,
     questionType: undefined,
-    answerShape: undefined,
+    freeformAnswerShape: undefined,
     contexts: undefined,
     difficulty: undefined,
     format: undefined,
