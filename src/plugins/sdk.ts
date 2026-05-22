@@ -64,6 +64,14 @@ export interface CronJobSpec {
   channel: string;
   prompt: string;
   timezone: string;
+  /**
+   * Optional 1-80 character human-readable label for the schedule. Surfaced in the Home Tab
+   * row and in tool-call task cards via `{name|id}` interpolation. Purely decorative — never
+   * used as a lookup key. When present and valid, threaded through to the persisted
+   * `CronJob.name` field on both new entries and in-place updates. When absent, the existing
+   * persisted value is left untouched on updates and absent on new entries.
+   */
+  name?: string;
   requiredTools?: string[];
   skipConditions?: string;
   /**
@@ -305,6 +313,15 @@ function validateCronJobSpec(spec: CronJobSpec): string | null {
   if (typeof spec.prompt !== "string" || spec.prompt.length === 0) {
     return "prompt must be a non-empty string";
   }
+  if (spec.name !== undefined) {
+    if (typeof spec.name !== "string") {
+      return "name must be a string when provided";
+    }
+    const trimmed = spec.name.trim();
+    if (trimmed.length === 0 || trimmed.length > 80) {
+      return `name must be 1-80 characters after trim (got ${trimmed.length})`;
+    }
+  }
   return null;
 }
 
@@ -471,6 +488,10 @@ export function createClackSdk(
             submitResponseMode: spec.submitResponseMode ?? null,
             // updateJob treats an empty array as "clear" — same shape as requiredTools.
             skipDates: spec.skipDates ?? [],
+            // updateJob: undefined leaves the persisted name untouched, while a non-empty
+            // string overwrites it. The spec contract is "spec.name absent → leave alone",
+            // so we deliberately omit the field rather than passing "".
+            ...(spec.name !== undefined ? { name: spec.name } : {}),
           });
         } else {
           await create({
@@ -483,6 +504,7 @@ export function createClackSdk(
             plugin: ownerKey,
             pluginManaged: true,
             specKey: spec.specKey,
+            ...(spec.name !== undefined ? { name: spec.name } : {}),
             ...(spec.requiredTools && spec.requiredTools.length > 0
               ? { requiredTools: spec.requiredTools }
               : {}),

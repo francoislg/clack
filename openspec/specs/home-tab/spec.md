@@ -332,9 +332,22 @@ The system SHALL support toggling and deleting rules from the edit modal.
 
 The system SHALL display two distinct Scheduled Messages subsections on the Home Tab:
 
-1. **"Scheduled Messages"** — user-created cron jobs (where `pluginManaged !== true`). Visibility and management controls follow the existing rules (admin sees all, non-admin sees own, with Enable/Disable, Delete, and Edit-modal controls). The job's `skipConditions` is NOT rendered inline on the Home Tab row — admins and creators edit the field through the scheduled-message edit modal, which pre-fills the stored value.
+1. **"Scheduled Messages"** — user-created cron jobs (where `pluginManaged !== true`). Visibility and management controls follow the existing rules (admin sees all, non-admin sees own, with Enable/Disable, Delete, and Edit-modal controls). The job's `skipConditions` is NOT rendered inline on the Home Tab row — admins and creators edit the field through the scheduled-message edit modal, which pre-fills the stored value. When the job has a `name`, it SHALL be rendered as a bold prefix followed by an em-dash (`*<name>* — `) at the start of the row's text. When the job has no `name` (legacy rows), the prefix SHALL be omitted entirely.
 
-2. **"Plugin Scheduled Messages"** — plugin-managed cron jobs (where `pluginManaged === true`). Visible to admins and owners only. Each row is read-only: it displays target channel, schedule description (human-readable), the owning plugin name, last run status, and a single Enable/Disable button (the admin-override). There SHALL be NO Edit and NO Delete control on these rows — content management is performed by editing the plugin's config block (`data/config.json`).
+2. **"Plugin Scheduled Messages"** — plugin-managed cron jobs (where `pluginManaged === true`). Visible to admins and owners only. Each row is read-only: it displays target channel, schedule description (human-readable), the owning plugin name, last run status, and a single Enable/Disable button (the admin-override). There SHALL be NO Edit and NO Delete control on these rows — content management is performed by editing the plugin's config block (`data/config.json`). When the job has a `name` (set by the plugin's `reconcileCronJobs` call), it SHALL be rendered with the same `*<name>* — ` prefix. When `name` is absent, the prefix SHALL be omitted.
+
+In both subsections, the name SHALL pass through the existing Slack mrkdwn-escape helper before being wrapped in `*…*` markers, so user-typed or plugin-typed names cannot break row layout. The entire row SHALL remain on a single line (the prefix replaces no existing fields).
+
+The scheduled-message edit modal (user-created jobs only) SHALL include a required Name input block as the first input above the channel block:
+
+- `block_id`: `cron_name_block`
+- `action_id`: `cron_name`
+- `type`: `plain_text_input` with `max_length: 80`
+- Label, placeholder, and hint sourced from the i18n dictionary (`home.scheduled.name_label`, `home.scheduled.name_placeholder`, `home.scheduled.name_hint`)
+- When editing an existing job, `initial_value` SHALL be `job.name` when set (legacy nameless jobs render with no initial value)
+- Modal submission SHALL reject an empty (whitespace-only) name with a block-level validation error; the modal re-opens with the error surfaced inline
+
+The modal-submission handler SHALL trim the submitted name and pass it as the `name` parameter to `createJob` (for new schedules) or `updateJob` (for edits).
 
 #### Scenario: Admin sees all user-created scheduled messages in the first subsection
 
@@ -343,6 +356,7 @@ The system SHALL display two distinct Scheduled Messages subsections on the Home
 - **AND** at least one cron job exists with `pluginManaged !== true`
 - **THEN** display the "Scheduled Messages" subsection with all such cron jobs
 - **AND** each job shows: target channel, schedule description (human-readable), creator, last run status
+- **AND** when a job has a `name`, the row text starts with `*<name>* — `
 - **AND** each job has [Disable]/[Enable] and [Delete] buttons (plus the Edit modal entry point)
 
 #### Scenario: Non-admin sees own user-created scheduled messages
@@ -351,6 +365,7 @@ The system SHALL display two distinct Scheduled Messages subsections on the Home
 - **WHEN** building the home view
 - **AND** the user has created cron jobs (with `pluginManaged !== true`)
 - **THEN** display the "Scheduled Messages" subsection with only their own jobs
+- **AND** when a job has a `name`, the row text starts with `*<name>* — `
 - **AND** each job has [Disable]/[Enable] and [Delete] buttons
 
 #### Scenario: Admin sees all plugin-managed scheduled messages in the second subsection
@@ -360,6 +375,7 @@ The system SHALL display two distinct Scheduled Messages subsections on the Home
 - **AND** at least one cron job exists with `pluginManaged === true`
 - **THEN** display the "Plugin Scheduled Messages" subsection with all such jobs
 - **AND** each row shows: target channel, schedule description (human-readable), the `plugin` name, last run status
+- **AND** when a job has a `name` (set by the plugin via `reconcileCronJobs`), the row text starts with `*<name>* — `
 - **AND** each row has a single [Disable]/[Enable] button
 - **AND** each row does NOT have a [Delete] button
 - **AND** each row does NOT have an Edit affordance
@@ -413,6 +429,8 @@ The system SHALL display two distinct Scheduled Messages subsections on the Home
 
 - **WHEN** rendering a cron job in either Home Tab subsection
 - **THEN** display the job as: channel name, human-readable schedule (e.g., "Every day at 9:00 AM ET")
+- **AND** when the job has a `name`, prepend `*<name>* — ` (with the name passed through the mrkdwn-escape helper) to the row text
+- **AND** when the job has no `name`, render the row without any name prefix (unchanged from pre-change behavior)
 - **AND** for user-created jobs, include the creator mention
 - **AND** for plugin-managed jobs, include the owning plugin name instead of a creator mention
 - **AND** if the job has `lastRunStatus: "error"`, show a warning indicator
@@ -420,6 +438,17 @@ The system SHALL display two distinct Scheduled Messages subsections on the Home
 - **AND** if the job is disabled, show a "paused" label
 - **AND** if the job is `oneShot`, show a "one-time" label
 - **AND** `skipConditions` is NOT rendered inline on the row — it is only visible inside the edit modal (user-created jobs only)
+- **AND** the entire row text SHALL remain a single line (no manual line breaks)
+
+#### Scenario: Edit modal exposes name as a required field
+
+- **WHEN** an admin, an owner, or the job's creator opens the scheduled-message edit modal for a user-created job (matching the existing enable/disable/delete permission gate)
+- **THEN** the modal includes a `cron_name_block` plain-text input at the top
+- **AND** the input is required
+- **AND** the input's `initial_value` is the stored `job.name` when present, otherwise empty
+- **AND** the input's label, placeholder, and hint are sourced from the i18n dictionary
+- **AND** submitting the modal with a non-empty name updates the job's `name` field
+- **AND** submitting the modal with an empty (whitespace-only) name displays a block-level validation error and the modal stays open
 
 #### Scenario: Edit modal exposes skipConditions
 

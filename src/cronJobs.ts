@@ -43,6 +43,14 @@ export interface CronJob {
   /** What Claude does each tick */
   prompt: string;
   /**
+   * Optional short human-readable label (1-80 chars) shown in the Home Tab schedule rows
+   * and interpolated into Slack task-card mappings via the `{name|id}` fallback. Purely
+   * decorative — never used as a lookup key, never enforced unique. Absent on legacy
+   * rows persisted before names were introduced; the `{name|id}` fallback keeps those
+   * rendering with the UUID.
+   */
+  name?: string;
+  /**
    * Slack user ID for user-created jobs; `null` for jobs owned by the bot itself
    * (e.g. plugin-managed crons). When `null`, `systemActor` MUST be set to
    * identify the non-user origin.
@@ -228,6 +236,14 @@ export interface CreateCronJobParams {
   cronExpression: string;
   channel: string;
   prompt: string;
+  /**
+   * Short human-readable label for the schedule (1-80 chars). Surfaced in the Home Tab
+   * and in tool-call task cards via `{name|id}` interpolation. Required at user-facing
+   * boundaries (the `create_scheduled_message` zod schema and the Home Tab edit modal
+   * both enforce it). Optional here in the storage layer so plugin reconcile call sites
+   * that have not adopted names yet keep compiling — they simply produce nameless jobs.
+   */
+  name?: string;
   /** Slack user ID, or `null` for system-owned jobs (then `systemActor` must be set). */
   createdBy: string | null;
   /** Required when and only when `createdBy === null`. */
@@ -267,6 +283,7 @@ export async function createJob(params: CreateCronJobParams): Promise<CronJob> {
     cronExpression: params.cronExpression,
     channel: params.channel,
     prompt: params.prompt,
+    ...(params.name && params.name.trim().length > 0 ? { name: params.name.trim() } : {}),
     createdBy: params.createdBy,
     createdAt: new Date().toISOString(),
     enabled: true,
@@ -304,6 +321,11 @@ export interface UpdateCronJobParams {
   cronExpression?: string;
   channel?: string;
   prompt?: string;
+  /**
+   * When `undefined`, the persisted `name` is unchanged. When empty (after trim), the
+   * field is cleared. Otherwise, the new value replaces the persisted one.
+   */
+  name?: string;
   timezone?: string;
   oneShot?: boolean;
   /** Pass an empty array to clear; undefined leaves the field unchanged. */
@@ -332,6 +354,10 @@ export async function updateJob(
   if (params.cronExpression !== undefined) job.cronExpression = params.cronExpression;
   if (params.channel !== undefined) job.channel = params.channel;
   if (params.prompt !== undefined) job.prompt = params.prompt;
+  if (params.name !== undefined) {
+    const trimmed = params.name.trim();
+    job.name = trimmed.length > 0 ? trimmed : undefined;
+  }
   if (params.timezone !== undefined) job.timezone = params.timezone;
   if (params.oneShot !== undefined) job.oneShot = params.oneShot || undefined;
   if (params.requiredTools !== undefined) {
@@ -395,4 +421,15 @@ export async function updateJobRunStatus(
 // Clear cache (useful for testing)
 export function clearCronJobsCache(): void {
   cached = null;
+}
+
+/**
+ * Synchronous lookup against the in-memory cron-jobs cache. Returns `null` when the cache
+ * is cold (no `loadJobs()` call has populated it yet) or when no job matches the given id.
+ * Intended for tight-loop callers that cannot tolerate async I/O — notably the streaming
+ * tool-label enricher, which needs to surface a job's `name` on every tool_use event.
+ */
+export function getJobByIdFromCache(id: string): CronJob | null {
+  if (!cached) return null;
+  return cached.jobs.find((j) => j.id === id) ?? null;
 }

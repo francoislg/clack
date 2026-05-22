@@ -24,12 +24,6 @@ function buildCtx(overrides: Partial<QueryToolContext> = {}): QueryToolContext {
   } as QueryToolContext;
 }
 
-interface ToolHandlerResult {
-  content: Array<{ type?: string; text?: string; [key: string]: unknown }>;
-  isError?: boolean;
-  [key: string]: unknown;
-}
-
 type UpdateTool = ReturnType<typeof createUpdateScheduledMessageTool>;
 
 function callHandler(
@@ -38,6 +32,7 @@ function callHandler(
     id: string;
     skipConditions?: string;
     prompt?: string;
+    name?: string;
     schedule?: {
       minute: string;
       hour: string;
@@ -58,6 +53,7 @@ function callHandler(
       requiredTools: undefined,
       plugin: undefined,
       skipConditions: args.skipConditions,
+      name: args.name,
     },
     { sessionId: "test" },
   );
@@ -215,6 +211,51 @@ describe("update_scheduled_message tool — skipConditions", () => {
     assert.match(toolResultText(result), /Invalid schedule fields/);
     const unchanged = await getJob(job.id);
     assert.equal(unchanged?.cronExpression, "0 9 * * *", "no change should be persisted");
+  });
+
+  it("sets name when supplied as a non-empty string", async () => {
+    const job = await seedJob();
+    const tool = createUpdateScheduledMessageTool(buildCtx());
+
+    await callHandler(tool, { id: job.id, name: "Morning roundup" });
+
+    const updated = await getJob(job.id);
+    assert.equal(updated?.name, "Morning roundup");
+  });
+
+  it("clears name when supplied as empty string", async () => {
+    const seeded = await createJob({
+      name: "Old name",
+      cronExpression: "0 9 * * *",
+      channel: "C456",
+      prompt: "x",
+      createdBy: "U123",
+      timezone: "UTC",
+    });
+    const tool = createUpdateScheduledMessageTool(buildCtx());
+
+    await callHandler(tool, { id: seeded.id, name: "" });
+
+    const updated = await getJob(seeded.id);
+    assert.equal(updated?.name, undefined);
+  });
+
+  it("leaves name unchanged when the field is omitted", async () => {
+    const seeded = await createJob({
+      name: "Keep me",
+      cronExpression: "0 9 * * *",
+      channel: "C456",
+      prompt: "x",
+      createdBy: "U123",
+      timezone: "UTC",
+    });
+    const tool = createUpdateScheduledMessageTool(buildCtx());
+
+    await callHandler(tool, { id: seeded.id, prompt: "New prompt" });
+
+    const updated = await getJob(seeded.id);
+    assert.equal(updated?.name, "Keep me");
+    assert.equal(updated?.prompt, "New prompt");
   });
 
   it("rejects updates to plugin-managed jobs (even for admin)", async () => {

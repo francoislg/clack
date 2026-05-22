@@ -1556,6 +1556,16 @@ export function buildAutoRespondModal(rule?: AutoRespondRule): View {
 // SCHEDULED MESSAGES
 // ============================================================================
 
+/**
+ * Escape characters that would otherwise break Slack mrkdwn formatting when a user-typed
+ * (or plugin-supplied) schedule name is wrapped in bold (`*…*`) on the Home Tab row.
+ * Strips: `*` (bold marker), `_` (italic), `~` (strikethrough), `<` and `>` (link/mention
+ * brackets), `&` (HTML entity). The 80-char name cap is enforced at the input boundary.
+ */
+function escapeMrkdwn(value: string): string {
+  return value.replace(/[*_~<>&]/g, "");
+}
+
 async function buildScheduledMessagesSection(
   userId: string,
   isAdmin: boolean,
@@ -1591,12 +1601,13 @@ async function buildScheduledMessagesSection(
         isAdmin && job.createdBy !== null && job.createdBy !== userId
           ? ` · <@${job.createdBy}>`
           : "";
+      const namePrefix = job.name ? `*${escapeMrkdwn(job.name)}* — ` : "";
 
       blocks.push({
         type: "section",
         text: {
           type: "mrkdwn",
-          text: `<#${job.channel}> · ${schedule}${typeLabel}${creator}${statusLabel}`,
+          text: `${namePrefix}<#${job.channel}> · ${schedule}${typeLabel}${creator}${statusLabel}`,
         },
         accessory: {
           type: "button",
@@ -1635,12 +1646,13 @@ async function buildScheduledMessagesSection(
       const ownerLabel = job.plugin
         ? t("home.scheduled.plugin_suffix", { plugin: job.plugin })
         : "";
+      const namePrefix = job.name ? `*${escapeMrkdwn(job.name)}* — ` : "";
 
       blocks.push({
         type: "section",
         text: {
           type: "mrkdwn",
-          text: `<#${job.channel}> · ${schedule}${ownerLabel}${statusLabel}`,
+          text: `${namePrefix}<#${job.channel}> · ${schedule}${ownerLabel}${statusLabel}`,
         },
         accessory: {
           type: "button",
@@ -1660,6 +1672,19 @@ async function buildScheduledMessagesSection(
 export function buildCronJobModal(job?: CronJob): View {
   const isEdit = !!job;
   const blocks: (KnownBlock | Block)[] = [
+    {
+      type: "input",
+      block_id: "cron_name_block",
+      label: { type: "plain_text", text: t("home.scheduled.name_label") },
+      element: {
+        type: "plain_text_input",
+        action_id: "cron_name",
+        max_length: 80,
+        ...(job?.name && { initial_value: job.name }),
+        placeholder: { type: "plain_text", text: t("home.scheduled.name_placeholder") },
+      },
+      hint: { type: "plain_text", text: t("home.scheduled.name_hint") },
+    },
     {
       type: "input",
       block_id: "cron_channel_block",

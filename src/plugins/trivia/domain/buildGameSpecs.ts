@@ -54,6 +54,7 @@ export function buildGameSpecs(games: TriviaGame[], offDays?: OffDay[]): CronJob
 
     specs.push({
       specKey: `${game.name}:question`,
+      name: `Trivia: ${game.name} — question`,
       cronExpression: game.questionCron,
       channel: game.channel,
       prompt: substituteGame(SEND_QUESTIONS_INSTRUCTIONS, game.name),
@@ -69,6 +70,7 @@ export function buildGameSpecs(games: TriviaGame[], offDays?: OffDay[]): CronJob
 
     specs.push({
       specKey: `${game.name}:reveal`,
+      name: `Trivia: ${game.name} — reveal`,
       cronExpression: game.revealCron,
       channel: game.channel,
       prompt: substituteGame(PROCESS_REVEAL_INSTRUCTIONS, game.name),

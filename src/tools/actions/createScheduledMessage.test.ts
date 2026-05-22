@@ -54,6 +54,7 @@ interface ToolHandlerResult {
 interface CallArgs {
   channel: string;
   prompt: string;
+  name?: string;
   minute?: string;
   hour?: string;
   dayOfMonth?: string;
@@ -69,6 +70,7 @@ type CreateTool = ReturnType<typeof createCreateScheduledMessageTool>;
 function callHandler(tool: CreateTool, args: CallArgs) {
   return tool.handler(
     {
+      name: "Test schedule",
       minute: "0",
       hour: "9",
       dayOfMonth: "*",
@@ -281,6 +283,7 @@ describe("createScheduledMessage tool", () => {
     const tool = createCreateScheduledMessageTool(ctx, deps);
     const result = await tool.handler(
       {
+        name: "Test",
         channel: "C456",
         minute: "0",
         hour: "9",
@@ -312,6 +315,7 @@ describe("createScheduledMessage tool", () => {
     const tool = createCreateScheduledMessageTool(ctx, deps);
     const result: ToolHandlerResult = await tool.handler(
       {
+        name: "Test",
         channel: "C456",
         minute: "0",
         hour: "9",
@@ -397,5 +401,36 @@ describe("createScheduledMessage tool", () => {
 
     const jobs = await getJobs();
     assert.equal(jobs[0].submitResponseMode, undefined);
+  });
+
+  it("persists the name on the saved job", async () => {
+    const ctx = buildCtx();
+    const deps = makeDeps();
+    const tool = createCreateScheduledMessageTool(ctx, deps);
+    await callHandler(tool, {
+      channel: "C456",
+      prompt: "x",
+      name: "Morning PR roundup",
+    });
+
+    const jobs = await getJobs();
+    assert.equal(jobs[0].name, "Morning PR roundup");
+  });
+
+  it("returns the name in the tool result", async () => {
+    const ctx = buildCtx();
+    const deps = makeDeps();
+    const tool = createCreateScheduledMessageTool(ctx, deps);
+    const result = await callHandler(tool, {
+      channel: "C456",
+      prompt: "x",
+      name: "Daily standup reminder",
+    });
+
+    const block = result.content[0];
+    assert.ok(block && typeof block === "object" && "text" in block);
+    const text = block.text;
+    assert.ok(typeof text === "string");
+    assert.match(text, /"name":\s*"Daily standup reminder"/);
   });
 });

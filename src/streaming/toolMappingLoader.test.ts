@@ -15,8 +15,12 @@ import {
   substituteEnvVars,
   loadToolMappings,
   resetToolMappingCache,
+  registerArgEnricher,
+  applyArgEnrichers,
+  clearArgEnrichers,
   type ToolMappingConfig,
   type ResolvedArgConfig,
+  type ToolArgs,
 } from "./toolMappingLoader.js";
 
 // ---------------------------------------------------------------------------
@@ -912,5 +916,65 @@ describe("loadToolMappings plugin integration", () => {
     } finally {
       if (existsSync(pluginFileConfig)) rmSync(pluginFileConfig);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// args enricher hook
+// ---------------------------------------------------------------------------
+describe("argEnrichers", () => {
+  afterEach(() => {
+    clearArgEnrichers();
+  });
+
+  it("returns args unchanged when no enricher is registered", () => {
+    const args: ToolArgs = { id: "abc" };
+    const result = applyArgEnrichers("mcp__foo__bar", args);
+    assert.deepEqual(result, { id: "abc" });
+  });
+
+  it("augments args via a registered enricher", () => {
+    registerArgEnricher("mcp__foo__bar", (args) => ({ ...args, name: "looked up" }));
+    const result = applyArgEnrichers("mcp__foo__bar", { id: "abc" });
+    assert.deepEqual(result, { id: "abc", name: "looked up" });
+  });
+
+  it("composes multiple enrichers in registration order", () => {
+    registerArgEnricher("mcp__foo__bar", (args) => ({ ...args, first: 1 }));
+    registerArgEnricher("mcp__foo__bar", (args) => ({ ...args, second: 2 }));
+    const result = applyArgEnrichers("mcp__foo__bar", { id: "abc" });
+    assert.deepEqual(result, { id: "abc", first: 1, second: 2 });
+  });
+
+  it("is idempotent on same-reference registration", () => {
+    const fn = (args: ToolArgs): ToolArgs => ({ ...args, count: 1 });
+    registerArgEnricher("mcp__foo__bar", fn);
+    registerArgEnricher("mcp__foo__bar", fn);
+    const result = applyArgEnrichers("mcp__foo__bar", {});
+    assert.deepEqual(result, { count: 1 });
+  });
+
+  it("falls back gracefully when an enricher throws", () => {
+    registerArgEnricher("mcp__foo__bar", () => {
+      throw new Error("boom");
+    });
+    const result = applyArgEnrichers("mcp__foo__bar", { id: "abc" });
+    assert.deepEqual(result, { id: "abc" });
+  });
+
+  it("continues with later enrichers after one throws", () => {
+    registerArgEnricher("mcp__foo__bar", () => {
+      throw new Error("boom");
+    });
+    registerArgEnricher("mcp__foo__bar", (args) => ({ ...args, second: 2 }));
+    const result = applyArgEnrichers("mcp__foo__bar", { id: "abc" });
+    assert.deepEqual(result, { id: "abc", second: 2 });
+  });
+
+  it("clearArgEnrichers resets state", () => {
+    registerArgEnricher("mcp__foo__bar", (args) => ({ ...args, name: "x" }));
+    clearArgEnrichers();
+    const result = applyArgEnrichers("mcp__foo__bar", { id: "abc" });
+    assert.deepEqual(result, { id: "abc" });
   });
 });

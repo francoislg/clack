@@ -38,9 +38,24 @@ export function createCreateScheduledMessageTool(
       "IMPORTANT: The prompt should only describe WHAT to do, not HOW to deliver the result. " +
       "The scheduler automatically handles delivery via submit_response — do NOT include " +
       "instructions about submit_response, post_to, or how to post the message in the prompt. " +
+      "ALWAYS provide a short, descriptive `name` (3-6 words) summarizing what the schedule " +
+      "does — this name is surfaced in the Home Tab and in task cards so users can tell " +
+      "schedules apart at a glance. If the user didn't suggest one, invent something concise " +
+      "from the prompt (e.g. 'Morning PR roundup', 'Weekly metrics digest'). " +
       "When reporting back to the user, quote the `schedule` field from the tool result verbatim " +
       "(e.g. 'Every day at 11:30 AM EDT') — do not recompute or rephrase it.",
     {
+      name: z
+        .string()
+        .min(1)
+        .max(80)
+        .describe(
+          "Short, descriptive label for the schedule (1-80 characters). Surfaced in the " +
+            "Home Tab schedule rows and in tool-call task cards so users can tell schedules " +
+            "apart at a glance. Aim for 3-6 words summarizing what the schedule does — e.g. " +
+            "'Morning PR roundup', 'Weekly metrics digest', 'Daily standup reminder'. " +
+            "Required: invent one from the prompt when the user has not suggested one.",
+        ),
       channel: z
         .string()
         .describe(
@@ -175,6 +190,7 @@ export function createCreateScheduledMessageTool(
 
       try {
         const job = await deps.createJob({
+          name: args.name,
           cronExpression,
           channel: channelId,
           prompt: args.prompt,
@@ -193,6 +209,7 @@ export function createCreateScheduledMessageTool(
         return textResult({
           ok: true,
           id: job.id,
+          name: args.name,
           channel: channelId,
           schedule,
           nextRun,

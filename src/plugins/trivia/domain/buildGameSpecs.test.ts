@@ -36,6 +36,12 @@ describe("buildGameSpecs", () => {
     assert.equal(reveal.cronExpression, "0 15 * * 1-5");
   });
 
+  it("each spec carries a descriptive name for displays", () => {
+    const [question, reveal] = buildGameSpecs([baseGame]);
+    assert.equal(question.name, "Trivia: ops — question");
+    assert.equal(reveal.name, "Trivia: ops — reveal");
+  });
+
   it("question spec has the expected requiredTools", () => {
     const [question] = buildGameSpecs([baseGame]);
     const expected = [
