@@ -2,6 +2,7 @@ import type { KnownBlock } from "@slack/types";
 import type {
   TriviaAnswersFormatWeights,
   TriviaQuestionTypeWeights,
+  TriviaAnswerShapeWeights,
   TriviaContextEntry,
 } from "../../../config.js";
 
@@ -131,6 +132,13 @@ export interface SubmittedAnswer {
    * Boolean and choice answers always have a synchronously-computed boolean here.
    */
   correct?: boolean;
+  /**
+   * Optional short label explaining the verdict for freeform submissions —
+   * echoed from the reveal-time judge (e.g. "multiple-guess", "too-broad",
+   * "typo-too-far", "out-of-tolerance", "judge-error"). Absent on boolean/choice
+   * rows and on freeform rows where the judge returned no reason.
+   */
+  judgeReason?: string;
   timestamp: number;
   season?: string;
 }
@@ -158,6 +166,7 @@ export interface TriviaSeasonsConfig {
  *   `categories` when absent.
  * - `answersFormat` — slot-specific answer-format weights. Falls back to season → config → default.
  * - `questionType` — slot-specific fact/topical weights. Falls back to season → config → default.
+ * - `answerShape` — slot-specific freeform answer-shape weights. Falls back to season → config → default. Freeform-branch only.
  * - `contexts` — slot-specific lens list. Falls back to season → config (or absent).
  */
 export interface SeasonFormatSlot {
@@ -165,6 +174,7 @@ export interface SeasonFormatSlot {
   categories?: string[];
   answersFormat?: TriviaAnswersFormatWeights;
   questionType?: TriviaQuestionTypeWeights;
+  answerShape?: TriviaAnswerShapeWeights;
   contexts?: TriviaContextEntry[];
 }
 
@@ -199,6 +209,11 @@ export interface SeasonEntry {
    * Mid-season mutation is permitted.
    */
   questionType?: TriviaQuestionTypeWeights;
+  /**
+   * Optional per-season freeform answer-shape weights. Absent → falls back to `config.trivia.answerShape`.
+   * Freeform-branch only; ignored by boolean/choice. Mid-season mutation is permitted.
+   */
+  answerShape?: TriviaAnswerShapeWeights;
   /**
    * Optional per-season lens list. Absent → falls back to `config.trivia.contexts`
    * (which itself may be absent). Mid-season mutation is permitted.

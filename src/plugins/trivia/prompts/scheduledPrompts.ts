@@ -289,14 +289,24 @@ const FREEFORM_FACT_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
      - categories.ideas: 5 random categories.
      - suggestedAnswersFormat: "freeform"
      - suggestedQuestionType: "fact"
+     - suggestedAnswerShape: one of "name" | "place" | "phrase" | "title" | "date" | "number" | "other" — the SHAPE the answer must take. Non-negotiable.
      - suggestedDifficulty ("Easy" | "Medium" | "Hard"): the bucket to aim at.
      - contextPriority (optional, only when contexts are configured): see CONTEXTS guidance above.
    - Pick one category from categories.ideas.
 
 2. WRITE THE QUESTION (REQUIRED — SHORT, UNAMBIGUOUS):
    - Write a single-sentence prompt that has ONE clearly correct answer when read literally.
-   - The question should NOT be answerable with just yes/no — that's the boolean path. Free-form questions ask for a name, a number, a place, a date, a phrase, a quote, etc.
-   - Avoid prompts whose answer is many words long. Aim for 1-4 word answers (1-30 characters).
+   - The answer MUST match suggestedAnswerShape:
+     - "name" → the proper noun of a person, character, brand, organization, animal species, etc.
+     - "place" → a city, country, region, landmark, geographical feature, planet, or fictional location.
+     - "phrase" → a quote, idiom, motto, slogan, line of dialogue, common saying.
+     - "title" → the name of a creative work — a movie, book, song, album, TV show, video game, play, painting.
+     - "date" → a year, decade, era, or month-day combination. Not a count.
+     - "number" → a count, measurement, quantity, age, or score. A bare value, not a date.
+     - "other" → an unconventional answer shape that doesn't fit any of the categories above. Reach for something Claude wouldn't pick by default — e.g. a chemical formula, a sports score, a paired outcome, a measurement with non-standard units, a color, a currency amount, an acronym treated as the answer itself, a velocity, an emoji-based response. Must still be a short, unambiguous value with one canonical form.
+   - The question should NOT be answerable with just yes/no — that's the boolean path.
+   - Aim for 1-4 word answers (1-30 characters).
+   - LEEWAY: ONLY relevant when suggestedAnswerShape is "date" or "number" AND exact recall is unrealistic — state the accepted tolerance EXPLICITLY in the question itself (e.g. "(within 5 years)", "(±10 km)", "(to the nearest decade)"). Scale to difficulty: Easy → generous, Medium → moderate, Hard → tight or exact. For "name" / "place" / "phrase" shapes: SKIP this entirely — the judge handles capitalization, punctuation, and reasonable variants automatically.
 
 3. WRITE THE EXPECTED ANSWER (REQUIRED — CANONICAL FORM ONLY):
    - This is the shortest 100%-perfect answer you would accept. Trim it: no articles ("the"), no qualifiers ("the city of"), no punctuation noise. The judge handles capitalization, punctuation, and reasonable variants automatically.
@@ -307,8 +317,9 @@ const FREEFORM_FACT_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
    - Omit \`acceptableAnswers\` when the canonical form is the only reasonable one.
 
 5. OPTIONAL: GRADING NOTES:
-   - Use this when the answer is conceptually-flexible — "Accept any major Canadian city" / "Accept any year between 1939 and 1945" / etc. One short sentence.
+   - Use this when the answer is conceptually-flexible — "Accept any major Canadian city" / "Accept 'JFK' or 'John Kennedy' as variants of 'John F. Kennedy'" / etc. One short sentence.
    - Notes refine the judge; they do NOT override the expected answer. Omit when not needed.
+   - REQUIRED when step 2 stated a date/number tolerance: restate the EXACT tolerance here in absolute terms anchored on \`expectedAnswer\` — e.g. "Accept any year in [1939, 1949] (±5 of 1944)." The judge follows this strictly, so be precise.
 
 6. DUPLICATE CHECK:
    - Call \`find_previous_questions\` with a distinctive keyword from the statement.
@@ -346,6 +357,7 @@ const FREEFORM_TOPICAL_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
      - categories.ideas: 5 random categories.
      - suggestedAnswersFormat: "freeform"
      - suggestedQuestionType: "topical"
+     - suggestedAnswerShape: one of "name" | "place" | "phrase" | "title" | "date" | "number" | "other" — see fact-freeform path for per-shape descriptions. Non-negotiable.
      - suggestedDifficulty ("Easy" | "Medium" | "Hard"): the bucket to aim at.
      - contextPriority (optional, only when contexts are configured): see CONTEXTS guidance above.
    - Pick one category from categories.ideas.
@@ -354,7 +366,7 @@ const FREEFORM_TOPICAL_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
    - Same WebSearch + lens-descent rules as the topical boolean / topical choice paths. Capture \`sourceUrl\` and (when known) \`eventDate\` from the chosen event.
 
 3. WRITE THE QUESTION:
-   - Anchor a single-sentence prompt on a verified fact drawn from the event. The answer must be a SINGLE recognizable form (name / number / place / date / phrase).
+   - Anchor a single-sentence prompt on a verified fact drawn from the event. The answer must match suggestedAnswerShape (see fact-freeform step 2). LEEWAY applies only to "date" / "number" shapes; skip for "name" / "place" / "phrase".
 
 4. WRITE THE EXPECTED ANSWER (REQUIRED): shortest canonical form, max 200 chars.
 
@@ -479,26 +491,31 @@ General emoji rule (re-emphasized): the opener's header MUST use Unicode emoji (
 9. BUILD THE QUESTION CARD BLOCKS:
    Use your Game Presenter persona! Add excitement, build anticipation, make it feel like a real game show moment.
 
-   Compose a \`blocks\` array (Clack's curated subset: divider, header, section, context, image, markdown, card, carousel) — you'll hand it to \`post_questions\` in step 10. Do NOT include reactions in the blocks; the tool attaches them automatically based on the question's stored type. For the trivia question, use this FOUR-BLOCK layout — the structure stays fixed; the wording is where your persona lives:
+   Compose a \`blocks\` array (Clack's curated subset: divider, header, section, context, image, markdown, card, carousel) — you'll hand it to \`post_questions\` in step 10. Do NOT include reactions in the blocks; the tool attaches them automatically based on the question's stored type. For the trivia question, use this FIVE-BLOCK layout — the structure stays fixed; the wording is where your persona lives:
 
    1. \`header\` block — \`text: { type: "plain_text", text: "..." }\`. plain_text only — no \`*bold*\`.
       - SINGLE-QUESTION FLOW, **and** every question after the first in MULTI-SLOT FLOW (slots 1..N-1): the show banner (e.g. "🎯 TRIVIA TIME!"). Vary the wording daily ("📣 STEP RIGHT UP!", "🎲 DAILY BRAIN TEASER", "🎯 TRIVIA TIME!", etc.).
       - MULTI-SLOT FLOW, FIRST question only (slot 0): a calmer date-stamped round opener that anchors today's round, e.g. "🗓️ Trivia for Wednesday, May 20", "📅 Trivia — May 20", "🎟️ Today's Trivia Round · May 20". Use today's actual date (weekday + month + day, OR month + day — your call). Keep it noticeably less shouty than the show banner; this is the "round header" for the batch, not the per-question hype line. Subsequent slots in the same batch go back to the normal show-banner style.
    2. \`section\` block (mrkdwn) — your warm-up patter. 1-2 short sentences that build anticipation. This is where the Game Show voice shines.
       - **TOPICAL QUESTIONS (questionType: "topical") MUST FLAG THEMSELVES.** The warm-up patter SHALL signal that this is a current-events / news question — e.g. "Hot off the presses!", "Straight from this week's headlines:", "Today in the news:", "If you've been doomscrolling lately, this one's for you:", "Ripped from yesterday's news:", etc. Do NOT use static-knowledge framings like "dig into your knowledge vault", "what you remember from school", "trivia masters take note", or anything implying memorized facts — those mislead viewers about what kind of question to expect. Pair the news framing with the same game-show energy. Vary the exact wording each day.
-      - **NO YEAR / DATE STAMPS INSIDE THE TOPICAL STATEMENT.** The card title already carries the "(Current News)" suffix and the patter already signals recency — so the statement itself MUST NOT include the current year ("in 2026"), an explicit month ("in May"), or phrases like "this week", "recently", "last month". Strip those even if the WebSearch result phrased the event that way. The recency context lives in the title + patter, not in the statement. The optional \`eventDate\` field on \`save_question\` is where dates belong if Claude wants to record them — never in the user-visible statement.
+      - **NO YEAR / DATE STAMPS INSIDE THE TOPICAL STATEMENT.** The card's \`subtitle\` (\`Current News\`) and the patter already signal recency — so the statement itself MUST NOT include the current year ("in 2026"), an explicit month ("in May"), or phrases like "this week", "recently", "last month". Strip those even if the WebSearch result phrased the event that way. The recency context lives in the subtitle + patter, not in the statement. The optional \`eventDate\` field on \`save_question\` is where dates belong if Claude wants to record them — never in the user-visible statement.
       - **FACT QUESTIONS (questionType: "fact")** keep the standard knowledge-vault framing — that's the default voice.
-   3. \`card\` block — the trivia card itself:
-      - \`title\`: \`{ type: "mrkdwn", text: "<emoji> <Category>" }\` for FACT questions, OR \`{ type: "mrkdwn", text: "<emoji> <Category> (Current News)" }\` for TOPICAL questions (questionType: "topical"). The "(Current News)" suffix is what tells viewers the question is anchored to a recent event — it REPLACES any year/date hint you might otherwise be tempted to put in the statement. JUST the category from step 1, with a topic-fitting emoji prefix. No "TRIVIA TIME" here, no flavor text.
-      - \`body\`: \`{ type: "mrkdwn", text: "<statement>\\n\\n👍 TRUE  •  👎 FALSE" }\` — the statement, blank line, then the vote line. ALWAYS 👍 (TRUE) first, then 👎 (FALSE) — this order matters.
-      - Do NOT set \`subtitle\`. Do NOT set \`hero_image\` or \`icon\`.
-   4. \`context\` block — a short closer line nudging people to vote ("Cast your vote below — the stakes are HIGH! 🎲", "Who will be crowned champion? 🏆", etc.). One mrkdwn element.
+   3. \`card\` block — the trivia card itself, holds JUST the question:
+      - \`title\`: \`{ type: "mrkdwn", text: "<emoji> <Category>" }\` — JUST the category from step 1, with a topic-fitting emoji prefix. Same shape for BOTH fact and topical questions. No "TRIVIA TIME" here, no flavor text, no "(Current News)" suffix.
+      - \`subtitle\`: TOPICAL questions ONLY (questionType: "topical") — \`{ type: "mrkdwn", text: "Current News" }\`. This is what tells viewers the question is anchored to a recent event. OMIT entirely on FACT questions.
+      - \`body\`: \`{ type: "mrkdwn", text: "<statement>" }\` — JUST the statement. Do NOT include the TRUE/FALSE vote line, the choice options, or the freeform Answer-button nudge inside the card body — those all live in block #4 BELOW the card.
+      - Do NOT set \`hero_image\` or \`icon\`.
+   4. \`section\` block (mrkdwn) — the answer options, sitting BELOW the card. Shape depends on the question's answersFormat:
+      - **boolean** → text is exactly \`👍 TRUE  •  👎 FALSE\`. ALWAYS 👍 (TRUE) first, then 👎 (FALSE) — this order matters.
+      - **choice** → see CHOICE-PATH ANSWER OPTIONS below.
+      - **freeform** → see FREEFORM-PATH ANSWER OPTIONS below.
+   5. \`context\` block — a short closer line nudging people to vote ("Cast your vote below — the stakes are HIGH! 🎲", "Who will be crowned champion? 🏆", etc.). One mrkdwn element.
 
    NEVER predict when the answer will be revealed. Do NOT write phrases like "answer tomorrow", "results in 24 hours", "tune in later today", "we'll reveal soon", "stay tuned for tonight's reveal", or any other timing claim. The reveal is on a separate schedule that this run has no visibility into — guessing is wrong more often than it's right. Keep the closer focused on voting ("Cast your vote!", "Place your bets!", "Lock in your answer!") not on the reveal cadence.
 
    Invent a style for the header, warm-up patter, and closer each day — different each day keeps it fresh. Do NOT repeat yesterday's phrasing. Do NOT feel obligated to copy the example below. (Reminder: in MULTI-SLOT FLOW the slot-0 header is the date-stamped round opener described above, not a show banner.)
 
-   Example — dramatic reveal:
+   Example — dramatic reveal (boolean FACT question):
    \`\`\`
    [
      { "type": "header", "text": { "type": "plain_text", "text": "🎯 TRIVIA TIME!" } },
@@ -506,20 +523,21 @@ General emoji rule (re-emphasized): the opener's header MUST use Unicode emoji (
      {
        "type": "card",
        "title": { "type": "mrkdwn", "text": "🌍 Geography" },
-       "body":  { "type": "mrkdwn", "text": "[statement]\\n\\n👍 TRUE  •  👎 FALSE" }
+       "body":  { "type": "mrkdwn", "text": "[statement]" }
      },
+     { "type": "section", "text": { "type": "mrkdwn", "text": "👍 TRUE  •  👎 FALSE" } },
      { "type": "context", "elements": [ { "type": "mrkdwn", "text": "Cast your vote below — the stakes are HIGH! 🎲" } ] }
    ]
    \`\`\`
 
+   For a TOPICAL question, the card also carries \`"subtitle": { "type": "mrkdwn", "text": "Current News" }\` between the title and body — everything else stays the same.
+
    Add game show flair to the header, patter, and closer — "Step right up!", "The stakes are high!", "Who will be crowned champion?", "Let's see who's got the smarts!" — make it entertaining, and feel free to come up with your own openers. The card itself stays clean: category title, statement + vote line in the body, nothing else.
 
-   CHOICE-PATH CARD BODY (when suggestedAnswersFormat was "choice"):
-   - The card body still shows the statement on the first line, blank line, then the OPTIONS. Choose between two layouts based on readability:
+   CHOICE-PATH ANSWER OPTIONS (when suggestedAnswersFormat was "choice"):
+   - The card body holds JUST the statement (no inline options). Block #4 — the \`section\` sitting BELOW the card — holds the OPTIONS. Choose between two layouts for block #4 based on readability:
      - **Stacked** (preferred when any choice text exceeds roughly 25 characters or choices read more naturally on separate lines):
        \`\`\`
-       <statement>
-
        1️⃣ <choice0>
        2️⃣ <choice1>
        3️⃣ <choice2>
@@ -527,22 +545,18 @@ General emoji rule (re-emphasized): the opener's header MUST use Unicode emoji (
        \`\`\`
      - **Inline** (preferred when ALL choices are short):
        \`\`\`
-       <statement>
-
        1️⃣ <choice0>  •  2️⃣ <choice1>  •  3️⃣ <choice2>  •  4️⃣ <choice3>
        \`\`\`
    - Numbered emoji prefix the options in INDEX order (1️⃣ for index 0, 2️⃣ for index 1, etc.). The visual order MUST match the stored \`choices\` array order — the bot's auto-attached numbered reactions align to each option's index, so a mismatch here breaks vote scoring.
-   - For choice questions, do NOT include the "👍 TRUE • 👎 FALSE" vote line — that's the boolean shape only.
+   - For choice questions, do NOT include the "👍 TRUE • 👎 FALSE" vote line in block #4 — that's the boolean shape only.
 
-   FREEFORM-PATH CARD BODY (when suggestedAnswersFormat was "freeform"):
-   - The card body shows just the statement and a one-line nudge to use the Answer button (no inline answer options, no vote line). \`post_questions\` automatically appends the "Answer" button below your blocks — DO NOT add a button block yourself.
-   - Example:
+   FREEFORM-PATH ANSWER OPTIONS (when suggestedAnswersFormat was "freeform"):
+   - The card body holds JUST the statement. Block #4 — the \`section\` sitting BELOW the card — holds a one-line nudge to use the Answer button (no inline answer options, no vote line). \`post_questions\` automatically appends the "Answer" button below ALL your blocks — DO NOT add a button block yourself.
+   - Block #4 example text:
      \`\`\`
-     <statement>
-
      Hit the *Answer* button below to type your guess.
      \`\`\`
-   - Reactions are NOT attached to freeform questions — answers come through the modal. Do not mention reaction voting in the card body or the closer.
+   - Reactions are NOT attached to freeform questions — answers come through the modal. Do not mention reaction voting in block #4 or the closer.
 
 10. POST THE QUESTION(S):
     Build one \`{ questionId, blocks }\` item per saved question. In the SINGLE-QUESTION FLOW, that is exactly one item. In the MULTI-SLOT FLOW, the items array length equals \`slotCount\` and items MUST be in slot-index order (slot 0 first, slot 1 second, …).
