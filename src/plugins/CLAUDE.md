@@ -35,6 +35,25 @@ If two plugins independently need the "same" type, that's a sign you have two di
 
 Parsers, validators, and constants follow the same rule. The trivia plugin's `parseTriviaGames` lives under `src/plugins/trivia/core/`, NOT in `src/config.ts`.
 
+## Topics vs Integrations — two related-but-distinct concepts
+
+The bot uses two concepts joined by a shared name convention. When you author a plugin, knowing which is which prevents confused-mental-model bugs.
+
+- A **topic** is a keying axis for instruction files. Files live at `topics/<name>/*.md` (on-disk or as plugin virtual defaults). Loaded when the topic is active for the session — pre-attached via `CronJobSpec.attachedTopics` or runtime-attached via `attach_integration`. Plugin SDK touch points: `sdk.addTopicInstruction(role, topic, filename, content)`, `CronJobSpec.attachedTopics`.
+
+- An **integration** is a catalog entry that Claude can `attach_integration("name")` to. Attaching it (1) reveals tools — either an MCP server's tools (if the integration is backed by `data/mcp.json`/`data/config.json`) or plugin tools registered with `sdk.registerTool(..., { integration: "name" })` — and (2) activates the topic of the same name (so its instructions load too). Plugin SDK touch points: `sdk.registerIntegration(name, { description, alwaysLoad? })`, `sdk.registerTool(..., { integration })`.
+
+By convention an integration's name equals a topic's name (the convention is what bridges them — attaching loads instructions because the string matches). But the two are distinct concerns:
+
+- Instructions are **topic-things**.
+- Tool gating and catalog discoverability are **integration-things**.
+
+A plugin that ships an admin-only toolkit (like trivia's management tools) typically does all four:
+1. `sdk.registerIntegration("trivia:management", { description, alwaysLoad: false })` — declares the catalog entry.
+2. `sdk.addTopicInstruction("admin", "trivia:management", ...)` — ships the admin instruction that loads when the topic activates.
+3. `sdk.registerTool(..., { integration: "trivia:management" })` — gates the tool by integration attachment.
+4. By convention uses `<pluginName>:<key>` for the name (matches the existing `<game>:<event>` shape in cron specKeys; structurally avoids cross-plugin collisions).
+
 ## Why these rules exist
 
 The bot core (`src/config.ts`, `src/instructions.ts`, etc.) should know NOTHING about specific plugins. A plugin should be removable by deleting its folder and a line in `src/plugins/index.ts` (or wherever plugins are registered) — no other code should reference it.

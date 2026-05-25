@@ -29,6 +29,23 @@ import { detectRuntime } from "../claude/utilities.js";
 /** Tool mapping entry — same format as tool_mapping JSON config entries. */
 export type ToolMapping = string | ToolEntryObject;
 
+/** Optional registration knobs for `registerTool`. */
+export interface RegisterToolOptions {
+  /**
+   * Hide the tool unless `session.attachedIntegrations` contains this name. The name MUST
+   * match a catalog entry — either a `data/config.json` `mcpServers` entry or a plugin's
+   * `sdk.registerIntegration(name, ...)` declaration — so `attach_integration(name)` validates.
+   */
+  integration?: string;
+}
+
+/** Plugin-declared catalog-only integration. Merged into the effective MCP registry at boot. */
+export interface PluginIntegration {
+  name: string;
+  description: string;
+  alwaysLoad: boolean;
+}
+
 /**
  * Single-turn Claude call routed through `clackQuery` — inherits the
  * deployment's auth (OAuth or API key) the same way every other lightweight
@@ -130,6 +147,7 @@ export interface ClackSdk {
   addTopicInstruction(role: RoleDir, topic: string, filename: string, content: string): void;
   /**
    * Register an MCP tool with a minimum role requirement and a Slack task card mapping.
+   * Pass `{ integration }` in `options` to gate the tool behind `attach_integration(name)`.
    * @param mapping — Display label for Slack task cards. Either a template string with `{argName}` interpolation,
    *   or an object with `label`, optional `group`, and optional `itemDetail`.
    */
@@ -137,7 +155,17 @@ export interface ClackSdk {
     minRole: UserRole,
     tool: SdkMcpToolDefinition<T>,
     mapping: ToolMapping,
+    options?: RegisterToolOptions,
   ): void;
+  /**
+   * Declare a catalog-only virtual integration owned by this plugin. The name is what Claude
+   * passes to `attach_integration(name)`; the description appears in the AVAILABLE INTEGRATIONS
+   * catalog. By convention `name` is `<pluginName>:<key>` (e.g. `trivia:management`), mirroring
+   * the `<game>:<event>` shape used by cron specKeys. No MCP server is started — plugin-declared
+   * integrations are purely catalog entries that gate plugin-registered topic instructions and
+   * topic-gated tools.
+   */
+  registerIntegration(name: string, options: { description: string; alwaysLoad?: boolean }): void;
   readFile(path: string): Promise<string | null>;
   writeFile(path: string, content: string): Promise<void>;
   /**
@@ -236,6 +264,7 @@ export interface RegisteredInstruction {
 export interface RegisteredTool {
   name: string;
   minRole: UserRole;
+  integration?: string;
   pushTo: (target: SdkMcpToolDefinition<AnyZodRawShape>[]) => void;
 }
 
@@ -258,6 +287,8 @@ export interface PluginLoadResult {
   name: string;
   instructions: RegisteredInstruction[];
   tools: RegisteredTool[];
+  /** Plugin-declared catalog integrations, merged into the effective MCP registry at boot. */
+  integrations: PluginIntegration[];
   /** Tool name → mapping entry for Slack task cards. */
   toolMappings: Map<string, ToolMapping>;
   /** Dedicated MCP server hosting this plugin's tools, namespaced under the plugin's name. */
@@ -374,6 +405,7 @@ export function createClackSdk(
 } {
   const instructions: RegisteredInstruction[] = [];
   const tools: RegisteredTool[] = [];
+  const integrations: PluginIntegration[] = [];
   const toolMappings = new Map<string, ToolMapping>();
   const watchers: FSWatcher[] = [];
   const actionHandlers: RegisteredActionEntry[] = [];
@@ -423,15 +455,28 @@ export function createClackSdk(
       minRole: UserRole,
       toolDef: SdkMcpToolDefinition<T>,
       mapping: ToolMapping,
+      options?: RegisterToolOptions,
     ): void {
       tools.push({
         name: toolDef.name,
         minRole,
+        integration: options?.integration,
         // Capture the tool in a closure that pushes it to the target array.
         // This avoids storing it with an incompatible generic type.
         pushTo: (target) => target.push(toolDef as SdkMcpToolDefinition<AnyZodRawShape>),
       });
       toolMappings.set(toolDef.name, mapping);
+    },
+
+    registerIntegration(
+      name: string,
+      options: { description: string; alwaysLoad?: boolean },
+    ): void {
+      integrations.push({
+        name,
+        description: options.description,
+        alwaysLoad: options.alwaysLoad ?? false,
+      });
     },
 
     async readFile(path: string): Promise<string | null> {
@@ -742,6 +787,7 @@ export function createClackSdk(
         name: pluginName,
         instructions,
         tools,
+        integrations,
         toolMappings,
         mcpServer,
         watchers,

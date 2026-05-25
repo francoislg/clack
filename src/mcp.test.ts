@@ -13,6 +13,7 @@ import {
   UNMAPPED_REGISTRY_DESCRIPTION,
 } from "./mcp.js";
 import type { McpServerRegistry } from "./config.js";
+import { logger } from "./logger.js";
 
 // ---------------------------------------------------------------------------
 // Mock functions
@@ -572,6 +573,57 @@ describe("resolveEffectiveRegistry", () => {
       description: "Scheduled messages",
     });
     assert.deepEqual(result.unmapped, []);
+  });
+
+  it("merges plugin-declared integrations into the registry", () => {
+    const result = resolveEffectiveRegistry({
+      configRegistry: {},
+      mcpServerNames: [],
+      githubAutoInjected: false,
+      pluginIntegrations: [
+        {
+          name: "trivia:management",
+          description: "Trivia management",
+          alwaysLoad: false,
+          pluginName: "trivia",
+        },
+      ],
+    });
+
+    assert.deepEqual(result.registry["trivia:management"], {
+      alwaysLoad: false,
+      description: "Trivia management",
+    });
+  });
+
+  it("logs a warning and lets last-write-win when plugin integration name collides with config entry", () => {
+    const warn = mock.method(logger, "warn", () => {});
+    try {
+      const result = resolveEffectiveRegistry({
+        configRegistry: {
+          "shared:foo": { alwaysLoad: true, description: "config" },
+        },
+        mcpServerNames: [],
+        githubAutoInjected: false,
+        pluginIntegrations: [
+          {
+            name: "shared:foo",
+            description: "from-plugin",
+            alwaysLoad: false,
+            pluginName: "myplugin",
+          },
+        ],
+      });
+
+      assert.equal(result.registry["shared:foo"].description, "from-plugin");
+      const warned = warn.mock.calls.find((call) => {
+        const m = String(call.arguments[0] ?? "");
+        return m.includes("shared:foo") && m.includes("myplugin");
+      });
+      assert.ok(warned, "expected a warning naming the colliding integration and plugin");
+    } finally {
+      warn.mock.restore();
+    }
   });
 });
 

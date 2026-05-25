@@ -22,6 +22,7 @@ function makeFakeSdk(opts: FakeSdkOptions = {}): {
     addInstruction: () => {},
     addTopicInstruction: () => {},
     registerTool: () => {},
+    registerIntegration: () => {},
     readFile: async () => null,
     writeFile: async () => {},
     watchFile: () => {

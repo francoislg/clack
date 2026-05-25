@@ -269,6 +269,13 @@ export interface ResolveEffectiveRegistryInput {
   mcpServerNames: string[];
   /** True when Clack auto-injects the GitHub MCP server (no explicit `mcp.json` entry). */
   githubAutoInjected: boolean;
+  /** Plugin-declared catalog integrations (from `sdk.registerIntegration`). */
+  pluginIntegrations?: ReadonlyArray<{
+    name: string;
+    description: string;
+    alwaysLoad: boolean;
+    pluginName: string;
+  }>;
 }
 
 export interface ResolveEffectiveRegistryResult {
@@ -295,7 +302,7 @@ export interface ResolveEffectiveRegistryResult {
 export function resolveEffectiveRegistry(
   input: ResolveEffectiveRegistryInput,
 ): ResolveEffectiveRegistryResult {
-  const { configRegistry, mcpServerNames, githubAutoInjected } = input;
+  const { configRegistry, mcpServerNames, githubAutoInjected, pluginIntegrations } = input;
   const registry: McpServerRegistry = { ...configRegistry };
   const unmapped: string[] = [];
 
@@ -309,6 +316,18 @@ export function resolveEffectiveRegistry(
   if (githubAutoInjected && !("github" in registry)) {
     registry.github = { ...GITHUB_DEFAULT_REGISTRY };
     // GitHub auto-inject is a first-class path — don't report as unmapped.
+  }
+
+  for (const entry of pluginIntegrations ?? []) {
+    if (entry.name in registry) {
+      logger.warn(
+        `Plugin "${entry.pluginName}" registered integration "${entry.name}" but an entry with that name already exists; last write wins.`,
+      );
+    }
+    registry[entry.name] = {
+      alwaysLoad: entry.alwaysLoad,
+      description: entry.description,
+    };
   }
 
   return { registry, unmapped };

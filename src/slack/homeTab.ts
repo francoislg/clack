@@ -23,7 +23,7 @@ import type { InstructionFileListing } from "../configurationFiles.js";
 import type { Config, RepositoryConfig } from "../config.js";
 import type { SkillPluginInfo } from "../skillPlugins.js";
 import type { MigrationError } from "../migrations/types.js";
-import { getLoadedPlugins } from "../plugins/state.js";
+import { getLoadedPlugins, getLoadedPluginIntegrations } from "../plugins/state.js";
 
 export interface ClackPluginSummary {
   name: string;
@@ -559,6 +559,7 @@ export function buildStatusSection(
       configRegistry: config.mcpServers,
       mcpServerNames: mcpServers,
       githubAutoInjected: mcpServers.includes("github"),
+      pluginIntegrations: getLoadedPluginIntegrations(),
     });
 
     const always: string[] = [];

@@ -21,6 +21,7 @@ import { startAll, stopAll } from "./lifecycle.js";
 import { addFailedMcpServers } from "./mcpStatus.js";
 import { diagnoseMcpServer, type DiagnosableConfig } from "./mcpDiagnose.js";
 import { getPinnedEntries, loadMcpServers, resolveEffectiveRegistry } from "./mcp.js";
+import { getLoadedPluginIntegrations } from "./plugins/state.js";
 import { installAllPinnedMcpServers } from "./mcpInstaller.js";
 import { runBaselineSmoke } from "./startupBaselineSmoke.js";
 
@@ -134,6 +135,7 @@ async function main(): Promise<void> {
           configRegistry: getConfig().mcpServers,
           mcpServerNames: mcpResult.configuredServers,
           githubAutoInjected: mcpResult.configuredServers.includes("github"),
+          pluginIntegrations: getLoadedPluginIntegrations(),
         });
         const alwaysOn: string[] = [];
         const lazy: string[] = [];

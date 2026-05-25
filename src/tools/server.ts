@@ -451,6 +451,12 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
     const pluginTools: SdkMcpToolDefinition<any>[] = [];
     for (const registered of plugin.tools) {
       if (!meetsMinimumRole(ctx.role, registered.minRole)) continue;
+      if (
+        registered.integration &&
+        !(ctx.session.attachedIntegrations ?? []).includes(registered.integration)
+      ) {
+        continue;
+      }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const collected: SdkMcpToolDefinition<any>[] = [];
       registered.pushTo(collected);

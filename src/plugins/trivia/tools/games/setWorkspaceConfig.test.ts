@@ -19,6 +19,7 @@ function makeFakeSdk(): ClackSdk {
     addInstruction: () => {},
     addTopicInstruction: () => {},
     registerTool: () => {},
+    registerIntegration: () => {},
     readFile: async () => null,
     writeFile: async () => {},
     watchFile: () => {
