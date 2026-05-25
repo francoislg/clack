@@ -75,6 +75,38 @@ describe("buildJudgePrompt", () => {
     assert.ok(/multiple-guess/i.test(system));
     assert.ok(/qualifier/i.test(system));
   });
+
+  it("system prompt accepts bare years for decade questions (format mismatch is not a rejection reason)", () => {
+    const { system } = buildJudgePrompt([
+      {
+        question: makeQuestion({}),
+        submissions: [{ key: "1.1", userId: "U1", answerText: "ok" }],
+      },
+    ]);
+    assert.ok(/DATE FORMS/i.test(system), "judge prompt must call out DATE FORMS leniency");
+    assert.ok(
+      /format mismatch is NEVER a rejection reason/i.test(system),
+      "judge prompt must say format mismatch alone is not a rejection reason",
+    );
+    assert.ok(
+      /bare year/i.test(system),
+      "judge prompt must explicitly mention bare year as an accepted form for decade questions",
+    );
+  });
+
+  it("system prompt accepts every spanned decade for multi-decade events", () => {
+    const { system } = buildJudgePrompt([
+      {
+        question: makeQuestion({}),
+        submissions: [{ key: "1.1", userId: "U1", answerText: "ok" }],
+      },
+    ]);
+    assert.ok(/DATE SPANS/i.test(system), "judge prompt must call out DATE SPANS leniency");
+    assert.ok(
+      /every decade that the range touches/i.test(system),
+      "judge prompt must say every spanned decade is acceptable",
+    );
+  });
 });
 
 describe("parseJudgeResponse", () => {
