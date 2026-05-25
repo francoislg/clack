@@ -80,48 +80,22 @@ export function buildUserSkillsSection(
 
   const sorted = [...skills].sort((a, b) => a.slug.localeCompare(b.slug));
   for (const skill of sorted) {
-    const ownerLabel = `*${t("userSkills.owner_label")}:* <@${skill.ownerUserId}>`;
     const disabledBadge = skill.disabledAt ? ` ${t("userSkills.disabled_badge")}` : "";
-    const text = `*${skill.slug}*${disabledBadge}\n${skill.description}\n${ownerLabel}`;
+    const text = `*${skill.slug}*${disabledBadge} — <@${skill.ownerUserId}>`;
 
     const section: KnownBlock = {
       type: "section",
       text: { type: "mrkdwn", text },
     };
-    blocks.push(section);
-
     if (canEditUserSkill(viewerRole, skill.ownerUserId, viewerUserId)) {
-      const elements: object[] = [];
-      elements.push({
+      section.accessory = {
         type: "button",
         text: { type: "plain_text", text: t("userSkills.edit_button"), emoji: true },
         action_id: `${ACTION_EDIT_OPEN_PREFIX}:${skill.slug}`,
         value: skill.slug,
-      });
-      if (skill.disabledAt) {
-        elements.push({
-          type: "button",
-          text: { type: "plain_text", text: t("userSkills.restore_button"), emoji: true },
-          action_id: `${ACTION_RESTORE_PREFIX}:${skill.slug}`,
-          value: skill.slug,
-        });
-      } else {
-        elements.push({
-          type: "button",
-          style: "danger",
-          text: { type: "plain_text", text: t("userSkills.disable_button"), emoji: true },
-          action_id: `${ACTION_DISABLE_PREFIX}:${skill.slug}`,
-          value: skill.slug,
-          confirm: {
-            title: { type: "plain_text", text: t("userSkills.disable_button") },
-            text: { type: "mrkdwn", text: `Disable \`${skill.slug}\`?` },
-            confirm: { type: "plain_text", text: t("userSkills.disable_button") },
-            deny: { type: "plain_text", text: t("common.cancel") },
-          },
-        });
-      }
-      blocks.push({ type: "actions", elements } as KnownBlock);
+      };
     }
+    blocks.push(section);
   }
 
   blocks.push({ type: "divider" });
@@ -180,6 +154,66 @@ export function buildCreateSkillModal(): View {
 }
 
 export function buildEditSkillModal(skill: UserSkill): View {
+  const blocks: KnownBlock[] = [
+    {
+      type: "section",
+      text: { type: "mrkdwn", text: `*${t("userSkills.modal_name_label")}:* \`${skill.slug}\`` },
+    },
+    {
+      type: "input",
+      block_id: BLOCK_DESCRIPTION,
+      label: { type: "plain_text", text: t("userSkills.modal_description_label") },
+      element: {
+        type: "plain_text_input",
+        action_id: ACTION_DESCRIPTION_INPUT,
+        multiline: true,
+        max_length: 1024,
+        initial_value: skill.description,
+      },
+      hint: { type: "plain_text", text: t("userSkills.modal_description_hint") },
+    },
+    {
+      type: "input",
+      block_id: BLOCK_BODY,
+      label: { type: "plain_text", text: t("userSkills.modal_body_label") },
+      element: {
+        type: "plain_text_input",
+        action_id: ACTION_BODY_INPUT,
+        multiline: true,
+        initial_value: skill.body,
+      },
+      hint: { type: "plain_text", text: t("userSkills.modal_body_hint") },
+    },
+    { type: "divider" },
+    {
+      type: "actions",
+      elements: skill.disabledAt
+        ? [
+            {
+              type: "button",
+              text: { type: "plain_text", text: t("userSkills.restore_button"), emoji: true },
+              action_id: `${ACTION_RESTORE_PREFIX}:${skill.slug}`,
+              value: skill.slug,
+            },
+          ]
+        : [
+            {
+              type: "button",
+              style: "danger",
+              text: { type: "plain_text", text: t("userSkills.disable_button"), emoji: true },
+              action_id: `${ACTION_DISABLE_PREFIX}:${skill.slug}`,
+              value: skill.slug,
+              confirm: {
+                title: { type: "plain_text", text: t("userSkills.disable_button") },
+                text: { type: "mrkdwn", text: `Disable \`${skill.slug}\`?` },
+                confirm: { type: "plain_text", text: t("userSkills.disable_button") },
+                deny: { type: "plain_text", text: t("common.cancel") },
+              },
+            },
+          ],
+    },
+  ];
+
   return {
     type: "modal",
     callback_id: CALLBACK_EDIT_SUBMIT,
@@ -187,36 +221,6 @@ export function buildEditSkillModal(skill: UserSkill): View {
     submit: { type: "plain_text", text: t("userSkills.edit_button") },
     close: { type: "plain_text", text: t("common.cancel") },
     private_metadata: JSON.stringify({ slug: skill.slug }),
-    blocks: [
-      {
-        type: "section",
-        text: { type: "mrkdwn", text: `*${t("userSkills.modal_name_label")}:* \`${skill.slug}\`` },
-      },
-      {
-        type: "input",
-        block_id: BLOCK_DESCRIPTION,
-        label: { type: "plain_text", text: t("userSkills.modal_description_label") },
-        element: {
-          type: "plain_text_input",
-          action_id: ACTION_DESCRIPTION_INPUT,
-          multiline: true,
-          max_length: 1024,
-          initial_value: skill.description,
-        },
-        hint: { type: "plain_text", text: t("userSkills.modal_description_hint") },
-      },
-      {
-        type: "input",
-        block_id: BLOCK_BODY,
-        label: { type: "plain_text", text: t("userSkills.modal_body_label") },
-        element: {
-          type: "plain_text_input",
-          action_id: ACTION_BODY_INPUT,
-          multiline: true,
-          initial_value: skill.body,
-        },
-        hint: { type: "plain_text", text: t("userSkills.modal_body_hint") },
-      },
-    ],
+    blocks,
   };
 }
