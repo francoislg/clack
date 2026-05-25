@@ -16,6 +16,14 @@ export interface LoadInstructionsOptions {
   changesWorkflowEnabled: boolean;
   /** Variables to interpolate into the instructions */
   variables: Record<string, string>;
+  /**
+   * Topic names to pre-attach for this resolution. When non-empty, the cascading resolver
+   * loads each topic's `topics/<topic>/*.md` files in addition to baseline instructions.
+   * Used by cron jobs that declare `attachedTopics` so plugin-scoped instructions surface
+   * from the first turn — without Claude having to call `attach_integration`.
+   * See the `plugin-topic-instructions` capability.
+   */
+  topics?: string[];
 }
 
 /**
@@ -48,7 +56,15 @@ export function interpolateVariables(content: string, variables: Record<string, 
   return content.replace(/\{(\w+)\}/g, (_match, key) => variables[key] ?? "");
 }
 
-/** Build virtual defaults map from loaded plugins */
+/**
+ * Build virtual defaults map from loaded plugins.
+ *
+ * Plugin instructions are keyed by their stored `filename` verbatim. Baseline entries
+ * (registered via `sdk.addInstruction`) use plain `<plugin>__<file>.md` keys; topic entries
+ * (registered via `sdk.addTopicInstruction`) use `topics/<topic>/<plugin>__<file>.md` keys.
+ * The cascading resolver routes the two key shapes to its baseline and topic resolution
+ * paths respectively, so no per-shape filtering is needed here.
+ */
 function buildVirtualDefaults(): VirtualDefaults | undefined {
   const { results } = getLoadedPlugins();
   if (results.length === 0) return undefined;
@@ -72,9 +88,14 @@ export function loadInstructions(role: UserRole, options: LoadInstructionsOption
   logger.debug(`Loading instructions for role '${role}' with chain: [${roleChain.join(", ")}]`);
 
   const virtualDefaults = buildVirtualDefaults();
-  // No topics active in the baseline call — topics are attached mid-session via
-  // `attach_integration` and injected through its tool result, not the system prompt.
-  let content = resolveInstructions(roleChain, undefined, virtualDefaults);
+  // Pre-attached topics (from a cron job's `attachedTopics` field or any other caller that
+  // wants topic content surfaced in the system prompt from turn 1) are passed through as
+  // `activeTopics`. Runtime-attached topics (via `attach_integration`) inject their delta
+  // through the tool result and are not part of the system prompt — they are layered onto
+  // the assistant's context separately and do not flow through this function.
+  const activeTopics =
+    options.topics && options.topics.length > 0 ? new Set(options.topics) : undefined;
+  let content = resolveInstructions(roleChain, activeTopics, virtualDefaults);
 
   // Interpolate variables after concatenation
   content = interpolateVariables(content, options.variables);

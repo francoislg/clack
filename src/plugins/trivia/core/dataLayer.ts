@@ -1,6 +1,5 @@
 import type { ClackSdk } from "../../sdk.js";
-import { getConfig } from "../../../config.js";
-import { logger } from "../../../logger.js";
+import { loadTriviaConfig } from "./configBridge.js";
 import { findCurrentSeason } from "./seasonTimeline.js";
 import type {
   TriviaQuestion,
@@ -20,12 +19,7 @@ async function readSdkJson<T>(sdk: ClackSdk, path: string, fallback: T): Promise
 }
 
 function isSeasonsEnabled(): boolean {
-  try {
-    return getConfig().trivia?.seasons?.enabled === true;
-  } catch {
-    // Config not loaded (e.g. test harness) — treat as disabled to avoid spurious file writes.
-    return false;
-  }
+  return loadTriviaConfig()?.seasons?.enabled === true;
 }
 
 function initialSeasonSlug(now: Date): string {
@@ -103,8 +97,8 @@ export function createSdkDataLayer(sdk: ClackSdk): TriviaDataLayer {
       const answers = await loadAnswers();
       const idx = answers.findIndex((a) => a.userId === userId && a.questionId === questionId);
       if (idx === -1) {
-        logger.warn(
-          `[plugin:trivia] updateAnswer: no row found for (userId=${userId}, questionId=${questionId})`,
+        sdk.logger.warn(
+          `updateAnswer: no row found for (userId=${userId}, questionId=${questionId})`,
         );
         return;
       }

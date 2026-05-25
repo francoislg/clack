@@ -19,7 +19,7 @@ import type {
   TriviaFreeformAnswerShapeWeights,
   TriviaContextEntry,
   TriviaDifficultyConfig,
-} from "../../../../config.js";
+} from "../../core/configTypes.js";
 
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 

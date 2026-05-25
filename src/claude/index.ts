@@ -119,6 +119,14 @@ export interface AskClaudeOptions {
    * Use this to persist tool calls to the session incrementally for live debugging.
    */
   onToolCall?: (record: ToolCallRecord) => void | Promise<void>;
+  /**
+   * Topic names to pre-attach for this session. The system prompt resolver loads each topic's
+   * `topics/<topic>/*.md` files (including plugin virtual defaults registered via
+   * `sdk.addTopicInstruction`) into the system prompt from the first turn — Claude does not
+   * need to call `attach_integration`. Threaded from the cron scheduler when the job's
+   * `attachedTopics` field is set. See the `plugin-topic-instructions` capability.
+   */
+  preAttachedTopics?: string[];
 }
 
 function summarizeContentBlocks(content: unknown[]): string {

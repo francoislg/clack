@@ -1,8 +1,11 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { textResult, errorResult } from "../../../../tools/helpers.js";
-import { loadJobs, type CronJob } from "../../../../cronJobs.js";
-import { logger } from "../../../../logger.js";
+// TODO(plugin-isolation): loadJobs reaches into bot-core cron-job state.
+// Move to an SDK accessor (e.g. sdk.listOwnerCronJobs) in a follow-up.
+import { loadJobs } from "../../../../cronJobs.js";
+import { triviaLogger as logger } from "../../core/pluginLogger.js";
+import type { TriviaCronJobView } from "../../domain/seasonStatus.js";
 import { defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
 import { requireWritableGame } from "../../core/gamesRegistry.js";
 import { computeLeaderboard } from "../../domain/computeLeaderboard.js";
@@ -98,7 +101,7 @@ export function createProcessRevealAnswersTool(
   data: TriviaDataLayer,
   sdk: Pick<ClackSdk, "getSlackClient" | "askClaude">,
   getGamesFn: GetGamesFn = defaultGetGames,
-  jobsLoader: () => Promise<CronJob[]> = loadJobs,
+  jobsLoader: () => Promise<TriviaCronJobView[]> = loadJobs,
   slackDeps: RevealSlackDeps = defaultRevealSlackDeps(sdk),
 ) {
   return tool(
@@ -632,7 +635,7 @@ interface SeasonStatusParams {
   scoped: ReturnType<TriviaDataLayer["forGame"]>;
   leaderboard: ReturnType<typeof computeLeaderboard>["leaderboard"];
   allAnswers: SubmittedAnswer[];
-  jobsLoader: () => Promise<CronJob[]>;
+  jobsLoader: () => Promise<TriviaCronJobView[]>;
 }
 
 async function computeSeasonStatusAndRollover(

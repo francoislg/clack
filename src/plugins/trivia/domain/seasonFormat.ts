@@ -5,12 +5,14 @@ import {
   validateFreeformAnswerShapeMap,
   validateContextsList,
   validateTriviaDifficultyMap,
-  type TriviaAnswersFormatWeights,
-  type TriviaQuestionTypeWeights,
-  type TriviaFreeformAnswerShapeWeights,
-  type TriviaContextEntry,
-  type TriviaDifficultyConfig,
-} from "../../../config.js";
+} from "../core/configParsers/axes.js";
+import type {
+  TriviaAnswersFormatWeights,
+  TriviaQuestionTypeWeights,
+  TriviaFreeformAnswerShapeWeights,
+  TriviaContextEntry,
+  TriviaDifficultyConfig,
+} from "../core/configTypes.js";
 
 export type ValidateResult<T> = { ok: true; value: T } | { ok: false; error: string };
 

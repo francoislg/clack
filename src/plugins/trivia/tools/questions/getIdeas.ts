@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { textResult, errorResult } from "../../../../tools/helpers.js";
-import { getConfig, type Config } from "../../../../config.js";
 import { findCurrentSeason } from "../../core/seasonTimeline.js";
 import { getActiveChoiceBounds, resolveAnswersFormat } from "../../domain/questionTypes.js";
 import { resolveQuestionType } from "../../domain/factTopical.js";
@@ -10,10 +9,15 @@ import { resolveContexts, rollContextPriority } from "../../domain/contexts.js";
 import { resolveDifficultyRanges } from "../../domain/difficulty.js";
 import { resolveSlotCategories } from "../../domain/seasonFormat.js";
 import { weightedPick } from "../../domain/weightedPick.js";
-import { defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
+import {
+  defaultGetGames,
+  defaultGetTriviaConfig,
+  type GetGamesFn,
+  type GetTriviaConfigFn,
+} from "../../core/configBridge.js";
 import { requireGame } from "../../core/gamesRegistry.js";
 import type { TriviaDataLayer, TriviaAnswersFormat, TriviaQuestionType } from "../../core/types.js";
-import type { TriviaFreeformAnswerShape } from "../../../../config.js";
+import type { TriviaFreeformAnswerShape, TriviaGame } from "../../core/configTypes.js";
 
 type SuggestedDifficulty = "Easy" | "Medium" | "Hard";
 
@@ -56,17 +60,13 @@ When suggestedAnswersFormat is \`"freeform"\`, also returns:
 
 Each call rolls suggestions independently — no caching across slot indices. When the active season has a \`format\`, loop slots 0..slotCount-1 with separate calls; do NOT pre-roll all slots up front.
 
-The format / type / answer / index / context rolls are server-side to prevent Claude from biasing them.`;
+The format / type / answer / index / context rolls are server-side to prevent Claude from biasing them.
+
+When an admin asks "what's configured for trivia?" or wants to audit weights without waiting for a roll, prefer \`list_seasons\` (for season-tier and slot-tier values) and \`list_games\` (for workspace-tier values + cron schedules). Those tools surface raw per-tier configuration; this tool only emits the resolved single-value rolls used for question generation.`;
 
 export function createGetIdeasTool(
   data: TriviaDataLayer,
-  getConfigFn: () => Config | null = () => {
-    try {
-      return getConfig();
-    } catch {
-      return null;
-    }
-  },
+  getConfigFn: GetTriviaConfigFn = defaultGetTriviaConfig,
   getGamesFn: GetGamesFn = defaultGetGames,
 ) {
   return tool(
@@ -88,8 +88,9 @@ export function createGetIdeasTool(
         ),
     },
     async (args) => {
+      let gameEntry: TriviaGame;
       try {
-        requireGame(getGamesFn(), args.game);
+        gameEntry = requireGame(getGamesFn(), args.game);
       } catch (err) {
         return errorResult(err instanceof Error ? err.message : String(err));
       }
@@ -169,6 +170,7 @@ export function createGetIdeasTool(
       const answersFormatWeights = resolveAnswersFormat(
         currentSeasonEntry,
         slotIndexForResolution,
+        gameEntry,
         config,
       );
       const pickedAnswersFormat: TriviaAnswersFormat =
@@ -177,11 +179,17 @@ export function createGetIdeasTool(
       const questionTypeWeights = resolveQuestionType(
         currentSeasonEntry,
         slotIndexForResolution,
+        gameEntry,
         config,
       );
       const pickedQuestionType: TriviaQuestionType = weightedPick(questionTypeWeights) ?? "fact";
 
-      const contexts = resolveContexts(currentSeasonEntry, slotIndexForResolution, config);
+      const contexts = resolveContexts(
+        currentSeasonEntry,
+        slotIndexForResolution,
+        gameEntry,
+        config,
+      );
       const contextPriority = contexts !== null ? rollContextPriority(contexts) : null;
 
       const suggestedDifficulty = pickSuggestedDifficulty();
@@ -189,6 +197,7 @@ export function createGetIdeasTool(
       const difficultyRanges = resolveDifficultyRanges(
         currentSeasonEntry,
         slotIndexForResolution,
+        gameEntry,
         config,
         pickedAnswersFormat,
       );
@@ -220,7 +229,7 @@ export function createGetIdeasTool(
       };
 
       if (pickedAnswersFormat === "choice") {
-        const bounds = config !== null ? getActiveChoiceBounds(config) : { min: 4, max: 4 };
+        const bounds = getActiveChoiceBounds(config);
         const suggestedChoiceCount = randomIntInclusive(bounds.min, bounds.max);
         const suggestedCorrectIndex = randomIntInclusive(0, suggestedChoiceCount - 1);
         return textResult({
@@ -234,6 +243,7 @@ export function createGetIdeasTool(
         const freeformAnswerShapeWeights = resolveFreeformAnswerShape(
           currentSeasonEntry,
           slotIndexForResolution,
+          gameEntry,
           config,
         );
         const pickedFreeformAnswerShape: TriviaFreeformAnswerShape =

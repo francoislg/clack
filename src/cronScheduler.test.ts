@@ -357,6 +357,26 @@ describe("cronScheduler", () => {
       assert.equal(calls.processMessage[0].triggerType, "scheduled");
     });
 
+    it("forwards job.attachedTopics to processMessage as preAttachedTopics", async () => {
+      const { deps, calls } = makeDeps({ skipped: false });
+      const client = fakeClient();
+
+      await executeJob(baseJob({ attachedTopics: ["trivia"] }), client, deps);
+
+      assert.equal(calls.processMessage.length, 1);
+      assert.deepEqual(calls.processMessage[0].preAttachedTopics, ["trivia"]);
+    });
+
+    it("passes undefined preAttachedTopics when attachedTopics is absent", async () => {
+      const { deps, calls } = makeDeps({ skipped: false });
+      const client = fakeClient();
+
+      await executeJob(baseJob(), client, deps);
+
+      assert.equal(calls.processMessage.length, 1);
+      assert.equal(calls.processMessage[0].preAttachedTopics, undefined);
+    });
+
     it("cleans up one-shot jobs after a skipped run", async () => {
       const { deps, calls } = makeDeps({ skipped: true });
       const client = fakeClient();

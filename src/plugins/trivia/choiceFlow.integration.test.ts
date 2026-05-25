@@ -11,7 +11,7 @@ import {
   type PostQuestionsSlackDeps,
 } from "./tools/questions/postQuestions.js";
 import { parseToolResult } from "../../tools/testHelpers.js";
-import type { Config } from "../../config.js";
+import type { TriviaConfig } from "./core/configTypes.js";
 import type { TriviaDataLayer } from "./core/types.js";
 import type { ClackSdk } from "../sdk.js";
 
@@ -44,24 +44,8 @@ function postQuestionsDeps(): PostQuestionsSlackDeps {
 
 const SESSION = { sessionId: "test" };
 
-function makeConfig(trivia?: Config["trivia"]): Config {
-  return {
-    slack: {
-      botToken: "xoxb-test",
-      appToken: "xapp-test",
-      signingSecret: "secret",
-      fetchAndStoreUsername: false,
-      sendErrorsAsDM: false,
-    },
-    reactions: { trigger: "robot_face" },
-    directMessages: { enabled: false },
-    mentions: { enabled: false },
-    repositories: [],
-    git: { pullIntervalMinutes: 60, shallowClone: true, cloneDepth: 1 },
-    sessions: { cleanupIntervalMinutes: 60 },
-    claudeCode: { model: "sonnet" },
-    trivia,
-  };
+function makeConfig(trivia?: TriviaConfig): TriviaConfig {
+  return trivia ?? {};
 }
 
 describe("choice-questions end-to-end flow", () => {

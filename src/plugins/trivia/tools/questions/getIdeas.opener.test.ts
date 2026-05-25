@@ -4,30 +4,14 @@ import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../
 import { createGetIdeasTool } from "./getIdeas.js";
 import { createUpsertSeasonTool } from "../seasons/upsertSeason.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
-import type { Config } from "../../../../config.js";
+import type { TriviaConfig } from "../../core/configTypes.js";
 import type { TriviaDataLayer, TriviaQuestion } from "../../core/types.js";
 
 const SESSION = { sessionId: "test" };
 const DAY = 24 * 60 * 60 * 1000;
 
-function makeConfig(triviaSeasonsEnabled: boolean): Config {
-  return {
-    slack: {
-      botToken: "xoxb-test",
-      appToken: "xapp-test",
-      signingSecret: "secret",
-      fetchAndStoreUsername: false,
-      sendErrorsAsDM: false,
-    },
-    reactions: { trigger: "robot_face" },
-    directMessages: { enabled: false },
-    mentions: { enabled: false },
-    repositories: [],
-    git: { pullIntervalMinutes: 60, shallowClone: true, cloneDepth: 1 },
-    sessions: { cleanupIntervalMinutes: 60 },
-    claudeCode: { model: "sonnet" },
-    trivia: triviaSeasonsEnabled ? { seasons: { enabled: true, prompt: "Test prompt" } } : {},
-  };
+function makeConfig(triviaSeasonsEnabled: boolean): TriviaConfig {
+  return triviaSeasonsEnabled ? { seasons: { enabled: true, prompt: "Test prompt" } } : {};
 }
 
 function stampedQuestion(season: string | undefined, idx: number): TriviaQuestion {

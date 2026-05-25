@@ -1,5 +1,10 @@
-import type { Config, DifficultyRanges, DifficultyRangesInput } from "../../../config.js";
-import { DEFAULT_DIFFICULTY_RANGES } from "../../../config.js";
+import type {
+  DifficultyRanges,
+  DifficultyRangesInput,
+  TriviaConfig,
+  TriviaGame,
+} from "../core/configTypes.js";
+import { DEFAULT_DIFFICULTY_RANGES } from "../core/configTypes.js";
 import type { SeasonEntry, TriviaAnswersFormat } from "../core/types.js";
 
 /**
@@ -12,20 +17,24 @@ import type { SeasonEntry, TriviaAnswersFormat } from "../core/types.js";
  *   1. `DEFAULT_DIFFICULTY_RANGES[format]` — built-in baseline (boolean/choice softer
  *      than freeform; freeform is shifted -2 across every bucket).
  *   2. `config.trivia.difficulty[format]` — workspace default.
- *   3. `season.difficulty[format]` — per-season override.
- *   4. `slot.difficulty[format]` — per-slot override.
+ *   3. `game.difficulty[format]` — per-game tier between workspace and season.
+ *   4. `season.difficulty[format]` — per-season override.
+ *   5. `slot.difficulty[format]` — per-slot override.
  *
  * The returned `DifficultyRanges` is FULLY resolved (no sparse fields).
  */
 export function resolveDifficultyRanges(
   currentSeason: SeasonEntry | null,
   slotIndex: number | null,
-  config: Config | null,
+  game: TriviaGame | null,
+  triviaConfig: TriviaConfig | null,
   format: TriviaAnswersFormat,
 ): DifficultyRanges {
   const layers: DifficultyRangesInput[] = [];
-  const fromConfig = config?.trivia?.difficulty?.[format];
+  const fromConfig = triviaConfig?.difficulty?.[format];
   if (fromConfig !== undefined) layers.push(fromConfig);
+  const fromGame = game?.difficulty?.[format];
+  if (fromGame !== undefined) layers.push(fromGame);
   const fromSeason = currentSeason?.difficulty?.[format];
   if (fromSeason !== undefined) layers.push(fromSeason);
   if (currentSeason !== null && slotIndex !== null && currentSeason.format !== undefined) {

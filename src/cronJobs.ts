@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { logger } from "./logger.js";
 import { fileExists } from "./fs.js";
+import { getScheduledMessagesMaxRunHistory } from "./config.js";
 
 // ============================================================================
 // Types
@@ -118,7 +119,21 @@ export interface CronJob {
    * existing job and update in place (preserving id/runs[]/enabled).
    */
   specKey?: string;
-  /** Recent execution history (most recent last, capped at {@link MAX_RUNS}) */
+  /**
+   * Topic names to pre-attach when this job fires. The cron scheduler forwards the array
+   * into `processMessage` as `preAttachedTopics`, which surfaces `topics/<topic>/*.md`
+   * instruction files (including plugin virtual defaults registered via
+   * `sdk.addTopicInstruction`) in the system prompt from the first turn. Populated by
+   * plugin reconcile when the `CronJobSpec.attachedTopics` field is set. Absent for
+   * jobs that don't pre-attach any topic. Ignored for static jobs (no Claude session).
+   * See the `plugin-topic-instructions` capability.
+   */
+  attachedTopics?: string[];
+  /**
+   * Recent execution history (most recent last). Capped by
+   * `config.scheduledMessagesMaxRunHistory` (default 50); older entries are
+   * dropped from the front when {@link updateJobRunStatus} records a new run.
+   */
   runs?: CronRun[];
 }
 
@@ -257,6 +272,8 @@ export interface CreateCronJobParams {
   skipDates?: SkipDate[];
   pluginManaged?: boolean;
   specKey?: string;
+  /** Topic names to pre-attach when this job fires. See `CronJob.attachedTopics`. */
+  attachedTopics?: string[];
 }
 
 export async function createJob(params: CreateCronJobParams): Promise<CronJob> {
@@ -299,6 +316,9 @@ export async function createJob(params: CreateCronJobParams): Promise<CronJob> {
     ...(params.skipDates && params.skipDates.length > 0 ? { skipDates: params.skipDates } : {}),
     ...(params.pluginManaged ? { pluginManaged: true } : {}),
     ...(params.specKey ? { specKey: params.specKey } : {}),
+    ...(params.attachedTopics && params.attachedTopics.length > 0
+      ? { attachedTopics: params.attachedTopics }
+      : {}),
   };
   jobs.push(job);
   await saveState({ jobs });
@@ -341,6 +361,11 @@ export interface UpdateCronJobParams {
   submitResponseMode?: "always" | "optional" | "skipped" | null;
   /** Pass an empty array to clear; undefined leaves the field unchanged. */
   skipDates?: SkipDate[];
+  /**
+   * Pass an empty array to clear; undefined leaves the field unchanged. Pass a non-empty
+   * array to overwrite. See `CronJob.attachedTopics`.
+   */
+  attachedTopics?: string[];
 }
 
 export async function updateJob(
@@ -375,6 +400,9 @@ export async function updateJob(
   }
   if (params.skipDates !== undefined) {
     job.skipDates = params.skipDates.length > 0 ? params.skipDates : undefined;
+  }
+  if (params.attachedTopics !== undefined) {
+    job.attachedTopics = params.attachedTopics.length > 0 ? params.attachedTopics : undefined;
   }
 
   await saveState({ jobs });
@@ -414,6 +442,11 @@ export async function updateJobRunStatus(
     ...(responseTs ? { responseTs } : {}),
     ...(replayOf ? { replayOf } : {}),
   });
+
+  const maxHistory = getScheduledMessagesMaxRunHistory();
+  if (job.runs.length > maxHistory) {
+    job.runs.splice(0, job.runs.length - maxHistory);
+  }
 
   await saveState({ jobs });
 }

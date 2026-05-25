@@ -1,6 +1,21 @@
 import { CronExpressionParser } from "cron-parser";
-import { logger } from "../../../logger.js";
-import type { CronJob } from "../../../cronJobs.js";
+import { triviaLogger as logger } from "../core/pluginLogger.js";
+
+/**
+ * Plugin-local minimal shape of a persisted cron job. We deliberately do NOT
+ * import the bot-core CronJob type — per the plugin hard rules, plugins must
+ * not reach into bot internals. This structural type captures only the fields
+ * this module touches.
+ */
+export interface TriviaCronJobView {
+  plugin?: string;
+  enabled?: boolean;
+  specKey?: string;
+  prompt: string;
+  requiredTools?: string[];
+  cronExpression: string;
+  timezone: string;
+}
 
 /**
  * Locate the trivia reveal cron job for a given game.
@@ -10,10 +25,10 @@ import type { CronJob } from "../../../cronJobs.js";
  * the prompt / requiredTools for the legacy reveal instruction name.
  */
 export function findTriviaRevealJob(
-  jobs: CronJob[],
+  jobs: TriviaCronJobView[],
   gameName: string,
   legacyMarker: string,
-): CronJob | null {
+): TriviaCronJobView | null {
   const triviaJobs = jobs.filter((j) => j.plugin === "trivia" && j.enabled !== false);
   const direct = triviaJobs.find((j) => j.specKey === `${gameName}:reveal`);
   if (direct) return direct;
@@ -28,7 +43,7 @@ export function findTriviaRevealJob(
  * Compute the next-fire instant of `job`'s cron expression strictly after `after`.
  * Returns null when the expression is invalid (a warning is logged with the cron text).
  */
-export function nextFireAfter(job: CronJob, after: Date): Date | null {
+export function nextFireAfter(job: TriviaCronJobView, after: Date): Date | null {
   try {
     const interval = CronExpressionParser.parse(job.cronExpression, {
       currentDate: after,

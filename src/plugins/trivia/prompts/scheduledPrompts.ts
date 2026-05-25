@@ -5,10 +5,14 @@
  */
 
 /**
- * Shared persona directive used at the top of both scheduled-run prompts.
- * Kept in one place so persona tweaks flow to both question-posting and answer-reveal runs.
+ * Reference line that replaces the previous inlined `GAME_SHOW_PERSONA` constant. The
+ * persona, reveal tone, and season-finale tone now live in the `trivia` topic instructions
+ * (registered by the plugin via `sdk.addTopicInstruction` — see `topicInstructions.ts`),
+ * which are pre-attached by the trivia cron jobs and overrideable at
+ * `data/configuration/user/topics/trivia/trivia__*.md`. See the `plugin-topic-instructions`
+ * capability.
  */
-const GAME_SHOW_PERSONA = `PERSONA: You are a charismatic Game Show Presenter! Think energetic, engaging, fun — like a trivia host who gets people excited to play. Add enthusiasm and showmanship to your delivery.`;
+const PERSONA_TOPIC_REFERENCE = `Your persona, reveal tone, and season-finale style are described in the \`trivia\` topic of your system instructions. Apply them throughout this run.`;
 
 /**
  * Per-game scoping directive prepended to every scheduled-run prompt. `{game}` is
@@ -412,7 +416,7 @@ const FREEFORM_TOPICAL_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
      - slot: \`{ index: i }\` — REQUIRED when the active season has a format.
    - Store the returned questionId for the post step.`;
 
-export const SEND_QUESTIONS_INSTRUCTIONS = `${GAME_SHOW_PERSONA}
+export const SEND_QUESTIONS_INSTRUCTIONS = `${PERSONA_TOPIC_REFERENCE}
 
 ${GAME_CONTEXT_DIRECTIVE}
 
@@ -505,7 +509,7 @@ In MULTI-SLOT FLOW, the opener (when present) is prepended ONCE to the front of 
 General emoji rule (re-emphasized): the opener's header MUST use Unicode emoji (🆕, 🎃, 🎲, 🏆) — never Slack shortcodes (\`:new:\`, \`:jack_o_lantern:\`). Shortcodes work in section/context bodies but render as literal text inside header blocks and table cells.
 
 9. BUILD THE QUESTION CARD BLOCKS:
-   Use your Game Presenter persona! Add excitement, build anticipation, make it feel like a real game show moment.
+   Apply your persona from the \`trivia\` topic of your system instructions — add excitement, build anticipation, make it feel like a real game show moment.
 
    Compose a \`blocks\` array (Clack's curated subset: divider, header, section, context, image, markdown, card, carousel) — you'll hand it to \`post_questions\` in step 10. Do NOT include reactions in the blocks; the tool attaches them automatically based on the question's stored type. For the trivia question, use this FIVE-BLOCK layout — the structure stays fixed; the wording is where your persona lives:
 
@@ -604,7 +608,7 @@ The goal is to make people pause and think — aim for questions that are intere
  * Seasons-specific rendering is driven by the payload's `seasonStatus` field;
  * the prompt is identical regardless of `trivia.seasons.enabled`.
  */
-export const PROCESS_REVEAL_INSTRUCTIONS = `${GAME_SHOW_PERSONA}
+export const PROCESS_REVEAL_INSTRUCTIONS = `${PERSONA_TOPIC_REFERENCE}
 
 ${GAME_CONTEXT_DIRECTIVE}
 
@@ -641,14 +645,14 @@ Deliver today's trivia reveal. There are exactly TWO steps — the deterministic
    Build a Block Kit message (Clack's curated subset: divider, header, section, context, image, markdown, card, carousel). Use this layout:
 
    - \`header\` block — \`text: { type: "plain_text", text: "..." }\`. Announce the verdict (e.g. "🎯 THE ANSWER IS TRUE!", "🎲 IT'S FALSE!" for boolean; "🎯 THE ANSWER IS C!" or similar for choice; for FREEFORM: "🎯 THE ANSWER WAS PARIS!" / "✏️ THE ANSWER: 1492!" — quote the canonical \`answer.expectedAnswer\`). plain_text only, no \`*bold*\`. Vary the wording each day.
-   - \`section\` block (mrkdwn) — explain WHY the statement is true/false (boolean) or which choice was correct + why (choice). For FREEFORM, summarize the expected answer in one short factual sentence and (when \`answer.acceptableAnswers\` was populated) note that variants were accepted. Use the question's facts and your persona; keep it punchy.
+   - \`section\` block (mrkdwn) — explain WHY the statement is true/false (boolean) or which choice was correct + why (choice). For FREEFORM, summarize the expected answer in one short factual sentence and (when \`answer.acceptableAnswers\` was populated) note that variants were accepted. Apply the REVEAL TONE from the \`trivia\` topic of your system instructions.
    - \`divider\` block — paces the reveal.
    - One \`section\` block (mrkdwn) PER NON-EMPTY VOTER BUCKET. Skip empty buckets entirely (no placeholders, no "nobody here" lines). Possible buckets:
      - CORRECT voters — celebrate with \`<@USERID>\` mentions. For FREEFORM entries, INCLUDE each voter's typed answer in quotes: "<@U_ALICE> said *Paris* — bullseye!" Quote multiple distinct answers when they appeared.
      - INCORRECT voters — acknowledge with game-show charm. For FREEFORM, quote each voter's typed text so they see what was rejected: "<@U_BOB> hedged with *Paris or London* — the judge doesn't accept shotgun guesses!"
      - FENCE-SITTERS (boolean only) — playful roast.
      - WILDCARDS (boolean/choice only) — interpret their \`emoji\` with humor.
-   - When \`seasonStatus.isLastFireOfSeason\` is true: insert ONE additional \`section\` block above the closer that names the closing season's slug (from \`seasonStatus.currentSlug\`), gives a brief in-persona wrap-up, and calls out the MVP (from \`seasonStatus.mvp\`). Do NOT preview the new season's slug — leave that for a future fire to announce.
+   - When \`seasonStatus.isLastFireOfSeason\` is true: insert ONE additional \`section\` block above the closer that names the closing season's slug (from \`seasonStatus.currentSlug\`) and calls out the MVP (from \`seasonStatus.mvp\`). Apply the SEASON-FINALE TONE from the \`trivia\` topic of your system instructions for the wrap-up wording. Do NOT preview the new season's slug — leave that for a future fire to announce.
    - \`context\` block — short closer ("That's a wrap! Here's the running scoreboard:") leading into the leaderboard. Do NOT predict timing — the next reveal is on a separate schedule you have no visibility into.
 
    === MULTI-QUESTION LAYOUT (when reveals.length > 1) ===
@@ -659,7 +663,7 @@ Deliver today's trivia reveal. There are exactly TWO steps — the deterministic
    - One \`section\` block PER question (in the same order as \`reveals\`). Keep each one BRIEF — ≤ 2 short sentences. Open with the verdict label (e.g. "Q1: ✅ TRUE!" or "Q3: 🎯 The answer was 'Tokyo'!" or for freeform "Q2: ✏️ The answer: *Paris*"). For FREEFORM questions, the teaser MAY quote one or two notable typed answers ("Alice nailed it with *Paris*; Bob shotgunned and was rejected"). For boolean/choice, follow with a single-line voter teaser ("Alice and Bob nailed it; Carol fell for the trap"). Do NOT enumerate every voter individually here — that's what the Round Summary is for.
    - One \`divider\` block — separates the verdicts from the summary.
    - One \`section\` block titled "🏆 Round Summary" (or similar). List each player from \`roundSummary.perPlayer\` IN ORDER as \`<@USERID>: <correct>/<totalQuestions>\` (or any in-persona phrasing). Prefix every entry whose \`roundMvp: true\` is set with \`🏆\` (e.g. "🏆 <@U123>: 3/3"). DO NOT recompute the counts — read them straight from \`roundSummary.perPlayer\`. DO NOT add players who aren't in \`perPlayer\` (the tool already filters out anyone who didn't answer this round).
-   - When \`seasonStatus.isLastFireOfSeason\` is true: insert ONE additional \`section\` block above the closer that names the closing season's slug, gives an in-persona wrap-up, and calls out the season MVP (from \`seasonStatus.mvp\`). Same rule as the single-question branch.
+   - When \`seasonStatus.isLastFireOfSeason\` is true: insert ONE additional \`section\` block above the closer that names the closing season's slug and calls out the season MVP (from \`seasonStatus.mvp\`). Apply the SEASON-FINALE TONE from the \`trivia\` topic for the wrap-up wording. Same rule as the single-question branch.
    - One \`context\` block — short closer leading into the cumulative leaderboard. Same timing-prediction prohibition as the single-question branch.
 
    Example shape for a 3-question multi-reveal:
@@ -685,10 +689,10 @@ Deliver today's trivia reveal. There are exactly TWO steps — the deterministic
 
    - WHEN \`seasonStatus\` IS PRESENT AND \`seasonStatus.hasPriorSeasons\` IS \`true\` (seasons enabled, a current season is active, AND at least one answer belongs to a different season) — 3-ROW DUAL-TOTALS TABLE:
      - Row 1: empty top-left cell, then one cell per player with their \`displayName\` (NO medal prefix on this row).
-     - Row 2: left cell \`"Current Season"\`, then one cell per player with \`String(currentSeasonCorrect)\`. Apply medal prefixes \`"🥇 "\`, \`"🥈 "\`, \`"🥉 "\` (Unicode characters, NOT \`:first_place_medal:\` shortcodes — shortcodes render as literal text inside table cells) to the cells holding the top-3 \`currentSeasonCorrect\` values among present players.
-     - Row 3: left cell \`"All Time"\`, then one cell per player with \`String(totalCorrect)\`. Apply medal prefixes to the top-3 \`totalCorrect\` values among present players — INDEPENDENT of the current-season ranking.
+     - Row 2: left cell \`"Current Season"\`, then one cell per player with \`String(currentSeasonCorrect)\`. Apply medal prefixes \`"🥇 "\`, \`"🥈 "\`, \`"🥉 "\`, \`"🎀 "\` (Unicode characters, NOT \`:first_place_medal:\`/\`:ribbon:\` shortcodes — shortcodes render as literal text inside table cells) to the cells holding the top-4 \`currentSeasonCorrect\` values among present players (🎀 = 4th place).
+     - Row 3: left cell \`"All Time"\`, then one cell per player with \`String(totalCorrect)\`. Apply medal prefixes to the top-4 \`totalCorrect\` values among present players — INDEPENDENT of the current-season ranking.
      - Player columns: only include leaderboard entries where \`currentSeasonCorrect > 0\` OR \`currentSeasonAnswered > 0\`. Omit anyone with zero current-season participation.
-     - Fewer than 3 present players → assign medals only for whichever positions exist.
+     - Fewer than 4 present players → assign medals only for whichever positions exist.
      - \`column_settings\`: one \`{ "align": "center" }\` entry per column (label column + each player column).
 
      Example shape (2 present players, seasonStatus present):
@@ -712,8 +716,8 @@ Deliver today's trivia reveal. There are exactly TWO steps — the deterministic
 
    - WHEN \`seasonStatus\` IS ABSENT (seasons disabled or in a gap), OR WHEN \`seasonStatus.hasPriorSeasons\` IS \`false\` (only one season has ever had activity, so "All Time" would duplicate "Current Season") — 2-ROW TABLE:
      - Row 1: one cell per player with their \`displayName\` (NO medal prefix on this row).
-     - Row 2: one cell per player with \`String(totalCorrect)\`. Apply medal prefixes \`"🥇 "\`, \`"🥈 "\`, \`"🥉 "\` (Unicode characters, NOT \`:first_place_medal:\` shortcodes — shortcodes render as literal text inside table cells) to the cells holding the top-3 \`totalCorrect\` values.
-     - Fewer than 3 players → assign medals only for whichever positions exist.
+     - Row 2: one cell per player with \`String(totalCorrect)\`. Apply medal prefixes \`"🥇 "\`, \`"🥈 "\`, \`"🥉 "\`, \`"🎀 "\` (Unicode characters, NOT \`:first_place_medal:\`/\`:ribbon:\` shortcodes — shortcodes render as literal text inside table cells) to the cells holding the top-4 \`totalCorrect\` values (🎀 = 4th place).
+     - Fewer than 4 players → assign medals only for whichever positions exist.
      - \`column_settings\`: one \`{ "align": "center" }\` entry per column.
 
      Example shape (4 players, no seasonStatus):
@@ -724,7 +728,7 @@ Deliver today's trivia reveal. There are exactly TWO steps — the deterministic
          "type": "table",
          "rows": [
            ["Alice",    "Bob",   "Carol", "Dave"],
-           ["🥇 11",    "🥈 8",  "🥉 6",  "3"]
+           ["🥇 11",    "🥈 8",  "🥉 6",  "🎀 3"]
          ],
          "column_settings": [
            { "align": "center" }, { "align": "center" }, { "align": "center" }, { "align": "center" }

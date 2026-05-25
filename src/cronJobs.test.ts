@@ -164,6 +164,53 @@ describe("cronJobs", () => {
       assert.equal(job.skipConditions, undefined);
     });
 
+    it("persists attachedTopics when supplied", async () => {
+      const job = await createJob({
+        name: "Test schedule",
+        cronExpression: "0 9 * * *",
+        channel: "C123",
+        prompt: "Run trivia",
+        createdBy: null,
+        systemActor: "plugin:trivia",
+        timezone: "UTC",
+        attachedTopics: ["trivia"],
+      });
+
+      assert.deepEqual(job.attachedTopics, ["trivia"]);
+
+      clearCronJobsCache();
+      const loaded = await getJob(job.id);
+      assert.ok(loaded);
+      assert.deepEqual(loaded.attachedTopics, ["trivia"]);
+    });
+
+    it("omits attachedTopics when not supplied", async () => {
+      const job = await createJob({
+        name: "Test schedule",
+        cronExpression: "0 9 * * *",
+        channel: "C123",
+        prompt: "Summarize PRs",
+        createdBy: "U456",
+        timezone: "UTC",
+      });
+
+      assert.equal(job.attachedTopics, undefined);
+    });
+
+    it("omits attachedTopics when supplied as empty array", async () => {
+      const job = await createJob({
+        name: "Test schedule",
+        cronExpression: "0 9 * * *",
+        channel: "C123",
+        prompt: "Summarize PRs",
+        createdBy: "U456",
+        timezone: "UTC",
+        attachedTopics: [],
+      });
+
+      assert.equal(job.attachedTopics, undefined);
+    });
+
     it("creates a system-owned job with createdBy: null + systemActor", async () => {
       const job = await createJob({
         name: "Test schedule",
@@ -642,7 +689,7 @@ describe("cronJobs", () => {
       assert.equal(updated?.runs?.[0].replayOf, undefined);
     });
 
-    it("accumulates all runs without cap", async () => {
+    it("accumulates runs below the default cap", async () => {
       const job = await createJob({
         name: "Test schedule",
         cronExpression: "0 9 * * *",
@@ -660,6 +707,27 @@ describe("cronJobs", () => {
       assert.equal(updated?.runs?.length, 25);
       assert.equal(updated?.runs?.[0].responseTs, "ts-0");
       assert.equal(updated?.runs?.[24].responseTs, "ts-24");
+    });
+
+    it("caps run history at the default of 50, dropping oldest entries", async () => {
+      const job = await createJob({
+        name: "Test schedule",
+        cronExpression: "0 9 * * *",
+        channel: "C1",
+        prompt: "Test",
+        createdBy: "U1",
+        timezone: "UTC",
+      });
+
+      for (let i = 0; i < 55; i++) {
+        await updateJobRunStatus(job.id, "success", `ts-${i}`);
+      }
+
+      const updated = await getJob(job.id);
+      assert.equal(updated?.runs?.length, 50);
+      // Oldest 5 dropped, so ts-5 is now at index 0 and ts-54 is at the end.
+      assert.equal(updated?.runs?.[0].responseTs, "ts-5");
+      assert.equal(updated?.runs?.[49].responseTs, "ts-54");
     });
   });
 

@@ -1,6 +1,6 @@
 import type { ClackSdk } from "../../sdk.js";
 import type { TriviaDataLayer } from "../core/types.js";
-import { logger } from "../../../logger.js";
+import { triviaLogger as logger } from "../core/pluginLogger.js";
 import { buildFreeformModal, readAnswerTextFromSubmission, readModalMetadata } from "./modal.js";
 import { editRosterIntoCard } from "./roster.js";
 

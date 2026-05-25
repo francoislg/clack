@@ -18,7 +18,9 @@ function makeFakeSdk(opts: FakeSdkOptions = {}): {
   const dmOwnerCalls: string[] = [];
   const result = opts.dmOwnerResult ?? { ok: true as const };
   const sdk: ClackSdk = {
+    logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
     addInstruction: () => {},
+    addTopicInstruction: () => {},
     registerTool: () => {},
     readFile: async () => null,
     writeFile: async () => {},

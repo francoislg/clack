@@ -702,6 +702,133 @@ describe("list_seasons tool", () => {
 });
 
 // =============================================================================
+// list_seasons — surfaces per-tier axis config
+// =============================================================================
+
+describe("list_seasons — axis-config surfacing", () => {
+  let data: TriviaDataLayer;
+
+  beforeEach(async () => {
+    data = createInMemoryDataLayer();
+    await data.saveCategories(["Science"]);
+  });
+
+  it("omits theme and axis fields when the season set none of them", async () => {
+    const now = Date.now();
+    await seedTimeline(data, [
+      {
+        slug: "bare",
+        startedAt: now - 10 * DAY,
+        expectedEndAt: now + 20 * DAY,
+        categories: ["Science"],
+      },
+    ]);
+    const tool = createListSeasonsTool(data, fixtureGetGames);
+    const parsed = parseToolResult(await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION));
+    const bare = parsed.seasons[0];
+    assert.equal("theme" in bare, false);
+    assert.equal("answersFormat" in bare, false);
+    assert.equal("questionType" in bare, false);
+    assert.equal("freeformAnswerShape" in bare, false);
+    assert.equal("contexts" in bare, false);
+    assert.equal("difficulty" in bare, false);
+    assert.equal("format" in bare, false);
+  });
+
+  it("surfaces freeformAnswerShape when the season sets only that", async () => {
+    const now = Date.now();
+    const shape = {
+      name: 3,
+      place: 0,
+      phrase: 0,
+      title: 0,
+      date: 0,
+      number: 0,
+      other: 0,
+    } as const;
+    await seedTimeline(data, [
+      {
+        slug: "name-only",
+        startedAt: now - 10 * DAY,
+        expectedEndAt: now + 20 * DAY,
+        categories: ["Science"],
+        freeformAnswerShape: shape,
+      },
+    ]);
+    const tool = createListSeasonsTool(data, fixtureGetGames);
+    const parsed = parseToolResult(await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION));
+    const entry = parsed.seasons[0];
+    assert.deepEqual(entry.freeformAnswerShape, shape);
+    assert.equal("questionType" in entry, false);
+    assert.equal("answersFormat" in entry, false);
+  });
+
+  it("surfaces theme when set; absent otherwise", async () => {
+    const now = Date.now();
+    await seedTimeline(data, [
+      {
+        slug: "themed",
+        startedAt: now - 10 * DAY,
+        expectedEndAt: now + 20 * DAY,
+        categories: ["Science"],
+        theme: "Halloween Spooktacular",
+      },
+      {
+        slug: "plain",
+        startedAt: now + 30 * DAY,
+        expectedEndAt: now + 60 * DAY,
+        categories: ["Science"],
+      },
+    ]);
+    const tool = createListSeasonsTool(data, fixtureGetGames);
+    const parsed = parseToolResult(await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION));
+    interface ListedSeason {
+      slug: string;
+      theme?: string;
+    }
+    const bySlug = new Map<string, ListedSeason>(
+      parsed.seasons.map((s: ListedSeason) => [s.slug, s]),
+    );
+    assert.equal(bySlug.get("themed")?.theme, "Halloween Spooktacular");
+    assert.equal("theme" in (bySlug.get("plain") ?? {}), false);
+  });
+
+  it("surfaces format with per-slot overrides — slot 0 untouched, slot 1 sets only one axis", async () => {
+    const now = Date.now();
+    const slotShape = {
+      name: 1,
+      place: 0,
+      phrase: 0,
+      title: 0,
+      date: 0,
+      number: 0,
+      other: 0,
+    } as const;
+    await seedTimeline(data, [
+      {
+        slug: "formatted",
+        startedAt: now - 10 * DAY,
+        expectedEndAt: now + 20 * DAY,
+        categories: ["Science"],
+        format: {
+          questions: [{}, { label: "Lightning", freeformAnswerShape: slotShape }],
+        },
+      },
+    ]);
+    const tool = createListSeasonsTool(data, fixtureGetGames);
+    const parsed = parseToolResult(await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION));
+    const entry = parsed.seasons[0];
+    assert.equal(entry.format.questions.length, 2);
+    assert.deepEqual(entry.format.questions[0], {});
+    assert.equal(entry.format.questions[1].label, "Lightning");
+    assert.deepEqual(entry.format.questions[1].freeformAnswerShape, slotShape);
+    assert.equal("answersFormat" in entry.format.questions[1], false);
+    assert.equal("questionType" in entry.format.questions[1], false);
+    assert.equal("difficulty" in entry.format.questions[1], false);
+  });
+});
+
+// =============================================================================
 // check_season_status tool
 // =============================================================================
 

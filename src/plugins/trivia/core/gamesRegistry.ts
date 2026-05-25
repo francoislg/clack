@@ -1,4 +1,4 @@
-import type { TriviaGame } from "../../../config.js";
+import type { TriviaGame } from "./configTypes.js";
 
 export class UnknownGameError extends Error {
   readonly code = "unknown_game" as const;

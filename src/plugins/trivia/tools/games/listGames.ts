@@ -1,22 +1,66 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { textResult } from "../../../../tools/helpers.js";
-import { defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
+import {
+  defaultGetGames,
+  defaultGetTriviaConfig,
+  type GetGamesFn,
+  type GetTriviaConfigFn,
+} from "../../core/configBridge.js";
+import type {
+  TriviaAnswersFormatWeights,
+  TriviaQuestionTypeWeights,
+  TriviaFreeformAnswerShapeWeights,
+  TriviaContextEntry,
+  TriviaDifficultyConfig,
+  TriviaChoicesConfig,
+  TriviaSeasonsConfig,
+  OffDay,
+} from "../../core/configTypes.js";
+
+interface AxisOverrides {
+  answersFormat?: TriviaAnswersFormatWeights;
+  questionType?: TriviaQuestionTypeWeights;
+  freeformAnswerShape?: TriviaFreeformAnswerShapeWeights;
+  contexts?: TriviaContextEntry[];
+  difficulty?: TriviaDifficultyConfig;
+}
 
 interface ListGamesEntry {
   name: string;
   channel: string;
   timezone: string;
   enabled: boolean;
+  questionCron: string;
+  revealCron: string;
+  axisOverrides: AxisOverrides;
 }
 
-const DESCRIPTION = `List the trivia games configured in this deployment (config.trivia.games[]).
+interface WorkspaceDefaults {
+  answersFormat?: TriviaAnswersFormatWeights;
+  questionType?: TriviaQuestionTypeWeights;
+  freeformAnswerShape?: TriviaFreeformAnswerShapeWeights;
+  contexts?: TriviaContextEntry[];
+  difficulty?: TriviaDifficultyConfig;
+  choices?: TriviaChoicesConfig;
+  seasons?: TriviaSeasonsConfig;
+  offDays?: OffDay[];
+}
 
-By default, disabled games are excluded; pass \`includeDisabled: true\` to surface them too. The response omits cron expressions — those are scheduling details, not relevant to per-game tool calls.
+const DESCRIPTION = `List the trivia games configured in this deployment (data/plugins/trivia/config.json's \`games[]\`), plus the workspace tier of the cascading axis configuration (\`workspaceDefaults\`) AND each entry's per-game \`axisOverrides\`, so admins can audit configuration without reading the file by hand.
 
-Use this to discover available game slugs to pass as the \`game\` argument to other trivia tools.`;
+By default, disabled games are excluded; pass \`includeDisabled: true\` to surface them too. Each game entry includes \`questionCron\`, \`revealCron\`, \`timezone\`, \`enabled\`, and an \`axisOverrides\` block surfacing the game's per-game cascade tier (\`answersFormat\`, \`questionType\`, \`freeformAnswerShape\`, \`contexts\`, \`difficulty\`). Each axis field is present IF AND ONLY IF the game's entry literally set it. The block is always included on every entry (possibly as \`{}\`).
 
-export function createListGamesTool(getGamesFn: GetGamesFn = defaultGetGames) {
+\`workspaceDefaults\` carries the workspace-level values for every axis (the 5 cascading axes plus \`choices\`, \`seasons\`, \`offDays\`). Same present-iff-set rule.
+
+The cascade tier order is: \`slot → season → game → workspace → built-in default\`. To audit the slot and season tiers, call \`list_seasons\` (its per-entry fields surface season-tier overrides, and \`format.questions[i]\` surface slot-tier overrides). To mutate either game-tier or workspace-tier values, attach the \`trivia_management\` integration and use \`upsert_game\` / \`set_workspace_config\`.
+
+Use this to discover available game slugs to pass as the \`game\` argument to other trivia tools, AND to audit the full cascade for any axis.`;
+
+export function createListGamesTool(
+  getGamesFn: GetGamesFn = defaultGetGames,
+  getTriviaConfigFn: GetTriviaConfigFn = defaultGetTriviaConfig,
+) {
   return tool(
     "list_games",
     DESCRIPTION,
@@ -30,13 +74,44 @@ export function createListGamesTool(getGamesFn: GetGamesFn = defaultGetGames) {
       const includeDisabled = args.includeDisabled ?? false;
       const games = getGamesFn();
       const filtered = includeDisabled ? games : games.filter((g) => g.enabled !== false);
-      const entries: ListGamesEntry[] = filtered.map((g) => ({
-        name: g.name,
-        channel: g.channel,
-        timezone: g.timezone,
-        enabled: g.enabled !== false,
-      }));
-      return textResult({ games: entries, total: entries.length });
+      const entries: ListGamesEntry[] = filtered.map((g) => {
+        const axisOverrides: AxisOverrides = {
+          ...(g.answersFormat !== undefined ? { answersFormat: g.answersFormat } : {}),
+          ...(g.questionType !== undefined ? { questionType: g.questionType } : {}),
+          ...(g.freeformAnswerShape !== undefined
+            ? { freeformAnswerShape: g.freeformAnswerShape }
+            : {}),
+          ...(g.contexts !== undefined ? { contexts: g.contexts } : {}),
+          ...(g.difficulty !== undefined ? { difficulty: g.difficulty } : {}),
+        };
+        return {
+          name: g.name,
+          channel: g.channel,
+          timezone: g.timezone,
+          enabled: g.enabled !== false,
+          questionCron: g.questionCron,
+          revealCron: g.revealCron,
+          axisOverrides,
+        };
+      });
+
+      const triviaCfg = getTriviaConfigFn();
+      const workspaceDefaults: WorkspaceDefaults = {
+        ...(triviaCfg?.answersFormat !== undefined
+          ? { answersFormat: triviaCfg.answersFormat }
+          : {}),
+        ...(triviaCfg?.questionType !== undefined ? { questionType: triviaCfg.questionType } : {}),
+        ...(triviaCfg?.freeformAnswerShape !== undefined
+          ? { freeformAnswerShape: triviaCfg.freeformAnswerShape }
+          : {}),
+        ...(triviaCfg?.contexts !== undefined ? { contexts: triviaCfg.contexts } : {}),
+        ...(triviaCfg?.difficulty !== undefined ? { difficulty: triviaCfg.difficulty } : {}),
+        ...(triviaCfg?.choices !== undefined ? { choices: triviaCfg.choices } : {}),
+        ...(triviaCfg?.seasons !== undefined ? { seasons: triviaCfg.seasons } : {}),
+        ...(triviaCfg?.offDays !== undefined ? { offDays: triviaCfg.offDays } : {}),
+      };
+
+      return textResult({ games: entries, workspaceDefaults, total: entries.length });
     },
   );
 }

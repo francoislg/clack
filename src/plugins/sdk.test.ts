@@ -133,6 +133,56 @@ describe("ClackSdk", () => {
     });
   });
 
+  describe("topic instruction registration", () => {
+    it("stores a topic-scoped virtual default with prefixed key", () => {
+      const { sdk, harvest } = makeSdk("trivia");
+      sdk.addTopicInstruction("user", "trivia", "persona", "PERSONA: ...");
+      const result = harvest();
+      assert.equal(result.instructions.length, 1);
+      assert.equal(result.instructions[0].filename, "topics/trivia/trivia__persona.md");
+      assert.equal(result.instructions[0].role, "user");
+      assert.equal(result.instructions[0].content, "PERSONA: ...");
+    });
+
+    it("collects multiple topic files from one plugin", () => {
+      const { sdk, harvest } = makeSdk("trivia");
+      sdk.addTopicInstruction("user", "trivia", "persona", "P");
+      sdk.addTopicInstruction("user", "trivia", "reveal-tone", "R");
+      const result = harvest();
+      assert.equal(result.instructions.length, 2);
+      const keys = result.instructions.map((i) => i.filename).sort();
+      assert.deepEqual(keys, [
+        "topics/trivia/trivia__persona.md",
+        "topics/trivia/trivia__reveal-tone.md",
+      ]);
+    });
+
+    it("two plugins on the same topic produce non-colliding keys", () => {
+      const { sdk: a, harvest: ha } = makeSdk("trivia");
+      const { sdk: b, harvest: hb } = makeSdk("weather");
+      a.addTopicInstruction("user", "shared", "rules", "A");
+      b.addTopicInstruction("user", "shared", "rules", "B");
+      assert.equal(ha().instructions[0].filename, "topics/shared/trivia__rules.md");
+      assert.equal(hb().instructions[0].filename, "topics/shared/weather__rules.md");
+    });
+
+    it("baseline addInstruction is unaffected by topic registration", () => {
+      const { sdk, harvest } = makeSdk("trivia");
+      sdk.addInstruction("user", "trivia-check", "baseline");
+      sdk.addTopicInstruction("user", "trivia", "persona", "topic");
+      const result = harvest();
+      assert.equal(result.instructions.length, 2);
+      const baseline = result.instructions.find((i) => i.filename === "trivia__trivia-check.md");
+      const topic = result.instructions.find(
+        (i) => i.filename === "topics/trivia/trivia__persona.md",
+      );
+      assert.ok(baseline);
+      assert.ok(topic);
+      assert.equal(baseline.content, "baseline");
+      assert.equal(topic.content, "topic");
+    });
+  });
+
   describe("tool registration", () => {
     it("records tools with minRole", () => {
       const { sdk, harvest } = makeSdk("trivia");
@@ -314,6 +364,7 @@ describe("ClackSdk", () => {
       skipConditions?: string;
       submitResponseMode?: "always" | "optional" | "skipped";
       skipDates?: Array<{ date: string; label: string }>;
+      attachedTopics?: string[];
       runs?: Array<{ executedAt: string; status: "success" | "error" | "skipped" }>;
       lastRunAt?: string;
       lastRunStatus?: "success" | "error" | "skipped";
@@ -351,6 +402,7 @@ describe("ClackSdk", () => {
               skipConditions: j.skipConditions,
               submitResponseMode: j.submitResponseMode,
               skipDates: j.skipDates,
+              attachedTopics: j.attachedTopics,
               runs: j.runs,
               lastRunAt: j.lastRunAt,
               lastRunStatus: j.lastRunStatus,
@@ -375,6 +427,7 @@ describe("ClackSdk", () => {
             skipConditions: params.skipConditions,
             submitResponseMode: params.submitResponseMode,
             skipDates: params.skipDates,
+            attachedTopics: params.attachedTopics,
           };
           jobs.push(job);
           return {
@@ -413,6 +466,10 @@ describe("ClackSdk", () => {
           }
           if (updates.skipDates !== undefined) {
             job.skipDates = updates.skipDates.length > 0 ? updates.skipDates : undefined;
+          }
+          if (updates.attachedTopics !== undefined) {
+            job.attachedTopics =
+              updates.attachedTopics.length > 0 ? updates.attachedTopics : undefined;
           }
           if (updates.name !== undefined) {
             const trimmed = updates.name.trim();
@@ -652,6 +709,54 @@ describe("ClackSdk", () => {
 
         await sdk.reconcileCronJobs("trivia", [validSpec]);
         assert.equal(store.jobs[0].skipDates, undefined);
+      });
+    });
+
+    describe("attachedTopics propagation", () => {
+      it("persists attachedTopics through createJob when the spec sets it", async () => {
+        const store = makeFakeStore();
+        const { sdk } = makeSdk("trivia", store.deps);
+
+        await sdk.reconcileCronJobs("trivia", [{ ...validSpec, attachedTopics: ["trivia"] }]);
+
+        assert.equal(store.jobs.length, 1);
+        assert.deepEqual(store.jobs[0].attachedTopics, ["trivia"]);
+      });
+
+      it("omits attachedTopics when the spec does not set it", async () => {
+        const store = makeFakeStore();
+        const { sdk } = makeSdk("trivia", store.deps);
+
+        await sdk.reconcileCronJobs("trivia", [validSpec]);
+
+        assert.equal(store.jobs[0].attachedTopics, undefined);
+      });
+
+      it("updates attachedTopics in place when the spec changes the value", async () => {
+        const store = makeFakeStore();
+        const { sdk } = makeSdk("trivia", store.deps);
+
+        await sdk.reconcileCronJobs("trivia", [{ ...validSpec, attachedTopics: ["trivia"] }]);
+        const id = store.jobs[0].id;
+
+        await sdk.reconcileCronJobs("trivia", [
+          { ...validSpec, attachedTopics: ["trivia", "extra"] },
+        ]);
+
+        assert.equal(store.jobs.length, 1);
+        assert.equal(store.jobs[0].id, id, "same job, updated in place");
+        assert.deepEqual(store.jobs[0].attachedTopics, ["trivia", "extra"]);
+      });
+
+      it("clears attachedTopics when a subsequent spec omits the field", async () => {
+        const store = makeFakeStore();
+        const { sdk } = makeSdk("trivia", store.deps);
+
+        await sdk.reconcileCronJobs("trivia", [{ ...validSpec, attachedTopics: ["trivia"] }]);
+        assert.deepEqual(store.jobs[0].attachedTopics, ["trivia"]);
+
+        await sdk.reconcileCronJobs("trivia", [validSpec]);
+        assert.equal(store.jobs[0].attachedTopics, undefined);
       });
     });
 
