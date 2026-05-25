@@ -688,7 +688,7 @@ Deliver today's trivia reveal. There are exactly TWO steps — the deterministic
    TWO RENDERING SHAPES:
 
    - WHEN \`seasonStatus\` IS PRESENT AND \`seasonStatus.hasPriorSeasons\` IS \`true\` (seasons enabled, a current season is active, AND at least one answer belongs to a different season) — 3-ROW DUAL-TOTALS TABLE:
-     - Row 1: empty top-left cell, then one cell per player with their \`displayName\` (NO medal prefix on this row).
+     - Row 1: top-left label cell containing a single space \`" "\` (Slack rejects empty raw_text cells with \`invalid_blocks\`), then one cell per player with their \`displayName\` (NO medal prefix on this row).
      - Row 2: left cell \`"Current Season"\`, then one cell per player with \`String(currentSeasonCorrect)\`. Apply medal prefixes \`"🥇 "\`, \`"🥈 "\`, \`"🥉 "\`, \`"🎀 "\` (Unicode characters, NOT \`:first_place_medal:\`/\`:ribbon:\` shortcodes — shortcodes render as literal text inside table cells) to the cells holding the top-4 \`currentSeasonCorrect\` values among present players (🎀 = 4th place).
      - Row 3: left cell \`"All Time"\`, then one cell per player with \`String(totalCorrect)\`. Apply medal prefixes to the top-4 \`totalCorrect\` values among present players — INDEPENDENT of the current-season ranking.
      - Player columns: only include leaderboard entries where \`currentSeasonCorrect > 0\` OR \`currentSeasonAnswered > 0\`. Omit anyone with zero current-season participation.
@@ -702,7 +702,7 @@ Deliver today's trivia reveal. There are exactly TWO steps — the deterministic
        "table": {
          "type": "table",
          "rows": [
-           ["",               "Alice",    "Bob"],
+           [" ",              "Alice",    "Bob"],
            ["Current Season", "🥇 5",     "🥈 3"],
            ["All Time",       "🥈 9",     "🥇 12"]
          ],
