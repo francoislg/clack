@@ -283,18 +283,15 @@ function buildDeliverFn(ctx: DeliveryContext): DeliverFn {
     try {
       let ts: string | undefined;
 
-      // Top-level delivery: streamer is thread-bound, so delete its message and post fresh
-      // to the channel with no thread_ts.
+      // Top-level delivery: streamer is thread-bound, so delete its message(s) and post
+      // fresh to the channel with no thread_ts. Iterates every block the streamer opened
+      // (rollover can produce multiple), so all in-thread footprint is removed.
       if (opts.postTopLevel) {
         if (ctx.streamer) {
           await ctx.streamer.stop();
-          const streamerTs = ctx.streamer.getMessageTs();
-          if (streamerTs) {
+          for (const ts of ctx.streamer.getAllMessageTss()) {
             try {
-              await ctx.client.chat.delete({
-                channel: ctx.targetChannel,
-                ts: streamerTs,
-              });
+              await ctx.client.chat.delete({ channel: ctx.targetChannel, ts });
             } catch (err) {
               logger.warn("Failed to delete streamer message before top-level post:", err);
             }
@@ -491,13 +488,9 @@ async function handleCancellation(ctx: DeliveryContext): Promise<void> {
 
   await ctx.streamer?.stop();
 
-  const messageTs = ctx.streamer?.getMessageTs();
-  if (messageTs) {
+  for (const ts of ctx.streamer?.getAllMessageTss() ?? []) {
     try {
-      await ctx.client.chat.delete({
-        channel: ctx.targetChannel,
-        ts: messageTs,
-      });
+      await ctx.client.chat.delete({ channel: ctx.targetChannel, ts });
     } catch (error) {
       logger.warn("Failed to delete streamer message after cancellation:", error);
     }
@@ -514,13 +507,9 @@ async function handleSkip(ctx: DeliveryContext, response: ClaudeResponse): Promi
   // to avoid the finally block attempting to finalize a deleted message.
   await ctx.streamer?.stop();
 
-  const messageTs = ctx.streamer?.getMessageTs();
-  if (messageTs) {
+  for (const ts of ctx.streamer?.getAllMessageTss() ?? []) {
     try {
-      await ctx.client.chat.delete({
-        channel: ctx.targetChannel,
-        ts: messageTs,
-      });
+      await ctx.client.chat.delete({ channel: ctx.targetChannel, ts });
     } catch (error) {
       logger.warn("Failed to delete streamer message after skip:", error);
     }

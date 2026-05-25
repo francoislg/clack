@@ -50,14 +50,23 @@ export class SlackStreamer {
   private failed = false;
   private stopped = false;
   private messageTs: string | undefined;
+  /** Timestamps of every prior block opened by this streamer (oldest first). The
+   *  current block's ts lives in `messageTs` until rollover, at which point it is
+   *  pushed here and `messageTs` resets for the new block to capture. */
+  private priorMessageTss: string[] = [];
+  /** Number of successful rollovers performed on this instance. Caps at MAX_ROLLOVERS. */
+  private rolloverCount = 0;
   private keepaliveTimer: ReturnType<typeof setInterval> | null = null;
   private lastEventAt = 0;
   private lastKeepaliveTickAt = 0;
 
   private static readonly KEEPALIVE_INTERVAL_MS = 15_000;
   private static readonly VISIBLE_PROGRESS_THRESHOLD_MS = 30_000;
+  /** Max times we re-open the stream after a recoverable failure before giving up. */
+  private static readonly MAX_ROLLOVERS = 2;
 
   private static readonly THINKING_TASK_ID = "__thinking__";
+  private static readonly CONTINUATION_TASK_TITLE = "Continuing previous stream…";
 
   /** Currently open group: consecutive same-key tools share one Slack task. */
   private openGroup: {
@@ -107,15 +116,7 @@ export class SlackStreamer {
    */
   async start(): Promise<boolean> {
     try {
-      const teamId = this.teamId ?? (await this.client.auth.test()).team_id;
-
-      this.chatStreamer = this.client.chatStream({
-        channel: this.channel,
-        thread_ts: this.threadTs,
-        task_display_mode: "plan",
-        ...(teamId && { recipient_team_id: teamId }),
-        ...(this.userId && { recipient_user_id: this.userId }),
-      });
+      this.chatStreamer = await this.openChatStream();
 
       await this.append([
         {
@@ -134,6 +135,67 @@ export class SlackStreamer {
     } catch (error) {
       this.logger.error("Failed to start chat stream:", error);
       this.failed = true;
+      return false;
+    }
+  }
+
+  /** Build the chat stream handle. Used by both `start()` and `rollover()` so they stay in sync. */
+  private async openChatStream(): Promise<ChatStreamer> {
+    const teamId = this.teamId ?? (await this.client.auth.test()).team_id;
+    return this.client.chatStream({
+      channel: this.channel,
+      thread_ts: this.threadTs,
+      task_display_mode: "plan",
+      ...(teamId && { recipient_team_id: teamId }),
+      ...(this.userId && { recipient_user_id: this.userId }),
+    });
+  }
+
+  /**
+   * After a recoverable append failure (Slack server-side expiry, assistant API GC),
+   * open a fresh chat stream in the same channel/thread to continue posting task cards.
+   *
+   * The new block is a clean continuation: all stream-local state is reset, no carried
+   * groups or task mappings. The previous block's `messageTs` is preserved in
+   * `priorMessageTss` so delete-style callers can reach every block via `getAllMessageTss()`.
+   *
+   * Returns true if the new stream is open and the continuation thinking task was posted.
+   * Returns false on any failure — caller falls through to the failed-state path.
+   */
+  private async rollover(): Promise<boolean> {
+    try {
+      if (this.messageTs) this.priorMessageTss.push(this.messageTs);
+      this.messageTs = undefined;
+      this.openGroup = null;
+      this.taskSlack.clear();
+      this.taskLabels.clear();
+      this.activeTasks.clear();
+      this.thinkingFinalized = false;
+      this.failed = false;
+      this.rolloverCount++;
+
+      this.chatStreamer = await this.openChatStream();
+      // Direct chatStreamer.append rather than `this.append()` so that a failure here
+      // throws synchronously and is caught by this method (rather than recursively
+      // re-entering append's catch and triggering another rollover attempt).
+      const result = await this.chatStreamer.append({
+        chunks: [
+          {
+            type: "task_update",
+            id: SlackStreamer.THINKING_TASK_ID,
+            title: SlackStreamer.CONTINUATION_TASK_TITLE,
+            status: "in_progress",
+          },
+        ],
+      });
+      if (result?.ts) this.messageTs = result.ts;
+
+      const now = Date.now();
+      this.lastEventAt = now;
+      this.lastKeepaliveTickAt = now;
+      return true;
+    } catch (error) {
+      this.logger.warn("Rollover failed:", error, this.streamDiagnostics());
       return false;
     }
   }
@@ -438,9 +500,18 @@ export class SlackStreamer {
     return this.failed;
   }
 
-  /** The Slack message timestamp of the streamed message (available after start()). */
+  /** The Slack message timestamp of the streamed message (available after start()).
+   *  After rollover, this returns the LATEST block's ts (where the final answer is rendered). */
   getMessageTs(): string | undefined {
     return this.messageTs;
+  }
+
+  /** All Slack message timestamps this streamer has opened, oldest first. The current
+   *  block's ts (if any) is always last. Returns one ts in the no-rollover case, N+1 tss
+   *  after N successful rollovers. Callers that need to delete the streamer's full footprint
+   *  (skip, cancel, top-level repost) iterate this list. */
+  getAllMessageTss(): string[] {
+    return this.messageTs ? [...this.priorMessageTss, this.messageTs] : [...this.priorMessageTss];
   }
 
   // --- Private ---
@@ -560,12 +631,40 @@ export class SlackStreamer {
       // append from handleEvent resolved after the stream was finalized.
       if (this.stopped) return;
 
+      const code = getSlackErrorCode(error);
+
+      // The user clicked the stop control in the streaming UI. Deliberate halt;
+      // no rollover, no further activity. Log as warn (not error) since it's
+      // an expected outcome of a user-driven feature.
+      if (code === "stopped_by_user") {
+        this.logger.warn("Chat stream stopped by user", this.streamDiagnostics());
+        this.failed = true;
+        this.stopKeepalive();
+        return;
+      }
+
       // Slack expires streams server-side after inactivity, OR garbage-collects the
       // placeholder message in the assistant API when a new userMessage event arrives.
-      // Both surface as known terminal conditions for the stream — log as warning, not
-      // error, and let the fallback path handle them.
-      const code = getSlackErrorCode(error);
-      if (code === "message_not_in_streaming_state" || code === "message_not_found") {
+      // Both are recoverable: open a fresh stream in the same thread and replay the
+      // failing chunks. Bounded by MAX_ROLLOVERS to prevent flapping streams from
+      // spawning unbounded blocks.
+      const recoverable = code === "message_not_in_streaming_state" || code === "message_not_found";
+      if (recoverable && this.rolloverCount < SlackStreamer.MAX_ROLLOVERS) {
+        const ok = await this.rollover();
+        if (ok && this.chatStreamer) {
+          try {
+            const result = await this.chatStreamer.append({ chunks });
+            if (!this.messageTs && result?.ts) {
+              this.messageTs = result.ts;
+            }
+            return;
+          } catch {
+            // Retry on the new stream also failed — fall through to the failure-logging path.
+          }
+        }
+      }
+
+      if (recoverable) {
         this.logger.warn(
           `Chat stream no longer writable (${code}), falling back to post`,
           this.streamDiagnostics(),
@@ -583,12 +682,14 @@ export class SlackStreamer {
     msSinceLastTick: number;
     msSinceLastEvent: number;
     activeTaskCount: number;
+    rolloverCount: number;
   } {
     const now = Date.now();
     return {
       msSinceLastTick: this.lastKeepaliveTickAt === 0 ? -1 : now - this.lastKeepaliveTickAt,
       msSinceLastEvent: this.lastEventAt === 0 ? -1 : now - this.lastEventAt,
       activeTaskCount: this.activeTasks.size,
+      rolloverCount: this.rolloverCount,
     };
   }
 }
