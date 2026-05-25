@@ -84,12 +84,16 @@ function makeCtx(overrides: Partial<QueryToolContext> = {}): QueryToolContext {
 type LoadMcpServerFn = AttachIntegrationDeps["loadMcpServer"];
 type ResolveTopicFilesFn = AttachIntegrationDeps["resolveTopicFiles"];
 type UpdateSessionFn = AttachIntegrationDeps["updateSession"];
+type BuildVirtualDefaultsFn = AttachIntegrationDeps["buildVirtualDefaults"];
+type GetToolsGatedByIntegrationFn = AttachIntegrationDeps["getToolsGatedByIntegration"];
 
 interface DepMocks {
   deps: AttachIntegrationDeps;
   loadMcpServer: ReturnType<typeof mock.fn<LoadMcpServerFn>>;
   resolveTopicFiles: ReturnType<typeof mock.fn<ResolveTopicFilesFn>>;
   updateSession: ReturnType<typeof mock.fn<UpdateSessionFn>>;
+  buildVirtualDefaults: ReturnType<typeof mock.fn<BuildVirtualDefaultsFn>>;
+  getToolsGatedByIntegration: ReturnType<typeof mock.fn<GetToolsGatedByIntegrationFn>>;
 }
 
 function makeDepMocks(overrides: Partial<AttachIntegrationDeps> = {}): DepMocks {
@@ -109,13 +113,24 @@ function makeDepMocks(overrides: Partial<AttachIntegrationDeps> = {}): DepMocks 
     (_roleChain, topic) => `Topic instructions for ${topic}`,
   );
   const updateSession = mock.fn<UpdateSessionFn>(async () => null);
+  const buildVirtualDefaults = mock.fn<BuildVirtualDefaultsFn>(() => undefined);
+  const getToolsGatedByIntegration = mock.fn<GetToolsGatedByIntegrationFn>(() => []);
   const deps: AttachIntegrationDeps = {
     loadMcpServer,
     resolveTopicFiles,
     updateSession,
+    buildVirtualDefaults,
+    getToolsGatedByIntegration,
     ...overrides,
   };
-  return { deps, loadMcpServer, resolveTopicFiles, updateSession };
+  return {
+    deps,
+    loadMcpServer,
+    resolveTopicFiles,
+    updateSession,
+    buildVirtualDefaults,
+    getToolsGatedByIntegration,
+  };
 }
 
 function okSetMcpServers(): ReturnType<typeof mock.fn<SetMcpServersFn>> {
@@ -266,16 +281,17 @@ describe("attach_integration tool", () => {
     const text = toolResultText(result);
 
     assert.ok(text.includes("Attached integration: scheduling-only"));
-    // Non-empty topic instructions returned → message claims new tools may be available
-    // (covers the plugin-topic-gated tools case alongside the instruction-only case).
-    assert.ok(text.includes("New tools may now be available on the next turn."));
+    // No MCP server, no gated tools (default mock), but topic instructions resolved →
+    // honest message: instructions loaded, no callable tools.
+    assert.ok(text.includes("Instructions loaded."));
+    assert.ok(text.includes("has no callable tools"));
     assert.ok(text.includes("Topic instructions for scheduling-only"));
     assert.equal(setMcpServers.mock.callCount(), 0);
     assert.deepEqual(manager.attachedNames(), []);
     assert.equal(depMocks.updateSession.mock.callCount(), 1);
   });
 
-  it("falls back to the defensive 'no new tools' message when topic instructions are empty", async () => {
+  it("falls back to 'nothing arrives' when no MCP, no gated tools, no topic instructions", async () => {
     const setMcpServers = okSetMcpServers();
     const manager = makeManager({ setMcpServers });
     const ctx = makeCtx({ mcpManager: manager });
@@ -286,8 +302,51 @@ describe("attach_integration tool", () => {
     const result = await toolDef.handler({ name: "scheduling-only" }, { sessionId: "test" });
     const text = toolResultText(result);
 
-    assert.ok(text.includes("This integration has no MCP server"));
-    assert.ok(text.includes("no new tools arrive"));
+    assert.ok(text.includes("nothing arrives"));
+  });
+
+  it("Bug A regression: passes virtualDefaults to resolveTopicFiles so plugin-registered topic instructions resolve", async () => {
+    const setMcpServers = okSetMcpServers();
+    const registry: McpServerRegistry = {
+      "trivia:management": { alwaysLoad: false, description: "trivia mgmt" },
+    };
+    const manager = makeManager({ setMcpServers, registry });
+    const ctx = makeCtx({ mcpManager: manager });
+    const sentinel = new Map();
+    const buildVirtualDefaults = mock.fn<BuildVirtualDefaultsFn>(() => sentinel);
+    const resolveTopicFiles = mock.fn<ResolveTopicFilesFn>((_roleChain, topic, vd) =>
+      vd === sentinel ? `body for ${topic}` : "",
+    );
+    const depMocks = makeDepMocks({ buildVirtualDefaults, resolveTopicFiles });
+    const toolDef = createAttachIntegrationTool(ctx, depMocks.deps);
+
+    const result = await toolDef.handler({ name: "trivia:management" }, { sessionId: "test" });
+    const text = toolResultText(result);
+
+    assert.equal(buildVirtualDefaults.mock.callCount(), 1);
+    assert.ok(text.includes("body for trivia:management"));
+  });
+
+  it("Bug B regression: kindNote advertises new tools when integration gates plugin tools, even with empty topic instructions", async () => {
+    const setMcpServers = okSetMcpServers();
+    const registry: McpServerRegistry = {
+      "myplugin:topic": { alwaysLoad: false, description: "plugin-gated tools only" },
+    };
+    const manager = makeManager({ setMcpServers, registry });
+    const ctx = makeCtx({ mcpManager: manager });
+    const resolveTopicFiles = mock.fn<ResolveTopicFilesFn>(() => "");
+    const getToolsGatedByIntegration = mock.fn<GetToolsGatedByIntegrationFn>(() => [
+      "mcp__myplugin__do_thing",
+    ]);
+    const depMocks = makeDepMocks({ resolveTopicFiles, getToolsGatedByIntegration });
+    const toolDef = createAttachIntegrationTool(ctx, depMocks.deps);
+
+    const result = await toolDef.handler({ name: "myplugin:topic" }, { sessionId: "test" });
+    const text = toolResultText(result);
+
+    assert.ok(text.includes("New tools may now be available"));
+    assert.ok(!text.includes("nothing arrives"));
+    assert.ok(text.includes("mcp__myplugin__do_thing"));
   });
 
   it("returns error and does not record attach when setMcpServers reports a connection error", async () => {

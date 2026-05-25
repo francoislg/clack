@@ -16,3 +16,16 @@ export function getLoadedPluginIntegrations(): Array<PluginIntegration & { plugi
     p.integrations.map((i) => ({ ...i, pluginName: p.name })),
   );
 }
+
+/** Names of plugin-registered tools gated on the given integration (full MCP names). */
+export function getToolsGatedByIntegration(integrationName: string): string[] {
+  const names: string[] = [];
+  for (const plugin of loadedPlugins.results) {
+    for (const t of plugin.tools) {
+      if (t.integration === integrationName) {
+        names.push(`mcp__${plugin.name}__${t.name}`);
+      }
+    }
+  }
+  return names;
+}
