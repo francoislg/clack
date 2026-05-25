@@ -51,7 +51,7 @@ The `SEND_QUESTIONS_INSTRUCTIONS` constant SHALL contain a numbered step flow th
 3. **Polarity self-check** — explicitly verify the statement's actual truth matches `suggestedAnswer`; rewrite if not.
 4. **Check for duplicates** — Call `find_previous_questions(game: "{game}", text: ...)`; iterate if a match exists in this game's history.
 5. **Validate through research** — confirm the statement is actually true/false.
-6. **Difficulty gate** — self-rate 1–10. Easy = 4–6, Medium = 7–8, Hard = 9–10. Reject and regenerate if ≤ 3/10.
+6. **Difficulty gate (strict membership + one-shot reframe)** — self-rate 1–10. The bucket's `suggestedDifficultyRange` `[min, max]` from `get_ideas` IS the strict accept bound (no separate threshold). Rating inside `[min, max]` → proceed. Rating EXACTLY `min - 1` or `max + 1` (one point off) → REFRAME ONCE: rewrite the question to dial difficulty toward the range, then re-rate independently; for boolean flows, re-run the polarity self-check on the reframed statement before re-rating. If v2 lies inside the range → proceed; if v2 still outside → REJECT and re-call `get_ideas`. Rating two or more points outside `[min, max]` → REJECT immediately and re-call `get_ideas` (don't reframe — the topic is wrong, not the framing).
 7. **Choose emojis** relating to the topic.
 8. **Save via `save_question(game: "{game}", category, statement, isTrue, emojis)`** — retain `questionId`.
 9. **Format using Block Kit** — build the question card blocks (header / warm-up section / card / closer context for boolean; header / section / card with numbered choice layout / context for choice). For boolean questions, the card body SHALL include "👍 TRUE • 👎 FALSE" with 👍 listed before 👎. For choice questions, the numbered-emoji prefix (1️⃣ … 4️⃣) in the card body SHALL match the stored `choices` array order so the bot's automatic reactions align with each option's index.
@@ -76,11 +76,21 @@ The prompt SHALL NOT instruct Claude to pass `reactions: [...]` to any tool. Rea
 - **AND** instructs Claude to keep the statement TRUE when `suggestedAnswer` is `true`, FALSE otherwise
 - **AND** does NOT instruct Claude to "randomly decide" the truth value
 
-#### Scenario: Prompt enforces the difficulty gate
+#### Scenario: Prompt enforces strict-membership difficulty gate
 
 - **WHEN** the prompt content is inspected
-- **THEN** the returned text contains an explicit rule that questions rated ≤ 3/10 MUST be rejected and regenerated
-- **AND** spells out the bucket-to-1–10 mapping (Easy = 4–6, Medium = 7–8, Hard = 9–10)
+- **THEN** the returned text instructs Claude to self-rate on the 1–10 scale and accept ONLY when the rating lies inside `suggestedDifficultyRange` `[min, max]`
+- **AND** instructs Claude to REFRAME ONCE when the rating is exactly one point outside the range (min − 1 or max + 1) and to re-rate independently
+- **AND** instructs Claude to REJECT and re-roll `get_ideas` when the rating is two or more points outside the range, or when a reframed version still lies outside the range
+- **AND** does NOT contain the legacy "reject ≤ 3/10" rule
+- **AND** does NOT reference `minimumDifficultyThreshold`
+- **AND** does NOT enumerate a fixed bucket→1–10 mapping (Easy/Medium/Hard ranges are surfaced via `suggestedDifficultyRange`, not hardcoded in the prompt)
+
+#### Scenario: Reframe step re-runs polarity self-check for boolean questions
+
+- **WHEN** the BOOLEAN_FACT or BOOLEAN_TOPICAL flow's reframe step is inspected
+- **THEN** the prompt instructs Claude to re-run the polarity self-check on the reframed statement before continuing to the difficulty re-rating
+- **AND** explains that reframing-by-detail-swap can silently flip a statement's truth value
 
 #### Scenario: Prompt routes posting through post_questions
 

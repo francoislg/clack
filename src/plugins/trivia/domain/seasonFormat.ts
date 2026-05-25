@@ -5,6 +5,7 @@ import {
   validateFreeformAnswerShapeMap,
   validateContextsList,
   validateTriviaDifficultyMap,
+  validateTriviaDifficultyRatioMap,
 } from "../core/configParsers/axes.js";
 import type {
   TriviaAnswersFormatWeights,
@@ -12,6 +13,7 @@ import type {
   TriviaFreeformAnswerShapeWeights,
   TriviaContextEntry,
   TriviaDifficultyConfig,
+  TriviaDifficultyRatioConfig,
 } from "../core/configTypes.js";
 
 export type ValidateResult<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -48,6 +50,10 @@ export function validateDifficulty(raw: unknown): ValidateResult<TriviaDifficult
   return validateTriviaDifficultyMap(raw, "difficulty");
 }
 
+export function validateDifficultyRatio(raw: unknown): ValidateResult<TriviaDifficultyRatioConfig> {
+  return validateTriviaDifficultyRatioMap(raw, "difficultyRatio");
+}
+
 function dedupePreservingOrder(values: string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
@@ -68,6 +74,7 @@ interface RawSlot {
   freeformAnswerShape?: Record<string, number> | null;
   contexts?: unknown[] | null;
   difficulty?: unknown | null;
+  difficultyRatio?: unknown | null;
 }
 
 interface RawFormat {
@@ -154,6 +161,13 @@ export function validateFormat(raw: RawFormat | null | undefined): ValidateResul
         return { ok: false, error: `format.questions[${i}]: ${validated.error}` };
       }
       out.difficulty = validated.value;
+    }
+    if (slot.difficultyRatio !== undefined && slot.difficultyRatio !== null) {
+      const validated = validateDifficultyRatio(slot.difficultyRatio);
+      if (!validated.ok) {
+        return { ok: false, error: `format.questions[${i}]: ${validated.error}` };
+      }
+      out.difficultyRatio = validated.value;
     }
     normalized.push(out);
   }

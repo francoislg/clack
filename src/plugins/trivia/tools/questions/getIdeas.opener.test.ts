@@ -197,6 +197,7 @@ describe("get_ideas — integration with upsert_season theme", () => {
           freeformAnswerShape: undefined,
           contexts: undefined,
           difficulty: undefined,
+          difficultyRatio: undefined,
           format: undefined,
         },
         SESSION,

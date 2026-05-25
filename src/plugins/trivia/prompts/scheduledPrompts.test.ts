@@ -16,10 +16,26 @@ describe("SEND_QUESTIONS_INSTRUCTIONS (boolean path)", () => {
     assert.match(SEND_QUESTIONS_INSTRUCTIONS, /submit_response/);
   });
 
-  it("enforces the difficulty gate via minimumDifficultyThreshold", () => {
-    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /minimumDifficultyThreshold/);
+  it("enforces a strict-membership difficulty gate with one-shot reframe", () => {
+    // Positive: the new gate references the strict accept range, the reframe rule,
+    // and the ≥2-off immediate-reject rule.
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /suggestedDifficultyRange/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /STRICT MEMBERSHIP/i);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /REFRAME ONCE/i);
     assert.match(SEND_QUESTIONS_INSTRUCTIONS, /REJECT/);
-    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /STRICTLY BELOW/);
+    // Negative: the obsolete threshold field and the obsolete fixed bucket→range
+    // mapping ("Easy = 4-6 / Medium = 7-8 / Hard = 9-10") must NOT appear — the
+    // ranges are now configurable per game type and surfaced via suggestedDifficultyRange.
+    assert.doesNotMatch(SEND_QUESTIONS_INSTRUCTIONS, /minimumDifficultyThreshold/);
+    assert.doesNotMatch(SEND_QUESTIONS_INSTRUCTIONS, /Easy\s*=\s*4-6/);
+    assert.doesNotMatch(SEND_QUESTIONS_INSTRUCTIONS, /STRICTLY BELOW/);
+  });
+
+  it("instructs boolean flows to re-run the polarity self-check after a reframe", () => {
+    // Reframing-by-detail-swap can silently flip a TRUE statement to FALSE — the
+    // polarity gate is what catches this. The boolean-flow gate must explicitly call
+    // out re-running the polarity check after a reframe.
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /re-run the POLARITY SELF-CHECK/i);
   });
 
   it("routes posting through post_questions, not submit_response with reactions", () => {

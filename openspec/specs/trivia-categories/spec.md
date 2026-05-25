@@ -184,9 +184,9 @@ When the active season has a `format`, the tool SHALL read its source category p
 
 Categories themselves remain flat (`string[]`) — there is no per-category weight on this axis. Bias toward a particular thematic angle is expressed via the `contexts` axis (per `trivia-question-contexts`), not via category weights.
 
-`suggestedAnswer` SHALL be sampled uniformly at random (50/50). `suggestedDifficulty` SHALL be sampled at weights 30% Easy / 60% Medium / 10% Hard. `suggestedAnswersFormat` SHALL be sampled from the active `answersFormat` weights. `suggestedQuestionType` SHALL be sampled from the active `questionType` weights independently of `suggestedAnswersFormat`. `contextPriority`, when returned, SHALL be a weighted-random ordering of every configured context (see `trivia-question-contexts`).
+`suggestedAnswer` SHALL be sampled uniformly at random (50/50). `suggestedDifficulty` SHALL be sampled by weighted-random pick from the resolved `difficultyRatio` axis for the rolled `suggestedAnswersFormat` (boolean / choice / freeform), following the standard cascade (slot → season → game → workspace → built-in default) with whole-object replacement per tier. The built-in default `difficultyRatio` SHALL be per-format: `boolean` and `choice` default to `{ easy: 3, medium: 6, hard: 1 }` (preserving the prior effective 30%/60%/10% distribution); `freeform` defaults to `{ easy: 5, medium: 4, hard: 1 }`, skewed toward easier buckets because freeform is intrinsically harder than picking from a list. `suggestedAnswersFormat` SHALL be sampled from the active `answersFormat` weights. `suggestedQuestionType` SHALL be sampled from the active `questionType` weights independently of `suggestedAnswersFormat`. `contextPriority`, when returned, SHALL be a weighted-random ordering of every configured context (see `trivia-question-contexts`).
 
-The 1–10 difficulty bucket mapping (Easy 4–6, Medium 7–8, Hard 9–10) is unchanged from prior behavior.
+The 1–10 bucket-to-range mapping (e.g. `easy: [4, 6]`, `medium: [7, 8]`, `hard: [9, 10]` for boolean/choice; freeform shifted -2 per bucket) SHALL be returned as `suggestedDifficultyRange` per the active per-format `difficulty` cascade. The rolled bucket's `[min, max]` IS the strict accept bound at the DIFFICULTY GATE — there is no separate reject-below threshold. The `get_ideas` response SHALL NOT carry a `minimumDifficultyThreshold` field.
 
 #### Scenario: Result shape with sufficient pool
 
@@ -211,10 +211,29 @@ The 1–10 difficulty bucket mapping (Easy 4–6, Medium 7–8, Hard 9–10) is 
 - **WHEN** `get_ideas` is invoked many times with `suggestedAnswersFormat: "boolean"` resolved
 - **THEN** each invocation independently produces `suggestedAnswer = true` with probability 0.5 and `suggestedAnswer = false` with probability 0.5
 
-#### Scenario: suggestedDifficulty is weighted 30/60/10
+#### Scenario: suggestedDifficulty default ratio is 30/60/10 for boolean and choice
 
-- **WHEN** `get_ideas` is invoked many times
-- **THEN** each invocation independently produces `suggestedDifficulty = "Easy"` with probability 0.30, `"Medium"` with probability 0.60, and `"Hard"` with probability 0.10
+- **GIVEN** no `difficultyRatio` is set at any cascade tier
+- **WHEN** `get_ideas` is invoked many times with `suggestedAnswersFormat` resolving to `"boolean"` or `"choice"`
+- **THEN** each invocation independently produces `suggestedDifficulty = "Easy"` with probability 0.3, `"Medium"` with probability 0.6, and `"Hard"` with probability 0.1 (matching the built-in default `{ easy: 3, medium: 6, hard: 1 }`)
+
+#### Scenario: suggestedDifficulty default ratio for freeform skews easier
+
+- **GIVEN** no `difficultyRatio` is set at any cascade tier
+- **WHEN** `get_ideas` is invoked many times with `suggestedAnswersFormat` resolving to `"freeform"`
+- **THEN** each invocation produces `suggestedDifficulty = "Easy"` with probability 5/10, `"Medium"` with probability 4/10, and `"Hard"` with probability 1/10 (matching the built-in default `{ easy: 5, medium: 4, hard: 1 }`)
+
+#### Scenario: suggestedDifficulty obeys configured difficultyRatio
+
+- **GIVEN** `config.trivia.difficultyRatio.boolean` is `{ easy: 1, medium: 1, hard: 8 }`
+- **AND** no season-tier, game-tier, or slot-tier `difficultyRatio` is set for boolean
+- **WHEN** `get_ideas` is invoked many times with `suggestedAnswersFormat` resolving to `"boolean"`
+- **THEN** each invocation produces `suggestedDifficulty = "Easy"` with probability 0.1, `"Medium"` with probability 0.1, and `"Hard"` with probability 0.8
+
+#### Scenario: Response omits minimumDifficultyThreshold
+
+- **WHEN** `get_ideas` is invoked
+- **THEN** the returned object does NOT include a `minimumDifficultyThreshold` field
 
 #### Scenario: suggestedQuestionType is independent of suggestedAnswersFormat
 

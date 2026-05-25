@@ -5,7 +5,9 @@
  * season (upsert_season), slot (upsert_season's slot validation).
  */
 
+import { z } from "zod";
 import type {
+  DifficultyBucketWeights,
   DifficultyRange,
   DifficultyRangesInput,
   JsonObject,
@@ -13,6 +15,7 @@ import type {
   TriviaChoicesConfig,
   TriviaContextEntry,
   TriviaDifficultyConfig,
+  TriviaDifficultyRatioConfig,
   TriviaFreeformAnswerShapeWeights,
   TriviaQuestionTypeWeights,
 } from "../configTypes.js";
@@ -40,6 +43,7 @@ export const FREEFORM_ANSWER_SHAPE_KEYS = [
 ] as const;
 const DIFFICULTY_BUCKET_KEYS = ["easy", "medium", "hard"] as const;
 const DIFFICULTY_FORMAT_KEYS = ["boolean", "choice", "freeform"] as const;
+const DIFFICULTY_RATIO_FORMAT_KEYS = ["boolean", "choice", "freeform"] as const;
 
 export function validateAnswersFormatMap(
   raw: unknown,
@@ -236,13 +240,10 @@ export function validateDifficultyRangesMap(
   const entries = raw as JsonObject;
   const out: DifficultyRangesInput = {};
   for (const key of Object.keys(entries)) {
-    if (
-      !(DIFFICULTY_BUCKET_KEYS as readonly string[]).includes(key) &&
-      key !== "minimumThreshold"
-    ) {
+    if (!(DIFFICULTY_BUCKET_KEYS as readonly string[]).includes(key)) {
       return {
         ok: false,
-        error: `'${fieldLabel}' contains unknown key '${key}' (allowed: easy, medium, hard, minimumThreshold)`,
+        error: `'${fieldLabel}' contains unknown key '${key}' (allowed: easy, medium, hard)`,
       };
     }
   }
@@ -252,15 +253,70 @@ export function validateDifficultyRangesMap(
     if (!r.ok) return r;
     out[bucket] = r.value;
   }
-  if (entries.minimumThreshold !== undefined) {
-    const t = entries.minimumThreshold;
-    if (typeof t !== "number" || !Number.isInteger(t) || t < 1 || t > 10) {
+  return { ok: true, value: out };
+}
+
+export function validateDifficultyBucketWeights(
+  raw: unknown,
+  fieldLabel: string,
+): Result<DifficultyBucketWeights> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { ok: false, error: `'${fieldLabel}' must be an object` };
+  }
+  const out: Partial<DifficultyBucketWeights> = {};
+  let positiveCount = 0;
+  for (const [key, value] of Object.entries(raw)) {
+    if (!(DIFFICULTY_BUCKET_KEYS as readonly string[]).includes(key)) {
       return {
         ok: false,
-        error: `'${fieldLabel}.minimumThreshold' must be an integer in [1, 10] (got ${JSON.stringify(t)})`,
+        error: `'${fieldLabel}' contains unknown key '${key}' (allowed: ${DIFFICULTY_BUCKET_KEYS.join(", ")})`,
       };
     }
-    out.minimumThreshold = t;
+    if (
+      typeof value !== "number" ||
+      !Number.isFinite(value) ||
+      !Number.isInteger(value) ||
+      value < 0
+    ) {
+      return {
+        ok: false,
+        error: `'${fieldLabel}.${key}' must be a non-negative integer (got ${JSON.stringify(value)})`,
+      };
+    }
+    out[key as (typeof DIFFICULTY_BUCKET_KEYS)[number]] = value;
+    if (value > 0) positiveCount++;
+  }
+  if (positiveCount === 0) {
+    return { ok: false, error: `'${fieldLabel}' must have at least one strictly positive weight` };
+  }
+  return {
+    ok: true,
+    value: { easy: out.easy ?? 0, medium: out.medium ?? 0, hard: out.hard ?? 0 },
+  };
+}
+
+export function validateTriviaDifficultyRatioMap(
+  raw: unknown,
+  fieldLabel: string,
+): Result<TriviaDifficultyRatioConfig> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { ok: false, error: `'${fieldLabel}' must be an object` };
+  }
+  const entries = raw as JsonObject;
+  const out: TriviaDifficultyRatioConfig = {};
+  for (const key of Object.keys(entries)) {
+    if (!(DIFFICULTY_RATIO_FORMAT_KEYS as readonly string[]).includes(key)) {
+      return {
+        ok: false,
+        error: `'${fieldLabel}' contains unknown key '${key}' (allowed: ${DIFFICULTY_RATIO_FORMAT_KEYS.join(", ")})`,
+      };
+    }
+  }
+  for (const fmt of DIFFICULTY_RATIO_FORMAT_KEYS) {
+    if (entries[fmt] === undefined) continue;
+    const r = validateDifficultyBucketWeights(entries[fmt], `${fieldLabel}.${fmt}`);
+    if (!r.ok) return r;
+    out[fmt] = r.value;
   }
   return { ok: true, value: out };
 }
@@ -329,6 +385,7 @@ export interface TriviaAxisBag {
   freeformAnswerShape?: TriviaFreeformAnswerShapeWeights;
   contexts?: TriviaContextEntry[];
   difficulty?: TriviaDifficultyConfig;
+  difficultyRatio?: TriviaDifficultyRatioConfig;
 }
 
 /**
@@ -375,6 +432,34 @@ export function parseTriviaAxisBag(
   apply("difficulty", raw.difficulty, validateTriviaDifficultyMap, (v) => {
     axes.difficulty = v;
   });
+  apply("difficultyRatio", raw.difficultyRatio, validateTriviaDifficultyRatioMap, (v) => {
+    axes.difficultyRatio = v;
+  });
 
   return { axes, issues };
 }
+
+/**
+ * Shared zod schema for the bucket-weights inner shape. Tolerates missing keys
+ * (they normalize to 0) and rejects all-zero maps via the refine check.
+ */
+export const bucketWeightsZod = z
+  .object({
+    easy: z.number().int().nonnegative().optional(),
+    medium: z.number().int().nonnegative().optional(),
+    hard: z.number().int().nonnegative().optional(),
+  })
+  .refine((m) => (m.easy ?? 0) > 0 || (m.medium ?? 0) > 0 || (m.hard ?? 0) > 0, {
+    message: "at least one weight must be strictly positive",
+  });
+
+/**
+ * Shared zod schema for the per-format `difficultyRatio` axis. Reused by every
+ * management tool that accepts the axis (`setWorkspaceConfig`, `upsertGame`,
+ * `upsertSeason`, and the slot-tier inside `upsertSeason`).
+ */
+export const triviaDifficultyRatioZod = z.object({
+  boolean: bucketWeightsZod.optional(),
+  choice: bucketWeightsZod.optional(),
+  freeform: bucketWeightsZod.optional(),
+});

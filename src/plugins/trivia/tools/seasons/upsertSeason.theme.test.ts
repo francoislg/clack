@@ -22,6 +22,7 @@ function baseArgs(slug: string, future: number) {
     freeformAnswerShape: undefined,
     contexts: undefined,
     difficulty: undefined,
+    difficultyRatio: undefined,
     format: undefined,
   };
 }

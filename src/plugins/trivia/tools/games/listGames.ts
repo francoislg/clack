@@ -13,6 +13,7 @@ import type {
   TriviaFreeformAnswerShapeWeights,
   TriviaContextEntry,
   TriviaDifficultyConfig,
+  TriviaDifficultyRatioConfig,
   TriviaChoicesConfig,
   TriviaSeasonsConfig,
   OffDay,
@@ -24,6 +25,7 @@ interface AxisOverrides {
   freeformAnswerShape?: TriviaFreeformAnswerShapeWeights;
   contexts?: TriviaContextEntry[];
   difficulty?: TriviaDifficultyConfig;
+  difficultyRatio?: TriviaDifficultyRatioConfig;
 }
 
 interface ListGamesEntry {
@@ -42,6 +44,7 @@ interface WorkspaceDefaults {
   freeformAnswerShape?: TriviaFreeformAnswerShapeWeights;
   contexts?: TriviaContextEntry[];
   difficulty?: TriviaDifficultyConfig;
+  difficultyRatio?: TriviaDifficultyRatioConfig;
   choices?: TriviaChoicesConfig;
   seasons?: TriviaSeasonsConfig;
   offDays?: OffDay[];
@@ -49,7 +52,7 @@ interface WorkspaceDefaults {
 
 const DESCRIPTION = `List the trivia games configured in this deployment (data/plugins/trivia/config.json's \`games[]\`), plus the workspace tier of the cascading axis configuration (\`workspaceDefaults\`) AND each entry's per-game \`axisOverrides\`, so admins can audit configuration without reading the file by hand.
 
-By default, disabled games are excluded; pass \`includeDisabled: true\` to surface them too. Each game entry includes \`questionCron\`, \`revealCron\`, \`timezone\`, \`enabled\`, and an \`axisOverrides\` block surfacing the game's per-game cascade tier (\`answersFormat\`, \`questionType\`, \`freeformAnswerShape\`, \`contexts\`, \`difficulty\`). Each axis field is present IF AND ONLY IF the game's entry literally set it. The block is always included on every entry (possibly as \`{}\`).
+By default, disabled games are excluded; pass \`includeDisabled: true\` to surface them too. Each game entry includes \`questionCron\`, \`revealCron\`, \`timezone\`, \`enabled\`, and an \`axisOverrides\` block surfacing the game's per-game cascade tier (\`answersFormat\`, \`questionType\`, \`freeformAnswerShape\`, \`contexts\`, \`difficulty\`, \`difficultyRatio\`). Each axis field is present IF AND ONLY IF the game's entry literally set it. The block is always included on every entry (possibly as \`{}\`).
 
 \`workspaceDefaults\` carries the workspace-level values for every axis (the 5 cascading axes plus \`choices\`, \`seasons\`, \`offDays\`). Same present-iff-set rule.
 
@@ -83,6 +86,7 @@ export function createListGamesTool(
             : {}),
           ...(g.contexts !== undefined ? { contexts: g.contexts } : {}),
           ...(g.difficulty !== undefined ? { difficulty: g.difficulty } : {}),
+          ...(g.difficultyRatio !== undefined ? { difficultyRatio: g.difficultyRatio } : {}),
         };
         return {
           name: g.name,
@@ -106,6 +110,9 @@ export function createListGamesTool(
           : {}),
         ...(triviaCfg?.contexts !== undefined ? { contexts: triviaCfg.contexts } : {}),
         ...(triviaCfg?.difficulty !== undefined ? { difficulty: triviaCfg.difficulty } : {}),
+        ...(triviaCfg?.difficultyRatio !== undefined
+          ? { difficultyRatio: triviaCfg.difficultyRatio }
+          : {}),
         ...(triviaCfg?.choices !== undefined ? { choices: triviaCfg.choices } : {}),
         ...(triviaCfg?.seasons !== undefined ? { seasons: triviaCfg.seasons } : {}),
         ...(triviaCfg?.offDays !== undefined ? { offDays: triviaCfg.offDays } : {}),
