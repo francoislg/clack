@@ -233,6 +233,11 @@ export const fr: Partial<Record<StringKey, string>> = {
   "home.scheduled.enable": "Activer",
   "home.scheduled.delete_confirm_title": "Supprimer le message programmé ?",
   "home.scheduled.delete_confirm_text": "Ceci supprimera définitivement ce message programmé.",
+  "home.scheduled.plugin_modal_title": "Programmation plugin",
+  "home.scheduled.plugin_modal_intro":
+    "Lecture seule — ce message programmé est réconcilié depuis la config plugin. Pour modifier la programmation ou le prompt, éditez `data/config.json`.",
+  "home.scheduled.plugin_pause_explanation":
+    "Mettre en pause empêche cette programmation de s'exécuter jusqu'à la reprise. La config plugin reste inchangée — la prochaine réconciliation ne la réactivera pas.",
 
   // ─── Action buttons ────────────────────────────────────────────────
   "blocks.action_label_choice": "Sélectionner",
