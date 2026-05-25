@@ -45,6 +45,7 @@ function makeSdkOverRealDir(pluginDataDir: string): ClackSdk {
     addInstruction: () => {},
     addTopicInstruction: () => {},
     registerTool: () => {},
+    registerIntegration: () => {},
     readFile: async (path) => {
       const full = join(pluginDataDir, path);
       if (!existsSync(full)) return null;

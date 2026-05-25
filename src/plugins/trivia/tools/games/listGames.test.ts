@@ -158,11 +158,11 @@ describe("list_games — per-game axisOverrides", () => {
     assert.match(tool.description, /slot.*season.*game.*workspace/);
   });
 
-  it("description references the trivia_management integration", () => {
+  it("description references the trivia:management integration", () => {
     const tool = createListGamesTool(
       () => [],
       () => ({}),
     );
-    assert.match(tool.description, /trivia_management/);
+    assert.match(tool.description, /trivia:management/);
   });
 });

@@ -9,6 +9,7 @@ import {
   loadMcpServer as defaultLoadMcpServer,
   resolveEffectiveRegistry,
 } from "../mcp.js";
+import { getLoadedPluginIntegrations } from "../plugins/state.js";
 import { updateSession as defaultUpdateSession } from "../sessions.js";
 import type { SessionContext } from "../sessions.js";
 
@@ -239,6 +240,7 @@ export async function prepareMcpSession(
     configRegistry: config.mcpServers,
     mcpServerNames,
     githubAutoInjected: mcpServerNames.includes("github"),
+    pluginIntegrations: getLoadedPluginIntegrations(),
   });
 
   const alwaysOnExternals = (await deps.loadAlwaysOnMcpServers(registry)) ?? {};

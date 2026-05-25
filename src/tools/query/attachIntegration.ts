@@ -182,9 +182,14 @@ export function createAttachIntegrationTool(
         logger.warn(`Failed to persist attach state for '${args.name}': ${message}`);
       }
 
-      const kindNote = serverConfig
-        ? `New tools may now be available on the next turn.`
-        : `This integration has no MCP server — instructions were loaded, no new tools arrive.`;
+      // Non-empty topic instructions ⇒ plugin-topic-gated tools may also be revealed on
+      // the next turn; the empty-fallback message is defensive (shouldn't happen for a
+      // valid registered topic).
+      const hasTopicInstructions = instructions.trim().length > 0;
+      const kindNote =
+        serverConfig || hasTopicInstructions
+          ? `New tools may now be available on the next turn.`
+          : `This integration has no MCP server — instructions were loaded, no new tools arrive.`;
 
       const body =
         instructions.trim().length > 0

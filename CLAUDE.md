@@ -80,6 +80,8 @@ Worker tools (in worktree context):
 
 - `git_push`, `ensure_pr`, `merge_pr`, `close_pr`, `resolve_review_thread`, `report_status`
 
+**Plugin tools** are registered by plugins via `sdk.registerTool(...)`. By default they're admin-gated only; passing `{ integration: "<name>" }` in the options additionally hides the tool until Claude attaches that integration via `attach_integration(name)`. Plugins can self-declare catalog entries (integrations that aren't backed by an external MCP server) via `sdk.registerIntegration(name, { description, alwaysLoad? })` — see the live example in `src/plugins/trivia/index.ts` (the `trivia:management` integration gates seven config-mutation tools).
+
 ### Role System (4 tiers)
 
 `owner` > `admin` > `dev` > `member` — persisted in `data/state/roles.json`

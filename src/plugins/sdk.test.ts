@@ -200,6 +200,87 @@ describe("ClackSdk", () => {
       assert.equal(result.tools[0].minRole, "member");
       assert.equal(result.toolMappings.get("test_tool"), "Running test tool {input}");
     });
+
+    it("records integration when options.integration is set", () => {
+      const { sdk, harvest } = makeSdk("trivia");
+      const gated = tool(
+        "gated_tool",
+        "An integration-gated tool",
+        { input: z.string().optional() },
+        async () => ({ content: [{ type: "text" as const, text: "ok" }] }),
+      );
+      sdk.registerTool("admin", gated, "Gated label", { integration: "foo" });
+      const result = harvest();
+      assert.equal(result.tools.length, 1);
+      assert.equal(result.tools[0].integration, "foo");
+      assert.equal(result.tools[0].minRole, "admin");
+    });
+
+    it("leaves integration undefined when options are omitted", () => {
+      const { sdk, harvest } = makeSdk("trivia");
+      const open = tool(
+        "open_tool",
+        "An always-available tool",
+        { input: z.string().optional() },
+        async () => ({ content: [{ type: "text" as const, text: "ok" }] }),
+      );
+      sdk.registerTool("admin", open, "Open label");
+      const result = harvest();
+      assert.equal(result.tools[0].integration, undefined);
+    });
+
+    it("registers mapping identically whether or not options are passed", () => {
+      const { sdk, harvest } = makeSdk("trivia");
+      const a = tool("a_tool", "", { x: z.string().optional() }, async () => ({
+        content: [{ type: "text" as const, text: "ok" }],
+      }));
+      const b = tool("b_tool", "", { x: z.string().optional() }, async () => ({
+        content: [{ type: "text" as const, text: "ok" }],
+      }));
+      sdk.registerTool("admin", a, "Same label");
+      sdk.registerTool("admin", b, "Same label", { integration: "foo" });
+      const result = harvest();
+      assert.equal(result.toolMappings.get("a_tool"), "Same label");
+      assert.equal(result.toolMappings.get("b_tool"), "Same label");
+    });
+  });
+
+  describe("integration registration", () => {
+    it("records an integration with name + description and alwaysLoad default false", () => {
+      const { sdk, harvest } = makeSdk("trivia");
+      sdk.registerIntegration("trivia:management", {
+        description: "Manage trivia games and seasons.",
+      });
+      const result = harvest();
+      assert.equal(result.integrations.length, 1);
+      assert.equal(result.integrations[0].name, "trivia:management");
+      assert.equal(result.integrations[0].description, "Manage trivia games and seasons.");
+      assert.equal(result.integrations[0].alwaysLoad, false);
+    });
+
+    it("honors alwaysLoad when explicitly set", () => {
+      const { sdk, harvest } = makeSdk("trivia");
+      sdk.registerIntegration("trivia:management", {
+        description: "x",
+        alwaysLoad: true,
+      });
+      const result = harvest();
+      assert.equal(result.integrations[0].alwaysLoad, true);
+    });
+
+    it("appends a second entry on duplicate name (de-dup is resolver behavior, not SDK)", () => {
+      const { sdk, harvest } = makeSdk("trivia");
+      sdk.registerIntegration("trivia:management", { description: "first" });
+      sdk.registerIntegration("trivia:management", { description: "second" });
+      const result = harvest();
+      assert.equal(result.integrations.length, 2);
+    });
+
+    it("harvest returns empty integrations array when none are registered", () => {
+      const { harvest } = makeSdk("trivia");
+      const result = harvest();
+      assert.deepEqual(result.integrations, []);
+    });
   });
 
   describe("harvest", () => {

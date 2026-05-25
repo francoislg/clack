@@ -23,6 +23,7 @@ function makeFakeSdk(state: FakeSdkState): ClackSdk {
     addInstruction: () => {},
     addTopicInstruction: () => {},
     registerTool: () => {},
+    registerIntegration: () => {},
     readFile: async (path) => state.writes.get(path) ?? null,
     writeFile: async (path, content) => {
       state.writes.set(path, content);

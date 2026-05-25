@@ -266,11 +266,28 @@ describe("attach_integration tool", () => {
     const text = toolResultText(result);
 
     assert.ok(text.includes("Attached integration: scheduling-only"));
-    assert.ok(text.includes("This integration has no MCP server"));
+    // Non-empty topic instructions returned → message claims new tools may be available
+    // (covers the plugin-topic-gated tools case alongside the instruction-only case).
+    assert.ok(text.includes("New tools may now be available on the next turn."));
     assert.ok(text.includes("Topic instructions for scheduling-only"));
     assert.equal(setMcpServers.mock.callCount(), 0);
     assert.deepEqual(manager.attachedNames(), []);
     assert.equal(depMocks.updateSession.mock.callCount(), 1);
+  });
+
+  it("falls back to the defensive 'no new tools' message when topic instructions are empty", async () => {
+    const setMcpServers = okSetMcpServers();
+    const manager = makeManager({ setMcpServers });
+    const ctx = makeCtx({ mcpManager: manager });
+    const resolveTopicFiles = mock.fn<ResolveTopicFilesFn>(() => "");
+    const depMocks = makeDepMocks({ resolveTopicFiles });
+    const toolDef = createAttachIntegrationTool(ctx, depMocks.deps);
+
+    const result = await toolDef.handler({ name: "scheduling-only" }, { sessionId: "test" });
+    const text = toolResultText(result);
+
+    assert.ok(text.includes("This integration has no MCP server"));
+    assert.ok(text.includes("no new tools arrive"));
   });
 
   it("returns error and does not record attach when setMcpServers reports a connection error", async () => {

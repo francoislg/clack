@@ -27,6 +27,7 @@ import {
   getTriviaCheckInstruction,
   TRIVIA_GAMES_ADMIN_INSTRUCTION,
   TRIVIA_MANAGEMENT_INSTRUCTION,
+  TRIVIA_MANAGEMENT_DESCRIPTION,
 } from "./prompts/triviaCheckInstruction.js";
 import {
   PERSONA_CONTENT,
@@ -66,7 +67,16 @@ export const triviaPlugin: ClackPlugin = async (sdk: ClackSdk) => {
   // member sessions stay lean. Per cascadingConfigResolver, "admin" instructions
   // cascade up but not down.
   sdk.addInstruction("admin", "trivia-games", TRIVIA_GAMES_ADMIN_INSTRUCTION);
-  sdk.addInstruction("admin", "trivia-management", TRIVIA_MANAGEMENT_INSTRUCTION);
+  sdk.registerIntegration("trivia:management", {
+    description: TRIVIA_MANAGEMENT_DESCRIPTION,
+    alwaysLoad: false,
+  });
+  sdk.addTopicInstruction(
+    "admin",
+    "trivia:management",
+    "trivia-management",
+    TRIVIA_MANAGEMENT_INSTRUCTION,
+  );
 
   // Topic-scoped persona / reveal-tone / finale-tone. Loaded only when the `trivia` topic
   // is active for a session — pre-attached by every trivia cron spec (`buildGameSpecs`
@@ -76,11 +86,14 @@ export const triviaPlugin: ClackPlugin = async (sdk: ClackSdk) => {
   sdk.addTopicInstruction("user", "trivia", "reveal-tone", REVEAL_TONE_CONTENT);
   sdk.addTopicInstruction("user", "trivia", "finale-tone", FINALE_TONE_CONTENT);
 
-  sdk.registerTool("admin", createAddCategoriesTool(data), "Adding trivia categories — {game}");
+  sdk.registerTool("admin", createAddCategoriesTool(data), "Adding trivia categories — {game}", {
+    integration: "trivia:management",
+  });
   sdk.registerTool(
     "admin",
     createRemoveCategoriesTool(data),
     "Removing trivia categories — {game}",
+    { integration: "trivia:management" },
   );
   sdk.registerTool("admin", createGetIdeasTool(data), "Getting trivia category ideas — {game}");
   sdk.registerTool(
@@ -108,16 +121,19 @@ export const triviaPlugin: ClackPlugin = async (sdk: ClackSdk) => {
   sdk.registerTool("member", createRetrieveScoresTool(data), "Retrieving trivia scores — {game}");
   sdk.registerTool("member", createListGamesTool(), "Listing trivia games");
 
-  // trivia_management integration: admin-only tools that mutate
-  // data/plugins/trivia/config.json directly. The catalog entry in
-  // data/config.json's mcpServers makes attach_integration("trivia_management")
-  // a valid call; the topic instructions teach Claude when/how to use them.
-  sdk.registerTool("admin", createUpsertGameTool(), "Upserting trivia game — {name}");
-  sdk.registerTool("admin", createDeleteGameTool(), "Deleting trivia game — {name}");
+  // trivia:management integration — gated config-mutation tools (game/season lifecycle).
+  // Catalog entry comes from sdk.registerIntegration above; categories tools are similarly gated.
+  sdk.registerTool("admin", createUpsertGameTool(), "Upserting trivia game — {name}", {
+    integration: "trivia:management",
+  });
+  sdk.registerTool("admin", createDeleteGameTool(), "Deleting trivia game — {name}", {
+    integration: "trivia:management",
+  });
   sdk.registerTool(
     "admin",
     createSetWorkspaceConfigTool(),
     "Updating workspace-tier trivia config",
+    { integration: "trivia:management" },
   );
 
   // Hidden from Slack task cards — the recorded user must not see this fire.
@@ -136,11 +152,13 @@ export const triviaPlugin: ClackPlugin = async (sdk: ClackSdk) => {
       "admin",
       createUpsertSeasonTool(data),
       "Upserting trivia season — {game}/{slug}",
+      { integration: "trivia:management" },
     );
     sdk.registerTool(
       "admin",
       createDeleteSeasonTool(data),
       "Deleting trivia season — {game}/{slug}",
+      { integration: "trivia:management" },
     );
     sdk.registerTool("admin", createListSeasonsTool(data), "Listing trivia seasons — {game}");
     sdk.logger.info(

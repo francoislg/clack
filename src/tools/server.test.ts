@@ -44,6 +44,7 @@ function stubPlugin(
     name,
     instructions: [],
     tools: tools.map((t) => makeRegisteredPluginTool(t)),
+    integrations: [],
     toolMappings: new Map(),
     mcpServer: createSdkMcpServer({ name, version: "1.0.0", tools }),
     actionHandlers: [],
@@ -302,6 +303,101 @@ describe("buildClackTools — query mode", () => {
     } finally {
       warnFn.mock.restore();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildClackTools — integration-gated plugin tools
+// ---------------------------------------------------------------------------
+
+describe("buildClackTools — integration-gated plugin tools", () => {
+  beforeEach(() => {
+    setLoadedPlugins({ results: [] });
+  });
+
+  afterEach(() => {
+    setLoadedPlugins({ results: [] });
+  });
+
+  function pluginWithMixedTopics(): PluginLoadResult {
+    const toolA = tool("tool_a", "in foo", { x: z.string().optional() }, async () => ({
+      content: [{ type: "text" as const, text: "ok" }],
+    }));
+    const toolB = tool("tool_b", "in bar", { x: z.string().optional() }, async () => ({
+      content: [{ type: "text" as const, text: "ok" }],
+    }));
+    const toolC = tool("tool_c", "no integration", { x: z.string().optional() }, async () => ({
+      content: [{ type: "text" as const, text: "ok" }],
+    }));
+    const base = stubPlugin("trivia", [toolA, toolB, toolC]);
+    // Override registrations with explicit integration + admin role so the gating logic is exercised
+    base.tools = [
+      { ...makeRegisteredPluginTool(toolA), minRole: "admin", integration: "foo" },
+      { ...makeRegisteredPluginTool(toolB), minRole: "admin", integration: "bar" },
+      { ...makeRegisteredPluginTool(toolC), minRole: "admin" },
+    ];
+    return base;
+  }
+
+  function attached(integrations: string[] | undefined): Partial<QueryToolContext> {
+    return {
+      role: "admin",
+      session: {
+        sessionId: "sess-1",
+        channelId: "C1",
+        messageTs: "1",
+        threadTs: "1",
+        userId: "U1",
+        trigger: { type: "scheduled", prompt: "q" },
+        messages: [],
+        threadContext: [],
+        errors: [],
+        lastActivity: Date.now(),
+        createdAt: Date.now(),
+        triggerType: "scheduled",
+        ...(integrations !== undefined ? { attachedIntegrations: integrations } : {}),
+      },
+    };
+  }
+
+  it("hides integration-gated tools when attachedIntegrations is empty", () => {
+    setLoadedPlugins({ results: [pluginWithMixedTopics()] });
+    const result = buildClackTools(makeQueryCtx(attached([])));
+    assert.equal(result.toolNames.includes("mcp__trivia__tool_a"), false);
+    assert.equal(result.toolNames.includes("mcp__trivia__tool_b"), false);
+    assert.equal(result.toolNames.includes("mcp__trivia__tool_c"), true);
+  });
+
+  it("reveals integration-gated tools whose integration is attached", () => {
+    setLoadedPlugins({ results: [pluginWithMixedTopics()] });
+    const result = buildClackTools(makeQueryCtx(attached(["foo"])));
+    assert.equal(result.toolNames.includes("mcp__trivia__tool_a"), true);
+    assert.equal(result.toolNames.includes("mcp__trivia__tool_b"), false);
+    assert.equal(result.toolNames.includes("mcp__trivia__tool_c"), true);
+  });
+
+  it("reveals all integration-gated tools when every integration is attached", () => {
+    setLoadedPlugins({ results: [pluginWithMixedTopics()] });
+    const result = buildClackTools(makeQueryCtx(attached(["foo", "bar"])));
+    assert.equal(result.toolNames.includes("mcp__trivia__tool_a"), true);
+    assert.equal(result.toolNames.includes("mcp__trivia__tool_b"), true);
+    assert.equal(result.toolNames.includes("mcp__trivia__tool_c"), true);
+  });
+
+  it("role gate still applies on top — dev role sees nothing for admin-gated tools even with integration attached", () => {
+    setLoadedPlugins({ results: [pluginWithMixedTopics()] });
+    const result = buildClackTools(makeQueryCtx({ ...attached(["foo", "bar"]), role: "dev" }));
+    assert.equal(result.toolNames.includes("mcp__trivia__tool_a"), false);
+    assert.equal(result.toolNames.includes("mcp__trivia__tool_b"), false);
+    assert.equal(result.toolNames.includes("mcp__trivia__tool_c"), false);
+  });
+
+  it("treats missing attachedIntegrations as empty", () => {
+    setLoadedPlugins({ results: [pluginWithMixedTopics()] });
+    const result = buildClackTools(makeQueryCtx(attached(undefined)));
+    assert.equal(result.toolNames.includes("mcp__trivia__tool_a"), false);
+    assert.equal(result.toolNames.includes("mcp__trivia__tool_b"), false);
+    assert.equal(result.toolNames.includes("mcp__trivia__tool_c"), true);
   });
 });
 
