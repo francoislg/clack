@@ -26,6 +26,15 @@ let credentials: GitHubAppCredentials | null = null;
 let cachedToken: CachedToken | null = null;
 let octokitInstance: Octokit | null = null;
 
+/**
+ * Whether GitHub App credentials are present on disk. When absent, GitHub
+ * features are simply unavailable rather than a fatal startup error — this lets
+ * GitHub-less deployments (e.g. a Slack-only trivia bot) boot normally.
+ */
+export function gitHubCredentialsExist(): boolean {
+  return existsSync(resolve(process.cwd(), "data", "auth", "github.json"));
+}
+
 export function loadGitHubCredentials(): GitHubAppCredentials {
   const authPath = resolve(process.cwd(), "data", "auth", "github.json");
 

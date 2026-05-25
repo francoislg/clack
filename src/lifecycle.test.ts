@@ -87,6 +87,7 @@ function createMockDeps(): {
     getConfig: mockGetConfig as () => void as LifecycleDeps["getConfig"],
     loadGitHubCredentials:
       mockLoadGitHubCredentials as Function as LifecycleDeps["loadGitHubCredentials"],
+    gitHubCredentialsExist: (() => true) as LifecycleDeps["gitHubCredentialsExist"],
     clearGitHubTokenCache: mockClearGitHubTokenCache,
     logger: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {}, startup: () => {} },
     initializeRepositories: mockInitializeRepositories,
