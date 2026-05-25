@@ -1679,10 +1679,22 @@ describe("SlackStreamer.handleEvent — grouped detail cap", () => {
     }
 
     const chunks = getAppendedChunks(mockStreamerObj);
+    // Call 1 defers its detail line (single-item groups suppress redundant detail).
+    // Call 2 flushes both call-1 and call-2 details in one chunk; calls 3-5 add one each.
+    // Visible lines: 5. Detail-bearing chunks: 4.
     assert.equal(
       countDetailChunks(chunks, "task-1"),
-      5,
-      "5 calls under cap should each emit a detail line",
+      4,
+      "first call defers detail; calls 2-5 each emit a chunk (call 2 carries 2 lines)",
+    );
+    const firstDetailChunk = chunks.find(
+      (c) => c.id === "task-1" && typeof c.details === "string" && c.details.length > 0,
+    );
+    assert.ok(firstDetailChunk);
+    assert.equal(
+      (firstDetailChunk!.details!.match(/\n/g) ?? []).length,
+      1,
+      "flush chunk should contain pending + this-item details separated by one newline",
     );
 
     // Header reflects 5 calls
@@ -1691,6 +1703,23 @@ describe("SlackStreamer.handleEvent — grouped detail cap", () => {
     assert.ok(
       lastTaskChunk!.title!.includes("(5)"),
       `expected "(5)" in title, got "${lastTaskChunk!.title}"`,
+    );
+  });
+
+  it("does not emit a detail line for a single-item group", () => {
+    streamer.handleEvent({
+      type: "tool_start",
+      taskId: "solo",
+      toolName: "Read",
+      toolArgs: { file_path: "/only.ts" },
+    });
+    streamer.handleEvent({ type: "tool_end", taskId: "solo" });
+
+    const chunks = getAppendedChunks(mockStreamerObj);
+    assert.equal(
+      countDetailChunks(chunks, "solo"),
+      0,
+      "single-item group must not emit a detail line beneath its title",
     );
   });
 
@@ -1711,11 +1740,12 @@ describe("SlackStreamer.handleEvent — grouped detail cap", () => {
       (c) => c.id === "task-1" && typeof c.details === "string" && c.details.length > 0,
     );
 
-    // 5 in-cap detail lines + 1 overflow marker = 6 detail-bearing chunks, no more.
+    // Call 1 defers, calls 2-5 emit one chunk each (call 2 carries 2 lines), call 6 emits
+    // the overflow marker, calls 7-10 stay silent. 5 detail-bearing chunks total.
     assert.equal(
       detailChunks.length,
-      6,
-      "5 in-cap details + exactly 1 overflow marker (silent for calls 7–10)",
+      5,
+      "first call deferred + 4 fold-in chunks + 1 overflow marker (silent for calls 7–10)",
     );
 
     // Exactly one "…" line — not one per overflow call.
@@ -1849,16 +1879,18 @@ describe("SlackStreamer.handleEvent — grouped detail cap with custom mapping",
     }
 
     const chunks = getAppendedChunks(mockStreamerObj);
-    // Tight: 3 in-cap details + 1 overflow marker; loose: 5 calls, well under cap (10), no marker.
+    // Tight: first deferred, calls 2-3 emit (2 chunks), call 4 overflow marker → 3 chunks.
+    // Loose: first deferred, calls 2-5 each emit (4 chunks). Visible lines stay 4 and 5
+    // respectively because the count=2 chunk carries both pending and call-2 detail lines.
     assert.equal(
       countDetailChunks(chunks, "tight-1"),
-      4,
-      "tight group: 3 in-cap details + 1 overflow marker",
+      3,
+      "tight group: deferred first + 2 fold-in chunks + 1 overflow marker",
     );
     assert.equal(
       countDetailChunks(chunks, "loose-1"),
-      5,
-      "loose group should emit all 5 detail lines (cap 10)",
+      4,
+      "loose group: deferred first + 4 fold-in chunks (cap 10)",
     );
 
     const tightHeader = [...chunks].reverse().find((c) => c.id === "tight-1");

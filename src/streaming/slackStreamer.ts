@@ -68,6 +68,13 @@ export class SlackStreamer {
     pending: number;
     /** Cap on detail lines for this group; resolved when the group is opened. */
     maxDetails: number;
+    /**
+     * Detail line for the FIRST item, deferred while count === 1. Single-item groups
+     * already convey the same info in their title, so we only flush this when count
+     * grows to 2+ (where the first item's contribution is no longer redundant with the
+     * group header).
+     */
+    pendingFirstDetail?: string;
   } | null = null;
   /** Maps each SDK taskId to the Slack task ID it belongs to. */
   private taskSlack = new Map<string, string>();
@@ -183,7 +190,9 @@ export class SlackStreamer {
         // Re-emit with real args — update the existing task
         if (existingSlackId && hasArgs) {
           if (existingSlackId === event.taskId) {
-            // Standalone tool — update label directly
+            // Standalone tool, OR first item of a group (count=1) — update label.
+            // For the group case we ALSO defer the now-resolvable itemDetail into
+            // pendingFirstDetail so it can flush if a second item folds in later.
             this.taskLabels.set(event.taskId, label);
             const chunk: TaskUpdateChunk = {
               type: "task_update",
@@ -193,6 +202,18 @@ export class SlackStreamer {
             };
             const details = getToolDetails(event.toolName, event.toolArgs);
             if (details) chunk.details = details;
+            if (
+              this.openGroup &&
+              this.openGroup.slackId === existingSlackId &&
+              this.openGroup.count === 1 &&
+              this.openGroup.pendingFirstDetail === undefined
+            ) {
+              const group = getToolGroup(event.toolName, event.toolArgs);
+              if (group?.itemDetail) {
+                const formatted = this.formatGroupDetail(group.itemDetail, false);
+                if (formatted !== null) this.openGroup.pendingFirstDetail = formatted;
+              }
+            }
             this.append([chunk]);
           } else {
             // Grouped tool — update the group's details with real args
@@ -249,12 +270,24 @@ export class SlackStreamer {
             title: this.groupTitle(this.openGroup.title),
             status: "in_progress",
           };
+          // Flush the deferred first-item detail when count grows past 1. From count=3
+          // onward, pendingFirstDetail is already cleared and we fall back to normal
+          // per-item appending.
+          const pending = this.openGroup.pendingFirstDetail;
+          this.openGroup.pendingFirstDetail = undefined;
           // Only append itemDetail when we have real args (skip generic placeholders).
           // Within the cap → real detail; at cap+1 → "…" overflow marker; beyond → silent.
+          let thisDetail: string | null = null;
           if (group.itemDetail && hasArgs) {
-            const formatted = this.formatGroupDetail(group.itemDetail, true);
-            if (formatted !== null) chunk.details = formatted;
+            thisDetail = this.formatGroupDetail(group.itemDetail, true);
           }
+          // Combine the pending first-item detail (stored without a leading newline)
+          // with this item's detail (which starts with "\n" because prefixNewline=true).
+          // Result: "pending\nthisDetail" — no leading newline because the task had no
+          // prior details.
+          if (pending !== undefined && thisDetail !== null) chunk.details = pending + thisDetail;
+          else if (pending !== undefined) chunk.details = pending;
+          else if (thisDetail !== null) chunk.details = thisDetail;
           chunks.push(chunk);
         } else {
           // New task (grouped or standalone)
@@ -284,13 +317,13 @@ export class SlackStreamer {
             status: "in_progress",
           };
 
-          // Attach details: itemDetail for grouped (only with real args; routed through
-          // the same cap helper so the overflow rule stays consistent), or rich details
-          // for standalone.
+          // Attach details: for grouped, defer the first item's detail until count > 1
+          // (a single-item group's title already conveys the same info as the detail line).
+          // For standalone, emit rich details immediately.
           if (group) {
-            if (group.itemDetail && hasArgs) {
+            if (group.itemDetail && hasArgs && this.openGroup) {
               const formatted = this.formatGroupDetail(group.itemDetail, false);
-              if (formatted !== null) chunk.details = formatted;
+              if (formatted !== null) this.openGroup.pendingFirstDetail = formatted;
             }
           } else {
             const details = getToolDetails(event.toolName, event.toolArgs);
