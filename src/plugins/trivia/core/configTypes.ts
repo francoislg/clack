@@ -41,7 +41,7 @@ export type TriviaFreeformAnswerShape =
   | "phrase"
   | "title"
   | "date"
-  | "number"
+  | "countable"
   | "other";
 
 export type TriviaFreeformAnswerShapeWeights = Record<TriviaFreeformAnswerShape, number>;
@@ -174,7 +174,7 @@ export const DEFAULT_FREEFORM_ANSWER_SHAPE_WEIGHTS: TriviaFreeformAnswerShapeWei
   phrase: 1,
   title: 1,
   date: 1,
-  number: 1,
+  countable: 1,
   other: 1,
 };
 

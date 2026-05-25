@@ -130,6 +130,7 @@ describe("Trivia question-format end-to-end flow", () => {
           expectedAnswer: undefined,
           acceptableAnswers: undefined,
           gradingNotes: undefined,
+          freeformAnswerShape: undefined,
           category: "Science",
           statement: "Water freezes at zero Celsius at sea level.",
           isTrue: true,
@@ -168,6 +169,7 @@ describe("Trivia question-format end-to-end flow", () => {
           expectedAnswer: undefined,
           acceptableAnswers: undefined,
           gradingNotes: undefined,
+          freeformAnswerShape: undefined,
           category: "Sports", // not in slot 1's narrowed pool
           statement: "Some plausible statement here.",
           isTrue: false,
@@ -196,6 +198,7 @@ describe("Trivia question-format end-to-end flow", () => {
           expectedAnswer: undefined,
           acceptableAnswers: undefined,
           gradingNotes: undefined,
+          freeformAnswerShape: undefined,
           category: "History",
           statement: "Napoleon was crowned Emperor in 1804.",
           isTrue: true,

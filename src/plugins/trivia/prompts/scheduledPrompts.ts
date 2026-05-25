@@ -301,7 +301,7 @@ const FREEFORM_FACT_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
      - categories.ideas: 5 random categories.
      - suggestedAnswersFormat: "freeform"
      - suggestedQuestionType: "fact"
-     - suggestedFreeformAnswerShape: one of "name" | "place" | "phrase" | "title" | "date" | "number" | "other" — the SHAPE the answer must take. Non-negotiable.
+     - suggestedFreeformAnswerShape: one of "name" | "place" | "phrase" | "title" | "date" | "countable" | "other" — the SHAPE the answer must take. Non-negotiable.
      - suggestedDifficulty ("Easy" | "Medium" | "Hard"): the bucket to aim at.
      - suggestedDifficultyRange ([min, max]) and minimumDifficultyThreshold (integer): the bucket's target band and reject-below cutoff for THIS game type (freeform's bands are softer than boolean/choice's) — used at step 7.
      - contextPriority (optional, only when contexts are configured): see CONTEXTS guidance above.
@@ -318,13 +318,13 @@ const FREEFORM_FACT_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
        - "year" — only when the year itself is famous in its own right (e.g. 1969 moon landing, 1989 Berlin Wall, 2008 financial crisis). If a knowledgeable person couldn't name the exact year unprompted, use decade instead.
        - "decade" — the default for 20th-century or earlier events that aren't year-famous. NOT for events of the last ~30 years (those feel too recent to need decade granularity). DECADE-BOUNDARY CHECK: before choosing decade, verify the event sits cleanly inside ONE decade. If it spans two (e.g. an academic tenure from 1898 to 1907 spans both the 1890s AND the 1900s), either (a) anchor the question on a single year-famous moment within the span (e.g. "the year Rutherford published his transmutation paper" → 1902 with ±5 leeway, switching to "year" granularity), or (b) keep the decade granularity but list EVERY spanned decade in \`acceptableAnswers\` (e.g. \`["1890s", "1900s", "1890-1899", "1900-1909"]\`) and restate the absolute range covering the whole span in \`gradingNotes\`. NEVER ship a decade question whose answer arbitrarily picks one of two equally-valid decades.
        - "era / century / millennium" — reserved for historical questions (pre-1900 / pre-1500 respectively). Don't use these for modern history.
-     - "number" → a count, measurement, quantity, age, or score. A BARE VALUE, NEVER A DATE. If your answer is a year, you picked the wrong shape — switch to "date".
+     - "countable" → a small integer answer where the count is well-known, derivable, or a fixed convention. NOT arbitrary statistics from articles or research findings — those are memorization tests of a specific datum, not derivable knowledge. If your answer requires citing a recent figure, you picked the wrong shape.
      - "other" → an unconventional answer shape that doesn't fit any of the categories above. Reach for something Claude wouldn't pick by default — e.g. a chemical formula, a sports score, a paired outcome, a measurement with non-standard units, a color, a currency amount, an acronym treated as the answer itself, a velocity, an emoji-based response. Must still be a short, unambiguous value with one canonical form.
    - The question should NOT be answerable with just yes/no — that's the boolean path.
    - Aim for 1-4 word answers (1-30 characters).
    - LEEWAY:
      - For \`date\` shape: MANDATORY. Always state the accepted tolerance EXPLICITLY in the question itself — never expect exact recall. Defaults: "year" → "(within 5 years)" on Easy/Medium, "(within 2 years)" on Hard; "decade" → "(to the nearest decade)"; "century" / "millennium" → no leeway suffix needed (the granularity IS the tolerance). Set \`gradingNotes\` to restate the absolute range anchored on \`expectedAnswer\` (e.g. "Accept any year in [1964, 1974] (±5 of 1969)." or "Accept any year in [1900, 1909], typed as a bare year or decade form."). Players are NEVER expected to match the format — only the value. The judge already accepts bare years for decade questions, but spelling it out here makes intent unambiguous.
-     - For \`number\` shape: relevant when exact recall is unrealistic — same tolerance pattern as date ("(±10 km)", "(within 100)"). Skip when the number is small and exact (e.g. "How many sides does a hexagon have?").
+     - For \`countable\` shape: relevant when exact recall is unrealistic — same tolerance pattern as date ("(±10 km)", "(within 100)"). Skip when the answer is small and exact (e.g. "How many sides does a hexagon have?").
      - For "name" / "place" / "phrase" / "title" / "other" shapes: SKIP — the judge handles capitalization, punctuation, and reasonable variants automatically.
 
 3. WRITE THE EXPECTED ANSWER (REQUIRED — CANONICAL FORM ONLY):
@@ -359,6 +359,7 @@ const FREEFORM_FACT_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
      - expectedAnswer (REQUIRED — canonical form)
      - acceptableAnswers (optional — array of variants)
      - gradingNotes (optional — one sentence)
+     - freeformAnswerShape (REQUIRED — pass through the value from get_ideas' suggestedFreeformAnswerShape, verbatim)
      - emojis (1-4)
      - suggestedDifficulty
      - difficulty (your 1–10 self-rating)
@@ -376,7 +377,7 @@ const FREEFORM_TOPICAL_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
      - categories.ideas: 5 random categories.
      - suggestedAnswersFormat: "freeform"
      - suggestedQuestionType: "topical"
-     - suggestedFreeformAnswerShape: one of "name" | "place" | "phrase" | "title" | "date" | "number" | "other" — see fact-freeform path for per-shape descriptions. Non-negotiable.
+     - suggestedFreeformAnswerShape: one of "name" | "place" | "phrase" | "title" | "date" | "countable" | "other" — see fact-freeform path for per-shape descriptions. Non-negotiable.
      - suggestedDifficulty ("Easy" | "Medium" | "Hard"): the bucket to aim at.
      - suggestedDifficultyRange ([min, max]) and minimumDifficultyThreshold (integer): the bucket's target band and reject-below cutoff for THIS game type (freeform's bands are softer than boolean/choice's) — used at step 7.
      - contextPriority (optional, only when contexts are configured): see CONTEXTS guidance above.
@@ -386,7 +387,7 @@ const FREEFORM_TOPICAL_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
    - Same WebSearch + lens-descent rules as the topical boolean / topical choice paths. Capture \`sourceUrl\` and (when known) \`eventDate\` from the chosen event.
 
 3. WRITE THE QUESTION:
-   - Anchor a single-sentence prompt on a verified fact drawn from the event. The answer must match suggestedFreeformAnswerShape (see fact-freeform step 2). LEEWAY applies only to "date" / "number" shapes; skip for "name" / "place" / "phrase".
+   - Anchor a single-sentence prompt on a verified fact drawn from the event. The answer must match suggestedFreeformAnswerShape (see fact-freeform step 2). LEEWAY applies only to "date" / "countable" shapes; skip for "name" / "place" / "phrase".
 
 4. WRITE THE EXPECTED ANSWER (REQUIRED): shortest canonical form, max 200 chars.
 
@@ -407,6 +408,7 @@ const FREEFORM_TOPICAL_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
      - expectedAnswer (REQUIRED)
      - acceptableAnswers (optional)
      - gradingNotes (optional)
+     - freeformAnswerShape (REQUIRED — pass through the value from get_ideas' suggestedFreeformAnswerShape, verbatim)
      - sourceUrl (REQUIRED — captured in step 2)
      - eventDate (when known)
      - emojis

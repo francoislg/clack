@@ -2,6 +2,7 @@ import type { KnownBlock } from "@slack/types";
 import type {
   TriviaAnswersFormatWeights,
   TriviaQuestionTypeWeights,
+  TriviaFreeformAnswerShape,
   TriviaFreeformAnswerShapeWeights,
   TriviaContextEntry,
   TriviaDifficultyConfig,
@@ -56,6 +57,13 @@ export interface TriviaQuestion {
    * specific judging considerations. Freeform-only.
    */
   gradingNotes?: string;
+  /**
+   * The rolled freeform answer shape passed through from `get_ideas`. Recorded
+   * for post-hoc audit — lets us check whether Claude actually honored the
+   * non-negotiable shape directive on each question. Freeform-only. Absent on
+   * legacy rows and on rows written before the persistence was added.
+   */
+  freeformAnswerShape?: TriviaFreeformAnswerShape;
   /** Difficulty bucket targeted at generation time. Absent on legacy rows. */
   suggestedDifficulty?: "Easy" | "Medium" | "Hard";
   /** Claude's 1–10 self-rating from the difficulty gate. Absent on legacy rows. */
