@@ -32,7 +32,9 @@ export function createProposeSkillUpdateTool(
       description: z
         .string()
         .optional()
-        .describe("New trigger description (1-1024 chars). Omit to keep the current value."),
+        .describe(
+          'New trigger description (1-1024 chars). Omit to keep the current value. Shown to Claude in every prompt — this is the ONLY signal Claude has for deciding to load the skill, so write it for high recall. Format: start with the literal phrases a user might say to invoke the skill ("Use when the user asks to <X>, be a <Y>, act as <Z>..."), then list the topic keywords/synonyms that should also fire it ("...or when the conversation involves <topic1>, <topic2>, <topic3>"), then one short clause naming the persona/behavior it activates. Avoid generic phrasing — it under-triggers.',
+        ),
       body: z.string().optional().describe("New SKILL.md body. Omit to keep the current value."),
     },
     async (args) => {

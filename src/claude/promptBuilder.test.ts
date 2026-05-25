@@ -844,4 +844,43 @@ describe("buildPrompt", () => {
       assert.ok(!prompt.includes("RUN TERMINATOR"));
     });
   });
+
+  describe("user skills catalog", () => {
+    it("renders USER SKILLS subsection when userSkills are passed", () => {
+      const session = makeSession();
+      const prompt = buildPrompt(session, {
+        userSkills: [
+          {
+            slug: "sports-analyst",
+            description: "Use when the conversation involves hockey or NHL.",
+          },
+        ],
+      });
+      assert.ok(prompt.includes("USER SKILLS"));
+      assert.ok(prompt.includes("sports-analyst"));
+      assert.ok(prompt.includes("Use when the conversation involves hockey or NHL."));
+    });
+
+    it("omits USER SKILLS subsection when userSkills is empty", () => {
+      const session = makeSession();
+      const prompt = buildPrompt(session, { userSkills: [] });
+      assert.ok(!prompt.includes("USER SKILLS"));
+    });
+
+    it("renders both lazy packs and USER SKILLS together", () => {
+      const session = makeSession();
+      const prompt = buildPrompt(session, {
+        skillPluginsRegistry: {
+          marketingskills: {
+            lazyLoad: true,
+            description: "Marketing playbooks.",
+          },
+        },
+        userSkills: [{ slug: "sports-analyst", description: "Hockey persona." }],
+      });
+      assert.ok(prompt.includes("marketingskills"));
+      assert.ok(prompt.includes("USER SKILLS"));
+      assert.ok(prompt.includes("sports-analyst"));
+    });
+  });
 });

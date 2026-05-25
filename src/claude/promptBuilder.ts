@@ -8,7 +8,7 @@ import { triggerText, userContinuations } from "../sessions/selectors.js";
 import type { SlackImageFile, SlackFile } from "../slack/slackFileBase.js";
 import { DISMISSAL_PHRASES_INLINE } from "./dismissalPhrases.js";
 import { buildIntegrationsCatalog } from "./integrationsCatalog.js";
-import { buildSkillPacksCatalog } from "./skillPacksCatalog.js";
+import { buildSkillPacksCatalog, type UserSkillCatalogEntry } from "./skillPacksCatalog.js";
 
 /**
  * Render the LANGUAGE directive when a non-English language is configured.
@@ -64,6 +64,13 @@ export interface PromptOptions {
    * "AVAILABLE SKILL PACKS" catalog block. Omit to skip the section entirely.
    */
   skillPluginsRegistry?: SkillPluginRegistry;
+  /**
+   * Enabled user-authored skills (from `discoverUserSkills()` minus disabled entries)
+   * rendered inline as a `USER SKILLS:` subsection of the "AVAILABLE SKILL PACKS"
+   * catalog. Omit when the `userSkills` feature is disabled — the subsection is
+   * skipped entirely.
+   */
+  userSkills?: ReadonlyArray<UserSkillCatalogEntry>;
   /**
    * Topic names to pre-attach for this session — surfaces `topics/<topic>/*.md` instruction
    * files (including plugin virtual defaults) in the assembled system prompt from turn 1.
@@ -459,8 +466,8 @@ Use this context to understand the conversation flow and provide relevant answer
     if (catalog.length > 0) parts.push(catalog);
   }
 
-  if (options?.skillPluginsRegistry) {
-    const catalog = buildSkillPacksCatalog(options.skillPluginsRegistry);
+  if (options?.skillPluginsRegistry || options?.userSkills) {
+    const catalog = buildSkillPacksCatalog(options.skillPluginsRegistry, options.userSkills);
     if (catalog.length > 0) parts.push(catalog);
   }
 
