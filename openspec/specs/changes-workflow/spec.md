@@ -68,6 +68,11 @@ The system SHALL support a top-level configuration section for the change reques
 - **AND** defaults to 15 minutes if not specified
 - **AND** set to 0 to disable monitoring
 
+#### Scenario: Reusable folders configuration block
+- **WHEN** `changesWorkflow.reusableFolders` is configured
+- **THEN** it accepts: `enabled` (bool), `minimumProvisioned` (int), `maxConcurrent` (int), `maxQueueDepth` (int), `idleReleaseHours` (int), `dirtyTrackedQuarantine` (bool)
+- **AND** when `enabled` is `false` or absent, the disposable per-branch worktree model is used
+
 ## REMOVED Requirements
 
 ### Requirement: PR instructions in config
@@ -368,6 +373,73 @@ The system SHALL support `"cancelled"` as a terminal `ChangeStatus` distinct fro
 - **THEN** the change status is set to `"cancelled"` regardless of prior status
 - **AND** the PR remains on GitHub in its current state
 - **AND** the user can request a new follow-up action in the same thread later
+
+### Requirement: Worker Pool Mediation
+
+The system SHALL route worktree acquisition and release through `WorkerPool` when `changesWorkflow.reusableFolders.enabled` is `true`.
+
+#### Scenario: Acquire via pool on change start
+- **GIVEN** `reusableFolders.enabled` is `true`
+- **WHEN** `startChangeWorkflow` reaches the worktree-acquisition step
+- **THEN** it calls `pool.acquire(repo, branch, sessionId)` instead of `createWorktree`
+- **AND** the returned `Worker.worktreePath` is recorded on `activeChange.worktree`
+
+#### Scenario: Release via pool on PR completion
+- **GIVEN** `reusableFolders.enabled` is `true`
+- **WHEN** the completion monitor detects a PR was merged or closed externally
+- **THEN** it calls `pool.release(worker, "pr_merged" | "pr_closed")` instead of `removeWorktree`
+
+#### Scenario: Release via pool on follow-up merge or close
+- **GIVEN** `reusableFolders.enabled` is `true`
+- **WHEN** the merge or close follow-up command completes successfully
+- **THEN** the workflow calls `pool.release(worker, "pr_merged" | "pr_closed")` for the active worker
+
+#### Scenario: Disposable mode behaves as before
+- **GIVEN** `reusableFolders.enabled` is `false` or unset
+- **WHEN** the workflow runs any change
+- **THEN** behavior matches the pre-change disposable model exactly
+- **AND** no pool state is read or written
+
+### Requirement: Detached Session Re-Acquire
+
+The system SHALL support follow-up commands on sessions whose worker was detached during idle release.
+
+#### Scenario: Re-acquire on follow-up
+- **GIVEN** a session's `activeChange.worktree` is marked detached (post idle-release)
+- **WHEN** any follow-up command (`review`, `update`, `merge`, `close`) executes
+- **THEN** the workflow calls `pool.acquire(repo, branch, sessionId)`
+- **AND** the returned worker is used for the command
+
+#### Scenario: Re-acquire when pool is saturated
+- **GIVEN** a detached session triggers a follow-up
+- **AND** the pool is at `maxConcurrent` with no idle workers
+- **WHEN** acquire is called
+- **THEN** the request enqueues per the pool's queue rules
+- **AND** the user is notified that the action is queued
+
+### Requirement: Queue Acknowledgment
+
+The system SHALL inform the user when a change request is enqueued.
+
+#### Scenario: Initial Slack ack on queue
+- **WHEN** a change request is enqueued by the pool
+- **THEN** the orchestrator posts a status message indicating the request is queued and its position
+- **AND** a follow-up status is posted when the request is dequeued and execution begins
+
+#### Scenario: Pool-exhausted message
+- **WHEN** the pool rejects with `PoolExhausted`
+- **THEN** the orchestrator returns `{ success: false, error: <message indicating capacity is full> }`
+- **AND** the Slack response surfaces the error to the user
+
+### Requirement: Worker Visibility
+
+The system SHALL provide real-time visibility into change execution progress, including pool state when reusable folders are enabled.
+
+#### Scenario: Pool state visible when reusable folders enabled
+- **GIVEN** `reusableFolders.enabled` is `true` and the viewer is admin or owner
+- **WHEN** the Home Tab renders
+- **THEN** a "Worker Pool" section is shown listing per-repo slot counts (idle, busy, initializing, quarantined) and queue depth
+- **AND** the disposable-mode Active Workers section is hidden when the pool is enabled
 
 ## ADDED Requirements
 
