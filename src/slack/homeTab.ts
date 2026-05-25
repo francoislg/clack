@@ -11,6 +11,8 @@ import { getReactionDelivery, getUserPreference } from "../userPreferences.js";
 import { getVisibleRepos, canWriteRepo } from "../repoAccess.js";
 import { getMigrationErrors } from "../migrations/admin.js";
 import { discoverSkillPluginInfo } from "../skillPlugins.js";
+import { discoverUserSkills } from "../userSkills.js";
+import { buildUserSkillsSection } from "./userSkillsHomeTab.js";
 import { getRules, type AutoRespondRule } from "../autoRespond.js";
 import { getJobs, getJobsByUser, type CronJob } from "../cronJobs.js";
 import { humanReadableSchedule } from "../cronFormatter.js";
@@ -147,6 +149,20 @@ export async function buildHomeView(
 
   // Configuration & preferences section (config editing for admins, preferences for all)
   blocks.push(...buildConfigurationSection(userCanEdit, deps));
+
+  // User-created skills section — feature-gated; everyone can view, member+ can create,
+  // owner-or-admin can edit per-row. Guarded against unloaded config (tests rarely call
+  // loadConfig before exercising buildHomeView).
+  let userSkillsEnabled = false;
+  try {
+    userSkillsEnabled = getConfig().userSkills?.enabled === true;
+  } catch {
+    // Config not loaded — feature off.
+  }
+  if (userSkillsEnabled) {
+    const userSkills = discoverUserSkills();
+    blocks.push(...buildUserSkillsSection(userId, role, userSkills));
+  }
 
   // Workers section — unified view of active changes (disposable mode) or
   // the physical worker pool (reusable mode). Visible to devs and higher;

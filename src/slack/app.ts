@@ -17,6 +17,8 @@ import { registerChoiceHandler } from "./handlers/choice.js";
 import { registerFollowupHandler } from "./handlers/followup.js";
 import { registerChangeActionHandler } from "./handlers/changeAction.js";
 import { registerConfigUpdateActionHandler } from "./handlers/configUpdateAction.js";
+import { registerSkillActionHandler } from "./handlers/skillAction.js";
+import { registerUserSkillsHomeActions } from "./handlers/userSkillsHomeActions.js";
 import { registerChangeThreadActionHandlers } from "./handlers/changeThreadActions.js";
 import { registerDmActionHandlers } from "./handlers/dmActions.js";
 import { registerMessageChangedHandler } from "./handlers/messageChanged.js";
@@ -37,6 +39,8 @@ export interface AppDeps {
   registerFollowupHandler: typeof registerFollowupHandler;
   registerChangeActionHandler: typeof registerChangeActionHandler;
   registerConfigUpdateActionHandler: typeof registerConfigUpdateActionHandler;
+  registerSkillActionHandler: typeof registerSkillActionHandler;
+  registerUserSkillsHomeActions: typeof registerUserSkillsHomeActions;
   registerChangeThreadActionHandlers: typeof registerChangeThreadActionHandlers;
   registerDmActionHandlers: typeof registerDmActionHandlers;
   registerMessageChangedHandler: typeof registerMessageChangedHandler;
@@ -58,6 +62,8 @@ export const defaultAppDeps: AppDeps = {
   registerFollowupHandler,
   registerChangeActionHandler,
   registerConfigUpdateActionHandler,
+  registerSkillActionHandler,
+  registerUserSkillsHomeActions,
   registerChangeThreadActionHandlers,
   registerDmActionHandlers,
   registerMessageChangedHandler,
@@ -91,6 +97,8 @@ export function createSlackApp(deps: AppDeps = defaultAppDeps): App {
   deps.registerFollowupHandler(app);
   deps.registerChangeActionHandler(app);
   deps.registerConfigUpdateActionHandler(app);
+  deps.registerSkillActionHandler(app);
+  deps.registerUserSkillsHomeActions(app);
   deps.registerChangeThreadActionHandlers(app);
 
   // DM reaction handlers (always enabled — DM delivery is a per-user preference)

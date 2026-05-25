@@ -172,4 +172,13 @@ describe("list_skill_pack_skills tool", () => {
     const text = extractText(result);
     assert.ok(text.includes("no skills available"));
   });
+
+  it("rejects 'user-skills' pack with redirect to inline catalog", async () => {
+    const tool = createListSkillPackSkillsTool(makeCtx(new SkillsManager(new Map(), {})));
+    const result = await callHandler(tool, { pack: "user-skills" });
+    assert.ok(isError(result));
+    const text = extractText(result);
+    assert.ok(/USER SKILLS/.test(text));
+    assert.ok(/load_skill/.test(text));
+  });
 });

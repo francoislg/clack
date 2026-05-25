@@ -280,6 +280,46 @@ export const en = {
   "errors.auto_post_no_content": "Could not auto-post: response content was not found.",
   "errors.auto_post_failed": "Failed to post: {error}",
 
+  // ─── User-created skills ───────────────────────────────────────────
+  "userSkills.created": "Skill `{slug}` has been created.",
+  "userSkills.create_failed": "Failed to create skill `{slug}`: {error}",
+  "userSkills.updated": "Skill `{slug}` has been updated.",
+  "userSkills.update_failed": "Failed to update skill `{slug}`: {error}",
+  "userSkills.disabled": "Skill `{slug}` has been disabled.",
+  "userSkills.disable_failed": "Failed to disable skill `{slug}`: {error}",
+  "userSkills.restored": "Skill `{slug}` has been restored.",
+  "userSkills.restore_failed": "Failed to restore skill `{slug}`: {error}",
+  "userSkills.permission_denied":
+    "You don't have permission to edit skill `{slug}`. Only the owner or an admin can edit.",
+  "userSkills.expired": "Sorry, this skill request has expired. Please try again.",
+  "userSkills.section_header": "Skills",
+  "userSkills.section_subheader": "Org-authored skills available to Claude in every session.",
+  "userSkills.empty_state": "No user skills yet. Click *+ Create skill* to add the first one.",
+  "userSkills.create_button": "+ Create skill",
+  "userSkills.edit_button": "Edit",
+  "userSkills.disable_button": "Disable",
+  "userSkills.restore_button": "Restore",
+  "userSkills.disabled_badge": "(disabled)",
+  "userSkills.owner_label": "Owner",
+  "userSkills.modal_create_title": "Create skill",
+  "userSkills.modal_edit_title": "Edit skill",
+  "userSkills.modal_name_label": "Name",
+  "userSkills.modal_name_placeholder": "lowercase-with-hyphens",
+  "userSkills.modal_name_hint":
+    "1-64 chars, lowercase a-z/0-9/hyphens. Cannot start/end with a hyphen or contain `--`.",
+  "userSkills.modal_description_label": "When to use",
+  "userSkills.modal_description_hint":
+    "Trigger description (max 1024 chars). Tells Claude when this skill is the right fit.",
+  "userSkills.modal_body_label": "Body",
+  "userSkills.modal_body_hint":
+    "The full SKILL.md content (markdown). Loaded on demand when Claude reaches for this skill.",
+  "userSkills.label.creating": "Creating skill `{slug}`",
+  "userSkills.label.updating": "Updating skill `{slug}`",
+  "userSkills.label.disabling": "Disabling skill `{slug}`",
+  "userSkills.label.restoring": "Restoring skill `{slug}`",
+  "userSkills.label.listing": "Listing user skills",
+  "userSkills.label.loading": "Loading skill `{slug}`",
+
   // ─── Slack Assistant ───────────────────────────────────────────────
   "assistant.greeting": "Hi! Ask me anything about the codebase.",
   "assistant.thinking_status": "Thinking...",

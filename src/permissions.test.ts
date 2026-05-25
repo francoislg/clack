@@ -8,6 +8,8 @@ import {
   canRequestChanges,
   canManageRoles,
   canTransferOwnership,
+  canCreateUserSkill,
+  canEditUserSkill,
   meetsMinimumRole,
   userCanEditConfig,
   userCanManageRoles,
@@ -66,6 +68,46 @@ describe("canTransferOwnership", () => {
     assert.equal(canTransferOwnership("admin"), false);
     assert.equal(canTransferOwnership("dev"), false);
     assert.equal(canTransferOwnership("member"), false);
+  });
+});
+
+describe("canCreateUserSkill", () => {
+  it("allows every user-facing role", () => {
+    assert.equal(canCreateUserSkill("member"), true);
+    assert.equal(canCreateUserSkill("dev"), true);
+    assert.equal(canCreateUserSkill("admin"), true);
+    assert.equal(canCreateUserSkill("owner"), true);
+  });
+
+  it("allows system", () => {
+    assert.equal(canCreateUserSkill("system"), true);
+  });
+});
+
+describe("canEditUserSkill", () => {
+  it("allows the owner of the skill regardless of role", () => {
+    assert.equal(canEditUserSkill("member", "U_ALICE", "U_ALICE"), true);
+    assert.equal(canEditUserSkill("dev", "U_ALICE", "U_ALICE"), true);
+  });
+
+  it("allows admin on someone else's skill", () => {
+    assert.equal(canEditUserSkill("admin", "U_ALICE", "U_BOB"), true);
+  });
+
+  it("allows owner role on someone else's skill", () => {
+    assert.equal(canEditUserSkill("owner", "U_ALICE", "U_BOB"), true);
+  });
+
+  it("denies non-owner member", () => {
+    assert.equal(canEditUserSkill("member", "U_ALICE", "U_BOB"), false);
+  });
+
+  it("denies non-owner dev", () => {
+    assert.equal(canEditUserSkill("dev", "U_ALICE", "U_BOB"), false);
+  });
+
+  it("admin editing own skill is still allowed", () => {
+    assert.equal(canEditUserSkill("admin", "U_ADMIN", "U_ADMIN"), true);
   });
 });
 

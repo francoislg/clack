@@ -1,9 +1,9 @@
 {
   "hidden": ["ToolSearch"],
   "conditionalHidden": [
-    { "tool": "Read", "arg": "file_path", "pattern": "^tool-results/" },
+    { "tool": "Read", "arg": "file_path", "pattern": "(^|/)tool-results/" },
     { "tool": "Read", "arg": "file_path", "pattern": "cache/files/" },
-    { "tool": "Read", "arg": "file_path", "pattern": "^tasks/" }
+    { "tool": "Read", "arg": "file_path", "pattern": "(^|/)tasks/" }
   ],
   "argOptions": {
     "file_path": { "truncate": 40 },

@@ -21,6 +21,14 @@ export function createListSkillPackSkillsTool(ctx: QueryToolContext) {
       pack: z.string().describe("The skill pack name from the AVAILABLE SKILL PACKS catalog."),
     },
     async (args) => {
+      // The user-skills pack's skills are already enumerated inline in the AVAILABLE SKILL PACKS
+      // catalog (under the USER SKILLS subsection) — calling this tool for it is wasted work.
+      if (args.pack === "user-skills") {
+        return errorResult(
+          'Pack \'user-skills\' does not support list_skill_pack_skills — its skills are already listed inline under the USER SKILLS subsection of the AVAILABLE SKILL PACKS block. Pick a skill from there and call load_skill({ pack: "user-skills", skill: "<slug>" }) directly.',
+        );
+      }
+
       const manager = ctx.skillsManager;
       if (!manager) {
         return errorResult(

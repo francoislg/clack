@@ -1,5 +1,8 @@
-import { describe, it, mock } from "node:test";
+import { describe, it, mock, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
+import { mkdirSync, rmSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { resolve, join } from "node:path";
 import { createLoadSkillTool, type LoadSkillDeps } from "./loadSkill.js";
 import type { QueryToolContext } from "../types.js";
 import type { SessionContext } from "../../sessions.js";
@@ -9,6 +12,14 @@ import {
   type PackInfo,
   type SkillsManagerDeps,
 } from "../../claude/skillsManager.js";
+import {
+  writeUserSkill,
+  disableUserSkill,
+  setUserSkillsDeps,
+  resetUserSkillsDeps,
+  defaultUserSkillsDeps,
+} from "../../userSkills.js";
+import { clearUserSkillBodyCache } from "../../userSkillsBodyCache.js";
 
 function makePack(name: string, skills: Array<{ name: string; description?: string }>): PackInfo {
   return {
@@ -40,7 +51,7 @@ function makeSession(overrides: Partial<SessionContext> = {}): SessionContext {
   };
 }
 
-function makeConfig(): Config {
+function makeConfig(userSkillsEnabled = false): Config {
   return {
     slack: {
       botToken: "x",
@@ -56,19 +67,21 @@ function makeConfig(): Config {
     git: { pullIntervalMinutes: 1, shallowClone: true, cloneDepth: 1 },
     sessions: { cleanupIntervalMinutes: 1 },
     claudeCode: {},
+    userSkills: userSkillsEnabled ? { enabled: true } : undefined,
   };
 }
 
 function makeCtx(
   skillsManager: SkillsManager | undefined,
   sessionOverrides: Partial<SessionContext> = {},
+  userSkillsEnabled = false,
 ): QueryToolContext {
   return {
     mode: "query",
     userId: "U",
     role: "dev",
     session: makeSession(sessionOverrides),
-    config: makeConfig(),
+    config: makeConfig(userSkillsEnabled),
     changesWorkflowEnabled: false,
     allowScheduledMessages: false,
     skillsManager,
@@ -286,6 +299,97 @@ describe("load_skill tool", () => {
     assert.ok(text.includes("Failed to read skill body"));
     assert.ok(text.includes("ENOENT"));
     // No persistence call when the read fails
+    assert.equal(deps.updateSession.mock.callCount(), 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// user-skills pack — synthetic pack reading from data/user-skills/<slug>/
+// ---------------------------------------------------------------------------
+
+const userSkillsTmp = resolve(tmpdir(), `loadskill-userskills-test-${process.pid}`);
+const userSkillsData = join(userSkillsTmp, "data");
+
+function setupUserSkillsTmp() {
+  if (existsSync(userSkillsTmp)) rmSync(userSkillsTmp, { recursive: true });
+  mkdirSync(userSkillsData, { recursive: true });
+  setUserSkillsDeps({
+    ...defaultUserSkillsDeps,
+    getDataDir: () => userSkillsData,
+    now: () => new Date("2026-05-22T00:00:00.000Z"),
+  });
+  clearUserSkillBodyCache();
+}
+
+function teardownUserSkillsTmp() {
+  resetUserSkillsDeps();
+  clearUserSkillBodyCache();
+  if (existsSync(userSkillsTmp)) rmSync(userSkillsTmp, { recursive: true });
+}
+
+describe("load_skill — user-skills pack", () => {
+  beforeEach(setupUserSkillsTmp);
+  afterEach(teardownUserSkillsTmp);
+
+  it("returns the body for a known enabled user skill", async () => {
+    writeUserSkill({
+      slug: "copy-improver",
+      description: "When the user wants X",
+      body: "# Body\n\nDo X.",
+      ownerUserId: "U_ALICE",
+    });
+    const tool = createLoadSkillTool(makeCtx(undefined, {}, true), makeDeps());
+    const result = await callHandler(tool, { pack: "user-skills", skill: "copy-improver" });
+    assert.equal(isError(result), false);
+    const text = extractText(result);
+    assert.match(text, /Loaded skill 'copy-improver' from pack 'user-skills'/);
+    assert.match(text, /# Body/);
+  });
+
+  it("rejects when feature is disabled", async () => {
+    writeUserSkill({
+      slug: "foo",
+      description: "d",
+      body: "b",
+      ownerUserId: "U",
+    });
+    const tool = createLoadSkillTool(makeCtx(undefined, {}, false), makeDeps());
+    const result = await callHandler(tool, { pack: "user-skills", skill: "foo" });
+    assert.ok(isError(result));
+    assert.match(extractText(result), /not enabled/);
+  });
+
+  it("rejects unknown user skill", async () => {
+    const tool = createLoadSkillTool(makeCtx(undefined, {}, true), makeDeps());
+    const result = await callHandler(tool, { pack: "user-skills", skill: "ghost" });
+    assert.ok(isError(result));
+    assert.match(extractText(result), /not found/);
+  });
+
+  it("rejects disabled user skill as not found", async () => {
+    writeUserSkill({
+      slug: "foo",
+      description: "d",
+      body: "b",
+      ownerUserId: "U",
+    });
+    disableUserSkill("foo");
+    const tool = createLoadSkillTool(makeCtx(undefined, {}, true), makeDeps());
+    const result = await callHandler(tool, { pack: "user-skills", skill: "foo" });
+    assert.ok(isError(result));
+    assert.match(extractText(result), /not found/);
+  });
+
+  it("does NOT call updateSession for user-skills loads (mtime cache replaces session dedup)", async () => {
+    writeUserSkill({
+      slug: "foo",
+      description: "d",
+      body: "b",
+      ownerUserId: "U",
+    });
+    const deps = makeDeps();
+    const tool = createLoadSkillTool(makeCtx(undefined, {}, true), deps);
+    await callHandler(tool, { pack: "user-skills", skill: "foo" });
     assert.equal(deps.updateSession.mock.callCount(), 0);
   });
 });

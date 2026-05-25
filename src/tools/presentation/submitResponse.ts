@@ -188,6 +188,39 @@ const updateActionSchema = z.object({
     .describe("If true, execute immediately without waiting for button click"),
 });
 
+const skillCreateActionSchema = z.object({
+  type: z.literal("skill_create"),
+  ref: z.string().describe("Ref ID from propose_skill_create"),
+  label: z.string().optional().describe("Custom button label (default: 'Create skill')"),
+  auto: z
+    .boolean()
+    .optional()
+    .describe(
+      "If true, create the skill immediately without waiting for a confirm click. Recommended for 'create a skill that...' requests where the user clearly asked.",
+    ),
+});
+
+const skillUpdateActionSchema = z.object({
+  type: z.literal("skill_update"),
+  ref: z.string().describe("Ref ID from propose_skill_update"),
+  label: z.string().optional().describe("Custom button label (default: 'Edit skill')"),
+  auto: z.boolean().optional().describe("If true, apply the update immediately."),
+});
+
+const skillDisableActionSchema = z.object({
+  type: z.literal("skill_disable"),
+  ref: z.string().describe("Ref ID from propose_skill_disable"),
+  label: z.string().optional().describe("Custom button label (default: 'Disable')"),
+  auto: z.boolean().optional().describe("If true, disable immediately."),
+});
+
+const skillRestoreActionSchema = z.object({
+  type: z.literal("skill_restore"),
+  ref: z.string().describe("Ref ID from propose_skill_restore"),
+  label: z.string().optional().describe("Custom button label (default: 'Restore')"),
+  auto: z.boolean().optional().describe("If true, restore immediately."),
+});
+
 const ALLOWED_ACTION_TYPES = [
   "followup",
   "choice",
@@ -195,6 +228,10 @@ const ALLOWED_ACTION_TYPES = [
   "change",
   "config_update",
   "update",
+  "skill_create",
+  "skill_update",
+  "skill_disable",
+  "skill_restore",
 ] as const;
 
 type ActionInput =
@@ -228,6 +265,10 @@ const actionSchema = z.discriminatedUnion(
     changeActionSchema,
     configUpdateActionSchema,
     updateActionSchema,
+    skillCreateActionSchema,
+    skillUpdateActionSchema,
+    skillDisableActionSchema,
+    skillRestoreActionSchema,
   ],
   {
     error: (issue) => {
@@ -241,7 +282,15 @@ const actionSchema = z.discriminatedUnion(
 );
 
 // Ref-based action types that need validation
-const REF_ACTION_TYPES = new Set(["change", "config_update", "update"]);
+const REF_ACTION_TYPES = new Set([
+  "change",
+  "config_update",
+  "update",
+  "skill_create",
+  "skill_update",
+  "skill_disable",
+  "skill_restore",
+]);
 
 // Per-message follow-up payload used by `additional_messages` / `thread_replies` at
 // every layer (top-level and inside a post_to). Strict-mode: every primary-only signal

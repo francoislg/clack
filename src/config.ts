@@ -192,6 +192,17 @@ export interface SkillPluginEntry {
 export type SkillPluginRegistry = Record<string, SkillPluginEntry>;
 
 /**
+ * Toggle for the user-created skills feature. When `enabled` is `false` (or the block
+ * is absent), the feature is fully inert: MCP tools (`propose_skill_*`, `list_user_skills`)
+ * are not registered, the prompt's "USER SKILLS" subsection is not rendered, the Home Tab
+ * Skills section is hidden, and `data/user-skills/` is ignored. Toggling via `data/config.json`
+ * picks itself up through the existing lifecycle reload — no extra wiring needed.
+ */
+export interface UserSkillsConfig {
+  enabled: boolean;
+}
+
+/**
  * Per-installation tuning for `submit_response`. Only `maxAdditionalMessages` lives here
  * today — it bounds how many sibling messages a single scheduled-mode batch (or a single
  * `post_to` action) may carry. The 20-cap on `thread_replies` is intentionally fixed and
@@ -246,6 +257,11 @@ export interface Config {
    * loading (passed via `--plugin-dir` at session start, same as pre-lazy behavior).
    */
   skillPlugins?: SkillPluginRegistry;
+  /**
+   * Toggle for the user-created skills feature. Off (or absent) → fully inert. See
+   * `UserSkillsConfig` for what "enabled" turns on.
+   */
+  userSkills?: UserSkillsConfig;
   /**
    * Per-installation tuning for `submit_response`. Currently only carries the
    * `maxAdditionalMessages` cap. Absent → defaults applied at parse time.
@@ -577,6 +593,27 @@ export function parseSkillPluginRegistry(
   return registry;
 }
 
+export function parseUserSkillsConfig(raw: JsonValue | undefined): UserSkillsConfig | undefined {
+  if (raw === undefined) return undefined;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("Config 'userSkills' must be an object");
+  }
+  const entry: JsonObject = raw;
+
+  const enabled = entry.enabled;
+  if (typeof enabled !== "boolean") {
+    throw new Error("Config 'userSkills.enabled' must be a boolean");
+  }
+
+  for (const key of Object.keys(entry)) {
+    if (key !== "enabled") {
+      throw new Error(`Config 'userSkills' contains unknown key '${key}'`);
+    }
+  }
+
+  return { enabled };
+}
+
 export function parseSubmitResponseConfig(raw: JsonValue | undefined): SubmitResponseConfig {
   const fallback: SubmitResponseConfig = {
     maxAdditionalMessages: DEFAULT_MAX_ADDITIONAL_MESSAGES,
@@ -839,6 +876,7 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
     plugins: strArray(c, "plugins"),
     mcpServers: parseMcpServerRegistry(c.mcpServers as JsonValue | undefined),
     skillPlugins: parseSkillPluginRegistry(c.skillPlugins as JsonValue | undefined),
+    userSkills: parseUserSkillsConfig(c.userSkills as JsonValue | undefined),
     submitResponse: parseSubmitResponseConfig(c.submitResponse as JsonValue | undefined),
     language: isSupportedLanguage(c.language) ? c.language : undefined,
   };

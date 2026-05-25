@@ -9,7 +9,14 @@ import type { ClaudeResponse } from "../../claude/index.js";
 import type { Action, PostToAction } from "../../tools/types.js";
 import type { UserRole } from "../../roles.js";
 import type { TriggerType } from "../../changes/types.js";
-import { canRequestChanges } from "../../permissions.js";
+import { canRequestChanges, canCreateUserSkill, canEditUserSkill } from "../../permissions.js";
+import {
+  writeUserSkill,
+  updateUserSkill,
+  disableUserSkill,
+  restoreUserSkill,
+  readUserSkill,
+} from "../../userSkills.js";
 import { triggerChangeWorkflow } from "./changeAction.js";
 import { triggerFollowUp } from "./changeThreadActions.js";
 import { postAnswerToChannel, resolveOrigin } from "./dmActions.js";
@@ -27,6 +34,13 @@ import type { SlackDeliveryContext } from "./changeAction.js";
 
 export interface AutoExecuteDeps {
   canRequestChanges: (role: UserRole) => boolean;
+  canCreateUserSkill: (role: UserRole) => boolean;
+  canEditUserSkill: (role: UserRole, ownerId: string, callerId: string) => boolean;
+  writeUserSkill: typeof writeUserSkill;
+  updateUserSkill: typeof updateUserSkill;
+  disableUserSkill: typeof disableUserSkill;
+  restoreUserSkill: typeof restoreUserSkill;
+  readUserSkill: typeof readUserSkill;
   triggerChangeWorkflow: (intent: StagedChangeIntent, slack: SlackDeliveryContext) => Promise<void>;
   triggerFollowUp: (
     session: SessionContext,
@@ -53,6 +67,13 @@ export interface AutoExecuteDeps {
 
 export const defaultAutoExecuteDeps: AutoExecuteDeps = {
   canRequestChanges,
+  canCreateUserSkill,
+  canEditUserSkill,
+  writeUserSkill,
+  updateUserSkill,
+  disableUserSkill,
+  restoreUserSkill,
+  readUserSkill,
   triggerChangeWorkflow,
   triggerFollowUp: triggerFollowUp as never,
   postAnswerToChannel,
@@ -110,18 +131,27 @@ export async function handleAutoExecuteActions(
 
   if (!response.stagedIntents) return;
 
-  if (!deps.canRequestChanges(role)) {
+  // Filter to actions that have both `auto: true` and a `ref`
+  type AutoAction = Action & { auto: true; ref: string };
+  const isAutoRefAction = (a: Action): a is AutoAction => {
+    if (!("auto" in a) || !("ref" in a)) return false;
+    const withAuto = a as { auto?: unknown };
+    return withAuto.auto === true;
+  };
+  const autoActions = response.response.actions.filter(isAutoRefAction);
+  if (autoActions.length === 0) return;
+
+  // Skill-* intents have their own permission model (skill_create is member+, the rest
+  // are owner-or-admin checked at apply time). Only block at this layer if there's at
+  // least one non-skill auto action that requires the legacy `canRequestChanges` gate.
+  const hasNonSkillAuto = autoActions.some((a) => {
+    const intent = response.stagedIntents?.[a.ref];
+    return intent !== undefined && !intent.type.startsWith("skill_");
+  });
+  if (hasNonSkillAuto && !deps.canRequestChanges(role)) {
     logger.warn(`Auto-execute blocked for non-privileged role "${role}"`);
     return;
   }
-
-  // Filter to actions that have both `auto: true` and a `ref`
-  type AutoAction = Action & { auto: true; ref: string };
-  const autoActions = response.response.actions.filter(
-    (a: Action): a is AutoAction =>
-      "auto" in a && (a as unknown as { auto: boolean }).auto === true && "ref" in a,
-  );
-  if (autoActions.length === 0) return;
 
   for (const action of autoActions) {
     const intent = response.stagedIntents[action.ref];
@@ -196,6 +226,146 @@ export async function handleAutoExecuteActions(
             undefined,
             intent.userFeedback,
           );
+          break;
+        }
+
+        case "skill_create": {
+          if (!deps.canCreateUserSkill(role)) {
+            logger.warn(`Auto-execute skill_create blocked for role "${role}"`);
+            break;
+          }
+          try {
+            deps.writeUserSkill({
+              slug: intent.slug,
+              description: intent.description,
+              body: intent.body,
+              ownerUserId: intent.ownerUserId,
+            });
+            await client.chat.postMessage({
+              channel: channelId,
+              thread_ts: threadTs,
+              text: t("userSkills.created", { slug: intent.slug }),
+            });
+          } catch (err) {
+            logger.error("Auto-execute skill_create error:", err);
+            await client.chat
+              .postMessage({
+                channel: channelId,
+                thread_ts: threadTs,
+                text: t("userSkills.create_failed", {
+                  slug: intent.slug,
+                  error: errorMessage(err),
+                }),
+              })
+              .catch(() => {});
+          }
+          break;
+        }
+
+        case "skill_update": {
+          const existing = deps.readUserSkill(intent.slug);
+          if (!existing) {
+            logger.warn(`Auto-execute skill_update: skill '${intent.slug}' not found`);
+            break;
+          }
+          if (!deps.canEditUserSkill(role, existing.ownerUserId, userId)) {
+            logger.warn(`Auto-execute skill_update blocked for role "${role}" on '${intent.slug}'`);
+            break;
+          }
+          try {
+            deps.updateUserSkill({
+              slug: intent.slug,
+              description: intent.description,
+              body: intent.body,
+            });
+            await client.chat.postMessage({
+              channel: channelId,
+              thread_ts: threadTs,
+              text: t("userSkills.updated", { slug: intent.slug }),
+            });
+          } catch (err) {
+            logger.error("Auto-execute skill_update error:", err);
+            await client.chat
+              .postMessage({
+                channel: channelId,
+                thread_ts: threadTs,
+                text: t("userSkills.update_failed", {
+                  slug: intent.slug,
+                  error: errorMessage(err),
+                }),
+              })
+              .catch(() => {});
+          }
+          break;
+        }
+
+        case "skill_disable": {
+          const existing = deps.readUserSkill(intent.slug);
+          if (!existing) {
+            logger.warn(`Auto-execute skill_disable: skill '${intent.slug}' not found`);
+            break;
+          }
+          if (!deps.canEditUserSkill(role, existing.ownerUserId, userId)) {
+            logger.warn(
+              `Auto-execute skill_disable blocked for role "${role}" on '${intent.slug}'`,
+            );
+            break;
+          }
+          try {
+            deps.disableUserSkill(intent.slug);
+            await client.chat.postMessage({
+              channel: channelId,
+              thread_ts: threadTs,
+              text: t("userSkills.disabled", { slug: intent.slug }),
+            });
+          } catch (err) {
+            logger.error("Auto-execute skill_disable error:", err);
+            await client.chat
+              .postMessage({
+                channel: channelId,
+                thread_ts: threadTs,
+                text: t("userSkills.disable_failed", {
+                  slug: intent.slug,
+                  error: errorMessage(err),
+                }),
+              })
+              .catch(() => {});
+          }
+          break;
+        }
+
+        case "skill_restore": {
+          const existing = deps.readUserSkill(intent.slug);
+          if (!existing) {
+            logger.warn(`Auto-execute skill_restore: skill '${intent.slug}' not found`);
+            break;
+          }
+          if (!deps.canEditUserSkill(role, existing.ownerUserId, userId)) {
+            logger.warn(
+              `Auto-execute skill_restore blocked for role "${role}" on '${intent.slug}'`,
+            );
+            break;
+          }
+          try {
+            deps.restoreUserSkill(intent.slug);
+            await client.chat.postMessage({
+              channel: channelId,
+              thread_ts: threadTs,
+              text: t("userSkills.restored", { slug: intent.slug }),
+            });
+          } catch (err) {
+            logger.error("Auto-execute skill_restore error:", err);
+            await client.chat
+              .postMessage({
+                channel: channelId,
+                thread_ts: threadTs,
+                text: t("userSkills.restore_failed", {
+                  slug: intent.slug,
+                  error: errorMessage(err),
+                }),
+              })
+              .catch(() => {});
+          }
           break;
         }
 

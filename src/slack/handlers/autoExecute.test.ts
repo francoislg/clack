@@ -103,6 +103,21 @@ function makeClient(): App["client"] {
 function makeDeps(): AutoExecuteDeps {
   return {
     canRequestChanges: (role: UserRole) => role !== "member",
+    canCreateUserSkill: () => true,
+    canEditUserSkill: () => true,
+    writeUserSkill: () => {
+      throw new Error("not used in test");
+    },
+    updateUserSkill: () => {
+      throw new Error("not used in test");
+    },
+    disableUserSkill: () => {
+      throw new Error("not used in test");
+    },
+    restoreUserSkill: () => {
+      throw new Error("not used in test");
+    },
+    readUserSkill: () => null,
     triggerChangeWorkflow: mockTriggerChangeWorkflow,
     triggerFollowUp: mockTriggerFollowUp,
     postAnswerToChannel: mockPostAnswerToChannel,

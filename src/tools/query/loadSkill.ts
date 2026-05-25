@@ -5,14 +5,19 @@ import { errorResult } from "../helpers.js";
 import { updateSession as defaultUpdateSession } from "../../sessions.js";
 import { errorMessage } from "../../errors.js";
 import { logger } from "../../logger.js";
+import { getUserSkillBody } from "../../userSkillsBodyCache.js";
 
 /**
- * `load_skill({ pack, skill })` — apply a specific skill from a lazy pack.
- * Returns the full SKILL.md body prefixed with a short preamble so Claude
- * treats it as instructions. Idempotent per `(pack, skill)` within a session:
- * repeat calls short-circuit with a pointer to the prior load.
+ * `load_skill({ pack, skill })` — apply a specific skill from a lazy pack OR the
+ * synthetic `user-skills` pack.
  *
- * Delegates all registry/filesystem knowledge to `SkillsManager`.
+ * For lazy-tagged plugin packs: returns the full SKILL.md body with a preamble; loads
+ * are session-idempotent (recorded in `session.loadedSkills`).
+ *
+ * For `pack: "user-skills"` (when `userSkills.enabled === true`): reads from
+ * `data/user-skills/<skill>/SKILL.md` via a process-level mtime-keyed cache. Unlike
+ * lazy-plugin loads, these are NOT recorded in `session.loadedSkills` — the mtime
+ * check supersedes session dedup so edits propagate within the same session.
  */
 
 export interface LoadSkillDeps {
@@ -23,18 +28,47 @@ export const defaultLoadSkillDeps: LoadSkillDeps = {
   updateSession: defaultUpdateSession,
 };
 
+const USER_SKILLS_PACK = "user-skills";
+
 export function createLoadSkillTool(
   ctx: QueryToolContext,
   deps: LoadSkillDeps = defaultLoadSkillDeps,
 ) {
   return tool(
     "load_skill",
-    "Apply a specific skill from a lazy-loaded skill pack. The SKILL.md body is returned as the tool result; read it and follow its guidance. Call list_skill_pack_skills first to see available skills in a pack.",
+    "Apply a specific skill from a lazy-loaded skill pack OR from the org's user-skills pack. The SKILL.md body is returned as the tool result; read it and follow its guidance. For lazy plugin packs, call list_skill_pack_skills first to see available skills. For the 'user-skills' pack, the available skill names are listed inline in the AVAILABLE SKILL PACKS catalog block.",
     {
-      pack: z.string().describe("The skill pack name from the AVAILABLE SKILL PACKS catalog."),
-      skill: z.string().describe("The skill name (from list_skill_pack_skills output)."),
+      pack: z
+        .string()
+        .describe("The skill pack name. Use 'user-skills' for the org's user-created skills."),
+      skill: z.string().describe("The skill name (slug)."),
     },
     async (args) => {
+      // user-skills branch: bypass the SkillsManager entirely. The body cache + on-disk
+      // reads cover everything; lazy-pack idempotency does not apply here.
+      if (args.pack === USER_SKILLS_PACK) {
+        if (!ctx.config.userSkills?.enabled) {
+          return errorResult(
+            `Unknown skill pack: '${args.pack}'. The user-skills feature is not enabled in this installation.`,
+          );
+        }
+        const res = getUserSkillBody(args.skill);
+        if (!res.ok) {
+          return errorResult(
+            `Skill '${args.skill}' not found in pack 'user-skills'. Consult the USER SKILLS list in the AVAILABLE SKILL PACKS block to see the available skills.`,
+          );
+        }
+        const preamble = `Loaded skill '${args.skill}' from pack 'user-skills'. Apply its guidance to the current question.`;
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `${preamble}\n\n---\n\n${res.body}`,
+            },
+          ],
+        };
+      }
+
       const manager = ctx.skillsManager;
       if (!manager) {
         return errorResult(
@@ -49,9 +83,13 @@ export function createLoadSkillTool(
       }
 
       if (!manager.knowsLazyPack(args.pack)) {
-        const available = manager.knownLazyPackNames().join(", ") || "(none)";
+        const lazy = manager.knownLazyPackNames();
+        const available = lazy.length > 0 ? lazy.join(", ") : "(none)";
+        const userSkillsHint = ctx.config.userSkills?.enabled
+          ? ` Also available: 'user-skills' (see the USER SKILLS list in the catalog).`
+          : "";
         return errorResult(
-          `Unknown skill pack: '${args.pack}'. Available lazy packs: ${available}.`,
+          `Unknown skill pack: '${args.pack}'. Available lazy packs: ${available}.${userSkillsHint}`,
         );
       }
 

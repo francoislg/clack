@@ -58,6 +58,9 @@ data/skill-plugins/*/
 
 # User-editable configuration overrides
 data/configuration/
+
+# User-created skills (member-authored, written via Slack)
+data/user-skills/
 .pnpm-store/
 
 # Test coverage
