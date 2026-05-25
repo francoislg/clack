@@ -6,7 +6,7 @@ import { getActiveChoiceBounds, resolveAnswersFormat } from "../../domain/questi
 import { resolveQuestionType } from "../../domain/factTopical.js";
 import { resolveFreeformAnswerShape } from "../../domain/freeformAnswerShape.js";
 import { resolveContexts, rollContextPriority } from "../../domain/contexts.js";
-import { resolveDifficultyRanges } from "../../domain/difficulty.js";
+import { resolveDifficultyRanges, resolveDifficultyRatio } from "../../domain/difficulty.js";
 import { resolveSlotCategories } from "../../domain/seasonFormat.js";
 import { weightedPick } from "../../domain/weightedPick.js";
 import {
@@ -21,12 +21,11 @@ import type { TriviaFreeformAnswerShape, TriviaGame } from "../../core/configTyp
 
 type SuggestedDifficulty = "Easy" | "Medium" | "Hard";
 
-function pickSuggestedDifficulty(): SuggestedDifficulty {
-  const r = Math.random();
-  if (r < 0.3) return "Easy";
-  if (r < 0.9) return "Medium";
-  return "Hard";
-}
+const BUCKET_TO_LABEL: Record<"easy" | "medium" | "hard", SuggestedDifficulty> = {
+  easy: "Easy",
+  medium: "Medium",
+  hard: "Hard",
+};
 
 /** Inclusive uniform integer in `[min, max]`. */
 function randomIntInclusive(min: number, max: number): number {
@@ -41,9 +40,8 @@ Always returns:
 - \`categories.ideas\`: 5 random categories drawn from the active source pool (slot's resolved pool when format is present, season's categories otherwise)
 - \`suggestedAnswersFormat\`: \`"boolean"\`, \`"choice"\`, or \`"freeform"\` — picked from active answersFormat weights (slot.answersFormat → season.answersFormat → config.trivia.answersFormat → boolean default). \`"freeform"\` means the user types their answer into a Slack modal; Claude writes the canonical answer and a small fast model judges submissions at reveal.
 - \`suggestedQuestionType\`: \`"fact"\` or \`"topical"\` — picked INDEPENDENTLY from active questionType weights (slot.questionType → season.questionType → config.trivia.questionType → fact default). \`"topical"\` REQUIRES Claude to use \`WebSearch\` and capture a \`sourceUrl\` when saving.
-- \`suggestedDifficulty\`: \`"Easy" | "Medium" | "Hard"\`
-- \`suggestedDifficultyRange\`: \`[min, max]\` — the inclusive 1–10 target range for the picked bucket on this game type (resolved through slot → season → config → built-in default; freeform is softer than boolean/choice by default). The self-rating in the DIFFICULTY GATE step MUST aim inside this range.
-- \`minimumDifficultyThreshold\` (integer in [1, 10]): self-ratings strictly below this value MUST be REJECTED at the DIFFICULTY GATE. Resolves through the same cascade — defaults to 4 for boolean/choice, 2 for freeform.
+- \`suggestedDifficulty\`: \`"Easy" | "Medium" | "Hard"\` — picked by weighted-random from the active \`difficultyRatio\` weights for this game type (slot → season → game → workspace → built-in default \`{ easy: 3, medium: 6, hard: 1 }\` for boolean/choice, \`{ easy: 5, medium: 4, hard: 1 }\` for freeform).
+- \`suggestedDifficultyRange\`: \`[min, max]\` — the inclusive 1–10 STRICT accept range for the picked bucket on this game type (resolved through slot → season → config → built-in default; freeform is softer than boolean/choice by default). The self-rating in the DIFFICULTY GATE step MUST land inside this range; ratings ±1 off trigger a one-shot reframe; ≥2 off trigger an immediate re-roll.
 - \`firstFireOfSeason\` (boolean): \`true\` iff seasons are enabled, a current season exists, AND zero saved questions in this game carry \`season === currentSlug\`. Honor this in the question-posting prompt by prepending a ceremonial opener (\`header\` + \`section\` blocks) ABOVE the question content on the first fire of every new season.
 - \`theme\` (optional string): mirrored verbatim from the current season's \`theme\` when set. Mention it in the opener section ONLY when present; never fabricate one or enumerate categories as a substitute.
 - \`contextPriority\` (optional): freshly-rolled weighted-random ordering of every configured lens. Present only when \`trivia.contexts\` is configured at any cascade tier. Claude tries \`contextPriority[0]\` first; descends the list only when the current lens yields no usable question.
@@ -192,7 +190,15 @@ export function createGetIdeasTool(
       );
       const contextPriority = contexts !== null ? rollContextPriority(contexts) : null;
 
-      const suggestedDifficulty = pickSuggestedDifficulty();
+      const ratioWeights = resolveDifficultyRatio(
+        currentSeasonEntry,
+        slotIndexForResolution,
+        gameEntry,
+        config,
+        pickedAnswersFormat,
+      );
+      const pickedBucket = weightedPick(ratioWeights) ?? "medium";
+      const suggestedDifficulty: SuggestedDifficulty = BUCKET_TO_LABEL[pickedBucket];
 
       const difficultyRanges = resolveDifficultyRanges(
         currentSeasonEntry,
@@ -201,14 +207,7 @@ export function createGetIdeasTool(
         config,
         pickedAnswersFormat,
       );
-      const bucketKey =
-        suggestedDifficulty === "Easy"
-          ? "easy"
-          : suggestedDifficulty === "Medium"
-            ? "medium"
-            : "hard";
-      const suggestedDifficultyRange = difficultyRanges[bucketKey];
-      const minimumDifficultyThreshold = difficultyRanges.minimumThreshold;
+      const suggestedDifficultyRange = difficultyRanges[pickedBucket];
 
       const base = {
         format: formatMeta,
@@ -222,7 +221,6 @@ export function createGetIdeasTool(
         suggestedQuestionType: pickedQuestionType,
         suggestedDifficulty,
         suggestedDifficultyRange,
-        minimumDifficultyThreshold,
         firstFireOfSeason,
         ...(theme !== undefined ? { theme } : {}),
         ...(contextPriority !== null ? { contextPriority } : {}),

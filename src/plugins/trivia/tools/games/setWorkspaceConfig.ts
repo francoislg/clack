@@ -5,6 +5,7 @@ import { loadTriviaConfig, saveTriviaConfig } from "../../core/configBridge.js";
 import type { JsonObject, JsonValue, OffDay, TriviaConfig } from "../../core/configTypes.js";
 import {
   parseTriviaAxisBag,
+  triviaDifficultyRatioZod,
   validateTriviaChoicesConfig,
   type ParseIssue,
 } from "../../core/configParsers/axes.js";
@@ -63,7 +64,6 @@ export function createSetWorkspaceConfigTool() {
               hard: z
                 .tuple([z.number().int().min(1).max(10), z.number().int().min(1).max(10)])
                 .optional(),
-              minimumThreshold: z.number().int().min(1).max(10).optional(),
             })
             .optional(),
           choice: z
@@ -77,7 +77,6 @@ export function createSetWorkspaceConfigTool() {
               hard: z
                 .tuple([z.number().int().min(1).max(10), z.number().int().min(1).max(10)])
                 .optional(),
-              minimumThreshold: z.number().int().min(1).max(10).optional(),
             })
             .optional(),
           freeform: z
@@ -91,13 +90,18 @@ export function createSetWorkspaceConfigTool() {
               hard: z
                 .tuple([z.number().int().min(1).max(10), z.number().int().min(1).max(10)])
                 .optional(),
-              minimumThreshold: z.number().int().min(1).max(10).optional(),
             })
             .optional(),
         })
         .nullable()
         .optional()
         .describe("Workspace difficulty ranges per format. null clears."),
+      difficultyRatio: triviaDifficultyRatioZod
+        .nullable()
+        .optional()
+        .describe(
+          "Workspace difficulty-bucket-roll ratio per format. Each format key carries { easy, medium, hard } non-negative integer weights (at least one strictly positive). Defaults to { easy: 3, medium: 6, hard: 1 } for boolean/choice and { easy: 5, medium: 4, hard: 1 } for freeform when absent. null clears.",
+        ),
       choices: z
         .object({ min: z.number().int().min(2).max(4), max: z.number().int().min(2).max(4) })
         .nullable()
@@ -141,6 +145,7 @@ export function createSetWorkspaceConfigTool() {
       setAxis("freeformAnswerShape", args.freeformAnswerShape ?? undefined);
       setAxis("contexts", args.contexts ?? undefined);
       setAxis("difficulty", args.difficulty ?? undefined);
+      setAxis("difficultyRatio", args.difficultyRatio ?? undefined);
 
       const issues: ParseIssue[] = [];
       if (Object.keys(axisInput).length > 0) {
@@ -166,6 +171,10 @@ export function createSetWorkspaceConfigTool() {
           next.difficulty = r.axes.difficulty;
           updatedFields.push("difficulty");
         }
+        if (r.axes.difficultyRatio !== undefined) {
+          next.difficultyRatio = r.axes.difficultyRatio;
+          updatedFields.push("difficultyRatio");
+        }
       }
 
       // Apply null-clears for axis fields.
@@ -188,6 +197,10 @@ export function createSetWorkspaceConfigTool() {
       if (args.difficulty === null) {
         delete next.difficulty;
         updatedFields.push("difficulty (cleared)");
+      }
+      if (args.difficultyRatio === null) {
+        delete next.difficultyRatio;
+        updatedFields.push("difficultyRatio (cleared)");
       }
 
       // choices: validate + apply

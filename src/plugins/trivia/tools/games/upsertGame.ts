@@ -9,7 +9,7 @@ import {
   type GetGamesFn,
 } from "../../core/configBridge.js";
 import type { JsonObject, JsonValue, TriviaConfig, TriviaGame } from "../../core/configTypes.js";
-import { parseTriviaAxisBag } from "../../core/configParsers/axes.js";
+import { parseTriviaAxisBag, triviaDifficultyRatioZod } from "../../core/configParsers/axes.js";
 import type { ParseIssue } from "../../core/configParsers/axes.js";
 
 const TRIVIA_GAME_NAME_RE = /^[a-z0-9-]+$/;
@@ -66,7 +66,6 @@ const axisBagSchema = {
           hard: z
             .tuple([z.number().int().min(1).max(10), z.number().int().min(1).max(10)])
             .optional(),
-          minimumThreshold: z.number().int().min(1).max(10).optional(),
         })
         .optional(),
       choice: z
@@ -80,7 +79,6 @@ const axisBagSchema = {
           hard: z
             .tuple([z.number().int().min(1).max(10), z.number().int().min(1).max(10)])
             .optional(),
-          minimumThreshold: z.number().int().min(1).max(10).optional(),
         })
         .optional(),
       freeform: z
@@ -94,7 +92,6 @@ const axisBagSchema = {
           hard: z
             .tuple([z.number().int().min(1).max(10), z.number().int().min(1).max(10)])
             .optional(),
-          minimumThreshold: z.number().int().min(1).max(10).optional(),
         })
         .optional(),
     })
@@ -102,6 +99,12 @@ const axisBagSchema = {
     .optional()
     .describe(
       "Per-game per-format difficulty overrides. Fields cascade per sub-field — overriding just freeform.hard is fine. Explicit null clears the whole game-tier difficulty.",
+    ),
+  difficultyRatio: triviaDifficultyRatioZod
+    .nullable()
+    .optional()
+    .describe(
+      "Per-game per-format bucket-roll ratio. Each format key carries { easy, medium, hard } non-negative integer weights (at least one strictly positive). Whole-object replace per cascade tier — partial maps inherit nothing; missing buckets within a map normalize to 0. Explicit null clears.",
     ),
 };
 
@@ -206,6 +209,7 @@ export function createUpsertGameTool(getGamesFn: GetGamesFn = defaultGetGames) {
       setAxis("freeformAnswerShape", args.freeformAnswerShape ?? undefined);
       setAxis("contexts", args.contexts ?? undefined);
       setAxis("difficulty", args.difficulty ?? undefined);
+      setAxis("difficultyRatio", args.difficultyRatio ?? undefined);
 
       const issues: ParseIssue[] = [];
       let parsed: Partial<TriviaGame> = {};
@@ -227,6 +231,9 @@ export function createUpsertGameTool(getGamesFn: GetGamesFn = defaultGetGames) {
           : {}),
         ...(existing?.contexts !== undefined ? { contexts: existing.contexts } : {}),
         ...(existing?.difficulty !== undefined ? { difficulty: existing.difficulty } : {}),
+        ...(existing?.difficultyRatio !== undefined
+          ? { difficultyRatio: existing.difficultyRatio }
+          : {}),
       };
       if (args.answersFormat === null) delete mergedAxes.answersFormat;
       else if (parsed.answersFormat !== undefined) mergedAxes.answersFormat = parsed.answersFormat;
@@ -239,6 +246,9 @@ export function createUpsertGameTool(getGamesFn: GetGamesFn = defaultGetGames) {
       else if (parsed.contexts !== undefined) mergedAxes.contexts = parsed.contexts;
       if (args.difficulty === null) delete mergedAxes.difficulty;
       else if (parsed.difficulty !== undefined) mergedAxes.difficulty = parsed.difficulty;
+      if (args.difficultyRatio === null) delete mergedAxes.difficultyRatio;
+      else if (parsed.difficultyRatio !== undefined)
+        mergedAxes.difficultyRatio = parsed.difficultyRatio;
 
       const enabled = args.enabled ?? existing?.enabled ?? true;
 

@@ -10,6 +10,7 @@ import type {
   TriviaFreeformAnswerShapeWeights,
   TriviaContextEntry,
   TriviaDifficultyConfig,
+  TriviaDifficultyRatioConfig,
 } from "../../core/configTypes.js";
 
 type Status = "past" | "current" | "future";
@@ -22,6 +23,7 @@ interface ListSeasonsSlotEntry {
   freeformAnswerShape?: TriviaFreeformAnswerShapeWeights;
   contexts?: TriviaContextEntry[];
   difficulty?: TriviaDifficultyConfig;
+  difficultyRatio?: TriviaDifficultyRatioConfig;
 }
 
 function statusOf(entry: SeasonEntry, now: number): Status {
@@ -42,10 +44,11 @@ function mapSlot(slot: SeasonFormatSlot): ListSeasonsSlotEntry {
       : {}),
     ...(slot.contexts !== undefined ? { contexts: slot.contexts } : {}),
     ...(slot.difficulty !== undefined ? { difficulty: slot.difficulty } : {}),
+    ...(slot.difficultyRatio !== undefined ? { difficultyRatio: slot.difficultyRatio } : {}),
   };
 }
 
-const DESCRIPTION = `List every season on a specific game's trivia timeline with full details — slug, dates, categories, status flag ("past" | "current" | "future"), and the season's explicitly-set axis configuration (theme, answersFormat, questionType, freeformAnswerShape, contexts, difficulty, format).
+const DESCRIPTION = `List every season on a specific game's trivia timeline with full details — slug, dates, categories, status flag ("past" | "current" | "future"), and the season's explicitly-set axis configuration (theme, answersFormat, questionType, freeformAnswerShape, contexts, difficulty, difficultyRatio, format).
 
 Each axis field is present on a season entry IF AND ONLY IF the season explicitly set it. Absence means that season falls through to the next tier of the cascade.
 
@@ -97,6 +100,7 @@ export function createListSeasonsTool(
           : {}),
         ...(entry.contexts !== undefined ? { contexts: entry.contexts } : {}),
         ...(entry.difficulty !== undefined ? { difficulty: entry.difficulty } : {}),
+        ...(entry.difficultyRatio !== undefined ? { difficultyRatio: entry.difficultyRatio } : {}),
         ...(entry.format !== undefined
           ? { format: { questions: entry.format.questions.map(mapSlot) } }
           : {}),

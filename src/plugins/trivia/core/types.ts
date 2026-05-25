@@ -6,6 +6,7 @@ import type {
   TriviaFreeformAnswerShapeWeights,
   TriviaContextEntry,
   TriviaDifficultyConfig,
+  TriviaDifficultyRatioConfig,
 } from "./configTypes.js";
 
 /**
@@ -191,6 +192,12 @@ export interface SeasonFormatSlot {
    * Falls back to season → config → `DEFAULT_DIFFICULTY_RANGES[format]`.
    */
   difficulty?: TriviaDifficultyConfig;
+  /**
+   * Slot-specific bucket-roll ratio. Whole-object replace per cascade tier — the slot
+   * either provides a full `{ easy, medium, hard }` weight map for the format, or
+   * cascades through (season → game → workspace → `DEFAULT_DIFFICULTY_RATIO[format]`).
+   */
+  difficultyRatio?: TriviaDifficultyRatioConfig;
 }
 
 /**
@@ -237,11 +244,18 @@ export interface SeasonEntry {
   /**
    * Optional per-season per-game-type difficulty overrides. Each game type
    * (boolean/choice/freeform) is independently overridable; within each game type,
-   * easy/medium/hard/minimumThreshold cascade independently. Absent → falls back
+   * easy/medium/hard cascade independently (per-field merge). Absent → falls back
    * to `config.trivia.difficulty` → `DEFAULT_DIFFICULTY_RANGES[format]`. Mid-season
    * mutation is permitted.
    */
   difficulty?: TriviaDifficultyConfig;
+  /**
+   * Optional per-season bucket-roll ratio. Whole-object replace per cascade tier
+   * (slot → season → game → workspace → `DEFAULT_DIFFICULTY_RATIO[format]`) — the
+   * season either provides a full `{ easy, medium, hard }` weight map for the format,
+   * or cascades through. Mid-season mutation is permitted.
+   */
+  difficultyRatio?: TriviaDifficultyRatioConfig;
   /**
    * Optional per-season question composition. Mid-season mutation is permitted —
    * changes take effect on the next question-cron fire.

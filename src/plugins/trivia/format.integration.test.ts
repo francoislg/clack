@@ -90,6 +90,7 @@ describe("Trivia question-format end-to-end flow", () => {
           freeformAnswerShape: undefined,
           contexts: undefined,
           difficulty: undefined,
+          difficultyRatio: undefined,
           theme: undefined,
           format: {
             questions: [

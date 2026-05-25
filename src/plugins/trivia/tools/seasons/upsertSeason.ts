@@ -10,15 +10,18 @@ import {
   validateFreeformAnswerShape,
   validateContexts,
   validateDifficulty,
+  validateDifficultyRatio,
   validateFormat,
 } from "../../domain/seasonFormat.js";
 import type { TriviaDataLayer, SeasonsState, SeasonEntry, SeasonFormat } from "../../core/types.js";
+import { triviaDifficultyRatioZod } from "../../core/configParsers/axes.js";
 import type {
   TriviaAnswersFormatWeights,
   TriviaQuestionTypeWeights,
   TriviaFreeformAnswerShapeWeights,
   TriviaContextEntry,
   TriviaDifficultyConfig,
+  TriviaDifficultyRatioConfig,
 } from "../../core/configTypes.js";
 
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -67,7 +70,6 @@ const difficultyRangesInputZod = z.object({
   easy: difficultyRangeTuple.optional(),
   medium: difficultyRangeTuple.optional(),
   hard: difficultyRangeTuple.optional(),
-  minimumThreshold: z.number().int().min(1).max(10).optional(),
 });
 
 const triviaDifficultyZod = z.object({
@@ -95,6 +97,7 @@ const slotShape = z.object({
   freeformAnswerShape: freeformAnswerShapeZod.optional(),
   contexts: z.array(contextEntryShape).optional(),
   difficulty: triviaDifficultyZod.optional(),
+  difficultyRatio: triviaDifficultyRatioZod.optional(),
 });
 
 function buildFreeformAnswerShapeSparse(input: {
@@ -195,7 +198,13 @@ export function createUpsertSeasonTool(
         .nullable()
         .optional()
         .describe(
-          "Optional per-season per-game-type difficulty overrides. Object keyed by `boolean` / `choice` / `freeform`; each value is a sparse `{ easy?: [min, max], medium?: [min, max], hard?: [min, max], minimumThreshold?: integer }` on the 1–10 scale. Fields cascade independently — overriding just `freeform.hard` is fine. On UPDATE: passing `null` clears the field. Mid-season mutation permitted.",
+          "Optional per-season per-game-type difficulty overrides. Object keyed by `boolean` / `choice` / `freeform`; each value is a sparse `{ easy?: [min, max], medium?: [min, max], hard?: [min, max] }` on the 1–10 scale. Fields cascade independently — overriding just `freeform.hard` is fine. On UPDATE: passing `null` clears the field. Mid-season mutation permitted.",
+        ),
+      difficultyRatio: triviaDifficultyRatioZod
+        .nullable()
+        .optional()
+        .describe(
+          "Optional per-season per-game-type bucket-roll ratio. Object keyed by `boolean` / `choice` / `freeform`; each value is `{ easy?, medium?, hard? }` non-negative integer weights with at least one strictly positive. Whole-object replace per cascade tier (slot → season → game → workspace → built-in default). On UPDATE: passing `null` clears the field. Mid-season mutation permitted.",
         ),
       format: z
         .object({
@@ -298,6 +307,13 @@ export function createUpsertSeasonTool(
           difficulty = validated.value;
         }
 
+        let difficultyRatio: TriviaDifficultyRatioConfig | undefined;
+        if (args.difficultyRatio !== undefined && args.difficultyRatio !== null) {
+          const validated = validateDifficultyRatio(args.difficultyRatio);
+          if (!validated.ok) return errorResult(validated.error);
+          difficultyRatio = validated.value;
+        }
+
         let format: SeasonFormat | undefined;
         if (args.format !== undefined && args.format !== null) {
           const validated = validateFormat(args.format);
@@ -326,6 +342,7 @@ export function createUpsertSeasonTool(
             : {}),
           ...(contexts !== undefined ? { contexts } : {}),
           ...(difficulty !== undefined ? { difficulty } : {}),
+          ...(difficultyRatio !== undefined ? { difficultyRatio } : {}),
           ...(format !== undefined ? { format } : {}),
         };
 
@@ -352,6 +369,7 @@ export function createUpsertSeasonTool(
           hasFreeformAnswerShape: entry.freeformAnswerShape !== undefined,
           hasContexts: entry.contexts !== undefined,
           hasDifficulty: entry.difficulty !== undefined,
+          hasDifficultyRatio: entry.difficultyRatio !== undefined,
           hasFormat: entry.format !== undefined,
           slotCount: entry.format?.questions.length ?? 0,
         });
@@ -421,6 +439,16 @@ export function createUpsertSeasonTool(
         updatedDifficulty = validated.value;
       }
 
+      let updatedDifficultyRatio: TriviaDifficultyRatioConfig | undefined =
+        existing.difficultyRatio;
+      if (args.difficultyRatio === null) {
+        updatedDifficultyRatio = undefined;
+      } else if (args.difficultyRatio !== undefined) {
+        const validated = validateDifficultyRatio(args.difficultyRatio);
+        if (!validated.ok) return errorResult(validated.error);
+        updatedDifficultyRatio = validated.value;
+      }
+
       let updatedFormat: SeasonFormat | undefined = existing.format;
       if (args.format === null) {
         updatedFormat = undefined;
@@ -457,6 +485,9 @@ export function createUpsertSeasonTool(
           : {}),
         ...(updatedContexts !== undefined ? { contexts: updatedContexts } : {}),
         ...(updatedDifficulty !== undefined ? { difficulty: updatedDifficulty } : {}),
+        ...(updatedDifficultyRatio !== undefined
+          ? { difficultyRatio: updatedDifficultyRatio }
+          : {}),
         ...(updatedFormat !== undefined ? { format: updatedFormat } : {}),
       };
 
@@ -496,6 +527,7 @@ export function createUpsertSeasonTool(
         hasFreeformAnswerShape: updated.freeformAnswerShape !== undefined,
         hasContexts: updated.contexts !== undefined,
         hasDifficulty: updated.difficulty !== undefined,
+        hasDifficultyRatio: updated.difficultyRatio !== undefined,
         hasFormat: updated.format !== undefined,
         slotCount: updated.format?.questions.length ?? 0,
       });

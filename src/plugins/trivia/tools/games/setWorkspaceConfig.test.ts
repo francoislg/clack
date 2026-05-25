@@ -52,6 +52,7 @@ const emptyArgs = {
   freeformAnswerShape: undefined,
   contexts: undefined,
   difficulty: undefined,
+  difficultyRatio: undefined,
   choices: undefined,
   offDays: undefined,
   seasons: undefined,

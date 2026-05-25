@@ -73,7 +73,7 @@ export const TRIVIA_GAMES_ADMIN_INSTRUCTION = `# Managing trivia games
 
 This deployment supports multiple parallel trivia games — one per Slack channel that runs trivia. Each game has its own isolated data (questions, answers, cheats, seasons) under \`data/plugins/trivia/games/<name>/\` and its own pair of plugin-managed cron jobs (\`<name>:question\` and \`<name>:reveal\`). Add a new game and the plugin reconciles the cron jobs automatically on the next load.
 
-**Lifecycle and configuration both go through the \`trivia:management\` integration.** Attach it via \`attach_integration("trivia:management")\` when an admin asks to add/remove/configure a game OR to change workspace-wide trivia settings. The integration's three tools:
+**Lifecycle and configuration both go through the \`trivia:management\` integration.** Attach it via \`attach_integration("trivia:management")\` when an admin asks to add/remove/configure a game OR to change workspace-wide trivia settings OR to shape what kinds of QUESTIONS get generated (categories, axes, per-slot composition). When an admin talks about "questions" they almost always mean configuring the game or season — not generating one immediately. The integration's three tools:
 
 - \`upsert_game(name, channel?, questionCron?, revealCron?, timezone?, enabled?, ...axisOverrides?)\` — create OR update a game in one call. Create requires the full scheduling shape; update is omit-to-keep on scheduling and omit-to-keep / null-to-clear on per-game axis overrides.
 - \`delete_game(name)\` — remove a game from the registry. Cron jobs disappear on next reconcile; the game's data directory is preserved.
@@ -214,7 +214,29 @@ When an admin asks to change something, parse the verb and the scope first:
 - **"add a category"** / **"remove the X category"** / names categories → \`add_categories\` / \`remove_categories\` (with \`target\` if scoped to a season).
 - **workspace-wide** rolls of any axis (e.g. "make all games default to mostly topical") → \`set_workspace_config\`.
 
+**About "questions":** When an admin talks about "questions" — "I want more questions about X", "add a question on Y", "make questions harder", "we should have topical questions" — they are asking you to CONFIGURE the game or season, NOT to generate a single question on the spot. Route to \`upsert_game\` (per-game scope), \`upsert_season\` (season scope), or \`upsert_season\` with \`format.questions[i].<axis>\` (per-slot scope), typically by updating \`categories\`, an axis weight (\`questionType\`, \`answersFormat\`, \`difficulty\`, \`contexts\`), or a slot's fields. Only generate a question immediately when the admin is unambiguously asking for an on-demand fire (e.g. "post a trivia question now", "fire the engineering game right now").
+
 "Update the trivia config for the engineering game" → \`upsert_game(name: "engineering", …)\`. It is NOT \`upsert_season\` even if the engineering game has an active season — the admin said "game."
+
+## Validate the scope before mutating
+
+The cascade (slot → season → game → workspace) means routing decisions matter — a season-tier change won't beat a slot-tier override, and a game-tier change won't beat a season-tier override. Before calling ANY mutation tool, you must be certain of:
+
+1. **Which game** the admin means. If multiple games exist (\`list_games\` will tell you) and the request doesn't name one, ASK. Don't assume the current channel's game — admin sessions are often DMs with no implicit channel.
+2. **Which season**, if seasons are in play. "Add a question / category for the season" could mean the **current** season, a **queued future** season (there can be several), or the **global baseline** (\`categories.json\`, used as the seed for new seasons). Run \`list_seasons\` if you don't already know what's on the timeline; then ask the admin which one they mean unless context makes it unambiguous. For \`add_categories\` / \`remove_categories\`, encode the answer in the \`target\` arg (\`"current"\` / \`"<slug>"\` / \`"default"\` / \`"both"\`).
+3. **Which tier in the cascade**. "Make questions harder", "more topical questions", "switch to multiple-choice" — could be slot-level (one slot in a format), season-level (the whole current season), game-level (every season this game runs), or workspace-level (every game). When the admin didn't say, ask.
+
+When in doubt, briefly state in plain English what you're about to change and at which tier, and confirm before the tool call. Reads are free — use \`list_games\` / \`list_seasons\` to ground the question rather than guess.
+
+## Flag shadowed edits
+
+The cascade is first-non-empty-wins, so a write at tier N is INERT for any field a higher-priority tier (slot > season > game > workspace) already overrides. Before mutating, check the upstream tiers for the field you're about to change. If a shadow exists, complete the write the admin asked for, then warn them in plain English:
+
+- "Set \`questionType\` on the engineering game to \`{ fact: 1, topical: 3 }\`. **Heads up:** the current season \`season-2026-05\` has its own \`questionType\` override, so this game-tier change won't take effect until that season ends (or you clear the season override with \`upsert_season(slug, { questionType: null })\`)."
+- "Set \`answersFormat\` on the workspace to \`{ choice: 1 }\`. **Heads up:** the engineering and marketing games both have per-game \`answersFormat\` overrides, so this workspace default won't apply to them until those are cleared with \`upsert_game(name, { answersFormat: null })\`."
+- "Set \`categories\` on the current season. **Heads up:** slot 0 of the season's format has its own \`categories\` list, so its pool stays narrow regardless of this season-tier change."
+
+This applies to every cascading axis (\`answersFormat\`, \`questionType\`, \`freeformAnswerShape\`, \`contexts\`, \`difficulty\`, \`difficultyRatio\`) and to \`categories\` on seasons. \`list_games\` surfaces per-game \`axisOverrides\`; \`list_seasons\` surfaces per-season axis fields and \`format.questions[i]\` slot overrides — read both before mutating game or workspace tiers if you're not already sure what's set upstream.
 
 ## The cascading axis tiers
 

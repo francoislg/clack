@@ -53,8 +53,7 @@ const QUESTION_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
      - categories.ideas: 5 random categories (excludes the last 10 used).
      - suggestedAnswer (boolean): the truth value the final statement MUST have.
      - suggestedDifficulty ("Easy" | "Medium" | "Hard"): the bucket to aim at.
-     - suggestedDifficultyRange ([min, max]): the inclusive 1–10 target range for that bucket on THIS game type. Aim inside it at step 6.
-     - minimumDifficultyThreshold (integer): self-ratings strictly below this number must be REJECTED at step 6.
+     - suggestedDifficultyRange ([min, max]): the inclusive 1–10 STRICT accept range for that bucket on THIS game type. Your self-rating at step 6 MUST land inside this range; ±1 off triggers a one-shot reframe; ≥2 off triggers immediate re-roll.
      - contextPriority (optional, only when contexts are configured): see CONTEXTS guidance above.
    - Pick one category from categories.ideas.
    - Read suggestedAnswer and suggestedDifficulty — both steer the next steps.
@@ -93,20 +92,25 @@ const QUESTION_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
 
 5. VALIDATE through research that the statement's actual truth matches suggestedAnswer (true → actually true; false → actually false). If validation reveals a mismatch (e.g. a "false" statement turned out to be accidentally true, or vice versa), return to step 2 and rewrite — do not patch.
 
-6. DIFFICULTY RATING (REQUIRED GATE):
-   Self-rate the question on the 1-10 scale. The TARGET RANGE is \`suggestedDifficultyRange\` (the range get_ideas returned for THIS game type's bucket).
+6. DIFFICULTY RATING (REQUIRED GATE — STRICT MEMBERSHIP):
+   Self-rate the question on the 1-10 scale. The ACCEPT RANGE is \`suggestedDifficultyRange\` \`[min, max]\` (the range get_ideas returned for THIS game type's bucket). The bucket's range IS the accept bound — there is no separate threshold.
 
-   General intuition for the scale:
-   - 1-3 = too obvious, most people would know immediately.
-   - 4-6 = good balance — makes you think but is solvable.
-   - 7-10 = very challenging, obscure knowledge required.
+   Apply EXACTLY these three rules:
 
-   IF YOUR RATING IS STRICTLY BELOW \`minimumDifficultyThreshold\` (the integer get_ideas returned):
-   - REJECT the question.
-   - Go back to step 2 and generate a completely new question.
-   - Keep iterating until the question rates at or above \`minimumDifficultyThreshold\`.
+   a) If your rating is INSIDE \`[min, max]\` (inclusive) → proceed to step 7.
 
-   ONLY PROCEED TO STEP 7 once the rating meets the threshold. Prefer ratings inside \`suggestedDifficultyRange\`.
+   b) If your rating is EXACTLY \`min - 1\` or \`max + 1\` (one point off the range, above or below) → REFRAME ONCE:
+      - Rewrite the question to dial difficulty toward the range. Concrete levers:
+        - Too easy (rating below): swap a famous name/place for a less-iconic one; demand a mechanism or consequence rather than the headline fact; pick a more obscure detail of the same topic.
+        - Too hard (rating above): pick a more iconic example of the same category; lean on a famous date/place/person; state the consequence rather than the cause.
+      - IMMEDIATELY re-run the POLARITY SELF-CHECK (step 3) on the reframed statement before re-rating. Reframing-by-detail-swap can silently flip a TRUE statement to FALSE — the polarity gate is what catches this. If polarity fails on the reframe, REJECT and re-call get_ideas (don't try a second reframe; you've burned your retry).
+      - If polarity passes, re-rate the new version on the same 1–10 scale INDEPENDENTLY of the prior rating (don't anchor on "I made it easier so it must now be inside the range" — judge v2 fresh).
+      - If the new rating is INSIDE \`[min, max]\` → proceed to step 7.
+      - If the new rating is STILL OUTSIDE the range (anywhere outside, not just ≥2 off) → REJECT and re-call get_ideas for a fresh roll. Do NOT reframe a second time.
+
+   c) If your rating is TWO OR MORE points outside \`[min, max]\` (either direction) → REJECT immediately and re-call get_ideas for a fresh roll. Do NOT reframe — the topic is wrong, not the framing. Reframing a question rated 3 to fit a Hard bucket [8,10] produces forced, awkward questions.
+
+   ONLY PROCEED TO STEP 7 when the rating (v1 or v2 after one reframe) lies inside \`[min, max]\`.
 
 7. Choose fun emojis that relate to the topic.
 
@@ -131,7 +135,7 @@ const CHOICE_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
      - suggestedChoiceCount (integer): the number of options the question MUST have.
      - suggestedCorrectIndex (integer in [0, suggestedChoiceCount)): the 0-based index where the correct answer MUST be placed.
      - suggestedDifficulty ("Easy" | "Medium" | "Hard"): the bucket to aim at.
-     - suggestedDifficultyRange ([min, max]) and minimumDifficultyThreshold (integer): the bucket's target band and reject-below cutoff for THIS game type — used at step 5.
+     - suggestedDifficultyRange ([min, max]): the strict 1–10 accept range for that bucket on THIS game type. Used at step 5.
      - contextPriority (optional, only when contexts are configured): see CONTEXTS guidance above.
    - Pick one category from categories.ideas.
 
@@ -158,10 +162,12 @@ const CHOICE_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
    - Call find_previous_questions with a distinctive keyword from the statement (a name, a number, or a rare noun).
    - If a match is found, go back to step 2 and write a different question.
 
-5. DIFFICULTY GATE (REQUIRED):
-   Self-rate the question as a whole on the 1–10 scale. The TARGET RANGE is \`suggestedDifficultyRange\` from get_ideas.
+5. DIFFICULTY GATE (REQUIRED — STRICT MEMBERSHIP):
+   Self-rate the question as a whole on the 1–10 scale. The ACCEPT RANGE is \`suggestedDifficultyRange\` \`[min, max]\` from get_ideas. The bucket's range IS the accept bound — there is no separate threshold.
 
-   IF YOUR RATING IS STRICTLY BELOW \`minimumDifficultyThreshold\`: REJECT and re-roll from get_ideas. Only proceed at or above the threshold.
+   - Rating INSIDE \`[min, max]\` → proceed.
+   - Rating EXACTLY \`min - 1\` or \`max + 1\` → REFRAME ONCE: rewrite the question to dial difficulty toward the range (swap iconic↔obscure example, demand mechanism vs. headline fact, etc.). The correct answer's POSITION is still LOCKED at \`suggestedCorrectIndex\` — only rewrite the question text or the distractors, never move the correct answer. Re-rate v2 independently. If v2 lands inside \`[min, max]\` → proceed. If still outside → REJECT and re-call get_ideas (don't reframe twice).
+   - Rating TWO OR MORE points outside \`[min, max]\` (either direction) → REJECT immediately and re-call get_ideas. Don't reframe — the topic is wrong, not the framing.
 
 6. Choose 1-4 fun emojis that relate to the topic.
 
@@ -193,7 +199,7 @@ const TOPICAL_BOOLEAN_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
      - suggestedQuestionType: "topical"
      - suggestedAnswer (boolean): the truth value the final statement MUST have.
      - suggestedDifficulty ("Easy" | "Medium" | "Hard"): the bucket to aim at.
-     - suggestedDifficultyRange ([min, max]) and minimumDifficultyThreshold (integer): the bucket's target band and reject-below cutoff for THIS game type — used at step 6.
+     - suggestedDifficultyRange ([min, max]): the strict 1–10 accept range for the rolled bucket on THIS game type — used at step 6.
      - contextPriority (optional, only when contexts are configured): see CONTEXTS guidance above.
    - Pick one category from categories.ideas.
 
@@ -221,7 +227,7 @@ const TOPICAL_BOOLEAN_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
    - Call find_previous_questions with a distinctive keyword from the statement.
    - If the same event was already asked about (even with different polarity or angle), pick a different event from your WebSearch results (or re-search).
 
-6. DIFFICULTY GATE (REQUIRED): same 1-10 self-rating rules as the fact path; aim inside \`suggestedDifficultyRange\`, reject and re-roll if strictly below \`minimumDifficultyThreshold\`.
+6. DIFFICULTY GATE (REQUIRED — STRICT MEMBERSHIP): same rules as the fact-boolean path. Rating INSIDE \`suggestedDifficultyRange\` → proceed; ±1 off → reframe ONCE (then re-run polarity self-check on the reframed statement before re-rating); ≥2 off OR reframe still outside → REJECT and re-call get_ideas.
 
 7. Choose 1-4 fun emojis related to the event/topic.
 
@@ -253,7 +259,7 @@ const TOPICAL_CHOICE_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
      - suggestedChoiceCount (integer): the number of options the question MUST have.
      - suggestedCorrectIndex (integer in [0, suggestedChoiceCount)): the index where the correct answer MUST be placed.
      - suggestedDifficulty ("Easy" | "Medium" | "Hard"): the bucket to aim at.
-     - suggestedDifficultyRange ([min, max]) and minimumDifficultyThreshold (integer): the bucket's target band and reject-below cutoff for THIS game type — used at step 6.
+     - suggestedDifficultyRange ([min, max]): the strict 1–10 accept range for the rolled bucket on THIS game type — used at step 6.
      - contextPriority (optional, only when contexts are configured): see CONTEXTS guidance above.
    - Pick one category from categories.ideas.
 
@@ -268,7 +274,7 @@ const TOPICAL_CHOICE_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
 
 5. CHECK FOR DUPLICATES: same as topical boolean path.
 
-6. DIFFICULTY GATE (REQUIRED): same as the fact path — aim inside \`suggestedDifficultyRange\`, reject and re-roll if strictly below \`minimumDifficultyThreshold\`.
+6. DIFFICULTY GATE (REQUIRED — STRICT MEMBERSHIP): same rules as the fact-choice path. Rating INSIDE \`suggestedDifficultyRange\` → proceed; ±1 off → reframe ONCE (correct-answer position stays locked at \`suggestedCorrectIndex\` during reframe — only the question text or distractors change); ≥2 off OR reframe still outside → REJECT and re-call get_ideas.
 
 7. Choose 1-4 fun emojis.
 
@@ -303,7 +309,7 @@ const FREEFORM_FACT_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
      - suggestedQuestionType: "fact"
      - suggestedFreeformAnswerShape: one of "name" | "place" | "phrase" | "title" | "date" | "countable" | "other" — the SHAPE the answer must take. Non-negotiable.
      - suggestedDifficulty ("Easy" | "Medium" | "Hard"): the bucket to aim at.
-     - suggestedDifficultyRange ([min, max]) and minimumDifficultyThreshold (integer): the bucket's target band and reject-below cutoff for THIS game type (freeform's bands are softer than boolean/choice's) — used at step 7.
+     - suggestedDifficultyRange ([min, max]): the strict 1–10 accept range for the rolled bucket on THIS game type (freeform's bands are softer than boolean/choice's) — used at step 7.
      - contextPriority (optional, only when contexts are configured): see CONTEXTS guidance above.
    - Pick one category from categories.ideas.
 
@@ -344,9 +350,12 @@ const FREEFORM_FACT_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
    - Call \`find_previous_questions\` with a distinctive keyword from the statement.
    - If a match is found, go back to step 2.
 
-7. DIFFICULTY GATE (REQUIRED):
-   Self-rate 1–10. The TARGET RANGE is \`suggestedDifficultyRange\` from get_ideas (freeform bands sit lower than boolean/choice — a freeform "Hard" might be [7, 8], not [9, 10]).
-   IF YOUR RATING IS STRICTLY BELOW \`minimumDifficultyThreshold\`: REJECT and re-roll from get_ideas. Only proceed at or above the threshold.
+7. DIFFICULTY GATE (REQUIRED — STRICT MEMBERSHIP):
+   Self-rate 1–10. The ACCEPT RANGE is \`suggestedDifficultyRange\` \`[min, max]\` from get_ideas (freeform bands sit lower than boolean/choice — a freeform "Hard" might be [7, 8], not [9, 10]). The bucket's range IS the accept bound.
+
+   - Rating INSIDE \`[min, max]\` → proceed.
+   - Rating EXACTLY \`min - 1\` or \`max + 1\` → REFRAME ONCE (rewrite the question to dial difficulty toward the range; the canonical \`expectedAnswer\` may also need updating if you change the question). Re-rate v2 independently. INSIDE → proceed; still outside → REJECT and re-call get_ideas.
+   - Rating ≥2 off (either direction) → REJECT immediately and re-call get_ideas.
 
 8. Choose 1-4 fun emojis.
 
@@ -379,7 +388,7 @@ const FREEFORM_TOPICAL_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
      - suggestedQuestionType: "topical"
      - suggestedFreeformAnswerShape: one of "name" | "place" | "phrase" | "title" | "date" | "countable" | "other" — see fact-freeform path for per-shape descriptions. Non-negotiable.
      - suggestedDifficulty ("Easy" | "Medium" | "Hard"): the bucket to aim at.
-     - suggestedDifficultyRange ([min, max]) and minimumDifficultyThreshold (integer): the bucket's target band and reject-below cutoff for THIS game type (freeform's bands are softer than boolean/choice's) — used at step 7.
+     - suggestedDifficultyRange ([min, max]): the strict 1–10 accept range for the rolled bucket on THIS game type (freeform's bands are softer than boolean/choice's) — used at step 7.
      - contextPriority (optional, only when contexts are configured): see CONTEXTS guidance above.
    - Pick one category from categories.ideas.
 

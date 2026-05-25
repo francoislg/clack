@@ -71,15 +71,16 @@ export interface TriviaChoicesConfig {
 export type DifficultyRange = [number, number];
 
 /**
- * Per-bucket target difficulty ranges + reject-below threshold for one answers-format
- * game type (boolean / choice / freeform). All fields required in the fully-resolved shape.
+ * Per-bucket target difficulty ranges for one answers-format game type
+ * (boolean / choice / freeform). All fields required in the fully-resolved shape.
+ * Each bucket's `[min, max]` IS the strict accept bound — there is no separate
+ * reject-below threshold (replaced by the `difficultyRatio` axis as of the
+ * `add-trivia-difficulty-ratio` change).
  */
 export interface DifficultyRanges {
   easy: DifficultyRange;
   medium: DifficultyRange;
   hard: DifficultyRange;
-  /** Self-ratings strictly below this number cause REJECT-and-re-roll. Integer in [1, 10]. */
-  minimumThreshold: number;
 }
 
 /** Sparse input shape used at config / season / slot tiers. Every field optional. */
@@ -92,6 +93,25 @@ export type DifficultyRangesInput = Partial<DifficultyRanges>;
  */
 export type TriviaDifficultyConfig = Partial<
   Record<"boolean" | "choice" | "freeform", DifficultyRangesInput>
+>;
+
+/**
+ * Weighted-random map of difficulty bucket → weight. Drives which bucket
+ * (`easy` / `medium` / `hard`) `get_ideas` rolls for each question. Weights are
+ * non-negative integers; missing keys normalize to `0`. At least one weight MUST
+ * be strictly positive.
+ */
+export type DifficultyBucketWeights = Record<"easy" | "medium" | "hard", number>;
+
+/**
+ * Per-answers-format difficulty-bucket ratio. Each format key carries its own
+ * `{ easy, medium, hard }` weight map. Cascades through slot → season → game →
+ * workspace → built-in default with **whole-object replace per tier** (no per-field
+ * merge; matches `answersFormat` / `questionType` semantics). Distinct axis from
+ * `difficulty` (the ranges), which uses per-field merge.
+ */
+export type TriviaDifficultyRatioConfig = Partial<
+  Record<"boolean" | "choice" | "freeform", DifficultyBucketWeights>
 >;
 
 /**
@@ -124,6 +144,12 @@ export interface TriviaGame {
   freeformAnswerShape?: TriviaFreeformAnswerShapeWeights;
   contexts?: TriviaContextEntry[];
   difficulty?: TriviaDifficultyConfig;
+  /**
+   * Per-game tier of the bucket-roll ratio axis. Same cascade as the other weighted
+   * axes (slot → season → game → workspace → built-in default). Whole-object replace
+   * per tier; per-format keying (boolean / choice / freeform).
+   */
+  difficultyRatio?: TriviaDifficultyRatioConfig;
 }
 
 /**
@@ -155,6 +181,12 @@ export interface TriviaConfig {
   choices?: TriviaChoicesConfig;
   /** Per-game-type difficulty ranges. */
   difficulty?: TriviaDifficultyConfig;
+  /**
+   * Per-game-type bucket-roll ratio. Independent from `difficulty` (which sets the
+   * 1–10 range per bucket); this controls how often each bucket is rolled. Same
+   * cascade as the other weighted axes; whole-object replace per tier.
+   */
+  difficultyRatio?: TriviaDifficultyRatioConfig;
   /** Declarative trivia games. */
   games?: TriviaGame[];
   /** Plugin-level off-days, shared by every entry in `games[]`. */
@@ -186,9 +218,25 @@ export const DEFAULT_DIFFICULTY_RANGES: Record<
   "boolean" | "choice" | "freeform",
   DifficultyRanges
 > = {
-  boolean: { easy: [4, 6], medium: [7, 8], hard: [9, 10], minimumThreshold: 4 },
-  choice: { easy: [4, 6], medium: [7, 8], hard: [9, 10], minimumThreshold: 4 },
-  freeform: { easy: [2, 4], medium: [5, 6], hard: [7, 8], minimumThreshold: 2 },
+  boolean: { easy: [4, 6], medium: [7, 8], hard: [9, 10] },
+  choice: { easy: [4, 6], medium: [7, 8], hard: [9, 10] },
+  freeform: { easy: [2, 4], medium: [5, 6], hard: [7, 8] },
+};
+
+/**
+ * Built-in fallback bucket-roll ratio per answers-format. Boolean/choice preserve the
+ * historical effective 30/60/10 distribution (`pickSuggestedDifficulty`'s hardcoded
+ * weights). Freeform skews easier because typing an answer is intrinsically harder
+ * than picking from a list — same reasoning that shifts `DEFAULT_DIFFICULTY_RANGES.freeform`
+ * down by 2 across every bucket.
+ */
+export const DEFAULT_DIFFICULTY_RATIO: Record<
+  "boolean" | "choice" | "freeform",
+  DifficultyBucketWeights
+> = {
+  boolean: { easy: 3, medium: 6, hard: 1 },
+  choice: { easy: 3, medium: 6, hard: 1 },
+  freeform: { easy: 5, medium: 4, hard: 1 },
 };
 
 /** JSON value tree used as validator input. Plugin-local so we don't import from bot core. */
