@@ -1,6 +1,11 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { buildUserSkillsSection, buildEditSkillModal } from "./userSkillsHomeTab.js";
+import {
+  buildUserSkillsSection,
+  buildEditSkillModal,
+  BODY_EDIT_MAX_CHARS,
+  BLOCK_BODY,
+} from "./userSkillsHomeTab.js";
 import type { UserSkill } from "../userSkills.js";
 
 const skillByAlice: UserSkill = {
@@ -92,5 +97,27 @@ describe("buildEditSkillModal", () => {
     const json = JSON.stringify(view);
     assert.ok(/clack_user_skill_restore:copy-improver/.test(json));
     assert.equal(/clack_user_skill_disable:copy-improver/.test(json), false);
+  });
+
+  it("renders an editable body input for normal-sized bodies", () => {
+    const view = buildEditSkillModal(skillByAlice);
+    const blocks = (view as { blocks: Array<{ block_id?: string; type: string }> }).blocks;
+    const bodyBlock = blocks.find((b) => b.block_id === BLOCK_BODY);
+    assert.ok(bodyBlock, "body input block should be present");
+    assert.equal(bodyBlock!.type, "input");
+  });
+
+  it("replaces body input with a notice when body exceeds the max", () => {
+    const oversized: UserSkill = {
+      ...skillByAlice,
+      body: "x".repeat(BODY_EDIT_MAX_CHARS + 1),
+    };
+    const view = buildEditSkillModal(oversized);
+    const blocks = (view as { blocks: Array<{ block_id?: string; type: string }> }).blocks;
+    const bodyInput = blocks.find((b) => b.block_id === BLOCK_BODY);
+    assert.equal(bodyInput, undefined, "body input block should be omitted");
+    const json = JSON.stringify(view);
+    assert.ok(/too long/i.test(json), "notice text should mention the length");
+    assert.ok(/Clack/.test(json), "notice should point users at Clack");
   });
 });

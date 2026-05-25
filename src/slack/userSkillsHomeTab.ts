@@ -39,6 +39,10 @@ export const ACTION_NAME_INPUT = "name_input";
 export const ACTION_DESCRIPTION_INPUT = "description_input";
 export const ACTION_BODY_INPUT = "body_input";
 
+// Slack's `plain_text_input.initial_value` is capped at 3000 chars; above this we
+// render a read-only notice instead of risking a truncated/round-tripped edit.
+export const BODY_EDIT_MAX_CHARS = 3000;
+
 export function buildUserSkillsSection(
   viewerUserId: string,
   viewerRole: UserRole,
@@ -172,18 +176,29 @@ export function buildEditSkillModal(skill: UserSkill): View {
       },
       hint: { type: "plain_text", text: t("userSkills.modal_description_hint") },
     },
-    {
-      type: "input",
-      block_id: BLOCK_BODY,
-      label: { type: "plain_text", text: t("userSkills.modal_body_label") },
-      element: {
-        type: "plain_text_input",
-        action_id: ACTION_BODY_INPUT,
-        multiline: true,
-        initial_value: skill.body,
-      },
-      hint: { type: "plain_text", text: t("userSkills.modal_body_hint") },
-    },
+    skill.body.length > BODY_EDIT_MAX_CHARS
+      ? {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: t("userSkills.modal_body_too_long", {
+              length: String(skill.body.length),
+              max: String(BODY_EDIT_MAX_CHARS),
+            }),
+          },
+        }
+      : {
+          type: "input",
+          block_id: BLOCK_BODY,
+          label: { type: "plain_text", text: t("userSkills.modal_body_label") },
+          element: {
+            type: "plain_text_input",
+            action_id: ACTION_BODY_INPUT,
+            multiline: true,
+            initial_value: skill.body,
+          },
+          hint: { type: "plain_text", text: t("userSkills.modal_body_hint") },
+        },
     { type: "divider" },
     {
       type: "actions",

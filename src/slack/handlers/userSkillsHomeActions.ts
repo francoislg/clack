@@ -229,7 +229,7 @@ function registerEditSubmit(app: App): void {
     const userId = body.user.id;
     const state = body.view.state.values;
     const description = readInputValue(state, BLOCK_DESCRIPTION, ACTION_DESCRIPTION_INPUT) ?? "";
-    const bodyText = readInputValue(state, BLOCK_BODY, ACTION_BODY_INPUT) ?? "";
+    const bodyText = readInputValue(state, BLOCK_BODY, ACTION_BODY_INPUT);
 
     const metadata = parseSlugMetadata(body.view.private_metadata);
     if (!metadata) {
@@ -268,7 +268,13 @@ function registerEditSubmit(app: App): void {
     }
 
     try {
-      updateUserSkill({ slug: metadata.slug, description, body: bodyText });
+      // When the body input was omitted (body too long for the modal), preserve
+      // the existing body — never round-trip through Slack and risk truncation.
+      const updates =
+        bodyText === null
+          ? { slug: metadata.slug, description }
+          : { slug: metadata.slug, description, body: bodyText };
+      updateUserSkill(updates);
       await ack();
       await refreshHomeView(client, userId);
     } catch (err) {
