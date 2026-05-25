@@ -1,5 +1,6 @@
 import { describe, it, beforeEach, mock } from "node:test";
 import assert from "node:assert/strict";
+import { resolve } from "node:path";
 import { createGitLogTool, type GitLogDeps } from "./gitLog.js";
 import type { QueryToolContext } from "../types.js";
 import type { RepositoryConfig } from "../../config.js";
@@ -345,7 +346,7 @@ describe("gitLog tool", () => {
       { sessionId: "test" },
     );
 
-    assert.deepEqual(baseDirs, ["/data/repositories/my-repo"]);
+    assert.deepEqual(baseDirs, [resolve("/data/repositories", "my-repo")]);
   });
 
   it("uses the main clone when no branch is provided (no shortcut attempted)", async () => {
@@ -372,6 +373,6 @@ describe("gitLog tool", () => {
 
     // No branch → no shortcut lookup, uses main clone
     assert.equal(findCalls.length, 0);
-    assert.deepEqual(baseDirs, ["/data/repositories/my-repo"]);
+    assert.deepEqual(baseDirs, [resolve("/data/repositories", "my-repo")]);
   });
 });

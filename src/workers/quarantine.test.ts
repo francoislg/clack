@@ -54,6 +54,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // Leave the temp dir before removing it: on Windows you cannot rmdir the
+  // current working directory (EBUSY).
+  process.chdir(originalCwd);
   rmSync(tmpRoot, { recursive: true, force: true });
 });
 

@@ -8,6 +8,7 @@
  * so passing `"config.json"` lands at `data/plugins/trivia/config.json`.
  */
 
+import type { FSWatcher } from "node:fs";
 import type { ClackSdk, PluginLogger } from "../../sdk.js";
 import type { JsonObject, TriviaConfig, TriviaGame } from "./configTypes.js";
 import {
@@ -21,6 +22,7 @@ const CONFIG_FILENAME = "config.json";
 
 let cached: TriviaConfig | null | undefined;
 let sdkRef: ClackSdk | null = null;
+let watcher: FSWatcher | null = null;
 
 function reloadInBackground(sdk: ClackSdk): void {
   readAndParse(sdk)
@@ -44,8 +46,10 @@ export async function initTriviaConfigBridge(sdk: ClackSdk): Promise<void> {
   sdkRef = sdk;
   cached = await readAndParse(sdk);
   // External edits (e.g. an admin editing the file directly) should invalidate
-  // the cache so the next tool call observes the new state.
-  sdk.watchFile(CONFIG_FILENAME, () => {
+  // the cache so the next tool call observes the new state. Close any prior
+  // watcher first so re-initialization doesn't leak handles.
+  watcher?.close();
+  watcher = sdk.watchFile(CONFIG_FILENAME, () => {
     reloadInBackground(sdk);
   });
 }
@@ -149,6 +153,8 @@ function parseTriviaConfigObject(raw: JsonObject, logger: PluginLogger): TriviaC
 
 /** Reset the cache + SDK reference. Tests call this to isolate state. */
 export function _resetTriviaConfigBridge(): void {
+  watcher?.close();
+  watcher = null;
   cached = undefined;
   sdkRef = null;
 }

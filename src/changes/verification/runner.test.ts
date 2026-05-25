@@ -60,11 +60,14 @@ function makeDeps(
   spawned: SpawnedCall[];
   children: FakeChild[];
   groupKills: GroupKill[];
+  /** Resolves once at least `n` group-kills have been recorded. */
+  waitForKills: (n: number) => Promise<void>;
 } {
   const logs: string[] = [];
   const spawned: SpawnedCall[] = [];
   const children: FakeChild[] = [];
   const groupKills: GroupKill[] = [];
+  const killWaiters: Array<{ n: number; resolve: () => void }> = [];
   let time = 1000;
 
   const spawnFn: SpawnFn = (command, opts) => {
@@ -96,6 +99,12 @@ function makeDeps(
     spawn: spawnFn,
     killGroup: (pid, signal) => {
       groupKills.push({ pid, signal });
+      for (let i = killWaiters.length - 1; i >= 0; i--) {
+        if (groupKills.length >= killWaiters[i]!.n) {
+          killWaiters[i]!.resolve();
+          killWaiters.splice(i, 1);
+        }
+      }
       return true;
     },
     appendExecutionLog: (_branch, message) => logs.push(message),
@@ -106,7 +115,12 @@ function makeDeps(
     killGraceMs: options.killGraceMs,
   };
 
-  return { deps, logs, spawned, children, groupKills };
+  const waitForKills = (n: number): Promise<void> => {
+    if (groupKills.length >= n) return Promise.resolve();
+    return new Promise((resolve) => killWaiters.push({ n, resolve }));
+  };
+
+  return { deps, logs, spawned, children, groupKills, waitForKills };
 }
 
 describe("runVerificationChecks", () => {
@@ -174,7 +188,9 @@ describe("runVerificationChecks", () => {
   });
 
   it("on timeout, sends SIGTERM to the process group via killGroup", async () => {
-    const { deps, children, groupKills } = makeDeps([{ delay: true }], { killGraceMs: 10_000 });
+    const { deps, children, groupKills, waitForKills } = makeDeps([{ delay: true }], {
+      killGraceMs: 10_000,
+    });
     const promise = runVerificationChecks(
       {
         worktreePath: "/wt",
@@ -183,7 +199,7 @@ describe("runVerificationChecks", () => {
       },
       deps,
     );
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    await waitForKills(1);
     // Process group received SIGTERM with the child's pid
     assert.equal(groupKills.length, 1);
     assert.equal(groupKills[0]!.pid, children[0]!.pid);
@@ -200,7 +216,9 @@ describe("runVerificationChecks", () => {
   });
 
   it("escalates to SIGKILL after the grace window", async () => {
-    const { deps, children, groupKills } = makeDeps([{ delay: true }], { killGraceMs: 20 });
+    const { deps, children, groupKills, waitForKills } = makeDeps([{ delay: true }], {
+      killGraceMs: 20,
+    });
     const promise = runVerificationChecks(
       {
         worktreePath: "/wt",
@@ -209,8 +227,9 @@ describe("runVerificationChecks", () => {
       },
       deps,
     );
-    // Wait long enough for SIGTERM + grace + SIGKILL
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // Wait for SIGTERM + grace + SIGKILL via the kill events themselves, so the
+    // assertion never flakes when timers slip under a loaded test run.
+    await waitForKills(2);
     assert.equal(groupKills.length, 2);
     assert.equal(groupKills[0]!.signal, "SIGTERM");
     assert.equal(groupKills[1]!.signal, "SIGKILL");
