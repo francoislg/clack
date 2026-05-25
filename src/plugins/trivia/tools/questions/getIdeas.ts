@@ -56,7 +56,7 @@ When suggestedAnswersFormat is \`"choice"\`, also returns:
 - \`suggestedCorrectIndex\` (integer in [0, suggestedChoiceCount)): the 0-based index of the correct option
 
 When suggestedAnswersFormat is \`"freeform"\`, also returns:
-- \`suggestedFreeformAnswerShape\`: one of \`"name" | "place" | "phrase" | "title" | "date" | "number" | "other"\` — picked from active freeformAnswerShape weights (slot.freeformAnswerShape → season.freeformAnswerShape → config.trivia.freeformAnswerShape → uniform default). The question MUST be answered by a value of that shape; this exists to break Claude's strong default bias toward numeric answers. \`"other"\` is a wildcard where Claude reaches for an unconventional answer shape.
+- \`suggestedFreeformAnswerShape\`: one of \`"name" | "place" | "phrase" | "title" | "date" | "countable" | "other"\` — picked from active freeformAnswerShape weights (slot.freeformAnswerShape → season.freeformAnswerShape → config.trivia.freeformAnswerShape → uniform default). The question MUST be answered by a value of that shape; this exists to break Claude's strong default bias toward numeric answers. \`"other"\` is a wildcard where Claude reaches for an unconventional answer shape.
 
 Each call rolls suggestions independently — no caching across slot indices. When the active season has a \`format\`, loop slots 0..slotCount-1 with separate calls; do NOT pre-roll all slots up front.
 

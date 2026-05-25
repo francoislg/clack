@@ -48,6 +48,7 @@ const BASE_ARGS = {
   expectedAnswer: undefined,
   acceptableAnswers: undefined,
   gradingNotes: undefined,
+  freeformAnswerShape: undefined,
   suggestedDifficulty: undefined,
   difficulty: undefined,
   emojis: ["💧"],

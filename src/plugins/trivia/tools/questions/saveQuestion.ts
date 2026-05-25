@@ -33,9 +33,9 @@ CHOICE (\`answersFormat: "choice"\`):
 - Exactly ONE correct answer per question — validated at this tool's boundary.
 
 FREEFORM (\`answersFormat: "freeform"\`):
-- Required: \`category\`, \`statement\`, \`questionType\`, \`emojis\`, \`expectedAnswer\` (the canonical correct answer, ≤ 200 chars).
+- Required: \`category\`, \`statement\`, \`questionType\`, \`emojis\`, \`expectedAnswer\` (the canonical correct answer, ≤ 200 chars), \`freeformAnswerShape\` (the shape rolled by \`get_ideas\` — pass it straight through, do NOT re-pick).
 - Optional: \`acceptableAnswers\` (string[] of pre-enumerated valid variants the reveal-time judge should also accept), \`gradingNotes\` (one short sentence refining acceptance — e.g. "Accept any major Canadian city").
-- The stored record carries \`answersFormat: "freeform"\` and \`expectedAnswer\`; no \`isTrue\`/\`choices\`/\`correctIndex\`. The user types their answer into a Slack modal; a small fast model judges submissions at reveal time, rejecting multi-guess "shotgun" answers (e.g. "Paris or London") as incorrect even when one guess matches.
+- The stored record carries \`answersFormat: "freeform"\`, \`expectedAnswer\`, and \`freeformAnswerShape\`; no \`isTrue\`/\`choices\`/\`correctIndex\`. The user types their answer into a Slack modal; a small fast model judges submissions at reveal time, rejecting multi-guess "shotgun" answers (e.g. "Paris or London") as incorrect even when one guess matches.
 
 ADDITIONAL FIELDS (all shapes):
 - \`questionType\` (REQUIRED): \`"fact"\` or \`"topical"\`. Must match the value rolled by \`get_ideas\`.
@@ -105,6 +105,12 @@ export function createSaveQuestionTool(
         .optional()
         .describe(
           'OPTIONAL on freeform questions: a one-sentence hint to the reveal-time judge about edge cases (e.g. "Accept any major Canadian city"). MUST NOT be set when answersFormat is "boolean" or "choice".',
+        ),
+      freeformAnswerShape: z
+        .enum(["name", "place", "phrase", "title", "date", "countable", "other"])
+        .optional()
+        .describe(
+          'REQUIRED for freeform questions: the shape `get_ideas` rolled in `suggestedFreeformAnswerShape` — pass it through verbatim, do NOT re-pick. Persisted for post-hoc audit. MUST NOT be set when answersFormat is "boolean" or "choice".',
         ),
       sourceUrl: z
         .string()
@@ -189,6 +195,9 @@ export function createSaveQuestionTool(
         if (args.gradingNotes !== undefined) {
           return errorResult('Boolean questions must not include "gradingNotes".');
         }
+        if (args.freeformAnswerShape !== undefined) {
+          return errorResult('Boolean questions must not include "freeformAnswerShape".');
+        }
       } else if (answersFormat === "choice") {
         if (args.isTrue !== undefined) {
           return errorResult('Choice questions must not include "isTrue".');
@@ -207,6 +216,9 @@ export function createSaveQuestionTool(
         }
         if (args.gradingNotes !== undefined) {
           return errorResult('Choice questions must not include "gradingNotes".');
+        }
+        if (args.freeformAnswerShape !== undefined) {
+          return errorResult('Choice questions must not include "freeformAnswerShape".');
         }
         const config = getConfigFn();
         const bounds = config?.choices ?? DEFAULT_TRIVIA_CHOICES;
@@ -266,6 +278,11 @@ export function createSaveQuestionTool(
         if (args.gradingNotes !== undefined && args.gradingNotes.length > 500) {
           return errorResult(
             `"gradingNotes" must be at most 500 characters (got ${args.gradingNotes.length}).`,
+          );
+        }
+        if (args.freeformAnswerShape === undefined) {
+          return errorResult(
+            'Freeform questions require "freeformAnswerShape" — pass through the value from get_ideas\' suggestedFreeformAnswerShape.',
           );
         }
       }
@@ -433,6 +450,9 @@ export function createSaveQuestionTool(
                   ? { acceptableAnswers: args.acceptableAnswers }
                   : {}),
                 ...(args.gradingNotes !== undefined ? { gradingNotes: args.gradingNotes } : {}),
+                ...(args.freeformAnswerShape !== undefined
+                  ? { freeformAnswerShape: args.freeformAnswerShape }
+                  : {}),
               };
 
       await scoped.saveQuestion(question);

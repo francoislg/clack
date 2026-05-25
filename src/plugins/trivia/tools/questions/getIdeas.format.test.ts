@@ -227,7 +227,7 @@ describe("get_ideas — suggestedFreeformAnswerShape (freeform branch)", () => {
       );
       assert.equal(parsed.suggestedAnswersFormat, "freeform");
       assert.ok(
-        ["name", "place", "phrase", "title", "date", "number", "other"].includes(
+        ["name", "place", "phrase", "title", "date", "countable", "other"].includes(
           parsed.suggestedFreeformAnswerShape,
         ),
         `unexpected shape: ${parsed.suggestedFreeformAnswerShape}`,
@@ -239,7 +239,15 @@ describe("get_ideas — suggestedFreeformAnswerShape (freeform branch)", () => {
 
   it("honors slot.freeformAnswerShape (overrides season + config)", async () => {
     await seedSeason(data, {
-      freeformAnswerShape: { name: 0, place: 0, phrase: 0, title: 0, date: 1, number: 0, other: 0 },
+      freeformAnswerShape: {
+        name: 0,
+        place: 0,
+        phrase: 0,
+        title: 0,
+        date: 1,
+        countable: 0,
+        other: 0,
+      },
       format: {
         questions: [
           {
@@ -249,7 +257,7 @@ describe("get_ideas — suggestedFreeformAnswerShape (freeform branch)", () => {
               phrase: 0,
               title: 0,
               date: 0,
-              number: 0,
+              countable: 0,
               other: 0,
             },
           },
@@ -267,7 +275,15 @@ describe("get_ideas — suggestedFreeformAnswerShape (freeform branch)", () => {
 
   it("falls back to season.freeformAnswerShape when slot has none", async () => {
     await seedSeason(data, {
-      freeformAnswerShape: { name: 0, place: 1, phrase: 0, title: 0, date: 0, number: 0, other: 0 },
+      freeformAnswerShape: {
+        name: 0,
+        place: 1,
+        phrase: 0,
+        title: 0,
+        date: 0,
+        countable: 0,
+        other: 0,
+      },
       format: { questions: [{}] },
     });
     const tool = createGetIdeasTool(data, () => FREEFORM_CONFIG, fixtureGetGames);
@@ -286,7 +302,15 @@ describe("get_ideas — suggestedFreeformAnswerShape (freeform branch)", () => {
     const cfg = makeConfig({
       seasons: { enabled: true, prompt: "Monthly" },
       answersFormat: { boolean: 0, choice: 0, freeform: 1 },
-      freeformAnswerShape: { name: 0, place: 0, phrase: 1, title: 0, date: 0, number: 0, other: 0 },
+      freeformAnswerShape: {
+        name: 0,
+        place: 0,
+        phrase: 1,
+        title: 0,
+        date: 0,
+        countable: 0,
+        other: 0,
+      },
     });
     const tool = createGetIdeasTool(data, () => cfg, fixtureGetGames);
     for (let i = 0; i < 10; i++) {

@@ -743,7 +743,7 @@ describe("list_seasons — axis-config surfacing", () => {
       phrase: 0,
       title: 0,
       date: 0,
-      number: 0,
+      countable: 0,
       other: 0,
     } as const;
     await seedTimeline(data, [
@@ -801,7 +801,7 @@ describe("list_seasons — axis-config surfacing", () => {
       phrase: 0,
       title: 0,
       date: 0,
-      number: 0,
+      countable: 0,
       other: 0,
     } as const;
     await seedTimeline(data, [
@@ -1482,6 +1482,7 @@ describe("save_question validates against active pool", () => {
         expectedAnswer: undefined,
         acceptableAnswers: undefined,
         gradingNotes: undefined,
+        freeformAnswerShape: undefined,
         suggestedDifficulty: undefined,
         difficulty: undefined,
         slot: undefined,
@@ -1512,6 +1513,7 @@ describe("save_question validates against active pool", () => {
         expectedAnswer: undefined,
         acceptableAnswers: undefined,
         gradingNotes: undefined,
+        freeformAnswerShape: undefined,
         suggestedDifficulty: undefined,
         difficulty: undefined,
         slot: undefined,

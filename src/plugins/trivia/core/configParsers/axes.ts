@@ -35,7 +35,7 @@ export const FREEFORM_ANSWER_SHAPE_KEYS = [
   "phrase",
   "title",
   "date",
-  "number",
+  "countable",
   "other",
 ] as const;
 const DIFFICULTY_BUCKET_KEYS = ["easy", "medium", "hard"] as const;
@@ -157,7 +157,7 @@ export function validateFreeformAnswerShapeMap(
       phrase: out.phrase ?? 0,
       title: out.title ?? 0,
       date: out.date ?? 0,
-      number: out.number ?? 0,
+      countable: out.countable ?? 0,
       other: out.other ?? 0,
     },
   };

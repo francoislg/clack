@@ -67,7 +67,7 @@ describe("list_games — workspaceDefaults block", () => {
         phrase: 1,
         title: 1,
         date: 0,
-        number: 0,
+        countable: 0,
         other: 1,
       },
       seasons: { enabled: true, prompt: "Monthly" },
