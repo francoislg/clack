@@ -30,6 +30,7 @@ import {
   ACTION_BODY_INPUT,
 } from "../userSkillsHomeTab.js";
 import { publishHomeView } from "./homeTab.js";
+import { t } from "../../i18n/t.js";
 
 /**
  * Wires up the Skills section of the Home Tab: open Create/Edit modals, submit those
@@ -105,6 +106,7 @@ function registerDisable(app: App): void {
       } catch (err) {
         logger.error("Home Tab disable error:", err);
       }
+      await closeModalIfOpen(client, body, "userSkills.disabled", slug);
       await refreshHomeView(client, userId);
     },
   );
@@ -127,9 +129,47 @@ function registerRestore(app: App): void {
       } catch (err) {
         logger.error("Home Tab restore error:", err);
       }
+      await closeModalIfOpen(client, body, "userSkills.restored", slug);
       await refreshHomeView(client, userId);
     },
   );
+}
+
+function extractViewId(body: BlockAction): string | null {
+  if (!("view" in body)) return null;
+  const view = body.view;
+  if (view === null || typeof view !== "object") return null;
+  if (!("id" in view)) return null;
+  const { id } = view as { id: string | undefined };
+  return typeof id === "string" ? id : null;
+}
+
+async function closeModalIfOpen(
+  client: App["client"],
+  body: BlockAction,
+  messageKey: "userSkills.disabled" | "userSkills.restored",
+  slug: string,
+): Promise<void> {
+  const viewId = extractViewId(body);
+  if (!viewId) return;
+  try {
+    await client.views.update({
+      view_id: viewId,
+      view: {
+        type: "modal",
+        title: { type: "plain_text", text: t("userSkills.modal_edit_title") },
+        close: { type: "plain_text", text: t("common.cancel") },
+        blocks: [
+          {
+            type: "section",
+            text: { type: "mrkdwn", text: t(messageKey, { slug }) },
+          },
+        ],
+      },
+    });
+  } catch (err) {
+    logger.warn("Failed to update modal after disable/restore:", err);
+  }
 }
 
 function registerCreateSubmit(app: App): void {
