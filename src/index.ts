@@ -2,7 +2,7 @@ import { config as dotenvConfig } from "dotenv";
 import { join } from "path";
 import { testMCP } from "./claude/testMcp.js";
 import { loadConfig, getConfig } from "./config.js";
-import { loadGitHubCredentials, validateGitHubApp } from "./github.js";
+import { loadGitHubCredentials, validateGitHubApp, gitHubCredentialsExist } from "./github.js";
 import { logger } from "./logger.js";
 import { initializeRepositories, syncAllRepositories } from "./repositories.js";
 import { createSlackApp, startSlackApp, stopSlackApp } from "./slack/app.js";
@@ -64,14 +64,21 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // Step 1.6: Load and validate GitHub App credentials
-  logger.info("Validating GitHub credentials...");
-  try {
-    loadGitHubCredentials();
-    await validateGitHubApp();
-  } catch (error) {
-    logger.error("Failed to validate GitHub App credentials:", error);
-    process.exit(1);
+  // Step 1.6: Load and validate GitHub App credentials.
+  // GitHub is optional: when no data/auth/github.json is present, GitHub-backed
+  // features (repo clone/sync, Changes Workflow, github-mcp-server) are simply
+  // unavailable and the bot boots normally — e.g. a Slack-only trivia deployment.
+  if (gitHubCredentialsExist()) {
+    logger.info("Validating GitHub credentials...");
+    try {
+      loadGitHubCredentials();
+      await validateGitHubApp();
+    } catch (error) {
+      logger.error("Failed to validate GitHub App credentials:", error);
+      process.exit(1);
+    }
+  } else {
+    logger.info("No GitHub credentials found — GitHub features disabled (Slack-only mode).");
   }
 
   // Step 1.7: Validate instruction files

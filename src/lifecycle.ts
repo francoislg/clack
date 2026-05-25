@@ -2,7 +2,7 @@ import { join } from "path";
 import { config as dotenvConfig } from "dotenv";
 
 import { loadConfig, getConfig } from "./config.js";
-import { loadGitHubCredentials, clearGitHubTokenCache } from "./github.js";
+import { loadGitHubCredentials, clearGitHubTokenCache, gitHubCredentialsExist } from "./github.js";
 import { logger } from "./logger.js";
 import {
   initializeRepositories,
@@ -38,6 +38,7 @@ export interface LifecycleDeps {
   loadConfig: typeof loadConfig;
   getConfig: typeof getConfig;
   loadGitHubCredentials: typeof loadGitHubCredentials;
+  gitHubCredentialsExist: typeof gitHubCredentialsExist;
   clearGitHubTokenCache: typeof clearGitHubTokenCache;
   logger: typeof logger;
   initializeRepositories: typeof initializeRepositories;
@@ -70,6 +71,7 @@ export const defaultLifecycleDeps: LifecycleDeps = {
   loadConfig,
   getConfig,
   loadGitHubCredentials,
+  gitHubCredentialsExist,
   clearGitHubTokenCache,
   logger,
   initializeRepositories,
@@ -285,13 +287,16 @@ export async function restartAll(
       );
     }
 
-    // Step 5: Reload GitHub credentials
-    try {
-      deps.loadGitHubCredentials();
-    } catch (error) {
-      warnings.push(
-        `GitHub credentials reload failed: ${error instanceof Error ? error.message : String(error)}`,
-      );
+    // Step 5: Reload GitHub credentials (skipped entirely when GitHub is not
+    // configured — a Slack-only deployment has no github.json to reload).
+    if (deps.gitHubCredentialsExist()) {
+      try {
+        deps.loadGitHubCredentials();
+      } catch (error) {
+        warnings.push(
+          `GitHub credentials reload failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
     }
 
     // Step 6: Validate instruction files
