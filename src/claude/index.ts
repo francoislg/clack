@@ -30,6 +30,7 @@ import { buildQueryContext } from "../tools/context.js";
 import { buildClackTools } from "../tools/server.js";
 import { discoverEagerSkillPlugins, discoverSkillPluginInfo } from "../skillPlugins.js";
 import { prepareSkillsSession } from "./skillsManager.js";
+import { discoverUserSkills } from "../userSkills.js";
 
 export interface ConversationMessage {
   type: string;
@@ -195,6 +196,11 @@ async function buildQuerySetup(
     ...options,
     mcpRegistry: mcpSetup.registry,
     skillPluginsRegistry: config.skillPlugins,
+    userSkills: config.userSkills?.enabled
+      ? discoverUserSkills()
+          .filter((s) => !s.disabledAt)
+          .map((s) => ({ slug: s.slug, description: s.description }))
+      : undefined,
   });
 
   const skillsManager = prepareSkillsSession(

@@ -29,6 +29,7 @@ import {
 } from "./mcp.js";
 import { buildQueryContext as defaultBuildQueryContext } from "./tools/context.js";
 import { buildClackTools as defaultBuildClackTools } from "./tools/server.js";
+import { getLoadedPluginIntegrations } from "./plugins/state.js";
 import type { QueryToolContext, ClackQueryToolsResult } from "./tools/types.js";
 import { logger as defaultLogger } from "./logger.js";
 import type { Config } from "./config.js";
@@ -40,6 +41,7 @@ import {
 } from "./skillPlugins.js";
 import { prepareSkillsSession as defaultPrepareSkillsSession } from "./claude/skillsManager.js";
 import { McpServerManager } from "./claude/mcpServerManager.js";
+import { discoverUserSkills as defaultDiscoverUserSkills } from "./userSkills.js";
 
 /**
  * Role tiers measured by the smoke test. The label is what appears in log lines;
@@ -76,6 +78,7 @@ export interface BaselineSmokeDeps {
   discoverEagerSkillPlugins: typeof defaultDiscoverEagerSkillPlugins;
   discoverSkillPluginInfo: typeof defaultDiscoverSkillPluginInfo;
   prepareSkillsSession: typeof defaultPrepareSkillsSession;
+  discoverUserSkills: typeof defaultDiscoverUserSkills;
   logger: BaselineSmokeLogger;
 }
 
@@ -90,6 +93,7 @@ export const defaultBaselineSmokeDeps: BaselineSmokeDeps = {
   discoverEagerSkillPlugins: defaultDiscoverEagerSkillPlugins,
   discoverSkillPluginInfo: defaultDiscoverSkillPluginInfo,
   prepareSkillsSession: defaultPrepareSkillsSession,
+  discoverUserSkills: defaultDiscoverUserSkills,
   logger: defaultLogger,
 };
 
@@ -121,6 +125,7 @@ export async function runBaselineSmoke(
       configRegistry: config.mcpServers,
       mcpServerNames,
       githubAutoInjected: mcpServerNames.includes("github"),
+      pluginIntegrations: getLoadedPluginIntegrations(),
     });
     mcpRegistry = resolved.registry;
     mcpServers = await deps.loadAlwaysOnMcpServers(mcpRegistry);
@@ -215,6 +220,12 @@ async function measureRoleBaseline(
   const userPrompt = deps.buildPrompt(dummySession, {
     mcpRegistry: options.mcpRegistry,
     skillPluginsRegistry: options.config.skillPlugins,
+    userSkills: options.config.userSkills?.enabled
+      ? deps
+          .discoverUserSkills()
+          .filter((s) => !s.disabledAt)
+          .map((s) => ({ slug: s.slug, description: s.description }))
+      : undefined,
   });
 
   // `McpServerConfig` is the SDK's union of stdio/sse/http/sdk-instance variants;

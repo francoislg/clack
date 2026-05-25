@@ -39,7 +39,7 @@ export function createProposeSkillCreateTool(
       description: z
         .string()
         .describe(
-          "When-to-use trigger description. 1-1024 chars. Shown to Claude in every prompt so it knows when to reach for this skill.",
+          'When-to-use trigger description (1-1024 chars). Shown to Claude in every prompt — this is the ONLY signal Claude has for deciding to load the skill, so write it for high recall. Format: start with the literal phrases a user might say to invoke the skill ("Use when the user asks to <X>, be a <Y>, act as <Z>..."), then list the topic keywords/synonyms that should also fire it ("...or when the conversation involves <topic1>, <topic2>, <topic3>"), then one short clause naming the persona/behavior it activates. Example: "Use when the user asks to be a sports analyst, talk hockey, or break down a game. Also fires on any mention of NHL, playoffs, teams, scores, trades, or sports analysis. Activates the Hockey & Sports Analyst persona." Avoid generic phrasing like "Use this for sports questions" — that under-triggers.',
         ),
       body: z.string().describe("The full SKILL.md body (markdown). Loaded on demand by Claude."),
     },
