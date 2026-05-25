@@ -401,6 +401,47 @@ describe("validateTable — standalone table parameter", () => {
     );
   });
 
+  it("rejects empty string cells (Slack returns invalid_blocks for empty raw_text)", () => {
+    // Why: a bare-string "" cell is sugar for { type: "raw_text", text: "" },
+    // which Slack rejects with invalid_blocks for the whole message. The
+    // 3-row dual-totals leaderboard layout was the common producer.
+    const table: AuthoredTableBlock = {
+      type: "table",
+      rows: [
+        ["", "Alice", "Bob"],
+        ["Current Season", "5", "3"],
+        ["All Time", "9", "12"],
+      ],
+    };
+    const errors = validateTable(table, "table");
+    const emptyCellError = errors.find((e) => e.field === "table.rows[0][0]");
+    assert.ok(emptyCellError, "empty top-left cell should be flagged");
+    assert.match(emptyCellError.message, /empty/);
+  });
+
+  it("rejects empty raw_text cells with the same actionable message", () => {
+    const table: AuthoredTableBlock = {
+      type: "table",
+      rows: [[{ type: "raw_text", text: "" }, "Alice"]],
+    };
+    const errors = validateTable(table, "table");
+    const emptyCellError = errors.find((e) => e.field === "table.rows[0][0]");
+    assert.ok(emptyCellError);
+  });
+
+  it("accepts a single-space cell as the empty-cell workaround", () => {
+    const table: AuthoredTableBlock = {
+      type: "table",
+      rows: [
+        [" ", "Alice", "Bob"],
+        ["Current Season", "5", "3"],
+        ["All Time", "9", "12"],
+      ],
+      column_settings: [{ align: "center" }, { align: "center" }, { align: "center" }],
+    };
+    assert.equal(validateTable(table, "table").length, 0);
+  });
+
   it("rejects ragged rows where row width disagrees with row 0", () => {
     // Why: Slack renders ragged tables with misaligned columns — scores drift
     // off their player headers. The seasons leaderboard's 3-row layout is the

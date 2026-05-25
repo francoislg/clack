@@ -197,7 +197,7 @@ export function validateTable(
     if (ri > 0 && row.length !== firstRowWidth) {
       errors.push({
         field: `${pathPrefix}.rows[${ri}]`,
-        message: `${pathPrefix} row ${ri} has ${row.length} cells but row 0 has ${firstRowWidth}. All rows must have the same number of cells — pad with empty strings if a header/label cell is missing.`,
+        message: `${pathPrefix} row ${ri} has ${row.length} cells but row 0 has ${firstRowWidth}. All rows must have the same number of cells — pad with a single space " " (Slack rejects empty cells) if a header/label cell is missing.`,
         currentLength: row.length,
         limit: firstRowWidth,
       });
@@ -210,6 +210,19 @@ export function validateTable(
           message: `${pathPrefix} cell at row ${ri}, column ${ci} has ${len} chars of text, exceeding the ${TABLE_CELL_TEXT_LIMIT}-char limit. Shorten the cell or move large content into a separate block.`,
           currentLength: len,
           limit: TABLE_CELL_TEXT_LIMIT,
+        });
+      }
+      // Why: Slack rejects the entire message with `invalid_blocks` when a
+      // raw_text cell has empty text — and a bare-string "" cell is sugar for
+      // a raw_text cell, so it falls into the same trap. If you really want
+      // a visually blank cell (e.g. the top-left label of a multi-row table),
+      // pass a single space " " or a zero-width space "​".
+      if (len === 0) {
+        errors.push({
+          field: `${pathPrefix}.rows[${ri}][${ci}]`,
+          message: `${pathPrefix} cell at row ${ri}, column ${ci} has empty text. Slack rejects empty raw_text cells (it returns invalid_blocks for the whole message). If you really want an empty cell, use a single space " " or a zero-width space "\\u200B".`,
+          currentLength: 0,
+          limit: 1,
         });
       }
     });

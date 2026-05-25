@@ -226,7 +226,7 @@ export const BlockSchema = z.discriminatedUnion(
       if (issue.code === "invalid_union") {
         const actualType = readTypeTag(issue.input as JsonValue | undefined);
         if (actualType === "table") {
-          return 'Block type "table" is not a member of `blocks` — it is a top-level sibling parameter on `submit_response` (and on each `post_to` action). Move the table object to the `table` field next to `blocks`. Do NOT drop it: shipping the message without `table` will leave the scoreboard blank.';
+          return 'Block type "table" is not a member of `blocks` — it is a top-level sibling parameter on `submit_response` (and on each `post_to` action). Move the table object to the `table` field next to `blocks`.';
         }
         const allowed = ALLOWED_BLOCK_TYPES.join(", ");
         return `Block type ${JSON.stringify(actualType)} is not supported. Allowed block types: ${allowed}.`;
