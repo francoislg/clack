@@ -65,7 +65,7 @@ export function interpolateVariables(content: string, variables: Record<string, 
  * The cascading resolver routes the two key shapes to its baseline and topic resolution
  * paths respectively, so no per-shape filtering is needed here.
  */
-function buildVirtualDefaults(): VirtualDefaults | undefined {
+export function buildVirtualDefaults(): VirtualDefaults | undefined {
   const { results } = getLoadedPlugins();
   if (results.length === 0) return undefined;
 

@@ -10,6 +10,8 @@ import {
 import { updateSession as defaultUpdateSession } from "../../sessions.js";
 import type { SessionContext } from "../../sessions.js";
 import { logger } from "../../logger.js";
+import { buildVirtualDefaults as defaultBuildVirtualDefaults } from "../../instructions.js";
+import { getToolsGatedByIntegration as defaultGetToolsGatedByIntegration } from "../../plugins/state.js";
 
 type McpAttachHistoryEntry = NonNullable<SessionContext["mcpAttachHistory"]>[number];
 
@@ -36,12 +38,16 @@ export interface AttachIntegrationDeps {
   loadMcpServer: typeof defaultLoadMcpServer;
   resolveTopicFiles: typeof defaultResolveTopicFiles;
   updateSession: typeof defaultUpdateSession;
+  buildVirtualDefaults: typeof defaultBuildVirtualDefaults;
+  getToolsGatedByIntegration: typeof defaultGetToolsGatedByIntegration;
 }
 
 export const defaultAttachIntegrationDeps: AttachIntegrationDeps = {
   loadMcpServer: defaultLoadMcpServer,
   resolveTopicFiles: defaultResolveTopicFiles,
   updateSession: defaultUpdateSession,
+  buildVirtualDefaults: defaultBuildVirtualDefaults,
+  getToolsGatedByIntegration: defaultGetToolsGatedByIntegration,
 };
 
 /**
@@ -138,7 +144,14 @@ export function createAttachIntegrationTool(
       // already in the system prompt. Re-injecting them inflates the tool result
       // by ~30KB and starves the context window (autocompact thrash).
       const roleChain = buildRoleChain(ctx.role, ctx.changesWorkflowEnabled);
-      const instructions = deps.resolveTopicFiles(roleChain, args.name);
+      // Plugin-registered topic instructions live in the in-memory virtual-defaults map,
+      // not on disk. Pass it through so `sdk.addTopicInstruction(...)` content actually
+      // resolves — without it, only on-disk overrides at `{role}/topics/<name>/*.md` are seen.
+      const instructions = deps.resolveTopicFiles(
+        roleChain,
+        args.name,
+        deps.buildVirtualDefaults(),
+      );
 
       // Two paths: MCP-backed (load + setMcpServers) and instructions-only (no server).
       const serverConfig = await deps.loadMcpServer(args.name);
@@ -182,19 +195,25 @@ export function createAttachIntegrationTool(
         logger.warn(`Failed to persist attach state for '${args.name}': ${message}`);
       }
 
-      // Non-empty topic instructions ⇒ plugin-topic-gated tools may also be revealed on
-      // the next turn; the empty-fallback message is defensive (shouldn't happen for a
-      // valid registered topic).
+      // Three signals decide whether to advertise "new tools": (1) an MCP server got
+      // attached, (2) plugin tools are registered with `{ integration: args.name }` (the
+      // gate in `src/tools/server.ts` reveals them next turn now that the integration is
+      // in `attachedIntegrations`), (3) plugin topic instructions resolved. Any of the
+      // three means the next turn brings new capability.
       const hasTopicInstructions = instructions.trim().length > 0;
-      const kindNote =
-        serverConfig || hasTopicInstructions
-          ? `New tools may now be available on the next turn.`
-          : `This integration has no MCP server — instructions were loaded, no new tools arrive.`;
+      const gatedToolNames = deps.getToolsGatedByIntegration(args.name);
+      const willHaveNewTools = !!serverConfig || gatedToolNames.length > 0;
+      const kindNote = willHaveNewTools
+        ? `New tools may now be available on the next turn.`
+        : hasTopicInstructions
+          ? `Instructions loaded. This integration has no callable tools — proceed using the integration's instructions.`
+          : `This integration has no MCP server, no gated tools, and no topic instructions — nothing arrives.`;
 
-      const body =
-        instructions.trim().length > 0
-          ? instructions
-          : "(No topic instructions were resolved — proceed using the integration's tools.)";
+      const body = hasTopicInstructions
+        ? instructions
+        : gatedToolNames.length > 0
+          ? `(No topic instructions were resolved — gated tools available on the next turn: ${gatedToolNames.join(", ")})`
+          : "(No topic instructions were resolved.)";
 
       return {
         content: [
