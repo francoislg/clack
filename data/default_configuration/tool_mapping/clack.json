@@ -104,6 +104,31 @@
     },
     "list_skill_pack_skills": "Listing skills in {pack}",
     "load_skill": "Loading skill {skill} from {pack}",
+    "list_user_skills": {
+      "label": "Listing user skills {owner|}",
+      "group": "user_skills",
+      "itemDetail": "List user skills {owner|all}"
+    },
+    "propose_skill_create": {
+      "label": "Proposing new skill {name}",
+      "group": "user_skills",
+      "itemDetail": "Create {name}"
+    },
+    "propose_skill_update": {
+      "label": "Proposing update to skill {name}",
+      "group": "user_skills",
+      "itemDetail": "Update {name}"
+    },
+    "propose_skill_disable": {
+      "label": "Proposing to disable skill {name}",
+      "group": "user_skills",
+      "itemDetail": "Disable {name}"
+    },
+    "propose_skill_restore": {
+      "label": "Proposing to restore skill {name}",
+      "group": "user_skills",
+      "itemDetail": "Restore {name}"
+    },
     "propose_change": "Proposing change {repo}",
     "request_update": "Requesting update",
     "propose_config_update": "Proposing config update {role}/{file}",
@@ -222,6 +247,7 @@
     "scheduled_messages": "Managing scheduled messages",
     "auto_respond": "Managing auto-respond rules",
     "configuration": "Reading Clack configuration",
-    "admin": "Admin actions"
+    "admin": "Admin actions",
+    "user_skills": "Managing user skills"
   }
 }

@@ -289,6 +289,48 @@ export const fr: Partial<Record<StringKey, string>> = {
     "Publication automatique impossible : contenu de la réponse introuvable.",
   "errors.auto_post_failed": "Échec de publication : {error}",
 
+  // ─── Compétences créées par l'utilisateur ──────────────────────────
+  "userSkills.created": "La compétence `{slug}` a été créée.",
+  "userSkills.create_failed": "Échec de création de la compétence `{slug}` : {error}",
+  "userSkills.updated": "La compétence `{slug}` a été mise à jour.",
+  "userSkills.update_failed": "Échec de mise à jour de la compétence `{slug}` : {error}",
+  "userSkills.disabled": "La compétence `{slug}` a été désactivée.",
+  "userSkills.disable_failed": "Échec de désactivation de la compétence `{slug}` : {error}",
+  "userSkills.restored": "La compétence `{slug}` a été restaurée.",
+  "userSkills.restore_failed": "Échec de restauration de la compétence `{slug}` : {error}",
+  "userSkills.permission_denied":
+    "Vous n'avez pas la permission de modifier la compétence `{slug}`. Seul le propriétaire ou un administrateur peut la modifier.",
+  "userSkills.expired": "Désolé, cette demande de compétence a expiré. Veuillez réessayer.",
+  "userSkills.section_header": "Compétences",
+  "userSkills.section_subheader":
+    "Compétences créées par l'organisation, disponibles à Claude dans chaque session.",
+  "userSkills.empty_state":
+    "Aucune compétence pour l'instant. Cliquez sur *+ Créer une compétence* pour en ajouter une.",
+  "userSkills.create_button": "+ Créer une compétence",
+  "userSkills.edit_button": "Modifier",
+  "userSkills.disable_button": "Désactiver",
+  "userSkills.restore_button": "Restaurer",
+  "userSkills.disabled_badge": "(désactivée)",
+  "userSkills.owner_label": "Propriétaire",
+  "userSkills.modal_create_title": "Créer une compétence",
+  "userSkills.modal_edit_title": "Modifier la compétence",
+  "userSkills.modal_name_label": "Nom",
+  "userSkills.modal_name_placeholder": "minuscules-avec-tirets",
+  "userSkills.modal_name_hint":
+    "1-64 caractères, minuscules a-z/0-9/tirets. Ne peut commencer/terminer par un tiret ni contenir `--`.",
+  "userSkills.modal_description_label": "Quand l'utiliser",
+  "userSkills.modal_description_hint":
+    "Description du déclencheur (max 1024 caractères). Indique à Claude quand cette compétence est appropriée.",
+  "userSkills.modal_body_label": "Contenu",
+  "userSkills.modal_body_hint":
+    "Le contenu complet du SKILL.md (markdown). Chargé à la demande quand Claude utilise cette compétence.",
+  "userSkills.label.creating": "Création de la compétence `{slug}`",
+  "userSkills.label.updating": "Mise à jour de la compétence `{slug}`",
+  "userSkills.label.disabling": "Désactivation de la compétence `{slug}`",
+  "userSkills.label.restoring": "Restauration de la compétence `{slug}`",
+  "userSkills.label.listing": "Liste des compétences utilisateur",
+  "userSkills.label.loading": "Chargement de la compétence `{slug}`",
+
   // ─── Slack Assistant ───────────────────────────────────────────────
   "assistant.greeting": "Bonjour ! Posez-moi n'importe quelle question sur le code.",
   "assistant.thinking_status": "Réflexion…",

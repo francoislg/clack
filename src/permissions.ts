@@ -10,6 +10,19 @@ export function canEditConfig(role: UserRole): boolean {
   return meetsMinimumRole(role, "admin");
 }
 
+export function canCreateUserSkill(role: UserRole): boolean {
+  return meetsMinimumRole(role, "member");
+}
+
+export function canEditUserSkill(
+  role: UserRole,
+  ownerUserId: string,
+  callerUserId: string,
+): boolean {
+  if (meetsMinimumRole(role, "admin")) return true;
+  return ownerUserId === callerUserId;
+}
+
 export function canRequestChanges(role: UserRole): boolean {
   return meetsMinimumRole(role, "dev");
 }

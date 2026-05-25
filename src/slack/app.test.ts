@@ -64,6 +64,8 @@ const mockRegisterChoiceHandler = mock.fn(() => {});
 const mockRegisterFollowupHandler = mock.fn(() => {});
 const mockRegisterChangeActionHandler = mock.fn(() => {});
 const mockRegisterConfigUpdateActionHandler = mock.fn(() => {});
+const mockRegisterSkillActionHandler = mock.fn(() => {});
+const mockRegisterUserSkillsHomeActions = mock.fn(() => {});
 const mockRegisterChangeThreadActionHandlers = mock.fn(() => {});
 const mockRegisterDmActionHandlers = mock.fn(() => {});
 const mockRegisterMessageChangedHandler = mock.fn(() => {});
@@ -85,6 +87,8 @@ function makeDeps(): AppDeps {
     registerFollowupHandler: mockRegisterFollowupHandler,
     registerChangeActionHandler: mockRegisterChangeActionHandler,
     registerConfigUpdateActionHandler: mockRegisterConfigUpdateActionHandler,
+    registerSkillActionHandler: mockRegisterSkillActionHandler,
+    registerUserSkillsHomeActions: mockRegisterUserSkillsHomeActions,
     registerChangeThreadActionHandlers: mockRegisterChangeThreadActionHandlers,
     registerDmActionHandlers: mockRegisterDmActionHandlers,
     registerMessageChangedHandler: mockRegisterMessageChangedHandler,

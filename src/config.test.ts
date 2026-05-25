@@ -1256,3 +1256,81 @@ describe("submitResponse config", () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// userSkills config
+// ---------------------------------------------------------------------------
+
+describe("userSkills config", () => {
+  const originalCwd = process.cwd();
+
+  beforeEach(() => {
+    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true });
+    mkdirSync(tmpBase, { recursive: true });
+    process.chdir(tmpBase);
+    writeSlackAuth();
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+  });
+
+  it("is undefined when the block is absent", () => {
+    writeConfig(minimalConfig());
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.userSkills, undefined);
+  });
+
+  it("accepts { enabled: true }", () => {
+    writeConfig(minimalConfig({ userSkills: { enabled: true } }));
+    const cfg = loadConfig(configPath, true);
+    assert.deepEqual(cfg.userSkills, { enabled: true });
+  });
+
+  it("accepts { enabled: false }", () => {
+    writeConfig(minimalConfig({ userSkills: { enabled: false } }));
+    const cfg = loadConfig(configPath, true);
+    assert.deepEqual(cfg.userSkills, { enabled: false });
+  });
+
+  it("rejects a non-object userSkills section", () => {
+    writeConfig(minimalConfig({ userSkills: "nope" }));
+    assert.throws(
+      () => loadConfig(configPath, true),
+      (err: unknown) => err instanceof Error && err.message.includes("userSkills"),
+    );
+  });
+
+  it("rejects userSkills as array", () => {
+    writeConfig(minimalConfig({ userSkills: [] }));
+    assert.throws(
+      () => loadConfig(configPath, true),
+      (err: unknown) => err instanceof Error && err.message.includes("userSkills"),
+    );
+  });
+
+  it("rejects non-boolean enabled", () => {
+    writeConfig(minimalConfig({ userSkills: { enabled: "yes" } }));
+    assert.throws(
+      () => loadConfig(configPath, true),
+      (err: unknown) => err instanceof Error && err.message.includes("userSkills.enabled"),
+    );
+  });
+
+  it("rejects missing enabled field", () => {
+    writeConfig(minimalConfig({ userSkills: {} }));
+    assert.throws(
+      () => loadConfig(configPath, true),
+      (err: unknown) => err instanceof Error && err.message.includes("userSkills.enabled"),
+    );
+  });
+
+  it("rejects unknown sibling keys", () => {
+    writeConfig(minimalConfig({ userSkills: { enabled: true, packs: {} } }));
+    assert.throws(
+      () => loadConfig(configPath, true),
+      (err: unknown) =>
+        err instanceof Error && err.message.includes("userSkills") && err.message.includes("packs"),
+    );
+  });
+});

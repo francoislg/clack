@@ -57,6 +57,11 @@ import { createChannelsCache } from "../slack/channelsCache.js";
 // Action tools
 import { createProposeChangeTool } from "./actions/proposeChange.js";
 import { createProposeConfigUpdateTool } from "./actions/proposeConfigUpdate.js";
+import { createProposeSkillCreateTool } from "./actions/proposeSkillCreate.js";
+import { createProposeSkillUpdateTool } from "./actions/proposeSkillUpdate.js";
+import { createProposeSkillDisableTool } from "./actions/proposeSkillDisable.js";
+import { createProposeSkillRestoreTool } from "./actions/proposeSkillRestore.js";
+import { createListUserSkillsTool } from "./query/listUserSkills.js";
 import { createRequestUpdateTool } from "./actions/requestUpdate.js";
 import { createScheduleReminderTool } from "./actions/scheduleReminder.js";
 import { createCancelReminderTool } from "./actions/cancelReminder.js";
@@ -411,6 +416,15 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
       tools.push(createToggleAutoRespondRuleTool(ctx));
       tools.push(createDeleteAutoRespondRuleTool(ctx));
     }
+  }
+
+  // --- User-created skills (config-gated; permissions enforced at tool layer) ---
+  if (ctx.config.userSkills?.enabled) {
+    tools.push(createListUserSkillsTool(ctx));
+    tools.push(createProposeSkillCreateTool(ctx, intentStore));
+    tools.push(createProposeSkillUpdateTool(ctx, intentStore));
+    tools.push(createProposeSkillDisableTool(ctx, intentStore));
+    tools.push(createProposeSkillRestoreTool(ctx, intentStore));
   }
 
   // --- Scheduled message tools (no role gating, config-gated) ---

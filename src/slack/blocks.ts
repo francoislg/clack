@@ -36,6 +36,14 @@ function defaultActionLabel(actionType: Action["type"]): string {
       return t("blocks.action_label_config_update");
     case "update":
       return t("blocks.action_label_update");
+    case "skill_create":
+      return t("userSkills.create_button");
+    case "skill_update":
+      return t("userSkills.edit_button");
+    case "skill_disable":
+      return t("userSkills.disable_button");
+    case "skill_restore":
+      return t("userSkills.restore_button");
   }
 }
 
@@ -50,6 +58,16 @@ function getActionId(action: Action): string {
   // Avoid collision with existing clack_update (Q&A context refresh)
   if (action.type === "update") return "clack_update_change";
   if (action.type === "post_to") return "clack_post_to";
+  // All four skill operations share a single handler — their intent type discriminator
+  // (carried in the staged intent itself) decides the branch.
+  if (
+    action.type === "skill_create" ||
+    action.type === "skill_update" ||
+    action.type === "skill_disable" ||
+    action.type === "skill_restore"
+  ) {
+    return "clack_skill_action";
+  }
   return `clack_${action.type}`;
 }
 
@@ -70,6 +88,10 @@ function encodeActionValue(sessionId: string, action: Action): string {
     case "change":
     case "config_update":
     case "update":
+    case "skill_create":
+    case "skill_update":
+    case "skill_disable":
+    case "skill_restore":
       return JSON.stringify({ s: sessionId, r: action.ref });
   }
 }

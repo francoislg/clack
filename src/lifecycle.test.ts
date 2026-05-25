@@ -45,6 +45,7 @@ function createMockDeps(): {
   const mockClearPreferencesCache = mock.fn();
   const mockClearAutoRespondCache = mock.fn();
   const mockClearCronJobsCache = mock.fn();
+  const mockClearUserSkillBodyCache = mock.fn();
   const mockLoadAndInstallPlugins = mock.fn(
     async (_pluginNames: string[]): Promise<LoadedPlugins> => ({ results: [] }),
   );
@@ -76,6 +77,7 @@ function createMockDeps(): {
     mockClearPreferencesCache,
     mockClearAutoRespondCache,
     mockClearCronJobsCache,
+    mockClearUserSkillBodyCache,
     mockLoadAndInstallPlugins,
   };
 
@@ -108,6 +110,7 @@ function createMockDeps(): {
     clearPreferencesCache: mockClearPreferencesCache,
     clearAutoRespondCache: mockClearAutoRespondCache,
     clearCronJobsCache: mockClearCronJobsCache,
+    clearUserSkillBodyCache: mockClearUserSkillBodyCache,
     loadAndInstallPlugins: mockLoadAndInstallPlugins,
   };
 

@@ -432,13 +432,45 @@ export interface UpdateAction {
   auto?: boolean;
 }
 
+export interface SkillCreateAction {
+  type: "skill_create";
+  ref: string;
+  label?: string;
+  auto?: boolean;
+}
+
+export interface SkillUpdateAction {
+  type: "skill_update";
+  ref: string;
+  label?: string;
+  auto?: boolean;
+}
+
+export interface SkillDisableAction {
+  type: "skill_disable";
+  ref: string;
+  label?: string;
+  auto?: boolean;
+}
+
+export interface SkillRestoreAction {
+  type: "skill_restore";
+  ref: string;
+  label?: string;
+  auto?: boolean;
+}
+
 export type Action =
   | FollowupAction
   | ChoiceAction
   | PostToAction
   | ChangeAction
   | ConfigUpdateAction
-  | UpdateAction;
+  | UpdateAction
+  | SkillCreateAction
+  | SkillUpdateAction
+  | SkillDisableAction
+  | SkillRestoreAction;
 
 export type ActionType = Action["type"];
 

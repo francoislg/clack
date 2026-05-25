@@ -24,6 +24,7 @@ import { clearRolesCache } from "./roles.js";
 import { clearPreferencesCache } from "./userPreferences.js";
 import { clearAutoRespondCache } from "./autoRespond.js";
 import { clearCronJobsCache } from "./cronJobs.js";
+import { clearUserSkillBodyCache } from "./userSkillsBodyCache.js";
 import { loadAndInstallPlugins } from "./plugins/registry.js";
 import { getLoadedPlugins } from "./plugins/state.js";
 import { unregisterByPluginName as unregisterPluginInteractivity } from "./slack/pluginActionRegistry.js";
@@ -60,6 +61,7 @@ export interface LifecycleDeps {
   clearPreferencesCache: typeof clearPreferencesCache;
   clearAutoRespondCache: typeof clearAutoRespondCache;
   clearCronJobsCache: typeof clearCronJobsCache;
+  clearUserSkillBodyCache: typeof clearUserSkillBodyCache;
   loadAndInstallPlugins: typeof loadAndInstallPlugins;
 }
 
@@ -91,6 +93,7 @@ export const defaultLifecycleDeps: LifecycleDeps = {
   clearPreferencesCache,
   clearAutoRespondCache,
   clearCronJobsCache,
+  clearUserSkillBodyCache,
   loadAndInstallPlugins,
 };
 
@@ -113,6 +116,7 @@ function resetAllCaches(deps: LifecycleDeps = defaultLifecycleDeps): void {
   deps.clearGitHubTokenCache();
   deps.clearAutoRespondCache();
   deps.clearCronJobsCache();
+  deps.clearUserSkillBodyCache();
 }
 
 // ---------------------------------------------------------------------------

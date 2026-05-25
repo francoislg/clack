@@ -4,7 +4,13 @@ import { config as dotenvConfig } from "dotenv";
 import { resetMcpCache } from "./mcp.js";
 import { installAllPinnedMcpServers } from "./mcpInstaller.js";
 import { resetToolMappingCache } from "./streaming/toolMappingLoader.js";
-import { getDefaultConfigurationDir, getConfigurationDir } from "./config.js";
+import {
+  getDefaultConfigurationDir,
+  getConfigurationDir,
+  getDataDir,
+  getConfig,
+} from "./config.js";
+import { clearUserSkillBodyCache } from "./userSkillsBodyCache.js";
 import { logger } from "./logger.js";
 
 const DEBOUNCE_MS = 500;
@@ -162,6 +168,29 @@ export function startConfigWatcher(opts: ConfigWatcherOptions = {}): () => void 
   watched.push("default_configuration/");
   watchers.push(...watchTreeRecursively(userConfigDir, onConfigurationChange, "User config"));
   watched.push("configuration/");
+
+  // User-created skills — watch the tree so external edits to SKILL.md or .meta.json
+  // bust the body cache promptly. Correctness still relies on the mtime check inside
+  // `getUserSkillBody`; the watcher is a freshness optimization. Gated on the feature
+  // flag so we don't keep watchers open in installations that don't use the feature.
+  let userSkillsEnabled = false;
+  try {
+    userSkillsEnabled = getConfig().userSkills?.enabled === true;
+  } catch {
+    // Config not loaded yet — watcher won't activate this generation. A subsequent
+    // lifecycle reload (triggered by config.json change) will rerun this code with
+    // config loaded.
+  }
+  if (userSkillsEnabled) {
+    const userSkillsDir = join(getDataDir(), "user-skills");
+    const onUserSkillsChange = (changedDir: string) => {
+      const rel = relative(process.cwd(), changedDir) || changedDir;
+      logger.info(`User-skills directory changed (${rel}) — body cache invalidated`);
+      clearUserSkillBodyCache();
+    };
+    watchers.push(...watchTreeRecursively(userSkillsDir, onUserSkillsChange, "User skills"));
+    watched.push("user-skills/");
+  }
 
   logger.info(`Watching for config changes: ${watched.join(", ")}`);
 

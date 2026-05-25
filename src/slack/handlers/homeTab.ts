@@ -132,7 +132,7 @@ function parseKeywords(raw: string | null | undefined): string[] | undefined {
   return keywords.length > 0 ? keywords : undefined;
 }
 
-async function publishHomeView(
+export async function publishHomeView(
   client: App["client"],
   userId: string,
   deps: HomeTabDeps = defaultHomeTabDeps,

@@ -34,6 +34,7 @@ export const CLACK_CORE_TOOL_NAMES: readonly string[] = [
   "attach_integration",
   "list_skill_pack_skills",
   "load_skill",
+  "list_user_skills",
   // Admin-gated query tools
   "list_config_files",
   "read_config_file",
@@ -42,6 +43,10 @@ export const CLACK_CORE_TOOL_NAMES: readonly string[] = [
   "propose_change",
   "request_update",
   "cancel_worker_run",
+  "propose_skill_create",
+  "propose_skill_update",
+  "propose_skill_disable",
+  "propose_skill_restore",
   "propose_config_update",
   "admin_read_file",
   "admin_write_file",
