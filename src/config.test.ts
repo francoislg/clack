@@ -1000,11 +1000,17 @@ describe("getConfig", () => {
 // ---------------------------------------------------------------------------
 
 describe("taskCards config", () => {
+  const originalCwd = process.cwd();
+
   beforeEach(() => {
+    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true });
+    mkdirSync(tmpBase, { recursive: true });
+    process.chdir(tmpBase);
     writeSlackAuth();
   });
 
   afterEach(() => {
+    process.chdir(originalCwd);
     if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true, force: true });
   });
 
@@ -1056,11 +1062,17 @@ describe("taskCards config", () => {
 // ---------------------------------------------------------------------------
 
 describe("scheduledMessagesMaxRunHistory config", () => {
+  const originalCwd = process.cwd();
+
   beforeEach(() => {
+    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true });
+    mkdirSync(tmpBase, { recursive: true });
+    process.chdir(tmpBase);
     writeSlackAuth();
   });
 
   afterEach(() => {
+    process.chdir(originalCwd);
     if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true, force: true });
   });
 
