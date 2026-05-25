@@ -64,6 +64,13 @@ export interface PromptOptions {
    * "AVAILABLE SKILL PACKS" catalog block. Omit to skip the section entirely.
    */
   skillPluginsRegistry?: SkillPluginRegistry;
+  /**
+   * Topic names to pre-attach for this session — surfaces `topics/<topic>/*.md` instruction
+   * files (including plugin virtual defaults) in the assembled system prompt from turn 1.
+   * Threaded from `AskClaudeOptions.preAttachedTopics`. See the `plugin-topic-instructions`
+   * capability.
+   */
+  preAttachedTopics?: string[];
 }
 
 export function buildSystemPrompt(options?: PromptOptions): string {
@@ -78,6 +85,7 @@ export function buildSystemPrompt(options?: PromptOptions): string {
   const cascaded = loadInstructions(role, {
     changesWorkflowEnabled,
     variables,
+    topics: options?.preAttachedTopics,
   });
 
   return renderLanguageDirective(config.language ?? "en") + cascaded;

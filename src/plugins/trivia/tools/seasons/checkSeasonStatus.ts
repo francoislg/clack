@@ -1,17 +1,23 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { textResult, errorResult } from "../../../../tools/helpers.js";
-import { loadJobs, type CronJob } from "../../../../cronJobs.js";
-import { logger } from "../../../../logger.js";
+// TODO(plugin-isolation): loadJobs reaches into bot-core cron-job state.
+// Move to an SDK accessor (e.g. sdk.listOwnerCronJobs) in a follow-up.
+import { loadJobs } from "../../../../cronJobs.js";
+import { triviaLogger as logger } from "../../core/pluginLogger.js";
 import { findCurrentSeason, findNextSeason } from "../../core/seasonTimeline.js";
 import { defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
 import { requireGame } from "../../core/gamesRegistry.js";
-import { findTriviaRevealJob, nextFireAfter } from "../../domain/seasonStatus.js";
+import {
+  findTriviaRevealJob,
+  nextFireAfter,
+  type TriviaCronJobView,
+} from "../../domain/seasonStatus.js";
 import type { TriviaDataLayer } from "../../core/types.js";
 
 const REVEAL_INSTRUCTION_NAME = "process_responses_instructions";
 
-type JobsLoader = () => Promise<CronJob[]>;
+type JobsLoader = () => Promise<TriviaCronJobView[]>;
 
 export function createCheckSeasonStatusTool(
   data: TriviaDataLayer,

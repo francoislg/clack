@@ -3,9 +3,26 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { textResult, errorResult } from "../../../../tools/helpers.js";
 import { defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
 import { requireGame } from "../../core/gamesRegistry.js";
-import type { TriviaDataLayer, SeasonEntry } from "../../core/types.js";
+import type { TriviaDataLayer, SeasonEntry, SeasonFormatSlot } from "../../core/types.js";
+import type {
+  TriviaAnswersFormatWeights,
+  TriviaQuestionTypeWeights,
+  TriviaFreeformAnswerShapeWeights,
+  TriviaContextEntry,
+  TriviaDifficultyConfig,
+} from "../../core/configTypes.js";
 
 type Status = "past" | "current" | "future";
+
+interface ListSeasonsSlotEntry {
+  label?: string;
+  categories?: string[];
+  answersFormat?: TriviaAnswersFormatWeights;
+  questionType?: TriviaQuestionTypeWeights;
+  freeformAnswerShape?: TriviaFreeformAnswerShapeWeights;
+  contexts?: TriviaContextEntry[];
+  difficulty?: TriviaDifficultyConfig;
+}
 
 function statusOf(entry: SeasonEntry, now: number): Status {
   if (entry.startedAt > now) return "future";
@@ -14,13 +31,35 @@ function statusOf(entry: SeasonEntry, now: number): Status {
   return "current";
 }
 
+function mapSlot(slot: SeasonFormatSlot): ListSeasonsSlotEntry {
+  return {
+    ...(slot.label !== undefined ? { label: slot.label } : {}),
+    ...(slot.categories !== undefined ? { categories: slot.categories } : {}),
+    ...(slot.answersFormat !== undefined ? { answersFormat: slot.answersFormat } : {}),
+    ...(slot.questionType !== undefined ? { questionType: slot.questionType } : {}),
+    ...(slot.freeformAnswerShape !== undefined
+      ? { freeformAnswerShape: slot.freeformAnswerShape }
+      : {}),
+    ...(slot.contexts !== undefined ? { contexts: slot.contexts } : {}),
+    ...(slot.difficulty !== undefined ? { difficulty: slot.difficulty } : {}),
+  };
+}
+
+const DESCRIPTION = `List every season on a specific game's trivia timeline with full details — slug, dates, categories, status flag ("past" | "current" | "future"), and the season's explicitly-set axis configuration (theme, answersFormat, questionType, freeformAnswerShape, contexts, difficulty, format).
+
+Each axis field is present on a season entry IF AND ONLY IF the season explicitly set it. Absence means that season falls through to the next tier of the cascade.
+
+The cascade tier order is: \`slot → season → workspace → built-in default\`. To audit the workspace tier, call \`list_games\` (its \`workspaceDefaults\` block surfaces every workspace-level setting). Together the two tools cover every configurable tier.
+
+Use this to inspect what's queued, see a future season's category pool before it goes live, or audit past seasons. Returns the timeline in stored order.`;
+
 export function createListSeasonsTool(
   data: TriviaDataLayer,
   getGamesFn: GetGamesFn = defaultGetGames,
 ) {
   return tool(
     "list_seasons",
-    'List every season on a specific game\'s trivia timeline with full details — slug, dates, categories, and a computed status flag ("past" | "current" | "future"). Use this to inspect what\'s queued, see a future season\'s category pool before it goes live, or audit past seasons. Returns the timeline in stored order.',
+    DESCRIPTION,
     {
       game: z
         .string()
@@ -50,6 +89,17 @@ export function createListSeasonsTool(
         endedAt: entry.endedAt ?? null,
         categories: entry.categories,
         status: statusOf(entry, now),
+        ...(entry.theme !== undefined ? { theme: entry.theme } : {}),
+        ...(entry.answersFormat !== undefined ? { answersFormat: entry.answersFormat } : {}),
+        ...(entry.questionType !== undefined ? { questionType: entry.questionType } : {}),
+        ...(entry.freeformAnswerShape !== undefined
+          ? { freeformAnswerShape: entry.freeformAnswerShape }
+          : {}),
+        ...(entry.contexts !== undefined ? { contexts: entry.contexts } : {}),
+        ...(entry.difficulty !== undefined ? { difficulty: entry.difficulty } : {}),
+        ...(entry.format !== undefined
+          ? { format: { questions: entry.format.questions.map(mapSlot) } }
+          : {}),
       }));
       return textResult({ game: args.game, seasons, total: seasons.length });
     },

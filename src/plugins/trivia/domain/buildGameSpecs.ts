@@ -1,7 +1,7 @@
 import { CronExpressionParser } from "cron-parser";
 import type { CronJobSpec } from "../../sdk.js";
-import type { TriviaGame, OffDay } from "../../../config.js";
-import { logger } from "../../../logger.js";
+import type { TriviaGame, OffDay } from "../core/configTypes.js";
+import { triviaLogger as logger } from "../core/pluginLogger.js";
 import {
   SEND_QUESTIONS_INSTRUCTIONS,
   PROCESS_REVEAL_INSTRUCTIONS,
@@ -65,6 +65,9 @@ export function buildGameSpecs(games: TriviaGame[], offDays?: OffDay[]): CronJob
       // run terminator; the "skipped" mode constrains its schema to `{ skip_response: true }`
       // so Claude cannot accidentally deliver a stray confirmation message.
       submitResponseMode: "skipped",
+      // Pre-attach the `trivia` topic so persona / reveal-tone / finale-tone instruction
+      // files load into the system prompt from turn 1. See `plugin-topic-instructions`.
+      attachedTopics: ["trivia"],
       ...(skipDates ? { skipDates } : {}),
     });
 
@@ -76,6 +79,7 @@ export function buildGameSpecs(games: TriviaGame[], offDays?: OffDay[]): CronJob
       prompt: substituteGame(PROCESS_REVEAL_INSTRUCTIONS, game.name),
       timezone: game.timezone,
       requiredTools: REVEAL_REQUIRED_TOOLS,
+      attachedTopics: ["trivia"],
       ...(skipDates ? { skipDates } : {}),
     });
   }

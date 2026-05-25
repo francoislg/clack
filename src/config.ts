@@ -1,9 +1,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { CronExpressionParser } from "cron-parser";
 import type { UserRole } from "./roles.js";
 import { logger } from "./logger.js";
-import { isChannelId } from "./slack/channelResolver.js";
 import { SUPPORTED_LANGUAGES, isSupportedLanguage, type Lang } from "./i18n/languages.js";
 
 export interface SlackAuthConfig {
@@ -137,205 +135,13 @@ export interface AutoRespondConfig {
   enabled: boolean;
 }
 
-export interface TriviaSeasonsConfig {
-  enabled: boolean;
-  prompt: string;
-}
-
-/**
- * Weighted-random map of answer format → weight. Weights are non-negative integers;
- * at least one weight MUST be strictly positive. `get_ideas` re-normalizes at roll time.
- *
- * All keys are required in the normalized in-memory shape — `0` means "never roll
- * this format". The validator below accepts config input where any key is omitted
- * (defaults to 0) so config authors can write `{ choice: 1 }` and get
- * `{ boolean: 0, choice: 1, freeform: 0 }` at runtime.
- */
-export interface TriviaAnswersFormatWeights {
-  boolean: number;
-  choice: number;
-  freeform: number;
-}
-
-/**
- * Weighted-random map for the orthogonal fact-vs-topical axis. `fact` questions draw
- * from static knowledge; `topical` questions invoke `WebSearch` to find a recent
- * newsworthy event. Defaults to `{ fact: 1, topical: 0 }` (pre-topical behavior).
- */
-export type TriviaQuestionTypeWeights = Record<"fact" | "topical", number>;
-
-/**
- * The shape Claude should aim for when writing a freeform-answer question. Rolled
- * by `get_ideas` on the freeform branch only — boolean/choice questions ignore it.
- * Exists to break Claude's strong default bias toward numeric answers (years,
- * counts, measurements); a uniform default gives names/places/phrases an even
- * shot. See `prompts/scheduledPrompts.ts` for the per-shape guidance.
- */
-export type TriviaFreeformAnswerShape =
-  | "name"
-  | "place"
-  | "phrase"
-  | "title"
-  | "date"
-  | "number"
-  | "other";
-
-export type TriviaFreeformAnswerShapeWeights = Record<TriviaFreeformAnswerShape, number>;
-
-/**
- * One entry in the optional `trivia.contexts` axis. `name` is the lens label (any string,
- * including the empty string which means "no specific lean"). `weight` defaults to 1; higher
- * weight means the lens is more likely to be tried first when `get_ideas` rolls
- * `contextPriority`. See the `trivia-question-contexts` capability spec.
- */
-export interface TriviaContextEntry {
-  name: string;
-  weight?: number;
-}
-
-/**
- * Bounds for the number of options in a `choice` question. Both bounds must satisfy
- * `2 <= min <= max <= 4`. Workspace-only — not season-overridable (purely a card-readability
- * UX setting; gameplay-relevant per-season config lives on the SeasonEntry).
- */
-export interface TriviaChoicesConfig {
-  min: number;
-  max: number;
-}
-
-/**
- * Inclusive integer range on the 1–10 difficulty self-rating scale used by the
- * question-generation prompts. Tuple form `[min, max]` with `1 <= min <= max <= 10`.
- */
-export type DifficultyRange = [number, number];
-
-/**
- * Per-bucket target difficulty ranges + the REJECT-below-this threshold for one
- * answers-format game type (boolean / choice / freeform). Every field is required
- * in the fully-resolved shape — the cascade fills missing fields from the next tier.
- */
-export interface DifficultyRanges {
-  easy: DifficultyRange;
-  medium: DifficultyRange;
-  hard: DifficultyRange;
-  /** Self-ratings strictly below this number cause REJECT-and-re-roll. Integer in [1, 10]. */
-  minimumThreshold: number;
-}
-
-/**
- * Sparse input shape — every field optional. Used at config / season / slot tiers so
- * authors can override just `freeform.hard` without restating `easy`/`medium`.
- */
-export type DifficultyRangesInput = Partial<DifficultyRanges>;
-
-/**
- * Per-answers-format difficulty config. Each game type (boolean / choice / freeform)
- * is independently configurable; freeform defaults to softer ranges since typing an
- * answer is intrinsically harder than picking from a list.
- */
-export type TriviaDifficultyConfig = Partial<
-  Record<"boolean" | "choice" | "freeform", DifficultyRangesInput>
->;
-
-/**
- * One trivia game declared in config. The trivia plugin reconciles its cron jobs from this list
- * on every load: each entry produces two plugin-managed cron jobs (`<name>:question` and `<name>:reveal`).
- */
-export interface TriviaGame {
-  /** Unique identifier within `games[]`; used in `specKey` so renames diff cleanly. Must match `^[a-z0-9-]+$`, length 1–32. */
-  name: string;
-  /** Slack channel ID where this game runs (e.g. `C123ABC`). */
-  channel: string;
-  /** Cron expression for when the daily question is posted. */
-  questionCron: string;
-  /** Cron expression for when the answer is revealed. */
-  revealCron: string;
-  /** IANA timezone the cron expressions are interpreted in. */
-  timezone: string;
-  /** When `false`, the plugin skips this entry during cron reconcile AND per-game write tools refuse. Defaults to `true`. */
-  enabled?: boolean;
-}
-
-/** Game-name format: filesystem-safe kebab-case, 1–32 chars. */
-const TRIVIA_GAME_NAME_RE = /^[a-z0-9-]+$/;
-
-/**
- * One off-day for the trivia plugin. Propagated by the trivia plugin into every cron job's
- * `skipDates` field at reconcile time, where the scheduler evaluates them deterministically
- * before opening a Claude session (see `cronScheduler.executeJob`).
- */
-export interface OffDay {
-  /**
-   * `YYYY-MM-DD` for an exact date, or `MM-DD` for a date that recurs annually. Interpreted
-   * in the matching cron job's `timezone` at fire time.
-   */
-  date: string;
-  /** Human-readable label used in logs and (future) Home Tab display. Required, non-empty. */
-  label: string;
-}
-
-export interface TriviaConfig {
-  seasons?: TriviaSeasonsConfig;
-  /** Weighted-random map of answer format → weight (workspace default; overridable per-season via SeasonEntry.answersFormat). */
-  answersFormat?: TriviaAnswersFormatWeights;
-  /** Weighted-random map of question type (fact vs topical) → weight. Workspace default; overridable per-season / per-slot. */
-  questionType?: TriviaQuestionTypeWeights;
-  /** Weighted-random map of freeform answer shape → weight. Workspace default; overridable per-season / per-slot. Freeform-branch only. */
-  freeformAnswerShape?: TriviaFreeformAnswerShapeWeights;
-  /** Optional lens axis. When present, get_ideas returns a `contextPriority` array Claude descends through. */
-  contexts?: TriviaContextEntry[];
-  /** Bounds for choice-question option counts. Defaults to `{ min: 2, max: 4 }`. */
-  choices?: TriviaChoicesConfig;
-  /**
-   * Per-game-type difficulty ranges. Each format (boolean/choice/freeform) has its own
-   * target ranges for the Easy/Medium/Hard buckets plus a reject-below threshold.
-   * Workspace default; overridable per-season / per-slot. Fields cascade independently —
-   * a season can override just `freeform.hard` without losing the workspace's `easy`/`medium`.
-   */
-  difficulty?: TriviaDifficultyConfig;
-  /**
-   * Declarative trivia games. Each entry becomes two plugin-managed cron jobs (question + reveal).
-   * The trivia plugin reads this on every init and calls `sdk.reconcileCronJobs("trivia", …)`.
-   */
-  games?: TriviaGame[];
-  /**
-   * Plugin-level off-days. Shared by every entry in `games[]` — there is no per-game override.
-   * Propagated into each cron job's `skipDates` field at reconcile time.
-   */
-  offDays?: OffDay[];
-}
-
-/** Defaults applied when `trivia.choices` is absent or only partially specified. */
-export const DEFAULT_TRIVIA_CHOICES: TriviaChoicesConfig = { min: 4, max: 4 };
-
-/** Built-in fallback when no `questionType` weights are set at any cascade tier. */
-export const DEFAULT_QUESTION_TYPE_WEIGHTS: TriviaQuestionTypeWeights = { fact: 1, topical: 0 };
-
-/** Built-in fallback when no `freeformAnswerShape` weights are set at any cascade tier. Uniform across all five shapes. */
-export const DEFAULT_FREEFORM_ANSWER_SHAPE_WEIGHTS: TriviaFreeformAnswerShapeWeights = {
-  name: 1,
-  place: 1,
-  phrase: 1,
-  title: 1,
-  date: 1,
-  number: 1,
-  other: 1,
-};
-
-/**
- * Built-in fallback difficulty ranges per answers-format. Freeform is shifted -2 points
- * across every bucket (and the reject threshold) because typing the answer is intrinsically
- * harder than picking from boolean/choice; the same 1–10 rating against a softer target
- * keeps the difficulty perception roughly equal across formats.
- */
-export const DEFAULT_DIFFICULTY_RANGES: Record<
-  "boolean" | "choice" | "freeform",
-  DifficultyRanges
-> = {
-  boolean: { easy: [4, 6], medium: [7, 8], hard: [9, 10], minimumThreshold: 4 },
-  choice: { easy: [4, 6], medium: [7, 8], hard: [9, 10], minimumThreshold: 4 },
-  freeform: { easy: [2, 4], medium: [5, 6], hard: [7, 8], minimumThreshold: 2 },
-};
+// Trivia types, defaults, and parsers were relocated to the trivia plugin per
+// the SDK-isolation rules (src/plugins/CLAUDE.md). See:
+//   - src/plugins/trivia/core/configTypes.ts (types + defaults)
+//   - src/plugins/trivia/core/configParsers/{axes,games}.ts (validators)
+//   - src/plugins/trivia/core/configBridge.ts (file I/O + cache)
+// Migration 022 moves any legacy data/config.json.trivia into the new file
+// location at boot.
 
 export interface TaskCardsConfig {
   /** Default cap on detail lines rendered per grouped tool task card. */
@@ -344,6 +150,7 @@ export interface TaskCardsConfig {
 
 /** Built-in fallback when neither per-group nor global config sets a cap. */
 export const DEFAULT_TASK_CARD_MAX_DETAILS = 5;
+export const DEFAULT_SCHEDULED_MESSAGES_MAX_RUN_HISTORY = 50;
 
 /**
  * Clack-owned metadata about an MCP server. `data/mcp.json` stays in pure Claude SDK shape;
@@ -413,14 +220,17 @@ export interface Config {
   claudeCode: ClaudeCodeConfig;
   changesWorkflow?: ChangesWorkflowConfig;
   allowScheduledMessages?: boolean;
+  /**
+   * Maximum number of execution records retained per scheduled job in `runs[]`.
+   * Older entries are dropped from the front when a new run is recorded. Default 50.
+   */
+  scheduledMessagesMaxRunHistory?: number;
   /** Auto-respond to thread replies in existing sessions (default: true) */
   threadAutoRespond?: boolean;
   /** Disengage thread auto-respond if the triggering message is older than this many minutes (default: 60) */
   threadAutoRespondMaxAgeMinutes?: number;
   /** List of Clack plugin names to load at startup */
   plugins?: string[];
-  /** Trivia plugin configuration (only read when the trivia plugin is in `plugins`) */
-  trivia?: TriviaConfig;
   /**
    * Clack-owned MCP server registry. Keyed by server name. Declares each server's
    * `alwaysLoad` flag (session-start attach vs. lazy) and a `description` shown in the
@@ -578,6 +388,17 @@ interface TaskCardsRaw {
   maxDetailsPerGroup?: unknown;
 }
 
+function parseMaxRunHistory(val: unknown): number | undefined {
+  if (val === undefined) return undefined;
+  if (typeof val !== "number" || !Number.isInteger(val) || val < 1) {
+    logger.warn(
+      `Config 'scheduledMessagesMaxRunHistory' must be a positive integer (got ${JSON.stringify(val)}); falling back to default ${DEFAULT_SCHEDULED_MESSAGES_MAX_RUN_HISTORY}`,
+    );
+    return undefined;
+  }
+  return val;
+}
+
 function parseTaskCardsConfig(raw: TaskCardsRaw | undefined): TaskCardsConfig | undefined {
   if (!raw) return undefined;
   const val = raw.maxDetailsPerGroup;
@@ -589,581 +410,6 @@ function parseTaskCardsConfig(raw: TaskCardsRaw | undefined): TaskCardsConfig | 
     return {};
   }
   return { maxDetailsPerGroup: val };
-}
-
-/**
- * The exhaustive set of valid `answersFormat` keys, exported as the single
- * source of truth so the workspace-config validator, the season validator, and
- * the per-slot validator all stay in sync as new formats are added.
- */
-export const ANSWERS_FORMAT_KEYS = ["boolean", "choice", "freeform"] as const;
-const QUESTION_TYPE_KEYS = ["fact", "topical"] as const;
-export const FREEFORM_ANSWER_SHAPE_KEYS = [
-  "name",
-  "place",
-  "phrase",
-  "title",
-  "date",
-  "number",
-  "other",
-] as const;
-
-/**
- * Validate an arbitrary value as a `TriviaAnswersFormatWeights` map. Used by:
- *
- * - `parseTriviaAnswersFormat` for `config.trivia.answersFormat` (workspace-level)
- * - `parseSeasonAnswersFormat` in `src/plugins/trivia/domain/seasonFormat.ts`
- *   for `SeasonEntry.answersFormat` and `SeasonFormatSlot.answersFormat`
- *
- * Returns a tagged result so each caller can wrap it in its own error shape
- * (throw at boot vs. structured tool error). `fieldLabel` is splice into the
- * message — e.g. `"trivia.answersFormat"` for boot, `"answersFormat"` for the
- * season tool.
- */
-export function validateAnswersFormatMap(
-  raw: unknown,
-  fieldLabel: string,
-): { ok: true; value: TriviaAnswersFormatWeights } | { ok: false; error: string } {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return { ok: false, error: `'${fieldLabel}' must be an object` };
-  }
-  const out: Partial<TriviaAnswersFormatWeights> = {};
-  let positiveCount = 0;
-  for (const [key, value] of Object.entries(raw)) {
-    if (!(ANSWERS_FORMAT_KEYS as readonly string[]).includes(key)) {
-      return {
-        ok: false,
-        error: `'${fieldLabel}' contains unknown key '${key}' (allowed: ${ANSWERS_FORMAT_KEYS.join(", ")})`,
-      };
-    }
-    if (
-      typeof value !== "number" ||
-      !Number.isFinite(value) ||
-      !Number.isInteger(value) ||
-      value < 0
-    ) {
-      return {
-        ok: false,
-        error: `'${fieldLabel}.${key}' must be a non-negative integer (got ${JSON.stringify(value)})`,
-      };
-    }
-    out[key as (typeof ANSWERS_FORMAT_KEYS)[number]] = value;
-    if (value > 0) positiveCount++;
-  }
-  if (positiveCount === 0) {
-    return {
-      ok: false,
-      error: `'${fieldLabel}' must have at least one strictly positive weight`,
-    };
-  }
-  return {
-    ok: true,
-    value: {
-      boolean: out.boolean ?? 0,
-      choice: out.choice ?? 0,
-      freeform: out.freeform ?? 0,
-    },
-  };
-}
-
-export function parseTriviaAnswersFormat(
-  raw: JsonValue | undefined,
-): TriviaAnswersFormatWeights | undefined {
-  if (raw === undefined) return undefined;
-  const result = validateAnswersFormatMap(raw, "Config 'trivia.answersFormat'");
-  if (!result.ok) throw new Error(result.error);
-  return result.value;
-}
-
-/**
- * Validate an arbitrary value as a `TriviaQuestionTypeWeights` map. Symmetric to
- * `validateAnswersFormatMap` — used by:
- *
- * - `parseTriviaQuestionType` for `config.trivia.questionType` (workspace-level)
- * - `validateQuestionType` in `src/plugins/trivia/domain/seasonFormat.ts` for
- *   `SeasonEntry.questionType` / `SeasonFormatSlot.questionType`
- *
- * Returns a tagged result so each caller wraps it in its own error shape.
- */
-export function validateQuestionTypeMap(
-  raw: unknown,
-  fieldLabel: string,
-): { ok: true; value: TriviaQuestionTypeWeights } | { ok: false; error: string } {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return { ok: false, error: `'${fieldLabel}' must be an object` };
-  }
-  const out: Partial<TriviaQuestionTypeWeights> = {};
-  let positiveCount = 0;
-  for (const [key, value] of Object.entries(raw)) {
-    if (!(QUESTION_TYPE_KEYS as readonly string[]).includes(key)) {
-      return {
-        ok: false,
-        error: `'${fieldLabel}' contains unknown key '${key}' (allowed: ${QUESTION_TYPE_KEYS.join(", ")})`,
-      };
-    }
-    if (
-      typeof value !== "number" ||
-      !Number.isFinite(value) ||
-      !Number.isInteger(value) ||
-      value < 0
-    ) {
-      return {
-        ok: false,
-        error: `'${fieldLabel}.${key}' must be a non-negative integer (got ${JSON.stringify(value)})`,
-      };
-    }
-    out[key as (typeof QUESTION_TYPE_KEYS)[number]] = value;
-    if (value > 0) positiveCount++;
-  }
-  if (positiveCount === 0) {
-    return {
-      ok: false,
-      error: `'${fieldLabel}' must have at least one strictly positive weight`,
-    };
-  }
-  return {
-    ok: true,
-    value: { fact: out.fact ?? 0, topical: out.topical ?? 0 },
-  };
-}
-
-export function parseTriviaQuestionType(
-  raw: JsonValue | undefined,
-): TriviaQuestionTypeWeights | undefined {
-  if (raw === undefined) return undefined;
-  const result = validateQuestionTypeMap(raw, "Config 'trivia.questionType'");
-  if (!result.ok) throw new Error(result.error);
-  return result.value;
-}
-
-/**
- * Validate an arbitrary value as a `TriviaFreeformAnswerShapeWeights` map. Symmetric to the
- * answersFormat / questionType validators. Used by:
- *
- * - `parseTriviaFreeformAnswerShape` for `config.trivia.freeformAnswerShape` (workspace-level)
- * - `validateFreeformAnswerShape` in `src/plugins/trivia/domain/seasonFormat.ts` for
- *   `SeasonEntry.freeformAnswerShape` / `SeasonFormatSlot.freeformAnswerShape`
- */
-export function validateFreeformAnswerShapeMap(
-  raw: unknown,
-  fieldLabel: string,
-): { ok: true; value: TriviaFreeformAnswerShapeWeights } | { ok: false; error: string } {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return { ok: false, error: `'${fieldLabel}' must be an object` };
-  }
-  const out: Partial<TriviaFreeformAnswerShapeWeights> = {};
-  let positiveCount = 0;
-  for (const [key, value] of Object.entries(raw)) {
-    if (!(FREEFORM_ANSWER_SHAPE_KEYS as readonly string[]).includes(key)) {
-      return {
-        ok: false,
-        error: `'${fieldLabel}' contains unknown key '${key}' (allowed: ${FREEFORM_ANSWER_SHAPE_KEYS.join(", ")})`,
-      };
-    }
-    if (
-      typeof value !== "number" ||
-      !Number.isFinite(value) ||
-      !Number.isInteger(value) ||
-      value < 0
-    ) {
-      return {
-        ok: false,
-        error: `'${fieldLabel}.${key}' must be a non-negative integer (got ${JSON.stringify(value)})`,
-      };
-    }
-    out[key as (typeof FREEFORM_ANSWER_SHAPE_KEYS)[number]] = value;
-    if (value > 0) positiveCount++;
-  }
-  if (positiveCount === 0) {
-    return {
-      ok: false,
-      error: `'${fieldLabel}' must have at least one strictly positive weight`,
-    };
-  }
-  return {
-    ok: true,
-    value: {
-      name: out.name ?? 0,
-      place: out.place ?? 0,
-      phrase: out.phrase ?? 0,
-      title: out.title ?? 0,
-      date: out.date ?? 0,
-      number: out.number ?? 0,
-      other: out.other ?? 0,
-    },
-  };
-}
-
-export function parseTriviaFreeformAnswerShape(
-  raw: JsonValue | undefined,
-): TriviaFreeformAnswerShapeWeights | undefined {
-  if (raw === undefined) return undefined;
-  const result = validateFreeformAnswerShapeMap(raw, "Config 'trivia.freeformAnswerShape'");
-  if (!result.ok) throw new Error(result.error);
-  return result.value;
-}
-
-/**
- * Validate an arbitrary value as a `TriviaContextEntry[]` list. Symmetric to the
- * answersFormat / questionType validators. Used by:
- *
- * - `parseTriviaContexts` for `config.trivia.contexts` (workspace-level)
- * - `validateContexts` in `src/plugins/trivia/domain/seasonFormat.ts` for
- *   `SeasonEntry.contexts` / `SeasonFormatSlot.contexts`
- */
-export function validateContextsList(
-  raw: unknown,
-  fieldLabel: string,
-): { ok: true; value: TriviaContextEntry[] } | { ok: false; error: string } {
-  if (!Array.isArray(raw)) {
-    return { ok: false, error: `'${fieldLabel}' must be an array` };
-  }
-  if (raw.length === 0) {
-    return { ok: false, error: `'${fieldLabel}' must be non-empty when present` };
-  }
-  const out: TriviaContextEntry[] = [];
-  const seenNames = new Set<string>();
-  for (let i = 0; i < raw.length; i++) {
-    const entry: unknown = raw[i];
-    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-      return { ok: false, error: `'${fieldLabel}[${i}]' must be an object` };
-    }
-    const e = entry as { name?: unknown; weight?: unknown };
-    if (typeof e.name !== "string") {
-      return { ok: false, error: `'${fieldLabel}[${i}].name' must be a string` };
-    }
-    if (seenNames.has(e.name)) {
-      return { ok: false, error: `'${fieldLabel}[${i}]' has duplicate name '${e.name}'` };
-    }
-    seenNames.add(e.name);
-    let weight: number | undefined;
-    if (e.weight !== undefined) {
-      if (typeof e.weight !== "number" || !Number.isFinite(e.weight) || e.weight <= 0) {
-        return {
-          ok: false,
-          error: `'${fieldLabel}[${i}].weight' must be a positive number (got ${JSON.stringify(e.weight)})`,
-        };
-      }
-      weight = e.weight;
-    }
-    out.push(weight === undefined ? { name: e.name } : { name: e.name, weight });
-  }
-  return { ok: true, value: out };
-}
-
-export function parseTriviaContexts(raw: JsonValue | undefined): TriviaContextEntry[] | undefined {
-  if (raw === undefined) return undefined;
-  const result = validateContextsList(raw, "Config 'trivia.contexts'");
-  if (!result.ok) throw new Error(result.error);
-  return result.value;
-}
-
-const DIFFICULTY_BUCKET_KEYS = ["easy", "medium", "hard"] as const;
-const DIFFICULTY_FORMAT_KEYS = ["boolean", "choice", "freeform"] as const;
-
-function validateDifficultyRange(
-  raw: unknown,
-  fieldLabel: string,
-): { ok: true; value: DifficultyRange } | { ok: false; error: string } {
-  if (!Array.isArray(raw) || raw.length !== 2) {
-    return { ok: false, error: `'${fieldLabel}' must be a [min, max] tuple` };
-  }
-  const [min, max] = raw;
-  if (typeof min !== "number" || !Number.isInteger(min) || min < 1 || min > 10) {
-    return {
-      ok: false,
-      error: `'${fieldLabel}[0]' must be an integer in [1, 10] (got ${JSON.stringify(min)})`,
-    };
-  }
-  if (typeof max !== "number" || !Number.isInteger(max) || max < 1 || max > 10) {
-    return {
-      ok: false,
-      error: `'${fieldLabel}[1]' must be an integer in [1, 10] (got ${JSON.stringify(max)})`,
-    };
-  }
-  if (min > max) {
-    return { ok: false, error: `'${fieldLabel}' min (${min}) must be <= max (${max})` };
-  }
-  return { ok: true, value: [min, max] };
-}
-
-/**
- * Validate one game-type's `DifficultyRangesInput` — a sparse object where any of
- * `easy` / `medium` / `hard` / `minimumThreshold` may be omitted (cascade fills them).
- * Used by the workspace-config validator AND the season/slot validators.
- */
-export function validateDifficultyRangesMap(
-  raw: unknown,
-  fieldLabel: string,
-): { ok: true; value: DifficultyRangesInput } | { ok: false; error: string } {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return { ok: false, error: `'${fieldLabel}' must be an object` };
-  }
-  const entries = raw as JsonObject;
-  const out: DifficultyRangesInput = {};
-  for (const key of Object.keys(entries)) {
-    if (
-      !(DIFFICULTY_BUCKET_KEYS as readonly string[]).includes(key) &&
-      key !== "minimumThreshold"
-    ) {
-      return {
-        ok: false,
-        error: `'${fieldLabel}' contains unknown key '${key}' (allowed: easy, medium, hard, minimumThreshold)`,
-      };
-    }
-  }
-  for (const bucket of DIFFICULTY_BUCKET_KEYS) {
-    if (entries[bucket] === undefined) continue;
-    const r = validateDifficultyRange(entries[bucket], `${fieldLabel}.${bucket}`);
-    if (!r.ok) return r;
-    out[bucket] = r.value;
-  }
-  if (entries.minimumThreshold !== undefined) {
-    const t = entries.minimumThreshold;
-    if (typeof t !== "number" || !Number.isInteger(t) || t < 1 || t > 10) {
-      return {
-        ok: false,
-        error: `'${fieldLabel}.minimumThreshold' must be an integer in [1, 10] (got ${JSON.stringify(t)})`,
-      };
-    }
-    out.minimumThreshold = t;
-  }
-  return { ok: true, value: out };
-}
-
-/**
- * Validate `config.trivia.difficulty` (or its season / slot equivalents) — a sparse
- * object keyed by answers-format with each value a `DifficultyRangesInput`.
- */
-export function validateTriviaDifficultyMap(
-  raw: unknown,
-  fieldLabel: string,
-): { ok: true; value: TriviaDifficultyConfig } | { ok: false; error: string } {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return { ok: false, error: `'${fieldLabel}' must be an object` };
-  }
-  const entries = raw as JsonObject;
-  const out: TriviaDifficultyConfig = {};
-  for (const key of Object.keys(entries)) {
-    if (!(DIFFICULTY_FORMAT_KEYS as readonly string[]).includes(key)) {
-      return {
-        ok: false,
-        error: `'${fieldLabel}' contains unknown key '${key}' (allowed: ${DIFFICULTY_FORMAT_KEYS.join(", ")})`,
-      };
-    }
-  }
-  for (const fmt of DIFFICULTY_FORMAT_KEYS) {
-    if (entries[fmt] === undefined) continue;
-    const r = validateDifficultyRangesMap(entries[fmt], `${fieldLabel}.${fmt}`);
-    if (!r.ok) return r;
-    out[fmt] = r.value;
-  }
-  return { ok: true, value: out };
-}
-
-export function parseTriviaDifficulty(
-  raw: JsonValue | undefined,
-): TriviaDifficultyConfig | undefined {
-  if (raw === undefined) return undefined;
-  const result = validateTriviaDifficultyMap(raw, "Config 'trivia.difficulty'");
-  if (!result.ok) throw new Error(result.error);
-  return result.value;
-}
-
-export function parseTriviaChoicesConfig(
-  raw: JsonValue | undefined,
-): TriviaChoicesConfig | undefined {
-  if (raw === undefined) return undefined;
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    throw new Error("Config 'trivia.choices' must be an object");
-  }
-  const entries: JsonObject = raw;
-  const min = entries.min ?? DEFAULT_TRIVIA_CHOICES.min;
-  const max = entries.max ?? DEFAULT_TRIVIA_CHOICES.max;
-  if (typeof min !== "number" || !Number.isInteger(min) || min < 2 || min > 4) {
-    throw new Error(
-      `Config 'trivia.choices.min' must be an integer in [2, 4] (got ${JSON.stringify(min)})`,
-    );
-  }
-  if (typeof max !== "number" || !Number.isInteger(max) || max < 2 || max > 4) {
-    throw new Error(
-      `Config 'trivia.choices.max' must be an integer in [2, 4] (got ${JSON.stringify(max)})`,
-    );
-  }
-  if (min > max) {
-    throw new Error(`Config 'trivia.choices' bounds invalid: min (${min}) > max (${max})`);
-  }
-  return { min, max };
-}
-
-/**
- * Parse and validate `trivia.games[]`. Invalid entries are dropped with a logged warning so a
- * single typo doesn't kill the whole list (mirrors auto-respond / scheduled-message resilience).
- * Returns undefined when the field is absent; returns an empty array when explicitly `[]`.
- */
-export function parseTriviaGames(raw: JsonValue | undefined): TriviaGame[] | undefined {
-  if (raw === undefined) return undefined;
-  if (!Array.isArray(raw)) {
-    logger.warn("Config 'trivia.games' must be an array — ignoring");
-    return [];
-  }
-
-  const out: TriviaGame[] = [];
-  const seenNames = new Set<string>();
-
-  for (let i = 0; i < raw.length; i++) {
-    const entry = raw[i];
-    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-      logger.warn(`Config 'trivia.games[${i}]' must be an object — skipping`);
-      continue;
-    }
-    const e: JsonObject = entry;
-    const name = typeof e.name === "string" ? e.name : "";
-    const channel = typeof e.channel === "string" ? e.channel : "";
-    const questionCron = typeof e.questionCron === "string" ? e.questionCron : "";
-    const revealCron = typeof e.revealCron === "string" ? e.revealCron : "";
-    const timezone = typeof e.timezone === "string" ? e.timezone : "";
-
-    if (name.length === 0) {
-      logger.warn(`Config 'trivia.games[${i}].name' must be a non-empty string — skipping entry`);
-      continue;
-    }
-    if (name.length > 32) {
-      logger.warn(
-        `Config 'trivia.games[${i}].name' "${name}" exceeds 32 characters — skipping entry`,
-      );
-      continue;
-    }
-    if (!TRIVIA_GAME_NAME_RE.test(name)) {
-      logger.warn(
-        `Config 'trivia.games[${i}].name' "${name}" must match /^[a-z0-9-]+$/ (lowercase, digits, hyphens) — skipping entry`,
-      );
-      continue;
-    }
-    if (seenNames.has(name)) {
-      logger.warn(`Config 'trivia.games[${i}]' has duplicate name "${name}" — skipping entry`);
-      continue;
-    }
-    if (!isChannelId(channel)) {
-      logger.warn(
-        `Config 'trivia.games[${i}].channel' "${channel}" is not a Slack channel ID (expected C…/G…/D…) — skipping entry "${name}"`,
-      );
-      continue;
-    }
-    try {
-      CronExpressionParser.parse(questionCron, { tz: timezone || "UTC" });
-    } catch (err) {
-      logger.warn(
-        `Config 'trivia.games[${i}].questionCron' "${questionCron}" is invalid (${err instanceof Error ? err.message : String(err)}) — skipping entry "${name}"`,
-      );
-      continue;
-    }
-    try {
-      CronExpressionParser.parse(revealCron, { tz: timezone || "UTC" });
-    } catch (err) {
-      logger.warn(
-        `Config 'trivia.games[${i}].revealCron' "${revealCron}" is invalid (${err instanceof Error ? err.message : String(err)}) — skipping entry "${name}"`,
-      );
-      continue;
-    }
-    if (timezone.length === 0) {
-      logger.warn(
-        `Config 'trivia.games[${i}].timezone' must be a non-empty IANA tz string — skipping entry "${name}"`,
-      );
-      continue;
-    }
-
-    // Optional `enabled` flag: when present, must be boolean; defaults to true when absent.
-    let enabled = true;
-    if ("enabled" in e && e.enabled !== undefined) {
-      if (typeof e.enabled !== "boolean") {
-        logger.warn(
-          `Config 'trivia.games[${i}].enabled' must be a boolean — skipping entry "${name}"`,
-        );
-        continue;
-      }
-      enabled = e.enabled;
-    }
-
-    seenNames.add(name);
-    out.push({ name, channel, questionCron, revealCron, timezone, enabled });
-  }
-
-  return out;
-}
-
-/**
- * Days-per-month lookup for off-day date validation. Index = month (1-based, 12 entries plus a
- * leading 0 slot). February uses 29 to accept Feb 29 entries (recurring `MM-DD` form has no year
- * to consult). Date.UTC would also "accept" Feb 30 by rolling forward, so we have to range-check
- * ourselves.
- */
-const DAYS_IN_MONTH = [0, 31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-
-function isRealCalendarDate(year: number | null, month: number, day: number): boolean {
-  if (month < 1 || month > 12) return false;
-  const maxDay = year === null ? DAYS_IN_MONTH[month] : new Date(year, month, 0).getDate();
-  return day >= 1 && day <= maxDay;
-}
-
-/**
- * Parse and validate `trivia.offDays[]`. Invalid entries are dropped with a logged warning;
- * the rest of the list survives. Matches the warn-and-drop pattern used by `parseTriviaGames`.
- */
-export function parseOffDays(raw: JsonValue | undefined): OffDay[] | undefined {
-  if (raw === undefined) return undefined;
-  if (!Array.isArray(raw)) {
-    logger.warn("Config 'trivia.offDays' must be an array — ignoring");
-    return [];
-  }
-
-  const exactRe = /^(\d{4})-(\d{2})-(\d{2})$/;
-  const recurringRe = /^(\d{2})-(\d{2})$/;
-  const out: OffDay[] = [];
-
-  for (let i = 0; i < raw.length; i++) {
-    const entry = raw[i];
-    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-      logger.warn(`Config 'trivia.offDays[${i}]' must be an object — skipping`);
-      continue;
-    }
-    const e: JsonObject = entry;
-    const date = typeof e.date === "string" ? e.date : "";
-    const label = typeof e.label === "string" ? e.label : "";
-
-    if (date.length === 0) {
-      logger.warn(`Config 'trivia.offDays[${i}].date' must be a non-empty string — skipping`);
-      continue;
-    }
-
-    const exactMatch = exactRe.exec(date);
-    const recurringMatch = recurringRe.exec(date);
-    if (!exactMatch && !recurringMatch) {
-      logger.warn(
-        `Config 'trivia.offDays[${i}].date' "${date}" must be YYYY-MM-DD or MM-DD — skipping`,
-      );
-      continue;
-    }
-
-    const year = exactMatch ? Number(exactMatch[1]) : null;
-    const month = Number((exactMatch ?? recurringMatch)![exactMatch ? 2 : 1]);
-    const day = Number((exactMatch ?? recurringMatch)![exactMatch ? 3 : 2]);
-    if (!isRealCalendarDate(year, month, day)) {
-      logger.warn(
-        `Config 'trivia.offDays[${i}].date' "${date}" is not a real calendar date — skipping`,
-      );
-      continue;
-    }
-
-    if (label.length === 0) {
-      logger.warn(`Config 'trivia.offDays[${i}].label' must be a non-empty string — skipping`);
-      continue;
-    }
-
-    out.push({ date, label });
-  }
-
-  return out;
 }
 
 function parseTriggerChangesWorkflow(
@@ -1208,12 +454,12 @@ function parseQueuedFollowupReaction(raw: ReactionsRaw | undefined): string | nu
 }
 
 // JSON value tree for validator inputs — a real type rather than `unknown`.
-type JsonPrimitive = string | number | boolean | null;
-type JsonArray = JsonValue[];
-interface JsonObject {
+export type JsonPrimitive = string | number | boolean | null;
+export type JsonArray = JsonValue[];
+export interface JsonObject {
   [key: string]: JsonValue;
 }
-type JsonValue = JsonPrimitive | JsonArray | JsonObject;
+export type JsonValue = JsonPrimitive | JsonArray | JsonObject;
 
 export function parseMcpServerRegistry(raw: JsonValue | undefined): McpServerRegistry | undefined {
   if (raw === undefined) return undefined;
@@ -1485,66 +731,11 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
   const sessionsRaw = section(c, "sessions");
   const claudeCodeRaw = section(c, "claudeCode");
   const cwRaw = section(c, "changesWorkflow");
-  const triviaRaw = section(c, "trivia");
-  const triviaSeasonsRaw = triviaRaw ? section(triviaRaw, "seasons") : undefined;
-  let triviaConfig: TriviaConfig | undefined;
-  if (triviaRaw) {
-    const answersFormat = parseTriviaAnswersFormat(
-      triviaRaw.answersFormat as JsonValue | undefined,
-    );
-    const questionType = parseTriviaQuestionType(triviaRaw.questionType as JsonValue | undefined);
-    const freeformAnswerShape = parseTriviaFreeformAnswerShape(
-      triviaRaw.freeformAnswerShape as JsonValue | undefined,
-    );
-    const contexts = parseTriviaContexts(triviaRaw.contexts as JsonValue | undefined);
-    const choices = parseTriviaChoicesConfig(triviaRaw.choices as JsonValue | undefined);
-    const difficulty = parseTriviaDifficulty(triviaRaw.difficulty as JsonValue | undefined);
-    const games = parseTriviaGames(triviaRaw.games as JsonValue | undefined);
-    const offDays = parseOffDays(triviaRaw.offDays as JsonValue | undefined);
-    if (triviaSeasonsRaw) {
-      const seasonsEnabled = bool(triviaSeasonsRaw, "enabled") ?? false;
-      const seasonsPrompt = str(triviaSeasonsRaw, "prompt") ?? "";
-      if (seasonsEnabled && seasonsPrompt.trim().length === 0) {
-        logger.warn(
-          "Config 'trivia.seasons.enabled' is true but 'trivia.seasons.prompt' is missing — disabling seasons",
-        );
-        triviaConfig = {
-          seasons: { enabled: false, prompt: "" },
-          answersFormat,
-          questionType,
-          freeformAnswerShape,
-          contexts,
-          choices,
-          difficulty,
-          games,
-          offDays,
-        };
-      } else {
-        triviaConfig = {
-          seasons: { enabled: seasonsEnabled, prompt: seasonsPrompt },
-          answersFormat,
-          questionType,
-          freeformAnswerShape,
-          contexts,
-          choices,
-          difficulty,
-          games,
-          offDays,
-        };
-      }
-    } else {
-      triviaConfig = {
-        answersFormat,
-        questionType,
-        freeformAnswerShape,
-        contexts,
-        choices,
-        difficulty,
-        games,
-        offDays,
-      };
-    }
-  }
+  // Trivia configuration relocated to data/plugins/trivia/config.json (see
+  // src/plugins/trivia/core/configBridge.ts). The trivia plugin owns its own
+  // parsing, types, and file I/O — the bot-core loader no longer touches the
+  // trivia block. Migration 022 moves any legacy data/config.json.trivia into
+  // the new file at boot.
   const reusableFoldersRaw = cwRaw && section(cwRaw, "reusableFolders");
   const reusableFolders: ReusableFoldersConfig | undefined = reusableFoldersRaw
     ? {
@@ -1642,10 +833,10 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
         }
       : undefined,
     allowScheduledMessages: bool(c, "allowScheduledMessages") ?? false,
+    scheduledMessagesMaxRunHistory: parseMaxRunHistory(c.scheduledMessagesMaxRunHistory),
     threadAutoRespond: bool(c, "threadAutoRespond") ?? undefined,
     threadAutoRespondMaxAgeMinutes: num(c, "threadAutoRespondMaxAgeMinutes") ?? undefined,
     plugins: strArray(c, "plugins"),
-    trivia: triviaConfig,
     mcpServers: parseMcpServerRegistry(c.mcpServers as JsonValue | undefined),
     skillPlugins: parseSkillPluginRegistry(c.skillPlugins as JsonValue | undefined),
     submitResponse: parseSubmitResponseConfig(c.submitResponse as JsonValue | undefined),
@@ -1700,6 +891,16 @@ export function getConfig(): Config {
 export function getTaskCardMaxDetails(): number {
   if (!cachedConfig) return DEFAULT_TASK_CARD_MAX_DETAILS;
   return cachedConfig.taskCards?.maxDetailsPerGroup ?? DEFAULT_TASK_CARD_MAX_DETAILS;
+}
+
+/**
+ * Resolved cap on per-job `runs[]` history retained by {@link updateJobRunStatus},
+ * sourced from `config.scheduledMessagesMaxRunHistory` with a built-in fallback
+ * when config is missing or unloaded.
+ */
+export function getScheduledMessagesMaxRunHistory(): number {
+  if (!cachedConfig) return DEFAULT_SCHEDULED_MESSAGES_MAX_RUN_HISTORY;
+  return cachedConfig.scheduledMessagesMaxRunHistory ?? DEFAULT_SCHEDULED_MESSAGES_MAX_RUN_HISTORY;
 }
 
 export function getDataDir(): string {

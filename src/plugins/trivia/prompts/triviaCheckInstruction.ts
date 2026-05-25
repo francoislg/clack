@@ -73,37 +73,30 @@ export const TRIVIA_GAMES_ADMIN_INSTRUCTION = `# Managing trivia games
 
 This deployment supports multiple parallel trivia games — one per Slack channel that runs trivia. Each game has its own isolated data (questions, answers, cheats, seasons) under \`data/plugins/trivia/games/<name>/\` and its own pair of plugin-managed cron jobs (\`<name>:question\` and \`<name>:reveal\`). Add a new game and the plugin reconciles the cron jobs automatically on the next load.
 
-**Lifecycle is config-driven**: games live in \`config.trivia.games[]\`. There are no \`create_game\` / \`delete_game\` MCP tools — admins edit the config (directly or via \`propose_config_update\`). Each entry has this shape:
+**Lifecycle and configuration both go through the \`trivia_management\` integration.** Attach it via \`attach_integration("trivia_management")\` when an admin asks to add/remove/configure a game OR to change workspace-wide trivia settings. The integration's three tools:
 
-\`\`\`json
-{
-  "name": "main",                       // unique, ^[a-z0-9-]+$, 1–32 chars
-  "channel": "C0123456789",             // Slack channel ID where this game runs
-  "questionCron": "0 9 * * 1-5",        // when the daily question posts
-  "revealCron":   "0 17 * * 1-5",       // when the answer reveals
-  "timezone": "America/Montreal",       // IANA tz for the cron expressions
-  "enabled": true                       // optional; defaults to true
-}
-\`\`\`
+- \`upsert_game(name, channel?, questionCron?, revealCron?, timezone?, enabled?, ...axisOverrides?)\` — create OR update a game in one call. Create requires the full scheduling shape; update is omit-to-keep on scheduling and omit-to-keep / null-to-clear on per-game axis overrides.
+- \`delete_game(name)\` — remove a game from the registry. Cron jobs disappear on next reconcile; the game's data directory is preserved.
+- \`set_workspace_config({ answersFormat?, questionType?, freeformAnswerShape?, contexts?, difficulty?, choices?, offDays?, seasons? })\` — update workspace-tier defaults. Omit to keep, null to clear.
 
 When an admin asks to **create a new trivia game** (e.g. "set up trivia in #engineering"):
 
-1. Ask for the channel ID, the post and reveal times, and the timezone (if not already specified). The two times must be on the same day(s); reveal MUST be later in the day than the post.
+1. Ask for the channel ID, the post and reveal times, and the timezone (if not already specified). Reveal MUST be later in the day than the post.
 2. Pick a short kebab-case \`name\` from context (e.g. "engineering"). Confirm with the admin.
-3. Call \`propose_config_update\` with a single \`set\` op against \`trivia.games\` that appends the new entry (or use it as appropriate per its API).
-4. After approval, the plugin reconciles the new cron jobs automatically on next load. No tool call is needed to "install" the schedules.
+3. Attach the \`trivia_management\` integration if not already attached.
+4. Call \`upsert_game\` with the four required fields. The plugin reconciles cron jobs on next load.
 
 When an admin asks to **disable a game temporarily** (e.g. "pause the engineering trivia"):
 
-- Call \`propose_config_update\` to set \`trivia.games[<index>].enabled\` to \`false\`. Cron jobs disappear on next reconcile; the game's data directory is preserved (frozen archive — reads still work, writes refuse).
+- Call \`upsert_game(name: "engineering", enabled: false)\`. Cron jobs disappear on next reconcile; the data directory is preserved (frozen archive — reads still work, writes refuse).
 
-When an admin asks to **re-enable a disabled game**: same path, set \`enabled\` back to \`true\`.
+When an admin asks to **re-enable a disabled game**: same path, \`enabled: true\`.
 
-When an admin asks to **remove a game entirely**: \`propose_config_update\` to delete the entry from \`trivia.games[]\`. The cron jobs disappear on next reconcile; the data directory stays put under \`data/plugins/trivia/games/<name>/\` until you delete it manually (no MCP tool deletes per-game data).
+When an admin asks to **remove a game entirely**: \`delete_game(name)\`. The data directory stays under \`data/plugins/trivia/games/<name>/\` until you delete it manually (no MCP tool deletes per-game data).
 
-When an admin asks **which trivia games exist** or **what's running where**: call \`list_games\`. Pass \`includeDisabled: true\` to also surface paused games. The response includes \`name\`, \`channel\`, \`timezone\`, and \`enabled\` per game.
+When an admin asks **which trivia games exist** or **what's running where**: call \`list_games\` (always available to members+; no integration needed). Pass \`includeDisabled: true\` to also surface paused games. The response includes \`name\`, \`channel\`, \`timezone\`, \`enabled\`, \`questionCron\`, \`revealCron\`, and \`axisOverrides\` per game, plus \`workspaceDefaults\` for the workspace tier.
 
-**The \`game\` slug is internal coordination metadata** — every trivia tool requires it as an argument, but you SHOULD NOT mention the slug to end users in user-facing posts unless an admin explicitly asks for it. In scheduled runs, the slug is baked into the prompt; in reactive (DM / mention / reaction) sessions, resolve it from the session's channel by matching against \`config.trivia.games[].channel\`. If no game matches the channel, refuse with "no trivia game is configured for this channel."
+**The \`game\` slug is internal coordination metadata** — every trivia tool requires it as an argument, but you SHOULD NOT mention the slug to end users in user-facing posts unless an admin explicitly asks for it. In scheduled runs, the slug is baked into the prompt; in reactive (DM / mention / reaction) sessions, resolve it from the session's channel by matching against the channel field returned by \`list_games\`. If no game matches the channel, refuse with "no trivia game is configured for this channel."
 `;
 
 const SEASONS_ADMIN_ADDENDUM = `
@@ -198,3 +191,77 @@ export function getTriviaCheckInstruction(seasonsEnabled: boolean): string {
 
 /** Backward-compatible export for callers that don't yet know about seasons. */
 export const TRIVIA_CHECK_INSTRUCTION = BASE_TRIVIA_CHECK_INSTRUCTION;
+
+/**
+ * Admin-tier instruction for the `trivia_management` integration. Documents
+ * the three direct-mutation tools (`upsert_game`, `delete_game`,
+ * `set_workspace_config`) and the cascading axis tiers.
+ *
+ * Registered eagerly under the admin role for now. Once
+ * `add-plugin-topic-instructions` lands the registration can flip to
+ * `addTopicInstruction("admin", "trivia_management", ...)` for true lazy loading.
+ */
+export const TRIVIA_MANAGEMENT_INSTRUCTION = `# Managing trivia games and workspace config
+
+The \`trivia_management\` integration gives you three admin-only tools that mutate the trivia plugin's own config file (\`data/plugins/trivia/config.json\`) directly. No confirm-and-apply flow — these write through immediately.
+
+## The cascading axis tiers
+
+Five axes cascade across tiers when generating a question. Resolution order, first non-empty wins:
+
+\`\`\`
+slot → season → game → workspace → built-in default
+\`\`\`
+
+The five cascading axes:
+
+- \`answersFormat\` — weighted-random map of \`boolean\` / \`choice\` / \`freeform\`.
+- \`questionType\` — weighted-random map of \`fact\` / \`topical\`.
+- \`freeformAnswerShape\` — weighted-random map of \`name\` / \`place\` / \`phrase\` / \`title\` / \`date\` / \`number\` / \`other\`. Freeform-only.
+- \`contexts\` — list of \`{ name, weight? }\` lenses; \`get_ideas\` returns a freshly-rolled priority order.
+- \`difficulty\` — per-format \`{ easy: [min, max], medium: …, hard: …, minimumThreshold }\` ranges. Per-sub-field merge (you can override just \`freeform.hard\` without restating the rest).
+
+Slot lives inside a season's \`format.questions[i]\`. Season is a SeasonEntry. **Game is the new tier this integration unlocks** — it lives on the \`TriviaGame\` registry entry and sits between season and workspace. Workspace is the top-level fields on the plugin config.
+
+## The three tools
+
+### \`upsert_game(name, ...)\`
+
+Create OR update a game. Tool detects which based on whether \`name\` already exists.
+
+- **Create**: requires \`channel\`, \`questionCron\`, \`revealCron\`, \`timezone\`. \`enabled\` defaults to true. Any axis fields are stored verbatim.
+- **Update**: scheduling fields are omit-to-keep (only pass what you want to change). Axis fields are omit-to-keep, with explicit \`null\` to clear the per-game override on that axis.
+
+The game name is immutable — to rename, \`delete_game\` then \`upsert_game\`.
+
+### \`delete_game(name)\`
+
+Remove a game from the registry. Cron jobs disappear on next plugin reload. The per-game data directory (\`data/plugins/trivia/games/<name>/\`) is preserved on disk for archival; operators delete it by hand when ready.
+
+### \`set_workspace_config({ ... })\`
+
+Update any subset of workspace-tier fields. Omit to keep, \`null\` to clear. Fields:
+
+- The 5 cascading axes (same shapes as \`upsert_game\`).
+- \`choices: { min, max }\` — choice-question option-count bounds (workspace-only, never per-game).
+- \`offDays: [{ date, label }]\` — shared off-days for every game (workspace-only).
+- \`seasons: { enabled, prompt }\` — seasons feature flag + author prompt (workspace-only).
+
+## When to use which
+
+- "Add a trivia game in #engineering at 9am" → \`upsert_game\`.
+- "Make the engineering game roll only choice questions" → \`upsert_game(name: "engineering", answersFormat: { choice: 1 })\`.
+- "Make ALL games roll mostly topical questions" → \`set_workspace_config(questionType: { fact: 1, topical: 3 })\`.
+- "Pause the marketing trivia for a while" → \`upsert_game(name: "marketing", enabled: false)\`.
+- "Remove the retired game entirely" → \`delete_game(name: "retired")\`.
+- "Add Christmas as an off-day" → \`set_workspace_config(offDays: [...existing, { date: "12-25", label: "Christmas" }])\` (the field is a full replacement — pass the existing list plus your new entry; \`list_games\` surfaces \`workspaceDefaults.offDays\` so you can read the current list first).
+
+## Cascade-tier cheatsheet for axis questions
+
+- "Configure this for one specific game" → \`upsert_game\` with the axis field.
+- "Configure this for every game" → \`set_workspace_config\` with the axis field.
+- "Configure this for the current season of one game" → use \`upsert_season\` (NOT in this integration; pre-existing trivia tool).
+- "Configure this for one specific question slot in a season" → use \`upsert_season\` with \`format.questions[i].<axis>\`.
+
+When in doubt, call \`list_games\` first to see what the current state looks like — its response includes per-game \`axisOverrides\` and workspace-tier \`workspaceDefaults\`.
+`;

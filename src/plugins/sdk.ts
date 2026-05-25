@@ -13,6 +13,7 @@ import { loadRoles, type UserRole } from "../roles.js";
 import type { RoleDir } from "../cascadingConfigResolver.js";
 import type { ToolEntryObject } from "../streaming/toolMappingLoader.js";
 import { openDmChannel, isChannelId } from "../slack/channelResolver.js";
+import { logger as coreLogger } from "../logger.js";
 import { getSlackClient as defaultGetSlackClient } from "../slack/app.js";
 import { unfurlOptions } from "../slack/unfurlOptions.js";
 import type { PluginActionHandler, PluginViewHandler } from "../slack/pluginActionRegistry.js";
@@ -85,10 +86,48 @@ export interface CronJobSpec {
    * Omit (or pass an empty array) to leave the job's `skipDates` unset.
    */
   skipDates?: SkipDate[];
+  /**
+   * Topic names that SHALL be pre-attached to the Claude session when this job fires.
+   * Pre-attached topics surface their `topics/<topic>/*.md` instruction files (including
+   * plugin virtual defaults registered via `addTopicInstruction`) in the system prompt
+   * from the first turn — Claude does not need to call `attach_integration`. Omit (or
+   * pass an empty array) to leave the resulting `CronJob.attachedTopics` unset.
+   * See the `plugin-topic-instructions` capability.
+   */
+  attachedTopics?: string[];
+}
+
+/**
+ * Plugin-scoped structured logger. Each level prefixes log lines with the plugin name
+ * (e.g. `[trivia]`) so cross-plugin logs are easy to filter. Plugins MUST use this
+ * rather than importing the core logger module directly — the plugin SDK is the
+ * one-and-only allowed import surface for plugin code.
+ */
+export interface PluginLogger {
+  debug(...args: unknown[]): void;
+  info(...args: unknown[]): void;
+  warn(...args: unknown[]): void;
+  error(...args: unknown[]): void;
 }
 
 export interface ClackSdk {
+  /**
+   * Plugin-scoped logger. Prefixes every line with `[<pluginName>]` for filterability.
+   * Use this instead of importing the core `logger` module from `src/logger.ts` —
+   * direct imports from outside the SDK are not allowed in plugin code.
+   */
+  logger: PluginLogger;
   addInstruction(role: RoleDir, filename: string, content: string): void;
+  /**
+   * Register topic-scoped instruction content. The file is stored as a virtual default at
+   * `topics/<topic>/<pluginName>__<filename>.md` and is loaded only when the named topic is
+   * active for a session — either pre-attached via `CronJobSpec.attachedTopics` or runtime-
+   * attached via `attach_integration`. Admins override by placing a file at
+   * `data/configuration/<role>/topics/<topic>/<pluginName>__<filename>.md` (same precedence
+   * rule as baseline plugin instruction overrides). See the `plugin-topic-instructions`
+   * capability for full semantics.
+   */
+  addTopicInstruction(role: RoleDir, topic: string, filename: string, content: string): void;
   /**
    * Register an MCP tool with a minimum role requirement and a Slack task card mapping.
    * @param mapping — Display label for Slack task cards. Either a template string with `{argName}` interpolation,
@@ -360,10 +399,24 @@ export function createClackSdk(
     return new RegExp("^" + pluginPrefix + cleaned, key.flags);
   }
 
+  const pluginLogPrefix = `[${pluginName}]`;
+  const pluginLogger: PluginLogger = {
+    debug: (...args) => coreLogger.debug(pluginLogPrefix, ...args),
+    info: (...args) => coreLogger.info(pluginLogPrefix, ...args),
+    warn: (...args) => coreLogger.warn(pluginLogPrefix, ...args),
+    error: (...args) => coreLogger.error(pluginLogPrefix, ...args),
+  };
+
   const sdk: ClackSdk = {
+    logger: pluginLogger,
     addInstruction(role: RoleDir, filename: string, content: string): void {
       const prefixedFilename = `${pluginName}__${filename}.md`;
       instructions.push({ role, filename: prefixedFilename, content });
+    },
+
+    addTopicInstruction(role: RoleDir, topic: string, filename: string, content: string): void {
+      const key = `topics/${topic}/${pluginName}__${filename}.md`;
+      instructions.push({ role, filename: key, content });
     },
 
     registerTool<T extends AnyZodRawShape>(
@@ -488,6 +541,10 @@ export function createClackSdk(
             submitResponseMode: spec.submitResponseMode ?? null,
             // updateJob treats an empty array as "clear" — same shape as requiredTools.
             skipDates: spec.skipDates ?? [],
+            // attachedTopics: spec absent → clear the persisted field. The spec for
+            // plugin-topic-instructions explicitly requires re-reconcile without the field
+            // to clear it (declarative ownership), unlike `name` which is preserved on absence.
+            attachedTopics: spec.attachedTopics ?? [],
             // updateJob: undefined leaves the persisted name untouched, while a non-empty
             // string overwrites it. The spec contract is "spec.name absent → leave alone",
             // so we deliberately omit the field rather than passing "".
@@ -511,6 +568,9 @@ export function createClackSdk(
             ...(spec.skipConditions ? { skipConditions: spec.skipConditions } : {}),
             ...(spec.submitResponseMode ? { submitResponseMode: spec.submitResponseMode } : {}),
             ...(spec.skipDates && spec.skipDates.length > 0 ? { skipDates: spec.skipDates } : {}),
+            ...(spec.attachedTopics && spec.attachedTopics.length > 0
+              ? { attachedTopics: spec.attachedTopics }
+              : {}),
           });
         }
       }

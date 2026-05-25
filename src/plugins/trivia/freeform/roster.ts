@@ -1,6 +1,6 @@
 import type { App } from "@slack/bolt";
 import type { ContextBlock, DividerBlock, KnownBlock } from "@slack/types";
-import { logger } from "../../../logger.js";
+import { triviaLogger as logger } from "../core/pluginLogger.js";
 import type { ScopedTriviaDataLayer, SubmittedAnswer, TriviaQuestion } from "../core/types.js";
 import { parseChannelFromPermalink, parseTsFromPermalink } from "../tools/reveal/slack.js";
 

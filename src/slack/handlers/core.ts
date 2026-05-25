@@ -153,6 +153,14 @@ export interface ProcessMessageParams {
    * system-prompt REPLAY CONTEXT block. Populated by the cron scheduler on replay runs.
    */
   asOf?: Date;
+  /**
+   * Topic names to pre-attach for this session — surfaces `topics/<topic>/*.md` instruction
+   * files (including plugin virtual defaults registered via `sdk.addTopicInstruction`) in
+   * the system prompt from the first turn. Populated by the cron scheduler when the
+   * originating job's `attachedTopics` field is set. Only meaningful for scheduled triggers.
+   * See the `plugin-topic-instructions` capability.
+   */
+  preAttachedTopics?: string[];
 }
 
 interface ProcessingContext {
@@ -187,6 +195,8 @@ interface ProcessingContext {
   readonly autoRespondRuleName?: string;
   /** Explicit role override (system jobs run as "system"; see ProcessMessageParams). */
   readonly roleOverride?: UserRole;
+  /** Topic names pre-attached for the session — see ProcessMessageParams.preAttachedTopics. */
+  readonly preAttachedTopics?: string[];
 }
 
 /** Construct a `SessionTrigger` from the inputs we have at handler time. The switch on
@@ -522,6 +532,7 @@ export async function processMessage(
     reactionEmoji: params.reactionEmoji,
     autoRespondRuleName: params.autoRespondRuleName,
     roleOverride: params.roleOverride,
+    preAttachedTopics: params.preAttachedTopics,
   };
 
   const userLabel = await deps.resolveUserLabel(client, userId);
@@ -597,6 +608,7 @@ export async function processMessage(
       skipConditions: ctx.skipConditions,
       submitResponseMode: ctx.submitResponseMode,
       asOf: ctx.asOf,
+      preAttachedTopics: ctx.preAttachedTopics,
     },
     abortController,
     silentThinking,

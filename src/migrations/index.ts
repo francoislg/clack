@@ -20,6 +20,7 @@ import { migration as m18 } from "./018-lazy-skill-references.js";
 import { migration as m19 } from "./019-trivia-games-migration.js";
 import { migration as m20 } from "./020-system-actor-on-plugin-crons.js";
 import { migration as m21 } from "./021-trivia-answers-format-rename.js";
+import { migration as m22 } from "./022-trivia-config-to-plugin.js";
 
 // Register migrations here in version order.
 export const migrations: Migration[] = [
@@ -44,4 +45,5 @@ export const migrations: Migration[] = [
   m19,
   m20,
   m21,
+  m22,
 ];

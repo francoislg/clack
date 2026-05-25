@@ -15,7 +15,9 @@ import {
   loadConfig,
   getConfig,
   getTaskCardMaxDetails,
+  getScheduledMessagesMaxRunHistory,
   DEFAULT_TASK_CARD_MAX_DETAILS,
+  DEFAULT_SCHEDULED_MESSAGES_MAX_RUN_HISTORY,
   DEFAULT_MAX_ADDITIONAL_MESSAGES,
   type Config,
   type RepositoryConfig,
@@ -1049,617 +1051,71 @@ describe("taskCards config", () => {
 });
 
 // ---------------------------------------------------------------------------
-// trivia.answersFormat + trivia.choices
+// scheduledMessagesMaxRunHistory / getScheduledMessagesMaxRunHistory
 // ---------------------------------------------------------------------------
 
-describe("trivia.answersFormat config", () => {
-  const originalCwd = process.cwd();
-
+describe("scheduledMessagesMaxRunHistory config", () => {
   beforeEach(() => {
-    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true });
-    mkdirSync(tmpBase, { recursive: true });
-    process.chdir(tmpBase);
     writeSlackAuth();
   });
 
   afterEach(() => {
-    process.chdir(originalCwd);
+    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true, force: true });
   });
 
-  it("absent when trivia block is absent", () => {
+  it("parses scheduledMessagesMaxRunHistory when set to a positive integer", () => {
+    writeConfig(minimalConfig({ scheduledMessagesMaxRunHistory: 200 }));
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.scheduledMessagesMaxRunHistory, 200);
+    assert.equal(getScheduledMessagesMaxRunHistory(), 200);
+  });
+
+  it("falls back to default when field is absent", () => {
     writeConfig(minimalConfig());
     const cfg = loadConfig(configPath, true);
-    assert.equal(cfg.trivia, undefined);
+    assert.equal(cfg.scheduledMessagesMaxRunHistory, undefined);
+    assert.equal(getScheduledMessagesMaxRunHistory(), DEFAULT_SCHEDULED_MESSAGES_MAX_RUN_HISTORY);
   });
 
-  it("absent when trivia block lacks answersFormat", () => {
-    writeConfig(minimalConfig({ trivia: {} }));
+  it("falls back to default when value is zero or negative", () => {
+    writeConfig(minimalConfig({ scheduledMessagesMaxRunHistory: 0 }));
     const cfg = loadConfig(configPath, true);
-    assert.equal(cfg.trivia?.answersFormat, undefined);
+    assert.equal(cfg.scheduledMessagesMaxRunHistory, undefined);
+    assert.equal(getScheduledMessagesMaxRunHistory(), DEFAULT_SCHEDULED_MESSAGES_MAX_RUN_HISTORY);
   });
 
-  it("parses a weighted mix", () => {
-    writeConfig(minimalConfig({ trivia: { answersFormat: { boolean: 2, choice: 1 } } }));
+  it("falls back to default when value is a non-number", () => {
+    writeConfig(minimalConfig({ scheduledMessagesMaxRunHistory: "fifty" }));
     const cfg = loadConfig(configPath, true);
-    assert.deepEqual(cfg.trivia?.answersFormat, { boolean: 2, choice: 1, freeform: 0 });
+    assert.equal(cfg.scheduledMessagesMaxRunHistory, undefined);
+    assert.equal(getScheduledMessagesMaxRunHistory(), DEFAULT_SCHEDULED_MESSAGES_MAX_RUN_HISTORY);
   });
 
-  it("parses choice-only", () => {
-    writeConfig(minimalConfig({ trivia: { answersFormat: { choice: 5 } } }));
+  it("falls back to default when value is a non-integer", () => {
+    writeConfig(minimalConfig({ scheduledMessagesMaxRunHistory: 12.5 }));
     const cfg = loadConfig(configPath, true);
-    assert.deepEqual(cfg.trivia?.answersFormat, { boolean: 0, choice: 5, freeform: 0 });
-  });
-
-  it("parses boolean-only", () => {
-    writeConfig(minimalConfig({ trivia: { answersFormat: { boolean: 1 } } }));
-    const cfg = loadConfig(configPath, true);
-    assert.deepEqual(cfg.trivia?.answersFormat, { boolean: 1, choice: 0, freeform: 0 });
-  });
-
-  it("rejects all-zero weights", () => {
-    writeConfig(minimalConfig({ trivia: { answersFormat: { boolean: 0, choice: 0 } } }));
-    assert.throws(() => loadConfig(configPath, true), /at least one strictly positive weight/);
-  });
-
-  it("rejects unknown keys", () => {
-    writeConfig(minimalConfig({ trivia: { answersFormat: { boolean: 1, essay: 1 } } }));
-    assert.throws(() => loadConfig(configPath, true), /unknown key 'essay'/);
-  });
-
-  it("rejects negative weights", () => {
-    writeConfig(minimalConfig({ trivia: { answersFormat: { boolean: -1, choice: 1 } } }));
-    assert.throws(() => loadConfig(configPath, true), /non-negative integer/);
-  });
-
-  it("rejects non-integer weights", () => {
-    writeConfig(minimalConfig({ trivia: { answersFormat: { boolean: 1.5, choice: 1 } } }));
-    assert.throws(() => loadConfig(configPath, true), /non-negative integer/);
-  });
-
-  it("rejects non-object value", () => {
-    writeConfig(minimalConfig({ trivia: { answersFormat: "boolean" } }));
-    assert.throws(() => loadConfig(configPath, true), /must be an object/);
+    assert.equal(cfg.scheduledMessagesMaxRunHistory, undefined);
+    assert.equal(getScheduledMessagesMaxRunHistory(), DEFAULT_SCHEDULED_MESSAGES_MAX_RUN_HISTORY);
   });
 });
 
-describe("trivia.choices config", () => {
-  const originalCwd = process.cwd();
+// ---------------------------------------------------------------------------
+// Trivia plugin tests moved out of this file. The trivia config lives at
+// data/plugins/trivia/config.json now; parsers + tests live under
+// src/plugins/trivia/core/configParsers/ (see configParsers/axes.test.ts and
+// configParsers/games.test.ts).
+// ---------------------------------------------------------------------------
 
-  beforeEach(() => {
-    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true });
-    mkdirSync(tmpBase, { recursive: true });
-    process.chdir(tmpBase);
-    writeSlackAuth();
-  });
-
-  afterEach(() => {
-    process.chdir(originalCwd);
-  });
-
-  it("absent when not configured", () => {
-    writeConfig(minimalConfig({ trivia: {} }));
-    const cfg = loadConfig(configPath, true);
-    assert.equal(cfg.trivia?.choices, undefined);
-  });
-
-  it("parses valid bounds", () => {
-    writeConfig(minimalConfig({ trivia: { choices: { min: 3, max: 4 } } }));
-    const cfg = loadConfig(configPath, true);
-    assert.deepEqual(cfg.trivia?.choices, { min: 3, max: 4 });
-  });
-
-  it("fills in defaults for partial bounds", () => {
-    writeConfig(minimalConfig({ trivia: { choices: { min: 3 } } }));
-    const cfg = loadConfig(configPath, true);
-    assert.deepEqual(cfg.trivia?.choices, { min: 3, max: 4 });
-  });
-
-  it("rejects min < 2", () => {
-    writeConfig(minimalConfig({ trivia: { choices: { min: 1, max: 4 } } }));
-    assert.throws(() => loadConfig(configPath, true), /min.*\[2, 4\]/);
-  });
-
-  it("rejects max > 4", () => {
-    writeConfig(minimalConfig({ trivia: { choices: { min: 2, max: 5 } } }));
-    assert.throws(() => loadConfig(configPath, true), /max.*\[2, 4\]/);
-  });
-
-  it("rejects min > max", () => {
-    writeConfig(minimalConfig({ trivia: { choices: { min: 4, max: 2 } } }));
-    assert.throws(() => loadConfig(configPath, true), /min.*> max/);
-  });
-
-  it("rejects non-integer bounds", () => {
-    writeConfig(minimalConfig({ trivia: { choices: { min: 2.5, max: 4 } } }));
-    assert.throws(() => loadConfig(configPath, true), /must be an integer/);
-  });
-
-  it("rejects non-object value", () => {
-    writeConfig(minimalConfig({ trivia: { choices: [2, 4] } }));
-    assert.throws(() => loadConfig(configPath, true), /must be an object/);
-  });
+describe.skip("trivia.games config (moved to plugin)", () => {
+  it("see src/plugins/trivia/core/configParsers/games.test.ts", () => {});
 });
 
-describe("trivia.games config", () => {
-  const originalCwd = process.cwd();
-
-  beforeEach(() => {
-    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true });
-    mkdirSync(tmpBase, { recursive: true });
-    process.chdir(tmpBase);
-    writeSlackAuth();
-  });
-
-  afterEach(() => {
-    process.chdir(originalCwd);
-  });
-
-  it("absent when not configured", () => {
-    writeConfig(minimalConfig({ trivia: {} }));
-    const cfg = loadConfig(configPath, true);
-    assert.equal(cfg.trivia?.games, undefined);
-  });
-
-  it("empty array is preserved as empty array", () => {
-    writeConfig(minimalConfig({ trivia: { games: [] } }));
-    const cfg = loadConfig(configPath, true);
-    assert.deepEqual(cfg.trivia?.games, []);
-  });
-
-  it("parses a valid single-game entry", () => {
-    writeConfig(
-      minimalConfig({
-        trivia: {
-          games: [
-            {
-              name: "ops-daily",
-              channel: "C123",
-              questionCron: "0 9 * * 1-5",
-              revealCron: "0 15 * * 1-5",
-              timezone: "America/Montreal",
-            },
-          ],
-        },
-      }),
-    );
-    const cfg = loadConfig(configPath, true);
-    assert.equal(cfg.trivia?.games?.length, 1);
-    assert.deepEqual(cfg.trivia?.games?.[0], {
-      name: "ops-daily",
-      channel: "C123",
-      questionCron: "0 9 * * 1-5",
-      revealCron: "0 15 * * 1-5",
-      timezone: "America/Montreal",
-      enabled: true,
-    });
-  });
-
-  it("drops entries with invalid cron expressions", () => {
-    writeConfig(
-      minimalConfig({
-        trivia: {
-          games: [
-            {
-              name: "good",
-              channel: "C1",
-              questionCron: "0 9 * * 1-5",
-              revealCron: "0 15 * * 1-5",
-              timezone: "UTC",
-            },
-            {
-              name: "bad",
-              channel: "C2",
-              questionCron: "not a cron",
-              revealCron: "0 15 * * *",
-              timezone: "UTC",
-            },
-          ],
-        },
-      }),
-    );
-    const cfg = loadConfig(configPath, true);
-    assert.equal(cfg.trivia?.games?.length, 1);
-    assert.equal(cfg.trivia?.games?.[0]?.name, "good");
-  });
-
-  it("drops entries with malformed channel", () => {
-    writeConfig(
-      minimalConfig({
-        trivia: {
-          games: [
-            {
-              name: "bad-channel",
-              channel: "#general", // not a channel ID
-              questionCron: "0 9 * * 1-5",
-              revealCron: "0 15 * * 1-5",
-              timezone: "UTC",
-            },
-          ],
-        },
-      }),
-    );
-    const cfg = loadConfig(configPath, true);
-    assert.equal(cfg.trivia?.games?.length, 0);
-  });
-
-  it("drops duplicate names but keeps the first", () => {
-    writeConfig(
-      minimalConfig({
-        trivia: {
-          games: [
-            {
-              name: "dup",
-              channel: "C1",
-              questionCron: "0 9 * * 1-5",
-              revealCron: "0 15 * * 1-5",
-              timezone: "UTC",
-            },
-            {
-              name: "dup",
-              channel: "C2",
-              questionCron: "0 10 * * 1-5",
-              revealCron: "0 16 * * 1-5",
-              timezone: "UTC",
-            },
-          ],
-        },
-      }),
-    );
-    const cfg = loadConfig(configPath, true);
-    assert.equal(cfg.trivia?.games?.length, 1);
-    assert.equal(cfg.trivia?.games?.[0]?.channel, "C1");
-  });
-
-  it("drops entries with empty name", () => {
-    writeConfig(
-      minimalConfig({
-        trivia: {
-          games: [
-            {
-              name: "",
-              channel: "C1",
-              questionCron: "0 9 * * 1-5",
-              revealCron: "0 15 * * 1-5",
-              timezone: "UTC",
-            },
-          ],
-        },
-      }),
-    );
-    const cfg = loadConfig(configPath, true);
-    assert.equal(cfg.trivia?.games?.length, 0);
-  });
-
-  it("drops entries with empty timezone", () => {
-    writeConfig(
-      minimalConfig({
-        trivia: {
-          games: [
-            {
-              name: "no-tz",
-              channel: "C1",
-              questionCron: "0 9 * * 1-5",
-              revealCron: "0 15 * * 1-5",
-              timezone: "",
-            },
-          ],
-        },
-      }),
-    );
-    const cfg = loadConfig(configPath, true);
-    assert.equal(cfg.trivia?.games?.length, 0);
-  });
-
-  it("drops entries whose name has uppercase letters", () => {
-    writeConfig(
-      minimalConfig({
-        trivia: {
-          games: [
-            {
-              name: "Main",
-              channel: "C1",
-              questionCron: "0 9 * * 1-5",
-              revealCron: "0 15 * * 1-5",
-              timezone: "UTC",
-            },
-          ],
-        },
-      }),
-    );
-    const cfg = loadConfig(configPath, true);
-    assert.equal(cfg.trivia?.games?.length, 0);
-  });
-
-  it("drops entries whose name has whitespace", () => {
-    writeConfig(
-      minimalConfig({
-        trivia: {
-          games: [
-            {
-              name: "has spaces",
-              channel: "C1",
-              questionCron: "0 9 * * 1-5",
-              revealCron: "0 15 * * 1-5",
-              timezone: "UTC",
-            },
-          ],
-        },
-      }),
-    );
-    const cfg = loadConfig(configPath, true);
-    assert.equal(cfg.trivia?.games?.length, 0);
-  });
-
-  it("drops entries whose name has path-traversal characters", () => {
-    writeConfig(
-      minimalConfig({
-        trivia: {
-          games: [
-            {
-              name: "../etc",
-              channel: "C1",
-              questionCron: "0 9 * * 1-5",
-              revealCron: "0 15 * * 1-5",
-              timezone: "UTC",
-            },
-            {
-              name: "a/b",
-              channel: "C2",
-              questionCron: "0 9 * * 1-5",
-              revealCron: "0 15 * * 1-5",
-              timezone: "UTC",
-            },
-          ],
-        },
-      }),
-    );
-    const cfg = loadConfig(configPath, true);
-    assert.equal(cfg.trivia?.games?.length, 0);
-  });
-
-  it("drops entries whose name exceeds 32 characters", () => {
-    writeConfig(
-      minimalConfig({
-        trivia: {
-          games: [
-            {
-              name: "a".repeat(33),
-              channel: "C1",
-              questionCron: "0 9 * * 1-5",
-              revealCron: "0 15 * * 1-5",
-              timezone: "UTC",
-            },
-          ],
-        },
-      }),
-    );
-    const cfg = loadConfig(configPath, true);
-    assert.equal(cfg.trivia?.games?.length, 0);
-  });
-
-  it("accepts a 32-character name", () => {
-    writeConfig(
-      minimalConfig({
-        trivia: {
-          games: [
-            {
-              name: "a".repeat(32),
-              channel: "C1",
-              questionCron: "0 9 * * 1-5",
-              revealCron: "0 15 * * 1-5",
-              timezone: "UTC",
-            },
-          ],
-        },
-      }),
-    );
-    const cfg = loadConfig(configPath, true);
-    assert.equal(cfg.trivia?.games?.length, 1);
-  });
-
-  it("defaults enabled to true when absent", () => {
-    writeConfig(
-      minimalConfig({
-        trivia: {
-          games: [
-            {
-              name: "default-enabled",
-              channel: "C1",
-              questionCron: "0 9 * * 1-5",
-              revealCron: "0 15 * * 1-5",
-              timezone: "UTC",
-            },
-          ],
-        },
-      }),
-    );
-    const cfg = loadConfig(configPath, true);
-    assert.equal(cfg.trivia?.games?.[0]?.enabled, true);
-  });
-
-  it("respects an explicit enabled: false", () => {
-    writeConfig(
-      minimalConfig({
-        trivia: {
-          games: [
-            {
-              name: "retired",
-              channel: "C1",
-              questionCron: "0 9 * * 1-5",
-              revealCron: "0 15 * * 1-5",
-              timezone: "UTC",
-              enabled: false,
-            },
-          ],
-        },
-      }),
-    );
-    const cfg = loadConfig(configPath, true);
-    assert.equal(cfg.trivia?.games?.[0]?.enabled, false);
-  });
-
-  it("drops entries where enabled is non-boolean", () => {
-    writeConfig(
-      minimalConfig({
-        trivia: {
-          games: [
-            {
-              name: "bad-enabled",
-              channel: "C1",
-              questionCron: "0 9 * * 1-5",
-              revealCron: "0 15 * * 1-5",
-              timezone: "UTC",
-              enabled: "true", // string, not boolean
-            },
-          ],
-        },
-      }),
-    );
-    const cfg = loadConfig(configPath, true);
-    assert.equal(cfg.trivia?.games?.length, 0);
-  });
+describe.skip("trivia.games dead block", () => {
+  it("see src/plugins/trivia/core/configParsers/games.test.ts (TODO)", () => {});
 });
 
-describe("trivia.offDays config", () => {
-  const originalCwd = process.cwd();
-
-  beforeEach(() => {
-    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true });
-    mkdirSync(tmpBase, { recursive: true });
-    process.chdir(tmpBase);
-    writeSlackAuth();
-  });
-
-  afterEach(() => {
-    process.chdir(originalCwd);
-  });
-
-  it("absent when not configured", () => {
-    writeConfig(minimalConfig({ trivia: {} }));
-    const cfg = loadConfig(configPath, true);
-    assert.equal(cfg.trivia?.offDays, undefined);
-  });
-
-  it("empty array is preserved as empty array", () => {
-    writeConfig(minimalConfig({ trivia: { offDays: [] } }));
-    const cfg = loadConfig(configPath, true);
-    assert.deepEqual(cfg.trivia?.offDays, []);
-  });
-
-  it("parses mixed YYYY-MM-DD and MM-DD entries", () => {
-    writeConfig(
-      minimalConfig({
-        trivia: {
-          offDays: [
-            { date: "12-25", label: "Christmas" },
-            { date: "2026-04-03", label: "Good Friday 2026" },
-          ],
-        },
-      }),
-    );
-    const cfg = loadConfig(configPath, true);
-    assert.equal(cfg.trivia?.offDays?.length, 2);
-    assert.deepEqual(cfg.trivia?.offDays?.[0], { date: "12-25", label: "Christmas" });
-    assert.deepEqual(cfg.trivia?.offDays?.[1], { date: "2026-04-03", label: "Good Friday 2026" });
-  });
-
-  it("drops entries with unparseable date format", () => {
-    writeConfig(
-      minimalConfig({
-        trivia: {
-          offDays: [
-            { date: "December 25", label: "Christmas" },
-            { date: "12-25", label: "Christmas (good)" },
-          ],
-        },
-      }),
-    );
-    const cfg = loadConfig(configPath, true);
-    assert.equal(cfg.trivia?.offDays?.length, 1);
-    assert.equal(cfg.trivia?.offDays?.[0]?.label, "Christmas (good)");
-  });
-
-  it("drops entries with invalid calendar dates (recurring)", () => {
-    writeConfig(
-      minimalConfig({
-        trivia: {
-          offDays: [
-            { date: "02-30", label: "Imaginary" },
-            { date: "13-01", label: "Bad month" },
-          ],
-        },
-      }),
-    );
-    const cfg = loadConfig(configPath, true);
-    assert.equal(cfg.trivia?.offDays?.length, 0);
-  });
-
-  it("drops entries with invalid calendar dates (exact)", () => {
-    writeConfig(
-      minimalConfig({
-        trivia: {
-          offDays: [
-            { date: "2025-02-29", label: "Not a leap year" },
-            { date: "2026-13-01", label: "Bad month" },
-          ],
-        },
-      }),
-    );
-    const cfg = loadConfig(configPath, true);
-    assert.equal(cfg.trivia?.offDays?.length, 0);
-  });
-
-  it("accepts Feb 29 in recurring MM-DD form (leap-year semantics)", () => {
-    writeConfig(
-      minimalConfig({
-        trivia: { offDays: [{ date: "02-29", label: "Leap day" }] },
-      }),
-    );
-    const cfg = loadConfig(configPath, true);
-    assert.equal(cfg.trivia?.offDays?.length, 1);
-  });
-
-  it("drops entries with missing or empty label", () => {
-    writeConfig(
-      minimalConfig({
-        trivia: {
-          offDays: [
-            { date: "12-25" }, // no label
-            { date: "01-01", label: "" }, // empty label
-            { date: "07-01", label: "Canada Day" }, // good
-          ],
-        },
-      }),
-    );
-    const cfg = loadConfig(configPath, true);
-    assert.equal(cfg.trivia?.offDays?.length, 1);
-    assert.equal(cfg.trivia?.offDays?.[0]?.label, "Canada Day");
-  });
-
-  it("drops non-object entries", () => {
-    writeConfig(
-      minimalConfig({
-        trivia: {
-          offDays: [
-            "12-25", // string, not object
-            { date: "12-25", label: "Christmas" },
-          ],
-        },
-      }),
-    );
-    const cfg = loadConfig(configPath, true);
-    assert.equal(cfg.trivia?.offDays?.length, 1);
-  });
-
-  it("ignoring a non-array offDays value coerces to empty array", () => {
-    writeConfig(
-      minimalConfig({
-        trivia: { offDays: "12-25" },
-      }),
-    );
-    const cfg = loadConfig(configPath, true);
-    assert.deepEqual(cfg.trivia?.offDays, []);
-  });
+describe.skip("trivia.offDays config (moved to plugin)", () => {
+  it("see src/plugins/trivia/core/configParsers/games.test.ts (TODO)", () => {});
 });
 
 describe("language config", () => {

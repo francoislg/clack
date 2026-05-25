@@ -318,6 +318,7 @@ describe("PROCESS_REVEAL_INSTRUCTIONS — renderer brief", () => {
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /🥇/);
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /🥈/);
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /🥉/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /🎀/);
   });
 
   it("handles the empty-reveals case (acknowledge with humor; still render leaderboard)", () => {

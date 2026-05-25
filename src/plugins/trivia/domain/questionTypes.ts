@@ -1,5 +1,5 @@
-import type { Config, TriviaAnswersFormatWeights } from "../../../config.js";
-import { DEFAULT_TRIVIA_CHOICES } from "../../../config.js";
+import type { TriviaAnswersFormatWeights, TriviaConfig, TriviaGame } from "../core/configTypes.js";
+import { DEFAULT_TRIVIA_CHOICES } from "../core/configTypes.js";
 import type { SeasonsState, SeasonEntry, ScopedTriviaDataLayer } from "../core/types.js";
 import { findCurrentSeason } from "../core/seasonTimeline.js";
 
@@ -15,19 +15,21 @@ export const DEFAULT_ANSWERS_FORMAT_WEIGHTS: TriviaAnswersFormatWeights = {
 
 /**
  * Pure resolver for answers-format weights (boolean vs choice) given an already-resolved
- * season entry (possibly null) and optional slot index.
+ * season entry (possibly null), optional slot index, and optional per-game entry.
  *
  * Priority order (first non-null source wins):
  *   1. Slot's `answersFormat` — when `currentSeason.format` is present, `slotIndex`
  *      is in range, and that slot has an `answersFormat` field.
  *   2. Season's top-level `answersFormat`.
- *   3. `config.trivia.answersFormat` — workspace default.
- *   4. `DEFAULT_ANSWERS_FORMAT_WEIGHTS` — pure-boolean fallback.
+ *   3. Game's top-level `answersFormat` — per-game tier between season and workspace.
+ *   4. `config.trivia.answersFormat` — workspace default.
+ *   5. `DEFAULT_ANSWERS_FORMAT_WEIGHTS` — pure-boolean fallback.
  */
 export function resolveAnswersFormat(
   currentSeason: SeasonEntry | null,
   slotIndex: number | null,
-  config: Config | null,
+  game: TriviaGame | null,
+  triviaConfig: TriviaConfig | null,
 ): TriviaAnswersFormatWeights {
   if (currentSeason !== null && slotIndex !== null && currentSeason.format !== undefined) {
     const slot = currentSeason.format.questions[slotIndex];
@@ -38,8 +40,11 @@ export function resolveAnswersFormat(
   if (currentSeason?.answersFormat !== undefined) {
     return currentSeason.answersFormat;
   }
-  if (config?.trivia?.answersFormat !== undefined) {
-    return config.trivia.answersFormat;
+  if (game?.answersFormat !== undefined) {
+    return game.answersFormat;
+  }
+  if (triviaConfig?.answersFormat !== undefined) {
+    return triviaConfig.answersFormat;
   }
   return DEFAULT_ANSWERS_FORMAT_WEIGHTS;
 }
@@ -51,22 +56,26 @@ export function resolveAnswersFormat(
  */
 export async function getActiveAnswersFormat(
   scoped: ScopedTriviaDataLayer,
-  config: Config,
+  triviaConfig: TriviaConfig | null,
   now: number,
+  game: TriviaGame | null,
 ): Promise<TriviaAnswersFormatWeights> {
-  const seasonsEnabled = config.trivia?.seasons?.enabled ?? false;
+  const seasonsEnabled = triviaConfig?.seasons?.enabled ?? false;
   let current: SeasonEntry | null = null;
   if (seasonsEnabled) {
     const state: SeasonsState | null = await scoped.loadSeasonsState();
     current = findCurrentSeason(state, now);
   }
-  return resolveAnswersFormat(current, null, config);
+  return resolveAnswersFormat(current, null, game, triviaConfig);
 }
 
 /**
  * Resolves the active choice-count bounds. Workspace-only by design — `choices.{min,max}`
  * is a card-readability UX setting, not gameplay state, so it is never season-scoped.
  */
-export function getActiveChoiceBounds(config: Config): { min: number; max: number } {
-  return config.trivia?.choices ?? DEFAULT_TRIVIA_CHOICES;
+export function getActiveChoiceBounds(triviaConfig: TriviaConfig | null): {
+  min: number;
+  max: number;
+} {
+  return triviaConfig?.choices ?? DEFAULT_TRIVIA_CHOICES;
 }

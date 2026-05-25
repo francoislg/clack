@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { buildGameSpecs } from "./buildGameSpecs.js";
-import type { TriviaGame } from "../../../config.js";
+import type { TriviaGame } from "../core/configTypes.js";
 
 const baseGame: TriviaGame = {
   name: "ops",
@@ -66,6 +66,12 @@ describe("buildGameSpecs", () => {
   it("reveal spec does NOT set submitResponseMode (reveal renders a real message)", () => {
     const [, reveal] = buildGameSpecs([baseGame]);
     assert.equal(reveal.submitResponseMode, undefined);
+  });
+
+  it("both specs attach the trivia topic for persona / tone loading", () => {
+    const [question, reveal] = buildGameSpecs([baseGame]);
+    assert.deepEqual(question.attachedTopics, ["trivia"]);
+    assert.deepEqual(reveal.attachedTopics, ["trivia"]);
   });
 
   it("reveal spec NEVER includes the absorbed tools or conditional season tools", () => {

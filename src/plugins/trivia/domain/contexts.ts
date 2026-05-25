@@ -1,4 +1,4 @@
-import type { Config, TriviaContextEntry } from "../../../config.js";
+import type { TriviaConfig, TriviaContextEntry, TriviaGame } from "../core/configTypes.js";
 import type { SeasonEntry } from "../core/types.js";
 
 /**
@@ -10,13 +10,15 @@ import type { SeasonEntry } from "../core/types.js";
  * Priority order (first non-null source wins):
  *   1. Slot's `contexts` — when the season has a format and the slot defines `contexts`.
  *   2. Season's `contexts`.
- *   3. `config.trivia.contexts` — workspace default.
- *   4. `null` — no contexts configured anywhere.
+ *   3. Game's `contexts` — per-game tier between season and workspace.
+ *   4. `config.trivia.contexts` — workspace default.
+ *   5. `null` — no contexts configured anywhere.
  */
 export function resolveContexts(
   currentSeason: SeasonEntry | null,
   slotIndex: number | null,
-  config: Config | null,
+  game: TriviaGame | null,
+  triviaConfig: TriviaConfig | null,
 ): TriviaContextEntry[] | null {
   if (currentSeason !== null && slotIndex !== null && currentSeason.format !== undefined) {
     const slot = currentSeason.format.questions[slotIndex];
@@ -27,8 +29,11 @@ export function resolveContexts(
   if (currentSeason?.contexts !== undefined) {
     return currentSeason.contexts;
   }
-  if (config?.trivia?.contexts !== undefined) {
-    return config.trivia.contexts;
+  if (game?.contexts !== undefined) {
+    return game.contexts;
+  }
+  if (triviaConfig?.contexts !== undefined) {
+    return triviaConfig.contexts;
   }
   return null;
 }

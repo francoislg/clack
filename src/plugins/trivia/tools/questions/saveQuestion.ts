@@ -2,13 +2,18 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { textResult, errorResult } from "../../../../tools/helpers.js";
-import { getConfig, type Config, DEFAULT_TRIVIA_CHOICES } from "../../../../config.js";
+import { type TriviaGame, DEFAULT_TRIVIA_CHOICES } from "../../core/configTypes.js";
 import { findCurrentSeason } from "../../core/seasonTimeline.js";
 import { resolveAnswersFormat } from "../../domain/questionTypes.js";
 import { resolveQuestionType } from "../../domain/factTopical.js";
 import { resolveContexts } from "../../domain/contexts.js";
 import { resolveSlotCategories } from "../../domain/seasonFormat.js";
-import { defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
+import {
+  defaultGetGames,
+  defaultGetTriviaConfig,
+  type GetGamesFn,
+  type GetTriviaConfigFn,
+} from "../../core/configBridge.js";
 import { requireWritableGame } from "../../core/gamesRegistry.js";
 import type { TriviaDataLayer, TriviaQuestion } from "../../core/types.js";
 
@@ -42,13 +47,7 @@ Validation rejects: out-of-range correctIndex; duplicate or whitespace/case-equi
 
 export function createSaveQuestionTool(
   data: TriviaDataLayer,
-  getConfigFn: () => Config | null = () => {
-    try {
-      return getConfig();
-    } catch {
-      return null;
-    }
-  },
+  getConfigFn: GetTriviaConfigFn = defaultGetTriviaConfig,
   getGamesFn: GetGamesFn = defaultGetGames,
 ) {
   return tool(
@@ -150,8 +149,9 @@ export function createSaveQuestionTool(
         ),
     },
     async (args) => {
+      let gameEntry: TriviaGame;
       try {
-        requireWritableGame(getGamesFn(), args.game);
+        gameEntry = requireWritableGame(getGamesFn(), args.game);
       } catch (err) {
         return errorResult(err instanceof Error ? err.message : String(err));
       }
@@ -209,7 +209,7 @@ export function createSaveQuestionTool(
           return errorResult('Choice questions must not include "gradingNotes".');
         }
         const config = getConfigFn();
-        const bounds = config?.trivia?.choices ?? DEFAULT_TRIVIA_CHOICES;
+        const bounds = config?.choices ?? DEFAULT_TRIVIA_CHOICES;
         if (args.choices.length < bounds.min || args.choices.length > bounds.max) {
           return errorResult(
             `Choice question must have between ${bounds.min} and ${bounds.max} options (got ${args.choices.length}).`,
@@ -345,6 +345,7 @@ export function createSaveQuestionTool(
         const slotAnswersWeights = resolveAnswersFormat(
           currentSeasonEntry,
           args.slot.index,
+          gameEntry,
           config,
         );
         const weightForAnswers = slotAnswersWeights[answersFormat];
@@ -356,6 +357,7 @@ export function createSaveQuestionTool(
         const slotQuestionTypeWeights = resolveQuestionType(
           currentSeasonEntry,
           args.slot.index,
+          gameEntry,
           config,
         );
         const weightForQuestionType =
@@ -368,7 +370,12 @@ export function createSaveQuestionTool(
       }
 
       // Context validation
-      const resolvedContexts = resolveContexts(currentSeasonEntry, slotIndexForResolution, config);
+      const resolvedContexts = resolveContexts(
+        currentSeasonEntry,
+        slotIndexForResolution,
+        gameEntry,
+        config,
+      );
       let storedContext: string | null = null;
       if (args.context !== undefined && args.context.length > 0) {
         if (resolvedContexts === null) {

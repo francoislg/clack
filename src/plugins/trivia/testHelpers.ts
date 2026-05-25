@@ -1,4 +1,4 @@
-import type { TriviaGame } from "../../config.js";
+import type { TriviaGame } from "./core/configTypes.js";
 import type {
   TriviaQuestion,
   TriviaUser,

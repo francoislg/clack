@@ -1,27 +1,23 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import type { Config } from "../../../config.js";
+import type { TriviaConfig, TriviaGame } from "../core/configTypes.js";
 import { resolveContexts, rollContextPriority } from "./contexts.js";
 import type { SeasonEntry } from "../core/types.js";
 
-function makeConfig(trivia?: Config["trivia"]): Config {
+function makeGame(overrides: Partial<TriviaGame> = {}): TriviaGame {
   return {
-    slack: {
-      botToken: "xoxb-test",
-      appToken: "xapp-test",
-      signingSecret: "secret",
-      fetchAndStoreUsername: false,
-      sendErrorsAsDM: false,
-    },
-    reactions: { trigger: "robot_face" },
-    directMessages: { enabled: false },
-    mentions: { enabled: false },
-    repositories: [],
-    git: { pullIntervalMinutes: 60, shallowClone: true, cloneDepth: 1 },
-    sessions: { cleanupIntervalMinutes: 60 },
-    claudeCode: { model: "sonnet" },
-    trivia,
+    name: "main",
+    channel: "C1",
+    questionCron: "0 9 * * *",
+    revealCron: "0 17 * * *",
+    timezone: "UTC",
+    enabled: true,
+    ...overrides,
   };
+}
+
+function makeConfig(trivia?: TriviaConfig): TriviaConfig {
+  return trivia ?? {};
 }
 
 const NOW = 1_700_000_000_000;
@@ -36,20 +32,20 @@ describe("resolveContexts", () => {
   };
 
   it("returns null when no source provides contexts", () => {
-    assert.equal(resolveContexts(null, null, null), null);
-    assert.equal(resolveContexts(null, null, makeConfig()), null);
-    assert.equal(resolveContexts(baseSeason, null, makeConfig()), null);
+    assert.equal(resolveContexts(null, null, null, null), null);
+    assert.equal(resolveContexts(null, null, null, makeConfig()), null);
+    assert.equal(resolveContexts(baseSeason, null, null, makeConfig()), null);
   });
 
   it("returns config.trivia.contexts when set and no season override", () => {
     const cfg = makeConfig({ contexts: [{ name: "Quebec" }] });
-    assert.deepEqual(resolveContexts(null, null, cfg), [{ name: "Quebec" }]);
+    assert.deepEqual(resolveContexts(null, null, null, cfg), [{ name: "Quebec" }]);
   });
 
   it("season contexts override config", () => {
     const season: SeasonEntry = { ...baseSeason, contexts: [{ name: "academic" }] };
     const cfg = makeConfig({ contexts: [{ name: "Quebec" }] });
-    assert.deepEqual(resolveContexts(season, null, cfg), [{ name: "academic" }]);
+    assert.deepEqual(resolveContexts(season, null, null, cfg), [{ name: "academic" }]);
   });
 
   it("slot contexts override season contexts", () => {
@@ -58,7 +54,7 @@ describe("resolveContexts", () => {
       contexts: [{ name: "Quebec" }],
       format: { questions: [{ contexts: [{ name: "pop culture" }] }] },
     };
-    assert.deepEqual(resolveContexts(season, 0, makeConfig()), [{ name: "pop culture" }]);
+    assert.deepEqual(resolveContexts(season, 0, null, makeConfig()), [{ name: "pop culture" }]);
   });
 
   it("slot without contexts falls back to season's contexts", () => {
@@ -67,7 +63,34 @@ describe("resolveContexts", () => {
       contexts: [{ name: "Quebec" }],
       format: { questions: [{}] },
     };
-    assert.deepEqual(resolveContexts(season, 0, makeConfig()), [{ name: "Quebec" }]);
+    assert.deepEqual(resolveContexts(season, 0, null, makeConfig()), [{ name: "Quebec" }]);
+  });
+
+  it("game contexts override workspace contexts", () => {
+    const game = makeGame({ contexts: [{ name: "Quebec" }] });
+    const cfg = makeConfig({ contexts: [{ name: "International" }] });
+    assert.deepEqual(resolveContexts(null, null, game, cfg), [{ name: "Quebec" }]);
+  });
+
+  it("season contexts override game contexts", () => {
+    const season: SeasonEntry = { ...baseSeason, contexts: [{ name: "academic" }] };
+    const game = makeGame({ contexts: [{ name: "Quebec" }] });
+    assert.deepEqual(resolveContexts(season, null, game, makeConfig()), [{ name: "academic" }]);
+  });
+
+  it("game without contexts falls through to workspace", () => {
+    const game = makeGame(); // no contexts
+    const cfg = makeConfig({ contexts: [{ name: "International" }] });
+    assert.deepEqual(resolveContexts(null, null, game, cfg), [{ name: "International" }]);
+  });
+
+  it("game contexts wins when only workspace is also set (no season/slot)", () => {
+    const game = makeGame({ contexts: [{ name: "Quebec" }, { name: "Montreal" }] });
+    const cfg = makeConfig({ contexts: [{ name: "International" }] });
+    assert.deepEqual(resolveContexts(null, null, game, cfg), [
+      { name: "Quebec" },
+      { name: "Montreal" },
+    ]);
   });
 });
 

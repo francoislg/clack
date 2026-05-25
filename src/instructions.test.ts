@@ -51,6 +51,12 @@ function writeDefault(role: string, filename: string, content: string) {
   writeFileSync(resolve(dir, filename), content, "utf-8");
 }
 
+function writeDefaultTopic(role: string, topic: string, filename: string, content: string) {
+  const dir = resolve(defaultDir, role, "topics", topic);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(resolve(dir, filename), content, "utf-8");
+}
+
 const originalCwd = process.cwd();
 
 // ---------------------------------------------------------------------------
@@ -200,6 +206,61 @@ describe("loadInstructions", () => {
 
     assert.ok(result.includes("I am Clack"));
     assert.ok(result.includes("Ask Clack for help"));
+  });
+
+  it("absent topics field is byte-identical to today's baseline behavior", () => {
+    writeDefault("user", "identity.md", "Baseline");
+    writeDefaultTopic("user", "trivia", "persona.md", "TOPIC CONTENT");
+
+    const result = loadInstructions("member", {
+      changesWorkflowEnabled: false,
+      variables: {},
+    });
+
+    assert.ok(result.includes("Baseline"));
+    assert.ok(!result.includes("TOPIC CONTENT"));
+    assert.ok(!result.includes("=== TOPIC: trivia ==="));
+  });
+
+  it("empty topics array is treated as absent", () => {
+    writeDefault("user", "identity.md", "Baseline");
+    writeDefaultTopic("user", "trivia", "persona.md", "TOPIC CONTENT");
+
+    const result = loadInstructions("member", {
+      changesWorkflowEnabled: false,
+      variables: {},
+      topics: [],
+    });
+
+    assert.ok(!result.includes("TOPIC CONTENT"));
+  });
+
+  it("pre-attached topic surfaces under === TOPIC: <name> === header", () => {
+    writeDefault("user", "identity.md", "Baseline");
+    writeDefaultTopic("user", "trivia", "persona.md", "PERSONA_LOADED");
+
+    const result = loadInstructions("member", {
+      changesWorkflowEnabled: false,
+      variables: {},
+      topics: ["trivia"],
+    });
+
+    assert.ok(result.includes("Baseline"));
+    assert.ok(result.includes("=== TOPIC: trivia ==="));
+    assert.ok(result.includes("PERSONA_LOADED"));
+  });
+
+  it("pre-attached topic with no content emits no header", () => {
+    writeDefault("user", "identity.md", "Baseline");
+
+    const result = loadInstructions("member", {
+      changesWorkflowEnabled: false,
+      variables: {},
+      topics: ["nonexistent"],
+    });
+
+    assert.ok(result.includes("Baseline"));
+    assert.ok(!result.includes("=== TOPIC: nonexistent ==="));
   });
 });
 

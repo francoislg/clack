@@ -5,7 +5,7 @@ import type {
   TriviaFreeformAnswerShapeWeights,
   TriviaContextEntry,
   TriviaDifficultyConfig,
-} from "../../../config.js";
+} from "./configTypes.js";
 
 /**
  * Answer-shape discriminator (renamed from `type`). Absent only on pre-migration legacy rows;
