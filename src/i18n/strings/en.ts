@@ -318,6 +318,8 @@ export const en = {
   "userSkills.modal_body_label": "Body",
   "userSkills.modal_body_hint":
     "The full SKILL.md content (markdown). Loaded on demand when Claude reaches for this skill.",
+  "userSkills.modal_body_too_long":
+    ":warning: *Body is {length} chars — too long to edit in this modal (max {max}).* Ask Clack to edit it instead (e.g. DM Clack: _“update the `<slug>` skill body to…”_). Saving here will only update the description; the body will be preserved.",
   "userSkills.label.creating": "Creating skill `{slug}`",
   "userSkills.label.updating": "Updating skill `{slug}`",
   "userSkills.label.disabling": "Disabling skill `{slug}`",
