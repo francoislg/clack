@@ -421,6 +421,22 @@ export async function deleteJob(jobId: string): Promise<boolean> {
   return true;
 }
 
+/**
+ * Persist `lastRunAt` at the start of a run, before the work begins. Without this,
+ * `lastRunAt` is only written on completion, so a process restart mid-tick would let
+ * the post-restart scheduler tick re-fire the same slot. This is the single guard
+ * against cross-process double-fires; in-process duplicates are blocked by the
+ * `runningJobs` set in the scheduler.
+ */
+export async function markJobStarted(jobId: string): Promise<void> {
+  const jobs = await loadJobs();
+  const job = jobs.find((j) => j.id === jobId);
+  if (!job) return;
+
+  job.lastRunAt = new Date().toISOString();
+  await saveState({ jobs });
+}
+
 export async function updateJobRunStatus(
   jobId: string,
   status: "success" | "error" | "skipped",

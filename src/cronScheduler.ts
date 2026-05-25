@@ -2,6 +2,7 @@ import { CronExpressionParser } from "cron-parser";
 import type { App } from "@slack/bolt";
 import {
   getEnabledJobs,
+  markJobStarted,
   updateJobRunStatus,
   deleteJob,
   getJobByIdFromCache,
@@ -27,6 +28,7 @@ import { loadRoles } from "./roles.js";
 
 export interface CronSchedulerDeps {
   processMessage: typeof processMessage;
+  markJobStarted: typeof markJobStarted;
   updateJobRunStatus: typeof updateJobRunStatus;
   deleteJob: typeof deleteJob;
   notifyCreatorOfError: (
@@ -214,6 +216,7 @@ export function matchesSkipDate(
 
 const defaultDeps: CronSchedulerDeps = {
   processMessage,
+  markJobStarted,
   updateJobRunStatus,
   deleteJob,
   notifyCreatorOfError,
@@ -246,6 +249,10 @@ export async function executeJob(
       }
       return;
     }
+
+    // Persist the slot as fired BEFORE running, so a process restart mid-execution
+    // doesn't cause the post-restart tick to re-fire the same cron slot.
+    await deps.markJobStarted(job.id);
 
     const outcome = await executeDynamicJob(job, client, deps, asOf);
 

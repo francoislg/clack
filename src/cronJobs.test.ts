@@ -13,6 +13,7 @@ import {
   deleteJob,
   updateJob,
   updateJobRunStatus,
+  markJobStarted,
   clearCronJobsCache,
   findByPluginOwner,
   getJobByIdFromCache,
@@ -558,6 +559,32 @@ describe("cronJobs", () => {
     it("returns false for non-existent job", async () => {
       const result = await deleteJob("nonexistent");
       assert.equal(result, false);
+    });
+  });
+
+  describe("markJobStarted", () => {
+    it("updates lastRunAt without writing a run or status", async () => {
+      const job = await createJob({
+        cronExpression: "0 9 * * *",
+        channel: "C1",
+        prompt: "Test",
+        createdBy: "U1",
+        timezone: "UTC",
+      });
+
+      await markJobStarted(job.id);
+
+      const updated = await getJob(job.id);
+      assert.ok(
+        updated?.lastRunAt,
+        "lastRunAt is persisted at start to guard against restart double-fires",
+      );
+      assert.equal(updated?.lastRunStatus, undefined, "status is filled later on completion");
+      assert.equal(updated?.runs, undefined, "no run record is written at start");
+    });
+
+    it("is a no-op when the job does not exist", async () => {
+      await markJobStarted("nonexistent");
     });
   });
 

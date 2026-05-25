@@ -299,19 +299,24 @@ describe("cronScheduler", () => {
       deps: CronSchedulerDeps;
       calls: {
         processMessage: Parameters<CronSchedulerDeps["processMessage"]>[0][];
+        markJobStarted: Parameters<CronSchedulerDeps["markJobStarted"]>[];
         updateJobRunStatus: Parameters<CronSchedulerDeps["updateJobRunStatus"]>[];
         deleteJob: Parameters<CronSchedulerDeps["deleteJob"]>[];
         notifyCreatorOfError: Parameters<CronSchedulerDeps["notifyCreatorOfError"]>[];
       };
+      order: string[];
     } {
       const calls = {
         processMessage: [] as Parameters<CronSchedulerDeps["processMessage"]>[0][],
+        markJobStarted: [] as Parameters<CronSchedulerDeps["markJobStarted"]>[],
         updateJobRunStatus: [] as Parameters<CronSchedulerDeps["updateJobRunStatus"]>[],
         deleteJob: [] as Parameters<CronSchedulerDeps["deleteJob"]>[],
         notifyCreatorOfError: [] as Parameters<CronSchedulerDeps["notifyCreatorOfError"]>[],
       };
+      const order: string[] = [];
       const deps: CronSchedulerDeps = {
         processMessage: async (params) => {
+          order.push("processMessage");
           calls.processMessage.push(params);
           return {
             success: true,
@@ -319,7 +324,12 @@ describe("cronScheduler", () => {
             ...responseOverride,
           };
         },
+        markJobStarted: async (...args) => {
+          order.push("markJobStarted");
+          calls.markJobStarted.push(args);
+        },
         updateJobRunStatus: async (...args) => {
+          order.push("updateJobRunStatus");
           calls.updateJobRunStatus.push(args);
         },
         deleteJob: async (...args) => {
@@ -330,7 +340,7 @@ describe("cronScheduler", () => {
           calls.notifyCreatorOfError.push(args);
         },
       };
-      return { deps, calls };
+      return { deps, calls, order };
     }
 
     it("records 'skipped' and does NOT DM creator when Claude skips", async () => {
@@ -385,6 +395,20 @@ describe("cronScheduler", () => {
 
       assert.equal(calls.deleteJob.length, 1);
       assert.equal(calls.deleteJob[0][0], "job-skip-1");
+    });
+
+    it("marks job started BEFORE processMessage runs (restart-safety)", async () => {
+      const { deps, calls, order } = makeDeps({ skipped: false });
+      const client = fakeClient();
+
+      await executeJob(baseJob(), client, deps);
+
+      assert.equal(calls.markJobStarted.length, 1);
+      assert.equal(calls.markJobStarted[0][0], "job-skip-1");
+      assert.ok(
+        order.indexOf("markJobStarted") < order.indexOf("processMessage"),
+        "markJobStarted must run before processMessage so a mid-execution restart doesn't double-fire the slot",
+      );
     });
 
     it("records 'success' with responseTs on normal (non-skipped) runs", async () => {
@@ -484,6 +508,7 @@ describe("cronScheduler", () => {
       deps: CronSchedulerDeps;
       calls: {
         processMessage: Parameters<CronSchedulerDeps["processMessage"]>[0][];
+        markJobStarted: Parameters<CronSchedulerDeps["markJobStarted"]>[];
         updateJobRunStatus: Parameters<CronSchedulerDeps["updateJobRunStatus"]>[];
         deleteJob: Parameters<CronSchedulerDeps["deleteJob"]>[];
         notifyCreatorOfError: Parameters<CronSchedulerDeps["notifyCreatorOfError"]>[];
@@ -491,6 +516,7 @@ describe("cronScheduler", () => {
     } {
       const calls = {
         processMessage: [] as Parameters<CronSchedulerDeps["processMessage"]>[0][],
+        markJobStarted: [] as Parameters<CronSchedulerDeps["markJobStarted"]>[],
         updateJobRunStatus: [] as Parameters<CronSchedulerDeps["updateJobRunStatus"]>[],
         deleteJob: [] as Parameters<CronSchedulerDeps["deleteJob"]>[],
         notifyCreatorOfError: [] as Parameters<CronSchedulerDeps["notifyCreatorOfError"]>[],
@@ -499,6 +525,9 @@ describe("cronScheduler", () => {
         processMessage: async (params) => {
           calls.processMessage.push(params);
           return { success: true, answer: "" };
+        },
+        markJobStarted: async (...args) => {
+          calls.markJobStarted.push(args);
         },
         updateJobRunStatus: async (...args) => {
           calls.updateJobRunStatus.push(args);
