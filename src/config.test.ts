@@ -516,14 +516,15 @@ describe("loadConfig", () => {
     writeSlackAuth();
     writeConfig({});
 
-    assert.throws(() => loadConfig(configPath, true), /repositories.*must be a non-empty array/);
+    assert.throws(() => loadConfig(configPath, true), /repositories.*must be an array/);
   });
 
-  it("throws when repositories is an empty array", () => {
+  it("allows repositories to be an empty array", () => {
     writeSlackAuth();
     writeConfig({ repositories: [] });
 
-    assert.throws(() => loadConfig(configPath, true), /repositories.*must be a non-empty array/);
+    const config = loadConfig(configPath, true);
+    assert.deepEqual(config.repositories, []);
   });
 
   it("throws when a repository is missing name", () => {
