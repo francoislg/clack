@@ -226,6 +226,11 @@ export const en = {
   "home.scheduled.enable": "Enable",
   "home.scheduled.delete_confirm_title": "Delete scheduled message?",
   "home.scheduled.delete_confirm_text": "This will permanently remove this scheduled message.",
+  "home.scheduled.plugin_modal_title": "Plugin Schedule",
+  "home.scheduled.plugin_modal_intro":
+    "Read-only — this scheduled message is reconciled from plugin config. To change the schedule or prompt, edit `data/config.json`.",
+  "home.scheduled.plugin_pause_explanation":
+    "Pausing stops this schedule from firing until you resume it. The plugin config is unchanged — the next reconcile will not bring it back.",
 
   // ─── Action buttons (default labels for submit_response actions) ───
   "blocks.action_label_choice": "Select",

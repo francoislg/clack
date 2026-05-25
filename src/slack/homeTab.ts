@@ -1673,11 +1673,8 @@ async function buildScheduledMessagesSection(
         },
         accessory: {
           type: "button",
-          text: {
-            type: "plain_text",
-            text: job.enabled ? t("home.scheduled.pause") : t("home.scheduled.resume"),
-          },
-          action_id: `cron_toggle_job:${job.id}`,
+          text: { type: "plain_text", text: t("common.edit") },
+          action_id: `cron_edit_job:${job.id}`,
         },
       });
     }
@@ -1686,8 +1683,97 @@ async function buildScheduledMessagesSection(
   return blocks;
 }
 
+function buildPluginCronJobModal(job: CronJob): View {
+  const schedule = humanReadableSchedule(job.cronExpression, job.timezone);
+  const ownerLabel = job.plugin ? ` · _plugin: ${escapeMrkdwn(job.plugin)}_` : "";
+  const statusLabel = !job.enabled ? t("home.scheduled.paused_suffix") : "";
+  const namePrefix = job.name ? `*${escapeMrkdwn(job.name)}*\n` : "";
+
+  // Slack mrkdwn section text limit is 3000 chars; cap each field independently with
+  // headroom for the label + code fence wrapper.
+  const MRKDWN_BUDGET = 2800;
+
+  const blocks: (KnownBlock | Block)[] = [
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `${namePrefix}${t("home.scheduled.plugin_modal_intro")}${ownerLabel}${statusLabel}`,
+      },
+    },
+    { type: "divider" },
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `*${t("home.scheduled.channel_label")}*: <#${job.channel}>`,
+      },
+    },
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `*${t("home.scheduled.cron_label")}*: \`${escapeMrkdwn(job.cronExpression)}\` — ${schedule}`,
+      },
+    },
+  ];
+
+  if (job.prompt) {
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `*${t("home.scheduled.prompt_label")}*:\n\`\`\`${truncate(job.prompt, MRKDWN_BUDGET)}\`\`\``,
+      },
+    });
+  }
+  if (job.skipConditions) {
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `*${t("home.scheduled.skip_label")}*:\n${escapeMrkdwn(truncate(job.skipConditions, MRKDWN_BUDGET))}`,
+      },
+    });
+  }
+
+  blocks.push(
+    { type: "divider" },
+    {
+      type: "section",
+      text: { type: "mrkdwn", text: t("home.scheduled.plugin_pause_explanation") },
+    },
+    {
+      type: "actions",
+      block_id: "cron_job_actions_block",
+      elements: [
+        {
+          type: "button",
+          text: {
+            type: "plain_text",
+            text: job.enabled ? t("home.scheduled.pause") : t("home.scheduled.resume"),
+          },
+          action_id: `cron_toggle_job:${job.id}`,
+        },
+      ],
+    },
+  );
+
+  return {
+    type: "modal",
+    callback_id: "cron_plugin_job_modal",
+    private_metadata: job.id,
+    title: { type: "plain_text", text: t("home.scheduled.plugin_modal_title") },
+    close: { type: "plain_text", text: t("common.close") },
+    blocks,
+  };
+}
+
 export function buildCronJobModal(job?: CronJob): View {
   const isEdit = !!job;
+  if (isEdit && job?.pluginManaged) {
+    return buildPluginCronJobModal(job);
+  }
   const blocks: (KnownBlock | Block)[] = [
     {
       type: "input",

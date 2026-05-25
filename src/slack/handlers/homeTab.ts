@@ -908,21 +908,15 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
     }
   });
 
-  // Edit scheduled message button → open modal
+  // Edit scheduled message button → open modal. For plugin-managed jobs, the modal opens
+  // in a read-only variant (`buildCronJobModal` branches on `job.pluginManaged`) — the
+  // `cron_edit_job_modal` submission handler below still rejects plugin-managed updates.
   app.action<BlockAction>(/^cron_edit_job:/, async ({ ack, body, client, action }) => {
     await ack();
     try {
       const jobId = (action as { action_id: string }).action_id.split(":")[1];
       const job = await deps.getJob(jobId);
       if (!job) return;
-      // Defense in depth: plugin-managed jobs are reconciled from config — the Home Tab
-      // doesn't render an Edit affordance for them, but block any direct submission too.
-      if (job.pluginManaged) {
-        logger.warn(
-          `Refused to open edit modal for plugin-managed cron job ${jobId} (plugin: ${job.plugin ?? "unknown"})`,
-        );
-        return;
-      }
       await client.views.open({
         trigger_id: body.trigger_id,
         view: deps.buildCronJobModal(job),
