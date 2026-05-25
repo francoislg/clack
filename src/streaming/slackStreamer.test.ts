@@ -1957,3 +1957,376 @@ describe("SlackStreamer.handleEvent — grouped detail cap with custom mapping",
     assert.equal(reemittedDetail, undefined, "re-emission past cap must not append a detail line");
   });
 });
+
+// ---------------------------------------------------------------------------
+// SlackStreamer rollover (recoverable append failure → continue in a new block)
+// ---------------------------------------------------------------------------
+
+/** Slack-shaped error: `getSlackErrorCode` reads `error.data.error`. */
+function makeSlackError(code: string): Error & { data: { error: string } } {
+  return Object.assign(new Error(code), { data: { error: code } });
+}
+
+/** Build a client whose `chatStream()` returns the next streamer from an ordered list,
+ *  one per call. Throws if the streamers are exhausted (catches over-rollover bugs).
+ *  Built atop `makeClient` to inherit `auth.test` + `chat.*` mocks. */
+function makeClientWithStreamers(streamers: MockChatStreamer[], teamId = "T_TEAM"): App["client"] {
+  const base = makeClient({ chatStreamer: streamers[0], teamId });
+  let i = 0;
+  return Object.assign(base, {
+    chatStream: () => {
+      if (i >= streamers.length) {
+        throw new Error(`chatStream called ${i + 1} times but only ${streamers.length} configured`);
+      }
+      return streamers[i++];
+    },
+  });
+}
+
+/** Make a mock streamer whose append succeeds N times then throws `errorCode` once,
+ *  then succeeds for all subsequent calls. Captures TS on every successful append. */
+function makeStreamerFailingAfter(
+  succeedFirst: number,
+  errorCode: string,
+  ts = "1111.0000",
+): MockChatStreamer {
+  const streamer = makeMockChatStreamer();
+  let callCount = 0;
+  streamer.append = mock.fn(async () => {
+    callCount++;
+    if (callCount === succeedFirst + 1) throw makeSlackError(errorCode);
+    return { ok: true, ts };
+  });
+  return streamer;
+}
+
+/** Read chunks from a specific append call on a mock streamer without paren-as casts. */
+function chunksOfCall(streamer: MockChatStreamer, callIndex: number): TaskUpdateChunk[] {
+  const call = streamer.append.mock.calls[callIndex];
+  if (!call) return [];
+  const arg = call.arguments[0] as { chunks?: TaskUpdateChunk[] };
+  return arg.chunks ?? [];
+}
+
+describe("SlackStreamer rollover", () => {
+  beforeEach(() => mockLogger.reset());
+
+  it("rolls over on message_not_in_streaming_state and replays the failing chunks", async () => {
+    // Block 1: initial start append succeeds (ts 1.1), then next append throws.
+    const block1 = makeStreamerFailingAfter(1, "message_not_in_streaming_state", "1.1");
+    // Block 2: continuation append succeeds (ts 2.2), retry of failing chunks succeeds.
+    const block2 = makeMockChatStreamer();
+    block2.append = mock.fn(async () => ({ ok: true, ts: "2.2" }));
+
+    const client = makeClientWithStreamers([block1, block2]);
+    const streamer = new SlackStreamer({
+      client,
+      channel: "C",
+      threadTs: "T",
+      teamId: "T_TEAM",
+      logger: mockLogger.logger,
+    });
+
+    assert.equal(await streamer.start(), true);
+    // Drive a tool_start, which will trigger the second append on block1 → fail → rollover
+    streamer.handleEvent({
+      type: "tool_start",
+      taskId: "task-1",
+      toolName: "mcp__clack__list_repositories",
+      toolArgs: {},
+    });
+    // The append happens inline (no await) inside handleEvent, but its body is async.
+    // Yield to let the rejection + rollover + retry resolve.
+    await new Promise((r) => setTimeout(r, 10));
+
+    assert.equal(streamer.hasFailed, false, "rollover should keep the streamer alive");
+    assert.deepEqual(streamer.getAllMessageTss(), ["1.1", "2.2"]);
+    assert.equal(streamer.getMessageTs(), "2.2", "getMessageTs returns the latest block");
+
+    // Block 2's first append must be the continuation thinking task.
+    const block2FirstChunks = chunksOfCall(block2, 0);
+    assert.equal(block2FirstChunks[0].id, "__thinking__");
+    assert.equal(block2FirstChunks[0].title, "Continuing previous stream…");
+    assert.equal(block2FirstChunks[0].status, "in_progress");
+
+    // Block 2 must have received the replayed failing chunks (the tool_start payload).
+    const block2AllChunks = getAppendedChunks(block2);
+    assert.ok(
+      block2AllChunks.some((c) => c.id === "task-1"),
+      "failing chunks should be replayed on the new stream",
+    );
+  });
+
+  it("rolls over on message_not_found just like message_not_in_streaming_state", async () => {
+    const block1 = makeStreamerFailingAfter(1, "message_not_found", "1.1");
+    const block2 = makeMockChatStreamer();
+    block2.append = mock.fn(async () => ({ ok: true, ts: "2.2" }));
+
+    const client = makeClientWithStreamers([block1, block2]);
+    const streamer = new SlackStreamer({
+      client,
+      channel: "C",
+      threadTs: "T",
+      teamId: "T_TEAM",
+      logger: mockLogger.logger,
+    });
+
+    await streamer.start();
+    streamer.handleEvent({
+      type: "tool_start",
+      taskId: "task-1",
+      toolName: "mcp__clack__list_repositories",
+      toolArgs: {},
+    });
+    await new Promise((r) => setTimeout(r, 10));
+
+    assert.equal(streamer.hasFailed, false);
+    assert.deepEqual(streamer.getAllMessageTss(), ["1.1", "2.2"]);
+  });
+
+  it("caps rollovers at MAX_ROLLOVERS (3 blocks total) then fails", async () => {
+    // Three blocks: each fails on its 2nd append (start/continuation succeeds, next append throws).
+    // Block 1: start succeeds, handleEvent #1 fails → rollover to block 2 → retry on block 2 succeeds.
+    // Block 2: continuation succeeds, retry succeeds, handleEvent #2 fails → rollover to block 3 → retry succeeds.
+    // Block 3: continuation succeeds, retry succeeds, handleEvent #3 fails → cap exhausted, final failure.
+    const block1 = makeStreamerFailingAfter(1, "message_not_in_streaming_state", "1.1");
+    const block2 = makeStreamerFailingAfter(2, "message_not_in_streaming_state", "2.2");
+    const block3 = makeStreamerFailingAfter(2, "message_not_in_streaming_state", "3.3");
+
+    const client = makeClientWithStreamers([block1, block2, block3]);
+    const streamer = new SlackStreamer({
+      client,
+      channel: "C",
+      threadTs: "T",
+      teamId: "T_TEAM",
+      logger: mockLogger.logger,
+    });
+
+    await streamer.start();
+    streamer.handleEvent({
+      type: "tool_start",
+      taskId: "task-1",
+      toolName: "mcp__clack__list_repositories",
+      toolArgs: {},
+    });
+    await new Promise((r) => setTimeout(r, 10));
+    streamer.handleEvent({
+      type: "tool_start",
+      taskId: "task-2",
+      toolName: "mcp__clack__list_repositories",
+      toolArgs: {},
+    });
+    await new Promise((r) => setTimeout(r, 10));
+    streamer.handleEvent({
+      type: "tool_start",
+      taskId: "task-3",
+      toolName: "mcp__clack__list_repositories",
+      toolArgs: {},
+    });
+    await new Promise((r) => setTimeout(r, 10));
+
+    assert.equal(streamer.hasFailed, true, "cap exhausted → failed state");
+    assert.deepEqual(streamer.getAllMessageTss(), ["1.1", "2.2", "3.3"]);
+
+    // The final-failure warning must include rolloverCount: 2 in its diagnostics arg.
+    const finalWarn = mockLogger.warnCalls.find((args) =>
+      args.some((a) => {
+        if (typeof a !== "object" || a === null) return false;
+        const diag = a as { rolloverCount?: number };
+        return diag.rolloverCount === 2;
+      }),
+    );
+    assert.ok(finalWarn, "warning log should include rolloverCount: 2 in diagnostics");
+  });
+
+  it("stopped_by_user does not roll over and logs as warn (not error)", async () => {
+    const block1 = makeStreamerFailingAfter(1, "stopped_by_user", "1.1");
+    // Only one streamer configured — if rollover is attempted, makeClientWithStreamers throws.
+    const client = makeClientWithStreamers([block1]);
+    const streamer = new SlackStreamer({
+      client,
+      channel: "C",
+      threadTs: "T",
+      teamId: "T_TEAM",
+      logger: mockLogger.logger,
+    });
+
+    await streamer.start();
+    streamer.handleEvent({
+      type: "tool_start",
+      taskId: "task-1",
+      toolName: "mcp__clack__list_repositories",
+      toolArgs: {},
+    });
+    await new Promise((r) => setTimeout(r, 10));
+
+    assert.equal(streamer.hasFailed, true);
+    assert.deepEqual(streamer.getAllMessageTss(), ["1.1"]);
+    assert.equal(mockLogger.errorCalls.length, 0, "stopped_by_user should not produce error logs");
+    assert.ok(
+      mockLogger.warnCalls.some((args) =>
+        args.some((a) => typeof a === "string" && a.includes("stopped by user")),
+      ),
+      "warn log should mention stopped by user",
+    );
+  });
+
+  it("tool_end for a Block-1 taskId after rollover is a no-op", async () => {
+    const block1 = makeStreamerFailingAfter(1, "message_not_in_streaming_state", "1.1");
+    const block2 = makeMockChatStreamer();
+    block2.append = mock.fn(async () => ({ ok: true, ts: "2.2" }));
+
+    const client = makeClientWithStreamers([block1, block2]);
+    const streamer = new SlackStreamer({
+      client,
+      channel: "C",
+      threadTs: "T",
+      teamId: "T_TEAM",
+      logger: mockLogger.logger,
+    });
+
+    await streamer.start();
+    // Trigger rollover via a tool_start whose taskId is registered, then cleared by rollover.
+    // The replayed chunks re-register it on Block 2, so the truly stale taskId is a separate one.
+    streamer.handleEvent({
+      type: "tool_start",
+      taskId: "block1-task",
+      toolName: "mcp__clack__list_repositories",
+      toolArgs: {},
+    });
+    await new Promise((r) => setTimeout(r, 10));
+
+    const appendsBeforeStaleEnd = block2.append.mock.callCount();
+
+    // A tool_end for a taskId that NEVER existed on block 2 (a stale id from before rollover).
+    streamer.handleEvent({ type: "tool_end", taskId: "never-seen-on-block-2" });
+    await new Promise((r) => setTimeout(r, 10));
+
+    assert.equal(
+      block2.append.mock.callCount(),
+      appendsBeforeStaleEnd,
+      "stale tool_end must not produce any Block-2 append",
+    );
+  });
+
+  it("tool_start in the new block creates a fresh task card", async () => {
+    const block1 = makeStreamerFailingAfter(1, "message_not_in_streaming_state", "1.1");
+    const block2 = makeMockChatStreamer();
+    block2.append = mock.fn(async () => ({ ok: true, ts: "2.2" }));
+
+    const client = makeClientWithStreamers([block1, block2]);
+    const streamer = new SlackStreamer({
+      client,
+      channel: "C",
+      threadTs: "T",
+      teamId: "T_TEAM",
+      logger: mockLogger.logger,
+    });
+
+    await streamer.start();
+    streamer.handleEvent({
+      type: "tool_start",
+      taskId: "task-original",
+      toolName: "mcp__clack__list_repositories",
+      toolArgs: {},
+    });
+    await new Promise((r) => setTimeout(r, 10));
+
+    const appendsAfterRollover = block2.append.mock.callCount();
+
+    // A brand-new tool_start in Block 2 should produce a fresh task card.
+    streamer.handleEvent({
+      type: "tool_start",
+      taskId: "task-fresh",
+      toolName: "mcp__clack__list_repositories",
+      toolArgs: {},
+    });
+    await new Promise((r) => setTimeout(r, 10));
+
+    const newChunks = chunksOfCall(block2, appendsAfterRollover);
+    assert.ok(
+      newChunks.some((c) => c.id === "task-fresh"),
+      "fresh tool_start must land as a Block-2 task card",
+    );
+  });
+
+  it("rollover open failure enters failed state without infinite recursion", async () => {
+    const block1 = makeStreamerFailingAfter(1, "message_not_in_streaming_state", "1.1");
+    // Only one streamer configured. When rollover tries to open block 2, the client throws.
+    const client = makeClientWithStreamers([block1]);
+    const streamer = new SlackStreamer({
+      client,
+      channel: "C",
+      threadTs: "T",
+      teamId: "T_TEAM",
+      logger: mockLogger.logger,
+    });
+
+    await streamer.start();
+    streamer.handleEvent({
+      type: "tool_start",
+      taskId: "task-1",
+      toolName: "mcp__clack__list_repositories",
+      toolArgs: {},
+    });
+    await new Promise((r) => setTimeout(r, 10));
+
+    assert.equal(streamer.hasFailed, true, "rollover open failed → final failed state");
+    assert.deepEqual(streamer.getAllMessageTss(), ["1.1"]);
+  });
+
+  it("getAllMessageTss returns single-element array equal to [getMessageTs()] with zero rollovers", async () => {
+    const mockStreamer = makeMockChatStreamer();
+    mockStreamer.append = mock.fn(async () => ({ ok: true, ts: "1.1" }));
+    const client = makeClient({ chatStreamer: mockStreamer });
+    const streamer = new SlackStreamer({
+      client,
+      channel: "C",
+      threadTs: "T",
+      teamId: "T_TEAM",
+      logger: mockLogger.logger,
+    });
+    await streamer.start();
+
+    assert.deepEqual(streamer.getAllMessageTss(), ["1.1"]);
+    assert.equal(streamer.getAllMessageTss().at(-1), streamer.getMessageTs());
+  });
+
+  it("keepalive after rollover targets Block 2 (no Block-1 activeTasks leak)", async (t: TestContext) => {
+    t.mock.timers.enable({ apis: ["setInterval"] });
+
+    const block1 = makeStreamerFailingAfter(1, "message_not_in_streaming_state", "1.1");
+    const block2 = makeMockChatStreamer();
+    block2.append = mock.fn(async () => ({ ok: true, ts: "2.2" }));
+
+    const client = makeClientWithStreamers([block1, block2]);
+    const streamer = new SlackStreamer({
+      client,
+      channel: "C",
+      threadTs: "T",
+      teamId: "T_TEAM",
+      logger: mockLogger.logger,
+    });
+
+    await streamer.start();
+    streamer.handleEvent({
+      type: "tool_start",
+      taskId: "task-1",
+      toolName: "mcp__clack__list_repositories",
+      toolArgs: {},
+    });
+    await new Promise((r) => setTimeout(r, 10));
+
+    const block2AppendsBeforeTick = block2.append.mock.callCount();
+
+    // Advance one keepalive interval — the tick should hit block 2, not block 1.
+    t.mock.timers.tick(15_000);
+
+    // Block 1 received: start's initial append, then the failing append. No more.
+    assert.equal(block1.append.mock.callCount(), 2);
+    // Block 2 received the keepalive append.
+    assert.ok(block2.append.mock.callCount() > block2AppendsBeforeTick);
+
+    await streamer.stop();
+  });
+});

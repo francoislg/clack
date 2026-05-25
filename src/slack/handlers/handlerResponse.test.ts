@@ -80,22 +80,30 @@ const mockGetUserPreference = mock.fn<(...args: never[]) => Promise<boolean>>(as
 // Track SlackStreamer instances for inspection
 let streamerHasFailed = false;
 let streamerMessageTs: string | undefined;
+let streamerAllMessageTss: string[] = [];
 let mockStreamerStart: ReturnType<typeof mock.fn>;
 let mockStreamerStop: ReturnType<typeof mock.fn>;
 let mockStreamerHandleEvent: ReturnType<typeof mock.fn>;
 let mockStreamerGetMessageTs: ReturnType<typeof mock.fn>;
+let mockStreamerGetAllMessageTss: ReturnType<typeof mock.fn>;
 
 function resetStreamerInstance(overrides?: {
   hasFailed?: boolean;
   startReturns?: boolean;
   messageTs?: string;
+  /** Override the full list returned by getAllMessageTss. If omitted, defaults to
+   *  `[messageTs]` (or `[]` when messageTs is also undefined) so existing single-block tests work. */
+  allMessageTss?: string[];
 }) {
   streamerHasFailed = overrides?.hasFailed ?? false;
   streamerMessageTs = overrides?.messageTs;
+  streamerAllMessageTss =
+    overrides?.allMessageTss ?? (streamerMessageTs ? [streamerMessageTs] : []);
   mockStreamerStart = mock.fn(async () => overrides?.startReturns ?? true);
   mockStreamerStop = mock.fn(async () => {});
   mockStreamerHandleEvent = mock.fn();
   mockStreamerGetMessageTs = mock.fn(() => streamerMessageTs);
+  mockStreamerGetAllMessageTss = mock.fn(() => streamerAllMessageTss);
 }
 
 function makeDeps(): HandlerResponseDeps {
@@ -118,6 +126,7 @@ function makeDeps(): HandlerResponseDeps {
         stop: (...args: never[]) => mockStreamerStop(...args),
         handleEvent: (...args: never[]) => mockStreamerHandleEvent(...args),
         getMessageTs: () => mockStreamerGetMessageTs(),
+        getAllMessageTss: () => mockStreamerGetAllMessageTss(),
         get hasFailed() {
           return streamerHasFailed;
         },
@@ -1677,5 +1686,145 @@ describe("silentThinking mode", () => {
       // chat.delete should NOT have been called
       assert.equal(mockChatDelete.mock.callCount(), 0);
     });
+  });
+});
+
+// ============================================================================
+// Multi-block iteration (rollover): skip/cancel/postTopLevel must delete every
+// block the streamer opened, not just the latest one.
+// ============================================================================
+
+describe("executeAndDeliver — multi-block iteration", () => {
+  it("handleSkip iterates getAllMessageTss and deletes every block", async () => {
+    resetStreamerInstance({
+      messageTs: "3.3",
+      allMessageTss: ["1.1", "2.2", "3.3"],
+    });
+    deps = makeDeps();
+    deps.appendAssistantMessage = mockAppendAssistantMessage;
+    mockAskClaude.mock.mockImplementationOnce(async () => ({
+      success: true,
+      skipped: true,
+      answer: "",
+    }));
+
+    const client = makeClient();
+    await executeAndDeliver({
+      client,
+      session: makeSession(),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: makeClaudeOptions(),
+      deps,
+    });
+
+    assert.equal(mockChatDelete.mock.callCount(), 3);
+    assert.deepStrictEqual(mockChatDelete.mock.calls[0].arguments[0], {
+      channel: "C001",
+      ts: "1.1",
+    });
+    assert.deepStrictEqual(mockChatDelete.mock.calls[1].arguments[0], {
+      channel: "C001",
+      ts: "2.2",
+    });
+    assert.deepStrictEqual(mockChatDelete.mock.calls[2].arguments[0], {
+      channel: "C001",
+      ts: "3.3",
+    });
+  });
+
+  it("handleCancellation iterates getAllMessageTss and deletes every block", async () => {
+    resetStreamerInstance({
+      messageTs: "3.3",
+      allMessageTss: ["1.1", "2.2", "3.3"],
+    });
+    deps = makeDeps();
+    deps.appendAssistantMessage = mockAppendAssistantMessage;
+    mockAskClaude.mock.mockImplementation(async () => ({
+      success: false,
+      answer: "",
+      cancelled: true,
+    }));
+
+    const client = makeClient();
+    await executeAndDeliver({
+      client,
+      session: makeSession(),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: makeClaudeOptions(),
+      deps,
+    });
+
+    assert.equal(mockChatDelete.mock.callCount(), 3);
+    const tss = mockChatDelete.mock.calls.map((c) => {
+      const arg = c.arguments[0] as { ts: string };
+      return arg.ts;
+    });
+    assert.deepStrictEqual(tss, ["1.1", "2.2", "3.3"]);
+  });
+
+  it("postTopLevel iterates getAllMessageTss before posting top-level", async () => {
+    resetStreamerInstance({
+      messageTs: "3.3",
+      allMessageTss: ["1.1", "2.2", "3.3"],
+    });
+    deps = makeDeps();
+    deps.appendAssistantMessage = mockAppendAssistantMessage;
+    mockAskClaude.mock.mockImplementationOnce(async (_session, options) => {
+      // Trigger the postTopLevel deliver branch by invoking the deliver fn with postTopLevel.
+      await options?.deliver?.({ blocks: [], postTopLevel: true });
+      return { success: true, answer: "delivered top-level" };
+    });
+
+    const client = makeClient();
+    await executeAndDeliver({
+      client,
+      session: makeSession(),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: makeClaudeOptions(),
+      deps,
+    });
+
+    // 3 deletes for the streamer's blocks, then 1 postMessage for the top-level repost.
+    assert.equal(mockChatDelete.mock.callCount(), 3);
+    const tss = mockChatDelete.mock.calls.map((c) => {
+      const arg = c.arguments[0] as { ts: string };
+      return arg.ts;
+    });
+    assert.deepStrictEqual(tss, ["1.1", "2.2", "3.3"]);
+    assert.ok(mockPostMessage.mock.callCount() >= 1, "top-level postMessage should have fired");
+  });
+
+  it("iteration continues when one chat.delete throws", async () => {
+    resetStreamerInstance({
+      messageTs: "3.3",
+      allMessageTss: ["1.1", "2.2", "3.3"],
+    });
+    deps = makeDeps();
+    deps.appendAssistantMessage = mockAppendAssistantMessage;
+    mockAskClaude.mock.mockImplementationOnce(async () => ({
+      success: true,
+      skipped: true,
+      answer: "",
+    }));
+
+    const client = makeClient();
+    // Override chat.delete to throw on the middle ts ("2.2"), succeed on others.
+    let deleteCallCount = 0;
+    mockChatDelete.mock.mockImplementation(async () => {
+      deleteCallCount++;
+      if (deleteCallCount === 2) throw new Error("delete failed for 2.2");
+      return { ok: true };
+    });
+
+    await executeAndDeliver({
+      client,
+      session: makeSession(),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: makeClaudeOptions(),
+      deps,
+    });
+
+    // All three deletes were attempted — the throw on 2.2 did not halt the loop.
+    assert.equal(mockChatDelete.mock.callCount(), 3);
   });
 });
