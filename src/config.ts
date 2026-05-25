@@ -698,9 +698,9 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
 
   const c = config as Record<string, unknown>;
 
-  // Validate repositories
-  if (!Array.isArray(c.repositories) || c.repositories.length === 0) {
-    throw new Error("Config 'repositories' must be a non-empty array");
+  // Validate repositories — empty array is allowed
+  if (!Array.isArray(c.repositories)) {
+    throw new Error("Config 'repositories' must be an array");
   }
   for (const repo of c.repositories) {
     if (typeof repo !== "object" || repo === null) {
