@@ -1,4 +1,9 @@
-## ADDED Requirements
+# trivia-management-tools Specification
+
+## Purpose
+Gated admin tools for managing trivia games and seasons, made available only when the `trivia:management` integration is attached.
+
+## Requirements
 
 ### Requirement: `trivia:management` integration is plugin-declared
 
@@ -52,7 +57,7 @@ The system SHALL register the seven config-mutation tools under the `trivia:mana
 - **GIVEN** an admin session that has NOT called `attach_integration("trivia:management")`
 - **WHEN** the tool server assembles the admin's tool catalog for the next turn
 - **THEN** none of the seven management tools appear in the catalog
-- **AND** the runtime tools (`get_ideas`, `save_question`, `post_questions`, `get_question_history`, `submit_answers`, `process_reveal_answers`, `check_season_status`, `save_cheating`) and read-only tools (`list_games`, `list_seasons`, `find_previous_questions`, `retrieve_scores`) ARE present (they are not integration-gated)
+- **AND** the runtime tools (`get_ideas`, `save_question`, `post_questions`, `get_question_history`, `submit_answers`, `process_reveal_answers`, `check_season_status`, `save_cheating`) and read-only tools (`list_games`, `list_seasons`, `find_previous_questions`, `retrieve_scores`) ARE present (they are not topic-gated)
 
 #### Scenario: Tools visible to admin after attach
 - **GIVEN** an admin session that has called `attach_integration("trivia:management")`
