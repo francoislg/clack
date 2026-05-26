@@ -1,4 +1,4 @@
-import { describe, it, mock, beforeEach } from "node:test";
+import { describe, it, vi, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
 import { registerAssistant, type AssistantDeps } from "./assistant.js";
@@ -22,12 +22,12 @@ interface CapturedProcessArgs {
 
 // processMessage now returns a ClaudeResponse (the assistant handler reads `.skipped`).
 type ProcessMessageFn = AssistantDeps["processMessage"];
-const mockProcessMessage = mock.fn<ProcessMessageFn>(async () => ({
+const mockProcessMessage = vi.fn<ProcessMessageFn>(async () => ({
   success: true,
   answer: "",
 }));
-const mockFindSessionByThread = mock.fn<(...args: unknown[]) => Promise<unknown>>(async () => null);
-const mockUpdateSession = mock.fn<(...args: unknown[]) => Promise<unknown>>(async () => null);
+const mockFindSessionByThread = vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => null);
+const mockUpdateSession = vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => null);
 
 interface AssistantHandlers {
   threadStarted: (...args: unknown[]) => Promise<void>;
@@ -55,7 +55,7 @@ function makeDeps(): AssistantDeps {
   };
 }
 
-const mockAssistantStopThread = mock.fn<AssistantDeps["stopThread"]>(async () => ({
+const mockAssistantStopThread = vi.fn<AssistantDeps["stopThread"]>(async () => ({
   queryAborted: 0,
   workerAborted: false,
   queuedCancelled: false,
@@ -77,12 +77,12 @@ function makeApp(): App {
 }
 
 function makeClient(botUserId = "B001") {
-  const postMessageFn = mock.fn(async () => ({ ok: true }));
-  const repliesFn = mock.fn<() => Promise<{ messages: object[] }>>(async () => ({ messages: [] }));
+  const postMessageFn = vi.fn(async () => ({ ok: true }));
+  const repliesFn = vi.fn<() => Promise<{ messages: object[] }>>(async () => ({ messages: [] }));
   return {
     obj: {
       auth: {
-        test: mock.fn(async () => ({ user_id: botUserId })),
+        test: vi.fn(async () => ({ user_id: botUserId })),
       },
       chat: {
         postMessage: postMessageFn,
@@ -96,9 +96,9 @@ function makeClient(botUserId = "B001") {
 }
 
 beforeEach(() => {
-  mockProcessMessage.mock.resetCalls();
-  mockFindSessionByThread.mock.resetCalls();
-  mockUpdateSession.mock.resetCalls();
+  mockProcessMessage.mockClear();
+  mockFindSessionByThread.mockClear();
+  mockUpdateSession.mockClear();
   capturedAssistantHandlers = null;
   capturedAssistant = null;
 
@@ -125,9 +125,9 @@ describe("registerAssistant", () => {
 
 describe("assistant threadStarted", () => {
   it("sends a greeting and saves thread context", async () => {
-    const mockSay = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
-    const mockSaveThreadContext = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
-    const mockSetSuggestedPrompts = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
+    const mockSay = vi.fn<(...args: unknown[]) => Promise<void>>(async () => {});
+    const mockSaveThreadContext = vi.fn<(...args: unknown[]) => Promise<void>>(async () => {});
+    const mockSetSuggestedPrompts = vi.fn<(...args: unknown[]) => Promise<void>>(async () => {});
 
     await capturedAssistantHandlers!.threadStarted({
       event: {
@@ -140,18 +140,18 @@ describe("assistant threadStarted", () => {
       setSuggestedPrompts: mockSetSuggestedPrompts,
     });
 
-    assert.equal(mockSay.mock.callCount(), 1);
-    const greeting = mockSay.mock.calls[0].arguments[0] as string;
+    assert.equal(mockSay.mock.calls.length, 1);
+    const greeting = mockSay.mock.calls[0][0] as string;
     assert.ok(greeting.includes("Hi"));
 
-    assert.equal(mockSaveThreadContext.mock.callCount(), 1);
-    assert.equal(mockSetSuggestedPrompts.mock.callCount(), 1);
+    assert.equal(mockSaveThreadContext.mock.calls.length, 1);
+    assert.equal(mockSetSuggestedPrompts.mock.calls.length, 1);
   });
 
   it("includes channel-specific prompt when context has channel_id", async () => {
-    const mockSay = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
-    const mockSaveThreadContext = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
-    const mockSetSuggestedPrompts = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
+    const mockSay = vi.fn<(...args: unknown[]) => Promise<void>>(async () => {});
+    const mockSaveThreadContext = vi.fn<(...args: unknown[]) => Promise<void>>(async () => {});
+    const mockSetSuggestedPrompts = vi.fn<(...args: unknown[]) => Promise<void>>(async () => {});
 
     await capturedAssistantHandlers!.threadStarted({
       event: {
@@ -164,7 +164,7 @@ describe("assistant threadStarted", () => {
       setSuggestedPrompts: mockSetSuggestedPrompts,
     });
 
-    const promptsArg = mockSetSuggestedPrompts.mock.calls[0].arguments[0] as {
+    const promptsArg = mockSetSuggestedPrompts.mock.calls[0][0] as {
       prompts: Array<{ title: string; message: string }>;
     };
     // Should have channel-related prompt plus the standard ones
@@ -173,9 +173,9 @@ describe("assistant threadStarted", () => {
   });
 
   it("omits channel-specific prompt when context has no channel_id", async () => {
-    const mockSay = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
-    const mockSaveThreadContext = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
-    const mockSetSuggestedPrompts = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
+    const mockSay = vi.fn<(...args: unknown[]) => Promise<void>>(async () => {});
+    const mockSaveThreadContext = vi.fn<(...args: unknown[]) => Promise<void>>(async () => {});
+    const mockSetSuggestedPrompts = vi.fn<(...args: unknown[]) => Promise<void>>(async () => {});
 
     await capturedAssistantHandlers!.threadStarted({
       event: {
@@ -188,7 +188,7 @@ describe("assistant threadStarted", () => {
       setSuggestedPrompts: mockSetSuggestedPrompts,
     });
 
-    const promptsArg = mockSetSuggestedPrompts.mock.calls[0].arguments[0] as {
+    const promptsArg = mockSetSuggestedPrompts.mock.calls[0][0] as {
       prompts: Array<{ title: string; message: string }>;
     };
     // Only the standard prompts (no channel-specific one)
@@ -207,9 +207,9 @@ describe("assistant threadStarted", () => {
     });
     registerAssistant(makeApp(), deps);
 
-    const mockSay = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
-    const mockSaveThreadContext = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
-    const mockSetSuggestedPrompts = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
+    const mockSay = vi.fn<(...args: unknown[]) => Promise<void>>(async () => {});
+    const mockSaveThreadContext = vi.fn<(...args: unknown[]) => Promise<void>>(async () => {});
+    const mockSetSuggestedPrompts = vi.fn<(...args: unknown[]) => Promise<void>>(async () => {});
 
     await capturedAssistantHandlers!.threadStarted({
       event: { assistant_thread: { context: { channel_id: "C001" } } },
@@ -218,8 +218,8 @@ describe("assistant threadStarted", () => {
       setSuggestedPrompts: mockSetSuggestedPrompts,
     });
 
-    assert.equal(mockSay.mock.calls[0].arguments[0], "Custom hello");
-    const promptsArg = mockSetSuggestedPrompts.mock.calls[0].arguments[0] as {
+    assert.equal(mockSay.mock.calls[0][0], "Custom hello");
+    const promptsArg = mockSetSuggestedPrompts.mock.calls[0][0] as {
       prompts: Array<{ title: string; message: string }>;
     };
     assert.deepEqual(promptsArg.prompts, [{ title: "Ask X", message: "Tell me about X" }]);
@@ -228,7 +228,7 @@ describe("assistant threadStarted", () => {
 
 describe("assistant threadContextChanged", () => {
   it("saves thread context", async () => {
-    const mockSaveThreadContext = mock.fn(async () => {});
+    const mockSaveThreadContext = vi.fn(async () => {});
 
     await capturedAssistantHandlers!.threadContextChanged({
       event: {
@@ -241,12 +241,12 @@ describe("assistant threadContextChanged", () => {
       saveThreadContext: mockSaveThreadContext,
     });
 
-    assert.equal(mockSaveThreadContext.mock.callCount(), 1);
+    assert.equal(mockSaveThreadContext.mock.calls.length, 1);
   });
 
   it("updates session with new channel_id when session exists", async () => {
-    const mockSaveThreadContext = mock.fn(async () => {});
-    mockFindSessionByThread.mock.mockImplementation(async () => ({
+    const mockSaveThreadContext = vi.fn(async () => {});
+    mockFindSessionByThread.mockImplementation(async () => ({
       sessionId: "session-1",
     }));
 
@@ -261,15 +261,15 @@ describe("assistant threadContextChanged", () => {
       saveThreadContext: mockSaveThreadContext,
     });
 
-    assert.equal(mockUpdateSession.mock.callCount(), 1);
-    const updateArgs = mockUpdateSession.mock.calls[0].arguments;
+    assert.equal(mockUpdateSession.mock.calls.length, 1);
+    const updateArgs = mockUpdateSession.mock.calls[0];
     assert.equal(updateArgs[0], "session-1");
     assert.deepEqual(updateArgs[1], { assistantCurrentChannelId: "C002" });
   });
 
   it("does not update session when no session exists in thread", async () => {
-    const mockSaveThreadContext = mock.fn(async () => {});
-    mockFindSessionByThread.mock.mockImplementation(async () => null);
+    const mockSaveThreadContext = vi.fn(async () => {});
+    mockFindSessionByThread.mockImplementation(async () => null);
 
     await capturedAssistantHandlers!.threadContextChanged({
       event: {
@@ -282,11 +282,11 @@ describe("assistant threadContextChanged", () => {
       saveThreadContext: mockSaveThreadContext,
     });
 
-    assert.equal(mockUpdateSession.mock.callCount(), 0);
+    assert.equal(mockUpdateSession.mock.calls.length, 0);
   });
 
   it("does not update session when channel_id is missing", async () => {
-    const mockSaveThreadContext = mock.fn(async () => {});
+    const mockSaveThreadContext = vi.fn(async () => {});
 
     await capturedAssistantHandlers!.threadContextChanged({
       event: {
@@ -299,19 +299,19 @@ describe("assistant threadContextChanged", () => {
       saveThreadContext: mockSaveThreadContext,
     });
 
-    assert.equal(mockUpdateSession.mock.callCount(), 0);
+    assert.equal(mockUpdateSession.mock.calls.length, 0);
   });
 });
 
 describe("assistant userMessage", () => {
   function makeMockSetStatus() {
-    return mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
+    return vi.fn<(...args: unknown[]) => Promise<void>>(async () => {});
   }
   function makeMockSetTitle() {
-    return mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
+    return vi.fn<(...args: unknown[]) => Promise<void>>(async () => {});
   }
   function makeMockGetThreadContext() {
-    return mock.fn<(...args: unknown[]) => Promise<unknown>>(async () => undefined);
+    return vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => undefined);
   }
 
   it("skips when user is missing", async () => {
@@ -323,7 +323,7 @@ describe("assistant userMessage", () => {
       getThreadContext: makeMockGetThreadContext(),
     });
 
-    assert.equal(mockProcessMessage.mock.callCount(), 0);
+    assert.equal(mockProcessMessage.mock.calls.length, 0);
   });
 
   it("skips when text and files are both missing", async () => {
@@ -335,7 +335,7 @@ describe("assistant userMessage", () => {
       getThreadContext: makeMockGetThreadContext(),
     });
 
-    assert.equal(mockProcessMessage.mock.callCount(), 0);
+    assert.equal(mockProcessMessage.mock.calls.length, 0);
   });
 
   it("processes an image-only DM with the image fallback prompt", async () => {
@@ -371,8 +371,8 @@ describe("assistant userMessage", () => {
       getThreadContext: makeMockGetThreadContext(),
     });
 
-    assert.equal(mockProcessMessage.mock.callCount(), 1);
-    const args = mockProcessMessage.mock.calls[0].arguments[0] as CapturedProcessArgs;
+    assert.equal(mockProcessMessage.mock.calls.length, 1);
+    const args = mockProcessMessage.mock.calls[0][0] as CapturedProcessArgs;
     assert.equal(args.messageText, "Answer based on the attached image(s).");
     assert.ok(args.imageFiles);
     assert.equal(args.imageFiles.length, 1);
@@ -381,7 +381,7 @@ describe("assistant userMessage", () => {
 
   it("calls processMessage with correct parameters", async () => {
     const mockSetStatus = makeMockSetStatus();
-    const mockGetThreadContext = mock.fn<(...args: unknown[]) => Promise<unknown>>(async () => ({
+    const mockGetThreadContext = vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => ({
       channel_id: "C001",
     }));
     const clientBundle = makeClient();
@@ -401,12 +401,12 @@ describe("assistant userMessage", () => {
     });
 
     // Two calls: "Thinking..." before processMessage, then "" cleanup after.
-    assert.equal(mockSetStatus.mock.callCount(), 2);
-    assert.equal(mockSetStatus.mock.calls[0]!.arguments[0], "Thinking...");
-    assert.equal(mockSetStatus.mock.calls[1]!.arguments[0], "");
-    assert.equal(mockProcessMessage.mock.callCount(), 1);
+    assert.equal(mockSetStatus.mock.calls.length, 2);
+    assert.equal(mockSetStatus.mock.calls[0]![0], "Thinking...");
+    assert.equal(mockSetStatus.mock.calls[1]![0], "");
+    assert.equal(mockProcessMessage.mock.calls.length, 1);
 
-    const args = mockProcessMessage.mock.calls[0].arguments[0] as CapturedProcessArgs;
+    const args = mockProcessMessage.mock.calls[0][0] as CapturedProcessArgs;
     assert.equal(args.client, clientBundle.obj);
     assert.equal(args.userId, "U001");
     assert.equal(args.channelId, "D001");
@@ -433,8 +433,8 @@ describe("assistant userMessage", () => {
       getThreadContext: makeMockGetThreadContext(),
     });
 
-    assert.equal(mockSetTitle.mock.callCount(), 1);
-    assert.equal(mockSetTitle.mock.calls[0].arguments[0], "short question");
+    assert.equal(mockSetTitle.mock.calls.length, 1);
+    assert.equal(mockSetTitle.mock.calls[0][0], "short question");
   });
 
   it("truncates title when text is longer than 50 characters", async () => {
@@ -455,14 +455,14 @@ describe("assistant userMessage", () => {
       getThreadContext: makeMockGetThreadContext(),
     });
 
-    assert.equal(mockSetTitle.mock.callCount(), 1);
-    const title = mockSetTitle.mock.calls[0].arguments[0] as string;
+    assert.equal(mockSetTitle.mock.calls.length, 1);
+    const title = mockSetTitle.mock.calls[0][0] as string;
     assert.equal(title.length, 50);
     assert.ok(title.endsWith("…"));
   });
 
   it("does not crash when setTitle throws", async () => {
-    const mockSetTitle = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {
+    const mockSetTitle = vi.fn<(...args: unknown[]) => Promise<void>>(async () => {
       throw new Error("title failed");
     });
 
@@ -480,13 +480,13 @@ describe("assistant userMessage", () => {
       getThreadContext: makeMockGetThreadContext(),
     });
 
-    assert.equal(mockProcessMessage.mock.callCount(), 1);
+    assert.equal(mockProcessMessage.mock.calls.length, 1);
   });
 
   it("resolves context from thread metadata when Bolt store returns nothing", async () => {
     const clientBundle = makeClient("B001");
     // Simulate a bot message with metadata containing channel_id
-    clientBundle.repliesFn.mock.mockImplementation(async () => ({
+    clientBundle.repliesFn.mockImplementation(async () => ({
       messages: [
         {
           user: "B001",
@@ -512,16 +512,16 @@ describe("assistant userMessage", () => {
       getThreadContext: makeMockGetThreadContext(),
     });
 
-    const args = mockProcessMessage.mock.calls[0].arguments[0] as CapturedProcessArgs;
+    const args = mockProcessMessage.mock.calls[0][0] as CapturedProcessArgs;
     assert.equal(args.assistantChannelId, "C999");
   });
 
   it("falls back to existing session context when metadata lookup fails", async () => {
     const clientBundle = makeClient("B001");
     // No bot messages with metadata
-    clientBundle.repliesFn.mock.mockImplementation(async () => ({ messages: [] }));
+    clientBundle.repliesFn.mockImplementation(async () => ({ messages: [] }));
 
-    mockFindSessionByThread.mock.mockImplementation(async () => ({
+    mockFindSessionByThread.mockImplementation(async () => ({
       sessionId: "session-1",
       assistantCurrentChannelId: "C888",
     }));
@@ -540,7 +540,7 @@ describe("assistant userMessage", () => {
       getThreadContext: makeMockGetThreadContext(),
     });
 
-    const args = mockProcessMessage.mock.calls[0].arguments[0] as CapturedProcessArgs;
+    const args = mockProcessMessage.mock.calls[0][0] as CapturedProcessArgs;
     assert.equal(args.assistantChannelId, "C888");
   });
 });
@@ -566,8 +566,8 @@ const stubThreadCtx = async (): Promise<undefined> => undefined;
 
 describe("assistant userMessage — inline stop emoji", () => {
   beforeEach(() => {
-    mockAssistantStopThread.mock.resetCalls();
-    mockProcessMessage.mock.resetCalls();
+    mockAssistantStopThread.mockClear();
+    mockProcessMessage.mockClear();
     capturedAssistantHandlers = null;
     capturedAssistant = null;
     const app = makeApp();
@@ -588,9 +588,9 @@ describe("assistant userMessage — inline stop emoji", () => {
       setTitle: stubTitle,
       getThreadContext: stubThreadCtx,
     });
-    assert.equal(mockAssistantStopThread.mock.callCount(), 1);
-    assert.equal(mockProcessMessage.mock.callCount(), 0);
-    const args = mockAssistantStopThread.mock.calls[0]?.arguments;
+    assert.equal(mockAssistantStopThread.mock.calls.length, 1);
+    assert.equal(mockProcessMessage.mock.calls.length, 0);
+    const args = mockAssistantStopThread.mock.calls[0];
     assert.equal(args?.[0], "D001");
     assert.equal(args?.[1], "1700000000.000001");
     assert.equal(args?.[2], "U001");
@@ -610,8 +610,8 @@ describe("assistant userMessage — inline stop emoji", () => {
       setTitle: stubTitle,
       getThreadContext: stubThreadCtx,
     });
-    assert.equal(mockAssistantStopThread.mock.callCount(), 1);
-    assert.equal(mockProcessMessage.mock.callCount(), 0);
+    assert.equal(mockAssistantStopThread.mock.calls.length, 1);
+    assert.equal(mockProcessMessage.mock.calls.length, 0);
   });
 
   it("does NOT stop on long messages containing the emoji", async () => {
@@ -627,8 +627,8 @@ describe("assistant userMessage — inline stop emoji", () => {
       setTitle: stubTitle,
       getThreadContext: stubThreadCtx,
     });
-    assert.equal(mockAssistantStopThread.mock.callCount(), 0);
-    assert.equal(mockProcessMessage.mock.callCount(), 1);
+    assert.equal(mockAssistantStopThread.mock.calls.length, 0);
+    assert.equal(mockProcessMessage.mock.calls.length, 1);
   });
 
   it("does NOT stop when config.reactions.stop is null", async () => {
@@ -646,7 +646,7 @@ describe("assistant userMessage — inline stop emoji", () => {
       setTitle: stubTitle,
       getThreadContext: stubThreadCtx,
     });
-    assert.equal(mockAssistantStopThread.mock.callCount(), 0);
-    assert.equal(mockProcessMessage.mock.callCount(), 1);
+    assert.equal(mockAssistantStopThread.mock.calls.length, 0);
+    assert.equal(mockProcessMessage.mock.calls.length, 1);
   });
 });

@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { migration } from "./019-trivia-games-migration.js";
 import type { StaticFileResult } from "./types.js";

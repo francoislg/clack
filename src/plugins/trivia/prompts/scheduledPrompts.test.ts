@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { SEND_QUESTIONS_INSTRUCTIONS, PROCESS_REVEAL_INSTRUCTIONS } from "./scheduledPrompts.js";
 
@@ -38,14 +38,45 @@ describe("SEND_QUESTIONS_INSTRUCTIONS (boolean path)", () => {
     assert.match(SEND_QUESTIONS_INSTRUCTIONS, /re-run the POLARITY SELF-CHECK/i);
   });
 
-  it("routes posting through post_questions, not submit_response with reactions", () => {
-    // The tool, not the prompt, owns the reactions list. The prompt SHOULD reference the
-    // [+1, -1] / numbered-emoji reactions in EXPLANATORY context (so Claude knows what gets
-    // attached), but MUST NOT instruct Claude to pass them as a `reactions` argument.
+  it("routes posting through post_questions and never asks Claude to pass reactions or buttons", () => {
+    // The tool owns answer affordances now — it appends an actions block (buttons) per format.
+    // The prompt MUST NOT instruct Claude to pass a `reactions` or `buttons` argument, and
+    // MUST NOT describe legacy auto-attached reactions as part of the post outcome.
     assert.match(SEND_QUESTIONS_INSTRUCTIONS, /post_questions\(\{[^}]*game/);
     assert.match(SEND_QUESTIONS_INSTRUCTIONS, /\{ questionId, blocks \}/);
     assert.doesNotMatch(SEND_QUESTIONS_INSTRUCTIONS, /reactions:\s*\["\+1"/);
     assert.doesNotMatch(SEND_QUESTIONS_INSTRUCTIONS, /Use submit_response with reactions/i);
+    assert.doesNotMatch(SEND_QUESTIONS_INSTRUCTIONS, /auto-attached.*reactions/i);
+    assert.doesNotMatch(SEND_QUESTIONS_INSTRUCTIONS, /Attaches vote reactions automatically/);
+  });
+
+  it("describes the appended per-format actions block (buttons), not reactions", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /actions.*block/i);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /ANSWER BUTTONS/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /👍 TRUE/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /👎 FALSE/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /Answer.*button.*modal/i);
+  });
+
+  it("uses the FOUR-BLOCK card layout (not FIVE) and no longer describes an inline answer-options section", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /FOUR-BLOCK layout/);
+    assert.doesNotMatch(SEND_QUESTIONS_INSTRUCTIONS, /FIVE-BLOCK layout/);
+    // The "block 4 = answer options" / inline "TRUE • FALSE" / numbered-list directives are gone.
+    assert.doesNotMatch(SEND_QUESTIONS_INSTRUCTIONS, /text is exactly `👍 TRUE\s+•\s+👎 FALSE`/);
+    assert.doesNotMatch(SEND_QUESTIONS_INSTRUCTIONS, /CHOICE-PATH ANSWER OPTIONS/);
+    assert.doesNotMatch(SEND_QUESTIONS_INSTRUCTIONS, /FREEFORM-PATH ANSWER OPTIONS/);
+  });
+
+  it("warns about the ~75-char Slack button-text cap for choice questions", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /75/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /button\.text/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /truncate/);
+  });
+
+  it("documents post_questions stamping liveAnswersVisible and revealResponses alongside postedAt", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /Stamps[^.]*liveAnswersVisible/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /revealResponses/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /cascade/);
   });
 
   it("terminates the run with skip_response: true", () => {
@@ -281,8 +312,8 @@ describe("PROCESS_REVEAL_INSTRUCTIONS — renderer brief", () => {
   });
 
   it("does NOT contain a categorization/cheater-exclusion walkthrough", () => {
-    // The renderer is told cheaters / multi-react voters are STRUCTURALLY absent; it must
-    // NOT receive instructions to filter them out itself.
+    // The renderer is told cheaters are STRUCTURALLY absent; it must NOT receive
+    // instructions to filter them out itself.
     assert.doesNotMatch(PROCESS_REVEAL_INSTRUCTIONS, /Exclude every user ID present in `cheater/i);
     assert.doesNotMatch(
       PROCESS_REVEAL_INSTRUCTIONS,
@@ -303,15 +334,53 @@ describe("PROCESS_REVEAL_INSTRUCTIONS — renderer brief", () => {
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /isLastFireOfSeason/);
   });
 
-  it("names the voter buckets the renderer covers (correct/incorrect/fence-sitters/wildcards)", () => {
-    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /CORRECT voters/);
-    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /INCORRECT voters/);
-    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /FENCE-SITTERS/);
-    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /WILDCARDS/);
+  it("describes the discriminated voters union keyed on revealResponses", () => {
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /DISCRIMINATED UNION/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /revealResponses: "yes"/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /revealResponses: "just-correctness"/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /revealResponses: "no"/);
   });
 
-  it("instructs the renderer to skip empty voter buckets", () => {
-    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /Skip empty buckets entirely/i);
+  it("describes the 'yes' mode with full per-bucket rendering (correct/incorrect/no-answer/reactions)", () => {
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /`?"yes"`?\s+mode/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /CORRECT voters/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /INCORRECT voters/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /NO-ANSWER voters/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /REACTIONS commentary/);
+  });
+
+  it("describes 'just-correctness' mode as name-only with no freeform text quoting", () => {
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /`?"just-correctness"`?\s+mode/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /Name them only/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /DO NOT invent or speculate/);
+  });
+
+  it("describes 'no' mode as no per-bucket sections, reactions/closer/leaderboard only", () => {
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /`?"no"`?\s+mode/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /render NO per-bucket sections/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /MUST NOT speculate/);
+  });
+
+  it("instructs the renderer to skip empty bucket arrays", () => {
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /Skip empty arrays entirely/i);
+  });
+
+  it("frames reactions as commentary, not votes", () => {
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /COMMENTARY, not votes/i);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /emojis are color, not votes|color\/commentary/);
+  });
+
+  it("no longer describes the legacy fenceSitters/wildcards/multi-react world", () => {
+    assert.doesNotMatch(PROCESS_REVEAL_INSTRUCTIONS, /fenceSitters/);
+    assert.doesNotMatch(PROCESS_REVEAL_INSTRUCTIONS, /FENCE-SITTERS/);
+    assert.doesNotMatch(PROCESS_REVEAL_INSTRUCTIONS, /WILDCARDS/);
+    assert.doesNotMatch(PROCESS_REVEAL_INSTRUCTIONS, /multi-react voters/);
+  });
+
+  it("describes roundSummary as OPTIONAL, omitted when any entry is non-'yes'", () => {
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /roundSummary[^.]*OPTIONAL/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /OMITTED/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /`?"just-correctness"`?\s+or\s+`?"no"`?/);
   });
 
   it("describes both 2-row and 3-row leaderboard table shapes keyed on seasonStatus presence", () => {

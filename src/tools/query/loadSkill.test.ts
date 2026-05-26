@@ -1,4 +1,4 @@
-import { describe, it, mock, beforeEach, afterEach } from "node:test";
+import { describe, it, vi, beforeEach, afterEach } from "vitest";
 import assert from "node:assert/strict";
 import { mkdirSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -83,7 +83,7 @@ function makeCtx(
     session: makeSession(sessionOverrides),
     config: makeConfig(userSkillsEnabled),
     changesWorkflowEnabled: false,
-    allowScheduledMessages: false,
+    cronUserSchedules: false,
     skillsManager,
   };
 }
@@ -114,14 +114,14 @@ function callHandler(
   });
 }
 
-type UpdateSessionMock = ReturnType<typeof mock.fn<LoadSkillDeps["updateSession"]>>;
+type UpdateSessionMock = ReturnType<typeof vi.fn<LoadSkillDeps["updateSession"]>>;
 
 interface TestDeps extends LoadSkillDeps {
   updateSession: UpdateSessionMock;
 }
 
 function makeDeps(): TestDeps {
-  const updateSession = mock.fn<LoadSkillDeps["updateSession"]>(async () => null);
+  const updateSession = vi.fn<LoadSkillDeps["updateSession"]>(async () => null);
   return { updateSession };
 }
 
@@ -196,7 +196,7 @@ describe("load_skill tool", () => {
   });
 
   it("returns the body and persists loadedSkills on first load", async () => {
-    const readFile = mock.fn((_path: string) => "---\nname: ab-test-setup\n---\n\nBody here");
+    const readFile = vi.fn((_path: string) => "---\nname: ab-test-setup\n---\n\nBody here");
     const managerDeps: SkillsManagerDeps = { readFile };
     const mgr = makeManager(
       [{ name: "marketingskills", skills: [{ name: "ab-test-setup" }] }],
@@ -215,12 +215,12 @@ describe("load_skill tool", () => {
     const text = extractText(result);
     assert.ok(text.startsWith("Loaded skill 'ab-test-setup' from pack 'marketingskills'."));
     assert.ok(text.includes("Body here"));
-    assert.equal(readFile.mock.callCount(), 1);
+    assert.equal(readFile.mock.calls.length, 1);
 
     // Persistence call: last arg should contain loadedSkills with the pair
     const calls = deps.updateSession.mock.calls;
     assert.equal(calls.length, 1);
-    const updateArgs = calls[0].arguments[1] as {
+    const updateArgs = calls[0][1] as {
       loadedSkills?: Array<{ pack: string; skill: string }>;
     };
     assert.ok(updateArgs.loadedSkills);
@@ -230,7 +230,7 @@ describe("load_skill tool", () => {
   });
 
   it("short-circuits on repeat load in the same session", async () => {
-    const readFile = mock.fn((_path: string) => "body");
+    const readFile = vi.fn((_path: string) => "body");
     const mgr = makeManager(
       [{ name: "marketingskills", skills: [{ name: "ab-test-setup" }] }],
       MARKETING_REGISTRY,
@@ -248,15 +248,15 @@ describe("load_skill tool", () => {
     const text = extractText(result);
     assert.ok(text.includes("Skill already loaded this session"));
     // No file read on short-circuit
-    assert.equal(readFile.mock.callCount(), 0);
+    assert.equal(readFile.mock.calls.length, 0);
     // No persistence call on short-circuit
-    assert.equal(deps.updateSession.mock.callCount(), 0);
+    assert.equal(deps.updateSession.mock.calls.length, 0);
   });
 
   it("short-circuits after resume when loadedSkills survives session persistence", async () => {
     // Simulates: prior turn loaded the skill; session persists loadedSkills;
     // resumed turn builds a new SkillsManager seeded from persisted session.
-    const readFile = mock.fn((_path: string) => "body");
+    const readFile = vi.fn((_path: string) => "body");
     const mgr = makeManager(
       [{ name: "marketingskills", skills: [{ name: "ab-test-setup" }] }],
       MARKETING_REGISTRY,
@@ -274,11 +274,11 @@ describe("load_skill tool", () => {
 
     assert.ok(!isError(result));
     assert.ok(extractText(result).includes("already loaded"));
-    assert.equal(readFile.mock.callCount(), 0);
+    assert.equal(readFile.mock.calls.length, 0);
   });
 
   it("returns a graceful error when file read fails", async () => {
-    const readFile = mock.fn((_path: string) => {
+    const readFile = vi.fn((_path: string) => {
       throw new Error("ENOENT: file missing");
     });
     const mgr = makeManager(
@@ -299,7 +299,7 @@ describe("load_skill tool", () => {
     assert.ok(text.includes("Failed to read skill body"));
     assert.ok(text.includes("ENOENT"));
     // No persistence call when the read fails
-    assert.equal(deps.updateSession.mock.callCount(), 0);
+    assert.equal(deps.updateSession.mock.calls.length, 0);
   });
 });
 
@@ -390,6 +390,6 @@ describe("load_skill — user-skills pack", () => {
     const deps = makeDeps();
     const tool = createLoadSkillTool(makeCtx(undefined, {}, true), deps);
     await callHandler(tool, { pack: "user-skills", skill: "foo" });
-    assert.equal(deps.updateSession.mock.callCount(), 0);
+    assert.equal(deps.updateSession.mock.calls.length, 0);
   });
 });

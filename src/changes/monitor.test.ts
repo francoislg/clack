@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, beforeEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import type { ActiveChangeState } from "./activeState.js";
 import type { ActiveWorker } from "./activeState.js";
@@ -76,15 +76,15 @@ function makeWorker(overrides: Partial<ActiveWorker> = {}): ActiveWorker {
 
 function makeDeps(overrides: Partial<MonitorDeps> = {}): MonitorDeps {
   return {
-    getConfig: mock.fn(() => ({
+    getConfig: vi.fn(() => ({
       changesWorkflow: { enabled: true, monitoringIntervalMinutes: 5 },
     })) as never,
     pool: makeMockPool(),
-    getPRStatus: mock.fn(async () => ({ state: "OPEN" })) as never,
-    getSession: mock.fn(async () => null) as never,
-    getActiveWorkers: mock.fn(() => []) as never,
-    updateActiveChangeStatus: mock.fn() as never,
-    clearActiveChange: mock.fn() as never,
+    getPRStatus: vi.fn(async () => ({ state: "OPEN" })) as never,
+    getSession: vi.fn(async () => null) as never,
+    getActiveWorkers: vi.fn(() => []) as never,
+    updateActiveChangeStatus: vi.fn() as never,
+    clearActiveChange: vi.fn() as never,
     detachActiveChangeWorktree: () => {},
     getReusablePool: () => null,
     ...overrides,
@@ -118,7 +118,7 @@ describe("checkSessionCompletion", () => {
   it("returns 'none' when getPRStatus returns null", async () => {
     setMonitorDeps(
       makeDeps({
-        getPRStatus: mock.fn(async () => null) as never,
+        getPRStatus: vi.fn(async () => null) as never,
       }),
     );
     const activeChange = makeActiveChange();
@@ -129,7 +129,7 @@ describe("checkSessionCompletion", () => {
   it("returns 'merged' when PR state is MERGED", async () => {
     setMonitorDeps(
       makeDeps({
-        getPRStatus: mock.fn(async () => ({ state: "MERGED" })) as never,
+        getPRStatus: vi.fn(async () => ({ state: "MERGED" })) as never,
       }),
     );
     const activeChange = makeActiveChange();
@@ -141,7 +141,7 @@ describe("checkSessionCompletion", () => {
   it("returns 'closed' when PR state is CLOSED", async () => {
     setMonitorDeps(
       makeDeps({
-        getPRStatus: mock.fn(async () => ({ state: "CLOSED" })) as never,
+        getPRStatus: vi.fn(async () => ({ state: "CLOSED" })) as never,
       }),
     );
     const activeChange = makeActiveChange();
@@ -153,7 +153,7 @@ describe("checkSessionCompletion", () => {
   it("returns 'none' with prState when PR is still OPEN", async () => {
     setMonitorDeps(
       makeDeps({
-        getPRStatus: mock.fn(async () => ({ state: "OPEN" })) as never,
+        getPRStatus: vi.fn(async () => ({ state: "OPEN" })) as never,
       }),
     );
     const activeChange = makeActiveChange();
@@ -164,9 +164,9 @@ describe("checkSessionCompletion", () => {
 
   it("calls getPRStatus with the correct PR URL", async () => {
     const prUrl = "https://github.com/org/repo/pull/99";
-    const mockGetPRStatus = mock.fn<(url: string) => Promise<{ state: string } | null>>(
-      async () => ({ state: "OPEN" }),
-    );
+    const mockGetPRStatus = vi.fn<(url: string) => Promise<{ state: string } | null>>(async () => ({
+      state: "OPEN",
+    }));
     setMonitorDeps(
       makeDeps({
         getPRStatus: mockGetPRStatus as never,
@@ -174,8 +174,8 @@ describe("checkSessionCompletion", () => {
     );
     const activeChange = makeActiveChange({ prUrl });
     await checkSessionCompletion(activeChange);
-    assert.equal(mockGetPRStatus.mock.callCount(), 1);
-    assert.equal(mockGetPRStatus.mock.calls[0]!.arguments[0], prUrl);
+    assert.equal(mockGetPRStatus.mock.calls.length, 1);
+    assert.equal(mockGetPRStatus.mock.calls[0]![0], prUrl);
   });
 });
 
@@ -185,80 +185,80 @@ describe("checkSessionCompletion", () => {
 
 describe("runCompletionCheck", () => {
   it("does nothing when there are no active workers", async () => {
-    const mockGetPRStatus = mock.fn(async () => ({ state: "OPEN" }));
+    const mockGetPRStatus = vi.fn(async () => ({ state: "OPEN" }));
     setMonitorDeps(
       makeDeps({
-        getActiveWorkers: mock.fn(() => []) as never,
+        getActiveWorkers: vi.fn(() => []) as never,
         getPRStatus: mockGetPRStatus as never,
       }),
     );
     await runCompletionCheck();
-    assert.equal(mockGetPRStatus.mock.callCount(), 0);
+    assert.equal(mockGetPRStatus.mock.calls.length, 0);
   });
 
   it("skips workers without pr_created status", async () => {
-    const mockGetPRStatus = mock.fn(async () => ({ state: "OPEN" }));
+    const mockGetPRStatus = vi.fn(async () => ({ state: "OPEN" }));
     setMonitorDeps(
       makeDeps({
-        getActiveWorkers: mock.fn(() => [makeWorker({ status: "executing" })]) as never,
+        getActiveWorkers: vi.fn(() => [makeWorker({ status: "executing" })]) as never,
         getPRStatus: mockGetPRStatus as never,
       }),
     );
     await runCompletionCheck();
-    assert.equal(mockGetPRStatus.mock.callCount(), 0);
+    assert.equal(mockGetPRStatus.mock.calls.length, 0);
   });
 
   it("skips workers without a prUrl", async () => {
-    const mockGetPRStatus = mock.fn(async () => ({ state: "OPEN" }));
+    const mockGetPRStatus = vi.fn(async () => ({ state: "OPEN" }));
     setMonitorDeps(
       makeDeps({
-        getActiveWorkers: mock.fn(() => [
+        getActiveWorkers: vi.fn(() => [
           makeWorker({ status: "pr_created", prUrl: undefined }),
         ]) as never,
         getPRStatus: mockGetPRStatus as never,
       }),
     );
     await runCompletionCheck();
-    assert.equal(mockGetPRStatus.mock.callCount(), 0);
+    assert.equal(mockGetPRStatus.mock.calls.length, 0);
   });
 
   it("skips workers when getSession returns null", async () => {
-    const mockUpdateStatus = mock.fn();
+    const mockUpdateStatus = vi.fn();
     setMonitorDeps(
       makeDeps({
-        getActiveWorkers: mock.fn(() => [makeWorker()]) as never,
-        getSession: mock.fn(async () => null) as never,
+        getActiveWorkers: vi.fn(() => [makeWorker()]) as never,
+        getSession: vi.fn(async () => null) as never,
         updateActiveChangeStatus: mockUpdateStatus as never,
       }),
     );
     await runCompletionCheck();
-    assert.equal(mockUpdateStatus.mock.callCount(), 0);
+    assert.equal(mockUpdateStatus.mock.calls.length, 0);
   });
 
   it("skips workers when session has no activeChange", async () => {
-    const mockUpdateStatus = mock.fn();
+    const mockUpdateStatus = vi.fn();
     setMonitorDeps(
       makeDeps({
-        getActiveWorkers: mock.fn(() => [makeWorker()]) as never,
-        getSession: mock.fn(async () => ({
+        getActiveWorkers: vi.fn(() => [makeWorker()]) as never,
+        getSession: vi.fn(async () => ({
           activeChange: undefined,
         })) as never,
         updateActiveChangeStatus: mockUpdateStatus as never,
       }),
     );
     await runCompletionCheck();
-    assert.equal(mockUpdateStatus.mock.callCount(), 0);
+    assert.equal(mockUpdateStatus.mock.calls.length, 0);
   });
 
   it("cleans up a session when its PR has been merged externally", async () => {
     const activeChange = makeActiveChange();
-    const mockUpdateStatus = mock.fn();
-    const mockClearActiveChange = mock.fn();
+    const mockUpdateStatus = vi.fn();
+    const mockClearActiveChange = vi.fn();
     setMonitorDeps(
       makeDeps({
-        getActiveWorkers: mock.fn(() => [makeWorker({ id: "sess-1" })]) as never,
-        getSession: mock.fn(async () => ({ activeChange })) as never,
-        getPRStatus: mock.fn(async () => ({ state: "MERGED" })) as never,
+        getActiveWorkers: vi.fn(() => [makeWorker({ id: "sess-1" })]) as never,
+        getSession: vi.fn(async () => ({ activeChange })) as never,
+        getPRStatus: vi.fn(async () => ({ state: "MERGED" })) as never,
         updateActiveChangeStatus: mockUpdateStatus as never,
         clearActiveChange: mockClearActiveChange as never,
       }),
@@ -266,25 +266,25 @@ describe("runCompletionCheck", () => {
 
     await runCompletionCheck();
 
-    assert.equal(mockUpdateStatus.mock.callCount(), 1);
-    assert.equal(mockUpdateStatus.mock.calls[0]!.arguments[0], "sess-1");
-    assert.equal(mockUpdateStatus.mock.calls[0]!.arguments[1], "completed");
-    assert.equal(mockUpdateStatus.mock.calls[0]!.arguments[2], "PR merged externally");
+    assert.equal(mockUpdateStatus.mock.calls.length, 1);
+    assert.equal(mockUpdateStatus.mock.calls[0]![0], "sess-1");
+    assert.equal(mockUpdateStatus.mock.calls[0]![1], "completed");
+    assert.equal(mockUpdateStatus.mock.calls[0]![2], "PR merged externally");
 
-    assert.equal(mockClearActiveChange.mock.callCount(), 1);
-    assert.equal(mockClearActiveChange.mock.calls[0]!.arguments[0], "sess-1");
-    assert.equal(mockClearActiveChange.mock.calls[0]!.arguments[1], true);
+    assert.equal(mockClearActiveChange.mock.calls.length, 1);
+    assert.equal(mockClearActiveChange.mock.calls[0]![0], "sess-1");
+    assert.equal(mockClearActiveChange.mock.calls[0]![1], true);
   });
 
   it("cleans up a session when its PR has been closed externally", async () => {
     const activeChange = makeActiveChange();
-    const mockUpdateStatus = mock.fn();
-    const mockClearActiveChange = mock.fn();
+    const mockUpdateStatus = vi.fn();
+    const mockClearActiveChange = vi.fn();
     setMonitorDeps(
       makeDeps({
-        getActiveWorkers: mock.fn(() => [makeWorker({ id: "sess-2" })]) as never,
-        getSession: mock.fn(async () => ({ activeChange })) as never,
-        getPRStatus: mock.fn(async () => ({ state: "CLOSED" })) as never,
+        getActiveWorkers: vi.fn(() => [makeWorker({ id: "sess-2" })]) as never,
+        getSession: vi.fn(async () => ({ activeChange })) as never,
+        getPRStatus: vi.fn(async () => ({ state: "CLOSED" })) as never,
         updateActiveChangeStatus: mockUpdateStatus as never,
         clearActiveChange: mockClearActiveChange as never,
       }),
@@ -292,12 +292,12 @@ describe("runCompletionCheck", () => {
 
     await runCompletionCheck();
 
-    assert.equal(mockUpdateStatus.mock.callCount(), 1);
-    assert.equal(mockUpdateStatus.mock.calls[0]!.arguments[1], "failed");
-    assert.equal(mockUpdateStatus.mock.calls[0]!.arguments[2], "PR closed externally");
+    assert.equal(mockUpdateStatus.mock.calls.length, 1);
+    assert.equal(mockUpdateStatus.mock.calls[0]![1], "failed");
+    assert.equal(mockUpdateStatus.mock.calls[0]![2], "PR closed externally");
 
-    assert.equal(mockClearActiveChange.mock.callCount(), 1);
-    assert.equal(mockClearActiveChange.mock.calls[0]!.arguments[1], false);
+    assert.equal(mockClearActiveChange.mock.calls.length, 1);
+    assert.equal(mockClearActiveChange.mock.calls[0]![1], false);
   });
 
   it("releases worker during cleanup when worktree info is present", async () => {
@@ -315,9 +315,9 @@ describe("runCompletionCheck", () => {
     };
     setMonitorDeps(
       makeDeps({
-        getActiveWorkers: mock.fn(() => [makeWorker({ id: "sess-wt" })]) as never,
-        getSession: mock.fn(async () => ({ activeChange })) as never,
-        getPRStatus: mock.fn(async () => ({ state: "MERGED" })) as never,
+        getActiveWorkers: vi.fn(() => [makeWorker({ id: "sess-wt" })]) as never,
+        getSession: vi.fn(async () => ({ activeChange })) as never,
+        getPRStatus: vi.fn(async () => ({ state: "MERGED" })) as never,
         pool: makeMockPool({ release: mockRelease }),
       }),
     );
@@ -330,22 +330,22 @@ describe("runCompletionCheck", () => {
 
   it("does not throw when worker release fails", async () => {
     const activeChange = makeActiveChange();
-    const mockClearActiveChange = mock.fn();
+    const mockClearActiveChange = vi.fn();
     const failingRelease: ReleaseFn = async () => {
       throw new Error("removal failed");
     };
     setMonitorDeps(
       makeDeps({
-        getActiveWorkers: mock.fn(() => [makeWorker({ id: "sess-err" })]) as never,
-        getSession: mock.fn(async () => ({ activeChange })) as never,
-        getPRStatus: mock.fn(async () => ({ state: "MERGED" })) as never,
+        getActiveWorkers: vi.fn(() => [makeWorker({ id: "sess-err" })]) as never,
+        getSession: vi.fn(async () => ({ activeChange })) as never,
+        getPRStatus: vi.fn(async () => ({ state: "MERGED" })) as never,
         pool: makeMockPool({ release: failingRelease }),
         clearActiveChange: mockClearActiveChange as never,
       }),
     );
 
     await runCompletionCheck();
-    assert.equal(mockClearActiveChange.mock.callCount(), 1);
+    assert.equal(mockClearActiveChange.mock.calls.length, 1);
   });
 
   it("skips cleanup when no worktree is present", async () => {
@@ -354,12 +354,12 @@ describe("runCompletionCheck", () => {
     const mockRelease: ReleaseFn = async () => {
       releaseCalls.push(1);
     };
-    const mockClearActiveChange = mock.fn();
+    const mockClearActiveChange = vi.fn();
     setMonitorDeps(
       makeDeps({
-        getActiveWorkers: mock.fn(() => [makeWorker({ id: "sess-nowt" })]) as never,
-        getSession: mock.fn(async () => ({ activeChange })) as never,
-        getPRStatus: mock.fn(async () => ({ state: "CLOSED" })) as never,
+        getActiveWorkers: vi.fn(() => [makeWorker({ id: "sess-nowt" })]) as never,
+        getSession: vi.fn(async () => ({ activeChange })) as never,
+        getPRStatus: vi.fn(async () => ({ state: "CLOSED" })) as never,
         pool: makeMockPool({ release: mockRelease }),
         clearActiveChange: mockClearActiveChange as never,
       }),
@@ -368,22 +368,22 @@ describe("runCompletionCheck", () => {
     await runCompletionCheck();
 
     assert.equal(releaseCalls.length, 0);
-    assert.equal(mockClearActiveChange.mock.callCount(), 1);
+    assert.equal(mockClearActiveChange.mock.calls.length, 1);
   });
 
   it("skips cleanup when re-fetched session has no activeChange", async () => {
     let callCount = 0;
-    const mockUpdateStatus = mock.fn();
-    const mockClearActiveChange = mock.fn();
+    const mockUpdateStatus = vi.fn();
+    const mockClearActiveChange = vi.fn();
     setMonitorDeps(
       makeDeps({
-        getActiveWorkers: mock.fn(() => [makeWorker({ id: "sess-race" })]) as never,
-        getSession: mock.fn(async () => {
+        getActiveWorkers: vi.fn(() => [makeWorker({ id: "sess-race" })]) as never,
+        getSession: vi.fn(async () => {
           callCount++;
           if (callCount === 1) return { activeChange: makeActiveChange() };
           return { activeChange: undefined };
         }) as never,
-        getPRStatus: mock.fn(async () => ({ state: "MERGED" })) as never,
+        getPRStatus: vi.fn(async () => ({ state: "MERGED" })) as never,
         updateActiveChangeStatus: mockUpdateStatus as never,
         clearActiveChange: mockClearActiveChange as never,
       }),
@@ -391,19 +391,19 @@ describe("runCompletionCheck", () => {
 
     await runCompletionCheck();
 
-    assert.equal(mockUpdateStatus.mock.callCount(), 0);
-    assert.equal(mockClearActiveChange.mock.callCount(), 0);
+    assert.equal(mockUpdateStatus.mock.calls.length, 0);
+    assert.equal(mockClearActiveChange.mock.calls.length, 0);
   });
 
   it("does not clean up when PR is still open", async () => {
     const activeChange = makeActiveChange();
-    const mockUpdateStatus = mock.fn();
-    const mockClearActiveChange = mock.fn();
+    const mockUpdateStatus = vi.fn();
+    const mockClearActiveChange = vi.fn();
     setMonitorDeps(
       makeDeps({
-        getActiveWorkers: mock.fn(() => [makeWorker()]) as never,
-        getSession: mock.fn(async () => ({ activeChange })) as never,
-        getPRStatus: mock.fn(async () => ({ state: "OPEN" })) as never,
+        getActiveWorkers: vi.fn(() => [makeWorker()]) as never,
+        getSession: vi.fn(async () => ({ activeChange })) as never,
+        getPRStatus: vi.fn(async () => ({ state: "OPEN" })) as never,
         updateActiveChangeStatus: mockUpdateStatus as never,
         clearActiveChange: mockClearActiveChange as never,
       }),
@@ -411,28 +411,28 @@ describe("runCompletionCheck", () => {
 
     await runCompletionCheck();
 
-    assert.equal(mockUpdateStatus.mock.callCount(), 0);
-    assert.equal(mockClearActiveChange.mock.callCount(), 0);
+    assert.equal(mockUpdateStatus.mock.calls.length, 0);
+    assert.equal(mockClearActiveChange.mock.calls.length, 0);
   });
 
   it("processes multiple workers and only cleans up completed ones", async () => {
     const mergedChange = makeActiveChange({ prUrl: "https://github.com/org/repo/pull/1" });
     const openChange = makeActiveChange({ prUrl: "https://github.com/org/repo/pull/2" });
-    const mockUpdateStatus = mock.fn();
-    const mockClearActiveChange = mock.fn();
+    const mockUpdateStatus = vi.fn();
+    const mockClearActiveChange = vi.fn();
 
     setMonitorDeps(
       makeDeps({
-        getActiveWorkers: mock.fn(() => [
+        getActiveWorkers: vi.fn(() => [
           makeWorker({ id: "merged-sess", prUrl: "https://github.com/org/repo/pull/1" }),
           makeWorker({ id: "open-sess", prUrl: "https://github.com/org/repo/pull/2" }),
         ]) as never,
-        getSession: mock.fn(async (id: string) => {
+        getSession: vi.fn(async (id: string) => {
           if (id === "merged-sess") return { activeChange: mergedChange };
           if (id === "open-sess") return { activeChange: openChange };
           return null;
         }) as never,
-        getPRStatus: mock.fn(async (url: string) => {
+        getPRStatus: vi.fn(async (url: string) => {
           if (url.includes("/1")) return { state: "MERGED" };
           return { state: "OPEN" };
         }) as never,
@@ -443,10 +443,10 @@ describe("runCompletionCheck", () => {
 
     await runCompletionCheck();
 
-    assert.equal(mockUpdateStatus.mock.callCount(), 1);
-    assert.equal(mockUpdateStatus.mock.calls[0]!.arguments[0], "merged-sess");
-    assert.equal(mockClearActiveChange.mock.callCount(), 1);
-    assert.equal(mockClearActiveChange.mock.calls[0]!.arguments[0], "merged-sess");
+    assert.equal(mockUpdateStatus.mock.calls.length, 1);
+    assert.equal(mockUpdateStatus.mock.calls[0]![0], "merged-sess");
+    assert.equal(mockClearActiveChange.mock.calls.length, 1);
+    assert.equal(mockClearActiveChange.mock.calls[0]![0], "merged-sess");
   });
 });
 
@@ -456,10 +456,10 @@ describe("runCompletionCheck", () => {
 
 describe("startCompletionMonitor", () => {
   it("does not start when monitoringIntervalMinutes is 0", () => {
-    const mockGetActiveWorkers = mock.fn(() => []);
+    const mockGetActiveWorkers = vi.fn(() => []);
     setMonitorDeps(
       makeDeps({
-        getConfig: mock.fn(() => ({
+        getConfig: vi.fn(() => ({
           changesWorkflow: { enabled: true, monitoringIntervalMinutes: 0 },
         })) as never,
         getActiveWorkers: mockGetActiveWorkers as never,
@@ -467,14 +467,14 @@ describe("startCompletionMonitor", () => {
     );
 
     startCompletionMonitor();
-    assert.equal(mockGetActiveWorkers.mock.callCount(), 0);
+    assert.equal(mockGetActiveWorkers.mock.calls.length, 0);
   });
 
   it("does not start when changesWorkflow is disabled", () => {
-    const mockGetActiveWorkers = mock.fn(() => []);
+    const mockGetActiveWorkers = vi.fn(() => []);
     setMonitorDeps(
       makeDeps({
-        getConfig: mock.fn(() => ({
+        getConfig: vi.fn(() => ({
           changesWorkflow: { enabled: false, monitoringIntervalMinutes: 5 },
         })) as never,
         getActiveWorkers: mockGetActiveWorkers as never,
@@ -482,27 +482,27 @@ describe("startCompletionMonitor", () => {
     );
 
     startCompletionMonitor();
-    assert.equal(mockGetActiveWorkers.mock.callCount(), 0);
+    assert.equal(mockGetActiveWorkers.mock.calls.length, 0);
   });
 
   it("does not start when changesWorkflow is undefined", () => {
-    const mockGetActiveWorkers = mock.fn(() => []);
+    const mockGetActiveWorkers = vi.fn(() => []);
     setMonitorDeps(
       makeDeps({
-        getConfig: mock.fn(() => ({})) as never,
+        getConfig: vi.fn(() => ({})) as never,
         getActiveWorkers: mockGetActiveWorkers as never,
       }),
     );
 
     startCompletionMonitor();
-    assert.equal(mockGetActiveWorkers.mock.callCount(), 0);
+    assert.equal(mockGetActiveWorkers.mock.calls.length, 0);
   });
 
   it("runs an immediate check on start", () => {
-    const mockGetActiveWorkers = mock.fn(() => []);
+    const mockGetActiveWorkers = vi.fn(() => []);
     setMonitorDeps(
       makeDeps({
-        getConfig: mock.fn(() => ({
+        getConfig: vi.fn(() => ({
           changesWorkflow: { enabled: true, monitoringIntervalMinutes: 5 },
         })) as never,
         getActiveWorkers: mockGetActiveWorkers as never,
@@ -510,14 +510,14 @@ describe("startCompletionMonitor", () => {
     );
 
     startCompletionMonitor();
-    assert.equal(mockGetActiveWorkers.mock.callCount(), 1);
+    assert.equal(mockGetActiveWorkers.mock.calls.length, 1);
   });
 
   it("does not start a second monitor if already running", () => {
-    const mockGetActiveWorkers = mock.fn(() => []);
+    const mockGetActiveWorkers = vi.fn(() => []);
     setMonitorDeps(
       makeDeps({
-        getConfig: mock.fn(() => ({
+        getConfig: vi.fn(() => ({
           changesWorkflow: { enabled: true, monitoringIntervalMinutes: 5 },
         })) as never,
         getActiveWorkers: mockGetActiveWorkers as never,
@@ -525,16 +525,16 @@ describe("startCompletionMonitor", () => {
     );
 
     startCompletionMonitor();
-    const callCountAfterFirst = mockGetActiveWorkers.mock.callCount();
+    const callCountAfterFirst = mockGetActiveWorkers.mock.calls.length;
     startCompletionMonitor();
-    assert.equal(mockGetActiveWorkers.mock.callCount(), callCountAfterFirst);
+    assert.equal(mockGetActiveWorkers.mock.calls.length, callCountAfterFirst);
   });
 
   it("defaults to 15 minutes when monitoringIntervalMinutes is not set", () => {
-    const mockGetActiveWorkers = mock.fn(() => []);
+    const mockGetActiveWorkers = vi.fn(() => []);
     setMonitorDeps(
       makeDeps({
-        getConfig: mock.fn(() => ({
+        getConfig: vi.fn(() => ({
           changesWorkflow: { enabled: true },
         })) as never,
         getActiveWorkers: mockGetActiveWorkers as never,
@@ -542,16 +542,16 @@ describe("startCompletionMonitor", () => {
     );
 
     startCompletionMonitor();
-    assert.equal(mockGetActiveWorkers.mock.callCount(), 1);
+    assert.equal(mockGetActiveWorkers.mock.calls.length, 1);
   });
 });
 
 describe("stopCompletionMonitor", () => {
   it("stops the running monitor", () => {
-    const mockGetActiveWorkers = mock.fn(() => []);
+    const mockGetActiveWorkers = vi.fn(() => []);
     setMonitorDeps(
       makeDeps({
-        getConfig: mock.fn(() => ({
+        getConfig: vi.fn(() => ({
           changesWorkflow: { enabled: true, monitoringIntervalMinutes: 5 },
         })) as never,
         getActiveWorkers: mockGetActiveWorkers as never,
@@ -562,7 +562,7 @@ describe("stopCompletionMonitor", () => {
     stopCompletionMonitor();
 
     startCompletionMonitor();
-    assert.ok(mockGetActiveWorkers.mock.callCount() >= 2);
+    assert.ok(mockGetActiveWorkers.mock.calls.length >= 2);
   });
 
   it("is a no-op when no monitor is running", () => {

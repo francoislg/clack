@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, beforeEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
 import { createGitLogTool, type GitLogDeps } from "./gitLog.js";
@@ -41,12 +41,12 @@ function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
       repositories: [makeRepo()],
     } as QueryToolContext["config"],
     changesWorkflowEnabled: false,
-    allowScheduledMessages: false,
+    cronUserSchedules: false,
     ...overrides,
   };
 }
 
-const mockGitRaw = mock.fn<(...args: unknown[]) => Promise<string>>();
+const mockGitRaw = vi.fn<(...args: unknown[]) => Promise<string>>();
 
 function makeSimpleGit(): GitLogDeps["simpleGit"] {
   return (_opts: { baseDir: string }) => ({ raw: (...args: string[][]) => mockGitRaw(...args) });
@@ -54,11 +54,11 @@ function makeSimpleGit(): GitLogDeps["simpleGit"] {
 
 function makeDeps(overrides: Partial<GitLogDeps> = {}): GitLogDeps {
   return {
-    getVisibleRepos: mock.fn((_role: string, _repos: RepositoryConfig[]) => [
+    getVisibleRepos: vi.fn((_role: string, _repos: RepositoryConfig[]) => [
       makeRepo(),
     ]) as GitLogDeps["getVisibleRepos"],
-    getRepositoriesDir: mock.fn(() => "/data/repositories") as GitLogDeps["getRepositoriesDir"],
-    existsSync: mock.fn((_path: string) => true) as GitLogDeps["existsSync"],
+    getRepositoriesDir: vi.fn(() => "/data/repositories") as GitLogDeps["getRepositoriesDir"],
+    existsSync: vi.fn((_path: string) => true) as GitLogDeps["existsSync"],
     simpleGit: makeSimpleGit(),
     findLocalBranchSource: () => null,
     ...overrides,
@@ -78,8 +78,8 @@ function defaultGitRaw(args: unknown): Promise<string> {
 
 describe("gitLog tool", () => {
   beforeEach(() => {
-    mockGitRaw.mock.resetCalls();
-    mockGitRaw.mock.mockImplementation(defaultGitRaw);
+    mockGitRaw.mockClear();
+    mockGitRaw.mockImplementation(defaultGitRaw);
   });
 
   it("returns error for unknown repository", async () => {
@@ -101,7 +101,7 @@ describe("gitLog tool", () => {
 
   it("returns error when repo has not been cloned", async () => {
     const deps = makeDeps({
-      existsSync: mock.fn((_path: string) => false) as GitLogDeps["existsSync"],
+      existsSync: vi.fn((_path: string) => false) as GitLogDeps["existsSync"],
     });
 
     const ctx = makeCtx();
@@ -119,7 +119,7 @@ describe("gitLog tool", () => {
   });
 
   it("returns git log output with metadata", async () => {
-    mockGitRaw.mock.mockImplementation(async (args: unknown) => {
+    mockGitRaw.mockImplementation(async (args: unknown) => {
       const cmdArgs = args as string[];
       if (cmdArgs.includes("--is-shallow-repository")) return "true\n";
       if (cmdArgs.includes("--count")) return "50\n";
@@ -146,7 +146,7 @@ describe("gitLog tool", () => {
 
   it("passes user-provided args to git log", async () => {
     const rawCalls: string[][] = [];
-    mockGitRaw.mock.mockImplementation(async (args: unknown) => {
+    mockGitRaw.mockImplementation(async (args: unknown) => {
       const cmdArgs = args as string[];
       rawCalls.push(cmdArgs);
       if (cmdArgs.includes("--is-shallow-repository")) return "false\n";
@@ -173,7 +173,7 @@ describe("gitLog tool", () => {
 
   it("uses empty args array when no args provided", async () => {
     const rawCalls: string[][] = [];
-    mockGitRaw.mock.mockImplementation(async (args: unknown) => {
+    mockGitRaw.mockImplementation(async (args: unknown) => {
       const cmdArgs = args as string[];
       rawCalls.push(cmdArgs);
       if (cmdArgs.includes("--is-shallow-repository")) return "false\n";
@@ -197,7 +197,7 @@ describe("gitLog tool", () => {
 
   it("truncates output exceeding 100K characters", async () => {
     const longOutput = "x".repeat(150_000);
-    mockGitRaw.mock.mockImplementation(async (args: unknown) => {
+    mockGitRaw.mockImplementation(async (args: unknown) => {
       const cmdArgs = args as string[];
       if (cmdArgs.includes("--is-shallow-repository")) return "false\n";
       if (cmdArgs.includes("--count")) return "100\n";
@@ -220,7 +220,7 @@ describe("gitLog tool", () => {
   });
 
   it("reports shallow=false for non-shallow repos", async () => {
-    mockGitRaw.mock.mockImplementation(async (args: unknown) => {
+    mockGitRaw.mockImplementation(async (args: unknown) => {
       const cmdArgs = args as string[];
       if (cmdArgs.includes("--is-shallow-repository")) return "false\n";
       if (cmdArgs.includes("--count")) return "500\n";
@@ -242,7 +242,7 @@ describe("gitLog tool", () => {
   });
 
   it("returns error when git operation fails", async () => {
-    mockGitRaw.mock.mockImplementation(async () => {
+    mockGitRaw.mockImplementation(async () => {
       throw new Error("fatal: bad default revision 'HEAD'");
     });
 
@@ -262,7 +262,7 @@ describe("gitLog tool", () => {
   });
 
   it("handles non-numeric commit count gracefully", async () => {
-    mockGitRaw.mock.mockImplementation(async (args: unknown) => {
+    mockGitRaw.mockImplementation(async (args: unknown) => {
       const cmdArgs = args as string[];
       if (cmdArgs.includes("--is-shallow-repository")) return "false\n";
       if (cmdArgs.includes("--count")) return "not-a-number\n";
@@ -285,7 +285,7 @@ describe("gitLog tool", () => {
   it("only allows access to repos visible to user role", async () => {
     const adminRepo = makeRepo({ name: "admin-only" });
     const deps = makeDeps({
-      getVisibleRepos: mock.fn(() => [adminRepo]) as GitLogDeps["getVisibleRepos"],
+      getVisibleRepos: vi.fn(() => [adminRepo]) as GitLogDeps["getVisibleRepos"],
     });
 
     const ctx = makeCtx();

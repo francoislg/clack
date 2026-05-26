@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, beforeEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import type { App, BlockAction, ViewSubmitAction } from "@slack/bolt";
 import type { SessionContext } from "../../sessions.js";
@@ -8,19 +8,12 @@ import type { DmActionsDeps } from "./dmActions.js";
 import { postAnswerToChannel, resolveOrigin, registerDmActionHandlers } from "./dmActions.js";
 
 /**
- * Polls `calls.length` until it reaches `expected` or the timeout elapses.
- * Used by tests covering fire-and-forget `addDeliveryReactions` — the helper has
- * a 150ms delay between adds, so tests can't assert call count synchronously.
+ * Polls `calls.length` until it reaches `expected`. Used by tests covering
+ * fire-and-forget `addDeliveryReactions` — the helper has a 150ms delay between
+ * adds, so tests can't assert call count synchronously.
  */
-async function waitForReactionCalls(
-  calls: { name: string }[],
-  expected: number,
-  timeoutMs = 2000,
-): Promise<void> {
-  const start = Date.now();
-  while (calls.length < expected && Date.now() - start < timeoutMs) {
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
+async function waitForReactionCalls(calls: { name: string }[], expected: number): Promise<void> {
+  await vi.waitFor(() => assert.ok(calls.length >= expected));
 }
 
 // ============================================================================
@@ -31,14 +24,14 @@ async function waitForReactionCalls(
 // Mocks
 // ============================================================================
 
-const mockGetSession = mock.fn<DmActionsDeps["getSession"]>();
-const mockUpdateSession = mock.fn<DmActionsDeps["updateSession"]>();
-const mockAppendAssistantMessage = mock.fn<DmActionsDeps["appendAssistantMessage"]>();
-const mockRestoreSession = mock.fn<DmActionsDeps["restoreSession"]>();
-const mockSetSessionInfo = mock.fn<DmActionsDeps["setSessionInfo"]>();
-const mockDecodeActionValue = mock.fn<DmActionsDeps["decodeActionValue"]>();
-const mockGetStructuredAcceptedBlocks = mock.fn<DmActionsDeps["getStructuredAcceptedBlocks"]>();
-const mockAsSlackBlocks = mock.fn<DmActionsDeps["asSlackBlocks"]>();
+const mockGetSession = vi.fn<DmActionsDeps["getSession"]>();
+const mockUpdateSession = vi.fn<DmActionsDeps["updateSession"]>();
+const mockAppendAssistantMessage = vi.fn<DmActionsDeps["appendAssistantMessage"]>();
+const mockRestoreSession = vi.fn<DmActionsDeps["restoreSession"]>();
+const mockSetSessionInfo = vi.fn<DmActionsDeps["setSessionInfo"]>();
+const mockDecodeActionValue = vi.fn<DmActionsDeps["decodeActionValue"]>();
+const mockGetStructuredAcceptedBlocks = vi.fn<DmActionsDeps["getStructuredAcceptedBlocks"]>();
+const mockAsSlackBlocks = vi.fn<DmActionsDeps["asSlackBlocks"]>();
 
 function makeDeps(): DmActionsDeps {
   return {
@@ -90,15 +83,15 @@ function makeApp(deps: DmActionsDeps): App {
   return app;
 }
 
-let mockPostMessage: ReturnType<typeof mock.fn>;
+let mockPostMessage: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
 
 function makeChatApi(): App["client"]["chat"] {
-  const postMessageFn = mock.fn<() => Promise<{ ts?: string }>>(async () => ({
+  const postMessageFn = vi.fn<() => Promise<{ ts?: string }>>(async () => ({
     ts: "1700.999",
   }));
   mockPostMessage = postMessageFn;
-  const postEphemeralFn = mock.fn<() => Promise<{ ok?: boolean }>>(async () => ({ ok: true }));
-  const updateFn = mock.fn<() => Promise<{ ok?: boolean }>>(async () => ({
+  const postEphemeralFn = vi.fn<() => Promise<{ ok?: boolean }>>(async () => ({ ok: true }));
+  const updateFn = vi.fn<() => Promise<{ ok?: boolean }>>(async () => ({
     ok: true,
   }));
 
@@ -151,20 +144,20 @@ function makeSnapshot(overrides: Partial<ResponseSnapshot> = {}): ResponseSnapsh
 }
 
 beforeEach(() => {
-  mockGetSession.mock.resetCalls();
-  mockUpdateSession.mock.resetCalls();
-  mockAppendAssistantMessage.mock.resetCalls();
-  mockRestoreSession.mock.resetCalls();
-  mockSetSessionInfo.mock.resetCalls();
-  mockDecodeActionValue.mock.resetCalls();
-  mockGetStructuredAcceptedBlocks.mock.resetCalls();
-  mockAsSlackBlocks.mock.resetCalls();
+  mockGetSession.mockClear();
+  mockUpdateSession.mockClear();
+  mockAppendAssistantMessage.mockClear();
+  mockRestoreSession.mockClear();
+  mockSetSessionInfo.mockClear();
+  mockDecodeActionValue.mockClear();
+  mockGetStructuredAcceptedBlocks.mockClear();
+  mockAsSlackBlocks.mockClear();
 
-  mockGetStructuredAcceptedBlocks.mock.mockImplementation(() => [
+  mockGetStructuredAcceptedBlocks.mockImplementation(() => [
     { type: "section", text: { type: "mrkdwn", text: "answer" } },
   ]);
-  mockAsSlackBlocks.mock.mockImplementation((blocks) => blocks);
-  mockDecodeActionValue.mock.mockImplementation((v) => ({ sessionId: v }));
+  mockAsSlackBlocks.mockImplementation((blocks) => blocks);
+  mockDecodeActionValue.mockImplementation((v) => ({ sessionId: v }));
 });
 
 // ============================================================================
@@ -179,7 +172,7 @@ describe("postAnswerToChannel", () => {
 
     await postAnswerToChannel(client, snapshot, "C100", undefined, deps);
 
-    assert.equal(mockGetStructuredAcceptedBlocks.mock.callCount(), 1);
+    assert.equal(mockGetStructuredAcceptedBlocks.mock.calls.length, 1);
   });
 
   it("posts message with structured snapshot blocks", async () => {
@@ -195,7 +188,7 @@ describe("postAnswerToChannel", () => {
 
     await postAnswerToChannel(client, snapshot, "C100", undefined, deps);
 
-    assert.equal(mockGetStructuredAcceptedBlocks.mock.callCount(), 1);
+    assert.equal(mockGetStructuredAcceptedBlocks.mock.calls.length, 1);
   });
 
   it("returns ts from postMessage response", async () => {
@@ -216,7 +209,7 @@ describe("postAnswerToChannel", () => {
 
     await postAnswerToChannel(client, snapshot, "C100", undefined, deps);
 
-    const callArgs = mockPostMessage.mock.calls[0]!.arguments[0] as {
+    const callArgs = mockPostMessage.mock.calls[0]![0] as {
       unfurl_links?: false;
       unfurl_media?: false;
     };
@@ -233,7 +226,7 @@ describe("postAnswerToChannel", () => {
       suppressUnfurls: true,
     });
 
-    const callArgs = mockPostMessage.mock.calls[0]!.arguments[0] as {
+    const callArgs = mockPostMessage.mock.calls[0]![0] as {
       unfurl_links?: false;
       unfurl_media?: false;
     };
@@ -248,7 +241,7 @@ describe("postAnswerToChannel", () => {
 
     await postAnswerToChannel(client, snapshot, "C100", undefined, deps);
 
-    const callArgs = mockPostMessage.mock.calls[0]!.arguments[0] as {
+    const callArgs = mockPostMessage.mock.calls[0]![0] as {
       unfurl_links?: false;
       unfurl_media?: false;
     };
@@ -264,7 +257,7 @@ describe("postAnswerToChannel", () => {
     calls: { channel: string; timestamp: string; name: string }[];
   } {
     const calls: { channel: string; timestamp: string; name: string }[] = [];
-    const addFn = mock.fn(async (args: { channel: string; timestamp: string; name: string }) => {
+    const addFn = vi.fn(async (args: { channel: string; timestamp: string; name: string }) => {
       calls.push(args);
       return { ok: true as const };
     });
@@ -339,8 +332,8 @@ describe("postAnswerToChannel", () => {
     // The postMessage call should have been invoked once with blocks containing
     // both the content blocks AND a rendered actions block whose button value
     // encodes the original session ID.
-    assert.equal(mockPostMessage.mock.callCount(), 1);
-    const postArgs = mockPostMessage.mock.calls[0].arguments[0] as {
+    assert.equal(mockPostMessage.mock.calls.length, 1);
+    const postArgs = mockPostMessage.mock.calls[0][0] as {
       blocks: { type: string; elements?: { value?: string }[] }[];
     };
     const actionsBlock = postArgs.blocks.find((b) => b.type === "actions");
@@ -360,7 +353,7 @@ describe("postAnswerToChannel", () => {
       sessionId: "sess-99",
     });
 
-    const postArgs = mockPostMessage.mock.calls[0].arguments[0] as {
+    const postArgs = mockPostMessage.mock.calls[0][0] as {
       blocks: { type: string }[];
     };
     const actionsBlock = postArgs.blocks.find((b) => b.type === "actions");
@@ -515,12 +508,12 @@ describe("handlePostTo — legacy snapshot guard", () => {
     Object.assign(session, { snapshots: { snap1: { text: "old answer" } } });
     const sessionInfo = makeSessionInfo();
 
-    mockDecodeActionValue.mock.mockImplementation(() => ({
+    mockDecodeActionValue.mockImplementation(() => ({
       sessionId: "sess-1",
       snapshotId: "snap1",
     }));
-    mockGetSession.mock.mockImplementation(async () => session);
-    mockRestoreSession.mock.mockImplementation(async () => sessionInfo);
+    mockGetSession.mockImplementation(async () => session);
+    mockRestoreSession.mockImplementation(async () => sessionInfo);
 
     const client = makeClient();
     const handler = capturedBlockHandlers.get("^clack_post_to_\\d+$")!;
@@ -531,12 +524,12 @@ describe("handlePostTo — legacy snapshot guard", () => {
     });
 
     // Should NOT have called getStructuredAcceptedBlocks (no post attempted)
-    assert.equal(mockGetStructuredAcceptedBlocks.mock.callCount(), 0);
+    assert.equal(mockGetStructuredAcceptedBlocks.mock.calls.length, 0);
 
     // Should have sent the expiration DM via postMessage (confirmInDm path)
     const postCalls = mockPostMessage.mock.calls;
     assert.ok(postCalls.length >= 1, "expected at least one postMessage call");
-    const lastCall = postCalls[postCalls.length - 1].arguments[0] as {
+    const lastCall = postCalls[postCalls.length - 1][0] as {
       text: string;
     };
     assert.ok(
@@ -560,12 +553,12 @@ describe("handlePostTo — legacy snapshot guard", () => {
     } as Partial<SessionContext>);
     const sessionInfo = makeSessionInfo();
 
-    mockDecodeActionValue.mock.mockImplementation(() => ({
+    mockDecodeActionValue.mockImplementation(() => ({
       sessionId: "sess-1",
       snapshotId: "snap1",
     }));
-    mockGetSession.mock.mockImplementation(async () => session);
-    mockRestoreSession.mock.mockImplementation(async () => sessionInfo);
+    mockGetSession.mockImplementation(async () => session);
+    mockRestoreSession.mockImplementation(async () => sessionInfo);
 
     const client = makeClient();
     const handler = capturedBlockHandlers.get("^clack_post_to_\\d+$")!;
@@ -576,7 +569,7 @@ describe("handlePostTo — legacy snapshot guard", () => {
     });
 
     // Should have called getStructuredAcceptedBlocks (post went through)
-    assert.equal(mockGetStructuredAcceptedBlocks.mock.callCount(), 1);
+    assert.equal(mockGetStructuredAcceptedBlocks.mock.calls.length, 1);
   });
 });
 
@@ -595,6 +588,6 @@ describe("isCurrentSnapshot (via postAnswerToChannel)", () => {
 
     await postAnswerToChannel(client, snapshot, "C100", undefined, deps);
 
-    assert.equal(mockGetStructuredAcceptedBlocks.mock.callCount(), 1);
+    assert.equal(mockGetStructuredAcceptedBlocks.mock.calls.length, 1);
   });
 });

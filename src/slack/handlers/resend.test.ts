@@ -1,4 +1,4 @@
-import { describe, it, mock, beforeEach } from "node:test";
+import { describe, it, vi, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
 import type { SessionInfo } from "../activeSessions.js";
@@ -11,10 +11,10 @@ import type { SubmitResponsePayload } from "../../tools/types.js";
 // Mocks
 // ============================================================================
 
-const mockGetSession = mock.fn<(sessionId: string) => Promise<SessionContext | null>>();
-const mockRestoreSessionInfo = mock.fn<(sessionId: string) => Promise<SessionInfo | undefined>>();
+const mockGetSession = vi.fn<(sessionId: string) => Promise<SessionContext | null>>();
+const mockRestoreSessionInfo = vi.fn<(sessionId: string) => Promise<SessionInfo | undefined>>();
 const mockPostResponse =
-  mock.fn<
+  vi.fn<
     (
       client: App["client"],
       sessionInfo: SessionInfo,
@@ -22,8 +22,8 @@ const mockPostResponse =
     ) => Promise<void>
   >();
 const mockGetStructuredResponseBlocks =
-  mock.fn<(payload: SubmitResponsePayload, sessionId: string) => Array<{ type: string }>>();
-const mockAsSlackBlocks = mock.fn<typeof asSlackBlocks>();
+  vi.fn<(payload: SubmitResponsePayload, sessionId: string) => Array<{ type: string }>>();
+const mockAsSlackBlocks = vi.fn<typeof asSlackBlocks>();
 
 function makeDeps(): ResendDeps {
   return {
@@ -61,7 +61,7 @@ function makeApp(deps: ResendDeps): App {
 }
 
 function makeClient(): App["client"] {
-  const postMessageFn = mock.fn(async () => ({ ok: true }));
+  const postMessageFn = vi.fn(async () => ({ ok: true }));
   return {
     chat: {
       postMessage: postMessageFn,
@@ -101,11 +101,11 @@ function makeSessionInfo(overrides: Partial<SessionInfo> = {}): SessionInfo {
 }
 
 beforeEach(() => {
-  mockGetSession.mock.resetCalls();
-  mockRestoreSessionInfo.mock.resetCalls();
-  mockPostResponse.mock.resetCalls();
-  mockGetStructuredResponseBlocks.mock.resetCalls();
-  mockAsSlackBlocks.mock.resetCalls();
+  mockGetSession.mockClear();
+  mockRestoreSessionInfo.mockClear();
+  mockPostResponse.mockClear();
+  mockGetStructuredResponseBlocks.mockClear();
+  mockAsSlackBlocks.mockClear();
 
   const app = makeApp(makeDeps());
 });
@@ -121,12 +121,12 @@ describe("registerResendHandler", () => {
   });
 
   it("responds with expired message when session is not found", async () => {
-    mockGetSession.mock.mockImplementation(async () => null);
-    mockRestoreSessionInfo.mock.mockImplementation(async () => undefined);
-    const mockRespond = mock.fn<
-      (msg: { replace_original?: boolean; text: string }) => Promise<void>
-    >(async () => {});
-    const mockAck = mock.fn<() => Promise<void>>(async () => {});
+    mockGetSession.mockImplementation(async () => null);
+    mockRestoreSessionInfo.mockImplementation(async () => undefined);
+    const mockRespond = vi.fn<(msg: { replace_original?: boolean; text: string }) => Promise<void>>(
+      async () => {},
+    );
+    const mockAck = vi.fn<() => Promise<void>>(async () => {});
 
     await capturedHandler({
       ack: mockAck,
@@ -135,20 +135,20 @@ describe("registerResendHandler", () => {
       respond: mockRespond,
     });
 
-    assert.equal(mockAck.mock.callCount(), 1);
-    assert.equal(mockRespond.mock.callCount(), 1);
-    const respondArgs = mockRespond.mock.calls[0].arguments[0];
+    assert.equal(mockAck.mock.calls.length, 1);
+    assert.equal(mockRespond.mock.calls.length, 1);
+    const respondArgs = mockRespond.mock.calls[0][0];
     assert.ok(respondArgs.text.includes("expired"));
     assert.equal(respondArgs.replace_original, true);
   });
 
   it("responds with expired message when sessionInfo is not found", async () => {
-    mockGetSession.mock.mockImplementation(async () => makeSession());
-    mockRestoreSessionInfo.mock.mockImplementation(async () => undefined);
-    const mockRespond = mock.fn<
-      (msg: { replace_original?: boolean; text: string }) => Promise<void>
-    >(async () => {});
-    const mockAck = mock.fn<() => Promise<void>>(async () => {});
+    mockGetSession.mockImplementation(async () => makeSession());
+    mockRestoreSessionInfo.mockImplementation(async () => undefined);
+    const mockRespond = vi.fn<(msg: { replace_original?: boolean; text: string }) => Promise<void>>(
+      async () => {},
+    );
+    const mockAck = vi.fn<() => Promise<void>>(async () => {});
 
     await capturedHandler({
       ack: mockAck,
@@ -157,23 +157,23 @@ describe("registerResendHandler", () => {
       respond: mockRespond,
     });
 
-    assert.equal(mockRespond.mock.callCount(), 1);
-    const respondArgs = mockRespond.mock.calls[0].arguments[0];
+    assert.equal(mockRespond.mock.calls.length, 1);
+    const respondArgs = mockRespond.mock.calls[0][0];
     assert.ok(respondArgs.text.includes("expired"));
   });
 
   it("responds with expired message when session has no lastAnswer", async () => {
     // Session with no assistant turn — latestAssistantText returns undefined.
-    mockGetSession.mock.mockImplementation(async () =>
+    mockGetSession.mockImplementation(async () =>
       makeSession({
         messages: [],
       }),
     );
-    mockRestoreSessionInfo.mock.mockImplementation(async () => makeSessionInfo());
-    const mockRespond = mock.fn<
-      (msg: { replace_original?: boolean; text: string }) => Promise<void>
-    >(async () => {});
-    const mockAck = mock.fn<() => Promise<void>>(async () => {});
+    mockRestoreSessionInfo.mockImplementation(async () => makeSessionInfo());
+    const mockRespond = vi.fn<(msg: { replace_original?: boolean; text: string }) => Promise<void>>(
+      async () => {},
+    );
+    const mockAck = vi.fn<() => Promise<void>>(async () => {});
 
     await capturedHandler({
       ack: mockAck,
@@ -182,7 +182,7 @@ describe("registerResendHandler", () => {
       respond: mockRespond,
     });
 
-    assert.equal(mockRespond.mock.callCount(), 1);
+    assert.equal(mockRespond.mock.calls.length, 1);
   });
 
   it("posts structured response with blocks when lastResponse exists", async () => {
@@ -192,15 +192,15 @@ describe("registerResendHandler", () => {
       ],
     });
     const sessionInfo = makeSessionInfo();
-    mockGetSession.mock.mockImplementation(async () => session);
-    mockRestoreSessionInfo.mock.mockImplementation(async () => sessionInfo);
-    mockGetStructuredResponseBlocks.mock.mockImplementation(() => [{ type: "section" }]);
-    mockAsSlackBlocks.mock.mockImplementation(() => []);
+    mockGetSession.mockImplementation(async () => session);
+    mockRestoreSessionInfo.mockImplementation(async () => sessionInfo);
+    mockGetStructuredResponseBlocks.mockImplementation(() => [{ type: "section" }]);
+    mockAsSlackBlocks.mockImplementation(() => []);
 
-    const mockAck = mock.fn<() => Promise<void>>(async () => {});
-    const mockRespond = mock.fn<
-      (msg: { replace_original?: boolean; text: string }) => Promise<void>
-    >(async () => {});
+    const mockAck = vi.fn<() => Promise<void>>(async () => {});
+    const mockRespond = vi.fn<(msg: { replace_original?: boolean; text: string }) => Promise<void>>(
+      async () => {},
+    );
     const client = makeClient();
 
     await capturedHandler({
@@ -210,8 +210,8 @@ describe("registerResendHandler", () => {
       respond: mockRespond,
     });
 
-    assert.equal(mockPostResponse.mock.callCount(), 1);
-    const postArgs = mockPostResponse.mock.calls[0].arguments;
+    assert.equal(mockPostResponse.mock.calls.length, 1);
+    const postArgs = mockPostResponse.mock.calls[0];
     assert.equal(postArgs[0], client);
     assert.equal(postArgs[1], sessionInfo);
     const options = postArgs[2];
@@ -219,9 +219,11 @@ describe("registerResendHandler", () => {
     assert.equal(options.text, "plain answer");
 
     // Also posts confirmation message
-    const postMessage = client.chat.postMessage as never as ReturnType<typeof mock.fn>;
-    assert.equal(postMessage.mock.callCount(), 1);
-    const msgArgs = postMessage.mock.calls[0].arguments[0] as { channel: string; text: string };
+    const postMessage = client.chat.postMessage as never as ReturnType<
+      typeof vi.fn<(...args: any[]) => any>
+    >;
+    assert.equal(postMessage.mock.calls.length, 1);
+    const msgArgs = postMessage.mock.calls[0][0] as { channel: string; text: string };
     assert.equal(msgArgs.channel, "C001");
     assert.ok(msgArgs.text.includes("sent again"));
   });
@@ -231,13 +233,13 @@ describe("registerResendHandler", () => {
       messages: [{ role: "assistant", ts: 1, text: "just text" }],
     });
     const sessionInfo = makeSessionInfo();
-    mockGetSession.mock.mockImplementation(async () => session);
-    mockRestoreSessionInfo.mock.mockImplementation(async () => sessionInfo);
+    mockGetSession.mockImplementation(async () => session);
+    mockRestoreSessionInfo.mockImplementation(async () => sessionInfo);
 
-    const mockAck = mock.fn<() => Promise<void>>(async () => {});
-    const mockRespond = mock.fn<
-      (msg: { replace_original?: boolean; text: string }) => Promise<void>
-    >(async () => {});
+    const mockAck = vi.fn<() => Promise<void>>(async () => {});
+    const mockRespond = vi.fn<(msg: { replace_original?: boolean; text: string }) => Promise<void>>(
+      async () => {},
+    );
     const client = makeClient();
 
     await capturedHandler({
@@ -247,25 +249,25 @@ describe("registerResendHandler", () => {
       respond: mockRespond,
     });
 
-    assert.equal(mockPostResponse.mock.callCount(), 1);
-    const options = mockPostResponse.mock.calls[0].arguments[2];
+    assert.equal(mockPostResponse.mock.calls.length, 1);
+    const options = mockPostResponse.mock.calls[0][2];
     assert.equal(options.text, "just text");
     assert.equal(options.blocks, undefined);
   });
 
   it("acknowledges the action before processing", async () => {
-    mockGetSession.mock.mockImplementation(async () => null);
-    mockRestoreSessionInfo.mock.mockImplementation(async () => undefined);
+    mockGetSession.mockImplementation(async () => null);
+    mockRestoreSessionInfo.mockImplementation(async () => undefined);
 
     const callOrder: string[] = [];
-    const mockAck = mock.fn<() => Promise<void>>(async () => {
+    const mockAck = vi.fn<() => Promise<void>>(async () => {
       callOrder.push("ack");
     });
-    const mockRespond = mock.fn<
-      (msg: { replace_original?: boolean; text: string }) => Promise<void>
-    >(async () => {
-      callOrder.push("respond");
-    });
+    const mockRespond = vi.fn<(msg: { replace_original?: boolean; text: string }) => Promise<void>>(
+      async () => {
+        callOrder.push("respond");
+      },
+    );
 
     await capturedHandler({
       ack: mockAck,

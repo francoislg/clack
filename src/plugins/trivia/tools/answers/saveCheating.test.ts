@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
 import { createSaveCheatingTool } from "./saveCheating.js";
@@ -19,10 +19,17 @@ function makeFakeSdk(opts: FakeSdkOptions = {}): {
   const result = opts.dmOwnerResult ?? { ok: true as const };
   const sdk: ClackSdk = {
     logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
+    capabilities: { crons: true },
+    error: () => {},
     addInstruction: () => {},
     addTopicInstruction: () => {},
     registerTool: () => {},
-    registerIntegration: () => {},
+    mcpServer: { fullName: "test", registerTool: () => {}, addTopicInstruction: () => {} },
+    registerMcpServer: () => ({
+      fullName: "test",
+      registerTool: () => {},
+      addTopicInstruction: () => {},
+    }),
     readFile: async () => null,
     writeFile: async () => {},
     watchFile: () => {
@@ -42,6 +49,8 @@ function makeFakeSdk(opts: FakeSdkOptions = {}): {
       throw new Error("askClaude not used in saveCheating tests");
     },
     requestSoftRestart: () => {},
+    registerDictionary: () => {},
+    t: (key: string) => key,
   };
   return { sdk, dmOwnerCalls };
 }

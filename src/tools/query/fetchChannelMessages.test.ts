@@ -1,4 +1,4 @@
-import { describe, it, mock } from "node:test";
+import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import {
   createFetchChannelMessagesTool,
@@ -35,8 +35,8 @@ interface MockRepliesResult {
 
 interface MockSlackClient {
   conversations: {
-    history: ReturnType<typeof mock.fn>;
-    replies: ReturnType<typeof mock.fn>;
+    history: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
+    replies: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
   };
 }
 
@@ -63,14 +63,14 @@ function mockBuildThreadMessage(msg: MockMessage, _botUserId: string): ThreadMes
 
 function makeDeps(overrides: Partial<FetchChannelMessagesDeps> = {}): FetchChannelMessagesDeps {
   return {
-    buildThreadMessage: mock.fn(
+    buildThreadMessage: vi.fn(
       mockBuildThreadMessage,
     ) as FetchChannelMessagesDeps["buildThreadMessage"],
-    resolveUsers: mock.fn(async () => new Map()) as FetchChannelMessagesDeps["resolveUsers"],
-    transformUserMentions: mock.fn(
+    resolveUsers: vi.fn(async () => new Map()) as FetchChannelMessagesDeps["resolveUsers"],
+    transformUserMentions: vi.fn(
       async (_client, text) => text as string,
     ) as FetchChannelMessagesDeps["transformUserMentions"],
-    getChannelInfo: mock.fn(async () => ({
+    getChannelInfo: vi.fn(async () => ({
       id: "C123",
       name: "general",
     })) as FetchChannelMessagesDeps["getChannelInfo"],
@@ -84,8 +84,8 @@ function makeSlackClient(
 ): MockSlackClient {
   return {
     conversations: {
-      history: mock.fn(async () => historyResult ?? { messages: [], has_more: false }),
-      replies: mock.fn(async () => repliesResult ?? { messages: [] }),
+      history: vi.fn(async () => historyResult ?? { messages: [], has_more: false }),
+      replies: vi.fn(async () => repliesResult ?? { messages: [] }),
     },
   };
 }
@@ -121,7 +121,7 @@ function makeCtx(overrides?: {
     },
     config: { repositories: [] },
     changesWorkflowEnabled: false,
-    allowScheduledMessages: false,
+    cronUserSchedules: false,
     slackClient: overrides?.slackClient,
     availableImages: overrides?.availableImages,
     availableFiles: overrides?.availableFiles,
@@ -130,7 +130,7 @@ function makeCtx(overrides?: {
 }
 
 function historyCallArgs(client: MockSlackClient, callIndex = 0) {
-  return client.conversations.history.mock.calls[callIndex].arguments[0] as {
+  return client.conversations.history.mock.calls[callIndex][0] as {
     limit: number;
     oldest?: string;
     latest?: string;
@@ -212,7 +212,7 @@ describe("fetchChannelMessages tool", () => {
       ["U2", { userId: "U2", displayName: "Bob", username: "bob" }],
     ]);
     const deps = makeDeps({
-      resolveUsers: mock.fn(async () => userInfoMap) as FetchChannelMessagesDeps["resolveUsers"],
+      resolveUsers: vi.fn(async () => userInfoMap) as FetchChannelMessagesDeps["resolveUsers"],
     });
 
     const messages: MockMessage[] = [
@@ -386,7 +386,7 @@ describe("fetchChannelMessages tool", () => {
     assert.equal(result.isError, true);
     assert.ok(parsed.error.includes("oldest"));
     assert.ok(parsed.error.includes("yesterday"));
-    assert.equal(client.conversations.history.mock.callCount(), 0);
+    assert.equal(client.conversations.history.mock.calls.length, 0);
   });
 
   it("returns tool error and does not call Slack when latest is unparseable", async () => {
@@ -409,7 +409,7 @@ describe("fetchChannelMessages tool", () => {
     assert.equal(result.isError, true);
     assert.ok(parsed.error.includes("latest"));
     assert.ok(parsed.error.includes("not-a-date"));
-    assert.equal(client.conversations.history.mock.callCount(), 0);
+    assert.equal(client.conversations.history.mock.calls.length, 0);
   });
 
   it("echoes normalized oldest/latest and ISO forms on empty results when provided", async () => {
@@ -605,10 +605,10 @@ describe("fetchChannelMessages tool", () => {
   it("returns error when API call fails", async () => {
     const client: MockSlackClient = {
       conversations: {
-        history: mock.fn(async () => {
+        history: vi.fn(async () => {
           throw new Error("channel_not_found");
         }),
-        replies: mock.fn(async () => ({ messages: [] })),
+        replies: vi.fn(async () => ({ messages: [] })),
       },
     };
     const ctx = makeCtx({ slackClient: client });
@@ -635,7 +635,7 @@ describe("fetchChannelMessages tool", () => {
   it("includes reply_count on messages that have thread replies", async () => {
     const userInfoMap = new Map([["U1", { userId: "U1", displayName: "Alice" }]]);
     const deps = makeDeps({
-      resolveUsers: mock.fn(async () => userInfoMap) as FetchChannelMessagesDeps["resolveUsers"],
+      resolveUsers: vi.fn(async () => userInfoMap) as FetchChannelMessagesDeps["resolveUsers"],
     });
 
     const messages: MockMessage[] = [
@@ -666,7 +666,7 @@ describe("fetchChannelMessages tool", () => {
       ["U2", { userId: "U2", displayName: "Bob" }],
     ]);
     const deps = makeDeps({
-      resolveUsers: mock.fn(async () => userInfoMap) as FetchChannelMessagesDeps["resolveUsers"],
+      resolveUsers: vi.fn(async () => userInfoMap) as FetchChannelMessagesDeps["resolveUsers"],
     });
 
     const messages: MockMessage[] = [{ ts: "1.0", text: "parent msg", user: "U1", reply_count: 1 }];
@@ -700,7 +700,7 @@ describe("fetchChannelMessages tool", () => {
 
   it("does not fetch thread replies when include_threads is false", async () => {
     const deps = makeDeps({
-      resolveUsers: mock.fn(
+      resolveUsers: vi.fn(
         async () => new Map([["U1", { userId: "U1", displayName: "Alice" }]]),
       ) as FetchChannelMessagesDeps["resolveUsers"],
     });
@@ -728,7 +728,7 @@ describe("fetchChannelMessages tool", () => {
 
   it("handles thread fetch error gracefully", async () => {
     const deps = makeDeps({
-      resolveUsers: mock.fn(
+      resolveUsers: vi.fn(
         async () => new Map([["U1", { userId: "U1", displayName: "Alice" }]]),
       ) as FetchChannelMessagesDeps["resolveUsers"],
     });
@@ -736,8 +736,8 @@ describe("fetchChannelMessages tool", () => {
     const messages: MockMessage[] = [{ ts: "1.0", text: "parent msg", user: "U1", reply_count: 2 }];
     const client: MockSlackClient = {
       conversations: {
-        history: mock.fn(async () => ({ messages, has_more: false })),
-        replies: mock.fn(async () => {
+        history: vi.fn(async () => ({ messages, has_more: false })),
+        replies: vi.fn(async () => {
           throw new Error("thread_not_found");
         }),
       },
@@ -782,7 +782,7 @@ describe("fetchChannelMessages tool", () => {
   });
 
   it("skips messages that buildThreadMessage filters out", async () => {
-    const buildFn = mock.fn((_msg: MockMessage, _botUserId: string) => null);
+    const buildFn = vi.fn((_msg: MockMessage, _botUserId: string) => null);
     const deps = makeDeps({
       buildThreadMessage: buildFn as FetchChannelMessagesDeps["buildThreadMessage"],
     });
@@ -809,7 +809,7 @@ describe("fetchChannelMessages tool", () => {
 
   it("includes channel_name in result when resolved", async () => {
     const deps = makeDeps({
-      getChannelInfo: mock.fn(async () => ({
+      getChannelInfo: vi.fn(async () => ({
         id: "C123",
         name: "backend-dev",
       })) as FetchChannelMessagesDeps["getChannelInfo"],
@@ -837,7 +837,7 @@ describe("fetchChannelMessages tool", () => {
 
   it("omits channel_name when resolution fails", async () => {
     const deps = makeDeps({
-      getChannelInfo: mock.fn(async () => undefined) as FetchChannelMessagesDeps["getChannelInfo"],
+      getChannelInfo: vi.fn(async () => undefined) as FetchChannelMessagesDeps["getChannelInfo"],
     });
 
     const messages: MockMessage[] = [{ ts: "1.0", text: "text", user: "U1" }];
@@ -867,7 +867,7 @@ describe("fetchChannelMessages tool", () => {
       ["U3", { userId: "U3", displayName: "Charlie" }],
     ]);
     const deps = makeDeps({
-      resolveUsers: mock.fn(async () => userInfoMap) as FetchChannelMessagesDeps["resolveUsers"],
+      resolveUsers: vi.fn(async () => userInfoMap) as FetchChannelMessagesDeps["resolveUsers"],
     });
 
     const messages: MockMessage[] = [

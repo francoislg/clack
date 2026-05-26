@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, beforeEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import {
   loadPreferences,
@@ -15,11 +15,11 @@ import {
 // Mock deps
 // ---------------------------------------------------------------------------
 
-const mockReadFile = mock.fn<(path: string, encoding: string) => Promise<string>>();
-const mockWriteFile = mock.fn<(path: string, data: string) => Promise<void>>();
+const mockReadFile = vi.fn<(path: string, encoding: string) => Promise<string>>();
+const mockWriteFile = vi.fn<(path: string, data: string) => Promise<void>>();
 const mockMkdir =
-  mock.fn<(path: string, opts?: { recursive: boolean }) => Promise<string | undefined>>();
-const mockFileExists = mock.fn<(path: string) => Promise<boolean>>();
+  vi.fn<(path: string, opts?: { recursive: boolean }) => Promise<string | undefined>>();
+const mockFileExists = vi.fn<(path: string) => Promise<boolean>>();
 
 function makeDeps(): UserPreferencesDeps {
   return {
@@ -37,15 +37,15 @@ function makeDeps(): UserPreferencesDeps {
 describe("loadPreferences", () => {
   beforeEach(() => {
     clearPreferencesCache();
-    mockReadFile.mock.resetCalls();
-    mockWriteFile.mock.resetCalls();
-    mockMkdir.mock.resetCalls();
-    mockFileExists.mock.resetCalls();
+    mockReadFile.mockClear();
+    mockWriteFile.mockClear();
+    mockMkdir.mockClear();
+    mockFileExists.mockClear();
     setUserPreferencesDeps(makeDeps());
   });
 
   it("returns {} when file doesn't exist", async () => {
-    mockFileExists.mock.mockImplementation(async () => false);
+    mockFileExists.mockImplementation(async () => false);
 
     const result = await loadPreferences();
 
@@ -54,31 +54,31 @@ describe("loadPreferences", () => {
 
   it("reads and parses JSON when file exists", async () => {
     const stored = { U123: { reactionDelivery: "thread" } };
-    mockFileExists.mock.mockImplementation(async () => true);
-    mockReadFile.mock.mockImplementation(async () => JSON.stringify(stored));
+    mockFileExists.mockImplementation(async () => true);
+    mockReadFile.mockImplementation(async () => JSON.stringify(stored));
 
     const result = await loadPreferences();
 
     assert.deepEqual(result, stored);
-    assert.equal(mockReadFile.mock.callCount(), 1);
+    assert.equal(mockReadFile.mock.calls.length, 1);
   });
 
   it("returns cached result on second call (readFile not called again)", async () => {
     const stored = { U456: { notifyOnResponse: true } };
-    mockFileExists.mock.mockImplementation(async () => true);
-    mockReadFile.mock.mockImplementation(async () => JSON.stringify(stored));
+    mockFileExists.mockImplementation(async () => true);
+    mockReadFile.mockImplementation(async () => JSON.stringify(stored));
 
     const first = await loadPreferences();
     const second = await loadPreferences();
 
     assert.deepEqual(first, stored);
     assert.equal(first, second); // same reference
-    assert.equal(mockReadFile.mock.callCount(), 1);
+    assert.equal(mockReadFile.mock.calls.length, 1);
   });
 
   it("returns {} on parse error", async () => {
-    mockFileExists.mock.mockImplementation(async () => true);
-    mockReadFile.mock.mockImplementation(async () => "not valid json {{{");
+    mockFileExists.mockImplementation(async () => true);
+    mockReadFile.mockImplementation(async () => "not valid json {{{");
 
     const result = await loadPreferences();
 
@@ -93,43 +93,43 @@ describe("loadPreferences", () => {
 describe("savePreferences", () => {
   beforeEach(() => {
     clearPreferencesCache();
-    mockReadFile.mock.resetCalls();
-    mockWriteFile.mock.resetCalls();
-    mockMkdir.mock.resetCalls();
-    mockFileExists.mock.resetCalls();
+    mockReadFile.mockClear();
+    mockWriteFile.mockClear();
+    mockMkdir.mockClear();
+    mockFileExists.mockClear();
     setUserPreferencesDeps(makeDeps());
   });
 
   it("creates state dir if it doesn't exist", async () => {
     // First call checks state dir existence, return false
-    mockFileExists.mock.mockImplementation(async () => false);
-    mockMkdir.mock.mockImplementation(async () => undefined);
-    mockWriteFile.mock.mockImplementation(async () => {});
+    mockFileExists.mockImplementation(async () => false);
+    mockMkdir.mockImplementation(async () => undefined);
+    mockWriteFile.mockImplementation(async () => {});
 
     await savePreferences({ U1: { reactionDelivery: "thread" } });
 
-    assert.equal(mockMkdir.mock.callCount(), 1);
-    const mkdirArgs = mockMkdir.mock.calls[0].arguments;
+    assert.equal(mockMkdir.mock.calls.length, 1);
+    const mkdirArgs = mockMkdir.mock.calls[0];
     assert.match(mkdirArgs[0] as string, /[\\/]data[\\/]state$/);
     assert.deepEqual(mkdirArgs[1], { recursive: true });
   });
 
   it("writes JSON and updates cache", async () => {
-    mockFileExists.mock.mockImplementation(async () => true);
-    mockWriteFile.mock.mockImplementation(async () => {});
+    mockFileExists.mockImplementation(async () => true);
+    mockWriteFile.mockImplementation(async () => {});
 
     const prefs = { U1: { notifyOnResponse: true as const } };
     await savePreferences(prefs);
 
-    assert.equal(mockWriteFile.mock.callCount(), 1);
-    const writeArgs = mockWriteFile.mock.calls[0].arguments;
+    assert.equal(mockWriteFile.mock.calls.length, 1);
+    const writeArgs = mockWriteFile.mock.calls[0];
     assert.equal(writeArgs[1], JSON.stringify(prefs, null, 2));
 
     // Cache should be updated — next loadPreferences should not read from disk
-    mockReadFile.mock.resetCalls();
+    mockReadFile.mockClear();
     const loaded = await loadPreferences();
     assert.deepEqual(loaded, prefs);
-    assert.equal(mockReadFile.mock.callCount(), 0);
+    assert.equal(mockReadFile.mock.calls.length, 0);
   });
 });
 
@@ -140,17 +140,17 @@ describe("savePreferences", () => {
 describe("getUserPreference", () => {
   beforeEach(() => {
     clearPreferencesCache();
-    mockReadFile.mock.resetCalls();
-    mockWriteFile.mock.resetCalls();
-    mockMkdir.mock.resetCalls();
-    mockFileExists.mock.resetCalls();
+    mockReadFile.mockClear();
+    mockWriteFile.mockClear();
+    mockMkdir.mockClear();
+    mockFileExists.mockClear();
     setUserPreferencesDeps(makeDeps());
   });
 
   it("returns stored value for known user", async () => {
     const stored = { U1: { reactionDelivery: "thread" } };
-    mockFileExists.mock.mockImplementation(async () => true);
-    mockReadFile.mock.mockImplementation(async () => JSON.stringify(stored));
+    mockFileExists.mockImplementation(async () => true);
+    mockReadFile.mockImplementation(async () => JSON.stringify(stored));
 
     const result = await getUserPreference("U1", "reactionDelivery");
 
@@ -158,15 +158,15 @@ describe("getUserPreference", () => {
   });
 
   it("returns default for unknown user", async () => {
-    mockFileExists.mock.mockImplementation(async () => true);
-    mockReadFile.mock.mockImplementation(async () => JSON.stringify({}));
+    mockFileExists.mockImplementation(async () => true);
+    mockReadFile.mockImplementation(async () => JSON.stringify({}));
 
     const delivery = await getUserPreference("UNKNOWN", "reactionDelivery");
     assert.equal(delivery, "dm");
 
     clearPreferencesCache();
-    mockFileExists.mock.mockImplementation(async () => true);
-    mockReadFile.mock.mockImplementation(async () => JSON.stringify({}));
+    mockFileExists.mockImplementation(async () => true);
+    mockReadFile.mockImplementation(async () => JSON.stringify({}));
 
     const notify = await getUserPreference("UNKNOWN", "notifyOnResponse");
     assert.equal(notify, false);
@@ -174,8 +174,8 @@ describe("getUserPreference", () => {
 
   it("returns default for known user missing that key", async () => {
     const stored = { U1: { reactionDelivery: "thread" } };
-    mockFileExists.mock.mockImplementation(async () => true);
-    mockReadFile.mock.mockImplementation(async () => JSON.stringify(stored));
+    mockFileExists.mockImplementation(async () => true);
+    mockReadFile.mockImplementation(async () => JSON.stringify(stored));
 
     const result = await getUserPreference("U1", "notifyOnResponse");
 
@@ -190,35 +190,35 @@ describe("getUserPreference", () => {
 describe("setUserPreference", () => {
   beforeEach(() => {
     clearPreferencesCache();
-    mockReadFile.mock.resetCalls();
-    mockWriteFile.mock.resetCalls();
-    mockMkdir.mock.resetCalls();
-    mockFileExists.mock.resetCalls();
+    mockReadFile.mockClear();
+    mockWriteFile.mockClear();
+    mockMkdir.mockClear();
+    mockFileExists.mockClear();
     setUserPreferencesDeps(makeDeps());
   });
 
   it("creates user entry if none exists", async () => {
-    mockFileExists.mock.mockImplementation(async () => true);
-    mockReadFile.mock.mockImplementation(async () => JSON.stringify({}));
-    mockWriteFile.mock.mockImplementation(async () => {});
+    mockFileExists.mockImplementation(async () => true);
+    mockReadFile.mockImplementation(async () => JSON.stringify({}));
+    mockWriteFile.mockImplementation(async () => {});
 
     await setUserPreference("U_NEW", "reactionDelivery", "thread");
 
-    assert.equal(mockWriteFile.mock.callCount(), 1);
-    const written = JSON.parse(mockWriteFile.mock.calls[0].arguments[1] as string);
+    assert.equal(mockWriteFile.mock.calls.length, 1);
+    const written = JSON.parse(mockWriteFile.mock.calls[0][1] as string);
     assert.deepEqual(written, { U_NEW: { reactionDelivery: "thread" } });
   });
 
   it("updates existing user entry", async () => {
     const stored = { U1: { reactionDelivery: "dm" } };
-    mockFileExists.mock.mockImplementation(async () => true);
-    mockReadFile.mock.mockImplementation(async () => JSON.stringify(stored));
-    mockWriteFile.mock.mockImplementation(async () => {});
+    mockFileExists.mockImplementation(async () => true);
+    mockReadFile.mockImplementation(async () => JSON.stringify(stored));
+    mockWriteFile.mockImplementation(async () => {});
 
     await setUserPreference("U1", "notifyOnResponse", true);
 
-    assert.equal(mockWriteFile.mock.callCount(), 1);
-    const written = JSON.parse(mockWriteFile.mock.calls[0].arguments[1] as string);
+    assert.equal(mockWriteFile.mock.calls.length, 1);
+    const written = JSON.parse(mockWriteFile.mock.calls[0][1] as string);
     assert.deepEqual(written, {
       U1: { reactionDelivery: "dm", notifyOnResponse: true },
     });
@@ -232,17 +232,17 @@ describe("setUserPreference", () => {
 describe("getReactionDelivery", () => {
   beforeEach(() => {
     clearPreferencesCache();
-    mockReadFile.mock.resetCalls();
-    mockWriteFile.mock.resetCalls();
-    mockMkdir.mock.resetCalls();
-    mockFileExists.mock.resetCalls();
+    mockReadFile.mockClear();
+    mockWriteFile.mockClear();
+    mockMkdir.mockClear();
+    mockFileExists.mockClear();
     setUserPreferencesDeps(makeDeps());
   });
 
   it("returns stored value", async () => {
     const stored = { U1: { reactionDelivery: "thread" } };
-    mockFileExists.mock.mockImplementation(async () => true);
-    mockReadFile.mock.mockImplementation(async () => JSON.stringify(stored));
+    mockFileExists.mockImplementation(async () => true);
+    mockReadFile.mockImplementation(async () => JSON.stringify(stored));
 
     const result = await getReactionDelivery("U1");
 
@@ -250,8 +250,8 @@ describe("getReactionDelivery", () => {
   });
 
   it('returns "dm" as default', async () => {
-    mockFileExists.mock.mockImplementation(async () => true);
-    mockReadFile.mock.mockImplementation(async () => JSON.stringify({}));
+    mockFileExists.mockImplementation(async () => true);
+    mockReadFile.mockImplementation(async () => JSON.stringify({}));
 
     const result = await getReactionDelivery("UNKNOWN");
 
@@ -266,31 +266,29 @@ describe("getReactionDelivery", () => {
 describe("clearPreferencesCache", () => {
   beforeEach(() => {
     clearPreferencesCache();
-    mockReadFile.mock.resetCalls();
-    mockWriteFile.mock.resetCalls();
-    mockMkdir.mock.resetCalls();
-    mockFileExists.mock.resetCalls();
+    mockReadFile.mockClear();
+    mockWriteFile.mockClear();
+    mockMkdir.mockClear();
+    mockFileExists.mockClear();
     setUserPreferencesDeps(makeDeps());
   });
 
   it("forces next load from disk", async () => {
     // First load: populate cache
-    mockFileExists.mock.mockImplementation(async () => true);
-    mockReadFile.mock.mockImplementation(async () =>
+    mockFileExists.mockImplementation(async () => true);
+    mockReadFile.mockImplementation(async () =>
       JSON.stringify({ U1: { reactionDelivery: "thread" } }),
     );
     await loadPreferences();
-    assert.equal(mockReadFile.mock.callCount(), 1);
+    assert.equal(mockReadFile.mock.calls.length, 1);
 
     // Clear cache
     clearPreferencesCache();
 
     // Second load: should read from disk again
-    mockReadFile.mock.mockImplementation(async () =>
-      JSON.stringify({ U2: { notifyOnResponse: true } }),
-    );
+    mockReadFile.mockImplementation(async () => JSON.stringify({ U2: { notifyOnResponse: true } }));
     const result = await loadPreferences();
-    assert.equal(mockReadFile.mock.callCount(), 2);
+    assert.equal(mockReadFile.mock.calls.length, 2);
     assert.deepEqual(result, { U2: { notifyOnResponse: true } });
   });
 });

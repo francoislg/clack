@@ -1,4 +1,4 @@
-import { describe, it, mock } from "node:test";
+import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import { createChannelsCache, type ChannelsCacheClient } from "./channelsCache.js";
 
@@ -15,8 +15,8 @@ interface MockChannel {
 function makeClient(channels: MockChannel[]): ChannelsCacheClient {
   return {
     conversations: {
-      list: mock.fn(async () => ({ ok: true, channels })),
-      info: mock.fn(async () => ({ ok: false })),
+      list: vi.fn(async () => ({ ok: true, channels })),
+      info: vi.fn(async () => ({ ok: false })),
     },
   };
 }
@@ -189,7 +189,7 @@ describe("channelsCache", () => {
 
     it("falls back to API when ID not in cache", async () => {
       const client = makeClient([]);
-      const infoFn = mock.fn(async () => ({
+      const infoFn = vi.fn(async () => ({
         ok: true,
         channel: { id: "CNEW", name: "new-channel", is_private: false },
       }));
@@ -200,7 +200,7 @@ describe("channelsCache", () => {
 
       assert.ok(result);
       assert.equal(result.name, "new-channel");
-      assert.equal(infoFn.mock.callCount(), 1);
+      assert.equal(infoFn.mock.calls.length, 1);
     });
 
     it("returns null when ID not found anywhere", async () => {

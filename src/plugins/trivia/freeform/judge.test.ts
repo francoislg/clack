@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { buildJudgePrompt, parseJudgeResponse, type JudgeQuestionGroup } from "./judge.js";
 import type { TriviaQuestion } from "../core/types.js";
@@ -105,6 +105,29 @@ describe("buildJudgePrompt", () => {
     assert.ok(
       /every decade that the range touches/i.test(system),
       "judge prompt must say every spanned decade is acceptable",
+    );
+  });
+
+  it("system prompt accepts cross-language translations of the expected answer", () => {
+    const { system } = buildJudgePrompt([
+      {
+        question: makeQuestion({}),
+        submissions: [{ key: "1.1", userId: "U1", answerText: "ok" }],
+      },
+    ]);
+    assert.ok(/LANGUAGE/.test(system), "judge prompt must call out a LANGUAGE rule");
+    assert.ok(/translation/i.test(system), "judge prompt must mention translations are acceptable");
+    assert.ok(
+      /named entit/i.test(system),
+      "judge prompt must call out named entities as a covered translation case",
+    );
+    assert.ok(
+      /unambiguous/i.test(system),
+      "judge prompt must require the translation to be unambiguous",
+    );
+    assert.ok(
+      /multiple-guess|too-broad|out-of-tolerance/i.test(system),
+      "judge prompt must say cross-language acceptance does not relax other rules",
     );
   });
 });

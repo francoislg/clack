@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { en, type StringKey } from "./strings/en.js";
 import { fr } from "./strings/fr.js";

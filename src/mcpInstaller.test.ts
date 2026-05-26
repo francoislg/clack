@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, beforeEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import { join, resolve } from "path";
 import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
@@ -12,12 +12,11 @@ import {
 } from "./mcpInstaller.js";
 import type { PinnedEntry } from "./mcp.js";
 
-const mockExistsSync = mock.fn<(path: string) => boolean>();
-const mockReadFileSync = mock.fn<(path: string, encoding: BufferEncoding) => string>();
-const mockRmSync =
-  mock.fn<(path: string, options: { recursive: boolean; force: boolean }) => void>();
+const mockExistsSync = vi.fn<(path: string) => boolean>();
+const mockReadFileSync = vi.fn<(path: string, encoding: BufferEncoding) => string>();
+const mockRmSync = vi.fn<(path: string, options: { recursive: boolean; force: boolean }) => void>();
 const mockExecFileSync =
-  mock.fn<
+  vi.fn<
     (
       file: string,
       args: string[],
@@ -43,14 +42,14 @@ function pkgJsonPath(name: string, pkg: string): string {
 }
 
 function resetMocks(): void {
-  mockExistsSync.mock.resetCalls();
-  mockReadFileSync.mock.resetCalls();
-  mockRmSync.mock.resetCalls();
-  mockExecFileSync.mock.resetCalls();
-  mockExistsSync.mock.mockImplementation(() => false);
-  mockReadFileSync.mock.mockImplementation(() => "");
-  mockRmSync.mock.mockImplementation(() => undefined);
-  mockExecFileSync.mock.mockImplementation(() => Buffer.from(""));
+  mockExistsSync.mockClear();
+  mockReadFileSync.mockClear();
+  mockRmSync.mockClear();
+  mockExecFileSync.mockClear();
+  mockExistsSync.mockImplementation(() => false);
+  mockReadFileSync.mockImplementation(() => "");
+  mockRmSync.mockImplementation(() => undefined);
+  mockExecFileSync.mockImplementation(() => Buffer.from(""));
 }
 
 describe("unscopedName", () => {
@@ -72,7 +71,7 @@ describe("resolveBinPath", () => {
   beforeEach(resetMocks);
 
   it("uses string bin field directly", () => {
-    mockReadFileSync.mock.mockImplementation(() =>
+    mockReadFileSync.mockImplementation(() =>
       JSON.stringify({ name: "@roychri/mcp-server-asana", bin: "dist/index.js" }),
     );
 
@@ -84,7 +83,7 @@ describe("resolveBinPath", () => {
   });
 
   it("matches the unscoped name when bin is an object with a matching key (scoped pkg)", () => {
-    mockReadFileSync.mock.mockImplementation(() =>
+    mockReadFileSync.mockImplementation(() =>
       JSON.stringify({
         bin: {
           "mcp-server-asana": "dist/index.js",
@@ -101,7 +100,7 @@ describe("resolveBinPath", () => {
   });
 
   it("falls back to the first entry when bin object has no matching key", () => {
-    mockReadFileSync.mock.mockImplementation(() =>
+    mockReadFileSync.mockImplementation(() =>
       JSON.stringify({ bin: { alpha: "dist/a.js", beta: "dist/b.js" } }),
     );
 
@@ -113,7 +112,7 @@ describe("resolveBinPath", () => {
   });
 
   it("throws when bin field is missing", () => {
-    mockReadFileSync.mock.mockImplementation(() => JSON.stringify({ name: "x" }));
+    mockReadFileSync.mockImplementation(() => JSON.stringify({ name: "x" }));
     assert.throws(
       () => resolveBinPath(dir("asana"), "@roychri/mcp-server-asana", makeDeps()),
       /no 'bin' field/,
@@ -121,7 +120,7 @@ describe("resolveBinPath", () => {
   });
 
   it("throws when bin object is empty", () => {
-    mockReadFileSync.mock.mockImplementation(() => JSON.stringify({ bin: {} }));
+    mockReadFileSync.mockImplementation(() => JSON.stringify({ bin: {} }));
     assert.throws(
       () => resolveBinPath(dir("asana"), "@roychri/mcp-server-asana", makeDeps()),
       /empty 'bin' object/,
@@ -129,9 +128,7 @@ describe("resolveBinPath", () => {
   });
 
   it("throws when bin object entry value is not a string", () => {
-    mockReadFileSync.mock.mockImplementation(() =>
-      JSON.stringify({ bin: { "mcp-server-asana": 42 } }),
-    );
+    mockReadFileSync.mockImplementation(() => JSON.stringify({ bin: { "mcp-server-asana": 42 } }));
     assert.throws(
       () => resolveBinPath(dir("asana"), "@roychri/mcp-server-asana", makeDeps()),
       /is not a string/,
@@ -144,15 +141,15 @@ describe("ensureInstalled", () => {
 
   it("reuses existing install when version matches", async () => {
     const installPkgJson = pkgJsonPath("asana", "@roychri/mcp-server-asana");
-    mockExistsSync.mock.mockImplementation((p: string) => p === installPkgJson);
-    mockReadFileSync.mock.mockImplementation(() =>
+    mockExistsSync.mockImplementation((p: string) => p === installPkgJson);
+    mockReadFileSync.mockImplementation(() =>
       JSON.stringify({ version: "1.8.0", bin: "dist/index.js" }),
     );
 
     const result = await ensureInstalled("asana", "@roychri/mcp-server-asana", "1.8.0", makeDeps());
 
-    assert.equal(mockExecFileSync.mock.callCount(), 0, "should not invoke npm install");
-    assert.equal(mockRmSync.mock.callCount(), 0, "should not wipe");
+    assert.equal(mockExecFileSync.mock.calls.length, 0, "should not invoke npm install");
+    assert.equal(mockRmSync.mock.calls.length, 0, "should not wipe");
     assert.equal(
       result.binPath,
       resolve(join(dir("asana"), "node_modules", "@roychri/mcp-server-asana", "dist/index.js")),
@@ -162,18 +159,16 @@ describe("ensureInstalled", () => {
   it("wipes and reinstalls when installed version drifts", async () => {
     const installPkgJson = pkgJsonPath("asana", "@roychri/mcp-server-asana");
     const installRoot = dir("asana");
-    mockExistsSync.mock.mockImplementation(
-      (p: string) => p === installPkgJson || p === installRoot,
-    );
-    mockReadFileSync.mock.mockImplementation(() =>
+    mockExistsSync.mockImplementation((p: string) => p === installPkgJson || p === installRoot);
+    mockReadFileSync.mockImplementation(() =>
       JSON.stringify({ version: "1.7.0", bin: "dist/index.js" }),
     );
 
     await ensureInstalled("asana", "@roychri/mcp-server-asana", "1.8.0", makeDeps());
 
-    assert.equal(mockRmSync.mock.callCount(), 1, "should wipe before reinstall");
-    assert.equal(mockExecFileSync.mock.callCount(), 1, "should run npm install");
-    const [file, args] = mockExecFileSync.mock.calls[0].arguments;
+    assert.equal(mockRmSync.mock.calls.length, 1, "should wipe before reinstall");
+    assert.equal(mockExecFileSync.mock.calls.length, 1, "should run npm install");
+    const [file, args] = mockExecFileSync.mock.calls[0];
     assert.equal(file, "npm");
     assert.ok(args.includes("--install-strategy=nested"));
     assert.ok(args.includes("@roychri/mcp-server-asana@1.8.0"));
@@ -182,24 +177,22 @@ describe("ensureInstalled", () => {
   it("treats missing package.json as drift", async () => {
     // Install root exists but package.json doesn't (e.g., partial install)
     const installRoot = dir("asana");
-    mockExistsSync.mock.mockImplementation((p: string) => p === installRoot);
-    mockReadFileSync.mock.mockImplementation(() =>
+    mockExistsSync.mockImplementation((p: string) => p === installRoot);
+    mockReadFileSync.mockImplementation(() =>
       JSON.stringify({ version: "1.8.0", bin: "dist/index.js" }),
     );
 
     await ensureInstalled("asana", "@roychri/mcp-server-asana", "1.8.0", makeDeps());
 
-    assert.equal(mockExecFileSync.mock.callCount(), 1, "should run npm install");
+    assert.equal(mockExecFileSync.mock.calls.length, 1, "should run npm install");
   });
 
   it("treats malformed installed package.json as drift", async () => {
     const installPkgJson = pkgJsonPath("asana", "@roychri/mcp-server-asana");
     const installRoot = dir("asana");
-    mockExistsSync.mock.mockImplementation(
-      (p: string) => p === installPkgJson || p === installRoot,
-    );
+    mockExistsSync.mockImplementation((p: string) => p === installPkgJson || p === installRoot);
     let firstRead = true;
-    mockReadFileSync.mock.mockImplementation(() => {
+    mockReadFileSync.mockImplementation(() => {
       if (firstRead) {
         firstRead = false;
         return "{ not json";
@@ -210,26 +203,26 @@ describe("ensureInstalled", () => {
     await ensureInstalled("asana", "@roychri/mcp-server-asana", "1.8.0", makeDeps());
 
     assert.equal(
-      mockExecFileSync.mock.callCount(),
+      mockExecFileSync.mock.calls.length,
       1,
       "malformed pkg-json should trigger reinstall",
     );
   });
 
   it("performs a fresh install when no existing directory", async () => {
-    mockExistsSync.mock.mockImplementation(() => false);
-    mockReadFileSync.mock.mockImplementation(() =>
+    mockExistsSync.mockImplementation(() => false);
+    mockReadFileSync.mockImplementation(() =>
       JSON.stringify({ version: "1.8.0", bin: "dist/index.js" }),
     );
 
     await ensureInstalled("asana", "@roychri/mcp-server-asana", "1.8.0", makeDeps());
 
-    assert.equal(mockRmSync.mock.callCount(), 0, "no wipe when no existing dir");
-    assert.equal(mockExecFileSync.mock.callCount(), 1);
+    assert.equal(mockRmSync.mock.calls.length, 0, "no wipe when no existing dir");
+    assert.equal(mockExecFileSync.mock.calls.length, 1);
   });
 
   it("propagates install failure from npm with the captured stderr", async () => {
-    mockExistsSync.mock.mockImplementation(() => false);
+    mockExistsSync.mockImplementation(() => false);
     class NpmError extends Error {
       stderr: Buffer;
       constructor(message: string, stderr: Buffer) {
@@ -237,7 +230,7 @@ describe("ensureInstalled", () => {
         this.stderr = stderr;
       }
     }
-    mockExecFileSync.mock.mockImplementation(() => {
+    mockExecFileSync.mockImplementation(() => {
       throw new NpmError(
         "Command failed: npm install ...",
         Buffer.from("npm ERR! 404 Not Found - GET https://registry.npmjs.org/..."),

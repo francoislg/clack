@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { notifyOwnerOfQuarantine, type QuarantineNotifierDeps } from "./quarantineNotifier.js";
 import type { QuarantineEvent } from "./reusablePool.js";

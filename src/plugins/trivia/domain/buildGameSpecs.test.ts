@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { buildGameSpecs } from "./buildGameSpecs.js";
 import type { TriviaGame } from "../core/configTypes.js";

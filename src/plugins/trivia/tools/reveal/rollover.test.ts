@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { pickSeasonMvp, deriveNextMonthSlug, applySeasonRollover } from "./rollover.js";
 import type { LeaderboardEntry } from "../../domain/computeLeaderboard.js";

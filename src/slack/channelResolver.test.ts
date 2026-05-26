@@ -1,4 +1,4 @@
-import { describe, it, mock } from "node:test";
+import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import {
   isChannelId,
@@ -171,7 +171,7 @@ describe("resolveChannelId", () => {
   });
 
   it("rejects a user ID that does not match ctx.userId", async () => {
-    const openSpy = mock.fn(async (_args: { users: string }) => ({
+    const openSpy = vi.fn(async (_args: { users: string }) => ({
       channel: { id: "DXXX" },
     }));
     const client: ChannelResolverClient = {
@@ -183,7 +183,7 @@ describe("resolveChannelId", () => {
     const result = await resolveChannelId(buildCtx(client, "U123"), "U999");
     assert.equal(result.ok, false);
     if (!result.ok) assert.match(result.error, /can only DM the requesting user/);
-    assert.equal(openSpy.mock.callCount(), 0);
+    assert.equal(openSpy.mock.calls.length, 0);
   });
 
   it("returns error when opening the self-DM fails", async () => {

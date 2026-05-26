@@ -1,4 +1,4 @@
-import { describe, it, beforeEach } from "node:test";
+import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import type { ChangeSession, ChangeStatus, PersistedSessionState } from "./types.js";

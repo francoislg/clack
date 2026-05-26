@@ -1,4 +1,4 @@
-import { describe, it, mock } from "node:test";
+import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -56,6 +56,7 @@ describe("ClackSdk", () => {
       updateJob: deps?.updateJob,
       deleteJob: deps?.deleteJob,
       clackQuery: deps?.clackQuery ?? (() => emptyClackQuery()),
+      capabilities: deps?.capabilities,
     };
     return createClackSdk(pluginName, dataDir, fullDeps);
   }
@@ -201,22 +202,7 @@ describe("ClackSdk", () => {
       assert.equal(result.toolMappings.get("test_tool"), "Running test tool {input}");
     });
 
-    it("records integration when options.integration is set", () => {
-      const { sdk, harvest } = makeSdk("trivia");
-      const gated = tool(
-        "gated_tool",
-        "An integration-gated tool",
-        { input: z.string().optional() },
-        async () => ({ content: [{ type: "text" as const, text: "ok" }] }),
-      );
-      sdk.registerTool("admin", gated, "Gated label", { integration: "foo" });
-      const result = harvest();
-      assert.equal(result.tools.length, 1);
-      assert.equal(result.tools[0].integration, "foo");
-      assert.equal(result.tools[0].minRole, "admin");
-    });
-
-    it("leaves integration undefined when options are omitted", () => {
+    it("defaults serverKey to undefined for shorthand registerTool", () => {
       const { sdk, harvest } = makeSdk("trivia");
       const open = tool(
         "open_tool",
@@ -226,60 +212,117 @@ describe("ClackSdk", () => {
       );
       sdk.registerTool("admin", open, "Open label");
       const result = harvest();
-      assert.equal(result.tools[0].integration, undefined);
-    });
-
-    it("registers mapping identically whether or not options are passed", () => {
-      const { sdk, harvest } = makeSdk("trivia");
-      const a = tool("a_tool", "", { x: z.string().optional() }, async () => ({
-        content: [{ type: "text" as const, text: "ok" }],
-      }));
-      const b = tool("b_tool", "", { x: z.string().optional() }, async () => ({
-        content: [{ type: "text" as const, text: "ok" }],
-      }));
-      sdk.registerTool("admin", a, "Same label");
-      sdk.registerTool("admin", b, "Same label", { integration: "foo" });
-      const result = harvest();
-      assert.equal(result.toolMappings.get("a_tool"), "Same label");
-      assert.equal(result.toolMappings.get("b_tool"), "Same label");
+      assert.equal(result.tools[0].serverKey, undefined);
     });
   });
 
-  describe("integration registration", () => {
-    it("records an integration with name + description and alwaysLoad default false", () => {
+  describe("MCP server handles (registerMcpServer)", () => {
+    it("exposes an implicit default mcpServer named after the plugin", () => {
+      const { sdk } = makeSdk("trivia");
+      assert.ok(sdk.mcpServer, "default mcpServer handle should exist");
+      assert.equal(sdk.mcpServer.fullName, "trivia");
+    });
+
+    it("registerMcpServer returns a handle and records the spec", () => {
       const { sdk, harvest } = makeSdk("trivia");
-      sdk.registerIntegration("trivia:management", {
+      const handle = sdk.registerMcpServer("management", {
+        autoload: false,
         description: "Manage trivia games and seasons.",
       });
+      assert.equal(handle.fullName, "trivia:management");
       const result = harvest();
-      assert.equal(result.integrations.length, 1);
-      assert.equal(result.integrations[0].name, "trivia:management");
-      assert.equal(result.integrations[0].description, "Manage trivia games and seasons.");
-      assert.equal(result.integrations[0].alwaysLoad, false);
-    });
-
-    it("honors alwaysLoad when explicitly set", () => {
-      const { sdk, harvest } = makeSdk("trivia");
-      sdk.registerIntegration("trivia:management", {
-        description: "x",
-        alwaysLoad: true,
+      assert.equal(result.mcpServers.length, 1);
+      assert.deepEqual(result.mcpServers[0], {
+        key: "management",
+        fullName: "trivia:management",
+        autoload: false,
+        description: "Manage trivia games and seasons.",
       });
-      const result = harvest();
-      assert.equal(result.integrations[0].alwaysLoad, true);
     });
 
-    it("appends a second entry on duplicate name (de-dup is resolver behavior, not SDK)", () => {
+    it("autoload defaults to false when omitted", () => {
       const { sdk, harvest } = makeSdk("trivia");
-      sdk.registerIntegration("trivia:management", { description: "first" });
-      sdk.registerIntegration("trivia:management", { description: "second" });
+      sdk.registerMcpServer("management", { description: "x" });
       const result = harvest();
-      assert.equal(result.integrations.length, 2);
+      assert.equal(result.mcpServers[0].autoload, false);
     });
 
-    it("harvest returns empty integrations array when none are registered", () => {
+    it("autoload: true is preserved", () => {
+      const { sdk, harvest } = makeSdk("trivia");
+      sdk.registerMcpServer("eager", { autoload: true, description: "x" });
+      const result = harvest();
+      assert.equal(result.mcpServers[0].autoload, true);
+    });
+
+    it("rejects names containing ':'", () => {
+      const { sdk } = makeSdk("trivia");
+      assert.throws(
+        () => sdk.registerMcpServer("trivia:management", { description: "x" }),
+        /must not contain ':'/,
+      );
+    });
+
+    it("rejects empty names", () => {
+      const { sdk } = makeSdk("trivia");
+      assert.throws(() => sdk.registerMcpServer("", { description: "x" }), /non-empty name/);
+    });
+
+    it("rejects duplicate names within the same plugin", () => {
+      const { sdk } = makeSdk("trivia");
+      sdk.registerMcpServer("management", { description: "first" });
+      assert.throws(
+        () => sdk.registerMcpServer("management", { description: "second" }),
+        /called twice/,
+      );
+    });
+
+    it("handle.registerTool records the tool with the right serverKey", () => {
+      const { sdk, harvest } = makeSdk("trivia");
+      const handle = sdk.registerMcpServer("management", { description: "x" });
+      const t = tool("upsert_season", "Upsert a season", { slug: z.string() }, async () => ({
+        content: [{ type: "text" as const, text: "ok" }],
+      }));
+      handle.registerTool("admin", t, "Upserting season — {slug}");
+      const result = harvest();
+      assert.equal(result.tools.length, 1);
+      assert.equal(result.tools[0].name, "upsert_season");
+      assert.equal(result.tools[0].minRole, "admin");
+      assert.equal(result.tools[0].serverKey, "management");
+      assert.equal(result.toolMappings.get("upsert_season"), "Upserting season — {slug}");
+    });
+
+    it("sdk.mcpServer.registerTool records the tool with no serverKey", () => {
+      const { sdk, harvest } = makeSdk("trivia");
+      const t = tool("list_games", "List games", {}, async () => ({
+        content: [{ type: "text" as const, text: "ok" }],
+      }));
+      sdk.mcpServer.registerTool("admin", t, "Listing games");
+      const result = harvest();
+      assert.equal(result.tools[0].serverKey, undefined);
+    });
+
+    it("handle.addTopicInstruction stores the file under topics/<fullName>/", () => {
+      const { sdk, harvest } = makeSdk("trivia");
+      const handle = sdk.registerMcpServer("management", { description: "x" });
+      handle.addTopicInstruction("admin", "manage", "...content...");
+      const result = harvest();
+      assert.equal(result.instructions.length, 1);
+      assert.equal(result.instructions[0].filename, "topics/trivia:management/trivia__manage.md");
+      assert.equal(result.instructions[0].role, "admin");
+      assert.equal(result.instructions[0].content, "...content...");
+    });
+
+    it("default mcpServer.addTopicInstruction stores under topics/<plugin>/", () => {
+      const { sdk, harvest } = makeSdk("trivia");
+      sdk.mcpServer.addTopicInstruction("admin", "persona", "tone content");
+      const result = harvest();
+      assert.equal(result.instructions[0].filename, "topics/trivia/trivia__persona.md");
+    });
+
+    it("harvest returns empty mcpServers array when none are registered", () => {
       const { harvest } = makeSdk("trivia");
       const result = harvest();
-      assert.deepEqual(result.integrations, []);
+      assert.deepEqual(result.mcpServers, []);
     });
   });
 
@@ -315,7 +358,7 @@ describe("ClackSdk", () => {
   describe("dmOwner", () => {
     it("posts to the resolved DM channel for the configured owner", async () => {
       const client = new WebClient();
-      const postSpy = mock.method(client.chat, "postMessage", async () => ({
+      const postSpy = vi.spyOn(client.chat, "postMessage").mockImplementation(async () => ({
         ok: true,
         ts: "123.456",
       }));
@@ -328,8 +371,8 @@ describe("ClackSdk", () => {
       const result = await sdk.dmOwner("Hello owner");
 
       assert.deepEqual(result, { ok: true });
-      assert.equal(postSpy.mock.callCount(), 1);
-      const args = postSpy.mock.calls[0].arguments[0];
+      assert.equal(postSpy.mock.calls.length, 1);
+      const args = postSpy.mock.calls[0][0];
       assert.equal(args?.channel, "D_OWNER");
       const text = args && "text" in args ? (args.text ?? "") : "";
       assert.equal(text, "Hello owner");
@@ -344,7 +387,9 @@ describe("ClackSdk", () => {
 
     it("fails cleanly when no owner is configured", async () => {
       const client = new WebClient();
-      const postSpy = mock.method(client.chat, "postMessage", async () => ({ ok: true }));
+      const postSpy = vi
+        .spyOn(client.chat, "postMessage")
+        .mockImplementation(async () => ({ ok: true }));
       const { sdk } = makeSdk("trivia", {
         getSlackClient: () => client,
         loadRoles: async () => EMPTY_ROLES,
@@ -352,12 +397,14 @@ describe("ClackSdk", () => {
       const result = await sdk.dmOwner("hi");
       assert.equal(result.ok, false);
       if (!result.ok) assert.match(result.error, /No owner is configured/);
-      assert.equal(postSpy.mock.callCount(), 0);
+      assert.equal(postSpy.mock.calls.length, 0);
     });
 
     it("fails cleanly when the DM channel cannot be opened", async () => {
       const client = new WebClient();
-      const postSpy = mock.method(client.chat, "postMessage", async () => ({ ok: true }));
+      const postSpy = vi
+        .spyOn(client.chat, "postMessage")
+        .mockImplementation(async () => ({ ok: true }));
       const { sdk } = makeSdk("trivia", {
         getSlackClient: () => client,
         loadRoles: async () => ({ owner: "U_OWNER", admins: [], devs: [] }),
@@ -366,12 +413,12 @@ describe("ClackSdk", () => {
       const result = await sdk.dmOwner("hi");
       assert.equal(result.ok, false);
       if (!result.ok) assert.match(result.error, /Could not open a DM/);
-      assert.equal(postSpy.mock.callCount(), 0);
+      assert.equal(postSpy.mock.calls.length, 0);
     });
 
     it("returns the error string when chat.postMessage throws", async () => {
       const client = new WebClient();
-      mock.method(client.chat, "postMessage", async () => {
+      vi.spyOn(client.chat, "postMessage").mockImplementation(async () => {
         throw new Error("channel_not_found");
       });
       const { sdk } = makeSdk("trivia", {
@@ -386,7 +433,7 @@ describe("ClackSdk", () => {
 
     it("omits unfurl flags when suppressUnfurls is not set", async () => {
       const client = new WebClient();
-      const postSpy = mock.method(client.chat, "postMessage", async () => ({
+      const postSpy = vi.spyOn(client.chat, "postMessage").mockImplementation(async () => ({
         ok: true,
         ts: "1.0",
       }));
@@ -398,7 +445,7 @@ describe("ClackSdk", () => {
 
       await sdk.dmOwner("hi");
 
-      const args = postSpy.mock.calls[0].arguments[0];
+      const args = postSpy.mock.calls[0][0];
       assert.ok(args);
       assert.equal("unfurl_links" in args, false);
       assert.equal("unfurl_media" in args, false);
@@ -406,7 +453,7 @@ describe("ClackSdk", () => {
 
     it("sets unfurl_links and unfurl_media to false when suppressUnfurls is true", async () => {
       const client = new WebClient();
-      const postSpy = mock.method(client.chat, "postMessage", async () => ({
+      const postSpy = vi.spyOn(client.chat, "postMessage").mockImplementation(async () => ({
         ok: true,
         ts: "1.0",
       }));
@@ -418,7 +465,7 @@ describe("ClackSdk", () => {
 
       await sdk.dmOwner("hi", { suppressUnfurls: true });
 
-      const args = postSpy.mock.calls[0].arguments[0];
+      const args = postSpy.mock.calls[0][0];
       assert.ok(args && "unfurl_links" in args);
       assert.equal(args.unfurl_links, false);
       assert.ok(args && "unfurl_media" in args);
@@ -1111,6 +1158,55 @@ describe("ClackSdk", () => {
 
       assert.equal(out.stopReason, "error_max_turns");
       assert.equal(out.text, "partial");
+    });
+  });
+
+  describe("capabilities", () => {
+    it("defaults to crons: true when deps does not provide capabilities", () => {
+      const { sdk } = makeSdk();
+      assert.equal(sdk.capabilities.crons, true);
+    });
+
+    it("reflects crons: false when deps.capabilities.crons is false", () => {
+      const { sdk } = makeSdk("p", { capabilities: { crons: false } });
+      assert.equal(sdk.capabilities.crons, false);
+    });
+
+    it("reflects crons: true when deps.capabilities.crons is true", () => {
+      const { sdk } = makeSdk("p", { capabilities: { crons: true } });
+      assert.equal(sdk.capabilities.crons, true);
+    });
+  });
+
+  describe("sdk.error", () => {
+    it("appends a single reason to errors[]", () => {
+      const { sdk, harvest } = makeSdk();
+      sdk.error("crons are disabled");
+      const result = harvest();
+      assert.deepEqual(result.errors, ["crons are disabled"]);
+    });
+
+    it("accumulates multiple errors in call order", () => {
+      const { sdk, harvest } = makeSdk();
+      sdk.error("reason A");
+      sdk.error("reason B");
+      const result = harvest();
+      assert.deepEqual(result.errors, ["reason A", "reason B"]);
+    });
+
+    it("does not throw; plugin may continue and register tools after calling error", () => {
+      const { sdk, harvest } = makeSdk();
+      sdk.error("partial-failure reason");
+      sdk.addInstruction("user", "instructions", "still useful");
+      const result = harvest();
+      assert.equal(result.errors.length, 1);
+      assert.equal(result.instructions.length, 1);
+    });
+
+    it("returns an empty errors[] when never called", () => {
+      const { harvest } = makeSdk();
+      const result = harvest();
+      assert.deepEqual(result.errors, []);
     });
   });
 });

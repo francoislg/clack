@@ -1,4 +1,4 @@
-import { describe, it, mock } from "node:test";
+import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import {
   createProposeSkillDisableTool,
@@ -32,7 +32,7 @@ function makeCtx(role: QueryToolContext["role"], userId = "U_OWNER"): QueryToolC
     session: { sessionId: "S" } as QueryToolContext["session"],
     config: { userSkills: { enabled: true } } as Config,
     changesWorkflowEnabled: false,
-    allowScheduledMessages: false,
+    cronUserSchedules: false,
   };
 }
 
@@ -48,7 +48,7 @@ function callDisable(ctx: QueryToolContext, deps: ProposeSkillDisableDeps, args:
 
 describe("propose_skill_disable", () => {
   it("owner can stage disable", async () => {
-    const deps: ProposeSkillDisableDeps = { readUserSkill: mock.fn(() => makeSkill()) };
+    const deps: ProposeSkillDisableDeps = { readUserSkill: vi.fn(() => makeSkill()) };
     const { result, intentStore } = await callDisable(makeCtx("member", "U_OWNER"), deps, {
       name: "foo",
     });
@@ -58,7 +58,7 @@ describe("propose_skill_disable", () => {
   });
 
   it("admin can disable any", async () => {
-    const deps: ProposeSkillDisableDeps = { readUserSkill: mock.fn(() => makeSkill()) };
+    const deps: ProposeSkillDisableDeps = { readUserSkill: vi.fn(() => makeSkill()) };
     const { result } = await callDisable(makeCtx("admin", "U_ADMIN"), deps, {
       name: "foo",
     });
@@ -67,7 +67,7 @@ describe("propose_skill_disable", () => {
   });
 
   it("non-owner rejected", async () => {
-    const deps: ProposeSkillDisableDeps = { readUserSkill: mock.fn(() => makeSkill()) };
+    const deps: ProposeSkillDisableDeps = { readUserSkill: vi.fn(() => makeSkill()) };
     const { result } = await callDisable(makeCtx("member", "U_OTHER"), deps, {
       name: "foo",
     });
@@ -75,14 +75,14 @@ describe("propose_skill_disable", () => {
   });
 
   it("rejects unknown slug", async () => {
-    const deps: ProposeSkillDisableDeps = { readUserSkill: mock.fn(() => null) };
+    const deps: ProposeSkillDisableDeps = { readUserSkill: vi.fn(() => null) };
     const { result } = await callDisable(makeCtx("admin"), deps, { name: "ghost" });
     assert.match(toolResultText(result), /not found/);
   });
 
   it("rejects already-disabled", async () => {
     const deps: ProposeSkillDisableDeps = {
-      readUserSkill: mock.fn(() => makeSkill({ disabledAt: "x" })),
+      readUserSkill: vi.fn(() => makeSkill({ disabledAt: "x" })),
     };
     const { result } = await callDisable(makeCtx("admin"), deps, { name: "foo" });
     assert.match(toolResultText(result), /already disabled/);
@@ -91,7 +91,7 @@ describe("propose_skill_disable", () => {
   it("rejects when feature disabled", async () => {
     const ctx = makeCtx("admin");
     const ctxOff: QueryToolContext = { ...ctx, config: {} as Config };
-    const deps: ProposeSkillDisableDeps = { readUserSkill: mock.fn(() => makeSkill()) };
+    const deps: ProposeSkillDisableDeps = { readUserSkill: vi.fn(() => makeSkill()) };
     const { result } = await callDisable(ctxOff, deps, { name: "foo" });
     assert.match(toolResultText(result), /not enabled/);
   });
@@ -110,7 +110,7 @@ function callRestore(ctx: QueryToolContext, deps: ProposeSkillRestoreDeps, args:
 describe("propose_skill_restore", () => {
   it("owner can stage restore on their disabled skill", async () => {
     const deps: ProposeSkillRestoreDeps = {
-      readUserSkill: mock.fn(() => makeSkill({ disabledAt: "x" })),
+      readUserSkill: vi.fn(() => makeSkill({ disabledAt: "x" })),
     };
     const { result, intentStore } = await callRestore(makeCtx("member", "U_OWNER"), deps, {
       name: "foo",
@@ -121,20 +121,20 @@ describe("propose_skill_restore", () => {
   });
 
   it("rejects when skill is not disabled", async () => {
-    const deps: ProposeSkillRestoreDeps = { readUserSkill: mock.fn(() => makeSkill()) };
+    const deps: ProposeSkillRestoreDeps = { readUserSkill: vi.fn(() => makeSkill()) };
     const { result } = await callRestore(makeCtx("admin"), deps, { name: "foo" });
     assert.match(toolResultText(result), /not disabled/);
   });
 
   it("rejects unknown slug", async () => {
-    const deps: ProposeSkillRestoreDeps = { readUserSkill: mock.fn(() => null) };
+    const deps: ProposeSkillRestoreDeps = { readUserSkill: vi.fn(() => null) };
     const { result } = await callRestore(makeCtx("admin"), deps, { name: "ghost" });
     assert.match(toolResultText(result), /not found/);
   });
 
   it("non-owner rejected", async () => {
     const deps: ProposeSkillRestoreDeps = {
-      readUserSkill: mock.fn(() => makeSkill({ disabledAt: "x" })),
+      readUserSkill: vi.fn(() => makeSkill({ disabledAt: "x" })),
     };
     const { result } = await callRestore(makeCtx("member", "U_OTHER"), deps, {
       name: "foo",

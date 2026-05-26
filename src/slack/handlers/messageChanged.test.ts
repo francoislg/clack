@@ -1,4 +1,4 @@
-import { describe, it, mock, beforeEach } from "node:test";
+import { describe, it, vi, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
 import type { SessionContext } from "../../sessions.js";
@@ -9,18 +9,16 @@ import { registerMessageChangedHandler, type MessageChangedDeps } from "./messag
 type ProcessMessageFn = MessageChangedDeps["processMessage"];
 type ConfigShape = ReturnType<MessageChangedDeps["getConfig"]>;
 
-const mockProcessMessage = mock.fn<ProcessMessageFn>(
+const mockProcessMessage = vi.fn<ProcessMessageFn>(
   async (): Promise<ClaudeResponse> => ({
     success: true,
     answer: "",
   }),
 );
-const mockGetActiveRun = mock.fn<MessageChangedDeps["getActiveRunForChannelMessage"]>(
+const mockGetActiveRun = vi.fn<MessageChangedDeps["getActiveRunForChannelMessage"]>(
   () => undefined,
 );
-const mockFindSessionByThread = mock.fn<MessageChangedDeps["findSessionByThread"]>(
-  async () => null,
-);
+const mockFindSessionByThread = vi.fn<MessageChangedDeps["findSessionByThread"]>(async () => null);
 
 const fakeConfig: ConfigShape = {
   directMessages: { enabled: true },
@@ -65,11 +63,11 @@ function makeSession(triggerType: SessionContext["triggerType"]): SessionContext
 }
 
 beforeEach(() => {
-  mockProcessMessage.mock.resetCalls();
-  mockGetActiveRun.mock.resetCalls();
-  mockGetActiveRun.mock.mockImplementation(() => undefined);
-  mockFindSessionByThread.mock.resetCalls();
-  mockFindSessionByThread.mock.mockImplementation(async () => null);
+  mockProcessMessage.mockClear();
+  mockGetActiveRun.mockClear();
+  mockGetActiveRun.mockImplementation(() => undefined);
+  mockFindSessionByThread.mockClear();
+  mockFindSessionByThread.mockImplementation(async () => null);
 
   registerMessageChangedHandler(fakeApp, makeDeps());
 });
@@ -88,7 +86,7 @@ describe("registerMessageChangedHandler", () => {
       event: { subtype: undefined, channel: "C001" },
       client: makeClient(),
     });
-    assert.equal(mockGetActiveRun.mock.callCount(), 0);
+    assert.equal(mockGetActiveRun.mock.calls.length, 0);
   });
 
   it("ignores message_changed when messageTs is missing", async () => {
@@ -96,7 +94,7 @@ describe("registerMessageChangedHandler", () => {
       event: { subtype: "message_changed", channel: "C001", message: { text: "new text" } },
       client: makeClient(),
     });
-    assert.equal(mockGetActiveRun.mock.callCount(), 0);
+    assert.equal(mockGetActiveRun.mock.calls.length, 0);
   });
 
   it("ignores when text has not changed (metadata-only update)", async () => {
@@ -109,7 +107,7 @@ describe("registerMessageChangedHandler", () => {
       },
       client: makeClient(),
     });
-    assert.equal(mockGetActiveRun.mock.callCount(), 0);
+    assert.equal(mockGetActiveRun.mock.calls.length, 0);
   });
 
   it("ignores when no active run exists for the thread", async () => {
@@ -122,14 +120,14 @@ describe("registerMessageChangedHandler", () => {
       },
       client: makeClient(),
     });
-    assert.equal(mockGetActiveRun.mock.callCount(), 1);
-    assert.equal(mockProcessMessage.mock.callCount(), 0);
+    assert.equal(mockGetActiveRun.mock.calls.length, 1);
+    assert.equal(mockProcessMessage.mock.calls.length, 0);
   });
 
   it("appends edited mention text onto the live run via sendUpdate", async () => {
     const handle = makeFakeRunHandle();
-    mockGetActiveRun.mock.mockImplementation(() => handle);
-    mockFindSessionByThread.mock.mockImplementation(async () => makeSession("mentions"));
+    mockGetActiveRun.mockImplementation(() => handle);
+    mockFindSessionByThread.mockImplementation(async () => makeSession("mentions"));
 
     await capturedHandler({
       event: {
@@ -143,13 +141,13 @@ describe("registerMessageChangedHandler", () => {
 
     assert.deepEqual(handle.sendUpdateCalls, ["updated question"]);
     assert.deepEqual(handle.stopCalls, []);
-    assert.equal(mockProcessMessage.mock.callCount(), 0);
+    assert.equal(mockProcessMessage.mock.calls.length, 0);
   });
 
   it("does not append for mentions when bot mention is removed", async () => {
     const handle = makeFakeRunHandle();
-    mockGetActiveRun.mock.mockImplementation(() => handle);
-    mockFindSessionByThread.mock.mockImplementation(async () => makeSession("mentions"));
+    mockGetActiveRun.mockImplementation(() => handle);
+    mockFindSessionByThread.mockImplementation(async () => makeSession("mentions"));
 
     await capturedHandler({
       event: {
@@ -167,8 +165,8 @@ describe("registerMessageChangedHandler", () => {
 
   it("appends edited DM text onto the live run via sendUpdate", async () => {
     const handle = makeFakeRunHandle();
-    mockGetActiveRun.mock.mockImplementation(() => handle);
-    mockFindSessionByThread.mock.mockImplementation(async () => makeSession("directMessages"));
+    mockGetActiveRun.mockImplementation(() => handle);
+    mockFindSessionByThread.mockImplementation(async () => makeSession("directMessages"));
 
     await capturedHandler({
       event: {
@@ -182,12 +180,12 @@ describe("registerMessageChangedHandler", () => {
 
     assert.deepEqual(handle.sendUpdateCalls, ["edited DM"]);
     assert.deepEqual(handle.stopCalls, []);
-    assert.equal(mockProcessMessage.mock.callCount(), 0);
+    assert.equal(mockProcessMessage.mock.calls.length, 0);
   });
 
   it("ignores already-settled handles", async () => {
     const handle = makeFakeRunHandle("settled");
-    mockGetActiveRun.mock.mockImplementation(() => handle);
+    mockGetActiveRun.mockImplementation(() => handle);
 
     await capturedHandler({
       event: {

@@ -1,4 +1,4 @@
-import { describe, it, mock } from "node:test";
+import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import { createGitPushTool, type GitPushDeps } from "./gitPush.js";
 import type { WorkerToolContext } from "../types.js";
@@ -38,23 +38,23 @@ interface MakeDepsOptions {
 }
 
 function makeDeps(opts: MakeDepsOptions = {}) {
-  const mockRemote = mock.fn<(args: string[]) => Promise<void>>(async () => undefined);
-  const mockPush = mock.fn<(args: string[]) => Promise<void>>(async () => undefined);
-  const mockGetAuthenticatedCloneUrl = mock.fn<GitPushDeps["getAuthenticatedCloneUrl"]>(
+  const mockRemote = vi.fn<(args: string[]) => Promise<void>>(async () => undefined);
+  const mockPush = vi.fn<(args: string[]) => Promise<void>>(async () => undefined);
+  const mockGetAuthenticatedCloneUrl = vi.fn<GitPushDeps["getAuthenticatedCloneUrl"]>(
     async () => "https://x-access-token:tok@github.com/org/my-repo.git",
   );
-  const mockAppendExecutionLog = mock.fn<GitPushDeps["appendExecutionLog"]>();
-  const mockSimpleGit = mock.fn<GitPushDeps["simpleGit"]>(() => ({
+  const mockAppendExecutionLog = vi.fn<GitPushDeps["appendExecutionLog"]>();
+  const mockSimpleGit = vi.fn<GitPushDeps["simpleGit"]>(() => ({
     remote: mockRemote,
     push: mockPush,
   }));
-  const mockLoadConfig = mock.fn<GitPushDeps["loadVerificationConfig"]>(
+  const mockLoadConfig = vi.fn<GitPushDeps["loadVerificationConfig"]>(
     () => opts.verificationConfig ?? null,
   );
-  const mockRunChecks = mock.fn<GitPushDeps["runVerificationChecks"]>(
+  const mockRunChecks = vi.fn<GitPushDeps["runVerificationChecks"]>(
     async () => opts.gateResult ?? { result: "pass", checks: [] },
   );
-  const mockGetActiveChange = mock.fn<GitPushDeps["getActiveChange"]>(() => opts.activeChange);
+  const mockGetActiveChange = vi.fn<GitPushDeps["getActiveChange"]>(() => opts.activeChange);
 
   const deps: GitPushDeps = {
     getAuthenticatedCloneUrl: mockGetAuthenticatedCloneUrl,
@@ -101,8 +101,8 @@ describe("gitPush tool", () => {
     await toolDef.handler({ _placeholder: undefined }, { sessionId: "test" });
 
     // Verify remote set-url was called
-    assert.equal(mockRemote.mock.callCount(), 1);
-    const remoteArgs = mockRemote.mock.calls[0]!.arguments[0] as string[];
+    assert.equal(mockRemote.mock.calls.length, 1);
+    const remoteArgs = mockRemote.mock.calls[0]![0] as string[];
     assert.deepEqual(remoteArgs, [
       "set-url",
       "origin",
@@ -110,8 +110,8 @@ describe("gitPush tool", () => {
     ]);
 
     // Verify push was called with correct args
-    assert.equal(mockPush.mock.callCount(), 1);
-    const pushArgs = mockPush.mock.calls[0]!.arguments[0] as string[];
+    assert.equal(mockPush.mock.calls.length, 1);
+    const pushArgs = mockPush.mock.calls[0]![0] as string[];
     assert.deepEqual(pushArgs, ["-u", "origin", ctx.branchName]);
   });
 
@@ -121,8 +121,8 @@ describe("gitPush tool", () => {
     const toolDef = createGitPushTool(ctx, deps);
     await toolDef.handler({ _placeholder: undefined }, { sessionId: "test" });
 
-    assert.equal(mockGetAuthenticatedCloneUrl.mock.callCount(), 1);
-    const arg = mockGetAuthenticatedCloneUrl.mock.calls[0]!.arguments[0];
+    assert.equal(mockGetAuthenticatedCloneUrl.mock.calls.length, 1);
+    const arg = mockGetAuthenticatedCloneUrl.mock.calls[0]![0];
     assert.equal(arg, "https://github.com/acme/widgets.git");
   });
 
@@ -132,8 +132,8 @@ describe("gitPush tool", () => {
     const toolDef = createGitPushTool(ctx, deps);
     await toolDef.handler({ _placeholder: undefined }, { sessionId: "test" });
 
-    assert.equal(mockAppendExecutionLog.mock.callCount(), 1);
-    const logArgs = mockAppendExecutionLog.mock.calls[0]!.arguments as [string, string];
+    assert.equal(mockAppendExecutionLog.mock.calls.length, 1);
+    const logArgs = mockAppendExecutionLog.mock.calls[0]! as [string, string];
     assert.equal(logArgs[0], ctx.branchName);
     assert.ok(logArgs[1].includes("git_push"));
     assert.ok(logArgs[1].includes("success"));
@@ -141,7 +141,7 @@ describe("gitPush tool", () => {
 
   it("returns error when push fails", async () => {
     const { deps, mockPush } = makeDeps();
-    mockPush.mock.mockImplementation(async () => {
+    mockPush.mockImplementation(async () => {
       throw new Error("Authentication failed");
     });
 
@@ -157,7 +157,7 @@ describe("gitPush tool", () => {
 
   it("logs failure on push error", async () => {
     const { deps, mockPush, mockAppendExecutionLog } = makeDeps();
-    mockPush.mock.mockImplementation(async () => {
+    mockPush.mockImplementation(async () => {
       throw new Error("hook failed");
     });
 
@@ -165,8 +165,8 @@ describe("gitPush tool", () => {
     const toolDef = createGitPushTool(ctx, deps);
     await toolDef.handler({ _placeholder: undefined }, { sessionId: "test" });
 
-    assert.equal(mockAppendExecutionLog.mock.callCount(), 1);
-    const logArgs = mockAppendExecutionLog.mock.calls[0]!.arguments as [string, string];
+    assert.equal(mockAppendExecutionLog.mock.calls.length, 1);
+    const logArgs = mockAppendExecutionLog.mock.calls[0]! as [string, string];
     assert.equal(logArgs[0], ctx.branchName);
     assert.ok(logArgs[1].includes("git_push"));
     assert.ok(logArgs[1].includes("failed"));
@@ -174,7 +174,7 @@ describe("gitPush tool", () => {
 
   it("returns error when getAuthenticatedCloneUrl fails", async () => {
     const { deps, mockGetAuthenticatedCloneUrl } = makeDeps();
-    mockGetAuthenticatedCloneUrl.mock.mockImplementation(async () => {
+    mockGetAuthenticatedCloneUrl.mockImplementation(async () => {
       throw new Error("Token expired");
     });
 
@@ -210,8 +210,8 @@ describe("gitPush verification gate", () => {
 
     const parsed = parseToolResult(result);
     assert.equal(parsed.success, true);
-    assert.equal(mockRunChecks.mock.callCount(), 0);
-    assert.equal(mockPush.mock.callCount(), 1);
+    assert.equal(mockRunChecks.mock.calls.length, 0);
+    assert.equal(mockPush.mock.calls.length, 1);
   });
 
   it("does not run checks when config has an empty checks array", async () => {
@@ -223,8 +223,8 @@ describe("gitPush verification gate", () => {
 
     const parsed = parseToolResult(result);
     assert.equal(parsed.success, true);
-    assert.equal(mockRunChecks.mock.callCount(), 0);
-    assert.equal(mockPush.mock.callCount(), 1);
+    assert.equal(mockRunChecks.mock.calls.length, 0);
+    assert.equal(mockPush.mock.calls.length, 1);
   });
 
   it("pushes when gate passes", async () => {
@@ -240,8 +240,8 @@ describe("gitPush verification gate", () => {
 
     const parsed = parseToolResult(result);
     assert.equal(parsed.success, true);
-    assert.equal(mockRunChecks.mock.callCount(), 1);
-    assert.equal(mockPush.mock.callCount(), 1);
+    assert.equal(mockRunChecks.mock.calls.length, 1);
+    assert.equal(mockPush.mock.calls.length, 1);
   });
 
   it("returns failure and does not push when gate fails within budget", async () => {
@@ -273,7 +273,7 @@ describe("gitPush verification gate", () => {
     assert.ok(parsed.error.includes("typecheck"));
     assert.ok(parsed.error.includes("some error"));
     assert.ok(parsed.error.includes("2 retry attempts remaining"));
-    assert.equal(mockPush.mock.callCount(), 0);
+    assert.equal(mockPush.mock.calls.length, 0);
     assert.equal(active.verificationAttempts, 1);
   });
 
@@ -305,7 +305,7 @@ describe("gitPush verification gate", () => {
     assert.equal(result.isError, true);
     assert.ok(parsed.error.includes("budget exhausted"));
     assert.ok(parsed.error.includes("Do not attempt git_push again"));
-    assert.equal(mockPush.mock.callCount(), 0);
+    assert.equal(mockPush.mock.calls.length, 0);
     assert.equal(active.verificationAttempts, 3);
   });
 
@@ -317,7 +317,7 @@ describe("gitPush verification gate", () => {
       },
       gateResult: { result: "pass", checks: [] },
     });
-    mockPush.mock.mockImplementation(async () => {
+    mockPush.mockImplementation(async () => {
       throw new Error("remote rejected");
     });
     const toolDef = createGitPushTool(makeCtx(), deps);
@@ -345,8 +345,8 @@ describe("gitPush verification gate", () => {
     const toolDef = createGitPushTool(ctx, deps);
     await toolDef.handler({ _placeholder: undefined }, { sessionId: "test" });
 
-    assert.equal(mockRunChecks.mock.callCount(), 1);
-    const call = mockRunChecks.mock.calls[0]!.arguments[0];
+    assert.equal(mockRunChecks.mock.calls.length, 1);
+    const call = mockRunChecks.mock.calls[0]![0];
     assert.equal(call.worktreePath, "/custom/wt");
     assert.equal(call.branchName, "some-branch");
     assert.equal(call.checks.length, 1);

@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, beforeEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import type { PersistedSessionState, ChangeStatus } from "./types.js";
 import type { RepositoryConfig } from "../config.js";
@@ -92,14 +92,12 @@ function setFakeConfig(c: FakeConfig): void {
 }
 
 function makeDeps(overrides: Partial<RestoreDeps> = {}): RestoreDeps {
-  const mockGetAllPersistedSessions: RestoreDeps["getAllPersistedSessions"] = mock.fn(
-    async () => [],
-  );
-  const mockWriteSessionState: RestoreDeps["writeSessionState"] = mock.fn(() => {});
-  const mockFindSessionByThread: RestoreDeps["findSessionByThread"] = mock.fn(
+  const mockGetAllPersistedSessions: RestoreDeps["getAllPersistedSessions"] = vi.fn(async () => []);
+  const mockWriteSessionState: RestoreDeps["writeSessionState"] = vi.fn(() => {});
+  const mockFindSessionByThread: RestoreDeps["findSessionByThread"] = vi.fn(
     async () => defaultUnifiedSession as Awaited<ReturnType<RestoreDeps["findSessionByThread"]>>,
   );
-  const mockSetActiveChange: RestoreDeps["setActiveChange"] = mock.fn(() => {});
+  const mockSetActiveChange: RestoreDeps["setActiveChange"] = vi.fn(() => {});
 
   const getConfig: RestoreDeps["getConfig"] = () =>
     fakeConfigBox.value as ReturnType<RestoreDeps["getConfig"]>;
@@ -120,15 +118,15 @@ function makeDeps(overrides: Partial<RestoreDeps> = {}): RestoreDeps {
 
 describe("restoreWorkerSessions", () => {
   it("returns immediately when there are no persisted sessions", async () => {
-    const mockSetActiveChange = mock.fn();
+    const mockSetActiveChange = vi.fn();
     const deps = makeDeps({
-      getAllPersistedSessions: mock.fn(async () => []) as never,
+      getAllPersistedSessions: vi.fn(async () => []) as never,
       setActiveChange: mockSetActiveChange as never,
     });
 
     await restoreWorkerSessions(deps);
 
-    assert.equal(mockSetActiveChange.mock.callCount(), 0);
+    assert.equal(mockSetActiveChange.mock.calls.length, 0);
   });
 
   // ==========================================================================
@@ -137,9 +135,9 @@ describe("restoreWorkerSessions", () => {
 
   describe("skipping terminal states", () => {
     it("skips completed sessions", async () => {
-      const mockSetActiveChange = mock.fn();
+      const mockSetActiveChange = vi.fn();
       const deps = makeDeps({
-        getAllPersistedSessions: mock.fn(async () => [
+        getAllPersistedSessions: vi.fn(async () => [
           makePersistedState({ status: "completed" }),
         ]) as never,
         setActiveChange: mockSetActiveChange as never,
@@ -147,13 +145,13 @@ describe("restoreWorkerSessions", () => {
 
       await restoreWorkerSessions(deps);
 
-      assert.equal(mockSetActiveChange.mock.callCount(), 0);
+      assert.equal(mockSetActiveChange.mock.calls.length, 0);
     });
 
     it("skips failed sessions", async () => {
-      const mockSetActiveChange = mock.fn();
+      const mockSetActiveChange = vi.fn();
       const deps = makeDeps({
-        getAllPersistedSessions: mock.fn(async () => [
+        getAllPersistedSessions: vi.fn(async () => [
           makePersistedState({ status: "failed" }),
         ]) as never,
         setActiveChange: mockSetActiveChange as never,
@@ -161,13 +159,13 @@ describe("restoreWorkerSessions", () => {
 
       await restoreWorkerSessions(deps);
 
-      assert.equal(mockSetActiveChange.mock.callCount(), 0);
+      assert.equal(mockSetActiveChange.mock.calls.length, 0);
     });
 
     it("skips cancelled sessions", async () => {
-      const mockSetActiveChange = mock.fn();
+      const mockSetActiveChange = vi.fn();
       const deps = makeDeps({
-        getAllPersistedSessions: mock.fn(async () => [
+        getAllPersistedSessions: vi.fn(async () => [
           makePersistedState({ status: "cancelled" }),
         ]) as never,
         setActiveChange: mockSetActiveChange as never,
@@ -175,7 +173,7 @@ describe("restoreWorkerSessions", () => {
 
       await restoreWorkerSessions(deps);
 
-      assert.equal(mockSetActiveChange.mock.callCount(), 0);
+      assert.equal(mockSetActiveChange.mock.calls.length, 0);
     });
   });
 
@@ -185,9 +183,9 @@ describe("restoreWorkerSessions", () => {
 
   describe("skipping sessions with missing data", () => {
     it("skips sessions with null channel", async () => {
-      const mockSetActiveChange = mock.fn();
+      const mockSetActiveChange = vi.fn();
       const deps = makeDeps({
-        getAllPersistedSessions: mock.fn(async () => [
+        getAllPersistedSessions: vi.fn(async () => [
           makePersistedState({ channel: null }),
         ]) as never,
         setActiveChange: mockSetActiveChange as never,
@@ -195,13 +193,13 @@ describe("restoreWorkerSessions", () => {
 
       await restoreWorkerSessions(deps);
 
-      assert.equal(mockSetActiveChange.mock.callCount(), 0);
+      assert.equal(mockSetActiveChange.mock.calls.length, 0);
     });
 
     it("skips sessions with null threadTs", async () => {
-      const mockSetActiveChange = mock.fn();
+      const mockSetActiveChange = vi.fn();
       const deps = makeDeps({
-        getAllPersistedSessions: mock.fn(async () => [
+        getAllPersistedSessions: vi.fn(async () => [
           makePersistedState({ threadTs: null }),
         ]) as never,
         setActiveChange: mockSetActiveChange as never,
@@ -209,7 +207,7 @@ describe("restoreWorkerSessions", () => {
 
       await restoreWorkerSessions(deps);
 
-      assert.equal(mockSetActiveChange.mock.callCount(), 0);
+      assert.equal(mockSetActiveChange.mock.calls.length, 0);
     });
   });
 
@@ -219,9 +217,9 @@ describe("restoreWorkerSessions", () => {
 
   describe("skipping sessions with missing repo or worktree", () => {
     it("skips sessions whose repo is no longer configured", async () => {
-      const mockSetActiveChange = mock.fn();
+      const mockSetActiveChange = vi.fn();
       const deps = makeDeps({
-        getAllPersistedSessions: mock.fn(async () => [
+        getAllPersistedSessions: vi.fn(async () => [
           makePersistedState({ repo: "deleted-repo" }),
         ]) as never,
         setActiveChange: mockSetActiveChange as never,
@@ -229,20 +227,20 @@ describe("restoreWorkerSessions", () => {
 
       await restoreWorkerSessions(deps);
 
-      assert.equal(mockSetActiveChange.mock.callCount(), 0);
+      assert.equal(mockSetActiveChange.mock.calls.length, 0);
     });
 
     it("skips sessions whose worktree is not found", async () => {
-      const mockSetActiveChange = mock.fn();
+      const mockSetActiveChange = vi.fn();
       const deps = makeDeps({
-        getAllPersistedSessions: mock.fn(async () => [makePersistedState()]) as never,
+        getAllPersistedSessions: vi.fn(async () => [makePersistedState()]) as never,
         pool: buildRestorePool({ findByBranch: () => null }),
         setActiveChange: mockSetActiveChange as never,
       });
 
       await restoreWorkerSessions(deps);
 
-      assert.equal(mockSetActiveChange.mock.callCount(), 0);
+      assert.equal(mockSetActiveChange.mock.calls.length, 0);
     });
   });
 
@@ -255,9 +253,9 @@ describe("restoreWorkerSessions", () => {
 
     for (const status of midExecStatuses) {
       it(`marks ${status} session without PR as failed`, async () => {
-        const mockWriteSessionState = mock.fn();
+        const mockWriteSessionState = vi.fn();
         const deps = makeDeps({
-          getAllPersistedSessions: mock.fn(async () => [
+          getAllPersistedSessions: vi.fn(async () => [
             makePersistedState({ status, prUrl: null }),
           ]) as never,
           writeSessionState: mockWriteSessionState as never,
@@ -265,8 +263,8 @@ describe("restoreWorkerSessions", () => {
 
         await restoreWorkerSessions(deps);
 
-        assert.equal(mockWriteSessionState.mock.callCount(), 1);
-        const writeCall = mockWriteSessionState.mock.calls[0]!.arguments;
+        assert.equal(mockWriteSessionState.mock.calls.length, 1);
+        const writeCall = mockWriteSessionState.mock.calls[0]!;
         const session = writeCall[0] as { status: string };
         assert.equal(session.status, "failed");
         const message = writeCall[1] as string;
@@ -276,9 +274,9 @@ describe("restoreWorkerSessions", () => {
 
     for (const status of midExecStatuses) {
       it(`downgrades ${status} session with PR to pr_created`, async () => {
-        const mockSetActiveChange = mock.fn();
+        const mockSetActiveChange = vi.fn();
         const deps = makeDeps({
-          getAllPersistedSessions: mock.fn(async () => [
+          getAllPersistedSessions: vi.fn(async () => [
             makePersistedState({ status, prUrl: "https://github.com/org/repo/pull/1" }),
           ]) as never,
           setActiveChange: mockSetActiveChange as never,
@@ -286,16 +284,16 @@ describe("restoreWorkerSessions", () => {
 
         await restoreWorkerSessions(deps);
 
-        assert.equal(mockSetActiveChange.mock.callCount(), 1);
-        const changeArg = mockSetActiveChange.mock.calls[0]!.arguments[1] as { status: string };
+        assert.equal(mockSetActiveChange.mock.calls.length, 1);
+        const changeArg = mockSetActiveChange.mock.calls[0]![1] as { status: string };
         assert.equal(changeArg.status, "pr_created");
       });
     }
 
     it("writes updated session state to disk when downgrading", async () => {
-      const mockWriteSessionState = mock.fn();
+      const mockWriteSessionState = vi.fn();
       const deps = makeDeps({
-        getAllPersistedSessions: mock.fn(async () => [
+        getAllPersistedSessions: vi.fn(async () => [
           makePersistedState({ status: "executing", prUrl: "https://github.com/org/repo/pull/1" }),
         ]) as never,
         writeSessionState: mockWriteSessionState as never,
@@ -303,8 +301,8 @@ describe("restoreWorkerSessions", () => {
 
       await restoreWorkerSessions(deps);
 
-      assert.equal(mockWriteSessionState.mock.callCount(), 1);
-      const writeCall = mockWriteSessionState.mock.calls[0]!.arguments;
+      assert.equal(mockWriteSessionState.mock.calls.length, 1);
+      const writeCall = mockWriteSessionState.mock.calls[0]!;
       const message = writeCall[1] as string;
       assert.ok(message.includes("Restored on startup"));
       assert.ok(message.includes("was executing"));
@@ -318,9 +316,9 @@ describe("restoreWorkerSessions", () => {
 
   describe("successful restoration", () => {
     it("restores a pr_created session into active state", async () => {
-      const mockSetActiveChange = mock.fn();
+      const mockSetActiveChange = vi.fn();
       const deps = makeDeps({
-        getAllPersistedSessions: mock.fn(async () => [
+        getAllPersistedSessions: vi.fn(async () => [
           makePersistedState({ status: "pr_created" }),
         ]) as never,
         setActiveChange: mockSetActiveChange as never,
@@ -328,8 +326,8 @@ describe("restoreWorkerSessions", () => {
 
       await restoreWorkerSessions(deps);
 
-      assert.equal(mockSetActiveChange.mock.callCount(), 1);
-      const [sessionId, changeState, sessionRef] = mockSetActiveChange.mock.calls[0]!.arguments;
+      assert.equal(mockSetActiveChange.mock.calls.length, 1);
+      const [sessionId, changeState, sessionRef] = mockSetActiveChange.mock.calls[0]!;
       assert.equal(sessionId, "unified-session-1");
       assert.equal(changeState.branch, "feat/fix-bug");
       assert.equal(changeState.repo, "my-repo");
@@ -342,9 +340,9 @@ describe("restoreWorkerSessions", () => {
     });
 
     it("does not write session state when not downgraded", async () => {
-      const mockWriteSessionState = mock.fn();
+      const mockWriteSessionState = vi.fn();
       const deps = makeDeps({
-        getAllPersistedSessions: mock.fn(async () => [
+        getAllPersistedSessions: vi.fn(async () => [
           makePersistedState({ status: "pr_created" }),
         ]) as never,
         writeSessionState: mockWriteSessionState as never,
@@ -352,13 +350,13 @@ describe("restoreWorkerSessions", () => {
 
       await restoreWorkerSessions(deps);
 
-      assert.equal(mockWriteSessionState.mock.callCount(), 0);
+      assert.equal(mockWriteSessionState.mock.calls.length, 0);
     });
 
     it("converts startedAt and lastActivityAt strings to Date objects", async () => {
-      const mockSetActiveChange = mock.fn();
+      const mockSetActiveChange = vi.fn();
       const deps = makeDeps({
-        getAllPersistedSessions: mock.fn(async () => [
+        getAllPersistedSessions: vi.fn(async () => [
           makePersistedState({
             status: "pr_created",
             startedAt: "2026-02-01T08:00:00.000Z",
@@ -370,7 +368,7 @@ describe("restoreWorkerSessions", () => {
 
       await restoreWorkerSessions(deps);
 
-      const changeState = mockSetActiveChange.mock.calls[0]!.arguments[1] as {
+      const changeState = mockSetActiveChange.mock.calls[0]![1] as {
         startedAt: Date;
         lastActivityAt: Date;
       };
@@ -381,9 +379,9 @@ describe("restoreWorkerSessions", () => {
     });
 
     it("converts null prUrl to undefined", async () => {
-      const mockSetActiveChange = mock.fn();
+      const mockSetActiveChange = vi.fn();
       const deps = makeDeps({
-        getAllPersistedSessions: mock.fn(async () => [
+        getAllPersistedSessions: vi.fn(async () => [
           makePersistedState({ status: "pr_created", prUrl: null }),
         ]) as never,
         setActiveChange: mockSetActiveChange as never,
@@ -391,7 +389,7 @@ describe("restoreWorkerSessions", () => {
 
       await restoreWorkerSessions(deps);
 
-      const changeState = mockSetActiveChange.mock.calls[0]!.arguments[1] as { prUrl?: string };
+      const changeState = mockSetActiveChange.mock.calls[0]![1] as { prUrl?: string };
       assert.equal(changeState.prUrl, undefined);
     });
 
@@ -402,7 +400,7 @@ describe("restoreWorkerSessions", () => {
         worktreePath: "/tmp/worktrees/custom",
         createdAt: new Date("2026-03-01T00:00:00Z"),
       };
-      const mockSetActiveChange = mock.fn();
+      const mockSetActiveChange = vi.fn();
       const deps = makeDeps({
         pool: buildRestorePool({
           findByBranch: () => ({
@@ -418,7 +416,7 @@ describe("restoreWorkerSessions", () => {
             createdAt: customWorktree.createdAt,
           }),
         }),
-        getAllPersistedSessions: mock.fn(async () => [
+        getAllPersistedSessions: vi.fn(async () => [
           makePersistedState({ status: "pr_created" }),
         ]) as never,
         setActiveChange: mockSetActiveChange as never,
@@ -427,7 +425,7 @@ describe("restoreWorkerSessions", () => {
       await restoreWorkerSessions(deps);
 
       const setActiveCall = mockSetActiveChange.mock.calls[0]!;
-      const callArgs = setActiveCall.arguments;
+      const callArgs = setActiveCall;
       const changeState = callArgs[1] as { worktree: typeof customWorktree };
       assert.deepEqual(changeState.worktree, customWorktree);
     });
@@ -439,8 +437,8 @@ describe("restoreWorkerSessions", () => {
 
   describe("verificationAttempts field", () => {
     it("restores verificationAttempts from persisted state", async () => {
-      const mockSetActiveChange = mock.fn<typeof setActiveChange>(() => undefined);
-      const mockGetAll = mock.fn<typeof getAllPersistedSessions>(async () => [
+      const mockSetActiveChange = vi.fn<typeof setActiveChange>(() => undefined);
+      const mockGetAll = vi.fn<typeof getAllPersistedSessions>(async () => [
         makePersistedState({ status: "pr_created", verificationAttempts: 2 }),
       ]);
       const deps = makeDeps({
@@ -450,13 +448,13 @@ describe("restoreWorkerSessions", () => {
 
       await restoreWorkerSessions(deps);
 
-      const changeState = mockSetActiveChange.mock.calls[0]!.arguments[1];
+      const changeState = mockSetActiveChange.mock.calls[0]![1];
       assert.equal(changeState.verificationAttempts, 2);
     });
 
     it("leaves verificationAttempts undefined when not present on persisted state", async () => {
-      const mockSetActiveChange = mock.fn<typeof setActiveChange>(() => undefined);
-      const mockGetAll = mock.fn<typeof getAllPersistedSessions>(async () => [
+      const mockSetActiveChange = vi.fn<typeof setActiveChange>(() => undefined);
+      const mockGetAll = vi.fn<typeof getAllPersistedSessions>(async () => [
         makePersistedState({ status: "pr_created" }),
       ]);
       const deps = makeDeps({
@@ -466,7 +464,7 @@ describe("restoreWorkerSessions", () => {
 
       await restoreWorkerSessions(deps);
 
-      const changeState = mockSetActiveChange.mock.calls[0]!.arguments[1];
+      const changeState = mockSetActiveChange.mock.calls[0]![1];
       assert.equal(changeState.verificationAttempts, undefined);
     });
   });
@@ -477,10 +475,10 @@ describe("restoreWorkerSessions", () => {
 
   describe("missing unified session", () => {
     it("skips restoration when findSessionByThread returns null", async () => {
-      const mockSetActiveChange = mock.fn();
+      const mockSetActiveChange = vi.fn();
       const deps = makeDeps({
-        findSessionByThread: mock.fn(async () => null) as never,
-        getAllPersistedSessions: mock.fn(async () => [
+        findSessionByThread: vi.fn(async () => null) as never,
+        getAllPersistedSessions: vi.fn(async () => [
           makePersistedState({ status: "pr_created" }),
         ]) as never,
         setActiveChange: mockSetActiveChange as never,
@@ -488,7 +486,7 @@ describe("restoreWorkerSessions", () => {
 
       await restoreWorkerSessions(deps);
 
-      assert.equal(mockSetActiveChange.mock.callCount(), 0);
+      assert.equal(mockSetActiveChange.mock.calls.length, 0);
     });
   });
 
@@ -522,11 +520,11 @@ describe("restoreWorkerSessions", () => {
       });
 
       let findCallCount = 0;
-      const mockSetActiveChange = mock.fn();
-      const mockWriteSessionState = mock.fn();
+      const mockSetActiveChange = vi.fn();
+      const mockWriteSessionState = vi.fn();
       const deps = makeDeps({
-        getAllPersistedSessions: mock.fn(async () => [session1, session2, session3]) as never,
-        findSessionByThread: mock.fn(async () => {
+        getAllPersistedSessions: vi.fn(async () => [session1, session2, session3]) as never,
+        findSessionByThread: vi.fn(async () => {
           findCallCount++;
           return {
             sessionId: `unified-${findCallCount}`,
@@ -543,10 +541,10 @@ describe("restoreWorkerSessions", () => {
       await restoreWorkerSessions(deps);
 
       // session1 restored, session2 skipped (completed), session3 marked failed
-      assert.equal(mockSetActiveChange.mock.callCount(), 1);
-      assert.equal(mockWriteSessionState.mock.callCount(), 1); // session3 marked failed
+      assert.equal(mockSetActiveChange.mock.calls.length, 1);
+      assert.equal(mockWriteSessionState.mock.calls.length, 1); // session3 marked failed
 
-      const failedSession = mockWriteSessionState.mock.calls[0]!.arguments[0] as { status: string };
+      const failedSession = mockWriteSessionState.mock.calls[0]![0] as { status: string };
       assert.equal(failedSession.status, "failed");
     });
 
@@ -669,16 +667,16 @@ describe("restoreWorkerSessions", () => {
         threadTs: "1700000999.000001",
       });
 
-      const mockWriteSessionState = mock.fn();
+      const mockWriteSessionState = vi.fn();
       const deps = makeDeps({
-        getAllPersistedSessions: mock.fn(async () => [state]) as never,
+        getAllPersistedSessions: vi.fn(async () => [state]) as never,
         writeSessionState: mockWriteSessionState as never,
       });
 
       await restoreWorkerSessions(deps);
 
-      assert.equal(mockWriteSessionState.mock.callCount(), 1);
-      const [session, message] = mockWriteSessionState.mock.calls[0]!.arguments;
+      assert.equal(mockWriteSessionState.mock.calls.length, 1);
+      const [session, message] = mockWriteSessionState.mock.calls[0]!;
       assert.equal(session.id, "fail-session");
       assert.equal(session.userId, "U999");
       assert.equal(session.status, "failed");
@@ -694,9 +692,9 @@ describe("restoreWorkerSessions", () => {
     });
 
     it("converts null prUrl to undefined in failed session", async () => {
-      const mockWriteSessionState = mock.fn();
+      const mockWriteSessionState = vi.fn();
       const deps = makeDeps({
-        getAllPersistedSessions: mock.fn(async () => [
+        getAllPersistedSessions: vi.fn(async () => [
           makePersistedState({ status: "planning", prUrl: null }),
         ]) as never,
         writeSessionState: mockWriteSessionState as never,
@@ -704,7 +702,7 @@ describe("restoreWorkerSessions", () => {
 
       await restoreWorkerSessions(deps);
 
-      const session = mockWriteSessionState.mock.calls[0]!.arguments[0] as { prUrl?: string };
+      const session = mockWriteSessionState.mock.calls[0]![0] as { prUrl?: string };
       assert.equal(session.prUrl, undefined);
     });
 
@@ -724,7 +722,7 @@ describe("restoreWorkerSessions", () => {
     it("passes the correct repo and branch to pool.findByBranch", async () => {
       const findByBranchCalls: Array<{ repo: string; branch: string }> = [];
       const deps = makeDeps({
-        getAllPersistedSessions: mock.fn(async () => [
+        getAllPersistedSessions: vi.fn(async () => [
           makePersistedState({ repo: "my-repo", branch: "feat/test-branch" }),
         ]) as never,
         pool: buildRestorePool({
@@ -743,11 +741,11 @@ describe("restoreWorkerSessions", () => {
     });
 
     it("uses the state's channel and threadTs for findSessionByThread", async () => {
-      const mockFindSessionByThread = mock.fn<
+      const mockFindSessionByThread = vi.fn<
         (channelId: string, threadTs: string) => Promise<typeof defaultUnifiedSession>
       >(async () => defaultUnifiedSession);
       const deps = makeDeps({
-        getAllPersistedSessions: mock.fn(async () => [
+        getAllPersistedSessions: vi.fn(async () => [
           makePersistedState({ status: "pr_created", channel: "C-CHAN", threadTs: "170.thread" }),
         ]) as never,
         findSessionByThread: mockFindSessionByThread as never,
@@ -755,23 +753,23 @@ describe("restoreWorkerSessions", () => {
 
       await restoreWorkerSessions(deps);
 
-      assert.equal(mockFindSessionByThread.mock.callCount(), 1);
-      const [channelArg, threadTsArg] = mockFindSessionByThread.mock.calls[0]!.arguments;
+      assert.equal(mockFindSessionByThread.mock.calls.length, 1);
+      const [channelArg, threadTsArg] = mockFindSessionByThread.mock.calls[0]!;
       assert.equal(channelArg, "C-CHAN");
       assert.equal(threadTsArg, "170.thread");
     });
 
     it("passes triggerType from unified session to setActiveChange ref", async () => {
-      const mockSetActiveChange = mock.fn();
+      const mockSetActiveChange = vi.fn();
       const deps = makeDeps({
-        findSessionByThread: mock.fn(async () => ({
+        findSessionByThread: vi.fn(async () => ({
           sessionId: "us-1",
           channelId: "C001",
           threadTs: "170.001",
           userId: "U001",
           triggerType: "mentions",
         })) as never,
-        getAllPersistedSessions: mock.fn(async () => [
+        getAllPersistedSessions: vi.fn(async () => [
           makePersistedState({ status: "pr_created" }),
         ]) as never,
         setActiveChange: mockSetActiveChange as never,
@@ -779,7 +777,7 @@ describe("restoreWorkerSessions", () => {
 
       await restoreWorkerSessions(deps);
 
-      const ref = mockSetActiveChange.mock.calls[0]!.arguments[2] as { triggerType: string };
+      const ref = mockSetActiveChange.mock.calls[0]![2] as { triggerType: string };
       assert.equal(ref.triggerType, "mentions");
     });
   });

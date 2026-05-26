@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import type { TriviaConfig, TriviaGame } from "../core/configTypes.js";
 import { DEFAULT_QUESTION_TYPE_WEIGHTS } from "../core/configTypes.js";

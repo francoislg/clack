@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, beforeEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import { createDeepenHistoryTool, type DeepenHistoryDeps } from "./deepenHistory.js";
 import { parseToolResult } from "../testHelpers.js";
@@ -40,12 +40,12 @@ function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
       repositories: [makeRepo()],
     } as QueryToolContext["config"],
     changesWorkflowEnabled: false,
-    allowScheduledMessages: false,
+    cronUserSchedules: false,
     ...overrides,
   };
 }
 
-const mockGitRaw = mock.fn<(...args: unknown[]) => Promise<string>>();
+const mockGitRaw = vi.fn<(...args: unknown[]) => Promise<string>>();
 
 function makeSimpleGit(): DeepenHistoryDeps["simpleGit"] {
   return (_opts: { baseDir: string }) => ({ raw: (...args: string[][]) => mockGitRaw(...args) });
@@ -53,15 +53,15 @@ function makeSimpleGit(): DeepenHistoryDeps["simpleGit"] {
 
 function makeDeps(overrides: Partial<DeepenHistoryDeps> = {}): DeepenHistoryDeps {
   return {
-    getVisibleRepos: mock.fn((_role: string, _repos: RepositoryConfig[]) => [
+    getVisibleRepos: vi.fn((_role: string, _repos: RepositoryConfig[]) => [
       makeRepo(),
     ]) as DeepenHistoryDeps["getVisibleRepos"],
-    getRepositoriesDir: mock.fn(
+    getRepositoriesDir: vi.fn(
       () => "/data/repositories",
     ) as DeepenHistoryDeps["getRepositoriesDir"],
-    existsSync: mock.fn((_path: string) => true) as DeepenHistoryDeps["existsSync"],
+    existsSync: vi.fn((_path: string) => true) as DeepenHistoryDeps["existsSync"],
     simpleGit: makeSimpleGit(),
-    setAuthenticatedRemote: mock.fn(async () => {}) as DeepenHistoryDeps["setAuthenticatedRemote"],
+    setAuthenticatedRemote: vi.fn(async () => {}) as DeepenHistoryDeps["setAuthenticatedRemote"],
     ...overrides,
   };
 }
@@ -72,7 +72,7 @@ function makeDeps(overrides: Partial<DeepenHistoryDeps> = {}): DeepenHistoryDeps
 
 describe("deepenHistory tool", () => {
   beforeEach(() => {
-    mockGitRaw.mock.resetCalls();
+    mockGitRaw.mockClear();
   });
 
   it("returns error for unknown repository", async () => {
@@ -94,7 +94,7 @@ describe("deepenHistory tool", () => {
 
   it("returns error when repo has not been cloned", async () => {
     const deps = makeDeps({
-      existsSync: mock.fn((_path: string) => false) as DeepenHistoryDeps["existsSync"],
+      existsSync: vi.fn((_path: string) => false) as DeepenHistoryDeps["existsSync"],
     });
     const ctx = makeCtx();
     const toolDef = createDeepenHistoryTool(ctx, deps);
@@ -111,7 +111,7 @@ describe("deepenHistory tool", () => {
   });
 
   it("returns info message when repo already has full history", async () => {
-    mockGitRaw.mock.mockImplementation(async (args: unknown) => {
+    mockGitRaw.mockImplementation(async (args: unknown) => {
       const cmdArgs = args as string[];
       if (cmdArgs.includes("--is-shallow-repository")) return "false\n";
       if (cmdArgs.includes("--count")) return "500\n";
@@ -136,7 +136,7 @@ describe("deepenHistory tool", () => {
 
   it("deepens with default 100 commits when no options specified", async () => {
     const rawCalls: string[][] = [];
-    mockGitRaw.mock.mockImplementation(async (args: unknown) => {
+    mockGitRaw.mockImplementation(async (args: unknown) => {
       const cmdArgs = args as string[];
       rawCalls.push(cmdArgs);
       if (cmdArgs.includes("--is-shallow-repository")) {
@@ -171,7 +171,7 @@ describe("deepenHistory tool", () => {
 
   it("deepens with custom commit count", async () => {
     const rawCalls: string[][] = [];
-    mockGitRaw.mock.mockImplementation(async (args: unknown) => {
+    mockGitRaw.mockImplementation(async (args: unknown) => {
       const cmdArgs = args as string[];
       rawCalls.push(cmdArgs);
       if (cmdArgs.includes("--is-shallow-repository")) {
@@ -201,7 +201,7 @@ describe("deepenHistory tool", () => {
 
   it("unshallows completely when full=true", async () => {
     const rawCalls: string[][] = [];
-    mockGitRaw.mock.mockImplementation(async (args: unknown) => {
+    mockGitRaw.mockImplementation(async (args: unknown) => {
       const cmdArgs = args as string[];
       rawCalls.push(cmdArgs);
       if (cmdArgs.includes("--is-shallow-repository")) {
@@ -231,14 +231,14 @@ describe("deepenHistory tool", () => {
   });
 
   it("refreshes authenticated remote before fetching", async () => {
-    mockGitRaw.mock.mockImplementation(async (args: unknown) => {
+    mockGitRaw.mockImplementation(async (args: unknown) => {
       const cmdArgs = args as string[];
       if (cmdArgs.includes("--is-shallow-repository")) return "true\n";
       if (cmdArgs.includes("--count")) return "100\n";
       return "";
     });
 
-    const mockSetAuth = mock.fn(async () => {});
+    const mockSetAuth = vi.fn(async () => {});
     const deps = makeDeps({
       setAuthenticatedRemote: mockSetAuth as DeepenHistoryDeps["setAuthenticatedRemote"],
     });
@@ -250,11 +250,11 @@ describe("deepenHistory tool", () => {
       { sessionId: "test" },
     );
 
-    assert.equal(mockSetAuth.mock.callCount(), 1);
+    assert.equal(mockSetAuth.mock.calls.length, 1);
   });
 
   it("returns error when git operation fails", async () => {
-    mockGitRaw.mock.mockImplementation(async () => {
+    mockGitRaw.mockImplementation(async () => {
       throw new Error("git fetch failed: network error");
     });
 
@@ -277,7 +277,7 @@ describe("deepenHistory tool", () => {
   it("only shows repos visible to the user's role", async () => {
     const adminRepo = makeRepo({ name: "admin-only", access: { read: "admin" } });
     const deps = makeDeps({
-      getVisibleRepos: mock.fn(() => [adminRepo]) as DeepenHistoryDeps["getVisibleRepos"],
+      getVisibleRepos: vi.fn(() => [adminRepo]) as DeepenHistoryDeps["getVisibleRepos"],
     });
 
     const ctx = makeCtx();
@@ -296,7 +296,7 @@ describe("deepenHistory tool", () => {
   });
 
   it("handles zero commit count from rev-list", async () => {
-    mockGitRaw.mock.mockImplementation(async (args: unknown) => {
+    mockGitRaw.mockImplementation(async (args: unknown) => {
       const cmdArgs = args as string[];
       if (cmdArgs.includes("--is-shallow-repository")) return "false\n";
       if (cmdArgs.includes("--count")) return "not-a-number\n";

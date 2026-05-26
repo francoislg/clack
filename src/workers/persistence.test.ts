@@ -1,6 +1,5 @@
-import { describe, it, before, after, beforeEach, afterEach } from "node:test";
+import { describe, it, beforeAll, afterAll, beforeEach, afterEach, vi } from "vitest";
 import assert from "node:assert/strict";
-import { execSync } from "node:child_process";
 import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -13,6 +12,23 @@ import {
   writeWorkerSidecar,
 } from "./persistence.js";
 import type { Worker, WorkerStatus } from "./types.js";
+
+const branchByPath = new Map<string, string | null>();
+
+vi.mock("../repositories.js", () => ({
+  getGitInstance: (path: string) => ({
+    raw: async (args: string[]) => {
+      if (args[0] === "rev-parse" && args[1] === "--abbrev-ref" && args[2] === "HEAD") {
+        if (!branchByPath.has(path)) {
+          throw new Error(`fatal: not a git repository: ${path}`);
+        }
+        const branch = branchByPath.get(path);
+        return branch === null ? "HEAD\n" : `${branch}\n`;
+      }
+      throw new Error(`unexpected git args in test: ${args.join(" ")}`);
+    },
+  }),
+}));
 
 let tmpRoot: string;
 let originalCwd: string;
@@ -39,28 +55,19 @@ function makeWorker(over: Partial<Worker> = {}): Worker {
  * For tests we only care that HEAD reports the expected branch.
  */
 function makeWorkerFolder(repo: string, workerId: string, branch: string | null): string {
-  const path = resolve(tmpRoot, "data", "worktrees", repo, workerId);
+  // Use cwd-relative resolve to match the prod code's getWorktreesDir() path
+  // (avoids /var/folders vs /private/var/folders macOS symlink mismatch).
+  const path = resolve(process.cwd(), "data", "worktrees", repo, workerId);
   mkdirSync(path, { recursive: true });
-  execSync("git init -q", { cwd: path });
-  execSync("git config user.email test@example.com", { cwd: path });
-  execSync("git config user.name test", { cwd: path });
-  // Empty commit so HEAD is valid
-  execSync("git commit --allow-empty -m init -q", { cwd: path });
-  if (branch === null) {
-    // Detach HEAD
-    const sha = execSync("git rev-parse HEAD", { cwd: path }).toString().trim();
-    execSync(`git checkout -q --detach ${sha}`, { cwd: path });
-  } else {
-    execSync(`git checkout -B ${branch} -q`, { cwd: path });
-  }
+  branchByPath.set(path, branch);
   return path;
 }
 
-before(() => {
+beforeAll(() => {
   originalCwd = process.cwd();
 });
 
-after(() => {
+afterAll(() => {
   process.chdir(originalCwd);
 });
 
@@ -68,6 +75,7 @@ beforeEach(() => {
   tmpRoot = mkdtempSync(join(tmpdir(), "persistence-"));
   mkdirSync(join(tmpRoot, "data"), { recursive: true });
   process.chdir(tmpRoot);
+  branchByPath.clear();
 });
 
 afterEach(() => {

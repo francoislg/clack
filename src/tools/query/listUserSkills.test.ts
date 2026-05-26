@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { createListUserSkillsTool, type ListUserSkillsDeps } from "./listUserSkills.js";
 import { toolResultText } from "../testHelpers.js";
@@ -26,7 +26,7 @@ function makeCtx(userSkillsEnabled = true): QueryToolContext {
       userSkills: userSkillsEnabled ? { enabled: true } : undefined,
     } as Config,
     changesWorkflowEnabled: false,
-    allowScheduledMessages: false,
+    cronUserSchedules: false,
   };
 }
 

@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { migration } from "./016-topic-subfolders.js";
 import type { StaticFileResult } from "./types.js";

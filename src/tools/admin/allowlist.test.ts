@@ -1,4 +1,4 @@
-import { describe, it, mock } from "node:test";
+import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -19,7 +19,7 @@ import {
 
 function makeDeps(overrides: Partial<AllowlistDeps> = {}): AllowlistDeps {
   // validateConfig only checks for thrown errors in allowlist, return value is unused
-  const validateConfig = mock.fn((_config: unknown, _auth: SlackAuthConfig) => {
+  const validateConfig = vi.fn((_config: unknown, _auth: SlackAuthConfig) => {
     // no-op: does not throw = valid
   });
   return {
@@ -27,7 +27,7 @@ function makeDeps(overrides: Partial<AllowlistDeps> = {}): AllowlistDeps {
     getDataDir: () => "/tmp/test-data",
     // The allowlist only checks whether validateConfig throws, not its return value
     validateConfig: validateConfig as never as AllowlistDeps["validateConfig"],
-    loadSlackAuth: mock.fn(
+    loadSlackAuth: vi.fn(
       (): SlackAuthConfig => ({
         botToken: "xoxb-test",
         appToken: "xapp-test",

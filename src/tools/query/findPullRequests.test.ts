@@ -1,4 +1,4 @@
-import { describe, it, mock } from "node:test";
+import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import {
   createFindPullRequestsTool,
@@ -44,7 +44,7 @@ function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
       repositories: [makeRepo()],
     } as QueryToolContext["config"],
     changesWorkflowEnabled: true,
-    allowScheduledMessages: false,
+    cronUserSchedules: false,
     ...overrides,
   };
 }
@@ -80,12 +80,12 @@ function makePR(overrides?: Partial<FakePR>): FakePR {
 
 function makeDeps(overrides: Partial<FindPullRequestsDeps> = {}): FindPullRequestsDeps {
   return {
-    getVisibleRepos: mock.fn(() => [makeRepo()]) as FindPullRequestsDeps["getVisibleRepos"],
-    parseRepoUrl: mock.fn(() => ({
+    getVisibleRepos: vi.fn(() => [makeRepo()]) as FindPullRequestsDeps["getVisibleRepos"],
+    parseRepoUrl: vi.fn(() => ({
       owner: "org",
       repo: "my-repo",
     })) as FindPullRequestsDeps["parseRepoUrl"],
-    listPulls: mock.fn(async () => ({ data: [] })) as FindPullRequestsDeps["listPulls"],
+    listPulls: vi.fn(async () => ({ data: [] })) as FindPullRequestsDeps["listPulls"],
     ...overrides,
   };
 }
@@ -127,7 +127,7 @@ describe("findPullRequests tool", () => {
     });
 
     const deps = makeDeps({
-      listPulls: mock.fn(async () => ({ data: [pr1, pr2] })) as FindPullRequestsDeps["listPulls"],
+      listPulls: vi.fn(async () => ({ data: [pr1, pr2] })) as FindPullRequestsDeps["listPulls"],
     });
 
     const ctx = makeCtx();
@@ -153,7 +153,7 @@ describe("findPullRequests tool", () => {
     const pr3 = makePR({ title: "Fix C", head: { ref: "fix/login-bug" } });
 
     const deps = makeDeps({
-      listPulls: mock.fn(async () => ({
+      listPulls: vi.fn(async () => ({
         data: [pr1, pr2, pr3],
       })) as FindPullRequestsDeps["listPulls"],
     });
@@ -173,7 +173,7 @@ describe("findPullRequests tool", () => {
 
   it("returns empty array when no PRs exist", async () => {
     const deps = makeDeps({
-      listPulls: mock.fn(async () => ({ data: [] })) as FindPullRequestsDeps["listPulls"],
+      listPulls: vi.fn(async () => ({ data: [] })) as FindPullRequestsDeps["listPulls"],
     });
 
     const ctx = makeCtx();
@@ -192,7 +192,7 @@ describe("findPullRequests tool", () => {
     const pr = makePR({ head: { ref: "feat/dashboard" } });
 
     const deps = makeDeps({
-      listPulls: mock.fn(async () => ({ data: [pr] })) as FindPullRequestsDeps["listPulls"],
+      listPulls: vi.fn(async () => ({ data: [pr] })) as FindPullRequestsDeps["listPulls"],
     });
 
     const ctx = makeCtx();
@@ -209,7 +209,7 @@ describe("findPullRequests tool", () => {
 
   it("returns error when listPulls throws", async () => {
     const deps = makeDeps({
-      listPulls: mock.fn(async () => {
+      listPulls: vi.fn(async () => {
         throw new Error("GitHub API rate limit exceeded");
       }) as FindPullRequestsDeps["listPulls"],
     });
@@ -231,7 +231,7 @@ describe("findPullRequests tool", () => {
 
   it("returns error when listPulls throws Not found", async () => {
     const deps = makeDeps({
-      listPulls: mock.fn(async () => {
+      listPulls: vi.fn(async () => {
         throw new Error("Not found");
       }) as FindPullRequestsDeps["listPulls"],
     });
@@ -251,11 +251,11 @@ describe("findPullRequests tool", () => {
   });
 
   it("calls listPulls with correct owner and repo from parseRepoUrl", async () => {
-    const listPullsMock = mock.fn<(params: ListPullsParams) => Promise<{ data: FakePR[] }>>(
+    const listPullsMock = vi.fn<(params: ListPullsParams) => Promise<{ data: FakePR[] }>>(
       async () => ({ data: [] }),
     );
     const deps = makeDeps({
-      parseRepoUrl: mock.fn(() => ({
+      parseRepoUrl: vi.fn(() => ({
         owner: "my-org",
         repo: "cool-project",
       })) as FindPullRequestsDeps["parseRepoUrl"],
@@ -270,8 +270,8 @@ describe("findPullRequests tool", () => {
       { sessionId: "test" },
     );
 
-    assert.equal(listPullsMock.mock.callCount(), 1);
-    const callArgs = listPullsMock.mock.calls[0]!.arguments[0]!;
+    assert.equal(listPullsMock.mock.calls.length, 1);
+    const callArgs = listPullsMock.mock.calls[0]![0]!;
     assert.equal(callArgs.owner, "my-org");
     assert.equal(callArgs.repo, "cool-project");
     assert.equal(callArgs.state, "open");
@@ -294,7 +294,7 @@ describe("findPullRequests tool", () => {
     });
 
     const deps = makeDeps({
-      listPulls: mock.fn(async () => ({ data: [pr] })) as FindPullRequestsDeps["listPulls"],
+      listPulls: vi.fn(async () => ({ data: [pr] })) as FindPullRequestsDeps["listPulls"],
     });
 
     const ctx = makeCtx();
@@ -333,7 +333,7 @@ describe("findPullRequests tool", () => {
       merged_at: null,
     });
 
-    const listPullsMock = mock.fn<(params: ListPullsParams) => Promise<{ data: FakePR[] }>>(
+    const listPullsMock = vi.fn<(params: ListPullsParams) => Promise<{ data: FakePR[] }>>(
       async () => ({ data: [merged, closedNotMerged] }),
     );
     const deps = makeDeps({ listPulls: listPullsMock as FindPullRequestsDeps["listPulls"] });
@@ -347,7 +347,7 @@ describe("findPullRequests tool", () => {
     );
 
     // Should call API with state "closed" (merged is a subset of closed)
-    const callArgs = listPullsMock.mock.calls[0]!.arguments[0]!;
+    const callArgs = listPullsMock.mock.calls[0]![0]!;
     assert.equal(callArgs.state, "closed");
 
     const parsed = parseToolResult(result);
@@ -372,7 +372,7 @@ describe("findPullRequests tool", () => {
     });
 
     const deps = makeDeps({
-      listPulls: mock.fn(async () => ({
+      listPulls: vi.fn(async () => ({
         data: [recentMerge, oldMerge],
       })) as FindPullRequestsDeps["listPulls"],
     });
@@ -395,7 +395,7 @@ describe("findPullRequests tool", () => {
     const old = makePR({ number: 2, title: "Old", updated_at: "2025-05-01T10:00:00Z" });
 
     const deps = makeDeps({
-      listPulls: mock.fn(async () => ({
+      listPulls: vi.fn(async () => ({
         data: [recent, old],
       })) as FindPullRequestsDeps["listPulls"],
     });
@@ -417,7 +417,7 @@ describe("findPullRequests tool", () => {
     const mergedPR = makePR({ state: "closed", merged_at: "2025-06-01T09:00:00Z" });
 
     const deps = makeDeps({
-      listPulls: mock.fn(async () => ({ data: [mergedPR] })) as FindPullRequestsDeps["listPulls"],
+      listPulls: vi.fn(async () => ({ data: [mergedPR] })) as FindPullRequestsDeps["listPulls"],
     });
 
     const ctx = makeCtx();
@@ -437,7 +437,7 @@ describe("findPullRequests tool", () => {
     const pr = makePR({ body: longBody });
 
     const deps = makeDeps({
-      listPulls: mock.fn(async () => ({ data: [pr] })) as FindPullRequestsDeps["listPulls"],
+      listPulls: vi.fn(async () => ({ data: [pr] })) as FindPullRequestsDeps["listPulls"],
     });
 
     const ctx = makeCtx();
@@ -456,7 +456,7 @@ describe("findPullRequests tool", () => {
     const repoA = makeRepo({ name: "repo-a" });
     const repoB = makeRepo({ name: "repo-b" });
     const deps = makeDeps({
-      getVisibleRepos: mock.fn(() => [repoA, repoB]) as FindPullRequestsDeps["getVisibleRepos"],
+      getVisibleRepos: vi.fn(() => [repoA, repoB]) as FindPullRequestsDeps["getVisibleRepos"],
     });
 
     const ctx = makeCtx({

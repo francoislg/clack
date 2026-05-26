@@ -1,11 +1,11 @@
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, beforeEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import { getChannelInfo, clearChannelCache } from "./channelCache.js";
 
 function makeClient(infoResult?: unknown) {
   return {
     conversations: {
-      info: mock.fn(async () => infoResult ?? { ok: true, channel: { name: "general" } }),
+      info: vi.fn(async () => infoResult ?? { ok: true, channel: { name: "general" } }),
     },
   } as unknown as import("@slack/bolt").App["client"];
 }
@@ -21,7 +21,8 @@ describe("channelCache", () => {
 
     assert.deepEqual(info, { id: "C123", name: "backend-dev" });
     assert.equal(
-      (client.conversations.info as unknown as ReturnType<typeof mock.fn>).mock.calls.length,
+      (client.conversations.info as unknown as ReturnType<typeof vi.fn<(...args: any[]) => any>>)
+        .mock.calls.length,
       1,
     );
   });
@@ -34,7 +35,8 @@ describe("channelCache", () => {
 
     assert.deepEqual(info, { id: "C123", name: "backend-dev" });
     assert.equal(
-      (client.conversations.info as unknown as ReturnType<typeof mock.fn>).mock.calls.length,
+      (client.conversations.info as unknown as ReturnType<typeof vi.fn<(...args: any[]) => any>>)
+        .mock.calls.length,
       1,
     );
   });
@@ -42,7 +44,7 @@ describe("channelCache", () => {
   it("returns undefined on API error", async () => {
     const client = {
       conversations: {
-        info: mock.fn(async () => {
+        info: vi.fn(async () => {
           throw new Error("channel_not_found");
         }),
       },
@@ -56,7 +58,7 @@ describe("channelCache", () => {
     let callCount = 0;
     const client = {
       conversations: {
-        info: mock.fn(async () => {
+        info: vi.fn(async () => {
           callCount++;
           if (callCount === 1) throw new Error("transient");
           return { ok: true, channel: { name: "recovered" } };

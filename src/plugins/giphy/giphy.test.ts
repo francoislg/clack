@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { searchGiphy, GiphyError, type GiphyGifLike, type GiphySearchClient } from "./giphy.js";
 import type { SearchOptions } from "@giphy/js-fetch-api";

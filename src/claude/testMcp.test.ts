@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, beforeEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import type { Config } from "../config.js";
 import type { McpServerConfig, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
@@ -41,12 +41,12 @@ function fakeConfig(): Config {
   } as never as Config;
 }
 
-const mockClackQuery = mock.fn<TestMcpDeps["clackQuery"]>();
-const mockGetConfig = mock.fn<TestMcpDeps["getConfig"]>();
-const mockLoadMcpServers = mock.fn<TestMcpDeps["loadMcpServers"]>();
-const mockGetConfiguredMcpServerNames = mock.fn<TestMcpDeps["getConfiguredMcpServerNames"]>();
-const mockBuildQueryContext = mock.fn<TestMcpDeps["buildQueryContext"]>();
-const mockBuildClackTools = mock.fn<TestMcpDeps["buildClackTools"]>();
+const mockClackQuery = vi.fn<TestMcpDeps["clackQuery"]>();
+const mockGetConfig = vi.fn<TestMcpDeps["getConfig"]>();
+const mockLoadMcpServers = vi.fn<TestMcpDeps["loadMcpServers"]>();
+const mockGetConfiguredMcpServerNames = vi.fn<TestMcpDeps["getConfiguredMcpServerNames"]>();
+const mockBuildQueryContext = vi.fn<TestMcpDeps["buildQueryContext"]>();
+const mockBuildClackTools = vi.fn<TestMcpDeps["buildClackTools"]>();
 
 function makeDeps(): TestMcpDeps {
   return {
@@ -61,21 +61,21 @@ function makeDeps(): TestMcpDeps {
 }
 
 function resetMocks(): void {
-  mockClackQuery.mock.resetCalls();
-  mockGetConfig.mock.resetCalls();
-  mockLoadMcpServers.mock.resetCalls();
-  mockGetConfiguredMcpServerNames.mock.resetCalls();
-  mockBuildQueryContext.mock.resetCalls();
-  mockBuildClackTools.mock.resetCalls();
+  mockClackQuery.mockClear();
+  mockGetConfig.mockClear();
+  mockLoadMcpServers.mockClear();
+  mockGetConfiguredMcpServerNames.mockClear();
+  mockBuildQueryContext.mockClear();
+  mockBuildClackTools.mockClear();
 
   // Defaults
-  mockGetConfig.mock.mockImplementation(() => fakeConfig());
-  mockLoadMcpServers.mock.mockImplementation(async () => undefined);
-  mockGetConfiguredMcpServerNames.mock.mockImplementation(() => []);
-  mockBuildQueryContext.mock.mockImplementation(
+  mockGetConfig.mockImplementation(() => fakeConfig());
+  mockLoadMcpServers.mockImplementation(async () => undefined);
+  mockGetConfiguredMcpServerNames.mockImplementation(() => []);
+  mockBuildQueryContext.mockImplementation(
     () => ({ mode: "query" }) as never as ReturnType<TestMcpDeps["buildQueryContext"]>,
   );
-  mockBuildClackTools.mock.mockImplementation(
+  mockBuildClackTools.mockImplementation(
     () =>
       ({
         toolNames: ["list_repositories", "submit_response"],
@@ -93,7 +93,7 @@ describe("testMCP", () => {
 
   describe("when clack tool server fails to build", () => {
     it("returns failure with error message", async () => {
-      mockBuildClackTools.mock.mockImplementation(() => {
+      mockBuildClackTools.mockImplementation(() => {
         throw new Error("Tool registration blew up");
       });
 
@@ -131,7 +131,7 @@ describe("testMCP", () => {
     it("does not call query when no external servers", async () => {
       await testMCP(makeDeps());
 
-      assert.equal(mockClackQuery.mock.callCount(), 0);
+      assert.equal(mockClackQuery.mock.calls.length, 0);
     });
   });
 
@@ -143,7 +143,7 @@ describe("testMCP", () => {
 
   describe("when configuredServers is non-empty but loadMcpServers returns undefined", () => {
     it("returns success with only clack tools", async () => {
-      mockGetConfiguredMcpServerNames.mock.mockImplementation(() => ["github"]);
+      mockGetConfiguredMcpServerNames.mockImplementation(() => ["github"]);
       // loadMcpServers still returns undefined
 
       const result = await testMCP(makeDeps());
@@ -164,18 +164,18 @@ describe("testMCP", () => {
 
   describe("when external MCP servers are configured", () => {
     beforeEach(() => {
-      mockLoadMcpServers.mock.mockImplementation(async () => ({
+      mockLoadMcpServers.mockImplementation(async () => ({
         github: {
           type: "stdio",
           command: "github-mcp-server",
           args: ["stdio"],
         } as never as McpServerConfig,
       }));
-      mockGetConfiguredMcpServerNames.mock.mockImplementation(() => ["github"]);
+      mockGetConfiguredMcpServerNames.mockImplementation(() => ["github"]);
     });
 
     it("returns connected servers from init message", async () => {
-      mockClackQuery.mock.mockImplementation(() =>
+      mockClackQuery.mockImplementation(() =>
         asyncIterableOf([
           {
             type: "system",
@@ -206,7 +206,7 @@ describe("testMCP", () => {
     });
 
     it("separates MCP tools from clack tools", async () => {
-      mockClackQuery.mock.mockImplementation(() =>
+      mockClackQuery.mockImplementation(() =>
         asyncIterableOf([
           {
             type: "system",
@@ -235,7 +235,7 @@ describe("testMCP", () => {
     });
 
     it("reports failed servers separately from connected ones", async () => {
-      mockClackQuery.mock.mockImplementation(() =>
+      mockClackQuery.mockImplementation(() =>
         asyncIterableOf([
           {
             type: "system",
@@ -257,7 +257,7 @@ describe("testMCP", () => {
     });
 
     it("handles init message with no tools or mcp_servers fields", async () => {
-      mockClackQuery.mock.mockImplementation(() =>
+      mockClackQuery.mockImplementation(() =>
         asyncIterableOf([
           {
             type: "system",
@@ -278,7 +278,7 @@ describe("testMCP", () => {
     });
 
     it("ignores non-init messages", async () => {
-      mockClackQuery.mock.mockImplementation(() =>
+      mockClackQuery.mockImplementation(() =>
         asyncIterableOf([
           {
             type: "assistant",
@@ -300,7 +300,7 @@ describe("testMCP", () => {
     });
 
     it("includes all tools in the tools array", async () => {
-      mockClackQuery.mock.mockImplementation(() =>
+      mockClackQuery.mockImplementation(() =>
         asyncIterableOf([
           {
             type: "system",
@@ -328,18 +328,18 @@ describe("testMCP", () => {
 
   describe("when query throws AbortError", () => {
     beforeEach(() => {
-      mockLoadMcpServers.mock.mockImplementation(async () => ({
+      mockLoadMcpServers.mockImplementation(async () => ({
         github: {
           type: "stdio",
           command: "github-mcp-server",
           args: ["stdio"],
         } as never as McpServerConfig,
       }));
-      mockGetConfiguredMcpServerNames.mock.mockImplementation(() => ["github"]);
+      mockGetConfiguredMcpServerNames.mockImplementation(() => ["github"]);
     });
 
     it("returns success with clack tools on AbortError", async () => {
-      mockClackQuery.mock.mockImplementation(() => {
+      mockClackQuery.mockImplementation(() => {
         const err = new Error("Aborted");
         err.name = "AbortError";
         throw err;
@@ -364,18 +364,18 @@ describe("testMCP", () => {
 
   describe("when query throws a non-AbortError", () => {
     beforeEach(() => {
-      mockLoadMcpServers.mock.mockImplementation(async () => ({
+      mockLoadMcpServers.mockImplementation(async () => ({
         github: {
           type: "stdio",
           command: "github-mcp-server",
           args: ["stdio"],
         } as never as McpServerConfig,
       }));
-      mockGetConfiguredMcpServerNames.mock.mockImplementation(() => ["github"]);
+      mockGetConfiguredMcpServerNames.mockImplementation(() => ["github"]);
     });
 
     it("returns failure with error message", async () => {
-      mockClackQuery.mock.mockImplementation(() => {
+      mockClackQuery.mockImplementation(() => {
         throw new Error("Connection refused");
       });
 
@@ -398,18 +398,18 @@ describe("testMCP", () => {
 
   describe("when query throws a non-Error value", () => {
     beforeEach(() => {
-      mockLoadMcpServers.mock.mockImplementation(async () => ({
+      mockLoadMcpServers.mockImplementation(async () => ({
         github: {
           type: "stdio",
           command: "github-mcp-server",
           args: ["stdio"],
         } as never as McpServerConfig,
       }));
-      mockGetConfiguredMcpServerNames.mock.mockImplementation(() => ["github"]);
+      mockGetConfiguredMcpServerNames.mockImplementation(() => ["github"]);
     });
 
     it("returns failure and stringifies the thrown value", async () => {
-      mockClackQuery.mock.mockImplementation(() => {
+      mockClackQuery.mockImplementation(() => {
         throw "string error";
       });
 
@@ -426,18 +426,18 @@ describe("testMCP", () => {
 
   describe("when query async iterator throws mid-stream", () => {
     beforeEach(() => {
-      mockLoadMcpServers.mock.mockImplementation(async () => ({
+      mockLoadMcpServers.mockImplementation(async () => ({
         github: {
           type: "stdio",
           command: "github-mcp-server",
           args: ["stdio"],
         } as never as McpServerConfig,
       }));
-      mockGetConfiguredMcpServerNames.mock.mockImplementation(() => ["github"]);
+      mockGetConfiguredMcpServerNames.mockImplementation(() => ["github"]);
     });
 
     it("returns failure with error message", async () => {
-      mockClackQuery.mock.mockImplementation(() => {
+      mockClackQuery.mockImplementation(() => {
         throw new Error("stream interrupted");
       });
 
@@ -456,8 +456,8 @@ describe("testMCP", () => {
     it("passes owner role, dummy session, and changesWorkflowEnabled=true", async () => {
       await testMCP(makeDeps());
 
-      assert.equal(mockBuildQueryContext.mock.callCount(), 1);
-      const args = mockBuildQueryContext.mock.calls[0]!.arguments[0];
+      assert.equal(mockBuildQueryContext.mock.calls.length, 1);
+      const args = mockBuildQueryContext.mock.calls[0]![0];
       assert.equal(args.userId, "test");
       assert.equal(args.role, "owner");
       assert.equal(args.changesWorkflowEnabled, true);
@@ -475,7 +475,7 @@ describe("testMCP", () => {
 
   describe("when multiple external servers are configured", () => {
     it("reports all configured server names", async () => {
-      mockLoadMcpServers.mock.mockImplementation(async () => ({
+      mockLoadMcpServers.mockImplementation(async () => ({
         github: {
           type: "stdio",
           command: "github-mcp-server",
@@ -483,9 +483,9 @@ describe("testMCP", () => {
         } as never as McpServerConfig,
         linear: { type: "stdio", command: "linear-mcp", args: [] } as never as McpServerConfig,
       }));
-      mockGetConfiguredMcpServerNames.mock.mockImplementation(() => ["github", "linear"]);
+      mockGetConfiguredMcpServerNames.mockImplementation(() => ["github", "linear"]);
 
-      mockClackQuery.mock.mockImplementation(() =>
+      mockClackQuery.mockImplementation(() =>
         asyncIterableOf([
           {
             type: "system",

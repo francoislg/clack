@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { createListSkillPackSkillsTool } from "./listSkillPackSkills.js";
 import type { QueryToolContext } from "../types.js";
@@ -62,7 +62,7 @@ function makeCtx(skillsManager: SkillsManager | undefined): QueryToolContext {
     session: makeSession(),
     config: makeConfig(),
     changesWorkflowEnabled: false,
-    allowScheduledMessages: false,
+    cronUserSchedules: false,
     skillsManager,
   };
 }

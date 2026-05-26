@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { WorkerQueue } from "./queue.js";
 import { Cancelled } from "./errors.js";

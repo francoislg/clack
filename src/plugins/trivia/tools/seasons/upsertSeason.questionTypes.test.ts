@@ -1,4 +1,4 @@
-import { describe, it, beforeEach } from "node:test";
+import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
 import { createUpsertSeasonTool } from "./upsertSeason.js";
@@ -35,6 +35,8 @@ describe("upsert_season — answersFormat argument", () => {
         difficultyRatio: undefined,
         theme: undefined,
         format: undefined,
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
       },
       SESSION,
     );
@@ -66,6 +68,8 @@ describe("upsert_season — answersFormat argument", () => {
         difficultyRatio: undefined,
         theme: undefined,
         format: undefined,
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
       },
       SESSION,
     );
@@ -96,6 +100,8 @@ describe("upsert_season — answersFormat argument", () => {
         difficultyRatio: undefined,
         theme: undefined,
         format: undefined,
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
       },
       SESSION,
     );
@@ -115,6 +121,8 @@ describe("upsert_season — answersFormat argument", () => {
         difficultyRatio: undefined,
         theme: undefined,
         format: undefined,
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
       },
       SESSION,
     );
@@ -146,6 +154,8 @@ describe("upsert_season — answersFormat argument", () => {
         difficultyRatio: undefined,
         theme: undefined,
         format: undefined,
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
       },
       SESSION,
     );
@@ -165,6 +175,8 @@ describe("upsert_season — answersFormat argument", () => {
         difficultyRatio: undefined,
         theme: undefined,
         format: undefined,
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
       },
       SESSION,
     );
@@ -195,6 +207,8 @@ describe("upsert_season — answersFormat argument", () => {
         difficultyRatio: undefined,
         theme: undefined,
         format: undefined,
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
       },
       SESSION,
     );
@@ -215,6 +229,8 @@ describe("upsert_season — answersFormat argument", () => {
         difficultyRatio: undefined,
         theme: undefined,
         format: undefined,
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
       },
       SESSION,
     );
@@ -245,6 +261,8 @@ describe("upsert_season — answersFormat argument", () => {
         difficultyRatio: undefined,
         theme: undefined,
         format: undefined,
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
       },
       SESSION,
     );
@@ -291,6 +309,8 @@ describe("upsert_season — answersFormat argument", () => {
         difficultyRatio: undefined,
         theme: undefined,
         format: undefined,
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
       },
       SESSION,
     );

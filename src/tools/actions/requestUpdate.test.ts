@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { createRequestUpdateTool } from "./requestUpdate.js";
 import { parseToolResult } from "../testHelpers.js";
@@ -51,7 +51,7 @@ function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
       repositories: [],
     } as never as QueryToolContext["config"],
     changesWorkflowEnabled: true,
-    allowScheduledMessages: false,
+    cronUserSchedules: false,
     ...overrides,
   };
 }

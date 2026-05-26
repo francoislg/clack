@@ -1,11 +1,11 @@
-import { describe, it, mock } from "node:test";
+import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import { createRemoveReactionTool } from "./removeReaction.js";
 import type { QueryToolContext } from "../types.js";
 import { parseToolResult } from "../testHelpers.js";
 
 interface MockSlackClient {
-  reactions: { remove: ReturnType<typeof mock.fn> };
+  reactions: { remove: ReturnType<typeof vi.fn<(...args: any[]) => any>> };
 }
 
 function makeCtx(slackClient?: MockSlackClient): QueryToolContext {
@@ -28,7 +28,7 @@ function makeCtx(slackClient?: MockSlackClient): QueryToolContext {
     },
     config: { repositories: [] },
     changesWorkflowEnabled: false,
-    allowScheduledMessages: false,
+    cronUserSchedules: false,
     slackClient,
   });
   return ctx;
@@ -53,7 +53,7 @@ function params(
 describe("removeReaction tool", () => {
   it("removes reaction by channel_id and message_ts", async () => {
     const client: MockSlackClient = {
-      reactions: { remove: mock.fn(async () => ({ ok: true })) },
+      reactions: { remove: vi.fn(async () => ({ ok: true })) },
     };
     const toolDef = createRemoveReactionTool(makeCtx(client));
 
@@ -64,12 +64,12 @@ describe("removeReaction tool", () => {
     const parsed = parseToolResult(result);
     assert.equal(parsed.success, true);
     assert.equal(parsed.emoji, "thumbsup");
-    assert.equal(client.reactions.remove.mock.callCount(), 1);
+    assert.equal(client.reactions.remove.mock.calls.length, 1);
   });
 
   it("removes reaction by Slack URL", async () => {
     const client: MockSlackClient = {
-      reactions: { remove: mock.fn(async () => ({ ok: true })) },
+      reactions: { remove: vi.fn(async () => ({ ok: true })) },
     };
     const toolDef = createRemoveReactionTool(makeCtx(client));
 
@@ -89,7 +89,7 @@ describe("removeReaction tool", () => {
   it("treats no_reaction as success", async () => {
     const client: MockSlackClient = {
       reactions: {
-        remove: mock.fn(async () => {
+        remove: vi.fn(async () => {
           throw new Error("no_reaction");
         }),
       },
@@ -108,7 +108,7 @@ describe("removeReaction tool", () => {
   it("returns error for invalid emoji name", async () => {
     const client: MockSlackClient = {
       reactions: {
-        remove: mock.fn(async () => {
+        remove: vi.fn(async () => {
           throw new Error("invalid_name");
         }),
       },
@@ -127,7 +127,7 @@ describe("removeReaction tool", () => {
   it("returns error for message not found", async () => {
     const client: MockSlackClient = {
       reactions: {
-        remove: mock.fn(async () => {
+        remove: vi.fn(async () => {
           throw new Error("message_not_found");
         }),
       },
@@ -145,7 +145,7 @@ describe("removeReaction tool", () => {
   it("returns error for channel not found", async () => {
     const client: MockSlackClient = {
       reactions: {
-        remove: mock.fn(async () => {
+        remove: vi.fn(async () => {
           throw new Error("channel_not_found");
         }),
       },
@@ -162,7 +162,7 @@ describe("removeReaction tool", () => {
 
   it("returns error for invalid URL format", async () => {
     const client: MockSlackClient = {
-      reactions: { remove: mock.fn(async () => ({ ok: true })) },
+      reactions: { remove: vi.fn(async () => ({ ok: true })) },
     };
     const toolDef = createRemoveReactionTool(makeCtx(client));
 
@@ -176,7 +176,7 @@ describe("removeReaction tool", () => {
 
   it("returns error when neither URL nor channel_id+message_ts provided", async () => {
     const client: MockSlackClient = {
-      reactions: { remove: mock.fn(async () => ({ ok: true })) },
+      reactions: { remove: vi.fn(async () => ({ ok: true })) },
     };
     const toolDef = createRemoveReactionTool(makeCtx(client));
 

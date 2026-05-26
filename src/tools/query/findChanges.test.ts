@@ -1,4 +1,4 @@
-import { describe, it, mock } from "node:test";
+import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import { createFindChangesTool, type FindChangesDeps } from "./findChanges.js";
 import type { QueryToolContext } from "../types.js";
@@ -33,8 +33,8 @@ function makeRepo(overrides?: Partial<RepositoryConfig>): RepositoryConfig {
 
 function makeDeps(overrides: Partial<FindChangesDeps> = {}): FindChangesDeps {
   return {
-    getActiveWorkers: mock.fn(() => []) as FindChangesDeps["getActiveWorkers"],
-    getVisibleRepos: mock.fn((_role, _repos) => [makeRepo()]) as FindChangesDeps["getVisibleRepos"],
+    getActiveWorkers: vi.fn(() => []) as FindChangesDeps["getActiveWorkers"],
+    getVisibleRepos: vi.fn((_role, _repos) => [makeRepo()]) as FindChangesDeps["getVisibleRepos"],
     ...overrides,
   };
 }
@@ -61,7 +61,7 @@ function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
       repositories: [makeRepo()],
     } as QueryToolContext["config"],
     changesWorkflowEnabled: true,
-    allowScheduledMessages: false,
+    cronUserSchedules: false,
     ...overrides,
   };
 }
@@ -104,7 +104,7 @@ describe("findChanges tool", () => {
   it("returns active workers visible to the user", async () => {
     const worker = makeWorker();
     const deps = makeDeps({
-      getActiveWorkers: mock.fn(() => [worker]) as FindChangesDeps["getActiveWorkers"],
+      getActiveWorkers: vi.fn(() => [worker]) as FindChangesDeps["getActiveWorkers"],
     });
     const ctx = makeCtx();
     const toolDef = createFindChangesTool(ctx, deps);
@@ -128,7 +128,7 @@ describe("findChanges tool", () => {
     const worker1 = makeWorker({ repo: "my-repo" });
     const worker2 = makeWorker({ id: "w2", repo: "secret-repo" });
     const deps = makeDeps({
-      getActiveWorkers: mock.fn(() => [worker1, worker2]) as FindChangesDeps["getActiveWorkers"],
+      getActiveWorkers: vi.fn(() => [worker1, worker2]) as FindChangesDeps["getActiveWorkers"],
     });
 
     const ctx = makeCtx();
@@ -148,8 +148,8 @@ describe("findChanges tool", () => {
     const worker1 = makeWorker({ id: "w1", repo: "repo-a" });
     const worker2 = makeWorker({ id: "w2", repo: "repo-b" });
     const deps = makeDeps({
-      getActiveWorkers: mock.fn(() => [worker1, worker2]) as FindChangesDeps["getActiveWorkers"],
-      getVisibleRepos: mock.fn((_role, _repos) => [
+      getActiveWorkers: vi.fn(() => [worker1, worker2]) as FindChangesDeps["getActiveWorkers"],
+      getVisibleRepos: vi.fn((_role, _repos) => [
         makeRepo({ name: "repo-a" }),
         makeRepo({ name: "repo-b" }),
       ]) as FindChangesDeps["getVisibleRepos"],
@@ -177,7 +177,7 @@ describe("findChanges tool", () => {
     const worker2 = makeWorker({ id: "w2", status: "pr_created" });
     const worker3 = makeWorker({ id: "w3", status: "executing" });
     const deps = makeDeps({
-      getActiveWorkers: mock.fn(() => [
+      getActiveWorkers: vi.fn(() => [
         worker1,
         worker2,
         worker3,
@@ -202,12 +202,12 @@ describe("findChanges tool", () => {
     const worker2 = makeWorker({ id: "w2", repo: "repo-a", status: "pr_created" });
     const worker3 = makeWorker({ id: "w3", repo: "repo-b", status: "executing" });
     const deps = makeDeps({
-      getActiveWorkers: mock.fn(() => [
+      getActiveWorkers: vi.fn(() => [
         worker1,
         worker2,
         worker3,
       ]) as FindChangesDeps["getActiveWorkers"],
-      getVisibleRepos: mock.fn((_role, _repos) => [
+      getVisibleRepos: vi.fn((_role, _repos) => [
         makeRepo({ name: "repo-a" }),
         makeRepo({ name: "repo-b" }),
       ]) as FindChangesDeps["getVisibleRepos"],
@@ -233,7 +233,7 @@ describe("findChanges tool", () => {
   it("returns empty when no workers match repo filter", async () => {
     const worker = makeWorker({ repo: "my-repo" });
     const deps = makeDeps({
-      getActiveWorkers: mock.fn(() => [worker]) as FindChangesDeps["getActiveWorkers"],
+      getActiveWorkers: vi.fn(() => [worker]) as FindChangesDeps["getActiveWorkers"],
     });
 
     const ctx = makeCtx();
@@ -251,7 +251,7 @@ describe("findChanges tool", () => {
   it("includes prUrl when present on worker", async () => {
     const worker = makeWorker({ prUrl: "https://github.com/org/my-repo/pull/42" });
     const deps = makeDeps({
-      getActiveWorkers: mock.fn(() => [worker]) as FindChangesDeps["getActiveWorkers"],
+      getActiveWorkers: vi.fn(() => [worker]) as FindChangesDeps["getActiveWorkers"],
     });
 
     const ctx = makeCtx();
@@ -269,7 +269,7 @@ describe("findChanges tool", () => {
   it("serializes startedAt as ISO string", async () => {
     const worker = makeWorker({ startedAt: new Date("2025-12-25T00:00:00Z") });
     const deps = makeDeps({
-      getActiveWorkers: mock.fn(() => [worker]) as FindChangesDeps["getActiveWorkers"],
+      getActiveWorkers: vi.fn(() => [worker]) as FindChangesDeps["getActiveWorkers"],
     });
 
     const ctx = makeCtx();

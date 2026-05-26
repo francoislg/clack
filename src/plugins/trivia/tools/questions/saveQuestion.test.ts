@@ -1,4 +1,4 @@
-import { describe, it, beforeEach } from "node:test";
+import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
 import { createSaveQuestionTool } from "./saveQuestion.js";
@@ -111,7 +111,7 @@ describe("save_question — boolean shape", () => {
       SESSION,
     );
     const parsed = parseToolResult(result);
-    assert.match(parsed.error, /must not include "choices"/);
+    assert.match(parsed.error, /"choices" is not permitted on boolean questions/);
   });
 });
 
@@ -375,7 +375,7 @@ describe("save_question — choice shape", () => {
       SESSION,
     );
     const parsed = parseToolResult(result);
-    assert.match(parsed.error, /must not include "isTrue"/);
+    assert.match(parsed.error, /"isTrue" is not permitted on choice questions/);
   });
 
   it("rejects empty choice string", async () => {

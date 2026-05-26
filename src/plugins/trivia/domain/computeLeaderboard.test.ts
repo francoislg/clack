@@ -1,4 +1,4 @@
-import { describe, test } from "node:test";
+import { describe, test } from "vitest";
 import { strict as assert } from "node:assert";
 import { computeLeaderboard } from "./computeLeaderboard.js";
 import type { SubmittedAnswer, TriviaUser } from "../core/types.js";

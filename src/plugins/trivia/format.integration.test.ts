@@ -1,4 +1,4 @@
-import { describe, it, beforeEach } from "node:test";
+import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "./testHelpers.js";
 import { createUpsertSeasonTool } from "./tools/seasons/upsertSeason.js";
@@ -41,9 +41,6 @@ function postQuestionsDeps(): PostQuestionsSlackDeps {
         ts,
         permalink: `https://test.slack.com/archives/${args.channel}/p170000000${counter}000000`,
       };
-    },
-    async addReactions() {
-      // no-op
     },
   };
 }
@@ -98,6 +95,8 @@ describe("Trivia question-format end-to-end flow", () => {
               { label: "History Choice", categories: ["History"] },
             ],
           },
+          liveAnswersVisible: undefined,
+          revealResponses: undefined,
         },
         SESSION,
       ),

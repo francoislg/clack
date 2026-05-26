@@ -1,4 +1,4 @@
-import { describe, it, mock, beforeEach } from "node:test";
+import { describe, it, vi, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
 import type { ClaudeResponse } from "../../claude/index.js";
@@ -36,11 +36,11 @@ interface PostMessageMock {
   (args: PostMessageArgs): Promise<{ ok: boolean }>;
 }
 
-const mockWriteInstructionFile = mock.fn<(filename: string, content: string) => void>();
-const mockTriggerChangeWorkflow = mock.fn<
+const mockWriteInstructionFile = vi.fn<(filename: string, content: string) => void>();
+const mockTriggerChangeWorkflow = vi.fn<
   (intent: StagedChangeIntent, slack: SlackDeliveryContext) => Promise<void>
 >(async () => {});
-const mockTriggerFollowUp = mock.fn<
+const mockTriggerFollowUp = vi.fn<
   (
     session: SessionContext,
     command: string,
@@ -48,16 +48,16 @@ const mockTriggerFollowUp = mock.fn<
     slack: SlackDeliveryContext,
   ) => Promise<void>
 >(async () => {});
-const mockFindSessionByThread = mock.fn<
+const mockFindSessionByThread = vi.fn<
   (channelId: string, threadTs: string) => Promise<SessionContext | null>
 >(async () => null);
-const mockGetSession = mock.fn<(sessionId: string) => Promise<SessionContext | null>>(
+const mockGetSession = vi.fn<(sessionId: string) => Promise<SessionContext | null>>(
   async () => null,
 );
-const mockUpdateSession = mock.fn<
+const mockUpdateSession = vi.fn<
   (sessionId: string, updates: { responseTs: string }) => Promise<SessionContext | null>
 >(async () => null);
-const mockPostAnswerToChannel = mock.fn<
+const mockPostAnswerToChannel = vi.fn<
   (
     client: App["client"],
     snapshot: ResponseSnapshot,
@@ -72,21 +72,21 @@ const mockPostAnswerToChannel = mock.fn<
     },
   ) => Promise<{ ok: boolean; ts?: string }>
 >(async () => ({ ok: true }));
-const mockResolveOrigin = mock.fn<
+const mockResolveOrigin = vi.fn<
   (
     session: SessionContext,
     sessionInfo: SessionInfo,
   ) => { originChannel: string | undefined; originThreadTs: string | undefined }
 >(() => ({ originChannel: undefined, originThreadTs: undefined }));
-const mockRestoreSession = mock.fn<(sessionId: string) => Promise<SessionInfo | null>>(
+const mockRestoreSession = vi.fn<(sessionId: string) => Promise<SessionInfo | null>>(
   async () => null,
 );
 const mockActiveSessions = {
-  restore: mock.fn<(sessionId: string) => Promise<SessionInfo | null>>(async () => null),
+  restore: vi.fn<(sessionId: string) => Promise<SessionInfo | null>>(async () => null),
 };
-const mockPostMessageFn = mock.fn<(args: PostMessageArgs) => Promise<{ ok: boolean }>>(
-  async () => ({ ok: true }),
-);
+const mockPostMessageFn = vi.fn<(args: PostMessageArgs) => Promise<{ ok: boolean }>>(async () => ({
+  ok: true,
+}));
 
 // ============================================================================
 // Helpers
@@ -159,16 +159,16 @@ function makeResponseWithActions(
 }
 
 beforeEach(() => {
-  mockWriteInstructionFile.mock.resetCalls();
-  mockTriggerChangeWorkflow.mock.resetCalls();
-  mockTriggerFollowUp.mock.resetCalls();
-  mockFindSessionByThread.mock.resetCalls();
-  mockGetSession.mock.resetCalls();
-  mockPostAnswerToChannel.mock.resetCalls();
-  mockResolveOrigin.mock.resetCalls();
-  mockActiveSessions.restore.mock.resetCalls();
-  mockPostMessageFn.mock.resetCalls();
-  mockPostMessageFn.mock.mockImplementation(async () => ({ ok: true }));
+  mockWriteInstructionFile.mockClear();
+  mockTriggerChangeWorkflow.mockClear();
+  mockTriggerFollowUp.mockClear();
+  mockFindSessionByThread.mockClear();
+  mockGetSession.mockClear();
+  mockPostAnswerToChannel.mockClear();
+  mockResolveOrigin.mockClear();
+  mockActiveSessions.restore.mockClear();
+  mockPostMessageFn.mockClear();
+  mockPostMessageFn.mockImplementation(async () => ({ ok: true }));
 });
 
 // ============================================================================
@@ -182,8 +182,8 @@ describe("handleAutoExecuteActions — early returns", () => {
     });
 
     await handleAutoExecuteActions(params, makeDeps());
-    assert.equal(mockTriggerChangeWorkflow.mock.callCount(), 0);
-    assert.equal(mockWriteInstructionFile.mock.callCount(), 0);
+    assert.equal(mockTriggerChangeWorkflow.mock.calls.length, 0);
+    assert.equal(mockWriteInstructionFile.mock.calls.length, 0);
   });
 
   it("returns immediately when response has no stagedIntents", async () => {
@@ -200,7 +200,7 @@ describe("handleAutoExecuteActions — early returns", () => {
     });
 
     await handleAutoExecuteActions(params, makeDeps());
-    assert.equal(mockTriggerChangeWorkflow.mock.callCount(), 0);
+    assert.equal(mockTriggerChangeWorkflow.mock.calls.length, 0);
   });
 
   it("returns immediately when response.response is undefined", async () => {
@@ -215,7 +215,7 @@ describe("handleAutoExecuteActions — early returns", () => {
     });
 
     await handleAutoExecuteActions(params, makeDeps());
-    assert.equal(mockTriggerChangeWorkflow.mock.callCount(), 0);
+    assert.equal(mockTriggerChangeWorkflow.mock.calls.length, 0);
   });
 
   it("returns immediately when there are no auto-flagged actions", async () => {
@@ -233,7 +233,7 @@ describe("handleAutoExecuteActions — early returns", () => {
     });
 
     await handleAutoExecuteActions(params, makeDeps());
-    assert.equal(mockTriggerChangeWorkflow.mock.callCount(), 0);
+    assert.equal(mockTriggerChangeWorkflow.mock.calls.length, 0);
   });
 
   it("does not trigger ref-based auto-execute for post_to actions", async () => {
@@ -261,8 +261,8 @@ describe("handleAutoExecuteActions — early returns", () => {
 
     await handleAutoExecuteActions(params, makeDeps());
     // post_to is handled separately, should not trigger change/config workflows
-    assert.equal(mockTriggerChangeWorkflow.mock.callCount(), 0);
-    assert.equal(mockWriteInstructionFile.mock.callCount(), 0);
+    assert.equal(mockTriggerChangeWorkflow.mock.calls.length, 0);
+    assert.equal(mockWriteInstructionFile.mock.calls.length, 0);
   });
 });
 
@@ -287,7 +287,7 @@ describe("handleAutoExecuteActions — permission checks", () => {
     });
 
     await handleAutoExecuteActions(params, makeDeps());
-    assert.equal(mockTriggerChangeWorkflow.mock.callCount(), 0);
+    assert.equal(mockTriggerChangeWorkflow.mock.calls.length, 0);
   });
 
   it("allows auto-execute for dev role", async () => {
@@ -306,7 +306,7 @@ describe("handleAutoExecuteActions — permission checks", () => {
     });
 
     await handleAutoExecuteActions(params, makeDeps());
-    assert.equal(mockTriggerChangeWorkflow.mock.callCount(), 1);
+    assert.equal(mockTriggerChangeWorkflow.mock.calls.length, 1);
   });
 
   it("allows auto-execute for admin role", async () => {
@@ -325,7 +325,7 @@ describe("handleAutoExecuteActions — permission checks", () => {
     });
 
     await handleAutoExecuteActions(params, makeDeps());
-    assert.equal(mockTriggerChangeWorkflow.mock.callCount(), 1);
+    assert.equal(mockTriggerChangeWorkflow.mock.calls.length, 1);
   });
 
   it("allows auto-execute for owner role", async () => {
@@ -344,7 +344,7 @@ describe("handleAutoExecuteActions — permission checks", () => {
     });
 
     await handleAutoExecuteActions(params, makeDeps());
-    assert.equal(mockTriggerChangeWorkflow.mock.callCount(), 1);
+    assert.equal(mockTriggerChangeWorkflow.mock.calls.length, 1);
   });
 });
 
@@ -372,7 +372,7 @@ describe("handleAutoExecuteActions — intent resolution", () => {
     });
 
     await handleAutoExecuteActions(params, makeDeps());
-    assert.equal(mockTriggerChangeWorkflow.mock.callCount(), 0);
+    assert.equal(mockTriggerChangeWorkflow.mock.calls.length, 0);
   });
 });
 
@@ -407,14 +407,14 @@ describe("handleAutoExecuteActions — config_update", () => {
 
     await handleAutoExecuteActions(params, makeDeps());
 
-    assert.equal(mockWriteInstructionFile.mock.callCount(), 1);
-    const writeArgs = mockWriteInstructionFile.mock.calls[0].arguments;
+    assert.equal(mockWriteInstructionFile.mock.calls.length, 1);
+    const writeArgs = mockWriteInstructionFile.mock.calls[0];
     assert.equal(writeArgs[0], "instructions.md");
     assert.equal(writeArgs[1], "new content");
 
     const postMessage = mockPostMessageFn;
-    assert.equal(postMessage.mock.callCount(), 1);
-    const msgArgs = postMessage.mock.calls[0].arguments[0] as {
+    assert.equal(postMessage.mock.calls.length, 1);
+    const msgArgs = postMessage.mock.calls[0][0] as {
       channel: string;
       thread_ts: string;
       text: string;
@@ -425,7 +425,7 @@ describe("handleAutoExecuteActions — config_update", () => {
   });
 
   it("posts an error message when writeInstructionFile throws", async () => {
-    mockWriteInstructionFile.mock.mockImplementation(() => {
+    mockWriteInstructionFile.mockImplementation(() => {
       throw new Error("write failed");
     });
 
@@ -455,8 +455,8 @@ describe("handleAutoExecuteActions — config_update", () => {
     await handleAutoExecuteActions(params, makeDeps());
 
     const postMessage = mockPostMessageFn;
-    assert.equal(postMessage.mock.callCount(), 1);
-    const msgArgs = postMessage.mock.calls[0].arguments[0] as PostMessageArgs;
+    assert.equal(postMessage.mock.calls.length, 1);
+    const msgArgs = postMessage.mock.calls[0][0] as PostMessageArgs;
     assert.ok(msgArgs.text.includes("Failed to update"));
     assert.ok(msgArgs.text.includes("broken.md"));
     assert.ok(msgArgs.text.includes("write failed"));
@@ -484,8 +484,8 @@ describe("handleAutoExecuteActions — change intent", () => {
 
     await handleAutoExecuteActions(params, makeDeps());
 
-    assert.equal(mockTriggerChangeWorkflow.mock.callCount(), 1);
-    const args = mockTriggerChangeWorkflow.mock.calls[0].arguments;
+    assert.equal(mockTriggerChangeWorkflow.mock.calls.length, 1);
+    const args = mockTriggerChangeWorkflow.mock.calls[0];
     assert.deepEqual(args[0], changeIntent);
     const slackCtx = args[1] as SlackDeliveryContext;
     assert.equal(slackCtx.channelId, "C001");
@@ -510,7 +510,7 @@ describe("handleAutoExecuteActions — change intent", () => {
 
     await handleAutoExecuteActions(params, makeDeps());
 
-    const slackCtx = mockTriggerChangeWorkflow.mock.calls[0].arguments[1] as SlackDeliveryContext;
+    const slackCtx = mockTriggerChangeWorkflow.mock.calls[0][1] as SlackDeliveryContext;
     assert.equal(slackCtx.triggerType, "mentions");
   });
 
@@ -532,7 +532,7 @@ describe("handleAutoExecuteActions — change intent", () => {
 
     await handleAutoExecuteActions(params, makeDeps());
 
-    const slackCtx = mockTriggerChangeWorkflow.mock.calls[0].arguments[1] as SlackDeliveryContext;
+    const slackCtx = mockTriggerChangeWorkflow.mock.calls[0][1] as SlackDeliveryContext;
     assert.equal(slackCtx.streamChannel, "D_DM");
     assert.equal(slackCtx.streamThreadTs, "1700000099.000001");
   });
@@ -553,7 +553,7 @@ describe("handleAutoExecuteActions — change intent", () => {
 
     await handleAutoExecuteActions(params, makeDeps());
 
-    const slackCtx = mockTriggerChangeWorkflow.mock.calls[0].arguments[1] as SlackDeliveryContext;
+    const slackCtx = mockTriggerChangeWorkflow.mock.calls[0][1] as SlackDeliveryContext;
     assert.equal("streamChannel" in slackCtx, false);
     assert.equal("streamThreadTs" in slackCtx, false);
   });
@@ -597,7 +597,7 @@ describe("handleAutoExecuteActions — update intent", () => {
       },
     } as SessionContext;
 
-    mockFindSessionByThread.mock.mockImplementation(async () => fakeSession);
+    mockFindSessionByThread.mockImplementation(async () => fakeSession);
 
     const params = makeBaseParams({
       response: makeResponseWithActions(
@@ -608,8 +608,8 @@ describe("handleAutoExecuteActions — update intent", () => {
 
     await handleAutoExecuteActions(params, makeDeps());
 
-    assert.equal(mockTriggerFollowUp.mock.callCount(), 1);
-    const args = mockTriggerFollowUp.mock.calls[0].arguments;
+    assert.equal(mockTriggerFollowUp.mock.calls.length, 1);
+    const args = mockTriggerFollowUp.mock.calls[0];
     assert.equal(args[0], fakeSession);
     assert.equal(args[1], "update");
     assert.equal(args[2], "fix the tests");
@@ -622,7 +622,7 @@ describe("handleAutoExecuteActions — update intent", () => {
       instructions: "fix the tests",
     };
 
-    mockFindSessionByThread.mock.mockImplementation(async () => null);
+    mockFindSessionByThread.mockImplementation(async () => null);
 
     const params = makeBaseParams({
       response: makeResponseWithActions(
@@ -633,7 +633,7 @@ describe("handleAutoExecuteActions — update intent", () => {
 
     await handleAutoExecuteActions(params, makeDeps());
 
-    assert.equal(mockTriggerFollowUp.mock.callCount(), 0);
+    assert.equal(mockTriggerFollowUp.mock.calls.length, 0);
   });
 
   it("skips when session exists but has no activeChange", async () => {
@@ -662,7 +662,7 @@ describe("handleAutoExecuteActions — update intent", () => {
       // no activeChange
     } as SessionContext;
 
-    mockFindSessionByThread.mock.mockImplementation(async () => fakeSession);
+    mockFindSessionByThread.mockImplementation(async () => fakeSession);
 
     const params = makeBaseParams({
       response: makeResponseWithActions(
@@ -673,7 +673,7 @@ describe("handleAutoExecuteActions — update intent", () => {
 
     await handleAutoExecuteActions(params, makeDeps());
 
-    assert.equal(mockTriggerFollowUp.mock.callCount(), 0);
+    assert.equal(mockTriggerFollowUp.mock.calls.length, 0);
   });
 
   it("passes DM stream fields for update follow-up", async () => {
@@ -709,7 +709,7 @@ describe("handleAutoExecuteActions — update intent", () => {
       },
     } as SessionContext;
 
-    mockFindSessionByThread.mock.mockImplementation(async () => fakeSession);
+    mockFindSessionByThread.mockImplementation(async () => fakeSession);
 
     const params = makeBaseParams({
       dmChannel: "D_DM",
@@ -722,7 +722,7 @@ describe("handleAutoExecuteActions — update intent", () => {
 
     await handleAutoExecuteActions(params, makeDeps());
 
-    const slackCtx = mockTriggerFollowUp.mock.calls[0].arguments[3] as SlackDeliveryContext;
+    const slackCtx = mockTriggerFollowUp.mock.calls[0][3] as SlackDeliveryContext;
     assert.equal(slackCtx.streamChannel, "D_DM");
     assert.equal(slackCtx.streamThreadTs, "17.99");
   });
@@ -734,7 +734,7 @@ describe("handleAutoExecuteActions — update intent", () => {
 
 describe("handleAutoExecuteActions — error handling", () => {
   it("posts error to thread when triggerChangeWorkflow throws", async () => {
-    mockTriggerChangeWorkflow.mock.mockImplementation(async () => {
+    mockTriggerChangeWorkflow.mockImplementation(async () => {
       throw new Error("workflow exploded");
     });
 
@@ -757,14 +757,14 @@ describe("handleAutoExecuteActions — error handling", () => {
     await handleAutoExecuteActions(params, makeDeps());
 
     const postMessage = mockPostMessageFn;
-    assert.equal(postMessage.mock.callCount(), 1);
-    const msgArgs = postMessage.mock.calls[0].arguments[0] as PostMessageArgs;
+    assert.equal(postMessage.mock.calls.length, 1);
+    const msgArgs = postMessage.mock.calls[0][0] as PostMessageArgs;
     assert.ok(msgArgs.text.includes("Auto-execute failed"));
     assert.ok(msgArgs.text.includes("workflow exploded"));
   });
 
   it("does not crash when error reporting itself fails", async () => {
-    mockTriggerChangeWorkflow.mock.mockImplementation(async () => {
+    mockTriggerChangeWorkflow.mockImplementation(async () => {
       throw new Error("workflow exploded");
     });
 
@@ -776,7 +776,7 @@ describe("handleAutoExecuteActions — error handling", () => {
     };
     const client = makeClient();
     // Make postMessage also throw
-    mockPostMessageFn.mock.mockImplementation(async () => {
+    mockPostMessageFn.mockImplementation(async () => {
       throw new Error("slack down");
     });
 
@@ -829,8 +829,8 @@ describe("handleAutoExecuteActions — multiple actions", () => {
 
     await handleAutoExecuteActions(params, makeDeps());
 
-    assert.equal(mockTriggerChangeWorkflow.mock.callCount(), 1);
-    assert.equal(mockWriteInstructionFile.mock.callCount(), 1);
+    assert.equal(mockTriggerChangeWorkflow.mock.calls.length, 1);
+    assert.equal(mockWriteInstructionFile.mock.calls.length, 1);
   });
 
   it("skips non-auto actions and processes auto ones", async () => {
@@ -861,8 +861,8 @@ describe("handleAutoExecuteActions — multiple actions", () => {
 
     await handleAutoExecuteActions(params, makeDeps());
 
-    assert.equal(mockTriggerChangeWorkflow.mock.callCount(), 1);
-    const calledIntent = mockTriggerChangeWorkflow.mock.calls[0].arguments[0] as StagedChangeIntent;
+    assert.equal(mockTriggerChangeWorkflow.mock.calls.length, 1);
+    const calledIntent = mockTriggerChangeWorkflow.mock.calls[0][0] as StagedChangeIntent;
     assert.equal(calledIntent.branch, "feat/auto");
   });
 });
@@ -903,8 +903,8 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
       },
     } as unknown as SessionContext;
 
-    mockGetSession.mock.mockImplementation(async () => fakeSession);
-    mockActiveSessions.restore.mock.mockImplementation(async () => null);
+    mockGetSession.mockImplementation(async () => fakeSession);
+    mockActiveSessions.restore.mockImplementation(async () => null);
 
     const client = makeClient();
     const params = makeBaseParams({
@@ -940,8 +940,8 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
 
     await handleAutoExecuteActions(params, makeDeps());
 
-    assert.equal(mockPostAnswerToChannel.mock.callCount(), 1);
-    const args = mockPostAnswerToChannel.mock.calls[0].arguments;
+    assert.equal(mockPostAnswerToChannel.mock.calls.length, 1);
+    const args = mockPostAnswerToChannel.mock.calls[0];
     assert.deepEqual(args[1], {
       text: "Channel post content",
       blocks: [
@@ -976,7 +976,7 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
       // no assistantOriginChannelId
     } as unknown as SessionContext;
 
-    mockGetSession.mock.mockImplementation(async () => fakeSession);
+    mockGetSession.mockImplementation(async () => fakeSession);
 
     const params = makeBaseParams({
       triggerType: "directMessages",
@@ -1003,7 +1003,7 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
 
     await handleAutoExecuteActions(params, makeDeps());
 
-    assert.equal(mockPostAnswerToChannel.mock.callCount(), 0);
+    assert.equal(mockPostAnswerToChannel.mock.calls.length, 0);
   });
 
   it("proceeds for assistant panel DM trigger (has assistantOriginChannelId)", async () => {
@@ -1034,8 +1034,8 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
       },
     } as unknown as SessionContext;
 
-    mockGetSession.mock.mockImplementation(async () => fakeSession);
-    mockActiveSessions.restore.mock.mockImplementation(async () => null);
+    mockGetSession.mockImplementation(async () => fakeSession);
+    mockActiveSessions.restore.mockImplementation(async () => null);
 
     const client = makeClient();
     const params = makeBaseParams({
@@ -1064,8 +1064,8 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
 
     await handleAutoExecuteActions(params, makeDeps());
 
-    assert.equal(mockPostAnswerToChannel.mock.callCount(), 1);
-    const args = mockPostAnswerToChannel.mock.calls[0].arguments;
+    assert.equal(mockPostAnswerToChannel.mock.calls.length, 1);
+    const args = mockPostAnswerToChannel.mock.calls[0];
     assert.equal(args[2], "C_VIEWED"); // assistantCurrentChannelId
   });
 
@@ -1100,8 +1100,8 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
       },
     } as unknown as SessionContext;
 
-    mockGetSession.mock.mockImplementation(async () => fakeSession);
-    mockActiveSessions.restore.mock.mockImplementation(async () => null);
+    mockGetSession.mockImplementation(async () => fakeSession);
+    mockActiveSessions.restore.mockImplementation(async () => null);
 
     const client = makeClient();
     const params = makeBaseParams({
@@ -1136,8 +1136,8 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
 
     await handleAutoExecuteActions(params, makeDeps());
 
-    assert.equal(mockPostAnswerToChannel.mock.callCount(), 1);
-    const args = mockPostAnswerToChannel.mock.calls[0].arguments;
+    assert.equal(mockPostAnswerToChannel.mock.calls.length, 1);
+    const args = mockPostAnswerToChannel.mock.calls[0];
     assert.equal(args[2], "C999"); // explicit channel
     assert.equal(args[3], "1700099.000"); // explicit thread_ts
   });
@@ -1168,8 +1168,8 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
       },
     } as unknown as SessionContext;
 
-    mockGetSession.mock.mockImplementation(async () => fakeSession);
-    mockActiveSessions.restore.mock.mockImplementation(async () => null);
+    mockGetSession.mockImplementation(async () => fakeSession);
+    mockActiveSessions.restore.mockImplementation(async () => null);
 
     const changeIntent: StagedChangeIntent = {
       type: "change",
@@ -1205,12 +1205,12 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
     await handleAutoExecuteActions(params, makeDeps());
 
     // Both should execute
-    assert.equal(mockPostAnswerToChannel.mock.callCount(), 1);
-    assert.equal(mockTriggerChangeWorkflow.mock.callCount(), 1);
+    assert.equal(mockPostAnswerToChannel.mock.calls.length, 1);
+    assert.equal(mockTriggerChangeWorkflow.mock.calls.length, 1);
   });
 
   it("skips when session is not found", async () => {
-    mockGetSession.mock.mockImplementation(async () => null);
+    mockGetSession.mockImplementation(async () => null);
 
     const params = makeBaseParams({
       response: makeResponseWithActions(
@@ -1236,7 +1236,7 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
 
     await handleAutoExecuteActions(params, makeDeps());
 
-    assert.equal(mockPostAnswerToChannel.mock.callCount(), 0);
+    assert.equal(mockPostAnswerToChannel.mock.calls.length, 0);
   });
 
   it("skips action when snapshot is missing", async () => {
@@ -1260,8 +1260,8 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
       snapshots: {},
     } as unknown as SessionContext;
 
-    mockGetSession.mock.mockImplementation(async () => fakeSession);
-    mockActiveSessions.restore.mock.mockImplementation(async () => null);
+    mockGetSession.mockImplementation(async () => fakeSession);
+    mockActiveSessions.restore.mockImplementation(async () => null);
 
     const params = makeBaseParams({
       response: makeResponseWithActions(
@@ -1287,7 +1287,7 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
 
     await handleAutoExecuteActions(params, makeDeps());
 
-    assert.equal(mockPostAnswerToChannel.mock.callCount(), 0);
+    assert.equal(mockPostAnswerToChannel.mock.calls.length, 0);
   });
 
   it("posts error to thread when postAnswerToChannel throws", async () => {
@@ -1316,9 +1316,9 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
       },
     } as unknown as SessionContext;
 
-    mockGetSession.mock.mockImplementation(async () => fakeSession);
-    mockActiveSessions.restore.mock.mockImplementation(async () => null);
-    mockPostAnswerToChannel.mock.mockImplementation(async () => {
+    mockGetSession.mockImplementation(async () => fakeSession);
+    mockActiveSessions.restore.mockImplementation(async () => null);
+    mockPostAnswerToChannel.mockImplementation(async () => {
       throw new Error("channel_not_found");
     });
 
@@ -1349,8 +1349,8 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
     await handleAutoExecuteActions(params, makeDeps());
 
     const postMessage = mockPostMessageFn;
-    assert.equal(postMessage.mock.callCount(), 1);
-    const msgArgs = postMessage.mock.calls[0].arguments[0] as PostMessageArgs;
+    assert.equal(postMessage.mock.calls.length, 1);
+    const msgArgs = postMessage.mock.calls[0][0] as PostMessageArgs;
     assert.ok(msgArgs.text.includes("Failed to post"));
     assert.ok(msgArgs.text.includes("channel_not_found"));
   });

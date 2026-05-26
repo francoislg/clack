@@ -1,4 +1,4 @@
-import { describe, it, beforeEach } from "node:test";
+import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
 import { createUpsertSeasonTool } from "./upsertSeason.js";
@@ -40,6 +40,8 @@ describe("upsert_season — format argument", () => {
             { label: "Q2", categories: ["History"], answersFormat: { choice: 1 } },
           ],
         },
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
       },
       SESSION,
     );
@@ -79,6 +81,8 @@ describe("upsert_season — format argument", () => {
         difficultyRatio: undefined,
         theme: undefined,
         format: undefined,
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
       },
       SESSION,
     );
@@ -110,6 +114,8 @@ describe("upsert_season — format argument", () => {
         difficultyRatio: undefined,
         theme: undefined,
         format: { questions: [{ label: "old" }] },
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
       },
       SESSION,
     );
@@ -129,6 +135,8 @@ describe("upsert_season — format argument", () => {
         difficultyRatio: undefined,
         theme: undefined,
         format: { questions: [{ label: "new-1" }, { label: "new-2" }] },
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
       },
       SESSION,
     );
@@ -161,6 +169,8 @@ describe("upsert_season — format argument", () => {
         difficultyRatio: undefined,
         theme: undefined,
         format: { questions: [{ label: "to-remove" }] },
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
       },
       SESSION,
     );
@@ -180,6 +190,8 @@ describe("upsert_season — format argument", () => {
         difficultyRatio: undefined,
         theme: undefined,
         format: null,
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
       },
       SESSION,
     );
@@ -211,6 +223,8 @@ describe("upsert_season — format argument", () => {
         difficultyRatio: undefined,
         theme: undefined,
         format: { questions: [{ label: "keep-me" }] },
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
       },
       SESSION,
     );
@@ -230,6 +244,8 @@ describe("upsert_season — format argument", () => {
         difficultyRatio: undefined,
         theme: undefined,
         format: undefined,
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
       },
       SESSION,
     );
@@ -261,6 +277,8 @@ describe("upsert_season — format argument", () => {
         difficultyRatio: undefined,
         theme: undefined,
         format: { questions: [] },
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
       },
       SESSION,
     );
@@ -291,6 +309,8 @@ describe("upsert_season — format argument", () => {
         difficultyRatio: undefined,
         theme: undefined,
         format: { questions: [{ questionType: { fact: 0, topical: 0 } }] },
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
       },
       SESSION,
     );
@@ -331,6 +351,8 @@ describe("upsert_season — format argument", () => {
         difficultyRatio: undefined,
         theme: undefined,
         format: { questions: [{ label: "added-mid-season" }] },
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
       },
       SESSION,
     );

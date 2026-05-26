@@ -1,4 +1,4 @@
-import { describe, it, mock } from "node:test";
+import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import { createFetchSlackMessageTool, type FetchSlackMessageDeps } from "./fetchSlackMessage.js";
 import { parseToolResult } from "../testHelpers.js";
@@ -11,8 +11,8 @@ import type { SlackImageFile } from "../../slack/slackFileBase.js";
 
 function makeDeps(overrides: Partial<FetchSlackMessageDeps> = {}): FetchSlackMessageDeps {
   return {
-    fetchThreadContext: mock.fn(async () => []) as FetchSlackMessageDeps["fetchThreadContext"],
-    getChannelInfo: mock.fn(async () => ({
+    fetchThreadContext: vi.fn(async () => []) as FetchSlackMessageDeps["fetchThreadContext"],
+    getChannelInfo: vi.fn(async () => ({
       id: "C0123ABC",
       name: "general",
     })) as FetchSlackMessageDeps["getChannelInfo"],
@@ -42,7 +42,7 @@ function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
       repositories: [],
     } as never as QueryToolContext["config"],
     changesWorkflowEnabled: false,
-    allowScheduledMessages: false,
+    cronUserSchedules: false,
     slackClient: {} as never as NonNullable<QueryToolContext["slackClient"]>,
     availableImages: new Map(),
     availableFiles: new Map(),
@@ -142,7 +142,7 @@ describe("fetchSlackMessage tool", () => {
   it("fetches thread with default pagination of 5 messages", async () => {
     const messages = makeThreadMessages(8);
     const deps = makeDeps({
-      fetchThreadContext: mock.fn(async () =>
+      fetchThreadContext: vi.fn(async () =>
         messages.slice(0, 6),
       ) as FetchSlackMessageDeps["fetchThreadContext"], // 6 = (0+1)*5+1
     });
@@ -173,7 +173,7 @@ describe("fetchSlackMessage tool", () => {
   it("returns has_more false when thread has fewer messages than limit", async () => {
     const messages = makeThreadMessages(3);
     const deps = makeDeps({
-      fetchThreadContext: mock.fn(
+      fetchThreadContext: vi.fn(
         async () => messages,
       ) as FetchSlackMessageDeps["fetchThreadContext"],
     });
@@ -200,7 +200,7 @@ describe("fetchSlackMessage tool", () => {
   it("fetches custom page and limit", async () => {
     const messages = makeThreadMessages(25);
     const deps = makeDeps({
-      fetchThreadContext: mock.fn(async () =>
+      fetchThreadContext: vi.fn(async () =>
         messages.slice(0, 21),
       ) as FetchSlackMessageDeps["fetchThreadContext"], // (1+1)*10+1
     });
@@ -230,7 +230,7 @@ describe("fetchSlackMessage tool", () => {
   it("detects has_more when thread is longer than page", async () => {
     const messages = makeThreadMessages(6); // exactly limit+1
     const deps = makeDeps({
-      fetchThreadContext: mock.fn(
+      fetchThreadContext: vi.fn(
         async () => messages,
       ) as FetchSlackMessageDeps["fetchThreadContext"],
     });
@@ -255,7 +255,7 @@ describe("fetchSlackMessage tool", () => {
   it("returns has_more false when exactly at limit", async () => {
     const messages = makeThreadMessages(5);
     const deps = makeDeps({
-      fetchThreadContext: mock.fn(
+      fetchThreadContext: vi.fn(
         async () => messages,
       ) as FetchSlackMessageDeps["fetchThreadContext"],
     });
@@ -282,7 +282,7 @@ describe("fetchSlackMessage tool", () => {
   it("returns single message for standalone message URL", async () => {
     const messages = makeThreadMessages(1);
     const deps = makeDeps({
-      fetchThreadContext: mock.fn(
+      fetchThreadContext: vi.fn(
         async () => messages,
       ) as FetchSlackMessageDeps["fetchThreadContext"],
     });
@@ -309,7 +309,7 @@ describe("fetchSlackMessage tool", () => {
 
   it("uses thread_ts from URL as parent ts", async () => {
     const messages = makeThreadMessages(3);
-    const fetchThreadContextFn = mock.fn<FetchSlackMessageDeps["fetchThreadContext"]>(
+    const fetchThreadContextFn = vi.fn<FetchSlackMessageDeps["fetchThreadContext"]>(
       async () => messages,
     );
     const deps = makeDeps({
@@ -332,7 +332,7 @@ describe("fetchSlackMessage tool", () => {
     assert.equal(parsed.thread_ts, "1111111111.000000");
 
     // Verify fetchThreadContext was called with the thread_ts, not the message ts
-    const callArgs = fetchThreadContextFn.mock.calls[0].arguments;
+    const callArgs = fetchThreadContextFn.mock.calls[0];
     assert.equal(callArgs[2], "1111111111.000000");
   });
 
@@ -340,7 +340,7 @@ describe("fetchSlackMessage tool", () => {
 
   it("returns error when thread fetch returns empty", async () => {
     const deps = makeDeps({
-      fetchThreadContext: mock.fn(async () => []) as FetchSlackMessageDeps["fetchThreadContext"],
+      fetchThreadContext: vi.fn(async () => []) as FetchSlackMessageDeps["fetchThreadContext"],
     });
 
     const ctx = makeCtx();
@@ -384,7 +384,7 @@ describe("fetchSlackMessage tool", () => {
 
   it("allows request exactly at max fetch cap boundary", async () => {
     const deps = makeDeps({
-      fetchThreadContext: mock.fn(async () =>
+      fetchThreadContext: vi.fn(async () =>
         makeThreadMessages(1),
       ) as FetchSlackMessageDeps["fetchThreadContext"],
     });
@@ -430,7 +430,7 @@ describe("fetchSlackMessage tool", () => {
   it("returns empty page when page exceeds thread length", async () => {
     const messages = makeThreadMessages(3);
     const deps = makeDeps({
-      fetchThreadContext: mock.fn(
+      fetchThreadContext: vi.fn(
         async () => messages,
       ) as FetchSlackMessageDeps["fetchThreadContext"],
     });
@@ -473,7 +473,7 @@ describe("fetchSlackMessage tool", () => {
       },
     ];
     const deps = makeDeps({
-      fetchThreadContext: mock.fn(
+      fetchThreadContext: vi.fn(
         async () => messages,
       ) as FetchSlackMessageDeps["fetchThreadContext"],
     });
@@ -515,7 +515,7 @@ describe("fetchSlackMessage tool", () => {
       },
     ];
     const deps = makeDeps({
-      fetchThreadContext: mock.fn(
+      fetchThreadContext: vi.fn(
         async () => messages,
       ) as FetchSlackMessageDeps["fetchThreadContext"],
     });
@@ -579,7 +579,7 @@ describe("fetchSlackMessage tool", () => {
       },
     ];
     const deps = makeDeps({
-      fetchThreadContext: mock.fn(
+      fetchThreadContext: vi.fn(
         async () => messages,
       ) as FetchSlackMessageDeps["fetchThreadContext"],
     });
@@ -608,7 +608,7 @@ describe("fetchSlackMessage tool", () => {
   it("falls back to username when displayName is absent", async () => {
     const messages = [{ text: "Hello", userId: "U1", ts: "1.0", isBot: false, username: "bob" }];
     const deps = makeDeps({
-      fetchThreadContext: mock.fn(
+      fetchThreadContext: vi.fn(
         async () => messages,
       ) as FetchSlackMessageDeps["fetchThreadContext"],
     });
@@ -632,7 +632,7 @@ describe("fetchSlackMessage tool", () => {
   it("falls back to userId when displayName and username are absent", async () => {
     const messages = [{ text: "Hello", userId: "U1", ts: "1.0", isBot: false }];
     const deps = makeDeps({
-      fetchThreadContext: mock.fn(
+      fetchThreadContext: vi.fn(
         async () => messages,
       ) as FetchSlackMessageDeps["fetchThreadContext"],
     });
@@ -674,7 +674,7 @@ describe("fetchSlackMessage tool", () => {
       },
     ];
     const deps = makeDeps({
-      fetchThreadContext: mock.fn(
+      fetchThreadContext: vi.fn(
         async () => messages,
       ) as FetchSlackMessageDeps["fetchThreadContext"],
     });
@@ -705,7 +705,7 @@ describe("fetchSlackMessage tool", () => {
   it("omits images and files keys when message has no attachments", async () => {
     const messages = makeThreadMessages(1);
     const deps = makeDeps({
-      fetchThreadContext: mock.fn(
+      fetchThreadContext: vi.fn(
         async () => messages,
       ) as FetchSlackMessageDeps["fetchThreadContext"],
     });
@@ -746,7 +746,7 @@ describe("fetchSlackMessage tool", () => {
       },
     ];
     const deps = makeDeps({
-      fetchThreadContext: mock.fn(
+      fetchThreadContext: vi.fn(
         async () => messages,
       ) as FetchSlackMessageDeps["fetchThreadContext"],
     });
@@ -773,7 +773,7 @@ describe("fetchSlackMessage tool", () => {
   it("omits reactions key when message has no reactions", async () => {
     const messages = makeThreadMessages(1);
     const deps = makeDeps({
-      fetchThreadContext: mock.fn(
+      fetchThreadContext: vi.fn(
         async () => messages,
       ) as FetchSlackMessageDeps["fetchThreadContext"],
     });
@@ -796,7 +796,7 @@ describe("fetchSlackMessage tool", () => {
   // --- fetchThreadContext call verification ---
 
   it("passes correct limit to fetchThreadContext for default params", async () => {
-    const fetchThreadContextFn = mock.fn<FetchSlackMessageDeps["fetchThreadContext"]>(async () =>
+    const fetchThreadContextFn = vi.fn<FetchSlackMessageDeps["fetchThreadContext"]>(async () =>
       makeThreadMessages(1),
     );
     const deps = makeDeps({ fetchThreadContext: fetchThreadContextFn });
@@ -813,14 +813,14 @@ describe("fetchSlackMessage tool", () => {
       { sessionId: "test" },
     );
 
-    const callArgs = fetchThreadContextFn.mock.calls[0].arguments;
+    const callArgs = fetchThreadContextFn.mock.calls[0];
     const options = callArgs[4];
     // (0+1)*5+1 = 6
     assert.equal(options?.limit, 6);
   });
 
   it("passes correct limit to fetchThreadContext for custom page/limit", async () => {
-    const fetchThreadContextFn = mock.fn<FetchSlackMessageDeps["fetchThreadContext"]>(async () =>
+    const fetchThreadContextFn = vi.fn<FetchSlackMessageDeps["fetchThreadContext"]>(async () =>
       makeThreadMessages(1),
     );
     const deps = makeDeps({ fetchThreadContext: fetchThreadContextFn });
@@ -837,7 +837,7 @@ describe("fetchSlackMessage tool", () => {
       { sessionId: "test" },
     );
 
-    const callArgs = fetchThreadContextFn.mock.calls[0].arguments;
+    const callArgs = fetchThreadContextFn.mock.calls[0];
     const options = callArgs[4];
     // (2+1)*10+1 = 31
     assert.equal(options?.limit, 31);
@@ -845,11 +845,11 @@ describe("fetchSlackMessage tool", () => {
 
   it("includes channel_name in result when resolved", async () => {
     const deps = makeDeps({
-      getChannelInfo: mock.fn(async () => ({
+      getChannelInfo: vi.fn(async () => ({
         id: "C0123ABC",
         name: "backend-dev",
       })) as FetchSlackMessageDeps["getChannelInfo"],
-      fetchThreadContext: mock.fn(async () =>
+      fetchThreadContext: vi.fn(async () =>
         makeThreadMessages(1),
       ) as FetchSlackMessageDeps["fetchThreadContext"],
     });
@@ -872,8 +872,8 @@ describe("fetchSlackMessage tool", () => {
 
   it("omits channel_name when resolution fails", async () => {
     const deps = makeDeps({
-      getChannelInfo: mock.fn(async () => undefined) as FetchSlackMessageDeps["getChannelInfo"],
-      fetchThreadContext: mock.fn(async () =>
+      getChannelInfo: vi.fn(async () => undefined) as FetchSlackMessageDeps["getChannelInfo"],
+      fetchThreadContext: vi.fn(async () =>
         makeThreadMessages(1),
       ) as FetchSlackMessageDeps["fetchThreadContext"],
     });

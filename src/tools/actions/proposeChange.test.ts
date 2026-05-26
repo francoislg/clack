@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, beforeEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import { createProposeChangeTool, type ProposeChangeDeps } from "./proposeChange.js";
 import { parseToolResult } from "../testHelpers.js";
@@ -23,10 +23,10 @@ function makeRepo(overrides?: Partial<RepositoryConfig>): RepositoryConfig {
 
 function makeDeps(overrides?: Partial<ProposeChangeDeps>): ProposeChangeDeps {
   return {
-    getExistingWorktree: mock.fn(() => null),
-    readSessionState: mock.fn(async () => null),
-    canWriteRepo: mock.fn(() => true),
-    getWritableRepos: mock.fn(() => [makeRepo()]),
+    getExistingWorktree: vi.fn(() => null),
+    readSessionState: vi.fn(async () => null),
+    canWriteRepo: vi.fn(() => true),
+    getWritableRepos: vi.fn(() => [makeRepo()]),
     ...overrides,
   };
 }
@@ -53,7 +53,7 @@ function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
       repositories: [makeRepo()],
     } as QueryToolContext["config"],
     changesWorkflowEnabled: true,
-    allowScheduledMessages: false,
+    cronUserSchedules: false,
     ...overrides,
   };
 }
@@ -147,8 +147,8 @@ describe("proposeChange tool", () => {
 
   it("rejects when user lacks write access", async () => {
     deps = makeDeps({
-      canWriteRepo: mock.fn(() => false),
-      getWritableRepos: mock.fn(() => []),
+      canWriteRepo: vi.fn(() => false),
+      getWritableRepos: vi.fn(() => []),
     });
 
     const ctx = makeCtx();
@@ -173,8 +173,8 @@ describe("proposeChange tool", () => {
   it("shows writable repos when user lacks write access but has other repos", async () => {
     const otherRepo = makeRepo({ name: "other-repo" });
     deps = makeDeps({
-      canWriteRepo: mock.fn(() => false),
-      getWritableRepos: mock.fn(() => [otherRepo]),
+      canWriteRepo: vi.fn(() => false),
+      getWritableRepos: vi.fn(() => [otherRepo]),
     });
 
     const ctx = makeCtx();
@@ -271,13 +271,13 @@ describe("proposeChange tool", () => {
 
   it("includes existing worktree info when worktree exists", async () => {
     deps = makeDeps({
-      getExistingWorktree: mock.fn(() => ({
+      getExistingWorktree: vi.fn(() => ({
         repoName: "my-repo",
         branchName: "clack/fix/existing",
         worktreePath: "/tmp/worktrees/my-repo/clack-fix-existing",
         createdAt: new Date("2025-01-01T00:00:00Z"),
       })),
-      readSessionState: mock.fn(
+      readSessionState: vi.fn(
         async () =>
           ({
             status: "in_progress",
@@ -309,13 +309,13 @@ describe("proposeChange tool", () => {
   it("falls back to worktree createdAt when session state is null", async () => {
     const createdAt = new Date("2025-06-15T09:00:00Z");
     deps = makeDeps({
-      getExistingWorktree: mock.fn(() => ({
+      getExistingWorktree: vi.fn(() => ({
         repoName: "my-repo",
         branchName: "clack/fix/old",
         worktreePath: "/tmp/worktrees/my-repo/clack-fix-old",
         createdAt,
       })),
-      readSessionState: mock.fn(async () => null),
+      readSessionState: vi.fn(async () => null),
     });
 
     const ctx = makeCtx();

@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, afterEach } from "node:test";
+import { describe, it, beforeEach, afterEach } from "vitest";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -58,11 +58,12 @@ function stubPlugin(name: string, toolNames: string[]): PluginLoadResult {
     name,
     instructions: [],
     tools: toolNames.map((t) => stubRegisteredTool(t)),
-    integrations: [],
+    mcpServers: [],
     toolMappings: new Map(),
     mcpServer: createSdkMcpServer({ name, version: "1.0.0", tools: [] }),
     actionHandlers: [],
     viewHandlers: [],
+    errors: [],
   };
 }
 

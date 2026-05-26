@@ -1,4 +1,4 @@
-import { describe, it, mock } from "node:test";
+import { describe, it, vi } from "vitest";
 import { parseToolResult } from "../testHelpers.js";
 import assert from "node:assert/strict";
 import { createReadConfigFileTool, type ReadConfigFileDeps } from "./readConfigFile.js";
@@ -23,13 +23,13 @@ function makeCtx(): QueryToolContext {
     session: fakeSession as QueryToolContext["session"],
     config: fakeConfig as QueryToolContext["config"],
     changesWorkflowEnabled: false,
-    allowScheduledMessages: false,
+    cronUserSchedules: false,
   };
 }
 
 function makeDeps(overrides: Partial<ReadConfigFileDeps> = {}): ReadConfigFileDeps {
   return {
-    readInstructionFile: mock.fn<ReadConfigFileDeps["readInstructionFile"]>(() => ({
+    readInstructionFile: vi.fn<ReadConfigFileDeps["readInstructionFile"]>(() => ({
       default_content: "file content",
       custom_content: null,
     })),
@@ -56,7 +56,7 @@ function callTool(
 describe("readConfigFile tool", () => {
   it("returns error when file is not found (both null)", async () => {
     const deps = makeDeps({
-      readInstructionFile: mock.fn<ReadConfigFileDeps["readInstructionFile"]>(() => ({
+      readInstructionFile: vi.fn<ReadConfigFileDeps["readInstructionFile"]>(() => ({
         default_content: null,
         custom_content: null,
       })),
@@ -76,7 +76,7 @@ describe("readConfigFile tool", () => {
 
   it("reads a baseline file with only default content", async () => {
     const deps = makeDeps({
-      readInstructionFile: mock.fn<ReadConfigFileDeps["readInstructionFile"]>(() => ({
+      readInstructionFile: vi.fn<ReadConfigFileDeps["readInstructionFile"]>(() => ({
         default_content: "# Default Instructions\nBe helpful.",
         custom_content: null,
       })),
@@ -96,7 +96,7 @@ describe("readConfigFile tool", () => {
 
   it("reads a baseline file with both default and custom content", async () => {
     const deps = makeDeps({
-      readInstructionFile: mock.fn<ReadConfigFileDeps["readInstructionFile"]>(() => ({
+      readInstructionFile: vi.fn<ReadConfigFileDeps["readInstructionFile"]>(() => ({
         default_content: "Default instructions",
         custom_content: "Custom instructions",
       })),
@@ -115,7 +115,7 @@ describe("readConfigFile tool", () => {
 
   it("reads a baseline file with only custom content (custom-only)", async () => {
     const deps = makeDeps({
-      readInstructionFile: mock.fn<ReadConfigFileDeps["readInstructionFile"]>(() => ({
+      readInstructionFile: vi.fn<ReadConfigFileDeps["readInstructionFile"]>(() => ({
         default_content: null,
         custom_content: "Custom only content",
       })),
@@ -134,7 +134,7 @@ describe("readConfigFile tool", () => {
   });
 
   it("reads a topic-scoped file via the topic field", async () => {
-    const mockReadInstructionFile = mock.fn<ReadConfigFileDeps["readInstructionFile"]>(() => ({
+    const mockReadInstructionFile = vi.fn<ReadConfigFileDeps["readInstructionFile"]>(() => ({
       default_content: "topic default",
       custom_content: "topic override",
     }));
@@ -150,14 +150,11 @@ describe("readConfigFile tool", () => {
     assert.equal(parsed.file, "dev/topics/metabase/rules.md");
     assert.equal(parsed.default_content, "topic default");
     assert.equal(parsed.custom_content, "topic override");
-    assert.equal(
-      mockReadInstructionFile.mock.calls[0].arguments[0],
-      "dev/topics/metabase/rules.md",
-    );
+    assert.equal(mockReadInstructionFile.mock.calls[0][0], "dev/topics/metabase/rules.md");
   });
 
   it("composes the path with role/file when no topic is passed", async () => {
-    const mockReadInstructionFile = mock.fn<ReadConfigFileDeps["readInstructionFile"]>(() => ({
+    const mockReadInstructionFile = vi.fn<ReadConfigFileDeps["readInstructionFile"]>(() => ({
       default_content: "content",
       custom_content: null,
     }));
@@ -168,7 +165,7 @@ describe("readConfigFile tool", () => {
       file: "changes.md",
     });
 
-    assert.equal(mockReadInstructionFile.mock.callCount(), 1);
-    assert.equal(mockReadInstructionFile.mock.calls[0].arguments[0], "dev/changes.md");
+    assert.equal(mockReadInstructionFile.mock.calls.length, 1);
+    assert.equal(mockReadInstructionFile.mock.calls[0][0], "dev/changes.md");
   });
 });

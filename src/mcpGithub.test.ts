@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, beforeEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import type { McpDeps } from "./mcp.js";
@@ -9,11 +9,11 @@ import { mapPermissionsToToolsets } from "./mcpGithub.js";
 // Mock functions
 // ---------------------------------------------------------------------------
 
-const mockExistsSync = mock.fn<(path: string) => boolean>();
-const mockReadFileSync = mock.fn<(path: string, encoding: string) => string>();
+const mockExistsSync = vi.fn<(path: string) => boolean>();
+const mockReadFileSync = vi.fn<(path: string, encoding: string) => string>();
 const mockExecSync =
-  mock.fn<(cmd: string, opts: { stdio?: string | NodeJS.WriteStream[] }) => Buffer>();
-const mockGetInstallationToken = mock.fn<
+  vi.fn<(cmd: string, opts: { stdio?: string | NodeJS.WriteStream[] }) => Buffer>();
+const mockGetInstallationToken = vi.fn<
   () => Promise<{
     token: string;
     permissions: Record<string, string>;
@@ -38,7 +38,7 @@ function makeDeps(): McpDeps {
 }
 
 function setExistingPaths(paths: string[]): void {
-  mockExistsSync.mock.mockImplementation((p: string) => paths.includes(p));
+  mockExistsSync.mockImplementation((p: string) => paths.includes(p));
 }
 
 function stdioMcpJson(): string {
@@ -55,16 +55,16 @@ function stdioMcpJson(): string {
 
 function resetMocks(): void {
   resetMcpCache();
-  mockExistsSync.mock.resetCalls();
-  mockReadFileSync.mock.resetCalls();
-  mockExecSync.mock.resetCalls();
-  mockGetInstallationToken.mock.resetCalls();
-  mockExistsSync.mock.mockImplementation(() => false);
-  mockReadFileSync.mock.mockImplementation(() => "");
-  mockExecSync.mock.mockImplementation(() => {
+  mockExistsSync.mockClear();
+  mockReadFileSync.mockClear();
+  mockExecSync.mockClear();
+  mockGetInstallationToken.mockClear();
+  mockExistsSync.mockImplementation(() => false);
+  mockReadFileSync.mockImplementation(() => "");
+  mockExecSync.mockImplementation(() => {
     throw new Error("not found");
   });
-  mockGetInstallationToken.mock.mockImplementation(async () => ({
+  mockGetInstallationToken.mockImplementation(async () => ({
     token: "ghs_test_token",
     permissions: { contents: "read", pull_requests: "write" },
     expiresAt: new Date(),
@@ -177,7 +177,7 @@ describe("loadMcpServers GitHub auto-injection", () => {
 
   it("auto-injects GitHub MCP when credentials exist and binary is available", async () => {
     setExistingPaths([githubAuthPath()]);
-    mockExecSync.mock.mockImplementation(() => Buffer.from("/usr/local/bin/github-mcp-server"));
+    mockExecSync.mockImplementation(() => Buffer.from("/usr/local/bin/github-mcp-server"));
 
     const result = await loadMcpServers(makeDeps());
     assert.ok(result);
@@ -201,7 +201,7 @@ describe("loadMcpServers GitHub auto-injection", () => {
 
   it("skips auto-injection when GitHub credentials do not exist", async () => {
     setExistingPaths([mcpConfigPath()]);
-    mockReadFileSync.mock.mockImplementation(() => stdioMcpJson());
+    mockReadFileSync.mockImplementation(() => stdioMcpJson());
 
     const result = await loadMcpServers(makeDeps());
     assert.ok(result);
@@ -215,8 +215,8 @@ describe("loadMcpServers GitHub auto-injection", () => {
       },
     });
     setExistingPaths([mcpConfigPath(), githubAuthPath()]);
-    mockReadFileSync.mock.mockImplementation(() => configWithGithub);
-    mockExecSync.mock.mockImplementation(() => Buffer.from("ok"));
+    mockReadFileSync.mockImplementation(() => configWithGithub);
+    mockExecSync.mockImplementation(() => Buffer.from("ok"));
 
     const result = await loadMcpServers(makeDeps());
     assert.ok(result);
@@ -233,8 +233,8 @@ describe("loadMcpServers GitHub auto-injection", () => {
 
   it("merges auto-injected GitHub MCP with existing static servers", async () => {
     setExistingPaths([mcpConfigPath(), githubAuthPath()]);
-    mockReadFileSync.mock.mockImplementation(() => stdioMcpJson());
-    mockExecSync.mock.mockImplementation(() => Buffer.from("ok"));
+    mockReadFileSync.mockImplementation(() => stdioMcpJson());
+    mockExecSync.mockImplementation(() => Buffer.from("ok"));
 
     const result = await loadMcpServers(makeDeps());
     assert.ok(result);
@@ -244,9 +244,9 @@ describe("loadMcpServers GitHub auto-injection", () => {
 
   it("returns static config when getInstallationToken throws", async () => {
     setExistingPaths([mcpConfigPath(), githubAuthPath()]);
-    mockReadFileSync.mock.mockImplementation(() => stdioMcpJson());
-    mockExecSync.mock.mockImplementation(() => Buffer.from("ok"));
-    mockGetInstallationToken.mock.mockImplementation(async () => {
+    mockReadFileSync.mockImplementation(() => stdioMcpJson());
+    mockExecSync.mockImplementation(() => Buffer.from("ok"));
+    mockGetInstallationToken.mockImplementation(async () => {
       throw new Error("token generation failed");
     });
 
@@ -258,10 +258,10 @@ describe("loadMcpServers GitHub auto-injection", () => {
 
   it("uses fresh token on each call (not cached)", async () => {
     setExistingPaths([githubAuthPath()]);
-    mockExecSync.mock.mockImplementation(() => Buffer.from("ok"));
+    mockExecSync.mockImplementation(() => Buffer.from("ok"));
 
     let callCount = 0;
-    mockGetInstallationToken.mock.mockImplementation(async () => {
+    mockGetInstallationToken.mockImplementation(async () => {
       callCount++;
       return {
         token: `token_${callCount}`,
@@ -273,7 +273,7 @@ describe("loadMcpServers GitHub auto-injection", () => {
     const first = await loadMcpServers(makeDeps());
     resetMcpCache();
     setExistingPaths([githubAuthPath()]);
-    mockExecSync.mock.mockImplementation(() => Buffer.from("ok"));
+    mockExecSync.mockImplementation(() => Buffer.from("ok"));
 
     const second = await loadMcpServers(makeDeps());
 

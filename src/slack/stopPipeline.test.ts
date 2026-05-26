@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { stopThread, type StopPipelineDeps } from "./stopPipeline.js";
 import type { ActiveChangeState } from "../changes/activeState.js";

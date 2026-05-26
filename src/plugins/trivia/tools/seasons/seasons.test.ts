@@ -1,4 +1,4 @@
-import { describe, it, beforeEach } from "node:test";
+import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
 import { createUpsertSeasonTool } from "./upsertSeason.js";
@@ -7,7 +7,6 @@ import { createListSeasonsTool } from "./listSeasons.js";
 import { createCheckSeasonStatusTool } from "./checkSeasonStatus.js";
 import type { CronJob } from "../../../../cronJobs.js";
 import { createRetrieveScoresTool } from "../answers/retrieveScores.js";
-import { createSubmitAnswersTool } from "../answers/submitAnswers.js";
 import { createFindPreviousQuestionsTool } from "../questions/findPreviousQuestions.js";
 import { createSaveQuestionTool } from "../questions/saveQuestion.js";
 import { createAddCategoriesTool } from "../categories/addCategories.js";
@@ -190,6 +189,8 @@ describe("upsert_season tool", () => {
         difficultyRatio: undefined,
         theme: undefined,
         format: undefined,
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
       },
       SESSION,
     );
@@ -221,6 +222,8 @@ describe("upsert_season tool", () => {
         difficultyRatio: undefined,
         theme: undefined,
         format: undefined,
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
       },
       SESSION,
     );
@@ -248,6 +251,8 @@ describe("upsert_season tool", () => {
         difficultyRatio: undefined,
         theme: undefined,
         format: undefined,
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
       },
       SESSION,
     );
@@ -275,6 +280,8 @@ describe("upsert_season tool", () => {
         difficultyRatio: undefined,
         theme: undefined,
         format: undefined,
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
       },
       SESSION,
     );
@@ -304,6 +311,8 @@ describe("upsert_season tool", () => {
         difficultyRatio: undefined,
         theme: undefined,
         format: undefined,
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
       },
       SESSION,
     );
@@ -330,6 +339,8 @@ describe("upsert_season tool", () => {
         difficultyRatio: undefined,
         theme: undefined,
         format: undefined,
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
       },
       SESSION,
     );
@@ -356,6 +367,8 @@ describe("upsert_season tool", () => {
         difficultyRatio: undefined,
         theme: undefined,
         format: undefined,
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
       },
       SESSION,
     );
@@ -385,6 +398,8 @@ describe("upsert_season tool", () => {
         difficultyRatio: undefined,
         theme: undefined,
         format: undefined,
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
       },
       SESSION,
     );
@@ -416,6 +431,8 @@ describe("upsert_season tool", () => {
         difficultyRatio: undefined,
         theme: undefined,
         format: undefined,
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
       },
       SESSION,
     );
@@ -443,6 +460,8 @@ describe("upsert_season tool", () => {
         difficultyRatio: undefined,
         theme: undefined,
         format: undefined,
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
       },
       SESSION,
     );
@@ -477,6 +496,8 @@ describe("upsert_season tool", () => {
         difficultyRatio: undefined,
         theme: undefined,
         format: undefined,
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
       },
       SESSION,
     );
@@ -508,6 +529,8 @@ describe("upsert_season tool", () => {
         difficultyRatio: undefined,
         theme: undefined,
         format: undefined,
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
       },
       SESSION,
     );
@@ -534,6 +557,8 @@ describe("upsert_season tool", () => {
           difficultyRatio: undefined,
           theme: undefined,
           format: undefined,
+          liveAnswersVisible: undefined,
+          revealResponses: undefined,
         },
         SESSION,
       );
@@ -561,6 +586,8 @@ describe("upsert_season tool", () => {
         difficultyRatio: undefined,
         theme: undefined,
         format: undefined,
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
       },
       SESSION,
     );
@@ -591,6 +618,8 @@ describe("upsert_season tool", () => {
         difficultyRatio: undefined,
         theme: undefined,
         format: undefined,
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
       },
       SESSION,
     );
@@ -610,6 +639,8 @@ describe("upsert_season tool", () => {
         difficultyRatio: undefined,
         theme: undefined,
         format: undefined,
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
       },
       SESSION,
     );
@@ -1149,90 +1180,6 @@ describe("retrieve_scores with timeline-based current", () => {
 });
 
 // =============================================================================
-// submit_answers dual totals — driven by findCurrentSeason
-// =============================================================================
-
-describe("submit_answers dual totals", () => {
-  let data: TriviaDataLayer;
-
-  beforeEach(async () => {
-    data = createInMemoryDataLayer();
-    await data.saveCategories(["Science"]);
-  });
-
-  it("includes currentSeason* when a current season exists", async () => {
-    await seedSingleActive(data, { slug: "summer-2026" });
-    await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
-      id: "qx",
-      category: "Science",
-      statement: "A statement long enough to validate",
-      isTrue: true,
-      emojis: ["🔬"],
-      createdAt: 0,
-      season: "summer-2026",
-    });
-    await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
-      userId: "U1",
-      questionId: "old-q",
-      answer: true,
-      correct: true,
-      timestamp: 0,
-      season: "spring-2026",
-    });
-
-    const tool = createSubmitAnswersTool(data, fixtureGetGames);
-    const result = await tool.handler(
-      {
-        game: FIXTURE_GAME_NAME,
-        questionId: "qx",
-        messageLink: "https://slack/x",
-        postedAt: 1,
-        answers: [{ userId: "U1", displayName: "Alice", answer: true }],
-      },
-      SESSION,
-    );
-    const parsed = parseToolResult(result);
-    const u1 = parsed.results[0];
-    assert.equal(u1.totalCorrect, 2);
-    assert.equal(u1.currentSeasonCorrect, 1);
-  });
-
-  it("omits currentSeason* in a gap (no current season)", async () => {
-    const now = Date.now();
-    // Timeline has only a future season — now is in a gap.
-    await seedTimeline(data, [
-      {
-        slug: "future",
-        startedAt: now + 10 * DAY,
-        expectedEndAt: now + 40 * DAY,
-        categories: ["Science"],
-      },
-    ]);
-    await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
-      id: "qx",
-      category: "Science",
-      statement: "A statement long enough to validate",
-      isTrue: true,
-      emojis: ["🔬"],
-      createdAt: 0,
-    });
-    const tool = createSubmitAnswersTool(data, fixtureGetGames);
-    const result = await tool.handler(
-      {
-        game: FIXTURE_GAME_NAME,
-        questionId: "qx",
-        messageLink: "https://slack/x",
-        postedAt: 1,
-        answers: [{ userId: "U1", displayName: "Alice", answer: true }],
-      },
-      SESSION,
-    );
-    const parsed = parseToolResult(result);
-    assert.equal(parsed.results[0].currentSeasonCorrect, undefined);
-  });
-});
-
-// =============================================================================
 // find_previous_questions — season filter via findCurrentSeason
 // =============================================================================
 
@@ -1310,6 +1257,8 @@ describe("find_previous_questions with timeline-based current", () => {
         categories: ["Marine"],
         answersFormat: undefined,
         format: undefined,
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
       },
     ]);
     const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
@@ -1382,6 +1331,8 @@ describe("add_categories with target dispatch", () => {
         categories: ["Marine"],
         answersFormat: undefined,
         format: undefined,
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
       },
     ]);
     const tool = createAddCategoriesTool(data, fixtureGetGames);

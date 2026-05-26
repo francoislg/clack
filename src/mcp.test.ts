@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, beforeEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import type { McpDeps } from "./mcp.js";
@@ -19,11 +19,11 @@ import { logger } from "./logger.js";
 // Mock functions
 // ---------------------------------------------------------------------------
 
-const mockExistsSync = mock.fn<(path: string) => boolean>();
-const mockReadFileSync = mock.fn<(path: string, encoding: string) => string>();
+const mockExistsSync = vi.fn<(path: string) => boolean>();
+const mockReadFileSync = vi.fn<(path: string, encoding: string) => string>();
 const mockExecSync =
-  mock.fn<(cmd: string, opts: { stdio?: string | NodeJS.WriteStream[] }) => Buffer>();
-const mockGetInstallationToken = mock.fn<
+  vi.fn<(cmd: string, opts: { stdio?: string | NodeJS.WriteStream[] }) => Buffer>();
+const mockGetInstallationToken = vi.fn<
   () => Promise<{
     token: string;
     permissions: Record<string, string>;
@@ -61,7 +61,7 @@ function makeDeps(): McpDeps {
  * Configure existsSync to return true/false based on which paths should exist.
  */
 function setExistingPaths(paths: string[]): void {
-  mockExistsSync.mock.mockImplementation((p: string) => paths.includes(p));
+  mockExistsSync.mockImplementation((p: string) => paths.includes(p));
 }
 
 /** A minimal mcp.json with one stdio server */
@@ -104,18 +104,18 @@ function httpMcpJson(): string {
 
 function resetMocks(): void {
   resetMcpCache();
-  mockExistsSync.mock.resetCalls();
-  mockReadFileSync.mock.resetCalls();
-  mockExecSync.mock.resetCalls();
-  mockGetInstallationToken.mock.resetCalls();
+  mockExistsSync.mockClear();
+  mockReadFileSync.mockClear();
+  mockExecSync.mockClear();
+  mockGetInstallationToken.mockClear();
 
   // Defaults: nothing exists, binary not found
-  mockExistsSync.mock.mockImplementation(() => false);
-  mockReadFileSync.mock.mockImplementation(() => "");
-  mockExecSync.mock.mockImplementation(() => {
+  mockExistsSync.mockImplementation(() => false);
+  mockReadFileSync.mockImplementation(() => "");
+  mockExecSync.mockImplementation(() => {
     throw new Error("not found");
   });
-  mockGetInstallationToken.mock.mockImplementation(async () => ({
+  mockGetInstallationToken.mockImplementation(async () => ({
     token: "ghs_test_token",
     permissions: { contents: "read", pull_requests: "write" },
     expiresAt: new Date(),
@@ -137,7 +137,7 @@ describe("loadMcpServers", () => {
 
   it("parses a stdio server from mcp.json", async () => {
     setExistingPaths([mcpConfigPath()]);
-    mockReadFileSync.mock.mockImplementation(() => stdioMcpJson());
+    mockReadFileSync.mockImplementation(() => stdioMcpJson());
 
     const result = await loadMcpServers(makeDeps());
     assert.ok(result);
@@ -150,7 +150,7 @@ describe("loadMcpServers", () => {
 
   it("parses an SSE server from mcp.json", async () => {
     setExistingPaths([mcpConfigPath()]);
-    mockReadFileSync.mock.mockImplementation(() => remoteMcpJson());
+    mockReadFileSync.mockImplementation(() => remoteMcpJson());
 
     const result = await loadMcpServers(makeDeps());
     assert.ok(result);
@@ -164,7 +164,7 @@ describe("loadMcpServers", () => {
 
   it("parses an HTTP server from mcp.json", async () => {
     setExistingPaths([mcpConfigPath()]);
-    mockReadFileSync.mock.mockImplementation(() => httpMcpJson());
+    mockReadFileSync.mockImplementation(() => httpMcpJson());
 
     const result = await loadMcpServers(makeDeps());
     assert.ok(result);
@@ -175,7 +175,7 @@ describe("loadMcpServers", () => {
 
   it("returns undefined when mcpServers is empty", async () => {
     setExistingPaths([mcpConfigPath()]);
-    mockReadFileSync.mock.mockImplementation(() => JSON.stringify({ mcpServers: {} }));
+    mockReadFileSync.mockImplementation(() => JSON.stringify({ mcpServers: {} }));
 
     const result = await loadMcpServers(makeDeps());
     assert.equal(result, undefined);
@@ -183,7 +183,7 @@ describe("loadMcpServers", () => {
 
   it("returns undefined when mcpServers key is missing", async () => {
     setExistingPaths([mcpConfigPath()]);
-    mockReadFileSync.mock.mockImplementation(() => JSON.stringify({}));
+    mockReadFileSync.mockImplementation(() => JSON.stringify({}));
 
     const result = await loadMcpServers(makeDeps());
     assert.equal(result, undefined);
@@ -191,7 +191,7 @@ describe("loadMcpServers", () => {
 
   it("returns undefined when mcp.json contains invalid JSON", async () => {
     setExistingPaths([mcpConfigPath()]);
-    mockReadFileSync.mock.mockImplementation(() => "{ not valid json }}}");
+    mockReadFileSync.mockImplementation(() => "{ not valid json }}}");
 
     const result = await loadMcpServers(makeDeps());
     assert.equal(result, undefined);
@@ -199,14 +199,14 @@ describe("loadMcpServers", () => {
 
   it("caches static config on subsequent calls", async () => {
     setExistingPaths([mcpConfigPath()]);
-    mockReadFileSync.mock.mockImplementation(() => stdioMcpJson());
+    mockReadFileSync.mockImplementation(() => stdioMcpJson());
 
     const first = await loadMcpServers(makeDeps());
     const second = await loadMcpServers(makeDeps());
 
     assert.deepEqual(first, second);
     // readFileSync should only be called once thanks to caching
-    assert.equal(mockReadFileSync.mock.callCount(), 1);
+    assert.equal(mockReadFileSync.mock.calls.length, 1);
   });
 });
 
@@ -225,7 +225,7 @@ describe("getConfiguredMcpServerNames", () => {
 
   it("returns server names from static config", () => {
     setExistingPaths([mcpConfigPath()]);
-    mockReadFileSync.mock.mockImplementation(() =>
+    mockReadFileSync.mockImplementation(() =>
       JSON.stringify({
         mcpServers: {
           server_a: { command: "a" },
@@ -241,7 +241,7 @@ describe("getConfiguredMcpServerNames", () => {
 
   it("includes 'github' when auto-config conditions are met", () => {
     setExistingPaths([githubAuthPath()]);
-    mockExecSync.mock.mockImplementation(() => Buffer.from("ok"));
+    mockExecSync.mockImplementation(() => Buffer.from("ok"));
 
     const names = getConfiguredMcpServerNames(makeDeps());
     assert.ok(names.includes("github"));
@@ -257,7 +257,7 @@ describe("getConfiguredMcpServerNames", () => {
 
   it("does not include 'github' when credentials do not exist", () => {
     setExistingPaths([]);
-    mockExecSync.mock.mockImplementation(() => Buffer.from("ok"));
+    mockExecSync.mockImplementation(() => Buffer.from("ok"));
 
     const names = getConfiguredMcpServerNames(makeDeps());
     assert.ok(!names.includes("github"));
@@ -270,8 +270,8 @@ describe("getConfiguredMcpServerNames", () => {
       },
     });
     setExistingPaths([mcpConfigPath(), githubAuthPath()]);
-    mockReadFileSync.mock.mockImplementation(() => configWithGithub);
-    mockExecSync.mock.mockImplementation(() => Buffer.from("ok"));
+    mockReadFileSync.mockImplementation(() => configWithGithub);
+    mockExecSync.mockImplementation(() => Buffer.from("ok"));
 
     const names = getConfiguredMcpServerNames(makeDeps());
     const githubCount = names.filter((n) => n === "github").length;
@@ -292,7 +292,7 @@ describe("environment variable substitution", () => {
 
     try {
       setExistingPaths([mcpConfigPath()]);
-      mockReadFileSync.mock.mockImplementation(() =>
+      mockReadFileSync.mockImplementation(() =>
         JSON.stringify({
           mcpServers: {
             myserver: {
@@ -322,7 +322,7 @@ describe("environment variable substitution", () => {
 
     try {
       setExistingPaths([mcpConfigPath()]);
-      mockReadFileSync.mock.mockImplementation(() =>
+      mockReadFileSync.mockImplementation(() =>
         JSON.stringify({
           mcpServers: {
             remote: {
@@ -354,7 +354,7 @@ describe("environment variable substitution", () => {
 
     try {
       setExistingPaths([mcpConfigPath()]);
-      mockReadFileSync.mock.mockImplementation(() =>
+      mockReadFileSync.mockImplementation(() =>
         JSON.stringify({
           mcpServers: {
             myserver: {
@@ -384,7 +384,7 @@ describe("environment variable substitution", () => {
 
     try {
       setExistingPaths([mcpConfigPath()]);
-      mockReadFileSync.mock.mockImplementation(() =>
+      mockReadFileSync.mockImplementation(() =>
         JSON.stringify({
           mcpServers: {
             myserver: {
@@ -409,7 +409,7 @@ describe("environment variable substitution", () => {
 
   it("passes through values without ${} unchanged", async () => {
     setExistingPaths([mcpConfigPath()]);
-    mockReadFileSync.mock.mockImplementation(() =>
+    mockReadFileSync.mockImplementation(() =>
       JSON.stringify({
         mcpServers: {
           myserver: {
@@ -436,27 +436,27 @@ describe("resetMcpCache", () => {
 
   it("forces static config to be re-read after reset", async () => {
     setExistingPaths([mcpConfigPath()]);
-    mockReadFileSync.mock.mockImplementation(() => stdioMcpJson());
+    mockReadFileSync.mockImplementation(() => stdioMcpJson());
 
     // First load caches the result
     await loadMcpServers(makeDeps());
-    assert.equal(mockReadFileSync.mock.callCount(), 1);
+    assert.equal(mockReadFileSync.mock.calls.length, 1);
 
     // Reset and change the config
     resetMcpCache();
-    mockReadFileSync.mock.mockImplementation(() => remoteMcpJson());
+    mockReadFileSync.mockImplementation(() => remoteMcpJson());
 
     const result = await loadMcpServers(makeDeps());
     assert.ok(result);
     assert.ok("remote" in result);
     assert.ok(!("myserver" in result));
-    assert.equal(mockReadFileSync.mock.callCount(), 2);
+    assert.equal(mockReadFileSync.mock.calls.length, 2);
   });
 
   it("forces binary availability to be re-checked after reset", () => {
     setExistingPaths([githubAuthPath()]);
     // Binary not found initially
-    mockExecSync.mock.mockImplementation(() => {
+    mockExecSync.mockImplementation(() => {
       throw new Error("not found");
     });
 
@@ -466,7 +466,7 @@ describe("resetMcpCache", () => {
     // Reset and make binary available
     resetMcpCache();
     setExistingPaths([githubAuthPath()]);
-    mockExecSync.mock.mockImplementation(() => Buffer.from("ok"));
+    mockExecSync.mockImplementation(() => Buffer.from("ok"));
 
     names = getConfiguredMcpServerNames(makeDeps());
     assert.ok(names.includes("github"));
@@ -597,7 +597,7 @@ describe("resolveEffectiveRegistry", () => {
   });
 
   it("logs a warning and lets last-write-win when plugin integration name collides with config entry", () => {
-    const warn = mock.method(logger, "warn", () => {});
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
     try {
       const result = resolveEffectiveRegistry({
         configRegistry: {
@@ -617,12 +617,12 @@ describe("resolveEffectiveRegistry", () => {
 
       assert.equal(result.registry["shared:foo"].description, "from-plugin");
       const warned = warn.mock.calls.find((call) => {
-        const m = String(call.arguments[0] ?? "");
+        const m = String(call[0] ?? "");
         return m.includes("shared:foo") && m.includes("myplugin");
       });
       assert.ok(warned, "expected a warning naming the colliding integration and plugin");
     } finally {
-      warn.mock.restore();
+      warn.mockRestore();
     }
   });
 });
@@ -638,7 +638,7 @@ describe("loadMcpServer", () => {
 
   it("returns a server from mcp.json by name", async () => {
     setExistingPaths([mcpConfigPath()]);
-    mockReadFileSync.mock.mockImplementation(() => stdioMcpJson());
+    mockReadFileSync.mockImplementation(() => stdioMcpJson());
 
     const cfg = await loadMcpServer("myserver", makeDeps());
     assert.ok(cfg);
@@ -647,7 +647,7 @@ describe("loadMcpServer", () => {
 
   it("returns undefined for a name that's not in mcp.json", async () => {
     setExistingPaths([mcpConfigPath()]);
-    mockReadFileSync.mock.mockImplementation(() => stdioMcpJson());
+    mockReadFileSync.mockImplementation(() => stdioMcpJson());
 
     const cfg = await loadMcpServer("does-not-exist", makeDeps());
     assert.equal(cfg, undefined);
@@ -662,19 +662,19 @@ describe("loadMcpServer", () => {
   it("builds a fresh github entry via token refresh when github is auto-injected", async () => {
     // github not in mcp.json, but credentials + binary available
     setExistingPaths([githubAuthPath()]);
-    mockExecSync.mock.mockImplementation(() => Buffer.from("ok"));
+    mockExecSync.mockImplementation(() => Buffer.from("ok"));
 
     const cfg = await loadMcpServer("github", makeDeps());
 
     assert.ok(cfg);
     assert.equal(cfg.type, "stdio");
     // Token fetch was called — this is the proof of a fresh token.
-    assert.equal(mockGetInstallationToken.mock.callCount(), 1);
+    assert.equal(mockGetInstallationToken.mock.calls.length, 1);
   });
 
   it("returns a manual github entry from mcp.json without minting a token", async () => {
     setExistingPaths([mcpConfigPath()]);
-    mockReadFileSync.mock.mockImplementation(() =>
+    mockReadFileSync.mockImplementation(() =>
       JSON.stringify({
         mcpServers: {
           github: { command: "custom-github-mcp", args: ["--stdio"], env: {} },
@@ -685,7 +685,7 @@ describe("loadMcpServer", () => {
     const cfg = await loadMcpServer("github", makeDeps());
 
     assert.ok(cfg);
-    assert.equal(mockGetInstallationToken.mock.callCount(), 0);
+    assert.equal(mockGetInstallationToken.mock.calls.length, 0);
   });
 });
 
@@ -700,7 +700,7 @@ describe("loadAlwaysOnMcpServers", () => {
 
   it("returns only servers tagged alwaysLoad: true", async () => {
     setExistingPaths([mcpConfigPath()]);
-    mockReadFileSync.mock.mockImplementation(() =>
+    mockReadFileSync.mockImplementation(() =>
       JSON.stringify({
         mcpServers: {
           metabase: { command: "mb", args: [] },
@@ -721,7 +721,7 @@ describe("loadAlwaysOnMcpServers", () => {
 
   it("includes auto-injected github when its registry entry is alwaysLoad: true", async () => {
     setExistingPaths([githubAuthPath()]);
-    mockExecSync.mock.mockImplementation(() => Buffer.from("ok"));
+    mockExecSync.mockImplementation(() => Buffer.from("ok"));
 
     const registry: McpServerRegistry = {
       github: { alwaysLoad: true, description: "GitHub MCP" },
@@ -734,7 +734,7 @@ describe("loadAlwaysOnMcpServers", () => {
 
   it("returns undefined when no server qualifies", async () => {
     setExistingPaths([mcpConfigPath()]);
-    mockReadFileSync.mock.mockImplementation(() =>
+    mockReadFileSync.mockImplementation(() =>
       JSON.stringify({
         mcpServers: {
           metabase: { command: "mb", args: [] },
@@ -752,7 +752,7 @@ describe("loadAlwaysOnMcpServers", () => {
 
   it("excludes servers in the MCP set that have no registry entry", async () => {
     setExistingPaths([mcpConfigPath()]);
-    mockReadFileSync.mock.mockImplementation(() =>
+    mockReadFileSync.mockImplementation(() =>
       JSON.stringify({
         mcpServers: {
           metabase: { command: "mb", args: [] },

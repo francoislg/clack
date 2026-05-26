@@ -1,4 +1,4 @@
-import { describe, it, beforeEach } from "node:test";
+import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import { createUpsertGameTool } from "./upsertGame.js";
 import {
@@ -20,10 +20,17 @@ interface FakeSdkState {
 function makeFakeSdk(state: FakeSdkState): ClackSdk {
   return {
     logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
+    capabilities: { crons: true },
+    error: () => {},
     addInstruction: () => {},
     addTopicInstruction: () => {},
     registerTool: () => {},
-    registerIntegration: () => {},
+    mcpServer: { fullName: "test", registerTool: () => {}, addTopicInstruction: () => {} },
+    registerMcpServer: () => ({
+      fullName: "test",
+      registerTool: () => {},
+      addTopicInstruction: () => {},
+    }),
     readFile: async (path) => state.writes.get(path) ?? null,
     writeFile: async (path, content) => {
       state.writes.set(path, content);
@@ -44,6 +51,8 @@ function makeFakeSdk(state: FakeSdkState): ClackSdk {
       usage: { inputTokens: 0, outputTokens: 0 },
     }),
     requestSoftRestart: () => {},
+    registerDictionary: () => {},
+    t: (key: string) => key,
   };
 }
 
@@ -89,6 +98,8 @@ function args(overrides: Partial<UpsertGameArgs> & Pick<UpsertGameArgs, "name">)
     format: undefined,
     categories: undefined,
     theme: undefined,
+    liveAnswersVisible: undefined,
+    revealResponses: undefined,
     ...overrides,
   };
 }

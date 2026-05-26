@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, beforeEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import type { ConversationMessage } from "./index.js";
 import type { clackQuery } from "./query.js";
@@ -13,7 +13,7 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
-type MockClackQuery = ReturnType<typeof mock.fn<typeof clackQuery>>;
+type MockClackQuery = ReturnType<typeof vi.fn<typeof clackQuery>>;
 
 let mockQuery: MockClackQuery;
 
@@ -52,11 +52,11 @@ function makeConversationMessage(
 // ---------------------------------------------------------------------------
 describe("summarizeForSlack", () => {
   beforeEach(() => {
-    mockQuery = mock.fn<typeof clackQuery>();
+    mockQuery = vi.fn<typeof clackQuery>();
   });
 
   it("returns summarized text from a successful Claude result", async () => {
-    mockQuery.mock.mockImplementation(() =>
+    mockQuery.mockImplementation(() =>
       asyncIterableOf([
         {
           type: "assistant",
@@ -77,7 +77,7 @@ describe("summarizeForSlack", () => {
   });
 
   it("falls back to lastAssistantText when result.result is empty", async () => {
-    mockQuery.mock.mockImplementation(() =>
+    mockQuery.mockImplementation(() =>
       asyncIterableOf([
         {
           type: "assistant",
@@ -98,7 +98,7 @@ describe("summarizeForSlack", () => {
   });
 
   it("concatenates multiple text blocks in assistant message", async () => {
-    mockQuery.mock.mockImplementation(() =>
+    mockQuery.mockImplementation(() =>
       asyncIterableOf([
         {
           type: "assistant",
@@ -122,7 +122,7 @@ describe("summarizeForSlack", () => {
   });
 
   it("ignores non-text blocks in assistant content", async () => {
-    mockQuery.mock.mockImplementation(() =>
+    mockQuery.mockImplementation(() =>
       asyncIterableOf([
         {
           type: "assistant",
@@ -146,7 +146,7 @@ describe("summarizeForSlack", () => {
   });
 
   it("uses the last assistant message when multiple are emitted", async () => {
-    mockQuery.mock.mockImplementation(() =>
+    mockQuery.mockImplementation(() =>
       asyncIterableOf([
         {
           type: "assistant",
@@ -173,7 +173,7 @@ describe("summarizeForSlack", () => {
   });
 
   it("falls back to hard truncation when query throws", async () => {
-    mockQuery.mock.mockImplementation(() => {
+    mockQuery.mockImplementation(() => {
       throw new Error("SDK failure");
     });
 
@@ -188,7 +188,7 @@ describe("summarizeForSlack", () => {
   });
 
   it("falls back to hard truncation when result is empty", async () => {
-    mockQuery.mock.mockImplementation(() =>
+    mockQuery.mockImplementation(() =>
       asyncIterableOf([{ type: "result", subtype: "error", errors: ["fail"] }]),
     );
 
@@ -198,7 +198,7 @@ describe("summarizeForSlack", () => {
   });
 
   it("trims whitespace from the summary", async () => {
-    mockQuery.mock.mockImplementation(() =>
+    mockQuery.mockImplementation(() =>
       asyncIterableOf([
         {
           type: "result",
@@ -213,7 +213,7 @@ describe("summarizeForSlack", () => {
   });
 
   it("falls back to truncation when async iterator throws mid-stream", async () => {
-    mockQuery.mock.mockImplementation(
+    mockQuery.mockImplementation(
       () =>
         ({
           async *[Symbol.asyncIterator]() {
@@ -237,11 +237,11 @@ describe("summarizeForSlack", () => {
 // ---------------------------------------------------------------------------
 describe("analyzeError", () => {
   beforeEach(() => {
-    mockQuery = mock.fn<typeof clackQuery>();
+    mockQuery = vi.fn<typeof clackQuery>();
   });
 
   it("returns analysis text from a successful Claude result", async () => {
-    mockQuery.mock.mockImplementation(() =>
+    mockQuery.mockImplementation(() =>
       asyncIterableOf([
         {
           type: "assistant",
@@ -262,7 +262,7 @@ describe("analyzeError", () => {
   });
 
   it("falls back to lastAssistantText when result.result is empty", async () => {
-    mockQuery.mock.mockImplementation(() =>
+    mockQuery.mockImplementation(() =>
       asyncIterableOf([
         {
           type: "assistant",
@@ -283,7 +283,7 @@ describe("analyzeError", () => {
   });
 
   it("returns 'Unable to analyze the error.' when result is whitespace-only", async () => {
-    mockQuery.mock.mockImplementation(() =>
+    mockQuery.mockImplementation(() =>
       asyncIterableOf([
         {
           type: "result",
@@ -298,7 +298,7 @@ describe("analyzeError", () => {
   });
 
   it("returns 'Error analysis unavailable.' when query throws", async () => {
-    mockQuery.mock.mockImplementation(() => {
+    mockQuery.mockImplementation(() => {
       throw new Error("SDK failure");
     });
 
@@ -307,7 +307,7 @@ describe("analyzeError", () => {
   });
 
   it("returns 'Error analysis unavailable.' when async iterator throws", async () => {
-    mockQuery.mock.mockImplementation(
+    mockQuery.mockImplementation(
       () =>
         ({
           // Intentionally throws before yielding to simulate a stream error
@@ -324,7 +324,7 @@ describe("analyzeError", () => {
 
   it("only uses the last 10 messages from the conversation trace", async () => {
     let capturedPrompt = "";
-    mockQuery.mock.mockImplementation((...args: unknown[]) => {
+    mockQuery.mockImplementation((...args: unknown[]) => {
       capturedPrompt = (args[0] as { prompt: string }).prompt;
       return asyncIterableOf([
         {
@@ -352,7 +352,7 @@ describe("analyzeError", () => {
 
   it("formats tool calls in the trace", async () => {
     let capturedPrompt = "";
-    mockQuery.mock.mockImplementation((...args: unknown[]) => {
+    mockQuery.mockImplementation((...args: unknown[]) => {
       capturedPrompt = (args[0] as { prompt: string }).prompt;
       return asyncIterableOf([
         {
@@ -385,7 +385,7 @@ describe("analyzeError", () => {
 
   it("includes subtype in trace formatting when present", async () => {
     let capturedPrompt = "";
-    mockQuery.mock.mockImplementation((...args: unknown[]) => {
+    mockQuery.mockImplementation((...args: unknown[]) => {
       capturedPrompt = (args[0] as { prompt: string }).prompt;
       return asyncIterableOf([
         {
@@ -410,7 +410,7 @@ describe("analyzeError", () => {
 
   it("omits subtype from trace formatting when absent", async () => {
     let capturedPrompt = "";
-    mockQuery.mock.mockImplementation((...args: unknown[]) => {
+    mockQuery.mockImplementation((...args: unknown[]) => {
       capturedPrompt = (args[0] as { prompt: string }).prompt;
       return asyncIterableOf([
         {
@@ -436,7 +436,7 @@ describe("analyzeError", () => {
 
   it("omits Result line for tool calls with empty result object", async () => {
     let capturedPrompt = "";
-    mockQuery.mock.mockImplementation((...args: unknown[]) => {
+    mockQuery.mockImplementation((...args: unknown[]) => {
       capturedPrompt = (args[0] as { prompt: string }).prompt;
       return asyncIterableOf([
         {
@@ -469,7 +469,7 @@ describe("analyzeError", () => {
   });
 
   it("handles empty conversation trace", async () => {
-    mockQuery.mock.mockImplementation(() =>
+    mockQuery.mockImplementation(() =>
       asyncIterableOf([
         {
           type: "result",

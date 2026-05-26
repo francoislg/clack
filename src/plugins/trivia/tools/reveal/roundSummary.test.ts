@@ -1,22 +1,17 @@
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { computeRoundSummary } from "./roundSummary.js";
-import type { ProcessRevealEntry, Voter, WildcardVoter } from "./types.js";
+import type { ProcessRevealEntry, Voter } from "./types.js";
 
 function voter(userId: string, displayName = userId): Voter {
   return { userId, displayName };
-}
-
-function wild(userId: string, emoji: string, displayName = userId): WildcardVoter {
-  return { userId, displayName, emoji };
 }
 
 function reveal(
   questionId: string,
   correct: Voter[],
   incorrect: Voter[] = [],
-  fenceSitters: Voter[] = [],
-  wildcards: WildcardVoter[] = [],
+  noAnswer: Voter[] = [],
 ): ProcessRevealEntry {
   return {
     questionId,
@@ -26,7 +21,13 @@ function reveal(
     messageLink: "https://example.com",
     wasReprocessed: false,
     answer: { type: "boolean", isTrue: true },
-    voters: { correct, incorrect, fenceSitters, wildcards },
+    voters: {
+      revealResponses: "yes",
+      correct,
+      incorrect,
+      noAnswer,
+      reactions: [],
+    },
   };
 }
 
@@ -104,24 +105,41 @@ describe("computeRoundSummary", () => {
     assert.ok(!ids.includes("dave"));
   });
 
-  it("counts non-correct buckets toward answered (incorrect, fenceSitters, wildcards)", () => {
-    const reveals = [
-      reveal(
-        "q1",
-        [],
-        [voter("incorrect-bob", "Bob")],
-        [voter("fence-carol", "Carol")],
-        [wild("wild-dave", "🍕", "Dave")],
-      ),
-    ];
+  it("counts incorrect voters toward answered", () => {
+    const reveals = [reveal("q1", [], [voter("incorrect-bob", "Bob")])];
     const out = computeRoundSummary(reveals);
     const byId = new Map(out.perPlayer.map((p) => [p.userId, p]));
     assert.equal(byId.get("incorrect-bob")?.answered, 1);
-    assert.equal(byId.get("fence-carol")?.answered, 1);
-    assert.equal(byId.get("wild-dave")?.answered, 1);
     for (const p of out.perPlayer) {
       assert.equal(p.correct, 0);
     }
+  });
+
+  it("does NOT count noAnswer reactors toward answered", () => {
+    // noAnswer = reacted but didn't click; not a meaningful "answered" count.
+    const reveals = [reveal("q1", [voter("alice")], [], [voter("dave")])];
+    const out = computeRoundSummary(reveals);
+    const ids = out.perPlayer.map((p) => p.userId);
+    assert.ok(ids.includes("alice"));
+    assert.ok(!ids.includes("dave"));
+  });
+
+  it("ignores reveals with revealResponses === 'no' (no named buckets)", () => {
+    const reveals: ProcessRevealEntry[] = [
+      {
+        questionId: "q1",
+        statement: "S",
+        category: "X",
+        emojis: ["❓"],
+        messageLink: "https://example.com",
+        wasReprocessed: false,
+        answer: { type: "boolean", isTrue: true },
+        voters: { revealResponses: "no", reactions: [] },
+      },
+    ];
+    const out = computeRoundSummary(reveals);
+    assert.equal(out.totalQuestions, 1);
+    assert.deepEqual(out.perPlayer, []);
   });
 
   it("sorts by correct desc, then displayName asc (case-insensitive)", () => {
@@ -136,7 +154,7 @@ describe("computeRoundSummary", () => {
   });
 
   it("does not double-count a player who appears in multiple buckets of the same reveal", () => {
-    // Edge case: assume cleanReactionLists doesn't perfectly dedupe.
+    // Edge case: assume an upstream bucketing step doesn't perfectly dedupe.
     // The same player should only count once per reveal for `answered`.
     const reveals = [
       reveal(

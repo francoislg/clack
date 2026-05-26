@@ -1,4 +1,4 @@
-import { describe, it, mock, beforeEach } from "node:test";
+import { describe, it, vi, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
 import { registerMentionHandler, type MentionDeps } from "./mention.js";
@@ -7,7 +7,7 @@ import { registerMentionHandler, type MentionDeps } from "./mention.js";
 // Helpers
 // ============================================================================
 
-const mockProcessMessage = mock.fn<(...args: never[]) => Promise<void>>(async () => {});
+const mockProcessMessage = vi.fn<(...args: never[]) => Promise<void>>(async () => {});
 
 function makeDeps(): MentionDeps {
   return {
@@ -19,7 +19,7 @@ function makeDeps(): MentionDeps {
   };
 }
 
-const mockStopThread = mock.fn<MentionDeps["stopThread"]>(async () => ({
+const mockStopThread = vi.fn<MentionDeps["stopThread"]>(async () => ({
   queryAborted: 0,
   workerAborted: false,
   queuedCancelled: false,
@@ -57,10 +57,10 @@ function makeApp(): App {
 }
 
 function makeClient(botUserId = "B001"): App["client"] {
-  const postMessageFn = mock.fn(async () => ({ ok: true }));
+  const postMessageFn = vi.fn(async () => ({ ok: true }));
   return {
     auth: {
-      test: mock.fn(async () => ({ user_id: botUserId })),
+      test: vi.fn(async () => ({ user_id: botUserId })),
     },
     chat: {
       postMessage: postMessageFn,
@@ -69,7 +69,7 @@ function makeClient(botUserId = "B001"): App["client"] {
 }
 
 beforeEach(() => {
-  mockProcessMessage.mock.resetCalls();
+  mockProcessMessage.mockClear();
 
   // Register handler
   const app = makeApp();
@@ -96,7 +96,7 @@ describe("registerMentionHandler", () => {
       client: makeClient(),
     });
 
-    assert.equal(mockProcessMessage.mock.callCount(), 0);
+    assert.equal(mockProcessMessage.mock.calls.length, 0);
   });
 
   it("strips the bot mention from the text", async () => {
@@ -112,11 +112,11 @@ describe("registerMentionHandler", () => {
       client,
     });
 
-    assert.equal(mockProcessMessage.mock.callCount(), 1);
+    assert.equal(mockProcessMessage.mock.calls.length, 1);
     interface ProcessMessageArg {
       messageText: string;
     }
-    const args = mockProcessMessage.mock.calls[0]!.arguments[0] as ProcessMessageArg;
+    const args = mockProcessMessage.mock.calls[0]![0] as ProcessMessageArg;
     assert.equal(args.messageText, "what is this function?");
   });
 
@@ -136,7 +136,7 @@ describe("registerMentionHandler", () => {
     interface ProcessMessageArg {
       messageText: string;
     }
-    const args = mockProcessMessage.mock.calls[0]!.arguments[0] as ProcessMessageArg;
+    const args = mockProcessMessage.mock.calls[0]![0] as ProcessMessageArg;
     assert.equal(args.messageText, "hello world");
   });
 
@@ -153,7 +153,7 @@ describe("registerMentionHandler", () => {
       client,
     });
 
-    assert.equal(mockProcessMessage.mock.callCount(), 0);
+    assert.equal(mockProcessMessage.mock.calls.length, 0);
 
     interface PostMessageArg {
       channel: string;
@@ -163,13 +163,12 @@ describe("registerMentionHandler", () => {
     interface PostMessageMock {
       (args: PostMessageArg): Promise<{ ok: boolean }>;
       mock: {
-        callCount(): number;
-        calls: Array<{ arguments: PostMessageArg[] }>;
+        calls: PostMessageArg[][];
       };
     }
     const postMessage = client.chat.postMessage as PostMessageMock;
-    assert.equal(postMessage.mock.callCount(), 1);
-    const msgArgs = postMessage.mock.calls[0]!.arguments[0];
+    assert.equal(postMessage.mock.calls.length, 1);
+    const msgArgs = postMessage.mock.calls[0]![0];
     assert.equal(msgArgs.channel, "C001");
     assert.equal(msgArgs.thread_ts, "1700000000.000001");
     assert.ok(msgArgs.text.includes("include a question"));
@@ -189,11 +188,11 @@ describe("registerMentionHandler", () => {
       client,
     });
 
-    assert.equal(mockProcessMessage.mock.callCount(), 1);
+    assert.equal(mockProcessMessage.mock.calls.length, 1);
     interface ProcessMessageArg {
       messageText: string;
     }
-    const args = mockProcessMessage.mock.calls[0]!.arguments[0] as ProcessMessageArg;
+    const args = mockProcessMessage.mock.calls[0]![0] as ProcessMessageArg;
     assert.ok(args.messageText.includes("Read the conversation above"));
   });
 
@@ -211,7 +210,7 @@ describe("registerMentionHandler", () => {
       client,
     });
 
-    assert.equal(mockProcessMessage.mock.callCount(), 1);
+    assert.equal(mockProcessMessage.mock.calls.length, 1);
     interface ProcessMessageArg {
       client: App["client"];
       userId: string;
@@ -221,7 +220,7 @@ describe("registerMentionHandler", () => {
       threadTs?: string;
       triggerType: string;
     }
-    const args = mockProcessMessage.mock.calls[0]!.arguments[0] as ProcessMessageArg;
+    const args = mockProcessMessage.mock.calls[0]![0] as ProcessMessageArg;
     assert.equal(args.client, client);
     assert.equal(args.userId, "U123");
     assert.equal(args.channelId, "C456");
@@ -247,7 +246,7 @@ describe("registerMentionHandler", () => {
     interface ProcessMessageArg {
       threadTs?: string;
     }
-    const args = mockProcessMessage.mock.calls[0]!.arguments[0] as ProcessMessageArg;
+    const args = mockProcessMessage.mock.calls[0]![0] as ProcessMessageArg;
     assert.equal(args.threadTs, undefined);
   });
 
@@ -273,12 +272,12 @@ describe("registerMentionHandler", () => {
       client,
     });
 
-    assert.equal(mockProcessMessage.mock.callCount(), 1);
+    assert.equal(mockProcessMessage.mock.calls.length, 1);
     interface ProcessMessageArg {
       messageText: string;
       imageFiles?: Array<{ id: string }>;
     }
-    const args = mockProcessMessage.mock.calls[0]!.arguments[0] as ProcessMessageArg;
+    const args = mockProcessMessage.mock.calls[0]![0] as ProcessMessageArg;
     assert.equal(args.messageText, "Answer based on the attached image(s).");
     assert.equal(args.imageFiles?.length, 1);
     assert.equal(args.imageFiles?.[0].id, "F1");
@@ -307,12 +306,12 @@ describe("registerMentionHandler", () => {
       client,
     });
 
-    assert.equal(mockProcessMessage.mock.callCount(), 1);
+    assert.equal(mockProcessMessage.mock.calls.length, 1);
     interface ProcessMessageArg {
       messageText: string;
       imageFiles?: Array<{ id: string }>;
     }
-    const args = mockProcessMessage.mock.calls[0]!.arguments[0] as ProcessMessageArg;
+    const args = mockProcessMessage.mock.calls[0]![0] as ProcessMessageArg;
     assert.ok(args.messageText.includes("Read the conversation above"));
     assert.equal(args.imageFiles?.length, 1);
     assert.equal(args.imageFiles?.[0].id, "F2");
@@ -331,7 +330,7 @@ describe("registerMentionHandler", () => {
       client,
     });
 
-    assert.equal(mockProcessMessage.mock.callCount(), 0);
+    assert.equal(mockProcessMessage.mock.calls.length, 0);
   });
 });
 
@@ -339,7 +338,7 @@ describe("registerMentionHandler", () => {
 // Inline stop-emoji detection
 // ============================================================================
 
-const mockInlineProcess = mock.fn<MentionDeps["processMessage"]>(async () => ({
+const mockInlineProcess = vi.fn<MentionDeps["processMessage"]>(async () => ({
   success: true,
   answer: "",
 }));
@@ -359,8 +358,8 @@ function makeStopDeps(stopEmoji: string | null = "octagonal_sign"): MentionDeps 
 
 describe("registerMentionHandler — inline stop emoji", () => {
   beforeEach(() => {
-    mockStopThread.mock.resetCalls();
-    mockInlineProcess.mock.resetCalls();
+    mockStopThread.mockClear();
+    mockInlineProcess.mockClear();
     const app = makeApp();
     registerMentionHandler(app, makeStopDeps());
   });
@@ -376,9 +375,9 @@ describe("registerMentionHandler — inline stop emoji", () => {
       },
       client,
     });
-    assert.equal(mockStopThread.mock.callCount(), 1);
-    assert.equal(mockInlineProcess.mock.callCount(), 0);
-    const args = mockStopThread.mock.calls[0]?.arguments;
+    assert.equal(mockStopThread.mock.calls.length, 1);
+    assert.equal(mockInlineProcess.mock.calls.length, 0);
+    const args = mockStopThread.mock.calls[0];
     assert.equal(args?.[0], "C001");
     assert.equal(args?.[1], "1700000000.000001");
     assert.equal(args?.[2], "U001");
@@ -396,8 +395,8 @@ describe("registerMentionHandler — inline stop emoji", () => {
       },
       client,
     });
-    assert.equal(mockStopThread.mock.callCount(), 1);
-    assert.equal(mockInlineProcess.mock.callCount(), 0);
+    assert.equal(mockStopThread.mock.calls.length, 1);
+    assert.equal(mockInlineProcess.mock.calls.length, 0);
   });
 
   it("uses thread_ts when the mention is in a thread", async () => {
@@ -412,7 +411,7 @@ describe("registerMentionHandler — inline stop emoji", () => {
       },
       client,
     });
-    assert.equal(mockStopThread.mock.calls[0]?.arguments[1], "1700000000.000001");
+    assert.equal(mockStopThread.mock.calls[0]?.[1], "1700000000.000001");
   });
 
   it("does NOT stop when the mention body exceeds 60 chars even with the emoji", async () => {
@@ -427,8 +426,8 @@ describe("registerMentionHandler — inline stop emoji", () => {
       },
       client,
     });
-    assert.equal(mockStopThread.mock.callCount(), 0);
-    assert.equal(mockInlineProcess.mock.callCount(), 1);
+    assert.equal(mockStopThread.mock.calls.length, 0);
+    assert.equal(mockInlineProcess.mock.calls.length, 1);
   });
 
   it("does NOT stop when config.reactions.stop is null", async () => {
@@ -444,7 +443,7 @@ describe("registerMentionHandler — inline stop emoji", () => {
       },
       client,
     });
-    assert.equal(mockStopThread.mock.callCount(), 0);
-    assert.equal(mockInlineProcess.mock.callCount(), 1);
+    assert.equal(mockStopThread.mock.calls.length, 0);
+    assert.equal(mockInlineProcess.mock.calls.length, 1);
   });
 });

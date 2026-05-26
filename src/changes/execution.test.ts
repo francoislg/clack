@@ -1,4 +1,4 @@
-import { describe, it, mock } from "node:test";
+import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { runClaude, type RunClaudeDeps } from "./execution.js";
@@ -53,8 +53,8 @@ function makeHangingRun(): ClackSessionRun {
  */
 function makeHangingDeps(): RunClaudeDeps {
   return {
-    getConfig: mock.fn(() => makeConfig()),
-    clackSession: mock.fn((_params: ClackSessionParams): ClackSessionRun => makeHangingRun()),
+    getConfig: vi.fn(() => makeConfig()),
+    clackSession: vi.fn((_params: ClackSessionParams): ClackSessionRun => makeHangingRun()),
   };
 }
 
@@ -85,15 +85,15 @@ describe("runClaude — timeout abort", () => {
 
     // Abort externally before the (long) timeout fires; runClaude's bridge converts
     // ac.abort() → run.stop("aborted") → driver controller fires → iterator throws.
-    setTimeout(() => ac.abort(), 10);
-
-    const result = await runClaude({
+    const claudePromise = runClaude({
       prompt: "do something",
       cwd: "/tmp",
       timeout: 60,
       abortController: ac,
       _deps: deps,
     });
+    queueMicrotask(() => ac.abort());
+    const result = await claudePromise;
 
     assert.equal(result.success, false);
     assert.equal(result.error, "Execution cancelled");
@@ -102,7 +102,7 @@ describe("runClaude — timeout abort", () => {
   it("returns early with empty prompt error without calling clackSession", async () => {
     let sessionCallCount = 0;
     const deps: RunClaudeDeps = {
-      getConfig: mock.fn(() => makeConfig()),
+      getConfig: vi.fn(() => makeConfig()),
       clackSession: (_params: ClackSessionParams): ClackSessionRun => {
         sessionCallCount++;
         throw new Error("clackSession should not be called");

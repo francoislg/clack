@@ -1,4 +1,4 @@
-import { describe, it, mock, beforeEach, type Mock } from "node:test";
+import { describe, it, vi, beforeEach, type Mock } from "vitest";
 import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
 import type { UserRole } from "../../roles.js";
@@ -15,53 +15,52 @@ import {
 // Mocks
 // ============================================================================
 
-const mockGetRole = mock.fn<(userId: string) => Promise<UserRole>>(async () => "dev");
-const mockGetStagedIntent = mock.fn<
-  (sessionId: string, ref: string) => Promise<StagedIntent | null>
->(async () => null);
-const mockFindSessionByThread = mock.fn<
+const mockGetRole = vi.fn<(userId: string) => Promise<UserRole>>(async () => "dev");
+const mockGetStagedIntent = vi.fn<(sessionId: string, ref: string) => Promise<StagedIntent | null>>(
+  async () => null,
+);
+const mockFindSessionByThread = vi.fn<
   (channelId: string, threadTs: string) => Promise<SessionContext | null>
 >(async () => null);
-const mockDecodeActionValue = mock.fn<(value: string) => { sessionId: string; ref?: string }>(
-  () => ({ sessionId: "session-1", ref: "r1" }),
-);
-const mockRestoreSessionInfo = mock.fn<(sessionId: string) => Promise<SessionInfo | undefined>>(
+const mockDecodeActionValue = vi.fn<(value: string) => { sessionId: string; ref?: string }>(() => ({
+  sessionId: "session-1",
+  ref: "r1",
+}));
+const mockRestoreSessionInfo = vi.fn<(sessionId: string) => Promise<SessionInfo | undefined>>(
   async () => ({
     channelId: "C001",
     threadTs: "1700000000.000001",
     userId: "U001",
   }),
 );
-const mockCanRequestChanges = mock.fn<(role: UserRole) => boolean>(
+const mockCanRequestChanges = vi.fn<(role: UserRole) => boolean>(
   (role) => role === "dev" || role === "admin" || role === "owner",
 );
-const mockStartChangeWorkflow = mock.fn<ChangeActionDeps["startChangeWorkflow"]>(async () => ({
+const mockStartChangeWorkflow = vi.fn<ChangeActionDeps["startChangeWorkflow"]>(async () => ({
   success: true,
 }));
-const mockErrorMessage = mock.fn<ChangeActionDeps["errorMessage"]>((err) =>
+const mockErrorMessage = vi.fn<ChangeActionDeps["errorMessage"]>((err) =>
   err instanceof Error ? err.message : String(err),
 );
 
 // SlackStreamer mock
-const mockStreamerStart = mock.fn(async () => true);
-const mockStreamerStop = mock.fn(async () => {});
-const mockStreamerHandleEvent = mock.fn();
-const mockCreateStreamer = mock.fn(() => ({
+const mockStreamerStart = vi.fn(async () => true);
+const mockStreamerStop = vi.fn(async () => {});
+const mockStreamerHandleEvent = vi.fn();
+const mockCreateStreamer = vi.fn(() => ({
   start: mockStreamerStart,
   stop: mockStreamerStop,
   handleEvent: mockStreamerHandleEvent,
   hasFailed: false,
 }));
-const mockFinalizeStreamedWorkflow = mock.fn<ChangeActionDeps["finalizeStreamedWorkflow"]>(
+const mockFinalizeStreamedWorkflow = vi.fn<ChangeActionDeps["finalizeStreamedWorkflow"]>(
   async () => {},
 );
-const mockSetAutoResponseActive = mock.fn<ChangeActionDeps["setAutoResponseActive"]>(
-  async () => {},
-);
-const mockPostEphemeralFn = mock.fn<
+const mockSetAutoResponseActive = vi.fn<ChangeActionDeps["setAutoResponseActive"]>(async () => {});
+const mockPostEphemeralFn = vi.fn<
   (args: { channel: string; user: string; text: string }) => Promise<{ ok: boolean }>
 >(async () => ({ ok: true }));
-const mockPostMessageFn = mock.fn<
+const mockPostMessageFn = vi.fn<
   (args: { channel: string; thread_ts: string; text: string }) => Promise<{ ok: boolean }>
 >(async () => ({ ok: true }));
 
@@ -123,7 +122,7 @@ function makeClient(): App["client"] {
 
 function makeHandlerArgs(overrides: Partial<HandlerArgs> = {}): HandlerArgs {
   const client = makeClient();
-  const respondFn = mock.fn(async () => {});
+  const respondFn = vi.fn(async () => {});
   const body = {
     user: { id: "U001" },
     channel: { id: "C001" },
@@ -131,7 +130,7 @@ function makeHandlerArgs(overrides: Partial<HandlerArgs> = {}): HandlerArgs {
     ...overrides.body,
   };
   return {
-    ack: mock.fn(async () => {}),
+    ack: vi.fn(async () => {}),
     body,
     client,
     respond: respondFn,
@@ -157,47 +156,45 @@ function makeSession(overrides: Partial<SessionContext> = {}): SessionContext {
 }
 
 beforeEach(() => {
-  mockGetRole.mock.resetCalls();
-  mockGetStagedIntent.mock.resetCalls();
-  mockFindSessionByThread.mock.resetCalls();
-  mockDecodeActionValue.mock.resetCalls();
-  mockRestoreSessionInfo.mock.resetCalls();
-  mockCanRequestChanges.mock.resetCalls();
-  mockStartChangeWorkflow.mock.resetCalls();
-  mockErrorMessage.mock.resetCalls();
-  mockStreamerStart.mock.resetCalls();
-  mockStreamerStop.mock.resetCalls();
-  mockStreamerHandleEvent.mock.resetCalls();
-  mockCreateStreamer.mock.resetCalls();
-  mockFinalizeStreamedWorkflow.mock.resetCalls();
-  mockPostEphemeralFn.mock.resetCalls();
-  mockPostMessageFn.mock.resetCalls();
+  mockGetRole.mockClear();
+  mockGetStagedIntent.mockClear();
+  mockFindSessionByThread.mockClear();
+  mockDecodeActionValue.mockClear();
+  mockRestoreSessionInfo.mockClear();
+  mockCanRequestChanges.mockClear();
+  mockStartChangeWorkflow.mockClear();
+  mockErrorMessage.mockClear();
+  mockStreamerStart.mockClear();
+  mockStreamerStop.mockClear();
+  mockStreamerHandleEvent.mockClear();
+  mockCreateStreamer.mockClear();
+  mockFinalizeStreamedWorkflow.mockClear();
+  mockPostEphemeralFn.mockClear();
+  mockPostMessageFn.mockClear();
 
   // Reset to defaults
-  mockGetRole.mock.mockImplementation(async () => "dev");
-  mockCanRequestChanges.mock.mockImplementation(
+  mockGetRole.mockImplementation(async () => "dev");
+  mockCanRequestChanges.mockImplementation(
     (role) => role === "dev" || role === "admin" || role === "owner",
   );
-  mockDecodeActionValue.mock.mockImplementation(() => ({ sessionId: "session-1", ref: "r1" }));
-  mockRestoreSessionInfo.mock.mockImplementation(async () => ({
+  mockDecodeActionValue.mockImplementation(() => ({ sessionId: "session-1", ref: "r1" }));
+  mockRestoreSessionInfo.mockImplementation(async () => ({
     channelId: "C001",
     threadTs: "1700000000.000001",
     userId: "U001",
   }));
-  mockStartChangeWorkflow.mock.mockImplementation(async () => ({ success: true }));
-  mockFindSessionByThread.mock.mockImplementation(async () => makeSession());
-  mockErrorMessage.mock.mockImplementation((err) =>
-    err instanceof Error ? err.message : String(err),
-  );
-  mockStreamerStart.mock.mockImplementation(async () => true);
-  mockStreamerStop.mock.mockImplementation(async () => {});
-  mockCreateStreamer.mock.mockImplementation(() => ({
+  mockStartChangeWorkflow.mockImplementation(async () => ({ success: true }));
+  mockFindSessionByThread.mockImplementation(async () => makeSession());
+  mockErrorMessage.mockImplementation((err) => (err instanceof Error ? err.message : String(err)));
+  mockStreamerStart.mockImplementation(async () => true);
+  mockStreamerStop.mockImplementation(async () => {});
+  mockCreateStreamer.mockImplementation(() => ({
     start: mockStreamerStart,
     stop: mockStreamerStop,
     handleEvent: mockStreamerHandleEvent,
     hasFailed: false,
   }));
-  mockFinalizeStreamedWorkflow.mock.mockImplementation(async () => {});
+  mockFinalizeStreamedWorkflow.mockImplementation(async () => {});
 
   // Register handler
   makeApp(makeDeps());
@@ -219,18 +216,18 @@ describe("registerChangeActionHandler — registration", () => {
 
 describe("registerChangeActionHandler — permissions", () => {
   it("blocks member role with ephemeral message", async () => {
-    mockGetRole.mock.mockImplementation(async () => "member");
-    mockCanRequestChanges.mock.mockImplementation(
+    mockGetRole.mockImplementation(async () => "member");
+    mockCanRequestChanges.mockImplementation(
       (role) => role === "dev" || role === "admin" || role === "owner",
     );
     const args = makeHandlerArgs();
 
     await capturedHandler(args);
 
-    assert.equal(args.ack.mock.callCount(), 1);
+    assert.equal(args.ack.mock.calls.length, 1);
     const postEphemeral = mockPostEphemeralFn;
-    assert.equal(postEphemeral.mock.callCount(), 1);
-    const msgArgs = postEphemeral.mock.calls[0].arguments[0];
+    assert.equal(postEphemeral.mock.calls.length, 1);
+    const msgArgs = postEphemeral.mock.calls[0][0];
     assert.ok(
       msgArgs &&
         typeof msgArgs === "object" &&
@@ -241,7 +238,7 @@ describe("registerChangeActionHandler — permissions", () => {
   });
 
   it("allows dev role through permission check", async () => {
-    mockGetRole.mock.mockImplementation(async () => "dev");
+    mockGetRole.mockImplementation(async () => "dev");
 
     const changeIntent: StagedChangeIntent = {
       type: "change",
@@ -249,7 +246,7 @@ describe("registerChangeActionHandler — permissions", () => {
       description: "desc",
       repo: "org/repo",
     };
-    mockGetStagedIntent.mock.mockImplementation(async () => changeIntent);
+    mockGetStagedIntent.mockImplementation(async () => changeIntent);
 
     const args = makeHandlerArgs();
     await capturedHandler(args);
@@ -257,7 +254,7 @@ describe("registerChangeActionHandler — permissions", () => {
     // Should not post permission error
     const postEphemeral = mockPostEphemeralFn;
     for (const call of postEphemeral.mock.calls) {
-      const callArg = call.arguments[0];
+      const callArg = call[0];
       if (
         callArg &&
         typeof callArg === "object" &&
@@ -276,13 +273,13 @@ describe("registerChangeActionHandler — permissions", () => {
 
 describe("registerChangeActionHandler — missing ref", () => {
   it("returns early when ref is missing", async () => {
-    mockDecodeActionValue.mock.mockImplementation(() => ({ sessionId: "session-1" }));
+    mockDecodeActionValue.mockImplementation(() => ({ sessionId: "session-1" }));
     const args = makeHandlerArgs();
 
     await capturedHandler(args);
 
-    assert.equal(args.ack.mock.callCount(), 1);
-    assert.equal(mockRestoreSessionInfo.mock.callCount(), 0);
+    assert.equal(args.ack.mock.calls.length, 1);
+    assert.equal(mockRestoreSessionInfo.mock.calls.length, 0);
   });
 });
 
@@ -292,13 +289,13 @@ describe("registerChangeActionHandler — missing ref", () => {
 
 describe("registerChangeActionHandler — session not found", () => {
   it("returns early when session cannot be restored", async () => {
-    mockRestoreSessionInfo.mock.mockImplementation(async () => undefined);
+    mockRestoreSessionInfo.mockImplementation(async () => undefined);
     const args = makeHandlerArgs();
 
     await capturedHandler(args);
 
-    assert.equal(args.respond.mock.callCount(), 1);
-    assert.equal(mockGetStagedIntent.mock.callCount(), 0);
+    assert.equal(args.respond.mock.calls.length, 1);
+    assert.equal(mockGetStagedIntent.mock.calls.length, 0);
   });
 });
 
@@ -308,14 +305,14 @@ describe("registerChangeActionHandler — session not found", () => {
 
 describe("registerChangeActionHandler — intent resolution", () => {
   it("posts ephemeral when intent is not found", async () => {
-    mockGetStagedIntent.mock.mockImplementation(async () => null);
+    mockGetStagedIntent.mockImplementation(async () => null);
     const args = makeHandlerArgs();
 
     await capturedHandler(args);
 
     const postEphemeral = mockPostEphemeralFn;
-    assert.equal(postEphemeral.mock.callCount(), 1);
-    const callArg = postEphemeral.mock.calls[0].arguments[0];
+    assert.equal(postEphemeral.mock.calls.length, 1);
+    const callArg = postEphemeral.mock.calls[0][0];
     assert.ok(
       callArg &&
         typeof callArg === "object" &&
@@ -326,7 +323,7 @@ describe("registerChangeActionHandler — intent resolution", () => {
   });
 
   it("posts ephemeral when intent type is not change", async () => {
-    mockGetStagedIntent.mock.mockImplementation(async () => ({
+    mockGetStagedIntent.mockImplementation(async () => ({
       type: "config_update",
       file: "f.md",
       content: "c",
@@ -336,8 +333,8 @@ describe("registerChangeActionHandler — intent resolution", () => {
     await capturedHandler(args);
 
     const postEphemeral = mockPostEphemeralFn;
-    assert.equal(postEphemeral.mock.callCount(), 1);
-    const callArg = postEphemeral.mock.calls[0].arguments[0];
+    assert.equal(postEphemeral.mock.calls.length, 1);
+    const callArg = postEphemeral.mock.calls[0][0];
     assert.ok(
       callArg &&
         typeof callArg === "object" &&
@@ -360,16 +357,16 @@ describe("registerChangeActionHandler — success", () => {
       description: "Add new thing",
       repo: "org/repo",
     };
-    mockGetStagedIntent.mock.mockImplementation(async () => changeIntent);
+    mockGetStagedIntent.mockImplementation(async () => changeIntent);
 
     const args = makeHandlerArgs();
     await capturedHandler(args);
 
     // Should ack and delete original
-    assert.equal(args.ack.mock.callCount(), 1);
-    assert.equal(args.respond.mock.callCount(), 1);
+    assert.equal(args.ack.mock.calls.length, 1);
+    assert.equal(args.respond.mock.calls.length, 1);
     const respondCall = args.respond.mock.calls[0];
-    const respondArg = respondCall.arguments[0];
+    const respondArg = respondCall[0];
     assert.ok(
       respondArg &&
         typeof respondArg === "object" &&
@@ -378,11 +375,11 @@ describe("registerChangeActionHandler — success", () => {
     );
 
     // Should start the streamer and call startChangeWorkflow
-    assert.equal(mockStreamerStart.mock.callCount(), 1);
-    assert.equal(mockStartChangeWorkflow.mock.callCount(), 1);
+    assert.equal(mockStreamerStart.mock.calls.length, 1);
+    assert.equal(mockStartChangeWorkflow.mock.calls.length, 1);
 
     // Verify the change request passed to startChangeWorkflow
-    const workflowArgs = mockStartChangeWorkflow.mock.calls[0].arguments;
+    const workflowArgs = mockStartChangeWorkflow.mock.calls[0];
     const request = workflowArgs[0];
     assert.ok(
       request && typeof request === "object" && "userId" in request && request.userId === "U001",
@@ -413,7 +410,7 @@ describe("registerChangeActionHandler — success", () => {
 
 describe("triggerChangeWorkflow", () => {
   it("posts error when session is not found", async () => {
-    mockFindSessionByThread.mock.mockImplementation(async () => null);
+    mockFindSessionByThread.mockImplementation(async () => null);
 
     const client = makeClient();
     const intent: StagedChangeIntent = {
@@ -435,8 +432,8 @@ describe("triggerChangeWorkflow", () => {
     );
 
     const postMessage = mockPostMessageFn;
-    assert.equal(postMessage.mock.callCount(), 1);
-    const msgArg = postMessage.mock.calls[0].arguments[0];
+    assert.equal(postMessage.mock.calls.length, 1);
+    const msgArg = postMessage.mock.calls[0][0];
     assert.ok(
       msgArg &&
         typeof msgArg === "object" &&
@@ -447,8 +444,8 @@ describe("triggerChangeWorkflow", () => {
   });
 
   it("starts streamer, calls startChangeWorkflow, and finalizes on success", async () => {
-    mockFindSessionByThread.mock.mockImplementation(async () => makeSession());
-    mockStartChangeWorkflow.mock.mockImplementation(async () => ({ success: true }));
+    mockFindSessionByThread.mockImplementation(async () => makeSession());
+    mockStartChangeWorkflow.mockImplementation(async () => ({ success: true }));
 
     const client = makeClient();
     const intent: StagedChangeIntent = {
@@ -469,14 +466,14 @@ describe("triggerChangeWorkflow", () => {
       makeDeps(),
     );
 
-    assert.equal(mockStreamerStart.mock.callCount(), 1);
-    assert.equal(mockStartChangeWorkflow.mock.callCount(), 1);
-    assert.equal(mockFinalizeStreamedWorkflow.mock.callCount(), 1);
+    assert.equal(mockStreamerStart.mock.calls.length, 1);
+    assert.equal(mockStartChangeWorkflow.mock.calls.length, 1);
+    assert.equal(mockFinalizeStreamedWorkflow.mock.calls.length, 1);
   });
 
   it("uses stream channel and threadTs when provided", async () => {
-    mockFindSessionByThread.mock.mockImplementation(async () => makeSession());
-    mockStartChangeWorkflow.mock.mockImplementation(async () => ({ success: true }));
+    mockFindSessionByThread.mockImplementation(async () => makeSession());
+    mockStartChangeWorkflow.mockImplementation(async () => ({ success: true }));
 
     const client = makeClient();
     const intent: StagedChangeIntent = {
@@ -500,17 +497,17 @@ describe("triggerChangeWorkflow", () => {
     );
 
     // finalizeStreamedWorkflow should receive the stream channel
-    assert.equal(mockFinalizeStreamedWorkflow.mock.callCount(), 1);
+    assert.equal(mockFinalizeStreamedWorkflow.mock.calls.length, 1);
     const finalizeCall = mockFinalizeStreamedWorkflow.mock.calls[0];
-    const channel = finalizeCall.arguments[2];
-    const threadTs = finalizeCall.arguments[3];
+    const channel = finalizeCall[2];
+    const threadTs = finalizeCall[3];
     assert.equal(channel, "D_DM");
     assert.equal(threadTs, "1700000099.000001");
   });
 
   it("uses default triggerType of reactions when not specified", async () => {
-    mockFindSessionByThread.mock.mockImplementation(async () => makeSession());
-    mockStartChangeWorkflow.mock.mockImplementation(async () => ({ success: true }));
+    mockFindSessionByThread.mockImplementation(async () => makeSession());
+    mockStartChangeWorkflow.mockImplementation(async () => ({ success: true }));
 
     const client = makeClient();
     const intent: StagedChangeIntent = {
@@ -531,7 +528,7 @@ describe("triggerChangeWorkflow", () => {
       makeDeps(),
     );
 
-    const request = mockStartChangeWorkflow.mock.calls[0].arguments[0];
+    const request = mockStartChangeWorkflow.mock.calls[0][0];
     assert.ok(
       request &&
         typeof request === "object" &&
@@ -541,8 +538,8 @@ describe("triggerChangeWorkflow", () => {
   });
 
   it("passes provided triggerType to the change request", async () => {
-    mockFindSessionByThread.mock.mockImplementation(async () => makeSession());
-    mockStartChangeWorkflow.mock.mockImplementation(async () => ({ success: true }));
+    mockFindSessionByThread.mockImplementation(async () => makeSession());
+    mockStartChangeWorkflow.mockImplementation(async () => ({ success: true }));
 
     const client = makeClient();
     const intent: StagedChangeIntent = {
@@ -564,7 +561,7 @@ describe("triggerChangeWorkflow", () => {
       makeDeps(),
     );
 
-    const request = mockStartChangeWorkflow.mock.calls[0].arguments[0];
+    const request = mockStartChangeWorkflow.mock.calls[0][0];
     assert.ok(
       request &&
         typeof request === "object" &&
@@ -574,8 +571,8 @@ describe("triggerChangeWorkflow", () => {
   });
 
   it("handles workflow failure by stopping streamer and posting error", async () => {
-    mockFindSessionByThread.mock.mockImplementation(async () => makeSession());
-    mockStartChangeWorkflow.mock.mockImplementation(async () => {
+    mockFindSessionByThread.mockImplementation(async () => makeSession());
+    mockStartChangeWorkflow.mockImplementation(async () => {
       throw new Error("workflow exploded");
     });
 
@@ -598,10 +595,10 @@ describe("triggerChangeWorkflow", () => {
       makeDeps(),
     );
 
-    assert.equal(mockStreamerStop.mock.callCount(), 1);
+    assert.equal(mockStreamerStop.mock.calls.length, 1);
     const postMessage = mockPostMessageFn;
-    assert.equal(postMessage.mock.callCount(), 1);
-    const msgArg = postMessage.mock.calls[0].arguments[0];
+    assert.equal(postMessage.mock.calls.length, 1);
+    const msgArg = postMessage.mock.calls[0][0];
     assert.ok(
       msgArg &&
         typeof msgArg === "object" &&

@@ -1,4 +1,4 @@
-import { describe, it, afterEach } from "node:test";
+import { describe, it, afterEach } from "vitest";
 import assert from "node:assert/strict";
 import { rmSync, existsSync } from "node:fs";
 import { resolve } from "node:path";

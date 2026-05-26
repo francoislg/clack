@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { buildQueryContext, buildWorkerContext } from "./context.js";
 import type { BuildQueryContextParams, BuildWorkerContextParams } from "./context.js";
@@ -14,7 +14,7 @@ describe("buildQueryContext", () => {
       session: { id: "sess-1" } as unknown as BuildQueryContextParams["session"],
       config: stubConfig,
       changesWorkflowEnabled: true,
-      allowScheduledMessages: false,
+      cronUserSchedules: false,
     };
 
     const ctx = buildQueryContext(params);
@@ -39,7 +39,7 @@ describe("buildQueryContext", () => {
       session: { id: "sess-2" } as unknown as BuildQueryContextParams["session"],
       config: stubConfig,
       changesWorkflowEnabled: false,
-      allowScheduledMessages: false,
+      cronUserSchedules: false,
       slackClient: fakeClient,
       deliver: fakeDeliver,
     };
@@ -59,7 +59,7 @@ describe("buildQueryContext", () => {
         session: {} as unknown as BuildQueryContextParams["session"],
         config: stubConfig,
         changesWorkflowEnabled: false,
-        allowScheduledMessages: false,
+        cronUserSchedules: false,
       });
       assert.equal(ctx.role, role);
     }

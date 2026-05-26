@@ -1,4 +1,4 @@
-import { describe, it, mock, beforeEach } from "node:test";
+import { describe, it, vi, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import type { UserRole, RolesConfig } from "../roles.js";
 import type { RepositoryConfig, Config } from "../config.js";
@@ -31,31 +31,31 @@ import type { CronJob } from "../cronJobs.js";
 // Mocks
 // ============================================================================
 
-const mockGetRole = mock.fn<(userId: string) => Promise<UserRole>>();
-const mockHasOwner = mock.fn<() => Promise<boolean>>();
-const mockLoadRoles = mock.fn<() => Promise<RolesConfig>>();
+const mockGetRole = vi.fn<(userId: string) => Promise<UserRole>>();
+const mockHasOwner = vi.fn<() => Promise<boolean>>();
+const mockLoadRoles = vi.fn<() => Promise<RolesConfig>>();
 
-const mockCanEditConfig = mock.fn<(role: UserRole) => boolean>();
-const mockCanManageRoles = mock.fn<(role: UserRole) => boolean>();
-const mockCanRequestChanges = mock.fn<(role: UserRole) => boolean>();
+const mockCanEditConfig = vi.fn<(role: UserRole) => boolean>();
+const mockCanManageRoles = vi.fn<(role: UserRole) => boolean>();
+const mockCanRequestChanges = vi.fn<(role: UserRole) => boolean>();
 
-const mockGetConfig = mock.fn<() => Config>();
-const mockGetConfiguredMcpServerNames = mock.fn<() => string[]>();
-const mockGetFailedMcpServers = mock.fn<() => Set<string>>();
-const mockGetActiveWorkers = mock.fn<() => ActiveWorker[]>();
-const mockListInstructionFiles = mock.fn<() => InstructionFileListing>();
-const mockGetReactionDelivery = mock.fn<(userId: string) => Promise<string>>();
-const mockGetUserPreference = mock.fn<(userId: string, key: string) => Promise<boolean>>();
+const mockGetConfig = vi.fn<() => Config>();
+const mockGetConfiguredMcpServerNames = vi.fn<() => string[]>();
+const mockGetFailedMcpServers = vi.fn<() => Set<string>>();
+const mockGetActiveWorkers = vi.fn<() => ActiveWorker[]>();
+const mockListInstructionFiles = vi.fn<() => InstructionFileListing>();
+const mockGetReactionDelivery = vi.fn<(userId: string) => Promise<string>>();
+const mockGetUserPreference = vi.fn<(userId: string, key: string) => Promise<boolean>>();
 const mockGetVisibleRepos =
-  mock.fn<(role: UserRole, repos: RepositoryConfig[]) => RepositoryConfig[]>();
-const mockCanWriteRepo = mock.fn<(role: UserRole, repo: RepositoryConfig) => boolean>();
-const mockGetMigrationErrors = mock.fn<() => MigrationError[]>();
-const mockDiscoverSkillPluginInfo = mock.fn<() => SkillPluginInfo[]>();
-const mockGetLoadedClackPlugins = mock.fn<() => ClackPluginSummary[]>();
-const mockGetRules = mock.fn<() => Promise<AutoRespondRule[]>>();
-const mockGetJobs = mock.fn<() => Promise<CronJob[]>>();
-const mockGetJobsByUser = mock.fn<(userId: string) => Promise<CronJob[]>>();
-const mockHumanReadableSchedule = mock.fn<(cronExpression: string, timezone: string) => string>();
+  vi.fn<(role: UserRole, repos: RepositoryConfig[]) => RepositoryConfig[]>();
+const mockCanWriteRepo = vi.fn<(role: UserRole, repo: RepositoryConfig) => boolean>();
+const mockGetMigrationErrors = vi.fn<() => MigrationError[]>();
+const mockDiscoverSkillPluginInfo = vi.fn<() => SkillPluginInfo[]>();
+const mockGetLoadedClackPlugins = vi.fn<() => ClackPluginSummary[]>();
+const mockGetRules = vi.fn<() => Promise<AutoRespondRule[]>>();
+const mockGetJobs = vi.fn<() => Promise<CronJob[]>>();
+const mockGetJobsByUser = vi.fn<(userId: string) => Promise<CronJob[]>>();
+const mockHumanReadableSchedule = vi.fn<(cronExpression: string, timezone: string) => string>();
 
 function makeDeps(): HomeTabDeps {
   return {
@@ -121,12 +121,6 @@ function isInputBlock(block: KnownBlock): block is KnownBlock & {
   return block.type === "input";
 }
 
-function isSectionBlockWithText(
-  block: KnownBlock,
-): block is KnownBlock & { type: "section"; text?: { text: string } } {
-  return block.type === "section";
-}
-
 function isModalView(
   view: View,
 ): view is View & { title?: { text: string }; submit?: { text: string } } {
@@ -151,65 +145,68 @@ function defaultConfig(): Config {
     git: { pullIntervalMinutes: 60, shallowClone: true, cloneDepth: 1 },
     sessions: { cleanupIntervalMinutes: 60 },
     claudeCode: { model: "claude-opus" },
+    // Existing tests assume user-facing scheduled messages render; set the flag here
+    // so they keep doing so. Tests for the "hidden when off" path override this.
+    cron: { enabled: true, userSchedules: true },
   };
 }
 
 function resetAllMocks() {
-  mockGetRole.mock.resetCalls();
-  mockHasOwner.mock.resetCalls();
-  mockLoadRoles.mock.resetCalls();
-  mockCanEditConfig.mock.resetCalls();
-  mockCanManageRoles.mock.resetCalls();
-  mockCanRequestChanges.mock.resetCalls();
-  mockGetConfig.mock.resetCalls();
-  mockGetConfiguredMcpServerNames.mock.resetCalls();
-  mockGetFailedMcpServers.mock.resetCalls();
-  mockGetActiveWorkers.mock.resetCalls();
-  mockListInstructionFiles.mock.resetCalls();
-  mockGetReactionDelivery.mock.resetCalls();
-  mockGetUserPreference.mock.resetCalls();
-  mockGetVisibleRepos.mock.resetCalls();
-  mockCanWriteRepo.mock.resetCalls();
-  mockGetMigrationErrors.mock.resetCalls();
-  mockDiscoverSkillPluginInfo.mock.resetCalls();
-  mockGetLoadedClackPlugins.mock.resetCalls();
-  mockGetRules.mock.resetCalls();
-  mockGetJobs.mock.resetCalls();
-  mockGetJobsByUser.mock.resetCalls();
-  mockHumanReadableSchedule.mock.resetCalls();
+  mockGetRole.mockClear();
+  mockHasOwner.mockClear();
+  mockLoadRoles.mockClear();
+  mockCanEditConfig.mockClear();
+  mockCanManageRoles.mockClear();
+  mockCanRequestChanges.mockClear();
+  mockGetConfig.mockClear();
+  mockGetConfiguredMcpServerNames.mockClear();
+  mockGetFailedMcpServers.mockClear();
+  mockGetActiveWorkers.mockClear();
+  mockListInstructionFiles.mockClear();
+  mockGetReactionDelivery.mockClear();
+  mockGetUserPreference.mockClear();
+  mockGetVisibleRepos.mockClear();
+  mockCanWriteRepo.mockClear();
+  mockGetMigrationErrors.mockClear();
+  mockDiscoverSkillPluginInfo.mockClear();
+  mockGetLoadedClackPlugins.mockClear();
+  mockGetRules.mockClear();
+  mockGetJobs.mockClear();
+  mockGetJobsByUser.mockClear();
+  mockHumanReadableSchedule.mockClear();
 }
 
 function setDefaultMocks(role: UserRole = "member") {
-  mockGetRole.mock.mockImplementation(async () => role);
-  mockHasOwner.mock.mockImplementation(async () => true);
-  mockLoadRoles.mock.mockImplementation(async () => ({
+  mockGetRole.mockImplementation(async () => role);
+  mockHasOwner.mockImplementation(async () => true);
+  mockLoadRoles.mockImplementation(async () => ({
     owner: "U_OWNER",
     admins: [],
     devs: [],
   }));
-  mockCanEditConfig.mock.mockImplementation(() => role === "admin" || role === "owner");
-  mockCanManageRoles.mock.mockImplementation(() => role === "admin" || role === "owner");
-  mockCanRequestChanges.mock.mockImplementation(
-    () => role === "dev" || role === "admin" || role === "owner",
+  mockCanEditConfig.mockImplementation((r = role) => r === "admin" || r === "owner");
+  mockCanManageRoles.mockImplementation((r = role) => r === "admin" || r === "owner");
+  mockCanRequestChanges.mockImplementation(
+    (r = role) => r === "dev" || r === "admin" || r === "owner",
   );
-  mockGetConfig.mock.mockImplementation(() => defaultConfig());
-  mockGetConfiguredMcpServerNames.mock.mockImplementation(() => []);
-  mockGetFailedMcpServers.mock.mockImplementation(() => new Set<string>());
-  mockGetActiveWorkers.mock.mockImplementation(() => []);
-  mockListInstructionFiles.mock.mockImplementation(() => ({
+  mockGetConfig.mockImplementation(() => defaultConfig());
+  mockGetConfiguredMcpServerNames.mockImplementation(() => []);
+  mockGetFailedMcpServers.mockImplementation(() => new Set<string>());
+  mockGetActiveWorkers.mockImplementation(() => []);
+  mockListInstructionFiles.mockImplementation(() => ({
     roles: [],
     preAnalysis: [],
     repos: [],
   }));
-  mockGetVisibleRepos.mock.mockImplementation((_role, repos) => repos);
-  mockCanWriteRepo.mock.mockImplementation(() => false);
-  mockGetMigrationErrors.mock.mockImplementation(() => []);
-  mockDiscoverSkillPluginInfo.mock.mockImplementation(() => []);
-  mockGetLoadedClackPlugins.mock.mockImplementation(() => []);
-  mockGetRules.mock.mockImplementation(async () => []);
-  mockGetJobs.mock.mockImplementation(async () => []);
-  mockGetJobsByUser.mock.mockImplementation(async () => []);
-  mockHumanReadableSchedule.mock.mockImplementation(() => "Every day at 9:00 AM");
+  mockGetVisibleRepos.mockImplementation((_role, repos) => repos);
+  mockCanWriteRepo.mockImplementation(() => false);
+  mockGetMigrationErrors.mockImplementation(() => []);
+  mockDiscoverSkillPluginInfo.mockImplementation(() => []);
+  mockGetLoadedClackPlugins.mockImplementation(() => []);
+  mockGetRules.mockImplementation(async () => []);
+  mockGetJobs.mockImplementation(async () => []);
+  mockGetJobsByUser.mockImplementation(async () => []);
+  mockHumanReadableSchedule.mockImplementation(() => "Every day at 9:00 AM");
 }
 
 beforeEach(() => {
@@ -251,7 +248,7 @@ describe("buildHomeView", () => {
   it("shows claim ownership section when no owner exists", async () => {
     setDefaultMocks("member");
     const deps = makeDeps();
-    mockHasOwner.mock.mockImplementation(async () => false);
+    mockHasOwner.mockImplementation(async () => false);
     const view = await buildHomeView({ userId: "U001" }, deps);
     const texts = getSectionTexts(view.blocks as KnownBlock[]);
     const claimSection = texts.find((t) => t.includes("no owner yet"));
@@ -355,7 +352,7 @@ describe("buildHomeView", () => {
   it("includes migration error banner when errors exist", async () => {
     setDefaultMocks("member");
     const deps = makeDeps();
-    mockGetMigrationErrors.mock.mockImplementation(() => [
+    mockGetMigrationErrors.mockImplementation(() => [
       {
         migrationName: "test-migration",
         version: 1,
@@ -373,7 +370,7 @@ describe("buildHomeView", () => {
   it("adds admin guidance in migration banner for admin users", async () => {
     setDefaultMocks("admin");
     const deps = makeDeps();
-    mockGetMigrationErrors.mock.mockImplementation(() => [
+    mockGetMigrationErrors.mockImplementation(() => [
       {
         migrationName: "test-migration",
         version: 1,
@@ -462,7 +459,7 @@ describe("buildRoleManagementSection", () => {
 
   it("shows remove admin button when admins exist", async () => {
     const deps = makeDeps();
-    mockLoadRoles.mock.mockImplementation(async () => ({
+    mockLoadRoles.mockImplementation(async () => ({
       owner: "U_OWNER",
       admins: ["U_ADMIN1"],
       devs: [],
@@ -503,7 +500,7 @@ describe("buildRoleManagementSection", () => {
 
   it("shows remove dev button when devs exist", async () => {
     const deps = makeDeps();
-    mockLoadRoles.mock.mockImplementation(async () => ({
+    mockLoadRoles.mockImplementation(async () => ({
       owner: "U_OWNER",
       admins: [],
       devs: ["U_DEV1"],
@@ -542,7 +539,7 @@ describe("buildConfigurationSection", () => {
 
   it("renders directory buttons in a single actions row", () => {
     const deps = makeDeps();
-    mockListInstructionFiles.mock.mockImplementation(() => ({
+    mockListInstructionFiles.mockImplementation(() => ({
       roles: [{ role: "member", files: [], topics: [] }],
       preAnalysis: [],
       repos: [],
@@ -555,7 +552,7 @@ describe("buildConfigurationSection", () => {
 
   it("includes repo directory buttons alongside role buttons", () => {
     const deps = makeDeps();
-    mockListInstructionFiles.mock.mockImplementation(() => ({
+    mockListInstructionFiles.mockImplementation(() => ({
       roles: [{ role: "member", files: [], topics: [] }],
       preAnalysis: [],
       repos: [
@@ -641,7 +638,7 @@ describe("buildStatusSection", () => {
 
   it("lists repositories", () => {
     const deps = makeDeps();
-    mockGetVisibleRepos.mock.mockImplementation(() => [
+    mockGetVisibleRepos.mockImplementation(() => [
       { name: "my-repo", url: "https://github.com/test/my-repo", description: "Test repo" },
     ]);
     const blocks = buildStatusSection("member", deps);
@@ -652,11 +649,11 @@ describe("buildStatusSection", () => {
 
   it("shows access tags for dev+ roles", () => {
     const deps = makeDeps();
-    mockCanRequestChanges.mock.mockImplementation(() => true);
-    mockGetVisibleRepos.mock.mockImplementation(() => [
+    mockCanRequestChanges.mockImplementation(() => true);
+    mockGetVisibleRepos.mockImplementation(() => [
       { name: "my-repo", url: "u", description: "d", access: { read: "member" as UserRole } },
     ]);
-    mockCanWriteRepo.mock.mockImplementation(() => false);
+    mockCanWriteRepo.mockImplementation(() => false);
     const blocks = buildStatusSection("dev", deps);
     const texts = getSectionTexts(blocks);
     const repoBlock = texts.find((t) => t.includes("my-repo"));
@@ -667,8 +664,8 @@ describe("buildStatusSection", () => {
 
   it("shows write tags for writable repos", () => {
     const deps = makeDeps();
-    mockCanRequestChanges.mock.mockImplementation(() => true);
-    mockGetVisibleRepos.mock.mockImplementation(() => [
+    mockCanRequestChanges.mockImplementation(() => true);
+    mockGetVisibleRepos.mockImplementation(() => [
       {
         name: "my-repo",
         url: "u",
@@ -676,7 +673,7 @@ describe("buildStatusSection", () => {
         access: { read: "member" as UserRole, write: "dev" as UserRole },
       },
     ]);
-    mockCanWriteRepo.mock.mockImplementation(() => true);
+    mockCanWriteRepo.mockImplementation(() => true);
     const blocks = buildStatusSection("dev", deps);
     const texts = getSectionTexts(blocks);
     const repoBlock = texts.find((t) => t.includes("my-repo"));
@@ -686,8 +683,8 @@ describe("buildStatusSection", () => {
 
   it("does not show access tags for members", () => {
     const deps = makeDeps();
-    mockCanRequestChanges.mock.mockImplementation(() => false);
-    mockGetVisibleRepos.mock.mockImplementation(() => [
+    mockCanRequestChanges.mockImplementation(() => false);
+    mockGetVisibleRepos.mockImplementation(() => [
       { name: "my-repo", url: "u", description: "d", access: { read: "member" as UserRole } },
     ]);
     const blocks = buildStatusSection("member", deps);
@@ -699,7 +696,7 @@ describe("buildStatusSection", () => {
 
   it("shows MCP servers when configured", () => {
     const deps = makeDeps();
-    mockGetConfiguredMcpServerNames.mock.mockImplementation(() => ["filesystem", "github"]);
+    mockGetConfiguredMcpServerNames.mockImplementation(() => ["filesystem", "github"]);
     const blocks = buildStatusSection("member", deps);
     const texts = getSectionTexts(blocks);
     const mcpBlock = texts.find((t) => t.includes("MCP Servers"));
@@ -710,8 +707,8 @@ describe("buildStatusSection", () => {
 
   it("marks failed MCP servers with a warning", () => {
     const deps = makeDeps();
-    mockGetConfiguredMcpServerNames.mock.mockImplementation(() => ["filesystem", "github"]);
-    mockGetFailedMcpServers.mock.mockImplementation(() => new Set(["github"]));
+    mockGetConfiguredMcpServerNames.mockImplementation(() => ["filesystem", "github"]);
+    mockGetFailedMcpServers.mockImplementation(() => new Set(["github"]));
     const blocks = buildStatusSection("member", deps);
     const texts = getSectionTexts(blocks);
     const mcpBlock = texts.find((t) => t.includes("MCP Servers"));
@@ -722,7 +719,7 @@ describe("buildStatusSection", () => {
 
   it("does not show MCP servers section when none configured", () => {
     const deps = makeDeps();
-    mockGetConfiguredMcpServerNames.mock.mockImplementation(() => []);
+    mockGetConfiguredMcpServerNames.mockImplementation(() => []);
     const blocks = buildStatusSection("member", deps);
     const texts = getSectionTexts(blocks);
     const mcpBlock = texts.find((t) => t.includes("MCP Servers"));
@@ -731,7 +728,7 @@ describe("buildStatusSection", () => {
 
   it("shows skill plugins when discovered", () => {
     const deps = makeDeps();
-    mockDiscoverSkillPluginInfo.mock.mockImplementation(() => [
+    mockDiscoverSkillPluginInfo.mockImplementation(() => [
       { name: "my-plugin", path: "/some/path", skillCount: 3, lazyLoad: false },
     ]);
     const blocks = buildStatusSection("member", deps);
@@ -745,7 +742,7 @@ describe("buildStatusSection", () => {
 
   it("groups skill plugins into Eager and Lazy sections", () => {
     const deps = makeDeps();
-    mockDiscoverSkillPluginInfo.mock.mockImplementation(() => [
+    mockDiscoverSkillPluginInfo.mockImplementation(() => [
       { name: "devtools", path: "/a", skillCount: 2, lazyLoad: false },
       { name: "marketingskills", path: "/b", skillCount: 32, lazyLoad: true },
     ]);
@@ -766,7 +763,7 @@ describe("buildStatusSection", () => {
 
   it("shows only the Lazy section when every plugin is lazy-tagged", () => {
     const deps = makeDeps();
-    mockDiscoverSkillPluginInfo.mock.mockImplementation(() => [
+    mockDiscoverSkillPluginInfo.mockImplementation(() => [
       { name: "marketingskills", path: "/b", skillCount: 32, lazyLoad: true },
     ]);
     const blocks = buildStatusSection("member", deps);
@@ -779,7 +776,7 @@ describe("buildStatusSection", () => {
 
   it("does not show skill plugins section when none found", () => {
     const deps = makeDeps();
-    mockDiscoverSkillPluginInfo.mock.mockImplementation(() => []);
+    mockDiscoverSkillPluginInfo.mockImplementation(() => []);
     const blocks = buildStatusSection("member", deps);
     const texts = getSectionTexts(blocks);
     const pluginBlock = texts.find((t) => t.includes("Skill Plugins"));
@@ -788,22 +785,93 @@ describe("buildStatusSection", () => {
 
   it("shows clack plugins when loaded", () => {
     const deps = makeDeps();
-    mockGetLoadedClackPlugins.mock.mockImplementation(() => [{ name: "trivia", toolCount: 5 }]);
+    mockGetLoadedClackPlugins.mockImplementation(() => [
+      { name: "trivia", toolCount: 5, errors: [] },
+    ]);
     const blocks = buildStatusSection("member", deps);
     const texts = getSectionTexts(blocks);
-    const pluginBlock = texts.find((t) => t.includes(":package:"));
-    assert.ok(pluginBlock);
-    assert.ok(pluginBlock.includes("trivia"));
-    assert.ok(pluginBlock.includes("5 tools"));
+    const headerBlock = texts.find((t) => t.includes(":package:") && t.includes("Plugins"));
+    assert.ok(headerBlock);
+    const entryBlock = texts.find((t) => t.includes("trivia") && t.includes("5 tools"));
+    assert.ok(entryBlock);
   });
 
   it("does not show clack plugins section when none loaded", () => {
     const deps = makeDeps();
-    mockGetLoadedClackPlugins.mock.mockImplementation(() => []);
+    mockGetLoadedClackPlugins.mockImplementation(() => []);
     const blocks = buildStatusSection("member", deps);
     const texts = getSectionTexts(blocks);
     const pluginBlock = texts.find((t) => t.includes(":package:"));
     assert.equal(pluginBlock, undefined);
+  });
+
+  it("renders a per-plugin error banner for admins when errors are present", () => {
+    const deps = makeDeps();
+    mockGetLoadedClackPlugins.mockImplementation(() => [
+      {
+        name: "trivia",
+        toolCount: 0,
+        errors: ["Trivia requires the cron scheduler. Enable it via `config.cron.enabled: true`."],
+      },
+    ]);
+    const blocks = buildStatusSection("admin", deps);
+    const contextBlock = blocks.find(
+      (b) =>
+        b.type === "context" &&
+        b.elements?.some(
+          (e) => e.type === "mrkdwn" && e.text.includes("Trivia requires the cron scheduler"),
+        ),
+    );
+    assert.ok(contextBlock, "expected a context block with the error reason");
+    const entryTexts = getSectionTexts(blocks);
+    const entryBlock = entryTexts.find((t) => t.includes("trivia") && t.includes(":x:"));
+    assert.ok(entryBlock, "expected the failing plugin's row to be prefixed with :x:");
+  });
+
+  it("renders multiple errors as separate lines in the banner", () => {
+    const deps = makeDeps();
+    mockGetLoadedClackPlugins.mockImplementation(() => [
+      { name: "p", toolCount: 0, errors: ["reason A", "reason B"] },
+    ]);
+    const blocks = buildStatusSection("admin", deps);
+    const contextBlock = blocks.find(
+      (b) =>
+        b.type === "context" &&
+        b.elements?.some(
+          (e) => e.type === "mrkdwn" && e.text.includes("reason A") && e.text.includes("reason B"),
+        ),
+    );
+    assert.ok(contextBlock);
+  });
+
+  it("does not render the banner for non-admins even when errors exist", () => {
+    const deps = makeDeps();
+    mockGetLoadedClackPlugins.mockImplementation(() => [
+      { name: "trivia", toolCount: 0, errors: ["Trivia requires the cron scheduler."] },
+    ]);
+    const blocks = buildStatusSection("member", deps);
+    const contextBlock = blocks.find(
+      (b) =>
+        b.type === "context" &&
+        b.elements?.some(
+          (e) => e.type === "mrkdwn" && e.text.includes("Trivia requires the cron scheduler"),
+        ),
+    );
+    assert.equal(contextBlock, undefined);
+  });
+
+  it("does not render a banner when errors[] is empty", () => {
+    const deps = makeDeps();
+    mockGetLoadedClackPlugins.mockImplementation(() => [
+      { name: "tenor-gif", toolCount: 1, errors: [] },
+    ]);
+    const blocks = buildStatusSection("admin", deps);
+    const entryTexts = getSectionTexts(blocks);
+    const entryBlock = entryTexts.find((t) => t.includes("tenor-gif"));
+    assert.ok(entryBlock);
+    assert.equal(entryBlock.includes(":x:"), false);
+    const contextBlocks = blocks.filter((b) => b.type === "context");
+    assert.equal(contextBlocks.length, 0);
   });
 
   it("always shows reaction trigger method", () => {
@@ -817,7 +885,7 @@ describe("buildStatusSection", () => {
 
   it("shows DM trigger when enabled", () => {
     const deps = makeDeps();
-    mockGetConfig.mock.mockImplementation(() => ({
+    mockGetConfig.mockImplementation(() => ({
       ...defaultConfig(),
       directMessages: { enabled: true },
     }));
@@ -830,7 +898,7 @@ describe("buildStatusSection", () => {
 
   it("shows mentions trigger when enabled", () => {
     const deps = makeDeps();
-    mockGetConfig.mock.mockImplementation(() => ({
+    mockGetConfig.mockImplementation(() => ({
       ...defaultConfig(),
       mentions: { enabled: true },
     }));
@@ -867,7 +935,7 @@ describe("buildWorkersSection (disposable mode)", () => {
 
   it("shows empty state when there are no active changes", () => {
     const deps = makeDeps();
-    mockGetActiveWorkers.mock.mockImplementation(() => []);
+    mockGetActiveWorkers.mockImplementation(() => []);
     const blocks = buildWorkersSection(deps);
     const texts = getSectionTexts(blocks);
     assert.ok(texts.some((t) => t.includes("No active change requests")));
@@ -875,7 +943,7 @@ describe("buildWorkersSection (disposable mode)", () => {
 
   it("displays change details when active changes exist", () => {
     const deps = makeDeps();
-    mockGetActiveWorkers.mock.mockImplementation(() => [
+    mockGetActiveWorkers.mockImplementation(() => [
       {
         id: "w1",
         userId: "U001",
@@ -899,7 +967,7 @@ describe("buildWorkersSection (disposable mode)", () => {
 
   it("includes PR link when available", () => {
     const deps = makeDeps();
-    mockGetActiveWorkers.mock.mockImplementation(() => [
+    mockGetActiveWorkers.mockImplementation(() => [
       {
         id: "w1",
         userId: "U001",
@@ -941,7 +1009,7 @@ describe("buildWorkersSection (reusable mode)", () => {
       ...makeDeps(),
       getWorkerPoolSnapshot: () => ({ reusable: false, byRepo: [] }),
     };
-    mockGetActiveWorkers.mock.mockImplementation(() => []);
+    mockGetActiveWorkers.mockImplementation(() => []);
     const blocks = buildWorkersSection(deps);
     const texts = getSectionTexts(blocks);
     // Disposable mode shows the active-changes empty state, not the pool message.
@@ -1123,7 +1191,7 @@ describe("buildHelpSection", () => {
 
   it("includes DM instruction when enabled", () => {
     const deps = makeDeps();
-    mockGetConfig.mock.mockImplementation(() => ({
+    mockGetConfig.mockImplementation(() => ({
       ...defaultConfig(),
       directMessages: { enabled: true },
     }));
@@ -1135,7 +1203,7 @@ describe("buildHelpSection", () => {
 
   it("includes mention instruction when enabled", () => {
     const deps = makeDeps();
-    mockGetConfig.mock.mockImplementation(() => ({
+    mockGetConfig.mockImplementation(() => ({
       ...defaultConfig(),
       mentions: { enabled: true },
     }));
@@ -1147,7 +1215,7 @@ describe("buildHelpSection", () => {
 
   it("does not include DM instruction when disabled", () => {
     const deps = makeDeps();
-    mockGetConfig.mock.mockImplementation(() => ({
+    mockGetConfig.mockImplementation(() => ({
       ...defaultConfig(),
       directMessages: { enabled: false },
     }));
@@ -1159,7 +1227,7 @@ describe("buildHelpSection", () => {
 
   it("does not include mention instruction when disabled", () => {
     const deps = makeDeps();
-    mockGetConfig.mock.mockImplementation(() => ({
+    mockGetConfig.mockImplementation(() => ({
       ...defaultConfig(),
       mentions: { enabled: false },
     }));
@@ -1181,16 +1249,16 @@ describe("buildSettingsModal", () => {
 
   it("returns a modal view", async () => {
     const deps = makeDeps();
-    mockGetReactionDelivery.mock.mockImplementation(async () => "dm");
-    mockGetUserPreference.mock.mockImplementation(async () => true);
+    mockGetReactionDelivery.mockImplementation(async () => "dm");
+    mockGetUserPreference.mockImplementation(async () => true);
     const modal = await buildSettingsModal("U001", deps);
     assert.equal(modal.type, "modal");
   });
 
   it("sets reaction delivery to dm when stored", async () => {
     const deps = makeDeps();
-    mockGetReactionDelivery.mock.mockImplementation(async () => "dm");
-    mockGetUserPreference.mock.mockImplementation(async () => false);
+    mockGetReactionDelivery.mockImplementation(async () => "dm");
+    mockGetUserPreference.mockImplementation(async () => false);
     const modal = await buildSettingsModal("U001", deps);
     const blocks = modal.blocks as KnownBlock[];
     const responseDeliveryBlock = blocks.find((b) => {
@@ -1202,8 +1270,8 @@ describe("buildSettingsModal", () => {
 
   it("sets notify on response when preference is true", async () => {
     const deps = makeDeps();
-    mockGetReactionDelivery.mock.mockImplementation(async () => "thread");
-    mockGetUserPreference.mock.mockImplementation(async () => true);
+    mockGetReactionDelivery.mockImplementation(async () => "thread");
+    mockGetUserPreference.mockImplementation(async () => true);
     const modal = await buildSettingsModal("U001", deps);
     const blocks = modal.blocks as KnownBlock[];
     const notifyBlock = blocks.find((b) => {
@@ -1367,7 +1435,7 @@ describe("buildHomeView — Scheduled Messages skipConditions", () => {
 
   it("does NOT render a skip-conditions context line on the home page (edit modal only)", async () => {
     setDefaultMocks("member");
-    mockGetJobsByUser.mock.mockImplementation(async () => [
+    mockGetJobsByUser.mockImplementation(async () => [
       baseJob({ skipConditions: "Skip on weekends" }),
     ]);
 
@@ -1382,7 +1450,7 @@ describe("buildHomeView — Scheduled Messages skipConditions", () => {
 
   it("renders a distinct 'last run skipped' indicator for skipped status", async () => {
     setDefaultMocks("member");
-    mockGetJobsByUser.mock.mockImplementation(async () => [baseJob({ lastRunStatus: "skipped" })]);
+    mockGetJobsByUser.mockImplementation(async () => [baseJob({ lastRunStatus: "skipped" })]);
 
     const deps = makeDeps();
     const view = await buildHomeView({ userId: "U001" }, deps);
@@ -1392,6 +1460,54 @@ describe("buildHomeView — Scheduled Messages skipConditions", () => {
       (s) => s.text?.type === "mrkdwn" && s.text.text.includes("last run skipped"),
     );
     assert.ok(jobLine, "should render a 'last run skipped' indicator");
+  });
+
+  it("hides the user-created scheduled messages subsection when cron.userSchedules is false", async () => {
+    setDefaultMocks("admin");
+    mockGetConfig.mockImplementation(() => ({
+      ...defaultConfig(),
+      cron: { enabled: true, userSchedules: false },
+    }));
+    mockGetJobs.mockImplementation(async () => [baseJob()]);
+
+    const deps = makeDeps();
+    const view = await buildHomeView({ userId: "U001" }, deps);
+    const blocks = view.blocks as KnownBlock[];
+    const headers = blocks.filter((b) => b.type === "header");
+    const userHeader = headers.find(
+      (h) => h.text?.type === "plain_text" && h.text.text === "Scheduled Messages",
+    );
+    assert.equal(
+      userHeader,
+      undefined,
+      "Scheduled Messages (user) header should be absent when userSchedules is false",
+    );
+  });
+
+  it("still renders the Plugin Scheduled Messages subsection for admins when userSchedules is false", async () => {
+    setDefaultMocks("admin");
+    mockGetConfig.mockImplementation(() => ({
+      ...defaultConfig(),
+      cron: { enabled: true, userSchedules: false },
+    }));
+    mockGetJobs.mockImplementation(async () => [
+      baseJob({
+        id: "plugin-1",
+        createdBy: null,
+        plugin: "trivia",
+        pluginManaged: true,
+        specKey: "g:question",
+      }),
+    ]);
+
+    const deps = makeDeps();
+    const view = await buildHomeView({ userId: "U001" }, deps);
+    const blocks = view.blocks as KnownBlock[];
+    const headers = blocks.filter((b) => b.type === "header");
+    const pluginHeader = headers.find(
+      (h) => h.text?.type === "plain_text" && h.text.text === "Plugin Scheduled Messages",
+    );
+    assert.ok(pluginHeader, "Plugin Scheduled Messages header should still render");
   });
 });
 
@@ -1518,7 +1634,7 @@ describe("buildHomeView — schedule name prefix", () => {
 
   it("prepends a bold name and em-dash to the row when job.name is set", async () => {
     setDefaultMocks("member");
-    mockGetJobsByUser.mock.mockImplementation(async () => [baseJob({ name: "Morning roundup" })]);
+    mockGetJobsByUser.mockImplementation(async () => [baseJob({ name: "Morning roundup" })]);
 
     const deps = makeDeps();
     const view = await buildHomeView({ userId: "U001" }, deps);
@@ -1529,7 +1645,7 @@ describe("buildHomeView — schedule name prefix", () => {
 
   it("renders no prefix when job.name is absent", async () => {
     setDefaultMocks("member");
-    mockGetJobsByUser.mock.mockImplementation(async () => [baseJob()]);
+    mockGetJobsByUser.mockImplementation(async () => [baseJob()]);
 
     const deps = makeDeps();
     const view = await buildHomeView({ userId: "U001" }, deps);
@@ -1540,7 +1656,7 @@ describe("buildHomeView — schedule name prefix", () => {
 
   it("strips mrkdwn special chars from the name to keep the row intact", async () => {
     setDefaultMocks("member");
-    mockGetJobsByUser.mock.mockImplementation(async () => [
+    mockGetJobsByUser.mockImplementation(async () => [
       baseJob({ name: "*Sneaky* <link> & _italic_ ~strike~" }),
     ]);
 

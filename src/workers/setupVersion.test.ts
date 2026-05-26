@@ -1,4 +1,4 @@
-import { describe, it, before, after, beforeEach, afterEach } from "node:test";
+import { describe, it, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,11 +14,11 @@ function writeOverrideInstructions(repo: string, content: string): void {
   writeFileSync(join(dir, "worktree_setup_instructions.md"), content);
 }
 
-before(() => {
+beforeAll(() => {
   originalCwd = process.cwd();
 });
 
-after(() => {
+afterAll(() => {
   process.chdir(originalCwd);
 });
 
