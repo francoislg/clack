@@ -135,6 +135,25 @@ export interface AutoRespondConfig {
   enabled: boolean;
 }
 
+export interface AssistantSuggestedPrompt {
+  title: string;
+  message: string;
+}
+
+/**
+ * Optional overrides for the Slack Assistant pane's first-contact UI: the greeting
+ * message and the suggested-prompt chips. When a field is absent, the built-in
+ * `t("assistant.*")` defaults are used. `suggestedPrompts` fully replaces the default
+ * prompt set (Slack caps suggested prompts at 4).
+ */
+export interface AssistantPaneConfig {
+  greeting?: string;
+  suggestedPrompts?: AssistantSuggestedPrompt[];
+}
+
+/** Slack's hard cap on the number of suggested prompts shown in an Assistant thread. */
+const MAX_SUGGESTED_PROMPTS = 4;
+
 // Trivia types, defaults, and parsers were relocated to the trivia plugin per
 // the SDK-isolation rules (src/plugins/CLAUDE.md). See:
 //   - src/plugins/trivia/core/configTypes.ts (types + defaults)
@@ -224,6 +243,11 @@ export interface Config {
   directMessages: DirectMessagesConfig;
   mentions: MentionsConfig;
   autoRespond?: AutoRespondConfig;
+  /**
+   * Optional overrides for the Slack Assistant pane greeting and suggested prompts.
+   * Absent → built-in i18n defaults. See {@link AssistantPaneConfig}.
+   */
+  assistant?: AssistantPaneConfig;
   taskCards?: TaskCardsConfig;
   repositories: RepositoryConfig[];
   git: GitConfig;
@@ -639,6 +663,54 @@ export function parseSubmitResponseConfig(raw: JsonValue | undefined): SubmitRes
   return { maxAdditionalMessages: maxRaw };
 }
 
+export function parseAssistantConfig(raw: JsonValue | undefined): AssistantPaneConfig | undefined {
+  if (raw === undefined) return undefined;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("Config 'assistant' must be an object");
+  }
+  const entry: JsonObject = raw;
+  const result: AssistantPaneConfig = {};
+
+  if (entry.greeting !== undefined) {
+    if (typeof entry.greeting !== "string" || entry.greeting.trim().length === 0) {
+      throw new Error("Config 'assistant.greeting' must be a non-empty string");
+    }
+    result.greeting = entry.greeting;
+  }
+
+  if (entry.suggestedPrompts !== undefined) {
+    if (!Array.isArray(entry.suggestedPrompts)) {
+      throw new Error("Config 'assistant.suggestedPrompts' must be an array");
+    }
+    if (entry.suggestedPrompts.length > MAX_SUGGESTED_PROMPTS) {
+      throw new Error(
+        `Config 'assistant.suggestedPrompts' may contain at most ${MAX_SUGGESTED_PROMPTS} entries`,
+      );
+    }
+    const prompts: AssistantSuggestedPrompt[] = [];
+    entry.suggestedPrompts.forEach((p, i) => {
+      if (!p || typeof p !== "object" || Array.isArray(p)) {
+        throw new Error(`Config 'assistant.suggestedPrompts[${i}]' must be an object`);
+      }
+      const po: JsonObject = p;
+      if (typeof po.title !== "string" || po.title.trim().length === 0) {
+        throw new Error(
+          `Config 'assistant.suggestedPrompts[${i}].title' must be a non-empty string`,
+        );
+      }
+      if (typeof po.message !== "string" || po.message.trim().length === 0) {
+        throw new Error(
+          `Config 'assistant.suggestedPrompts[${i}].message' must be a non-empty string`,
+        );
+      }
+      prompts.push({ title: po.title, message: po.message });
+    });
+    result.suggestedPrompts = prompts;
+  }
+
+  return result;
+}
+
 const VALID_MERGE_STRATEGIES = ["squash", "merge", "rebase"] as const;
 const VALID_ROLES: readonly UserRole[] = ["member", "dev", "admin", "owner"];
 
@@ -841,6 +913,7 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
       ),
     },
     autoRespond: autoRespondRaw ? { enabled: bool(autoRespondRaw, "enabled") ?? false } : undefined,
+    assistant: parseAssistantConfig(c.assistant as JsonValue | undefined),
     taskCards: parseTaskCardsConfig(taskCardsRaw as TaskCardsRaw | undefined),
     repositories: c.repositories.map((r: unknown) => parseRepo(r as Record<string, unknown>)),
     git: {

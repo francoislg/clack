@@ -195,6 +195,35 @@ describe("assistant threadStarted", () => {
     assert.equal(promptsArg.prompts.length, 2);
     assert.ok(!promptsArg.prompts.some((p) => p.title.includes("recent messages")));
   });
+
+  it("uses configured greeting and suggested prompts when present", async () => {
+    const deps = makeDeps();
+    deps.getConfig = () => ({
+      directMessages: { enabled: true },
+      assistant: {
+        greeting: "Custom hello",
+        suggestedPrompts: [{ title: "Ask X", message: "Tell me about X" }],
+      },
+    });
+    registerAssistant(makeApp(), deps);
+
+    const mockSay = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
+    const mockSaveThreadContext = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
+    const mockSetSuggestedPrompts = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
+
+    await capturedAssistantHandlers!.threadStarted({
+      event: { assistant_thread: { context: { channel_id: "C001" } } },
+      say: mockSay,
+      saveThreadContext: mockSaveThreadContext,
+      setSuggestedPrompts: mockSetSuggestedPrompts,
+    });
+
+    assert.equal(mockSay.mock.calls[0].arguments[0], "Custom hello");
+    const promptsArg = mockSetSuggestedPrompts.mock.calls[0].arguments[0] as {
+      prompts: Array<{ title: string; message: string }>;
+    };
+    assert.deepEqual(promptsArg.prompts, [{ title: "Ask X", message: "Tell me about X" }]);
+  });
 });
 
 describe("assistant threadContextChanged", () => {

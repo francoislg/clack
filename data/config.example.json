@@ -38,6 +38,13 @@
   "autoRespond": {
     "enabled": false
   },
+  "assistant": {
+    "greeting": "Hi! Ask me anything.",
+    "suggestedPrompts": [
+      { "title": "Debug something", "message": "Help me debug something" },
+      { "title": "Tell me something funny", "message": "Tell me something funny" }
+    ]
+  },
   "taskCards": {
     "maxDetailsPerGroup": 5
   },
