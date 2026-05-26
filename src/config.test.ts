@@ -1353,12 +1353,17 @@ describe("userSkills config", () => {
 // ---------------------------------------------------------------------------
 
 describe("assistant config", () => {
+  const originalCwd = process.cwd();
+
   beforeEach(() => {
+    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true });
+    mkdirSync(tmpBase, { recursive: true });
+    process.chdir(tmpBase);
     writeSlackAuth();
   });
 
   afterEach(() => {
-    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true, force: true });
+    process.chdir(originalCwd);
   });
 
   it("is undefined when the block is absent", () => {
