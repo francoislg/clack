@@ -40,6 +40,8 @@ interface ListGamesEntry {
   format?: SeasonFormat;
   categories?: string[];
   theme?: string;
+  liveAnswersVisible?: boolean;
+  revealResponses?: "no" | "just-correctness" | "yes";
 }
 
 interface WorkspaceDefaults {
@@ -103,6 +105,10 @@ export function createListGamesTool(
           ...(g.format !== undefined ? { format: g.format } : {}),
           ...(g.categories !== undefined ? { categories: g.categories } : {}),
           ...(g.theme !== undefined ? { theme: g.theme } : {}),
+          ...(g.liveAnswersVisible !== undefined
+            ? { liveAnswersVisible: g.liveAnswersVisible }
+            : {}),
+          ...(g.revealResponses !== undefined ? { revealResponses: g.revealResponses } : {}),
         };
       });
 

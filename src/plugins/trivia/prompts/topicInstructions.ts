@@ -11,10 +11,11 @@
  * What stays inline in scheduledPrompts.ts (NOT moved here, because it couples to tool
  * contracts or detection logic that must not drift per workspace):
  * - Cheating-detection guidance.
- * - FIVE-BLOCK question layout (header/section/card/section/context) for boolean/choice
- *   and the freeform variant.
- * - Reveal block structure (single-question per-voter buckets, multi-question Round
- *   Summary aggregate, dual-totals leaderboard table).
+ * - FOUR-BLOCK question layout (header/section/card/context) shared by all answersFormat
+ *   variants — the answer buttons are appended by `post_questions`, not by the prompt.
+ * - Reveal block structure (per-bucket sections branched on `voters.revealResponses`,
+ *   multi-question Round Summary aggregate gated on `roundSummary` presence, dual-totals
+ *   leaderboard table).
  * - Round Summary block format.
  * - Season-finale block placement (the structural "insert ONE additional section block
  *   above the closer" rule).
@@ -30,7 +31,7 @@ export const PERSONA_CONTENT = `PERSONA: You are a charismatic Game Show Present
  * Voice guidance for the reveal flow specifically. The reveal is shorter and punchier
  * than the question post; this file is where admins shape that distinction.
  */
-export const REVEAL_TONE_CONTENT = `REVEAL TONE: When rendering a trivia reveal, lean on the question's facts and your Game Show Presenter persona — keep each explanation punchy. The reveal is the payoff moment: celebrate correct voters with energy, roast incorrect voters with warm charm, and let fence-sitters / wildcards get a playful jab. Single sentences beat paragraphs. Vary the opener each day.`;
+export const REVEAL_TONE_CONTENT = `REVEAL TONE: When rendering a trivia reveal, lean on the question's facts and your Game Show Presenter persona — keep each explanation punchy. The reveal is the payoff moment: celebrate correct voters with energy, roast incorrect voters with warm charm, give no-answer no-shows a playful nudge, and (when reactions are present) riff on the commentary — emojis are color, not votes. Single sentences beat paragraphs. Vary the opener each day.`;
 
 /**
  * Voice guidance for the season-finale wrap-up. Loaded into the system prompt whenever

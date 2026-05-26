@@ -25,6 +25,8 @@ interface ListSeasonsSlotEntry {
   contexts?: TriviaContextEntry[];
   difficulty?: TriviaDifficultyConfig;
   difficultyRatio?: TriviaDifficultyRatioConfig;
+  liveAnswersVisible?: boolean;
+  revealResponses?: "no" | "just-correctness" | "yes";
 }
 
 function statusOf(entry: SeasonEntry, now: number): Status {
@@ -46,6 +48,10 @@ function mapSlot(slot: SeasonFormatSlot): ListSeasonsSlotEntry {
     ...(slot.contexts !== undefined ? { contexts: slot.contexts } : {}),
     ...(slot.difficulty !== undefined ? { difficulty: slot.difficulty } : {}),
     ...(slot.difficultyRatio !== undefined ? { difficultyRatio: slot.difficultyRatio } : {}),
+    ...(slot.liveAnswersVisible !== undefined
+      ? { liveAnswersVisible: slot.liveAnswersVisible }
+      : {}),
+    ...(slot.revealResponses !== undefined ? { revealResponses: slot.revealResponses } : {}),
   };
 }
 

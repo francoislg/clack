@@ -12,6 +12,20 @@ export interface TriviaSeasonsConfig {
 }
 
 /**
+ * Reveal-time participation disclosure mode. Cascades slot → season → game →
+ * workspace → `"yes"` default. Resolved at `post_questions` time and stamped
+ * on the question record so mid-round config edits don't flip live behavior.
+ *
+ * - `"yes"` → full named voter buckets in the reveal payload; freeform Voters
+ *   carry their `answerText`.
+ * - `"just-correctness"` → named voter buckets, but freeform Voters DO NOT
+ *   carry `answerText` (typed text stays anonymous).
+ * - `"no"` → reveal payload omits voter buckets entirely; only `reactions`
+ *   commentary plus the leaderboard render.
+ */
+export type RevealResponsesMode = "no" | "just-correctness" | "yes";
+
+/**
  * Weighted-random map of answer format → weight. Weights are non-negative integers;
  * at least one weight MUST be strictly positive. `get_ideas` re-normalizes at roll time.
  *
@@ -169,6 +183,21 @@ export interface TriviaGame {
    * Trimmed, non-empty when present. Surfaced in opener / finale prompt copy.
    */
   theme?: string;
+  /**
+   * Per-game tier of the live-roster-footer visibility axis. Cascade:
+   *   `slot → season → game → workspace → true`.
+   * When `true` (the cascaded default), the live "📝 Answered" footer reveals
+   * each answerer's pick alongside their name. When `false`, the footer shows
+   * names only.
+   */
+  liveAnswersVisible?: boolean;
+  /**
+   * Per-game tier of the reveal-time participation disclosure axis. Cascade:
+   *   `slot → season → game → workspace → "yes"`.
+   * Controls how much per-question participation detail surfaces in the
+   * reveal message — see `RevealResponsesMode` for semantics.
+   */
+  revealResponses?: RevealResponsesMode;
 }
 
 /**
@@ -185,6 +214,10 @@ export interface SeasonFormatSlot {
   contexts?: TriviaContextEntry[];
   difficulty?: TriviaDifficultyConfig;
   difficultyRatio?: TriviaDifficultyRatioConfig;
+  /** Highest-precedence tier of the live-roster-footer visibility axis. */
+  liveAnswersVisible?: boolean;
+  /** Highest-precedence tier of the reveal-time disclosure axis. */
+  revealResponses?: RevealResponsesMode;
 }
 
 /**
@@ -235,6 +268,10 @@ export interface TriviaConfig {
   games?: TriviaGame[];
   /** Plugin-level off-days, shared by every entry in `games[]`. */
   offDays?: OffDay[];
+  /** Workspace default for the live-roster-footer visibility axis. */
+  liveAnswersVisible?: boolean;
+  /** Workspace default for the reveal-time disclosure axis. */
+  revealResponses?: RevealResponsesMode;
 }
 
 /** Defaults applied when `choices` is absent or only partially specified. */

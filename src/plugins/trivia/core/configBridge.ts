@@ -12,6 +12,7 @@ import type { FSWatcher } from "node:fs";
 import type { ClackSdk, PluginLogger } from "../../sdk.js";
 import type { JsonObject, TriviaConfig, TriviaGame } from "./configTypes.js";
 import {
+  isRevealResponsesMode,
   parseTriviaAxisBag,
   validateTriviaChoicesConfig,
   type ParseIssue,
@@ -127,6 +128,28 @@ function parseTriviaConfigObject(raw: JsonObject, logger: PluginLogger): TriviaC
   const { offDays, issues: offDayIssues } = parseOffDays(raw.offDays);
   if (offDays !== undefined) out.offDays = offDays;
   allIssues.push(...offDayIssues);
+
+  if (raw.liveAnswersVisible !== undefined && raw.liveAnswersVisible !== null) {
+    if (typeof raw.liveAnswersVisible !== "boolean") {
+      allIssues.push({
+        field: "trivia.liveAnswersVisible",
+        error: `must be a boolean (got ${typeof raw.liveAnswersVisible})`,
+      });
+    } else {
+      out.liveAnswersVisible = raw.liveAnswersVisible;
+    }
+  }
+
+  if (raw.revealResponses !== undefined && raw.revealResponses !== null) {
+    if (isRevealResponsesMode(raw.revealResponses)) {
+      out.revealResponses = raw.revealResponses;
+    } else {
+      allIssues.push({
+        field: "trivia.revealResponses",
+        error: `must be one of "no", "just-correctness", "yes" (got ${JSON.stringify(raw.revealResponses)})`,
+      });
+    }
+  }
 
   // seasons block: { enabled, prompt }. The enabled-but-no-prompt case
   // self-disables rather than rejecting (matches the prior loader behavior).

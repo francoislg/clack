@@ -4,15 +4,21 @@ import type { ProcessRevealEntry, RoundSummary, RoundSummaryEntry } from "./type
  * Compute the per-fire round summary from a list of `ProcessRevealEntry`s.
  *
  * - `correct` counts reveals where the player appears in `voters.correct`.
- * - `answered` counts reveals where the player appears in ANY voter bucket
- *   (correct, incorrect, fenceSitters, wildcards).
- * - Players with `answered === 0` are omitted (only present-in-payload players
- *   are tracked; cheaters / multi-react voters / the bot are already excluded
- *   structurally from `voters` by `process_reveal_answers`).
- * - Sorted by `correct` descending, then `displayName` ascending (case-insensitive,
- *   locale-sensitive comparison).
- * - `roundMvp: true` is set on every player tied for the highest `correct` value
- *   in the result, IFF that highest value is > 0.
+ * - `answered` counts reveals where the player appears in either `correct`
+ *   or `incorrect` (named-bucket presence). The `noAnswer` and `reactions`
+ *   buckets track reactor-only participation and don't count as "answered."
+ * - Reveal entries whose `voters.revealResponses === "no"` carry no named
+ *   buckets — they contribute zero to every player's tallies (which is the
+ *   point of the restricted mode; we don't have per-player data to tally).
+ * - Players with `answered === 0` are omitted from the result.
+ * - Sorted by `correct` descending, then `displayName` ascending
+ *   (case-insensitive, locale-sensitive comparison).
+ * - `roundMvp: true` is set on every player tied for the highest `correct`
+ *   value in the result, IFF that highest value is > 0.
+ *
+ * Callers gate the field's presence on the result: the round summary should
+ * only be surfaced when ALL reveal entries in the batch are
+ * `revealResponses === "yes"` (mixed-mode batches lose the field entirely).
  */
 export function computeRoundSummary(reveals: ProcessRevealEntry[]): RoundSummary {
   const byUser = new Map<string, { displayName: string; correct: number; answered: number }>();
@@ -20,7 +26,9 @@ export function computeRoundSummary(reveals: ProcessRevealEntry[]): RoundSummary
 
   for (const reveal of reveals) {
     seenInThisReveal.clear();
-    const { correct, incorrect, fenceSitters, wildcards } = reveal.voters;
+    const buckets = reveal.voters;
+    if (buckets.revealResponses === "no") continue;
+    const { correct, incorrect } = buckets;
 
     const noteAnswered = (userId: string, displayName: string): void => {
       const existing = byUser.get(userId);
@@ -38,8 +46,6 @@ export function computeRoundSummary(reveals: ProcessRevealEntry[]): RoundSummary
       if (entry !== undefined) entry.correct += 1;
     }
     for (const v of incorrect) noteAnswered(v.userId, v.displayName);
-    for (const v of fenceSitters) noteAnswered(v.userId, v.displayName);
-    for (const v of wildcards) noteAnswered(v.userId, v.displayName);
   }
 
   const entries: RoundSummaryEntry[] = [];

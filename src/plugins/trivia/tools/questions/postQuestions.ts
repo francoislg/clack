@@ -6,24 +6,41 @@ import { BlockSchema, type Block } from "../../../../slack/blockSchema.js";
 import { validateBlocks } from "../../../../slack/blockValidate.js";
 import { postStructuredMessage } from "../../../../slack/messagePoster.js";
 import type { SlackBlocks } from "../../../../slack/blocks.js";
-import { addDeliveryReactions } from "../../../../slack/messageReactions.js";
 import { logger } from "../../../../logger.js";
 import type { ClackSdk } from "../../../sdk.js";
-import { defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
+import {
+  defaultGetGames,
+  defaultGetTriviaConfig,
+  type GetGamesFn,
+  type GetTriviaConfigFn,
+} from "../../core/configBridge.js";
 import { requireWritableGame } from "../../core/gamesRegistry.js";
+import { resolveLiveAnswersVisible } from "../../core/liveAnswersResolver.js";
+import { resolveRevealResponses } from "../../core/revealResponsesResolver.js";
+import { findSeasonBySlug } from "../../core/seasonTimeline.js";
+import { getAllAnswerTypeHandlers, getAnswerTypeHandler } from "../../answerTypes/registry.js";
 import type { TriviaDataLayer, TriviaQuestion } from "../../core/types.js";
 
-const DESCRIPTION = `Post one or more saved trivia questions to the game's configured Slack channel and stamp postedAt/messageLink on each question record. Replaces the prior "submit_response with reactions" delivery for the question-posting flow.
+const PER_FORMAT_AFFORDANCES = getAllAnswerTypeHandlers()
+  .map((h) => `  - ${h.actionAffordanceDescription}`)
+  .join("\n");
+
+const DESCRIPTION = `Post one or more saved trivia questions to the game's configured Slack channel, append per-format answer buttons, and stamp the routing/cascade fields needed by the reveal flow. Replaces the prior "submit_response with reactions" delivery — answers now come from button clicks (boolean/choice) and modal submissions (freeform), never from reactions.
 
 Per item:
 - Loads the question from games/<game>/questions.json (errors if missing).
 - Posts the supplied Block Kit blocks via chat.postMessage to the channel resolved from config.trivia.games[<game>].channel.
+- Appends an \`actions\` block to the message containing per-format answer buttons (Claude does NOT include them in the supplied \`blocks\`):
+${PER_FORMAT_AFFORDANCES}
 - Fetches the message's permalink via chat.getPermalink.
-- Stamps the question record with postedAt (epoch ms derived from the Slack ts), messageLink (the permalink), and batchId (see batchId section below).
-- Attaches vote reactions derived from the question's stored type:
-  - type "boolean" (or absent) → ["+1", "-1"].
-  - type "choice" → ["one", "two", "three", "four"].slice(0, choices.length).
-  Reactions are NEVER passed as arguments — the derivation is the only source.
+- Stamps the question record with:
+  - \`postedAt\` (epoch ms derived from the Slack ts)
+  - \`messageLink\` (the permalink)
+  - \`batchId\` (see batchId section below)
+  - \`postedBlocks\` (the FULL block array including the appended actions block, for later roster-footer edits)
+  - \`liveAnswersVisible\` — resolved per the slot → season → game → workspace → \`true\` cascade; controls whether the live roster footer shows per-pick groupings (\`true\`) or hides them behind a count (\`false\`).
+  - \`revealResponses\` — resolved per the slot → season → game → workspace → \`"yes"\` cascade; one of \`"yes"\` | \`"just-correctness"\` | \`"no"\`, controlling how much per-user info \`process_reveal_answers\` exposes to the renderer.
+- Reactions are NOT attached. The vote affordance is the buttons.
 
 batchId selection:
 - DEFAULT (\`appendToPreviousBatch\` absent or false): the tool mints a fresh UUID once per call and stamps every freshly-posted item with it. process_reveal_answers groups questions sharing the same batchId into one reveal.
@@ -35,47 +52,6 @@ Idempotency: a question whose postedAt is already set is skipped (returned with 
 Block validation is performed up-front for EVERY item against Slack's per-block runtime limits (header length, section length, table shape, etc.). If ANY item's blocks fail validation, the WHOLE call is refused atomically — no Slack posts, no record mutations — and the error lists every offending field across every item. Fix all of them and retry the entire batch together; do NOT retry partial items, which would post questions out of order.
 
 Per-item failures AFTER pre-flight validation (missing question, Slack runtime errors, etc.) are isolated: the call returns a results array with per-item { ok, ts?, permalink?, error? } so other items still process.`;
-
-/**
- * Append a Slack `actions` block with one `Answer` button to a freeform
- * question card. `actionId` namespaces the id under `plugin:trivia:` so the
- * wildcard dispatcher routes the click back to the trivia plugin's handler.
- */
-export function appendFreeformAnswerButton(
-  blocks: SlackBlocks,
-  actionId: (key: string) => string,
-  questionId: string,
-): SlackBlocks {
-  return [
-    ...blocks,
-    {
-      type: "actions",
-      block_id: `freeform-answer-actions:${questionId}`,
-      elements: [
-        {
-          type: "button",
-          action_id: actionId(`freeform-answer:${questionId}`),
-          text: { type: "plain_text", text: "Answer", emoji: true },
-          style: "primary",
-        },
-      ],
-    },
-  ];
-}
-
-/** Derive the vote reactions for a question from its stored answers format. */
-export function deriveReactions(question: TriviaQuestion): string[] {
-  const answersFormat = question.answersFormat ?? "boolean";
-  if (answersFormat === "boolean") {
-    return ["+1", "-1"];
-  }
-  if (answersFormat === "freeform") {
-    // Freeform answers come through a modal, not reactions.
-    return [];
-  }
-  const choiceCount = question.choices?.length ?? 0;
-  return ["one", "two", "three", "four"].slice(0, choiceCount);
-}
 
 /**
  * Convert a Slack ts string like "1779214298.489159" into epoch milliseconds.
@@ -157,7 +133,6 @@ const SLACK_UNAVAILABLE_ERROR =
  * `isAvailable()` returns null on success or a user-facing error message when Slack
  * is disconnected — used by the tool to short-circuit before any per-item work.
  * `postBlocks()` posts a Block Kit message and returns the Slack ts + permalink.
- * `addReactions()` attaches vote reactions; best-effort, errors logged not thrown.
  */
 export interface PostQuestionsSlackDeps {
   isAvailable(): string | null;
@@ -165,7 +140,6 @@ export interface PostQuestionsSlackDeps {
     ts: string;
     permalink: string;
   }>;
-  addReactions(channel: string, ts: string, reactions: string[]): Promise<void>;
 }
 
 /** Build the production `PostQuestionsSlackDeps` by lazily resolving the Slack client from the SDK. */
@@ -181,11 +155,6 @@ export function defaultPostQuestionsSlackDeps(
       if (!client) throw new Error("Slack client became unavailable mid-run");
       return postStructuredMessage(client, opts);
     },
-    async addReactions(channel, ts, reactions) {
-      const client = sdk.getSlackClient();
-      if (!client) return;
-      await addDeliveryReactions(client, channel, ts, reactions);
-    },
   };
 }
 
@@ -194,6 +163,7 @@ export function createPostQuestionsTool(
   sdk: Pick<ClackSdk, "getSlackClient" | "actionId">,
   getGamesFn: GetGamesFn = defaultGetGames,
   slackDeps: PostQuestionsSlackDeps = defaultPostQuestionsSlackDeps(sdk),
+  getTriviaConfigFn: GetTriviaConfigFn = defaultGetTriviaConfig,
 ) {
   return tool(
     "post_questions",
@@ -214,7 +184,7 @@ export function createPostQuestionsTool(
               .array(BlockSchema)
               .min(1)
               .describe(
-                "The Block Kit payload for this question's Slack message. Build the standard question card (header / warm-up section / card / closer context). Do NOT include reactions in the blocks — the tool attaches them automatically based on the question's stored type.",
+                "The Block Kit payload for this question's Slack message. Build the standard FOUR-BLOCK question card (header / warm-up section / card / closer context). Do NOT include an actions block, buttons, or any inline answer-options section — the tool appends the per-format answer buttons (boolean → 2, choice → choices.length, freeform → 1 Answer button) automatically between your card and your closer.",
               ),
           }),
         )
@@ -273,6 +243,12 @@ export function createPostQuestionsTool(
       const scoped = data.forGame(args.game);
       const results: PostQuestionsItemResult[] = [];
 
+      // Load workspace config + season state once for the whole batch — both
+      // feed the per-item cascade resolution for `liveAnswersVisible` and
+      // `revealResponses`. `null` is the legitimate "absent" value at each tier.
+      const triviaConfig = getTriviaConfigFn();
+      const seasonsState = await scoped.loadSeasonsState();
+
       // Resolve batchId. Default mode mints a fresh UUID; append mode reuses
       // the game's most-recent batch (and refuses to append to a revealed one).
       let batchId: string;
@@ -319,37 +295,60 @@ export function createPostQuestionsTool(
           }
 
           const baseBlocks = item.blocks as SlackBlocks;
-          const blocksWithAnswerButton =
-            question.answersFormat === "freeform"
-              ? appendFreeformAnswerButton(baseBlocks, sdk.actionId, question.id)
-              : baseBlocks;
+          const handler = getAnswerTypeHandler(question.answersFormat);
+          const blocksWithButtons = handler.appendActionsBlock(baseBlocks, sdk.actionId, question);
 
           const { ts, permalink } = await slackDeps.postBlocks({
             channel: game.channel,
-            blocks: blocksWithAnswerButton,
+            blocks: blocksWithButtons,
             ...(args.suppress_unfurls !== undefined && {
               suppressUnfurls: args.suppress_unfurls,
             }),
           });
 
-          // Stamp the question record BEFORE attempting reactions. Reactions are
-          // best-effort; the post + stamp are the durable side effects that matter.
+          // Resolve the two presentation-axis cascades and stamp them onto the
+          // record alongside the durable post metadata. Reading the stamped
+          // values later (roster rebuild, reveal payload) avoids re-resolving
+          // and isolates posted questions against mid-round config edits.
+          //
+          // Slot config lives in season.format.questions[index] when the
+          // active season has its own format, else game.format.questions[index]
+          // when the game has a workspace-level format. The question's
+          // `slot.index` matches whichever tier owns the format.
+          const season =
+            question.season && seasonsState
+              ? findSeasonBySlug(seasonsState, question.season)
+              : null;
+          const slotFromSeason =
+            question.slot && season?.format
+              ? season.format.questions[question.slot.index]
+              : undefined;
+          const slotFromGame =
+            question.slot && !season?.format
+              ? game.format?.questions[question.slot.index]
+              : undefined;
+          const slot = slotFromSeason ?? slotFromGame;
+          const liveAnswersVisible = resolveLiveAnswersVisible({
+            slot,
+            season: season ?? undefined,
+            game,
+            config: triviaConfig ?? undefined,
+          });
+          const revealResponses = resolveRevealResponses({
+            slot,
+            season: season ?? undefined,
+            game,
+            config: triviaConfig ?? undefined,
+          });
+
           await scoped.updateQuestion(item.questionId, {
             postedAt: tsToPostedAt(ts),
             messageLink: permalink,
             batchId,
-            postedBlocks: blocksWithAnswerButton as KnownBlock[],
+            postedBlocks: blocksWithButtons as KnownBlock[],
+            liveAnswersVisible,
+            revealResponses,
           });
-
-          const reactions = deriveReactions(question);
-          if (reactions.length > 0) {
-            try {
-              await slackDeps.addReactions(game.channel, ts, reactions);
-            } catch (err) {
-              const msg = err instanceof Error ? err.message : String(err);
-              logger.warn(`[post_questions] reactions failed for ${item.questionId}: ${msg}`);
-            }
-          }
 
           results.push({
             questionId: item.questionId,

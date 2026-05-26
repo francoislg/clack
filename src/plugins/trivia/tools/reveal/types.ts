@@ -1,35 +1,53 @@
+import type { RevealAnswerDescriptor } from "../../answerTypes/types.js";
 import type { LeaderboardEntry } from "../../domain/computeLeaderboard.js";
+import type { RevealResponsesMode } from "../../core/configTypes.js";
 
 export interface Voter {
   userId: string;
   displayName: string;
   /**
-   * Set for freeform reveal entries — the user's typed answer text, quoted in
-   * the rendered verdict. Absent for boolean/choice voter entries.
+   * Set for freeform reveal entries when the question's `revealResponses` is
+   * `"yes"` — the user's typed answer text, quoted in the rendered verdict.
+   * Stripped from the payload when `revealResponses === "just-correctness"`
+   * (typed text stays anonymous) and absent for boolean/choice voter entries.
    */
   answerText?: string;
 }
 
-export interface WildcardVoter extends Voter {
-  emoji: string;
+export interface ReactorEntry {
+  userId: string;
+  displayName: string;
+  /** Every emoji name this reactor used on the question message (no duplicates). */
+  emojis: string[];
 }
 
-export interface VoterBuckets {
-  correct: Voter[];
-  incorrect: Voter[];
-  /** Always `[]` for choice and freeform questions (the bucket only applies to boolean). */
-  fenceSitters: Voter[];
-  wildcards: WildcardVoter[];
-}
-
-export type RevealAnswer =
-  | { type: "boolean"; isTrue: boolean }
-  | { type: "choice"; choices: string[]; correctIndex: number }
+/**
+ * Discriminated union on the question's stamped `revealResponses`. The shape
+ * varies because the renderer's per-mode rendering branches need physically
+ * different fields — there's no participation data to leak when `"no"`, and
+ * `"just-correctness"` keeps the named buckets but strips freeform answerText.
+ */
+export type VoterBuckets =
   | {
-      type: "freeform";
-      expectedAnswer: string;
-      acceptableAnswers?: string[];
-      gradingNotes?: string;
+      revealResponses: "yes";
+      correct: Voter[];
+      incorrect: Voter[];
+      /** Reacted but did NOT submit a button answer. */
+      noAnswer: Voter[];
+      /** Every reactor's full emoji set (bot + cheaters stripped). */
+      reactions: ReactorEntry[];
+    }
+  | {
+      revealResponses: "just-correctness";
+      /** Freeform Voters in `correct`/`incorrect` have NO `answerText`. */
+      correct: Voter[];
+      incorrect: Voter[];
+      noAnswer: Voter[];
+      reactions: ReactorEntry[];
+    }
+  | {
+      revealResponses: "no";
+      reactions: ReactorEntry[];
     };
 
 export interface ProcessRevealEntry {
@@ -39,7 +57,7 @@ export interface ProcessRevealEntry {
   emojis: string[];
   messageLink: string;
   wasReprocessed: boolean;
-  answer: RevealAnswer;
+  answer: RevealAnswerDescriptor;
   voters: VoterBuckets;
 }
 
@@ -77,7 +95,12 @@ export interface ProcessRevealResult {
   game: string;
   reveals: ProcessRevealEntry[];
   leaderboard: LeaderboardEntry[];
-  roundSummary: RoundSummary;
+  /**
+   * Omitted when ANY reveal entry in the batch has `revealResponses !== "yes"`.
+   * The aggregate per-player counts would leak across slots in the restricted
+   * modes, so the whole field is dropped instead of selectively masked.
+   */
+  roundSummary?: RoundSummary;
   seasonStatus?: SeasonStatusOut;
   errors?: Array<{ questionId: string; error: string }>;
 }
@@ -87,3 +110,5 @@ export interface SlackReactionLike {
   emoji: string;
   users: string[];
 }
+
+export type { RevealResponsesMode };

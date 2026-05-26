@@ -11,6 +11,7 @@ import type {
   DifficultyRange,
   DifficultyRangesInput,
   JsonObject,
+  RevealResponsesMode,
   TriviaAnswersFormatWeights,
   TriviaChoicesConfig,
   TriviaContextEntry,
@@ -44,6 +45,17 @@ export const FREEFORM_ANSWER_SHAPE_KEYS = [
 export const DIFFICULTY_BUCKET_KEYS = ["easy", "medium", "hard"] as const;
 export const DIFFICULTY_FORMAT_KEYS = ["boolean", "choice", "freeform"] as const;
 const DIFFICULTY_RATIO_FORMAT_KEYS = ["boolean", "choice", "freeform"] as const;
+
+/** The literal string set for `revealResponses` — shared across tiers. */
+export const REVEAL_RESPONSES_VALUES = ["no", "just-correctness", "yes"] as const;
+
+/**
+ * Type guard for `revealResponses`. Lenient — callers decide how to react
+ * (drop-with-warning at config parse, throw at upsert tools).
+ */
+export function isRevealResponsesMode(raw: unknown): raw is RevealResponsesMode {
+  return typeof raw === "string" && (REVEAL_RESPONSES_VALUES as readonly string[]).includes(raw);
+}
 
 export function validateAnswersFormatMap(
   raw: unknown,

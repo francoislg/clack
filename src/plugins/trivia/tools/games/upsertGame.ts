@@ -80,6 +80,20 @@ const structuralFieldsSchema = {
     .describe(
       "Per-game narrative theme. Cascade: `season.theme → game.theme → (no theme)`. Trimmed, non-empty when present — surfaced in opener / finale prompt copy. On UPDATE: explicit null clears the field.",
     ),
+  liveAnswersVisible: z
+    .boolean()
+    .nullable()
+    .optional()
+    .describe(
+      'Per-game override for the live-roster-footer visibility axis. When `true` (the cascaded default), the live "📝 Answered" footer reveals each answerer\'s pick alongside their name. When `false`, the footer shows only names. Cascade: `slot → season → game → workspace → true`. On UPDATE: explicit null clears the field.',
+    ),
+  revealResponses: z
+    .enum(["no", "just-correctness", "yes"])
+    .nullable()
+    .optional()
+    .describe(
+      'Per-game override for the reveal-time participation disclosure axis. `"yes"` (default) renders full named voter buckets including freeform answer text. `"just-correctness"` renders named buckets but hides typed freeform text. `"no"` renders only the answer plus reactions plus the leaderboard. Cascade: `slot → season → game → workspace → "yes"`. On UPDATE: explicit null clears the field.',
+    ),
 };
 
 export function createUpsertGameTool(getGamesFn: GetGamesFn = defaultGetGames) {
@@ -249,12 +263,18 @@ export function createUpsertGameTool(getGamesFn: GetGamesFn = defaultGetGames) {
       else if (parsedAxes.difficultyRatio !== undefined)
         mergedAxes.difficultyRatio = parsedAxes.difficultyRatio;
 
-      // Merge structural fields (format, categories, theme) with the same
-      // null-clear / value-replace / omit-to-keep semantics.
+      // Merge structural fields with the same null-clear / value-replace /
+      // omit-to-keep semantics.
       const mergedStructural: Partial<TriviaGame> = {
         ...(existing?.format !== undefined ? { format: existing.format } : {}),
         ...(existing?.categories !== undefined ? { categories: existing.categories } : {}),
         ...(existing?.theme !== undefined ? { theme: existing.theme } : {}),
+        ...(existing?.liveAnswersVisible !== undefined
+          ? { liveAnswersVisible: existing.liveAnswersVisible }
+          : {}),
+        ...(existing?.revealResponses !== undefined
+          ? { revealResponses: existing.revealResponses }
+          : {}),
       };
       if (args.format === null) delete mergedStructural.format;
       else if (parsedFormat !== undefined) mergedStructural.format = parsedFormat;
@@ -262,6 +282,12 @@ export function createUpsertGameTool(getGamesFn: GetGamesFn = defaultGetGames) {
       else if (parsedCategories !== undefined) mergedStructural.categories = parsedCategories;
       if (args.theme === null) delete mergedStructural.theme;
       else if (parsedTheme !== undefined) mergedStructural.theme = parsedTheme;
+      if (args.liveAnswersVisible === null) delete mergedStructural.liveAnswersVisible;
+      else if (args.liveAnswersVisible !== undefined)
+        mergedStructural.liveAnswersVisible = args.liveAnswersVisible;
+      if (args.revealResponses === null) delete mergedStructural.revealResponses;
+      else if (args.revealResponses !== undefined)
+        mergedStructural.revealResponses = args.revealResponses;
 
       const enabled = args.enabled ?? existing?.enabled ?? true;
 
@@ -293,6 +319,8 @@ export function createUpsertGameTool(getGamesFn: GetGamesFn = defaultGetGames) {
         hasFormat: mergedStructural.format !== undefined,
         hasCategories: mergedStructural.categories !== undefined,
         hasTheme: mergedStructural.theme !== undefined,
+        hasLiveAnswersVisible: mergedStructural.liveAnswersVisible !== undefined,
+        hasRevealResponses: mergedStructural.revealResponses !== undefined,
         slotCount: mergedStructural.format?.questions.length ?? 0,
       });
     },

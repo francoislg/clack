@@ -1,5 +1,6 @@
 import type { ModalView } from "@slack/web-api";
 import type { TriviaQuestion } from "../core/types.js";
+import { t } from "../i18n/t.js";
 
 const INPUT_BLOCK_ID = "freeform-answer-input";
 const ACTION_ID = "answerText";
@@ -41,7 +42,11 @@ export function buildFreeformModal(params: BuildFreeformModalParams): ModalView 
   const headerBlocks: ModalView["blocks"] = [
     {
       type: "header",
-      text: { type: "plain_text", text: `Question (${question.category})`, emoji: true },
+      text: {
+        type: "plain_text",
+        text: t("modal.question_header", { category: question.category }),
+        emoji: true,
+      },
     },
     {
       type: "section",
@@ -52,19 +57,19 @@ export function buildFreeformModal(params: BuildFreeformModalParams): ModalView 
   if (locked) {
     const verdictText =
       lockedRow === undefined
-        ? ":no_entry_sign: You did not submit an answer for this question."
+        ? t("modal.verdict_no_submission")
         : lockedRow.correct === undefined
-          ? `:hourglass_flowing_sand: Your answer: *${escapeMarkdown(lockedRow.answerText)}* — awaiting reveal`
+          ? t("modal.verdict_awaiting", { answer: escapeMarkdown(lockedRow.answerText) })
           : lockedRow.correct
-            ? `:white_check_mark: Your answer: *${escapeMarkdown(lockedRow.answerText)}* — correct!`
-            : `:x: Your answer: *${escapeMarkdown(lockedRow.answerText)}* — incorrect`;
+            ? t("modal.verdict_correct", { answer: escapeMarkdown(lockedRow.answerText) })
+            : t("modal.verdict_incorrect", { answer: escapeMarkdown(lockedRow.answerText) });
 
     return {
       type: "modal",
       callback_id: callbackId,
       private_metadata: JSON.stringify({ game, questionId: question.id }),
-      title: { type: "plain_text", text: "Trivia — answered", emoji: true },
-      close: { type: "plain_text", text: "Close", emoji: true },
+      title: { type: "plain_text", text: t("modal.title_locked"), emoji: true },
+      close: { type: "plain_text", text: t("modal.close"), emoji: true },
       blocks: [
         ...headerBlocks,
         { type: "divider" },
@@ -77,26 +82,26 @@ export function buildFreeformModal(params: BuildFreeformModalParams): ModalView 
     type: "modal",
     callback_id: callbackId,
     private_metadata: JSON.stringify({ game, questionId: question.id }),
-    title: { type: "plain_text", text: "Trivia — your answer", emoji: true },
-    submit: { type: "plain_text", text: "Submit answer", emoji: true },
-    close: { type: "plain_text", text: "Cancel", emoji: true },
+    title: { type: "plain_text", text: t("modal.title_active"), emoji: true },
+    submit: { type: "plain_text", text: t("modal.submit"), emoji: true },
+    close: { type: "plain_text", text: t("modal.cancel"), emoji: true },
     blocks: [
       ...headerBlocks,
       { type: "divider" },
       {
         type: "input",
         block_id: INPUT_BLOCK_ID,
-        label: { type: "plain_text", text: "Your answer", emoji: true },
+        label: { type: "plain_text", text: t("modal.input_label"), emoji: true },
         element: {
           type: "plain_text_input",
           action_id: ACTION_ID,
           max_length: MAX_ANSWER_LENGTH,
           ...(pendingAnswer !== undefined ? { initial_value: pendingAnswer } : {}),
-          placeholder: { type: "plain_text", text: "Type your answer", emoji: true },
+          placeholder: { type: "plain_text", text: t("modal.input_placeholder"), emoji: true },
         },
         hint: {
           type: "plain_text",
-          text: "You can re-open this modal and edit your answer until the reveal.",
+          text: t("modal.input_hint"),
           emoji: true,
         },
       },

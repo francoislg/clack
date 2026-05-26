@@ -8,7 +8,11 @@ The trivia plugin exposes a `process_reveal_answers` MCP tool that absorbs all d
 
 ### Requirement: `process_reveal_answers` MCP tool
 
-The trivia plugin SHALL register an `admin`-tier MCP tool named `process_reveal_answers` that takes `{ game: string, reprocessQuestionIds?: string[] }` and returns a structured `ProcessRevealResult` payload. The tool SHALL absorb the deterministic work previously performed by Claude across `fetch_channel_messages`, `find_previous_questions`, `get_question_history`, `submit_answers`, `retrieve_scores`, and (when seasons are enabled) `check_season_status` + `upsert_season` for the scheduled reveal flow.
+The trivia plugin SHALL register an `admin`-tier MCP tool named `process_reveal_answers` that takes `{ game: string, reprocessQuestionIds?: string[] }` and returns a structured `ProcessRevealResult` payload. The tool SHALL absorb the deterministic work previously performed by Claude across `fetch_channel_messages`, `find_previous_questions`, `get_question_history`, `submit_answers` (now removed), `retrieve_scores`, and (when seasons are enabled) `check_season_status` + `upsert_season` for the scheduled reveal flow.
+
+For boolean and choice questions, the tool SHALL derive scored answers by **reading `games/<game>/answers.json` directly** (the rows already written by the button-click handlers); the tool SHALL NOT derive scoring from Slack message reactions. For freeform questions, the tool SHALL continue to read `answers.json` and assign verdicts via the inline batch judge as before.
+
+For ALL formats, the tool SHALL fetch the question's Slack message reactions purely as commentary signal — the bot's own user ID and every flagged cheater for the question SHALL be stripped from reaction lists, and the remaining per-user emoji sets SHALL be surfaced in the payload's `reactions` field for the reveal renderer to riff on.
 
 The returned payload SHALL have the following shape:
 
@@ -24,13 +28,25 @@ type ProcessRevealResult = {
     wasReprocessed: boolean;
     answer:
       | { type: "boolean"; isTrue: boolean }
-      | { type: "choice"; choices: string[]; correctIndex: number };
-    voters: {
-      correct: Array<{ userId: string; displayName: string }>;
-      incorrect: Array<{ userId: string; displayName: string }>;
-      fenceSitters: Array<{ userId: string; displayName: string }>; // boolean only — empty for choice
-      wildcards: Array<{ userId: string; displayName: string; emoji: string }>;
-    };
+      | { type: "choice"; choices: string[]; correctIndex: number }
+      | { type: "freeform"; expectedAnswer: string; acceptableAnswers?: string[]; gradingNotes?: string };
+    voters:                                                                           // discriminated union on the question's stamped revealResponses
+      | { revealResponses: "yes";
+          correct: Array<{ userId: string; displayName: string; answerText?: string }>;   // answerText present on freeform only
+          incorrect: Array<{ userId: string; displayName: string; answerText?: string }>; // answerText present on freeform only
+          noAnswer: Array<{ userId: string; displayName: string }>;                       // reacted but did NOT submit a button answer
+          reactions: Array<{                                                              // every reactor's full emoji set (bot + cheaters stripped)
+            userId: string;
+            displayName: string;
+            emojis: string[];
+          }> }
+      | { revealResponses: "just-correctness";
+          correct: Array<{ userId: string; displayName: string }>;                        // freeform Voters have NO answerText
+          incorrect: Array<{ userId: string; displayName: string }>;                      // freeform Voters have NO answerText
+          noAnswer: Array<{ userId: string; displayName: string }>;
+          reactions: Array<{ userId: string; displayName: string; emojis: string[] }> }
+      | { revealResponses: "no";
+          reactions: Array<{ userId: string; displayName: string; emojis: string[] }> };
   }>;
   leaderboard: Array<{
     userId: string;
@@ -41,7 +57,7 @@ type ProcessRevealResult = {
     currentSeasonCorrect?: number;
     currentSeasonAnswered?: number;
   }>;
-  roundSummary: {
+  roundSummary?: {                                                                    // OMITTED when any reveal entry has revealResponses !== "yes"
     totalQuestions: number;
     perPlayer: Array<{
       userId: string;
@@ -61,7 +77,30 @@ type ProcessRevealResult = {
 };
 ```
 
-The tool SHALL exclude the bot's own user ID, every user ID flagged as a cheater for the relevant question, and (for choice questions) any user who reacted with two or more numbered emojis (multi-react voters) from EVERY field of the returned payload. These exclusions SHALL be structural — the renderer SHALL NOT be required to filter the payload further. The tool SHALL determine the bot's user ID at call time (e.g. via `client.auth.test()`); it SHALL NOT hardcode a specific value.
+For each reveal entry, the tool SHALL read the question's stamped `revealResponses` value (defaulting to `"yes"` for legacy rows that pre-date this proposal) and SHALL emit the corresponding `voters` shape:
+
+- `"yes"`: full voter buckets with names; freeform Voters in `correct[]` and `incorrect[]` carry `answerText`.
+- `"just-correctness"`: full voter buckets with names; freeform Voters in `correct[]` and `incorrect[]` have NO `answerText` field. The freeform judge still runs end-to-end (to score every submission); only the typed text is filtered from the payload.
+- `"no"`: ONLY the `reactions` array is emitted. The `correct`, `incorrect`, and `noAnswer` fields SHALL be physically absent from the payload variant.
+
+The `roundSummary` field SHALL be OMITTED from the payload when ANY reveal entry in the batch has `revealResponses !== "yes"`. When omitted, the field SHALL be entirely absent — no empty object, no `totalQuestions: 0` placeholder. When all entries have `revealResponses: "yes"`, the field SHALL be populated as today.
+
+The leaderboard and per-entry `reactions` list SHALL be present regardless of any reveal entry's `revealResponses` value — these aggregates do not disclose per-question correctness.
+
+The tool SHALL exclude the bot's own user ID and every user ID flagged as a cheater for the relevant question from EVERY field of the returned payload — `correct`, `incorrect`, `noAnswer`, and `reactions`. These exclusions SHALL be structural — the renderer SHALL NOT be required to filter the payload further. The tool SHALL determine the bot's user ID at call time (e.g. via `client.auth.test()`); it SHALL NOT hardcode a specific value.
+
+The tool SHALL NOT void or specially classify "multi-react" voters (users who reacted with multiple numbered or thumb emoji). Reactions are no longer interpreted as votes; multiple reactions are just multiple emoji in that user's `reactions[].emojis` array.
+
+The tool SHALL classify users as follows:
+
+- A user with a row in `answers.json` for this question whose `correct === true` lands in `voters.correct`.
+- A user with a row in `answers.json` for this question whose `correct === false` lands in `voters.incorrect`.
+- A user with NO row in `answers.json` for this question AND at least one reaction on the message lands in `voters.noAnswer`.
+- A user with at least one reaction on the message lands in `voters.reactions` with their full emoji set, regardless of whether they also have an `answers.json` row.
+
+A user who answered correctly AND reacted appears in BOTH `voters.correct` AND `voters.reactions` — the buckets are not mutually exclusive.
+
+For freeform questions, the inline batch judge runs as today and writes verdicts into `answers.json` before the buckets are assembled.
 
 #### Scenario: Tool registers at admin tier
 
@@ -69,25 +108,127 @@ The tool SHALL exclude the bot's own user ID, every user ID flagged as a cheater
 - **THEN** `process_reveal_answers` is registered on the trivia MCP server with `minRole: "admin"`
 - **AND** the tool is callable as `mcp__trivia__process_reveal_answers`
 
+#### Scenario: Boolean scoring reads from answers.json
+
+- **GIVEN** a posted boolean question with `isTrue: true`
+- **AND** `answers.json` contains `{ userId: "U1", answer: true, correct: true }`, `{ userId: "U2", answer: false, correct: false }`, `{ userId: "U3", answer: true, correct: true }`
+- **WHEN** `process_reveal_answers({ game })` is called
+- **THEN** `reveals[0].voters.correct` contains U1 and U3 (in some order)
+- **AND** `reveals[0].voters.incorrect` contains U2
+- **AND** no reaction-based scoring is performed
+
+#### Scenario: Choice scoring reads from answers.json
+
+- **GIVEN** a posted choice question with `correctIndex: 2`
+- **AND** `answers.json` contains `{ userId: "U1", answerIndex: 2, correct: true }`, `{ userId: "U2", answerIndex: 0, correct: false }`
+- **WHEN** `process_reveal_answers({ game })` is called
+- **THEN** `voters.correct` contains U1
+- **AND** `voters.incorrect` contains U2
+
+#### Scenario: Reactions surfaced as commentary regardless of answer
+
+- **GIVEN** a boolean question
+- **AND** user U1 clicked the TRUE button AND added a `:fire:` reaction
+- **AND** user U2 added only a `:turtle:` reaction without clicking any button
+- **WHEN** `process_reveal_answers({ game })` is called
+- **THEN** `voters.correct` contains U1
+- **AND** `voters.noAnswer` contains U2
+- **AND** `voters.reactions` contains `{ userId: "U1", emojis: ["fire"] }` AND `{ userId: "U2", emojis: ["turtle"] }`
+
 #### Scenario: Bot user ID is excluded from every voter list
 
-- **GIVEN** the bot reacted with `:+1:` on a boolean question's message (as it typically does at post time)
+- **GIVEN** the bot reacted with `:+1:` on a question's message
 - **WHEN** `process_reveal_answers({ game })` is called and returns
-- **THEN** the bot's user ID does not appear in any `reveals[*].voters.correct`, `voters.incorrect`, `voters.fenceSitters`, or `voters.wildcards` array
+- **THEN** the bot's user ID does not appear in any `voters.correct`, `voters.incorrect`, `voters.noAnswer`, or `voters.reactions` array
 
 #### Scenario: Cheaters are excluded from every voter list
 
 - **GIVEN** users U1 and U2 are flagged as cheaters for the target questionId via `cheats.json`
-- **AND** both reacted with `:-1:` on the question
+- **AND** U1 clicked TRUE (row in answers.json), U2 reacted with `:-1:` (no row)
 - **WHEN** `process_reveal_answers({ game })` is called
-- **THEN** neither U1 nor U2 appears in any `voters.*` array of the returned reveal
+- **THEN** neither U1 nor U2 appears in `voters.correct`, `voters.incorrect`, `voters.noAnswer`, or `voters.reactions`
 
-#### Scenario: Multi-react voters are excluded on choice questions
+#### Scenario: noAnswer bucket — reacted but never clicked
 
-- **GIVEN** the target question is `type: "choice"` and user U3 reacted with both `:one:` and `:two:`
+- **GIVEN** user U1 added `:thinking:` and `:question:` reactions but never clicked a vote button
 - **WHEN** `process_reveal_answers({ game })` is called
-- **THEN** U3 does not appear in `voters.correct`, `voters.incorrect`, or `voters.wildcards`
-- **AND** the payload contains no field that names or counts multi-react voters
+- **THEN** U1 appears in `voters.noAnswer`
+- **AND** U1 appears in `voters.reactions` with `emojis: ["thinking", "question"]` (or any order)
+- **AND** U1 does NOT appear in `voters.correct` or `voters.incorrect`
+
+#### Scenario: Question stamped revealResponses="yes" emits full named buckets
+
+- **GIVEN** a boolean question `Q1` stamped with `revealResponses: "yes"`, with answers in `answers.json`: `{ U1: true (correct), U2: false (wrong) }`
+- **WHEN** `process_reveal_answers` runs
+- **THEN** `reveals[0].voters.revealResponses === "yes"`
+- **AND** `voters.correct` contains the U1 Voter
+- **AND** `voters.incorrect` contains the U2 Voter
+- **AND** `voters.noAnswer` is an array (possibly empty)
+- **AND** `voters.reactions` is an array (possibly empty)
+
+#### Scenario: Question stamped revealResponses="just-correctness" emits named buckets without freeform answerText
+
+- **GIVEN** a freeform question `Q2` stamped `revealResponses: "just-correctness"` with pending rows `{ U1: "Jack Bruce" (judged correct), U2: "Sting" (judged incorrect) }`
+- **WHEN** `process_reveal_answers` runs and the judge flips both rows
+- **THEN** `reveals[0].voters.revealResponses === "just-correctness"`
+- **AND** `voters.correct` contains a Voter `{ userId: "U1", displayName: ... }` with NO `answerText` field
+- **AND** `voters.incorrect` contains a Voter `{ userId: "U2", displayName: ... }` with NO `answerText` field
+
+#### Scenario: Question stamped revealResponses="just-correctness" on boolean still emits full buckets (no answerText to strip)
+
+- **GIVEN** a boolean question stamped `revealResponses: "just-correctness"`
+- **WHEN** `process_reveal_answers` runs
+- **THEN** `voters.revealResponses === "just-correctness"`
+- **AND** `voters.correct` and `voters.incorrect` contain named Voters (boolean voters never had `answerText` in any mode)
+
+#### Scenario: Question stamped revealResponses="no" emits only reactions
+
+- **GIVEN** a question `Q3` stamped `revealResponses: "no"` with several answer rows and several reactions on the Slack message
+- **WHEN** `process_reveal_answers` runs
+- **THEN** `reveals[0].voters.revealResponses === "no"`
+- **AND** the `voters` object has NO `correct`, `incorrect`, or `noAnswer` field
+- **AND** `voters.reactions` contains every reactor's emoji set (bot + cheaters excluded)
+
+#### Scenario: Legacy questions without stamped revealResponses default to "yes"
+
+- **GIVEN** a question stamped with `postedAt` but no `revealResponses` field (pre-feature row)
+- **WHEN** `process_reveal_answers` runs
+- **THEN** `voters.revealResponses === "yes"` (the default is applied)
+- **AND** the payload variant carries the full `correct` / `incorrect` / `noAnswer` / `reactions` shape
+
+#### Scenario: roundSummary omitted when any reveal entry has restricted mode
+
+- **GIVEN** a 3-question batch where slot 0 stamped `revealResponses: "yes"`, slot 1 stamped `"just-correctness"`, slot 2 stamped `"yes"`
+- **WHEN** `process_reveal_answers` runs and selects this batch
+- **THEN** the returned payload has NO `roundSummary` field
+
+#### Scenario: roundSummary present when all reveal entries are "yes"
+
+- **GIVEN** a 3-question batch where all slots stamped `revealResponses: "yes"`
+- **WHEN** `process_reveal_answers` runs and selects this batch
+- **THEN** the returned payload has `roundSummary.totalQuestions === 3` with a populated `perPlayer` array
+
+#### Scenario: Leaderboard present regardless of revealResponses mode
+
+- **GIVEN** a single-question reveal stamped `revealResponses: "no"`
+- **WHEN** `process_reveal_answers` runs
+- **THEN** the returned payload has a populated `leaderboard` field (aggregate stats are not gated by `revealResponses`)
+
+#### Scenario: Cheaters excluded from all variant shapes
+
+- **GIVEN** a cheater U_cheat is flagged for the question
+- **AND** U_cheat clicked a button AND reacted with `:fire:`
+- **WHEN** `process_reveal_answers` runs for a `revealResponses: "yes"` question
+- **THEN** U_cheat is absent from `voters.correct`, `voters.incorrect`, `voters.noAnswer`, and `voters.reactions`
+- **AND** for a `revealResponses: "no"` question, U_cheat is absent from `voters.reactions`
+
+#### Scenario: Multi-emoji reactions do not void scoring
+
+- **GIVEN** user U1 clicked TRUE on a boolean question whose `isTrue: true`
+- **AND** U1 also reacted with both `:+1:` and `:-1:` on the message
+- **WHEN** `process_reveal_answers({ game })` is called
+- **THEN** U1 appears in `voters.correct` (the button click is the source of truth; reactions don't void anything)
+- **AND** U1's `voters.reactions` entry has `emojis: ["+1", "-1"]` (or any order)
 
 ### Requirement: Default-mode processes the oldest unprocessed question
 
@@ -181,43 +322,34 @@ The selection algorithm SHALL NOT inspect or filter by `season`. A pending batch
 When `reprocessQuestionIds` is a non-empty array, the tool SHALL process EACH listed questionId in that order:
 
 1. Hard-delete every `SubmittedAnswer` row in `games/<game>/answers.json` whose `questionId` matches.
-2. Re-fetch the question's Slack message via the Slack Web API (using the question's stored `messageTs`).
-3. Re-categorize voters against the CURRENT state of `cheats.json` (which may include cheaters added since the original reveal).
-4. Persist a fresh batch of `SubmittedAnswer` rows.
-5. Stamp `processedAt = Date.now()` on the question (overwriting any prior value).
-6. Include the resulting reveal in the returned `reveals[]` with `wasReprocessed: true`.
+2. Stamp `processedAt = Date.now()` on each question (overwriting any prior value).
+3. Include the resulting reveal in the returned `reveals[]` with `wasReprocessed: true`.
 
-In reprocess mode, the tool SHALL NOT also process pending questions outside the listed IDs. If a listed questionId does not exist or its message is not retrievable, the tool SHALL include a structured error for that ID in its response and continue processing the remainder.
+Because answers are no longer derivable from Slack reactions, **reprocess mode in this revised flow does NOT re-create scored answer rows**. After hard-delete, the `voters.correct` and `voters.incorrect` buckets for the reprocessed question SHALL be empty. The intent of reprocess mode shifts from "re-score against the current cheater list" to "wipe and re-render an already-revealed question's payload" — used after manual answer-file edits, or to surface freshly-flagged cheaters' removal from the round.
 
-#### Scenario: Reprocessing a question deletes prior answers
+Freeform reprocess mode SHALL NOT be supported (no public reaction source to re-derive from), per existing behavior.
 
-- **GIVEN** `games/main/answers.json` contains 5 rows for questionId Q123
-- **WHEN** `process_reveal_answers({ game: "main", reprocessQuestionIds: ["Q123"] })` is called
-- **THEN** before the call returns, all prior Q123 rows are removed from `answers.json`
-- **AND** new rows are written reflecting the current reaction state on Q123's Slack message
+#### Scenario: Reprocess boolean question wipes its scored rows
 
-#### Scenario: Reprocessing excludes cheaters flagged after the original reveal
+- **GIVEN** boolean question `Q1` with 3 rows in `answers.json`
+- **WHEN** `process_reveal_answers({ game: "main", reprocessQuestionIds: ["Q1"] })` is called
+- **THEN** the 3 rows for `Q1` are deleted
+- **AND** `reveals[0].wasReprocessed === true`
+- **AND** `reveals[0].voters.correct` and `voters.incorrect` are empty arrays
+- **AND** `Q1.processedAt` is overwritten with the current time
 
-- **GIVEN** Q123 was originally processed with no cheaters flagged
-- **AND** user U1 reacted `:+1:` on Q123 and was scored as a correct answer at the time
-- **AND** an admin later writes a cheat report flagging U1 on Q123
-- **WHEN** `process_reveal_answers({ game: "main", reprocessQuestionIds: ["Q123"] })` is called
-- **THEN** U1 is excluded from every voter list in the returned reveal
-- **AND** no `SubmittedAnswer` row exists for `userId: "U1"` and `questionId: "Q123"` after the call
+#### Scenario: Reprocess re-fetches reactions for the commentary list
 
-#### Scenario: Reprocess mode does not pick up unrelated pending questions
+- **GIVEN** boolean question `Q1` with one cheater U_cheat newly flagged after the original reveal
+- **WHEN** `process_reveal_answers({ game, reprocessQuestionIds: ["Q1"] })` is called
+- **THEN** `reveals[0].voters.reactions` excludes U_cheat (cheater filtering applies)
+- **AND** the answers.json wipe is unaffected by the cheater set
 
-- **GIVEN** Q123 has `processedAt` set and Q456 has `postedAt` set with no `processedAt`
-- **WHEN** `process_reveal_answers({ game: "main", reprocessQuestionIds: ["Q123"] })` is called
-- **THEN** `reveals` contains exactly one entry, for Q123
-- **AND** Q456 remains unprocessed (its `processedAt` is still unset)
+#### Scenario: Reprocess refuses freeform questions
 
-#### Scenario: Unknown questionId yields a per-id error without aborting the batch
-
-- **GIVEN** Q123 exists and Q-bogus does not
-- **WHEN** `process_reveal_answers({ game: "main", reprocessQuestionIds: ["Q-bogus", "Q123"] })` is called
-- **THEN** Q123 is processed and appears in `reveals`
-- **AND** the response surfaces a structured error referencing `Q-bogus`
+- **WHEN** `process_reveal_answers({ game, reprocessQuestionIds: ["Q_freeform"] })` is called
+- **THEN** the call returns a per-id error for `Q_freeform` stating reprocess mode is not supported for freeform questions
+- **AND** no rows are deleted
 
 ### Requirement: Tool internally composes leaderboard and season-status logic
 
@@ -322,7 +454,7 @@ When `isLastFireOfSeason` is `false`, the tool SHALL NOT perform any rollover, S
 
 ### Requirement: Per-fire round summary in payload
 
-The `ProcessRevealResult` payload returned by `process_reveal_answers` SHALL include a `roundSummary` field describing each player's correctness across this fire's revealed questions:
+The `ProcessRevealResult` payload returned by `process_reveal_answers` SHALL include a `roundSummary` field describing each player's correctness across this fire's revealed questions when all revealed questions have `revealResponses: "yes"`:
 
 ```ts
 roundSummary: {
@@ -331,13 +463,15 @@ roundSummary: {
     userId: string;
     displayName: string;
     correct: number; // count of reveals where this player appears in voters.correct
-    answered: number; // count of reveals where this player appears in any of voters.{correct, incorrect, fenceSitters, wildcards}
+    answered: number; // count of reveals where this player appears in any of voters.{correct, incorrect, noAnswer}
     roundMvp?: true; // present iff this player is tied for the highest `correct` count this fire
   }>;
 }
 ```
 
-The field SHALL be present whenever `reveals.length >= 1` — including length-1 reveals (where it describes the one question). When `reveals.length === 0` (no pending questions), `roundSummary.totalQuestions` SHALL be `0` and `perPlayer` SHALL be `[]`.
+The field SHALL be OMITTED (not present as `undefined` or an empty object) when ANY reveal entry in the payload has `revealResponses !== "yes"`.
+
+When all entries have `revealResponses: "yes"`, the field SHALL be present whenever `reveals.length >= 1` — including length-1 reveals (where it describes the one question). When `reveals.length === 0` (no pending questions), `roundSummary.totalQuestions` SHALL be `0` and `perPlayer` SHALL be `[]`.
 
 `perPlayer` SHALL include only players who appear in at least one reveal's voter list for this fire — players with `answered === 0` SHALL NOT be present.
 
@@ -345,19 +479,25 @@ The field SHALL be present whenever `reveals.length >= 1` — including length-1
 
 `roundMvp: true` SHALL be set on EVERY player tied for the highest `correct` value in `perPlayer`. When no player has `correct > 0`, `roundMvp` SHALL be absent from all entries.
 
-The structural-exclusion guarantees of the `voters` field carry through to `roundSummary` — the bot, flagged cheaters, and (for choice questions) multi-react voters are absent from the counts because they are absent from the source `voters` lists. The renderer SHALL NOT need to filter `perPlayer`.
+The structural-exclusion guarantees of the `voters` field carry through to `roundSummary` — the bot and flagged cheaters are absent from the counts because they are absent from the source `voters` lists. The renderer SHALL NOT need to filter `perPlayer`.
 
-#### Scenario: Length-1 reveal still produces a roundSummary
+#### Scenario: Length-1 reveal with "yes" mode still produces a roundSummary
 
-- **GIVEN** one pending question with `voters.correct: [alice, bob]` and `voters.incorrect: [carol]`
+- **GIVEN** one pending question stamped `revealResponses: "yes"` with `voters.correct: [alice, bob]` and `voters.incorrect: [carol]`
 - **WHEN** `process_reveal_answers` returns
 - **THEN** `roundSummary.totalQuestions` equals `1`
 - **AND** `roundSummary.perPlayer` includes alice/bob with `correct: 1, answered: 1`, carol with `correct: 0, answered: 1`
 - **AND** alice and bob both carry `roundMvp: true` (tied for top); carol does not
 
-#### Scenario: Length-3 reveal aggregates per player
+#### Scenario: Length-3 reveal with mixed modes omits roundSummary
 
-- **GIVEN** three pending questions
+- **GIVEN** three pending questions, all stamped with `revealResponses: "yes"` except Q2 which has `revealResponses: "just-correctness"`
+- **WHEN** `process_reveal_answers` returns
+- **THEN** the payload has NO `roundSummary` field (even though most entries are "yes")
+
+#### Scenario: Length-3 reveal with all "yes" aggregates per player
+
+- **GIVEN** three pending questions, all stamped `revealResponses: "yes"`
 - **AND** alice voted correctly on Q1 and Q2, incorrectly on Q3
 - **AND** bob voted correctly on Q1, did not vote on Q2, voted correctly on Q3
 - **AND** carol voted correctly on all three
@@ -370,20 +510,20 @@ The structural-exclusion guarantees of the `voters` field carry through to `roun
 
 #### Scenario: Player who answered zero questions is omitted
 
-- **GIVEN** two pending questions
+- **GIVEN** two pending questions, both stamped `revealResponses: "yes"`
 - **AND** dave voted on neither
 - **WHEN** `process_reveal_answers` returns
 - **THEN** dave does NOT appear in `roundSummary.perPlayer`
 
 #### Scenario: Round MVPs share the title on a tie
 
-- **GIVEN** four players all scoring 2/3 correct on a 3-question fire
+- **GIVEN** four players all scoring 2/3 correct on a 3-question fire, all stamped `revealResponses: "yes"`
 - **WHEN** `process_reveal_answers` returns
 - **THEN** all four entries in `roundSummary.perPlayer` carry `roundMvp: true`
 
 #### Scenario: No correct answers → no MVPs
 
-- **GIVEN** a fire where every voter was incorrect on every question
+- **GIVEN** a fire where every voter was incorrect on every question, all stamped `revealResponses: "yes"`
 - **WHEN** `process_reveal_answers` returns
 - **THEN** every entry in `roundSummary.perPlayer` has `correct: 0`
 - **AND** no entry carries `roundMvp`
@@ -396,11 +536,11 @@ The structural-exclusion guarantees of the `voters` field carry through to `roun
 - **AND** `roundSummary.totalQuestions` is `0`
 - **AND** `roundSummary.perPlayer` is `[]`
 
-#### Scenario: Cheaters and multi-react voters do not appear in roundSummary
+#### Scenario: Cheaters do not appear in roundSummary
 
-- **GIVEN** a question where bob is a flagged cheater and dave is a multi-react voter (choice question)
+- **GIVEN** a question where bob is a flagged cheater
 - **WHEN** `process_reveal_answers` returns
-- **THEN** neither bob nor dave appears in `roundSummary.perPlayer` (they are structurally excluded from `voters`)
+- **THEN** bob does NOT appear in `roundSummary.perPlayer` (structurally excluded from `voters`)
 
 ### Requirement: `processedAt` field on TriviaQuestion
 

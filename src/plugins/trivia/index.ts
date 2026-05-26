@@ -2,6 +2,8 @@ import type { ClackSdk, ClackPlugin } from "../sdk.js";
 import { initTriviaConfigBridge, loadTriviaConfig } from "./core/configBridge.js";
 import type { TriviaGame, OffDay } from "./core/configTypes.js";
 import { setTriviaLogger } from "./core/pluginLogger.js";
+import { en as triviaEn, fr as triviaFr } from "./i18n/strings.js";
+import { setTriviaT } from "./i18n/t.js";
 import { createSdkDataLayer } from "./core/dataLayer.js";
 import { SEED_CATEGORIES } from "./core/seedCategories.js";
 import { createAddCategoriesTool } from "./tools/categories/addCategories.js";
@@ -11,7 +13,6 @@ import { createSaveQuestionTool } from "./tools/questions/saveQuestion.js";
 import { createPostQuestionsTool } from "./tools/questions/postQuestions.js";
 import { createFindPreviousQuestionsTool } from "./tools/questions/findPreviousQuestions.js";
 import { createGetQuestionHistoryTool } from "./tools/questions/getQuestionHistory.js";
-import { createSubmitAnswersTool } from "./tools/answers/submitAnswers.js";
 import { createRetrieveScoresTool } from "./tools/answers/retrieveScores.js";
 import { createSaveCheatingTool } from "./tools/answers/saveCheating.js";
 import { createListGamesTool } from "./tools/games/listGames.js";
@@ -35,13 +36,24 @@ import {
   FINALE_TONE_CONTENT,
 } from "./prompts/topicInstructions.js";
 import { buildGameSpecs } from "./domain/buildGameSpecs.js";
-import { registerFreeformHandlers } from "./freeform/handlers.js";
+import { registerInteractiveHandlers } from "./answerTypes/installInteractions.js";
 
 export const triviaPlugin: ClackPlugin = async (sdk: ClackSdk) => {
+  // Trivia is built around scheduled question/reveal cron jobs — without the scheduler
+  // tick loop running, none of its tools or instructions do anything useful. Refuse to
+  // load with a clear reason so admins see it in the Home Tab plugin status banner.
+  if (!sdk.capabilities.crons) {
+    sdk.error("Trivia requires the cron scheduler. Enable it via `config.cron.enabled: true`.");
+    return;
+  }
+
   // Wire the plugin-local logger so utility modules (which don't take SDK args)
   // can log through the plugin-prefixed sink. Do this FIRST so initTriviaConfigBridge
   // (and anything else it calls) gets its warnings/errors attributed correctly.
   setTriviaLogger(sdk.logger);
+
+  sdk.registerDictionary({ en: triviaEn, fr: triviaFr });
+  setTriviaT(sdk.t);
 
   // Warm the trivia plugin's own config cache (data/plugins/trivia/config.json).
   // After this, every tool/resolver reads from the in-memory cache synchronously.
@@ -67,16 +79,14 @@ export const triviaPlugin: ClackPlugin = async (sdk: ClackSdk) => {
   // member sessions stay lean. Per cascadingConfigResolver, "admin" instructions
   // cascade up but not down.
   sdk.addInstruction("admin", "trivia-games", TRIVIA_GAMES_ADMIN_INSTRUCTION);
-  sdk.registerIntegration("trivia:management", {
+  // On-demand management server — gated config-mutation tools (game/season lifecycle)
+  // and the admin-tier "Managing trivia games" instruction live on this handle.
+  // `attach_integration("trivia:management")` reveals everything in one shot.
+  const management = sdk.registerMcpServer("management", {
+    autoload: false,
     description: TRIVIA_MANAGEMENT_DESCRIPTION,
-    alwaysLoad: false,
   });
-  sdk.addTopicInstruction(
-    "admin",
-    "trivia:management",
-    "trivia-management",
-    TRIVIA_MANAGEMENT_INSTRUCTION,
-  );
+  management.addTopicInstruction("admin", "trivia-management", TRIVIA_MANAGEMENT_INSTRUCTION);
 
   // Topic-scoped persona / reveal-tone / finale-tone. Loaded only when the `trivia` topic
   // is active for a session — pre-attached by every trivia cron spec (`buildGameSpecs`
@@ -86,14 +96,15 @@ export const triviaPlugin: ClackPlugin = async (sdk: ClackSdk) => {
   sdk.addTopicInstruction("user", "trivia", "reveal-tone", REVEAL_TONE_CONTENT);
   sdk.addTopicInstruction("user", "trivia", "finale-tone", FINALE_TONE_CONTENT);
 
-  sdk.registerTool("admin", createAddCategoriesTool(data), "Adding trivia categories — {game}", {
-    integration: "trivia:management",
-  });
-  sdk.registerTool(
+  management.registerTool(
+    "admin",
+    createAddCategoriesTool(data),
+    "Adding trivia categories — {game}",
+  );
+  management.registerTool(
     "admin",
     createRemoveCategoriesTool(data),
     "Removing trivia categories — {game}",
-    { integration: "trivia:management" },
   );
   sdk.registerTool("admin", createGetIdeasTool(data), "Getting trivia category ideas — {game}");
   sdk.registerTool(
@@ -112,7 +123,6 @@ export const triviaPlugin: ClackPlugin = async (sdk: ClackSdk) => {
     createGetQuestionHistoryTool(data),
     "Loading trivia question history — {game}",
   );
-  sdk.registerTool("admin", createSubmitAnswersTool(data), "Submitting trivia answers — {game}");
   sdk.registerTool(
     "admin",
     createProcessRevealAnswersTool(data, sdk),
@@ -121,19 +131,14 @@ export const triviaPlugin: ClackPlugin = async (sdk: ClackSdk) => {
   sdk.registerTool("member", createRetrieveScoresTool(data), "Retrieving trivia scores — {game}");
   sdk.registerTool("member", createListGamesTool(), "Listing trivia games");
 
-  // trivia:management integration — gated config-mutation tools (game/season lifecycle).
-  // Catalog entry comes from sdk.registerIntegration above; categories tools are similarly gated.
-  sdk.registerTool("admin", createUpsertGameTool(), "Upserting trivia game — {name}", {
-    integration: "trivia:management",
-  });
-  sdk.registerTool("admin", createDeleteGameTool(), "Deleting trivia game — {name}", {
-    integration: "trivia:management",
-  });
-  sdk.registerTool(
+  // trivia:management server — gated game/season lifecycle tools (categories tools above
+  // are on the same handle).
+  management.registerTool("admin", createUpsertGameTool(), "Upserting trivia game — {name}");
+  management.registerTool("admin", createDeleteGameTool(), "Deleting trivia game — {name}");
+  management.registerTool(
     "admin",
     createSetWorkspaceConfigTool(),
     "Updating workspace-tier trivia config",
-    { integration: "trivia:management" },
   );
 
   // Hidden from Slack task cards — the recorded user must not see this fire.
@@ -148,17 +153,15 @@ export const triviaPlugin: ClackPlugin = async (sdk: ClackSdk) => {
       createCheckSeasonStatusTool(data),
       "Checking trivia season status — {game}",
     );
-    sdk.registerTool(
+    management.registerTool(
       "admin",
       createUpsertSeasonTool(data),
       "Upserting trivia season — {game}/{slug}",
-      { integration: "trivia:management" },
     );
-    sdk.registerTool(
+    management.registerTool(
       "admin",
       createDeleteSeasonTool(data),
       "Deleting trivia season — {game}/{slug}",
-      { integration: "trivia:management" },
     );
     sdk.registerTool("admin", createListSeasonsTool(data), "Listing trivia seasons — {game}");
     sdk.logger.info(
@@ -166,7 +169,7 @@ export const triviaPlugin: ClackPlugin = async (sdk: ClackSdk) => {
     );
   }
 
-  registerFreeformHandlers({
+  registerInteractiveHandlers({
     data,
     sdk,
     getGameNames: () => (loadTriviaConfig()?.games ?? []).map((g) => g.name),

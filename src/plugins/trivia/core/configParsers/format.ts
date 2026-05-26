@@ -6,12 +6,14 @@
  */
 
 import { z } from "zod";
-import type { SeasonFormat, SeasonFormatSlot } from "../configTypes.js";
+import type { RevealResponsesMode, SeasonFormat, SeasonFormatSlot } from "../configTypes.js";
 import {
+  REVEAL_RESPONSES_VALUES,
   answersFormatZod,
   contextsZod,
   difficultyZod,
   freeformAnswerShapeZod,
+  isRevealResponsesMode,
   questionTypeZod,
   triviaDifficultyRatioZod,
   validateAnswersFormatMap,
@@ -72,6 +74,9 @@ interface RawSlot {
   contexts?: unknown[] | null;
   difficulty?: unknown | null;
   difficultyRatio?: unknown | null;
+  liveAnswersVisible?: boolean | null;
+  /** Permissive at the parse boundary — narrowed by `isRevealResponsesMode` at runtime. */
+  revealResponses?: string | null;
 }
 
 interface RawFormat {
@@ -159,6 +164,25 @@ export function validateFormat(
       if (!validated.ok) return validated;
       out.difficultyRatio = validated.value;
     }
+    if (slot.liveAnswersVisible !== undefined && slot.liveAnswersVisible !== null) {
+      if (typeof slot.liveAnswersVisible !== "boolean") {
+        return {
+          ok: false,
+          error: `'${slotLabel}.liveAnswersVisible' must be a boolean`,
+        };
+      }
+      out.liveAnswersVisible = slot.liveAnswersVisible;
+    }
+    if (slot.revealResponses !== undefined && slot.revealResponses !== null) {
+      if (isRevealResponsesMode(slot.revealResponses)) {
+        out.revealResponses = slot.revealResponses;
+      } else {
+        return {
+          ok: false,
+          error: `'${slotLabel}.revealResponses' must be one of "no", "just-correctness", "yes"`,
+        };
+      }
+    }
     normalized.push(out);
   }
   return { ok: true, value: { questions: normalized } };
@@ -182,6 +206,10 @@ const seasonFormatSlotZod = z.object({
   contexts: contextsZod.optional(),
   difficulty: difficultyZod.optional(),
   difficultyRatio: triviaDifficultyRatioZod.optional(),
+  liveAnswersVisible: z.boolean().optional(),
+  revealResponses: z
+    .enum(REVEAL_RESPONSES_VALUES as readonly [RevealResponsesMode, ...RevealResponsesMode[]])
+    .optional(),
 });
 
 /**
