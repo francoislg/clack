@@ -50,6 +50,7 @@ export const CLACK_CORE_TOOL_NAMES: readonly string[] = [
   "propose_config_update",
   "admin_read_file",
   "admin_write_file",
+  "admin_describe_config_file",
   "admin_restart_app",
   "admin_set_env",
   "admin_list_env",

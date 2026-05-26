@@ -79,6 +79,7 @@ import { createListAutoRespondRulesTool } from "./query/listAutoRespondRules.js"
 // Admin tools
 import { createAdminReadFileTool } from "./admin/adminReadFile.js";
 import { createAdminWriteFileTool } from "./admin/adminWriteFile.js";
+import { createAdminDescribeConfigFileTool } from "./admin/adminDescribeConfigFile.js";
 import { createAdminRestartAppTool } from "./admin/adminRestartApp.js";
 import { createAdminSetEnvTool } from "./admin/adminSetEnv.js";
 import { createAdminListEnvTool } from "./admin/adminListEnv.js";
@@ -402,6 +403,7 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
     tools.push(createProposeConfigUpdateTool(ctx, intentStore));
     tools.push(createAdminReadFileTool());
     tools.push(createAdminWriteFileTool());
+    tools.push(createAdminDescribeConfigFileTool());
     tools.push(createAdminRestartAppTool());
     tools.push(createAdminSetEnvTool());
     tools.push(createAdminListEnvTool());
