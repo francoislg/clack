@@ -12,7 +12,7 @@ export function createDeleteSeasonTool(
 ) {
   return tool(
     "delete_season",
-    "Remove a not-yet-started season from a specific game's timeline. Refuses if the named season has already started (its history is immutable) or if it is the only season on that game's timeline.",
+    "Remove a season from a specific game's timeline. A season that hasn't started yet can always be removed. A started season can still be removed as long as no questions have been recorded under it (a started-but-empty season has no history to preserve). Refuses once the season has questions stamped to it, or if it is the only season on that game's timeline.",
     {
       game: z
         .string()
@@ -38,9 +38,13 @@ export function createDeleteSeasonTool(
         return errorResult(`No season with slug "${args.slug}" on the timeline.`);
       }
       if (target.startedAt <= Date.now()) {
-        return errorResult(
-          `Cannot delete season "${args.slug}": it has already started. Past and current seasons are immutable historical records.`,
-        );
+        const questions = await scoped.loadQuestions();
+        const hasStampedQuestions = questions.some((q) => q.season === args.slug);
+        if (hasStampedQuestions) {
+          return errorResult(
+            `Cannot delete season "${args.slug}": it has already started and has questions recorded under it. Past and current seasons with history are immutable.`,
+          );
+        }
       }
       if (state.seasons.length <= 1) {
         return errorResult(
