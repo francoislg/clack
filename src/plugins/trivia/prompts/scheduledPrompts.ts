@@ -490,13 +490,13 @@ NEW-SEASON OPENER (applies to BOTH outer flows, BEFORE building the per-question
 Inspect the OPENING \`get_ideas\` call's payload (the slot-0 call you already made — do NOT make a second call for this).
 
 - If \`firstFireOfSeason === true\`: prepend TWO ceremonial Block Kit blocks to the FRONT of the message you will send to \`post_questions\` — they sit ABOVE everything described in step 9 (above the question's show banner / round opener), regardless of whether the outer flow is single-question or multi-slot. The opener appears ONCE per fire (not once per slot) and frames the entire batch as the new season's debut. The two blocks are:
-  1. \`header\` block — \`text: { type: "plain_text", text: "..." }\`. plain_text only. The text MUST begin with the literal Unicode prefix \`🆕 NEW SEASON\` (use the 🆕 Unicode character directly — NEVER the \`:new:\` shortcode; shortcodes render as literal text in Slack header blocks). After the prefix you MAY append a short flourish — the season slug, the theme (when set), or a colon plus the theme in upper-case — but always keep the \`🆕 NEW SEASON\` lead.
+  1. \`header\` block — \`text: { type: "plain_text", text: "..." }\`. plain_text only. The text MUST begin with the 🆕 Unicode character (use the 🆕 character directly — NEVER the \`:new:\` shortcode; shortcodes render as literal text in Slack header blocks), immediately followed by a short "NEW SEASON" label. Render that label in the session's output language per the LANGUAGE directive (English \`NEW SEASON\`, French \`NOUVELLE SAISON\`) — translate the wording, but always keep the 🆕 lead. After the label you MAY append a short flourish — the season slug, the theme (when set), or a colon plus the theme in upper-case.
   2. \`section\` block (mrkdwn) — one in-persona paragraph that:
      - Names the current season's slug verbatim (e.g. "season-2026-06") — the slug is the canonical identifier the leaderboard rows will display.
      - When AND ONLY WHEN the \`get_ideas\` payload includes a non-empty \`theme\` string, mentions that theme in one short line ("This month's theme: *Music Mayhem*."). Mention it verbatim — don't translate or re-phrase the theme.
      - When the payload has NO \`theme\` field, do NOT mention any theme: do NOT fabricate one, do NOT enumerate the season's categories as a stand-in, do NOT include a "no theme yet" disclaimer. Just let the section be about the new chapter starting, ending with energy that segues into the first question(s).
 
-  Examples (both with and without theme):
+  Examples (English illustration — translate the wording per the LANGUAGE directive; keep the 🆕 lead):
   \`\`\`
   // With theme:
   [
@@ -529,11 +529,11 @@ General emoji rule (re-emphasized): the opener's header MUST use Unicode emoji (
       - MULTI-SLOT FLOW, FIRST question only (slot 0): a calmer date-stamped round opener that anchors today's round, e.g. "🗓️ Trivia for Wednesday, May 20", "📅 Trivia — May 20", "🎟️ Today's Trivia Round · May 20". Use today's actual date (weekday + month + day, OR month + day — your call). Keep it noticeably less shouty than the show banner; this is the "round header" for the batch, not the per-question hype line. Subsequent slots in the same batch go back to the normal show-banner style.
    2. \`section\` block (mrkdwn) — your warm-up patter. 1-2 short sentences that build anticipation. This is where the Game Show voice shines.
       - **TOPICAL QUESTIONS (questionType: "topical") MUST FLAG THEMSELVES.** The warm-up patter SHALL signal that this is a current-events / news question — e.g. "Hot off the presses!", "Straight from this week's headlines:", "Today in the news:", "If you've been doomscrolling lately, this one's for you:", "Ripped from yesterday's news:", etc. Do NOT use static-knowledge framings like "dig into your knowledge vault", "what you remember from school", "trivia masters take note", or anything implying memorized facts — those mislead viewers about what kind of question to expect. Pair the news framing with the same game-show energy. Vary the exact wording each day.
-      - **NO YEAR / DATE STAMPS INSIDE THE TOPICAL STATEMENT.** The card's \`subtitle\` (\`Current News\`) and the patter already signal recency — so the statement itself MUST NOT include the current year ("in 2026"), an explicit month ("in May"), or phrases like "this week", "recently", "last month". Strip those even if the WebSearch result phrased the event that way. The recency context lives in the subtitle + patter, not in the statement. The optional \`eventDate\` field on \`save_question\` is where dates belong if Claude wants to record them — never in the user-visible statement.
+      - **NO YEAR / DATE STAMPS INSIDE THE TOPICAL STATEMENT.** The card's \`subtitle\` (the localized Current News label) and the patter already signal recency — so the statement itself MUST NOT include the current year ("in 2026"), an explicit month ("in May"), or phrases like "this week", "recently", "last month". Strip those even if the WebSearch result phrased the event that way. The recency context lives in the subtitle + patter, not in the statement. The optional \`eventDate\` field on \`save_question\` is where dates belong if Claude wants to record them — never in the user-visible statement.
       - **FACT QUESTIONS (questionType: "fact")** keep the standard knowledge-vault framing — that's the default voice.
    3. \`card\` block — the trivia card itself, holds JUST the question:
       - \`title\`: \`{ type: "mrkdwn", text: "<emoji> <Category>" }\` — JUST the category from step 1, with a topic-fitting emoji prefix. Same shape for BOTH fact and topical questions. No "TRIVIA TIME" here, no flavor text, no "(Current News)" suffix.
-      - \`subtitle\`: TOPICAL questions ONLY (questionType: "topical") — \`{ type: "mrkdwn", text: "Current News" }\`. This is what tells viewers the question is anchored to a recent event. OMIT entirely on FACT questions.
+      - \`subtitle\`: TOPICAL questions ONLY (questionType: "topical") — \`{ type: "mrkdwn", text: "<Current News label>" }\`, a short "Current News" label rendered in the session's output language per the LANGUAGE directive (English \`Current News\`, French \`Actualités\`). This is what tells viewers the question is anchored to a recent event. OMIT entirely on FACT questions.
       - \`body\`: \`{ type: "mrkdwn", text: "<statement>" }\` — JUST the statement. Do NOT include the TRUE/FALSE vote line, the choice options, or the freeform Answer-button nudge inside the card body — those all live in block #4 BELOW the card.
       - Do NOT set \`hero_image\` or \`icon\`.
    4. \`section\` block (mrkdwn) — the answer options, sitting BELOW the card. Shape depends on the question's answersFormat:
@@ -561,7 +561,7 @@ General emoji rule (re-emphasized): the opener's header MUST use Unicode emoji (
    ]
    \`\`\`
 
-   For a TOPICAL question, the card also carries \`"subtitle": { "type": "mrkdwn", "text": "Current News" }\` between the title and body — everything else stays the same.
+   For a TOPICAL question, the card also carries a \`subtitle\` holding the localized Current News label (see step 9.3 — English \`Current News\`, French \`Actualités\`) between the title and body — everything else stays the same.
 
    Add game show flair to the header, patter, and closer — "Step right up!", "The stakes are high!", "Who will be crowned champion?", "Let's see who's got the smarts!" — make it entertaining, and feel free to come up with your own openers. The card itself stays clean: category title, statement + vote line in the body, nothing else.
 
