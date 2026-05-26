@@ -354,6 +354,7 @@ export const fr: Partial<Record<StringKey, string>> = {
 
   // ─── Streaming task card ───────────────────────────────────────────
   "streamer.acknowledged": "Bien reçu, je m'en occupe…",
+  "streamer.continuing": "Reprise du flux précédent…",
 
   // ─── DM-first reaction synthesis ───────────────────────────────────
   "dm.synthesis.accept": "Accepter",

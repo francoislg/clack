@@ -2086,14 +2086,19 @@ describe("SlackStreamer rollover", () => {
     assert.deepEqual(streamer.getAllMessageTss(), ["1.1", "2.2"]);
   });
 
-  it("caps rollovers at MAX_ROLLOVERS (3 blocks total) then fails", async () => {
-    // Three blocks: each fails on its 2nd append (start/continuation succeeds, next append throws).
-    // Block 1: start succeeds, handleEvent #1 fails → rollover to block 2 → retry on block 2 succeeds.
-    // Block 2: continuation succeeds, retry succeeds, handleEvent #2 fails → rollover to block 3 → retry succeeds.
-    // Block 3: continuation succeeds, retry succeeds, handleEvent #3 fails → cap exhausted, final failure.
+  it("caps reactive rollovers at MAX_REACTIVE_ROLLOVERS (3 blocks total) then fails", async () => {
+    // Three blocks. Each rollover lands the following appends on the NEW block:
+    //   #1 continuation-cue chunk, #2 in-flight re-emit + decoration chunk, #3 retry replay.
+    // So block 2 and block 3 each need their failure threshold sized at 3 successful appends
+    // before throwing, to allow the rollover's continuation+re-emit AND the retry replay
+    // before the next handleEvent's failing append shows up.
+    //
+    // Block 1: start succeeds, handleEvent #1 fails → rollover to block 2.
+    // Block 2: continuation + re-emit succeed, retry succeeds, handleEvent #2 fails → rollover to block 3.
+    // Block 3: continuation + re-emit succeed, retry succeeds, handleEvent #3 fails → cap exhausted.
     const block1 = makeStreamerFailingAfter(1, "message_not_in_streaming_state", "1.1");
-    const block2 = makeStreamerFailingAfter(2, "message_not_in_streaming_state", "2.2");
-    const block3 = makeStreamerFailingAfter(2, "message_not_in_streaming_state", "3.3");
+    const block2 = makeStreamerFailingAfter(3, "message_not_in_streaming_state", "2.2");
+    const block3 = makeStreamerFailingAfter(3, "message_not_in_streaming_state", "3.3");
 
     const client = makeClientWithStreamers([block1, block2, block3]);
     const streamer = new SlackStreamer({
@@ -2130,15 +2135,15 @@ describe("SlackStreamer rollover", () => {
     assert.equal(streamer.hasFailed, true, "cap exhausted → failed state");
     assert.deepEqual(streamer.getAllMessageTss(), ["1.1", "2.2", "3.3"]);
 
-    // The final-failure warning must include rolloverCount: 2 in its diagnostics arg.
+    // The final-failure warning must include reactiveRolloverCount: 2 in its diagnostics arg.
     const finalWarn = mockLogger.warnCalls.find((args) =>
       args.some((a) => {
         if (typeof a !== "object" || a === null) return false;
-        const diag = a as { rolloverCount?: number };
-        return diag.rolloverCount === 2;
+        const diag = a as { reactiveRolloverCount?: number };
+        return diag.reactiveRolloverCount === 2;
       }),
     );
-    assert.ok(finalWarn, "warning log should include rolloverCount: 2 in diagnostics");
+    assert.ok(finalWarn, "warning log should include reactiveRolloverCount: 2 in diagnostics");
   });
 
   it("stopped_by_user does not roll over and logs as warn (not error)", async () => {
@@ -2295,7 +2300,7 @@ describe("SlackStreamer rollover", () => {
   });
 
   it("keepalive after rollover targets Block 2 (no Block-1 activeTasks leak)", async () => {
-    vi.useFakeTimers({ toFake: ["setInterval"] });
+    vi.useFakeTimers({ toFake: ["setInterval", "Date"] });
 
     const block1 = makeStreamerFailingAfter(1, "message_not_in_streaming_state", "1.1");
     const block2 = makeMockChatStreamer();
@@ -2321,14 +2326,492 @@ describe("SlackStreamer rollover", () => {
 
     const block2AppendsBeforeTick = block2.append.mock.calls.length;
 
-    // Advance one keepalive interval — the tick should hit block 2, not block 1.
-    vi.advanceTimersByTime(15_000);
+    // Advance past the visible-progress threshold (30s) so the re-emitted in-flight task
+    // qualifies for decoration. With the carryover behavior, task-1's `startedAt` was reset
+    // to rollover time on the new block, so the keepalive treats it as a fresh task and
+    // needs the full 30s grace period before decorating.
+    vi.advanceTimersByTime(45_000);
 
-    // Block 1 received: start's initial append, then the failing append. No more.
-    assert.equal(block1.append.mock.calls.length, 2);
-    // Block 2 received the keepalive append.
+    // Block 1 received: start's initial append, then the failing append, then the
+    // best-effort "mark prior in-flight complete" append (which throws but is caught).
+    // No further activity after rollover.
+    assert.equal(block1.append.mock.calls.length, 3);
+    // Block 2 received the keepalive append targeting the re-emitted task.
     assert.ok(block2.append.mock.calls.length > block2AppendsBeforeTick);
 
     await streamer.stop();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THINKING_TASK_ID replay filter — replayed chunks must not clobber continuation cue
+// ---------------------------------------------------------------------------
+
+describe("SlackStreamer THINKING_TASK_ID replay filter", () => {
+  beforeEach(() => mockLogger.reset());
+
+  it("start()'s failing Acknowledged append → block 2 shows continuation, not Acknowledged", async () => {
+    const block1 = makeStreamerFailingAfter(0, "message_not_in_streaming_state", "1.1");
+    const block2 = makeMockChatStreamer();
+    block2.append = vi.fn(async () => ({ ok: true, ts: "2.2" }));
+
+    const client = makeClientWithStreamers([block1, block2]);
+    const streamer = new SlackStreamer({
+      client,
+      channel: "C",
+      threadTs: "T",
+      teamId: "T_TEAM",
+      logger: mockLogger.logger,
+    });
+
+    await streamer.start();
+    await setImmediate();
+
+    const block2Chunks = getAppendedChunks(block2);
+    const thinkingChunks = block2Chunks.filter((c) => c.id === "__thinking__");
+    assert.ok(thinkingChunks.length >= 1, "block 2 should have a THINKING_TASK_ID chunk");
+    // The first (and only) THINKING_TASK_ID write on block 2 is the continuation cue.
+    // Without the filter, the replay would clobber it back to "Acknowledged".
+    assert.equal(thinkingChunks[0].title, "Continuing previous stream…");
+    assert.ok(
+      !thinkingChunks.some((c) => c.title === "Acknowledged, working on it…"),
+      "block 2 must not have an 'Acknowledged' write — the replay would clobber the continuation",
+    );
+
+    await streamer.stop();
+  });
+
+  it("keepalive idle ping fails → rollover → block 2 shows continuation, not Acknowledged", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "Date"] });
+
+    const block1 = makeStreamerFailingAfter(1, "message_not_in_streaming_state", "1.1");
+    const block2 = makeMockChatStreamer();
+    block2.append = vi.fn(async () => ({ ok: true, ts: "2.2" }));
+
+    const client = makeClientWithStreamers([block1, block2]);
+    const streamer = new SlackStreamer({
+      client,
+      channel: "C",
+      threadTs: "T",
+      teamId: "T_TEAM",
+      logger: mockLogger.logger,
+    });
+
+    await streamer.start();
+    vi.advanceTimersByTime(15_000);
+    await setImmediate();
+
+    const block2Chunks = getAppendedChunks(block2);
+    const thinkingChunks = block2Chunks.filter((c) => c.id === "__thinking__");
+    assert.ok(thinkingChunks.length >= 1);
+    assert.equal(thinkingChunks[0].title, "Continuing previous stream…");
+    assert.ok(
+      !thinkingChunks.some((c) => c.title === "Acknowledged, working on it…"),
+      "block 2's continuation cue must survive — the filter prevents the failing idle-ping replay",
+    );
+
+    await streamer.stop();
+    vi.useRealTimers();
+  });
+
+  it("filtered replay with no remaining chunks → skips retry entirely", async () => {
+    const block1 = makeStreamerFailingAfter(0, "message_not_in_streaming_state", "1.1");
+    const block2 = makeMockChatStreamer();
+    block2.append = vi.fn(async () => ({ ok: true, ts: "2.2" }));
+
+    const client = makeClientWithStreamers([block1, block2]);
+    const streamer = new SlackStreamer({
+      client,
+      channel: "C",
+      threadTs: "T",
+      teamId: "T_TEAM",
+      logger: mockLogger.logger,
+    });
+
+    await streamer.start();
+    await setImmediate();
+
+    // start()'s only failing chunk WAS the THINKING_TASK_ID Acknowledged chunk; after the
+    // filter drops it, no retry should happen. Block 2 receives ONLY the continuation cue.
+    assert.equal(block2.append.mock.calls.length, 1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// In-flight task snapshot, mark-complete, and re-emit on rollover
+// ---------------------------------------------------------------------------
+
+describe("SlackStreamer in-flight task carryover", () => {
+  beforeEach(() => mockLogger.reset());
+
+  it("rollover with in-flight tool → prior block sees complete, new block sees in_progress", async () => {
+    const block1 = makeStreamerFailingAfter(1, "message_not_in_streaming_state", "1.1");
+    const block2 = makeMockChatStreamer();
+    block2.append = vi.fn(async () => ({ ok: true, ts: "2.2" }));
+
+    const client = makeClientWithStreamers([block1, block2]);
+    const streamer = new SlackStreamer({
+      client,
+      channel: "C",
+      threadTs: "T",
+      teamId: "T_TEAM",
+      logger: mockLogger.logger,
+    });
+
+    await streamer.start();
+    streamer.handleEvent({
+      type: "tool_start",
+      taskId: "task-1",
+      toolName: "mcp__clack__list_repositories",
+      toolArgs: {},
+    });
+    await setImmediate();
+
+    const block1Chunks = getAppendedChunks(block1);
+    const completeChunk = block1Chunks.find((c) => c.id === "task-1" && c.status === "complete");
+    assert.ok(completeChunk, "prior block should have a complete chunk for the in-flight task");
+
+    const block2Chunks = getAppendedChunks(block2);
+    const inProgressChunk = block2Chunks.find(
+      (c) => c.id === "task-1" && c.status === "in_progress",
+    );
+    assert.ok(inProgressChunk, "new block should have an in_progress chunk for the same task id");
+    assert.ok(inProgressChunk!.title?.startsWith("Listing repositories"));
+  });
+
+  it("rollover then tool_end → tool_end completes the re-emitted task on the new block", async () => {
+    const block1 = makeStreamerFailingAfter(1, "message_not_in_streaming_state", "1.1");
+    const block2 = makeMockChatStreamer();
+    block2.append = vi.fn(async () => ({ ok: true, ts: "2.2" }));
+
+    const client = makeClientWithStreamers([block1, block2]);
+    const streamer = new SlackStreamer({
+      client,
+      channel: "C",
+      threadTs: "T",
+      teamId: "T_TEAM",
+      logger: mockLogger.logger,
+    });
+
+    await streamer.start();
+    streamer.handleEvent({
+      type: "tool_start",
+      taskId: "task-1",
+      toolName: "mcp__clack__list_repositories",
+      toolArgs: {},
+    });
+    await setImmediate();
+
+    streamer.handleEvent({ type: "tool_end", taskId: "task-1" });
+    await setImmediate();
+
+    const block2Chunks = getAppendedChunks(block2);
+    const completeOnNewBlock = block2Chunks.find(
+      (c) => c.id === "task-1" && c.status === "complete",
+    );
+    assert.ok(
+      completeOnNewBlock,
+      "tool_end must land on the NEW block (not silently dropped as a stale lookup)",
+    );
+  });
+
+  it("grouped tools across rollover → re-emerge as standalone cards (no group fold)", async () => {
+    const block1 = makeStreamerFailingAfter(3, "message_not_in_streaming_state", "1.1");
+    const block2 = makeMockChatStreamer();
+    block2.append = vi.fn(async () => ({ ok: true, ts: "2.2" }));
+
+    const client = makeClientWithStreamers([block1, block2]);
+    const streamer = new SlackStreamer({
+      client,
+      channel: "C",
+      threadTs: "T",
+      teamId: "T_TEAM",
+      logger: mockLogger.logger,
+    });
+
+    await streamer.start();
+    // Three Read calls fold into the "Reading files" group on block 1.
+    streamer.handleEvent({
+      type: "tool_start",
+      taskId: "r-1",
+      toolName: "Read",
+      toolArgs: { file_path: "/a" },
+    });
+    streamer.handleEvent({
+      type: "tool_start",
+      taskId: "r-2",
+      toolName: "Read",
+      toolArgs: { file_path: "/b" },
+    });
+    streamer.handleEvent({
+      type: "tool_start",
+      taskId: "r-3",
+      toolName: "Read",
+      toolArgs: { file_path: "/c" },
+    });
+    await setImmediate();
+
+    // Trigger rollover via a 4th tool whose append fails.
+    streamer.handleEvent({
+      type: "tool_start",
+      taskId: "r-4",
+      toolName: "Read",
+      toolArgs: { file_path: "/d" },
+    });
+    await setImmediate();
+
+    const block2Chunks = getAppendedChunks(block2);
+    // Re-emitted tasks should appear as individual standalone cards (one per snapshotted tool),
+    // NOT as a group with a `(N)` counter.
+    const reEmittedCards = block2Chunks.filter(
+      (c) => c.status === "in_progress" && c.id !== "__thinking__" && c.id !== "r-4",
+    );
+    const groupHeader = block2Chunks.find(
+      (c) => typeof c.title === "string" && /^Reading files \(\d+\)/.test(c.title),
+    );
+    assert.ok(!groupHeader, "no '(N)' group title should appear on the new block");
+    assert.ok(reEmittedCards.length >= 3, "all snapshotted tools should re-emerge");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Preemptive rollover trigger (timer-based)
+// ---------------------------------------------------------------------------
+
+describe("SlackStreamer preemptive rollover", () => {
+  beforeEach(() => mockLogger.reset());
+  afterEach(() => vi.useRealTimers());
+
+  it("fires after PREEMPTIVE_ROLLOVER_INTERVAL_MS and opens a new block", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "setInterval", "Date"] });
+
+    const block1 = makeMockChatStreamer();
+    block1.append = vi.fn(async () => ({ ok: true, ts: "1.1" }));
+    const block2 = makeMockChatStreamer();
+    block2.append = vi.fn(async () => ({ ok: true, ts: "2.2" }));
+
+    const client = makeClientWithStreamers([block1, block2]);
+    const streamer = new SlackStreamer({
+      client,
+      channel: "C",
+      threadTs: "T",
+      teamId: "T_TEAM",
+      logger: mockLogger.logger,
+    });
+
+    await streamer.start();
+    vi.advanceTimersByTime(4 * 60 * 1000);
+    await setImmediate();
+    await setImmediate();
+
+    assert.deepEqual(streamer.getAllMessageTss(), ["1.1", "2.2"]);
+    // Block 2's first append is the quiet continuation chunk — since thinkingFinalized was
+    // false (no tools fired), the title is the Acknowledged baseline, NOT "Continuing…".
+    const block2FirstChunks = chunksOfCall(block2, 0);
+    assert.equal(block2FirstChunks[0].id, "__thinking__");
+    assert.equal(block2FirstChunks[0].title, "Acknowledged, working on it…");
+
+    await streamer.stop();
+  });
+
+  it("stops scheduling after MAX_PREEMPTIVE_ROLLOVERS", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "setInterval", "Date"] });
+
+    const blocks: MockChatStreamer[] = [];
+    for (let i = 0; i < 21; i++) {
+      const b = makeMockChatStreamer();
+      b.append = vi.fn(async () => ({ ok: true, ts: `${i + 1}.${i + 1}` }));
+      blocks.push(b);
+    }
+
+    const client = makeClientWithStreamers(blocks);
+    const streamer = new SlackStreamer({
+      client,
+      channel: "C",
+      threadTs: "T",
+      teamId: "T_TEAM",
+      logger: mockLogger.logger,
+    });
+
+    await streamer.start();
+    for (let i = 0; i < 21; i++) {
+      vi.advanceTimersByTime(4 * 60 * 1000);
+      await setImmediate();
+      await setImmediate();
+    }
+
+    // 20 successful preemptive rotations → 21 blocks total. Cap reached; 21st tick is a no-op.
+    assert.equal(streamer.getAllMessageTss().length, 21);
+
+    await streamer.stop();
+  });
+
+  it("stop() clears the preemptive timer (no rollover fires after stop)", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "setInterval", "Date"] });
+
+    const block1 = makeMockChatStreamer();
+    block1.append = vi.fn(async () => ({ ok: true, ts: "1.1" }));
+    block1.stop = vi.fn(async () => {});
+    const block2 = makeMockChatStreamer();
+    block2.append = vi.fn(async () => ({ ok: true, ts: "2.2" }));
+
+    const client = makeClientWithStreamers([block1, block2]);
+    const streamer = new SlackStreamer({
+      client,
+      channel: "C",
+      threadTs: "T",
+      teamId: "T_TEAM",
+      logger: mockLogger.logger,
+    });
+
+    await streamer.start();
+    await streamer.stop();
+    vi.advanceTimersByTime(4 * 60 * 1000);
+    await setImmediate();
+
+    assert.deepEqual(streamer.getAllMessageTss(), ["1.1"]);
+  });
+
+  it("preemptive rollover uses thinkingTitle when thinkingFinalized was true", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "setInterval", "Date"] });
+
+    const block1 = makeMockChatStreamer();
+    block1.append = vi.fn(async () => ({ ok: true, ts: "1.1" }));
+    const block2 = makeMockChatStreamer();
+    block2.append = vi.fn(async () => ({ ok: true, ts: "2.2" }));
+
+    const client = makeClientWithStreamers([block1, block2]);
+    const streamer = new SlackStreamer({
+      client,
+      channel: "C",
+      threadTs: "T",
+      teamId: "T_TEAM",
+      thinkingTitle: "Analyzing…",
+      logger: mockLogger.logger,
+    });
+
+    await streamer.start();
+    // Fire a tool_start so thinkingFinalized flips to true on block 1.
+    streamer.handleEvent({
+      type: "tool_start",
+      taskId: "task-1",
+      toolName: "mcp__clack__list_repositories",
+      toolArgs: {},
+    });
+    await setImmediate();
+
+    vi.advanceTimersByTime(4 * 60 * 1000);
+    await setImmediate();
+    await setImmediate();
+
+    const block2FirstChunks = chunksOfCall(block2, 0);
+    assert.equal(block2FirstChunks[0].id, "__thinking__");
+    assert.equal(block2FirstChunks[0].title, "Analyzing…");
+
+    await streamer.stop();
+  });
+
+  it("preemptive rollover preserves thinkingFinalized across the boundary", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "setInterval", "Date"] });
+
+    const block1 = makeMockChatStreamer();
+    block1.append = vi.fn(async () => ({ ok: true, ts: "1.1" }));
+    const block2 = makeMockChatStreamer();
+    block2.append = vi.fn(async () => ({ ok: true, ts: "2.2" }));
+
+    const client = makeClientWithStreamers([block1, block2]);
+    const streamer = new SlackStreamer({
+      client,
+      channel: "C",
+      threadTs: "T",
+      teamId: "T_TEAM",
+      thinkingTitle: "Analyzing…",
+      logger: mockLogger.logger,
+    });
+
+    await streamer.start();
+    streamer.handleEvent({
+      type: "tool_start",
+      taskId: "task-1",
+      toolName: "mcp__clack__list_repositories",
+      toolArgs: {},
+    });
+    streamer.handleEvent({ type: "tool_end", taskId: "task-1" });
+    await setImmediate();
+
+    vi.advanceTimersByTime(4 * 60 * 1000);
+    await setImmediate();
+    await setImmediate();
+
+    // After preemptive rollover, fire a keepalive idle tick. thinkingFinalized should still
+    // be true, so the idle ping uses thinkingTitle, NOT the "Acknowledged" pre-finalize default.
+    vi.advanceTimersByTime(15_000);
+    await setImmediate();
+
+    const block2Chunks = getAppendedChunks(block2);
+    const thinkingIdleChunks = block2Chunks.filter((c) => c.id === "__thinking__");
+    assert.ok(
+      thinkingIdleChunks.every((c) => c.title !== "Acknowledged, working on it…"),
+      "thinkingFinalized must be preserved — idle pings should not revert to Acknowledged",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Diagnostics
+// ---------------------------------------------------------------------------
+
+describe("SlackStreamer diagnostics with both counters", () => {
+  beforeEach(() => mockLogger.reset());
+  afterEach(() => vi.useRealTimers());
+
+  it("warn log after reactive cap exhaustion includes preemptiveRolloverCount", async () => {
+    const block1 = makeStreamerFailingAfter(1, "message_not_in_streaming_state", "1.1");
+    const block2 = makeStreamerFailingAfter(3, "message_not_in_streaming_state", "2.2");
+    const block3 = makeStreamerFailingAfter(3, "message_not_in_streaming_state", "3.3");
+
+    const client = makeClientWithStreamers([block1, block2, block3]);
+    const streamer = new SlackStreamer({
+      client,
+      channel: "C",
+      threadTs: "T",
+      teamId: "T_TEAM",
+      logger: mockLogger.logger,
+    });
+
+    await streamer.start();
+    streamer.handleEvent({
+      type: "tool_start",
+      taskId: "task-1",
+      toolName: "mcp__clack__list_repositories",
+      toolArgs: {},
+    });
+    await setImmediate();
+    streamer.handleEvent({
+      type: "tool_start",
+      taskId: "task-2",
+      toolName: "mcp__clack__list_repositories",
+      toolArgs: {},
+    });
+    await setImmediate();
+    streamer.handleEvent({
+      type: "tool_start",
+      taskId: "task-3",
+      toolName: "mcp__clack__list_repositories",
+      toolArgs: {},
+    });
+    await setImmediate();
+
+    const finalWarn = mockLogger.warnCalls.find((args) =>
+      args.some((a) => {
+        if (typeof a !== "object" || a === null) return false;
+        const diag = a as { reactiveRolloverCount?: number; preemptiveRolloverCount?: number };
+        return diag.reactiveRolloverCount === 2 && diag.preemptiveRolloverCount === 0;
+      }),
+    );
+    assert.ok(
+      finalWarn,
+      "warn log should include both reactiveRolloverCount: 2 AND preemptiveRolloverCount: 0",
+    );
   });
 });

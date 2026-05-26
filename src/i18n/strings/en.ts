@@ -343,6 +343,7 @@ export const en = {
 
   // ─── Streaming task card ───────────────────────────────────────────
   "streamer.acknowledged": "Acknowledged, working on it…",
+  "streamer.continuing": "Continuing previous stream…",
 
   // ─── DM-first reaction synthesis ───────────────────────────────────
   "dm.synthesis.accept": "Accept",
