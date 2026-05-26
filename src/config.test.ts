@@ -1347,3 +1347,72 @@ describe("userSkills config", () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// assistant pane config
+// ---------------------------------------------------------------------------
+
+describe("assistant config", () => {
+  beforeEach(() => {
+    writeSlackAuth();
+  });
+
+  afterEach(() => {
+    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true, force: true });
+  });
+
+  it("is undefined when the block is absent", () => {
+    writeConfig(minimalConfig());
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.assistant, undefined);
+  });
+
+  it("parses a custom greeting", () => {
+    writeConfig(minimalConfig({ assistant: { greeting: "Yo!" } }));
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.assistant?.greeting, "Yo!");
+  });
+
+  it("parses custom suggested prompts", () => {
+    writeConfig(
+      minimalConfig({
+        assistant: { suggestedPrompts: [{ title: "T", message: "M" }] },
+      }),
+    );
+    const cfg = loadConfig(configPath, true);
+    assert.deepEqual(cfg.assistant?.suggestedPrompts, [{ title: "T", message: "M" }]);
+  });
+
+  it("rejects a non-object assistant section", () => {
+    writeConfig(minimalConfig({ assistant: "nope" }));
+    assert.throws(
+      () => loadConfig(configPath, true),
+      (err: unknown) => err instanceof Error && err.message.includes("assistant"),
+    );
+  });
+
+  it("rejects an empty greeting", () => {
+    writeConfig(minimalConfig({ assistant: { greeting: "   " } }));
+    assert.throws(
+      () => loadConfig(configPath, true),
+      (err: unknown) => err instanceof Error && err.message.includes("assistant.greeting"),
+    );
+  });
+
+  it("rejects more than 4 suggested prompts", () => {
+    const prompts = Array.from({ length: 5 }, (_, i) => ({ title: `T${i}`, message: `M${i}` }));
+    writeConfig(minimalConfig({ assistant: { suggestedPrompts: prompts } }));
+    assert.throws(
+      () => loadConfig(configPath, true),
+      (err: unknown) => err instanceof Error && err.message.includes("suggestedPrompts"),
+    );
+  });
+
+  it("rejects a prompt missing its message", () => {
+    writeConfig(minimalConfig({ assistant: { suggestedPrompts: [{ title: "T" }] } }));
+    assert.throws(
+      () => loadConfig(configPath, true),
+      (err: unknown) => err instanceof Error && err.message.includes("message"),
+    );
+  });
+});

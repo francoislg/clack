@@ -1,6 +1,6 @@
 import type { App, AssistantConfig } from "@slack/bolt";
 import { Assistant } from "@slack/bolt";
-import { getConfig } from "../../config.js";
+import { getConfig, type AssistantPaneConfig } from "../../config.js";
 import { logger } from "../../logger.js";
 import { t } from "../../i18n/t.js";
 import { findSessionByThread, updateSession, type SessionContext } from "../../sessions.js";
@@ -18,6 +18,7 @@ export interface AssistantDeps {
   getConfig: () => {
     directMessages: { enabled: boolean };
     reactions?: { stop?: string | null };
+    assistant?: AssistantPaneConfig;
   };
   findSessionByThread: (channelId: string, threadTs: string) => Promise<SessionContext | null>;
   updateSession: (
@@ -141,30 +142,36 @@ export function registerAssistant(app: App, deps: AssistantDeps = defaultAssista
   const assistant = new deps.Assistant({
     threadContextStore: new PerThreadContextStore(),
     threadStarted: async ({ event, say, saveThreadContext, setSuggestedPrompts }) => {
-      if (!deps.getConfig().directMessages.enabled) return;
+      const cfg = deps.getConfig();
+      if (!cfg.directMessages.enabled) return;
       const ctx = event.assistant_thread?.context;
       logger.debug(`Assistant threadStarted: channel_id=${ctx?.channel_id ?? "none"}`);
 
-      await say(t("assistant.greeting"));
+      await say(cfg.assistant?.greeting ?? t("assistant.greeting"));
       await saveThreadContext();
 
-      const prompts: Array<{ title: string; message: string }> = [];
-      if (ctx?.channel_id) {
-        prompts.push({
-          title: t("assistant.prompt_check_recent_title"),
-          message: t("assistant.prompt_check_recent_message"),
-        });
+      let prompts: Array<{ title: string; message: string }>;
+      if (cfg.assistant?.suggestedPrompts?.length) {
+        prompts = cfg.assistant.suggestedPrompts;
+      } else {
+        prompts = [];
+        if (ctx?.channel_id) {
+          prompts.push({
+            title: t("assistant.prompt_check_recent_title"),
+            message: t("assistant.prompt_check_recent_message"),
+          });
+        }
+        prompts.push(
+          {
+            title: t("assistant.prompt_debug_title"),
+            message: t("assistant.prompt_debug_message"),
+          },
+          {
+            title: t("assistant.prompt_funny_title"),
+            message: t("assistant.prompt_funny_message"),
+          },
+        );
       }
-      prompts.push(
-        {
-          title: t("assistant.prompt_debug_title"),
-          message: t("assistant.prompt_debug_message"),
-        },
-        {
-          title: t("assistant.prompt_funny_title"),
-          message: t("assistant.prompt_funny_message"),
-        },
-      );
       await setSuggestedPrompts({ prompts });
     },
 
