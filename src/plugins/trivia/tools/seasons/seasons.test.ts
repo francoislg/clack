@@ -53,6 +53,21 @@ async function seedSingleActive(
   return entry;
 }
 
+/** Seed a single boolean question stamped to the given season slug. */
+async function seedStampedQuestion(data: TriviaDataLayer, seasonSlug: string): Promise<void> {
+  await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
+    id: `q-${seasonSlug}`,
+    category: "Science",
+    statement: "Water boils at 100°C at sea level.",
+    answersFormat: "boolean",
+    questionType: "fact",
+    isTrue: true,
+    emojis: ["✅", "❌"],
+    createdAt: Date.now(),
+    season: seasonSlug,
+  });
+}
+
 // =============================================================================
 // Pure helpers — findCurrentSeason, findNextSeason, validateNoOverlap
 // =============================================================================
@@ -381,8 +396,9 @@ describe("upsert_season tool", () => {
     assert.equal(state?.seasons[0].endedAt, endedAt);
   });
 
-  it("update: rejects mutating startedAt of an already-started season", async () => {
+  it("update: rejects mutating startedAt of an already-started season once it has questions", async () => {
     const seeded = await seedSingleActive(data);
+    await seedStampedQuestion(data, seeded.slug);
     const tool = createUpsertSeasonTool(data, fixtureGetGames);
     const result = await tool.handler(
       {
@@ -405,6 +421,34 @@ describe("upsert_season tool", () => {
     );
     const parsed = parseToolResult(result);
     assert.ok(parsed.error || parsed.isError);
+  });
+
+  it("update: permits shifting startedAt of an already-started season when it has no questions yet", async () => {
+    const seeded = await seedSingleActive(data);
+    const tool = createUpsertSeasonTool(data, fixtureGetGames);
+    const newStartedAt = seeded.startedAt + 2 * DAY;
+    const result = await tool.handler(
+      {
+        game: FIXTURE_GAME_NAME,
+        slug: seeded.slug,
+        startedAt: newStartedAt,
+        expectedEndAt: undefined,
+        endedAt: undefined,
+        categories: undefined,
+        answersFormat: undefined,
+        questionType: undefined,
+        freeformAnswerShape: undefined,
+        contexts: undefined,
+        difficulty: undefined,
+        difficultyRatio: undefined,
+        theme: undefined,
+        format: undefined,
+      },
+      SESSION,
+    );
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.action, "updated");
+    assert.equal(parsed.startedAt, newStartedAt);
   });
 
   it("update: permits shifting startedAt of a not-yet-started season", async () => {
@@ -616,12 +660,50 @@ describe("delete_season tool", () => {
     assert.equal(state?.seasons[0].slug, "active");
   });
 
-  it("rejects deleting an already-started season", async () => {
-    await seedSingleActive(data, { slug: "active" });
+  it("rejects deleting an already-started season once it has questions", async () => {
+    const now = Date.now();
+    await seedTimeline(data, [
+      {
+        slug: "active",
+        startedAt: now - 10 * DAY,
+        expectedEndAt: now + 20 * DAY,
+        categories: ["X"],
+      },
+      {
+        slug: "future",
+        startedAt: now + 30 * DAY,
+        expectedEndAt: now + 60 * DAY,
+        categories: ["Y"],
+      },
+    ]);
+    await seedStampedQuestion(data, "active");
     const tool = createDeleteSeasonTool(data, fixtureGetGames);
     const result = await tool.handler({ game: FIXTURE_GAME_NAME, slug: "active" }, SESSION);
     const parsed = parseToolResult(result);
     assert.ok(parsed.error || parsed.isError);
+  });
+
+  it("permits deleting an already-started season when it has no questions yet", async () => {
+    const now = Date.now();
+    await seedTimeline(data, [
+      {
+        slug: "active",
+        startedAt: now - 10 * DAY,
+        expectedEndAt: now + 20 * DAY,
+        categories: ["X"],
+      },
+      {
+        slug: "future",
+        startedAt: now + 30 * DAY,
+        expectedEndAt: now + 60 * DAY,
+        categories: ["Y"],
+      },
+    ]);
+    const tool = createDeleteSeasonTool(data, fixtureGetGames);
+    const result = await tool.handler({ game: FIXTURE_GAME_NAME, slug: "active" }, SESSION);
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.deleted, "active");
+    assert.equal(parsed.remaining, 1);
   });
 
   it("rejects deleting the only season on the timeline", async () => {

@@ -127,7 +127,7 @@ export function createUpsertSeasonTool(
 ) {
   return tool(
     "upsert_season",
-    "Create a new trivia season or update an existing one (identified by slug) within a specific game. Slug is immutable — to rename, delete + upsert. Validates no overlap within this game's timeline. On CREATE: requires startedAt + expectedEndAt. If `categories` is provided (and non-empty), the new season's pool is EXACTLY that list — use this for themed seasons. If `categories` is omitted or empty, the new season's pool is copied from the global categories.json. On UPDATE: applies omit-to-keep semantics; cannot mutate startedAt of an already-started season; `categories` is ignored on UPDATE — use add_categories/remove_categories with target slug to refine. `theme`, `answersFormat`, `questionType`, `freeformAnswerShape`, and `contexts` all accept `null` on UPDATE to clear the field. `theme` is a short human-readable narrative label (e.g. \"Halloween Spooktacular\") surfaced at the top of the season's first question post. Use endedAt to mark a season as closed.",
+    "Create a new trivia season or update an existing one (identified by slug) within a specific game. Slug is immutable — to rename, delete + upsert. Validates no overlap within this game's timeline. On CREATE: requires startedAt + expectedEndAt. If `categories` is provided (and non-empty), the new season's pool is EXACTLY that list — use this for themed seasons. If `categories` is omitted or empty, the new season's pool is copied from the global categories.json. On UPDATE: applies omit-to-keep semantics; cannot mutate startedAt of an already-started season ONCE it has questions stamped to it (a started-but-empty season is still freely editable); `categories` is ignored on UPDATE — use add_categories/remove_categories with target slug to refine. `theme`, `answersFormat`, `questionType`, `freeformAnswerShape`, and `contexts` all accept `null` on UPDATE to clear the field. `theme` is a short human-readable narrative label (e.g. \"Halloween Spooktacular\") surfaced at the top of the season's first question post. Use endedAt to mark a season as closed.",
     {
       game: z
         .string()
@@ -380,9 +380,13 @@ export function createUpsertSeasonTool(
       const now = Date.now();
       if (args.startedAt !== undefined && args.startedAt !== existing.startedAt) {
         if (existing.startedAt <= now) {
-          return errorResult(
-            `Cannot shift startedAt of an already-started season "${args.slug}". The past is immutable; edit seasons.json directly for emergency corrections.`,
-          );
+          const questions = await scoped.loadQuestions();
+          const hasStampedQuestions = questions.some((q) => q.season === args.slug);
+          if (hasStampedQuestions) {
+            return errorResult(
+              `Cannot shift startedAt of an already-started season "${args.slug}" once questions have been recorded under it. The past is immutable; edit seasons.json directly for emergency corrections.`,
+            );
+          }
         }
       }
 
