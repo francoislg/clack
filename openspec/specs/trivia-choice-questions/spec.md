@@ -273,98 +273,79 @@ The prompt SHALL state explicitly that the correct answer's index is locked by `
 
 ### Requirement: Reveal flow resolves question before parsing reactions
 
-The reveal flow (now wholly inside `process_reveal_answers`) SHALL resolve the pending question record before parsing reactions and SHALL branch all subsequent reaction parsing and voter categorization on `question.answersFormat` (defaulting to `"boolean"` only on legacy records that pre-date the migration).
+The reveal flow (wholly inside `process_reveal_answers`) SHALL resolve the pending question record before assembling voter buckets. Scoring SHALL be derived from `answers.json` for all formats — Slack reactions SHALL NOT drive scoring on any answers-format value.
 
-When `question.answersFormat` is `"boolean"`, the reaction-parsing behavior SHALL be unchanged from the pre-existing boolean reveal (`:+1:` = TRUE, `:-1:` = FALSE, fence-sitters reacted with both, wildcards reacted with other emojis, bot and cheater IDs excluded silently).
+When `question.answersFormat` is `"boolean"`:
+- Users with `SubmittedAnswer` rows where `answer === question.isTrue` land in `voters.correct`.
+- Users with rows where `answer !== question.isTrue` land in `voters.incorrect`.
+- The "fence-sitter" classification (voted both `:+1:` and `:-1:`) SHALL NOT exist — button click semantics make simultaneous opposite votes impossible.
 
 When `question.answersFormat` is `"choice"`:
+- Users with rows where `answerIndex === question.correctIndex` land in `voters.correct`.
+- Users with rows where `answerIndex !== question.correctIndex` land in `voters.incorrect`.
+- The "multi-react silently-voided" classification SHALL NOT exist — only one button click is the source of truth; subsequent clicks overwrite via `updateAnswer`.
+- Persisted rows continue to carry `answerIndex: number` (no `answer: boolean`).
 
-- `:one:`, `:two:`, `:three:`, `:four:` reactions map to choice indices 0, 1, 2, 3 respectively.
-- Correct voters SHALL be users who reacted with exactly the numbered emoji corresponding to `question.correctIndex` (after bot and cheater exclusion).
-- Incorrect voters SHALL be users who reacted with exactly one wrong numbered emoji (after bot and cheater exclusion).
-- **Multi-react voters** (users who reacted with 2 or more numbered emoji) SHALL be **silently voided** — not scored, not surfaced in the user-facing reveal.
-- **Wildcards** (users who reacted only with non-numbered emojis) SHALL continue to be read aloud with the Game Show Presenter persona's interpretive humor.
-- The persisted `SubmittedAnswer` entries SHALL carry `answerIndex: number` (the reaction's numbered index) and SHALL NOT carry `answer: boolean`.
+For all formats, the bot's user ID and every flagged cheater for the question SHALL be excluded from all `voters.*` buckets AND from the `voters.reactions` commentary list.
 
-`question.questionType` (`"fact"` vs `"topical"`) SHALL NOT affect reveal behavior — both render identically per their `answersFormat`.
+`question.questionType` (`"fact"` vs `"topical"`) SHALL NOT affect reveal behavior.
 
-#### Scenario: Boolean reveal unchanged
+#### Scenario: Boolean reveal reads from answers.json
 
-- **WHEN** the reveal flow processes a question with `answersFormat: "boolean"`
-- **THEN** the flow parses `:+1:` / `:-1:` reactions, categorizes fence-sitters, and persists `answer: boolean` per voter
+- **WHEN** the reveal flow processes a boolean question with `isTrue: true` and `answers.json` has `{ U1: true, U2: false }`
+- **THEN** `voters.correct` contains U1, `voters.incorrect` contains U2
+- **AND** the flow makes no reaction-based scoring decisions
 
-#### Scenario: Choice reveal parses numbered reactions
+#### Scenario: Choice reveal reads from answers.json
 
-- **WHEN** the reveal flow processes a question with `answersFormat: "choice"` and `correctIndex: 2`
-- **THEN** the flow parses `:one:` / `:two:` / `:three:` / `:four:` reactions, treats `:three:` (index 2) reactors as correct voters, and persists `answerIndex: number` per voter
+- **WHEN** the reveal flow processes a choice question with `correctIndex: 2` and `answers.json` has `{ U1: { answerIndex: 2 }, U2: { answerIndex: 0 } }`
+- **THEN** `voters.correct` contains U1, `voters.incorrect` contains U2
 
-#### Scenario: Multi-react voters on choice questions silently voided
+#### Scenario: No fence-sitters category in payload
 
-- **WHEN** a user reacted with both `:one:` and `:three:` on a choice question
-- **THEN** the reveal flow excludes that user from both correct and incorrect categories
-- **AND** omits that user from the persisted `SubmittedAnswer` records
-- **AND** does NOT mention that user in the user-facing reveal copy
+- **WHEN** any reveal payload is returned
+- **THEN** the `voters` object SHALL NOT have a `fenceSitters` field
 
-#### Scenario: Wildcards on choice questions still surfaced
+#### Scenario: No multi-react void in payload
 
-- **WHEN** a user reacted with `:shrug:` on a choice question
-- **THEN** the reveal flow surfaces the wildcard in the persona-driven reveal copy, same as on boolean questions
+- **WHEN** the reveal flow processes a choice question and any user added multiple numbered emoji as reactions
+- **THEN** the user's button click (if any) determines their bucket placement; reactions do not void anything
+- **AND** the payload shape contains no field that names or counts multi-react voters
 
 #### Scenario: questionType does not alter reveal
 
 - **WHEN** the reveal flow processes a question with `questionType: "topical"`
 - **THEN** the flow behaves identically to a `questionType: "fact"` question of the same `answersFormat`
 
-### Requirement: Choice-question reveal hard-fails on unresolvable question
-
-When the reveal flow runs and the resolved question has `answersFormat: "choice"` but the question cannot be located, the flow SHALL post an admin-facing error rather than guessing a `correctIndex` or proceeding with a best-effort fallback.
-
-When the question has `answersFormat: "boolean"` (or absent → boolean), the existing best-effort fallback behavior SHALL be preserved.
-
-#### Scenario: Choice reveal posts admin error on unresolvable question
-
-- **WHEN** the channel's most-recent trivia message corresponds to a choice question but the record cannot be located after refinement
-- **THEN** the reveal flow posts a short admin-facing error in the channel and aborts the reveal
-- **AND** does NOT guess `correctIndex` or proceed with a write
-
-#### Scenario: Boolean reveal preserves best-effort fallback
-
-- **WHEN** the channel's most-recent trivia message corresponds to a boolean question and the record cannot be located after refinement
-- **THEN** the reveal flow proceeds with a best-effort `questionId` based on the most recently `createdAt` matching question
-
 ### Requirement: Bot auto-reactions sized to answersFormat
 
-When the bot posts a question, the auto-attached reactions SHALL be sized to the question's `answersFormat`:
+The bot SHALL NOT auto-attach reactions to questions of ANY answers format. `post_questions` SHALL append answer-buttons via an `actions` block instead (see `trivia-question-posting`).
 
-- `answersFormat: "boolean"`: `["+1", "-1"]` in that order (👍 before 👎).
-- `answersFormat: "choice"` with N choices (2 ≤ N ≤ 4): the first N entries of `["one", "two", "three", "four"]`, in that order.
+Users may freely add their own reactions to question messages. Those reactions are read at reveal time purely as commentary (see `trivia-reveal-processor`'s `voters.reactions` field) — they SHALL NOT drive scoring.
 
-`questionType` SHALL NOT affect the auto-attached reactions.
-
-#### Scenario: Boolean post auto-reactions
+#### Scenario: No auto-attached reactions on boolean
 
 - **WHEN** the bot posts a question with `answersFormat: "boolean"`
-- **THEN** the attached reactions are exactly `["+1", "-1"]`
+- **THEN** zero reactions are auto-attached to the message
+- **AND** the message includes an `actions` block with `👍 TRUE` and `👎 FALSE` buttons
 
-#### Scenario: 4-choice post auto-reactions
+#### Scenario: No auto-attached reactions on choice
 
-- **WHEN** the bot posts a question with `answersFormat: "choice"` and 4 choices
-- **THEN** the attached reactions are exactly `["one", "two", "three", "four"]`
+- **WHEN** the bot posts a question with `answersFormat: "choice"` of any choice count
+- **THEN** zero reactions are auto-attached
+- **AND** the message includes an `actions` block with one button per choice
 
-#### Scenario: 3-choice post auto-reactions
+#### Scenario: No auto-attached reactions on freeform
 
-- **WHEN** the bot posts a question with `answersFormat: "choice"` and 3 choices
-- **THEN** the attached reactions are exactly `["one", "two", "three"]`
+- **WHEN** the bot posts a question with `answersFormat: "freeform"`
+- **THEN** zero reactions are auto-attached
+- **AND** the message includes an `actions` block with an "Answer" button
 
-#### Scenario: 2-choice post auto-reactions
+#### Scenario: User-added reactions are preserved as commentary
 
-- **WHEN** the bot posts a question with `answersFormat: "choice"` and 2 choices
-- **THEN** the attached reactions are exactly `["one", "two"]`
-
-#### Scenario: Topical question uses same reactions as fact question
-
-- **WHEN** the bot posts a question with `questionType: "topical"` and `answersFormat: "choice"` of 4 choices
-- **THEN** the attached reactions are exactly `["one", "two", "three", "four"]` — identical to a `questionType: "fact"` 4-choice question
+- **GIVEN** a posted question and user U1 reacts with `:fire:`
+- **WHEN** `process_reveal_answers` runs
+- **THEN** `voters.reactions` contains `{ userId: "U1", emojis: ["fire"] }`
 
 ### Requirement: Freeform Answers Format Value
 

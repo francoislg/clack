@@ -22,6 +22,7 @@ import {
 } from "../../core/configParsers/format.js";
 import type { TriviaDataLayer, SeasonsState, SeasonEntry } from "../../core/types.js";
 import {
+  REVEAL_RESPONSES_VALUES,
   answersFormatZod,
   contextsZod,
   difficultyZod,
@@ -30,6 +31,7 @@ import {
   triviaDifficultyRatioZod,
 } from "../../core/configParsers/axes.js";
 import type {
+  RevealResponsesMode,
   SeasonFormat,
   TriviaAnswersFormatWeights,
   TriviaQuestionTypeWeights,
@@ -133,7 +135,21 @@ export function createUpsertSeasonTool(
         .nullable()
         .optional()
         .describe(
-          "Optional per-season question composition. When set, each question-cron fire posts `format.questions.length` questions in slot order. Each slot may narrow `label` / `categories` / `answersFormat` / `questionType` / `freeformAnswerShape` / `contexts` / `difficulty`; missing fields cascade to the season's defaults. On UPDATE: object value replaces the whole format; explicit `null` clears the field; mid-season mutation permitted.",
+          "Optional per-season question composition. When set, each question-cron fire posts `format.questions.length` questions in slot order. Each slot may narrow `label` / `categories` / `answersFormat` / `questionType` / `freeformAnswerShape` / `contexts` / `difficulty` / `liveAnswersVisible` / `revealResponses`; missing fields cascade to the season's defaults. On UPDATE: object value replaces the whole format; explicit `null` clears the field; mid-season mutation permitted.",
+        ),
+      liveAnswersVisible: z
+        .boolean()
+        .nullable()
+        .optional()
+        .describe(
+          'Optional per-season override for the live-roster-footer visibility axis. When `true` (the cascaded default), the live "📝 Answered" footer reveals each answerer\'s pick alongside their name. When `false`, the footer shows only names. On UPDATE: passing `null` clears the field. Mid-season mutation permitted.',
+        ),
+      revealResponses: z
+        .enum(REVEAL_RESPONSES_VALUES as readonly [RevealResponsesMode, ...RevealResponsesMode[]])
+        .nullable()
+        .optional()
+        .describe(
+          'Optional per-season override for the reveal-time participation disclosure axis. `"yes"` (default) renders full named voter buckets including freeform answer text. `"just-correctness"` renders named buckets but hides typed freeform text. `"no"` renders only the answer plus reactions plus the leaderboard. On UPDATE: passing `null` clears the field. Mid-season mutation permitted.',
         ),
     },
     async (args) => {
@@ -239,6 +255,16 @@ export function createUpsertSeasonTool(
           theme = normalized.value;
         }
 
+        const liveAnswersVisible: boolean | undefined =
+          args.liveAnswersVisible === undefined || args.liveAnswersVisible === null
+            ? undefined
+            : args.liveAnswersVisible;
+
+        const revealResponses: RevealResponsesMode | undefined =
+          args.revealResponses === undefined || args.revealResponses === null
+            ? undefined
+            : args.revealResponses;
+
         const entry: SeasonEntry = {
           slug: args.slug,
           startedAt: args.startedAt,
@@ -255,6 +281,8 @@ export function createUpsertSeasonTool(
           ...(difficulty !== undefined ? { difficulty } : {}),
           ...(difficultyRatio !== undefined ? { difficultyRatio } : {}),
           ...(format !== undefined ? { format } : {}),
+          ...(liveAnswersVisible !== undefined ? { liveAnswersVisible } : {}),
+          ...(revealResponses !== undefined ? { revealResponses } : {}),
         };
 
         try {
@@ -283,6 +311,8 @@ export function createUpsertSeasonTool(
           hasDifficultyRatio: entry.difficultyRatio !== undefined,
           hasFormat: entry.format !== undefined,
           slotCount: entry.format?.questions.length ?? 0,
+          hasLiveAnswersVisible: entry.liveAnswersVisible !== undefined,
+          hasRevealResponses: entry.revealResponses !== undefined,
         });
       }
 
@@ -374,6 +404,20 @@ export function createUpsertSeasonTool(
         updatedTheme = normalized.value;
       }
 
+      let updatedLiveAnswersVisible: boolean | undefined = existing.liveAnswersVisible;
+      if (args.liveAnswersVisible === null) {
+        updatedLiveAnswersVisible = undefined;
+      } else if (args.liveAnswersVisible !== undefined) {
+        updatedLiveAnswersVisible = args.liveAnswersVisible;
+      }
+
+      let updatedRevealResponses: RevealResponsesMode | undefined = existing.revealResponses;
+      if (args.revealResponses === null) {
+        updatedRevealResponses = undefined;
+      } else if (args.revealResponses !== undefined) {
+        updatedRevealResponses = args.revealResponses;
+      }
+
       const updated: SeasonEntry = {
         slug: existing.slug,
         startedAt: args.startedAt ?? existing.startedAt,
@@ -396,6 +440,12 @@ export function createUpsertSeasonTool(
           ? { difficultyRatio: updatedDifficultyRatio }
           : {}),
         ...(updatedFormat !== undefined ? { format: updatedFormat } : {}),
+        ...(updatedLiveAnswersVisible !== undefined
+          ? { liveAnswersVisible: updatedLiveAnswersVisible }
+          : {}),
+        ...(updatedRevealResponses !== undefined
+          ? { revealResponses: updatedRevealResponses }
+          : {}),
       };
 
       const effectiveEnd = updated.endedAt ?? updated.expectedEndAt;
@@ -437,6 +487,8 @@ export function createUpsertSeasonTool(
         hasDifficultyRatio: updated.difficultyRatio !== undefined,
         hasFormat: updated.format !== undefined,
         slotCount: updated.format?.questions.length ?? 0,
+        hasLiveAnswersVisible: updated.liveAnswersVisible !== undefined,
+        hasRevealResponses: updated.revealResponses !== undefined,
       });
     },
   );

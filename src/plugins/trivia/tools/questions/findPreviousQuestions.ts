@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { textResult, errorResult } from "../../../../tools/helpers.js";
+import { getAnswerTypeHandler } from "../../answerTypes/registry.js";
+import type { JsonValue } from "../../core/configTypes.js";
 import { findCurrentSeason } from "../../core/seasonTimeline.js";
 import { defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
 import { requireGame } from "../../core/gamesRegistry.js";
@@ -10,35 +12,12 @@ import type { TriviaDataLayer, TriviaQuestion } from "../../core/types.js";
 // requested during a timeline gap (current season doesn't exist, so the result must be empty).
 const NO_MATCH_SENTINEL = "__no_match_sentinel__";
 
-// The response intentionally omits the answer-key fields (`isTrue` for boolean
-// questions, `correctIndex` for choice questions) — the answer key is not
-// search-safe and is reachable only via the admin-tier `get_question_history` tool.
-// For choice questions, `choices` is included (the option strings themselves are
-// not the answer key — only the `correctIndex` is).
-type SearchResultQuestion = Pick<
-  TriviaQuestion,
-  | "id"
-  | "answersFormat"
-  | "questionType"
-  | "category"
-  | "statement"
-  | "choices"
-  | "emojis"
-  | "createdAt"
-  | "postedAt"
-  | "messageLink"
-  | "processedAt"
-  | "season"
-  | "slot"
-  | "suggestedDifficulty"
-  | "difficulty"
-  | "context"
-  | "sourceUrl"
-  | "eventDate"
->;
-
-function toSearchResult(q: TriviaQuestion): SearchResultQuestion {
-  const result: SearchResultQuestion = {
+// The response intentionally omits the answer-key fields — per-format extras
+// are sourced from `handler.buildSearchResult(q)` so this tool never reads
+// format-specific fields directly. Adding a 4th format means writing one new
+// `buildSearchResult` on its handler; this projection doesn't move.
+function toSearchResult(q: TriviaQuestion): Record<string, JsonValue> {
+  const result: Record<string, JsonValue> = {
     id: q.id,
     category: q.category,
     statement: q.statement,
@@ -47,7 +26,6 @@ function toSearchResult(q: TriviaQuestion): SearchResultQuestion {
   };
   if (q.answersFormat !== undefined) result.answersFormat = q.answersFormat;
   if (q.questionType !== undefined) result.questionType = q.questionType;
-  if (q.choices !== undefined) result.choices = q.choices;
   if (q.postedAt !== undefined) result.postedAt = q.postedAt;
   if (q.messageLink !== undefined) result.messageLink = q.messageLink;
   if (q.processedAt !== undefined) result.processedAt = q.processedAt;
@@ -58,7 +36,8 @@ function toSearchResult(q: TriviaQuestion): SearchResultQuestion {
   if (q.context !== undefined) result.context = q.context;
   if (q.sourceUrl !== undefined) result.sourceUrl = q.sourceUrl;
   if (q.eventDate !== undefined) result.eventDate = q.eventDate;
-  return result;
+  const handler = getAnswerTypeHandler(q.answersFormat);
+  return { ...result, ...handler.buildSearchResult(q) };
 }
 
 export function createFindPreviousQuestionsTool(

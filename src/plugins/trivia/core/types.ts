@@ -8,6 +8,7 @@ import type {
   TriviaContextEntry,
   TriviaDifficultyConfig,
   TriviaDifficultyRatioConfig,
+  RevealResponsesMode,
 } from "./configTypes.js";
 
 /**
@@ -112,6 +113,21 @@ export interface TriviaQuestion {
    * the same way `season` is, so the record's meaning survives format edits).
    */
   slot?: { index: number; label?: string };
+  /**
+   * Resolved at `post_questions` time from the cascade
+   * `slot → season → game → workspace → true`. Read by the live roster
+   * rebuild (`editRosterIntoCard`) to decide whether to show each answerer's
+   * pick alongside their name. Absent on legacy / pre-feature rows; absence
+   * SHALL be read as `true` (the cascaded default).
+   */
+  liveAnswersVisible?: boolean;
+  /**
+   * Resolved at `post_questions` time from the cascade
+   * `slot → season → game → workspace → "yes"`. Read by `process_reveal_answers`
+   * when assembling the per-reveal payload's `voters` field. Absent on legacy
+   * / pre-feature rows; absence SHALL be read as `"yes"`.
+   */
+  revealResponses?: RevealResponsesMode;
 }
 
 // `cheatAttempts` is cumulative across seasons — season rollover does not reset it.
@@ -220,6 +236,16 @@ export interface SeasonEntry {
    * changes take effect on the next question-cron fire.
    */
   format?: SeasonFormat;
+  /**
+   * Per-season tier of the live-roster-footer visibility axis. Cascade:
+   *   `slot → season → game → workspace → true`.
+   */
+  liveAnswersVisible?: boolean;
+  /**
+   * Per-season tier of the reveal-time participation disclosure axis. Cascade:
+   *   `slot → season → game → workspace → "yes"`.
+   */
+  revealResponses?: RevealResponsesMode;
 }
 
 export interface SeasonsState {

@@ -8,7 +8,7 @@ The trivia plugin provides an MCP tool to post curated questions to Slack channe
 
 ### Requirement: post_questions MCP Tool
 
-The trivia plugin SHALL register an MCP tool named `post_questions` (admin role) that accepts a game name and an array of items — each item carrying a `questionId` and a `blocks` payload — and, for each item, posts the question to the game's configured Slack channel, retrieves the message's permalink, stamps `postedAt` and `messageLink` on the question record, and adds the appropriate vote reactions.
+The trivia plugin SHALL register an MCP tool named `post_questions` (admin role) that accepts a game name and an array of items — each item carrying a `questionId` and a `blocks` payload — and, for each item, posts the question to the game's configured Slack channel, retrieves the message's permalink, stamps `postedAt`, `messageLink`, and `liveAnswersVisible` on the question record, and appends an answer-buttons `actions` block sized to the question's `answersFormat`.
 
 The tool's input schema SHALL be:
 
@@ -24,12 +24,21 @@ The tool's input schema SHALL be:
 
 Channel resolution SHALL read `config.trivia.games[game].channel` at tool invocation time. The tool SHALL NOT accept a `channel` argument. The tool SHALL reject the call with a structured error when `config.trivia.games[game]` cannot be resolved or is disabled.
 
-Reactions SHALL be derived per item from the stored question's `type` and (for choice questions) `choices.length`:
+For each item, the tool SHALL append an `actions` block to the END of the item's `blocks` array (after Claude's authored content), sized and labeled per the question's stored `answersFormat`:
 
-- `type === "boolean"` (or absent) → `["+1", "-1"]` in that order.
-- `type === "choice"` → `["one", "two", "three", "four"].slice(0, question.choices.length)` in that order.
+- `answersFormat === "boolean"` (or absent): two buttons, `{ text: "👍 TRUE", action_id: "plugin:trivia:vote:<questionId>:true", style: "primary" }` and `{ text: "👎 FALSE", action_id: "plugin:trivia:vote:<questionId>:false" }`, in that order.
+- `answersFormat === "choice"`: 2–4 buttons sized to `question.choices.length`. Button `i` (0-indexed) SHALL have `text: "<numbered-emoji> <choices[i]>"` (numbered emoji is `1️⃣`, `2️⃣`, `3️⃣`, `4️⃣` for indices 0–3 respectively) and `action_id: "plugin:trivia:vote:<questionId>:<i>"`.
+- `answersFormat === "freeform"`: one button, `{ text: "Answer", action_id: "plugin:trivia:freeform-answer:<questionId>", style: "primary" }`.
 
-The tool SHALL NOT accept a `reactions` argument; the derivation is the only source.
+The tool SHALL NOT attach any reactions to the posted message. Vote reactions (`+1`/`-1`, `one`/`two`/`three`/`four`) SHALL NEVER be auto-attached. Users may still react manually; those reactions are consumed at reveal time as commentary only (see `trivia-reveal-processor`).
+
+The tool SHALL NOT accept a `reactions` argument.
+
+For each item, the tool SHALL resolve `liveAnswersVisible` from the cascade `slot.liveAnswersVisible → season.liveAnswersVisible → game.liveAnswersVisible → config.trivia.liveAnswersVisible → true (default)` and SHALL stamp the resolved boolean onto the question record alongside `postedAt`, `messageLink`, and `batchId`. The stamp SHALL happen in the same atomic `updateQuestion` write. Subsequent roster-footer rebuilds SHALL read this stamped value, not re-resolve the cascade.
+
+For each item, the tool SHALL ALSO resolve `revealResponses` from the cascade `slot.revealResponses → season.revealResponses → game.revealResponses → config.trivia.revealResponses → "yes" (default)` and SHALL stamp the resolved value (`"no"` | `"just-correctness"` | `"yes"`) onto the question record in the same atomic `updateQuestion` write. Subsequent reveal-payload assembly inside `process_reveal_answers` SHALL read this stamped value, not re-resolve the cascade.
+
+The tool SHALL stamp the full `blocks` array (with the appended `actions` block) onto the question record as `postedBlocks`, so that subsequent roster-footer rebuilds via `chat.update` can compose `[...postedBlocks, ...rosterBlocks]` from a stable base.
 
 The tool's return shape SHALL be:
 
@@ -94,23 +103,106 @@ When a manual operator calls `post_questions` twice with overlapping `items` arr
 - **THEN** `Q1` and `Q2` are idempotently skipped and retain `batchId: "batch-A"`
 - **AND** `Q3` and `Q4` are freshly posted and BOTH carry a new shared `batchId: "batch-B"` (with `"batch-B" !== "batch-A"`)
 
-#### Scenario: Successful single-item post stamps the question record
+#### Scenario: Boolean question gets vote buttons, no reactions
 
-- **GIVEN** `config.trivia.games[]` contains `{ name: "main", channel: "C123", enabled: true, ... }`
-- **AND** `games/main/questions.json` contains a question with `id: "Q1"`, `type: "boolean"`, no `postedAt`, no `messageLink`
+- **GIVEN** `games/main/questions.json` contains `Q1` with `answersFormat: "boolean"` and no `postedAt`
 - **WHEN** `post_questions({ game: "main", items: [{ questionId: "Q1", blocks: <valid> }] })` is called
-- **THEN** the message is posted to channel `C123` with the provided blocks
-- **AND** `chat.getPermalink` is called for the resulting `ts`
-- **AND** the question record is updated with `postedAt = floor(parseFloat(ts) * 1000)` and `messageLink = <permalink>`
-- **AND** reactions `["+1", "-1"]` are added in that order to the posted message
-- **AND** `results[0]` equals `{ questionId: "Q1", ok: true, ts: <slack-ts>, permalink: <permalink> }`
+- **THEN** the posted message includes an `actions` block as its final block with TWO buttons: `{ text: "👍 TRUE", action_id: "plugin:trivia:vote:Q1:true", style: "primary" }` followed by `{ text: "👎 FALSE", action_id: "plugin:trivia:vote:Q1:false" }`
+- **AND** NO reactions are attached to the message
+- **AND** the question record is stamped with `postedAt`, `messageLink`, `batchId`, `postedBlocks`, and `liveAnswersVisible`
 
-#### Scenario: Choice question derives numbered reactions sized to choices.length
+#### Scenario: 4-choice question gets numbered-emoji buttons sized to choices
 
-- **GIVEN** `games/main/questions.json` contains a question with `id: "Q2"`, `type: "choice"`, `choices: ["a", "b", "c"]`, no `postedAt`
+- **GIVEN** `games/main/questions.json` contains `Q2` with `answersFormat: "choice"` and `choices: ["The Beatles", "Led Zeppelin", "Cream", "The Who"]`
 - **WHEN** `post_questions({ game: "main", items: [{ questionId: "Q2", blocks: <valid> }] })` is called
-- **THEN** reactions `["one", "two", "three"]` are added in that order to the posted message
-- **AND** the question record is stamped with `postedAt` and `messageLink`
+- **THEN** the posted message's final block is an `actions` block with FOUR buttons in order:
+  - `{ text: "1️⃣ The Beatles", action_id: "plugin:trivia:vote:Q2:0" }`
+  - `{ text: "2️⃣ Led Zeppelin", action_id: "plugin:trivia:vote:Q2:1" }`
+  - `{ text: "3️⃣ Cream", action_id: "plugin:trivia:vote:Q2:2" }`
+  - `{ text: "4️⃣ The Who", action_id: "plugin:trivia:vote:Q2:3" }`
+- **AND** NO reactions are attached
+
+#### Scenario: 3-choice question sizes buttons correctly
+
+- **GIVEN** `Q3` with `answersFormat: "choice"` and `choices: ["A", "B", "C"]`
+- **WHEN** `post_questions` posts `Q3`
+- **THEN** the actions block contains exactly THREE buttons with action_ids `plugin:trivia:vote:Q3:0`, `plugin:trivia:vote:Q3:1`, `plugin:trivia:vote:Q3:2`
+
+#### Scenario: Freeform question keeps its Answer button, no reactions
+
+- **GIVEN** `Q4` with `answersFormat: "freeform"`
+- **WHEN** `post_questions` posts `Q4`
+- **THEN** the actions block contains one `{ text: "Answer", action_id: "plugin:trivia:freeform-answer:Q4", style: "primary" }` button
+- **AND** NO reactions are attached
+
+#### Scenario: liveAnswersVisible cascade resolved at post time
+
+- **GIVEN** `config.trivia.liveAnswersVisible: true`, no game / season / slot override, and `Q1` belongs to the active batch
+- **WHEN** `post_questions` posts `Q1`
+- **THEN** the question record is updated with `liveAnswersVisible: true`
+
+#### Scenario: liveAnswersVisible game-level override is honored
+
+- **GIVEN** `config.trivia.liveAnswersVisible: true` and the game's config has `liveAnswersVisible: false`
+- **WHEN** `post_questions` posts a question for that game
+- **THEN** the question record is stamped `liveAnswersVisible: false`
+
+#### Scenario: liveAnswersVisible slot-level override beats season and game
+
+- **GIVEN** `config.trivia.liveAnswersVisible: true`, season override `false`, game override `true`, and the slot the question is being posted into has `liveAnswersVisible: false`
+- **WHEN** `post_questions` posts the question
+- **THEN** the question record is stamped `liveAnswersVisible: false` (slot wins the cascade)
+
+#### Scenario: liveAnswersVisible defaults to true when nothing overrides
+
+- **GIVEN** no `liveAnswersVisible` value is set at slot, season, game, or workspace config
+- **WHEN** `post_questions` posts a question
+- **THEN** the question record is stamped `liveAnswersVisible: true`
+
+#### Scenario: Stamped value isolates against mid-round config edits
+
+- **GIVEN** `Q1` was posted with stamped `liveAnswersVisible: true`
+- **AND** an admin updates `config.trivia.liveAnswersVisible` to `false` AFTER the post
+- **WHEN** a new answerer clicks a vote button on `Q1` and the roster footer rebuilds
+- **THEN** the footer renders in the visible-answers layout (per the stamped `true`), NOT the hidden layout
+
+#### Scenario: revealResponses cascade resolved at post time
+
+- **GIVEN** `config.trivia.revealResponses: "yes"`, no game / season / slot override, and `Q1` belongs to the active batch
+- **WHEN** `post_questions` posts `Q1`
+- **THEN** the question record is updated with `revealResponses: "yes"`
+
+#### Scenario: revealResponses game-level override is honored
+
+- **GIVEN** `config.trivia.revealResponses: "yes"` and the game's config has `revealResponses: "just-correctness"`
+- **WHEN** `post_questions` posts a question for that game
+- **THEN** the question record is stamped `revealResponses: "just-correctness"`
+
+#### Scenario: revealResponses slot-level override beats season and game
+
+- **GIVEN** `config.trivia.revealResponses: "yes"`, season override `"just-correctness"`, game override `"yes"`, and the slot has `revealResponses: "no"`
+- **WHEN** `post_questions` posts the question
+- **THEN** the question record is stamped `revealResponses: "no"` (slot wins the cascade)
+
+#### Scenario: revealResponses defaults to "yes" when nothing overrides
+
+- **GIVEN** no `revealResponses` value is set at slot, season, game, or workspace config
+- **WHEN** `post_questions` posts a question
+- **THEN** the question record is stamped `revealResponses: "yes"`
+
+#### Scenario: revealResponses stamped value isolates against mid-round config edits
+
+- **GIVEN** `Q1` was posted with stamped `revealResponses: "no"`
+- **AND** an admin updates `config.trivia.revealResponses` to `"yes"` AFTER the post
+- **WHEN** `process_reveal_answers` runs for `Q1`'s batch
+- **THEN** the reveal payload's `voters` for `Q1` carries `revealResponses: "no"` (per the stamped value), NOT the new live-config value
+
+#### Scenario: postedBlocks is stamped for all formats
+
+- **GIVEN** a question of any `answersFormat` is being posted
+- **WHEN** `post_questions` completes the post
+- **THEN** `question.postedBlocks` is set to the full Block Kit array (including the appended `actions` block)
+- **AND** subsequent `chat.update` calls for the roster footer can compose against this base
 
 #### Scenario: Multi-item batch posts each question and stamps each record
 
@@ -204,17 +296,6 @@ The tool SHALL treat `questionId` as the correlation key. A question record with
 - **AND** the question record's `postedAt` and `messageLink` are unchanged
 - **AND** `results[0]` reports `ok: true` with the prior `ts` and `permalink`
 
-### Requirement: post_questions Stamps Atomically Before Reacting
-
-For each item, the question record's `postedAt` and `messageLink` SHALL be written to disk BEFORE the reactions are added to the posted message. A reaction-add failure SHALL NOT undo the stamp; reactions are best-effort (consistent with the existing `addDeliveryReactions` contract).
-
-#### Scenario: Stamp persists even when reaction-add fails
-
-- **GIVEN** Slack `chat.postMessage` succeeds and `chat.getPermalink` succeeds
-- **AND** the subsequent `reactions.add` call fails with a non-`already_reacted` error
-- **WHEN** `post_questions` returns
-- **THEN** the question record on disk is stamped with `postedAt` and `messageLink`
-- **AND** `results[<item>].ok` is `true` (the stamping succeeded; reactions are best-effort and logged as warnings)
 
 ### Requirement: post_questions Accepts appendToPreviousBatch Flag
 
@@ -306,39 +387,4 @@ The previous-batch resolution and the revealed-batch / no-batch checks SHALL run
 - **WHEN** `post_questions({ game: "main", items: [...], appendToPreviousBatch: true })` is called
 - **THEN** the tool returns the append-flag error (not a `results` array of idempotent skips)
 
-### Requirement: Freeform Question Card Includes Answer Button
 
-When `post_questions` posts a question whose `answersFormat === "freeform"`, the posted Block Kit payload SHALL include a Slack `actions` block containing exactly one button with:
-
-- `text`: literal `"Answer"`
-- `style`: `"primary"`
-- `action_id`: `"plugin:trivia:freeform-answer:<questionId>"` (the `plugin:trivia:` prefix is the plugin-interactivity SDK's namespacing convention; the `freeform-answer:` segment is the trivia plugin's local action key; `<questionId>` is the question record's id and lets the action handler resolve the target question)
-
-The button SHALL appear directly below the question statement and category emojis.
-
-#### Scenario: Freeform card carries the button
-
-- **WHEN** `post_questions` posts a freeform question with `id: "q-abc"`
-- **THEN** the posted message's blocks include an `actions` block with one button: `{ text: "Answer", action_id: "plugin:trivia:freeform-answer:q-abc" }`
-
-#### Scenario: Boolean and choice cards unaffected
-
-- **WHEN** `post_questions` posts a boolean or choice question
-- **THEN** no `Answer` button is added to the message
-- **AND** the existing vote-reaction seeding runs as before
-
-### Requirement: Freeform Questions Are Posted Without Reactions
-
-When `post_questions` posts a freeform question, the reaction-derivation step SHALL produce an empty list and the tool SHALL skip the `addDeliveryReactions` call entirely. No `+1`/`-1` reactions and no numeric (`one`/`two`/`three`/`four`) reactions SHALL be seeded on freeform messages.
-
-#### Scenario: Freeform card has no reactions
-
-- **WHEN** `post_questions` posts a freeform question
-- **THEN** the per-question result's `reactions` (if returned) is `[]`
-- **AND** no `reactions.add` Slack call is made for the question's message
-
-#### Scenario: deriveReactions returns empty for freeform
-
-- **WHEN** the internal `deriveReactions(question)` helper is invoked on a freeform question
-- **THEN** it returns `[]`
-- **AND** is consistent for both `answersFormat: "freeform"` records with or without `acceptableAnswers` populated

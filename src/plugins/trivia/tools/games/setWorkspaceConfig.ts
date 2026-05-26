@@ -63,6 +63,20 @@ export function createSetWorkspaceConfigTool() {
         .describe(
           "Seasons feature toggle + author prompt. null clears (disables the feature for the workspace).",
         ),
+      liveAnswersVisible: z
+        .boolean()
+        .nullable()
+        .optional()
+        .describe(
+          "Workspace default for the live-roster-footer visibility axis. true (default) reveals each answerer's pick in the live footer; false shows names only. null clears.",
+        ),
+      revealResponses: z
+        .enum(["no", "just-correctness", "yes"])
+        .nullable()
+        .optional()
+        .describe(
+          'Workspace default for the reveal-time participation disclosure axis. "yes" (default) renders full named voter buckets; "just-correctness" hides freeform answer text; "no" hides per-user buckets entirely. null clears.',
+        ),
     },
     async (args) => {
       // Detect "no fields to update" — every field undefined.
@@ -192,6 +206,24 @@ export function createSetWorkspaceConfigTool() {
         }
         next.seasons = { enabled: args.seasons.enabled, prompt: args.seasons.prompt };
         updatedFields.push("seasons");
+      }
+
+      // liveAnswersVisible: apply or clear.
+      if (args.liveAnswersVisible === null) {
+        delete next.liveAnswersVisible;
+        updatedFields.push("liveAnswersVisible (cleared)");
+      } else if (args.liveAnswersVisible !== undefined) {
+        next.liveAnswersVisible = args.liveAnswersVisible;
+        updatedFields.push("liveAnswersVisible");
+      }
+
+      // revealResponses: apply or clear.
+      if (args.revealResponses === null) {
+        delete next.revealResponses;
+        updatedFields.push("revealResponses (cleared)");
+      } else if (args.revealResponses !== undefined) {
+        next.revealResponses = args.revealResponses;
+        updatedFields.push("revealResponses");
       }
 
       if (issues.length > 0) {

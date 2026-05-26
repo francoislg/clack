@@ -522,7 +522,7 @@ General emoji rule (re-emphasized): the opener's header MUST use Unicode emoji (
 9. BUILD THE QUESTION CARD BLOCKS:
    Apply your persona from the \`trivia\` topic of your system instructions — add excitement, build anticipation, make it feel like a real game show moment.
 
-   Compose a \`blocks\` array (Clack's curated subset: divider, header, section, context, image, markdown, card, carousel) — you'll hand it to \`post_questions\` in step 10. Do NOT include reactions in the blocks; the tool attaches them automatically based on the question's stored type. For the trivia question, use this FIVE-BLOCK layout — the structure stays fixed; the wording is where your persona lives:
+   Compose a \`blocks\` array (Clack's curated subset: divider, header, section, context, image, markdown, card, carousel) — you'll hand it to \`post_questions\` in step 10. Do NOT include the answer affordance (buttons) in the blocks; \`post_questions\` appends an \`actions\` block for ALL formats automatically — boolean gets \`[👍 TRUE, 👎 FALSE]\`, choice gets \`[1️⃣, 2️⃣, …]\` sized to \`choices.length\`, freeform gets a single \`Answer\` button that opens the modal. The tool inserts that actions block between your card (#3) and your closer context (#4) at post-time. Use this FOUR-BLOCK layout — the structure stays fixed; the wording is where your persona lives:
 
    1. \`header\` block — \`text: { type: "plain_text", text: "..." }\`. plain_text only — no \`*bold*\`.
       - SINGLE-QUESTION FLOW, **and** every question after the first in MULTI-SLOT FLOW (slots 1..N-1): the show banner (e.g. "🎯 TRIVIA TIME!"). Vary the wording daily ("📣 STEP RIGHT UP!", "🎲 DAILY BRAIN TEASER", "🎯 TRIVIA TIME!", etc.).
@@ -534,19 +534,15 @@ General emoji rule (re-emphasized): the opener's header MUST use Unicode emoji (
    3. \`card\` block — the trivia card itself, holds JUST the question:
       - \`title\`: \`{ type: "mrkdwn", text: "<emoji> <Category>" }\` — JUST the category from step 1, with a topic-fitting emoji prefix. Same shape for BOTH fact and topical questions. No "TRIVIA TIME" here, no flavor text, no "(Current News)" suffix.
       - \`subtitle\`: TOPICAL questions ONLY (questionType: "topical") — \`{ type: "mrkdwn", text: "<Current News label>" }\`, a short "Current News" label rendered in the session's output language per the LANGUAGE directive (English \`Current News\`, French \`Actualités\`). This is what tells viewers the question is anchored to a recent event. OMIT entirely on FACT questions.
-      - \`body\`: \`{ type: "mrkdwn", text: "<statement>" }\` — JUST the statement. Do NOT include the TRUE/FALSE vote line, the choice options, or the freeform Answer-button nudge inside the card body — those all live in block #4 BELOW the card.
+      - \`body\`: \`{ type: "mrkdwn", text: "<statement>" }\` — JUST the statement. For choice questions, the choices themselves render as buttons (see ANSWER BUTTONS below); the card body holds the question text only. Do NOT include any inline TRUE/FALSE vote line, numbered choice list, or freeform Answer-button nudge inside the card body — buttons replace all of those.
       - Do NOT set \`hero_image\` or \`icon\`.
-   4. \`section\` block (mrkdwn) — the answer options, sitting BELOW the card. Shape depends on the question's answersFormat:
-      - **boolean** → text is exactly \`👍 TRUE  •  👎 FALSE\`. ALWAYS 👍 (TRUE) first, then 👎 (FALSE) — this order matters.
-      - **choice** → see CHOICE-PATH ANSWER OPTIONS below.
-      - **freeform** → see FREEFORM-PATH ANSWER OPTIONS below.
-   5. \`context\` block — a short closer line nudging people to vote ("Cast your vote below — the stakes are HIGH! 🎲", "Who will be crowned champion? 🏆", etc.). One mrkdwn element.
+   4. \`context\` block — a short closer line nudging people to vote ("Cast your vote below — the stakes are HIGH! 🎲", "Who will be crowned champion? 🏆", etc.). One mrkdwn element. The tool's appended \`actions\` block lands BETWEEN the card (#3) and this closer (#4), so the buttons sit right above your closer.
 
    NEVER predict when the answer will be revealed. Do NOT write phrases like "answer tomorrow", "results in 24 hours", "tune in later today", "we'll reveal soon", "stay tuned for tonight's reveal", or any other timing claim. The reveal is on a separate schedule that this run has no visibility into — guessing is wrong more often than it's right. Keep the closer focused on voting ("Cast your vote!", "Place your bets!", "Lock in your answer!") not on the reveal cadence.
 
    Invent a style for the header, warm-up patter, and closer each day — different each day keeps it fresh. Do NOT repeat yesterday's phrasing. Do NOT feel obligated to copy the example below. (Reminder: in MULTI-SLOT FLOW the slot-0 header is the date-stamped round opener described above, not a show banner.)
 
-   Example — dramatic reveal (boolean FACT question):
+   Example — boolean FACT question (the actions block with \`[👍 TRUE, 👎 FALSE]\` is appended by \`post_questions\` between the card and the closer — do NOT include it yourself):
    \`\`\`
    [
      { "type": "header", "text": { "type": "plain_text", "text": "🎯 TRIVIA TIME!" } },
@@ -556,46 +552,29 @@ General emoji rule (re-emphasized): the opener's header MUST use Unicode emoji (
        "title": { "type": "mrkdwn", "text": "🌍 Geography" },
        "body":  { "type": "mrkdwn", "text": "[statement]" }
      },
-     { "type": "section", "text": { "type": "mrkdwn", "text": "👍 TRUE  •  👎 FALSE" } },
      { "type": "context", "elements": [ { "type": "mrkdwn", "text": "Cast your vote below — the stakes are HIGH! 🎲" } ] }
    ]
    \`\`\`
 
    For a TOPICAL question, the card also carries a \`subtitle\` holding the localized Current News label (see step 9.3 — English \`Current News\`, French \`Actualités\`) between the title and body — everything else stays the same.
 
-   Add game show flair to the header, patter, and closer — "Step right up!", "The stakes are high!", "Who will be crowned champion?", "Let's see who's got the smarts!" — make it entertaining, and feel free to come up with your own openers. The card itself stays clean: category title, statement + vote line in the body, nothing else.
+   Add game show flair to the header, patter, and closer — "Step right up!", "The stakes are high!", "Who will be crowned champion?", "Let's see who's got the smarts!" — make it entertaining, and feel free to come up with your own openers. The card itself stays clean: category title and statement, nothing else.
 
-   CHOICE-PATH ANSWER OPTIONS (when suggestedAnswersFormat was "choice"):
-   - The card body holds JUST the statement (no inline options). Block #4 — the \`section\` sitting BELOW the card — holds the OPTIONS. Choose between two layouts for block #4 based on readability:
-     - **Stacked** (preferred when any choice text exceeds roughly 25 characters or choices read more naturally on separate lines):
-       \`\`\`
-       1️⃣ <choice0>
-       2️⃣ <choice1>
-       3️⃣ <choice2>
-       4️⃣ <choice3>
-       \`\`\`
-     - **Inline** (preferred when ALL choices are short):
-       \`\`\`
-       1️⃣ <choice0>  •  2️⃣ <choice1>  •  3️⃣ <choice2>  •  4️⃣ <choice3>
-       \`\`\`
-   - Numbered emoji prefix the options in INDEX order (1️⃣ for index 0, 2️⃣ for index 1, etc.). The visual order MUST match the stored \`choices\` array order — the bot's auto-attached numbered reactions align to each option's index, so a mismatch here breaks vote scoring.
-   - For choice questions, do NOT include the "👍 TRUE • 👎 FALSE" vote line in block #4 — that's the boolean shape only.
-
-   FREEFORM-PATH ANSWER OPTIONS (when suggestedAnswersFormat was "freeform"):
-   - The card body holds JUST the statement. Block #4 — the \`section\` sitting BELOW the card — holds a one-line nudge to use the Answer button (no inline answer options, no vote line). \`post_questions\` automatically appends the "Answer" button below ALL your blocks — DO NOT add a button block yourself.
-   - Block #4 example text:
-     \`\`\`
-     Hit the *Answer* button below to type your guess.
-     \`\`\`
-   - Reactions are NOT attached to freeform questions — answers come through the modal. Do not mention reaction voting in block #4 or the closer.
+   ANSWER BUTTONS (appended automatically by post_questions, NOT by you):
+   - \`post_questions\` reads each question's stored \`answersFormat\` and appends one \`actions\` block per item between your card (#3) and your closer (#4):
+     - **boolean** → two buttons labeled \`👍 TRUE\` and \`👎 FALSE\` (TRUE first, FALSE second — order matches the boolean's \`isTrue\` mapping).
+     - **choice** → \`choices.length\` buttons labeled \`1️⃣ <choice0>\`, \`2️⃣ <choice1>\`, … in the stored \`choices\` array order. The button's index IS the vote — keep the array order stable.
+     - **freeform** → one \`Answer\` button that opens a Slack modal for the user to type their guess.
+   - **Choice-question button-cap warning.** Slack's \`button.text\` field caps at roughly 75 characters; long choice strings will truncate inside the button. If a choice exceeds ~75 chars OR is hard to read without context, keep the full prose in the card \`body\` (e.g. "Which of these is the largest ocean?") and let the button label render the numbered shortcut alone (1️⃣ Pacific, 2️⃣ Atlantic, …). The button label is the option text — disambiguation belongs in the body, not in the button.
+   - You do NOT add a button block, an "answer options" section, or any inline "TRUE • FALSE" / "1️⃣ … • 2️⃣ …" text — the buttons ARE the affordance. Adding them yourself duplicates what the tool appends.
 
 10. POST THE QUESTION(S):
     Build one \`{ questionId, blocks }\` item per saved question. In the SINGLE-QUESTION FLOW, that is exactly one item. In the MULTI-SLOT FLOW, the items array length equals \`slotCount\` and items MUST be in slot-index order (slot 0 first, slot 1 second, …).
 
     Call \`post_questions({ game: "{game}", items })\` ONCE with the full array. The tool:
     - Posts each item as its own message to the game's configured Slack channel (you do NOT pass a channel).
-    - Stamps \`postedAt\` and \`messageLink\` on each question record so the reveal flow can find them later.
-    - Attaches vote reactions automatically per question: \`["+1", "-1"]\` for boolean, \`["one", "two", "three", "four"].slice(0, choices.length)\` for choice, and NONE for freeform (those carry an Answer button instead). You do NOT pass a \`reactions\` argument.
+    - Appends an \`actions\` block with answer buttons sized to the question's \`answersFormat\` (boolean → 2 buttons, choice → \`choices.length\` buttons, freeform → 1 \`Answer\` button that opens the modal). You do NOT pass a reactions or buttons argument — the tool builds the block from the stored question record.
+    - Stamps \`postedAt\`, \`messageLink\`, \`liveAnswersVisible\` (resolved per the slot → season → game → workspace → \`true\` cascade), and \`revealResponses\` (resolved per the slot → season → game → workspace → \`"yes"\` cascade) on each question record so the reveal flow can find them later.
 
     Check the \`results[i].ok\` field for each item in the return value. If any \`ok: false\`, the per-item error explains what went wrong.
 
@@ -609,8 +588,9 @@ The goal is to make people pause and think — aim for questions that are intere
 /**
  * Reveal-side prompt. A renderer brief, NOT an orchestration walkthrough.
  *
- * The deterministic work — finding the pending question, fetching reactions,
- * excluding the bot + cheaters + multi-react voters, scoring answers, fetching
+ * The deterministic work — finding the pending question, fetching reactions
+ * (now commentary only, no longer used for voting), excluding the bot +
+ * cheaters, scoring answers from button clicks and modal submissions, fetching
  * the leaderboard, and (when seasons are enabled) running season rollover —
  * happens inside the `process_reveal_answers` MCP tool. The prompt's only
  * responsibilities are: (1) call that tool, (2) render the returned payload
@@ -627,7 +607,7 @@ Deliver today's trivia reveal. There are exactly TWO steps — the deterministic
 
 1. CALL \`process_reveal_answers({ game: "{game}" })\` AND READ THE PAYLOAD:
 
-   The tool fetches the pending question's Slack message, excludes the bot + every flagged cheater + (for choice questions) multi-react voters, scores answers, persists them, stamps \`processedAt\`, computes the leaderboard, and — when seasons are enabled — runs season rollover on the final fire. You will NOT call \`fetch_channel_messages\`, \`find_previous_questions\`, \`get_question_history\`, \`submit_answers\`, \`retrieve_scores\`, \`check_season_status\`, or \`upsert_season\` — every one of those is now absorbed into this single tool.
+   The tool fetches the pending question's Slack message, excludes the bot + every flagged cheater, scores answers from the stored button clicks (boolean/choice) and modal submissions (freeform), persists them, stamps \`processedAt\`, computes the leaderboard, and — when seasons are enabled — runs season rollover on the final fire. Reactions are still fetched but ONLY as commentary, not as votes. You will NOT call \`fetch_channel_messages\`, \`find_previous_questions\`, \`get_question_history\`, \`submit_answers\`, \`retrieve_scores\`, \`check_season_status\`, or \`upsert_season\` — every one of those is now absorbed into this single tool.
 
    The returned payload shape:
    - \`game\`: the game's slug (internal — never surface).
@@ -635,9 +615,13 @@ Deliver today's trivia reveal. There are exactly TWO steps — the deterministic
      - \`questionId\`, \`statement\`, \`category\`, \`emojis\`, \`messageLink\`.
      - \`wasReprocessed\` (boolean) — true if this was a corrective re-run (rare; affects tone slightly — acknowledge subtly without dwelling).
      - \`answer\`: \`{ type: "boolean", isTrue }\` for boolean questions; \`{ type: "choice", choices, correctIndex }\` for choice; \`{ type: "freeform", expectedAnswer, acceptableAnswers?, gradingNotes? }\` for freeform (the user typed their answer into a modal).
-     - \`voters\`: \`{ correct: Voter[], incorrect: Voter[], fenceSitters: Voter[], wildcards: Array<{ userId, displayName, emoji }> }\`. \`fenceSitters\` is empty for choice and freeform. \`wildcards\` is empty for freeform (no reactions). For FREEFORM entries, every \`Voter\` in \`correct\` and \`incorrect\` carries an additional \`answerText\` field — the user's typed answer — which you MUST QUOTE in the reveal so players can see what they (and others) said. Caught cheaters are STRUCTURALLY ABSENT from the payload.
+     - \`voters\`: a DISCRIMINATED UNION keyed on \`voters.revealResponses\` (the per-question reveal-mode stamped at post-time by \`post_questions\`). One of three variants:
+       - \`{ revealResponses: "yes", correct: Voter[], incorrect: Voter[], noAnswer: Voter[], reactions: Array<{ userId, displayName, emojis: string[] }> }\` — full per-bucket detail; for FREEFORM entries, every \`Voter\` in \`correct\` and \`incorrect\` carries an additional \`answerText\` field (the user's typed answer) which you MUST QUOTE in the reveal.
+       - \`{ revealResponses: "just-correctness", correct: Voter[], incorrect: Voter[], noAnswer: Voter[], reactions: Array<{ userId, displayName, emojis: string[] }> }\` — same bucket structure as \`"yes"\`, BUT freeform \`Voter\`s have NO \`answerText\` field (admin chose to hide the typed strings). You MUST NOT invent or speculate about what they typed.
+       - \`{ revealResponses: "no", reactions: Array<{ userId, displayName, emojis: string[] }> }\` — NO per-user vote info at all; only the reaction-commentary list. You MUST NOT speculate about who voted what — render the answer + reactions + closer + leaderboard only.
+     - \`reactions\` (present in all three variants) is COMMENTARY, not votes. Each entry lists every emoji a user reacted with so you can riff on it ("<@U_ALICE> piped in with 🤔🔥"). Caught cheaters are STRUCTURALLY ABSENT from every list — they never appear in correct/incorrect/noAnswer/reactions.
    - \`leaderboard\`: array of \`{ userId, displayName, totalCorrect, totalAnswered, accuracy, currentSeasonCorrect?, currentSeasonAnswered? }\` already sorted in render order.
-   - \`roundSummary\`: \`{ totalQuestions, perPlayer: Array<{ userId, displayName, correct, answered, roundMvp? }> }\` — ALWAYS present, even for length-1 fires. Per-player aggregates across this fire's revealed questions. Already sorted (correct desc, displayName asc); already excludes cheaters/multi-react voters; you MUST NOT recompute it from \`reveals[].voters\` yourself. Use it directly in the multi-question branch's Round Summary section.
+   - \`roundSummary\` (OPTIONAL): \`{ totalQuestions, perPlayer: Array<{ userId, displayName, correct, answered, roundMvp? }> }\` — present ONLY when every entry in \`reveals\` was stamped \`revealResponses === "yes"\`. When ANY entry is \`"just-correctness"\` or \`"no"\`, \`roundSummary\` is OMITTED (the tool cannot produce per-player aggregates without per-user vote info). The multi-question layout MUST handle the missing case by skipping the Round Summary section. Already sorted (correct desc, displayName asc); already excludes cheaters; you MUST NOT recompute it from \`reveals[].voters\` yourself.
    - \`seasonStatus\` (only present when \`trivia.seasons.enabled\` is true): \`{ currentSlug, isLastFireOfSeason, seasonClosed, newSeasonStarted?, mvp? }\`. When \`isLastFireOfSeason\` is true the tool has ALREADY stamped \`endedAt\` and (when needed) created a continuation season — do NOT call \`upsert_season\`.
    - \`errors\` (optional): per-questionId structured errors from a reprocess batch. Surface a brief mention if present; otherwise omit.
 
@@ -648,8 +632,8 @@ Deliver today's trivia reveal. There are exactly TWO steps — the deterministic
    The block layout BRANCHES on \`reveals.length\`:
 
    - \`reveals.length === 0\`: post the empty-payload acknowledgement described above + the cumulative leaderboard table. No verdict blocks.
-   - \`reveals.length === 1\`: SINGLE-QUESTION layout (described immediately below). Use the full verdict + per-voter-bucket layout. The \`roundSummary\` field is IGNORED in this branch — the single voter-bucket sections already convey the same information per-player.
-   - \`reveals.length > 1\`: MULTI-QUESTION layout (see below the single-question section). Use brief per-question verdicts + a "Round Summary" section sourced from \`roundSummary.perPlayer\`. Trades verbose voter-bucket sections for an aggregate scoreboard so the message stays readable when there are several questions.
+   - \`reveals.length === 1\`: SINGLE-QUESTION layout (described immediately below). Use the verdict header + explanation + per-bucket sections appropriate to the entry's \`voters.revealResponses\` mode. The top-level \`roundSummary\` field is IGNORED in this branch.
+   - \`reveals.length > 1\`: MULTI-QUESTION layout (see below the single-question section). Use brief per-question verdicts; when \`roundSummary\` is present, follow them with a "Round Summary" section sourced from \`roundSummary.perPlayer\`. When \`roundSummary\` is absent (any entry is non-\`"yes"\` mode), skip the Round Summary block entirely.
 
    === SINGLE-QUESTION LAYOUT (when reveals.length === 1) ===
 
@@ -658,11 +642,14 @@ Deliver today's trivia reveal. There are exactly TWO steps — the deterministic
    - \`header\` block — \`text: { type: "plain_text", text: "..." }\`. Announce the verdict (e.g. "🎯 THE ANSWER IS TRUE!", "🎲 IT'S FALSE!" for boolean; "🎯 THE ANSWER IS C!" or similar for choice; for FREEFORM: "🎯 THE ANSWER WAS PARIS!" / "✏️ THE ANSWER: 1492!" — quote the canonical \`answer.expectedAnswer\`). plain_text only, no \`*bold*\`. Vary the wording each day.
    - \`section\` block (mrkdwn) — explain WHY the statement is true/false (boolean) or which choice was correct + why (choice). For FREEFORM, summarize the expected answer in one short factual sentence and (when \`answer.acceptableAnswers\` was populated) note that variants were accepted. Apply the REVEAL TONE from the \`trivia\` topic of your system instructions.
    - \`divider\` block — paces the reveal.
-   - One \`section\` block (mrkdwn) PER NON-EMPTY VOTER BUCKET. Skip empty buckets entirely (no placeholders, no "nobody here" lines). Possible buckets:
-     - CORRECT voters — celebrate with \`<@USERID>\` mentions. For FREEFORM entries, INCLUDE each voter's typed answer in quotes: "<@U_ALICE> said *Paris* — bullseye!" Quote multiple distinct answers when they appeared.
-     - INCORRECT voters — acknowledge with game-show charm. For FREEFORM, quote each voter's typed text so they see what was rejected: "<@U_BOB> hedged with *Paris or London* — the judge doesn't accept shotgun guesses!"
-     - FENCE-SITTERS (boolean only) — playful roast.
-     - WILDCARDS (boolean/choice only) — interpret their \`emoji\` with humor.
+   - **Per-bucket sections — BRANCH ON \`reveals[0].voters.revealResponses\`.** Skip empty arrays entirely in every branch (no placeholders, no "nobody here" lines).
+     - **\`"yes"\` mode** — render up to four sections (CORRECT / INCORRECT / NO-ANSWER / REACTIONS), one per non-empty array:
+       - CORRECT voters — celebrate with \`<@USERID>\` mentions. For FREEFORM entries, INCLUDE each voter's typed answer in quotes: "<@U_ALICE> said *Paris* — bullseye!" Quote multiple distinct answers when they appeared.
+       - INCORRECT voters — acknowledge with game-show charm. For FREEFORM, quote each voter's typed text so they see what was rejected: "<@U_BOB> hedged with *Paris or London* — the judge doesn't accept shotgun guesses!"
+       - NO-ANSWER voters (anyone in \`voters.noAnswer\`) — a playful nudge ("<@U_CAROL> kept their cards close — no vote logged.").
+       - REACTIONS commentary (when \`voters.reactions\` is non-empty) — ONE section listing each reactor by display name with the emoji set they used ("<@U_DAVE> piped in with 🤔🔥, <@U_EVE> dropped a 👀"). Reactions are NOT votes — frame them as color/commentary on the round.
+     - **\`"just-correctness"\` mode** — same four-section structure as \`"yes"\`, BUT freeform \`Voter\`s in \`correct\`/\`incorrect\` do NOT carry \`answerText\`. Name them only — DO NOT invent or speculate about what they typed. The admin chose to suppress the typed strings; respect that.
+     - **\`"no"\` mode** — render NO per-bucket sections at all. After the divider, jump straight to (optional) reactions commentary if \`voters.reactions\` is non-empty, then the closer + leaderboard. You MUST NOT speculate about who voted what — the payload carries no per-user vote info for this question.
    - When \`seasonStatus.isLastFireOfSeason\` is true: insert ONE additional \`section\` block above the closer that names the closing season's slug (from \`seasonStatus.currentSlug\`) and calls out the MVP (from \`seasonStatus.mvp\`). Apply the SEASON-FINALE TONE from the \`trivia\` topic of your system instructions for the wrap-up wording. Do NOT preview the new season's slug — leave that for a future fire to announce.
    - \`context\` block — short closer ("That's a wrap! Here's the running scoreboard:") leading into the leaderboard. Do NOT predict timing — the next reveal is on a separate schedule you have no visibility into.
 
@@ -671,9 +658,12 @@ Deliver today's trivia reveal. There are exactly TWO steps — the deterministic
    When the active season has a format, a single cron fire posts N questions and one reveal must cover all of them. The verbose per-voter-bucket layout multiplies badly, so use this compressed shape instead:
 
    - One \`header\` block — \`text: { type: "plain_text", text: "..." }\`. Introduce the multi-question reveal (e.g. "🎯 ROUND RECAP — N QUESTIONS!", "🏆 THE VERDICTS ARE IN!", etc.). Vary the wording. plain_text only.
-   - One \`section\` block PER question (in the same order as \`reveals\`). Keep each one BRIEF — ≤ 2 short sentences. Open with the verdict label (e.g. "Q1: ✅ TRUE!" or "Q3: 🎯 The answer was 'Tokyo'!" or for freeform "Q2: ✏️ The answer: *Paris*"). For FREEFORM questions, the teaser MAY quote one or two notable typed answers ("Alice nailed it with *Paris*; Bob shotgunned and was rejected"). For boolean/choice, follow with a single-line voter teaser ("Alice and Bob nailed it; Carol fell for the trap"). Do NOT enumerate every voter individually here — that's what the Round Summary is for.
+   - One \`section\` block PER question (in the same order as \`reveals\`). Keep each one BRIEF — ≤ 2 short sentences. Open with the verdict label (e.g. "Q1: ✅ TRUE!" or "Q3: 🎯 The answer was 'Tokyo'!" or for freeform "Q2: ✏️ The answer: *Paris*"). The voter teaser depends on the entry's \`voters.revealResponses\`:
+     - **\`"yes"\` or \`"just-correctness"\`** — follow the verdict label with a single-line voter teaser ("Alice and Bob nailed it; Carol fell for the trap"). For FREEFORM \`"yes"\` entries the teaser MAY quote one or two notable typed answers; for \`"just-correctness"\` entries name-only — do NOT invent text content.
+     - **\`"no"\`** — the brief verdict line stands on its own. Do NOT name voters or describe who got it right — the payload carries no per-user info for this question. ("Q3: 🎯 The answer was 'Tokyo'." — full stop.)
+     - Do NOT enumerate every voter individually in any mode — that's what the Round Summary is for when it's present.
    - One \`divider\` block — separates the verdicts from the summary.
-   - One \`section\` block titled "🏆 Round Summary" (or similar). List each player from \`roundSummary.perPlayer\` IN ORDER as \`<@USERID>: <correct>/<totalQuestions>\` (or any in-persona phrasing). Prefix every entry whose \`roundMvp: true\` is set with \`🏆\` (e.g. "🏆 <@U123>: 3/3"). DO NOT recompute the counts — read them straight from \`roundSummary.perPlayer\`. DO NOT add players who aren't in \`perPlayer\` (the tool already filters out anyone who didn't answer this round).
+   - **Round Summary section — GATED on \`roundSummary\` presence.** When \`roundSummary\` is present (every entry is \`"yes"\` mode), render ONE \`section\` block titled "🏆 Round Summary" (or similar): list each player from \`roundSummary.perPlayer\` IN ORDER as \`<@USERID>: <correct>/<totalQuestions>\` (or any in-persona phrasing). Prefix every entry whose \`roundMvp: true\` is set with \`🏆\` (e.g. "🏆 <@U123>: 3/3"). DO NOT recompute the counts — read them straight from \`roundSummary.perPlayer\`. DO NOT add players who aren't in \`perPlayer\` (the tool already filters out anyone who didn't answer this round). When \`roundSummary\` is ABSENT (any entry in this round is \`"just-correctness"\` or \`"no"\`), SKIP this Round Summary block entirely — the per-question verdicts and the cumulative leaderboard table below carry the closer on their own.
    - When \`seasonStatus.isLastFireOfSeason\` is true: insert ONE additional \`section\` block above the closer that names the closing season's slug and calls out the season MVP (from \`seasonStatus.mvp\`). Apply the SEASON-FINALE TONE from the \`trivia\` topic for the wrap-up wording. Same rule as the single-question branch.
    - One \`context\` block — short closer leading into the cumulative leaderboard. Same timing-prediction prohibition as the single-question branch.
 

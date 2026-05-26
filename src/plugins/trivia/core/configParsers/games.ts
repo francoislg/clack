@@ -6,8 +6,14 @@
  */
 
 import { CronExpressionParser } from "cron-parser";
-import type { JsonObject, JsonValue, OffDay, TriviaGame } from "../configTypes.js";
-import { parseTriviaAxisBag, type ParseIssue } from "./axes.js";
+import type {
+  JsonObject,
+  JsonValue,
+  OffDay,
+  RevealResponsesMode,
+  TriviaGame,
+} from "../configTypes.js";
+import { isRevealResponsesMode, parseTriviaAxisBag, type ParseIssue } from "./axes.js";
 import { validateFormat } from "./format.js";
 
 /** Game-name format: filesystem-safe kebab-case, 1–32 chars. */
@@ -167,6 +173,30 @@ export function parseTriviaGame(
     }
   }
 
+  let liveAnswersVisible: boolean | undefined;
+  if (e.liveAnswersVisible !== undefined && e.liveAnswersVisible !== null) {
+    if (typeof e.liveAnswersVisible !== "boolean") {
+      issues.push({
+        field: `${fieldPrefix}.liveAnswersVisible`,
+        error: `must be a boolean (got ${typeof e.liveAnswersVisible})`,
+      });
+    } else {
+      liveAnswersVisible = e.liveAnswersVisible;
+    }
+  }
+
+  let revealResponses: RevealResponsesMode | undefined;
+  if (e.revealResponses !== undefined && e.revealResponses !== null) {
+    if (isRevealResponsesMode(e.revealResponses)) {
+      revealResponses = e.revealResponses;
+    } else {
+      issues.push({
+        field: `${fieldPrefix}.revealResponses`,
+        error: `must be one of "no", "just-correctness", "yes" (got ${JSON.stringify(e.revealResponses)})`,
+      });
+    }
+  }
+
   seenNames.add(name);
   return {
     game: {
@@ -180,6 +210,8 @@ export function parseTriviaGame(
       ...(format ? { format } : {}),
       ...(categories ? { categories } : {}),
       ...(theme ? { theme } : {}),
+      ...(liveAnswersVisible !== undefined ? { liveAnswersVisible } : {}),
+      ...(revealResponses !== undefined ? { revealResponses } : {}),
     },
     issues,
   };

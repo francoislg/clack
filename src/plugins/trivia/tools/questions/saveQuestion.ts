@@ -2,7 +2,17 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { textResult, errorResult } from "../../../../tools/helpers.js";
-import { type TriviaGame, DEFAULT_TRIVIA_CHOICES } from "../../core/configTypes.js";
+import { ANSWER_TYPE_SAVE_FIELD_NAMES, getAnswerTypeHandler } from "../../answerTypes/registry.js";
+import {
+  SAVE_QUESTION_HANDLER_FIELDS,
+  type SaveQuestionArgs,
+} from "../../answerTypes/saveSchema.js";
+import type { TriviaQuestionBase } from "../../answerTypes/types.js";
+import {
+  QUESTION_TYPE_SAVE_FIELD_NAMES,
+  getQuestionTypeHandler,
+} from "../../questionTypes/registry.js";
+import type { TriviaGame } from "../../core/configTypes.js";
 import { findCurrentSeason } from "../../core/seasonTimeline.js";
 import { resolveAnswersFormat } from "../../domain/questionTypes.js";
 import { resolveQuestionType } from "../../domain/factTopical.js";
@@ -16,9 +26,34 @@ import {
   type GetTriviaConfigFn,
 } from "../../core/configBridge.js";
 import { requireWritableGame } from "../../core/gamesRegistry.js";
-import type { TriviaDataLayer, TriviaQuestion } from "../../core/types.js";
+import type { TriviaDataLayer } from "../../core/types.js";
 
-const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+/**
+ * Locate the first foreign-tier field on the supplied args — i.e. a field
+ * belonging to a tier OTHER than `activeTier` that the caller populated.
+ * Returns `{ field, tier }` for the offender or `null` when clean.
+ *
+ * Generic over the tier union so callers retain literal narrowing on `tier`
+ * (used by `save_question` to format the error message with the format /
+ * question-type names from the registry).
+ */
+function findForeignField<TTier extends string>(
+  args: SaveQuestionArgs,
+  fieldNamesByTier: Record<TTier, readonly string[]>,
+  activeTier: TTier,
+): { field: string; tier: TTier } | null {
+  const ownFields = new Set(fieldNamesByTier[activeTier]);
+  for (const tier in fieldNamesByTier) {
+    if (tier === activeTier) continue;
+    for (const field of fieldNamesByTier[tier]) {
+      if (ownFields.has(field)) continue;
+      if (args[field as keyof SaveQuestionArgs] !== undefined) {
+        return { field, tier };
+      }
+    }
+  }
+  return null;
+}
 
 const DESCRIPTION = `Save a new trivia question.
 
@@ -60,100 +95,9 @@ export function createSaveQuestionTool(
         .describe(
           "Game name (must be present in config.trivia.games[]). Determines which game's per-game data file receives the new question.",
         ),
-      answersFormat: z
-        .enum(["boolean", "choice", "freeform"])
-        .describe('Answer shape: "boolean", "choice", or "freeform" (user types the answer).'),
-      questionType: z
-        .enum(["fact", "topical"])
-        .describe(
-          'Source axis: "fact" for static knowledge, "topical" for recent events (requires sourceUrl).',
-        ),
-      category: z.string().describe("The category from the pool (must exist)"),
-      statement: z.string().describe("The trivia statement"),
-      isTrue: z
-        .boolean()
-        .optional()
-        .describe(
-          'REQUIRED for boolean questions. MUST NOT be set when answersFormat is "choice" or "freeform".',
-        ),
-      choices: z
-        .array(z.string())
-        .optional()
-        .describe(
-          'REQUIRED for choice questions (length within active [min, max]). MUST NOT be set when answersFormat is "boolean" or "freeform".',
-        ),
-      correctIndex: z
-        .number()
-        .int()
-        .optional()
-        .describe(
-          'REQUIRED for choice questions (0-based, in [0, choices.length)). MUST NOT be set when answersFormat is "boolean" or "freeform".',
-        ),
-      expectedAnswer: z
-        .string()
-        .optional()
-        .describe(
-          'REQUIRED for freeform questions: the canonical answer (shortest 100%-correct form). MUST NOT be set when answersFormat is "boolean" or "choice".',
-        ),
-      acceptableAnswers: z
-        .array(z.string())
-        .optional()
-        .describe(
-          'OPTIONAL on freeform questions: pre-enumerated semantic variants the judge should also accept. MUST NOT be set when answersFormat is "boolean" or "choice".',
-        ),
-      gradingNotes: z
-        .string()
-        .optional()
-        .describe(
-          'OPTIONAL on freeform questions: a one-sentence hint to the reveal-time judge about edge cases (e.g. "Accept any major Canadian city"). MUST NOT be set when answersFormat is "boolean" or "choice".',
-        ),
-      freeformAnswerShape: z
-        .enum(["name", "place", "phrase", "title", "date", "countable", "other"])
-        .optional()
-        .describe(
-          'REQUIRED for freeform questions: the shape `get_ideas` rolled in `suggestedFreeformAnswerShape` — pass it through verbatim, do NOT re-pick. Persisted for post-hoc audit. MUST NOT be set when answersFormat is "boolean" or "choice".',
-        ),
-      sourceUrl: z
-        .string()
-        .optional()
-        .describe(
-          'REQUIRED when questionType is "topical" (HTTPS URL). FORBIDDEN when questionType is "fact".',
-        ),
-      eventDate: z
-        .string()
-        .optional()
-        .describe(
-          "OPTIONAL on topical questions: ISO 8601 calendar date of the event (YYYY-MM-DD). Forbidden on fact questions.",
-        ),
-      context: z
-        .string()
-        .optional()
-        .describe(
-          "OPTIONAL: the lens (from contextPriority) used to generate the question. Empty string = no lens. Non-empty must appear in the active contexts list at this slot/season/config tier.",
-        ),
-      suggestedDifficulty: z
-        .enum(["Easy", "Medium", "Hard"])
-        .optional()
-        .describe(
-          "The difficulty bucket targeted at gen time (from get_ideas' suggestedDifficulty).",
-        ),
-      difficulty: z
-        .number()
-        .int()
-        .min(1)
-        .max(10)
-        .optional()
-        .describe("Your 1–10 self-rating from the difficulty gate."),
-      emojis: z.array(z.string()).describe("1-4 topic-relevant emojis"),
-      slot: z
-        .object({
-          index: z.number().int().nonnegative(),
-          label: z.string().optional(),
-        })
-        .optional()
-        .describe(
-          "REQUIRED when the active season has a `format`; MUST BE OMITTED when the active season has no format. `index` selects which slot this question fills; `label` is informational (the stored record snapshots the label from format.questions[index].label, not from this argument).",
-        ),
+      // Every other field is sourced from the shared handler schema so the
+      // tool's args type and the handler's `SaveQuestionArgs` can't drift.
+      ...SAVE_QUESTION_HANDLER_FIELDS,
     },
     async (args) => {
       let gameEntry: TriviaGame;
@@ -175,143 +119,30 @@ export function createSaveQuestionTool(
 
       const answersFormat = args.answersFormat;
       const questionType = args.questionType;
+      const handler = getAnswerTypeHandler(answersFormat);
+      const questionTypeHandler = getQuestionTypeHandler(questionType);
 
-      // Validate answersFormat-discriminated fields
-      if (answersFormat === "boolean") {
-        if (args.isTrue === undefined) {
-          return errorResult('Boolean questions require "isTrue".');
-        }
-        if (args.choices !== undefined) {
-          return errorResult('Boolean questions must not include "choices".');
-        }
-        if (args.correctIndex !== undefined) {
-          return errorResult('Boolean questions must not include "correctIndex".');
-        }
-        if (args.expectedAnswer !== undefined) {
-          return errorResult('Boolean questions must not include "expectedAnswer".');
-        }
-        if (args.acceptableAnswers !== undefined) {
-          return errorResult('Boolean questions must not include "acceptableAnswers".');
-        }
-        if (args.gradingNotes !== undefined) {
-          return errorResult('Boolean questions must not include "gradingNotes".');
-        }
-        if (args.freeformAnswerShape !== undefined) {
-          return errorResult('Boolean questions must not include "freeformAnswerShape".');
-        }
-      } else if (answersFormat === "choice") {
-        if (args.isTrue !== undefined) {
-          return errorResult('Choice questions must not include "isTrue".');
-        }
-        if (args.choices === undefined) {
-          return errorResult('Choice questions require "choices".');
-        }
-        if (args.correctIndex === undefined) {
-          return errorResult('Choice questions require "correctIndex".');
-        }
-        if (args.expectedAnswer !== undefined) {
-          return errorResult('Choice questions must not include "expectedAnswer".');
-        }
-        if (args.acceptableAnswers !== undefined) {
-          return errorResult('Choice questions must not include "acceptableAnswers".');
-        }
-        if (args.gradingNotes !== undefined) {
-          return errorResult('Choice questions must not include "gradingNotes".');
-        }
-        if (args.freeformAnswerShape !== undefined) {
-          return errorResult('Choice questions must not include "freeformAnswerShape".');
-        }
-        const config = getConfigFn();
-        const bounds = config?.choices ?? DEFAULT_TRIVIA_CHOICES;
-        if (args.choices.length < bounds.min || args.choices.length > bounds.max) {
-          return errorResult(
-            `Choice question must have between ${bounds.min} and ${bounds.max} options (got ${args.choices.length}).`,
-          );
-        }
-        if (args.correctIndex < 0 || args.correctIndex >= args.choices.length) {
-          return errorResult(
-            `correctIndex (${args.correctIndex}) must be in [0, ${args.choices.length}).`,
-          );
-        }
-        for (let i = 0; i < args.choices.length; i++) {
-          const trimmed = args.choices[i].trim();
-          if (trimmed.length < 1 || trimmed.length > 100) {
-            return errorResult(
-              `Choice at index ${i} must be 1-100 characters after trim (got ${trimmed.length}).`,
-            );
-          }
-        }
-        const normalized = args.choices.map((c) => c.trim().toLowerCase());
-        if (new Set(normalized).size !== normalized.length) {
-          return errorResult("Choices must be unique (after trimming and case-folding).");
-        }
-      } else {
-        // freeform
-        if (args.isTrue !== undefined) {
-          return errorResult('Freeform questions must not include "isTrue".');
-        }
-        if (args.choices !== undefined) {
-          return errorResult('Freeform questions must not include "choices".');
-        }
-        if (args.correctIndex !== undefined) {
-          return errorResult('Freeform questions must not include "correctIndex".');
-        }
-        if (args.expectedAnswer === undefined || args.expectedAnswer.trim().length === 0) {
-          return errorResult(
-            'Freeform questions require "expectedAnswer" (the canonical correct answer).',
-          );
-        }
-        if (args.expectedAnswer.length > 200) {
-          return errorResult(
-            `"expectedAnswer" must be at most 200 characters (got ${args.expectedAnswer.length}).`,
-          );
-        }
-        if (args.acceptableAnswers !== undefined) {
-          for (let i = 0; i < args.acceptableAnswers.length; i++) {
-            const trimmed = args.acceptableAnswers[i].trim();
-            if (trimmed.length < 1 || trimmed.length > 200) {
-              return errorResult(
-                `acceptableAnswers[${i}] must be 1-200 characters after trim (got ${trimmed.length}).`,
-              );
-            }
-          }
-        }
-        if (args.gradingNotes !== undefined && args.gradingNotes.length > 500) {
-          return errorResult(
-            `"gradingNotes" must be at most 500 characters (got ${args.gradingNotes.length}).`,
-          );
-        }
-        if (args.freeformAnswerShape === undefined) {
-          return errorResult(
-            'Freeform questions require "freeformAnswerShape" — pass through the value from get_ideas\' suggestedFreeformAnswerShape.',
-          );
-        }
+      // Central cross-axis collision checks. For every OTHER tier on either
+      // axis, ensure the incoming args don't carry that tier's fields. This
+      // replaces the per-handler "MUST NOT include X" rejections — adding a
+      // new answer-format or question-type no longer touches sibling handlers.
+      const formatCollision = findForeignField(args, ANSWER_TYPE_SAVE_FIELD_NAMES, answersFormat);
+      if (formatCollision !== null) {
+        return errorResult(
+          `"${formatCollision.field}" is not permitted on ${answersFormat} questions (it belongs to ${formatCollision.tier}).`,
+        );
+      }
+      const typeCollision = findForeignField(args, QUESTION_TYPE_SAVE_FIELD_NAMES, questionType);
+      if (typeCollision !== null) {
+        return errorResult(
+          `"${typeCollision.field}" is not permitted on ${questionType} questions (it belongs to ${typeCollision.tier}).`,
+        );
       }
 
-      // Validate topical-vs-fact fields
-      if (questionType === "topical") {
-        if (args.sourceUrl === undefined || args.sourceUrl.length === 0) {
-          return errorResult('Topical questions require "sourceUrl" (an HTTPS citation URL).');
-        }
-        if (!args.sourceUrl.startsWith("https://")) {
-          return errorResult('"sourceUrl" must use https://.');
-        }
-        // Basic shape: must have a host after the scheme.
-        const hostPart = args.sourceUrl.slice("https://".length).split("/")[0];
-        if (hostPart.length === 0 || !hostPart.includes(".")) {
-          return errorResult('"sourceUrl" must include a valid host.');
-        }
-      } else {
-        if (args.sourceUrl !== undefined) {
-          return errorResult('"sourceUrl" is only permitted on topical questions.');
-        }
-        if (args.eventDate !== undefined) {
-          return errorResult('"eventDate" is only permitted on topical questions.');
-        }
-      }
-      if (args.eventDate !== undefined && !ISO_DATE_RE.test(args.eventDate)) {
-        return errorResult('"eventDate" must be ISO 8601 calendar date (YYYY-MM-DD).');
-      }
+      // Per-tier positive validation for the questionType axis. Topical asserts
+      // sourceUrl presence/shape + optional eventDate format; fact is a no-op.
+      const questionTypeOutcome = questionTypeHandler.validate(args);
+      if (!questionTypeOutcome.ok) return errorResult(questionTypeOutcome.error);
 
       const scoped = data.forGame(args.game);
       const seasonsState = await scoped.loadSeasonsState();
@@ -393,8 +224,7 @@ export function createSaveQuestionTool(
           gameEntry,
           config,
         );
-        const weightForQuestionType =
-          questionType === "fact" ? slotQuestionTypeWeights.fact : slotQuestionTypeWeights.topical;
+        const weightForQuestionType = slotQuestionTypeWeights[questionType];
         if (weightForQuestionType <= 0) {
           return errorResult(
             `Slot ${args.slot.index} does not permit "${questionType}" questions (questionType for this slot has zero weight on "${questionType}"). Re-roll get_ideas — its suggestedQuestionType reflects the slot's permitted types.`,
@@ -435,7 +265,7 @@ export function createSaveQuestionTool(
                 : {}),
             }
           : null;
-      const base: TriviaQuestion = {
+      const base: TriviaQuestionBase = {
         id: randomUUID(),
         category: matchingCategory,
         statement: args.statement,
@@ -450,30 +280,20 @@ export function createSaveQuestionTool(
           : {}),
         ...(args.difficulty !== undefined ? { difficulty: args.difficulty } : {}),
         ...(storedContext !== null ? { context: storedContext } : {}),
-        ...(args.sourceUrl !== undefined ? { sourceUrl: args.sourceUrl } : {}),
-        ...(args.eventDate !== undefined ? { eventDate: args.eventDate } : {}),
+        ...questionTypeOutcome.recordExtras,
       };
 
-      const question: TriviaQuestion =
-        answersFormat === "boolean"
-          ? { ...base, isTrue: args.isTrue }
-          : answersFormat === "choice"
-            ? { ...base, choices: args.choices, correctIndex: args.correctIndex }
-            : {
-                ...base,
-                expectedAnswer: args.expectedAnswer ?? "",
-                ...(args.acceptableAnswers !== undefined
-                  ? { acceptableAnswers: args.acceptableAnswers }
-                  : {}),
-                ...(args.gradingNotes !== undefined ? { gradingNotes: args.gradingNotes } : {}),
-                ...(args.freeformAnswerShape !== undefined
-                  ? { freeformAnswerShape: args.freeformAnswerShape }
-                  : {}),
-              };
+      // Handler validates per-format args AND attaches its format-specific
+      // fields (isTrue / choices+correctIndex / expectedAnswer+...) in one
+      // step — no two-method dance, no opportunity to skip validation.
+      const outcome = handler.getSavedQuestion(base, args, { config: getConfigFn() });
+      if (!outcome.ok) {
+        return errorResult(outcome.error);
+      }
 
-      await scoped.saveQuestion(question);
+      await scoped.saveQuestion(outcome.question);
 
-      return textResult({ saved: true, question });
+      return textResult({ saved: true, question: outcome.question });
     },
   );
 }

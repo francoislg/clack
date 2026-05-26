@@ -1,10 +1,10 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { textResult, errorResult } from "../../../../tools/helpers.js";
+import { getAnswerTypeHandler } from "../../answerTypes/registry.js";
 import { findCurrentSeason } from "../../core/seasonTimeline.js";
-import { getActiveChoiceBounds, resolveAnswersFormat } from "../../domain/questionTypes.js";
+import { resolveAnswersFormat } from "../../domain/questionTypes.js";
 import { resolveQuestionType } from "../../domain/factTopical.js";
-import { resolveFreeformAnswerShape } from "../../domain/freeformAnswerShape.js";
 import { resolveContexts, rollContextPriority } from "../../domain/contexts.js";
 import { resolveDifficultyRanges, resolveDifficultyRatio } from "../../domain/difficulty.js";
 import { resolveEffectiveFormat } from "../../domain/format.js";
@@ -19,7 +19,7 @@ import {
 } from "../../core/configBridge.js";
 import { requireGame } from "../../core/gamesRegistry.js";
 import type { TriviaDataLayer, TriviaAnswersFormat, TriviaQuestionType } from "../../core/types.js";
-import type { TriviaFreeformAnswerShape, TriviaGame } from "../../core/configTypes.js";
+import type { TriviaGame } from "../../core/configTypes.js";
 
 type SuggestedDifficulty = "Easy" | "Medium" | "Hard";
 
@@ -28,11 +28,6 @@ const BUCKET_TO_LABEL: Record<"easy" | "medium" | "hard", SuggestedDifficulty> =
   medium: "Medium",
   hard: "Hard",
 };
-
-/** Inclusive uniform integer in `[min, max]`. */
-function randomIntInclusive(min: number, max: number): number {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
-}
 
 const DESCRIPTION = `Get 5 random trivia category suggestions (excluding recently used categories), plus server-rolled metadata the question-flow prompt must honor.
 
@@ -236,33 +231,18 @@ export function createGetIdeasTool(
         ...(contextPriority !== null ? { contextPriority } : {}),
       };
 
-      if (pickedAnswersFormat === "choice") {
-        const bounds = getActiveChoiceBounds(config);
-        const suggestedChoiceCount = randomIntInclusive(bounds.min, bounds.max);
-        const suggestedCorrectIndex = randomIntInclusive(0, suggestedChoiceCount - 1);
-        return textResult({
-          ...base,
-          suggestedChoiceCount,
-          suggestedCorrectIndex,
-        });
-      }
-
-      if (pickedAnswersFormat === "freeform") {
-        const freeformAnswerShapeWeights = resolveFreeformAnswerShape(
-          currentSeasonEntry,
-          slotIndexForResolution,
-          gameEntry,
-          config,
-        );
-        const pickedFreeformAnswerShape: TriviaFreeformAnswerShape =
-          weightedPick(freeformAnswerShapeWeights) ?? "name";
-        return textResult({ ...base, suggestedFreeformAnswerShape: pickedFreeformAnswerShape });
-      }
-
-      return textResult({
-        ...base,
-        suggestedAnswer: Math.random() < 0.5,
+      // Per-format suggestion rolling lives in the handler. Boolean returns
+      // { suggestedAnswer }; choice returns { suggestedChoiceCount,
+      // suggestedCorrectIndex }; freeform returns { suggestedFreeformAnswerShape }.
+      const handler = getAnswerTypeHandler(pickedAnswersFormat);
+      const perFormat = handler.rollGenerationSuggestions({
+        config,
+        currentSeason: currentSeasonEntry,
+        slotIndex: slotIndexForResolution,
+        game: gameEntry,
       });
+
+      return textResult({ ...base, ...perFormat });
     },
   );
 }

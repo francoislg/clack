@@ -12,53 +12,47 @@ import { computeLeaderboard } from "../../domain/computeLeaderboard.js";
 import { findCurrentSeason } from "../../core/seasonTimeline.js";
 import { findTriviaRevealJob, nextFireAfter } from "../../domain/seasonStatus.js";
 import {
-  parseTsFromPermalink,
-  parseChannelFromPermalink,
-  fetchMessageReactions as fetchMessageReactionsImpl,
-  fetchBotUserId as fetchBotUserIdImpl,
+  fetchMessageReactions as fetchReactionsViaSlackClient,
+  fetchBotUserId as fetchBotUserIdViaSlackClient,
 } from "./slack.js";
-import { cleanReactionLists, categorizeBoolean, categorizeChoice } from "./categorize.js";
 import { pickSeasonMvp, applySeasonRollover } from "./rollover.js";
 import { computeRoundSummary } from "./roundSummary.js";
-import {
-  buildJudgePrompt,
-  parseJudgeResponse,
-  DEFAULT_JUDGE_MODEL,
-  type JudgeQuestionGroup,
-  type JudgeVerdict,
-} from "../../freeform/judge.js";
 import type { ClackSdk } from "../../../sdk.js";
-import type {
-  TriviaDataLayer,
-  TriviaQuestion,
-  SubmittedAnswer,
-  TriviaUser,
-} from "../../core/types.js";
+import type { TriviaDataLayer, TriviaQuestion, SubmittedAnswer } from "../../core/types.js";
+import { getAllAnswerTypeHandlers, getAnswerTypeHandler } from "../../answerTypes/registry.js";
 import type {
   ProcessRevealEntry,
   ProcessRevealResult,
-  RevealAnswer,
   SeasonStatusOut,
   SlackReactionLike,
-  VoterBuckets,
 } from "./types.js";
 
 const REVEAL_INSTRUCTION_NAME = "process_responses_instructions";
 
-const DESCRIPTION = `Process the trivia reveal for a game in one call: fetch the question's Slack message, exclude the bot + flagged cheaters + (for choice questions) multi-react voters, categorize the remaining voters, persist their scored answers, return the leaderboard, and (when seasons are enabled) the season status. Replaces the previous orchestration that called fetch_channel_messages, find_previous_questions, get_question_history, submit_answers, retrieve_scores, and (with seasons) check_season_status as separate steps.
+const PER_FORMAT_ANSWER_SHAPES = getAllAnswerTypeHandlers()
+  .map((h) => `    - ${h.revealAnswerShapeDescription}`)
+  .join("\n");
+
+const DESCRIPTION = `Process the trivia reveal for a game in one call: fetch the question's Slack message, exclude the bot + flagged cheaters, score the stored button clicks (boolean/choice) and modal submissions (freeform), gather the message reactions as commentary (NOT votes), persist scored answers, return the leaderboard, and (when seasons are enabled) the season status. Replaces the previous orchestration that called fetch_channel_messages, find_previous_questions, get_question_history, submit_answers, retrieve_scores, and (with seasons) check_season_status as separate steps.
 
 DEFAULT BEHAVIOR (\`reprocessQuestionIds\` absent or empty): processes EVERY question in the OLDEST pending BATCH, where batches are groups of questions sharing the same \`batchId\` (stamped by \`post_questions\` per call; one cron-fire batch = one shared id). Questions with an undefined \`batchId\` (legacy rows) are each treated as their own singleton batch. The oldest batch is the one whose smallest \`postedAt\` is earliest; ties broken by lexicographic comparison of the group key. Stamps \`processedAt\` on each processed question before returning. Other pending batches stay pending — they drain one batch per fire on subsequent reveal runs. If no question is pending, returns \`reveals: []\` and a current leaderboard.
 
-REPROCESS MODE (\`reprocessQuestionIds\` non-empty — DESTRUCTIVE): for EACH listed questionId, hard-deletes the prior \`SubmittedAnswer\` rows for that question, then re-derives scoring from the CURRENT Slack reactions and the CURRENT cheats list (which may now include cheaters flagged after the original reveal). Stamps \`processedAt\` (overwriting prior values). Does NOT pick up unrelated pending questions in this mode.
+REPROCESS MODE (\`reprocessQuestionIds\` non-empty — DESTRUCTIVE for boolean/choice; rejected for freeform): for boolean/choice questions, hard-deletes the prior \`SubmittedAnswer\` rows for that question, then re-derives scoring from the CURRENT stored button-click answers + cheats list (which may now include cheaters flagged after the original reveal). For freeform questions the modal submissions are immutable, so the per-handler reveal pipeline rejects reprocess. Stamps \`processedAt\` (overwriting prior values). Does NOT pick up unrelated pending questions in this mode.
 
 PAYLOAD SHAPE (renderer contract):
 - \`reveals: Array<{ questionId, statement, category, emojis, messageLink, wasReprocessed, answer, voters }>\`
-  - \`answer\`: \`{ type: "boolean", isTrue }\` for boolean questions; \`{ type: "choice", choices, correctIndex }\` for choice.
-  - \`voters.correct\`, \`voters.incorrect\`, \`voters.fenceSitters\` (boolean only — \`[]\` for choice), \`voters.wildcards\` (each carries the \`emoji\` they reacted with so the renderer can riff on it).
+  - \`answer\` (dispatched on \`type\`):
+${PER_FORMAT_ANSWER_SHAPES}
+  - \`voters\` is a DISCRIMINATED UNION keyed on the question's stamped \`revealResponses\` mode (one of three variants):
+    - \`{ revealResponses: "yes", correct: Voter[], incorrect: Voter[], noAnswer: Voter[], reactions: ReactionVoter[] }\` — full per-bucket detail. Freeform \`Voter\`s in correct/incorrect carry an additional \`answerText\` field with the user's typed answer.
+    - \`{ revealResponses: "just-correctness", correct, incorrect, noAnswer, reactions }\` — same bucket structure but freeform \`Voter\`s have NO \`answerText\` (admin chose to hide typed strings).
+    - \`{ revealResponses: "no", reactions }\` — reactions list only; no per-user vote info at all.
+  - \`reactions\` (present in every variant) is the message's emoji reactions as COMMENTARY, not votes. Each \`ReactionVoter\` is \`{ userId, displayName, emojis: string[] }\` carrying every emoji that user reacted with so the renderer can riff on it. The bot and cheaters are stripped from every list.
 - \`leaderboard\`: same shape as retrieve_scores' return.
+- \`roundSummary\` (OPTIONAL): per-player aggregate across the round. Present ONLY when every reveal entry has \`revealResponses === "yes"\` — when ANY entry is \`"just-correctness"\` or \`"no"\`, the field is omitted (the tool cannot produce aggregates without per-user vote info).
 - \`seasonStatus\` (only when seasons enabled): \`{ currentSlug, isLastFireOfSeason, seasonClosed, newSeasonStarted?, mvp? }\`. When \`isLastFireOfSeason\` is true, the tool ALREADY stamped \`endedAt\` on the closing season and (when no continuation was queued) created a new starter season before returning — the renderer SHALL NOT call \`upsert_season\`.
 
-The renderer's job is two-step: (a) call this tool, (b) render the returned payload using submit_response with the Game Show Presenter voice.`;
+The renderer's job is two-step: (a) call this tool, (b) render the returned payload using submit_response with the Game Show Presenter voice — branching the per-question bucket sections on \`voters.revealResponses\`.`;
 
 /**
  * Slack-touching seam. Production wraps the real Slack WebClient via the plugin SDK;
@@ -87,12 +81,12 @@ export function defaultRevealSlackDeps(sdk: Pick<ClackSdk, "getSlackClient">): R
     async fetchBotUserId() {
       const client = sdk.getSlackClient();
       if (!client) return "";
-      return fetchBotUserIdImpl(client);
+      return fetchBotUserIdViaSlackClient(client);
     },
     async fetchMessageReactions(channel, ts) {
       const client = sdk.getSlackClient();
       if (!client) throw new Error("Slack client became unavailable mid-run");
-      return fetchMessageReactionsImpl(client, channel, ts);
+      return fetchReactionsViaSlackClient(client, channel, ts);
     },
   };
 }
@@ -160,57 +154,29 @@ export function createProcessRevealAnswersTool(
 
       // Split freeform targets out: they go through the inline Haiku judge
       // (no Slack reactions to read). Boolean/choice questions stay on the
-      // reaction-based path. Reprocess mode is explicitly rejected for freeform
-      // — there's no public reactions source to re-derive from.
-      const freeformTargets: TriviaQuestion[] = [];
-      const reactionTargets: TriviaQuestion[] = [];
-      for (const q of targets) {
-        if ((q.answersFormat ?? "boolean") === "freeform") {
-          if (isReprocessMode) {
-            perIdErrors.push({
-              questionId: q.id,
-              error:
-                "reprocess mode is not supported for freeform questions (no reactions to re-derive from)",
-            });
-            continue;
-          }
-          freeformTargets.push(q);
-        } else {
-          reactionTargets.push(q);
-        }
-      }
-
-      // Resolve both paths into a map keyed by questionId, then re-assemble the
-      // `reveals` array in the ORIGINAL `targets` order so the renderer sees
-      // questions in the same chronological order they were posted (matters most
-      // for multi-slot mixed-format batches).
+      // Each target's full reveal processing is owned by its answer-type
+      // handler — the reveal flow just iterates, calls `handler.processReveal`,
+      // and accumulates outcomes. No format-string branching lives here.
       const entriesById = new Map<string, ProcessRevealEntry>();
-
-      for (const question of reactionTargets) {
-        const entry = await processOneTarget({
-          question,
-          isReprocessMode,
-          now,
-          botUserId,
-          users,
-          scoped,
-          data,
-          slackDeps,
-          perIdErrors,
-        });
-        if (entry !== null) entriesById.set(question.id, entry);
-      }
-
-      if (freeformTargets.length > 0) {
-        const freeformEntries = await processFreeformTargets({
-          questions: freeformTargets,
-          now,
-          users,
-          scoped,
-          sdk,
-          perIdErrors,
-        });
-        for (const entry of freeformEntries) entriesById.set(entry.questionId, entry);
+      const revealDeps = {
+        scoped,
+        data,
+        users,
+        botUserId,
+        fetchMessageReactions: (channel: string, ts: string) =>
+          slackDeps.fetchMessageReactions(channel, ts),
+        askClaude: sdk.askClaude,
+        now,
+        isReprocessMode,
+      };
+      for (const question of targets) {
+        const handler = getAnswerTypeHandler(question.answersFormat);
+        const outcome = await handler.processReveal(question, revealDeps);
+        if (outcome.ok) {
+          entriesById.set(question.id, outcome.entry);
+        } else {
+          perIdErrors.push({ questionId: question.id, error: outcome.error });
+        }
       }
 
       const reveals: ProcessRevealEntry[] = [];
@@ -244,11 +210,17 @@ export function createProcessRevealAnswersTool(
         });
       }
 
+      // Gate `roundSummary` on the discriminated `revealResponses` mode of
+      // EVERY reveal entry: aggregate per-player counts would leak across
+      // restricted slots, so the whole field drops out when any slot is
+      // anything other than "yes". Mixed-mode batches are rare in practice;
+      // selective masking would be a confusing compromise.
+      const allYes = reveals.length > 0 && reveals.every((r) => r.voters.revealResponses === "yes");
       const result: ProcessRevealResult = {
         game: args.game,
         reveals,
         leaderboard,
-        roundSummary: computeRoundSummary(reveals),
+        ...(allYes ? { roundSummary: computeRoundSummary(reveals) } : {}),
         ...(seasonStatus ? { seasonStatus } : {}),
         ...(perIdErrors.length > 0 ? { errors: perIdErrors } : {}),
       };
@@ -311,322 +283,6 @@ function selectReprocessTargets(
     targets.push(q);
   }
   return targets;
-}
-
-interface ProcessOneTargetParams {
-  question: TriviaQuestion;
-  isReprocessMode: boolean;
-  now: number;
-  botUserId: string;
-  users: Map<string, TriviaUser>;
-  scoped: ReturnType<TriviaDataLayer["forGame"]>;
-  data: TriviaDataLayer;
-  slackDeps: RevealSlackDeps;
-  perIdErrors: Array<{ questionId: string; error: string }>;
-}
-
-/**
- * Process one target question: fetch reactions, clean against bot+cheaters, categorize voters,
- * persist scored answers, stamp `processedAt`. Returns the reveal entry or `null` when a per-id
- * error was recorded (skip this target, continue the batch).
- */
-async function processOneTarget(
-  params: ProcessOneTargetParams,
-): Promise<ProcessRevealEntry | null> {
-  const { question, isReprocessMode, now, botUserId, users, scoped, data, slackDeps, perIdErrors } =
-    params;
-
-  if (!question.postedAt || !question.messageLink) {
-    perIdErrors.push({
-      questionId: question.id,
-      error: "question is missing postedAt/messageLink",
-    });
-    return null;
-  }
-  const ts = parseTsFromPermalink(question.messageLink);
-  const channel = parseChannelFromPermalink(question.messageLink);
-  if (ts === null || channel === null) {
-    perIdErrors.push({
-      questionId: question.id,
-      error: `could not parse Slack ts/channel from messageLink: ${question.messageLink}`,
-    });
-    return null;
-  }
-
-  let rawReactions: SlackReactionLike[];
-  try {
-    rawReactions = await slackDeps.fetchMessageReactions(channel, ts);
-  } catch (err) {
-    perIdErrors.push({
-      questionId: question.id,
-      error: `failed to fetch Slack message: ${err instanceof Error ? err.message : String(err)}`,
-    });
-    return null;
-  }
-
-  if (isReprocessMode) {
-    await scoped.deleteAnswersForQuestion(question.id);
-  }
-
-  const cheats = await scoped.loadCheats();
-  const cheaterIds = new Set(
-    cheats.filter((c) => c.questionId === question.id).map((c) => c.cheaterUserId),
-  );
-  const cleaned = cleanReactionLists(rawReactions, botUserId, cheaterIds);
-
-  const rawAnswersFormat = question.answersFormat ?? "boolean";
-  if (rawAnswersFormat === "freeform") {
-    // Freeform reveal is implemented separately (batch Haiku judge) — the
-    // caller routes freeform questions through that path before reaching here.
-    // Defensive guard: if we get here with freeform, treat as a per-id error.
-    perIdErrors.push({
-      questionId: question.id,
-      error: "freeform questions cannot be processed through the reaction-based reveal path",
-    });
-    return null;
-  }
-  const answersFormat: "boolean" | "choice" = rawAnswersFormat;
-  let buckets: VoterBuckets;
-  let scoredBoolean: Array<{ userId: string; answer: boolean }> = [];
-  let scoredChoice: Array<{ userId: string; answerIndex: number }> = [];
-
-  if (answersFormat === "boolean") {
-    const isTrue = question.isTrue ?? false;
-    const result = categorizeBoolean(cleaned, isTrue, users);
-    buckets = result.buckets;
-    scoredBoolean = result.scored;
-  } else {
-    const correctIndex = question.correctIndex ?? -1;
-    if (correctIndex < 0) {
-      perIdErrors.push({
-        questionId: question.id,
-        error: "choice question is missing correctIndex",
-      });
-      return null;
-    }
-    const result = categorizeChoice(cleaned, correctIndex, users);
-    buckets = result.buckets;
-    scoredChoice = result.scored;
-  }
-
-  // Persist scored answers.
-  const currentSlug = await scoped.getCurrentSeasonSlug();
-  const seasonTag = currentSlug !== null ? { season: currentSlug } : {};
-
-  if (answersFormat === "boolean") {
-    const isTrue = question.isTrue ?? false;
-    for (const entry of scoredBoolean) {
-      await ensureUser(entry.userId, users, data, now);
-      const a: SubmittedAnswer = {
-        userId: entry.userId,
-        questionId: question.id,
-        answer: entry.answer,
-        correct: entry.answer === isTrue,
-        timestamp: now,
-        ...seasonTag,
-      };
-      await scoped.saveAnswer(a);
-    }
-  } else {
-    const correctIndex = question.correctIndex ?? -1;
-    for (const entry of scoredChoice) {
-      await ensureUser(entry.userId, users, data, now);
-      const a: SubmittedAnswer = {
-        userId: entry.userId,
-        questionId: question.id,
-        answerIndex: entry.answerIndex,
-        correct: entry.answerIndex === correctIndex,
-        timestamp: now,
-        ...seasonTag,
-      };
-      await scoped.saveAnswer(a);
-    }
-  }
-
-  await scoped.updateQuestion(question.id, { processedAt: now });
-
-  const revealAnswer: RevealAnswer =
-    answersFormat === "boolean"
-      ? { type: "boolean", isTrue: question.isTrue ?? false }
-      : {
-          type: "choice",
-          choices: question.choices ?? [],
-          correctIndex: question.correctIndex ?? -1,
-        };
-
-  return {
-    questionId: question.id,
-    statement: question.statement,
-    category: question.category,
-    emojis: question.emojis ?? [],
-    messageLink: question.messageLink,
-    wasReprocessed: isReprocessMode,
-    answer: revealAnswer,
-    voters: buckets,
-  };
-}
-
-async function ensureUser(
-  userId: string,
-  users: Map<string, TriviaUser>,
-  data: TriviaDataLayer,
-  now: number,
-): Promise<void> {
-  if (users.has(userId)) return;
-  const u: TriviaUser = { userId, displayName: userId, joinedAt: now };
-  users.set(userId, u);
-  await data.saveUser(u);
-}
-
-interface ProcessFreeformParams {
-  questions: TriviaQuestion[];
-  now: number;
-  users: Map<string, TriviaUser>;
-  scoped: ReturnType<TriviaDataLayer["forGame"]>;
-  sdk: Pick<ClackSdk, "askClaude">;
-  perIdErrors: Array<{ questionId: string; error: string }>;
-}
-
-/**
- * Reveal-time judging for the freeform answer format. Collects every pending
- * row for each freeform question in the batch, sends them to Haiku in ONE
- * batched call, applies per-row verdicts via `updateAnswer`, and emits reveal
- * entries with the quoted `answerText` in voter buckets.
- *
- * When the judge call fails or returns malformed output, all pending rows for
- * the affected questions are marked `correct: false` so they don't stay stuck
- * pending across runs, and a per-question error is surfaced in the payload.
- */
-async function processFreeformTargets(
-  params: ProcessFreeformParams,
-): Promise<ProcessRevealEntry[]> {
-  const { questions, now, users, scoped, sdk, perIdErrors } = params;
-  const allAnswers = await scoped.loadAnswers();
-
-  // Build judge groups for questions that have at least one pending submission.
-  // Keep a map of (questionId -> submissions) so we can apply verdicts and build
-  // voter buckets after the judge returns.
-  const groups: JudgeQuestionGroup[] = [];
-  const submissionsByQuestion = new Map<
-    string,
-    Array<{ key: string; userId: string; answerText: string }>
-  >();
-
-  questions.forEach((question, qIdx) => {
-    const pendingRows = allAnswers.filter(
-      (a) => a.questionId === question.id && a.correct === undefined,
-    );
-    const subs = pendingRows.map((row, sIdx) => ({
-      key: `${qIdx + 1}.${sIdx + 1}`,
-      userId: row.userId,
-      answerText: row.answerText ?? "",
-    }));
-    submissionsByQuestion.set(question.id, subs);
-    groups.push({ question, submissions: subs });
-  });
-
-  // Skip the judge call entirely when no submission exists across the batch.
-  const hasAnySubmission = groups.some((g) => g.submissions.length > 0);
-  let verdicts: JudgeVerdict[] = [];
-  let judgeFailed = false;
-  if (hasAnySubmission) {
-    const prompt = buildJudgePrompt(groups);
-    try {
-      const response = await sdk.askClaude({
-        model: DEFAULT_JUDGE_MODEL,
-        system: prompt.system,
-        messages: prompt.messages,
-        max_tokens: 1500,
-      });
-      verdicts = parseJudgeResponse(response.text);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      logger.warn(`[trivia:freeform] judge call/parse failed: ${msg}`);
-      judgeFailed = true;
-    }
-  }
-
-  // Index verdicts by key for fast lookup.
-  const verdictByKey = new Map<string, JudgeVerdict>();
-  for (const v of verdicts) verdictByKey.set(v.key, v);
-
-  const entries: ProcessRevealEntry[] = [];
-  for (const question of questions) {
-    if (!question.messageLink) {
-      perIdErrors.push({
-        questionId: question.id,
-        error: "freeform question is missing messageLink",
-      });
-      continue;
-    }
-    const subs = submissionsByQuestion.get(question.id) ?? [];
-
-    const correctVoters: Array<{
-      userId: string;
-      displayName: string;
-      answerText: string;
-    }> = [];
-    const incorrectVoters: Array<{
-      userId: string;
-      displayName: string;
-      answerText: string;
-    }> = [];
-
-    for (const sub of subs) {
-      let verdict = verdictByKey.get(sub.key);
-      // Judge failure or missing verdict: commit the row as incorrect with a
-      // clear reason rather than leaving it pending forever.
-      if (verdict === undefined) {
-        verdict = {
-          key: sub.key,
-          correct: false,
-          reason: judgeFailed ? "judge-error" : "judge-missing-verdict",
-        };
-      }
-      await scoped.updateAnswer(sub.userId, question.id, {
-        correct: verdict.correct,
-        ...(verdict.reason !== undefined ? { judgeReason: verdict.reason } : {}),
-      });
-      const displayName = users.get(sub.userId)?.displayName ?? sub.userId;
-      const target = verdict.correct ? correctVoters : incorrectVoters;
-      target.push({ userId: sub.userId, displayName, answerText: sub.answerText });
-    }
-
-    if (judgeFailed && subs.length > 0) {
-      perIdErrors.push({
-        questionId: question.id,
-        error:
-          "freeform judge call failed — submissions committed as incorrect (reason: judge-error)",
-      });
-    }
-
-    await scoped.updateQuestion(question.id, { processedAt: now });
-
-    entries.push({
-      questionId: question.id,
-      statement: question.statement,
-      category: question.category,
-      emojis: question.emojis ?? [],
-      messageLink: question.messageLink,
-      wasReprocessed: false,
-      answer: {
-        type: "freeform",
-        expectedAnswer: question.expectedAnswer ?? "",
-        ...(question.acceptableAnswers !== undefined
-          ? { acceptableAnswers: question.acceptableAnswers }
-          : {}),
-        ...(question.gradingNotes !== undefined ? { gradingNotes: question.gradingNotes } : {}),
-      },
-      voters: {
-        correct: correctVoters,
-        incorrect: incorrectVoters,
-        fenceSitters: [],
-        wildcards: [],
-      },
-    });
-  }
-
-  return entries;
 }
 
 interface SeasonStatusParams {
