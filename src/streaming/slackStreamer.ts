@@ -5,6 +5,7 @@ import { logger as defaultLogger } from "../logger.js";
 import { getToolLabel, getToolGroup, getToolDetails } from "./toolLabels.js";
 import type { StreamEvent } from "./types.js";
 import { unfurlOptions } from "../slack/unfurlOptions.js";
+import { t } from "../i18n/t.js";
 
 export interface SlackStreamerLogger {
   warn: (...args: unknown[]) => void;
@@ -122,7 +123,7 @@ export class SlackStreamer {
         {
           type: "task_update",
           id: SlackStreamer.THINKING_TASK_ID,
-          title: "Acknowledged, working on it…",
+          title: t("streamer.acknowledged"),
           status: "in_progress",
         },
       ]);
@@ -464,7 +465,7 @@ export class SlackStreamer {
         {
           type: "task_update",
           id: SlackStreamer.THINKING_TASK_ID,
-          title: this.thinkingFinalized ? this.thinkingTitle : "Acknowledged, working on it…",
+          title: this.thinkingFinalized ? this.thinkingTitle : t("streamer.acknowledged"),
           status: "complete",
         },
       ]);
@@ -561,7 +562,7 @@ export class SlackStreamer {
           {
             type: "task_update",
             id: SlackStreamer.THINKING_TASK_ID,
-            title: this.thinkingFinalized ? this.thinkingTitle : "Acknowledged, working on it…",
+            title: this.thinkingFinalized ? this.thinkingTitle : t("streamer.acknowledged"),
             status: "in_progress",
           },
         ]);

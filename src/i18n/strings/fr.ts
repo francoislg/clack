@@ -350,6 +350,9 @@ export const fr: Partial<Record<StringKey, string>> = {
   "assistant.prompt_funny_message": "Raconte-moi quelque chose de drôle sur le code",
   "assistant.fallback_image_only": "Réponds à partir de l'image (ou des images) jointe(s).",
 
+  // ─── Streaming task card ───────────────────────────────────────────
+  "streamer.acknowledged": "Bien reçu, je m'en occupe…",
+
   // ─── DM-first reaction synthesis ───────────────────────────────────
   "dm.synthesis.accept": "Accepter",
   "dm.synthesis.edit": "Modifier",
