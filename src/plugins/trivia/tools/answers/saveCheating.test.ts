@@ -41,6 +41,7 @@ function makeFakeSdk(opts: FakeSdkOptions = {}): {
     askClaude: async () => {
       throw new Error("askClaude not used in saveCheating tests");
     },
+    requestSoftRestart: () => {},
   };
   return { sdk, dmOwnerCalls };
 }

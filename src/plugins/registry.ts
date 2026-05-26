@@ -2,7 +2,13 @@ import { resolve, dirname, basename, extname } from "node:path";
 import { createRequire } from "node:module";
 import { logger } from "../logger.js";
 import { getDataDir } from "../config.js";
-import { createClackSdk, type ClackPlugin, type PluginLoadResult } from "./sdk.js";
+import {
+  createClackSdk,
+  defaultClackSdkDeps,
+  type ClackPlugin,
+  type ClackSdkDeps,
+  type PluginLoadResult,
+} from "./sdk.js";
 import { triviaPlugin } from "./trivia/index.js";
 import { tenorGifPlugin } from "./tenor-gif/index.js";
 import { giphyPlugin } from "./giphy/index.js";
@@ -71,9 +77,13 @@ export interface LoadedPlugins {
   results: PluginLoadResult[];
 }
 
-export async function loadPlugins(pluginNames: string[]): Promise<LoadedPlugins> {
+export async function loadPlugins(
+  pluginNames: string[],
+  sdkDeps?: Partial<ClackSdkDeps>,
+): Promise<LoadedPlugins> {
   const results: PluginLoadResult[] = [];
   const dataDir = resolve(getDataDir(), "plugins");
+  const mergedDeps: ClackSdkDeps = { ...defaultClackSdkDeps, ...sdkDeps };
 
   for (const entry of pluginNames) {
     try {
@@ -106,7 +116,7 @@ export async function loadPlugins(pluginNames: string[]): Promise<LoadedPlugins>
         }
       }
 
-      const { sdk, harvest } = createClackSdk(name, dataDir);
+      const { sdk, harvest } = createClackSdk(name, dataDir, mergedDeps);
       await pluginFn(sdk);
       const result = harvest();
       results.push(result);
@@ -145,8 +155,11 @@ export function installPluginInteractivity(plugins: LoadedPlugins): void {
  * button click. Soft-restart callers must tear down the prior generation
  * (close watchers + `unregisterByPluginName`) before calling this.
  */
-export async function loadAndInstallPlugins(pluginNames: string[]): Promise<LoadedPlugins> {
-  const loaded = await loadPlugins(pluginNames);
+export async function loadAndInstallPlugins(
+  pluginNames: string[],
+  sdkDeps?: Partial<ClackSdkDeps>,
+): Promise<LoadedPlugins> {
+  const loaded = await loadPlugins(pluginNames, sdkDeps);
   setLoadedPlugins(loaded);
   installPluginInteractivity(loaded);
   return loaded;

@@ -17,7 +17,7 @@ import { cleanupStaleSessionFolders } from "./changes/persistence.js";
 import { getActiveChangeBranches } from "./changes/activeState.js";
 import { validateInstructionFiles } from "./instructions.js";
 import { runBlockingMigrations, runEnhancementMigrations } from "./migrations/boot.js";
-import { startAll, stopAll } from "./lifecycle.js";
+import { startAll, stopAll, requestSoftRestart } from "./lifecycle.js";
 import { addFailedMcpServers } from "./mcpStatus.js";
 import { diagnoseMcpServer, type DiagnosableConfig } from "./mcpDiagnose.js";
 import { getPinnedEntries, loadMcpServers, resolveEffectiveRegistry } from "./mcp.js";
@@ -92,7 +92,7 @@ async function main(): Promise<void> {
   // Step 1.8: Load Clack plugins
   const pluginNames = getConfig().plugins;
   if (pluginNames && pluginNames.length > 0) {
-    await loadAndInstallPlugins(pluginNames);
+    await loadAndInstallPlugins(pluginNames, { requestSoftRestart });
   }
 
   // Step 1.9: Install pinned MCP packages. Each pinned entry in data/mcp.json

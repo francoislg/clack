@@ -37,6 +37,7 @@ function makeFakeSdk(): ClackSdk {
       stopReason: "end_turn",
       usage: { inputTokens: 0, outputTokens: 0 },
     }),
+    requestSoftRestart: () => {},
   };
 }
 
