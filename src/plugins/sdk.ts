@@ -246,6 +246,15 @@ export interface ClackSdk {
   viewCallbackId(key: string): string;
   /** Single-turn Claude call routed through the Agent SDK's `query`. */
   askClaude(opts: AskClaudeOptions): Promise<AskClaudeResult>;
+  /**
+   * Request a soft application restart. Fire-and-forget — the call returns
+   * immediately and the restart runs asynchronously, guarded by a shared
+   * in-flight flag so simultaneous requests collapse into one. Use this when
+   * a plugin observes a state change (e.g. its own config file mutating) that
+   * cannot be applied without re-running plugin init / re-reconciling cron
+   * jobs / re-registering tools. `reason` is logged for traceability.
+   */
+  requestSoftRestart(reason: string): void;
 }
 
 export type ClackPlugin = (sdk: ClackSdk) => Promise<void>;
@@ -339,6 +348,13 @@ export interface ClackSdkDeps {
   updateJob?: typeof updateJob;
   deleteJob?: typeof deleteJob;
   clackQuery: typeof defaultClackQuery;
+  /**
+   * Soft-restart trigger surfaced as `sdk.requestSoftRestart`. Defaults to a
+   * logged no-op so the SDK can be constructed before the lifecycle layer has
+   * wired the real implementation (and for tests that don't exercise restart).
+   * Production callers MUST pass the real `requestSoftRestart` from `lifecycle.ts`.
+   */
+  requestSoftRestart?: (reason: string) => void;
 }
 
 export const defaultClackSdkDeps: ClackSdkDeps = {
@@ -766,6 +782,17 @@ export function createClackSdk(
         logger.error(`[plugin:${pluginName}] dmOwner postMessage failed: ${error}`);
         return { ok: false, error };
       }
+    },
+
+    requestSoftRestart(reason: string): void {
+      const fn = deps.requestSoftRestart;
+      if (!fn) {
+        pluginLogger.warn(
+          `requestSoftRestart("${reason}") called but no handler was wired into ClackSdkDeps — ignoring`,
+        );
+        return;
+      }
+      fn(`[plugin:${pluginName}] ${reason}`);
     },
   };
 

@@ -137,15 +137,7 @@ function startSchedulers(deps: LifecycleDeps = defaultLifecycleDeps): void {
     // check so back-to-back fs.watch events don't pile up restarts.
     stopConfigWatcherFn = deps.startConfigWatcher({
       onConfigJsonChange: () => {
-        if (restartInProgress) {
-          deps.logger.info("Config.json change detected during in-flight restart — skipping");
-          return;
-        }
-        restartAll(deps).catch((err) => {
-          deps.logger.warn(
-            `Config-driven restart failed: ${err instanceof Error ? err.message : String(err)}`,
-          );
-        });
+        requestSoftRestart("data/config.json changed", deps);
       },
     });
   }
@@ -192,6 +184,28 @@ export function startAll(deps: LifecycleDeps = defaultLifecycleDeps): void {
  */
 export function stopAll(deps: LifecycleDeps = defaultLifecycleDeps): void {
   stopSchedulers(deps);
+}
+
+/**
+ * Fire-and-forget soft restart trigger. Guarded against re-entry by the
+ * shared `restartInProgress` flag so back-to-back file events don't pile up
+ * restarts. Used by the config.json watcher AND by plugin SDKs whose own
+ * file watchers want to surface a full reload (e.g. trivia's config bridge).
+ */
+export function requestSoftRestart(
+  reason: string,
+  deps: LifecycleDeps = defaultLifecycleDeps,
+): void {
+  if (restartInProgress) {
+    deps.logger.info(`Soft restart requested (${reason}) but one is already in flight — skipping`);
+    return;
+  }
+  deps.logger.info(`Soft restart requested: ${reason}`);
+  restartAll(deps).catch((err) => {
+    deps.logger.warn(
+      `Soft restart (${reason}) failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  });
 }
 
 /**
@@ -280,7 +294,9 @@ export async function restartAll(
 
     try {
       const pluginNames = config.plugins ?? [];
-      await deps.loadAndInstallPlugins(pluginNames);
+      await deps.loadAndInstallPlugins(pluginNames, {
+        requestSoftRestart: (reason) => requestSoftRestart(reason, deps),
+      });
     } catch (error) {
       warnings.push(
         `Plugin reload failed: ${error instanceof Error ? error.message : String(error)}`,

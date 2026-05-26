@@ -48,9 +48,17 @@ export async function initTriviaConfigBridge(sdk: ClackSdk): Promise<void> {
   // External edits (e.g. an admin editing the file directly) should invalidate
   // the cache so the next tool call observes the new state. Close any prior
   // watcher first so re-initialization doesn't leak handles.
+  //
+  // The soft restart below is what makes every config field hot-reloadable:
+  // a re-run of plugin init re-reconciles cron jobs, re-registers tools
+  // (including the seasons-gated ones), and re-installs instruction content —
+  // none of which the in-memory cache reload alone covers. The cache update
+  // still runs so any tool calls in the ~debounce + restart gap observe the
+  // new state.
   watcher?.close();
   watcher = sdk.watchFile(CONFIG_FILENAME, () => {
     reloadInBackground(sdk);
+    sdk.requestSoftRestart("trivia plugin config file changed");
   });
 }
 
