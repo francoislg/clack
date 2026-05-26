@@ -3,8 +3,9 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { textResult, errorResult } from "../../../../tools/helpers.js";
 import { defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
 import { requireGame } from "../../core/gamesRegistry.js";
-import type { TriviaDataLayer, SeasonEntry, SeasonFormatSlot } from "../../core/types.js";
+import type { TriviaDataLayer, SeasonEntry } from "../../core/types.js";
 import type {
+  SeasonFormatSlot,
   TriviaAnswersFormatWeights,
   TriviaQuestionTypeWeights,
   TriviaFreeformAnswerShapeWeights,
@@ -52,7 +53,7 @@ const DESCRIPTION = `List every season on a specific game's trivia timeline with
 
 Each axis field is present on a season entry IF AND ONLY IF the season explicitly set it. Absence means that season falls through to the next tier of the cascade.
 
-The cascade tier order is: \`slot → season → workspace → built-in default\`. To audit the workspace tier, call \`list_games\` (its \`workspaceDefaults\` block surfaces every workspace-level setting). Together the two tools cover every configurable tier.
+The cascade tier order is: \`slot → season → game → workspace → built-in default\`. To audit the game tier (including a game's optional \`format\`, \`categories\`, and \`theme\` overrides) AND the workspace tier, call \`list_games\` — its per-entry fields surface the game tier and its \`workspaceDefaults\` block surfaces the workspace tier. Together the two tools cover every configurable tier.
 
 Use this to inspect what's queued, see a future season's category pool before it goes live, or audit past seasons. Returns the timeline in stored order.`;
 

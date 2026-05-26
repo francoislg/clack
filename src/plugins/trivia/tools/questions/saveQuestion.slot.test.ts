@@ -68,7 +68,7 @@ describe("save_question — slot binding", () => {
     const parsed = parseToolResult(
       await tool.handler({ ...BASE_ARGS, slot: { index: 0, label: undefined } }, SESSION),
     );
-    assert.match(parsed.error, /no format/);
+    assert.match(parsed.error, /no active format/);
   });
 
   it("requires slot when active season has a format", async () => {
@@ -162,5 +162,100 @@ describe("save_question — slot binding", () => {
     const parsed = parseToolResult(result);
     assert.equal(parsed.question.slot.index, 0);
     assert.equal(parsed.question.slot.label, undefined);
+  });
+
+  it("game.format triggers slot-binding mode when season has none", async () => {
+    await seedSeason(data); // season with no format
+    const gamesWithFormat = [
+      {
+        name: FIXTURE_GAME_NAME,
+        channel: "C100000000",
+        questionCron: "0 9 * * 1-5",
+        revealCron: "0 17 * * 1-5",
+        timezone: "UTC",
+        enabled: true,
+        format: { questions: [{ label: "GameSlot" }] },
+      },
+    ];
+    const tool = createSaveQuestionTool(
+      data,
+      () => SEASONS_ON,
+      () => gamesWithFormat,
+    );
+    const parsed = parseToolResult(
+      await tool.handler(
+        {
+          ...BASE_ARGS,
+          slot: { index: 0, label: undefined },
+        },
+        SESSION,
+      ),
+    );
+    assert.equal(parsed.saved, true);
+    assert.equal(parsed.question.slot.index, 0);
+    assert.equal(parsed.question.slot.label, "GameSlot");
+  });
+
+  it("rejects missing slot when game.format is the active format", async () => {
+    await seedSeason(data);
+    const gamesWithFormat = [
+      {
+        name: FIXTURE_GAME_NAME,
+        channel: "C100000000",
+        questionCron: "0 9 * * 1-5",
+        revealCron: "0 17 * * 1-5",
+        timezone: "UTC",
+        enabled: true,
+        format: { questions: [{ label: "GameSlot" }] },
+      },
+    ];
+    const tool = createSaveQuestionTool(
+      data,
+      () => SEASONS_ON,
+      () => gamesWithFormat,
+    );
+    const parsed = parseToolResult(await tool.handler({ ...BASE_ARGS, slot: undefined }, SESSION));
+    assert.match(parsed.error, /requires a slot argument/);
+  });
+});
+
+describe("save_question — game-tier categories cascade", () => {
+  const SEASONS_OFF = makeConfig({ seasons: { enabled: false, prompt: "" } });
+  let data: TriviaDataLayer;
+
+  beforeEach(async () => {
+    data = createInMemoryDataLayer();
+    await data.saveCategories(["Science", "History", "Geography"]);
+  });
+
+  it("game.categories narrows pool when seasons disabled", async () => {
+    const gamesWithCategories = [
+      {
+        name: FIXTURE_GAME_NAME,
+        channel: "C100000000",
+        questionCron: "0 9 * * 1-5",
+        revealCron: "0 17 * * 1-5",
+        timezone: "UTC",
+        enabled: true,
+        categories: ["History"],
+      },
+    ];
+    const tool = createSaveQuestionTool(
+      data,
+      () => SEASONS_OFF,
+      () => gamesWithCategories,
+    );
+    const parsed = parseToolResult(
+      await tool.handler({ ...BASE_ARGS, category: "Science", slot: undefined }, SESSION),
+    );
+    assert.match(parsed.error, /not found in the pool|not in/);
+  });
+
+  it("falls through to global categories.json when game has none", async () => {
+    const tool = createSaveQuestionTool(data, () => SEASONS_OFF, fixtureGetGames);
+    const parsed = parseToolResult(
+      await tool.handler({ ...BASE_ARGS, category: "Science", slot: undefined }, SESSION),
+    );
+    assert.equal(parsed.saved, true);
   });
 });

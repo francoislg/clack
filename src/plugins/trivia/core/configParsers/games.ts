@@ -8,6 +8,7 @@
 import { CronExpressionParser } from "cron-parser";
 import type { JsonObject, JsonValue, OffDay, TriviaGame } from "../configTypes.js";
 import { parseTriviaAxisBag, type ParseIssue } from "./axes.js";
+import { validateFormat } from "./format.js";
 
 /** Game-name format: filesystem-safe kebab-case, 1–32 chars. */
 const TRIVIA_GAME_NAME_RE = /^[a-z0-9-]+$/;
@@ -102,9 +103,84 @@ export function parseTriviaGame(
   const { axes, issues: axisIssues } = parseTriviaAxisBag(e, fieldPrefix);
   issues.push(...axisIssues);
 
+  // Optional structural fields — `format`, `categories`, `theme`. Same lenient
+  // drop-on-invalid policy as the axis bag: the invalid field is dropped and an
+  // issue is logged, but the rest of the entry survives.
+  let format: TriviaGame["format"];
+  if (e.format !== undefined && e.format !== null) {
+    const formatField = `${fieldPrefix}.format`;
+    if (typeof e.format !== "object" || Array.isArray(e.format)) {
+      issues.push({ field: formatField, error: "must be an object" });
+    } else {
+      const r = validateFormat(e.format as JsonObject, formatField);
+      if (r.ok) format = r.value;
+      else issues.push({ field: formatField, error: r.error });
+    }
+  }
+
+  let categories: string[] | undefined;
+  if (e.categories !== undefined && e.categories !== null) {
+    const categoriesField = `${fieldPrefix}.categories`;
+    if (!Array.isArray(e.categories)) {
+      issues.push({ field: categoriesField, error: "must be an array" });
+    } else {
+      const trimmed: string[] = [];
+      const seen = new Set<string>();
+      let invalidEntry = false;
+      for (const c of e.categories) {
+        if (typeof c !== "string") {
+          issues.push({ field: categoriesField, error: "every entry must be a string" });
+          invalidEntry = true;
+          break;
+        }
+        const t = c.trim();
+        if (t.length === 0) continue;
+        if (seen.has(t)) continue;
+        seen.add(t);
+        trimmed.push(t);
+      }
+      if (!invalidEntry) {
+        if (trimmed.length === 0) {
+          issues.push({
+            field: categoriesField,
+            error: "must contain at least one non-empty string",
+          });
+        } else {
+          categories = trimmed;
+        }
+      }
+    }
+  }
+
+  let theme: string | undefined;
+  if (e.theme !== undefined && e.theme !== null) {
+    const themeField = `${fieldPrefix}.theme`;
+    if (typeof e.theme !== "string") {
+      issues.push({ field: themeField, error: "must be a string" });
+    } else {
+      const trimmed = e.theme.trim();
+      if (trimmed.length === 0) {
+        issues.push({ field: themeField, error: "must be non-empty after trim" });
+      } else {
+        theme = trimmed;
+      }
+    }
+  }
+
   seenNames.add(name);
   return {
-    game: { name, channel, questionCron, revealCron, timezone, enabled, ...axes },
+    game: {
+      name,
+      channel,
+      questionCron,
+      revealCron,
+      timezone,
+      enabled,
+      ...axes,
+      ...(format ? { format } : {}),
+      ...(categories ? { categories } : {}),
+      ...(theme ? { theme } : {}),
+    },
     issues,
   };
 }

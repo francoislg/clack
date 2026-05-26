@@ -7,7 +7,8 @@ import { findCurrentSeason } from "../../core/seasonTimeline.js";
 import { resolveAnswersFormat } from "../../domain/questionTypes.js";
 import { resolveQuestionType } from "../../domain/factTopical.js";
 import { resolveContexts } from "../../domain/contexts.js";
-import { resolveSlotCategories } from "../../domain/seasonFormat.js";
+import { resolveEffectiveFormat } from "../../domain/format.js";
+import { resolveActiveCategories } from "../../domain/categories.js";
 import {
   defaultGetGames,
   defaultGetTriviaConfig,
@@ -315,50 +316,65 @@ export function createSaveQuestionTool(
       const scoped = data.forGame(args.game);
       const seasonsState = await scoped.loadSeasonsState();
       const currentSeasonEntry = findCurrentSeason(seasonsState, Date.now());
-      const seasonFormat = currentSeasonEntry?.format;
+      const effectiveFormat = resolveEffectiveFormat(currentSeasonEntry, gameEntry);
+      const formatSource: "season" | "game" | null =
+        currentSeasonEntry?.format !== undefined
+          ? "season"
+          : gameEntry.format !== undefined
+            ? "game"
+            : null;
 
-      if (seasonFormat !== undefined) {
+      if (effectiveFormat !== null) {
         if (args.slot === undefined) {
+          const sourceLabel =
+            formatSource === "season"
+              ? `Season "${currentSeasonEntry?.slug}"`
+              : `Game "${gameEntry.name}"`;
           return errorResult(
-            `Season "${currentSeasonEntry?.slug}" has a format with ${seasonFormat.questions.length} slot(s) — save_question requires a slot argument.`,
+            `${sourceLabel} has a format with ${effectiveFormat.questions.length} slot(s) — save_question requires a slot argument.`,
           );
         }
-        if (args.slot.index < 0 || args.slot.index >= seasonFormat.questions.length) {
+        if (args.slot.index < 0 || args.slot.index >= effectiveFormat.questions.length) {
+          const sourceLabel =
+            formatSource === "season"
+              ? `active season "${currentSeasonEntry?.slug}"`
+              : `game "${gameEntry.name}"`;
           return errorResult(
-            `slot index ${args.slot.index} out of range — active season "${currentSeasonEntry?.slug}" has ${seasonFormat.questions.length} slot(s).`,
+            `slot index ${args.slot.index} out of range — ${sourceLabel} has ${effectiveFormat.questions.length} slot(s).`,
           );
         }
       } else if (args.slot !== undefined) {
         return errorResult(
-          "Season has no format — save_question must be called WITHOUT a slot argument.",
+          "no active format — save_question must be called WITHOUT a slot argument.",
         );
       }
 
-      const seasonCategories =
-        currentSeasonEntry !== null ? currentSeasonEntry.categories : await data.loadCategories();
+      const globalCategories = await data.loadCategories();
       const config = getConfigFn();
+      const slotIndexForResolution =
+        effectiveFormat !== null && args.slot !== undefined ? args.slot.index : null;
 
-      const slotCategories =
-        seasonFormat !== undefined && args.slot !== undefined
-          ? resolveSlotCategories(seasonFormat.questions[args.slot.index], seasonCategories)
-          : seasonCategories;
+      const slotCategories = resolveActiveCategories(
+        effectiveFormat,
+        slotIndexForResolution,
+        currentSeasonEntry,
+        gameEntry,
+        globalCategories,
+      );
       const categoryLower = args.category.toLowerCase();
       const matchingCategory = slotCategories.find((c) => c.toLowerCase() === categoryLower);
 
       if (!matchingCategory) {
         const hint =
-          seasonFormat !== undefined && args.slot !== undefined
-            ? `Category "${args.category}" is not in slot ${args.slot.index}'s resolved pool (${slotCategories.length} categories). The slot${seasonFormat.questions[args.slot.index].categories !== undefined ? " narrows the season pool" : " inherits the season pool"}.`
+          effectiveFormat !== null && args.slot !== undefined
+            ? `Category "${args.category}" is not in slot ${args.slot.index}'s resolved pool (${slotCategories.length} categories). The slot${effectiveFormat.questions[args.slot.index].categories !== undefined ? " narrows the pool" : " inherits the season/game/global pool"}.`
             : currentSeasonEntry !== null
               ? `Category "${args.category}" is not in this season's pool. Use add_categories to add it (target: "current" for this season only, or "both" to also persist it in the default baseline).`
               : `Category "${args.category}" not found in the pool. Use add_categories to add it first.`;
         return errorResult(hint);
       }
 
-      const slotIndexForResolution =
-        seasonFormat !== undefined && args.slot !== undefined ? args.slot.index : null;
-
-      if (seasonFormat !== undefined && args.slot !== undefined) {
+      if (effectiveFormat !== null && args.slot !== undefined) {
         const slotAnswersWeights = resolveAnswersFormat(
           currentSeasonEntry,
           args.slot.index,
@@ -411,11 +427,11 @@ export function createSaveQuestionTool(
 
       const currentSeasonSlug = currentSeasonEntry?.slug ?? null;
       const slotStamp =
-        seasonFormat !== undefined && args.slot !== undefined
+        effectiveFormat !== null && args.slot !== undefined
           ? {
               index: args.slot.index,
-              ...(seasonFormat.questions[args.slot.index].label !== undefined
-                ? { label: seasonFormat.questions[args.slot.index].label as string }
+              ...(effectiveFormat.questions[args.slot.index].label !== undefined
+                ? { label: effectiveFormat.questions[args.slot.index].label as string }
                 : {}),
             }
           : null;

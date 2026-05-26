@@ -1,12 +1,12 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
-  validateFormat,
   validateAnswersFormat,
   validateQuestionType,
   validateContexts,
   resolveSlotCategories,
 } from "./seasonFormat.js";
+import { validateFormat } from "../core/configParsers/format.js";
 
 describe("validateFormat", () => {
   it("accepts an empty slot `{}`", () => {

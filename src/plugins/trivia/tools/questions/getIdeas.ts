@@ -7,7 +7,9 @@ import { resolveQuestionType } from "../../domain/factTopical.js";
 import { resolveFreeformAnswerShape } from "../../domain/freeformAnswerShape.js";
 import { resolveContexts, rollContextPriority } from "../../domain/contexts.js";
 import { resolveDifficultyRanges, resolveDifficultyRatio } from "../../domain/difficulty.js";
-import { resolveSlotCategories } from "../../domain/seasonFormat.js";
+import { resolveEffectiveFormat } from "../../domain/format.js";
+import { resolveActiveCategories } from "../../domain/categories.js";
+import { resolveTheme } from "../../domain/theme.js";
 import { weightedPick } from "../../domain/weightedPick.js";
 import {
   defaultGetGames,
@@ -43,7 +45,7 @@ Always returns:
 - \`suggestedDifficulty\`: \`"Easy" | "Medium" | "Hard"\` — picked by weighted-random from the active \`difficultyRatio\` weights for this game type (slot → season → game → workspace → built-in default \`{ easy: 3, medium: 6, hard: 1 }\` for boolean/choice, \`{ easy: 5, medium: 4, hard: 1 }\` for freeform).
 - \`suggestedDifficultyRange\`: \`[min, max]\` — the inclusive 1–10 STRICT accept range for the picked bucket on this game type (resolved through slot → season → config → built-in default; freeform is softer than boolean/choice by default). The self-rating in the DIFFICULTY GATE step MUST land inside this range; ratings ±1 off trigger a one-shot reframe; ≥2 off trigger an immediate re-roll.
 - \`firstFireOfSeason\` (boolean): \`true\` iff seasons are enabled, a current season exists, AND zero saved questions in this game carry \`season === currentSlug\`. Honor this in the question-posting prompt by prepending a ceremonial opener (\`header\` + \`section\` blocks) ABOVE the question content on the first fire of every new season.
-- \`theme\` (optional string): mirrored verbatim from the current season's \`theme\` when set. Mention it in the opener section ONLY when present; never fabricate one or enumerate categories as a substitute.
+- \`theme\` (optional string): resolved from the cascade \`season.theme → game.theme\`. Mirrored verbatim when set. Mention it in the opener section ONLY when present; never fabricate one or enumerate categories as a substitute.
 - \`contextPriority\` (optional): freshly-rolled weighted-random ordering of every configured lens. Present only when \`trivia.contexts\` is configured at any cascade tier. Claude tries \`contextPriority[0]\` first; descends the list only when the current lens yields no usable question.
 
 When suggestedAnswersFormat is \`"boolean"\`, also returns:
@@ -101,25 +103,32 @@ export function createGetIdeasTool(
       const seasonsState = await scoped.loadSeasonsState();
       const currentSeasonEntry = findCurrentSeason(seasonsState, now);
 
-      const seasonFormat = currentSeasonEntry?.format;
-      if (seasonFormat !== undefined) {
-        if (slotArg < 0 || slotArg >= seasonFormat.questions.length) {
+      const effectiveFormat = resolveEffectiveFormat(currentSeasonEntry, gameEntry);
+      if (effectiveFormat !== null) {
+        if (slotArg < 0 || slotArg >= effectiveFormat.questions.length) {
+          const tier =
+            currentSeasonEntry?.format !== undefined
+              ? `active season "${currentSeasonEntry.slug}"`
+              : `game "${gameEntry.name}"`;
           return errorResult(
-            `slot index ${slotArg} out of range — active season "${currentSeasonEntry?.slug}" has ${seasonFormat.questions.length} slot(s).`,
+            `slot index ${slotArg} out of range — ${tier} has ${effectiveFormat.questions.length} slot(s).`,
           );
         }
       } else if (slotArg !== 0) {
         return errorResult(
-          "season has no format — slot argument must be 0 (or omitted) for the single-question flow.",
+          "no active format — slot argument must be 0 (or omitted) for the single-question flow.",
         );
       }
 
-      const seasonCategories =
-        currentSeasonEntry !== null ? currentSeasonEntry.categories : await data.loadCategories();
-      const slotCategories =
-        seasonFormat !== undefined
-          ? resolveSlotCategories(seasonFormat.questions[slotArg], seasonCategories)
-          : seasonCategories;
+      const globalCategories = await data.loadCategories();
+      const slotIndexForResolution = effectiveFormat !== null ? slotArg : null;
+      const slotCategories = resolveActiveCategories(
+        effectiveFormat,
+        slotIndexForResolution,
+        currentSeasonEntry,
+        gameEntry,
+        globalCategories,
+      );
 
       const allQuestions = await scoped.loadQuestions();
       const questions =
@@ -128,19 +137,16 @@ export function createGetIdeasTool(
           : allQuestions;
 
       const firstFireOfSeason = currentSeasonEntry !== null && questions.length === 0;
-      const theme =
-        currentSeasonEntry !== null &&
-        typeof currentSeasonEntry.theme === "string" &&
-        currentSeasonEntry.theme.length > 0
-          ? currentSeasonEntry.theme
-          : undefined;
+      const theme = resolveTheme(currentSeasonEntry, gameEntry) ?? undefined;
 
       const exclusionWindow = Math.min(10, Math.floor(slotCategories.length / 3));
       const recentCategories = new Set(
         questions.slice(-exclusionWindow).map((q) => q.category.toLowerCase()),
       );
 
-      const available = slotCategories.filter((c) => !recentCategories.has(c.toLowerCase()));
+      const available = slotCategories.filter(
+        (c: string) => !recentCategories.has(c.toLowerCase()),
+      );
 
       const pool = [...available];
       const ideas: string[] = [];
@@ -152,18 +158,22 @@ export function createGetIdeasTool(
       }
 
       const formatMeta =
-        seasonFormat !== undefined
+        effectiveFormat !== null
           ? {
-              slotCount: seasonFormat.questions.length,
-              slots: seasonFormat.questions.map((q, i) => ({
+              slotCount: effectiveFormat.questions.length,
+              slots: effectiveFormat.questions.map((q, i) => ({
                 index: i,
                 ...(q.label !== undefined ? { label: q.label } : {}),
-                categories: resolveSlotCategories(q, seasonCategories),
+                categories: resolveActiveCategories(
+                  effectiveFormat,
+                  i,
+                  currentSeasonEntry,
+                  gameEntry,
+                  globalCategories,
+                ),
               })),
             }
           : null;
-
-      const slotIndexForResolution = seasonFormat !== undefined ? slotArg : null;
 
       const answersFormatWeights = resolveAnswersFormat(
         currentSeasonEntry,

@@ -110,7 +110,7 @@ describe("get_ideas — format meta and slot routing", () => {
     const parsed = parseToolResult(
       await tool.handler({ game: FIXTURE_GAME_NAME, slot: 1 }, SESSION),
     );
-    assert.match(parsed.error, /no format/);
+    assert.match(parsed.error, /no active format/);
   });
 
   it("accepts slot 0 when season has no format (backward compat)", async () => {
@@ -192,6 +192,107 @@ describe("get_ideas — format meta and slot routing", () => {
     const a = parseToolResult(await tool.handler({ game: FIXTURE_GAME_NAME, slot: 0 }, SESSION));
     const b = parseToolResult(await tool.handler({ game: FIXTURE_GAME_NAME, slot: 1 }, SESSION));
     assert.deepEqual(a.format, b.format);
+  });
+
+  it("game.format is used when season has no format", async () => {
+    await seedSeason(data);
+    const gameWithFormat = [
+      {
+        name: FIXTURE_GAME_NAME,
+        channel: "C100000000",
+        questionCron: "0 9 * * 1-5",
+        revealCron: "0 17 * * 1-5",
+        timezone: "UTC",
+        enabled: true,
+        format: { questions: [{ label: "Daily" }, { label: "Bonus" }] },
+      },
+    ];
+    const tool = createGetIdeasTool(
+      data,
+      () => SEASONS_ON_CONFIG,
+      () => gameWithFormat,
+    );
+    const parsed = parseToolResult(
+      await tool.handler({ game: FIXTURE_GAME_NAME, slot: 1 }, SESSION),
+    );
+    assert.equal(parsed.format.slotCount, 2);
+    assert.equal(parsed.format.slots[1].label, "Bonus");
+    assert.equal(parsed.slot, 1);
+  });
+
+  it("season.format wins over game.format", async () => {
+    await seedSeason(data, {
+      format: { questions: [{ label: "Season-A" }, { label: "Season-B" }, { label: "Season-C" }] },
+    });
+    const gameWithFormat = [
+      {
+        name: FIXTURE_GAME_NAME,
+        channel: "C100000000",
+        questionCron: "0 9 * * 1-5",
+        revealCron: "0 17 * * 1-5",
+        timezone: "UTC",
+        enabled: true,
+        format: { questions: [{ label: "Game-A" }] },
+      },
+    ];
+    const tool = createGetIdeasTool(
+      data,
+      () => SEASONS_ON_CONFIG,
+      () => gameWithFormat,
+    );
+    const parsed = parseToolResult(
+      await tool.handler({ game: FIXTURE_GAME_NAME, slot: 0 }, SESSION),
+    );
+    assert.equal(parsed.format.slotCount, 3);
+    assert.equal(parsed.format.slots[0].label, "Season-A");
+  });
+
+  it("game.theme surfaced when no season theme is set", async () => {
+    await seedSeason(data);
+    const gameWithTheme = [
+      {
+        name: FIXTURE_GAME_NAME,
+        channel: "C100000000",
+        questionCron: "0 9 * * 1-5",
+        revealCron: "0 17 * * 1-5",
+        timezone: "UTC",
+        enabled: true,
+        theme: "Channel Lore Trivia",
+      },
+    ];
+    const tool = createGetIdeasTool(
+      data,
+      () => SEASONS_ON_CONFIG,
+      () => gameWithTheme,
+    );
+    const parsed = parseToolResult(
+      await tool.handler({ game: FIXTURE_GAME_NAME, slot: undefined }, SESSION),
+    );
+    assert.equal(parsed.theme, "Channel Lore Trivia");
+  });
+
+  it("season.theme wins over game.theme", async () => {
+    await seedSeason(data, { theme: "Halloween" });
+    const gameWithTheme = [
+      {
+        name: FIXTURE_GAME_NAME,
+        channel: "C100000000",
+        questionCron: "0 9 * * 1-5",
+        revealCron: "0 17 * * 1-5",
+        timezone: "UTC",
+        enabled: true,
+        theme: "Channel Lore Trivia",
+      },
+    ];
+    const tool = createGetIdeasTool(
+      data,
+      () => SEASONS_ON_CONFIG,
+      () => gameWithTheme,
+    );
+    const parsed = parseToolResult(
+      await tool.handler({ game: FIXTURE_GAME_NAME, slot: undefined }, SESSION),
+    );
+    assert.equal(parsed.theme, "Halloween");
   });
 });
 

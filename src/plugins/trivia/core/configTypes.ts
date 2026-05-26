@@ -150,6 +150,50 @@ export interface TriviaGame {
    * per tier; per-format keying (boolean / choice / freeform).
    */
   difficultyRatio?: TriviaDifficultyRatioConfig;
+  /**
+   * Optional per-game question composition (slot list). Cascade:
+   *   `season.format → game.format → (single-question fallback)`.
+   * Same shape as `SeasonEntry.format`; validated by the same `validateFormat`.
+   * Absent at every tier → cron fire posts a single question (pre-format behavior).
+   */
+  format?: SeasonFormat;
+  /**
+   * Optional per-game category pool. Cascade:
+   *   `slot.categories → season.categories → game.categories → categories.json`.
+   * Must be a non-empty, deduped string list when present.
+   */
+  categories?: string[];
+  /**
+   * Optional per-game narrative theme. Cascade:
+   *   `season.theme → game.theme → (no theme)`.
+   * Trimmed, non-empty when present. Surfaced in opener / finale prompt copy.
+   */
+  theme?: string;
+}
+
+/**
+ * One ordered slot in a season's or game's question format. Optional per-slot
+ * overrides for every cascading axis — when absent, the slot inherits from the
+ * season → game → workspace → built-in default cascade.
+ */
+export interface SeasonFormatSlot {
+  label?: string;
+  categories?: string[];
+  answersFormat?: TriviaAnswersFormatWeights;
+  questionType?: TriviaQuestionTypeWeights;
+  freeformAnswerShape?: TriviaFreeformAnswerShapeWeights;
+  contexts?: TriviaContextEntry[];
+  difficulty?: TriviaDifficultyConfig;
+  difficultyRatio?: TriviaDifficultyRatioConfig;
+}
+
+/**
+ * Question composition for one tier (season or game). When present, each
+ * question-cron fire posts `questions.length` questions (one per slot, in array
+ * order).
+ */
+export interface SeasonFormat {
+  questions: SeasonFormatSlot[];
 }
 
 /**
