@@ -9,92 +9,45 @@ import {
   type GetGamesFn,
 } from "../../core/configBridge.js";
 import type { JsonObject, JsonValue, TriviaConfig, TriviaGame } from "../../core/configTypes.js";
-import { parseTriviaAxisBag, triviaDifficultyRatioZod } from "../../core/configParsers/axes.js";
-import type { ParseIssue } from "../../core/configParsers/axes.js";
+import {
+  answersFormatZod,
+  contextsZod,
+  difficultyZod,
+  freeformAnswerShapeZod,
+  parseTriviaAxisBag,
+  questionTypeZod,
+  triviaDifficultyRatioZod,
+  type ParseIssue,
+} from "../../core/configParsers/axes.js";
+import {
+  normalizeCategories,
+  normalizeTheme,
+  seasonFormatZod,
+  triviaCategoriesZod,
+  triviaThemeZod,
+  validateFormat,
+} from "../../core/configParsers/format.js";
 
 const TRIVIA_GAME_NAME_RE = /^[a-z0-9-]+$/;
 const CHANNEL_RE = /^[CGD][A-Z0-9_]+$/;
 
 const axisBagSchema = {
-  answersFormat: z
-    .object({
-      boolean: z.number().int().nonnegative().optional(),
-      choice: z.number().int().nonnegative().optional(),
-      freeform: z.number().int().nonnegative().optional(),
-    })
+  answersFormat: answersFormatZod
     .nullable()
     .optional()
     .describe(
       "Per-game answer-format weights. On UPDATE: explicit null clears the field. Cascade slot → season → game → workspace → default.",
     ),
-  questionType: z
-    .object({
-      fact: z.number().int().nonnegative().optional(),
-      topical: z.number().int().nonnegative().optional(),
-    })
+  questionType: questionTypeZod
     .nullable()
     .optional()
     .describe("Per-game fact-vs-topical weights. Explicit null clears."),
-  freeformAnswerShape: z
-    .object({
-      name: z.number().int().nonnegative().optional(),
-      place: z.number().int().nonnegative().optional(),
-      phrase: z.number().int().nonnegative().optional(),
-      title: z.number().int().nonnegative().optional(),
-      date: z.number().int().nonnegative().optional(),
-      number: z.number().int().nonnegative().optional(),
-      other: z.number().int().nonnegative().optional(),
-    })
+  freeformAnswerShape: freeformAnswerShapeZod
     .nullable()
     .optional()
     .describe("Per-game freeform-shape weights. Explicit null clears."),
-  contexts: z
-    .array(z.object({ name: z.string(), weight: z.number().positive().optional() }))
-    .nullable()
-    .optional()
-    .describe("Per-game lens list. Explicit null clears."),
-  difficulty: z
-    .object({
-      boolean: z
-        .object({
-          easy: z
-            .tuple([z.number().int().min(1).max(10), z.number().int().min(1).max(10)])
-            .optional(),
-          medium: z
-            .tuple([z.number().int().min(1).max(10), z.number().int().min(1).max(10)])
-            .optional(),
-          hard: z
-            .tuple([z.number().int().min(1).max(10), z.number().int().min(1).max(10)])
-            .optional(),
-        })
-        .optional(),
-      choice: z
-        .object({
-          easy: z
-            .tuple([z.number().int().min(1).max(10), z.number().int().min(1).max(10)])
-            .optional(),
-          medium: z
-            .tuple([z.number().int().min(1).max(10), z.number().int().min(1).max(10)])
-            .optional(),
-          hard: z
-            .tuple([z.number().int().min(1).max(10), z.number().int().min(1).max(10)])
-            .optional(),
-        })
-        .optional(),
-      freeform: z
-        .object({
-          easy: z
-            .tuple([z.number().int().min(1).max(10), z.number().int().min(1).max(10)])
-            .optional(),
-          medium: z
-            .tuple([z.number().int().min(1).max(10), z.number().int().min(1).max(10)])
-            .optional(),
-          hard: z
-            .tuple([z.number().int().min(1).max(10), z.number().int().min(1).max(10)])
-            .optional(),
-        })
-        .optional(),
-    })
+  contexts: contextsZod.nullable().optional().describe("Per-game lens list. Explicit null clears."),
+  difficulty: difficultyZod
     .nullable()
     .optional()
     .describe(
@@ -108,10 +61,31 @@ const axisBagSchema = {
     ),
 };
 
+const structuralFieldsSchema = {
+  format: seasonFormatZod
+    .nullable()
+    .optional()
+    .describe(
+      "Per-game question composition (slot list). Cascade: `season.format → game.format → (single-question fallback)`. Each slot may narrow `label` / `categories` / `answersFormat` / `questionType` / `freeformAnswerShape` / `contexts` / `difficulty` / `difficultyRatio`; missing fields cascade to the game's defaults. On UPDATE: explicit null clears the field.",
+    ),
+  categories: triviaCategoriesZod
+    .nullable()
+    .optional()
+    .describe(
+      "Per-game category pool. Cascade: `slot.categories → season.categories → game.categories → categories.json`. Non-empty, deduped string list when present. On UPDATE: explicit null clears the field (game then falls through to the global categories.json).",
+    ),
+  theme: triviaThemeZod
+    .nullable()
+    .optional()
+    .describe(
+      "Per-game narrative theme. Cascade: `season.theme → game.theme → (no theme)`. Trimmed, non-empty when present — surfaced in opener / finale prompt copy. On UPDATE: explicit null clears the field.",
+    ),
+};
+
 export function createUpsertGameTool(getGamesFn: GetGamesFn = defaultGetGames) {
   return tool(
     "upsert_game",
-    "Create OR update a trivia game in data/plugins/trivia/config.json. CREATE branch: triggered when the named game doesn't exist yet — requires channel, questionCron, revealCron, timezone; enabled defaults to true. UPDATE branch: triggered when the game exists — every scheduling field is omit-to-keep (only update what you pass), every axis field uses null-to-clear / omit-to-keep semantics. Game name is immutable — to rename, delete + upsert. Axis fields participate in the cascade slot → season → game → workspace → built-in default. For workspace-tier changes use set_workspace_config. Mutates the plugin config file directly — no confirm/approval flow.",
+    "Create OR update a trivia game in data/plugins/trivia/config.json. CREATE branch: triggered when the named game doesn't exist yet — requires channel, questionCron, revealCron, timezone; enabled defaults to true. UPDATE branch: triggered when the game exists — every scheduling field is omit-to-keep (only update what you pass), every axis field AND every structural field (`format`, `categories`, `theme`) uses null-to-clear / omit-to-keep semantics. Game name is immutable — to rename, delete + upsert. Axis fields participate in the cascade slot → season → game → workspace → built-in default. Structural fields participate in the cascade season → game → (fallback). For workspace-tier changes use set_workspace_config. Mutates the plugin config file directly — no confirm/approval flow.",
     {
       name: z
         .string()
@@ -147,6 +121,7 @@ export function createUpsertGameTool(getGamesFn: GetGamesFn = defaultGetGames) {
           "When false, the plugin skips this entry during cron reconcile AND per-game write tools refuse. Defaults to true on create; omit on update to keep.",
         ),
       ...axisBagSchema,
+      ...structuralFieldsSchema,
     },
     async (args) => {
       if (!TRIVIA_GAME_NAME_RE.test(args.name) || args.name.length > 32) {
@@ -212,12 +187,34 @@ export function createUpsertGameTool(getGamesFn: GetGamesFn = defaultGetGames) {
       setAxis("difficultyRatio", args.difficultyRatio ?? undefined);
 
       const issues: ParseIssue[] = [];
-      let parsed: Partial<TriviaGame> = {};
+      let parsedAxes: Partial<TriviaGame> = {};
       if (Object.keys(axisInput).length > 0) {
         const result = parseTriviaAxisBag(axisInput, `upsert_game(${args.name})`);
         issues.push(...result.issues);
-        parsed = result.axes;
+        parsedAxes = result.axes;
       }
+
+      // Validate the three structural fields with the same validators used at
+      // file-load time, so the tool path and the file-loader path stay in sync.
+      let parsedFormat: TriviaGame["format"] | undefined;
+      if (args.format !== undefined && args.format !== null) {
+        const r = validateFormat(args.format, `upsert_game(${args.name}).format`);
+        if (!r.ok) issues.push({ field: "format", error: r.error });
+        else parsedFormat = r.value;
+      }
+      let parsedCategories: string[] | undefined;
+      if (args.categories !== undefined && args.categories !== null) {
+        const r = normalizeCategories(args.categories);
+        if (!r.ok) issues.push({ field: "categories", error: r.error });
+        else parsedCategories = r.value;
+      }
+      let parsedTheme: string | undefined;
+      if (args.theme !== undefined && args.theme !== null) {
+        const r = normalizeTheme(args.theme);
+        if (!r.ok) issues.push({ field: "theme", error: r.error });
+        else parsedTheme = r.value;
+      }
+
       if (issues.length > 0) {
         return errorResult(issues.map((i) => `${i.field}: ${i.error}`).join("; "));
       }
@@ -236,19 +233,35 @@ export function createUpsertGameTool(getGamesFn: GetGamesFn = defaultGetGames) {
           : {}),
       };
       if (args.answersFormat === null) delete mergedAxes.answersFormat;
-      else if (parsed.answersFormat !== undefined) mergedAxes.answersFormat = parsed.answersFormat;
+      else if (parsedAxes.answersFormat !== undefined)
+        mergedAxes.answersFormat = parsedAxes.answersFormat;
       if (args.questionType === null) delete mergedAxes.questionType;
-      else if (parsed.questionType !== undefined) mergedAxes.questionType = parsed.questionType;
+      else if (parsedAxes.questionType !== undefined)
+        mergedAxes.questionType = parsedAxes.questionType;
       if (args.freeformAnswerShape === null) delete mergedAxes.freeformAnswerShape;
-      else if (parsed.freeformAnswerShape !== undefined)
-        mergedAxes.freeformAnswerShape = parsed.freeformAnswerShape;
+      else if (parsedAxes.freeformAnswerShape !== undefined)
+        mergedAxes.freeformAnswerShape = parsedAxes.freeformAnswerShape;
       if (args.contexts === null) delete mergedAxes.contexts;
-      else if (parsed.contexts !== undefined) mergedAxes.contexts = parsed.contexts;
+      else if (parsedAxes.contexts !== undefined) mergedAxes.contexts = parsedAxes.contexts;
       if (args.difficulty === null) delete mergedAxes.difficulty;
-      else if (parsed.difficulty !== undefined) mergedAxes.difficulty = parsed.difficulty;
+      else if (parsedAxes.difficulty !== undefined) mergedAxes.difficulty = parsedAxes.difficulty;
       if (args.difficultyRatio === null) delete mergedAxes.difficultyRatio;
-      else if (parsed.difficultyRatio !== undefined)
-        mergedAxes.difficultyRatio = parsed.difficultyRatio;
+      else if (parsedAxes.difficultyRatio !== undefined)
+        mergedAxes.difficultyRatio = parsedAxes.difficultyRatio;
+
+      // Merge structural fields (format, categories, theme) with the same
+      // null-clear / value-replace / omit-to-keep semantics.
+      const mergedStructural: Partial<TriviaGame> = {
+        ...(existing?.format !== undefined ? { format: existing.format } : {}),
+        ...(existing?.categories !== undefined ? { categories: existing.categories } : {}),
+        ...(existing?.theme !== undefined ? { theme: existing.theme } : {}),
+      };
+      if (args.format === null) delete mergedStructural.format;
+      else if (parsedFormat !== undefined) mergedStructural.format = parsedFormat;
+      if (args.categories === null) delete mergedStructural.categories;
+      else if (parsedCategories !== undefined) mergedStructural.categories = parsedCategories;
+      if (args.theme === null) delete mergedStructural.theme;
+      else if (parsedTheme !== undefined) mergedStructural.theme = parsedTheme;
 
       const enabled = args.enabled ?? existing?.enabled ?? true;
 
@@ -260,6 +273,7 @@ export function createUpsertGameTool(getGamesFn: GetGamesFn = defaultGetGames) {
         timezone,
         enabled,
         ...mergedAxes,
+        ...mergedStructural,
       };
       if (isCreate) games.push(next);
       else games[existingIndex] = next;
@@ -269,11 +283,17 @@ export function createUpsertGameTool(getGamesFn: GetGamesFn = defaultGetGames) {
       await saveTriviaConfig(nextConfig);
 
       const hasAxisOverrides = Object.keys(mergedAxes).length > 0;
+      const hasStructuralOverrides = Object.keys(mergedStructural).length > 0;
       return textResult({
         name: args.name,
         action: isCreate ? "created" : "updated",
         enabled,
         hasAxisOverrides,
+        hasStructuralOverrides,
+        hasFormat: mergedStructural.format !== undefined,
+        hasCategories: mergedStructural.categories !== undefined,
+        hasTheme: mergedStructural.theme !== undefined,
+        slotCount: mergedStructural.format?.questions.length ?? 0,
       });
     },
   );

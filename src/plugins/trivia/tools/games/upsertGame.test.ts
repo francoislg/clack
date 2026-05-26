@@ -43,6 +43,7 @@ function makeFakeSdk(state: FakeSdkState): ClackSdk {
       stopReason: "end_turn",
       usage: { inputTokens: 0, outputTokens: 0 },
     }),
+    requestSoftRestart: () => {},
   };
 }
 
@@ -63,6 +64,35 @@ const baseGame: TriviaGame = {
   enabled: true,
 };
 
+/**
+ * Tool handlers are fully typed, so every field has to be present on every
+ * call (zod treats missing keys as undefined, but TS doesn't). This helper
+ * defaults every field to `undefined` so individual tests only spell out what
+ * they're actually exercising — keeps the assertions readable and means
+ * adding new optional fields to the tool doesn't ripple into every call site.
+ */
+type UpsertGameArgs = Parameters<ReturnType<typeof createUpsertGameTool>["handler"]>[0];
+
+function args(overrides: Partial<UpsertGameArgs> & Pick<UpsertGameArgs, "name">): UpsertGameArgs {
+  return {
+    channel: undefined,
+    questionCron: undefined,
+    revealCron: undefined,
+    timezone: undefined,
+    enabled: undefined,
+    answersFormat: undefined,
+    questionType: undefined,
+    freeformAnswerShape: undefined,
+    contexts: undefined,
+    difficulty: undefined,
+    difficultyRatio: undefined,
+    format: undefined,
+    categories: undefined,
+    theme: undefined,
+    ...overrides,
+  };
+}
+
 describe("upsert_game — create branch", () => {
   beforeEach(() => {
     _resetTriviaConfigBridge();
@@ -73,20 +103,13 @@ describe("upsert_game — create branch", () => {
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
-        {
+        args({
           name: "engineering",
           channel: "C999",
           questionCron: "0 9 * * 1-5",
           revealCron: "0 17 * * 1-5",
           timezone: "UTC",
-          enabled: undefined,
-          answersFormat: undefined,
-          questionType: undefined,
-          freeformAnswerShape: undefined,
-          contexts: undefined,
-          difficulty: undefined,
-          difficultyRatio: undefined,
-        },
+        }),
         SESSION,
       ),
     );
@@ -94,6 +117,7 @@ describe("upsert_game — create branch", () => {
     assert.equal(result.name, "engineering");
     assert.equal(result.enabled, true);
     assert.equal(result.hasAxisOverrides, false);
+    assert.equal(result.hasStructuralOverrides, false);
 
     const next = loadTriviaConfig();
     assert.equal(next?.games?.length, 1);
@@ -105,20 +129,14 @@ describe("upsert_game — create branch", () => {
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
-        {
+        args({
           name: "engineering",
           channel: "C1",
           questionCron: "0 9 * * *",
           revealCron: "0 17 * * *",
           timezone: "UTC",
-          enabled: undefined,
           answersFormat: { boolean: 0, choice: 1 },
-          questionType: undefined,
-          freeformAnswerShape: undefined,
-          contexts: undefined,
-          difficulty: undefined,
-          difficultyRatio: undefined,
-        },
+        }),
         SESSION,
       ),
     );
@@ -131,24 +149,7 @@ describe("upsert_game — create branch", () => {
     primeBridge({ games: [] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
-      await tool.handler(
-        {
-          name: "incomplete",
-          channel: "C1",
-          // missing questionCron / revealCron / timezone
-          questionCron: undefined,
-          revealCron: undefined,
-          timezone: undefined,
-          enabled: undefined,
-          answersFormat: undefined,
-          questionType: undefined,
-          freeformAnswerShape: undefined,
-          contexts: undefined,
-          difficulty: undefined,
-          difficultyRatio: undefined,
-        },
-        SESSION,
-      ),
+      await tool.handler(args({ name: "incomplete", channel: "C1" }), SESSION),
     );
     assert.match(result.error, /Creating a new game requires/);
   });
@@ -158,20 +159,13 @@ describe("upsert_game — create branch", () => {
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
-        {
+        args({
           name: "badcron",
           channel: "C1",
           questionCron: "not a cron",
           revealCron: "0 17 * * *",
           timezone: "UTC",
-          enabled: undefined,
-          answersFormat: undefined,
-          questionType: undefined,
-          freeformAnswerShape: undefined,
-          contexts: undefined,
-          difficulty: undefined,
-          difficultyRatio: undefined,
-        },
+        }),
         SESSION,
       ),
     );
@@ -183,20 +177,13 @@ describe("upsert_game — create branch", () => {
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
-        {
+        args({
           name: "Bad Name!",
           channel: "C1",
           questionCron: "0 9 * * *",
           revealCron: "0 17 * * *",
           timezone: "UTC",
-          enabled: undefined,
-          answersFormat: undefined,
-          questionType: undefined,
-          freeformAnswerShape: undefined,
-          contexts: undefined,
-          difficulty: undefined,
-          difficultyRatio: undefined,
-        },
+        }),
         SESSION,
       ),
     );
@@ -208,24 +195,123 @@ describe("upsert_game — create branch", () => {
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
-        {
+        args({
           name: "test",
           channel: "C1",
           questionCron: "0 9 * * *",
           revealCron: "0 17 * * *",
           timezone: "UTC",
-          enabled: undefined,
           answersFormat: { boolean: 0, choice: 0 },
-          questionType: undefined,
-          freeformAnswerShape: undefined,
-          contexts: undefined,
-          difficulty: undefined,
-          difficultyRatio: undefined,
-        },
+        }),
         SESSION,
       ),
     );
     assert.match(result.error, /at least one strictly positive weight/);
+  });
+
+  it("creates a game with format / categories / theme structural overrides", async () => {
+    primeBridge({ games: [] });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
+    const result = parseToolResult(
+      await tool.handler(
+        args({
+          name: "engineering",
+          channel: "C1",
+          questionCron: "0 9 * * *",
+          revealCron: "0 17 * * *",
+          timezone: "UTC",
+          format: { questions: [{ label: "Warm-up" }, { label: "Main" }] },
+          categories: ["Engineering", "Coding"],
+          theme: "Engineering deep-dives",
+        }),
+        SESSION,
+      ),
+    );
+    assert.equal(result.hasStructuralOverrides, true);
+    assert.equal(result.hasFormat, true);
+    assert.equal(result.hasCategories, true);
+    assert.equal(result.hasTheme, true);
+    assert.equal(result.slotCount, 2);
+
+    const game = loadTriviaConfig()?.games?.[0];
+    assert.equal(game?.format?.questions.length, 2);
+    assert.deepEqual(game?.categories, ["Engineering", "Coding"]);
+    assert.equal(game?.theme, "Engineering deep-dives");
+  });
+
+  it("dedupes and trims categories on create", async () => {
+    primeBridge({ games: [] });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
+    await tool.handler(
+      args({
+        name: "engineering",
+        channel: "C1",
+        questionCron: "0 9 * * *",
+        revealCron: "0 17 * * *",
+        timezone: "UTC",
+        categories: ["  Science  ", "Science", "Coding", ""],
+      }),
+      SESSION,
+    );
+    const game = loadTriviaConfig()?.games?.[0];
+    assert.deepEqual(game?.categories, ["Science", "Coding"]);
+  });
+
+  it("rejects empty categories array", async () => {
+    primeBridge({ games: [] });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
+    const result = parseToolResult(
+      await tool.handler(
+        args({
+          name: "engineering",
+          channel: "C1",
+          questionCron: "0 9 * * *",
+          revealCron: "0 17 * * *",
+          timezone: "UTC",
+          categories: ["", "   "],
+        }),
+        SESSION,
+      ),
+    );
+    assert.match(result.error, /categories must contain at least one non-empty string/);
+  });
+
+  it("rejects empty / whitespace-only theme", async () => {
+    primeBridge({ games: [] });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
+    const result = parseToolResult(
+      await tool.handler(
+        args({
+          name: "engineering",
+          channel: "C1",
+          questionCron: "0 9 * * *",
+          revealCron: "0 17 * * *",
+          timezone: "UTC",
+          theme: "   ",
+        }),
+        SESSION,
+      ),
+    );
+    assert.match(result.error, /theme must be non-empty/);
+  });
+
+  it("rejects invalid format (empty questions array)", async () => {
+    primeBridge({ games: [] });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
+    const result = parseToolResult(
+      await tool.handler(
+        args({
+          name: "engineering",
+          channel: "C1",
+          questionCron: "0 9 * * *",
+          revealCron: "0 17 * * *",
+          timezone: "UTC",
+          format: { questions: [] },
+        }),
+        SESSION,
+      ),
+    );
+    assert.match(result.error, /questions.*non-empty array/);
   });
 });
 
@@ -238,23 +324,7 @@ describe("upsert_game — update branch", () => {
     primeBridge({ games: [baseGame] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
-      await tool.handler(
-        {
-          name: "main",
-          channel: undefined,
-          questionCron: "0 10 * * *",
-          revealCron: undefined,
-          timezone: undefined,
-          enabled: undefined,
-          answersFormat: undefined,
-          questionType: undefined,
-          freeformAnswerShape: undefined,
-          contexts: undefined,
-          difficulty: undefined,
-          difficultyRatio: undefined,
-        },
-        SESSION,
-      ),
+      await tool.handler(args({ name: "main", questionCron: "0 10 * * *" }), SESSION),
     );
     assert.equal(result.action, "updated");
     const game = loadTriviaConfig()?.games?.[0];
@@ -266,23 +336,7 @@ describe("upsert_game — update branch", () => {
   it("sets a per-game axis override on existing game", async () => {
     primeBridge({ games: [baseGame] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
-    await tool.handler(
-      {
-        name: "main",
-        channel: undefined,
-        questionCron: undefined,
-        revealCron: undefined,
-        timezone: undefined,
-        enabled: undefined,
-        answersFormat: { boolean: 1, choice: 1 },
-        questionType: undefined,
-        freeformAnswerShape: undefined,
-        contexts: undefined,
-        difficulty: undefined,
-        difficultyRatio: undefined,
-      },
-      SESSION,
-    );
+    await tool.handler(args({ name: "main", answersFormat: { boolean: 1, choice: 1 } }), SESSION);
     const game = loadTriviaConfig()?.games?.[0];
     assert.deepEqual(game?.answersFormat, { boolean: 1, choice: 1, freeform: 0 });
   });
@@ -292,23 +346,7 @@ describe("upsert_game — update branch", () => {
       games: [{ ...baseGame, answersFormat: { boolean: 1, choice: 1, freeform: 0 } }],
     });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
-    await tool.handler(
-      {
-        name: "main",
-        channel: undefined,
-        questionCron: undefined,
-        revealCron: undefined,
-        timezone: undefined,
-        enabled: undefined,
-        answersFormat: null,
-        questionType: undefined,
-        freeformAnswerShape: undefined,
-        contexts: undefined,
-        difficulty: undefined,
-        difficultyRatio: undefined,
-      },
-      SESSION,
-    );
+    await tool.handler(args({ name: "main", answersFormat: null }), SESSION);
     const game = loadTriviaConfig()?.games?.[0];
     assert.equal(game?.answersFormat, undefined);
   });
@@ -324,23 +362,7 @@ describe("upsert_game — update branch", () => {
       ],
     });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
-    await tool.handler(
-      {
-        name: "main",
-        channel: undefined,
-        questionCron: undefined,
-        revealCron: undefined,
-        timezone: undefined,
-        enabled: undefined,
-        answersFormat: undefined, // omit-to-keep
-        questionType: { fact: 0, topical: 1 }, // replace
-        freeformAnswerShape: undefined,
-        contexts: undefined,
-        difficulty: undefined,
-        difficultyRatio: undefined,
-      },
-      SESSION,
-    );
+    await tool.handler(args({ name: "main", questionType: { fact: 0, topical: 1 } }), SESSION);
     const game = loadTriviaConfig()?.games?.[0];
     assert.deepEqual(game?.answersFormat, { boolean: 1, choice: 1, freeform: 0 });
     assert.deepEqual(game?.questionType, { fact: 0, topical: 1 });
@@ -349,24 +371,84 @@ describe("upsert_game — update branch", () => {
   it("toggles enabled to false", async () => {
     primeBridge({ games: [baseGame] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
+    await tool.handler(args({ name: "main", enabled: false }), SESSION);
+    const game = loadTriviaConfig()?.games?.[0];
+    assert.equal(game?.enabled, false);
+  });
+
+  it("sets format / categories / theme on existing game", async () => {
+    primeBridge({ games: [baseGame] });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     await tool.handler(
-      {
+      args({
         name: "main",
-        channel: undefined,
-        questionCron: undefined,
-        revealCron: undefined,
-        timezone: undefined,
-        enabled: false,
-        answersFormat: undefined,
-        questionType: undefined,
-        freeformAnswerShape: undefined,
-        contexts: undefined,
-        difficulty: undefined,
-        difficultyRatio: undefined,
-      },
+        format: { questions: [{ label: "A" }, { label: "B" }, { label: "C" }] },
+        categories: ["Sports", "History"],
+        theme: "Vintage trivia",
+      }),
       SESSION,
     );
     const game = loadTriviaConfig()?.games?.[0];
-    assert.equal(game?.enabled, false);
+    assert.equal(game?.format?.questions.length, 3);
+    assert.deepEqual(game?.categories, ["Sports", "History"]);
+    assert.equal(game?.theme, "Vintage trivia");
+  });
+
+  it("clears structural fields with explicit null", async () => {
+    primeBridge({
+      games: [
+        {
+          ...baseGame,
+          format: { questions: [{ label: "x" }] },
+          categories: ["Science"],
+          theme: "Originally themed",
+        },
+      ],
+    });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
+    await tool.handler(
+      args({ name: "main", format: null, categories: null, theme: null }),
+      SESSION,
+    );
+    const game = loadTriviaConfig()?.games?.[0];
+    assert.equal(game?.format, undefined);
+    assert.equal(game?.categories, undefined);
+    assert.equal(game?.theme, undefined);
+  });
+
+  it("omit-to-keep preserves untouched structural fields", async () => {
+    primeBridge({
+      games: [
+        {
+          ...baseGame,
+          format: { questions: [{ label: "x" }] },
+          categories: ["Science"],
+          theme: "Stays put",
+        },
+      ],
+    });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
+    await tool.handler(args({ name: "main", theme: "Replaced" }), SESSION);
+    const game = loadTriviaConfig()?.games?.[0];
+    assert.equal(game?.format?.questions.length, 1);
+    assert.deepEqual(game?.categories, ["Science"]);
+    assert.equal(game?.theme, "Replaced");
+  });
+
+  it("accepts freeformAnswerShape with countable key (post-rename)", async () => {
+    // Regression test for ef53bab: the schema renamed `number` → `countable`.
+    // Verifies the upsert_game tool path accepts the new key end-to-end.
+    primeBridge({ games: [baseGame] });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
+    await tool.handler(
+      args({
+        name: "main",
+        freeformAnswerShape: { name: 1, countable: 2 },
+      }),
+      SESSION,
+    );
+    const game = loadTriviaConfig()?.games?.[0];
+    assert.equal(game?.freeformAnswerShape?.name, 1);
+    assert.equal(game?.freeformAnswerShape?.countable, 2);
   });
 });

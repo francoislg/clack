@@ -5,18 +5,25 @@
  * walker delegates to the same axis validators that `parseTriviaAxisBag` uses.
  */
 
+import { z } from "zod";
 import type { SeasonFormat, SeasonFormatSlot } from "../configTypes.js";
 import {
+  answersFormatZod,
+  contextsZod,
+  difficultyZod,
+  freeformAnswerShapeZod,
+  questionTypeZod,
+  triviaDifficultyRatioZod,
   validateAnswersFormatMap,
-  validateQuestionTypeMap,
-  validateFreeformAnswerShapeMap,
   validateContextsList,
+  validateFreeformAnswerShapeMap,
+  validateQuestionTypeMap,
   validateTriviaDifficultyMap,
   validateTriviaDifficultyRatioMap,
   type Result,
 } from "./axes.js";
 
-function dedupePreservingOrder(values: string[]): string[] {
+export function dedupePreservingOrder(values: string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const c of values) {
@@ -26,6 +33,34 @@ function dedupePreservingOrder(values: string[]): string[] {
     }
   }
   return out;
+}
+
+/**
+ * Validate the per-tier `theme` field (carried by `SeasonEntry` and `TriviaGame`).
+ * Trims, rejects empty / whitespace-only. The caller is responsible for
+ * forwarding the result to storage. Used by `upsert_season` and `upsert_game`.
+ */
+export function normalizeTheme(raw: string): Result<string> {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    return { ok: false, error: "theme must be non-empty (pass null to clear)." };
+  }
+  return { ok: true, value: trimmed };
+}
+
+/**
+ * Validate the per-tier `categories` field (carried by `SeasonEntry` and
+ * `TriviaGame`). Trims, drops empty strings, dedupes preserving order, rejects
+ * empty result. The caller forwards the deduped list to storage. Used by
+ * `upsert_season` and `upsert_game`.
+ */
+export function normalizeCategories(raw: string[]): Result<string[]> {
+  const trimmed = raw.map((c) => c.trim()).filter((c) => c.length > 0);
+  const deduped = dedupePreservingOrder(trimmed);
+  if (deduped.length === 0) {
+    return { ok: false, error: "categories must contain at least one non-empty string." };
+  }
+  return { ok: true, value: deduped };
 }
 
 interface RawSlot {
@@ -128,3 +163,38 @@ export function validateFormat(
   }
   return { ok: true, value: { questions: normalized } };
 }
+
+// ---------------------------------------------------------------------------
+// Shared zod schemas for the structural fields that the per-game tier carries
+// in addition to the axis bag: `format`, `categories`, `theme`. Same role as
+// the axis-bag zod schemas in `axes.ts` — thin shape-check, with semantic
+// validation delegated to the pure validators (`validateFormat` above plus
+// dedupe-and-trim for categories / trim-and-non-empty for theme, handled by
+// the parser in `games.ts`).
+// ---------------------------------------------------------------------------
+
+const seasonFormatSlotZod = z.object({
+  label: z.string().optional(),
+  categories: z.array(z.string()).optional(),
+  answersFormat: answersFormatZod.optional(),
+  questionType: questionTypeZod.optional(),
+  freeformAnswerShape: freeformAnswerShapeZod.optional(),
+  contexts: contextsZod.optional(),
+  difficulty: difficultyZod.optional(),
+  difficultyRatio: triviaDifficultyRatioZod.optional(),
+});
+
+/**
+ * Shared zod schema for the `format` field carried by both `SeasonEntry` and
+ * `TriviaGame`. The shape is the same at both tiers — only the cascade order
+ * differs. Used by `upsert_season` and `upsert_game`.
+ */
+export const seasonFormatZod = z.object({
+  questions: z.array(seasonFormatSlotZod),
+});
+
+/** Shared zod schema for the per-tier `categories` field. */
+export const triviaCategoriesZod = z.array(z.string());
+
+/** Shared zod schema for the per-tier `theme` field. */
+export const triviaThemeZod = z.string();

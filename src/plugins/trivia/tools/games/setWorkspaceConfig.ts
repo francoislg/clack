@@ -4,7 +4,12 @@ import { textResult, errorResult } from "../../../../tools/helpers.js";
 import { loadTriviaConfig, saveTriviaConfig } from "../../core/configBridge.js";
 import type { JsonObject, JsonValue, OffDay, TriviaConfig } from "../../core/configTypes.js";
 import {
+  answersFormatZod,
+  contextsZod,
+  difficultyZod,
+  freeformAnswerShapeZod,
   parseTriviaAxisBag,
+  questionTypeZod,
   triviaDifficultyRatioZod,
   validateTriviaChoicesConfig,
   type ParseIssue,
@@ -16,83 +21,20 @@ export function createSetWorkspaceConfigTool() {
     "set_workspace_config",
     "Update workspace-tier fields on data/plugins/trivia/config.json. Pass any subset of fields you want to change; omit to keep, pass null to clear from the workspace tier. Validates each field with the same parsers used at file-load time. Affects every game globally — for per-game overrides use upsert_game's axis fields.",
     {
-      answersFormat: z
-        .object({
-          boolean: z.number().int().nonnegative().optional(),
-          choice: z.number().int().nonnegative().optional(),
-          freeform: z.number().int().nonnegative().optional(),
-        })
+      answersFormat: answersFormatZod
         .nullable()
         .optional()
         .describe("Workspace default answersFormat weights. null clears."),
-      questionType: z
-        .object({
-          fact: z.number().int().nonnegative().optional(),
-          topical: z.number().int().nonnegative().optional(),
-        })
+      questionType: questionTypeZod
         .nullable()
         .optional()
         .describe("Workspace default questionType weights. null clears."),
-      freeformAnswerShape: z
-        .object({
-          name: z.number().int().nonnegative().optional(),
-          place: z.number().int().nonnegative().optional(),
-          phrase: z.number().int().nonnegative().optional(),
-          title: z.number().int().nonnegative().optional(),
-          date: z.number().int().nonnegative().optional(),
-          number: z.number().int().nonnegative().optional(),
-          other: z.number().int().nonnegative().optional(),
-        })
+      freeformAnswerShape: freeformAnswerShapeZod
         .nullable()
         .optional()
         .describe("Workspace default freeform-shape weights. null clears."),
-      contexts: z
-        .array(z.object({ name: z.string(), weight: z.number().positive().optional() }))
-        .nullable()
-        .optional()
-        .describe("Workspace contexts list. null clears."),
-      difficulty: z
-        .object({
-          boolean: z
-            .object({
-              easy: z
-                .tuple([z.number().int().min(1).max(10), z.number().int().min(1).max(10)])
-                .optional(),
-              medium: z
-                .tuple([z.number().int().min(1).max(10), z.number().int().min(1).max(10)])
-                .optional(),
-              hard: z
-                .tuple([z.number().int().min(1).max(10), z.number().int().min(1).max(10)])
-                .optional(),
-            })
-            .optional(),
-          choice: z
-            .object({
-              easy: z
-                .tuple([z.number().int().min(1).max(10), z.number().int().min(1).max(10)])
-                .optional(),
-              medium: z
-                .tuple([z.number().int().min(1).max(10), z.number().int().min(1).max(10)])
-                .optional(),
-              hard: z
-                .tuple([z.number().int().min(1).max(10), z.number().int().min(1).max(10)])
-                .optional(),
-            })
-            .optional(),
-          freeform: z
-            .object({
-              easy: z
-                .tuple([z.number().int().min(1).max(10), z.number().int().min(1).max(10)])
-                .optional(),
-              medium: z
-                .tuple([z.number().int().min(1).max(10), z.number().int().min(1).max(10)])
-                .optional(),
-              hard: z
-                .tuple([z.number().int().min(1).max(10), z.number().int().min(1).max(10)])
-                .optional(),
-            })
-            .optional(),
-        })
+      contexts: contextsZod.nullable().optional().describe("Workspace contexts list. null clears."),
+      difficulty: difficultyZod
         .nullable()
         .optional()
         .describe("Workspace difficulty ranges per format. null clears."),
