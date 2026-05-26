@@ -339,6 +339,9 @@ export const en = {
   "assistant.prompt_funny_message": "Tell me something funny about the codebase",
   "assistant.fallback_image_only": "Answer based on the attached image(s).",
 
+  // ─── Streaming task card ───────────────────────────────────────────
+  "streamer.acknowledged": "Acknowledged, working on it…",
+
   // ─── DM-first reaction synthesis ───────────────────────────────────
   "dm.synthesis.accept": "Accept",
   "dm.synthesis.edit": "Edit",
