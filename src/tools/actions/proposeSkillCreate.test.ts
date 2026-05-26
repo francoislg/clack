@@ -1,4 +1,4 @@
-import { describe, it, mock } from "node:test";
+import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import { createProposeSkillCreateTool, type ProposeSkillCreateDeps } from "./proposeSkillCreate.js";
 import { parseToolResult, toolResultText } from "../testHelpers.js";
@@ -19,15 +19,15 @@ function makeCtx(opts?: {
       userSkills: opts?.userSkillsEnabled ? { enabled: true } : undefined,
     } as Config,
     changesWorkflowEnabled: false,
-    allowScheduledMessages: false,
+    cronUserSchedules: false,
   };
 }
 
 function makeDeps(overrides?: Partial<ProposeSkillCreateDeps>): ProposeSkillCreateDeps {
   return {
-    validateSlug: mock.fn(() => ({ ok: true as const })),
-    validateDescription: mock.fn(() => ({ ok: true as const })),
-    userSkillExists: mock.fn(() => false),
+    validateSlug: vi.fn(() => ({ ok: true as const })),
+    validateDescription: vi.fn(() => ({ ok: true as const })),
+    userSkillExists: vi.fn(() => false),
     ...overrides,
   };
 }

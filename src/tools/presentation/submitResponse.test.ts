@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, beforeEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import { z } from "zod";
 import type { IntentStore, ResponseCapture, ToolCallRecorder } from "../server.js";
@@ -20,11 +20,11 @@ type ValidateTableFn = NonNullable<SubmitResponseDeps["validateTable"]>;
 type ValidateButtonLabelsFn = NonNullable<SubmitResponseDeps["validateActionButtonLabels"]>;
 type ActionBlocksFn = NonNullable<SubmitResponseDeps["getResponseActionBlocks"]>;
 
-const mockGetStructuredResponseBlocks = mock.fn<StructuredBlocksFn>();
-const mockValidateBlocks = mock.fn<ValidateBlocksFn>();
-const mockValidateTable = mock.fn<ValidateTableFn>();
-const mockValidateActionButtonLabels = mock.fn<ValidateButtonLabelsFn>();
-const mockGetResponseActionBlocks = mock.fn<ActionBlocksFn>();
+const mockGetStructuredResponseBlocks = vi.fn<StructuredBlocksFn>();
+const mockValidateBlocks = vi.fn<ValidateBlocksFn>();
+const mockValidateTable = vi.fn<ValidateTableFn>();
+const mockValidateActionButtonLabels = vi.fn<ValidateButtonLabelsFn>();
+const mockGetResponseActionBlocks = vi.fn<ActionBlocksFn>();
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -63,28 +63,28 @@ function makeDeps(
   }> = {},
 ) {
   const intentStore: IntentStore = {
-    stage: mock.fn<(intent: StagedIntent) => string>(() => "ref-1"),
-    resolve: mock.fn<(ref: string) => StagedIntent | undefined>(() => undefined),
-    getAll: mock.fn<() => Map<string, StagedIntent>>(() => new Map()),
+    stage: vi.fn<(intent: StagedIntent) => string>(() => "ref-1"),
+    resolve: vi.fn<(ref: string) => StagedIntent | undefined>(() => undefined),
+    getAll: vi.fn<() => Map<string, StagedIntent>>(() => new Map()),
     ...overrides.intentStore,
   };
 
   const responseCapture: ResponseCapture = {
-    set: mock.fn<(payload: unknown, blocks: unknown) => void>(),
-    get: mock.fn<() => null>(() => null),
-    getRenderedBlocks: mock.fn<() => null>(() => null),
-    setSkipped: mock.fn<() => void>(),
-    setDisengaged: mock.fn<() => void>(),
-    setPostedTopLevel: mock.fn<() => void>(),
-    isSkipped: mock.fn<() => boolean>(() => false),
-    isDisengaged: mock.fn<() => boolean>(() => false),
-    isPostedTopLevel: mock.fn<() => boolean>(() => false),
+    set: vi.fn<(payload: unknown, blocks: unknown) => void>(),
+    get: vi.fn<() => null>(() => null),
+    getRenderedBlocks: vi.fn<() => null>(() => null),
+    setSkipped: vi.fn<() => void>(),
+    setDisengaged: vi.fn<() => void>(),
+    setPostedTopLevel: vi.fn<() => void>(),
+    isSkipped: vi.fn<() => boolean>(() => false),
+    isDisengaged: vi.fn<() => boolean>(() => false),
+    isPostedTopLevel: vi.fn<() => boolean>(() => false),
     ...overrides.responseCapture,
   };
 
   const recorder: ToolCallRecorder = {
-    record: mock.fn<(tool: string, args: object, result: object) => void>(),
-    getHistory: mock.fn<() => []>(() => []),
+    record: vi.fn<(tool: string, args: object, result: object) => void>(),
+    getHistory: vi.fn<() => []>(() => []),
     ...overrides.recorder,
   };
 
@@ -183,20 +183,20 @@ async function callToolRawTopLevel(deps: ReturnType<typeof makeDeps>, args: Call
 }
 
 function resetBlockMocks() {
-  mockGetStructuredResponseBlocks.mock.resetCalls();
-  mockValidateBlocks.mock.resetCalls();
-  mockValidateTable.mock.resetCalls();
-  mockValidateActionButtonLabels.mock.resetCalls();
-  mockGetResponseActionBlocks.mock.resetCalls();
+  mockGetStructuredResponseBlocks.mockClear();
+  mockValidateBlocks.mockClear();
+  mockValidateTable.mockClear();
+  mockValidateActionButtonLabels.mockClear();
+  mockGetResponseActionBlocks.mockClear();
 
   // Defaults: valid blocks, no errors
-  mockGetStructuredResponseBlocks.mock.mockImplementation(() => [
+  mockGetStructuredResponseBlocks.mockImplementation(() => [
     { type: "section", text: { type: "mrkdwn", text: "test" } },
   ]);
-  mockValidateBlocks.mock.mockImplementation(() => []);
-  mockValidateTable.mock.mockImplementation(() => []);
-  mockValidateActionButtonLabels.mock.mockImplementation(() => []);
-  mockGetResponseActionBlocks.mock.mockImplementation(() => []);
+  mockValidateBlocks.mockImplementation(() => []);
+  mockValidateTable.mockImplementation(() => []);
+  mockValidateActionButtonLabels.mockImplementation(() => []);
+  mockGetResponseActionBlocks.mockImplementation(() => []);
 }
 
 // ---------------------------------------------------------------------------
@@ -620,7 +620,7 @@ describe("createSubmitResponseTool", () => {
 
   describe("block validation errors", () => {
     it("returns error when validateSlackBlocks reports violations", async () => {
-      mockValidateBlocks.mock.mockImplementation(() => [
+      mockValidateBlocks.mockImplementation(() => [
         {
           field: "section[0].text",
           message: "text too long",
@@ -644,7 +644,7 @@ describe("createSubmitResponseTool", () => {
     });
 
     it("does not deliver or capture when blocks are invalid", async () => {
-      mockValidateBlocks.mock.mockImplementation(() => [
+      mockValidateBlocks.mockImplementation(() => [
         { field: "blocks", message: "too many", currentLength: 60, limit: 50 },
       ]);
 
@@ -723,9 +723,7 @@ describe("createSubmitResponseTool", () => {
     });
 
     it("includes blocks in deliver when action blocks are present", async () => {
-      mockGetResponseActionBlocks.mock.mockImplementation(() => [
-        { type: "actions", elements: [] },
-      ]);
+      mockGetResponseActionBlocks.mockImplementation(() => [{ type: "actions", elements: [] }]);
 
       let receivedBlocks: unknown;
       const deps = makeDeps({
@@ -744,7 +742,7 @@ describe("createSubmitResponseTool", () => {
     });
 
     it("still delivers the response blocks even when no action blocks are present", async () => {
-      mockGetResponseActionBlocks.mock.mockImplementation(() => []);
+      mockGetResponseActionBlocks.mockImplementation(() => []);
 
       let receivedBlocks: object[] | undefined;
       const deps = makeDeps({
@@ -1123,7 +1121,11 @@ describe("createSubmitResponseTool", () => {
       assert.equal(parsed.skipped, true);
       // Verify setSkipped was actually called (this is the signal to buildSuccessResponse)
       assert.equal(
-        (deps.responseCapture.setSkipped as unknown as ReturnType<typeof mock.fn>).mock.callCount(),
+        (
+          deps.responseCapture.setSkipped as unknown as ReturnType<
+            typeof vi.fn<(...args: any[]) => any>
+          >
+        ).mock.calls.length,
         1,
       );
     });
@@ -1152,7 +1154,7 @@ describe("createSubmitResponseTool", () => {
     });
 
     it("does not call deliver when skip is accepted", async () => {
-      const deliver = mock.fn(async () => ({ ok: true as const }));
+      const deliver = vi.fn(async () => ({ ok: true as const }));
       const deps = makeDeps({ deliver, allowSkip: true });
       await callToolRaw(deps, {
         skip_response: true,
@@ -1160,7 +1162,7 @@ describe("createSubmitResponseTool", () => {
           "I acknowledge that responding to this would serve no purpose, so I am skipping it.",
       });
 
-      assert.equal(deliver.mock.callCount(), 0);
+      assert.equal(deliver.mock.calls.length, 0);
     });
 
     it("accepts skip with disengage and returns disengaged flag", async () => {
@@ -1179,7 +1181,7 @@ describe("createSubmitResponseTool", () => {
     });
 
     it("accepts disengage without skip_response (normal response + disengage)", async () => {
-      const setDisengagedFn = mock.fn<() => void>();
+      const setDisengagedFn = vi.fn<() => void>();
       const deps = makeDeps({
         allowSkip: true,
         responseCapture: {
@@ -1202,12 +1204,12 @@ describe("createSubmitResponseTool", () => {
       const parsed = parseToolResult(result);
       assert.equal(parsed.success, true);
       assert.equal(parsed.disengaged, true);
-      assert.equal(setDisengagedFn.mock.callCount(), 1);
+      assert.equal(setDisengagedFn.mock.calls.length, 1);
     });
 
     it("calls both setSkipped and setDisengaged on skip + disengage", async () => {
-      const setSkippedFn = mock.fn<() => void>();
-      const setDisengagedFn = mock.fn<() => void>();
+      const setSkippedFn = vi.fn<() => void>();
+      const setDisengagedFn = vi.fn<() => void>();
       const deps = makeDeps({
         allowSkip: true,
         responseCapture: {
@@ -1223,13 +1225,13 @@ describe("createSubmitResponseTool", () => {
           "I acknowledge that responding to this would serve no purpose, so I am skipping it.",
       });
 
-      assert.equal(setSkippedFn.mock.callCount(), 1);
-      assert.equal(setDisengagedFn.mock.callCount(), 1);
+      assert.equal(setSkippedFn.mock.calls.length, 1);
+      assert.equal(setDisengagedFn.mock.calls.length, 1);
     });
 
     it("calls only setSkipped on skip without disengage", async () => {
-      const setSkippedFn = mock.fn<() => void>();
-      const setDisengagedFn = mock.fn<() => void>();
+      const setSkippedFn = vi.fn<() => void>();
+      const setDisengagedFn = vi.fn<() => void>();
       const deps = makeDeps({
         allowSkip: true,
         responseCapture: {
@@ -1244,8 +1246,8 @@ describe("createSubmitResponseTool", () => {
           "I acknowledge that responding to this would serve no purpose, so I am skipping it.",
       });
 
-      assert.equal(setSkippedFn.mock.callCount(), 1);
-      assert.equal(setDisengagedFn.mock.callCount(), 0);
+      assert.equal(setSkippedFn.mock.calls.length, 1);
+      assert.equal(setDisengagedFn.mock.calls.length, 0);
     });
 
     it("normal flow unchanged when allowSkip is true but skip_response is absent", async () => {
@@ -1262,8 +1264,8 @@ describe("createSubmitResponseTool", () => {
     });
 
     it("delivery_failed on normal+disengage path does not mark capture as disengaged", async () => {
-      const setDisengagedFn = mock.fn<() => void>();
-      const failingDeliver = mock.fn(async () => ({
+      const setDisengagedFn = vi.fn<() => void>();
+      const failingDeliver = vi.fn(async () => ({
         ok: false as const,
         error: "network down",
       }));
@@ -1289,11 +1291,11 @@ describe("createSubmitResponseTool", () => {
       assert.equal(result.isError, true);
       const parsed = parseToolResult(result);
       assert.equal(parsed.error, "delivery_failed");
-      assert.equal(setDisengagedFn.mock.callCount(), 0);
+      assert.equal(setDisengagedFn.mock.calls.length, 0);
     });
 
     it("normal+disengage is idempotent when capture is already disengaged", async () => {
-      const setDisengagedFn = mock.fn<() => void>();
+      const setDisengagedFn = vi.fn<() => void>();
       const deps = makeDeps({
         allowSkip: true,
         responseCapture: {
@@ -1315,7 +1317,7 @@ describe("createSubmitResponseTool", () => {
     });
 
     it("allowDisengage without allowSkip exposes disengage on normal response", async () => {
-      const setDisengagedFn = mock.fn<() => void>();
+      const setDisengagedFn = vi.fn<() => void>();
       const deps = makeDeps({
         allowDisengage: true,
         responseCapture: {
@@ -1338,7 +1340,7 @@ describe("createSubmitResponseTool", () => {
       const parsed = parseToolResult(result);
       assert.equal(parsed.success, true);
       assert.equal(parsed.disengaged, true);
-      assert.equal(setDisengagedFn.mock.callCount(), 1);
+      assert.equal(setDisengagedFn.mock.calls.length, 1);
     });
 
     it("allowSkip without allowDisengage omits disengage from the schema (scheduled-with-skipConditions case)", () => {
@@ -1379,8 +1381,8 @@ describe("createSubmitResponseTool", () => {
     });
 
     it("allowDisengage without allowSkip still blocks disengage on delivery failure", async () => {
-      const setDisengagedFn = mock.fn<() => void>();
-      const failingDeliver = mock.fn(async () => ({
+      const setDisengagedFn = vi.fn<() => void>();
+      const failingDeliver = vi.fn(async () => ({
         ok: false as const,
         error: "network down",
       }));
@@ -1399,7 +1401,7 @@ describe("createSubmitResponseTool", () => {
       });
 
       assert.equal(result.isError, true);
-      assert.equal(setDisengagedFn.mock.callCount(), 0);
+      assert.equal(setDisengagedFn.mock.calls.length, 0);
     });
   });
 
@@ -1616,7 +1618,7 @@ describe("createSubmitResponseTool", () => {
       const deps = makeDeps({
         requiredTools: ["mcp__trivia__submit_answers"],
         recorder: {
-          record: mock.fn<ToolCallRecorder["record"]>(),
+          record: vi.fn<ToolCallRecorder["record"]>(),
           getHistory: () => [
             {
               tool: "mcp__trivia__submit_answers",
@@ -1637,7 +1639,7 @@ describe("createSubmitResponseTool", () => {
 
     it("missing required tool — returns error and does not deliver", async () => {
       const deliverFn =
-        mock.fn<
+        vi.fn<
           (opts: {
             blocks: object[];
             reactions?: string[];
@@ -1655,14 +1657,14 @@ describe("createSubmitResponseTool", () => {
       assert.equal(result.isError, true);
       assert.ok(toolResultText(result).includes("mcp__trivia__submit_answers"));
       assert.ok(toolResultText(result).includes("have not been called"));
-      assert.equal(deliverFn.mock.callCount(), 0);
+      assert.equal(deliverFn.mock.calls.length, 0);
     });
 
     it("partially missing — lists only missing names", async () => {
       const deps = makeDeps({
         requiredTools: ["mcp__trivia__submit_answers", "mcp__trivia__save_question"],
         recorder: {
-          record: mock.fn<ToolCallRecorder["record"]>(),
+          record: vi.fn<ToolCallRecorder["record"]>(),
           getHistory: () => [
             {
               tool: "mcp__trivia__submit_answers",
@@ -1691,7 +1693,7 @@ describe("createSubmitResponseTool", () => {
       const deps = makeDeps({
         requiredTools: ["mcp__trivia__submit_answers"],
         recorder: {
-          record: mock.fn<ToolCallRecorder["record"]>(),
+          record: vi.fn<ToolCallRecorder["record"]>(),
           getHistory: () => [
             {
               tool: "mcp__trivia__submit_answers",
@@ -1813,11 +1815,11 @@ describe("createSubmitResponseTool", () => {
       // Emit an error only on the SECOND validateActionButtonLabels call (the nested
       // one for post_to.actions). The first call validates top-level actions and
       // must succeed so the handler advances to the nested check.
-      mockGetResponseActionBlocks.mock.mockImplementation((actions) =>
+      mockGetResponseActionBlocks.mockImplementation((actions) =>
         actions.length > 0 ? [{ type: "actions", elements: [] }] : [],
       );
       let callCount = 0;
-      mockValidateActionButtonLabels.mock.mockImplementation(() => {
+      mockValidateActionButtonLabels.mockImplementation(() => {
         callCount += 1;
         if (callCount === 2) {
           return [
@@ -1983,14 +1985,14 @@ describe("createSubmitResponseTool", () => {
       const parsed = parseToolResult(result);
       assert.equal(parsed.success, true);
       // validateTable was invoked with the table, prefixed as "table"
-      assert.equal(mockValidateTable.mock.callCount(), 1);
-      const [tableArg, pathArg] = mockValidateTable.mock.calls[0].arguments;
+      assert.equal(mockValidateTable.mock.calls.length, 1);
+      const [tableArg, pathArg] = mockValidateTable.mock.calls[0];
       assert.equal((tableArg as { type: string }).type, "table");
       assert.equal(pathArg, "table");
     });
 
     it("rejects an invalid top-level table with field-prefixed errors", async () => {
-      mockValidateTable.mock.mockImplementation(() => [
+      mockValidateTable.mockImplementation(() => [
         {
           field: "table.rows",
           message: "table has 200 rows, exceeding the 100-row limit",
@@ -2015,7 +2017,7 @@ describe("createSubmitResponseTool", () => {
     it("validates table inside a post_to action with a path-prefixed namespace", async () => {
       // The post_to.table validation runs after blocks validation; emit an
       // error specifically when the caller passes the post_to path prefix.
-      mockValidateTable.mock.mockImplementation((_block, prefix) => {
+      mockValidateTable.mockImplementation((_block, prefix) => {
         if (prefix === "actions[0].table") {
           return [
             {
@@ -2075,7 +2077,7 @@ describe("createSubmitResponseTool", () => {
         blocks: [{ type: "section", text: { type: "mrkdwn", text: "Hello" } }],
         actions: [],
       });
-      assert.equal(mockValidateTable.mock.callCount(), 0);
+      assert.equal(mockValidateTable.mock.calls.length, 0);
     });
   });
 
@@ -2221,12 +2223,12 @@ describe("createSubmitResponseTool", () => {
     });
 
     it("does not call deliver when in skipped mode", async () => {
-      const deliver = mock.fn(async () => ({ ok: true as const }));
+      const deliver = vi.fn(async () => ({ ok: true as const }));
       const deps = makeDeps({ deliver, allowSkip: true, submitResponseMode: "skipped" });
       const toolDef = createSubmitResponseTool(deps);
       await toolDef.handler({ skip_response: true }, {});
 
-      assert.equal(deliver.mock.callCount(), 0);
+      assert.equal(deliver.mock.calls.length, 0);
     });
 
     it("does NOT require the SKIP_ACKNOWLEDGMENT message string in skipped mode", async () => {
@@ -2245,8 +2247,8 @@ describe("createSubmitResponseTool", () => {
         submitResponseMode: "skipped",
         requiredTools: ["mcp__trivia__post_questions"],
         recorder: {
-          record: mock.fn(),
-          getHistory: mock.fn(() => []),
+          record: vi.fn(),
+          getHistory: vi.fn(() => []),
         },
       });
       const toolDef = createSubmitResponseTool(deps);
@@ -2264,8 +2266,8 @@ describe("createSubmitResponseTool", () => {
         submitResponseMode: "skipped",
         requiredTools: ["mcp__trivia__post_questions"],
         recorder: {
-          record: mock.fn(),
-          getHistory: mock.fn(() => [
+          record: vi.fn(),
+          getHistory: vi.fn(() => [
             { tool: "mcp__trivia__post_questions", args: {}, result: {}, timestamp: 0 },
           ]),
         },
@@ -2528,9 +2530,9 @@ describe("createSubmitResponseTool", () => {
     it("multi-error batch returns invalid_batch with details[]", async () => {
       // Trigger two distinct errors at once: an unknown ref AND a missing intent coverage.
       const intentStore: IntentStore = {
-        stage: mock.fn<(intent: StagedIntent) => string>(() => "staged-1"),
-        resolve: mock.fn<(ref: string) => StagedIntent | undefined>(() => undefined),
-        getAll: mock.fn<() => Map<string, StagedIntent>>(
+        stage: vi.fn<(intent: StagedIntent) => string>(() => "staged-1"),
+        resolve: vi.fn<(ref: string) => StagedIntent | undefined>(() => undefined),
+        getAll: vi.fn<() => Map<string, StagedIntent>>(
           () =>
             new Map([
               ["uncovered-ref", { type: "change", branch: "feat/x", description: "", repo: "r" }],
@@ -2687,13 +2689,13 @@ describe("createSubmitResponseTool", () => {
 
     it("intent coverage satisfied by a ref inside additional_messages follower", async () => {
       const intentStore: IntentStore = {
-        stage: mock.fn<(intent: StagedIntent) => string>(() => "ref-x"),
-        resolve: mock.fn<(ref: string) => StagedIntent | undefined>((ref) =>
+        stage: vi.fn<(intent: StagedIntent) => string>(() => "ref-x"),
+        resolve: vi.fn<(ref: string) => StagedIntent | undefined>((ref) =>
           ref === "ref-x"
             ? { type: "change", branch: "feat/x", description: "", repo: "r" }
             : undefined,
         ),
-        getAll: mock.fn<() => Map<string, StagedIntent>>(
+        getAll: vi.fn<() => Map<string, StagedIntent>>(
           () =>
             new Map([["ref-x", { type: "change", branch: "feat/x", description: "", repo: "r" }]]),
         ),

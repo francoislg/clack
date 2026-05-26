@@ -11,7 +11,7 @@
     "start": "node dist/index.js",
     "start:logfile": "mkdir -p logs && node dist/index.js 2>&1 | tee \"logs/clack-$(date +%Y%m%d-%H%M%S).log\"",
     "dev": "tsc --watch & node --watch dist/index.js",
-    "test": "LOG_LEVEL=silent node --import tsx --experimental-test-module-mocks --test --test-force-exit 'src/**/*.test.ts'",
+    "test": "LOG_LEVEL=silent vitest run",
     "ask": "npx tsx scripts/askClaude.ts",
     "manifest": "npx tsx scripts/generate-manifest.ts",
     "docker-setup": "bash scripts/docker-setup.sh",
@@ -40,7 +40,8 @@
     "oxfmt": "^0.43.0",
     "oxlint": "^1.58.0",
     "tsx": "^4.21.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.7"
   },
   "engines": {
     "node": ">=18.0.0"

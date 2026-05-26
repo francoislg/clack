@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { resolveTheme } from "./theme.js";
 import type { SeasonEntry } from "../core/types.js";

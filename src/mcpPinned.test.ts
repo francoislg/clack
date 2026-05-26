@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, beforeEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import type { McpDeps } from "./mcp.js";
@@ -15,11 +15,11 @@ import {
 // Mock setup (mirrors mcp.test.ts's pattern)
 // ---------------------------------------------------------------------------
 
-const mockExistsSync = mock.fn<(path: string) => boolean>();
-const mockReadFileSync = mock.fn<(path: string, encoding: string) => string>();
+const mockExistsSync = vi.fn<(path: string) => boolean>();
+const mockReadFileSync = vi.fn<(path: string, encoding: string) => string>();
 const mockExecSync =
-  mock.fn<(cmd: string, opts: { stdio?: string | NodeJS.WriteStream[] }) => Buffer>();
-const mockGetInstallationToken = mock.fn<
+  vi.fn<(cmd: string, opts: { stdio?: string | NodeJS.WriteStream[] }) => Buffer>();
+const mockGetInstallationToken = vi.fn<
   () => Promise<{
     token: string;
     permissions: Record<string, string>;
@@ -41,21 +41,21 @@ function makeDeps(): McpDeps {
 }
 
 function setExistingPaths(paths: string[]): void {
-  mockExistsSync.mock.mockImplementation((p: string) => paths.includes(p));
+  mockExistsSync.mockImplementation((p: string) => paths.includes(p));
 }
 
 function resetMocks(): void {
   resetMcpCache();
-  mockExistsSync.mock.resetCalls();
-  mockReadFileSync.mock.resetCalls();
-  mockExecSync.mock.resetCalls();
-  mockGetInstallationToken.mock.resetCalls();
-  mockExistsSync.mock.mockImplementation(() => false);
-  mockReadFileSync.mock.mockImplementation(() => "");
-  mockExecSync.mock.mockImplementation(() => {
+  mockExistsSync.mockClear();
+  mockReadFileSync.mockClear();
+  mockExecSync.mockClear();
+  mockGetInstallationToken.mockClear();
+  mockExistsSync.mockImplementation(() => false);
+  mockReadFileSync.mockImplementation(() => "");
+  mockExecSync.mockImplementation(() => {
     throw new Error("not found");
   });
-  mockGetInstallationToken.mock.mockImplementation(async () => ({
+  mockGetInstallationToken.mockImplementation(async () => ({
     token: "ghs_test_token",
     permissions: { contents: "read", pull_requests: "write" },
     expiresAt: new Date(),
@@ -81,7 +81,7 @@ describe("Pinned MCP schema", () => {
 
   it("accepts an entry with both package and version, omits it from staticServers until install resolves", async () => {
     setExistingPaths([mcpConfigPath()]);
-    mockReadFileSync.mock.mockImplementation(() => pinnedMcpJson());
+    mockReadFileSync.mockImplementation(() => pinnedMcpJson());
 
     const result = await loadMcpServers(makeDeps());
     // Pinned entries are not in cachedStaticServers until ensurePinnedInstalls populates them,
@@ -101,7 +101,7 @@ describe("Pinned MCP schema", () => {
 
   it("captures args on a pinned entry so they reach the spawn config", async () => {
     setExistingPaths([mcpConfigPath()]);
-    mockReadFileSync.mock.mockImplementation(() =>
+    mockReadFileSync.mockImplementation(() =>
       JSON.stringify({
         mcpServers: {
           mongo: {
@@ -121,7 +121,7 @@ describe("Pinned MCP schema", () => {
 
   it("throws when package is set but version is missing", async () => {
     setExistingPaths([mcpConfigPath()]);
-    mockReadFileSync.mock.mockImplementation(() =>
+    mockReadFileSync.mockImplementation(() =>
       JSON.stringify({
         mcpServers: { asana: { package: "@roychri/mcp-server-asana", env: {} } },
       }),
@@ -132,7 +132,7 @@ describe("Pinned MCP schema", () => {
 
   it("throws when version is set but package is missing", async () => {
     setExistingPaths([mcpConfigPath()]);
-    mockReadFileSync.mock.mockImplementation(() =>
+    mockReadFileSync.mockImplementation(() =>
       JSON.stringify({
         mcpServers: { asana: { version: "1.8.0", env: {} } },
       }),
@@ -143,7 +143,7 @@ describe("Pinned MCP schema", () => {
 
   it("throws when neither package nor command is set on a stdio entry", async () => {
     setExistingPaths([mcpConfigPath()]);
-    mockReadFileSync.mock.mockImplementation(() =>
+    mockReadFileSync.mockImplementation(() =>
       JSON.stringify({
         mcpServers: { broken: { args: ["--flag"] } },
       }),
@@ -157,7 +157,7 @@ describe("Pinned MCP schema", () => {
 
   it("getConfiguredMcpServerNames includes pinned entries even before install", () => {
     setExistingPaths([mcpConfigPath()]);
-    mockReadFileSync.mock.mockImplementation(() => pinnedMcpJson());
+    mockReadFileSync.mockImplementation(() => pinnedMcpJson());
 
     const names = getConfiguredMcpServerNames(makeDeps());
     assert.ok(names.includes("asana"), "asana should be in configured names");
@@ -165,7 +165,7 @@ describe("Pinned MCP schema", () => {
 
   it("substitutes environment variables in a pinned entry's env block", () => {
     setExistingPaths([mcpConfigPath()]);
-    mockReadFileSync.mock.mockImplementation(() =>
+    mockReadFileSync.mockImplementation(() =>
       JSON.stringify({
         mcpServers: {
           asana: {
@@ -193,7 +193,7 @@ describe("Pinned MCP schema", () => {
 
   it("setPinnedSpawnConfig populates the cache so loadMcpServer returns the resolved config", async () => {
     setExistingPaths([mcpConfigPath()]);
-    mockReadFileSync.mock.mockImplementation(() => pinnedMcpJson());
+    mockReadFileSync.mockImplementation(() => pinnedMcpJson());
     await loadMcpServers(makeDeps());
 
     setPinnedSpawnConfig("asana", {
@@ -215,7 +215,7 @@ describe("Legacy npx migration warning", () => {
 
   it("does not throw for legacy npx entries (warning is best-effort, side-effect only)", async () => {
     setExistingPaths([mcpConfigPath()]);
-    mockReadFileSync.mock.mockImplementation(() =>
+    mockReadFileSync.mockImplementation(() =>
       JSON.stringify({
         mcpServers: {
           metabase: {
@@ -235,7 +235,7 @@ describe("Legacy npx migration warning", () => {
 
   it("non-npx legacy command passes through silently", async () => {
     setExistingPaths([mcpConfigPath()]);
-    mockReadFileSync.mock.mockImplementation(() =>
+    mockReadFileSync.mockImplementation(() =>
       JSON.stringify({
         mcpServers: { local: { command: "/usr/local/bin/foo-mcp", args: [] } },
       }),

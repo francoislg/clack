@@ -1,4 +1,4 @@
-import { describe, it, mock, beforeEach } from "node:test";
+import { describe, it, vi, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
 import type { SessionContext } from "../../sessions.js";
@@ -10,14 +10,14 @@ import { registerFollowupHandler, type FollowupDeps } from "./followup.js";
 // Helpers
 // ============================================================================
 
-const mockGetSession = mock.fn<(id: string) => Promise<SessionContext | null>>();
-const mockAppendUserMessage = mock.fn<FollowupDeps["appendUserMessage"]>(async () => null);
+const mockGetSession = vi.fn<(id: string) => Promise<SessionContext | null>>();
+const mockAppendUserMessage = vi.fn<FollowupDeps["appendUserMessage"]>(async () => null);
 
-const mockDecodeActionValue = mock.fn<(v: string) => { sessionId: string; prompt?: string }>();
-const mockRestoreSessionInfo = mock.fn<(id: string) => Promise<SessionInfo | undefined>>();
+const mockDecodeActionValue = vi.fn<(v: string) => { sessionId: string; prompt?: string }>();
+const mockRestoreSessionInfo = vi.fn<(id: string) => Promise<SessionInfo | undefined>>();
 
-const mockExecuteAndDeliver = mock.fn<(...args: never[]) => Promise<void>>(async () => {});
-const mockGetHandlerClaudeOptions = mock.fn<(info: SessionInfo) => Promise<AskClaudeOptions>>();
+const mockExecuteAndDeliver = vi.fn<(...args: never[]) => Promise<void>>(async () => {});
+const mockGetHandlerClaudeOptions = vi.fn<(info: SessionInfo) => Promise<AskClaudeOptions>>();
 
 function makeDeps(): FollowupDeps {
   return {
@@ -77,15 +77,15 @@ function makeSessionInfo(overrides: Partial<SessionInfo> = {}): SessionInfo {
 }
 
 beforeEach(() => {
-  mockGetSession.mock.resetCalls();
-  mockAppendUserMessage.mock.resetCalls();
-  mockDecodeActionValue.mock.resetCalls();
-  mockRestoreSessionInfo.mock.resetCalls();
-  mockExecuteAndDeliver.mock.resetCalls();
-  mockGetHandlerClaudeOptions.mock.resetCalls();
+  mockGetSession.mockClear();
+  mockAppendUserMessage.mockClear();
+  mockDecodeActionValue.mockClear();
+  mockRestoreSessionInfo.mockClear();
+  mockExecuteAndDeliver.mockClear();
+  mockGetHandlerClaudeOptions.mockClear();
 
   // Defaults
-  mockGetHandlerClaudeOptions.mock.mockImplementation(async () => ({
+  mockGetHandlerClaudeOptions.mockImplementation(async () => ({
     role: "dev",
     changesWorkflowEnabled: false,
   }));
@@ -105,7 +105,7 @@ describe("registerFollowupHandler", () => {
   });
 
   it("returns early when prompt is missing", async () => {
-    mockDecodeActionValue.mock.mockImplementation(() => ({ sessionId: "sess-1" }));
+    mockDecodeActionValue.mockImplementation(() => ({ sessionId: "sess-1" }));
 
     await capturedHandler({
       ack: async () => {},
@@ -113,16 +113,16 @@ describe("registerFollowupHandler", () => {
       client: makeClient(),
     });
 
-    assert.equal(mockRestoreSessionInfo.mock.callCount(), 0);
-    assert.equal(mockExecuteAndDeliver.mock.callCount(), 0);
+    assert.equal(mockRestoreSessionInfo.mock.calls.length, 0);
+    assert.equal(mockExecuteAndDeliver.mock.calls.length, 0);
   });
 
   it("returns early when session info cannot be restored", async () => {
-    mockDecodeActionValue.mock.mockImplementation(() => ({
+    mockDecodeActionValue.mockImplementation(() => ({
       sessionId: "sess-1",
       prompt: "tell me more",
     }));
-    mockRestoreSessionInfo.mock.mockImplementation(async () => undefined);
+    mockRestoreSessionInfo.mockImplementation(async () => undefined);
 
     await capturedHandler({
       ack: async () => {},
@@ -130,17 +130,17 @@ describe("registerFollowupHandler", () => {
       client: makeClient(),
     });
 
-    assert.equal(mockGetSession.mock.callCount(), 0);
-    assert.equal(mockExecuteAndDeliver.mock.callCount(), 0);
+    assert.equal(mockGetSession.mock.calls.length, 0);
+    assert.equal(mockExecuteAndDeliver.mock.calls.length, 0);
   });
 
   it("returns early when session is not found", async () => {
-    mockDecodeActionValue.mock.mockImplementation(() => ({
+    mockDecodeActionValue.mockImplementation(() => ({
       sessionId: "sess-1",
       prompt: "tell me more",
     }));
-    mockRestoreSessionInfo.mock.mockImplementation(async () => makeSessionInfo());
-    mockGetSession.mock.mockImplementation(async () => null);
+    mockRestoreSessionInfo.mockImplementation(async () => makeSessionInfo());
+    mockGetSession.mockImplementation(async () => null);
 
     await capturedHandler({
       ack: async () => {},
@@ -148,7 +148,7 @@ describe("registerFollowupHandler", () => {
       client: makeClient(),
     });
 
-    assert.equal(mockExecuteAndDeliver.mock.callCount(), 0);
+    assert.equal(mockExecuteAndDeliver.mock.calls.length, 0);
   });
 
   it("adds the prompt as a refinement and calls executeAndDeliver", async () => {
@@ -159,18 +159,18 @@ describe("registerFollowupHandler", () => {
     });
     const claudeOptions: AskClaudeOptions = { role: "dev", changesWorkflowEnabled: false };
 
-    mockDecodeActionValue.mock.mockImplementation(() => ({
+    mockDecodeActionValue.mockImplementation(() => ({
       sessionId: "sess-1",
       prompt: "tell me more",
     }));
-    mockRestoreSessionInfo.mock.mockImplementation(async () => sessionInfo);
+    mockRestoreSessionInfo.mockImplementation(async () => sessionInfo);
     // First call returns original, second returns updated
     let callCount = 0;
-    mockGetSession.mock.mockImplementation(async () => {
+    mockGetSession.mockImplementation(async () => {
       callCount++;
       return callCount === 1 ? session : updatedSession;
     });
-    mockGetHandlerClaudeOptions.mock.mockImplementation(async () => claudeOptions);
+    mockGetHandlerClaudeOptions.mockImplementation(async () => claudeOptions);
 
     const client = makeClient();
     await capturedHandler({
@@ -180,21 +180,21 @@ describe("registerFollowupHandler", () => {
     });
 
     // Check appendUserMessage was called with source: "followup" and the prompt text
-    assert.equal(mockAppendUserMessage.mock.callCount(), 1);
-    assert.equal(mockAppendUserMessage.mock.calls[0]!.arguments[0], "sess-1");
-    const appended = mockAppendUserMessage.mock.calls[0]!.arguments[1];
+    assert.equal(mockAppendUserMessage.mock.calls.length, 1);
+    assert.equal(mockAppendUserMessage.mock.calls[0]![0], "sess-1");
+    const appended = mockAppendUserMessage.mock.calls[0]![1];
     assert.equal(appended.source, "followup");
     assert.equal(appended.text, "tell me more");
 
     // Check executeAndDeliver was called with updated session
-    assert.equal(mockExecuteAndDeliver.mock.callCount(), 1);
+    assert.equal(mockExecuteAndDeliver.mock.calls.length, 1);
     interface DeliverCallArgs {
       client: App["client"];
       session: SessionContext;
       sessionInfo: SessionInfo;
       claudeOptions: AskClaudeOptions;
     }
-    const deliverArgs = mockExecuteAndDeliver.mock.calls[0]!.arguments[0] as DeliverCallArgs;
+    const deliverArgs = mockExecuteAndDeliver.mock.calls[0]![0] as DeliverCallArgs;
     assert.equal(deliverArgs.client, client);
     assert.equal(deliverArgs.session, updatedSession);
     assert.equal(deliverArgs.sessionInfo, sessionInfo);
@@ -202,7 +202,7 @@ describe("registerFollowupHandler", () => {
   });
 
   it("calls ack immediately", async () => {
-    mockDecodeActionValue.mock.mockImplementation(() => ({ sessionId: "sess-1" }));
+    mockDecodeActionValue.mockImplementation(() => ({ sessionId: "sess-1" }));
     let acked = false;
 
     await capturedHandler({
@@ -217,7 +217,7 @@ describe("registerFollowupHandler", () => {
   });
 
   it("decodes the raw value from body.actions[0]", async () => {
-    mockDecodeActionValue.mock.mockImplementation(() => ({ sessionId: "sess-1" }));
+    mockDecodeActionValue.mockImplementation(() => ({ sessionId: "sess-1" }));
 
     await capturedHandler({
       ack: async () => {},
@@ -225,7 +225,7 @@ describe("registerFollowupHandler", () => {
       client: makeClient(),
     });
 
-    assert.equal(mockDecodeActionValue.mock.callCount(), 1);
-    assert.equal(mockDecodeActionValue.mock.calls[0]!.arguments[0], "encoded-json-payload");
+    assert.equal(mockDecodeActionValue.mock.calls.length, 1);
+    assert.equal(mockDecodeActionValue.mock.calls[0]![0], "encoded-json-payload");
   });
 });

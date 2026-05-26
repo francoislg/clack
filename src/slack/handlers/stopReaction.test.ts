@@ -1,4 +1,4 @@
-import { describe, it, mock, beforeEach } from "node:test";
+import { describe, it, vi, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
 import { registerStopReactionHandler, type StopReactionDeps } from "./stopReaction.js";
@@ -13,7 +13,7 @@ interface ReactionEvent {
 
 type EventHandler = (args: { event: ReactionEvent; client: App["client"] }) => Promise<void>;
 
-const mockStopThread = mock.fn<
+const mockStopThread = vi.fn<
   (channel: string, threadTs: string, userId: string, reason: string) => Promise<StopResult>
 >(async () => ({
   queryAborted: 0,
@@ -23,7 +23,7 @@ const mockStopThread = mock.fn<
 }));
 
 let resolvedThreadTs = "thread-default";
-const mockResolveThreadTs = mock.fn<
+const mockResolveThreadTs = vi.fn<
   (client: App["client"], channel: string, ts: string) => Promise<string>
 >(async () => resolvedThreadTs);
 
@@ -75,8 +75,8 @@ function reactionEvent(overrides: Partial<ReactionEvent> = {}): ReactionEvent {
 }
 
 beforeEach(() => {
-  mockStopThread.mock.resetCalls();
-  mockResolveThreadTs.mock.resetCalls();
+  mockStopThread.mockClear();
+  mockResolveThreadTs.mockClear();
   resolvedThreadTs = "thread-default";
   configOverride = { trigger: "robot_face", stop: "octagonal_sign" };
   captured = null;
@@ -88,8 +88,8 @@ describe("registerStopReactionHandler", () => {
     resolvedThreadTs = "900.001";
     await captured!({ event: reactionEvent(), client: dummyClient() });
 
-    assert.equal(mockStopThread.mock.callCount(), 1);
-    const args = mockStopThread.mock.calls[0]?.arguments;
+    assert.equal(mockStopThread.mock.calls.length, 1);
+    const args = mockStopThread.mock.calls[0];
     assert.equal(args?.[0], "C1");
     assert.equal(args?.[1], "900.001");
     assert.equal(args?.[2], "U1");
@@ -99,13 +99,13 @@ describe("registerStopReactionHandler", () => {
   it("uses the message ts directly when it is not in a thread (resolver falls back)", async () => {
     resolvedThreadTs = "1000.001";
     await captured!({ event: reactionEvent(), client: dummyClient() });
-    assert.equal(mockStopThread.mock.calls[0]?.arguments[1], "1000.001");
+    assert.equal(mockStopThread.mock.calls[0]?.[1], "1000.001");
   });
 
   it("ignores non-stop reactions", async () => {
     await captured!({ event: reactionEvent({ reaction: "heart" }), client: dummyClient() });
-    assert.equal(mockStopThread.mock.callCount(), 0);
-    assert.equal(mockResolveThreadTs.mock.callCount(), 0);
+    assert.equal(mockStopThread.mock.calls.length, 0);
+    assert.equal(mockResolveThreadTs.mock.calls.length, 0);
   });
 
   it("ignores non-message reactions (e.g., file reactions)", async () => {
@@ -113,8 +113,8 @@ describe("registerStopReactionHandler", () => {
       event: reactionEvent({ item: { type: "file", channel: "C1", ts: "1000.001" } }),
       client: dummyClient(),
     });
-    assert.equal(mockStopThread.mock.callCount(), 0);
-    assert.equal(mockResolveThreadTs.mock.callCount(), 0);
+    assert.equal(mockStopThread.mock.calls.length, 0);
+    assert.equal(mockResolveThreadTs.mock.calls.length, 0);
   });
 
   it("does nothing when config.reactions.stop is null", async () => {
@@ -122,8 +122,8 @@ describe("registerStopReactionHandler", () => {
     captured = null;
     registerStopReactionHandler(makeApp(), makeDeps());
     await captured!({ event: reactionEvent(), client: dummyClient() });
-    assert.equal(mockStopThread.mock.callCount(), 0);
-    assert.equal(mockResolveThreadTs.mock.callCount(), 0);
+    assert.equal(mockStopThread.mock.calls.length, 0);
+    assert.equal(mockResolveThreadTs.mock.calls.length, 0);
   });
 
   it("does nothing when config.reactions.stop is empty string", async () => {
@@ -131,7 +131,7 @@ describe("registerStopReactionHandler", () => {
     captured = null;
     registerStopReactionHandler(makeApp(), makeDeps());
     await captured!({ event: reactionEvent(), client: dummyClient() });
-    assert.equal(mockStopThread.mock.callCount(), 0);
+    assert.equal(mockStopThread.mock.calls.length, 0);
   });
 
   it("matches a custom stop emoji name", async () => {
@@ -139,13 +139,13 @@ describe("registerStopReactionHandler", () => {
     captured = null;
     registerStopReactionHandler(makeApp(), makeDeps());
     await captured!({ event: reactionEvent({ reaction: "clack-stop" }), client: dummyClient() });
-    assert.equal(mockStopThread.mock.callCount(), 1);
+    assert.equal(mockStopThread.mock.calls.length, 1);
   });
 
   it("applies regardless of reactor identity (no role check)", async () => {
     for (const user of ["U-member", "U-dev", "U-admin", "U-owner"]) {
       await captured!({ event: reactionEvent({ user }), client: dummyClient() });
     }
-    assert.equal(mockStopThread.mock.callCount(), 4);
+    assert.equal(mockStopThread.mock.calls.length, 4);
   });
 });

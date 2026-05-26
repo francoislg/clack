@@ -1,4 +1,4 @@
-import { describe, it, mock, beforeEach } from "node:test";
+import { describe, it, vi, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import {
   createSlackApp,
@@ -19,26 +19,26 @@ interface AppConstructorConfig {
 // Mocks
 // ============================================================================
 
-const mockStart = mock.fn(async () => {});
-const mockStop = mock.fn(async () => {});
+const mockStart = vi.fn(async () => {});
+const mockStop = vi.fn(async () => {});
 const mockClient = { token: "mock-client" };
 
 const mockAppInstance = {
   start: mockStart,
   stop: mockStop,
   client: mockClient,
-  event: mock.fn(),
-  action: mock.fn(),
-  view: mock.fn(),
-  command: mock.fn(),
-  message: mock.fn(),
+  event: vi.fn(),
+  action: vi.fn(),
+  view: vi.fn(),
+  command: vi.fn(),
+  message: vi.fn(),
 };
 
-const MockAppConstructor = mock.fn(function (_config: AppConstructorConfig) {
+const MockAppConstructor = vi.fn(function (_config: AppConstructorConfig) {
   return mockAppInstance;
 });
 
-const mockGetConfig = mock.fn(() => ({
+const mockGetConfig = vi.fn(() => ({
   slack: {
     botToken: "xoxb-test-bot-token",
     appToken: "xapp-test-app-token",
@@ -47,30 +47,30 @@ const mockGetConfig = mock.fn(() => ({
 }));
 
 const mockLogger = {
-  info: mock.fn(() => {}),
-  warn: mock.fn(() => {}),
-  error: mock.fn(() => {}),
-  debug: mock.fn(() => {}),
-  startup: mock.fn(() => {}),
+  info: vi.fn(() => {}),
+  warn: vi.fn(() => {}),
+  error: vi.fn(() => {}),
+  debug: vi.fn(() => {}),
+  startup: vi.fn(() => {}),
 };
 
-const mockRegisterHomeTabHandler = mock.fn(() => {});
-const mockRegisterNewQueryHandler = mock.fn(() => {});
-const mockRegisterRetryHandler = mock.fn(() => {});
-const mockRegisterResendHandler = mock.fn(() => {});
-const mockRegisterAssistant = mock.fn(() => {});
-const mockRegisterMentionHandler = mock.fn(() => {});
-const mockRegisterChoiceHandler = mock.fn(() => {});
-const mockRegisterFollowupHandler = mock.fn(() => {});
-const mockRegisterChangeActionHandler = mock.fn(() => {});
-const mockRegisterConfigUpdateActionHandler = mock.fn(() => {});
-const mockRegisterSkillActionHandler = mock.fn(() => {});
-const mockRegisterUserSkillsHomeActions = mock.fn(() => {});
-const mockRegisterChangeThreadActionHandlers = mock.fn(() => {});
-const mockRegisterDmActionHandlers = mock.fn(() => {});
-const mockRegisterMessageChangedHandler = mock.fn(() => {});
-const mockRegisterAutoRespondHandler = mock.fn(() => {});
-const mockRegisterStopReactionHandler = mock.fn(() => {});
+const mockRegisterHomeTabHandler = vi.fn(() => {});
+const mockRegisterNewQueryHandler = vi.fn(() => {});
+const mockRegisterRetryHandler = vi.fn(() => {});
+const mockRegisterResendHandler = vi.fn(() => {});
+const mockRegisterAssistant = vi.fn(() => {});
+const mockRegisterMentionHandler = vi.fn(() => {});
+const mockRegisterChoiceHandler = vi.fn(() => {});
+const mockRegisterFollowupHandler = vi.fn(() => {});
+const mockRegisterChangeActionHandler = vi.fn(() => {});
+const mockRegisterConfigUpdateActionHandler = vi.fn(() => {});
+const mockRegisterSkillActionHandler = vi.fn(() => {});
+const mockRegisterUserSkillsHomeActions = vi.fn(() => {});
+const mockRegisterChangeThreadActionHandlers = vi.fn(() => {});
+const mockRegisterDmActionHandlers = vi.fn(() => {});
+const mockRegisterMessageChangedHandler = vi.fn(() => {});
+const mockRegisterAutoRespondHandler = vi.fn(() => {});
+const mockRegisterStopReactionHandler = vi.fn(() => {});
 
 function makeDeps(): AppDeps {
   return {
@@ -102,32 +102,32 @@ function makeDeps(): AppDeps {
 // ============================================================================
 
 function resetAllMocks() {
-  mockRegisterHomeTabHandler.mock.resetCalls();
-  mockRegisterNewQueryHandler.mock.resetCalls();
-  mockRegisterRetryHandler.mock.resetCalls();
-  mockRegisterResendHandler.mock.resetCalls();
-  mockRegisterAssistant.mock.resetCalls();
-  mockRegisterMentionHandler.mock.resetCalls();
-  mockRegisterChoiceHandler.mock.resetCalls();
-  mockRegisterFollowupHandler.mock.resetCalls();
-  mockRegisterChangeActionHandler.mock.resetCalls();
-  mockRegisterConfigUpdateActionHandler.mock.resetCalls();
-  mockRegisterChangeThreadActionHandlers.mock.resetCalls();
-  mockRegisterDmActionHandlers.mock.resetCalls();
-  mockRegisterMessageChangedHandler.mock.resetCalls();
-  mockRegisterAutoRespondHandler.mock.resetCalls();
-  MockAppConstructor.mock.resetCalls();
-  mockStart.mock.resetCalls();
-  mockStop.mock.resetCalls();
-  mockGetConfig.mock.resetCalls();
-  mockLogger.info.mock.resetCalls();
-  mockLogger.debug.mock.resetCalls();
-  mockAppInstance.action.mock.resetCalls();
-  mockAppInstance.view.mock.resetCalls();
+  mockRegisterHomeTabHandler.mockClear();
+  mockRegisterNewQueryHandler.mockClear();
+  mockRegisterRetryHandler.mockClear();
+  mockRegisterResendHandler.mockClear();
+  mockRegisterAssistant.mockClear();
+  mockRegisterMentionHandler.mockClear();
+  mockRegisterChoiceHandler.mockClear();
+  mockRegisterFollowupHandler.mockClear();
+  mockRegisterChangeActionHandler.mockClear();
+  mockRegisterConfigUpdateActionHandler.mockClear();
+  mockRegisterChangeThreadActionHandlers.mockClear();
+  mockRegisterDmActionHandlers.mockClear();
+  mockRegisterMessageChangedHandler.mockClear();
+  mockRegisterAutoRespondHandler.mockClear();
+  MockAppConstructor.mockClear();
+  mockStart.mockClear();
+  mockStop.mockClear();
+  mockGetConfig.mockClear();
+  mockLogger.info.mockClear();
+  mockLogger.debug.mockClear();
+  mockAppInstance.action.mockClear();
+  mockAppInstance.view.mockClear();
 }
 
 function getConstructorConfig(): AppConstructorConfig {
-  const arg = MockAppConstructor.mock.calls[0].arguments[0];
+  const arg = MockAppConstructor.mock.calls[0][0];
   if (typeof arg !== "object" || arg === null) {
     throw new Error("Constructor arg is not an object");
   }
@@ -147,7 +147,7 @@ describe("createSlackApp", () => {
     const deps = makeDeps();
     createSlackApp(deps);
 
-    assert.equal(MockAppConstructor.mock.callCount(), 1);
+    assert.equal(MockAppConstructor.mock.calls.length, 1);
     const ctorConfig = getConstructorConfig();
     assert.equal(ctorConfig.token, "xoxb-test-bot-token");
     assert.equal(ctorConfig.appToken, "xapp-test-app-token");
@@ -159,30 +159,30 @@ describe("createSlackApp", () => {
     const deps = makeDeps();
     createSlackApp(deps);
 
-    assert.equal(mockRegisterHomeTabHandler.mock.callCount(), 1);
-    assert.equal(mockRegisterNewQueryHandler.mock.callCount(), 1);
-    assert.equal(mockRegisterRetryHandler.mock.callCount(), 1);
-    assert.equal(mockRegisterResendHandler.mock.callCount(), 1);
-    assert.equal(mockRegisterChoiceHandler.mock.callCount(), 1);
-    assert.equal(mockRegisterFollowupHandler.mock.callCount(), 1);
-    assert.equal(mockRegisterChangeActionHandler.mock.callCount(), 1);
-    assert.equal(mockRegisterConfigUpdateActionHandler.mock.callCount(), 1);
-    assert.equal(mockRegisterChangeThreadActionHandlers.mock.callCount(), 1);
-    assert.equal(mockRegisterDmActionHandlers.mock.callCount(), 1);
+    assert.equal(mockRegisterHomeTabHandler.mock.calls.length, 1);
+    assert.equal(mockRegisterNewQueryHandler.mock.calls.length, 1);
+    assert.equal(mockRegisterRetryHandler.mock.calls.length, 1);
+    assert.equal(mockRegisterResendHandler.mock.calls.length, 1);
+    assert.equal(mockRegisterChoiceHandler.mock.calls.length, 1);
+    assert.equal(mockRegisterFollowupHandler.mock.calls.length, 1);
+    assert.equal(mockRegisterChangeActionHandler.mock.calls.length, 1);
+    assert.equal(mockRegisterConfigUpdateActionHandler.mock.calls.length, 1);
+    assert.equal(mockRegisterChangeThreadActionHandlers.mock.calls.length, 1);
+    assert.equal(mockRegisterDmActionHandlers.mock.calls.length, 1);
   });
 
   it("always registers assistant handler", () => {
     const deps = makeDeps();
     createSlackApp(deps);
 
-    assert.equal(mockRegisterAssistant.mock.callCount(), 1);
+    assert.equal(mockRegisterAssistant.mock.calls.length, 1);
   });
 
   it("always registers mention handler", () => {
     const deps = makeDeps();
     createSlackApp(deps);
 
-    assert.equal(mockRegisterMentionHandler.mock.callCount(), 1);
+    assert.equal(mockRegisterMentionHandler.mock.calls.length, 1);
   });
 
   it("installs a single wildcard plugin-interactivity listener for actions and views", () => {
@@ -192,14 +192,14 @@ describe("createSlackApp", () => {
     // The wildcard listener uses /^plugin:/. Find it among the recorded action() calls.
     const actionCalls = mockAppInstance.action.mock.calls;
     const pluginActionCalls = actionCalls.filter((c) => {
-      const matcher = c.arguments[0];
+      const matcher = c[0];
       return matcher instanceof RegExp && matcher.source === "^plugin:";
     });
     assert.equal(pluginActionCalls.length, 1, "exactly one wildcard plugin action listener");
 
     const viewCalls = mockAppInstance.view.mock.calls;
     const pluginViewCalls = viewCalls.filter((c) => {
-      const matcher = c.arguments[0];
+      const matcher = c[0];
       return matcher instanceof RegExp && matcher.source === "^plugin:";
     });
     assert.equal(pluginViewCalls.length, 1, "exactly one wildcard plugin view listener");
@@ -209,14 +209,14 @@ describe("createSlackApp", () => {
     const deps = makeDeps();
     createSlackApp(deps);
 
-    assert.equal(mockRegisterMessageChangedHandler.mock.callCount(), 1);
+    assert.equal(mockRegisterMessageChangedHandler.mock.calls.length, 1);
   });
 
   it("always registers autoRespond handler", () => {
     const deps = makeDeps();
     createSlackApp(deps);
 
-    assert.equal(mockRegisterAutoRespondHandler.mock.callCount(), 1);
+    assert.equal(mockRegisterAutoRespondHandler.mock.calls.length, 1);
   });
 });
 
@@ -230,7 +230,7 @@ describe("startSlackApp", () => {
     createSlackApp(deps);
     await startSlackApp(deps);
 
-    assert.equal(mockStart.mock.callCount(), 1);
+    assert.equal(mockStart.mock.calls.length, 1);
   });
 
   it("logs when app starts", async () => {
@@ -238,7 +238,7 @@ describe("startSlackApp", () => {
     createSlackApp(deps);
     await startSlackApp(deps);
 
-    assert.equal(mockLogger.info.mock.callCount(), 1);
+    assert.equal(mockLogger.info.mock.calls.length, 1);
   });
 });
 
@@ -252,7 +252,7 @@ describe("stopSlackApp", () => {
     createSlackApp(deps);
     await stopSlackApp(deps);
 
-    assert.equal(mockStop.mock.callCount(), 1);
+    assert.equal(mockStop.mock.calls.length, 1);
   });
 
   it("logs when app stops", async () => {
@@ -260,7 +260,7 @@ describe("stopSlackApp", () => {
     createSlackApp(deps);
     await stopSlackApp(deps);
 
-    assert.equal(mockLogger.debug.mock.callCount(), 1);
+    assert.equal(mockLogger.debug.mock.calls.length, 1);
   });
 });
 

@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, beforeEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import {
   loadRoles,
@@ -23,11 +23,11 @@ import type { App } from "@slack/bolt";
 // Mock deps
 // ---------------------------------------------------------------------------
 
-const mockReadFile = mock.fn<(path: string, encoding: string) => Promise<string>>();
-const mockWriteFile = mock.fn<(path: string, data: string) => Promise<void>>();
+const mockReadFile = vi.fn<(path: string, encoding: string) => Promise<string>>();
+const mockWriteFile = vi.fn<(path: string, data: string) => Promise<void>>();
 const mockMkdir =
-  mock.fn<(path: string, opts: { recursive: boolean }) => Promise<string | undefined>>();
-const mockFileExists = mock.fn<(path: string) => Promise<boolean>>();
+  vi.fn<(path: string, opts: { recursive: boolean }) => Promise<string | undefined>>();
+const mockFileExists = vi.fn<(path: string) => Promise<boolean>>();
 
 function makeDeps(): RolesDeps {
   return {
@@ -44,23 +44,23 @@ function makeDeps(): RolesDeps {
 
 function resetMocks(): void {
   clearRolesCache();
-  mockReadFile.mock.resetCalls();
-  mockWriteFile.mock.resetCalls();
-  mockMkdir.mock.resetCalls();
-  mockFileExists.mock.resetCalls();
+  mockReadFile.mockClear();
+  mockWriteFile.mockClear();
+  mockMkdir.mockClear();
+  mockFileExists.mockClear();
 
   // Default: file does not exist, dir exists
-  mockFileExists.mock.mockImplementation(async () => false);
-  mockWriteFile.mock.mockImplementation(async () => {});
-  mockMkdir.mock.mockImplementation(async () => undefined);
+  mockFileExists.mockImplementation(async () => false);
+  mockWriteFile.mockImplementation(async () => {});
+  mockMkdir.mockImplementation(async () => undefined);
 
   setRolesDeps(makeDeps());
 }
 
 /** Configure mocks so loadRoles returns the given roles. */
 function seedRoles(roles: RolesConfig): void {
-  mockFileExists.mock.mockImplementation(async () => true);
-  mockReadFile.mock.mockImplementation(async () => JSON.stringify(roles));
+  mockFileExists.mockImplementation(async () => true);
+  mockReadFile.mockImplementation(async () => JSON.stringify(roles));
 }
 
 /** Extract the roles object written by the last saveRoles call. */
@@ -68,7 +68,7 @@ function lastSavedRoles(): RolesConfig {
   const calls = mockWriteFile.mock.calls;
   assert.ok(calls.length > 0, "Expected writeFile to have been called");
   const lastCall = calls[calls.length - 1];
-  return JSON.parse(lastCall.arguments[1] as string) as RolesConfig;
+  return JSON.parse(lastCall[1] as string) as RolesConfig;
 }
 
 function makeSlackClient(users: Record<string, { deleted?: boolean }> = {}): App["client"] {
@@ -91,7 +91,7 @@ describe("loadRoles", () => {
   beforeEach(resetMocks);
 
   it("returns default roles when file does not exist", async () => {
-    mockFileExists.mock.mockImplementation(async () => false);
+    mockFileExists.mockImplementation(async () => false);
 
     const roles = await loadRoles();
     assert.equal(roles.owner, null);
@@ -114,8 +114,8 @@ describe("loadRoles", () => {
   });
 
   it("fills in missing fields with defaults", async () => {
-    mockFileExists.mock.mockImplementation(async () => true);
-    mockReadFile.mock.mockImplementation(async () => JSON.stringify({ owner: "U1" }));
+    mockFileExists.mockImplementation(async () => true);
+    mockReadFile.mockImplementation(async () => JSON.stringify({ owner: "U1" }));
 
     const roles = await loadRoles();
     assert.equal(roles.owner, "U1");
@@ -129,12 +129,12 @@ describe("loadRoles", () => {
     await loadRoles();
     await loadRoles();
 
-    assert.equal(mockReadFile.mock.callCount(), 1);
+    assert.equal(mockReadFile.mock.calls.length, 1);
   });
 
   it("returns defaults when file contains invalid JSON", async () => {
-    mockFileExists.mock.mockImplementation(async () => true);
-    mockReadFile.mock.mockImplementation(async () => "not-json");
+    mockFileExists.mockImplementation(async () => true);
+    mockReadFile.mockImplementation(async () => "not-json");
 
     const roles = await loadRoles();
     assert.equal(roles.owner, null);
@@ -150,23 +150,23 @@ describe("saveRoles", () => {
     const roles: RolesConfig = { owner: "U1", admins: ["U2"], devs: ["U3"] };
     await saveRoles(roles);
 
-    assert.equal(mockWriteFile.mock.callCount(), 1);
+    assert.equal(mockWriteFile.mock.calls.length, 1);
     const written = lastSavedRoles();
     assert.deepEqual(written, roles);
   });
 
   it("creates state directory if it does not exist", async () => {
-    mockFileExists.mock.mockImplementation(async () => false);
+    mockFileExists.mockImplementation(async () => false);
 
     await saveRoles({ owner: null, admins: [], devs: [] });
-    assert.equal(mockMkdir.mock.callCount(), 1);
+    assert.equal(mockMkdir.mock.calls.length, 1);
   });
 
   it("skips mkdir when state directory already exists", async () => {
-    mockFileExists.mock.mockImplementation(async () => true);
+    mockFileExists.mockImplementation(async () => true);
 
     await saveRoles({ owner: null, admins: [], devs: [] });
-    assert.equal(mockMkdir.mock.callCount(), 0);
+    assert.equal(mockMkdir.mock.calls.length, 0);
   });
 
   it("updates the in-memory cache", async () => {
@@ -181,7 +181,7 @@ describe("saveRoles", () => {
     const afterSave = await loadRoles();
     assert.equal(afterSave.owner, "U_NEW");
     // readFile should not have been called (file didn't exist initially, then cache was set by save)
-    assert.equal(mockReadFile.mock.callCount(), 0);
+    assert.equal(mockReadFile.mock.calls.length, 0);
   });
 });
 
@@ -445,14 +445,14 @@ describe("setRole", () => {
     seedRoles({ owner: "U_OWNER", admins: ["U2"], devs: [] });
     const result = await setRole("U2", "admin");
     assert.equal(result.success, true);
-    assert.equal(mockWriteFile.mock.callCount(), 0);
+    assert.equal(mockWriteFile.mock.calls.length, 0);
   });
 
   it("is idempotent — setting member when already member", async () => {
     seedRoles({ owner: "U_OWNER", admins: [], devs: [] });
     const result = await setRole("U2", "member");
     assert.equal(result.success, true);
-    assert.equal(mockWriteFile.mock.callCount(), 0);
+    assert.equal(mockWriteFile.mock.calls.length, 0);
   });
 
   it("rejects changing the owner's role", async () => {
@@ -467,7 +467,7 @@ describe("setRole", () => {
     const result = await setRole("U2", "system" as "admin");
     assert.equal(result.success, false);
     assert.ok(result.error?.includes("not assignable"));
-    assert.equal(mockWriteFile.mock.callCount(), 0);
+    assert.equal(mockWriteFile.mock.calls.length, 0);
   });
 
   it("rejects assigning owner at runtime even if a caller casts past AssignableRole", async () => {
@@ -475,7 +475,7 @@ describe("setRole", () => {
     const result = await setRole("U2", "owner" as "admin");
     assert.equal(result.success, false);
     assert.ok(result.error?.includes("not assignable"));
-    assert.equal(mockWriteFile.mock.callCount(), 0);
+    assert.equal(mockWriteFile.mock.calls.length, 0);
   });
 });
 
@@ -614,10 +614,10 @@ describe("clearRolesCache", () => {
   it("forces re-read from disk on next loadRoles call", async () => {
     seedRoles({ owner: "U1", admins: [], devs: [] });
     await loadRoles();
-    assert.equal(mockReadFile.mock.callCount(), 1);
+    assert.equal(mockReadFile.mock.calls.length, 1);
 
     clearRolesCache();
     await loadRoles();
-    assert.equal(mockReadFile.mock.callCount(), 2);
+    assert.equal(mockReadFile.mock.calls.length, 2);
   });
 });

@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, afterEach, mock } from "node:test";
+import { describe, it, beforeEach, afterEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import { z } from "zod";
 import { toJSONSchema } from "zod/v4/core";
@@ -44,11 +44,12 @@ function stubPlugin(
     name,
     instructions: [],
     tools: tools.map((t) => makeRegisteredPluginTool(t)),
-    integrations: [],
+    mcpServers: [],
     toolMappings: new Map(),
     mcpServer: createSdkMcpServer({ name, version: "1.0.0", tools }),
     actionHandlers: [],
     viewHandlers: [],
+    errors: [],
   };
 }
 
@@ -75,7 +76,7 @@ function makeQueryCtx(overrides: Partial<QueryToolContext> = {}): QueryToolConte
     session,
     config: {} as Config,
     changesWorkflowEnabled: false,
-    allowScheduledMessages: false,
+    cronUserSchedules: false,
     ...overrides,
   };
 }
@@ -188,16 +189,16 @@ describe("buildClackTools — query mode", () => {
   });
 
   it("logs a warning when requiredTools references unknown tool name(s)", () => {
-    const warnFn = mock.method(logger, "warn", () => {});
+    const warnFn = vi.spyOn(logger, "warn").mockImplementation(() => {});
     try {
       const ctx = makeQueryCtx({ requiredTools: ["mcp__typo__nope"] });
       buildClackTools(ctx);
 
-      const warnings = warnFn.mock.calls.map((c) => String(c.arguments[0] ?? ""));
+      const warnings = warnFn.mock.calls.map((c) => String(c[0] ?? ""));
       const match = warnings.find((w) => w.includes("mcp__typo__nope"));
       assert.ok(match, "expected a warning mentioning the unknown required tool name");
     } finally {
-      warnFn.mock.restore();
+      warnFn.mockRestore();
     }
   });
 
@@ -207,17 +208,17 @@ describe("buildClackTools — query mode", () => {
     }));
     setLoadedPlugins({ results: [stubPlugin("trivia", [submitAnswers])] });
 
-    const warnFn = mock.method(logger, "warn", () => {});
+    const warnFn = vi.spyOn(logger, "warn").mockImplementation(() => {});
     try {
       const ctx = makeQueryCtx({ requiredTools: ["mcp__trivia__submit_answers"] });
       buildClackTools(ctx);
 
       const unknownWarnings = warnFn.mock.calls
-        .map((c) => String(c.arguments[0] ?? ""))
+        .map((c) => String(c[0] ?? ""))
         .filter((w) => w.includes("Session requiredTools reference unknown"));
       assert.equal(unknownWarnings.length, 0, "no unknown-required-tool warning expected");
     } finally {
-      warnFn.mock.restore();
+      warnFn.mockRestore();
     }
   });
 
@@ -226,7 +227,7 @@ describe("buildClackTools — query mode", () => {
     // not recorded by the recorder before wrapToolForRecording was applied to every core tool.
     // The diagnostic warning path still needs to treat their full `mcp__clack__<name>` names
     // as known.
-    const warnFn = mock.method(logger, "warn", () => {});
+    const warnFn = vi.spyOn(logger, "warn").mockImplementation(() => {});
     try {
       const ctx = makeQueryCtx({
         requiredTools: ["mcp__clack__list_repositories"],
@@ -234,7 +235,7 @@ describe("buildClackTools — query mode", () => {
       buildClackTools(ctx);
 
       const unknownWarnings = warnFn.mock.calls
-        .map((c) => String(c.arguments[0] ?? ""))
+        .map((c) => String(c[0] ?? ""))
         .filter((w) => w.includes("Session requiredTools reference unknown"));
       assert.equal(
         unknownWarnings.length,
@@ -242,7 +243,7 @@ describe("buildClackTools — query mode", () => {
         "mcp__clack__list_repositories should be a recognized tool name",
       );
     } finally {
-      warnFn.mock.restore();
+      warnFn.mockRestore();
     }
   });
 
@@ -292,16 +293,16 @@ describe("buildClackTools — query mode", () => {
   });
 
   it("does NOT warn when requiredTools is undefined or empty", () => {
-    const warnFn = mock.method(logger, "warn", () => {});
+    const warnFn = vi.spyOn(logger, "warn").mockImplementation(() => {});
     try {
       buildClackTools(makeQueryCtx());
       buildClackTools(makeQueryCtx({ requiredTools: [] }));
       const unknownWarnings = warnFn.mock.calls
-        .map((c) => String(c.arguments[0] ?? ""))
+        .map((c) => String(c[0] ?? ""))
         .filter((w) => w.includes("Session requiredTools reference unknown"));
       assert.equal(unknownWarnings.length, 0);
     } finally {
-      warnFn.mock.restore();
+      warnFn.mockRestore();
     }
   });
 });
@@ -326,15 +327,19 @@ describe("buildClackTools — integration-gated plugin tools", () => {
     const toolB = tool("tool_b", "in bar", { x: z.string().optional() }, async () => ({
       content: [{ type: "text" as const, text: "ok" }],
     }));
-    const toolC = tool("tool_c", "no integration", { x: z.string().optional() }, async () => ({
+    const toolC = tool("tool_c", "default server", { x: z.string().optional() }, async () => ({
       content: [{ type: "text" as const, text: "ok" }],
     }));
     const base = stubPlugin("trivia", [toolA, toolB, toolC]);
-    // Override registrations with explicit integration + admin role so the gating logic is exercised
+    // Override registrations: tools A and B live on on-demand servers, tool C on the default.
     base.tools = [
-      { ...makeRegisteredPluginTool(toolA), minRole: "admin", integration: "foo" },
-      { ...makeRegisteredPluginTool(toolB), minRole: "admin", integration: "bar" },
+      { ...makeRegisteredPluginTool(toolA), minRole: "admin", serverKey: "foo" },
+      { ...makeRegisteredPluginTool(toolB), minRole: "admin", serverKey: "bar" },
       { ...makeRegisteredPluginTool(toolC), minRole: "admin" },
+    ];
+    base.mcpServers = [
+      { key: "foo", fullName: "trivia:foo", autoload: false, description: "foo server" },
+      { key: "bar", fullName: "trivia:bar", autoload: false, description: "bar server" },
     ];
     return base;
   }
@@ -360,43 +365,45 @@ describe("buildClackTools — integration-gated plugin tools", () => {
     };
   }
 
-  it("hides integration-gated tools when attachedIntegrations is empty", () => {
+  it("hides on-demand server tools when attachedIntegrations is empty", () => {
     setLoadedPlugins({ results: [pluginWithMixedTopics()] });
     const result = buildClackTools(makeQueryCtx(attached([])));
-    assert.equal(result.toolNames.includes("mcp__trivia__tool_a"), false);
-    assert.equal(result.toolNames.includes("mcp__trivia__tool_b"), false);
+    assert.equal(result.toolNames.includes("mcp__trivia_foo__tool_a"), false);
+    assert.equal(result.toolNames.includes("mcp__trivia_bar__tool_b"), false);
     assert.equal(result.toolNames.includes("mcp__trivia__tool_c"), true);
   });
 
-  it("reveals integration-gated tools whose integration is attached", () => {
+  it("reveals on-demand server tools whose integration is attached", () => {
     setLoadedPlugins({ results: [pluginWithMixedTopics()] });
-    const result = buildClackTools(makeQueryCtx(attached(["foo"])));
-    assert.equal(result.toolNames.includes("mcp__trivia__tool_a"), true);
-    assert.equal(result.toolNames.includes("mcp__trivia__tool_b"), false);
+    const result = buildClackTools(makeQueryCtx(attached(["trivia:foo"])));
+    assert.equal(result.toolNames.includes("mcp__trivia_foo__tool_a"), true);
+    assert.equal(result.toolNames.includes("mcp__trivia_bar__tool_b"), false);
     assert.equal(result.toolNames.includes("mcp__trivia__tool_c"), true);
   });
 
-  it("reveals all integration-gated tools when every integration is attached", () => {
+  it("reveals all on-demand server tools when every integration is attached", () => {
     setLoadedPlugins({ results: [pluginWithMixedTopics()] });
-    const result = buildClackTools(makeQueryCtx(attached(["foo", "bar"])));
-    assert.equal(result.toolNames.includes("mcp__trivia__tool_a"), true);
-    assert.equal(result.toolNames.includes("mcp__trivia__tool_b"), true);
+    const result = buildClackTools(makeQueryCtx(attached(["trivia:foo", "trivia:bar"])));
+    assert.equal(result.toolNames.includes("mcp__trivia_foo__tool_a"), true);
+    assert.equal(result.toolNames.includes("mcp__trivia_bar__tool_b"), true);
     assert.equal(result.toolNames.includes("mcp__trivia__tool_c"), true);
   });
 
-  it("role gate still applies on top — dev role sees nothing for admin-gated tools even with integration attached", () => {
+  it("role gate still applies on top — dev role sees nothing for admin-gated tools even with on-demand server attached", () => {
     setLoadedPlugins({ results: [pluginWithMixedTopics()] });
-    const result = buildClackTools(makeQueryCtx({ ...attached(["foo", "bar"]), role: "dev" }));
-    assert.equal(result.toolNames.includes("mcp__trivia__tool_a"), false);
-    assert.equal(result.toolNames.includes("mcp__trivia__tool_b"), false);
+    const result = buildClackTools(
+      makeQueryCtx({ ...attached(["trivia:foo", "trivia:bar"]), role: "dev" }),
+    );
+    assert.equal(result.toolNames.includes("mcp__trivia_foo__tool_a"), false);
+    assert.equal(result.toolNames.includes("mcp__trivia_bar__tool_b"), false);
     assert.equal(result.toolNames.includes("mcp__trivia__tool_c"), false);
   });
 
   it("treats missing attachedIntegrations as empty", () => {
     setLoadedPlugins({ results: [pluginWithMixedTopics()] });
     const result = buildClackTools(makeQueryCtx(attached(undefined)));
-    assert.equal(result.toolNames.includes("mcp__trivia__tool_a"), false);
-    assert.equal(result.toolNames.includes("mcp__trivia__tool_b"), false);
+    assert.equal(result.toolNames.includes("mcp__trivia_foo__tool_a"), false);
+    assert.equal(result.toolNames.includes("mcp__trivia_bar__tool_b"), false);
     assert.equal(result.toolNames.includes("mcp__trivia__tool_c"), true);
   });
 });

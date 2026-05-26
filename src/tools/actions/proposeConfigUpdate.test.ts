@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, beforeEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import {
   createProposeConfigUpdateTool,
@@ -29,7 +29,7 @@ const fakeConfig = {};
 
 function makeDeps(overrides?: Partial<ProposeConfigUpdateDeps>): ProposeConfigUpdateDeps {
   return {
-    readInstructionFile: mock.fn<ProposeConfigUpdateDeps["readInstructionFile"]>(() => ({
+    readInstructionFile: vi.fn<ProposeConfigUpdateDeps["readInstructionFile"]>(() => ({
       default_content: null,
       custom_content: null,
     })),
@@ -45,7 +45,7 @@ function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
     session: fakeSession as QueryToolContext["session"],
     config: fakeConfig as QueryToolContext["config"],
     changesWorkflowEnabled: false,
-    allowScheduledMessages: false,
+    cronUserSchedules: false,
     ...overrides,
   };
 }
@@ -147,7 +147,7 @@ describe("proposeConfigUpdate tool", () => {
 
   it("appends to existing custom content when file has content (baseline)", async () => {
     deps = makeDeps({
-      readInstructionFile: mock.fn<ProposeConfigUpdateDeps["readInstructionFile"]>(() => ({
+      readInstructionFile: vi.fn<ProposeConfigUpdateDeps["readInstructionFile"]>(() => ({
         default_content: "default stuff",
         custom_content: "existing line 1\nexisting line 2",
       })),
@@ -173,7 +173,7 @@ describe("proposeConfigUpdate tool", () => {
 
   it("appends to existing topic file content", async () => {
     deps = makeDeps({
-      readInstructionFile: mock.fn<ProposeConfigUpdateDeps["readInstructionFile"]>(() => ({
+      readInstructionFile: vi.fn<ProposeConfigUpdateDeps["readInstructionFile"]>(() => ({
         default_content: null,
         custom_content: "existing topic rules",
       })),
@@ -197,7 +197,7 @@ describe("proposeConfigUpdate tool", () => {
 
   it("appends to default content when no custom exists", async () => {
     deps = makeDeps({
-      readInstructionFile: mock.fn<ProposeConfigUpdateDeps["readInstructionFile"]>(() => ({
+      readInstructionFile: vi.fn<ProposeConfigUpdateDeps["readInstructionFile"]>(() => ({
         default_content: "default content",
         custom_content: null,
       })),
@@ -239,7 +239,7 @@ describe("proposeConfigUpdate tool", () => {
     // mirror the runtime shape; the schema-level default is covered by the
     // configFieldSchemas tests (no separate parsing needed here).
     deps = makeDeps({
-      readInstructionFile: mock.fn<ProposeConfigUpdateDeps["readInstructionFile"]>(() => ({
+      readInstructionFile: vi.fn<ProposeConfigUpdateDeps["readInstructionFile"]>(() => ({
         default_content: null,
         custom_content: "first line",
       })),
@@ -276,7 +276,7 @@ describe("proposeConfigUpdate tool", () => {
 
   it("replace on a topic file stages the provided content byte-for-byte", async () => {
     deps = makeDeps({
-      readInstructionFile: mock.fn<ProposeConfigUpdateDeps["readInstructionFile"]>(() => ({
+      readInstructionFile: vi.fn<ProposeConfigUpdateDeps["readInstructionFile"]>(() => ({
         default_content: "old default",
         custom_content: "old custom",
       })),
@@ -302,7 +302,7 @@ describe("proposeConfigUpdate tool", () => {
 
   it("returns will_overwrite_custom when file has custom content", async () => {
     deps = makeDeps({
-      readInstructionFile: mock.fn<ProposeConfigUpdateDeps["readInstructionFile"]>(() => ({
+      readInstructionFile: vi.fn<ProposeConfigUpdateDeps["readInstructionFile"]>(() => ({
         default_content: "default",
         custom_content: "custom",
       })),
@@ -324,7 +324,7 @@ describe("proposeConfigUpdate tool", () => {
 
   it("returns will_override_default when file has default but no custom", async () => {
     deps = makeDeps({
-      readInstructionFile: mock.fn<ProposeConfigUpdateDeps["readInstructionFile"]>(() => ({
+      readInstructionFile: vi.fn<ProposeConfigUpdateDeps["readInstructionFile"]>(() => ({
         default_content: "default",
         custom_content: null,
       })),

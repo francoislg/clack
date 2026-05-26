@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, beforeEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import { createFindUserTool } from "./findUser.js";
 
@@ -32,20 +32,20 @@ function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
       repositories: [],
     } as unknown as QueryToolContext["config"],
     changesWorkflowEnabled: false,
-    allowScheduledMessages: false,
+    cronUserSchedules: false,
     ...overrides,
   };
 }
 
-const mockSearch = mock.fn<(queries: string[], limit?: number) => Promise<SlackUserEntry[]>>();
+const mockSearch = vi.fn<(queries: string[], limit?: number) => Promise<SlackUserEntry[]>>();
 
 function makeUsersCache(): UsersCache {
   return { search: mockSearch };
 }
 
 function resetMocks() {
-  mockSearch.mock.resetCalls();
-  mockSearch.mock.mockImplementation(async () => []);
+  mockSearch.mockClear();
+  mockSearch.mockImplementation(async () => []);
 }
 
 // ---------------------------------------------------------------------------
@@ -60,7 +60,7 @@ describe("findUser tool", () => {
       { userId: "U100", username: "alice", displayName: "Alice A" },
       { userId: "U200", username: "bob", displayName: "Bob B" },
     ];
-    mockSearch.mock.mockImplementation(async () => users);
+    mockSearch.mockImplementation(async () => users);
 
     const ctx = makeCtx();
     const toolDef = createFindUserTool(ctx, makeUsersCache());
@@ -79,29 +79,29 @@ describe("findUser tool", () => {
   });
 
   it("passes query and default limit to cache", async () => {
-    mockSearch.mock.mockImplementation(async () => []);
+    mockSearch.mockImplementation(async () => []);
 
     const ctx = makeCtx();
     const toolDef = createFindUserTool(ctx, makeUsersCache());
 
     await toolDef.handler({ query: ["test-query"], limit: undefined }, { sessionId: "test" });
 
-    assert.equal(mockSearch.mock.callCount(), 1);
+    assert.equal(mockSearch.mock.calls.length, 1);
     const call = mockSearch.mock.calls[0];
-    assert.deepEqual(call.arguments[0], ["test-query"]);
-    assert.equal(call.arguments[1], 10);
+    assert.deepEqual(call[0], ["test-query"]);
+    assert.equal(call[1], 10);
   });
 
   it("passes custom limit to cache", async () => {
-    mockSearch.mock.mockImplementation(async () => []);
+    mockSearch.mockImplementation(async () => []);
 
     const ctx = makeCtx();
     const toolDef = createFindUserTool(ctx, makeUsersCache());
 
     await toolDef.handler({ query: ["someone"], limit: 5 }, { sessionId: "test" });
 
-    assert.equal(mockSearch.mock.callCount(), 1);
-    assert.equal(mockSearch.mock.calls[0].arguments[1], 5);
+    assert.equal(mockSearch.mock.calls.length, 1);
+    assert.equal(mockSearch.mock.calls[0][1], 5);
   });
 
   it("sets truncated=true when results hit the limit", async () => {
@@ -110,7 +110,7 @@ describe("findUser tool", () => {
       username: `user${i}`,
       displayName: `User ${i}`,
     }));
-    mockSearch.mock.mockImplementation(async () => users);
+    mockSearch.mockImplementation(async () => users);
 
     const ctx = makeCtx();
     const toolDef = createFindUserTool(ctx, makeUsersCache());
@@ -131,7 +131,7 @@ describe("findUser tool", () => {
       { userId: "U2", username: "b", displayName: "B" },
       { userId: "U3", username: "c", displayName: "C" },
     ];
-    mockSearch.mock.mockImplementation(async () => users);
+    mockSearch.mockImplementation(async () => users);
 
     const ctx = makeCtx();
     const toolDef = createFindUserTool(ctx, makeUsersCache());
@@ -144,7 +144,7 @@ describe("findUser tool", () => {
 
   it("sets truncated=false when results are below the limit", async () => {
     const users = [{ userId: "U1", username: "solo", displayName: "Solo" }];
-    mockSearch.mock.mockImplementation(async () => users);
+    mockSearch.mockImplementation(async () => users);
 
     const ctx = makeCtx();
     const toolDef = createFindUserTool(ctx, makeUsersCache());
@@ -160,7 +160,7 @@ describe("findUser tool", () => {
   });
 
   it("returns empty when no users match", async () => {
-    mockSearch.mock.mockImplementation(async () => []);
+    mockSearch.mockImplementation(async () => []);
 
     const ctx = makeCtx();
     const toolDef = createFindUserTool(ctx, makeUsersCache());

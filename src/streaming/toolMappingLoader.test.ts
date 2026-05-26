@@ -1,4 +1,4 @@
-import { describe, it, afterEach } from "node:test";
+import { describe, it, afterEach } from "vitest";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync, mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { setLoadedPlugins } from "../plugins/state.js";
@@ -839,11 +839,12 @@ describe("loadToolMappings plugin integration", () => {
       name,
       instructions: [],
       tools: [],
-      integrations: [],
+      mcpServers: [],
       toolMappings,
       mcpServer: createSdkMcpServer({ name, version: "1.0.0", tools: [] }),
       actionHandlers: [],
       viewHandlers: [],
+      errors: [],
     };
   }
 

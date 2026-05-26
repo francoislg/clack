@@ -1,4 +1,4 @@
-import { describe, it, mock, beforeEach } from "node:test";
+import { describe, it, vi, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
 import type { ClaudeResponse, AskClaudeOptions } from "../../claude/index.js";
@@ -19,7 +19,7 @@ import {
 
 type AskClaudeArgs = Parameters<HandlerResponseDeps["askClaude"]>;
 
-const mockAskClaude = mock.fn<(...args: AskClaudeArgs) => Promise<ClaudeResponse>>(async () => ({
+const mockAskClaude = vi.fn<(...args: AskClaudeArgs) => Promise<ClaudeResponse>>(async () => ({
   success: true,
   answer: "test answer",
 }));
@@ -46,46 +46,44 @@ async function askClaudeAdapter(...args: AskClaudeArgs): Promise<ClaudeRunHandle
   return fakeHandleFromResponse(response);
 }
 
-const mockAppendAssistantMessage = mock.fn<
+const mockAppendAssistantMessage = vi.fn<
   NonNullable<HandlerResponseDeps["appendAssistantMessage"]>
 >(async () => null);
 
-const mockAppendStagedIntents = mock.fn<HandlerResponseDeps["appendStagedIntents"]>(async () => {});
+const mockAppendStagedIntents = vi.fn<HandlerResponseDeps["appendStagedIntents"]>(async () => {});
 
-const mockUpdateSession = mock.fn<(...args: never[]) => Promise<void>>(async () => {});
-const mockAddError = mock.fn<(...args: never[]) => Promise<void>>(async () => {});
-const mockSetAutoResponseActive = mock.fn<(...args: never[]) => Promise<void>>(async () => {});
+const mockUpdateSession = vi.fn<(...args: never[]) => Promise<void>>(async () => {});
+const mockAddError = vi.fn<(...args: never[]) => Promise<void>>(async () => {});
+const mockSetAutoResponseActive = vi.fn<(...args: never[]) => Promise<void>>(async () => {});
 
-const mockGetErrorBlocksWithRetry = mock.fn(() => [{ type: "section" }]);
-const mockAsSlackBlocks = mock.fn((blocks: never) => blocks);
+const mockGetErrorBlocksWithRetry = vi.fn(() => [{ type: "section" }]);
+const mockAsSlackBlocks = vi.fn((blocks: never) => blocks);
 
-const mockSendErrorReport = mock.fn<(...args: never[]) => Promise<void>>(async () => {});
-const mockAnalyzeError = mock.fn<(...args: never[]) => Promise<string>>(
-  async () => "error analysis",
-);
+const mockSendErrorReport = vi.fn<(...args: never[]) => Promise<void>>(async () => {});
+const mockAnalyzeError = vi.fn<(...args: never[]) => Promise<string>>(async () => "error analysis");
 
-const mockGetConfig = mock.fn(() => ({
+const mockGetConfig = vi.fn(() => ({
   slack: { sendErrorsAsDM: false },
 }));
 
-const mockGetClaudeOptions = mock.fn<(...args: never[]) => Promise<AskClaudeOptions>>(async () => ({
+const mockGetClaudeOptions = vi.fn<(...args: never[]) => Promise<AskClaudeOptions>>(async () => ({
   role: "dev" as const,
   changesWorkflowEnabled: false,
 }));
 
-const mockHandleAutoExecuteActions = mock.fn<(...args: never[]) => Promise<void>>(async () => {});
+const mockHandleAutoExecuteActions = vi.fn<(...args: never[]) => Promise<void>>(async () => {});
 
-const mockGetUserPreference = mock.fn<(...args: never[]) => Promise<boolean>>(async () => false);
+const mockGetUserPreference = vi.fn<(...args: never[]) => Promise<boolean>>(async () => false);
 
 // Track SlackStreamer instances for inspection
 let streamerHasFailed = false;
 let streamerMessageTs: string | undefined;
 let streamerAllMessageTss: string[] = [];
-let mockStreamerStart: ReturnType<typeof mock.fn>;
-let mockStreamerStop: ReturnType<typeof mock.fn>;
-let mockStreamerHandleEvent: ReturnType<typeof mock.fn>;
-let mockStreamerGetMessageTs: ReturnType<typeof mock.fn>;
-let mockStreamerGetAllMessageTss: ReturnType<typeof mock.fn>;
+let mockStreamerStart: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
+let mockStreamerStop: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
+let mockStreamerHandleEvent: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
+let mockStreamerGetMessageTs: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
+let mockStreamerGetAllMessageTss: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
 
 function resetStreamerInstance(overrides?: {
   hasFailed?: boolean;
@@ -99,11 +97,11 @@ function resetStreamerInstance(overrides?: {
   streamerMessageTs = overrides?.messageTs;
   streamerAllMessageTss =
     overrides?.allMessageTss ?? (streamerMessageTs ? [streamerMessageTs] : []);
-  mockStreamerStart = mock.fn(async () => overrides?.startReturns ?? true);
-  mockStreamerStop = mock.fn(async () => {});
-  mockStreamerHandleEvent = mock.fn();
-  mockStreamerGetMessageTs = mock.fn(() => streamerMessageTs);
-  mockStreamerGetAllMessageTss = mock.fn(() => streamerAllMessageTss);
+  mockStreamerStart = vi.fn(async () => overrides?.startReturns ?? true);
+  mockStreamerStop = vi.fn(async () => {});
+  mockStreamerHandleEvent = vi.fn();
+  mockStreamerGetMessageTs = vi.fn(() => streamerMessageTs);
+  mockStreamerGetAllMessageTss = vi.fn(() => streamerAllMessageTss);
 }
 
 function makeDeps(): HandlerResponseDeps {
@@ -132,7 +130,7 @@ function makeDeps(): HandlerResponseDeps {
         },
       }) as never,
     getUserPreference: mockGetUserPreference as never,
-    writeErrorReport: mock.fn(async () => {}) as never,
+    writeErrorReport: vi.fn(async () => {}) as never,
     toErrorMessage: ((error: unknown) =>
       error instanceof Error ? error.message : String(error)) as never,
     getUserInfo: (async () => ({
@@ -150,14 +148,14 @@ let deps: HandlerResponseDeps;
 // Helpers
 // ============================================================================
 
-let mockPostMessage: ReturnType<typeof mock.fn>;
-let mockChatDelete: ReturnType<typeof mock.fn>;
-let mockReactionsAdd: ReturnType<typeof mock.fn>;
+let mockPostMessage: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
+let mockChatDelete: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
+let mockReactionsAdd: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
 
 function makeClient(): App["client"] {
-  mockPostMessage = mock.fn(async () => ({ ok: true }));
-  mockChatDelete = mock.fn(async () => ({ ok: true }));
-  mockReactionsAdd = mock.fn(async () => ({ ok: true }));
+  mockPostMessage = vi.fn(async () => ({ ok: true }));
+  mockChatDelete = vi.fn(async () => ({ ok: true }));
+  mockReactionsAdd = vi.fn(async () => ({ ok: true }));
   return Object.assign(Object.create(null), {
     chat: { postMessage: mockPostMessage, delete: mockChatDelete },
     reactions: { add: mockReactionsAdd },
@@ -203,32 +201,32 @@ function getPostMessageMock(_client: App["client"]) {
 }
 
 beforeEach(() => {
-  mockAskClaude.mock.resetCalls();
-  mockAppendStagedIntents.mock.resetCalls();
-  mockUpdateSession.mock.resetCalls();
-  mockAddError.mock.resetCalls();
-  mockGetErrorBlocksWithRetry.mock.resetCalls();
-  mockAsSlackBlocks.mock.resetCalls();
-  mockSendErrorReport.mock.resetCalls();
-  mockAnalyzeError.mock.resetCalls();
-  mockGetConfig.mock.resetCalls();
-  mockGetClaudeOptions.mock.resetCalls();
-  mockHandleAutoExecuteActions.mock.resetCalls();
-  mockGetUserPreference.mock.resetCalls();
+  mockAskClaude.mockClear();
+  mockAppendStagedIntents.mockClear();
+  mockUpdateSession.mockClear();
+  mockAddError.mockClear();
+  mockGetErrorBlocksWithRetry.mockClear();
+  mockAsSlackBlocks.mockClear();
+  mockSendErrorReport.mockClear();
+  mockAnalyzeError.mockClear();
+  mockGetConfig.mockClear();
+  mockGetClaudeOptions.mockClear();
+  mockHandleAutoExecuteActions.mockClear();
+  mockGetUserPreference.mockClear();
 
   // Reset mockAskClaude to default implementation
-  mockAskClaude.mock.mockImplementation(async () => ({
+  mockAskClaude.mockImplementation(async () => ({
     success: true,
     answer: "test answer",
   }));
 
   // Reset config to default
-  mockGetConfig.mock.mockImplementation(() => ({
+  mockGetConfig.mockImplementation(() => ({
     slack: { sendErrorsAsDM: false },
   }));
 
   // Reset user preference
-  mockGetUserPreference.mock.mockImplementation(async () => false);
+  mockGetUserPreference.mockImplementation(async () => false);
 
   // Reset streamer
   resetStreamerInstance();
@@ -236,7 +234,7 @@ beforeEach(() => {
   // Create fresh deps
   deps = makeDeps();
   deps.appendAssistantMessage = mockAppendAssistantMessage;
-  mockAppendAssistantMessage.mock.resetCalls();
+  mockAppendAssistantMessage.mockClear();
 });
 
 // ============================================================================
@@ -257,8 +255,8 @@ describe("executeAndDeliver — streaming setup", () => {
       deps,
     });
 
-    assert.equal(mockStreamerStart.mock.callCount(), 1);
-    assert.equal(mockAskClaude.mock.callCount(), 1);
+    assert.equal(mockStreamerStart.mock.calls.length, 1);
+    assert.equal(mockAskClaude.mock.calls.length, 1);
   });
 
   it("derives target from dmChannel/dmThreadTs when present", async () => {
@@ -278,8 +276,8 @@ describe("executeAndDeliver — streaming setup", () => {
     });
 
     // Streamer should have been created with DM channel/thread
-    assert.equal(mockStreamerStart.mock.callCount(), 1);
-    assert.equal(mockAskClaude.mock.callCount(), 1);
+    assert.equal(mockStreamerStart.mock.calls.length, 1);
+    assert.equal(mockAskClaude.mock.calls.length, 1);
   });
 
   it("continues even when stream fails to start", async () => {
@@ -298,7 +296,7 @@ describe("executeAndDeliver — streaming setup", () => {
     });
 
     assert.equal(response.success, true);
-    assert.equal(mockAskClaude.mock.callCount(), 1);
+    assert.equal(mockAskClaude.mock.calls.length, 1);
   });
 
   it("stops the streamer in finally block", async () => {
@@ -315,11 +313,11 @@ describe("executeAndDeliver — streaming setup", () => {
     });
 
     // stop() is called at least once (in finally block)
-    assert.ok(mockStreamerStop.mock.callCount() >= 1);
+    assert.ok(mockStreamerStop.mock.calls.length >= 1);
   });
 
   it("stops the streamer even when askClaude throws", async () => {
-    mockAskClaude.mock.mockImplementation(async () => {
+    mockAskClaude.mockImplementation(async () => {
       throw new Error("askClaude exploded");
     });
 
@@ -339,7 +337,7 @@ describe("executeAndDeliver — streaming setup", () => {
       { message: "askClaude exploded" },
     );
 
-    assert.ok(mockStreamerStop.mock.callCount() >= 1);
+    assert.ok(mockStreamerStop.mock.calls.length >= 1);
   });
 });
 
@@ -349,7 +347,7 @@ describe("executeAndDeliver — streaming setup", () => {
 
 describe("executeAndDeliver — success handling", () => {
   it("persists response state on success", async () => {
-    mockAskClaude.mock.mockImplementation(async () => ({
+    mockAskClaude.mockImplementation(async () => ({
       success: true,
       answer: "the answer",
       response: { blocks: [], actions: [] },
@@ -377,20 +375,20 @@ describe("executeAndDeliver — success handling", () => {
     // answer + lastResponse + toolCalls now flow through appendAssistantMessage.
     // stagedIntents flows through appendStagedIntents (merge semantics — see
     // persistResponseState).
-    assert.equal(mockAppendAssistantMessage.mock.callCount(), 1);
-    assert.equal(mockAppendAssistantMessage.mock.calls[0].arguments[0], "session-1");
-    const appended = mockAppendAssistantMessage.mock.calls[0].arguments[1];
+    assert.equal(mockAppendAssistantMessage.mock.calls.length, 1);
+    assert.equal(mockAppendAssistantMessage.mock.calls[0][0], "session-1");
+    const appended = mockAppendAssistantMessage.mock.calls[0][1];
     assert.equal(appended.text, "the answer");
     assert.ok(appended.payload);
     assert.ok(appended.toolCalls);
-    assert.equal(mockAppendStagedIntents.mock.callCount(), 1);
-    assert.equal(mockAppendStagedIntents.mock.calls[0].arguments[0], "session-1");
-    const persistedIntents = mockAppendStagedIntents.mock.calls[0].arguments[1];
+    assert.equal(mockAppendStagedIntents.mock.calls.length, 1);
+    assert.equal(mockAppendStagedIntents.mock.calls[0][0], "session-1");
+    const persistedIntents = mockAppendStagedIntents.mock.calls[0][1];
     assert.ok(persistedIntents.r1);
   });
 
   it("does not call updateSession when there are no extra fields", async () => {
-    mockAskClaude.mock.mockImplementation(async () => ({
+    mockAskClaude.mockImplementation(async () => ({
       success: true,
       answer: "simple answer",
     }));
@@ -403,12 +401,12 @@ describe("executeAndDeliver — success handling", () => {
       deps,
     });
 
-    assert.equal(mockAppendAssistantMessage.mock.callCount(), 1);
-    assert.equal(mockUpdateSession.mock.callCount(), 0);
+    assert.equal(mockAppendAssistantMessage.mock.calls.length, 1);
+    assert.equal(mockUpdateSession.mock.calls.length, 0);
   });
 
   it("does not call appendStagedIntents for empty stagedIntents", async () => {
-    mockAskClaude.mock.mockImplementation(async () => ({
+    mockAskClaude.mockImplementation(async () => ({
       success: true,
       answer: "answer",
       stagedIntents: {},
@@ -422,11 +420,11 @@ describe("executeAndDeliver — success handling", () => {
       deps,
     });
 
-    assert.equal(mockAppendStagedIntents.mock.callCount(), 0);
+    assert.equal(mockAppendStagedIntents.mock.calls.length, 0);
   });
 
   it("does not call updateSession for empty toolCallHistory", async () => {
-    mockAskClaude.mock.mockImplementation(async () => ({
+    mockAskClaude.mockImplementation(async () => ({
       success: true,
       answer: "answer",
       toolCallHistory: [],
@@ -440,11 +438,11 @@ describe("executeAndDeliver — success handling", () => {
       deps,
     });
 
-    assert.equal(mockUpdateSession.mock.callCount(), 0);
+    assert.equal(mockUpdateSession.mock.calls.length, 0);
   });
 
   it("calls handleAutoExecuteActions on success", async () => {
-    mockAskClaude.mock.mockImplementation(async () => ({
+    mockAskClaude.mockImplementation(async () => ({
       success: true,
       answer: "done",
     }));
@@ -463,8 +461,8 @@ describe("executeAndDeliver — success handling", () => {
       deps,
     });
 
-    assert.equal(mockHandleAutoExecuteActions.mock.callCount(), 1);
-    const args = mockHandleAutoExecuteActions.mock.calls[0].arguments[0] as Record<string, unknown>;
+    assert.equal(mockHandleAutoExecuteActions.mock.calls.length, 1);
+    const args = mockHandleAutoExecuteActions.mock.calls[0][0] as Record<string, unknown>;
     assert.equal(args.channelId, "C001");
     assert.equal(args.threadTs, "1700000000.000001");
     assert.equal(args.userId, "U001");
@@ -475,7 +473,7 @@ describe("executeAndDeliver — success handling", () => {
   });
 
   it("delivers via streamer fallback when submit_response was not called", async () => {
-    mockAskClaude.mock.mockImplementation(async () => ({
+    mockAskClaude.mockImplementation(async () => ({
       success: true,
       answer: "raw answer text",
     }));
@@ -494,21 +492,16 @@ describe("executeAndDeliver — success handling", () => {
     const stopCalls = mockStreamerStop.mock.calls;
     const deliveryStopCall = stopCalls.find(
       (c) =>
-        c.arguments[0] &&
-        typeof c.arguments[0] === "object" &&
-        "markdownText" in (c.arguments[0] as { markdownText?: string }),
+        c[0] && typeof c[0] === "object" && "markdownText" in (c[0] as { markdownText?: string }),
     );
     assert.ok(deliveryStopCall, "streamer.stop should be called with markdownText (fallback path)");
-    assert.equal(
-      (deliveryStopCall.arguments[0] as { markdownText: string }).markdownText,
-      "raw answer text",
-    );
+    assert.equal((deliveryStopCall[0] as { markdownText: string }).markdownText, "raw answer text");
   });
 
   it("falls back to chat.postMessage when streamer has failed", async () => {
     resetStreamerInstance({ hasFailed: true });
 
-    mockAskClaude.mock.mockImplementation(async () => ({
+    mockAskClaude.mockImplementation(async () => ({
       success: true,
       answer: "fallback text",
     }));
@@ -524,8 +517,8 @@ describe("executeAndDeliver — success handling", () => {
     });
 
     const postMessage = getPostMessageMock(client);
-    assert.ok(postMessage.mock.callCount() >= 1);
-    const call = postMessage.mock.calls[0].arguments[0] as {
+    assert.ok(postMessage.mock.calls.length >= 1);
+    const call = postMessage.mock.calls[0][0] as {
       channel: string;
       thread_ts: string;
       text: string;
@@ -536,7 +529,7 @@ describe("executeAndDeliver — success handling", () => {
   });
 
   it("warns when actionable intents are staged but submit_response was not called", async () => {
-    mockAskClaude.mock.mockImplementation(async () => ({
+    mockAskClaude.mockImplementation(async () => ({
       success: true,
       answer: "I've submitted the update request",
       stagedIntents: {
@@ -560,14 +553,14 @@ describe("executeAndDeliver — success handling", () => {
 
     const postMessage = getPostMessageMock(client);
     const warning = postMessage.mock.calls
-      .map((c) => c.arguments[0] as { text?: string })
+      .map((c) => c[0] as { text?: string })
       .find((m) => m.text?.includes("didn't deliver"));
     assert.ok(warning, "expected an orphan-intent warning to be posted");
     assert.match(warning!.text!, /update/);
   });
 
   it("does not warn when no actionable intents are staged", async () => {
-    mockAskClaude.mock.mockImplementation(async () => ({
+    mockAskClaude.mockImplementation(async () => ({
       success: true,
       answer: "plain answer",
       stagedIntents: {},
@@ -585,7 +578,7 @@ describe("executeAndDeliver — success handling", () => {
 
     const postMessage = getPostMessageMock(client);
     const warning = postMessage.mock.calls
-      .map((c) => c.arguments[0] as { text?: string })
+      .map((c) => c[0] as { text?: string })
       .find((m) => m.text?.includes("didn't deliver"));
     assert.equal(warning, undefined);
   });
@@ -597,7 +590,7 @@ describe("executeAndDeliver — success handling", () => {
 
 describe("executeAndDeliver — cancellation", () => {
   it("returns the cancelled response without auto-executing", async () => {
-    mockAskClaude.mock.mockImplementation(async () => ({
+    mockAskClaude.mockImplementation(async () => ({
       success: false,
       answer: "",
       cancelled: true,
@@ -612,8 +605,8 @@ describe("executeAndDeliver — cancellation", () => {
     });
 
     assert.equal(response.cancelled, true);
-    assert.equal(mockHandleAutoExecuteActions.mock.callCount(), 0);
-    assert.equal(mockAppendAssistantMessage.mock.callCount(), 0);
+    assert.equal(mockHandleAutoExecuteActions.mock.calls.length, 0);
+    assert.equal(mockAppendAssistantMessage.mock.calls.length, 0);
   });
 
   it("deletes the streamer message when cancelled instead of posting a cancellation notice", async () => {
@@ -621,7 +614,7 @@ describe("executeAndDeliver — cancellation", () => {
     deps = makeDeps();
     deps.appendAssistantMessage = mockAppendAssistantMessage;
 
-    mockAskClaude.mock.mockImplementation(async () => ({
+    mockAskClaude.mockImplementation(async () => ({
       success: false,
       answer: "",
       cancelled: true,
@@ -639,7 +632,7 @@ describe("executeAndDeliver — cancellation", () => {
     // No "_Request cancelled._" (or any other markdownText) should be posted via the streamer.
     let textualStopCalls = 0;
     for (const call of mockStreamerStop.mock.calls) {
-      const arg = call.arguments[0];
+      const arg = call[0];
       if (arg != null && typeof arg === "object" && "markdownText" in arg) {
         textualStopCalls += 1;
       }
@@ -647,14 +640,14 @@ describe("executeAndDeliver — cancellation", () => {
     assert.equal(textualStopCalls, 0, "streamer.stop should not be called with any text");
 
     // The streamer's Slack message should be deleted.
-    assert.equal(mockChatDelete.mock.callCount(), 1);
-    assert.deepEqual(mockChatDelete.mock.calls[0].arguments[0], {
+    assert.equal(mockChatDelete.mock.calls.length, 1);
+    assert.deepEqual(mockChatDelete.mock.calls[0][0], {
       channel: "C001",
       ts: "1700000000.000002",
     });
 
     // No fallback chat.postMessage either.
-    assert.equal(mockPostMessage.mock.callCount(), 0);
+    assert.equal(mockPostMessage.mock.calls.length, 0);
   });
 
   it("skips delete when the streamer never posted a message", async () => {
@@ -662,7 +655,7 @@ describe("executeAndDeliver — cancellation", () => {
     deps = makeDeps();
     deps.appendAssistantMessage = mockAppendAssistantMessage;
 
-    mockAskClaude.mock.mockImplementation(async () => ({
+    mockAskClaude.mockImplementation(async () => ({
       success: false,
       answer: "",
       cancelled: true,
@@ -677,8 +670,8 @@ describe("executeAndDeliver — cancellation", () => {
       deps,
     });
 
-    assert.equal(mockChatDelete.mock.callCount(), 0);
-    assert.equal(mockPostMessage.mock.callCount(), 0);
+    assert.equal(mockChatDelete.mock.calls.length, 0);
+    assert.equal(mockPostMessage.mock.calls.length, 0);
   });
 });
 
@@ -688,7 +681,7 @@ describe("executeAndDeliver — cancellation", () => {
 
 describe("executeAndDeliver — error handling", () => {
   it("posts error blocks on Claude failure", async () => {
-    mockAskClaude.mock.mockImplementation(async () => ({
+    mockAskClaude.mockImplementation(async () => ({
       success: false,
       answer: "",
       error: "Something broke",
@@ -705,22 +698,22 @@ describe("executeAndDeliver — error handling", () => {
       deps,
     });
 
-    assert.equal(mockAddError.mock.callCount(), 1);
-    assert.equal(mockAddError.mock.calls[0].arguments[0], "session-1");
-    assert.equal(mockAddError.mock.calls[0].arguments[1], "Something broke");
+    assert.equal(mockAddError.mock.calls.length, 1);
+    assert.equal(mockAddError.mock.calls[0][0], "session-1");
+    assert.equal(mockAddError.mock.calls[0][1], "Something broke");
 
-    assert.equal(mockGetErrorBlocksWithRetry.mock.callCount(), 1);
-    assert.equal(mockAsSlackBlocks.mock.callCount(), 1);
+    assert.equal(mockGetErrorBlocksWithRetry.mock.calls.length, 1);
+    assert.equal(mockAsSlackBlocks.mock.calls.length, 1);
 
     const postMessage = getPostMessageMock(client);
-    assert.ok(postMessage.mock.callCount() >= 1);
-    const call = postMessage.mock.calls[0].arguments[0] as { text: string };
+    assert.ok(postMessage.mock.calls.length >= 1);
+    const call = postMessage.mock.calls[0][0] as { text: string };
     assert.ok(call.text.includes("session-1"));
     assert.ok(call.text.includes("crashed"));
   });
 
   it("uses error message directly for platform limit errors", async () => {
-    mockAskClaude.mock.mockImplementation(async () => ({
+    mockAskClaude.mockImplementation(async () => ({
       success: false,
       answer: "",
       error: "Usage limit reached for this account",
@@ -738,7 +731,7 @@ describe("executeAndDeliver — error handling", () => {
     });
 
     const postMessage = getPostMessageMock(client);
-    const call = postMessage.mock.calls[0].arguments[0] as { text: string };
+    const call = postMessage.mock.calls[0][0] as { text: string };
     assert.ok(call.text.includes("Usage limit reached"));
     assert.ok(!call.text.includes("crashed"));
   });
@@ -752,7 +745,7 @@ describe("executeAndDeliver — error handling", () => {
         timestamp: 1,
       },
     ];
-    mockAskClaude.mock.mockImplementation(async () => ({
+    mockAskClaude.mockImplementation(async () => ({
       success: false,
       answer: "",
       error: "boom",
@@ -769,14 +762,14 @@ describe("executeAndDeliver — error handling", () => {
     });
 
     // The error path appends a SessionAssistantMessage carrying the failure + toolCalls.
-    assert.ok(mockAppendAssistantMessage.mock.callCount() >= 1);
-    const appended = mockAppendAssistantMessage.mock.calls[0].arguments[1];
+    assert.ok(mockAppendAssistantMessage.mock.calls.length >= 1);
+    const appended = mockAppendAssistantMessage.mock.calls[0][1];
     assert.deepEqual(appended.toolCalls, history);
     assert.ok(appended.error);
   });
 
   it("omits toolCalls on the error assistant message when toolCallHistory is empty", async () => {
-    mockAskClaude.mock.mockImplementation(async () => ({
+    mockAskClaude.mockImplementation(async () => ({
       success: false,
       answer: "",
       error: "boom",
@@ -792,13 +785,13 @@ describe("executeAndDeliver — error handling", () => {
       deps,
     });
 
-    assert.ok(mockAppendAssistantMessage.mock.callCount() >= 1);
-    const appended = mockAppendAssistantMessage.mock.calls[0].arguments[1];
+    assert.ok(mockAppendAssistantMessage.mock.calls.length >= 1);
+    const appended = mockAppendAssistantMessage.mock.calls[0][1];
     assert.equal(appended.toolCalls, undefined);
   });
 
   it("uses 'Unknown error' when error field is empty", async () => {
-    mockAskClaude.mock.mockImplementation(async () => ({
+    mockAskClaude.mockImplementation(async () => ({
       success: false,
       answer: "",
       error: "",
@@ -813,15 +806,15 @@ describe("executeAndDeliver — error handling", () => {
       deps,
     });
 
-    assert.equal(mockAddError.mock.calls[0].arguments[1], "Unknown error");
+    assert.equal(mockAddError.mock.calls[0][1], "Unknown error");
   });
 
   it("sends error report DM when configured", async () => {
-    mockGetConfig.mock.mockImplementation(() => ({
+    mockGetConfig.mockImplementation(() => ({
       slack: { sendErrorsAsDM: true },
     }));
 
-    mockAskClaude.mock.mockImplementation(async () => ({
+    mockAskClaude.mockImplementation(async () => ({
       success: false,
       answer: "",
       error: "crash",
@@ -836,16 +829,16 @@ describe("executeAndDeliver — error handling", () => {
       deps,
     });
 
-    assert.equal(mockAnalyzeError.mock.callCount(), 1);
-    assert.equal(mockSendErrorReport.mock.callCount(), 1);
+    assert.equal(mockAnalyzeError.mock.calls.length, 1);
+    assert.equal(mockSendErrorReport.mock.calls.length, 1);
   });
 
   it("does not send error report DM when not configured", async () => {
-    mockGetConfig.mock.mockImplementation(() => ({
+    mockGetConfig.mockImplementation(() => ({
       slack: { sendErrorsAsDM: false },
     }));
 
-    mockAskClaude.mock.mockImplementation(async () => ({
+    mockAskClaude.mockImplementation(async () => ({
       success: false,
       answer: "",
       error: "crash",
@@ -860,20 +853,20 @@ describe("executeAndDeliver — error handling", () => {
       deps,
     });
 
-    assert.equal(mockAnalyzeError.mock.callCount(), 1); // always called for disk persistence
-    assert.equal(mockSendErrorReport.mock.callCount(), 0);
+    assert.equal(mockAnalyzeError.mock.calls.length, 1); // always called for disk persistence
+    assert.equal(mockSendErrorReport.mock.calls.length, 0);
   });
 
   it("does not crash when error report DM fails", async () => {
-    mockGetConfig.mock.mockImplementation(() => ({
+    mockGetConfig.mockImplementation(() => ({
       slack: { sendErrorsAsDM: true },
     }));
 
-    mockAnalyzeError.mock.mockImplementation(async () => {
+    mockAnalyzeError.mockImplementation(async () => {
       throw new Error("analyze failed");
     });
 
-    mockAskClaude.mock.mockImplementation(async () => ({
+    mockAskClaude.mockImplementation(async () => ({
       success: false,
       answer: "",
       error: "crash",
@@ -891,7 +884,7 @@ describe("executeAndDeliver — error handling", () => {
   });
 
   it("posts error to DM channel when sessionInfo has dmChannel", async () => {
-    mockAskClaude.mock.mockImplementation(async () => ({
+    mockAskClaude.mockImplementation(async () => ({
       success: false,
       answer: "",
       error: "broken",
@@ -912,7 +905,7 @@ describe("executeAndDeliver — error handling", () => {
     });
 
     const postMessage = getPostMessageMock(client);
-    const call = postMessage.mock.calls[0].arguments[0] as {
+    const call = postMessage.mock.calls[0][0] as {
       channel: string;
       thread_ts: string;
     };
@@ -927,7 +920,7 @@ describe("executeAndDeliver — error handling", () => {
 
 describe("executeAndDeliver — unexpected errors", () => {
   it("delivers fallback message and re-throws", async () => {
-    mockAskClaude.mock.mockImplementation(async () => {
+    mockAskClaude.mockImplementation(async () => {
       throw new Error("unexpected boom");
     });
 
@@ -948,28 +941,24 @@ describe("executeAndDeliver — unexpected errors", () => {
     // Should have tried to post a fallback message via streamer or chat.postMessage
     const stopCalls = mockStreamerStop.mock.calls;
     const fallbackCall = stopCalls.find(
-      (c: { arguments: unknown[] }) =>
-        c.arguments[0] &&
-        typeof c.arguments[0] === "object" &&
-        "markdownText" in (c.arguments[0] as Record<string, unknown>),
+      (c: unknown[]) =>
+        c[0] && typeof c[0] === "object" && "markdownText" in (c[0] as Record<string, unknown>),
     );
     assert.ok(fallbackCall, "should have attempted fallback delivery via streamer");
     assert.ok(
-      (fallbackCall.arguments[0] as { markdownText: string }).markdownText.includes(
-        "Something went wrong",
-      ),
+      (fallbackCall[0] as { markdownText: string }).markdownText.includes("Something went wrong"),
     );
   });
 
   it("does not throw when fallback delivery itself fails", async () => {
     resetStreamerInstance({ hasFailed: true });
 
-    mockAskClaude.mock.mockImplementation(async () => {
+    mockAskClaude.mockImplementation(async () => {
       throw new Error("unexpected boom");
     });
 
     const client = makeClient();
-    mockPostMessage.mock.mockImplementation(async () => {
+    mockPostMessage.mockImplementation(async () => {
       throw new Error("slack also down");
     });
 
@@ -993,18 +982,18 @@ describe("executeAndDeliver — unexpected errors", () => {
 // ============================================================================
 
 describe("executeAndDeliver — response notification", () => {
-  it("sends notification when user has notifyOnResponse enabled and delivered via streamer", async (t) => {
-    mockGetUserPreference.mock.mockImplementation(async () => true);
+  it("sends notification when user has notifyOnResponse enabled and delivered via streamer", async () => {
+    mockGetUserPreference.mockImplementation(async () => true);
 
     // Mock Date so we can advance time past the 60s notification threshold
-    t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.now() });
 
     // Simulate the deliver function being called (submit_response was called)
-    mockAskClaude.mock.mockImplementation(async (...args: unknown[]) => {
+    mockAskClaude.mockImplementation(async (...args: unknown[]) => {
       const opts = args[1] as Record<string, unknown>;
       const deliver = opts.deliver as (opts: { blocks: object[] }) => Promise<{ ok: boolean }>;
       // Advance time by 61s before deliver — sendResponseNotification checks elapsed time
-      t.mock.timers.tick(61_000);
+      vi.advanceTimersByTime(61_000);
       await deliver({
         blocks: [
           {
@@ -1028,16 +1017,16 @@ describe("executeAndDeliver — response notification", () => {
 
     const postMessage = getPostMessageMock(client);
     // Should have posted a notification
-    const notifCall = postMessage.mock.calls.find((c: { arguments: unknown[] }) =>
-      (c.arguments[0] as { text: string }).text.includes("Response ready"),
+    const notifCall = postMessage.mock.calls.find((c: unknown[]) =>
+      (c[0] as { text: string }).text.includes("Response ready"),
     );
     assert.ok(notifCall, "should post notification message");
   });
 
   it("does not send notification when user has notifyOnResponse disabled", async () => {
-    mockGetUserPreference.mock.mockImplementation(async () => false);
+    mockGetUserPreference.mockImplementation(async () => false);
 
-    mockAskClaude.mock.mockImplementation(async (...args: unknown[]) => {
+    mockAskClaude.mockImplementation(async (...args: unknown[]) => {
       const opts = args[1] as Record<string, unknown>;
       const deliver = opts.deliver as (opts: { blocks: object[] }) => Promise<{ ok: boolean }>;
       await deliver({
@@ -1062,8 +1051,8 @@ describe("executeAndDeliver — response notification", () => {
     });
 
     const postMessage = getPostMessageMock(client);
-    const notifCall = postMessage.mock.calls.find((c: { arguments: unknown[] }) =>
-      (c.arguments[0] as { text: string }).text.includes("Response ready"),
+    const notifCall = postMessage.mock.calls.find((c: unknown[]) =>
+      (c[0] as { text: string }).text.includes("Response ready"),
     );
     assert.equal(notifCall, undefined, "should not post notification message");
   });
@@ -1075,7 +1064,7 @@ describe("executeAndDeliver — response notification", () => {
 
 describe("executeAndDeliver — deliver function", () => {
   it("prevents double delivery", async () => {
-    mockAskClaude.mock.mockImplementation(async (...args: unknown[]) => {
+    mockAskClaude.mockImplementation(async (...args: unknown[]) => {
       const opts = args[1] as Record<string, unknown>;
       const deliver = opts.deliver as (opts: {
         blocks: object[];
@@ -1100,10 +1089,7 @@ describe("executeAndDeliver — deliver function", () => {
     // Verify the streamer was only stopped once with blocks content
     const stopCalls = mockStreamerStop.mock.calls;
     const contentStops = stopCalls.filter(
-      (c) =>
-        c.arguments[0] &&
-        typeof c.arguments[0] === "object" &&
-        "blocks" in (c.arguments[0] as { blocks?: object[] }),
+      (c) => c[0] && typeof c[0] === "object" && "blocks" in (c[0] as { blocks?: object[] }),
     );
     // Only one content delivery via streamer (the first call)
     assert.equal(contentStops.length, 1);
@@ -1113,7 +1099,7 @@ describe("executeAndDeliver — deliver function", () => {
   it("falls back to chat.postMessage when streamer has failed", async () => {
     resetStreamerInstance({ hasFailed: true });
 
-    mockAskClaude.mock.mockImplementation(async (...args: unknown[]) => {
+    mockAskClaude.mockImplementation(async (...args: unknown[]) => {
       const opts = args[1] as Record<string, unknown>;
       const deliver = opts.deliver as (opts: { blocks: object[] }) => Promise<{ ok: boolean }>;
       await deliver({
@@ -1139,8 +1125,7 @@ describe("executeAndDeliver — deliver function", () => {
 
     const postMessage = getPostMessageMock(client);
     const call = postMessage.mock.calls.find(
-      (c: { arguments: unknown[] }) =>
-        (c.arguments[0] as { text: string }).text === "fallback content",
+      (c: unknown[]) => (c[0] as { text: string }).text === "fallback content",
     );
     assert.ok(call, "should fall back to chat.postMessage");
   });
@@ -1154,7 +1139,7 @@ describe("executeAndDeliver — deliver function", () => {
     // then succeed on subsequent calls (fallback delivery in handleSuccess)
     let callCount = 0;
     const client = makeClient();
-    mockPostMessage.mock.mockImplementation(async () => {
+    mockPostMessage.mockImplementation(async () => {
       callCount++;
       if (callCount === 1) {
         throw new Error("slack is down");
@@ -1162,7 +1147,7 @@ describe("executeAndDeliver — deliver function", () => {
       return { ok: true };
     });
 
-    mockAskClaude.mock.mockImplementation(async (...args: unknown[]) => {
+    mockAskClaude.mockImplementation(async (...args: unknown[]) => {
       const opts = args[1] as Record<string, unknown>;
       const deliver = opts.deliver as (opts: {
         blocks: object[];
@@ -1191,21 +1176,17 @@ type DeliverOpts = { blocks: object[]; reactions?: string[] };
 type DeliverResult = Promise<{ ok: true; ts?: string } | { ok: false; error: string }>;
 
 async function waitForReactionAddCalls(
-  fn: { mock: { callCount(): number } },
+  fn: { mock: { calls: { length: number } } },
   expected: number,
-  timeoutMs = 2000,
 ): Promise<void> {
-  const start = Date.now();
-  while (fn.mock.callCount() < expected && Date.now() - start < timeoutMs) {
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
+  await vi.waitFor(() => assert.ok(fn.mock.calls.length >= expected));
 }
 
 describe("executeAndDeliver — delivery reactions", () => {
   it("adds reactions after successful delivery via streamer", async () => {
     resetStreamerInstance({ messageTs: "1700000000.000100" });
 
-    mockAskClaude.mock.mockImplementation(async (...args: Parameters<typeof mockAskClaude>) => {
+    mockAskClaude.mockImplementation(async (...args: Parameters<typeof mockAskClaude>) => {
       const opts = args[1] as { deliver: (o: DeliverOpts) => DeliverResult };
       await opts.deliver({
         blocks: [{ type: "section", text: { type: "mrkdwn", text: "content" } }],
@@ -1225,12 +1206,12 @@ describe("executeAndDeliver — delivery reactions", () => {
 
     const reactionsAdd = mockReactionsAdd;
     await waitForReactionAddCalls(reactionsAdd, 2);
-    assert.equal(reactionsAdd.mock.callCount(), 2);
-    const firstCall = reactionsAdd.mock.calls[0].arguments[0] as {
+    assert.equal(reactionsAdd.mock.calls.length, 2);
+    const firstCall = reactionsAdd.mock.calls[0][0] as {
       name: string;
     };
     assert.equal(firstCall.name, "thumbsup");
-    const secondCall = reactionsAdd.mock.calls[1].arguments[0] as {
+    const secondCall = reactionsAdd.mock.calls[1][0] as {
       name: string;
     };
     assert.equal(secondCall.name, "eyes");
@@ -1239,7 +1220,7 @@ describe("executeAndDeliver — delivery reactions", () => {
   it("adds reactions after fallback delivery via chat.postMessage", async () => {
     resetStreamerInstance({ hasFailed: true });
 
-    mockAskClaude.mock.mockImplementation(async (...args: Parameters<typeof mockAskClaude>) => {
+    mockAskClaude.mockImplementation(async (...args: Parameters<typeof mockAskClaude>) => {
       const opts = args[1] as { deliver: (o: DeliverOpts) => DeliverResult };
       await opts.deliver({
         blocks: [{ type: "section", text: { type: "mrkdwn", text: "content" } }],
@@ -1250,7 +1231,7 @@ describe("executeAndDeliver — delivery reactions", () => {
 
     const client = makeClient();
     // Ensure postMessage returns a ts so reactions can target the message
-    mockPostMessage.mock.mockImplementation(async () => ({
+    mockPostMessage.mockImplementation(async () => ({
       ok: true,
       ts: "1700000000.000200",
     }));
@@ -1265,13 +1246,13 @@ describe("executeAndDeliver — delivery reactions", () => {
 
     const reactionsAdd = mockReactionsAdd;
     await waitForReactionAddCalls(reactionsAdd, 1);
-    assert.equal(reactionsAdd.mock.callCount(), 1);
-    const call = reactionsAdd.mock.calls[0].arguments[0] as { name: string };
+    assert.equal(reactionsAdd.mock.calls.length, 1);
+    const call = reactionsAdd.mock.calls[0][0] as { name: string };
     assert.equal(call.name, "white_check_mark");
   });
 
   it("does not fail delivery when reaction add throws", async () => {
-    mockAskClaude.mock.mockImplementation(async (...args: Parameters<typeof mockAskClaude>) => {
+    mockAskClaude.mockImplementation(async (...args: Parameters<typeof mockAskClaude>) => {
       const opts = args[1] as { deliver: (o: DeliverOpts) => DeliverResult };
       const result = await opts.deliver({
         blocks: [{ type: "section", text: { type: "mrkdwn", text: "content" } }],
@@ -1281,7 +1262,7 @@ describe("executeAndDeliver — delivery reactions", () => {
     });
 
     const client = makeClient();
-    mockReactionsAdd.mock.mockImplementation(async () => {
+    mockReactionsAdd.mockImplementation(async () => {
       throw new Error("invalid_name");
     });
 
@@ -1297,7 +1278,7 @@ describe("executeAndDeliver — delivery reactions", () => {
   });
 
   it("silently ignores already_reacted errors", async () => {
-    mockAskClaude.mock.mockImplementation(async (...args: Parameters<typeof mockAskClaude>) => {
+    mockAskClaude.mockImplementation(async (...args: Parameters<typeof mockAskClaude>) => {
       const opts = args[1] as { deliver: (o: DeliverOpts) => DeliverResult };
       await opts.deliver({
         blocks: [{ type: "section", text: { type: "mrkdwn", text: "content" } }],
@@ -1307,7 +1288,7 @@ describe("executeAndDeliver — delivery reactions", () => {
     });
 
     const client = makeClient();
-    mockReactionsAdd.mock.mockImplementation(async () => {
+    mockReactionsAdd.mockImplementation(async () => {
       throw new Error("already_reacted");
     });
 
@@ -1323,7 +1304,7 @@ describe("executeAndDeliver — delivery reactions", () => {
   });
 
   it("does not call reactions.add when reactions array is empty", async () => {
-    mockAskClaude.mock.mockImplementation(async (...args: Parameters<typeof mockAskClaude>) => {
+    mockAskClaude.mockImplementation(async (...args: Parameters<typeof mockAskClaude>) => {
       const opts = args[1] as { deliver: (o: DeliverOpts) => DeliverResult };
       await opts.deliver({
         blocks: [{ type: "section", text: { type: "mrkdwn", text: "content" } }],
@@ -1342,7 +1323,7 @@ describe("executeAndDeliver — delivery reactions", () => {
     });
 
     const reactionsAdd = mockReactionsAdd;
-    assert.equal(reactionsAdd.mock.callCount(), 0);
+    assert.equal(reactionsAdd.mock.calls.length, 0);
   });
 });
 
@@ -1358,8 +1339,8 @@ describe("postResponse", () => {
     await postResponse(client, sessionInfo, { text: "hello" });
 
     const postMessage = getPostMessageMock(client);
-    assert.equal(postMessage.mock.callCount(), 1);
-    const call = postMessage.mock.calls[0].arguments[0] as {
+    assert.equal(postMessage.mock.calls.length, 1);
+    const call = postMessage.mock.calls[0][0] as {
       channel: string;
       thread_ts: string;
       text: string;
@@ -1379,7 +1360,7 @@ describe("postResponse", () => {
     await postResponse(client, sessionInfo, { text: "dm reply" });
 
     const postMessage = getPostMessageMock(client);
-    const call = postMessage.mock.calls[0].arguments[0] as {
+    const call = postMessage.mock.calls[0][0] as {
       channel: string;
       thread_ts: string;
     };
@@ -1403,7 +1384,7 @@ describe("postResponse", () => {
     });
 
     const postMessage = getPostMessageMock(client);
-    const call = postMessage.mock.calls[0].arguments[0] as {
+    const call = postMessage.mock.calls[0][0] as {
       blocks?: unknown[];
     };
     assert.ok(call.blocks);
@@ -1417,7 +1398,7 @@ describe("postResponse", () => {
     await postResponse(client, sessionInfo, { text: "no blocks" });
 
     const postMessage = getPostMessageMock(client);
-    const call = postMessage.mock.calls[0].arguments[0] as Record<string, unknown>;
+    const call = postMessage.mock.calls[0][0] as Record<string, unknown>;
     assert.equal("blocks" in call, false);
   });
 });
@@ -1432,9 +1413,9 @@ describe("getHandlerClaudeOptions", () => {
 
     await getHandlerClaudeOptions(sessionInfo, deps);
 
-    assert.equal(mockGetClaudeOptions.mock.callCount(), 1);
-    assert.equal(mockGetClaudeOptions.mock.calls[0].arguments[0], "U001");
-    assert.equal(mockGetClaudeOptions.mock.calls[0].arguments[1], "mentions");
+    assert.equal(mockGetClaudeOptions.mock.calls.length, 1);
+    assert.equal(mockGetClaudeOptions.mock.calls[0][0], "U001");
+    assert.equal(mockGetClaudeOptions.mock.calls[0][1], "mentions");
   });
 
   it("defaults triggerType to directMessages when not set", async () => {
@@ -1442,11 +1423,11 @@ describe("getHandlerClaudeOptions", () => {
 
     await getHandlerClaudeOptions(sessionInfo, deps);
 
-    assert.equal(mockGetClaudeOptions.mock.calls[0].arguments[1], "directMessages");
+    assert.equal(mockGetClaudeOptions.mock.calls[0][1], "directMessages");
   });
 
   it("returns the options from getClaudeOptions", async () => {
-    mockGetClaudeOptions.mock.mockImplementation(async () => ({
+    mockGetClaudeOptions.mockImplementation(async () => ({
       role: "admin" as const,
       changesWorkflowEnabled: true,
     }));
@@ -1461,8 +1442,8 @@ describe("getHandlerClaudeOptions", () => {
 describe("silentThinking mode", () => {
   beforeEach(() => {
     resetStreamerInstance();
-    mockAskClaude.mock.resetCalls();
-    mockAskClaude.mock.mockImplementation(async () => ({
+    mockAskClaude.mockClear();
+    mockAskClaude.mockImplementation(async () => ({
       success: true,
       answer: "silent answer",
     }));
@@ -1470,7 +1451,7 @@ describe("silentThinking mode", () => {
 
   it("does not create a SlackStreamer when silentThinking is true", async () => {
     const client = makeClient();
-    mockStreamerStart.mock.resetCalls();
+    mockStreamerStart.mockClear();
 
     await executeAndDeliver({
       client,
@@ -1482,7 +1463,7 @@ describe("silentThinking mode", () => {
     });
 
     // Streamer should never have been started
-    assert.equal(mockStreamerStart.mock.callCount(), 0);
+    assert.equal(mockStreamerStart.mock.calls.length, 0);
   });
 
   it("passes no-op onEvent when silentThinking", async () => {
@@ -1498,13 +1479,13 @@ describe("silentThinking mode", () => {
     });
 
     // askClaude should have been called with a no-op event handler
-    const callArgs = mockAskClaude.mock.calls[0].arguments[1] as Record<string, unknown>;
+    const callArgs = mockAskClaude.mock.calls[0][1] as Record<string, unknown>;
     assert.equal(typeof callArgs.onEvent, "function");
   });
 
   it("creates SlackStreamer when silentThinking is false", async () => {
     const client = makeClient();
-    mockStreamerStart.mock.resetCalls();
+    mockStreamerStart.mockClear();
 
     await executeAndDeliver({
       client,
@@ -1516,20 +1497,20 @@ describe("silentThinking mode", () => {
     });
 
     // Streamer should have been started
-    assert.equal(mockStreamerStart.mock.callCount(), 1);
+    assert.equal(mockStreamerStart.mock.calls.length, 1);
   });
 
   describe("skip handling", () => {
     it("deletes the streamer message and skips persistence when response is skipped", async () => {
       resetStreamerInstance({ messageTs: "1234.5678" });
-      mockAskClaude.mock.mockImplementationOnce(async () => ({
+      mockAskClaude.mockImplementationOnce(async () => ({
         success: true,
         skipped: true,
         answer: "",
       }));
-      mockAppendAssistantMessage.mock.resetCalls();
-      mockUpdateSession.mock.resetCalls();
-      mockHandleAutoExecuteActions.mock.resetCalls();
+      mockAppendAssistantMessage.mockClear();
+      mockUpdateSession.mockClear();
+      mockHandleAutoExecuteActions.mockClear();
 
       const client = makeClient();
       const response = await executeAndDeliver({
@@ -1545,25 +1526,25 @@ describe("silentThinking mode", () => {
       // chat.delete should have been called with the streamer's ts
       const deleteCall = mockChatDelete.mock.calls[0];
       assert.ok(deleteCall);
-      assert.deepStrictEqual(deleteCall.arguments[0], {
+      assert.deepStrictEqual(deleteCall[0], {
         channel: "C001",
         ts: "1234.5678",
       });
 
       // Session persistence and auto-execute should NOT have been called
-      assert.equal(mockAppendAssistantMessage.mock.callCount(), 0);
-      assert.equal(mockHandleAutoExecuteActions.mock.callCount(), 0);
+      assert.equal(mockAppendAssistantMessage.mock.calls.length, 0);
+      assert.equal(mockHandleAutoExecuteActions.mock.calls.length, 0);
     });
 
     it("persists skipped+disengaged turn and autoResponseActive:false in a single updateSession call", async () => {
       resetStreamerInstance({ messageTs: "1234.5678" });
-      mockAskClaude.mock.mockImplementationOnce(async () => ({
+      mockAskClaude.mockImplementationOnce(async () => ({
         success: true,
         skipped: true,
         disengaged: true,
         answer: "",
       }));
-      mockUpdateSession.mock.resetCalls();
+      mockUpdateSession.mockClear();
 
       const client = makeClient();
       const response = await executeAndDeliver({
@@ -1578,8 +1559,8 @@ describe("silentThinking mode", () => {
       assert.equal(response.disengaged, true);
       // unified-conversation-log: both the appended skipped+disengaged message AND
       // autoResponseActive: false are persisted in the same updateSession call.
-      assert.equal(mockUpdateSession.mock.callCount(), 1);
-      const updates = mockUpdateSession.mock.calls[0].arguments[1] as Partial<SessionContext>;
+      assert.equal(mockUpdateSession.mock.calls.length, 1);
+      const updates = mockUpdateSession.mock.calls[0][1] as Partial<SessionContext>;
       assert.equal(updates.autoResponseActive, false);
       assert.ok(Array.isArray(updates.messages));
       const last = updates.messages![updates.messages!.length - 1];
@@ -1592,13 +1573,13 @@ describe("silentThinking mode", () => {
 
     it("skip without disengage: appended message has no disengaged flag and autoResponseActive unchanged", async () => {
       resetStreamerInstance({ messageTs: "1234.5678" });
-      mockAskClaude.mock.mockImplementationOnce(async () => ({
+      mockAskClaude.mockImplementationOnce(async () => ({
         success: true,
         skipped: true,
         answer: "",
       }));
-      mockSetAutoResponseActive.mock.resetCalls();
-      mockUpdateSession.mock.resetCalls();
+      mockSetAutoResponseActive.mockClear();
+      mockUpdateSession.mockClear();
 
       const client = makeClient();
       await executeAndDeliver({
@@ -1609,10 +1590,10 @@ describe("silentThinking mode", () => {
         deps,
       });
 
-      assert.equal(mockSetAutoResponseActive.mock.callCount(), 0);
+      assert.equal(mockSetAutoResponseActive.mock.calls.length, 0);
       // Single updateSession for the skipped-turn append; autoResponseActive not touched.
-      assert.equal(mockUpdateSession.mock.callCount(), 1);
-      const updates = mockUpdateSession.mock.calls[0].arguments[1] as Partial<SessionContext>;
+      assert.equal(mockUpdateSession.mock.calls.length, 1);
+      const updates = mockUpdateSession.mock.calls[0][1] as Partial<SessionContext>;
       assert.equal(updates.autoResponseActive, undefined);
       const last = updates.messages![updates.messages!.length - 1];
       const lastAssistant = last as { skipped?: true; disengaged?: true };
@@ -1622,12 +1603,12 @@ describe("silentThinking mode", () => {
 
     it("calls setAutoResponseActive when normal response has disengaged: true", async () => {
       resetStreamerInstance({ messageTs: "1234.5678" });
-      mockAskClaude.mock.mockImplementationOnce(async () => ({
+      mockAskClaude.mockImplementationOnce(async () => ({
         success: true,
         disengaged: true,
         answer: "You're welcome!",
       }));
-      mockSetAutoResponseActive.mock.resetCalls();
+      mockSetAutoResponseActive.mockClear();
 
       const client = makeClient();
       const response = await executeAndDeliver({
@@ -1640,18 +1621,18 @@ describe("silentThinking mode", () => {
 
       assert.equal(response.success, true);
       assert.equal(response.disengaged, true);
-      assert.equal(mockSetAutoResponseActive.mock.callCount(), 1);
-      assert.equal(mockSetAutoResponseActive.mock.calls[0].arguments[0], "session-1");
-      assert.equal(mockSetAutoResponseActive.mock.calls[0].arguments[1], false);
+      assert.equal(mockSetAutoResponseActive.mock.calls.length, 1);
+      assert.equal(mockSetAutoResponseActive.mock.calls[0][0], "session-1");
+      assert.equal(mockSetAutoResponseActive.mock.calls[0][1], false);
     });
 
     it("does NOT call setAutoResponseActive on success without disengaged", async () => {
       resetStreamerInstance({ messageTs: "1234.5678" });
-      mockAskClaude.mock.mockImplementationOnce(async () => ({
+      mockAskClaude.mockImplementationOnce(async () => ({
         success: true,
         answer: "regular answer",
       }));
-      mockSetAutoResponseActive.mock.resetCalls();
+      mockSetAutoResponseActive.mockClear();
 
       const client = makeClient();
       await executeAndDeliver({
@@ -1662,12 +1643,12 @@ describe("silentThinking mode", () => {
         deps,
       });
 
-      assert.equal(mockSetAutoResponseActive.mock.callCount(), 0);
+      assert.equal(mockSetAutoResponseActive.mock.calls.length, 0);
     });
 
     it("handles skip gracefully when streamer has no messageTs", async () => {
       resetStreamerInstance({ messageTs: undefined });
-      mockAskClaude.mock.mockImplementationOnce(async () => ({
+      mockAskClaude.mockImplementationOnce(async () => ({
         success: true,
         skipped: true,
         answer: "",
@@ -1684,7 +1665,7 @@ describe("silentThinking mode", () => {
 
       assert.equal(response.skipped, true);
       // chat.delete should NOT have been called
-      assert.equal(mockChatDelete.mock.callCount(), 0);
+      assert.equal(mockChatDelete.mock.calls.length, 0);
     });
   });
 });
@@ -1702,7 +1683,7 @@ describe("executeAndDeliver — multi-block iteration", () => {
     });
     deps = makeDeps();
     deps.appendAssistantMessage = mockAppendAssistantMessage;
-    mockAskClaude.mock.mockImplementationOnce(async () => ({
+    mockAskClaude.mockImplementationOnce(async () => ({
       success: true,
       skipped: true,
       answer: "",
@@ -1717,16 +1698,16 @@ describe("executeAndDeliver — multi-block iteration", () => {
       deps,
     });
 
-    assert.equal(mockChatDelete.mock.callCount(), 3);
-    assert.deepStrictEqual(mockChatDelete.mock.calls[0].arguments[0], {
+    assert.equal(mockChatDelete.mock.calls.length, 3);
+    assert.deepStrictEqual(mockChatDelete.mock.calls[0][0], {
       channel: "C001",
       ts: "1.1",
     });
-    assert.deepStrictEqual(mockChatDelete.mock.calls[1].arguments[0], {
+    assert.deepStrictEqual(mockChatDelete.mock.calls[1][0], {
       channel: "C001",
       ts: "2.2",
     });
-    assert.deepStrictEqual(mockChatDelete.mock.calls[2].arguments[0], {
+    assert.deepStrictEqual(mockChatDelete.mock.calls[2][0], {
       channel: "C001",
       ts: "3.3",
     });
@@ -1739,7 +1720,7 @@ describe("executeAndDeliver — multi-block iteration", () => {
     });
     deps = makeDeps();
     deps.appendAssistantMessage = mockAppendAssistantMessage;
-    mockAskClaude.mock.mockImplementation(async () => ({
+    mockAskClaude.mockImplementation(async () => ({
       success: false,
       answer: "",
       cancelled: true,
@@ -1754,9 +1735,9 @@ describe("executeAndDeliver — multi-block iteration", () => {
       deps,
     });
 
-    assert.equal(mockChatDelete.mock.callCount(), 3);
+    assert.equal(mockChatDelete.mock.calls.length, 3);
     const tss = mockChatDelete.mock.calls.map((c) => {
-      const arg = c.arguments[0] as { ts: string };
+      const arg = c[0] as { ts: string };
       return arg.ts;
     });
     assert.deepStrictEqual(tss, ["1.1", "2.2", "3.3"]);
@@ -1769,7 +1750,7 @@ describe("executeAndDeliver — multi-block iteration", () => {
     });
     deps = makeDeps();
     deps.appendAssistantMessage = mockAppendAssistantMessage;
-    mockAskClaude.mock.mockImplementationOnce(async (_session, options) => {
+    mockAskClaude.mockImplementationOnce(async (_session, options) => {
       // Trigger the postTopLevel deliver branch by invoking the deliver fn with postTopLevel.
       await options?.deliver?.({ blocks: [], postTopLevel: true });
       return { success: true, answer: "delivered top-level" };
@@ -1785,13 +1766,13 @@ describe("executeAndDeliver — multi-block iteration", () => {
     });
 
     // 3 deletes for the streamer's blocks, then 1 postMessage for the top-level repost.
-    assert.equal(mockChatDelete.mock.callCount(), 3);
+    assert.equal(mockChatDelete.mock.calls.length, 3);
     const tss = mockChatDelete.mock.calls.map((c) => {
-      const arg = c.arguments[0] as { ts: string };
+      const arg = c[0] as { ts: string };
       return arg.ts;
     });
     assert.deepStrictEqual(tss, ["1.1", "2.2", "3.3"]);
-    assert.ok(mockPostMessage.mock.callCount() >= 1, "top-level postMessage should have fired");
+    assert.ok(mockPostMessage.mock.calls.length >= 1, "top-level postMessage should have fired");
   });
 
   it("iteration continues when one chat.delete throws", async () => {
@@ -1801,7 +1782,7 @@ describe("executeAndDeliver — multi-block iteration", () => {
     });
     deps = makeDeps();
     deps.appendAssistantMessage = mockAppendAssistantMessage;
-    mockAskClaude.mock.mockImplementationOnce(async () => ({
+    mockAskClaude.mockImplementationOnce(async () => ({
       success: true,
       skipped: true,
       answer: "",
@@ -1810,7 +1791,7 @@ describe("executeAndDeliver — multi-block iteration", () => {
     const client = makeClient();
     // Override chat.delete to throw on the middle ts ("2.2"), succeed on others.
     let deleteCallCount = 0;
-    mockChatDelete.mock.mockImplementation(async () => {
+    mockChatDelete.mockImplementation(async () => {
       deleteCallCount++;
       if (deleteCallCount === 2) throw new Error("delete failed for 2.2");
       return { ok: true };
@@ -1825,6 +1806,6 @@ describe("executeAndDeliver — multi-block iteration", () => {
     });
 
     // All three deletes were attempted — the throw on 2.2 did not halt the loop.
-    assert.equal(mockChatDelete.mock.callCount(), 3);
+    assert.equal(mockChatDelete.mock.calls.length, 3);
   });
 });

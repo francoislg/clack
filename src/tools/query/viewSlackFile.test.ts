@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { createViewSlackFileTool } from "./viewSlackFile.js";
 import type { QueryToolContext } from "../types.js";
@@ -14,7 +14,7 @@ function makeContext(files: Map<string, SlackFile>): QueryToolContext {
       slack: { botToken: "xoxb-test-token" },
     } as QueryToolContext["config"],
     changesWorkflowEnabled: false,
-    allowScheduledMessages: false,
+    cronUserSchedules: false,
     availableFiles: files,
   };
 }

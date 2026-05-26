@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, beforeEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import {
@@ -13,7 +13,7 @@ import type { Config } from "./config.js";
 // Helpers
 // ---------------------------------------------------------------------------
 
-type MockClackQuery = ReturnType<typeof mock.fn<typeof clackQuery>>;
+type MockClackQuery = ReturnType<typeof vi.fn<typeof clackQuery>>;
 
 /** Build an async iterable from an array of fake SDK messages. Matches the pattern
  *  used in src/claude/testMcp.test.ts. */
@@ -46,7 +46,7 @@ function makeLogger(calls: LogCall[]): BaselineSmokeDeps["logger"] {
 const stubBuildQueryContext: BaselineSmokeDeps["buildQueryContext"] = (params) => ({
   mode: "query",
   ...params,
-  allowScheduledMessages: params.allowScheduledMessages ?? false,
+  cronUserSchedules: params.cronUserSchedules ?? false,
 });
 
 const stubBuildClackTools: BaselineSmokeDeps["buildClackTools"] = () => ({
@@ -136,13 +136,13 @@ describe("runBaselineSmoke", () => {
   let mockQuery: MockClackQuery;
 
   beforeEach(() => {
-    mockQuery = mock.fn<typeof clackQuery>();
+    mockQuery = vi.fn<typeof clackQuery>();
   });
 
   it("logs a single summary line with all roles when queries succeed", async () => {
     const tokensPerCall = [12000, 24000, 36000];
     let callIdx = 0;
-    mockQuery.mock.mockImplementation(() => {
+    mockQuery.mockImplementation(() => {
       const t = tokensPerCall[callIdx++];
       return asyncIterableOf([fakeAssistantMessage(t)]);
     });
@@ -150,7 +150,7 @@ describe("runBaselineSmoke", () => {
     const calls: LogCall[] = [];
     await runBaselineSmoke(makeConfig(), { timeoutMs: 5000 }, makeDeps(mockQuery, calls));
 
-    assert.equal(mockQuery.mock.callCount(), 3);
+    assert.equal(mockQuery.mock.calls.length, 3);
     const infos = calls.filter((c) => c.level === "info");
     assert.equal(infos.length, 1);
     assert.match(
@@ -162,7 +162,7 @@ describe("runBaselineSmoke", () => {
 
   it("marks a role as error in the summary and warns when its stream yields nothing", async () => {
     let callIdx = 0;
-    mockQuery.mock.mockImplementation(() => {
+    mockQuery.mockImplementation(() => {
       callIdx++;
       if (callIdx === 2) {
         return asyncIterableOf([]);
@@ -173,7 +173,7 @@ describe("runBaselineSmoke", () => {
     const calls: LogCall[] = [];
     await runBaselineSmoke(makeConfig(), { timeoutMs: 5000 }, makeDeps(mockQuery, calls));
 
-    assert.equal(mockQuery.mock.callCount(), 3);
+    assert.equal(mockQuery.mock.calls.length, 3);
     const infos = calls.filter((c) => c.level === "info");
     const warns = calls.filter((c) => c.level === "warn");
     assert.equal(infos.length, 1);
@@ -195,7 +195,7 @@ describe("runBaselineSmoke", () => {
         makeDeps(mockQuery, calls, () => Promise.reject(new Error("mcp boom"))),
       ),
     );
-    assert.equal(mockQuery.mock.callCount(), 0);
+    assert.equal(mockQuery.mock.calls.length, 0);
     const warns = calls.filter((c) => c.level === "warn");
     assert.equal(warns.length, 1);
     assert.match(warns[0].message, /baseline\.tokens\.failed stage=load-mcp error=mcp boom/);
@@ -203,7 +203,7 @@ describe("runBaselineSmoke", () => {
 
   it("passes a different systemPrompt for each role", async () => {
     const prompts: string[] = [];
-    mockQuery.mock.mockImplementation((params) => {
+    mockQuery.mockImplementation((params) => {
       const sp = params.options?.systemPrompt;
       prompts.push(typeof sp === "string" ? sp : "");
       return asyncIterableOf([fakeAssistantMessage(1000)]);
@@ -220,7 +220,7 @@ describe("runBaselineSmoke", () => {
   });
 
   it("aborts and logs when a role's stream hangs past the timeout", async () => {
-    mockQuery.mock.mockImplementation((params) => {
+    mockQuery.mockImplementation((params) => {
       const hanging: AsyncIterable<SDKMessage> = {
         // Simulates a hung SDK stream: exits only when the abort signal fires,
         // and never yields an assistant turn. Uses a manual iterator instead of
@@ -242,7 +242,7 @@ describe("runBaselineSmoke", () => {
     const calls: LogCall[] = [];
     await runBaselineSmoke(makeConfig(), { timeoutMs: 30 }, makeDeps(mockQuery, calls));
 
-    assert.equal(mockQuery.mock.callCount(), 3);
+    assert.equal(mockQuery.mock.calls.length, 3);
     const warns = calls.filter((c) => c.level === "warn");
     assert.equal(warns.length, 3);
     for (const w of warns) {

@@ -1,4 +1,4 @@
-import { describe, it, mock } from "node:test";
+import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import { createProposeSkillUpdateTool, type ProposeSkillUpdateDeps } from "./proposeSkillUpdate.js";
 import { parseToolResult, toolResultText } from "../testHelpers.js";
@@ -25,14 +25,14 @@ function makeCtx(role: QueryToolContext["role"], userId = "U_OWNER"): QueryToolC
     session: { sessionId: "S" } as QueryToolContext["session"],
     config: { userSkills: { enabled: true } } as Config,
     changesWorkflowEnabled: false,
-    allowScheduledMessages: false,
+    cronUserSchedules: false,
   };
 }
 
 function makeDeps(overrides?: Partial<ProposeSkillUpdateDeps>): ProposeSkillUpdateDeps {
   return {
-    validateDescription: mock.fn(() => ({ ok: true as const })),
-    readUserSkill: mock.fn(() => makeSkill()),
+    validateDescription: vi.fn(() => ({ ok: true as const })),
+    readUserSkill: vi.fn(() => makeSkill()),
     ...overrides,
   };
 }

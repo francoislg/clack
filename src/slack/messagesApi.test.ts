@@ -1,4 +1,4 @@
-import { describe, it, mock } from "node:test";
+import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
 import { extractMessageText } from "./messageBuilder.js";
@@ -342,7 +342,7 @@ interface PostMessageCall {
 
 interface MockedFn {
   mock: {
-    calls: Array<{ arguments: [PostMessageCall] }>;
+    calls: Array<[PostMessageCall]>;
   };
 }
 
@@ -365,13 +365,13 @@ function getPostMessageCall(client: App["client"], index: number): PostMessageCa
   if (!call) {
     throw new Error(`postMessage call ${index} not found`);
   }
-  return call.arguments[0];
+  return call[0];
 }
 
 function makeClient(config: MockConversationsConfig = {}): App["client"] {
-  const postMessageFn = mock.fn(async () => ({ ok: true, ts: "msg-ts" }));
-  const filesUploadV2Fn = mock.fn(async () => ({ ok: true }));
-  const repliesFn = mock.fn(async ({ channel, ts }: { channel: string; ts: string }) => {
+  const postMessageFn = vi.fn(async () => ({ ok: true, ts: "msg-ts" }));
+  const filesUploadV2Fn = vi.fn(async () => ({ ok: true }));
+  const repliesFn = vi.fn(async ({ channel, ts }: { channel: string; ts: string }) => {
     if (config.throwOnReplies) throw new Error("replies_error");
     const key = `${channel}:${ts}`;
     return { ok: true, messages: config.replies?.[key] ?? [] };
@@ -541,9 +541,11 @@ describe("fetchThreadContext", () => {
     });
     await fetchThreadContext(client, "C1", "ts1", "BOTU", { limit: 50 });
 
-    const repliesFn = client.conversations.replies as unknown as ReturnType<typeof mock.fn>;
-    assert.equal(repliesFn.mock.callCount(), 1);
-    const callArgs = repliesFn.mock.calls[0].arguments[0] as { limit: number };
+    const repliesFn = client.conversations.replies as unknown as ReturnType<
+      typeof vi.fn<(...args: any[]) => any>
+    >;
+    assert.equal(repliesFn.mock.calls.length, 1);
+    const callArgs = repliesFn.mock.calls[0][0] as { limit: number };
     assert.equal(callArgs.limit, 50);
   });
 
@@ -553,8 +555,10 @@ describe("fetchThreadContext", () => {
     });
     await fetchThreadContext(client, "C1", "ts1", "BOTU");
 
-    const repliesFn = client.conversations.replies as unknown as ReturnType<typeof mock.fn>;
-    const callArgs = repliesFn.mock.calls[0].arguments[0] as { limit: number };
+    const repliesFn = client.conversations.replies as unknown as ReturnType<
+      typeof vi.fn<(...args: any[]) => any>
+    >;
+    const callArgs = repliesFn.mock.calls[0][0] as { limit: number };
     assert.equal(callArgs.limit, 20);
   });
 });
@@ -688,9 +692,11 @@ describe("sendDirectMessage", () => {
     const client = makeClient({ openChannel: "DM_CHAN" });
     await sendDirectMessage(client, "U1", "hello");
 
-    const postMessage = client.chat.postMessage as unknown as ReturnType<typeof mock.fn>;
-    assert.equal(postMessage.mock.callCount(), 1);
-    const call = postMessage.mock.calls[0].arguments[0] as {
+    const postMessage = client.chat.postMessage as unknown as ReturnType<
+      typeof vi.fn<(...args: any[]) => any>
+    >;
+    assert.equal(postMessage.mock.calls.length, 1);
+    const call = postMessage.mock.calls[0][0] as {
       channel: string;
       text: string;
     };
@@ -703,8 +709,10 @@ describe("sendDirectMessage", () => {
     const blocks = [{ type: "section", text: { type: "mrkdwn", text: "test" } }];
     await sendDirectMessage(client, "U1", "hello", blocks);
 
-    const postMessage = client.chat.postMessage as unknown as ReturnType<typeof mock.fn>;
-    const call = postMessage.mock.calls[0].arguments[0] as {
+    const postMessage = client.chat.postMessage as unknown as ReturnType<
+      typeof vi.fn<(...args: any[]) => any>
+    >;
+    const call = postMessage.mock.calls[0][0] as {
       channel: string;
       text: string;
       blocks?: object[];
@@ -716,8 +724,10 @@ describe("sendDirectMessage", () => {
     const client = makeClient({ openChannel: "DM_CHAN" });
     await sendDirectMessage(client, "U1", "hello");
 
-    const postMessage = client.chat.postMessage as unknown as ReturnType<typeof mock.fn>;
-    const call = postMessage.mock.calls[0].arguments[0] as Record<string, unknown>;
+    const postMessage = client.chat.postMessage as unknown as ReturnType<
+      typeof vi.fn<(...args: any[]) => any>
+    >;
+    const call = postMessage.mock.calls[0][0] as Record<string, unknown>;
     assert.equal("blocks" in call, false);
   });
 
@@ -725,8 +735,10 @@ describe("sendDirectMessage", () => {
     const client = makeClient({}); // openChannel is undefined
     await sendDirectMessage(client, "U1", "hello");
 
-    const postMessage = client.chat.postMessage as unknown as ReturnType<typeof mock.fn>;
-    assert.equal(postMessage.mock.callCount(), 0);
+    const postMessage = client.chat.postMessage as unknown as ReturnType<
+      typeof vi.fn<(...args: any[]) => any>
+    >;
+    assert.equal(postMessage.mock.calls.length, 0);
   });
 
   it("does not throw on API error", async () => {
@@ -770,9 +782,11 @@ describe("sendErrorReport", () => {
       analysis: "The assistant ran into an issue",
     });
 
-    const postMessage = client.chat.postMessage as unknown as ReturnType<typeof mock.fn>;
-    assert.equal(postMessage.mock.callCount(), 1);
-    const call = postMessage.mock.calls[0].arguments[0] as {
+    const postMessage = client.chat.postMessage as unknown as ReturnType<
+      typeof vi.fn<(...args: any[]) => any>
+    >;
+    assert.equal(postMessage.mock.calls.length, 1);
+    const call = postMessage.mock.calls[0][0] as {
       channel: string;
       text: string;
       blocks: unknown[];
@@ -794,9 +808,11 @@ describe("sendErrorReport", () => {
       analysis: "analysis",
     });
 
-    const filesUpload = client.filesUploadV2 as unknown as ReturnType<typeof mock.fn>;
-    assert.equal(filesUpload.mock.callCount(), 1);
-    const call = filesUpload.mock.calls[0].arguments[0] as {
+    const filesUpload = client.filesUploadV2 as unknown as ReturnType<
+      typeof vi.fn<(...args: any[]) => any>
+    >;
+    assert.equal(filesUpload.mock.calls.length, 1);
+    const call = filesUpload.mock.calls[0][0] as {
       channel_id: string;
       thread_ts: string;
       filename: string;
@@ -821,8 +837,10 @@ describe("sendErrorReport", () => {
       analysis: "analysis",
     });
 
-    const filesUpload = client.filesUploadV2 as unknown as ReturnType<typeof mock.fn>;
-    const call = filesUpload.mock.calls[0].arguments[0] as { content: string };
+    const filesUpload = client.filesUploadV2 as unknown as ReturnType<
+      typeof vi.fn<(...args: any[]) => any>
+    >;
+    const call = filesUpload.mock.calls[0][0] as { content: string };
     const parsed = JSON.parse(call.content);
     assert.equal(parsed.stderrOutput, "some stderr");
   });

@@ -1,4 +1,4 @@
-import { describe, it, mock } from "node:test";
+import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import { cleanupAfterPRAction, type CleanupAfterPRActionDeps } from "./prHelpers.js";
 import type { WorkerToolContext } from "../types.js";
@@ -23,11 +23,11 @@ function makeCtx(overrides?: Partial<WorkerToolContext>): WorkerToolContext {
 }
 
 function makeDeps() {
-  const mockUpdateActiveChangeStatus = mock.fn<(...args: unknown[]) => void>();
-  const mockClearActiveChange = mock.fn<(...args: unknown[]) => void>();
-  const mockAppendExecutionLog = mock.fn<(...args: unknown[]) => void>();
-  const mockRemoveWorktree = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
-  const mockDeleteBranch = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
+  const mockUpdateActiveChangeStatus = vi.fn<(...args: unknown[]) => void>();
+  const mockClearActiveChange = vi.fn<(...args: unknown[]) => void>();
+  const mockAppendExecutionLog = vi.fn<(...args: unknown[]) => void>();
+  const mockRemoveWorktree = vi.fn<(...args: unknown[]) => Promise<void>>(async () => {});
+  const mockDeleteBranch = vi.fn<(...args: unknown[]) => Promise<void>>(async () => {});
 
   const deps: CleanupAfterPRActionDeps = {
     updateActiveChangeStatus:
@@ -69,32 +69,32 @@ describe("cleanupAfterPRAction", () => {
     await cleanupAfterPRAction(ctx, "test_prefix", deps);
 
     // updateActiveChangeStatus called with sessionId and "completed"
-    assert.equal(mockUpdateActiveChangeStatus.mock.callCount(), 1);
-    const statusArgs = mockUpdateActiveChangeStatus.mock.calls[0]!.arguments as [string, string];
+    assert.equal(mockUpdateActiveChangeStatus.mock.calls.length, 1);
+    const statusArgs = mockUpdateActiveChangeStatus.mock.calls[0]! as [string, string];
     assert.equal(statusArgs[0], "sess-1");
     assert.equal(statusArgs[1], "completed");
 
     // removeWorktree called with repoName and worktreePath
-    assert.equal(mockRemoveWorktree.mock.callCount(), 1);
-    const removeArgs = mockRemoveWorktree.mock.calls[0]!.arguments as [string, string];
+    assert.equal(mockRemoveWorktree.mock.calls.length, 1);
+    const removeArgs = mockRemoveWorktree.mock.calls[0]! as [string, string];
     assert.equal(removeArgs[0], "my-repo");
     assert.equal(removeArgs[1], "/tmp/worktrees/my-repo/branch");
 
     // deleteBranch called with repoName and branchName
-    assert.equal(mockDeleteBranch.mock.callCount(), 1);
-    const deleteArgs = mockDeleteBranch.mock.calls[0]!.arguments as [string, string];
+    assert.equal(mockDeleteBranch.mock.calls.length, 1);
+    const deleteArgs = mockDeleteBranch.mock.calls[0]! as [string, string];
     assert.equal(deleteArgs[0], "my-repo");
     assert.equal(deleteArgs[1], "clack/fix/my-branch");
 
     // clearActiveChange called with sessionId and true
-    assert.equal(mockClearActiveChange.mock.callCount(), 1);
-    const clearArgs = mockClearActiveChange.mock.calls[0]!.arguments as [string, boolean];
+    assert.equal(mockClearActiveChange.mock.calls.length, 1);
+    const clearArgs = mockClearActiveChange.mock.calls[0]! as [string, boolean];
     assert.equal(clearArgs[0], "sess-1");
     assert.equal(clearArgs[1], true);
 
     // appendExecutionLog called with branchName and log message
-    assert.equal(mockAppendExecutionLog.mock.callCount(), 1);
-    const logArgs = mockAppendExecutionLog.mock.calls[0]!.arguments as [string, string];
+    assert.equal(mockAppendExecutionLog.mock.calls.length, 1);
+    const logArgs = mockAppendExecutionLog.mock.calls[0]! as [string, string];
     assert.equal(logArgs[0], "clack/fix/my-branch");
     assert.ok(logArgs[1].includes("test_prefix"));
     assert.ok(logArgs[1].includes("cleanup complete"));
@@ -104,7 +104,7 @@ describe("cleanupAfterPRAction", () => {
     const { deps, mockAppendExecutionLog } = makeDeps();
     await cleanupAfterPRAction(makeCtx(), "close_pr", deps);
 
-    const logArgs = mockAppendExecutionLog.mock.calls[0]!.arguments as [string, string];
+    const logArgs = mockAppendExecutionLog.mock.calls[0]! as [string, string];
     assert.ok(logArgs[1].startsWith("close_pr:"));
   });
 
@@ -126,18 +126,18 @@ describe("cleanupAfterPRAction", () => {
 
     await cleanupAfterPRAction(ctx, "merge_pr", deps);
 
-    const statusArgs = mockUpdateActiveChangeStatus.mock.calls[0]!.arguments as [string, string];
+    const statusArgs = mockUpdateActiveChangeStatus.mock.calls[0]! as [string, string];
     assert.equal(statusArgs[0], "other-session");
 
-    const removeArgs = mockRemoveWorktree.mock.calls[0]!.arguments as [string, string];
+    const removeArgs = mockRemoveWorktree.mock.calls[0]! as [string, string];
     assert.equal(removeArgs[0], "other-repo");
     assert.equal(removeArgs[1], "/tmp/worktrees/other-repo/other-branch");
 
-    const deleteArgs = mockDeleteBranch.mock.calls[0]!.arguments as [string, string];
+    const deleteArgs = mockDeleteBranch.mock.calls[0]! as [string, string];
     assert.equal(deleteArgs[0], "other-repo");
     assert.equal(deleteArgs[1], "clack/feat/other");
 
-    const clearArgs = mockClearActiveChange.mock.calls[0]!.arguments as [string, boolean];
+    const clearArgs = mockClearActiveChange.mock.calls[0]! as [string, boolean];
     assert.equal(clearArgs[0], "other-session");
   });
 });

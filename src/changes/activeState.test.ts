@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, beforeEach, vi } from "vitest";
 import assert from "node:assert/strict";
 
 import {
@@ -23,10 +23,10 @@ import { makeFakeRunHandle } from "../claude/runHandle.testFixtures.js";
 
 function makeDeps(): ActiveStateDeps {
   return {
-    writeSessionState: mock.fn(() => {}),
-    createSessionFolder: mock.fn(() => {}),
-    appendExecutionLog: mock.fn(() => {}),
-    removeSessionFolder: mock.fn(() => {}),
+    writeSessionState: vi.fn(() => {}),
+    createSessionFolder: vi.fn(() => {}),
+    appendExecutionLog: vi.fn(() => {}),
+    removeSessionFolder: vi.fn(() => {}),
     statusToPhase: (status: string) => status,
   };
 }

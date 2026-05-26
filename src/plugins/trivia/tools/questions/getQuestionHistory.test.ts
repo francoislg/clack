@@ -1,4 +1,4 @@
-import { describe, it, beforeEach } from "node:test";
+import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
 import { createGetQuestionHistoryTool } from "./getQuestionHistory.js";
@@ -302,5 +302,81 @@ describe("get_question_history — choice questions", () => {
       assert.equal(typeof r.answerIndex, "number");
       assert.equal(Object.prototype.hasOwnProperty.call(r, "answer"), false);
     }
+  });
+
+  // Regression: prior implementation branched isChoice ? ... : booleanShape,
+  // which silently returned the boolean shape (with `isTrue: false`) for
+  // freeform questions. The handler now owns the response projection.
+  it("returns freeform shape for freeform questions (regression: was falling through to boolean)", async () => {
+    await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
+      id: "qfree",
+      category: "Geography",
+      statement: "What is the capital of France?",
+      answersFormat: "freeform",
+      questionType: "fact",
+      expectedAnswer: "Paris",
+      acceptableAnswers: ["Paris, France"],
+      gradingNotes: "Accept any reasonable form.",
+      emojis: ["🇫🇷"],
+      createdAt: 400,
+    });
+    await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
+      userId: "U-correct",
+      questionId: "qfree",
+      answerText: "Paris",
+      correct: true,
+      timestamp: 410,
+    });
+    await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
+      userId: "U-incorrect",
+      questionId: "qfree",
+      answerText: "London or Paris",
+      correct: false,
+      judgeReason: "multiple-guess",
+      timestamp: 420,
+    });
+    await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
+      userId: "U-pending",
+      questionId: "qfree",
+      answerText: "tbd",
+      timestamp: 430,
+    });
+
+    const tool = createGetQuestionHistoryTool(data, fixtureGetGames);
+    const result = await tool.handler({ game: FIXTURE_GAME_NAME, questionId: "qfree" }, SESSION);
+    const parsed = parseToolResult(result);
+
+    assert.equal(parsed.answersFormat, "freeform");
+    assert.equal(parsed.expectedAnswer, "Paris");
+    assert.deepEqual(parsed.acceptableAnswers, ["Paris, France"]);
+    assert.equal(parsed.gradingNotes, "Accept any reasonable form.");
+    assert.equal(Object.prototype.hasOwnProperty.call(parsed, "isTrue"), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(parsed, "correctIndex"), false);
+    assert.equal(parsed.responses.length, 3);
+
+    interface FreeformRow {
+      userId: string;
+      answerText: string;
+      correct?: boolean;
+      judgeReason?: string;
+    }
+    const responses: FreeformRow[] = parsed.responses;
+    const byUser = new Map(responses.map((r) => [r.userId, r]));
+    const correctRow = byUser.get("U-correct");
+    assert.ok(correctRow);
+    assert.equal(correctRow.answerText, "Paris");
+    assert.equal(correctRow.correct, true);
+    assert.equal(Object.prototype.hasOwnProperty.call(correctRow, "judgeReason"), false);
+
+    const incorrectRow = byUser.get("U-incorrect");
+    assert.ok(incorrectRow);
+    assert.equal(incorrectRow.correct, false);
+    assert.equal(incorrectRow.judgeReason, "multiple-guess");
+
+    const pendingRow = byUser.get("U-pending");
+    assert.ok(pendingRow);
+    assert.equal(pendingRow.answerText, "tbd");
+    assert.equal(Object.prototype.hasOwnProperty.call(pendingRow, "correct"), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(pendingRow, "judgeReason"), false);
   });
 });

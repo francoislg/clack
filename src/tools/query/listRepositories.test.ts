@@ -1,4 +1,4 @@
-import { describe, it, mock } from "node:test";
+import { describe, it, vi } from "vitest";
 import { parseToolResult } from "../testHelpers.js";
 import assert from "node:assert/strict";
 import { createListRepositoriesTool, type ListRepositoriesDeps } from "./listRepositories.js";
@@ -26,8 +26,8 @@ function makeRepo(overrides?: Partial<RepositoryConfig>): RepositoryConfig {
 
 function makeDeps(overrides: Partial<ListRepositoriesDeps> = {}): ListRepositoriesDeps {
   return {
-    getVisibleRepos: mock.fn(() => [makeRepo()]) as ListRepositoriesDeps["getVisibleRepos"],
-    canWriteRepo: mock.fn(() => true) as ListRepositoriesDeps["canWriteRepo"],
+    getVisibleRepos: vi.fn(() => [makeRepo()]) as ListRepositoriesDeps["getVisibleRepos"],
+    canWriteRepo: vi.fn(() => true) as ListRepositoriesDeps["canWriteRepo"],
     ...overrides,
   };
 }
@@ -72,7 +72,7 @@ describe("listRepositories tool", () => {
 
   it("returns canChange=false when user lacks write access", async () => {
     const deps = makeDeps({
-      canWriteRepo: mock.fn(() => false) as ListRepositoriesDeps["canWriteRepo"],
+      canWriteRepo: vi.fn(() => false) as ListRepositoriesDeps["canWriteRepo"],
     });
 
     const result = await callTool(makeCtx(), deps);
@@ -108,7 +108,7 @@ describe("listRepositories tool", () => {
 
   it("returns empty array when no repos are visible", async () => {
     const deps = makeDeps({
-      getVisibleRepos: mock.fn(() => []) as ListRepositoriesDeps["getVisibleRepos"],
+      getVisibleRepos: vi.fn(() => []) as ListRepositoriesDeps["getVisibleRepos"],
     });
 
     const result = await callTool(makeCtx(), deps);
@@ -124,7 +124,7 @@ describe("listRepositories tool", () => {
       makeRepo({ name: "repo-c", description: "Third repo" }),
     ];
     const deps = makeDeps({
-      getVisibleRepos: mock.fn(() => repos) as ListRepositoriesDeps["getVisibleRepos"],
+      getVisibleRepos: vi.fn(() => repos) as ListRepositoriesDeps["getVisibleRepos"],
     });
 
     const result = await callTool(makeCtx(), deps);
@@ -137,9 +137,9 @@ describe("listRepositories tool", () => {
   });
 
   it("calls getVisibleRepos with role and config repos", async () => {
-    const mockGetVisibleRepos = mock.fn<ListRepositoriesDeps["getVisibleRepos"]>(
-      (_role, _repos) => [makeRepo()],
-    );
+    const mockGetVisibleRepos = vi.fn<ListRepositoriesDeps["getVisibleRepos"]>((_role, _repos) => [
+      makeRepo(),
+    ]);
     const deps = makeDeps({ getVisibleRepos: mockGetVisibleRepos });
 
     const result = await callTool(makeCtx({ role: "admin" }), deps);
@@ -148,7 +148,7 @@ describe("listRepositories tool", () => {
     const parsed = parseToolResult(result);
     assert.equal(parsed.length, 1);
 
-    assert.equal(mockGetVisibleRepos.mock.callCount(), 1);
-    assert.equal(mockGetVisibleRepos.mock.calls[0].arguments[0], "admin");
+    assert.equal(mockGetVisibleRepos.mock.calls.length, 1);
+    assert.equal(mockGetVisibleRepos.mock.calls[0][0], "admin");
   });
 });

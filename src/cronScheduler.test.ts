@@ -1,4 +1,4 @@
-import { describe, it, mock } from "node:test";
+import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import { WebClient } from "@slack/web-api";
 import {
@@ -6,6 +6,7 @@ import {
   matchesCron,
   matchesSkipDate,
   notifyCreatorOfError,
+  shouldSkipUserJob,
   type CronSchedulerDeps,
   type NotifyErrorDeps,
 } from "./cronScheduler.js";
@@ -119,13 +120,15 @@ describe("cronScheduler", () => {
 
     it("skips posting when the DM channel cannot be opened", async () => {
       const client = new WebClient();
-      mock.method(client.conversations, "open", async () => ({ ok: false }));
-      const postSpy = mock.method(client.chat, "postMessage", async () => ({ ok: true }));
+      vi.spyOn(client.conversations, "open").mockImplementation(async () => ({ ok: false }));
+      const postSpy = vi
+        .spyOn(client.chat, "postMessage")
+        .mockImplementation(async () => ({ ok: true }));
 
       await notifyCreatorOfError(job, client, "boom");
 
       assert.equal(
-        postSpy.mock.callCount(),
+        postSpy.mock.calls.length,
         0,
         "postMessage should not be called when DM open fails",
       );
@@ -133,28 +136,32 @@ describe("cronScheduler", () => {
 
     it("skips posting when conversations.open throws", async () => {
       const client = new WebClient();
-      mock.method(client.conversations, "open", async () => {
+      vi.spyOn(client.conversations, "open").mockImplementation(async () => {
         throw new Error("user_not_found");
       });
-      const postSpy = mock.method(client.chat, "postMessage", async () => ({ ok: true }));
+      const postSpy = vi
+        .spyOn(client.chat, "postMessage")
+        .mockImplementation(async () => ({ ok: true }));
 
       await notifyCreatorOfError(job, client, "boom");
 
-      assert.equal(postSpy.mock.callCount(), 0);
+      assert.equal(postSpy.mock.calls.length, 0);
     });
 
     it("posts to the resolved DM channel when open succeeds", async () => {
       const client = new WebClient();
-      mock.method(client.conversations, "open", async () => ({
+      vi.spyOn(client.conversations, "open").mockImplementation(async () => ({
         ok: true,
         channel: { id: "D789" },
       }));
-      const postSpy = mock.method(client.chat, "postMessage", async () => ({ ok: true }));
+      const postSpy = vi
+        .spyOn(client.chat, "postMessage")
+        .mockImplementation(async () => ({ ok: true }));
 
       await notifyCreatorOfError(job, client, "something went wrong");
 
-      assert.equal(postSpy.mock.callCount(), 1);
-      const args = postSpy.mock.calls[0].arguments[0];
+      assert.equal(postSpy.mock.calls.length, 1);
+      const args = postSpy.mock.calls[0][0];
       assert.equal(args?.channel, "D789");
       const text = args && "text" in args ? (args.text ?? "") : "";
       assert.match(text, /something went wrong/);
@@ -162,15 +169,17 @@ describe("cronScheduler", () => {
 
     it("suggests inviting Clack when channel_not_found on a regular channel", async () => {
       const client = new WebClient();
-      mock.method(client.conversations, "open", async () => ({
+      vi.spyOn(client.conversations, "open").mockImplementation(async () => ({
         ok: true,
         channel: { id: "D789" },
       }));
-      const postSpy = mock.method(client.chat, "postMessage", async () => ({ ok: true }));
+      const postSpy = vi
+        .spyOn(client.chat, "postMessage")
+        .mockImplementation(async () => ({ ok: true }));
 
       await notifyCreatorOfError(job, client, "An API error occurred: channel_not_found");
 
-      const args = postSpy.mock.calls[0].arguments[0];
+      const args = postSpy.mock.calls[0][0];
       const text = args && "text" in args ? (args.text ?? "") : "";
       assert.match(text, /<#C456>/);
       assert.match(text, /isn't a member/);
@@ -180,16 +189,18 @@ describe("cronScheduler", () => {
 
     it("explains DM inaccessibility when channel_not_found on a DM target", async () => {
       const client = new WebClient();
-      mock.method(client.conversations, "open", async () => ({
+      vi.spyOn(client.conversations, "open").mockImplementation(async () => ({
         ok: true,
         channel: { id: "D789" },
       }));
-      const postSpy = mock.method(client.chat, "postMessage", async () => ({ ok: true }));
+      const postSpy = vi
+        .spyOn(client.chat, "postMessage")
+        .mockImplementation(async () => ({ ok: true }));
 
       const dmJob: CronJob = { ...job, channel: "D0AHVHZTZ9G" };
       await notifyCreatorOfError(dmJob, client, "An API error occurred: channel_not_found");
 
-      const args = postSpy.mock.calls[0].arguments[0];
+      const args = postSpy.mock.calls[0][0];
       const text = args && "text" in args ? (args.text ?? "") : "";
       assert.match(text, /`D0AHVHZTZ9G`/);
       assert.match(text, /DM Clack isn't part of/);
@@ -198,15 +209,17 @@ describe("cronScheduler", () => {
 
     it("also treats not_in_channel as an access error", async () => {
       const client = new WebClient();
-      mock.method(client.conversations, "open", async () => ({
+      vi.spyOn(client.conversations, "open").mockImplementation(async () => ({
         ok: true,
         channel: { id: "D789" },
       }));
-      const postSpy = mock.method(client.chat, "postMessage", async () => ({ ok: true }));
+      const postSpy = vi
+        .spyOn(client.chat, "postMessage")
+        .mockImplementation(async () => ({ ok: true }));
 
       await notifyCreatorOfError(job, client, "not_in_channel");
 
-      const args = postSpy.mock.calls[0].arguments[0];
+      const args = postSpy.mock.calls[0][0];
       const text = args && "text" in args ? (args.text ?? "") : "";
       assert.match(text, /\/invite @Clack/);
     });
@@ -229,22 +242,24 @@ describe("cronScheduler", () => {
 
       it("escalates to the deployment owner", async () => {
         const client = new WebClient();
-        const openSpy = mock.method(client.conversations, "open", async () => ({
+        const openSpy = vi.spyOn(client.conversations, "open").mockImplementation(async () => ({
           ok: true,
           channel: { id: "D_OWNER" },
         }));
-        const postSpy = mock.method(client.chat, "postMessage", async () => ({ ok: true }));
+        const postSpy = vi
+          .spyOn(client.chat, "postMessage")
+          .mockImplementation(async () => ({ ok: true }));
 
         const deps = makeNotifyDeps({ owner: "U_OWNER", admins: [], devs: [] });
         await notifyCreatorOfError(systemJob, client, "boom", deps);
 
         // The Slack `ConversationsOpenArguments` is a union of shapes — when opening a user DM
         // the variant has a `users` field that TS can't narrow without a guard.
-        const openCall = openSpy.mock.calls[0].arguments[0];
+        const openCall = openSpy.mock.calls[0][0];
         assert.ok(openCall && "users" in openCall);
         assert.equal(openCall.users, "U_OWNER");
-        assert.equal(postSpy.mock.callCount(), 1);
-        const args = postSpy.mock.calls[0].arguments[0];
+        assert.equal(postSpy.mock.calls.length, 1);
+        const args = postSpy.mock.calls[0][0];
         assert.equal(args?.channel, "D_OWNER");
         const text = args && "text" in args ? (args.text ?? "") : "";
         assert.match(text, /plugin:trivia/);
@@ -254,18 +269,20 @@ describe("cronScheduler", () => {
 
       it("logs and skips cleanly when no owner is configured", async () => {
         const client = new WebClient();
-        const openSpy = mock.method(client.conversations, "open", async () => ({
+        const openSpy = vi.spyOn(client.conversations, "open").mockImplementation(async () => ({
           ok: true,
           channel: { id: "D_OWNER" },
         }));
-        const postSpy = mock.method(client.chat, "postMessage", async () => ({ ok: true }));
+        const postSpy = vi
+          .spyOn(client.chat, "postMessage")
+          .mockImplementation(async () => ({ ok: true }));
 
         const deps = makeNotifyDeps({ owner: null, admins: [], devs: [] });
         // Must NOT throw.
         await notifyCreatorOfError(systemJob, client, "boom", deps);
 
-        assert.equal(openSpy.mock.callCount(), 0, "no DM open attempted");
-        assert.equal(postSpy.mock.callCount(), 0, "no message posted");
+        assert.equal(openSpy.mock.calls.length, 0, "no DM open attempted");
+        assert.equal(postSpy.mock.calls.length, 0, "no message posted");
       });
     });
   });
@@ -273,8 +290,11 @@ describe("cronScheduler", () => {
   describe("executeJob (skip outcome)", () => {
     function fakeClient(): WebClient {
       const client = new WebClient();
-      mock.method(client.auth, "test", async () => ({ ok: true, url: "https://t.slack.com/" }));
-      mock.method(client.conversations, "info", async () => ({
+      vi.spyOn(client.auth, "test").mockImplementation(async () => ({
+        ok: true,
+        url: "https://t.slack.com/",
+      }));
+      vi.spyOn(client.conversations, "info").mockImplementation(async () => ({
         ok: true,
         channel: { id: "C456", name: "ops", is_im: false },
       }));
@@ -482,8 +502,11 @@ describe("cronScheduler", () => {
   describe("executeJob (skipDates gate)", () => {
     function fakeClient(): WebClient {
       const client = new WebClient();
-      mock.method(client.auth, "test", async () => ({ ok: true, url: "https://t.slack.com/" }));
-      mock.method(client.conversations, "info", async () => ({
+      vi.spyOn(client.auth, "test").mockImplementation(async () => ({
+        ok: true,
+        url: "https://t.slack.com/",
+      }));
+      vi.spyOn(client.conversations, "info").mockImplementation(async () => ({
         ok: true,
         channel: { id: "C456", name: "ops", is_im: false },
       }));
@@ -633,6 +656,54 @@ describe("cronScheduler", () => {
       // No skipDates means the gate is a no-op and the run proceeds normally.
       assert.equal(calls.processMessage.length, 1);
       assert.equal(calls.updateJobRunStatus[0][1], "success");
+    });
+  });
+
+  describe("shouldSkipUserJob", () => {
+    function userJob(): CronJob {
+      return {
+        id: "u1",
+        cronExpression: "0 * * * *",
+        channel: "C1",
+        prompt: "ask the channel",
+        createdBy: "U123",
+        createdAt: new Date().toISOString(),
+        enabled: true,
+        timezone: "UTC",
+      };
+    }
+
+    function pluginJob(): CronJob {
+      return {
+        id: "p1",
+        cronExpression: "0 * * * *",
+        channel: "C1",
+        prompt: "trivia reveal",
+        createdBy: null,
+        systemActor: "plugin:trivia",
+        plugin: "trivia",
+        pluginManaged: true,
+        specKey: "game-a:reveal",
+        createdAt: new Date().toISOString(),
+        enabled: true,
+        timezone: "UTC",
+      };
+    }
+
+    it("skips user-created jobs when user schedules are disabled", () => {
+      assert.equal(shouldSkipUserJob(userJob(), false), true);
+    });
+
+    it("does NOT skip plugin-managed jobs when user schedules are disabled", () => {
+      assert.equal(shouldSkipUserJob(pluginJob(), false), false);
+    });
+
+    it("does NOT skip user jobs when user schedules are enabled", () => {
+      assert.equal(shouldSkipUserJob(userJob(), true), false);
+    });
+
+    it("does NOT skip plugin jobs when user schedules are enabled", () => {
+      assert.equal(shouldSkipUserJob(pluginJob(), true), false);
     });
   });
 });

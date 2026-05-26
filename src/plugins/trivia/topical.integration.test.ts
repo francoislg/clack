@@ -1,4 +1,4 @@
-import { describe, it, beforeEach } from "node:test";
+import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "./testHelpers.js";
 import { createGetIdeasTool } from "./tools/questions/getIdeas.js";
@@ -157,7 +157,7 @@ describe("topical-question end-to-end flow", () => {
         SESSION,
       ),
     );
-    assert.match(r.error, /only permitted on topical/i);
+    assert.match(r.error, /"sourceUrl" is not permitted on fact questions/i);
   });
 
   it("save_question rejects context value not in configured contexts list", async () => {

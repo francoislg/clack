@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, beforeEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import { runPreAnalysis, type PreAnalysisDeps, defaultPreAnalysisDeps } from "./preAnalysis.js";
 import type { clackQuery } from "./query.js";
@@ -7,7 +7,7 @@ import type { clackQuery } from "./query.js";
 // Helpers
 // ---------------------------------------------------------------------------
 
-type MockClackQuery = ReturnType<typeof mock.fn<typeof clackQuery>>;
+type MockClackQuery = ReturnType<typeof vi.fn<typeof clackQuery>>;
 
 let mockQuery: MockClackQuery;
 
@@ -44,11 +44,11 @@ interface QueryCallArg {
 // ---------------------------------------------------------------------------
 describe("runPreAnalysis", () => {
   beforeEach(() => {
-    mockQuery = mock.fn<typeof clackQuery>();
+    mockQuery = vi.fn<typeof clackQuery>();
   });
 
   it("returns 'respond' when Claude responds with 'respond'", async () => {
-    mockQuery.mock.mockImplementation(() =>
+    mockQuery.mockImplementation(() =>
       asyncIterableOf([{ type: "result", subtype: "success", result: "respond" }]),
     );
 
@@ -67,7 +67,7 @@ describe("runPreAnalysis", () => {
   });
 
   it("returns 'skip' when Claude responds with 'skip'", async () => {
-    mockQuery.mock.mockImplementation(() =>
+    mockQuery.mockImplementation(() =>
       asyncIterableOf([{ type: "result", subtype: "success", result: "skip" }]),
     );
 
@@ -86,7 +86,7 @@ describe("runPreAnalysis", () => {
   });
 
   it("returns 'stop' when Claude responds with 'stop'", async () => {
-    mockQuery.mock.mockImplementation(() =>
+    mockQuery.mockImplementation(() =>
       asyncIterableOf([{ type: "result", subtype: "success", result: "stop" }]),
     );
 
@@ -105,7 +105,7 @@ describe("runPreAnalysis", () => {
   });
 
   it("returns 'skip' when result subtype is not success (fail-closed)", async () => {
-    mockQuery.mock.mockImplementation(() =>
+    mockQuery.mockImplementation(() =>
       asyncIterableOf([{ type: "result", subtype: "error", result: "respond" }]),
     );
 
@@ -124,7 +124,7 @@ describe("runPreAnalysis", () => {
   });
 
   it("returns false for ambiguous response (fail-closed)", async () => {
-    mockQuery.mock.mockImplementation(() =>
+    mockQuery.mockImplementation(() =>
       asyncIterableOf([
         {
           type: "result",
@@ -149,7 +149,7 @@ describe("runPreAnalysis", () => {
   });
 
   it("returns false when query throws (fail-closed)", async () => {
-    mockQuery.mock.mockImplementation(() => {
+    mockQuery.mockImplementation(() => {
       throw new Error("SDK failure");
     });
 
@@ -168,7 +168,7 @@ describe("runPreAnalysis", () => {
   });
 
   it("returns false when async iterator throws (fail-closed)", async () => {
-    mockQuery.mock.mockImplementation(() => ({
+    mockQuery.mockImplementation(() => ({
       // Intentionally throws before yielding to simulate a stream error
       // eslint-disable-next-line require-yield
       async *[Symbol.asyncIterator]() {
@@ -191,7 +191,7 @@ describe("runPreAnalysis", () => {
   });
 
   it("returns false when result is empty (fail-closed)", async () => {
-    mockQuery.mock.mockImplementation(() =>
+    mockQuery.mockImplementation(() =>
       asyncIterableOf([{ type: "result", subtype: "success", result: "" }]),
     );
 
@@ -210,7 +210,7 @@ describe("runPreAnalysis", () => {
   });
 
   it("falls back to lastAssistantText when result.result is empty", async () => {
-    mockQuery.mock.mockImplementation(() =>
+    mockQuery.mockImplementation(() =>
       asyncIterableOf([
         {
           type: "assistant",
@@ -235,7 +235,7 @@ describe("runPreAnalysis", () => {
   });
 
   it("detects 'skip' in verbose response", async () => {
-    mockQuery.mock.mockImplementation(() =>
+    mockQuery.mockImplementation(() =>
       asyncIterableOf([
         {
           type: "result",
@@ -261,7 +261,7 @@ describe("runPreAnalysis", () => {
 
   it("passes systemPrompt with preAnalysisContext and bot name to query", async () => {
     let capturedOptions: QueryCallArg["options"];
-    mockQuery.mock.mockImplementation((...args: unknown[]) => {
+    mockQuery.mockImplementation((...args: unknown[]) => {
       capturedOptions = (args[0] as QueryCallArg).options;
       return asyncIterableOf([{ type: "result", subtype: "success", result: "respond" }]);
     });
@@ -296,7 +296,7 @@ describe("runPreAnalysis", () => {
     // of `config.language`. This structural assertion guards against accidental
     // future coupling between the two paths.
     let capturedOptions: QueryCallArg["options"];
-    mockQuery.mock.mockImplementation((...args: unknown[]) => {
+    mockQuery.mockImplementation((...args: unknown[]) => {
       capturedOptions = (args[0] as QueryCallArg).options;
       return asyncIterableOf([{ type: "result", subtype: "success", result: "skip" }]);
     });
@@ -326,7 +326,7 @@ describe("runPreAnalysis", () => {
 
   it("includes attributed recent messages and author in the prompt", async () => {
     let capturedPrompt = "";
-    mockQuery.mock.mockImplementation((...args: unknown[]) => {
+    mockQuery.mockImplementation((...args: unknown[]) => {
       capturedPrompt = (args[0] as QueryCallArg).prompt;
       return asyncIterableOf([{ type: "result", subtype: "success", result: "respond" }]);
     });
@@ -360,7 +360,7 @@ describe("runPreAnalysis", () => {
 
   it("includes channel name in the prompt when provided", async () => {
     let capturedPrompt = "";
-    mockQuery.mock.mockImplementation((...args: unknown[]) => {
+    mockQuery.mockImplementation((...args: unknown[]) => {
       capturedPrompt = (args[0] as QueryCallArg).prompt;
       return asyncIterableOf([{ type: "result", subtype: "success", result: "respond" }]);
     });
@@ -382,7 +382,7 @@ describe("runPreAnalysis", () => {
 
   it("omits channel name from the prompt when not provided", async () => {
     let capturedPrompt = "";
-    mockQuery.mock.mockImplementation((...args: unknown[]) => {
+    mockQuery.mockImplementation((...args: unknown[]) => {
       capturedPrompt = (args[0] as QueryCallArg).prompt;
       return asyncIterableOf([{ type: "result", subtype: "success", result: "respond" }]);
     });

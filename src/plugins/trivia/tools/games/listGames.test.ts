@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { fixtureGetGames, FIXTURE_GAME_NAME, FIXTURE_GAMES } from "../../testHelpers.js";
 import { createListGamesTool } from "./listGames.js";

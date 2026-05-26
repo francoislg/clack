@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, afterEach, mock } from "node:test";
+import { describe, it, beforeEach, afterEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import { mkdtemp, rm, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -34,13 +34,13 @@ function buildCtx(overrides: Partial<QueryToolContext> = {}): QueryToolContext {
     session: { sessionId: "test-session" } as QueryToolContext["session"],
     slackClient: {
       conversations: {
-        list: mock.fn(async () => ({
+        list: vi.fn(async () => ({
           channels: [{ id: "C456", name: "engineering" }],
         })),
       },
     } as never as QueryToolContext["slackClient"],
     changesWorkflowEnabled: false,
-    allowScheduledMessages: true,
+    cronUserSchedules: true,
     ...overrides,
   } as QueryToolContext;
 }
@@ -230,7 +230,7 @@ describe("createScheduledMessage tool", () => {
 
   it("normalizes the requester's own user ID to a DM channel", async () => {
     const client = new WebClient();
-    mock.method(client.conversations, "open", async () => ({
+    vi.spyOn(client.conversations, "open").mockImplementation(async () => ({
       ok: true,
       channel: { id: "D_SELF" },
     }));
@@ -255,7 +255,7 @@ describe("createScheduledMessage tool", () => {
 
   it("rejects a third-party user ID and creates no job", async () => {
     const client = new WebClient();
-    const openSpy = mock.method(client.conversations, "open", async () => ({
+    const openSpy = vi.spyOn(client.conversations, "open").mockImplementation(async () => ({
       ok: true,
       channel: { id: "D_OTHER" },
     }));
@@ -271,7 +271,7 @@ describe("createScheduledMessage tool", () => {
 
     assert.equal(result.isError, true);
     assert.match(toolResultText(result), /can only DM the requesting user/);
-    assert.equal(openSpy.mock.callCount(), 0, "should not open a DM with a third party");
+    assert.equal(openSpy.mock.calls.length, 0, "should not open a DM with a third party");
 
     const jobs = await getJobs();
     assert.equal(jobs.length, 0, "no job should be created when the target is rejected");

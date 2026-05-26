@@ -1,4 +1,4 @@
-import { describe, it, mock } from "node:test";
+import { describe, it, vi } from "vitest";
 import { parseToolResult } from "../testHelpers.js";
 import assert from "node:assert/strict";
 import { createListConfigFilesTool, type ListConfigFilesDeps } from "./listConfigFiles.js";
@@ -19,13 +19,13 @@ function makeCtx(): QueryToolContext {
     session: fakeSession as QueryToolContext["session"],
     config: fakeConfig as QueryToolContext["config"],
     changesWorkflowEnabled: false,
-    allowScheduledMessages: false,
+    cronUserSchedules: false,
   };
 }
 
 function makeDeps(overrides: Partial<ListConfigFilesDeps> = {}): ListConfigFilesDeps {
   return {
-    listInstructionFiles: mock.fn<ListConfigFilesDeps["listInstructionFiles"]>(() => ({
+    listInstructionFiles: vi.fn<ListConfigFilesDeps["listInstructionFiles"]>(() => ({
       roles: [],
       preAnalysis: [],
       repos: [],

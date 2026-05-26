@@ -1,4 +1,4 @@
-import { describe, it, mock } from "node:test";
+import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import { createMergePRTool, type MergePRDeps } from "./mergePR.js";
 import type { WorkerToolContext } from "../types.js";
@@ -29,24 +29,24 @@ interface ToolResult {
 }
 
 function makeDeps() {
-  const mockGetSession = mock.fn<(...args: unknown[]) => Promise<unknown>>(async () => ({
+  const mockGetSession = vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => ({
     activeChange: { prUrl: "https://github.com/org/my-repo/pull/42" },
   }));
-  const mockGetOctokit = mock.fn<() => Promise<unknown>>(async () => ({
-    pulls: { merge: mock.fn(async () => ({})) },
-    git: { deleteRef: mock.fn(async () => ({})) },
+  const mockGetOctokit = vi.fn<() => Promise<unknown>>(async () => ({
+    pulls: { merge: vi.fn(async () => ({})) },
+    git: { deleteRef: vi.fn(async () => ({})) },
   }));
-  const mockParsePrUrl = mock.fn<(url: string) => unknown>(() => ({
+  const mockParsePrUrl = vi.fn<(url: string) => unknown>(() => ({
     owner: "org",
     repo: "my-repo",
     pullNumber: 42,
   }));
-  const mockFindRepoByName = mock.fn<(...args: unknown[]) => unknown>(() => ({
+  const mockFindRepoByName = vi.fn<(...args: unknown[]) => unknown>(() => ({
     name: "my-repo",
     mergeStrategy: "squash",
   }));
-  const mockAppendExecutionLog = mock.fn<(...args: unknown[]) => void>();
-  const mockCleanupAfterPRAction = mock.fn<(...args: unknown[]) => Promise<void>>(async () => {});
+  const mockAppendExecutionLog = vi.fn<(...args: unknown[]) => void>();
+  const mockCleanupAfterPRAction = vi.fn<(...args: unknown[]) => Promise<void>>(async () => {});
 
   const deps: MergePRDeps = {
     getSession: mockGetSession as never as MergePRDeps["getSession"],
@@ -75,7 +75,7 @@ function makeDeps() {
 describe("mergePR tool", () => {
   it("returns error when no session found", async () => {
     const { deps, mockGetSession } = makeDeps();
-    mockGetSession.mock.mockImplementation(async () => null);
+    mockGetSession.mockImplementation(async () => null);
 
     const toolDef = createMergePRTool(makeCtx(), deps);
     const result = await toolDef.handler({ _placeholder: undefined }, { sessionId: "test" });
@@ -88,7 +88,7 @@ describe("mergePR tool", () => {
 
   it("returns error when session has no activeChange", async () => {
     const { deps, mockGetSession } = makeDeps();
-    mockGetSession.mock.mockImplementation(async () => ({ activeChange: null }));
+    mockGetSession.mockImplementation(async () => ({ activeChange: null }));
 
     const toolDef = createMergePRTool(makeCtx(), deps);
     const result = await toolDef.handler({ _placeholder: undefined }, { sessionId: "test" });
@@ -100,7 +100,7 @@ describe("mergePR tool", () => {
 
   it("returns error when activeChange has no prUrl", async () => {
     const { deps, mockGetSession } = makeDeps();
-    mockGetSession.mock.mockImplementation(async () => ({
+    mockGetSession.mockImplementation(async () => ({
       activeChange: { prUrl: undefined },
     }));
 
@@ -114,7 +114,7 @@ describe("mergePR tool", () => {
 
   it("returns error when PR URL cannot be parsed", async () => {
     const { deps, mockParsePrUrl } = makeDeps();
-    mockParsePrUrl.mock.mockImplementation(() => null);
+    mockParsePrUrl.mockImplementation(() => null);
 
     const toolDef = createMergePRTool(makeCtx(), deps);
     const result = await toolDef.handler({ _placeholder: undefined }, { sessionId: "test" });
@@ -125,10 +125,10 @@ describe("mergePR tool", () => {
   });
 
   it("merges PR with squash strategy and returns success", async () => {
-    const mockMerge = mock.fn(async () => ({}));
-    const mockDeleteRef = mock.fn(async () => ({}));
+    const mockMerge = vi.fn(async () => ({}));
+    const mockDeleteRef = vi.fn(async () => ({}));
     const { deps, mockGetOctokit, mockCleanupAfterPRAction } = makeDeps();
-    mockGetOctokit.mock.mockImplementation(async () => ({
+    mockGetOctokit.mockImplementation(async () => ({
       pulls: { merge: mockMerge },
       git: { deleteRef: mockDeleteRef },
     }));
@@ -142,8 +142,8 @@ describe("mergePR tool", () => {
     assert.equal(parsed.warning, undefined);
 
     // Verify merge was called correctly
-    assert.equal(mockMerge.mock.callCount(), 1);
-    const mergeArgs = mockMerge.mock.calls[0]!.arguments as never as [
+    assert.equal(mockMerge.mock.calls.length, 1);
+    const mergeArgs = mockMerge.mock.calls[0]! as never as [
       { owner: string; repo: string; pull_number: number; merge_method: string },
     ];
     assert.equal(mergeArgs[0].owner, "org");
@@ -152,18 +152,18 @@ describe("mergePR tool", () => {
     assert.equal(mergeArgs[0].merge_method, "squash");
 
     // Verify cleanup was called
-    assert.equal(mockCleanupAfterPRAction.mock.callCount(), 1);
+    assert.equal(mockCleanupAfterPRAction.mock.calls.length, 1);
   });
 
   it("uses 'merge' strategy from repo config", async () => {
-    const mockMerge = mock.fn(async () => ({}));
-    const mockDeleteRef = mock.fn(async () => ({}));
+    const mockMerge = vi.fn(async () => ({}));
+    const mockDeleteRef = vi.fn(async () => ({}));
     const { deps, mockFindRepoByName, mockGetOctokit } = makeDeps();
-    mockFindRepoByName.mock.mockImplementation(() => ({
+    mockFindRepoByName.mockImplementation(() => ({
       name: "my-repo",
       mergeStrategy: "merge",
     }));
-    mockGetOctokit.mock.mockImplementation(async () => ({
+    mockGetOctokit.mockImplementation(async () => ({
       pulls: { merge: mockMerge },
       git: { deleteRef: mockDeleteRef },
     }));
@@ -174,19 +174,19 @@ describe("mergePR tool", () => {
     const parsed = parseToolResult(result);
     assert.equal(parsed.merge_method, "merge");
 
-    const mergeArgs = mockMerge.mock.calls[0]!.arguments as never as [{ merge_method: string }];
+    const mergeArgs = mockMerge.mock.calls[0]! as never as [{ merge_method: string }];
     assert.equal(mergeArgs[0].merge_method, "merge");
   });
 
   it("defaults to 'squash' when repo config has no mergeStrategy", async () => {
-    const mockMerge = mock.fn(async () => ({}));
-    const mockDeleteRef = mock.fn(async () => ({}));
+    const mockMerge = vi.fn(async () => ({}));
+    const mockDeleteRef = vi.fn(async () => ({}));
     const { deps, mockFindRepoByName, mockGetOctokit } = makeDeps();
-    mockFindRepoByName.mock.mockImplementation(() => ({
+    mockFindRepoByName.mockImplementation(() => ({
       name: "my-repo",
       // no mergeStrategy
     }));
-    mockGetOctokit.mock.mockImplementation(async () => ({
+    mockGetOctokit.mockImplementation(async () => ({
       pulls: { merge: mockMerge },
       git: { deleteRef: mockDeleteRef },
     }));
@@ -199,11 +199,11 @@ describe("mergePR tool", () => {
   });
 
   it("defaults to 'squash' when repo not found in config", async () => {
-    const mockMerge = mock.fn(async () => ({}));
-    const mockDeleteRef = mock.fn(async () => ({}));
+    const mockMerge = vi.fn(async () => ({}));
+    const mockDeleteRef = vi.fn(async () => ({}));
     const { deps, mockFindRepoByName, mockGetOctokit } = makeDeps();
-    mockFindRepoByName.mock.mockImplementation(() => undefined);
-    mockGetOctokit.mock.mockImplementation(async () => ({
+    mockFindRepoByName.mockImplementation(() => undefined);
+    mockGetOctokit.mockImplementation(async () => ({
       pulls: { merge: mockMerge },
       git: { deleteRef: mockDeleteRef },
     }));
@@ -216,10 +216,10 @@ describe("mergePR tool", () => {
   });
 
   it("deletes remote branch after merge", async () => {
-    const mockMerge = mock.fn(async () => ({}));
-    const mockDeleteRef = mock.fn(async () => ({}));
+    const mockMerge = vi.fn(async () => ({}));
+    const mockDeleteRef = vi.fn(async () => ({}));
     const { deps, mockGetOctokit } = makeDeps();
-    mockGetOctokit.mock.mockImplementation(async () => ({
+    mockGetOctokit.mockImplementation(async () => ({
       pulls: { merge: mockMerge },
       git: { deleteRef: mockDeleteRef },
     }));
@@ -228,8 +228,8 @@ describe("mergePR tool", () => {
     const toolDef = createMergePRTool(ctx, deps);
     await toolDef.handler({ _placeholder: undefined }, { sessionId: "test" });
 
-    assert.equal(mockDeleteRef.mock.callCount(), 1);
-    const deleteArgs = mockDeleteRef.mock.calls[0]!.arguments as never as [
+    assert.equal(mockDeleteRef.mock.calls.length, 1);
+    const deleteArgs = mockDeleteRef.mock.calls[0]! as never as [
       { owner: string; repo: string; ref: string },
     ];
     assert.equal(deleteArgs[0].owner, "org");
@@ -238,12 +238,12 @@ describe("mergePR tool", () => {
   });
 
   it("returns warning when branch deletion fails", async () => {
-    const mockMerge = mock.fn(async () => ({}));
-    const mockDeleteRef = mock.fn(async () => {
+    const mockMerge = vi.fn(async () => ({}));
+    const mockDeleteRef = vi.fn(async () => {
       throw new Error("Reference does not exist");
     });
     const { deps, mockGetOctokit } = makeDeps();
-    mockGetOctokit.mock.mockImplementation(async () => ({
+    mockGetOctokit.mockImplementation(async () => ({
       pulls: { merge: mockMerge },
       git: { deleteRef: mockDeleteRef },
     }));
@@ -259,11 +259,11 @@ describe("mergePR tool", () => {
   });
 
   it("returns error when merge fails", async () => {
-    const mockMerge = mock.fn(async () => {
+    const mockMerge = vi.fn(async () => {
       throw new Error("Merge conflict");
     });
     const { deps, mockGetOctokit } = makeDeps();
-    mockGetOctokit.mock.mockImplementation(async () => ({
+    mockGetOctokit.mockImplementation(async () => ({
       pulls: { merge: mockMerge },
     }));
 
@@ -278,10 +278,10 @@ describe("mergePR tool", () => {
   });
 
   it("logs execution after merge", async () => {
-    const mockMerge = mock.fn(async () => ({}));
-    const mockDeleteRef = mock.fn(async () => ({}));
+    const mockMerge = vi.fn(async () => ({}));
+    const mockDeleteRef = vi.fn(async () => ({}));
     const { deps, mockGetOctokit, mockAppendExecutionLog } = makeDeps();
-    mockGetOctokit.mock.mockImplementation(async () => ({
+    mockGetOctokit.mockImplementation(async () => ({
       pulls: { merge: mockMerge },
       git: { deleteRef: mockDeleteRef },
     }));
@@ -290,8 +290,8 @@ describe("mergePR tool", () => {
     const toolDef = createMergePRTool(ctx, deps);
     await toolDef.handler({ _placeholder: undefined }, { sessionId: "test" });
 
-    assert.ok(mockAppendExecutionLog.mock.callCount() >= 1);
-    const logArgs = mockAppendExecutionLog.mock.calls[0]!.arguments as [string, string];
+    assert.ok(mockAppendExecutionLog.mock.calls.length >= 1);
+    const logArgs = mockAppendExecutionLog.mock.calls[0]! as [string, string];
     assert.equal(logArgs[0], ctx.branchName);
     assert.ok(logArgs[1].includes("squash"));
   });

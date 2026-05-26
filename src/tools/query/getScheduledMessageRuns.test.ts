@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, afterEach, mock } from "node:test";
+import { describe, it, beforeEach, afterEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import { mkdtemp, rm, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -20,15 +20,18 @@ function buildCtx(overrides: Partial<QueryToolContext> = {}): QueryToolContext {
     session: { sessionId: "test-session" } as QueryToolContext["session"],
     slackClient: undefined,
     changesWorkflowEnabled: false,
-    allowScheduledMessages: true,
+    cronUserSchedules: true,
     ...overrides,
   } as QueryToolContext;
 }
 
 function stubSlackClient(): WebClient {
   const client = new WebClient();
-  mock.method(client.auth, "test", async () => ({ ok: true, url: "https://t.slack.com/" }));
-  mock.method(client.conversations, "info", async () => ({
+  vi.spyOn(client.auth, "test").mockImplementation(async () => ({
+    ok: true,
+    url: "https://t.slack.com/",
+  }));
+  vi.spyOn(client.conversations, "info").mockImplementation(async () => ({
     ok: true,
     channel: { id: "C456", name: "ops", is_im: false },
   }));

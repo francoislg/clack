@@ -1,4 +1,4 @@
-import { describe, it, mock, type Mock } from "node:test";
+import { describe, it, vi, type Mock } from "vitest";
 import assert from "node:assert/strict";
 import { WebClient } from "@slack/web-api";
 import { createUploadFileTool } from "./uploadFile.js";
@@ -39,7 +39,7 @@ function makeContext(overrides?: Partial<QueryToolContext>): QueryToolContext {
       slack: { botToken: "xoxb-test-token" },
     } as QueryToolContext["config"],
     changesWorkflowEnabled: false,
-    allowScheduledMessages: false,
+    cronUserSchedules: false,
     ...overrides,
   };
 }
@@ -49,7 +49,7 @@ function makeSlackClient(uploadResult: UploadV2Result = DEFAULT_UPLOAD_RESULT): 
   uploadV2: Mock<UploadV2>;
 } {
   const client = new WebClient();
-  const uploadV2 = mock.method(client, "filesUploadV2", async () => uploadResult);
+  const uploadV2 = vi.spyOn(client, "filesUploadV2").mockImplementation(async () => uploadResult);
   return { client, uploadV2 };
 }
 
@@ -67,7 +67,7 @@ function uploadArgs(overrides?: Partial<UploadArgs>): UploadArgs {
 }
 
 function firstCallArgs(uploadV2: Mock<UploadV2>): ObservedUploadArgs {
-  const args = uploadV2.mock.calls[0].arguments[0];
+  const args = uploadV2.mock.calls[0][0];
   if (!args || typeof args !== "object") {
     throw new Error("Expected uploadV2 to be called with an options object");
   }
@@ -182,7 +182,7 @@ describe("createUploadFileTool", () => {
 
   it("returns error on Slack API failure", async () => {
     const client = new WebClient();
-    mock.method(client, "filesUploadV2", async () => {
+    vi.spyOn(client, "filesUploadV2").mockImplementation(async () => {
       throw new Error("channel_not_found");
     });
     const tool = createUploadFileTool(makeContext({ slackClient: client }));

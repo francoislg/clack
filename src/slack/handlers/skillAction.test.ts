@@ -1,4 +1,4 @@
-import { describe, it, mock } from "node:test";
+import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import type { App, BlockAction } from "@slack/bolt";
 import { registerSkillActionHandler, type SkillActionDeps } from "./skillAction.js";
@@ -50,14 +50,14 @@ const sessionInfoFixture: SessionInfo = {
 } as object as SessionInfo;
 
 type PostFn = (...args: unknown[]) => Promise<{ ok: true; ts: string }>;
-function makePostMock(): ReturnType<typeof mock.fn<PostFn>> {
-  return mock.fn<PostFn>(async () => ({ ok: true as const, ts: "T2" }));
+function makePostMock(): ReturnType<typeof vi.fn<PostFn>> {
+  return vi.fn<PostFn>(async () => ({ ok: true as const, ts: "T2" }));
 }
 
 function makeClient(): {
   client: App["client"];
-  postMessage: ReturnType<typeof mock.fn<PostFn>>;
-  postEphemeral: ReturnType<typeof mock.fn<PostFn>>;
+  postMessage: ReturnType<typeof vi.fn<PostFn>>;
+  postEphemeral: ReturnType<typeof vi.fn<PostFn>>;
 } {
   const postMessage = makePostMock();
   const postEphemeral = makePostMock();
@@ -76,10 +76,10 @@ function makeBody(): BlockAction {
 
 interface MockBundle {
   deps: SkillActionDeps;
-  writeUserSkill: ReturnType<typeof mock.fn<SkillActionDeps["writeUserSkill"]>>;
-  updateUserSkill: ReturnType<typeof mock.fn<SkillActionDeps["updateUserSkill"]>>;
-  disableUserSkill: ReturnType<typeof mock.fn<SkillActionDeps["disableUserSkill"]>>;
-  restoreUserSkill: ReturnType<typeof mock.fn<SkillActionDeps["restoreUserSkill"]>>;
+  writeUserSkill: ReturnType<typeof vi.fn<SkillActionDeps["writeUserSkill"]>>;
+  updateUserSkill: ReturnType<typeof vi.fn<SkillActionDeps["updateUserSkill"]>>;
+  disableUserSkill: ReturnType<typeof vi.fn<SkillActionDeps["disableUserSkill"]>>;
+  restoreUserSkill: ReturnType<typeof vi.fn<SkillActionDeps["restoreUserSkill"]>>;
 }
 
 function makeDeps(
@@ -90,10 +90,10 @@ function makeDeps(
     userSkillExists?: boolean;
   } = {},
 ): MockBundle {
-  const writeUserSkill = mock.fn<SkillActionDeps["writeUserSkill"]>(() => baseSkill);
-  const updateUserSkill = mock.fn<SkillActionDeps["updateUserSkill"]>(() => baseSkill);
-  const disableUserSkill = mock.fn<SkillActionDeps["disableUserSkill"]>(() => baseSkill);
-  const restoreUserSkill = mock.fn<SkillActionDeps["restoreUserSkill"]>(() => baseSkill);
+  const writeUserSkill = vi.fn<SkillActionDeps["writeUserSkill"]>(() => baseSkill);
+  const updateUserSkill = vi.fn<SkillActionDeps["updateUserSkill"]>(() => baseSkill);
+  const disableUserSkill = vi.fn<SkillActionDeps["disableUserSkill"]>(() => baseSkill);
+  const restoreUserSkill = vi.fn<SkillActionDeps["restoreUserSkill"]>(() => baseSkill);
 
   const deps: SkillActionDeps = {
     getRole: async () => overrides.role ?? "member",
@@ -140,8 +140,8 @@ describe("skillAction handler — create", () => {
     };
     const bundle = makeDeps({ intent, role: "member", userSkillExists: false });
     const { postMessage } = await invoke(bundle);
-    assert.equal(bundle.writeUserSkill.mock.callCount(), 1);
-    assert.equal(postMessage.mock.callCount(), 1);
+    assert.equal(bundle.writeUserSkill.mock.calls.length, 1);
+    assert.equal(postMessage.mock.calls.length, 1);
   });
 
   it("rejects skill_create when slug already exists at apply time", async () => {
@@ -154,8 +154,8 @@ describe("skillAction handler — create", () => {
     };
     const bundle = makeDeps({ intent, role: "member", userSkillExists: true });
     const { postEphemeral } = await invoke(bundle);
-    assert.equal(bundle.writeUserSkill.mock.callCount(), 0);
-    assert.equal(postEphemeral.mock.callCount(), 1);
+    assert.equal(bundle.writeUserSkill.mock.calls.length, 0);
+    assert.equal(postEphemeral.mock.calls.length, 1);
   });
 });
 
@@ -164,8 +164,8 @@ describe("skillAction handler — update", () => {
     const intent: StagedIntent = { type: "skill_update", slug: "foo", body: "new" };
     const bundle = makeDeps({ intent, role: "member", existing: baseSkill });
     const { postMessage } = await invoke(bundle);
-    assert.equal(bundle.updateUserSkill.mock.callCount(), 1);
-    assert.equal(postMessage.mock.callCount(), 1);
+    assert.equal(bundle.updateUserSkill.mock.calls.length, 1);
+    assert.equal(postMessage.mock.calls.length, 1);
   });
 
   it("rejects skill_update when caller is not the owner and not admin", async () => {
@@ -176,8 +176,8 @@ describe("skillAction handler — update", () => {
       existing: { ...baseSkill, ownerUserId: "U_OTHER" },
     });
     const { postEphemeral } = await invoke(bundle);
-    assert.equal(bundle.updateUserSkill.mock.callCount(), 0);
-    assert.equal(postEphemeral.mock.callCount(), 1);
+    assert.equal(bundle.updateUserSkill.mock.calls.length, 0);
+    assert.equal(postEphemeral.mock.calls.length, 1);
   });
 
   it("allows skill_update when caller is admin (defense-in-depth)", async () => {
@@ -188,15 +188,15 @@ describe("skillAction handler — update", () => {
       existing: { ...baseSkill, ownerUserId: "U_OTHER" },
     });
     await invoke(bundle);
-    assert.equal(bundle.updateUserSkill.mock.callCount(), 1);
+    assert.equal(bundle.updateUserSkill.mock.calls.length, 1);
   });
 
   it("rejects skill_update when skill no longer exists", async () => {
     const intent: StagedIntent = { type: "skill_update", slug: "ghost", body: "x" };
     const bundle = makeDeps({ intent, role: "admin", existing: null });
     const { postEphemeral } = await invoke(bundle);
-    assert.equal(bundle.updateUserSkill.mock.callCount(), 0);
-    assert.equal(postEphemeral.mock.callCount(), 1);
+    assert.equal(bundle.updateUserSkill.mock.calls.length, 0);
+    assert.equal(postEphemeral.mock.calls.length, 1);
   });
 });
 
@@ -205,7 +205,7 @@ describe("skillAction handler — disable/restore", () => {
     const intent: StagedIntent = { type: "skill_disable", slug: "foo" };
     const bundle = makeDeps({ intent, role: "member", existing: baseSkill });
     await invoke(bundle);
-    assert.equal(bundle.disableUserSkill.mock.callCount(), 1);
+    assert.equal(bundle.disableUserSkill.mock.calls.length, 1);
   });
 
   it("rejects skill_disable when caller is non-owner non-admin", async () => {
@@ -216,7 +216,7 @@ describe("skillAction handler — disable/restore", () => {
       existing: { ...baseSkill, ownerUserId: "U_OTHER" },
     });
     await invoke(bundle);
-    assert.equal(bundle.disableUserSkill.mock.callCount(), 0);
+    assert.equal(bundle.disableUserSkill.mock.calls.length, 0);
   });
 
   it("applies skill_restore for the owner", async () => {
@@ -227,7 +227,7 @@ describe("skillAction handler — disable/restore", () => {
       existing: { ...baseSkill, disabledAt: "x" },
     });
     await invoke(bundle);
-    assert.equal(bundle.restoreUserSkill.mock.callCount(), 1);
+    assert.equal(bundle.restoreUserSkill.mock.calls.length, 1);
   });
 });
 
@@ -235,6 +235,6 @@ describe("skillAction handler — expired intent", () => {
   it("posts an ephemeral expired message when the intent cannot be resolved", async () => {
     const bundle = makeDeps({ intent: null, role: "member" });
     const { postEphemeral } = await invoke(bundle);
-    assert.equal(postEphemeral.mock.callCount(), 1);
+    assert.equal(postEphemeral.mock.calls.length, 1);
   });
 });

@@ -1,4 +1,4 @@
-import { describe, it, mock } from "node:test";
+import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import { createListRemindersTool } from "./listReminders.js";
 import type { QueryToolContext } from "../types.js";
@@ -16,7 +16,7 @@ function makeContext(overrides?: Partial<QueryToolContext>): QueryToolContext {
     } as QueryToolContext["session"],
     config: {} as QueryToolContext["config"],
     changesWorkflowEnabled: false,
-    allowScheduledMessages: true,
+    cronUserSchedules: true,
     ...overrides,
   };
 }
@@ -25,7 +25,7 @@ function makeSlackClient(listResult?: unknown) {
   return {
     chat: {
       scheduledMessages: {
-        list: mock.fn(
+        list: vi.fn(
           async () =>
             listResult ?? {
               ok: true,
@@ -47,7 +47,7 @@ function makeSlackClient(listResult?: unknown) {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function getMockCalls(obj: unknown): any[] {
-  return (obj as { mock: { calls: Array<{ arguments: unknown[] }> } }).mock.calls;
+  return (obj as { mock: { calls: unknown[][] } }).mock.calls;
 }
 
 describe("createListRemindersTool", () => {
@@ -80,7 +80,7 @@ describe("createListRemindersTool", () => {
     await tool.handler({ channel: "C_OPS" }, {});
 
     const calls = getMockCalls(client!.chat.scheduledMessages.list);
-    const callArgs = calls[0].arguments[0] as Record<string, string>;
+    const callArgs = calls[0][0] as Record<string, string>;
     assert.equal(callArgs.channel, "C_OPS");
   });
 

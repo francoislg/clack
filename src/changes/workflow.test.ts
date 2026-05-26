@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, beforeEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import type { ChangeRequest, ChangePlan, ExecutionResult, ChangeStatus } from "./types.js";
 import type { ActiveChangeState } from "./activeState.js";
@@ -60,14 +60,14 @@ function buildMockPool(): WorkerPool {
 // Mock Functions
 // ============================================================================
 
-const mockGetConfig = mock.fn<() => AppConfig>();
+const mockGetConfig = vi.fn<() => AppConfig>();
 const mockFindRepoByName =
-  mock.fn<(name: string, config: AppConfig) => RepositoryConfig | undefined>();
+  vi.fn<(name: string, config: AppConfig) => RepositoryConfig | undefined>();
 const mockCreateWorktree =
-  mock.fn<(repo: RepositoryConfig, branch: string) => Promise<WorktreeInfo>>();
+  vi.fn<(repo: RepositoryConfig, branch: string) => Promise<WorktreeInfo>>();
 const mockGetExistingWorktree =
-  mock.fn<(repo: RepositoryConfig, branch: string) => WorktreeInfo | null>();
-const mockGetActiveChange = mock.fn<(sessionId: string) => ActiveChangeState | undefined>();
+  vi.fn<(repo: RepositoryConfig, branch: string) => WorktreeInfo | null>();
+const mockGetActiveChange = vi.fn<(sessionId: string) => ActiveChangeState | undefined>();
 
 interface SetActiveChangeRef {
   userId: string;
@@ -77,19 +77,19 @@ interface SetActiveChangeRef {
 }
 
 const mockSetActiveChange =
-  mock.fn<(sessionId: string, change: ActiveChangeState, ref: SetActiveChangeRef) => void>();
-const mockClearActiveChange = mock.fn<(sessionId: string) => void>();
+  vi.fn<(sessionId: string, change: ActiveChangeState, ref: SetActiveChangeRef) => void>();
+const mockClearActiveChange = vi.fn<(sessionId: string) => void>();
 const mockGetActiveChangeForUser =
-  mock.fn<(userId: string) => { sessionId: string; change: ActiveChangeState } | undefined>();
-const mockCountActiveChangesForUser = mock.fn<(userId: string) => number>();
-const mockUpdateActiveChangeStatus = mock.fn<(sessionId: string, status: ChangeStatus) => void>();
-const mockAppendExecutionLog = mock.fn<(branch: string, message: string) => void>();
+  vi.fn<(userId: string) => { sessionId: string; change: ActiveChangeState } | undefined>();
+const mockCountActiveChangesForUser = vi.fn<(userId: string) => number>();
+const mockUpdateActiveChangeStatus = vi.fn<(sessionId: string, status: ChangeStatus) => void>();
+const mockAppendExecutionLog = vi.fn<(branch: string, message: string) => void>();
 const mockReadSessionState =
-  mock.fn<
+  vi.fn<
     (branch: string) => Promise<{ status: string; phase: string; lastMessage: string } | null>
   >();
-const mockExecuteChange = mock.fn<(opts: ExecuteChangeOptions) => Promise<ExecutionResult>>();
-const mockResolveChangesInstructions = mock.fn<(repoName: string) => string>();
+const mockExecuteChange = vi.fn<(opts: ExecuteChangeOptions) => Promise<ExecutionResult>>();
+const mockResolveChangesInstructions = vi.fn<(repoName: string) => string>();
 
 interface RunClaudeInWorktreeOpts {
   prompt: string;
@@ -107,14 +107,14 @@ interface RunClaudeInWorktreeOpts {
 }
 
 const mockRunClaudeInWorktree =
-  mock.fn<
+  vi.fn<
     (
       repoName: string,
       opts: RunClaudeInWorktreeOpts,
     ) => Promise<{ success: boolean; error?: string }>
   >();
 const mockRunWorktreeSetup =
-  mock.fn<
+  vi.fn<
     (
       repoName: string,
       worktreePath: string,
@@ -134,13 +134,11 @@ interface WorkerContextParams {
   config: AppConfig;
 }
 
-const mockBuildWorkerContext = mock.fn<(params: WorkerContextParams) => WorkerToolContext>();
-const mockBuildClackTools = mock.fn<(context: WorkerToolContext) => ClackWorkerToolsResult>();
+const mockBuildWorkerContext = vi.fn<(params: WorkerContextParams) => WorkerToolContext>();
+const mockBuildClackTools = vi.fn<(context: WorkerToolContext) => ClackWorkerToolsResult>();
 const mockFetchPRReviewContext =
-  mock.fn<
-    (prUrl: string) => Promise<{ ok: true; context: string } | { ok: false; error: string }>
-  >();
-const mockGetSession = mock.fn<(sessionId: string) => Promise<SessionContext | null>>();
+  vi.fn<(prUrl: string) => Promise<{ ok: true; context: string } | { ok: false; error: string }>>();
+const mockGetSession = vi.fn<(sessionId: string) => Promise<SessionContext | null>>();
 
 // Types for test assertions
 type ExecuteChangeCallArg = Omit<ExecuteChangeOptions, "plan"> & {
@@ -269,54 +267,54 @@ function makeActiveChangeState(overrides: Partial<ActiveChangeState> = {}): Acti
 }
 
 function resetMocks(): void {
-  mockGetConfig.mock.resetCalls();
-  mockFindRepoByName.mock.resetCalls();
-  mockCreateWorktree.mock.resetCalls();
-  mockGetExistingWorktree.mock.resetCalls();
-  mockGetActiveChange.mock.resetCalls();
-  mockSetActiveChange.mock.resetCalls();
-  mockClearActiveChange.mock.resetCalls();
-  mockGetActiveChangeForUser.mock.resetCalls();
-  mockCountActiveChangesForUser.mock.resetCalls();
-  mockUpdateActiveChangeStatus.mock.resetCalls();
-  mockAppendExecutionLog.mock.resetCalls();
-  mockReadSessionState.mock.resetCalls();
-  mockExecuteChange.mock.resetCalls();
-  mockResolveChangesInstructions.mock.resetCalls();
-  mockRunClaudeInWorktree.mock.resetCalls();
-  mockRunWorktreeSetup.mock.resetCalls();
-  mockBuildWorkerContext.mock.resetCalls();
-  mockBuildClackTools.mock.resetCalls();
-  mockFetchPRReviewContext.mock.resetCalls();
-  mockGetSession.mock.resetCalls();
+  mockGetConfig.mockClear();
+  mockFindRepoByName.mockClear();
+  mockCreateWorktree.mockClear();
+  mockGetExistingWorktree.mockClear();
+  mockGetActiveChange.mockClear();
+  mockSetActiveChange.mockClear();
+  mockClearActiveChange.mockClear();
+  mockGetActiveChangeForUser.mockClear();
+  mockCountActiveChangesForUser.mockClear();
+  mockUpdateActiveChangeStatus.mockClear();
+  mockAppendExecutionLog.mockClear();
+  mockReadSessionState.mockClear();
+  mockExecuteChange.mockClear();
+  mockResolveChangesInstructions.mockClear();
+  mockRunClaudeInWorktree.mockClear();
+  mockRunWorktreeSetup.mockClear();
+  mockBuildWorkerContext.mockClear();
+  mockBuildClackTools.mockClear();
+  mockFetchPRReviewContext.mockClear();
+  mockGetSession.mockClear();
 
   // Reset default implementations
-  mockGetConfig.mock.mockImplementation(() => testConfig);
-  mockGetActiveChangeForUser.mock.mockImplementation(() => undefined);
-  mockCountActiveChangesForUser.mock.mockImplementation(() => 0);
-  mockGetExistingWorktree.mock.mockImplementation(() => null);
-  mockCreateWorktree.mock.mockImplementation(async () => defaultWorktree);
-  mockRunWorktreeSetup.mock.mockImplementation(async () => {});
-  mockReadSessionState.mock.mockImplementation(async () => null);
-  mockExecuteChange.mock.mockImplementation(async () => ({
+  mockGetConfig.mockImplementation(() => testConfig);
+  mockGetActiveChangeForUser.mockImplementation(() => undefined);
+  mockCountActiveChangesForUser.mockImplementation(() => 0);
+  mockGetExistingWorktree.mockImplementation(() => null);
+  mockCreateWorktree.mockImplementation(async () => defaultWorktree);
+  mockRunWorktreeSetup.mockImplementation(async () => {});
+  mockReadSessionState.mockImplementation(async () => null);
+  mockExecuteChange.mockImplementation(async () => ({
     success: true,
     summary: "Changes implemented",
   }));
-  mockGetSession.mock.mockImplementation(async () => null);
-  mockResolveChangesInstructions.mock.mockImplementation(() => "");
-  mockRunClaudeInWorktree.mock.mockImplementation(async () => ({ success: true }));
-  mockFetchPRReviewContext.mock.mockImplementation(async () => ({
+  mockGetSession.mockImplementation(async () => null);
+  mockResolveChangesInstructions.mockImplementation(() => "");
+  mockRunClaudeInWorktree.mockImplementation(async () => ({ success: true }));
+  mockFetchPRReviewContext.mockImplementation(async () => ({
     ok: true as const,
     context: "Review context",
   }));
-  mockFindRepoByName.mock.mockImplementation((name: string) => {
+  mockFindRepoByName.mockImplementation((name: string) => {
     if (name === "my-repo") {
       return testRepo;
     }
     return undefined;
   });
-  mockBuildWorkerContext.mock.mockImplementation(() => ({}) as WorkerToolContext);
-  mockBuildClackTools.mock.mockImplementation(() => ({
+  mockBuildWorkerContext.mockImplementation(() => ({}) as WorkerToolContext);
+  mockBuildClackTools.mockImplementation(() => ({
     mcpServer: createSdkMcpServer({ name: "test" }),
     toolNames: [],
     getResult: () => null,
@@ -343,7 +341,7 @@ describe("startChangeWorkflow", () => {
   }
 
   it("returns error when user already has an active change (default cap = 1)", async () => {
-    mockCountActiveChangesForUser.mock.mockImplementation(() => 1);
+    mockCountActiveChangesForUser.mockImplementation(() => 1);
 
     const result = await startChangeWorkflow(
       makeRequest(),
@@ -358,8 +356,8 @@ describe("startChangeWorkflow", () => {
   });
 
   it("allows multiple changes up to configured maxActiveChangesPerUser", async () => {
-    mockGetConfig.mock.mockImplementation(() => configWithCap(3));
-    mockCountActiveChangesForUser.mock.mockImplementation(() => 2);
+    mockGetConfig.mockImplementation(() => configWithCap(3));
+    mockCountActiveChangesForUser.mockImplementation(() => 2);
 
     const result = await startChangeWorkflow(
       makeRequest(),
@@ -372,7 +370,7 @@ describe("startChangeWorkflow", () => {
     // 2 < 3 → the gate must NOT block. We don't assert success here because the
     // post-gate happy path requires deeper mocking (executeChange, getSession,
     // pr creation). What matters is that the gate-specific error is absent.
-    assert.equal(mockSetActiveChange.mock.callCount(), 1, "should reserve a slot past the gate");
+    assert.equal(mockSetActiveChange.mock.calls.length, 1, "should reserve a slot past the gate");
     assert.ok(
       !result.error?.includes("already have"),
       `gate should not block; got: ${result.error}`,
@@ -380,8 +378,8 @@ describe("startChangeWorkflow", () => {
   });
 
   it("blocks when at the configured maxActiveChangesPerUser limit (>1)", async () => {
-    mockGetConfig.mock.mockImplementation(() => configWithCap(3));
-    mockCountActiveChangesForUser.mock.mockImplementation(() => 3);
+    mockGetConfig.mockImplementation(() => configWithCap(3));
+    mockCountActiveChangesForUser.mockImplementation(() => 3);
 
     const result = await startChangeWorkflow(
       makeRequest(),
@@ -397,9 +395,9 @@ describe("startChangeWorkflow", () => {
   });
 
   it("disables the per-user cap when maxActiveChangesPerUser=0", async () => {
-    mockGetConfig.mock.mockImplementation(() => configWithCap(0));
+    mockGetConfig.mockImplementation(() => configWithCap(0));
     // Even with 50 in-flight, the gate should not block when cap is 0
-    mockCountActiveChangesForUser.mock.mockImplementation(() => 50);
+    mockCountActiveChangesForUser.mockImplementation(() => 50);
 
     const result = await startChangeWorkflow(
       makeRequest(),
@@ -410,7 +408,7 @@ describe("startChangeWorkflow", () => {
     );
 
     assert.equal(
-      mockCountActiveChangesForUser.mock.callCount(),
+      mockCountActiveChangesForUser.mock.calls.length,
       0,
       "count helper should not be called when cap is 0",
     );
@@ -418,7 +416,7 @@ describe("startChangeWorkflow", () => {
       !result.error?.includes("already have"),
       `gate should not block; got: ${result.error}`,
     );
-    assert.equal(mockSetActiveChange.mock.callCount(), 1, "should reserve a slot past the gate");
+    assert.equal(mockSetActiveChange.mock.calls.length, 1, "should reserve a slot past the gate");
   });
 
   it("returns error when target repo is not found", async () => {
@@ -436,7 +434,7 @@ describe("startChangeWorkflow", () => {
   });
 
   it("reserves the active change slot before creating worktree", async () => {
-    mockGetSession.mock.mockImplementation(async () =>
+    mockGetSession.mockImplementation(async () =>
       makeSessionContext({
         activeChange: makeActiveChangeState({ prUrl: "https://github.com/org/my-repo/pull/42" }),
       }),
@@ -444,8 +442,8 @@ describe("startChangeWorkflow", () => {
 
     await startChangeWorkflow(makeRequest(), makePlan(), "session-123", undefined, makeDeps());
 
-    assert.equal(mockSetActiveChange.mock.callCount(), 1);
-    const [sessionId, activeChange, ref] = mockSetActiveChange.mock.calls[0].arguments;
+    assert.equal(mockSetActiveChange.mock.calls.length, 1);
+    const [sessionId, activeChange, ref] = mockSetActiveChange.mock.calls[0];
     assert.equal(sessionId, "session-123");
     assert.equal(activeChange.branch, "feat/test-branch");
     assert.equal(activeChange.repo, "my-repo");
@@ -455,7 +453,7 @@ describe("startChangeWorkflow", () => {
   });
 
   it("creates a new worktree when none exists", async () => {
-    mockGetSession.mock.mockImplementation(async () =>
+    mockGetSession.mockImplementation(async () =>
       makeSessionContext({
         activeChange: makeActiveChangeState({ prUrl: "https://github.com/org/my-repo/pull/42" }),
       }),
@@ -463,13 +461,13 @@ describe("startChangeWorkflow", () => {
 
     await startChangeWorkflow(makeRequest(), makePlan(), "session-123", undefined, makeDeps());
 
-    assert.equal(mockCreateWorktree.mock.callCount(), 1);
-    assert.equal(mockRunWorktreeSetup.mock.callCount(), 1);
+    assert.equal(mockCreateWorktree.mock.calls.length, 1);
+    assert.equal(mockRunWorktreeSetup.mock.calls.length, 1);
   });
 
   it("reuses existing worktree when one exists", async () => {
-    mockGetExistingWorktree.mock.mockImplementation(() => defaultWorktree);
-    mockGetSession.mock.mockImplementation(async () =>
+    mockGetExistingWorktree.mockImplementation(() => defaultWorktree);
+    mockGetSession.mockImplementation(async () =>
       makeSessionContext({
         activeChange: makeActiveChangeState({ prUrl: "https://github.com/org/my-repo/pull/42" }),
       }),
@@ -477,18 +475,18 @@ describe("startChangeWorkflow", () => {
 
     await startChangeWorkflow(makeRequest(), makePlan(), "session-123", undefined, makeDeps());
 
-    assert.equal(mockCreateWorktree.mock.callCount(), 0);
-    assert.equal(mockRunWorktreeSetup.mock.callCount(), 0);
+    assert.equal(mockCreateWorktree.mock.calls.length, 0);
+    assert.equal(mockRunWorktreeSetup.mock.calls.length, 0);
   });
 
   it("reads persisted session state for existing worktree resume context", async () => {
-    mockGetExistingWorktree.mock.mockImplementation(() => defaultWorktree);
-    mockReadSessionState.mock.mockImplementation(async () => ({
+    mockGetExistingWorktree.mockImplementation(() => defaultWorktree);
+    mockReadSessionState.mockImplementation(async () => ({
       status: "executing",
       phase: "Implementing",
       lastMessage: "Working on changes",
     }));
-    mockGetSession.mock.mockImplementation(async () =>
+    mockGetSession.mockImplementation(async () =>
       makeSessionContext({
         activeChange: makeActiveChangeState({ prUrl: "https://github.com/org/my-repo/pull/42" }),
       }),
@@ -496,8 +494,8 @@ describe("startChangeWorkflow", () => {
 
     await startChangeWorkflow(makeRequest(), makePlan(), "session-123", undefined, makeDeps());
 
-    assert.equal(mockExecuteChange.mock.callCount(), 1);
-    const arg = mockExecuteChange.mock.calls[0].arguments[0] as ExecuteChangeCallArg;
+    assert.equal(mockExecuteChange.mock.calls.length, 1);
+    const arg = mockExecuteChange.mock.calls[0][0] as ExecuteChangeCallArg;
     const resumeContext = arg.resumeContext;
     assert.ok(typeof resumeContext === "string");
     assert.ok(resumeContext.includes("Implementing"));
@@ -505,9 +503,9 @@ describe("startChangeWorkflow", () => {
   });
 
   it("provides generic resume context for existing worktree without persisted state", async () => {
-    mockGetExistingWorktree.mock.mockImplementation(() => defaultWorktree);
-    mockReadSessionState.mock.mockImplementation(async () => null);
-    mockGetSession.mock.mockImplementation(async () =>
+    mockGetExistingWorktree.mockImplementation(() => defaultWorktree);
+    mockReadSessionState.mockImplementation(async () => null);
+    mockGetSession.mockImplementation(async () =>
       makeSessionContext({
         activeChange: makeActiveChangeState({ prUrl: "https://github.com/org/my-repo/pull/42" }),
       }),
@@ -515,14 +513,14 @@ describe("startChangeWorkflow", () => {
 
     await startChangeWorkflow(makeRequest(), makePlan(), "session-123", undefined, makeDeps());
 
-    const arg = mockExecuteChange.mock.calls[0].arguments[0] as ExecuteChangeCallArg;
+    const arg = mockExecuteChange.mock.calls[0][0] as ExecuteChangeCallArg;
     const resumeContext = arg.resumeContext;
     assert.ok(typeof resumeContext === "string");
     assert.ok(resumeContext.includes("partial changes"));
   });
 
   it("clears active change slot and returns error on worktree creation failure", async () => {
-    mockCreateWorktree.mock.mockImplementation(async () => {
+    mockCreateWorktree.mockImplementation(async () => {
       throw new Error("disk full");
     });
 
@@ -537,12 +535,12 @@ describe("startChangeWorkflow", () => {
     assert.equal(result.success, false);
     assert.ok(result.error?.includes("Failed to create workspace"));
     assert.ok(result.error?.includes("disk full"));
-    assert.equal(mockClearActiveChange.mock.callCount(), 1);
-    assert.equal(mockClearActiveChange.mock.calls[0].arguments[0], "session-123");
+    assert.equal(mockClearActiveChange.mock.calls.length, 1);
+    assert.equal(mockClearActiveChange.mock.calls[0][0], "session-123");
   });
 
   it("returns error and sets status to failed on execution failure", async () => {
-    mockExecuteChange.mock.mockImplementation(async () => ({
+    mockExecuteChange.mockImplementation(async () => ({
       success: false,
       error: "Compilation failed",
     }));
@@ -557,12 +555,12 @@ describe("startChangeWorkflow", () => {
 
     assert.equal(result.success, false);
     assert.equal(result.error, "Compilation failed");
-    assert.equal(mockUpdateActiveChangeStatus.mock.callCount(), 1);
-    assert.equal(mockUpdateActiveChangeStatus.mock.calls[0].arguments[1], "failed");
+    assert.equal(mockUpdateActiveChangeStatus.mock.calls.length, 1);
+    assert.equal(mockUpdateActiveChangeStatus.mock.calls[0][1], "failed");
   });
 
   it("handles execution exception gracefully", async () => {
-    mockExecuteChange.mock.mockImplementation(async () => {
+    mockExecuteChange.mockImplementation(async () => {
       throw new Error("Unexpected SDK crash");
     });
 
@@ -576,11 +574,11 @@ describe("startChangeWorkflow", () => {
 
     assert.equal(result.success, false);
     assert.ok(result.error?.includes("Unexpected SDK crash"));
-    assert.equal(mockUpdateActiveChangeStatus.mock.callCount(), 1);
+    assert.equal(mockUpdateActiveChangeStatus.mock.calls.length, 1);
   });
 
   it("returns success with PR URL when execution succeeds and PR is created", async () => {
-    mockGetSession.mock.mockImplementation(async () =>
+    mockGetSession.mockImplementation(async () =>
       makeSessionContext({
         activeChange: makeActiveChangeState({ prUrl: "https://github.com/org/my-repo/pull/99" }),
       }),
@@ -600,7 +598,7 @@ describe("startChangeWorkflow", () => {
   });
 
   it("returns failure when execution succeeds but PR was not created", async () => {
-    mockGetSession.mock.mockImplementation(async () =>
+    mockGetSession.mockImplementation(async () =>
       makeSessionContext({
         activeChange: makeActiveChangeState({ prUrl: undefined }),
       }),
@@ -620,7 +618,7 @@ describe("startChangeWorkflow", () => {
 
   it("returns failure when session has no activeChange after execution", async () => {
     // getSession returns session without activeChange
-    mockGetSession.mock.mockImplementation(async () => makeSessionContext());
+    mockGetSession.mockImplementation(async () => makeSessionContext());
 
     const result = await startChangeWorkflow(
       makeRequest(),
@@ -635,7 +633,7 @@ describe("startChangeWorkflow", () => {
   });
 
   it("returns error with default message when execution fails without specific error", async () => {
-    mockExecuteChange.mock.mockImplementation(async () => ({
+    mockExecuteChange.mockImplementation(async () => ({
       success: false,
     }));
 
@@ -652,7 +650,7 @@ describe("startChangeWorkflow", () => {
   });
 
   it("passes onEvent callback through to executeChange", async () => {
-    mockGetSession.mock.mockImplementation(async () =>
+    mockGetSession.mockImplementation(async () =>
       makeSessionContext({
         activeChange: makeActiveChangeState({ prUrl: "https://github.com/org/my-repo/pull/1" }),
       }),
@@ -661,13 +659,13 @@ describe("startChangeWorkflow", () => {
 
     await startChangeWorkflow(makeRequest(), makePlan(), "session-123", onEvent, makeDeps());
 
-    const arg = mockExecuteChange.mock.calls[0].arguments[0] as ExecuteChangeCallArg;
+    const arg = mockExecuteChange.mock.calls[0][0] as ExecuteChangeCallArg;
     const passedOnEvent = arg.onEvent;
     assert.equal(passedOnEvent, onEvent);
   });
 
   it("passes onEvent callback to runWorktreeSetup for new worktrees", async () => {
-    mockGetSession.mock.mockImplementation(async () =>
+    mockGetSession.mockImplementation(async () =>
       makeSessionContext({
         activeChange: makeActiveChangeState({ prUrl: "https://github.com/org/my-repo/pull/1" }),
       }),
@@ -676,7 +674,7 @@ describe("startChangeWorkflow", () => {
 
     await startChangeWorkflow(makeRequest(), makePlan(), "session-123", onEvent, makeDeps());
 
-    const passedOnEvent = mockRunWorktreeSetup.mock.calls[0].arguments[3];
+    const passedOnEvent = mockRunWorktreeSetup.mock.calls[0][3];
     assert.equal(passedOnEvent, onEvent);
   });
 });
@@ -799,14 +797,14 @@ describe("handleFollowUp", () => {
 
       await handleFollowUp(session, "review", undefined, undefined, makeDeps());
 
-      assert.equal(mockUpdateActiveChangeStatus.mock.calls[0].arguments[1], "reviewing");
+      assert.equal(mockUpdateActiveChangeStatus.mock.calls[0][1], "reviewing");
     });
 
     it("returns error when PR review context fetch fails", async () => {
       const session = makeSessionContext({
         activeChange: makeActiveChangeState({ status: "pr_created" }),
       });
-      mockFetchPRReviewContext.mock.mockImplementation(async () => ({
+      mockFetchPRReviewContext.mockImplementation(async () => ({
         ok: false as const,
         error: "PR not found",
       }));
@@ -824,8 +822,8 @@ describe("handleFollowUp", () => {
 
       await handleFollowUp(session, "review", undefined, undefined, makeDeps());
 
-      assert.equal(mockRunClaudeInWorktree.mock.callCount(), 1);
-      const [repoName, options] = mockRunClaudeInWorktree.mock.calls[0].arguments;
+      assert.equal(mockRunClaudeInWorktree.mock.calls.length, 1);
+      const [repoName, options] = mockRunClaudeInWorktree.mock.calls[0];
       assert.equal(repoName, "my-repo");
       assert.ok(options.prompt.includes("Address the feedback"));
     });
@@ -840,14 +838,14 @@ describe("handleFollowUp", () => {
       assert.equal(result.success, true);
       assert.equal(result.summary, "Review feedback addressed");
       // First call sets "reviewing", second sets "pr_created"
-      assert.equal(mockUpdateActiveChangeStatus.mock.calls[1].arguments[1], "pr_created");
+      assert.equal(mockUpdateActiveChangeStatus.mock.calls[1][1], "pr_created");
     });
 
     it("returns error on review failure", async () => {
       const session = makeSessionContext({
         activeChange: makeActiveChangeState({ status: "pr_created" }),
       });
-      mockRunClaudeInWorktree.mock.mockImplementation(async () => ({
+      mockRunClaudeInWorktree.mockImplementation(async () => ({
         success: false,
         error: "Claude failed",
       }));
@@ -862,13 +860,11 @@ describe("handleFollowUp", () => {
       const session = makeSessionContext({
         activeChange: makeActiveChangeState({ status: "pr_created" }),
       });
-      mockResolveChangesInstructions.mock.mockImplementation(
-        () => "Always run lint before pushing",
-      );
+      mockResolveChangesInstructions.mockImplementation(() => "Always run lint before pushing");
 
       await handleFollowUp(session, "review", undefined, undefined, makeDeps());
 
-      const [, options] = mockRunClaudeInWorktree.mock.calls[0].arguments;
+      const [, options] = mockRunClaudeInWorktree.mock.calls[0];
       const callArg = options as RunClaudeCallArg;
       assert.ok(callArg.systemPrompt?.includes("Always run lint before pushing"));
     });
@@ -877,11 +873,11 @@ describe("handleFollowUp", () => {
       const session = makeSessionContext({
         activeChange: makeActiveChangeState({ status: "pr_created" }),
       });
-      mockResolveChangesInstructions.mock.mockImplementation(() => "");
+      mockResolveChangesInstructions.mockImplementation(() => "");
 
       await handleFollowUp(session, "review", undefined, undefined, makeDeps());
 
-      const [, options] = mockRunClaudeInWorktree.mock.calls[0].arguments;
+      const [, options] = mockRunClaudeInWorktree.mock.calls[0];
       const callArg = options as RunClaudeCallArg;
       assert.equal(callArg.systemPrompt, undefined);
     });
@@ -895,7 +891,7 @@ describe("handleFollowUp", () => {
 
       await handleFollowUp(session, "update", "Add error handling", undefined, makeDeps());
 
-      assert.equal(mockUpdateActiveChangeStatus.mock.calls[0].arguments[1], "executing");
+      assert.equal(mockUpdateActiveChangeStatus.mock.calls[0][1], "executing");
     });
 
     it("calls executeChange with the plan and worktree", async () => {
@@ -905,8 +901,8 @@ describe("handleFollowUp", () => {
 
       await handleFollowUp(session, "update", "Add error handling", undefined, makeDeps());
 
-      assert.equal(mockExecuteChange.mock.callCount(), 1);
-      const arg = mockExecuteChange.mock.calls[0].arguments[0] as ExecuteChangeCallArg;
+      assert.equal(mockExecuteChange.mock.calls.length, 1);
+      const arg = mockExecuteChange.mock.calls[0][0] as ExecuteChangeCallArg;
       const plan = arg.plan as ChangePlan;
       assert.equal(plan.branchName, "feat/test-branch");
       assert.equal(plan.description, "Add error handling");
@@ -923,7 +919,7 @@ describe("handleFollowUp", () => {
 
       await handleFollowUp(session, "update", undefined, undefined, makeDeps());
 
-      const arg = mockExecuteChange.mock.calls[0].arguments[0] as ExecuteChangeCallArg;
+      const arg = mockExecuteChange.mock.calls[0][0] as ExecuteChangeCallArg;
       const plan = arg.plan as ChangePlan;
       assert.equal(plan.description, "Fix the auth bug");
     });
@@ -939,15 +935,15 @@ describe("handleFollowUp", () => {
       assert.ok(result.prUrl);
       // Last call should set "pr_created"
       const lastCall =
-        mockUpdateActiveChangeStatus.mock.calls[mockUpdateActiveChangeStatus.mock.callCount() - 1];
-      assert.equal(lastCall.arguments[1], "pr_created");
+        mockUpdateActiveChangeStatus.mock.calls[mockUpdateActiveChangeStatus.mock.calls.length - 1];
+      assert.equal(lastCall[1], "pr_created");
     });
 
     it("reverts status to pr_created on update failure", async () => {
       const session = makeSessionContext({
         activeChange: makeActiveChangeState({ status: "pr_created" }),
       });
-      mockExecuteChange.mock.mockImplementation(async () => ({
+      mockExecuteChange.mockImplementation(async () => ({
         success: false,
         error: "Tests failed",
       }));
@@ -957,8 +953,8 @@ describe("handleFollowUp", () => {
       assert.equal(result.success, false);
       assert.equal(result.error, "Tests failed");
       const lastCall =
-        mockUpdateActiveChangeStatus.mock.calls[mockUpdateActiveChangeStatus.mock.callCount() - 1];
-      assert.equal(lastCall.arguments[1], "pr_created");
+        mockUpdateActiveChangeStatus.mock.calls[mockUpdateActiveChangeStatus.mock.calls.length - 1];
+      assert.equal(lastCall[1], "pr_created");
     });
 
     it("passes onEvent callback to executeChange", async () => {
@@ -969,7 +965,7 @@ describe("handleFollowUp", () => {
 
       await handleFollowUp(session, "update", undefined, onEvent, makeDeps());
 
-      const arg = mockExecuteChange.mock.calls[0].arguments[0] as ExecuteChangeCallArg;
+      const arg = mockExecuteChange.mock.calls[0][0] as ExecuteChangeCallArg;
       const passedOnEvent = arg.onEvent;
       assert.equal(passedOnEvent, onEvent);
     });
@@ -984,7 +980,7 @@ describe("handleFollowUp", () => {
           cancelledBy: { userId: "U999", reason: "No longer needed" },
         }),
       });
-      mockExecuteChange.mock.mockImplementation(async () => ({
+      mockExecuteChange.mockImplementation(async () => ({
         success: false,
         error: "Execution aborted",
       }));
@@ -995,8 +991,8 @@ describe("handleFollowUp", () => {
       assert.equal(result.cancelled, true);
       assert.deepEqual(result.cancelledBy, { userId: "U999", reason: "No longer needed" });
       const lastCall =
-        mockUpdateActiveChangeStatus.mock.calls[mockUpdateActiveChangeStatus.mock.callCount() - 1];
-      assert.equal(lastCall.arguments[1], "pr_created");
+        mockUpdateActiveChangeStatus.mock.calls[mockUpdateActiveChangeStatus.mock.calls.length - 1];
+      assert.equal(lastCall[1], "pr_created");
     });
   });
 
@@ -1008,7 +1004,7 @@ describe("handleFollowUp", () => {
 
       await handleFollowUp(session, "merge", undefined, undefined, makeDeps());
 
-      assert.equal(mockUpdateActiveChangeStatus.mock.calls[0].arguments[1], "merging");
+      assert.equal(mockUpdateActiveChangeStatus.mock.calls[0][1], "merging");
     });
 
     it("runs Claude in worktree with merge prompt", async () => {
@@ -1021,8 +1017,8 @@ describe("handleFollowUp", () => {
 
       await handleFollowUp(session, "merge", undefined, undefined, makeDeps());
 
-      assert.equal(mockRunClaudeInWorktree.mock.callCount(), 1);
-      const [, options] = mockRunClaudeInWorktree.mock.calls[0].arguments;
+      assert.equal(mockRunClaudeInWorktree.mock.calls.length, 1);
+      const [, options] = mockRunClaudeInWorktree.mock.calls[0];
       assert.ok(options.prompt.includes("merge_pr"));
       assert.ok(options.prompt.includes("https://github.com/org/my-repo/pull/42"));
     });
@@ -1034,7 +1030,7 @@ describe("handleFollowUp", () => {
           prUrl: "https://github.com/org/my-repo/pull/42",
         }),
       });
-      mockGetSession.mock.mockImplementation(async () =>
+      mockGetSession.mockImplementation(async () =>
         makeSessionContext({
           activeChange: makeActiveChangeState({ status: "completed" }),
         }),
@@ -1050,7 +1046,7 @@ describe("handleFollowUp", () => {
       const session = makeSessionContext({
         activeChange: makeActiveChangeState({ status: "pr_created" }),
       });
-      mockGetSession.mock.mockImplementation(async () =>
+      mockGetSession.mockImplementation(async () =>
         makeSessionContext({ activeChange: undefined }),
       );
 
@@ -1063,7 +1059,7 @@ describe("handleFollowUp", () => {
       const session = makeSessionContext({
         activeChange: makeActiveChangeState({ status: "pr_created" }),
       });
-      mockGetSession.mock.mockImplementation(async () =>
+      mockGetSession.mockImplementation(async () =>
         makeSessionContext({
           activeChange: makeActiveChangeState({ status: "pr_created" }),
         }),
@@ -1082,7 +1078,7 @@ describe("handleFollowUp", () => {
 
       await handleFollowUp(session, "merge", undefined, undefined, makeDeps());
 
-      const [, options] = mockRunClaudeInWorktree.mock.calls[0].arguments;
+      const [, options] = mockRunClaudeInWorktree.mock.calls[0];
       const callArg = options as RunClaudeCallArg;
       assert.ok(callArg.disallowedTools?.includes("Read"));
       assert.ok(callArg.disallowedTools?.includes("Write"));
@@ -1102,7 +1098,7 @@ describe("handleFollowUp", () => {
 
       await handleFollowUp(session, "close", undefined, undefined, makeDeps());
 
-      const [, options] = mockRunClaudeInWorktree.mock.calls[0].arguments;
+      const [, options] = mockRunClaudeInWorktree.mock.calls[0];
       assert.ok(options.prompt.includes("close_pr"));
       assert.ok(options.prompt.includes("https://github.com/org/my-repo/pull/42"));
     });
@@ -1111,7 +1107,7 @@ describe("handleFollowUp", () => {
       const session = makeSessionContext({
         activeChange: makeActiveChangeState({ status: "pr_created" }),
       });
-      mockGetSession.mock.mockImplementation(async () =>
+      mockGetSession.mockImplementation(async () =>
         makeSessionContext({
           activeChange: makeActiveChangeState({ status: "completed" }),
         }),
@@ -1127,7 +1123,7 @@ describe("handleFollowUp", () => {
       const session = makeSessionContext({
         activeChange: makeActiveChangeState({ status: "pr_created" }),
       });
-      mockGetSession.mock.mockImplementation(async () =>
+      mockGetSession.mockImplementation(async () =>
         makeSessionContext({
           activeChange: makeActiveChangeState({ status: "pr_created" }),
         }),
@@ -1152,7 +1148,7 @@ describe("handleFollowUp", () => {
         makeDeps(),
       );
 
-      const [, options] = mockRunClaudeInWorktree.mock.calls[0].arguments;
+      const [, options] = mockRunClaudeInWorktree.mock.calls[0];
       assert.ok(options.prompt.includes("delete_branch: true"));
     });
 
@@ -1163,7 +1159,7 @@ describe("handleFollowUp", () => {
 
       await handleFollowUp(session, "close", "Just close it", undefined, makeDeps());
 
-      const [, options] = mockRunClaudeInWorktree.mock.calls[0].arguments;
+      const [, options] = mockRunClaudeInWorktree.mock.calls[0];
       assert.ok(!options.prompt.includes("delete_branch: true"));
     });
 
@@ -1174,7 +1170,7 @@ describe("handleFollowUp", () => {
 
       await handleFollowUp(session, "close", undefined, undefined, makeDeps());
 
-      const [, options] = mockRunClaudeInWorktree.mock.calls[0].arguments;
+      const [, options] = mockRunClaudeInWorktree.mock.calls[0];
       assert.ok(!options.prompt.includes("delete_branch: true"));
     });
   });
@@ -1206,8 +1202,8 @@ describe("handleFollowUp", () => {
 
       await handleFollowUp(session, "review", undefined, undefined, makeDeps());
 
-      assert.equal(mockBuildWorkerContext.mock.callCount(), 1);
-      const params = mockBuildWorkerContext.mock.calls[0].arguments[0] as WorkerContextParams;
+      assert.equal(mockBuildWorkerContext.mock.calls.length, 1);
+      const params = mockBuildWorkerContext.mock.calls[0][0] as WorkerContextParams;
       assert.equal(params.worktreePath, defaultWorktree.worktreePath);
       assert.equal(params.branchName, "feat/my-feature");
       assert.equal(params.repoName, "my-repo");
@@ -1223,7 +1219,7 @@ describe("handleFollowUp", () => {
 
       await handleFollowUp(session, "review", undefined, undefined, makeDeps());
 
-      assert.equal(mockBuildClackTools.mock.callCount(), 1);
+      assert.equal(mockBuildClackTools.mock.calls.length, 1);
     });
   });
 });

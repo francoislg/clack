@@ -1,9 +1,8 @@
-import { describe, it, beforeEach } from "node:test";
+import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "./testHelpers.js";
 import { createGetIdeasTool } from "./tools/questions/getIdeas.js";
 import { createSaveQuestionTool } from "./tools/questions/saveQuestion.js";
-import { createSubmitAnswersTool } from "./tools/answers/submitAnswers.js";
 import { createFindPreviousQuestionsTool } from "./tools/questions/findPreviousQuestions.js";
 import { createGetQuestionHistoryTool } from "./tools/questions/getQuestionHistory.js";
 import {
@@ -35,9 +34,6 @@ function postQuestionsDeps(): PostQuestionsSlackDeps {
         ts,
         permalink: `https://test.slack.com/archives/${args.channel}/p170000000${counter}000000`,
       };
-    },
-    async addReactions() {
-      // best-effort, no-op for tests
     },
   };
 }
@@ -138,28 +134,36 @@ describe("choice-questions end-to-end flow", () => {
       "post_questions must stamp messageLink",
     );
 
-    // 4. submit_answers with answerIndex entries — answer collection only, no first-stamp
-    const submitAnswers = createSubmitAnswersTool(data, fixtureGetGames);
-    const answersResult = parseToolResult(
-      await submitAnswers.handler(
-        {
-          game: FIXTURE_GAME_NAME,
-          questionId,
-          messageLink: "https://slack/x",
-          postedAt: 1000,
-          answers: [
-            { userId: "U1", displayName: "Alice", answer: undefined, answerIndex: 0 }, // correct
-            { userId: "U2", displayName: "Bob", answer: undefined, answerIndex: 2 }, // wrong
-            { userId: "U3", displayName: "Carol", answer: undefined, answerIndex: 0 }, // correct
-          ],
-        },
-        SESSION,
-      ),
-    );
-    assert.equal(answersResult.results.length, 3);
-    assert.equal(answersResult.results[0].correct, true);
-    assert.equal(answersResult.results[1].correct, false);
-    assert.equal(answersResult.results[2].correct, true);
+    // 4. Persist answers directly (vote handler does this on button click in production).
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveAnswer({
+      userId: "U1",
+      questionId,
+      answerIndex: 0,
+      correct: true,
+      timestamp: 1000,
+    });
+    await scoped.saveAnswer({
+      userId: "U2",
+      questionId,
+      answerIndex: 2,
+      correct: false,
+      timestamp: 1001,
+    });
+    await scoped.saveAnswer({
+      userId: "U3",
+      questionId,
+      answerIndex: 0,
+      correct: true,
+      timestamp: 1002,
+    });
+    for (const u of [
+      { userId: "U1", displayName: "Alice" },
+      { userId: "U2", displayName: "Bob" },
+      { userId: "U3", displayName: "Carol" },
+    ]) {
+      await data.saveUser({ ...u, joinedAt: 1000 });
+    }
 
     // 4. find_previous_questions exposes choices but never correctIndex/isTrue
     const findPrev = createFindPreviousQuestionsTool(data, fixtureGetGames);
@@ -274,32 +278,29 @@ describe("choice-questions end-to-end flow", () => {
       ),
     );
 
-    // Submit one correct answer to each
-    const submit = createSubmitAnswersTool(data, fixtureGetGames);
-    await submit.handler(
-      {
-        game: FIXTURE_GAME_NAME,
-        questionId: boolean.question.id,
-        messageLink: "https://slack/b",
-        postedAt: 1000,
-        answers: [{ userId: "U1", displayName: "Alice", answer: true, answerIndex: undefined }],
-      },
-      SESSION,
+    // Submit one correct answer to each via direct data-layer writes.
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await data.saveUser({ userId: "U1", displayName: "Alice", joinedAt: 1000 });
+    await scoped.saveAnswer({
+      userId: "U1",
+      questionId: boolean.question.id,
+      answer: true,
+      correct: true,
+      timestamp: 1000,
+    });
+    await scoped.saveAnswer({
+      userId: "U1",
+      questionId: choice.question.id,
+      answerIndex: 0,
+      correct: true,
+      timestamp: 2000,
+    });
+    const allAnswers = await scoped.loadAnswers();
+    const u1Answers = allAnswers.filter((a) => a.userId === "U1");
+    assert.equal(u1Answers.length, 2);
+    assert.equal(
+      u1Answers.every((a) => a.correct === true),
+      true,
     );
-    const result = parseToolResult(
-      await submit.handler(
-        {
-          game: FIXTURE_GAME_NAME,
-          questionId: choice.question.id,
-          messageLink: "https://slack/c",
-          postedAt: 2000,
-          answers: [{ userId: "U1", displayName: "Alice", answer: undefined, answerIndex: 0 }],
-        },
-        SESSION,
-      ),
-    );
-    assert.equal(result.results[0].correct, true);
-    assert.equal(result.results[0].totalCorrect, 2);
-    assert.equal(result.results[0].totalAnswered, 2);
   });
 });

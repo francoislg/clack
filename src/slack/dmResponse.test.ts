@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, beforeEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import type { SessionContext } from "../sessions.js";
 import type { SessionInfo } from "./activeSessions.js";
@@ -13,14 +13,14 @@ import {
 // Mocks
 // ============================================================================
 
-const mockUpdateSession = mock.fn<
+const mockUpdateSession = vi.fn<
   (id: string, updates: Partial<SessionContext>) => Promise<SessionContext | null>
 >(async () => null);
 
 let sessionInfoStore: Map<string, SessionInfo>;
 
-const mockGetSessionInfo = mock.fn((id: string) => sessionInfoStore.get(id));
-const mockSetSessionInfo = mock.fn((id: string, info: SessionInfo) => {
+const mockGetSessionInfo = vi.fn((id: string) => sessionInfoStore.get(id));
+const mockSetSessionInfo = vi.fn((id: string, info: SessionInfo) => {
   sessionInfoStore.set(id, info);
 });
 
@@ -37,9 +37,9 @@ function makeDeps(): DmResponseDeps {
 // ============================================================================
 
 beforeEach(() => {
-  mockUpdateSession.mock.resetCalls();
-  mockGetSessionInfo.mock.resetCalls();
-  mockSetSessionInfo.mock.resetCalls();
+  mockUpdateSession.mockClear();
+  mockGetSessionInfo.mockClear();
+  mockSetSessionInfo.mockClear();
   sessionInfoStore = new Map();
 });
 
@@ -173,8 +173,8 @@ describe("storeDmCoordinates", () => {
     const deps = makeDeps();
     await storeDmCoordinates("sess-1", "D100", "1700.001", "C200", "1700.002", deps);
 
-    assert.equal(mockUpdateSession.mock.callCount(), 1);
-    const [sessionId, updates] = mockUpdateSession.mock.calls[0].arguments;
+    assert.equal(mockUpdateSession.mock.calls.length, 1);
+    const [sessionId, updates] = mockUpdateSession.mock.calls[0];
     assert.equal(sessionId, "sess-1");
     assert.deepEqual(updates, {
       dmChannel: "D100",
@@ -194,8 +194,8 @@ describe("storeDmCoordinates", () => {
 
     await storeDmCoordinates("sess-1", "D100", "1700.001", "C200", "1700.002", deps);
 
-    assert.equal(mockSetSessionInfo.mock.callCount(), 1);
-    const [id, info] = mockSetSessionInfo.mock.calls[0].arguments;
+    assert.equal(mockSetSessionInfo.mock.calls.length, 1);
+    const [id, info] = mockSetSessionInfo.mock.calls[0];
     assert.equal(id, "sess-1");
     assert.equal(info.dmChannel, "D100");
     assert.equal(info.dmThreadTs, "1700.001");
@@ -213,14 +213,14 @@ describe("storeDmCoordinates", () => {
 
     await storeDmCoordinates("sess-1", "D100", "1700.001", "C200", "1700.002", deps);
 
-    assert.equal(mockSetSessionInfo.mock.callCount(), 0);
+    assert.equal(mockSetSessionInfo.mock.calls.length, 0);
   });
 
   it("still calls updateSession even when session info is not in memory", async () => {
     const deps = makeDeps();
     await storeDmCoordinates("sess-1", "D100", "1700.001", "C200", "1700.002", deps);
 
-    assert.equal(mockUpdateSession.mock.callCount(), 1);
+    assert.equal(mockUpdateSession.mock.calls.length, 1);
   });
 
   it("preserves existing session info fields when merging", async () => {
@@ -235,7 +235,7 @@ describe("storeDmCoordinates", () => {
 
     await storeDmCoordinates("sess-1", "D100", "1700.001", "C200", "1700.002", deps);
 
-    const [, info] = mockSetSessionInfo.mock.calls[0].arguments;
+    const [, info] = mockSetSessionInfo.mock.calls[0];
     assert.equal(info.triggerType, "reactions");
     assert.equal(info.channelPostTs, "1700.999");
   });

@@ -1,4 +1,4 @@
-import { describe, it, mock } from "node:test";
+import { describe, it, vi } from "vitest";
 import { parseToolResult } from "../testHelpers.js";
 import assert from "node:assert/strict";
 import { createGetSessionTraceTool, type GetSessionTraceDeps } from "./getSessionTrace.js";
@@ -23,10 +23,10 @@ function makeCtx(): TestCtx {
 
 function makeDeps(overrides: Partial<GetSessionTraceDeps> = {}): GetSessionTraceDeps {
   return {
-    getSession: mock.fn(async () => null) as GetSessionTraceDeps["getSession"],
-    getActiveChange: mock.fn(() => undefined) as GetSessionTraceDeps["getActiveChange"],
+    getSession: vi.fn(async () => null) as GetSessionTraceDeps["getSession"],
+    getActiveChange: vi.fn(() => undefined) as GetSessionTraceDeps["getActiveChange"],
     getRepositoriesDir: () => "/repos",
-    readFile: mock.fn(async () => "") as GetSessionTraceDeps["readFile"],
+    readFile: vi.fn(async () => "") as GetSessionTraceDeps["readFile"],
     ...overrides,
   };
 }
@@ -121,7 +121,7 @@ describe("get_session_trace", () => {
     });
     const deps = makeDeps({
       getSession,
-      readFile: mock.fn(async () => jsonl) as GetSessionTraceDeps["readFile"],
+      readFile: vi.fn(async () => jsonl) as GetSessionTraceDeps["readFile"],
     });
 
     const result = await callTool(makeCtx(), deps, { sessionId: "test-session" });
@@ -163,7 +163,7 @@ describe("get_session_trace", () => {
     const deps = makeDeps({
       getSession,
       getActiveChange,
-      readFile: mock.fn(async () => jsonl) as GetSessionTraceDeps["readFile"],
+      readFile: vi.fn(async () => jsonl) as GetSessionTraceDeps["readFile"],
     });
 
     const result = await callTool(makeCtx(), deps, { sessionId: "test-session", source: "change" });
@@ -225,7 +225,7 @@ describe("get_session_trace", () => {
     });
     const deps = makeDeps({
       getSession,
-      readFile: mock.fn(async () => jsonl) as GetSessionTraceDeps["readFile"],
+      readFile: vi.fn(async () => jsonl) as GetSessionTraceDeps["readFile"],
     });
 
     const result = await callTool(makeCtx(), deps, { sessionId: "test-session", verbose: true });

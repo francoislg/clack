@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, beforeEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import type {
   query as sdkQuery,
@@ -12,7 +12,7 @@ import { clackQuery, clackSession, type QueryDeps, defaultQueryDeps } from "./qu
 // Helpers
 // ---------------------------------------------------------------------------
 
-type MockQuery = ReturnType<typeof mock.fn<typeof sdkQuery>>;
+type MockQuery = ReturnType<typeof vi.fn<typeof sdkQuery>>;
 
 let mockQuery: MockQuery;
 
@@ -186,11 +186,11 @@ async function collectMessages(messages: AsyncIterable<SDKMessage>): Promise<SDK
 
 describe("clackQuery", () => {
   beforeEach(() => {
-    mockQuery = mock.fn<typeof sdkQuery>();
+    mockQuery = vi.fn<typeof sdkQuery>();
   });
 
   it("sets persistSession to false", () => {
-    mockQuery.mock.mockImplementation(() => makeMockQuery([makeResultMessage("done")]));
+    mockQuery.mockImplementation(() => makeMockQuery([makeResultMessage("done")]));
 
     clackQuery(
       {
@@ -200,20 +200,20 @@ describe("clackQuery", () => {
       makeDeps(),
     );
 
-    assert.equal(mockQuery.mock.callCount(), 1);
+    assert.equal(mockQuery.mock.calls.length, 1);
     const call = mockQuery.mock.calls[0]!;
-    const args = call.arguments[0] as QueryCallArg;
+    const args = call[0] as QueryCallArg;
     assert.equal(args.options.persistSession, false);
     assert.equal(args.prompt, "test");
     assert.equal(args.options.model, "sonnet");
   });
 
   it("does not pass resume", () => {
-    mockQuery.mock.mockImplementation(() => makeMockQuery([makeResultMessage("done")]));
+    mockQuery.mockImplementation(() => makeMockQuery([makeResultMessage("done")]));
 
     clackQuery({ prompt: "test" }, makeDeps());
 
-    const args = mockQuery.mock.calls[0]!.arguments[0] as QueryCallArg;
+    const args = mockQuery.mock.calls[0]![0] as QueryCallArg;
     assert.equal(args.options.resume, undefined);
   });
 });
@@ -224,18 +224,18 @@ describe("clackQuery", () => {
 
 describe("clackSession", () => {
   beforeEach(() => {
-    mockQuery = mock.fn<typeof sdkQuery>();
+    mockQuery = vi.fn<typeof sdkQuery>();
   });
 
   it("sets persistSession to true and returns a streaming-input run", async () => {
-    mockQuery.mock.mockImplementation(() =>
+    mockQuery.mockImplementation(() =>
       makeMockQuery([makeInitMessage("abc-123"), makeResultMessage("done")]),
     );
 
     const run = clackSession({ prompt: "test" }, makeDeps());
     const messages = await collectMessages(run.messages);
 
-    const args = mockQuery.mock.calls[0]!.arguments[0] as QueryCallArg;
+    const args = mockQuery.mock.calls[0]![0] as QueryCallArg;
     assert.equal(args.options.persistSession, true);
     // Streaming-input mode: prompt is now an async iterable of SDKUserMessage
     assert.notEqual(typeof args.prompt, "string");
@@ -243,7 +243,7 @@ describe("clackSession", () => {
   });
 
   it("captures session_id from init message via onSessionId callback", async () => {
-    mockQuery.mock.mockImplementation(() =>
+    mockQuery.mockImplementation(() =>
       makeMockQuery([makeInitMessage("captured-id"), makeResultMessage("done")]),
     );
 
@@ -263,7 +263,7 @@ describe("clackSession", () => {
   });
 
   it("passes resumeSessionId as resume option", async () => {
-    mockQuery.mock.mockImplementation(() =>
+    mockQuery.mockImplementation(() =>
       makeMockQuery([makeInitMessage("resumed-id"), makeResultMessage("done")]),
     );
 
@@ -276,25 +276,25 @@ describe("clackSession", () => {
     );
     await collectMessages(run.messages);
 
-    const args = mockQuery.mock.calls[0]!.arguments[0] as QueryCallArg;
+    const args = mockQuery.mock.calls[0]![0] as QueryCallArg;
     assert.equal(args.options.resume, "previous-session-id");
   });
 
   it("does not pass resume when resumeSessionId is undefined", async () => {
-    mockQuery.mock.mockImplementation(() =>
+    mockQuery.mockImplementation(() =>
       makeMockQuery([makeInitMessage("fresh-id"), makeResultMessage("done")]),
     );
 
     const run = clackSession({ prompt: "test" }, makeDeps());
     await collectMessages(run.messages);
 
-    const args = mockQuery.mock.calls[0]!.arguments[0] as QueryCallArg;
+    const args = mockQuery.mock.calls[0]![0] as QueryCallArg;
     assert.equal(args.options.resume, undefined);
   });
 
   it("falls back to fresh session on resume failure", async () => {
     let callCount = 0;
-    mockQuery.mock.mockImplementation(() => {
+    mockQuery.mockImplementation(() => {
       callCount++;
       if (callCount === 1) {
         // First call (resume attempt) throws
@@ -318,9 +318,9 @@ describe("clackSession", () => {
     const messages = await collectMessages(run.messages);
 
     // Should have been called twice: failed resume + fresh start
-    assert.equal(mockQuery.mock.callCount(), 2);
+    assert.equal(mockQuery.mock.calls.length, 2);
     // Fresh session should not have resume
-    const secondArgs = mockQuery.mock.calls[1]!.arguments[0] as QueryCallArg;
+    const secondArgs = mockQuery.mock.calls[1]![0] as QueryCallArg;
     assert.equal(secondArgs.options.resume, undefined);
     // Should have captured the new session ID
     assert.equal(capturedId, "new-session-id");
@@ -329,7 +329,7 @@ describe("clackSession", () => {
 
   it("falls back to fresh session when SDK yields a resume-missing result", async () => {
     let callCount = 0;
-    mockQuery.mock.mockImplementation(() => {
+    mockQuery.mockImplementation(() => {
       callCount++;
       if (callCount === 1) {
         return makeMockQuery([
@@ -352,8 +352,8 @@ describe("clackSession", () => {
     );
     const messages = await collectMessages(run.messages);
 
-    assert.equal(mockQuery.mock.callCount(), 2);
-    const secondArgs = mockQuery.mock.calls[1]!.arguments[0] as QueryCallArg;
+    assert.equal(mockQuery.mock.calls.length, 2);
+    const secondArgs = mockQuery.mock.calls[1]![0] as QueryCallArg;
     assert.equal(secondArgs.options.resume, undefined);
     assert.equal(capturedId, "new-session-id");
     assert.equal(messages.length, 2);
@@ -361,7 +361,7 @@ describe("clackSession", () => {
   });
 
   it("surfaces non-resume-missing error results without retrying", async () => {
-    mockQuery.mock.mockImplementation(() =>
+    mockQuery.mockImplementation(() =>
       makeMockQuery([
         makeInitMessage("sess-id"),
         makeResultErrorMessage(["Something else went wrong"]),
@@ -377,12 +377,12 @@ describe("clackSession", () => {
     );
     const messages = await collectMessages(run.messages);
 
-    assert.equal(mockQuery.mock.callCount(), 1);
+    assert.equal(mockQuery.mock.calls.length, 1);
     assert.equal(messages.length, 2);
   });
 
   it("throws on non-resume errors (no resumeSessionId)", async () => {
-    mockQuery.mock.mockImplementation(() => {
+    mockQuery.mockImplementation(() => {
       throw new Error("API rate limit");
     });
 
@@ -391,7 +391,7 @@ describe("clackSession", () => {
   });
 
   it("forwards all other options unchanged", async () => {
-    mockQuery.mock.mockImplementation(() =>
+    mockQuery.mockImplementation(() =>
       makeMockQuery([makeInitMessage("id"), makeResultMessage("done")]),
     );
 
@@ -408,21 +408,21 @@ describe("clackSession", () => {
     );
     await collectMessages(run.messages);
 
-    const args = mockQuery.mock.calls[0]!.arguments[0] as QueryCallArg;
+    const args = mockQuery.mock.calls[0]![0] as QueryCallArg;
     assert.equal(args.options.model, "opus");
     assert.equal(args.options.cwd, "/repos");
     assert.equal(args.options.permissionMode, "bypassPermissions");
   });
 
   it("the initial SDKUserMessage carries the prompt text", async () => {
-    mockQuery.mock.mockImplementation(() =>
+    mockQuery.mockImplementation(() =>
       makeMockQuery([makeInitMessage("id"), makeResultMessage("done")]),
     );
 
     const run = clackSession({ prompt: "hello world" }, makeDeps());
     await collectMessages(run.messages);
 
-    const args = mockQuery.mock.calls[0]!.arguments[0] as QueryCallArg;
+    const args = mockQuery.mock.calls[0]![0] as QueryCallArg;
     assert.notEqual(typeof args.prompt, "string");
     if (typeof args.prompt === "string") {
       assert.fail("Expected AsyncIterable prompt");
@@ -445,7 +445,7 @@ describe("clackSession", () => {
   });
 
   it("sendUpdate pushes a follow-up SDKUserMessage onto the input stream", async () => {
-    mockQuery.mock.mockImplementation(() =>
+    mockQuery.mockImplementation(() =>
       makeMockQuery([makeInitMessage("id"), makeResultMessage("done")]),
     );
 
@@ -464,7 +464,7 @@ describe("clackSession", () => {
     await run.sendUpdate("second");
     await drain;
 
-    const args = mockQuery.mock.calls[0]!.arguments[0] as QueryCallArg;
+    const args = mockQuery.mock.calls[0]![0] as QueryCallArg;
     if (typeof args.prompt === "string") {
       assert.fail("Expected AsyncIterable prompt");
     }
@@ -503,7 +503,7 @@ describe("clackSession", () => {
         makeResultMessage("done"),
       ]);
     }
-    mockQuery.mock.mockImplementation(() => {
+    mockQuery.mockImplementation(() => {
       const inner = makeMockQuery([]);
       const generator = genStream();
       return Object.assign(inner, {
@@ -562,7 +562,7 @@ describe("clackSession", () => {
       await finalReleased;
       yield* makeMockQuery([makeResultMessage("done")]);
     }
-    mockQuery.mock.mockImplementation(() => {
+    mockQuery.mockImplementation(() => {
       const inner = makeMockQuery([]);
       const generator = genStream();
       return Object.assign(inner, {
@@ -621,7 +621,7 @@ describe("clackSession", () => {
       await released;
       yield* makeMockQuery([makeResultMessage("done")]);
     }
-    mockQuery.mock.mockImplementation(() => {
+    mockQuery.mockImplementation(() => {
       const inner = makeMockQuery([]);
       const generator = genStream();
       return Object.assign(inner, {
@@ -658,7 +658,7 @@ describe("clackSession", () => {
     // The initial prompt also produces an `end_turn` assistant message. Without a
     // sendUpdate, the counter must not underflow when the next turn never starts (or
     // when the `awaitingNextTurnStart` flag never observes a decrement target).
-    mockQuery.mock.mockImplementation(() =>
+    mockQuery.mockImplementation(() =>
       makeMockQuery([
         makeInitMessage("id"),
         makeAssistantMessage("done", "end_turn"),
@@ -674,7 +674,7 @@ describe("clackSession", () => {
   });
 
   it("settle resolves futureResponse and the run's status flips to settled", async () => {
-    mockQuery.mock.mockImplementation(() =>
+    mockQuery.mockImplementation(() =>
       makeMockQuery([makeInitMessage("id"), makeResultMessage("done")]),
     );
 

@@ -1,5 +1,6 @@
-import { describe, it, beforeEach, afterEach, mock, type TestContext } from "node:test";
+import { describe, it, beforeEach, afterEach, vi } from "vitest";
 import assert from "node:assert/strict";
+import { setImmediate } from "node:timers/promises";
 import type { App } from "@slack/bolt";
 import type { TaskUpdateChunk } from "@slack/types";
 import {
@@ -50,14 +51,14 @@ const mockLogger = makeLoggerRecorder();
 // ---------------------------------------------------------------------------
 
 interface MockChatStreamer {
-  append: ReturnType<typeof mock.fn>;
-  stop: ReturnType<typeof mock.fn>;
+  append: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
+  stop: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
 }
 
 function makeMockChatStreamer(): MockChatStreamer {
   return {
-    append: mock.fn(async () => {}),
-    stop: mock.fn(async () => {}),
+    append: vi.fn(async () => {}),
+    stop: vi.fn(async () => {}),
   };
 }
 
@@ -78,8 +79,8 @@ function makeClient(opts?: {
       test: async () => ({ team_id: opts?.teamId ?? "T_TEAM" }),
     },
     chat: {
-      postMessage: mock.fn(async () => ({ ok: true })),
-      update: mock.fn(async () => ({ ok: true })),
+      postMessage: vi.fn(async () => ({ ok: true })),
+      update: vi.fn(async () => ({ ok: true })),
     },
   } as unknown as App["client"];
 }
@@ -94,8 +95,7 @@ interface PostMessageCallArgs {
 
 interface MockedPostMessageHandle {
   mock: {
-    callCount(): number;
-    calls: ReadonlyArray<{ arguments: ReadonlyArray<PostMessageCallArgs> }>;
+    calls: ReadonlyArray<ReadonlyArray<PostMessageCallArgs>>;
   };
 }
 
@@ -104,7 +104,7 @@ function assertIsMockedPostMessage(fn: object): asserts fn is MockedPostMessageH
   if (
     !maybeMock ||
     typeof maybeMock !== "object" ||
-    typeof (maybeMock as { callCount?: unknown }).callCount !== "function"
+    !Array.isArray((maybeMock as { calls?: unknown }).calls)
   ) {
     throw new Error("expected mock fn");
   }
@@ -114,7 +114,7 @@ function assertIsMockedPostMessage(fn: object): asserts fn is MockedPostMessageH
 function getAppendedChunks(streamer: MockChatStreamer): TaskUpdateChunk[] {
   const chunks: TaskUpdateChunk[] = [];
   for (const call of streamer.append.mock.calls) {
-    const arg = call.arguments[0] as { chunks: TaskUpdateChunk[] };
+    const arg = call[0] as { chunks: TaskUpdateChunk[] };
     if (arg?.chunks) chunks.push(...arg.chunks);
   }
   return chunks;
@@ -192,7 +192,7 @@ describe("SlackStreamer.start", () => {
 
   it("captures message ts from first append response", async () => {
     const mockStreamer = makeMockChatStreamer();
-    mockStreamer.append = mock.fn(async () => ({ ok: true, ts: "1111.2222" }));
+    mockStreamer.append = vi.fn(async () => ({ ok: true, ts: "1111.2222" }));
     const client = makeClient({ chatStreamer: mockStreamer });
     const streamer = new SlackStreamer({
       client,
@@ -242,7 +242,7 @@ describe("SlackStreamer.handleEvent — tool_start", () => {
     });
     await streamer.start();
     // Reset to ignore the initial thinking append
-    mockStreamerObj.append.mock.resetCalls();
+    mockStreamerObj.append.mockClear();
   });
 
   it("creates a task for a standalone tool", () => {
@@ -290,7 +290,7 @@ describe("SlackStreamer.handleEvent — tool_start", () => {
     });
 
     // Reset to see chunks from next event
-    mockStreamerObj.append.mock.resetCalls();
+    mockStreamerObj.append.mockClear();
 
     streamer.handleEvent({
       type: "tool_start",
@@ -315,7 +315,7 @@ describe("SlackStreamer.handleEvent — tool_start", () => {
       toolArgs: { file_path: "/src/index.ts" },
     });
 
-    mockStreamerObj.append.mock.resetCalls();
+    mockStreamerObj.append.mockClear();
 
     // Different group: Edit
     streamer.handleEvent({
@@ -333,7 +333,7 @@ describe("SlackStreamer.handleEvent — tool_start", () => {
 
   it("does nothing when streamer is stopped", async () => {
     await streamer.stop();
-    mockStreamerObj.append.mock.resetCalls();
+    mockStreamerObj.append.mockClear();
 
     streamer.handleEvent({
       type: "tool_start",
@@ -342,12 +342,12 @@ describe("SlackStreamer.handleEvent — tool_start", () => {
       toolArgs: {},
     });
 
-    assert.equal(mockStreamerObj.append.mock.callCount(), 0);
+    assert.equal(mockStreamerObj.append.mock.calls.length, 0);
   });
 
   it("does nothing when streamer has failed", async () => {
     // Simulate failure
-    mockStreamerObj.append.mock.mockImplementation(async () => {
+    mockStreamerObj.append.mockImplementation(async () => {
       throw new Error("append failed");
     });
     streamer.handleEvent({
@@ -358,11 +358,11 @@ describe("SlackStreamer.handleEvent — tool_start", () => {
     });
 
     // Allow the async append rejection to settle so `failed` flag gets set
-    await new Promise((r) => setTimeout(r, 10));
+    await setImmediate();
 
     // Now it should be failed
     assert.equal(streamer.hasFailed, true);
-    mockStreamerObj.append.mock.resetCalls();
+    mockStreamerObj.append.mockClear();
     streamer.handleEvent({
       type: "tool_start",
       taskId: "task-2",
@@ -370,7 +370,7 @@ describe("SlackStreamer.handleEvent — tool_start", () => {
       toolArgs: { pattern: "test" },
     });
 
-    assert.equal(mockStreamerObj.append.mock.callCount(), 0);
+    assert.equal(mockStreamerObj.append.mock.calls.length, 0);
   });
 
   it("updates the thinking task only once on first tool_start", () => {
@@ -381,7 +381,7 @@ describe("SlackStreamer.handleEvent — tool_start", () => {
       toolArgs: {},
     });
 
-    mockStreamerObj.append.mock.resetCalls();
+    mockStreamerObj.append.mockClear();
 
     streamer.handleEvent({
       type: "tool_start",
@@ -405,7 +405,7 @@ describe("SlackStreamer.handleEvent — tool_start", () => {
       toolArgs: {},
     });
 
-    mockStreamerObj.append.mock.resetCalls();
+    mockStreamerObj.append.mockClear();
 
     // Re-emit with real args (same taskId)
     streamer.handleEvent({
@@ -441,7 +441,7 @@ describe("SlackStreamer.handleEvent — tool_end", () => {
       logger: mockLogger.logger,
     });
     await streamer.start();
-    mockStreamerObj.append.mock.resetCalls();
+    mockStreamerObj.append.mockClear();
   });
 
   it("completes a standalone tool task on tool_end", () => {
@@ -452,7 +452,7 @@ describe("SlackStreamer.handleEvent — tool_end", () => {
       toolArgs: {},
     });
 
-    mockStreamerObj.append.mock.resetCalls();
+    mockStreamerObj.append.mockClear();
 
     streamer.handleEvent({ type: "tool_end", taskId: "task-1" });
 
@@ -471,7 +471,7 @@ describe("SlackStreamer.handleEvent — tool_end", () => {
       toolArgs: {},
     });
 
-    mockStreamerObj.append.mock.resetCalls();
+    mockStreamerObj.append.mockClear();
 
     streamer.handleEvent({
       type: "tool_end",
@@ -502,7 +502,7 @@ describe("SlackStreamer.handleEvent — tool_end", () => {
       toolArgs: { file_path: "/b.ts" },
     });
 
-    mockStreamerObj.append.mock.resetCalls();
+    mockStreamerObj.append.mockClear();
 
     // End first — group should still be in_progress
     streamer.handleEvent({ type: "tool_end", taskId: "task-1" });
@@ -512,7 +512,7 @@ describe("SlackStreamer.handleEvent — tool_end", () => {
     assert.ok(groupTask);
     assert.equal(groupTask!.status, "in_progress");
 
-    mockStreamerObj.append.mock.resetCalls();
+    mockStreamerObj.append.mockClear();
 
     // End second — group should complete
     streamer.handleEvent({ type: "tool_end", taskId: "task-2" });
@@ -531,7 +531,7 @@ describe("SlackStreamer.handleEvent — tool_end", () => {
       toolArgs: { file_path: "/a.ts" },
     });
 
-    mockStreamerObj.append.mock.resetCalls();
+    mockStreamerObj.append.mockClear();
     streamer.handleEvent({ type: "tool_end", taskId: "task-1" });
 
     const chunks = getAppendedChunks(mockStreamerObj);
@@ -547,11 +547,11 @@ describe("SlackStreamer.handleEvent — tool_end", () => {
   });
 
   it("ignores tool_end for unknown taskId", () => {
-    mockStreamerObj.append.mock.resetCalls();
+    mockStreamerObj.append.mockClear();
 
     streamer.handleEvent({ type: "tool_end", taskId: "unknown-task" });
 
-    assert.equal(mockStreamerObj.append.mock.callCount(), 0);
+    assert.equal(mockStreamerObj.append.mock.calls.length, 0);
   });
 });
 
@@ -571,11 +571,11 @@ describe("SlackStreamer.handleEvent — text", () => {
       logger: mockLogger.logger,
     });
     await streamer.start();
-    mockStreamerObj.append.mock.resetCalls();
+    mockStreamerObj.append.mockClear();
 
     streamer.handleEvent({ type: "text", text: "Hello world" });
 
-    assert.equal(mockStreamerObj.append.mock.callCount(), 0);
+    assert.equal(mockStreamerObj.append.mock.calls.length, 0);
   });
 });
 
@@ -595,7 +595,7 @@ describe("SlackStreamer.stop", () => {
       logger: mockLogger.logger,
     });
     await streamer.start();
-    mockStreamerObj.append.mock.resetCalls();
+    mockStreamerObj.append.mockClear();
 
     await streamer.stop();
 
@@ -605,7 +605,7 @@ describe("SlackStreamer.stop", () => {
     assert.equal(thinking!.status, "complete");
     assert.equal(thinking!.title, "Acknowledged, working on it\u2026");
 
-    assert.equal(mockStreamerObj.stop.mock.callCount(), 1);
+    assert.equal(mockStreamerObj.stop.mock.calls.length, 1);
   });
 
   it("uses 'Analyzing...' title when thinking was finalized by a tool", async () => {
@@ -628,7 +628,7 @@ describe("SlackStreamer.stop", () => {
       toolArgs: {},
     });
 
-    mockStreamerObj.append.mock.resetCalls();
+    mockStreamerObj.append.mockClear();
     await streamer.stop();
 
     const chunks = getAppendedChunks(mockStreamerObj);
@@ -651,8 +651,8 @@ describe("SlackStreamer.stop", () => {
 
     await streamer.stop({ markdownText: "Done!" });
 
-    assert.equal(mockStreamerObj.stop.mock.callCount(), 1);
-    const stopArgs = mockStreamerObj.stop.mock.calls[0].arguments[0] as Record<string, unknown>;
+    assert.equal(mockStreamerObj.stop.mock.calls.length, 1);
+    const stopArgs = mockStreamerObj.stop.mock.calls[0][0] as Record<string, unknown>;
     assert.equal(stopArgs.markdown_text, "Done!");
   });
 
@@ -671,7 +671,7 @@ describe("SlackStreamer.stop", () => {
     const blocks = [{ type: "section" as const, text: { type: "mrkdwn" as const, text: "hello" } }];
     await streamer.stop({ blocks });
 
-    const stopArgs = mockStreamerObj.stop.mock.calls[0].arguments[0] as Record<string, unknown>;
+    const stopArgs = mockStreamerObj.stop.mock.calls[0][0] as Record<string, unknown>;
     assert.deepEqual(stopArgs.blocks, blocks);
   });
 
@@ -691,7 +691,7 @@ describe("SlackStreamer.stop", () => {
     await streamer.stop();
 
     // stop on the chatStreamer should only be called once
-    assert.equal(mockStreamerObj.stop.mock.callCount(), 1);
+    assert.equal(mockStreamerObj.stop.mock.calls.length, 1);
   });
 
   it("does nothing when start was never called", async () => {
@@ -710,7 +710,7 @@ describe("SlackStreamer.stop", () => {
   it("skips chatStreamer.stop when stream has failed", async () => {
     const mockStreamerObj = makeMockChatStreamer();
     // Make append fail so stream is marked failed
-    mockStreamerObj.append.mock.mockImplementation(async () => {
+    mockStreamerObj.append.mockImplementation(async () => {
       throw new Error("broken");
     });
 
@@ -727,7 +727,7 @@ describe("SlackStreamer.stop", () => {
 
     await streamer.stop();
 
-    assert.equal(mockStreamerObj.stop.mock.callCount(), 0);
+    assert.equal(mockStreamerObj.stop.mock.calls.length, 0);
   });
 
   it("force-completes standalone tasks still tracked in taskSlack", async () => {
@@ -750,7 +750,7 @@ describe("SlackStreamer.stop", () => {
       toolArgs: { config: "test" },
     });
 
-    mockStreamerObj.append.mock.resetCalls();
+    mockStreamerObj.append.mockClear();
 
     await streamer.stop();
 
@@ -781,7 +781,7 @@ describe("SlackStreamer.stop", () => {
       toolArgs: { file_path: "/a.ts" },
     });
 
-    mockStreamerObj.append.mock.resetCalls();
+    mockStreamerObj.append.mockClear();
 
     await streamer.stop();
 
@@ -809,7 +809,7 @@ describe("SlackStreamer.hasFailed", () => {
 
   it("returns true after append failure", async () => {
     const mockStreamerObj = makeMockChatStreamer();
-    mockStreamerObj.append.mock.mockImplementation(async () => {
+    mockStreamerObj.append.mockImplementation(async () => {
       throw new Error("fail");
     });
 
@@ -843,7 +843,7 @@ describe("finalizeStreamedWorkflow", () => {
       logger: mockLogger.logger,
     });
     await streamer.start();
-    mockStreamerObj.append.mock.resetCalls();
+    mockStreamerObj.append.mockClear();
 
     await finalizeStreamedWorkflow(
       streamer,
@@ -854,7 +854,7 @@ describe("finalizeStreamedWorkflow", () => {
       "Change",
     );
 
-    assert.equal(mockStreamerObj.stop.mock.callCount(), 1);
+    assert.equal(mockStreamerObj.stop.mock.calls.length, 1);
   });
 
   it("stops with error message on failure", async () => {
@@ -878,15 +878,15 @@ describe("finalizeStreamedWorkflow", () => {
       "Change",
     );
 
-    assert.equal(mockStreamerObj.stop.mock.callCount(), 1);
-    const stopArgs = mockStreamerObj.stop.mock.calls[0].arguments[0] as Record<string, unknown>;
+    assert.equal(mockStreamerObj.stop.mock.calls.length, 1);
+    const stopArgs = mockStreamerObj.stop.mock.calls[0][0] as Record<string, unknown>;
     assert.ok((stopArgs.markdown_text as string).includes("Change failed: timeout"));
   });
 
   it("posts fallback message when streamer has failed", async () => {
     const mockStreamerObj = makeMockChatStreamer();
     // Make the streamer fail during start
-    mockStreamerObj.append.mock.mockImplementation(async () => {
+    mockStreamerObj.append.mockImplementation(async () => {
       throw new Error("broken");
     });
 
@@ -910,9 +910,11 @@ describe("finalizeStreamedWorkflow", () => {
     );
 
     // Should have fallen back to chat.postMessage
-    const postMessage = client.chat.postMessage as unknown as ReturnType<typeof mock.fn>;
-    assert.equal(postMessage.mock.callCount(), 1);
-    const pmArgs = postMessage.mock.calls[0].arguments[0] as {
+    const postMessage = client.chat.postMessage as unknown as ReturnType<
+      typeof vi.fn<(...args: any[]) => any>
+    >;
+    assert.equal(postMessage.mock.calls.length, 1);
+    const pmArgs = postMessage.mock.calls[0][0] as {
       channel: string;
       thread_ts: string;
       text: string;
@@ -924,7 +926,7 @@ describe("finalizeStreamedWorkflow", () => {
 
   it("posts a success fallback with PR URL when streamer has failed mid-run", async () => {
     const mockStreamerObj = makeMockChatStreamer();
-    mockStreamerObj.append.mock.mockImplementation(async () => {
+    mockStreamerObj.append.mockImplementation(async () => {
       throw new Error("broken");
     });
     const client = makeClient({ chatStreamer: mockStreamerObj });
@@ -948,8 +950,8 @@ describe("finalizeStreamedWorkflow", () => {
 
     const pm = client.chat.postMessage;
     assertIsMockedPostMessage(pm);
-    assert.equal(pm.mock.callCount(), 1);
-    const text = pm.mock.calls[0]?.arguments[0]?.text ?? "";
+    assert.equal(pm.mock.calls.length, 1);
+    const text = pm.mock.calls[0]?.[0]?.text ?? "";
     assert.ok(text.includes("Change request complete"));
     assert.ok(text.includes("https://example.com/pull/42"));
   });
@@ -977,12 +979,12 @@ describe("finalizeStreamedWorkflow", () => {
 
     const pm = client.chat.postMessage;
     assertIsMockedPostMessage(pm);
-    assert.equal(pm.mock.callCount(), 0);
+    assert.equal(pm.mock.calls.length, 0);
   });
 
   it("omits unfurl flags on the fallback post when suppressUnfurls is not set", async () => {
     const mockStreamerObj = makeMockChatStreamer();
-    mockStreamerObj.append.mock.mockImplementation(async () => {
+    mockStreamerObj.append.mockImplementation(async () => {
       throw new Error("broken");
     });
     const client = makeClient({ chatStreamer: mockStreamerObj });
@@ -1006,14 +1008,14 @@ describe("finalizeStreamedWorkflow", () => {
 
     const pm = client.chat.postMessage;
     assertIsMockedPostMessage(pm);
-    const args = pm.mock.calls[0]?.arguments[0] ?? {};
+    const args = pm.mock.calls[0]?.[0] ?? {};
     assert.equal("unfurl_links" in args, false);
     assert.equal("unfurl_media" in args, false);
   });
 
   it("sets unfurl_links and unfurl_media to false on the fallback post when suppressUnfurls is true", async () => {
     const mockStreamerObj = makeMockChatStreamer();
-    mockStreamerObj.append.mock.mockImplementation(async () => {
+    mockStreamerObj.append.mockImplementation(async () => {
       throw new Error("broken");
     });
     const client = makeClient({ chatStreamer: mockStreamerObj });
@@ -1038,7 +1040,7 @@ describe("finalizeStreamedWorkflow", () => {
 
     const pm = client.chat.postMessage;
     assertIsMockedPostMessage(pm);
-    const args = pm.mock.calls[0]?.arguments[0] ?? {};
+    const args = pm.mock.calls[0]?.[0] ?? {};
     assert.equal(args.unfurl_links, false);
     assert.equal(args.unfurl_media, false);
   });
@@ -1049,8 +1051,8 @@ describe("finalizeStreamedWorkflow", () => {
 // ---------------------------------------------------------------------------
 
 describe("SlackStreamer keepalive", () => {
-  it("starts a keepalive timer after successful start()", async (t: TestContext) => {
-    t.mock.timers.enable({ apis: ["setInterval"] });
+  it("starts a keepalive timer after successful start()", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval"] });
 
     const mockStreamerObj = makeMockChatStreamer();
     const client = makeClient({ chatStreamer: mockStreamerObj });
@@ -1063,17 +1065,17 @@ describe("SlackStreamer keepalive", () => {
     });
 
     await streamer.start();
-    const appendCountAfterStart = mockStreamerObj.append.mock.callCount();
+    const appendCountAfterStart = mockStreamerObj.append.mock.calls.length;
 
     // Advance past the keepalive interval (15s)
-    t.mock.timers.tick(15_000);
+    vi.advanceTimersByTime(15_000);
 
     // Keepalive should have fired one additional append
-    assert.equal(mockStreamerObj.append.mock.callCount(), appendCountAfterStart + 1);
+    assert.equal(mockStreamerObj.append.mock.calls.length, appendCountAfterStart + 1);
 
     // The keepalive append should be a thinking task update
     const lastCall = mockStreamerObj.append.mock.calls.at(-1);
-    const chunks = (lastCall!.arguments[0] as { chunks: TaskUpdateChunk[] }).chunks;
+    const chunks = (lastCall![0] as { chunks: TaskUpdateChunk[] }).chunks;
     assert.equal(chunks.length, 1);
     assert.equal(chunks[0].id, "__thinking__");
     assert.equal(chunks[0].status, "in_progress");
@@ -1081,8 +1083,8 @@ describe("SlackStreamer keepalive", () => {
     await streamer.stop();
   });
 
-  it("sends keepalive at each interval tick", async (t: TestContext) => {
-    t.mock.timers.enable({ apis: ["setInterval"] });
+  it("sends keepalive at each interval tick", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval"] });
 
     const mockStreamerObj = makeMockChatStreamer();
     const client = makeClient({ chatStreamer: mockStreamerObj });
@@ -1095,18 +1097,18 @@ describe("SlackStreamer keepalive", () => {
     });
 
     await streamer.start();
-    const appendCountAfterStart = mockStreamerObj.append.mock.callCount();
+    const appendCountAfterStart = mockStreamerObj.append.mock.calls.length;
 
     // Advance 3 intervals
-    t.mock.timers.tick(45_000);
+    vi.advanceTimersByTime(45_000);
 
-    assert.equal(mockStreamerObj.append.mock.callCount(), appendCountAfterStart + 3);
+    assert.equal(mockStreamerObj.append.mock.calls.length, appendCountAfterStart + 3);
 
     await streamer.stop();
   });
 
-  it("clears keepalive on stop()", async (t: TestContext) => {
-    t.mock.timers.enable({ apis: ["setInterval"] });
+  it("clears keepalive on stop()", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval"] });
 
     const mockStreamerObj = makeMockChatStreamer();
     const client = makeClient({ chatStreamer: mockStreamerObj });
@@ -1121,16 +1123,16 @@ describe("SlackStreamer keepalive", () => {
     await streamer.start();
     await streamer.stop();
 
-    const appendCountAfterStop = mockStreamerObj.append.mock.callCount();
+    const appendCountAfterStop = mockStreamerObj.append.mock.calls.length;
 
     // Advance past several intervals — no more appends should happen
-    t.mock.timers.tick(60_000);
+    vi.advanceTimersByTime(60_000);
 
-    assert.equal(mockStreamerObj.append.mock.callCount(), appendCountAfterStop);
+    assert.equal(mockStreamerObj.append.mock.calls.length, appendCountAfterStop);
   });
 
-  it("clears keepalive when stream fails", async (t: TestContext) => {
-    t.mock.timers.enable({ apis: ["setInterval"] });
+  it("clears keepalive when stream fails", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval"] });
 
     const mockStreamerObj = makeMockChatStreamer();
     const client = makeClient({ chatStreamer: mockStreamerObj });
@@ -1145,7 +1147,7 @@ describe("SlackStreamer keepalive", () => {
     await streamer.start();
 
     // Make append fail on next call (simulating stream expiry)
-    mockStreamerObj.append.mock.mockImplementation(async () => {
+    mockStreamerObj.append.mockImplementation(async () => {
       throw new Error("stream expired");
     });
 
@@ -1158,19 +1160,19 @@ describe("SlackStreamer keepalive", () => {
     });
 
     // Let the async append rejection settle
-    await new Promise((r) => setTimeout(r, 10));
+    await setImmediate();
     assert.equal(streamer.hasFailed, true);
 
-    const appendCountAfterFail = mockStreamerObj.append.mock.callCount();
+    const appendCountAfterFail = mockStreamerObj.append.mock.calls.length;
 
     // Advance past several intervals — keepalive should not fire
-    t.mock.timers.tick(60_000);
+    vi.advanceTimersByTime(60_000);
 
-    assert.equal(mockStreamerObj.append.mock.callCount(), appendCountAfterFail);
+    assert.equal(mockStreamerObj.append.mock.calls.length, appendCountAfterFail);
   });
 
-  it("does not start keepalive when start() fails", async (t: TestContext) => {
-    t.mock.timers.enable({ apis: ["setInterval"] });
+  it("does not start keepalive when start() fails", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval"] });
 
     const client = makeClient({ throwOnChatStream: true });
     const streamer = new SlackStreamer({
@@ -1186,11 +1188,11 @@ describe("SlackStreamer keepalive", () => {
 
     // Advance past several intervals — no keepalive should fire
     // (can't easily count appends since chatStream threw, but no errors should occur)
-    t.mock.timers.tick(60_000);
+    vi.advanceTimersByTime(60_000);
   });
 
-  it("does not decorate tasks that finish before the 30s threshold", async (t: TestContext) => {
-    t.mock.timers.enable({ apis: ["setInterval", "Date"] });
+  it("does not decorate tasks that finish before the 30s threshold", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "Date"] });
 
     const mockStreamerObj = makeMockChatStreamer();
     const client = makeClient({ chatStreamer: mockStreamerObj });
@@ -1211,10 +1213,10 @@ describe("SlackStreamer keepalive", () => {
       toolArgs: { file_path: "foo.ts" },
     });
 
-    mockStreamerObj.append.mock.resetCalls();
+    mockStreamerObj.append.mockClear();
 
     // Tick at 15s — task is under threshold, so no decoration emitted
-    t.mock.timers.tick(15_000);
+    vi.advanceTimersByTime(15_000);
 
     // Complete the task before 30s
     streamer.handleEvent({ type: "tool_end", taskId: "task-fast" });
@@ -1227,8 +1229,8 @@ describe("SlackStreamer keepalive", () => {
     await streamer.stop();
   });
 
-  it("decorates a long-running standalone task with timer and appending dots", async (t: TestContext) => {
-    t.mock.timers.enable({ apis: ["setInterval", "Date"] });
+  it("decorates a long-running standalone task with timer and appending dots", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "Date"] });
 
     const mockStreamerObj = makeMockChatStreamer();
     const client = makeClient({ chatStreamer: mockStreamerObj });
@@ -1249,15 +1251,15 @@ describe("SlackStreamer keepalive", () => {
       toolArgs: { file_path: "foo.ts" },
     });
 
-    mockStreamerObj.append.mock.resetCalls();
+    mockStreamerObj.append.mockClear();
 
     // Tick 1: 15s — under threshold, no decoration
-    t.mock.timers.tick(15_000);
+    vi.advanceTimersByTime(15_000);
     let chunks = getAppendedChunks(mockStreamerObj);
     assert.equal(chunks.filter((c) => c.title?.includes("⏱")).length, 0);
 
     // Tick 2: 30s — at threshold, first decoration
-    t.mock.timers.tick(15_000);
+    vi.advanceTimersByTime(15_000);
     chunks = getAppendedChunks(mockStreamerObj);
     const firstDecoration = chunks.filter((c) => c.title?.includes("⏱"));
     assert.equal(firstDecoration.length, 1);
@@ -1266,7 +1268,7 @@ describe("SlackStreamer keepalive", () => {
     assert.equal(firstDecoration[0].details, "\n .");
 
     // Tick 3: 45s — second decoration, appends single dot
-    t.mock.timers.tick(15_000);
+    vi.advanceTimersByTime(15_000);
     chunks = getAppendedChunks(mockStreamerObj);
     const allDecorations = chunks.filter((c) => c.title?.includes("⏱"));
     assert.equal(allDecorations.length, 2);
@@ -1276,8 +1278,8 @@ describe("SlackStreamer keepalive", () => {
     await streamer.stop();
   });
 
-  it("decorates parallel tasks independently based on each startedAt", async (t: TestContext) => {
-    t.mock.timers.enable({ apis: ["setInterval", "Date"] });
+  it("decorates parallel tasks independently based on each startedAt", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "Date"] });
 
     const mockStreamerObj = makeMockChatStreamer();
     const client = makeClient({ chatStreamer: mockStreamerObj });
@@ -1300,7 +1302,7 @@ describe("SlackStreamer keepalive", () => {
     });
 
     // Task B starts later so it's under threshold when A crosses it
-    t.mock.timers.tick(20_000);
+    vi.advanceTimersByTime(20_000);
     streamer.handleEvent({
       type: "tool_start",
       taskId: "task-B",
@@ -1308,10 +1310,10 @@ describe("SlackStreamer keepalive", () => {
       toolArgs: { pattern: "foo" },
     });
 
-    mockStreamerObj.append.mock.resetCalls();
+    mockStreamerObj.append.mockClear();
 
     // Tick: now at 30s. A has been running 30s (past threshold); B has been running 10s (under).
-    t.mock.timers.tick(10_000);
+    vi.advanceTimersByTime(10_000);
 
     const chunks = getAppendedChunks(mockStreamerObj);
     const decorated = chunks.filter((c) => c.title?.includes("⏱"));
@@ -1321,8 +1323,8 @@ describe("SlackStreamer keepalive", () => {
     await streamer.stop();
   });
 
-  it("decorates a grouped task with the current group title including count suffix", async (t: TestContext) => {
-    t.mock.timers.enable({ apis: ["setInterval", "Date"] });
+  it("decorates a grouped task with the current group title including count suffix", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "Date"] });
 
     const mockStreamerObj = makeMockChatStreamer();
     const client = makeClient({ chatStreamer: mockStreamerObj });
@@ -1351,11 +1353,11 @@ describe("SlackStreamer keepalive", () => {
       toolArgs: { file_path: "b.ts" },
     });
 
-    mockStreamerObj.append.mock.resetCalls();
+    mockStreamerObj.append.mockClear();
 
     // Advance through two ticks — first is under threshold, second decorates
-    t.mock.timers.tick(15_000);
-    t.mock.timers.tick(15_000);
+    vi.advanceTimersByTime(15_000);
+    vi.advanceTimersByTime(15_000);
 
     let chunks = getAppendedChunks(mockStreamerObj);
     let decorated = chunks.filter((c) => c.title?.includes("⏱"));
@@ -1370,9 +1372,9 @@ describe("SlackStreamer keepalive", () => {
       toolName: "Read",
       toolArgs: { file_path: "c.ts" },
     });
-    mockStreamerObj.append.mock.resetCalls();
+    mockStreamerObj.append.mockClear();
 
-    t.mock.timers.tick(15_000);
+    vi.advanceTimersByTime(15_000);
     chunks = getAppendedChunks(mockStreamerObj);
     decorated = chunks.filter((c) => c.title?.includes("⏱"));
     assert.equal(decorated.length, 1);
@@ -1381,8 +1383,8 @@ describe("SlackStreamer keepalive", () => {
     await streamer.stop();
   });
 
-  it("does not reset startedAt when a tool joins an existing group", async (t: TestContext) => {
-    t.mock.timers.enable({ apis: ["setInterval", "Date"] });
+  it("does not reset startedAt when a tool joins an existing group", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "Date"] });
 
     const mockStreamerObj = makeMockChatStreamer();
     const client = makeClient({ chatStreamer: mockStreamerObj });
@@ -1404,7 +1406,7 @@ describe("SlackStreamer keepalive", () => {
     });
 
     // Advance 25s, then add a second item to the group
-    t.mock.timers.tick(25_000);
+    vi.advanceTimersByTime(25_000);
     streamer.handleEvent({
       type: "tool_start",
       taskId: "group-2",
@@ -1412,10 +1414,10 @@ describe("SlackStreamer keepalive", () => {
       toolArgs: { file_path: "b.ts" },
     });
 
-    mockStreamerObj.append.mock.resetCalls();
+    mockStreamerObj.append.mockClear();
 
     // Advance 5 more seconds to reach 30s total — should still decorate
-    t.mock.timers.tick(5_000);
+    vi.advanceTimersByTime(5_000);
 
     const chunks = getAppendedChunks(mockStreamerObj);
     const decorated = chunks.filter((c) => c.title?.includes("⏱"));
@@ -1425,8 +1427,8 @@ describe("SlackStreamer keepalive", () => {
     await streamer.stop();
   });
 
-  it("still pings the thinking task when no tasks are active", async (t: TestContext) => {
-    t.mock.timers.enable({ apis: ["setInterval", "Date"] });
+  it("still pings the thinking task when no tasks are active", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "Date"] });
 
     const mockStreamerObj = makeMockChatStreamer();
     const client = makeClient({ chatStreamer: mockStreamerObj });
@@ -1439,10 +1441,10 @@ describe("SlackStreamer keepalive", () => {
     });
 
     await streamer.start();
-    mockStreamerObj.append.mock.resetCalls();
+    mockStreamerObj.append.mockClear();
 
     // Tick with no active tasks
-    t.mock.timers.tick(15_000);
+    vi.advanceTimersByTime(15_000);
 
     const chunks = getAppendedChunks(mockStreamerObj);
     assert.equal(chunks.length, 1);
@@ -1504,7 +1506,7 @@ describe("SlackStreamer error classification", () => {
       code: "slack_webapi_platform_error",
       data: { ok: false, error: "message_not_in_streaming_state" },
     });
-    mockStreamerObj.append.mock.mockImplementation(async () => {
+    mockStreamerObj.append.mockImplementation(async () => {
       throw slackError;
     });
 
@@ -1517,7 +1519,7 @@ describe("SlackStreamer error classification", () => {
     });
 
     // Let async settle
-    await new Promise((r) => setTimeout(r, 10));
+    await setImmediate();
 
     assert.equal(streamer.hasFailed, true);
 
@@ -1563,7 +1565,7 @@ describe("SlackStreamer error classification", () => {
       code: "slack_webapi_platform_error",
       data: { ok: false, error: "message_not_found" },
     });
-    mockStreamerObj.append.mock.mockImplementation(async () => {
+    mockStreamerObj.append.mockImplementation(async () => {
       throw slackError;
     });
 
@@ -1574,7 +1576,7 @@ describe("SlackStreamer error classification", () => {
       toolArgs: {},
     });
 
-    await new Promise((r) => setTimeout(r, 10));
+    await setImmediate();
 
     assert.equal(streamer.hasFailed, true);
 
@@ -1608,7 +1610,7 @@ describe("SlackStreamer error classification", () => {
     mockLogger.reset();
 
     // Make append throw a generic error (not stream expiry)
-    mockStreamerObj.append.mock.mockImplementation(async () => {
+    mockStreamerObj.append.mockImplementation(async () => {
       throw new Error("some other error");
     });
 
@@ -1619,7 +1621,7 @@ describe("SlackStreamer error classification", () => {
       toolArgs: {},
     });
 
-    await new Promise((r) => setTimeout(r, 10));
+    await setImmediate();
 
     assert.equal(streamer.hasFailed, true);
 
@@ -1665,7 +1667,7 @@ describe("SlackStreamer.handleEvent — grouped detail cap", () => {
       logger: mockLogger.logger,
     });
     await streamer.start();
-    mockStreamerObj.append.mock.resetCalls();
+    mockStreamerObj.append.mockClear();
   });
 
   it("renders one detail line per call up to the default cap of 5", () => {
@@ -1805,7 +1807,7 @@ describe("SlackStreamer.handleEvent — grouped detail cap with custom mapping",
       logger: mockLogger.logger,
     });
     await streamer.start();
-    mockStreamerObj.append.mock.resetCalls();
+    mockStreamerObj.append.mockClear();
 
     for (let i = 1; i <= 3; i++) {
       streamer.handleEvent({
@@ -1857,7 +1859,7 @@ describe("SlackStreamer.handleEvent — grouped detail cap with custom mapping",
       logger: mockLogger.logger,
     });
     await streamer.start();
-    mockStreamerObj.append.mock.resetCalls();
+    mockStreamerObj.append.mockClear();
 
     // 5 "tight" calls (cap 3) — should produce only 3 detail lines under one task
     for (let i = 1; i <= 5; i++) {
@@ -1942,7 +1944,7 @@ describe("SlackStreamer.handleEvent — grouped detail cap with custom mapping",
       toolName: "mcp__testcap__do_thing",
       toolArgs: {},
     });
-    mockStreamerObj.append.mock.resetCalls();
+    mockStreamerObj.append.mockClear();
     streamer.handleEvent({
       type: "tool_start",
       taskId: "task-4",
@@ -1992,7 +1994,7 @@ function makeStreamerFailingAfter(
 ): MockChatStreamer {
   const streamer = makeMockChatStreamer();
   let callCount = 0;
-  streamer.append = mock.fn(async () => {
+  streamer.append = vi.fn(async () => {
     callCount++;
     if (callCount === succeedFirst + 1) throw makeSlackError(errorCode);
     return { ok: true, ts };
@@ -2004,7 +2006,7 @@ function makeStreamerFailingAfter(
 function chunksOfCall(streamer: MockChatStreamer, callIndex: number): TaskUpdateChunk[] {
   const call = streamer.append.mock.calls[callIndex];
   if (!call) return [];
-  const arg = call.arguments[0] as { chunks?: TaskUpdateChunk[] };
+  const arg = call[0] as { chunks?: TaskUpdateChunk[] };
   return arg.chunks ?? [];
 }
 
@@ -2016,7 +2018,7 @@ describe("SlackStreamer rollover", () => {
     const block1 = makeStreamerFailingAfter(1, "message_not_in_streaming_state", "1.1");
     // Block 2: continuation append succeeds (ts 2.2), retry of failing chunks succeeds.
     const block2 = makeMockChatStreamer();
-    block2.append = mock.fn(async () => ({ ok: true, ts: "2.2" }));
+    block2.append = vi.fn(async () => ({ ok: true, ts: "2.2" }));
 
     const client = makeClientWithStreamers([block1, block2]);
     const streamer = new SlackStreamer({
@@ -2037,7 +2039,7 @@ describe("SlackStreamer rollover", () => {
     });
     // The append happens inline (no await) inside handleEvent, but its body is async.
     // Yield to let the rejection + rollover + retry resolve.
-    await new Promise((r) => setTimeout(r, 10));
+    await setImmediate();
 
     assert.equal(streamer.hasFailed, false, "rollover should keep the streamer alive");
     assert.deepEqual(streamer.getAllMessageTss(), ["1.1", "2.2"]);
@@ -2060,7 +2062,7 @@ describe("SlackStreamer rollover", () => {
   it("rolls over on message_not_found just like message_not_in_streaming_state", async () => {
     const block1 = makeStreamerFailingAfter(1, "message_not_found", "1.1");
     const block2 = makeMockChatStreamer();
-    block2.append = mock.fn(async () => ({ ok: true, ts: "2.2" }));
+    block2.append = vi.fn(async () => ({ ok: true, ts: "2.2" }));
 
     const client = makeClientWithStreamers([block1, block2]);
     const streamer = new SlackStreamer({
@@ -2078,7 +2080,7 @@ describe("SlackStreamer rollover", () => {
       toolName: "mcp__clack__list_repositories",
       toolArgs: {},
     });
-    await new Promise((r) => setTimeout(r, 10));
+    await setImmediate();
 
     assert.equal(streamer.hasFailed, false);
     assert.deepEqual(streamer.getAllMessageTss(), ["1.1", "2.2"]);
@@ -2109,21 +2111,21 @@ describe("SlackStreamer rollover", () => {
       toolName: "mcp__clack__list_repositories",
       toolArgs: {},
     });
-    await new Promise((r) => setTimeout(r, 10));
+    await setImmediate();
     streamer.handleEvent({
       type: "tool_start",
       taskId: "task-2",
       toolName: "mcp__clack__list_repositories",
       toolArgs: {},
     });
-    await new Promise((r) => setTimeout(r, 10));
+    await setImmediate();
     streamer.handleEvent({
       type: "tool_start",
       taskId: "task-3",
       toolName: "mcp__clack__list_repositories",
       toolArgs: {},
     });
-    await new Promise((r) => setTimeout(r, 10));
+    await setImmediate();
 
     assert.equal(streamer.hasFailed, true, "cap exhausted → failed state");
     assert.deepEqual(streamer.getAllMessageTss(), ["1.1", "2.2", "3.3"]);
@@ -2158,7 +2160,7 @@ describe("SlackStreamer rollover", () => {
       toolName: "mcp__clack__list_repositories",
       toolArgs: {},
     });
-    await new Promise((r) => setTimeout(r, 10));
+    await setImmediate();
 
     assert.equal(streamer.hasFailed, true);
     assert.deepEqual(streamer.getAllMessageTss(), ["1.1"]);
@@ -2174,7 +2176,7 @@ describe("SlackStreamer rollover", () => {
   it("tool_end for a Block-1 taskId after rollover is a no-op", async () => {
     const block1 = makeStreamerFailingAfter(1, "message_not_in_streaming_state", "1.1");
     const block2 = makeMockChatStreamer();
-    block2.append = mock.fn(async () => ({ ok: true, ts: "2.2" }));
+    block2.append = vi.fn(async () => ({ ok: true, ts: "2.2" }));
 
     const client = makeClientWithStreamers([block1, block2]);
     const streamer = new SlackStreamer({
@@ -2194,16 +2196,16 @@ describe("SlackStreamer rollover", () => {
       toolName: "mcp__clack__list_repositories",
       toolArgs: {},
     });
-    await new Promise((r) => setTimeout(r, 10));
+    await setImmediate();
 
-    const appendsBeforeStaleEnd = block2.append.mock.callCount();
+    const appendsBeforeStaleEnd = block2.append.mock.calls.length;
 
     // A tool_end for a taskId that NEVER existed on block 2 (a stale id from before rollover).
     streamer.handleEvent({ type: "tool_end", taskId: "never-seen-on-block-2" });
-    await new Promise((r) => setTimeout(r, 10));
+    await setImmediate();
 
     assert.equal(
-      block2.append.mock.callCount(),
+      block2.append.mock.calls.length,
       appendsBeforeStaleEnd,
       "stale tool_end must not produce any Block-2 append",
     );
@@ -2212,7 +2214,7 @@ describe("SlackStreamer rollover", () => {
   it("tool_start in the new block creates a fresh task card", async () => {
     const block1 = makeStreamerFailingAfter(1, "message_not_in_streaming_state", "1.1");
     const block2 = makeMockChatStreamer();
-    block2.append = mock.fn(async () => ({ ok: true, ts: "2.2" }));
+    block2.append = vi.fn(async () => ({ ok: true, ts: "2.2" }));
 
     const client = makeClientWithStreamers([block1, block2]);
     const streamer = new SlackStreamer({
@@ -2230,9 +2232,9 @@ describe("SlackStreamer rollover", () => {
       toolName: "mcp__clack__list_repositories",
       toolArgs: {},
     });
-    await new Promise((r) => setTimeout(r, 10));
+    await setImmediate();
 
-    const appendsAfterRollover = block2.append.mock.callCount();
+    const appendsAfterRollover = block2.append.mock.calls.length;
 
     // A brand-new tool_start in Block 2 should produce a fresh task card.
     streamer.handleEvent({
@@ -2241,7 +2243,7 @@ describe("SlackStreamer rollover", () => {
       toolName: "mcp__clack__list_repositories",
       toolArgs: {},
     });
-    await new Promise((r) => setTimeout(r, 10));
+    await setImmediate();
 
     const newChunks = chunksOfCall(block2, appendsAfterRollover);
     assert.ok(
@@ -2269,7 +2271,7 @@ describe("SlackStreamer rollover", () => {
       toolName: "mcp__clack__list_repositories",
       toolArgs: {},
     });
-    await new Promise((r) => setTimeout(r, 10));
+    await setImmediate();
 
     assert.equal(streamer.hasFailed, true, "rollover open failed → final failed state");
     assert.deepEqual(streamer.getAllMessageTss(), ["1.1"]);
@@ -2277,7 +2279,7 @@ describe("SlackStreamer rollover", () => {
 
   it("getAllMessageTss returns single-element array equal to [getMessageTs()] with zero rollovers", async () => {
     const mockStreamer = makeMockChatStreamer();
-    mockStreamer.append = mock.fn(async () => ({ ok: true, ts: "1.1" }));
+    mockStreamer.append = vi.fn(async () => ({ ok: true, ts: "1.1" }));
     const client = makeClient({ chatStreamer: mockStreamer });
     const streamer = new SlackStreamer({
       client,
@@ -2292,12 +2294,12 @@ describe("SlackStreamer rollover", () => {
     assert.equal(streamer.getAllMessageTss().at(-1), streamer.getMessageTs());
   });
 
-  it("keepalive after rollover targets Block 2 (no Block-1 activeTasks leak)", async (t: TestContext) => {
-    t.mock.timers.enable({ apis: ["setInterval"] });
+  it("keepalive after rollover targets Block 2 (no Block-1 activeTasks leak)", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval"] });
 
     const block1 = makeStreamerFailingAfter(1, "message_not_in_streaming_state", "1.1");
     const block2 = makeMockChatStreamer();
-    block2.append = mock.fn(async () => ({ ok: true, ts: "2.2" }));
+    block2.append = vi.fn(async () => ({ ok: true, ts: "2.2" }));
 
     const client = makeClientWithStreamers([block1, block2]);
     const streamer = new SlackStreamer({
@@ -2315,17 +2317,17 @@ describe("SlackStreamer rollover", () => {
       toolName: "mcp__clack__list_repositories",
       toolArgs: {},
     });
-    await new Promise((r) => setTimeout(r, 10));
+    await setImmediate();
 
-    const block2AppendsBeforeTick = block2.append.mock.callCount();
+    const block2AppendsBeforeTick = block2.append.mock.calls.length;
 
     // Advance one keepalive interval — the tick should hit block 2, not block 1.
-    t.mock.timers.tick(15_000);
+    vi.advanceTimersByTime(15_000);
 
     // Block 1 received: start's initial append, then the failing append. No more.
-    assert.equal(block1.append.mock.callCount(), 2);
+    assert.equal(block1.append.mock.calls.length, 2);
     // Block 2 received the keepalive append.
-    assert.ok(block2.append.mock.callCount() > block2AppendsBeforeTick);
+    assert.ok(block2.append.mock.calls.length > block2AppendsBeforeTick);
 
     await streamer.stop();
   });

@@ -1,4 +1,4 @@
-import { describe, it, mock, beforeEach } from "node:test";
+import { describe, it, vi, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
 import type { SessionContext } from "../../sessions.js";
@@ -37,14 +37,14 @@ function makeSession(overrides: Partial<SessionContext> = {}): SessionContext {
 function makeClient(): App["client"] {
   return {
     auth: {
-      test: mock.fn(async () => ({ user_id: "B001" })),
+      test: vi.fn(async () => ({ user_id: "B001" })),
     },
     chat: {
-      postMessage: mock.fn(async () => ({ ok: true, ts: "1700000000.000099" })),
-      getPermalink: mock.fn(async () => ({ permalink: "https://slack.com/link" })),
+      postMessage: vi.fn(async () => ({ ok: true, ts: "1700000000.000099" })),
+      getPermalink: vi.fn(async () => ({ permalink: "https://slack.com/link" })),
     },
     conversations: {
-      open: mock.fn(async () => ({ channel: { id: "D_DM_001" } })),
+      open: vi.fn(async () => ({ channel: { id: "D_DM_001" } })),
     },
   } as never;
 }
@@ -66,29 +66,27 @@ function makeParams(overrides: Partial<ProcessMessageParams> = {}): ProcessMessa
 // ============================================================================
 
 const mockFindSessionByThread =
-  mock.fn<(channelId: string, threadTs: string) => Promise<SessionContext | null>>();
-const mockCreateSession = mock.fn<() => Promise<SessionContext>>();
-const mockGetSession = mock.fn<(sessionId: string) => Promise<SessionContext | null>>();
+  vi.fn<(channelId: string, threadTs: string) => Promise<SessionContext | null>>();
+const mockCreateSession = vi.fn<() => Promise<SessionContext>>();
+const mockGetSession = vi.fn<(sessionId: string) => Promise<SessionContext | null>>();
 const mockUpdateSession =
-  mock.fn<
-    (sessionId: string, updates: Partial<SessionContext>) => Promise<SessionContext | null>
-  >();
-const mockUpdateThreadContext = mock.fn<CoreDeps["updateThreadContext"]>();
-const mockGetConfig = mock.fn<CoreDeps["getConfig"]>();
-const mockSetSessionInfo = mock.fn<(sessionId: string, info: SessionInfo) => void>();
-const mockFetchThreadContext = mock.fn<CoreDeps["fetchThreadContext"]>();
+  vi.fn<(sessionId: string, updates: Partial<SessionContext>) => Promise<SessionContext | null>>();
+const mockUpdateThreadContext = vi.fn<CoreDeps["updateThreadContext"]>();
+const mockGetConfig = vi.fn<CoreDeps["getConfig"]>();
+const mockSetSessionInfo = vi.fn<(sessionId: string, info: SessionInfo) => void>();
+const mockFetchThreadContext = vi.fn<CoreDeps["fetchThreadContext"]>();
 const mockTransformUserMentions =
-  mock.fn<(client: ReturnType<typeof makeClient>, text: string) => Promise<string>>();
-const mockGetUserInfo = mock.fn<CoreDeps["getUserInfo"]>();
-const mockGetChannelInfo = mock.fn<CoreDeps["getChannelInfo"]>();
-const mockResolveChannelLabel = mock.fn<() => Promise<string>>();
-const mockResolveUserLabel = mock.fn<() => Promise<string>>();
-const mockSlackLink = mock.fn<() => Promise<string>>();
+  vi.fn<(client: ReturnType<typeof makeClient>, text: string) => Promise<string>>();
+const mockGetUserInfo = vi.fn<CoreDeps["getUserInfo"]>();
+const mockGetChannelInfo = vi.fn<CoreDeps["getChannelInfo"]>();
+const mockResolveChannelLabel = vi.fn<() => Promise<string>>();
+const mockResolveUserLabel = vi.fn<() => Promise<string>>();
+const mockSlackLink = vi.fn<() => Promise<string>>();
 const mockGetClaudeOptions =
-  mock.fn<(userId: string, triggerType: TriggerType) => Promise<AskClaudeOptions>>();
-const mockGetReactionDelivery = mock.fn<(userId: string) => Promise<string>>();
+  vi.fn<(userId: string, triggerType: TriggerType) => Promise<AskClaudeOptions>>();
+const mockGetReactionDelivery = vi.fn<(userId: string) => Promise<string>>();
 const mockStoreDmCoordinates =
-  mock.fn<
+  vi.fn<
     (
       sessionId: string,
       dmChannel: string,
@@ -97,8 +95,8 @@ const mockStoreDmCoordinates =
       originThreadTs: string,
     ) => Promise<void>
   >();
-const mockExecuteAndDeliver = mock.fn<CoreDeps["executeAndDeliver"]>();
-const mockAppendUserMessage = mock.fn<CoreDeps["appendUserMessage"]>(async () => null);
+const mockExecuteAndDeliver = vi.fn<CoreDeps["executeAndDeliver"]>();
+const mockAppendUserMessage = vi.fn<CoreDeps["appendUserMessage"]>(async () => null);
 
 function makeDeps(): CoreDeps {
   return {
@@ -125,41 +123,41 @@ function makeDeps(): CoreDeps {
 }
 
 function resetAllMocks() {
-  mockFindSessionByThread.mock.resetCalls();
-  mockCreateSession.mock.resetCalls();
-  mockGetSession.mock.resetCalls();
-  mockUpdateSession.mock.resetCalls();
-  mockUpdateThreadContext.mock.resetCalls();
-  mockGetConfig.mock.resetCalls();
-  mockSetSessionInfo.mock.resetCalls();
-  mockFetchThreadContext.mock.resetCalls();
-  mockTransformUserMentions.mock.resetCalls();
-  mockGetUserInfo.mock.resetCalls();
-  mockGetChannelInfo.mock.resetCalls();
-  mockResolveChannelLabel.mock.resetCalls();
-  mockResolveUserLabel.mock.resetCalls();
-  mockSlackLink.mock.resetCalls();
-  mockGetClaudeOptions.mock.resetCalls();
-  mockGetReactionDelivery.mock.resetCalls();
-  mockStoreDmCoordinates.mock.resetCalls();
-  mockExecuteAndDeliver.mock.resetCalls();
+  mockFindSessionByThread.mockClear();
+  mockCreateSession.mockClear();
+  mockGetSession.mockClear();
+  mockUpdateSession.mockClear();
+  mockUpdateThreadContext.mockClear();
+  mockGetConfig.mockClear();
+  mockSetSessionInfo.mockClear();
+  mockFetchThreadContext.mockClear();
+  mockTransformUserMentions.mockClear();
+  mockGetUserInfo.mockClear();
+  mockGetChannelInfo.mockClear();
+  mockResolveChannelLabel.mockClear();
+  mockResolveUserLabel.mockClear();
+  mockSlackLink.mockClear();
+  mockGetClaudeOptions.mockClear();
+  mockGetReactionDelivery.mockClear();
+  mockStoreDmCoordinates.mockClear();
+  mockExecuteAndDeliver.mockClear();
 
   // Reset to defaults
-  mockFindSessionByThread.mock.mockImplementation(async () => null);
-  mockCreateSession.mock.mockImplementation(async () => makeSession());
-  mockGetSession.mock.mockImplementation(async () => makeSession());
-  mockUpdateSession.mock.mockImplementation(async () => makeSession());
-  mockUpdateThreadContext.mock.mockImplementation(async () => makeSession());
-  mockFetchThreadContext.mock.mockImplementation(async () => []);
-  mockTransformUserMentions.mock.mockImplementation(async (_client, text) => text);
-  mockGetUserInfo.mock.mockImplementation(async () => undefined);
-  mockGetChannelInfo.mock.mockImplementation(async () => undefined);
-  mockResolveChannelLabel.mock.mockImplementation(async () => "#test");
-  mockResolveUserLabel.mock.mockImplementation(async () => "@user");
-  mockSlackLink.mock.mockImplementation(async () => "");
-  mockGetReactionDelivery.mock.mockImplementation(async () => "thread");
-  mockExecuteAndDeliver.mock.mockImplementation(async () => ({ success: true, answer: "test" }));
-  mockGetClaudeOptions.mock.mockImplementation(async () => ({
+  mockFindSessionByThread.mockImplementation(async () => null);
+  mockCreateSession.mockImplementation(async () => makeSession());
+  mockGetSession.mockImplementation(async () => makeSession());
+  mockUpdateSession.mockImplementation(async () => makeSession());
+  mockUpdateThreadContext.mockImplementation(async () => makeSession());
+  mockFetchThreadContext.mockImplementation(async () => []);
+  mockTransformUserMentions.mockImplementation(async (_client, text) => text);
+  mockGetUserInfo.mockImplementation(async () => undefined);
+  mockGetChannelInfo.mockImplementation(async () => undefined);
+  mockResolveChannelLabel.mockImplementation(async () => "#test");
+  mockResolveUserLabel.mockImplementation(async () => "@user");
+  mockSlackLink.mockImplementation(async () => "");
+  mockGetReactionDelivery.mockImplementation(async () => "thread");
+  mockExecuteAndDeliver.mockImplementation(async () => ({ success: true, answer: "test" }));
+  mockGetClaudeOptions.mockImplementation(async () => ({
     role: "dev" as const,
     changesWorkflowEnabled: false,
   }));
@@ -171,7 +169,7 @@ function resetAllMocks() {
     directMessages: { enabled: false },
     mentions: { enabled: false },
   } as FakeConfig;
-  mockGetConfig.mock.mockImplementation(() => fakeConfig);
+  mockGetConfig.mockImplementation(() => fakeConfig);
 }
 
 // ============================================================================
@@ -187,22 +185,22 @@ describe("processMessage — session setup", () => {
     const deps = makeDeps();
     await processMessage(makeParams({ threadTs: undefined }), deps);
 
-    assert.equal(mockFindSessionByThread.mock.callCount(), 0);
-    assert.equal(mockCreateSession.mock.callCount(), 1);
+    assert.equal(mockFindSessionByThread.mock.calls.length, 0);
+    assert.equal(mockCreateSession.mock.calls.length, 1);
   });
 
   it("reuses existing session when thread found", async () => {
     const existingSession = makeSession({ sessionId: "existing-session" });
-    mockFindSessionByThread.mock.mockImplementation(async () => existingSession);
+    mockFindSessionByThread.mockImplementation(async () => existingSession);
 
     const deps = makeDeps();
     await processMessage(makeParams({ threadTs: "1700000000.000001" }), deps);
 
-    assert.equal(mockFindSessionByThread.mock.callCount(), 1);
-    assert.equal(mockCreateSession.mock.callCount(), 0);
-    assert.equal(mockUpdateThreadContext.mock.callCount(), 1);
+    assert.equal(mockFindSessionByThread.mock.calls.length, 1);
+    assert.equal(mockCreateSession.mock.calls.length, 0);
+    assert.equal(mockUpdateThreadContext.mock.calls.length, 1);
     // Check that updateThreadContext was called for the existing session
-    assert.equal(mockUpdateThreadContext.mock.callCount(), 1);
+    assert.equal(mockUpdateThreadContext.mock.calls.length, 1);
   });
 });
 
@@ -215,21 +213,21 @@ describe("processMessage — reaction delivery preference", () => {
     const deps = makeDeps();
     await processMessage(makeParams({ triggerType: "reactions" }), deps);
 
-    assert.equal(mockGetReactionDelivery.mock.callCount(), 1);
+    assert.equal(mockGetReactionDelivery.mock.calls.length, 1);
   });
 
   it("does NOT check delivery preference for mentions", async () => {
     const deps = makeDeps();
     await processMessage(makeParams({ triggerType: "mentions" }), deps);
 
-    assert.equal(mockGetReactionDelivery.mock.callCount(), 0);
+    assert.equal(mockGetReactionDelivery.mock.calls.length, 0);
   });
 
   it("does NOT check delivery preference for directMessages", async () => {
     const deps = makeDeps();
     await processMessage(makeParams({ triggerType: "directMessages" }), deps);
 
-    assert.equal(mockGetReactionDelivery.mock.callCount(), 0);
+    assert.equal(mockGetReactionDelivery.mock.calls.length, 0);
   });
 });
 
@@ -240,13 +238,13 @@ describe("processMessage — executeAndDeliver delegation", () => {
 
   it("calls executeAndDeliver with correct params", async () => {
     const session = makeSession({ sessionId: "sess-42" });
-    mockCreateSession.mock.mockImplementation(async () => session);
+    mockCreateSession.mockImplementation(async () => session);
 
     const client = makeClient();
     const deps = makeDeps();
     await processMessage(makeParams({ client, triggerType: "reactions" }), deps);
 
-    assert.equal(mockExecuteAndDeliver.mock.callCount(), 1);
+    assert.equal(mockExecuteAndDeliver.mock.calls.length, 1);
   });
 });
 

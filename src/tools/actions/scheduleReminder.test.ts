@@ -1,4 +1,4 @@
-import { describe, it, mock } from "node:test";
+import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import { WebClient } from "@slack/web-api";
 import { createScheduleReminderTool } from "./scheduleReminder.js";
@@ -17,7 +17,7 @@ function makeContext(overrides?: Partial<QueryToolContext>): QueryToolContext {
     } as QueryToolContext["session"],
     config: {} as QueryToolContext["config"],
     changesWorkflowEnabled: false,
-    allowScheduledMessages: true,
+    cronUserSchedules: true,
     ...overrides,
   };
 }
@@ -25,7 +25,7 @@ function makeContext(overrides?: Partial<QueryToolContext>): QueryToolContext {
 function makeSlackClient(scheduleResult?: unknown, listResult?: unknown) {
   return {
     chat: {
-      scheduleMessage: mock.fn(
+      scheduleMessage: vi.fn(
         async () =>
           scheduleResult ?? {
             ok: true,
@@ -34,7 +34,7 @@ function makeSlackClient(scheduleResult?: unknown, listResult?: unknown) {
       ),
     },
     conversations: {
-      list: mock.fn(
+      list: vi.fn(
         async () =>
           listResult ?? {
             ok: true,
@@ -58,7 +58,7 @@ function scheduleArgs(overrides?: Partial<ScheduleArgs>): ScheduleArgs {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function getMockCalls(obj: unknown): any[] {
-  return (obj as { mock: { calls: Array<{ arguments: unknown[] }> } }).mock.calls;
+  return (obj as { mock: { calls: unknown[][] } }).mock.calls;
 }
 
 describe("createScheduleReminderTool", () => {
@@ -81,7 +81,7 @@ describe("createScheduleReminderTool", () => {
     assert.equal(parsed.channel, "C_OPS");
 
     const calls = getMockCalls(client!.chat.scheduleMessage);
-    const callArgs = calls[0].arguments[0] as Record<string, string>;
+    const callArgs = calls[0][0] as Record<string, string>;
     assert.equal(callArgs.channel, "C_OPS");
     assert.ok(callArgs.text.includes("🔔 Reminder from <@U123>:"));
     assert.ok(callArgs.text.includes("Check the dashboard"));
@@ -124,12 +124,12 @@ describe("createScheduleReminderTool", () => {
   });
 
   it("returns error for time_in_past", async () => {
-    const scheduleMsg = mock.fn(async () => {
+    const scheduleMsg = vi.fn(async () => {
       throw new Error("time_in_past");
     });
     const client = {
       chat: { scheduleMessage: scheduleMsg },
-      conversations: { list: mock.fn(async () => ({ ok: true, channels: [] })) },
+      conversations: { list: vi.fn(async () => ({ ok: true, channels: [] })) },
     } as unknown as QueryToolContext["slackClient"];
     const ctx = makeContext({ slackClient: client });
     const tool = createScheduleReminderTool(ctx);
@@ -142,12 +142,12 @@ describe("createScheduleReminderTool", () => {
   });
 
   it("returns error for time_too_far", async () => {
-    const scheduleMsg = mock.fn(async () => {
+    const scheduleMsg = vi.fn(async () => {
       throw new Error("time_too_far");
     });
     const client = {
       chat: { scheduleMessage: scheduleMsg },
-      conversations: { list: mock.fn(async () => ({ ok: true, channels: [] })) },
+      conversations: { list: vi.fn(async () => ({ ok: true, channels: [] })) },
     } as unknown as QueryToolContext["slackClient"];
     const ctx = makeContext({ slackClient: client });
     const tool = createScheduleReminderTool(ctx);
@@ -172,11 +172,11 @@ describe("createScheduleReminderTool", () => {
 
   it("normalizes the requester's own user ID to a DM channel", async () => {
     const client = new WebClient();
-    mock.method(client.conversations, "open", async () => ({
+    vi.spyOn(client.conversations, "open").mockImplementation(async () => ({
       ok: true,
       channel: { id: "D_SELF" },
     }));
-    const scheduleSpy = mock.method(client.chat, "scheduleMessage", async () => ({
+    const scheduleSpy = vi.spyOn(client.chat, "scheduleMessage").mockImplementation(async () => ({
       ok: true,
       scheduled_message_id: "Q_SELF",
     }));
@@ -189,18 +189,20 @@ describe("createScheduleReminderTool", () => {
 
     assert.equal(parsed.ok, true);
     assert.equal(parsed.channel, "D_SELF");
-    assert.equal(scheduleSpy.mock.callCount(), 1);
-    const args = scheduleSpy.mock.calls[0].arguments[0];
+    assert.equal(scheduleSpy.mock.calls.length, 1);
+    const args = scheduleSpy.mock.calls[0][0];
     assert.equal(args?.channel, "D_SELF");
   });
 
   it("rejects a third-party user ID without scheduling", async () => {
     const client = new WebClient();
-    const openSpy = mock.method(client.conversations, "open", async () => ({
+    const openSpy = vi.spyOn(client.conversations, "open").mockImplementation(async () => ({
       ok: true,
       channel: { id: "D_OTHER" },
     }));
-    const scheduleSpy = mock.method(client.chat, "scheduleMessage", async () => ({ ok: true }));
+    const scheduleSpy = vi
+      .spyOn(client.chat, "scheduleMessage")
+      .mockImplementation(async () => ({ ok: true }));
 
     const ctx = makeContext({ slackClient: client });
     const tool = createScheduleReminderTool(ctx);
@@ -210,7 +212,7 @@ describe("createScheduleReminderTool", () => {
 
     assert.ok(parsed.error);
     assert.match(parsed.error, /can only DM the requesting user/);
-    assert.equal(openSpy.mock.callCount(), 0, "should not open a DM with a third party");
-    assert.equal(scheduleSpy.mock.callCount(), 0);
+    assert.equal(openSpy.mock.calls.length, 0, "should not open a DM with a third party");
+    assert.equal(scheduleSpy.mock.calls.length, 0);
   });
 });

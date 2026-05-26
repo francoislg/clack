@@ -14,7 +14,45 @@
       "files": ["**/*.test.ts"],
       "plugins": ["vitest"],
       "rules": {
-        "no-unused-vars": "off"
+        "no-unused-vars": "off",
+        "vitest/require-mock-type-parameters": "off",
+        "no-restricted-globals": [
+          "error",
+          {
+            "name": "setTimeout",
+            "message": "Don't use real timers in tests. Use vi.useFakeTimers() + vi.advanceTimersByTime()."
+          },
+          {
+            "name": "setInterval",
+            "message": "Don't use real timers in tests. Use vi.useFakeTimers() + vi.advanceTimersByTime()."
+          }
+        ],
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "child_process",
+                "message": "Don't spawn real subprocesses in tests. Mock at the boundary."
+              },
+              {
+                "name": "node:child_process",
+                "message": "Don't spawn real subprocesses in tests. Mock at the boundary."
+              },
+              {
+                "name": "simple-git",
+                "message": "Don't run real git in tests. Mock the wrapper module (e.g. src/repositories.ts)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["**/*.integration.test.ts"],
+      "rules": {
+        "no-restricted-globals": "off",
+        "no-restricted-imports": "off"
       }
     }
   ],

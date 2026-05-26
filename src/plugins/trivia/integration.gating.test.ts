@@ -8,10 +8,10 @@
  * stay always-available.
  *
  * Also exercises the registry-merge pipeline: with no `data/config.json` entry for
- * `trivia:management`, the plugin's `registerIntegration` call is what makes
+ * `trivia:management`, the plugin's `registerMcpServer` call is what makes
  * `resolveEffectiveRegistry()` produce a catalog entry.
  */
-import { describe, it, beforeEach, afterEach } from "node:test";
+import { describe, it, beforeEach, afterEach } from "vitest";
 import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -28,14 +28,17 @@ import type { RolesConfig } from "../../roles.js";
 
 const EMPTY_ROLES: RolesConfig = { owner: null, admins: [], devs: [] };
 
+// Management tools live on the on-demand `trivia:management` server: each tool's full
+// MCP name is `mcp__trivia_management__<tool>`. The plugin registers this server via
+// `sdk.registerMcpServer("management", ...)` and binds tools through the returned handle.
 const MANAGEMENT_TOOLS = [
-  "mcp__trivia__upsert_game",
-  "mcp__trivia__delete_game",
-  "mcp__trivia__set_workspace_config",
-  "mcp__trivia__upsert_season",
-  "mcp__trivia__delete_season",
-  "mcp__trivia__add_categories",
-  "mcp__trivia__remove_categories",
+  "mcp__trivia_management__upsert_game",
+  "mcp__trivia_management__delete_game",
+  "mcp__trivia_management__set_workspace_config",
+  "mcp__trivia_management__upsert_season",
+  "mcp__trivia_management__delete_season",
+  "mcp__trivia_management__add_categories",
+  "mcp__trivia_management__remove_categories",
 ] as const;
 
 const RUNTIME_TOOLS = [
@@ -43,7 +46,6 @@ const RUNTIME_TOOLS = [
   "mcp__trivia__save_question",
   "mcp__trivia__post_questions",
   "mcp__trivia__get_question_history",
-  "mcp__trivia__submit_answers",
   "mcp__trivia__process_reveal_answers",
   "mcp__trivia__check_season_status",
   "mcp__trivia__save_cheating",
@@ -117,7 +119,7 @@ function makeAdminCtx(attachedIntegrations: string[]): QueryToolContext {
     session,
     config: {} as Config,
     changesWorkflowEnabled: false,
-    allowScheduledMessages: false,
+    cronUserSchedules: false,
   };
 }
 
@@ -169,7 +171,43 @@ describe("trivia plugin — trivia:management gating end-to-end", () => {
     }
   });
 
-  it("plugin's registerIntegration call surfaces in the merged MCP registry", () => {
+  it("plugin self-disables when sdk.capabilities.crons is false", async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "clack-trivia-nocron-"));
+    const { sdk, harvest } = createClackSdk("trivia", dataDir, {
+      getSlackClient: () => null,
+      loadRoles: async () => EMPTY_ROLES,
+      openDmChannel: async () => null,
+      clackQuery: () => emptyClackQuery(),
+      capabilities: { crons: false },
+      // Reconcile/create/update/delete should never be touched — trivia returns early.
+      findByPluginOwner: async () => {
+        throw new Error("reconcile should not run when crons are disabled");
+      },
+      createJob: async () => {
+        throw new Error("createJob should not run when crons are disabled");
+      },
+      updateJob: async () => {
+        throw new Error("updateJob should not run when crons are disabled");
+      },
+      deleteJob: async () => {
+        throw new Error("deleteJob should not run when crons are disabled");
+      },
+    });
+    await triviaPlugin(sdk);
+    const loaded = harvest();
+    try {
+      assert.equal(loaded.errors.length, 1);
+      assert.match(loaded.errors[0], /Trivia requires the cron scheduler/);
+      assert.match(loaded.errors[0], /config\.cron\.enabled/);
+      assert.equal(loaded.tools.length, 0);
+      assert.equal(loaded.instructions.length, 0);
+      assert.equal(loaded.mcpServers.length, 0);
+    } finally {
+      for (const w of loaded.watchers ?? []) w.close();
+    }
+  });
+
+  it("plugin's registerMcpServer call surfaces in the merged MCP registry", () => {
     const { registry } = resolveEffectiveRegistry({
       configRegistry: {},
       mcpServerNames: [],
@@ -196,6 +234,11 @@ function flattenLoadedIntegrations(): Array<{
   pluginName: string;
 }> {
   return getLoadedPlugins().results.flatMap((p) =>
-    p.integrations.map((i) => ({ ...i, pluginName: p.name })),
+    p.mcpServers.map((s) => ({
+      name: s.fullName,
+      description: s.description,
+      alwaysLoad: s.autoload,
+      pluginName: p.name,
+    })),
   );
 }

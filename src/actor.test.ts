@@ -1,4 +1,4 @@
-import { describe, it, mock } from "node:test";
+import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import { resolveJobActor, actorRole, actorDmTarget, actorDisplay } from "./actor.js";
 import type { UserRole } from "./roles.js";
@@ -38,23 +38,23 @@ function systemJob(overrides: Partial<CronJob> = {}): CronJob {
 
 describe("resolveJobActor", () => {
   it("returns a user actor with the resolved role for user-created jobs", async () => {
-    const getRole = mock.fn<(userId: string) => Promise<UserRole>>(async () => "admin");
+    const getRole = vi.fn<(userId: string) => Promise<UserRole>>(async () => "admin");
     const actor = await resolveJobActor(userJob({ createdBy: "U_USER" }), { getRole });
     assert.deepEqual(actor, { kind: "user", userId: "U_USER", role: "admin" });
-    assert.equal(getRole.mock.callCount(), 1);
-    assert.equal(getRole.mock.calls[0]!.arguments[0], "U_USER");
+    assert.equal(getRole.mock.calls.length, 1);
+    assert.equal(getRole.mock.calls[0]![0], "U_USER");
   });
 
   it("returns a system actor for plugin-managed jobs (no getRole call)", async () => {
-    const getRole = mock.fn<(userId: string) => Promise<UserRole>>(async () => "member");
+    const getRole = vi.fn<(userId: string) => Promise<UserRole>>(async () => "member");
     const actor = await resolveJobActor(systemJob(), { getRole });
     assert.deepEqual(actor, { kind: "system", source: "plugin:trivia" });
-    assert.equal(getRole.mock.callCount(), 0, "system path must not consult getRole");
+    assert.equal(getRole.mock.calls.length, 0, "system path must not consult getRole");
   });
 
   it("throws when createdBy is null but systemActor is missing", async () => {
     const broken = systemJob({ systemActor: undefined });
-    const getRole = mock.fn<(userId: string) => Promise<UserRole>>(async () => "member");
+    const getRole = vi.fn<(userId: string) => Promise<UserRole>>(async () => "member");
     await assert.rejects(resolveJobActor(broken, { getRole }), /data invariant violated/);
   });
 });

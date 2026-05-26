@@ -9,7 +9,7 @@
  *   restart (modeled here as a fresh bridge init against the same files)
  */
 
-import { describe, it, beforeEach, afterEach } from "node:test";
+import { describe, it, beforeEach, afterEach } from "vitest";
 import assert from "node:assert/strict";
 import {
   existsSync,
@@ -42,10 +42,17 @@ const SESSION = { sessionId: "test" };
 function makeSdkOverRealDir(pluginDataDir: string): ClackSdk {
   return {
     logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
+    capabilities: { crons: true },
+    error: () => {},
     addInstruction: () => {},
     addTopicInstruction: () => {},
     registerTool: () => {},
-    registerIntegration: () => {},
+    mcpServer: { fullName: "test", registerTool: () => {}, addTopicInstruction: () => {} },
+    registerMcpServer: () => ({
+      fullName: "test",
+      registerTool: () => {},
+      addTopicInstruction: () => {},
+    }),
     readFile: async (path) => {
       const full = join(pluginDataDir, path);
       if (!existsSync(full)) return null;
@@ -77,6 +84,8 @@ function makeSdkOverRealDir(pluginDataDir: string): ClackSdk {
       usage: { inputTokens: 0, outputTokens: 0 },
     }),
     requestSoftRestart: () => {},
+    registerDictionary: () => {},
+    t: (key: string) => key,
   };
 }
 
@@ -182,6 +191,8 @@ describe("trivia config relocation — end-to-end smoke", () => {
           format: undefined,
           categories: undefined,
           theme: undefined,
+          liveAnswersVisible: undefined,
+          revealResponses: undefined,
         },
         SESSION,
       ),
@@ -207,6 +218,8 @@ describe("trivia config relocation — end-to-end smoke", () => {
         choices: undefined,
         offDays: undefined,
         seasons: { enabled: true, prompt: "Monthly" },
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
       },
       SESSION,
     );

@@ -1,4 +1,4 @@
-import { describe, it, mock } from "node:test";
+import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import { createFindSessionsTool, type FindSessionsDeps } from "./findSessions.js";
 import type { QueryToolContext } from "../types.js";
@@ -30,10 +30,8 @@ function makeRepo(overrides?: Partial<RepositoryConfig>): RepositoryConfig {
 
 function makeDeps(overrides: Partial<FindSessionsDeps> = {}): FindSessionsDeps {
   return {
-    getResumableSessions: mock.fn(async () => []) as FindSessionsDeps["getResumableSessions"],
-    getVisibleRepos: mock.fn((_role, _repos) => [
-      makeRepo(),
-    ]) as FindSessionsDeps["getVisibleRepos"],
+    getResumableSessions: vi.fn(async () => []) as FindSessionsDeps["getResumableSessions"],
+    getVisibleRepos: vi.fn((_role, _repos) => [makeRepo()]) as FindSessionsDeps["getVisibleRepos"],
     ...overrides,
   };
 }
@@ -60,7 +58,7 @@ function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
       repositories: [makeRepo()],
     } as QueryToolContext["config"],
     changesWorkflowEnabled: false,
-    allowScheduledMessages: false,
+    cronUserSchedules: false,
     ...overrides,
   };
 }
@@ -99,7 +97,7 @@ describe("findSessions tool", () => {
   it("returns sessions for visible repos", async () => {
     const session = makeSession();
     const deps = makeDeps({
-      getResumableSessions: mock.fn(async () => [
+      getResumableSessions: vi.fn(async () => [
         session,
       ]) as FindSessionsDeps["getResumableSessions"],
     });
@@ -125,7 +123,7 @@ describe("findSessions tool", () => {
     const visibleSession = makeSession({ repo: "my-repo" });
     const hiddenSession = makeSession({ repo: "secret-repo", branchName: "clack/feat/hidden" });
     const deps = makeDeps({
-      getResumableSessions: mock.fn(async () => [
+      getResumableSessions: vi.fn(async () => [
         visibleSession,
         hiddenSession,
       ]) as FindSessionsDeps["getResumableSessions"],
@@ -147,11 +145,11 @@ describe("findSessions tool", () => {
     const session1 = makeSession({ repo: "my-repo" });
     const session2 = makeSession({ repo: "other-repo", branchName: "clack/feat/other" });
     const deps = makeDeps({
-      getResumableSessions: mock.fn(async () => [
+      getResumableSessions: vi.fn(async () => [
         session1,
         session2,
       ]) as FindSessionsDeps["getResumableSessions"],
-      getVisibleRepos: mock.fn((_role, _repos) => [
+      getVisibleRepos: vi.fn((_role, _repos) => [
         makeRepo(),
         makeRepo({ name: "other-repo" }),
       ]) as FindSessionsDeps["getVisibleRepos"],
@@ -178,7 +176,7 @@ describe("findSessions tool", () => {
     const session1 = makeSession({ branchName: "clack/fix/login-bug" });
     const session2 = makeSession({ branchName: "clack/feat/signup-flow" });
     const deps = makeDeps({
-      getResumableSessions: mock.fn(async () => [
+      getResumableSessions: vi.fn(async () => [
         session1,
         session2,
       ]) as FindSessionsDeps["getResumableSessions"],
@@ -201,12 +199,12 @@ describe("findSessions tool", () => {
     const session2 = makeSession({ repo: "my-repo", branchName: "clack/feat/signup" });
     const session3 = makeSession({ repo: "other-repo", branchName: "clack/fix/login-other" });
     const deps = makeDeps({
-      getResumableSessions: mock.fn(async () => [
+      getResumableSessions: vi.fn(async () => [
         session1,
         session2,
         session3,
       ]) as FindSessionsDeps["getResumableSessions"],
-      getVisibleRepos: mock.fn((_role, _repos) => [
+      getVisibleRepos: vi.fn((_role, _repos) => [
         makeRepo(),
         makeRepo({ name: "other-repo" }),
       ]) as FindSessionsDeps["getVisibleRepos"],
@@ -233,7 +231,7 @@ describe("findSessions tool", () => {
   it("does not leak extra session fields beyond the mapped properties", async () => {
     const session = makeSession({ secretField: "should-not-appear" });
     const deps = makeDeps({
-      getResumableSessions: mock.fn(async () => [
+      getResumableSessions: vi.fn(async () => [
         session,
       ]) as FindSessionsDeps["getResumableSessions"],
     });

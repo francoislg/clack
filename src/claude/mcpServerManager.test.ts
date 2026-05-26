@@ -1,4 +1,4 @@
-import { describe, it, mock } from "node:test";
+import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 import { McpServerManager } from "./mcpServerManager.js";
@@ -27,8 +27,8 @@ function makeRegistry(): McpServerRegistry {
   };
 }
 
-function okSetMcpServers(): ReturnType<typeof mock.fn<SetMcpServersFn>> {
-  return mock.fn<SetMcpServersFn>(async () => ({ added: [], removed: [], errors: {} }));
+function okSetMcpServers(): ReturnType<typeof vi.fn<SetMcpServersFn>> {
+  return vi.fn<SetMcpServersFn>(async () => ({ added: [], removed: [], errors: {} }));
 }
 
 describe("McpServerManager", () => {
@@ -42,7 +42,7 @@ describe("McpServerManager", () => {
 
       assert.equal(manager.isAttached("metabase"), true);
       assert.deepEqual(manager.attachedNames(), ["metabase"]);
-      assert.equal(setMcpServers.mock.callCount(), 0);
+      assert.equal(setMcpServers.mock.calls.length, 0);
     });
 
     it("is safe to call before bind(…)", () => {
@@ -60,14 +60,14 @@ describe("McpServerManager", () => {
       const result = await manager.attach("metabase", METABASE_CFG);
 
       assert.equal(result.ok, true);
-      assert.equal(setMcpServers.mock.callCount(), 0);
+      assert.equal(setMcpServers.mock.calls.length, 0);
     });
   });
 
   describe("attach", () => {
     it("passes sessionStart + attached + new to setMcpServers", async () => {
       let received: Record<string, McpServerConfig> | undefined;
-      const setMcpServers = mock.fn<SetMcpServersFn>(async (servers) => {
+      const setMcpServers = vi.fn<SetMcpServersFn>(async (servers) => {
         received = servers;
         return { added: [], removed: [], errors: {} };
       });
@@ -89,7 +89,7 @@ describe("McpServerManager", () => {
     });
 
     it("returns error when the connection fails, and does not update attached set", async () => {
-      const setMcpServers = mock.fn<SetMcpServersFn>(async () => ({
+      const setMcpServers = vi.fn<SetMcpServersFn>(async () => ({
         added: [],
         removed: [],
         errors: { metabase: "connection refused" },
@@ -118,12 +118,12 @@ describe("McpServerManager", () => {
       const manager = new McpServerManager({ clack: BASELINE_CLACK }, makeRegistry());
       manager.bind(setMcpServers);
       await manager.attach("metabase", METABASE_CFG);
-      const callsBefore = setMcpServers.mock.callCount();
+      const callsBefore = setMcpServers.mock.calls.length;
 
       const result = await manager.attach("metabase", METABASE_CFG);
 
       assert.equal(result.ok, true);
-      assert.equal(setMcpServers.mock.callCount(), callsBefore);
+      assert.equal(setMcpServers.mock.calls.length, callsBefore);
     });
   });
 
@@ -147,7 +147,7 @@ describe("McpServerManager", () => {
 
   describe("isLiveInBaseline", () => {
     function statusFn(statuses: McpServerStatus[]): McpServerStatusFn {
-      return mock.fn<McpServerStatusFn>(async () => statuses);
+      return vi.fn<McpServerStatusFn>(async () => statuses);
     }
 
     it("returns true when the SDK reports the server as connected", async () => {
@@ -181,7 +181,7 @@ describe("McpServerManager", () => {
       const manager = new McpServerManager({ "mongodb-prod": METABASE_CFG }, makeRegistry());
       manager.bind(
         okSetMcpServers(),
-        mock.fn<McpServerStatusFn>(async () => {
+        vi.fn<McpServerStatusFn>(async () => {
           throw new Error("transport closed");
         }),
       );

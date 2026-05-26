@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, afterEach } from "node:test";
+import { describe, it, beforeEach, afterEach } from "vitest";
 import assert from "node:assert/strict";
 import { writeFileSync, mkdirSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -15,7 +15,7 @@ import {
   loadConfig,
   getConfig,
   getTaskCardMaxDetails,
-  getScheduledMessagesMaxRunHistory,
+  getCronMaxRunHistory,
   DEFAULT_TASK_CARD_MAX_DETAILS,
   DEFAULT_SCHEDULED_MESSAGES_MAX_RUN_HISTORY,
   DEFAULT_MAX_ADDITIONAL_MESSAGES,
@@ -1058,10 +1058,10 @@ describe("taskCards config", () => {
 });
 
 // ---------------------------------------------------------------------------
-// scheduledMessagesMaxRunHistory / getScheduledMessagesMaxRunHistory
+// cron.maxRunHistory / getCronMaxRunHistory
 // ---------------------------------------------------------------------------
 
-describe("scheduledMessagesMaxRunHistory config", () => {
+describe("cron.maxRunHistory config", () => {
   const originalCwd = process.cwd();
 
   beforeEach(() => {
@@ -1076,39 +1076,65 @@ describe("scheduledMessagesMaxRunHistory config", () => {
     if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true, force: true });
   });
 
-  it("parses scheduledMessagesMaxRunHistory when set to a positive integer", () => {
-    writeConfig(minimalConfig({ scheduledMessagesMaxRunHistory: 200 }));
+  it("parses cron.maxRunHistory when set to a positive integer", () => {
+    writeConfig(minimalConfig({ cron: { maxRunHistory: 200 } }));
     const cfg = loadConfig(configPath, true);
-    assert.equal(cfg.scheduledMessagesMaxRunHistory, 200);
-    assert.equal(getScheduledMessagesMaxRunHistory(), 200);
+    assert.equal(cfg.cron?.maxRunHistory, 200);
+    assert.equal(getCronMaxRunHistory(), 200);
   });
 
   it("falls back to default when field is absent", () => {
     writeConfig(minimalConfig());
     const cfg = loadConfig(configPath, true);
-    assert.equal(cfg.scheduledMessagesMaxRunHistory, undefined);
-    assert.equal(getScheduledMessagesMaxRunHistory(), DEFAULT_SCHEDULED_MESSAGES_MAX_RUN_HISTORY);
+    assert.equal(cfg.cron?.maxRunHistory, undefined);
+    assert.equal(getCronMaxRunHistory(), DEFAULT_SCHEDULED_MESSAGES_MAX_RUN_HISTORY);
   });
 
   it("falls back to default when value is zero or negative", () => {
-    writeConfig(minimalConfig({ scheduledMessagesMaxRunHistory: 0 }));
+    writeConfig(minimalConfig({ cron: { maxRunHistory: 0 } }));
     const cfg = loadConfig(configPath, true);
-    assert.equal(cfg.scheduledMessagesMaxRunHistory, undefined);
-    assert.equal(getScheduledMessagesMaxRunHistory(), DEFAULT_SCHEDULED_MESSAGES_MAX_RUN_HISTORY);
+    assert.equal(cfg.cron?.maxRunHistory, undefined);
+    assert.equal(getCronMaxRunHistory(), DEFAULT_SCHEDULED_MESSAGES_MAX_RUN_HISTORY);
   });
 
   it("falls back to default when value is a non-number", () => {
-    writeConfig(minimalConfig({ scheduledMessagesMaxRunHistory: "fifty" }));
+    writeConfig(minimalConfig({ cron: { maxRunHistory: "fifty" } }));
     const cfg = loadConfig(configPath, true);
-    assert.equal(cfg.scheduledMessagesMaxRunHistory, undefined);
-    assert.equal(getScheduledMessagesMaxRunHistory(), DEFAULT_SCHEDULED_MESSAGES_MAX_RUN_HISTORY);
+    assert.equal(cfg.cron?.maxRunHistory, undefined);
+    assert.equal(getCronMaxRunHistory(), DEFAULT_SCHEDULED_MESSAGES_MAX_RUN_HISTORY);
   });
 
   it("falls back to default when value is a non-integer", () => {
-    writeConfig(minimalConfig({ scheduledMessagesMaxRunHistory: 12.5 }));
+    writeConfig(minimalConfig({ cron: { maxRunHistory: 12.5 } }));
     const cfg = loadConfig(configPath, true);
-    assert.equal(cfg.scheduledMessagesMaxRunHistory, undefined);
-    assert.equal(getScheduledMessagesMaxRunHistory(), DEFAULT_SCHEDULED_MESSAGES_MAX_RUN_HISTORY);
+    assert.equal(cfg.cron?.maxRunHistory, undefined);
+    assert.equal(getCronMaxRunHistory(), DEFAULT_SCHEDULED_MESSAGES_MAX_RUN_HISTORY);
+  });
+
+  it("coerces userSchedules to false when enabled is false (logged warning)", () => {
+    writeConfig(minimalConfig({ cron: { enabled: false, userSchedules: true } }));
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.cron?.enabled, false);
+    assert.equal(cfg.cron?.userSchedules, false);
+  });
+
+  it("accepts cron.enabled: false with userSchedules absent", () => {
+    writeConfig(minimalConfig({ cron: { enabled: false } }));
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.cron?.enabled, false);
+    assert.equal(cfg.cron?.userSchedules, undefined);
+  });
+
+  it("reads legacy allowScheduledMessages into cron.userSchedules (deprecation fallback)", () => {
+    writeConfig(minimalConfig({ allowScheduledMessages: true }));
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.cron?.userSchedules, true);
+  });
+
+  it("reads legacy scheduledMessagesMaxRunHistory into cron.maxRunHistory", () => {
+    writeConfig(minimalConfig({ scheduledMessagesMaxRunHistory: 75 }));
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.cron?.maxRunHistory, 75);
   });
 });
 

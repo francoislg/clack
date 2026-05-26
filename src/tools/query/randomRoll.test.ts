@@ -1,4 +1,4 @@
-import { describe, it, mock } from "node:test";
+import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import { parseToolResult } from "../testHelpers.js";
 import { createRandomRollTool, type RandomRollDeps } from "./randomRoll.js";
@@ -10,19 +10,19 @@ function callTool(args: { min: number; max: number; count?: number }, deps?: Ran
 
 describe("randomRoll tool", () => {
   it("returns a single roll by default", async () => {
-    const rollOne = mock.fn<RandomRollDeps["rollOne"]>(() => 4);
+    const rollOne = vi.fn<RandomRollDeps["rollOne"]>(() => 4);
     const result = await callTool({ min: 1, max: 6 }, { rollOne });
 
     const parsed = parseToolResult(result);
     assert.deepEqual(parsed, { rolls: [4] });
-    assert.equal(rollOne.mock.callCount(), 1);
-    assert.deepEqual(rollOne.mock.calls[0].arguments, [1, 6]);
+    assert.equal(rollOne.mock.calls.length, 1);
+    assert.deepEqual(rollOne.mock.calls[0], [1, 6]);
   });
 
   it("returns `count` rolls when provided", async () => {
     let i = 0;
     const sequence = [1, 2, 3, 4, 5];
-    const rollOne = mock.fn<RandomRollDeps["rollOne"]>(() => sequence[i++]);
+    const rollOne = vi.fn<RandomRollDeps["rollOne"]>(() => sequence[i++]);
     const result = await callTool({ min: 1, max: 6, count: 5 }, { rollOne });
 
     const parsed = parseToolResult(result);
@@ -30,7 +30,7 @@ describe("randomRoll tool", () => {
   });
 
   it("accepts a single-value range (min === max)", async () => {
-    const rollOne = mock.fn<RandomRollDeps["rollOne"]>(() => 7);
+    const rollOne = vi.fn<RandomRollDeps["rollOne"]>(() => 7);
     const result = await callTool({ min: 7, max: 7, count: 3 }, { rollOne });
 
     const parsed = parseToolResult(result);
@@ -38,12 +38,12 @@ describe("randomRoll tool", () => {
   });
 
   it("accepts negative ranges", async () => {
-    const rollOne = mock.fn<RandomRollDeps["rollOne"]>(() => -3);
+    const rollOne = vi.fn<RandomRollDeps["rollOne"]>(() => -3);
     const result = await callTool({ min: -10, max: -1 }, { rollOne });
 
     const parsed = parseToolResult(result);
     assert.deepEqual(parsed, { rolls: [-3] });
-    assert.deepEqual(rollOne.mock.calls[0].arguments, [-10, -1]);
+    assert.deepEqual(rollOne.mock.calls[0], [-10, -1]);
   });
 
   it("rejects min > max", async () => {

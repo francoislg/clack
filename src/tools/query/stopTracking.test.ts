@@ -1,4 +1,4 @@
-import { describe, it, mock } from "node:test";
+import { describe, it, vi } from "vitest";
 import { parseToolResult } from "../testHelpers.js";
 import assert from "node:assert/strict";
 import type { SessionContext } from "../../sessions.js";
@@ -25,8 +25,8 @@ function makeCtx(overrides: Partial<TestCtx> = {}): TestCtx {
 
 function makeDeps(overrides: Partial<StopTrackingDeps> = {}): StopTrackingDeps {
   return {
-    findSession: mock.fn(async () => null) as StopTrackingDeps["findSession"],
-    setActive: mock.fn(async () => {}) as StopTrackingDeps["setActive"],
+    findSession: vi.fn(async () => null) as StopTrackingDeps["findSession"],
+    setActive: vi.fn(async () => {}) as StopTrackingDeps["setActive"],
     isAdmin: (role: string) => role === "admin" || role === "owner",
     ...overrides,
   };
@@ -66,7 +66,7 @@ function session(overrides: Partial<SessionContext> = {}): SessionContext {
 
 describe("stop_tracking tool", () => {
   it("disengages a tracked session by URL", async () => {
-    const setActive = mock.fn(async () => {});
+    const setActive = vi.fn(async () => {});
     const deps = makeDeps({
       findSession: async () => session(),
       setActive,
@@ -80,7 +80,7 @@ describe("stop_tracking tool", () => {
     assert.equal(parsed.success, true);
     assert.equal(parsed.channel, "C123");
     assert.equal(parsed.session_id, "sess-1");
-    assert.equal(setActive.mock.callCount(), 1);
+    assert.equal(setActive.mock.calls.length, 1);
   });
 
   it("returns error for invalid URL format", async () => {
@@ -104,7 +104,7 @@ describe("stop_tracking tool", () => {
   });
 
   it("rejects non-owner non-admin users", async () => {
-    const setActive = mock.fn(async () => {});
+    const setActive = vi.fn(async () => {});
     const deps = makeDeps({
       findSession: async () => session({ userId: "U_OTHER" }),
       setActive,
@@ -117,11 +117,11 @@ describe("stop_tracking tool", () => {
     const parsed = parseToolResult(result);
     assert.ok(parsed.error.includes("only stop tracking threads you started"));
     assert.equal(result.isError, true);
-    assert.equal(setActive.mock.callCount(), 0);
+    assert.equal(setActive.mock.calls.length, 0);
   });
 
   it("allows admin to stop any thread", async () => {
-    const setActive = mock.fn(async () => {});
+    const setActive = vi.fn(async () => {});
     const deps = makeDeps({
       findSession: async () => session({ userId: "U_OTHER" }),
       setActive,
@@ -133,11 +133,11 @@ describe("stop_tracking tool", () => {
 
     const parsed = parseToolResult(result);
     assert.equal(parsed.success, true);
-    assert.equal(setActive.mock.callCount(), 1);
+    assert.equal(setActive.mock.calls.length, 1);
   });
 
   it("returns success for already disengaged thread (idempotent)", async () => {
-    const setActive = mock.fn(async () => {});
+    const setActive = vi.fn(async () => {});
     const deps = makeDeps({
       findSession: async () => session({ autoResponseActive: false }),
       setActive,
@@ -150,11 +150,11 @@ describe("stop_tracking tool", () => {
     const parsed = parseToolResult(result);
     assert.equal(parsed.success, true);
     assert.equal(parsed.already_disengaged, true);
-    assert.equal(setActive.mock.callCount(), 0);
+    assert.equal(setActive.mock.calls.length, 0);
   });
 
   it("uses threadTs from URL query param when present", async () => {
-    const findSession = mock.fn(async (_ch: string, _ts: string) => session());
+    const findSession = vi.fn(async (_ch: string, _ts: string) => session());
     const deps = makeDeps({
       findSession,
       setActive: async () => {},
@@ -164,6 +164,6 @@ describe("stop_tracking tool", () => {
       url: "https://team.slack.com/archives/C123/p1234567890123456?thread_ts=9999999999.000000",
     });
 
-    assert.equal(findSession.mock.calls[0].arguments[1], "9999999999.000000");
+    assert.equal(findSession.mock.calls[0][1], "9999999999.000000");
   });
 });

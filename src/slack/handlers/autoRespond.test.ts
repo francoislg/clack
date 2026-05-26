@@ -1,4 +1,4 @@
-import { describe, it, mock } from "node:test";
+import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import type { Config } from "../../config.js";
 import type { SessionContext } from "../../sessions.js";
@@ -12,14 +12,14 @@ import type { runPreAnalysis } from "../../claude/preAnalysis.js";
 function makeClient() {
   return {
     conversations: {
-      replies: mock.fn(async () => ({ messages: [] })),
-      info: mock.fn(async () => ({ channel: { name: "test" } })),
+      replies: vi.fn(async () => ({ messages: [] })),
+      info: vi.fn(async () => ({ channel: { name: "test" } })),
     },
     users: {
-      info: mock.fn(async () => ({ user: { name: "test", profile: {} } })),
+      info: vi.fn(async () => ({ user: { name: "test", profile: {} } })),
     },
     auth: {
-      test: mock.fn(async () => ({ user_id: "U_BOT", bot_id: "B_BOT" })),
+      test: vi.fn(async () => ({ user_id: "U_BOT", bot_id: "B_BOT" })),
     },
   } as never;
 }
@@ -58,9 +58,9 @@ function session(overrides: Partial<SessionContext> = {}): SessionContext {
 function makeDeps(overrides: Partial<AutoRespondDeps> = {}): AutoRespondDeps {
   return {
     findSession: async () => null,
-    setActive: mock.fn(async () => {}),
-    preAnalysis: mock.fn(async () => "respond" as const),
-    activeRunPreAnalysis: mock.fn(async () => "append" as const),
+    setActive: vi.fn(async () => {}),
+    preAnalysis: vi.fn(async () => "respond" as const),
+    activeRunPreAnalysis: vi.fn(async () => "append" as const),
     loadSharedContext: () => "",
     getActiveRun: () => undefined,
     ...overrides,
@@ -96,7 +96,7 @@ function call(
 
 describe("resolveAutoRespondContext — auto-respond tracking", () => {
   it("evaluates thread reply when session has autoResponseActive=true", async () => {
-    const preAnalysis = mock.fn(async () => "respond" as const);
+    const preAnalysis = vi.fn(async () => "respond" as const);
     const deps = makeDeps({
       findSession: async () => session({ autoResponseActive: true }),
       preAnalysis,
@@ -106,11 +106,11 @@ describe("resolveAutoRespondContext — auto-respond tracking", () => {
 
     assert.ok(result !== null);
     assert.equal(result?.triggerType, "threadReply");
-    assert.equal(preAnalysis.mock.callCount(), 1);
+    assert.equal(preAnalysis.mock.calls.length, 1);
   });
 
   it("skips thread reply without pre-analysis when autoResponseActive=false", async () => {
-    const preAnalysis = mock.fn(async () => "respond" as const);
+    const preAnalysis = vi.fn(async () => "respond" as const);
     const deps = makeDeps({
       findSession: async () => session({ autoResponseActive: false }),
       preAnalysis,
@@ -119,11 +119,11 @@ describe("resolveAutoRespondContext — auto-respond tracking", () => {
     const result = await call(deps);
 
     assert.equal(result, null);
-    assert.equal(preAnalysis.mock.callCount(), 0);
+    assert.equal(preAnalysis.mock.calls.length, 0);
   });
 
   it("disengages session when pre-analysis returns 'stop'", async () => {
-    const setActive = mock.fn(async (_id: string, _active: boolean) => {});
+    const setActive = vi.fn(async (_id: string, _active: boolean) => {});
     const deps = makeDeps({
       findSession: async () => session({ autoResponseActive: true }),
       preAnalysis: async () => "stop",
@@ -133,13 +133,13 @@ describe("resolveAutoRespondContext — auto-respond tracking", () => {
     const result = await call(deps, "let's grab lunch");
 
     assert.equal(result, null);
-    assert.equal(setActive.mock.callCount(), 1);
-    assert.equal(setActive.mock.calls[0].arguments[0], "sess-1");
-    assert.equal(setActive.mock.calls[0].arguments[1], false);
+    assert.equal(setActive.mock.calls.length, 1);
+    assert.equal(setActive.mock.calls[0][0], "sess-1");
+    assert.equal(setActive.mock.calls[0][1], false);
   });
 
   it("skips message (no disengage) when pre-analysis returns 'skip'", async () => {
-    const setActive = mock.fn(async () => {});
+    const setActive = vi.fn(async () => {});
     const deps = makeDeps({
       findSession: async () => session({ autoResponseActive: true }),
       preAnalysis: async () => "skip",
@@ -149,11 +149,11 @@ describe("resolveAutoRespondContext — auto-respond tracking", () => {
     const result = await call(deps, "thanks!");
 
     assert.equal(result, null);
-    assert.equal(setActive.mock.callCount(), 0);
+    assert.equal(setActive.mock.calls.length, 0);
   });
 
   it("does not respond on 'skip' verdict", async () => {
-    const setActive = mock.fn(async () => {});
+    const setActive = vi.fn(async () => {});
     const deps = makeDeps({
       findSession: async () => session({ autoResponseActive: true }),
       preAnalysis: async () => "skip",
@@ -163,11 +163,11 @@ describe("resolveAutoRespondContext — auto-respond tracking", () => {
     const result = await call(deps, "thanks!");
 
     assert.equal(result, null);
-    assert.equal(setActive.mock.callCount(), 0);
+    assert.equal(setActive.mock.calls.length, 0);
   });
 
   it("defaults autoResponseActive to true when field is absent (backward compat)", async () => {
-    const preAnalysis = mock.fn(async () => "respond" as const);
+    const preAnalysis = vi.fn(async () => "respond" as const);
     const deps = makeDeps({
       findSession: async () => session({ autoResponseActive: undefined }),
       preAnalysis,
@@ -177,11 +177,11 @@ describe("resolveAutoRespondContext — auto-respond tracking", () => {
 
     // Should proceed to pre-analysis (not skip as disengaged)
     assert.ok(result !== null);
-    assert.equal(preAnalysis.mock.callCount(), 1);
+    assert.equal(preAnalysis.mock.calls.length, 1);
   });
 
   it("runs pre-analysis for image-only thread reply using synthesized image metadata", async () => {
-    const preAnalysis = mock.fn<typeof runPreAnalysis>(async () => "respond" as const);
+    const preAnalysis = vi.fn<typeof runPreAnalysis>(async () => "respond" as const);
     const deps = makeDeps({
       findSession: async () => session({ autoResponseActive: true }),
       preAnalysis,
@@ -201,16 +201,16 @@ describe("resolveAutoRespondContext — auto-respond tracking", () => {
 
     assert.ok(result !== null);
     assert.equal(result?.triggerType, "threadReply");
-    assert.equal(preAnalysis.mock.callCount(), 1);
+    assert.equal(preAnalysis.mock.calls.length, 1);
     // First arg is the resolved message text — should be the synthesized placeholder
-    const messageArg = preAnalysis.mock.calls[0].arguments[0];
+    const messageArg = preAnalysis.mock.calls[0][0];
     assert.ok(messageArg.includes("[attached images:"));
     assert.ok(messageArg.includes("screenshot.png"));
     assert.ok(messageArg.includes("F1"));
   });
 
   it("disengages on 'stop' verdict for image-only thread reply", async () => {
-    const setActive = mock.fn(async (_id: string, _active: boolean) => {});
+    const setActive = vi.fn(async (_id: string, _active: boolean) => {});
     const deps = makeDeps({
       findSession: async () => session({ autoResponseActive: true }),
       preAnalysis: async () => "stop",
@@ -230,12 +230,12 @@ describe("resolveAutoRespondContext — auto-respond tracking", () => {
     const result = await call(deps, "", rawFiles);
 
     assert.equal(result, null);
-    assert.equal(setActive.mock.callCount(), 1);
-    assert.equal(setActive.mock.calls[0].arguments[1], false);
+    assert.equal(setActive.mock.calls.length, 1);
+    assert.equal(setActive.mock.calls[0][1], false);
   });
 
   it("skips thread reply with no text and no images (no pre-analysis call)", async () => {
-    const preAnalysis = mock.fn(async () => "respond" as const);
+    const preAnalysis = vi.fn(async () => "respond" as const);
     const deps = makeDeps({
       findSession: async () => session({ autoResponseActive: true }),
       preAnalysis,
@@ -244,22 +244,22 @@ describe("resolveAutoRespondContext — auto-respond tracking", () => {
     const result = await call(deps, "");
 
     assert.equal(result, null);
-    assert.equal(preAnalysis.mock.callCount(), 0);
+    assert.equal(preAnalysis.mock.calls.length, 0);
   });
 
   it("bails when a stop reaction disengages the session during pre-analysis", async () => {
     let callCount = 0;
-    const findSession = mock.fn(async () => {
+    const findSession = vi.fn(async () => {
       callCount += 1;
       return session({ autoResponseActive: callCount === 1 });
     });
-    const preAnalysis = mock.fn(async () => "respond" as const);
+    const preAnalysis = vi.fn(async () => "respond" as const);
     const deps = makeDeps({ findSession, preAnalysis });
 
     const result = await call(deps);
 
     assert.equal(result, null);
-    assert.equal(preAnalysis.mock.callCount(), 1, "pre-analysis should have run once");
-    assert.equal(findSession.mock.callCount(), 2, "session should be re-read after pre-analysis");
+    assert.equal(preAnalysis.mock.calls.length, 1, "pre-analysis should have run once");
+    assert.equal(findSession.mock.calls.length, 2, "session should be re-read after pre-analysis");
   });
 });

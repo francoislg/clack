@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, beforeEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import { resolve, join } from "node:path";
 import {
@@ -21,12 +21,12 @@ const P = (...parts: string[]) => join(PLUGINS_DIR, ...parts);
 // Mocks
 // ---------------------------------------------------------------------------
 
-const mockExistsSync = mock.fn<SkillPluginsDeps["existsSync"]>();
-const mockReaddirSync = mock.fn<SkillPluginsDeps["readdirSync"]>();
-const mockReadFileSync = mock.fn<SkillPluginsDeps["readFileSync"]>();
-const mockStatSync = mock.fn<SkillPluginsDeps["statSync"]>();
-const mockGetDataDir = mock.fn<SkillPluginsDeps["getDataDir"]>();
-const mockGetConfig = mock.fn<SkillPluginsDeps["getConfig"]>();
+const mockExistsSync = vi.fn<SkillPluginsDeps["existsSync"]>();
+const mockReaddirSync = vi.fn<SkillPluginsDeps["readdirSync"]>();
+const mockReadFileSync = vi.fn<SkillPluginsDeps["readFileSync"]>();
+const mockStatSync = vi.fn<SkillPluginsDeps["statSync"]>();
+const mockGetDataDir = vi.fn<SkillPluginsDeps["getDataDir"]>();
+const mockGetConfig = vi.fn<SkillPluginsDeps["getConfig"]>();
 
 function makeDeps(): SkillPluginsDeps {
   return {
@@ -44,20 +44,20 @@ function makeDeps(): SkillPluginsDeps {
 // ---------------------------------------------------------------------------
 
 function resetMocks(): void {
-  mockExistsSync.mock.resetCalls();
-  mockReaddirSync.mock.resetCalls();
-  mockReadFileSync.mock.resetCalls();
-  mockStatSync.mock.resetCalls();
-  mockGetDataDir.mock.resetCalls();
-  mockGetConfig.mock.resetCalls();
+  mockExistsSync.mockClear();
+  mockReaddirSync.mockClear();
+  mockReadFileSync.mockClear();
+  mockStatSync.mockClear();
+  mockGetDataDir.mockClear();
+  mockGetConfig.mockClear();
 
-  mockGetDataDir.mock.mockImplementation(() => "/fake/data");
-  mockExistsSync.mock.mockImplementation(() => false);
-  mockReaddirSync.mock.mockImplementation(() => []);
-  mockReadFileSync.mock.mockImplementation(() => "{}");
-  mockStatSync.mock.mockImplementation(() => ({ isDirectory: () => false }));
+  mockGetDataDir.mockImplementation(() => "/fake/data");
+  mockExistsSync.mockImplementation(() => false);
+  mockReaddirSync.mockImplementation(() => []);
+  mockReadFileSync.mockImplementation(() => "{}");
+  mockStatSync.mockImplementation(() => ({ isDirectory: () => false }));
   // Default: config throws (simulates "config not loaded") — discover* treats as no registry.
-  mockGetConfig.mock.mockImplementation(() => {
+  mockGetConfig.mockImplementation(() => {
     throw new Error("Config not loaded");
   });
 
@@ -72,7 +72,7 @@ describe("discoverSkillPluginInfo", () => {
   beforeEach(resetMocks);
 
   it("returns empty array when plugins directory does not exist", () => {
-    mockExistsSync.mock.mockImplementation(() => false);
+    mockExistsSync.mockImplementation(() => false);
     setSkillPluginsDeps(makeDeps());
 
     const result = discoverSkillPluginInfo();
@@ -80,8 +80,8 @@ describe("discoverSkillPluginInfo", () => {
   });
 
   it("returns empty array when plugins directory is empty", () => {
-    mockExistsSync.mock.mockImplementation((p: string) => p === PLUGINS_DIR);
-    mockReaddirSync.mock.mockImplementation(() => []);
+    mockExistsSync.mockImplementation((p: string) => p === PLUGINS_DIR);
+    mockReaddirSync.mockImplementation(() => []);
     setSkillPluginsDeps(makeDeps());
 
     const result = discoverSkillPluginInfo();
@@ -89,9 +89,9 @@ describe("discoverSkillPluginInfo", () => {
   });
 
   it("skips non-directory entries in plugins/", () => {
-    mockExistsSync.mock.mockImplementation((p: string) => p === PLUGINS_DIR);
-    mockReaddirSync.mock.mockImplementation(() => ["somefile.txt"]);
-    mockStatSync.mock.mockImplementation(() => ({ isDirectory: () => false }));
+    mockExistsSync.mockImplementation((p: string) => p === PLUGINS_DIR);
+    mockReaddirSync.mockImplementation(() => ["somefile.txt"]);
+    mockStatSync.mockImplementation(() => ({ isDirectory: () => false }));
     setSkillPluginsDeps(makeDeps());
 
     const result = discoverSkillPluginInfo();
@@ -100,13 +100,13 @@ describe("discoverSkillPluginInfo", () => {
 
   it("skips directories without a .claude-plugin manifest", () => {
     const calls: string[] = [];
-    mockExistsSync.mock.mockImplementation((p: string) => {
+    mockExistsSync.mockImplementation((p: string) => {
       calls.push(p);
       // Only the plugins dir itself exists, not plugin.json or marketplace.json
       return p === PLUGINS_DIR;
     });
-    mockReaddirSync.mock.mockImplementation(() => ["my-plugin"]);
-    mockStatSync.mock.mockImplementation((p: string) => ({
+    mockReaddirSync.mockImplementation(() => ["my-plugin"]);
+    mockStatSync.mockImplementation((p: string) => ({
       isDirectory: () => p === P("my-plugin"),
     }));
     setSkillPluginsDeps(makeDeps());
@@ -117,12 +117,12 @@ describe("discoverSkillPluginInfo", () => {
 
   it("discovers a plugin with plugin.json manifest", () => {
     const existingPaths = new Set([PLUGINS_DIR, P("awesome/.claude-plugin/plugin.json")]);
-    mockExistsSync.mock.mockImplementation((p: string) => existingPaths.has(p));
-    mockReaddirSync.mock.mockImplementation(() => ["awesome"]);
-    mockStatSync.mock.mockImplementation((p: string) => ({
+    mockExistsSync.mockImplementation((p: string) => existingPaths.has(p));
+    mockReaddirSync.mockImplementation(() => ["awesome"]);
+    mockStatSync.mockImplementation((p: string) => ({
       isDirectory: () => p === P("awesome"),
     }));
-    mockReadFileSync.mock.mockImplementation(() => JSON.stringify({ name: "Awesome Plugin" }));
+    mockReadFileSync.mockImplementation(() => JSON.stringify({ name: "Awesome Plugin" }));
     setSkillPluginsDeps(makeDeps());
 
     const result = discoverSkillPluginInfo();
@@ -134,12 +134,12 @@ describe("discoverSkillPluginInfo", () => {
 
   it("discovers a plugin with marketplace.json manifest", () => {
     const existingPaths = new Set([PLUGINS_DIR, P("market/.claude-plugin/marketplace.json")]);
-    mockExistsSync.mock.mockImplementation((p: string) => existingPaths.has(p));
-    mockReaddirSync.mock.mockImplementation(() => ["market"]);
-    mockStatSync.mock.mockImplementation((p: string) => ({
+    mockExistsSync.mockImplementation((p: string) => existingPaths.has(p));
+    mockReaddirSync.mockImplementation(() => ["market"]);
+    mockStatSync.mockImplementation((p: string) => ({
       isDirectory: () => p === P("market"),
     }));
-    mockReadFileSync.mock.mockImplementation(() => JSON.stringify({ name: "Market Plugin" }));
+    mockReadFileSync.mockImplementation(() => JSON.stringify({ name: "Market Plugin" }));
     setSkillPluginsDeps(makeDeps());
 
     const result = discoverSkillPluginInfo();
@@ -153,29 +153,29 @@ describe("discoverSkillPluginInfo", () => {
       P("both/.claude-plugin/plugin.json"),
       P("both/.claude-plugin/marketplace.json"),
     ]);
-    mockExistsSync.mock.mockImplementation((p: string) => existingPaths.has(p));
-    mockReaddirSync.mock.mockImplementation(() => ["both"]);
-    mockStatSync.mock.mockImplementation((p: string) => ({
+    mockExistsSync.mockImplementation((p: string) => existingPaths.has(p));
+    mockReaddirSync.mockImplementation(() => ["both"]);
+    mockStatSync.mockImplementation((p: string) => ({
       isDirectory: () => p === P("both"),
     }));
-    mockReadFileSync.mock.mockImplementation(() => JSON.stringify({ name: "Plugin JSON Name" }));
+    mockReadFileSync.mockImplementation(() => JSON.stringify({ name: "Plugin JSON Name" }));
     setSkillPluginsDeps(makeDeps());
 
     const result = discoverSkillPluginInfo();
     assert.equal(result.length, 1);
     // readFileSync should be called with plugin.json path, not marketplace.json
-    const readPath = mockReadFileSync.mock.calls[0].arguments[0];
+    const readPath = mockReadFileSync.mock.calls[0][0];
     assert.ok(readPath.endsWith("plugin.json"));
   });
 
   it("uses directory name as fallback when manifest has no name", () => {
     const existingPaths = new Set([PLUGINS_DIR, P("fallback-name/.claude-plugin/plugin.json")]);
-    mockExistsSync.mock.mockImplementation((p: string) => existingPaths.has(p));
-    mockReaddirSync.mock.mockImplementation(() => ["fallback-name"]);
-    mockStatSync.mock.mockImplementation((p: string) => ({
+    mockExistsSync.mockImplementation((p: string) => existingPaths.has(p));
+    mockReaddirSync.mockImplementation(() => ["fallback-name"]);
+    mockStatSync.mockImplementation((p: string) => ({
       isDirectory: () => p === P("fallback-name"),
     }));
-    mockReadFileSync.mock.mockImplementation(() => JSON.stringify({}));
+    mockReadFileSync.mockImplementation(() => JSON.stringify({}));
     setSkillPluginsDeps(makeDeps());
 
     const result = discoverSkillPluginInfo();
@@ -185,12 +185,12 @@ describe("discoverSkillPluginInfo", () => {
 
   it("counts skills from manifest plugins[0].skills", () => {
     const existingPaths = new Set([PLUGINS_DIR, P("skilled/.claude-plugin/plugin.json")]);
-    mockExistsSync.mock.mockImplementation((p: string) => existingPaths.has(p));
-    mockReaddirSync.mock.mockImplementation(() => ["skilled"]);
-    mockStatSync.mock.mockImplementation((p: string) => ({
+    mockExistsSync.mockImplementation((p: string) => existingPaths.has(p));
+    mockReaddirSync.mockImplementation(() => ["skilled"]);
+    mockStatSync.mockImplementation((p: string) => ({
       isDirectory: () => p === P("skilled"),
     }));
-    mockReadFileSync.mock.mockImplementation(() =>
+    mockReadFileSync.mockImplementation(() =>
       JSON.stringify({
         name: "Skilled Plugin",
         plugins: [{ skills: ["skill-a", "skill-b", "skill-c"] }],
@@ -209,17 +209,17 @@ describe("discoverSkillPluginInfo", () => {
       P("dir-skills/.claude-plugin/plugin.json"),
       P("dir-skills/skills"),
     ]);
-    mockExistsSync.mock.mockImplementation((p: string) => existingPaths.has(p));
+    mockExistsSync.mockImplementation((p: string) => existingPaths.has(p));
 
     let readdirCallCount = 0;
-    mockReaddirSync.mock.mockImplementation(() => {
+    mockReaddirSync.mockImplementation(() => {
       readdirCallCount++;
       if (readdirCallCount === 1) return ["dir-skills"]; // plugins dir listing
       return ["skill-one", "skill-two", "not-a-dir"]; // skills dir listing
     });
 
     let _statCallCount = 0;
-    mockStatSync.mock.mockImplementation((p: string) => {
+    mockStatSync.mockImplementation((p: string) => {
       _statCallCount++;
       // The plugin entry itself and skill subdirs
       if (p === P("dir-skills")) return { isDirectory: () => true };
@@ -228,7 +228,7 @@ describe("discoverSkillPluginInfo", () => {
       if (p.endsWith("not-a-dir")) return { isDirectory: () => false };
       return { isDirectory: () => false };
     });
-    mockReadFileSync.mock.mockImplementation(() => JSON.stringify({ name: "Dir Skills Plugin" }));
+    mockReadFileSync.mockImplementation(() => JSON.stringify({ name: "Dir Skills Plugin" }));
     setSkillPluginsDeps(makeDeps());
 
     const result = discoverSkillPluginInfo();
@@ -238,12 +238,12 @@ describe("discoverSkillPluginInfo", () => {
 
   it("uses defaults when manifest JSON is invalid", () => {
     const existingPaths = new Set([PLUGINS_DIR, P("broken/.claude-plugin/plugin.json")]);
-    mockExistsSync.mock.mockImplementation((p: string) => existingPaths.has(p));
-    mockReaddirSync.mock.mockImplementation(() => ["broken"]);
-    mockStatSync.mock.mockImplementation((p: string) => ({
+    mockExistsSync.mockImplementation((p: string) => existingPaths.has(p));
+    mockReaddirSync.mockImplementation(() => ["broken"]);
+    mockStatSync.mockImplementation((p: string) => ({
       isDirectory: () => p === P("broken"),
     }));
-    mockReadFileSync.mock.mockImplementation(() => "{ not valid json }}}");
+    mockReadFileSync.mockImplementation(() => "{ not valid json }}}");
     setSkillPluginsDeps(makeDeps());
 
     const result = discoverSkillPluginInfo();
@@ -258,17 +258,17 @@ describe("discoverSkillPluginInfo", () => {
       P("alpha/.claude-plugin/plugin.json"),
       P("beta/.claude-plugin/marketplace.json"),
     ]);
-    mockExistsSync.mock.mockImplementation((p: string) => existingPaths.has(p));
+    mockExistsSync.mockImplementation((p: string) => existingPaths.has(p));
 
     let _readdirCallCount = 0;
-    mockReaddirSync.mock.mockImplementation(() => {
+    mockReaddirSync.mockImplementation(() => {
       _readdirCallCount++;
       return ["alpha", "beta"];
     });
-    mockStatSync.mock.mockImplementation((p: string) => ({
+    mockStatSync.mockImplementation((p: string) => ({
       isDirectory: () => p === P("alpha") || p === P("beta"),
     }));
-    mockReadFileSync.mock.mockImplementation((p: string) => {
+    mockReadFileSync.mockImplementation((p: string) => {
       if (p.includes("alpha")) return JSON.stringify({ name: "Alpha" });
       return JSON.stringify({ name: "Beta" });
     });
@@ -289,7 +289,7 @@ describe("discoverSkillPlugins", () => {
   beforeEach(resetMocks);
 
   it("returns empty array when no plugins found", () => {
-    mockExistsSync.mock.mockImplementation(() => false);
+    mockExistsSync.mockImplementation(() => false);
     setSkillPluginsDeps(makeDeps());
 
     const result = discoverSkillPlugins();
@@ -298,12 +298,12 @@ describe("discoverSkillPlugins", () => {
 
   it("returns SDK-compatible plugin configs with type and path", () => {
     const existingPaths = new Set([PLUGINS_DIR, P("my-plugin/.claude-plugin/plugin.json")]);
-    mockExistsSync.mock.mockImplementation((p: string) => existingPaths.has(p));
-    mockReaddirSync.mock.mockImplementation(() => ["my-plugin"]);
-    mockStatSync.mock.mockImplementation((p: string) => ({
+    mockExistsSync.mockImplementation((p: string) => existingPaths.has(p));
+    mockReaddirSync.mockImplementation(() => ["my-plugin"]);
+    mockStatSync.mockImplementation((p: string) => ({
       isDirectory: () => p === P("my-plugin"),
     }));
-    mockReadFileSync.mock.mockImplementation(() => JSON.stringify({ name: "My Plugin" }));
+    mockReadFileSync.mockImplementation(() => JSON.stringify({ name: "My Plugin" }));
     setSkillPluginsDeps(makeDeps());
 
     const result = discoverSkillPlugins();
@@ -323,12 +323,12 @@ function setupTwoPlugins() {
     P("marketingskills/.claude-plugin/plugin.json"),
     P("devtools/.claude-plugin/plugin.json"),
   ]);
-  mockExistsSync.mock.mockImplementation((p: string) => existingPaths.has(p));
-  mockReaddirSync.mock.mockImplementation(() => ["marketingskills", "devtools"]);
-  mockStatSync.mock.mockImplementation((p: string) => ({
+  mockExistsSync.mockImplementation((p: string) => existingPaths.has(p));
+  mockReaddirSync.mockImplementation(() => ["marketingskills", "devtools"]);
+  mockStatSync.mockImplementation((p: string) => ({
     isDirectory: () => p === P("marketingskills") || p === P("devtools"),
   }));
-  mockReadFileSync.mock.mockImplementation((p: string) => {
+  mockReadFileSync.mockImplementation((p: string) => {
     if (p.includes("marketingskills")) return JSON.stringify({ name: "marketingskills" });
     return JSON.stringify({ name: "devtools" });
   });
@@ -339,7 +339,7 @@ describe("discoverSkillPluginInfo — lazyLoad field", () => {
 
   it("defaults lazyLoad to false when config.skillPlugins is absent", () => {
     setupTwoPlugins();
-    mockGetConfig.mock.mockImplementation(() => ({ skillPlugins: undefined }));
+    mockGetConfig.mockImplementation(() => ({ skillPlugins: undefined }));
     setSkillPluginsDeps(makeDeps());
 
     const result = discoverSkillPluginInfo();
@@ -350,7 +350,7 @@ describe("discoverSkillPluginInfo — lazyLoad field", () => {
 
   it("sets lazyLoad: true for plugins tagged in the registry", () => {
     setupTwoPlugins();
-    mockGetConfig.mock.mockImplementation(() => ({
+    mockGetConfig.mockImplementation(() => ({
       skillPlugins: {
         marketingskills: { lazyLoad: true, description: "Marketing pack" },
       },
@@ -368,7 +368,7 @@ describe("discoverSkillPluginInfo — lazyLoad field", () => {
 
   it("falls back to lazyLoad: false when getConfig throws", () => {
     setupTwoPlugins();
-    mockGetConfig.mock.mockImplementation(() => {
+    mockGetConfig.mockImplementation(() => {
       throw new Error("Config not loaded");
     });
     setSkillPluginsDeps(makeDeps());
@@ -383,7 +383,7 @@ describe("discoverEagerSkillPlugins", () => {
   beforeEach(resetMocks);
 
   it("returns empty array when no plugins found", () => {
-    mockExistsSync.mock.mockImplementation(() => false);
+    mockExistsSync.mockImplementation(() => false);
     setSkillPluginsDeps(makeDeps());
 
     assert.deepEqual(discoverEagerSkillPlugins(), []);
@@ -391,7 +391,7 @@ describe("discoverEagerSkillPlugins", () => {
 
   it("excludes lazy-tagged plugins from the SDK plugin set", () => {
     setupTwoPlugins();
-    mockGetConfig.mock.mockImplementation(() => ({
+    mockGetConfig.mockImplementation(() => ({
       skillPlugins: {
         marketingskills: { lazyLoad: true, description: "Marketing pack" },
       },
@@ -405,7 +405,7 @@ describe("discoverEagerSkillPlugins", () => {
 
   it("includes all plugins when config has no lazy tags", () => {
     setupTwoPlugins();
-    mockGetConfig.mock.mockImplementation(() => ({ skillPlugins: undefined }));
+    mockGetConfig.mockImplementation(() => ({ skillPlugins: undefined }));
     setSkillPluginsDeps(makeDeps());
 
     const result = discoverEagerSkillPlugins();
@@ -414,7 +414,7 @@ describe("discoverEagerSkillPlugins", () => {
 
   it("falls back to eager (all plugins) when config is unavailable", () => {
     setupTwoPlugins();
-    mockGetConfig.mock.mockImplementation(() => {
+    mockGetConfig.mockImplementation(() => {
       throw new Error("Config not loaded");
     });
     setSkillPluginsDeps(makeDeps());

@@ -1,4 +1,4 @@
-import { describe, it, mock, beforeEach } from "node:test";
+import { describe, it, vi, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
 import type { UserRole } from "../../roles.js";
@@ -13,21 +13,22 @@ import {
 // Mocks
 // ============================================================================
 
-const mockGetRole = mock.fn<(userId: string) => Promise<UserRole>>(async () => "admin");
-const mockGetStagedIntent = mock.fn<(...args: unknown[]) => Promise<StagedIntent | null>>(
+const mockGetRole = vi.fn<(userId: string) => Promise<UserRole>>(async () => "admin");
+const mockGetStagedIntent = vi.fn<(...args: unknown[]) => Promise<StagedIntent | null>>(
   async () => null,
 );
-const mockDecodeActionValue = mock.fn<(value: string) => { sessionId: string; ref?: string }>(
-  () => ({ sessionId: "session-1", ref: "r1" }),
-);
-const mockRestoreSessionInfo = mock.fn<(sessionId: string) => Promise<SessionInfo | undefined>>(
+const mockDecodeActionValue = vi.fn<(value: string) => { sessionId: string; ref?: string }>(() => ({
+  sessionId: "session-1",
+  ref: "r1",
+}));
+const mockRestoreSessionInfo = vi.fn<(sessionId: string) => Promise<SessionInfo | undefined>>(
   async () => ({
     channelId: "C001",
     threadTs: "1700000000.000001",
     userId: "U001",
   }),
 );
-const mockWriteInstructionFile = mock.fn<(filename: string, content: string) => void>();
+const mockWriteInstructionFile = vi.fn<(filename: string, content: string) => void>();
 
 function makeDeps(): ConfigUpdateActionDeps {
   return {
@@ -46,7 +47,7 @@ function makeDeps(): ConfigUpdateActionDeps {
 // ============================================================================
 
 function makeClient() {
-  const postEphemeralFn = mock.fn<
+  const postEphemeralFn = vi.fn<
     (args: {
       channel: string;
       user?: string;
@@ -54,7 +55,7 @@ function makeClient() {
       thread_ts?: string;
     }) => Promise<{ ok: boolean }>
   >(async () => ({ ok: true }));
-  const postMessageFn = mock.fn<
+  const postMessageFn = vi.fn<
     (args: { text: string; channel: string; thread_ts: string }) => Promise<{ ok: boolean }>
   >(async () => ({ ok: true }));
   return {
@@ -68,13 +69,13 @@ function makeClient() {
 
 /** Capture the registered action handler from `app.action(...)` */
 function captureHandler() {
-  const actionFn = mock.fn();
+  const actionFn = vi.fn();
   const app = { action: actionFn } as never as App;
 
   registerConfigUpdateActionHandler(app, makeDeps());
 
-  assert.equal(actionFn.mock.callCount(), 1, "should register exactly one action handler");
-  const handler = actionFn.mock.calls[0]!.arguments[1] as (args: {
+  assert.equal(actionFn.mock.calls.length, 1, "should register exactly one action handler");
+  const handler = actionFn.mock.calls[0]![1] as (args: {
     ack: () => Promise<void>;
     body: { user: { id: string }; channel?: { id: string }; actions: Array<{ value: string }> };
     client: App["client"];
@@ -85,9 +86,9 @@ function captureHandler() {
 
 function makeHandlerArgs() {
   const clientBundle = makeClient();
-  const respondFn = mock.fn(async () => {});
+  const respondFn = vi.fn(async () => {});
   return {
-    ack: mock.fn(async () => {}),
+    ack: vi.fn(async () => {}),
     body: {
       user: { id: "U001" },
       channel: { id: "C001" },
@@ -101,21 +102,21 @@ function makeHandlerArgs() {
 }
 
 beforeEach(() => {
-  mockGetRole.mock.resetCalls();
-  mockGetStagedIntent.mock.resetCalls();
-  mockDecodeActionValue.mock.resetCalls();
-  mockRestoreSessionInfo.mock.resetCalls();
-  mockWriteInstructionFile.mock.resetCalls();
+  mockGetRole.mockClear();
+  mockGetStagedIntent.mockClear();
+  mockDecodeActionValue.mockClear();
+  mockRestoreSessionInfo.mockClear();
+  mockWriteInstructionFile.mockClear();
 
   // Reset to defaults
-  mockGetRole.mock.mockImplementation(async () => "admin");
-  mockDecodeActionValue.mock.mockImplementation(() => ({ sessionId: "session-1", ref: "r1" }));
-  mockRestoreSessionInfo.mock.mockImplementation(async () => ({
+  mockGetRole.mockImplementation(async () => "admin");
+  mockDecodeActionValue.mockImplementation(() => ({ sessionId: "session-1", ref: "r1" }));
+  mockRestoreSessionInfo.mockImplementation(async () => ({
     channelId: "C001",
     threadTs: "1700000000.000001",
     userId: "U001",
   }));
-  mockWriteInstructionFile.mock.mockImplementation(() => {});
+  mockWriteInstructionFile.mockImplementation(() => {});
 });
 
 // ============================================================================
@@ -124,13 +125,13 @@ beforeEach(() => {
 
 describe("registerConfigUpdateActionHandler — registration", () => {
   it("registers an action handler with the correct pattern", () => {
-    const actionFn = mock.fn();
+    const actionFn = vi.fn();
     const app = { action: actionFn } as never as App;
 
     registerConfigUpdateActionHandler(app, makeDeps());
 
-    assert.equal(actionFn.mock.callCount(), 1);
-    const pattern = actionFn.mock.calls[0]!.arguments[0] as RegExp;
+    assert.equal(actionFn.mock.calls.length, 1);
+    const pattern = actionFn.mock.calls[0]![0] as RegExp;
     assert.ok(pattern instanceof RegExp);
     assert.ok(pattern.test("clack_config_update_42"));
     assert.ok(!pattern.test("clack_change_42"));
@@ -144,40 +145,40 @@ describe("registerConfigUpdateActionHandler — registration", () => {
 describe("registerConfigUpdateActionHandler — permissions", () => {
   it("blocks member role with ephemeral message", async () => {
     const handler = captureHandler();
-    mockGetRole.mock.mockImplementation(async () => "member");
+    mockGetRole.mockImplementation(async () => "member");
     const args = makeHandlerArgs();
 
     await handler(args);
 
-    assert.equal(args.ack.mock.callCount(), 1);
+    assert.equal(args.ack.mock.calls.length, 1);
     const postEphemeral = args.postEphemeral;
-    assert.equal(postEphemeral.mock.callCount(), 1);
-    const msgArgs = postEphemeral.mock.calls[0]!.arguments[0] as { text: string };
+    assert.equal(postEphemeral.mock.calls.length, 1);
+    const msgArgs = postEphemeral.mock.calls[0]![0] as { text: string };
     assert.ok(msgArgs.text.includes("permission"));
   });
 
   it("blocks dev role with ephemeral message", async () => {
     const handler = captureHandler();
-    mockGetRole.mock.mockImplementation(async () => "dev");
+    mockGetRole.mockImplementation(async () => "dev");
     const args = makeHandlerArgs();
 
     await handler(args);
 
-    assert.equal(args.ack.mock.callCount(), 1);
+    assert.equal(args.ack.mock.calls.length, 1);
     const postEphemeral = args.postEphemeral;
-    assert.equal(postEphemeral.mock.callCount(), 1);
+    assert.equal(postEphemeral.mock.calls.length, 1);
   });
 
   it("allows admin role", async () => {
     const handler = captureHandler();
-    mockGetRole.mock.mockImplementation(async () => "admin");
+    mockGetRole.mockImplementation(async () => "admin");
 
     const configIntent: StagedConfigUpdateIntent = {
       type: "config_update",
       file: "instructions.md",
       content: "new content",
     };
-    mockGetStagedIntent.mock.mockImplementation(async () => configIntent);
+    mockGetStagedIntent.mockImplementation(async () => configIntent);
 
     const args = makeHandlerArgs();
     await handler(args);
@@ -187,21 +188,21 @@ describe("registerConfigUpdateActionHandler — permissions", () => {
     // It should either succeed or post a success ephemeral, not a permission error
     const calls = postEphemeral.mock.calls;
     for (const call of calls) {
-      const text = (call.arguments[0] as { text: string }).text;
+      const text = (call[0] as { text: string }).text;
       assert.ok(!text.includes("permission"), "should not contain permission error");
     }
   });
 
   it("allows owner role", async () => {
     const handler = captureHandler();
-    mockGetRole.mock.mockImplementation(async () => "owner");
+    mockGetRole.mockImplementation(async () => "owner");
 
     const configIntent: StagedConfigUpdateIntent = {
       type: "config_update",
       file: "instructions.md",
       content: "new content",
     };
-    mockGetStagedIntent.mock.mockImplementation(async () => configIntent);
+    mockGetStagedIntent.mockImplementation(async () => configIntent);
 
     const args = makeHandlerArgs();
     await handler(args);
@@ -209,7 +210,7 @@ describe("registerConfigUpdateActionHandler — permissions", () => {
     const postEphemeral = args.postEphemeral;
     const calls = postEphemeral.mock.calls;
     for (const call of calls) {
-      const text = (call.arguments[0] as { text: string }).text;
+      const text = (call[0] as { text: string }).text;
       assert.ok(!text.includes("permission"), "should not contain permission error");
     }
   });
@@ -222,14 +223,14 @@ describe("registerConfigUpdateActionHandler — permissions", () => {
 describe("registerConfigUpdateActionHandler — missing ref", () => {
   it("returns early when ref is missing", async () => {
     const handler = captureHandler();
-    mockDecodeActionValue.mock.mockImplementation(() => ({ sessionId: "session-1" }));
+    mockDecodeActionValue.mockImplementation(() => ({ sessionId: "session-1" }));
     const args = makeHandlerArgs();
 
     await handler(args);
 
     // Should ack but not try to restore session
-    assert.equal(args.ack.mock.callCount(), 1);
-    assert.equal(mockRestoreSessionInfo.mock.callCount(), 0);
+    assert.equal(args.ack.mock.calls.length, 1);
+    assert.equal(mockRestoreSessionInfo.mock.calls.length, 0);
   });
 });
 
@@ -240,15 +241,15 @@ describe("registerConfigUpdateActionHandler — missing ref", () => {
 describe("registerConfigUpdateActionHandler — session not found", () => {
   it("returns early when session cannot be restored", async () => {
     const handler = captureHandler();
-    mockRestoreSessionInfo.mock.mockImplementation(async () => undefined);
+    mockRestoreSessionInfo.mockImplementation(async () => undefined);
     const args = makeHandlerArgs();
 
     await handler(args);
 
-    assert.equal(args.ack.mock.callCount(), 1);
-    assert.equal(args.respond.mock.callCount(), 1);
+    assert.equal(args.ack.mock.calls.length, 1);
+    assert.equal(args.respond.mock.calls.length, 1);
     // Should not try to get staged intent
-    assert.equal(mockGetStagedIntent.mock.callCount(), 0);
+    assert.equal(mockGetStagedIntent.mock.calls.length, 0);
   });
 });
 
@@ -259,20 +260,20 @@ describe("registerConfigUpdateActionHandler — session not found", () => {
 describe("registerConfigUpdateActionHandler — intent resolution", () => {
   it("posts ephemeral error when intent is not found", async () => {
     const handler = captureHandler();
-    mockGetStagedIntent.mock.mockImplementation(async () => null);
+    mockGetStagedIntent.mockImplementation(async () => null);
     const args = makeHandlerArgs();
 
     await handler(args);
 
     const postEphemeral = args.postEphemeral;
-    assert.equal(postEphemeral.mock.callCount(), 1);
-    const msgArgs = postEphemeral.mock.calls[0]!.arguments[0] as { text: string };
+    assert.equal(postEphemeral.mock.calls.length, 1);
+    const msgArgs = postEphemeral.mock.calls[0]![0] as { text: string };
     assert.ok(msgArgs.text.includes("expired"));
   });
 
   it("posts ephemeral error when intent type is not config_update", async () => {
     const handler = captureHandler();
-    mockGetStagedIntent.mock.mockImplementation(async () => ({
+    mockGetStagedIntent.mockImplementation(async () => ({
       type: "change",
       branch: "feat/x",
       description: "desc",
@@ -283,8 +284,8 @@ describe("registerConfigUpdateActionHandler — intent resolution", () => {
     await handler(args);
 
     const postEphemeral = args.postEphemeral;
-    assert.equal(postEphemeral.mock.callCount(), 1);
-    const msgArgs = postEphemeral.mock.calls[0]!.arguments[0] as { text: string };
+    assert.equal(postEphemeral.mock.calls.length, 1);
+    const msgArgs = postEphemeral.mock.calls[0]![0] as { text: string };
     assert.ok(msgArgs.text.includes("expired"));
   });
 });
@@ -301,23 +302,23 @@ describe("registerConfigUpdateActionHandler — success", () => {
       file: "instructions.md",
       content: "new content",
     };
-    mockGetStagedIntent.mock.mockImplementation(async () => configIntent);
+    mockGetStagedIntent.mockImplementation(async () => configIntent);
     const args = makeHandlerArgs();
 
     await handler(args);
 
     // Should ack, respond (delete original), and write the file
-    assert.equal(args.ack.mock.callCount(), 1);
-    assert.equal(args.respond.mock.callCount(), 1);
-    assert.equal(mockWriteInstructionFile.mock.callCount(), 1);
-    const writeArgs = mockWriteInstructionFile.mock.calls[0]!.arguments;
+    assert.equal(args.ack.mock.calls.length, 1);
+    assert.equal(args.respond.mock.calls.length, 1);
+    assert.equal(mockWriteInstructionFile.mock.calls.length, 1);
+    const writeArgs = mockWriteInstructionFile.mock.calls[0]!;
     assert.equal(writeArgs[0], "instructions.md");
     assert.equal(writeArgs[1], "new content");
 
     // Should post success ephemeral
     const postEphemeral = args.postEphemeral;
-    assert.equal(postEphemeral.mock.callCount(), 1);
-    const msgArgs = postEphemeral.mock.calls[0]!.arguments[0] as {
+    assert.equal(postEphemeral.mock.calls.length, 1);
+    const msgArgs = postEphemeral.mock.calls[0]![0] as {
       text: string;
       channel: string;
       thread_ts: string;
@@ -338,18 +339,18 @@ describe("registerConfigUpdateActionHandler — success", () => {
       file: "dev/topics/metabase/rules.md",
       content: "metabase rules",
     };
-    mockGetStagedIntent.mock.mockImplementation(async () => configIntent);
+    mockGetStagedIntent.mockImplementation(async () => configIntent);
     const args = makeHandlerArgs();
 
     await handler(args);
 
-    assert.equal(mockWriteInstructionFile.mock.callCount(), 1);
-    const writeArgs = mockWriteInstructionFile.mock.calls[0]!.arguments;
+    assert.equal(mockWriteInstructionFile.mock.calls.length, 1);
+    const writeArgs = mockWriteInstructionFile.mock.calls[0]!;
     assert.equal(writeArgs[0], "dev/topics/metabase/rules.md");
     assert.equal(writeArgs[1], "metabase rules");
 
     const postEphemeral = args.postEphemeral;
-    const msgArgs = postEphemeral.mock.calls[0]!.arguments[0] as { text: string };
+    const msgArgs = postEphemeral.mock.calls[0]![0] as { text: string };
     assert.ok(msgArgs.text.includes("dev/topics/metabase/rules.md"));
   });
 });
@@ -366,8 +367,8 @@ describe("registerConfigUpdateActionHandler — write failure", () => {
       file: "broken.md",
       content: "data",
     };
-    mockGetStagedIntent.mock.mockImplementation(async () => configIntent);
-    mockWriteInstructionFile.mock.mockImplementation(() => {
+    mockGetStagedIntent.mockImplementation(async () => configIntent);
+    mockWriteInstructionFile.mockImplementation(() => {
       throw new Error("write failed");
     });
     const args = makeHandlerArgs();
@@ -375,8 +376,8 @@ describe("registerConfigUpdateActionHandler — write failure", () => {
     await handler(args);
 
     const postEphemeral = args.postEphemeral;
-    assert.equal(postEphemeral.mock.callCount(), 1);
-    const msgArgs = postEphemeral.mock.calls[0]!.arguments[0] as { text: string };
+    assert.equal(postEphemeral.mock.calls.length, 1);
+    const msgArgs = postEphemeral.mock.calls[0]![0] as { text: string };
     assert.ok(msgArgs.text.includes("Failed to update"));
     assert.ok(msgArgs.text.includes("broken.md"));
     assert.ok(msgArgs.text.includes("write failed"));

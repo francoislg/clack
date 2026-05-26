@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { resolveEffectiveFormat } from "./format.js";
 import type { SeasonEntry } from "../core/types.js";

@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, beforeEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import { createCancelWorkerRunTool, type CancelWorkerRunDeps } from "./cancelWorkerRun.js";
 import type { QueryToolContext } from "../types.js";
@@ -29,7 +29,7 @@ function fakeChange(partial: {
 
 function makeDeps(overrides?: Partial<CancelWorkerRunDeps>): CancelWorkerRunDeps {
   return {
-    getActiveChangeForUser: mock.fn(() => undefined),
+    getActiveChangeForUser: vi.fn(() => undefined),
     canEditConfig: (role) => role === "admin" || role === "owner",
     cancelQueuedSession: () => false,
     ...overrides,
@@ -48,7 +48,7 @@ function makeContext(overrides?: Partial<QueryToolContext>): QueryToolContext {
     } as QueryToolContext["session"],
     config: {} as QueryToolContext["config"],
     changesWorkflowEnabled: true,
-    allowScheduledMessages: false,
+    cronUserSchedules: false,
     ...overrides,
   };
 }
@@ -67,7 +67,7 @@ describe("createCancelWorkerRunTool", () => {
 
   it("returns error when no active worker run exists", async () => {
     deps = makeDeps({
-      getActiveChangeForUser: mock.fn(() => undefined),
+      getActiveChangeForUser: vi.fn(() => undefined),
     });
 
     const tool = createCancelWorkerRunTool(makeContext(), deps);
@@ -89,7 +89,7 @@ describe("createCancelWorkerRunTool", () => {
       cancelledBy: undefined,
     });
     deps = makeDeps({
-      getActiveChangeForUser: mock.fn(() => ({
+      getActiveChangeForUser: vi.fn(() => ({
         sessionId: "sess-123",
         change,
       })),
@@ -110,7 +110,7 @@ describe("createCancelWorkerRunTool", () => {
 
   it("handles stale session without a handle", async () => {
     deps = makeDeps({
-      getActiveChangeForUser: mock.fn(() => ({
+      getActiveChangeForUser: vi.fn(() => ({
         sessionId: "sess-456",
         change: fakeChange({
           repo: "my-repo",
@@ -133,7 +133,7 @@ describe("createCancelWorkerRunTool", () => {
   it("cancels a queued session when there's no live handle (reusable mode)", async () => {
     const cancelCalls: Array<{ sessionId: string; reason?: string }> = [];
     deps = makeDeps({
-      getActiveChangeForUser: mock.fn(() => ({
+      getActiveChangeForUser: vi.fn(() => ({
         sessionId: "sess-queued",
         change: fakeChange({
           repo: "my-repo",
@@ -165,7 +165,7 @@ describe("createCancelWorkerRunTool", () => {
 
   it("falls through to stale-session error when neither handle nor queue entry exists", async () => {
     deps = makeDeps({
-      getActiveChangeForUser: mock.fn(() => ({
+      getActiveChangeForUser: vi.fn(() => ({
         sessionId: "sess-ghost",
         change: fakeChange({
           repo: "my-repo",
@@ -196,7 +196,7 @@ describe("createCancelWorkerRunTool", () => {
       cancelledBy: undefined,
     });
     deps = makeDeps({
-      getActiveChangeForUser: mock.fn(() => ({
+      getActiveChangeForUser: vi.fn(() => ({
         sessionId: "sess-789",
         change,
       })),
@@ -226,7 +226,7 @@ describe("createCancelWorkerRunTool", () => {
   it("works for reviewing status", async () => {
     const handle = makeFakeHandle();
     deps = makeDeps({
-      getActiveChangeForUser: mock.fn(() => ({
+      getActiveChangeForUser: vi.fn(() => ({
         sessionId: "sess-review",
         change: fakeChange({
           repo: "my-repo",

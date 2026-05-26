@@ -1,4 +1,4 @@
-import { describe, it, mock } from "node:test";
+import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 import { createAttachIntegrationTool, type AttachIntegrationDeps } from "./attachIntegration.js";
@@ -75,7 +75,7 @@ function makeCtx(overrides: Partial<QueryToolContext> = {}): QueryToolContext {
     session: makeSession(),
     config: { repositories: [] as RepositoryConfig[] } as QueryToolContext["config"],
     changesWorkflowEnabled: false,
-    allowScheduledMessages: false,
+    cronUserSchedules: false,
     mcpManager: makeManager(),
     ...overrides,
   };
@@ -85,19 +85,17 @@ type LoadMcpServerFn = AttachIntegrationDeps["loadMcpServer"];
 type ResolveTopicFilesFn = AttachIntegrationDeps["resolveTopicFiles"];
 type UpdateSessionFn = AttachIntegrationDeps["updateSession"];
 type BuildVirtualDefaultsFn = AttachIntegrationDeps["buildVirtualDefaults"];
-type GetToolsGatedByIntegrationFn = AttachIntegrationDeps["getToolsGatedByIntegration"];
 
 interface DepMocks {
   deps: AttachIntegrationDeps;
-  loadMcpServer: ReturnType<typeof mock.fn<LoadMcpServerFn>>;
-  resolveTopicFiles: ReturnType<typeof mock.fn<ResolveTopicFilesFn>>;
-  updateSession: ReturnType<typeof mock.fn<UpdateSessionFn>>;
-  buildVirtualDefaults: ReturnType<typeof mock.fn<BuildVirtualDefaultsFn>>;
-  getToolsGatedByIntegration: ReturnType<typeof mock.fn<GetToolsGatedByIntegrationFn>>;
+  loadMcpServer: ReturnType<typeof vi.fn<LoadMcpServerFn>>;
+  resolveTopicFiles: ReturnType<typeof vi.fn<ResolveTopicFilesFn>>;
+  updateSession: ReturnType<typeof vi.fn<UpdateSessionFn>>;
+  buildVirtualDefaults: ReturnType<typeof vi.fn<BuildVirtualDefaultsFn>>;
 }
 
 function makeDepMocks(overrides: Partial<AttachIntegrationDeps> = {}): DepMocks {
-  const loadMcpServer = mock.fn<LoadMcpServerFn>(async (name: string) => {
+  const loadMcpServer = vi.fn<LoadMcpServerFn>(async (name: string) => {
     if (name === "metabase") {
       const cfg: McpServerConfig = {
         type: "stdio",
@@ -109,18 +107,16 @@ function makeDepMocks(overrides: Partial<AttachIntegrationDeps> = {}): DepMocks 
     }
     return undefined;
   });
-  const resolveTopicFiles = mock.fn<ResolveTopicFilesFn>(
+  const resolveTopicFiles = vi.fn<ResolveTopicFilesFn>(
     (_roleChain, topic) => `Topic instructions for ${topic}`,
   );
-  const updateSession = mock.fn<UpdateSessionFn>(async () => null);
-  const buildVirtualDefaults = mock.fn<BuildVirtualDefaultsFn>(() => undefined);
-  const getToolsGatedByIntegration = mock.fn<GetToolsGatedByIntegrationFn>(() => []);
+  const updateSession = vi.fn<UpdateSessionFn>(async () => null);
+  const buildVirtualDefaults = vi.fn<BuildVirtualDefaultsFn>(() => undefined);
   const deps: AttachIntegrationDeps = {
     loadMcpServer,
     resolveTopicFiles,
     updateSession,
     buildVirtualDefaults,
-    getToolsGatedByIntegration,
     ...overrides,
   };
   return {
@@ -129,12 +125,11 @@ function makeDepMocks(overrides: Partial<AttachIntegrationDeps> = {}): DepMocks 
     resolveTopicFiles,
     updateSession,
     buildVirtualDefaults,
-    getToolsGatedByIntegration,
   };
 }
 
-function okSetMcpServers(): ReturnType<typeof mock.fn<SetMcpServersFn>> {
-  return mock.fn<SetMcpServersFn>(async () => ({ added: [], removed: [], errors: {} }));
+function okSetMcpServers(): ReturnType<typeof vi.fn<SetMcpServersFn>> {
+  return vi.fn<SetMcpServersFn>(async () => ({ added: [], removed: [], errors: {} }));
 }
 
 // ---------------------------------------------------------------------------
@@ -155,9 +150,9 @@ describe("attach_integration tool", () => {
     assert.ok(text.includes("Attached integration: metabase"));
     assert.ok(text.includes("New tools may now be available"));
     assert.ok(text.includes("Topic instructions for metabase"));
-    assert.equal(setMcpServers.mock.callCount(), 1);
+    assert.equal(setMcpServers.mock.calls.length, 1);
     assert.deepEqual(manager.attachedNames(), ["metabase"]);
-    assert.equal(depMocks.updateSession.mock.callCount(), 1);
+    assert.equal(depMocks.updateSession.mock.calls.length, 1);
   });
 
   it("returns idempotent success on duplicate attach without calling setMcpServers again", async () => {
@@ -176,15 +171,15 @@ describe("attach_integration tool", () => {
     const depMocks = makeDepMocks();
     const toolDef = createAttachIntegrationTool(ctx, depMocks.deps);
 
-    const callCountBefore = setMcpServers.mock.callCount();
+    const callCountBefore = setMcpServers.mock.calls.length;
     const result = await toolDef.handler({ name: "metabase" }, { sessionId: "test" });
     const text = toolResultText(result);
 
     assert.ok(text.includes("already attached"));
     // No additional setMcpServers call triggered by the duplicate.
-    assert.equal(setMcpServers.mock.callCount(), callCountBefore);
+    assert.equal(setMcpServers.mock.calls.length, callCountBefore);
     // loadMcpServer wasn't called on the duplicate path.
-    assert.equal(depMocks.loadMcpServer.mock.callCount(), 0);
+    assert.equal(depMocks.loadMcpServer.mock.calls.length, 0);
   });
 
   it("short-circuits when the integration is in the session-start baseline and the SDK reports it connected", async () => {
@@ -202,7 +197,7 @@ describe("attach_integration tool", () => {
       { clack: BASELINE_CLACK, "mongodb-prod": mongoCfg },
       registry,
     );
-    const statusFn = mock.fn<McpServerStatusFn>(async () => [
+    const statusFn = vi.fn<McpServerStatusFn>(async () => [
       { name: "mongodb-prod", status: "connected" } as McpServerStatus,
     ]);
     manager.bind(setMcpServers, statusFn);
@@ -216,10 +211,10 @@ describe("attach_integration tool", () => {
 
     assert.ok(text.includes("always-loaded"));
     assert.ok(text.includes("tools are already available"));
-    assert.equal(setMcpServers.mock.callCount(), 0);
-    assert.equal(depMocks.loadMcpServer.mock.callCount(), 0);
-    assert.equal(depMocks.updateSession.mock.callCount(), 1);
-    const updates = depMocks.updateSession.mock.calls[0]!.arguments[1];
+    assert.equal(setMcpServers.mock.calls.length, 0);
+    assert.equal(depMocks.loadMcpServer.mock.calls.length, 0);
+    assert.equal(depMocks.updateSession.mock.calls.length, 1);
+    const updates = depMocks.updateSession.mock.calls[0]![1];
     assert.equal(updates.mcpAttachHistory?.[0]?.outcome, "duplicate");
   });
 
@@ -238,13 +233,13 @@ describe("attach_integration tool", () => {
       { clack: BASELINE_CLACK, "mongodb-prod": mongoCfg },
       registry,
     );
-    const statusFn = mock.fn<McpServerStatusFn>(async () => [
+    const statusFn = vi.fn<McpServerStatusFn>(async () => [
       { name: "mongodb-prod", status: "failed", error: "boom" } as McpServerStatus,
     ]);
     manager.bind(setMcpServers, statusFn);
 
     const ctx = makeCtx({ mcpManager: manager });
-    const loadMcpServer = mock.fn<LoadMcpServerFn>(async () => mongoCfg);
+    const loadMcpServer = vi.fn<LoadMcpServerFn>(async () => mongoCfg);
     const depMocks = makeDepMocks({ loadMcpServer });
     const toolDef = createAttachIntegrationTool(ctx, depMocks.deps);
 
@@ -252,8 +247,8 @@ describe("attach_integration tool", () => {
     const text = toolResultText(result);
 
     assert.ok(text.includes("Attached integration: mongodb-prod"));
-    assert.equal(setMcpServers.mock.callCount(), 1);
-    assert.equal(loadMcpServer.mock.callCount(), 1);
+    assert.equal(setMcpServers.mock.calls.length, 1);
+    assert.equal(loadMcpServer.mock.calls.length, 1);
   });
 
   it("returns error for unknown integration name and lists available ones", async () => {
@@ -286,16 +281,16 @@ describe("attach_integration tool", () => {
     assert.ok(text.includes("Instructions loaded."));
     assert.ok(text.includes("has no callable tools"));
     assert.ok(text.includes("Topic instructions for scheduling-only"));
-    assert.equal(setMcpServers.mock.callCount(), 0);
+    assert.equal(setMcpServers.mock.calls.length, 0);
     assert.deepEqual(manager.attachedNames(), []);
-    assert.equal(depMocks.updateSession.mock.callCount(), 1);
+    assert.equal(depMocks.updateSession.mock.calls.length, 1);
   });
 
   it("falls back to 'nothing arrives' when no MCP, no gated tools, no topic instructions", async () => {
     const setMcpServers = okSetMcpServers();
     const manager = makeManager({ setMcpServers });
     const ctx = makeCtx({ mcpManager: manager });
-    const resolveTopicFiles = mock.fn<ResolveTopicFilesFn>(() => "");
+    const resolveTopicFiles = vi.fn<ResolveTopicFilesFn>(() => "");
     const depMocks = makeDepMocks({ resolveTopicFiles });
     const toolDef = createAttachIntegrationTool(ctx, depMocks.deps);
 
@@ -313,8 +308,8 @@ describe("attach_integration tool", () => {
     const manager = makeManager({ setMcpServers, registry });
     const ctx = makeCtx({ mcpManager: manager });
     const sentinel = new Map();
-    const buildVirtualDefaults = mock.fn<BuildVirtualDefaultsFn>(() => sentinel);
-    const resolveTopicFiles = mock.fn<ResolveTopicFilesFn>((_roleChain, topic, vd) =>
+    const buildVirtualDefaults = vi.fn<BuildVirtualDefaultsFn>(() => sentinel);
+    const resolveTopicFiles = vi.fn<ResolveTopicFilesFn>((_roleChain, topic, vd) =>
       vd === sentinel ? `body for ${topic}` : "",
     );
     const depMocks = makeDepMocks({ buildVirtualDefaults, resolveTopicFiles });
@@ -323,34 +318,46 @@ describe("attach_integration tool", () => {
     const result = await toolDef.handler({ name: "trivia:management" }, { sessionId: "test" });
     const text = toolResultText(result);
 
-    assert.equal(buildVirtualDefaults.mock.callCount(), 1);
+    assert.equal(buildVirtualDefaults.mock.calls.length, 1);
     assert.ok(text.includes("body for trivia:management"));
   });
 
-  it("Bug B regression: kindNote advertises new tools when integration gates plugin tools, even with empty topic instructions", async () => {
+  it("attaches a plugin-registered on-demand server via the manager's integration-server registry", async () => {
+    // `buildClackTools` populates the manager's per-session integration-server registry
+    // for every on-demand server a plugin declares via `sdk.registerMcpServer(...)`.
+    // The unified resolver in attach_integration falls back to that registry when
+    // `loadMcpServer` returns undefined, and routes through the same `manager.attach`
+    // path as MCP-backed integrations.
     const setMcpServers = okSetMcpServers();
     const registry: McpServerRegistry = {
-      "myplugin:topic": { alwaysLoad: false, description: "plugin-gated tools only" },
+      "myplugin:topic": { alwaysLoad: false, description: "plugin-registered on-demand server" },
     };
     const manager = makeManager({ setMcpServers, registry });
+    const pluginServer: McpServerConfig = {
+      type: "stdio",
+      command: "stub",
+      args: [],
+      env: {},
+    };
+    manager.registerIntegrationServer("myplugin:topic", pluginServer);
     const ctx = makeCtx({ mcpManager: manager });
-    const resolveTopicFiles = mock.fn<ResolveTopicFilesFn>(() => "");
-    const getToolsGatedByIntegration = mock.fn<GetToolsGatedByIntegrationFn>(() => [
-      "mcp__myplugin__do_thing",
-    ]);
-    const depMocks = makeDepMocks({ resolveTopicFiles, getToolsGatedByIntegration });
+    const resolveTopicFiles = vi.fn<ResolveTopicFilesFn>(() => "");
+    const depMocks = makeDepMocks({ resolveTopicFiles });
     const toolDef = createAttachIntegrationTool(ctx, depMocks.deps);
 
     const result = await toolDef.handler({ name: "myplugin:topic" }, { sessionId: "test" });
     const text = toolResultText(result);
 
+    assert.ok(text.includes("Attached integration: myplugin:topic"));
     assert.ok(text.includes("New tools may now be available"));
-    assert.ok(!text.includes("nothing arrives"));
-    assert.ok(text.includes("mcp__myplugin__do_thing"));
+    assert.equal(setMcpServers.mock.calls.length, 1);
+    assert.deepEqual(manager.attachedNames(), ["myplugin:topic"]);
+    const updates = depMocks.updateSession.mock.calls[0]![1];
+    assert.equal(updates.mcpAttachHistory?.[0]?.outcome, "ok");
   });
 
   it("returns error and does not record attach when setMcpServers reports a connection error", async () => {
-    const setMcpServers = mock.fn<SetMcpServersFn>(async () => ({
+    const setMcpServers = vi.fn<SetMcpServersFn>(async () => ({
       added: [],
       removed: [],
       errors: { metabase: "connection refused" },
@@ -369,16 +376,16 @@ describe("attach_integration tool", () => {
     assert.deepEqual(manager.attachedNames(), []);
     // updateSession is called once to append a 'failed' entry to mcpAttachHistory
     // (attachedIntegrations is NOT updated — the attach didn't succeed).
-    assert.equal(depMocks.updateSession.mock.callCount(), 1);
+    assert.equal(depMocks.updateSession.mock.calls.length, 1);
     const call = depMocks.updateSession.mock.calls[0];
-    const updates = call.arguments[1];
+    const updates = call[1];
     assert.equal(updates.attachedIntegrations, undefined);
     assert.equal(updates.mcpAttachHistory?.[0]?.outcome, "failed");
     assert.equal(updates.mcpAttachHistory?.[0]?.error, "connection refused");
   });
 
   it("returns error and does not record attach when setMcpServers throws", async () => {
-    const setMcpServers = mock.fn<SetMcpServersFn>(async () => {
+    const setMcpServers = vi.fn<SetMcpServersFn>(async () => {
       throw new Error("network blew up");
     });
     const manager = makeManager({ setMcpServers });
@@ -397,7 +404,7 @@ describe("attach_integration tool", () => {
 
   it("merges session-start + previously-attached + new server in setMcpServers call", async () => {
     let received: Record<string, McpServerConfig> | undefined;
-    const setMcpServers = mock.fn<SetMcpServersFn>(async (servers) => {
+    const setMcpServers = vi.fn<SetMcpServersFn>(async (servers) => {
       received = servers;
       return { added: [], removed: [], errors: {} };
     });
@@ -428,7 +435,7 @@ describe("attach_integration tool", () => {
 
   it("always preserves session-start servers (clack MCP) when calling setMcpServers", async () => {
     let received: Record<string, McpServerConfig> | undefined;
-    const setMcpServers = mock.fn<SetMcpServersFn>(async (servers) => {
+    const setMcpServers = vi.fn<SetMcpServersFn>(async (servers) => {
       received = servers;
       return { added: [], removed: [], errors: {} };
     });
@@ -453,7 +460,7 @@ describe("attach_integration tool", () => {
     const session = makeSession({ attachedIntegrations: ["already-there"] });
     const ctx = makeCtx({ mcpManager: manager, session });
     let observedUpdate: Partial<SessionContext> | undefined;
-    const updateSession = mock.fn<UpdateSessionFn>(async (_id, updates) => {
+    const updateSession = vi.fn<UpdateSessionFn>(async (_id, updates) => {
       observedUpdate = updates;
       return null;
     });
@@ -479,7 +486,7 @@ describe("attach_integration tool", () => {
     // updateSession is still called (to append the history entry), but the
     // attachedIntegrations list must not duplicate 'metabase'.
     const calls = depMocks.updateSession.mock.calls;
-    const lastUpdate = calls[calls.length - 1].arguments[1];
+    const lastUpdate = calls[calls.length - 1][1];
     assert.deepEqual(lastUpdate.attachedIntegrations, ["metabase"]);
   });
 
@@ -487,7 +494,7 @@ describe("attach_integration tool", () => {
     const setMcpServers = okSetMcpServers();
     const manager = makeManager({ setMcpServers });
     const ctx = makeCtx({ mcpManager: manager });
-    const updateSession = mock.fn<UpdateSessionFn>(async () => {
+    const updateSession = vi.fn<UpdateSessionFn>(async () => {
       throw new Error("disk full");
     });
     const depMocks = makeDepMocks({ updateSession });
@@ -527,7 +534,7 @@ describe("attach_integration tool", () => {
     const setMcpServers = okSetMcpServers();
     const manager = makeManager({ setMcpServers });
     const ctx = makeCtx({ mcpManager: manager });
-    const resolveTopicFiles = mock.fn<ResolveTopicFilesFn>(() => "");
+    const resolveTopicFiles = vi.fn<ResolveTopicFilesFn>(() => "");
     const depMocks = makeDepMocks({ resolveTopicFiles });
     const toolDef = createAttachIntegrationTool(ctx, depMocks.deps);
 

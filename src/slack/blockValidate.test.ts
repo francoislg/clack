@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { BlockSchema, type AuthoredTableBlock, type Block } from "./blockSchema.js";
 import { validateBlocks, validateTable } from "./blockValidate.js";

@@ -1,4 +1,4 @@
-import { describe, it, mock } from "node:test";
+import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import { createReportStatusTool, type ReportStatusDeps } from "./reportStatus.js";
 import type { WorkerToolContext } from "../types.js";
@@ -29,10 +29,10 @@ interface ToolResult {
 }
 
 function makeDeps() {
-  const mockPostMessage = mock.fn<(...args: unknown[]) => Promise<unknown>>(async () => ({
+  const mockPostMessage = vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => ({
     ok: true,
   }));
-  const mockGetSlackClient = mock.fn<() => unknown>(() => ({
+  const mockGetSlackClient = vi.fn<() => unknown>(() => ({
     chat: { postMessage: mockPostMessage },
   }));
 
@@ -63,8 +63,8 @@ describe("reportStatus tool", () => {
     assert.equal(result.isError, undefined);
 
     // Verify postMessage was called correctly
-    assert.equal(mockPostMessage.mock.callCount(), 1);
-    const callArgs = mockPostMessage.mock.calls[0]!.arguments[0] as {
+    assert.equal(mockPostMessage.mock.calls.length, 1);
+    const callArgs = mockPostMessage.mock.calls[0]![0] as {
       channel: string;
       thread_ts: string;
       text: string;
@@ -76,7 +76,7 @@ describe("reportStatus tool", () => {
 
   it("returns error when Slack client is not available", async () => {
     const { deps, mockGetSlackClient } = makeDeps();
-    mockGetSlackClient.mock.mockImplementation(() => null);
+    mockGetSlackClient.mockImplementation(() => null);
 
     const toolDef = createReportStatusTool(makeCtx(), deps);
     const result = await toolDef.handler(
@@ -92,7 +92,7 @@ describe("reportStatus tool", () => {
 
   it("returns error when postMessage throws", async () => {
     const { deps, mockPostMessage } = makeDeps();
-    mockPostMessage.mock.mockImplementation(async () => {
+    mockPostMessage.mockImplementation(async () => {
       throw new Error("channel_not_found");
     });
 
@@ -116,7 +116,7 @@ describe("reportStatus tool", () => {
     const toolDef = createReportStatusTool(ctx, deps);
     await toolDef.handler({ message: "test", suppress_unfurls: undefined }, { sessionId: "test" });
 
-    const callArgs = mockPostMessage.mock.calls[0]!.arguments[0] as {
+    const callArgs = mockPostMessage.mock.calls[0]![0] as {
       channel: string;
       thread_ts: string;
     };
@@ -133,7 +133,7 @@ describe("reportStatus tool", () => {
       { sessionId: "test" },
     );
 
-    const callArgs = mockPostMessage.mock.calls[0]!.arguments[0] as { text: string };
+    const callArgs = mockPostMessage.mock.calls[0]![0] as { text: string };
     assert.equal(callArgs.text, "Build completed successfully with 0 errors");
   });
 
@@ -145,7 +145,7 @@ describe("reportStatus tool", () => {
       { sessionId: "test" },
     );
 
-    const callArgs = mockPostMessage.mock.calls[0]!.arguments[0] as {
+    const callArgs = mockPostMessage.mock.calls[0]![0] as {
       unfurl_links?: false;
       unfurl_media?: false;
     };
@@ -158,7 +158,7 @@ describe("reportStatus tool", () => {
     const toolDef = createReportStatusTool(makeCtx(), deps);
     await toolDef.handler({ message: "status", suppress_unfurls: true }, { sessionId: "test" });
 
-    const callArgs = mockPostMessage.mock.calls[0]!.arguments[0] as {
+    const callArgs = mockPostMessage.mock.calls[0]![0] as {
       unfurl_links?: false;
       unfurl_media?: false;
     };

@@ -1,4 +1,4 @@
-import { describe, it, mock, beforeEach } from "node:test";
+import { describe, it, vi, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
 import type { View } from "@slack/types";
@@ -11,41 +11,39 @@ import type { AutoRespondRule } from "../../autoRespond.js";
 // ============================================================================
 
 const mockLoadRoles =
-  mock.fn<() => Promise<{ owner: string | null; admins: string[]; devs: string[] }>>();
-const mockSetOwner = mock.fn<(userId: string) => Promise<void>>(async () => {});
+  vi.fn<() => Promise<{ owner: string | null; admins: string[]; devs: string[] }>>();
+const mockSetOwner = vi.fn<(userId: string) => Promise<void>>(async () => {});
 const mockSetRole =
-  mock.fn<(userId: string, role: string) => Promise<{ success: boolean; error?: string }>>();
-const mockIsUserDisabled = mock.fn<(client: App["client"], userId: string) => Promise<boolean>>();
+  vi.fn<(userId: string, role: string) => Promise<{ success: boolean; error?: string }>>();
+const mockIsUserDisabled = vi.fn<(client: App["client"], userId: string) => Promise<boolean>>();
 const mockClaimOwnershipFromDisabled =
-  mock.fn<
-    (client: App["client"], userId: string) => Promise<{ success: boolean; error?: string }>
-  >();
+  vi.fn<(client: App["client"], userId: string) => Promise<{ success: boolean; error?: string }>>();
 const mockTransferOwnership =
-  mock.fn<
+  vi.fn<
     (
       client: App["client"],
       fromId: string,
       toId: string,
     ) => Promise<{ success: boolean; error?: string }>
   >();
-const mockHasOwner = mock.fn<() => Promise<boolean>>();
-const mockUserCanManageRoles = mock.fn<(userId: string) => Promise<boolean>>();
-const mockUserCanEditConfig = mock.fn<(userId: string) => Promise<boolean>>();
+const mockHasOwner = vi.fn<() => Promise<boolean>>();
+const mockUserCanManageRoles = vi.fn<(userId: string) => Promise<boolean>>();
+const mockUserCanEditConfig = vi.fn<(userId: string) => Promise<boolean>>();
 const mockBuildHomeView =
-  mock.fn<(opts: { userId: string; ownerDisabled?: boolean }) => Promise<View>>();
+  vi.fn<(opts: { userId: string; ownerDisabled?: boolean }) => Promise<View>>();
 const mockBuildUserSelectModal =
-  mock.fn<(title: string, actionId: string, placeholder: string) => View>();
+  vi.fn<(title: string, actionId: string, placeholder: string) => View>();
 const mockBuildRemoveUserModal =
-  mock.fn<(title: string, actionId: string, users: string[]) => View>();
-const mockBuildSettingsModal = mock.fn<(userId: string) => Promise<View>>();
+  vi.fn<(title: string, actionId: string, users: string[]) => View>();
+const mockBuildSettingsModal = vi.fn<(userId: string) => Promise<View>>();
 const mockBuildConfigFilePickerModal =
-  mock.fn<(dir: string, files: (string | Record<string, string>)[], isRepoDir: boolean) => View>();
+  vi.fn<(dir: string, files: (string | Record<string, string>)[], isRepoDir: boolean) => View>();
 const mockBuildConfigEditorModal =
-  mock.fn<(dir: string, filename: string, content: string, fileState: string) => View>();
-const mockBuildConfigCreateFileModal = mock.fn<(dir: string) => View>();
-const mockBuildAutoRespondModal = mock.fn<() => View>();
-const mockBuildCronJobModal = mock.fn<() => View>();
-const mockAddRule = mock.fn<
+  vi.fn<(dir: string, filename: string, content: string, fileState: string) => View>();
+const mockBuildConfigCreateFileModal = vi.fn<(dir: string) => View>();
+const mockBuildAutoRespondModal = vi.fn<() => View>();
+const mockBuildCronJobModal = vi.fn<() => View>();
+const mockAddRule = vi.fn<
   (
     channels: string[],
     userFilters?: string[],
@@ -54,7 +52,7 @@ const mockAddRule = mock.fn<
     preAnalysisContext?: string,
   ) => Promise<void>
 >(async () => {});
-const mockUpdateRule = mock.fn<
+const mockUpdateRule = vi.fn<
   (
     ruleId: string,
     patch: {
@@ -66,32 +64,30 @@ const mockUpdateRule = mock.fn<
     },
   ) => Promise<AutoRespondRule | null>
 >(async (ruleId) => ({ id: ruleId, channels: ["C1"], enabled: true }));
-const mockToggleRule = mock.fn<(ruleId: string) => Promise<null>>(async () => null);
-const mockDeleteRule = mock.fn<(ruleId: string) => Promise<void>>(async () => {});
-const mockGetRule = mock.fn<(ruleId: string) => Promise<null>>(async () => null);
-const mockListInstructionFiles = mock.fn<
+const mockToggleRule = vi.fn<(ruleId: string) => Promise<null>>(async () => null);
+const mockDeleteRule = vi.fn<(ruleId: string) => Promise<void>>(async () => {});
+const mockGetRule = vi.fn<(ruleId: string) => Promise<null>>(async () => null);
+const mockListInstructionFiles = vi.fn<
   () => {
     roles: Array<{ role: string; files: Array<{ filename: string; source: string }> }>;
     repos: Array<{ filename: string; hasOverride: boolean; hasDefault: boolean }>;
   }
 >();
 const mockReadInstructionFile =
-  mock.fn<
-    (filepath: string) => { default_content: string | null; custom_content: string | null }
-  >();
-const mockWriteInstructionFile = mock.fn<(filename: string, content: string) => void>();
-const mockDeleteInstructionFile = mock.fn<(filepath: string) => void>();
-const mockGetEffectiveContentLength = mock.fn<(filepath: string) => number>();
-const mockSetUserPreference = mock.fn<
+  vi.fn<(filepath: string) => { default_content: string | null; custom_content: string | null }>();
+const mockWriteInstructionFile = vi.fn<(filename: string, content: string) => void>();
+const mockDeleteInstructionFile = vi.fn<(filepath: string) => void>();
+const mockGetEffectiveContentLength = vi.fn<(filepath: string) => number>();
+const mockSetUserPreference = vi.fn<
   (userId: string, key: string, value: string | boolean | number) => Promise<void>
 >(async () => {});
-const mockToggleJob = mock.fn<(jobId: string) => Promise<null>>(async () => null);
-const mockDeleteJob = mock.fn<(jobId: string) => Promise<void>>(async () => {});
-const mockGetJob = mock.fn<(jobId: string) => Promise<null>>(async () => null);
-const mockUpdateJob = mock.fn<
+const mockToggleJob = vi.fn<(jobId: string) => Promise<null>>(async () => null);
+const mockDeleteJob = vi.fn<(jobId: string) => Promise<void>>(async () => {});
+const mockGetJob = vi.fn<(jobId: string) => Promise<null>>(async () => null);
+const mockUpdateJob = vi.fn<
   (jobId: string, params: Record<string, string | number>) => Promise<null>
 >(async () => null);
-const mockRunJobNow = mock.fn<(jobId: string, tz: string) => Promise<void>>(async () => {});
+const mockRunJobNow = vi.fn<(jobId: string, tz: string) => Promise<void>>(async () => {});
 
 function makeDeps(): HomeTabDeps {
   return {
@@ -161,16 +157,16 @@ type ViewHandler = (args: {
 
 interface MockClient {
   views: {
-    publish: ReturnType<typeof mock.fn>;
-    open: ReturnType<typeof mock.fn>;
-    push: ReturnType<typeof mock.fn>;
-    update: ReturnType<typeof mock.fn>;
+    publish: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
+    open: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
+    push: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
+    update: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
   };
   conversations: {
-    open: ReturnType<typeof mock.fn>;
+    open: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
   };
   files: {
-    uploadV2: ReturnType<typeof mock.fn>;
+    uploadV2: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
   };
 }
 
@@ -210,16 +206,16 @@ function getActionHandler(id: string): ActionHandler | undefined {
 function makeClient(): MockClient {
   return {
     views: {
-      publish: mock.fn(async () => {}),
-      open: mock.fn(async () => {}),
-      push: mock.fn(async () => {}),
-      update: mock.fn(async () => {}),
+      publish: vi.fn(async () => {}),
+      open: vi.fn(async () => {}),
+      push: vi.fn(async () => {}),
+      update: vi.fn(async () => {}),
     },
     conversations: {
-      open: mock.fn(async () => ({ channel: { id: "D_DM_CHANNEL" } })),
+      open: vi.fn(async () => ({ channel: { id: "D_DM_CHANNEL" } })),
     },
     files: {
-      uploadV2: mock.fn(async () => {}),
+      uploadV2: vi.fn(async () => {}),
     },
   };
 }
@@ -230,31 +226,31 @@ const dummyView: View = {
 };
 
 function resetAllMocks() {
-  mockLoadRoles.mock.resetCalls();
-  mockSetOwner.mock.resetCalls();
-  mockSetRole.mock.resetCalls();
+  mockLoadRoles.mockClear();
+  mockSetOwner.mockClear();
+  mockSetRole.mockClear();
   // (mockSetRole already reset above)
   // (mockSetRole already reset above)
   // (mockSetRole already reset above)
-  mockIsUserDisabled.mock.resetCalls();
-  mockClaimOwnershipFromDisabled.mock.resetCalls();
-  mockTransferOwnership.mock.resetCalls();
-  mockHasOwner.mock.resetCalls();
-  mockUserCanManageRoles.mock.resetCalls();
-  mockBuildHomeView.mock.resetCalls();
-  mockBuildUserSelectModal.mock.resetCalls();
-  mockBuildRemoveUserModal.mock.resetCalls();
-  mockBuildSettingsModal.mock.resetCalls();
-  mockBuildConfigFilePickerModal.mock.resetCalls();
-  mockBuildConfigEditorModal.mock.resetCalls();
-  mockBuildConfigCreateFileModal.mock.resetCalls();
-  mockSetUserPreference.mock.resetCalls();
-  mockUserCanEditConfig.mock.resetCalls();
-  mockListInstructionFiles.mock.resetCalls();
-  mockReadInstructionFile.mock.resetCalls();
-  mockWriteInstructionFile.mock.resetCalls();
-  mockDeleteInstructionFile.mock.resetCalls();
-  mockGetEffectiveContentLength.mock.resetCalls();
+  mockIsUserDisabled.mockClear();
+  mockClaimOwnershipFromDisabled.mockClear();
+  mockTransferOwnership.mockClear();
+  mockHasOwner.mockClear();
+  mockUserCanManageRoles.mockClear();
+  mockBuildHomeView.mockClear();
+  mockBuildUserSelectModal.mockClear();
+  mockBuildRemoveUserModal.mockClear();
+  mockBuildSettingsModal.mockClear();
+  mockBuildConfigFilePickerModal.mockClear();
+  mockBuildConfigEditorModal.mockClear();
+  mockBuildConfigCreateFileModal.mockClear();
+  mockSetUserPreference.mockClear();
+  mockUserCanEditConfig.mockClear();
+  mockListInstructionFiles.mockClear();
+  mockReadInstructionFile.mockClear();
+  mockWriteInstructionFile.mockClear();
+  mockDeleteInstructionFile.mockClear();
+  mockGetEffectiveContentLength.mockClear();
 
   capturedEventHandlers.clear();
   capturedActionHandlers.clear();
@@ -262,30 +258,30 @@ function resetAllMocks() {
 }
 
 function setDefaultMocks() {
-  mockLoadRoles.mock.mockImplementation(async () => ({
+  mockLoadRoles.mockImplementation(async () => ({
     owner: "U_OWNER",
     admins: ["U_ADMIN1"],
     devs: ["U_DEV1"],
   }));
-  mockIsUserDisabled.mock.mockImplementation(async () => false);
-  mockHasOwner.mock.mockImplementation(async () => true);
-  mockBuildHomeView.mock.mockImplementation(async () => dummyView);
-  mockBuildUserSelectModal.mock.mockImplementation(() => dummyView);
-  mockBuildRemoveUserModal.mock.mockImplementation(() => dummyView);
-  mockBuildSettingsModal.mock.mockImplementation(async () => dummyView);
-  mockBuildConfigFilePickerModal.mock.mockImplementation(() => dummyView);
-  mockBuildConfigEditorModal.mock.mockImplementation(() => dummyView);
-  mockBuildConfigCreateFileModal.mock.mockImplementation(() => dummyView);
-  mockUserCanManageRoles.mock.mockImplementation(async () => true);
-  mockUserCanEditConfig.mock.mockImplementation(async () => true);
-  mockListInstructionFiles.mock.mockImplementation(() => ({ roles: [], repos: [] }));
-  mockReadInstructionFile.mock.mockImplementation(() => ({
+  mockIsUserDisabled.mockImplementation(async () => false);
+  mockHasOwner.mockImplementation(async () => true);
+  mockBuildHomeView.mockImplementation(async () => dummyView);
+  mockBuildUserSelectModal.mockImplementation(() => dummyView);
+  mockBuildRemoveUserModal.mockImplementation(() => dummyView);
+  mockBuildSettingsModal.mockImplementation(async () => dummyView);
+  mockBuildConfigFilePickerModal.mockImplementation(() => dummyView);
+  mockBuildConfigEditorModal.mockImplementation(() => dummyView);
+  mockBuildConfigCreateFileModal.mockImplementation(() => dummyView);
+  mockUserCanManageRoles.mockImplementation(async () => true);
+  mockUserCanEditConfig.mockImplementation(async () => true);
+  mockListInstructionFiles.mockImplementation(() => ({ roles: [], repos: [] }));
+  mockReadInstructionFile.mockImplementation(() => ({
     default_content: null,
     custom_content: null,
   }));
-  mockWriteInstructionFile.mock.mockImplementation(() => {});
-  mockDeleteInstructionFile.mock.mockImplementation(() => {});
-  mockGetEffectiveContentLength.mock.mockImplementation(() => 100);
+  mockWriteInstructionFile.mockImplementation(() => {});
+  mockDeleteInstructionFile.mockImplementation(() => {});
+  mockGetEffectiveContentLength.mockImplementation(() => 100);
 }
 
 beforeEach(() => {
@@ -335,9 +331,9 @@ describe("app_home_opened event", () => {
 
     await handler({ event: { user: "U001" }, client });
 
-    assert.equal(mockBuildHomeView.mock.callCount(), 1);
-    assert.equal(client.views.publish.mock.callCount(), 1);
-    const publishArgs = client.views.publish.mock.calls[0].arguments[0] as {
+    assert.equal(mockBuildHomeView.mock.calls.length, 1);
+    assert.equal(client.views.publish.mock.calls.length, 1);
+    const publishArgs = client.views.publish.mock.calls[0][0] as {
       user_id: string;
       view: View;
     };
@@ -345,13 +341,13 @@ describe("app_home_opened event", () => {
   });
 
   it("checks if owner is disabled and passes ownerDisabled flag", async () => {
-    mockIsUserDisabled.mock.mockImplementation(async () => true);
+    mockIsUserDisabled.mockImplementation(async () => true);
     const client = makeClient();
     const handler = capturedEventHandlers.get("app_home_opened")!;
 
     await handler({ event: { user: "U001" }, client });
 
-    const buildArgs = mockBuildHomeView.mock.calls[0].arguments[0] as {
+    const buildArgs = mockBuildHomeView.mock.calls[0][0] as {
       userId: string;
       ownerDisabled?: boolean;
     };
@@ -359,7 +355,7 @@ describe("app_home_opened event", () => {
   });
 
   it("does not check owner disabled when no owner", async () => {
-    mockLoadRoles.mock.mockImplementation(async () => ({
+    mockLoadRoles.mockImplementation(async () => ({
       owner: null,
       admins: [],
       devs: [],
@@ -369,8 +365,8 @@ describe("app_home_opened event", () => {
 
     await handler({ event: { user: "U001" }, client });
 
-    assert.equal(mockIsUserDisabled.mock.callCount(), 0);
-    const buildArgs = mockBuildHomeView.mock.calls[0].arguments[0] as {
+    assert.equal(mockIsUserDisabled.mock.calls.length, 0);
+    const buildArgs = mockBuildHomeView.mock.calls[0][0] as {
       userId: string;
       ownerDisabled?: boolean;
     };
@@ -384,7 +380,7 @@ describe("app_home_opened event", () => {
 
 describe("claim_ownership action", () => {
   it("calls setOwner when no owner exists", async () => {
-    mockHasOwner.mock.mockImplementation(async () => false);
+    mockHasOwner.mockImplementation(async () => false);
     const client = makeClient();
     const handler = capturedActionHandlers.get("claim_ownership")!;
 
@@ -394,13 +390,13 @@ describe("claim_ownership action", () => {
       client,
     });
 
-    assert.equal(mockSetOwner.mock.callCount(), 1);
-    assert.equal(mockSetOwner.mock.calls[0].arguments[0], "U001");
+    assert.equal(mockSetOwner.mock.calls.length, 1);
+    assert.equal(mockSetOwner.mock.calls[0][0], "U001");
   });
 
   it("calls claimOwnershipFromDisabled when owner exists", async () => {
-    mockHasOwner.mock.mockImplementation(async () => true);
-    mockClaimOwnershipFromDisabled.mock.mockImplementation(async () => ({ success: true }));
+    mockHasOwner.mockImplementation(async () => true);
+    mockClaimOwnershipFromDisabled.mockImplementation(async () => ({ success: true }));
     const client = makeClient();
     const handler = capturedActionHandlers.get("claim_ownership")!;
 
@@ -410,12 +406,12 @@ describe("claim_ownership action", () => {
       client,
     });
 
-    assert.equal(mockClaimOwnershipFromDisabled.mock.callCount(), 1);
+    assert.equal(mockClaimOwnershipFromDisabled.mock.calls.length, 1);
   });
 
   it("does not refresh home view when claim fails", async () => {
-    mockHasOwner.mock.mockImplementation(async () => true);
-    mockClaimOwnershipFromDisabled.mock.mockImplementation(async () => ({
+    mockHasOwner.mockImplementation(async () => true);
+    mockClaimOwnershipFromDisabled.mockImplementation(async () => ({
       success: false,
       error: "Owner is active",
     }));
@@ -429,11 +425,11 @@ describe("claim_ownership action", () => {
     });
 
     // buildHomeView is still called 0 times because the claim failed and we returned early
-    assert.equal(client.views.publish.mock.callCount(), 0);
+    assert.equal(client.views.publish.mock.calls.length, 0);
   });
 
   it("refreshes home view after successful claim", async () => {
-    mockHasOwner.mock.mockImplementation(async () => false);
+    mockHasOwner.mockImplementation(async () => false);
     const client = makeClient();
     const handler = capturedActionHandlers.get("claim_ownership")!;
 
@@ -443,8 +439,8 @@ describe("claim_ownership action", () => {
       client,
     });
 
-    assert.equal(mockBuildHomeView.mock.callCount(), 1);
-    assert.equal(client.views.publish.mock.callCount(), 1);
+    assert.equal(mockBuildHomeView.mock.calls.length, 1);
+    assert.equal(client.views.publish.mock.calls.length, 1);
   });
 });
 
@@ -463,8 +459,8 @@ describe("transfer_ownership action", () => {
       client,
     });
 
-    assert.equal(mockBuildUserSelectModal.mock.callCount(), 1);
-    assert.equal(client.views.open.mock.callCount(), 1);
+    assert.equal(mockBuildUserSelectModal.mock.calls.length, 1);
+    assert.equal(client.views.open.mock.calls.length, 1);
   });
 });
 
@@ -496,7 +492,7 @@ describe("transfer_ownership_modal submission", () => {
   });
 
   it("returns error when transfer fails", async () => {
-    mockTransferOwnership.mock.mockImplementation(async () => ({
+    mockTransferOwnership.mockImplementation(async () => ({
       success: false,
       error: "Cannot transfer to yourself",
     }));
@@ -525,7 +521,7 @@ describe("transfer_ownership_modal submission", () => {
   });
 
   it("refreshes both users home views on success", async () => {
-    mockTransferOwnership.mock.mockImplementation(async () => ({ success: true }));
+    mockTransferOwnership.mockImplementation(async () => ({ success: true }));
     const client = makeClient();
     const handler = capturedViewHandlers.get("transfer_ownership_modal")!;
 
@@ -545,8 +541,8 @@ describe("transfer_ownership_modal submission", () => {
     });
 
     // buildHomeView called twice: once for current user, once for new owner
-    assert.equal(mockBuildHomeView.mock.callCount(), 2);
-    assert.equal(client.views.publish.mock.callCount(), 2);
+    assert.equal(mockBuildHomeView.mock.calls.length, 2);
+    assert.equal(client.views.publish.mock.calls.length, 2);
   });
 });
 
@@ -556,7 +552,7 @@ describe("transfer_ownership_modal submission", () => {
 
 describe("add_admin_modal submission", () => {
   it("calls addAdmin on successful submission", async () => {
-    mockSetRole.mock.mockImplementation(async () => ({ success: true }));
+    mockSetRole.mockImplementation(async () => ({ success: true }));
     const client = makeClient();
     const handler = capturedViewHandlers.get("add_admin_modal")!;
 
@@ -575,13 +571,13 @@ describe("add_admin_modal submission", () => {
       client,
     });
 
-    assert.equal(mockSetRole.mock.callCount(), 1);
-    assert.equal(mockSetRole.mock.calls[0].arguments[0], "U_NEW_ADMIN");
-    assert.equal(mockSetRole.mock.calls[0].arguments[1], "admin");
+    assert.equal(mockSetRole.mock.calls.length, 1);
+    assert.equal(mockSetRole.mock.calls[0][0], "U_NEW_ADMIN");
+    assert.equal(mockSetRole.mock.calls[0][1], "admin");
   });
 
   it("returns error when user has no permission", async () => {
-    mockUserCanManageRoles.mock.mockImplementation(async () => false);
+    mockUserCanManageRoles.mockImplementation(async () => false);
     const handler = capturedViewHandlers.get("add_admin_modal")!;
     let ackResponse: { response_action: string; errors: Record<string, string> } | undefined;
 
@@ -608,7 +604,7 @@ describe("add_admin_modal submission", () => {
   });
 
   it("returns error when addAdmin fails", async () => {
-    mockSetRole.mock.mockImplementation(async () => ({
+    mockSetRole.mockImplementation(async () => ({
       success: false,
       error: "User is already an admin",
     }));
@@ -653,12 +649,12 @@ describe("remove_admin action", () => {
       client,
     });
 
-    assert.equal(mockBuildRemoveUserModal.mock.callCount(), 1);
-    assert.equal(client.views.open.mock.callCount(), 1);
+    assert.equal(mockBuildRemoveUserModal.mock.calls.length, 1);
+    assert.equal(client.views.open.mock.calls.length, 1);
   });
 
   it("does not open modal when no admins", async () => {
-    mockLoadRoles.mock.mockImplementation(async () => ({
+    mockLoadRoles.mockImplementation(async () => ({
       owner: "U_OWNER",
       admins: [],
       devs: [],
@@ -672,7 +668,7 @@ describe("remove_admin action", () => {
       client,
     });
 
-    assert.equal(client.views.open.mock.callCount(), 0);
+    assert.equal(client.views.open.mock.calls.length, 0);
   });
 });
 
@@ -682,7 +678,7 @@ describe("remove_admin action", () => {
 
 describe("remove_admin_modal submission", () => {
   it("calls removeAdmin on successful submission", async () => {
-    mockSetRole.mock.mockImplementation(async () => ({ success: true }));
+    mockSetRole.mockImplementation(async () => ({ success: true }));
     const client = makeClient();
     const handler = capturedViewHandlers.get("remove_admin_modal")!;
 
@@ -701,9 +697,9 @@ describe("remove_admin_modal submission", () => {
       client,
     });
 
-    assert.equal(mockSetRole.mock.callCount(), 1);
-    assert.equal(mockSetRole.mock.calls[0].arguments[0], "U_ADMIN1");
-    assert.equal(mockSetRole.mock.calls[0].arguments[1], "member");
+    assert.equal(mockSetRole.mock.calls.length, 1);
+    assert.equal(mockSetRole.mock.calls[0][0], "U_ADMIN1");
+    assert.equal(mockSetRole.mock.calls[0][1], "member");
   });
 
   it("returns error when no user selected", async () => {
@@ -747,8 +743,8 @@ describe("open_settings action", () => {
       client,
     });
 
-    assert.equal(mockBuildSettingsModal.mock.callCount(), 1);
-    assert.equal(client.views.open.mock.callCount(), 1);
+    assert.equal(mockBuildSettingsModal.mock.calls.length, 1);
+    assert.equal(client.views.open.mock.calls.length, 1);
   });
 });
 
@@ -775,8 +771,8 @@ describe("settings_modal submission", () => {
       client,
     });
 
-    assert.equal(mockSetUserPreference.mock.callCount(), 2);
-    const firstCall = mockSetUserPreference.mock.calls[0].arguments;
+    assert.equal(mockSetUserPreference.mock.calls.length, 2);
+    const firstCall = mockSetUserPreference.mock.calls[0];
     assert.equal(firstCall[0], "U001");
     assert.equal(firstCall[1], "reactionDelivery");
     assert.equal(firstCall[2], "dm");
@@ -804,11 +800,9 @@ describe("settings_modal submission", () => {
       client,
     });
 
-    const deliveryCall = mockSetUserPreference.mock.calls.find(
-      (c) => c.arguments[1] === "reactionDelivery",
-    );
+    const deliveryCall = mockSetUserPreference.mock.calls.find((c) => c[1] === "reactionDelivery");
     assert.ok(deliveryCall);
-    assert.equal(deliveryCall!.arguments[2], "thread");
+    assert.equal(deliveryCall![2], "thread");
   });
 
   it("saves notify preference when true", async () => {
@@ -833,11 +827,9 @@ describe("settings_modal submission", () => {
       client,
     });
 
-    const notifyCall = mockSetUserPreference.mock.calls.find(
-      (c) => c.arguments[1] === "notifyOnResponse",
-    );
+    const notifyCall = mockSetUserPreference.mock.calls.find((c) => c[1] === "notifyOnResponse");
     assert.ok(notifyCall);
-    assert.equal(notifyCall!.arguments[2], true);
+    assert.equal(notifyCall![2], true);
   });
 
   it("does not save preferences when no options selected", async () => {
@@ -862,7 +854,7 @@ describe("settings_modal submission", () => {
       client,
     });
 
-    assert.equal(mockSetUserPreference.mock.callCount(), 0);
+    assert.equal(mockSetUserPreference.mock.calls.length, 0);
   });
 
   it("refreshes home view after saving", async () => {
@@ -887,8 +879,8 @@ describe("settings_modal submission", () => {
       client,
     });
 
-    assert.equal(mockBuildHomeView.mock.callCount(), 1);
-    assert.equal(client.views.publish.mock.callCount(), 1);
+    assert.equal(mockBuildHomeView.mock.calls.length, 1);
+    assert.equal(client.views.publish.mock.calls.length, 1);
   });
 });
 
@@ -898,7 +890,7 @@ describe("settings_modal submission", () => {
 
 describe("view_config_dir action", () => {
   it("opens file picker modal for role directory", async () => {
-    mockListInstructionFiles.mock.mockImplementation(() => ({
+    mockListInstructionFiles.mockImplementation(() => ({
       roles: [
         {
           role: "user",
@@ -920,15 +912,15 @@ describe("view_config_dir action", () => {
       action: { value: "user" },
     });
 
-    assert.equal(mockBuildConfigFilePickerModal.mock.callCount(), 1);
-    const args = mockBuildConfigFilePickerModal.mock.calls[0].arguments;
+    assert.equal(mockBuildConfigFilePickerModal.mock.calls.length, 1);
+    const args = mockBuildConfigFilePickerModal.mock.calls[0];
     assert.equal(args[0], "user");
     assert.equal(args[2], false); // isRepoDir
-    assert.equal(client.views.open.mock.callCount(), 1);
+    assert.equal(client.views.open.mock.calls.length, 1);
   });
 
   it("opens file picker modal for repo directory", async () => {
-    mockListInstructionFiles.mock.mockImplementation(() => ({
+    mockListInstructionFiles.mockImplementation(() => ({
       roles: [],
       repos: [
         { filename: "my-repo/changes_instructions.md", hasOverride: false, hasDefault: true },
@@ -944,8 +936,8 @@ describe("view_config_dir action", () => {
       action: { value: "my-repo" },
     });
 
-    assert.equal(mockBuildConfigFilePickerModal.mock.callCount(), 1);
-    const args = mockBuildConfigFilePickerModal.mock.calls[0].arguments;
+    assert.equal(mockBuildConfigFilePickerModal.mock.calls.length, 1);
+    const args = mockBuildConfigFilePickerModal.mock.calls[0];
     assert.equal(args[0], "my-repo");
     assert.equal(args[2], true); // isRepoDir
   });
@@ -957,7 +949,7 @@ describe("view_config_dir action", () => {
 
 describe("edit_config_file action", () => {
   it("pushes editor modal for default-only file", async () => {
-    mockReadInstructionFile.mock.mockImplementation(() => ({
+    mockReadInstructionFile.mockImplementation(() => ({
       default_content: "default content",
       custom_content: null,
     }));
@@ -971,17 +963,17 @@ describe("edit_config_file action", () => {
       action: { value: "user/identity.md" },
     });
 
-    assert.equal(mockBuildConfigEditorModal.mock.callCount(), 1);
-    const args = mockBuildConfigEditorModal.mock.calls[0].arguments;
+    assert.equal(mockBuildConfigEditorModal.mock.calls.length, 1);
+    const args = mockBuildConfigEditorModal.mock.calls[0];
     assert.equal(args[0], "user"); // dir
     assert.equal(args[1], "identity.md"); // filename
     assert.equal(args[2], "default content"); // content
     assert.equal(args[3], "default-only"); // fileState
-    assert.equal(client.views.push.mock.callCount(), 1);
+    assert.equal(client.views.push.mock.calls.length, 1);
   });
 
   it("pushes editor modal for overridden file with custom content", async () => {
-    mockReadInstructionFile.mock.mockImplementation(() => ({
+    mockReadInstructionFile.mockImplementation(() => ({
       default_content: "default content",
       custom_content: "custom override",
     }));
@@ -995,13 +987,13 @@ describe("edit_config_file action", () => {
       action: { value: "user/identity.md" },
     });
 
-    const args = mockBuildConfigEditorModal.mock.calls[0].arguments;
+    const args = mockBuildConfigEditorModal.mock.calls[0];
     assert.equal(args[2], "custom override"); // content
     assert.equal(args[3], "has-override"); // fileState
   });
 
   it("pushes editor modal for custom-only file", async () => {
-    mockReadInstructionFile.mock.mockImplementation(() => ({
+    mockReadInstructionFile.mockImplementation(() => ({
       default_content: null,
       custom_content: "custom only content",
     }));
@@ -1015,7 +1007,7 @@ describe("edit_config_file action", () => {
       action: { value: "dev/custom-rule.md" },
     });
 
-    const args = mockBuildConfigEditorModal.mock.calls[0].arguments;
+    const args = mockBuildConfigEditorModal.mock.calls[0];
     assert.equal(args[2], "custom only content"); // content
     assert.equal(args[3], "custom-only"); // fileState
   });
@@ -1051,15 +1043,15 @@ describe("config_editor_modal submission", () => {
       client,
     });
 
-    assert.equal(mockWriteInstructionFile.mock.callCount(), 1);
-    const writeArgs = mockWriteInstructionFile.mock.calls[0].arguments;
+    assert.equal(mockWriteInstructionFile.mock.calls.length, 1);
+    const writeArgs = mockWriteInstructionFile.mock.calls[0];
     assert.equal(writeArgs[0], "user/identity.md");
     assert.equal(writeArgs[1], "new content");
-    assert.equal(client.views.publish.mock.callCount(), 1); // home tab refreshed
+    assert.equal(client.views.publish.mock.calls.length, 1); // home tab refreshed
   });
 
   it("rejects when user has no edit permission", async () => {
-    mockUserCanEditConfig.mock.mockImplementation(async () => false);
+    mockUserCanEditConfig.mockImplementation(async () => false);
     const client = makeClient();
     const handler = capturedViewHandlers.get("config_editor_modal")!;
     let ackResponse: { response_action: string; errors: Record<string, string> } | undefined;
@@ -1085,7 +1077,7 @@ describe("config_editor_modal submission", () => {
     assert.ok(ackResponse);
     assert.equal(ackResponse!.response_action, "errors");
     assert.ok(ackResponse!.errors.content_block.includes("permission"));
-    assert.equal(mockWriteInstructionFile.mock.callCount(), 0);
+    assert.equal(mockWriteInstructionFile.mock.calls.length, 0);
   });
 });
 
@@ -1105,15 +1097,15 @@ describe("create_config_file action", () => {
       action: { value: "user" },
     });
 
-    assert.equal(mockBuildConfigCreateFileModal.mock.callCount(), 1);
-    assert.equal(mockBuildConfigCreateFileModal.mock.calls[0].arguments[0], "user");
-    assert.equal(client.views.push.mock.callCount(), 1);
+    assert.equal(mockBuildConfigCreateFileModal.mock.calls.length, 1);
+    assert.equal(mockBuildConfigCreateFileModal.mock.calls[0][0], "user");
+    assert.equal(client.views.push.mock.calls.length, 1);
   });
 });
 
 describe("config_create_modal submission", () => {
   it("creates file and appends .md extension", async () => {
-    mockReadInstructionFile.mock.mockImplementation(() => ({
+    mockReadInstructionFile.mockImplementation(() => ({
       default_content: null,
       custom_content: null,
     }));
@@ -1135,14 +1127,14 @@ describe("config_create_modal submission", () => {
       client,
     });
 
-    assert.equal(mockWriteInstructionFile.mock.callCount(), 1);
-    const args = mockWriteInstructionFile.mock.calls[0].arguments;
+    assert.equal(mockWriteInstructionFile.mock.calls.length, 1);
+    const args = mockWriteInstructionFile.mock.calls[0];
     assert.equal(args[0], "user/my-instructions.md");
     assert.equal(args[1], "the content");
   });
 
   it("rejects duplicate filename", async () => {
-    mockReadInstructionFile.mock.mockImplementation(() => ({
+    mockReadInstructionFile.mockImplementation(() => ({
       default_content: "existing",
       custom_content: null,
     }));
@@ -1169,11 +1161,11 @@ describe("config_create_modal submission", () => {
     assert.ok(ackResponse);
     assert.equal(ackResponse!.response_action, "errors");
     assert.ok(ackResponse!.errors.filename_block.includes("already exists"));
-    assert.equal(mockWriteInstructionFile.mock.callCount(), 0);
+    assert.equal(mockWriteInstructionFile.mock.calls.length, 0);
   });
 
   it("rejects when user has no permission", async () => {
-    mockUserCanEditConfig.mock.mockImplementation(async () => false);
+    mockUserCanEditConfig.mockImplementation(async () => false);
     const handler = capturedViewHandlers.get("config_create_modal")!;
     let ackResponse: { response_action: string; errors: Record<string, string> } | undefined;
 
@@ -1206,7 +1198,7 @@ describe("config_create_modal submission", () => {
 
 describe("delete_config_file action", () => {
   it("deletes file and updates modal to show default when default exists", async () => {
-    mockReadInstructionFile.mock.mockImplementation(() => ({
+    mockReadInstructionFile.mockImplementation(() => ({
       default_content: "default content",
       custom_content: "custom content",
     }));
@@ -1220,18 +1212,18 @@ describe("delete_config_file action", () => {
       action: { value: "user/identity.md" },
     });
 
-    assert.equal(mockDeleteInstructionFile.mock.callCount(), 1);
-    assert.equal(mockDeleteInstructionFile.mock.calls[0].arguments[0], "user/identity.md");
-    assert.equal(mockBuildConfigEditorModal.mock.callCount(), 1);
-    const editorArgs = mockBuildConfigEditorModal.mock.calls[0].arguments;
+    assert.equal(mockDeleteInstructionFile.mock.calls.length, 1);
+    assert.equal(mockDeleteInstructionFile.mock.calls[0][0], "user/identity.md");
+    assert.equal(mockBuildConfigEditorModal.mock.calls.length, 1);
+    const editorArgs = mockBuildConfigEditorModal.mock.calls[0];
     assert.equal(editorArgs[2], "default content");
     assert.equal(editorArgs[3], "default-only");
-    assert.equal(client.views.update.mock.callCount(), 1);
-    assert.equal(client.views.publish.mock.callCount(), 1);
+    assert.equal(client.views.update.mock.calls.length, 1);
+    assert.equal(client.views.publish.mock.calls.length, 1);
   });
 
   it("deletes custom-only file and shows confirmation", async () => {
-    mockReadInstructionFile.mock.mockImplementation(() => ({
+    mockReadInstructionFile.mockImplementation(() => ({
       default_content: null,
       custom_content: "custom only",
     }));
@@ -1245,13 +1237,13 @@ describe("delete_config_file action", () => {
       action: { value: "user/custom.md" },
     });
 
-    assert.equal(mockDeleteInstructionFile.mock.callCount(), 1);
-    assert.equal(mockBuildConfigEditorModal.mock.callCount(), 0);
-    assert.equal(client.views.update.mock.callCount(), 1);
+    assert.equal(mockDeleteInstructionFile.mock.calls.length, 1);
+    assert.equal(mockBuildConfigEditorModal.mock.calls.length, 0);
+    assert.equal(client.views.update.mock.calls.length, 1);
   });
 
   it("does not delete when user has no permission", async () => {
-    mockUserCanEditConfig.mock.mockImplementation(async () => false);
+    mockUserCanEditConfig.mockImplementation(async () => false);
     const client = makeClient();
     const handler = capturedActionHandlers.get("delete_config_file")!;
 
@@ -1262,7 +1254,7 @@ describe("delete_config_file action", () => {
       action: { value: "user/identity.md" },
     });
 
-    assert.equal(mockDeleteInstructionFile.mock.callCount(), 0);
+    assert.equal(mockDeleteInstructionFile.mock.calls.length, 0);
   });
 });
 
@@ -1272,7 +1264,7 @@ describe("delete_config_file action", () => {
 
 describe("chat_edit_config_file action", () => {
   it("sends a DM with the file content and closes the modal", async () => {
-    mockReadInstructionFile.mock.mockImplementation(() => ({
+    mockReadInstructionFile.mockImplementation(() => ({
       default_content: "the file content here",
       custom_content: null,
     }));
@@ -1287,19 +1279,19 @@ describe("chat_edit_config_file action", () => {
     });
 
     // Opens a DM conversation with the user
-    assert.equal(client.conversations.open.mock.callCount(), 1);
+    assert.equal(client.conversations.open.mock.calls.length, 1);
     // Uploads file content via files.uploadV2
-    assert.equal(client.files.uploadV2.mock.callCount(), 1);
-    const uploadArgs = client.files.uploadV2.mock.calls[0].arguments[0] as Record<string, unknown>;
+    assert.equal(client.files.uploadV2.mock.calls.length, 1);
+    const uploadArgs = client.files.uploadV2.mock.calls[0][0] as Record<string, unknown>;
     assert.equal(uploadArgs.channel_id, "D_DM_CHANNEL");
     assert.equal(uploadArgs.content, "the file content here");
     assert.equal(uploadArgs.title, "user/identity.md");
     // Modal should be updated with confirmation
-    assert.equal(client.views.update.mock.callCount(), 1);
+    assert.equal(client.views.update.mock.calls.length, 1);
   });
 
   it("uses custom content when override exists", async () => {
-    mockReadInstructionFile.mock.mockImplementation(() => ({
+    mockReadInstructionFile.mockImplementation(() => ({
       default_content: "default",
       custom_content: "custom override content",
     }));
@@ -1313,7 +1305,7 @@ describe("chat_edit_config_file action", () => {
       action: { value: "user/identity.md" },
     });
 
-    const uploadArgs = client.files.uploadV2.mock.calls[0].arguments[0] as Record<string, unknown>;
+    const uploadArgs = client.files.uploadV2.mock.calls[0][0] as Record<string, unknown>;
     assert.equal(uploadArgs.content, "custom override content");
   });
 });

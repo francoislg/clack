@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { TRIVIA_MANAGEMENT_DESCRIPTION } from "./triviaCheckInstruction.js";
 

@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import {
@@ -272,9 +272,8 @@ describe("runVerificationChecks", () => {
       },
       deps,
     );
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    await vi.waitFor(() => assert.equal(children[0]!.killed, true));
     assert.equal(groupKills.length, 0, "killGroup should not be called without a pid");
-    assert.equal(children[0]!.killed, true);
     assert.equal(children[0]!.killSignal, "SIGTERM");
     children[0]!.emit("close", null);
     await promise;

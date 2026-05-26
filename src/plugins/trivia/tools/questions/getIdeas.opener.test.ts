@@ -1,4 +1,4 @@
-import { describe, it, beforeEach } from "node:test";
+import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
 import { createGetIdeasTool } from "./getIdeas.js";
@@ -199,6 +199,8 @@ describe("get_ideas — integration with upsert_season theme", () => {
           difficulty: undefined,
           difficultyRatio: undefined,
           format: undefined,
+          liveAnswersVisible: undefined,
+          revealResponses: undefined,
         },
         SESSION,
       ),

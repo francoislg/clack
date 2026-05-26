@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, beforeEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import { fetchPRReviewContext, getPRStatus, parsePrUrl, type PrDeps } from "./pr.js";
 
@@ -26,7 +26,7 @@ function makeOctokit(
 
 function makeDeps(overrides: Partial<PrDeps> = {}): PrDeps {
   return {
-    getOctokit: mock.fn(async () => makeOctokit()) as never,
+    getOctokit: vi.fn(async () => makeOctokit()) as never,
     ...overrides,
   };
 }
@@ -38,7 +38,7 @@ function makeDeps(overrides: Partial<PrDeps> = {}): PrDeps {
 describe("fetchPRReviewContext", () => {
   it("returns review context with reviews and comments", async () => {
     const deps = makeDeps({
-      getOctokit: mock.fn(async () =>
+      getOctokit: vi.fn(async () =>
         makeOctokit({
           pulls: {
             listReviews: async () => ({
@@ -73,7 +73,7 @@ describe("fetchPRReviewContext", () => {
 
   it("returns 'no review comments' when there are none", async () => {
     const deps = makeDeps({
-      getOctokit: mock.fn(async () =>
+      getOctokit: vi.fn(async () =>
         makeOctokit({
           pulls: {
             listReviews: async () => ({ data: [] }),
@@ -92,7 +92,7 @@ describe("fetchPRReviewContext", () => {
 
   it("skips reviews that have no body", async () => {
     const deps = makeDeps({
-      getOctokit: mock.fn(async () =>
+      getOctokit: vi.fn(async () =>
         makeOctokit({
           pulls: {
             listReviews: async () => ({
@@ -117,7 +117,7 @@ describe("fetchPRReviewContext", () => {
 
   it("handles missing user login gracefully", async () => {
     const deps = makeDeps({
-      getOctokit: mock.fn(async () =>
+      getOctokit: vi.fn(async () =>
         makeOctokit({
           pulls: {
             listReviews: async () => ({
@@ -138,7 +138,7 @@ describe("fetchPRReviewContext", () => {
 
   it("handles missing line number in comments", async () => {
     const deps = makeDeps({
-      getOctokit: mock.fn(async () =>
+      getOctokit: vi.fn(async () =>
         makeOctokit({
           pulls: {
             listReviews: async () => ({ data: [] }),
@@ -167,7 +167,7 @@ describe("fetchPRReviewContext", () => {
     let capturedCommentArgs: unknown;
 
     const deps = makeDeps({
-      getOctokit: mock.fn(async () =>
+      getOctokit: vi.fn(async () =>
         makeOctokit({
           pulls: {
             listReviews: async (args: unknown) => {
@@ -206,7 +206,7 @@ describe("fetchPRReviewContext", () => {
 
   it("returns error when GitHub API call fails", async () => {
     const deps = makeDeps({
-      getOctokit: mock.fn(async () =>
+      getOctokit: vi.fn(async () =>
         makeOctokit({
           pulls: {
             listReviews: async () => {
@@ -225,7 +225,7 @@ describe("fetchPRReviewContext", () => {
 
   it("returns error when getOctokit fails", async () => {
     const deps = makeDeps({
-      getOctokit: mock.fn(async () => {
+      getOctokit: vi.fn(async () => {
         throw new Error("GitHub credentials not loaded");
       }) as never,
     });
@@ -237,7 +237,7 @@ describe("fetchPRReviewContext", () => {
 
   it("includes only reviews section when there are no inline comments", async () => {
     const deps = makeDeps({
-      getOctokit: mock.fn(async () =>
+      getOctokit: vi.fn(async () =>
         makeOctokit({
           pulls: {
             listReviews: async () => ({
@@ -258,7 +258,7 @@ describe("fetchPRReviewContext", () => {
 
   it("includes only inline comments section when there are no reviews with body", async () => {
     const deps = makeDeps({
-      getOctokit: mock.fn(async () =>
+      getOctokit: vi.fn(async () =>
         makeOctokit({
           pulls: {
             listReviews: async () => ({ data: [] }),
@@ -285,7 +285,7 @@ describe("fetchPRReviewContext", () => {
 describe("getPRStatus", () => {
   it("returns OPEN for an open PR", async () => {
     const deps = makeDeps({
-      getOctokit: mock.fn(async () =>
+      getOctokit: vi.fn(async () =>
         makeOctokit({
           pulls: {
             get: async () => ({ data: { state: "open", merged: false } }),
@@ -300,7 +300,7 @@ describe("getPRStatus", () => {
 
   it("returns MERGED for a merged PR", async () => {
     const deps = makeDeps({
-      getOctokit: mock.fn(async () =>
+      getOctokit: vi.fn(async () =>
         makeOctokit({
           pulls: {
             get: async () => ({ data: { state: "closed", merged: true } }),
@@ -315,7 +315,7 @@ describe("getPRStatus", () => {
 
   it("returns CLOSED for a closed (not merged) PR", async () => {
     const deps = makeDeps({
-      getOctokit: mock.fn(async () =>
+      getOctokit: vi.fn(async () =>
         makeOctokit({
           pulls: {
             get: async () => ({ data: { state: "closed", merged: false } }),
@@ -330,7 +330,7 @@ describe("getPRStatus", () => {
 
   it("prioritizes merged over closed state", async () => {
     const deps = makeDeps({
-      getOctokit: mock.fn(async () =>
+      getOctokit: vi.fn(async () =>
         makeOctokit({
           pulls: {
             get: async () => ({ data: { state: "closed", merged: true } }),
@@ -346,7 +346,7 @@ describe("getPRStatus", () => {
   it("passes correct owner, repo, pull_number to GitHub API", async () => {
     let capturedArgs: unknown;
     const deps = makeDeps({
-      getOctokit: mock.fn(async () =>
+      getOctokit: vi.fn(async () =>
         makeOctokit({
           pulls: {
             get: async (args: unknown) => {
@@ -364,7 +364,7 @@ describe("getPRStatus", () => {
 
   it("returns null when GitHub API call fails", async () => {
     const deps = makeDeps({
-      getOctokit: mock.fn(async () =>
+      getOctokit: vi.fn(async () =>
         makeOctokit({
           pulls: {
             get: async () => {
@@ -381,7 +381,7 @@ describe("getPRStatus", () => {
 
   it("returns null when getOctokit fails", async () => {
     const deps = makeDeps({
-      getOctokit: mock.fn(async () => {
+      getOctokit: vi.fn(async () => {
         throw new Error("No credentials");
       }) as never,
     });
@@ -398,7 +398,7 @@ describe("getPRStatus", () => {
 
   it("handles PR URLs with extra path segments", async () => {
     const deps = makeDeps({
-      getOctokit: mock.fn(async () =>
+      getOctokit: vi.fn(async () =>
         makeOctokit({
           pulls: {
             get: async () => ({ data: { state: "open", merged: false } }),
