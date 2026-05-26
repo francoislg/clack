@@ -13,7 +13,7 @@ export interface BuildQueryContextParams {
   session: SessionContext;
   config: Config;
   changesWorkflowEnabled: boolean;
-  allowScheduledMessages?: boolean;
+  cronUserSchedules?: boolean;
   slackClient?: App["client"];
   deliver?: DeliverFn;
   availableImages?: Map<string, SlackImageFile>;
@@ -69,7 +69,7 @@ export function buildQueryContext(params: BuildQueryContextParams): QueryToolCon
   return {
     ...params,
     mode: "query",
-    allowScheduledMessages: params.allowScheduledMessages ?? false,
+    cronUserSchedules: params.cronUserSchedules ?? false,
   };
 }
 

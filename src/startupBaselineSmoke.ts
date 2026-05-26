@@ -211,7 +211,7 @@ async function measureRoleBaseline(
     session: dummySession,
     config: options.config,
     changesWorkflowEnabled: true,
-    allowScheduledMessages: options.config.allowScheduledMessages ?? false,
+    cronUserSchedules: options.config.cron?.userSchedules ?? false,
     mcpManager,
     skillsManager,
   });

@@ -224,7 +224,7 @@ async function buildQuerySetup(
     session,
     config,
     changesWorkflowEnabled: options?.changesWorkflowEnabled ?? false,
-    allowScheduledMessages: config.allowScheduledMessages ?? false,
+    cronUserSchedules: config.cron?.userSchedules ?? false,
     slackClient: options?.slackClient,
     deliver: options?.deliver,
     availableImages: options?.availableImages,

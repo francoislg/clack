@@ -1,7 +1,8 @@
 import { resolve, dirname, basename, extname } from "node:path";
 import { createRequire } from "node:module";
+import { createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
 import { logger } from "../logger.js";
-import { getDataDir } from "../config.js";
+import { getConfig, getDataDir } from "../config.js";
 import {
   createClackSdk,
   defaultClackSdkDeps,
@@ -77,13 +78,49 @@ export interface LoadedPlugins {
   results: PluginLoadResult[];
 }
 
+/**
+ * Build a degraded `PluginLoadResult` for a plugin whose init threw. Exported so the
+ * shape is unit-testable without driving the full plugin loader. Used by the registry's
+ * catch path; admins see the resulting row in the Home Tab's `Status > Plugins` section
+ * with its error banner rendered beneath.
+ */
+export function synthesizeErrorResult(name: string, error: unknown): PluginLoadResult {
+  const message = error instanceof Error ? error.message : String(error);
+  return {
+    name,
+    instructions: [],
+    tools: [],
+    mcpServers: [],
+    toolMappings: new Map(),
+    mcpServer: createSdkMcpServer({ name, version: "1.0.0", tools: [] }),
+    watchers: [],
+    actionHandlers: [],
+    viewHandlers: [],
+    errors: [message],
+  };
+}
+
 export async function loadPlugins(
   pluginNames: string[],
   sdkDeps?: Partial<ClackSdkDeps>,
 ): Promise<LoadedPlugins> {
   const results: PluginLoadResult[] = [];
   const dataDir = resolve(getDataDir(), "plugins");
-  const mergedDeps: ClackSdkDeps = { ...defaultClackSdkDeps, ...sdkDeps };
+  // Resolve runtime capabilities once per load. Defaults to crons: true so tests that
+  // never load a config still see the historical behavior; production reads `cron.enabled`
+  // (default true) from the loaded config.
+  let cronsEnabled = true;
+  try {
+    cronsEnabled = getConfig().cron?.enabled !== false;
+  } catch {
+    // Config not loaded — fall through with the default. Production calls loadConfig()
+    // before loadPlugins() at boot, so this branch only fires in fixture/test paths.
+  }
+  const mergedDeps: ClackSdkDeps = {
+    ...defaultClackSdkDeps,
+    capabilities: { crons: cronsEnabled },
+    ...sdkDeps,
+  };
 
   for (const entry of pluginNames) {
     try {
@@ -124,7 +161,14 @@ export async function loadPlugins(
         `Plugin "${name}" loaded: ${result.instructions.length} instructions, ${result.tools.length} tools`,
       );
     } catch (error) {
-      logger.error(`Plugin "${entry}" failed to load — skipping:`, error);
+      logger.error(`Plugin "${entry}" failed to load — recording error:`, error);
+      const errorName = isPathEntry(entry)
+        ? deriveLocalPluginName(resolve(process.cwd(), entry))
+        : entry;
+      // Synthesize a degraded result so the failing plugin still appears in the loaded
+      // set — admins see it in the Home Tab with its error banner instead of it being
+      // silently dropped.
+      results.push(synthesizeErrorResult(errorName, error));
     }
   }
 

@@ -341,17 +341,33 @@ export const CONFIG_SCHEMA: SchemaFor<Config> = {
         },
       },
     },
-    allowScheduledMessages: {
-      type: "boolean",
-      description: "Enable the cron/scheduled-messages feature.",
-      default: false,
+    cron: {
+      type: "object",
+      description:
+        "Cron scheduler + user-facing scheduling tools. The tick loop runs whenever 'enabled' is not false; user-facing MCP tools require 'userSchedules: true' on top of that.",
       required: false,
-    },
-    scheduledMessagesMaxRunHistory: {
-      type: "number",
-      description: "Max execution records retained per scheduled job in runs[].",
-      default: 50,
-      required: false,
+      fields: {
+        enabled: {
+          type: "boolean",
+          description:
+            "Master switch for the cron tick loop. When false, no job — user-created or plugin-managed — fires. Plugins that depend on the scheduler refuse to load.",
+          default: true,
+          required: false,
+        },
+        userSchedules: {
+          type: "boolean",
+          description:
+            "Expose the user-facing scheduling MCP tools (create_scheduled_message, reminders, etc.) and the Home Tab user-schedules section. Requires 'enabled' to be true.",
+          default: false,
+          required: false,
+        },
+        maxRunHistory: {
+          type: "number",
+          description: "Max execution records retained per scheduled job in runs[].",
+          default: 50,
+          required: false,
+        },
+      },
     },
     threadAutoRespond: {
       type: "boolean",

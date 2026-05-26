@@ -11,7 +11,6 @@ import { updateSession as defaultUpdateSession } from "../../sessions.js";
 import type { SessionContext } from "../../sessions.js";
 import { logger } from "../../logger.js";
 import { buildVirtualDefaults as defaultBuildVirtualDefaults } from "../../instructions.js";
-import { getToolsGatedByIntegration as defaultGetToolsGatedByIntegration } from "../../plugins/state.js";
 
 type McpAttachHistoryEntry = NonNullable<SessionContext["mcpAttachHistory"]>[number];
 
@@ -39,7 +38,6 @@ export interface AttachIntegrationDeps {
   resolveTopicFiles: typeof defaultResolveTopicFiles;
   updateSession: typeof defaultUpdateSession;
   buildVirtualDefaults: typeof defaultBuildVirtualDefaults;
-  getToolsGatedByIntegration: typeof defaultGetToolsGatedByIntegration;
 }
 
 export const defaultAttachIntegrationDeps: AttachIntegrationDeps = {
@@ -47,7 +45,6 @@ export const defaultAttachIntegrationDeps: AttachIntegrationDeps = {
   resolveTopicFiles: defaultResolveTopicFiles,
   updateSession: defaultUpdateSession,
   buildVirtualDefaults: defaultBuildVirtualDefaults,
-  getToolsGatedByIntegration: defaultGetToolsGatedByIntegration,
 };
 
 /**
@@ -153,8 +150,11 @@ export function createAttachIntegrationTool(
         deps.buildVirtualDefaults(),
       );
 
-      // Two paths: MCP-backed (load + setMcpServers) and instructions-only (no server).
-      const serverConfig = await deps.loadMcpServer(args.name);
+      // Unified resolver: external MCP-backed (data/mcp.json) first, then plugin-registered
+      // on-demand servers (built in `buildClackTools` from `sdk.registerMcpServer(...)`).
+      // Both produce an McpServerConfig that `manager.attach` handles the same way.
+      const serverConfig =
+        (await deps.loadMcpServer(args.name)) ?? manager.getIntegrationServer(args.name);
 
       if (serverConfig) {
         const result = await manager.attach(args.name, serverConfig);
@@ -195,25 +195,17 @@ export function createAttachIntegrationTool(
         logger.warn(`Failed to persist attach state for '${args.name}': ${message}`);
       }
 
-      // Three signals decide whether to advertise "new tools": (1) an MCP server got
-      // attached, (2) plugin tools are registered with `{ integration: args.name }` (the
-      // gate in `src/tools/server.ts` reveals them next turn now that the integration is
-      // in `attachedIntegrations`), (3) plugin topic instructions resolved. Any of the
-      // three means the next turn brings new capability.
+      // The unified resolver above either returned a server config (whose tools will land
+      // on the next turn via setMcpServers) or undefined (instructions-only — no MCP server
+      // and no plugin-registered handle exist for this name).
       const hasTopicInstructions = instructions.trim().length > 0;
-      const gatedToolNames = deps.getToolsGatedByIntegration(args.name);
-      const willHaveNewTools = !!serverConfig || gatedToolNames.length > 0;
-      const kindNote = willHaveNewTools
+      const kindNote = serverConfig
         ? `New tools may now be available on the next turn.`
         : hasTopicInstructions
           ? `Instructions loaded. This integration has no callable tools — proceed using the integration's instructions.`
-          : `This integration has no MCP server, no gated tools, and no topic instructions — nothing arrives.`;
+          : `This integration has no MCP server and no topic instructions — nothing arrives.`;
 
-      const body = hasTopicInstructions
-        ? instructions
-        : gatedToolNames.length > 0
-          ? `(No topic instructions were resolved — gated tools available on the next turn: ${gatedToolNames.join(", ")})`
-          : "(No topic instructions were resolved.)";
+      const body = hasTopicInstructions ? instructions : "(No topic instructions were resolved.)";
 
       return {
         content: [
