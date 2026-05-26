@@ -430,7 +430,7 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
   }
 
   // --- Scheduled message tools (no role gating, config-gated) ---
-  if (ctx.allowScheduledMessages && ctx.slackClient) {
+  if (ctx.cronUserSchedules && ctx.slackClient) {
     tools.push(createScheduleReminderTool(ctx));
     tools.push(createListRemindersTool(ctx));
     tools.push(createCancelReminderTool(ctx));
@@ -442,38 +442,69 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
     tools.push(createRunScheduledMessageNowTool(ctx));
   }
 
-  // --- Plugin tools: one dedicated MCP server per plugin, with handlers wrapped to auto-record.
-  // Tools live in their own namespace (`mcp__<plugin>__<tool>`), so plugin-vs-core and
-  // plugin-vs-plugin name collisions are structurally impossible.
+  // --- Plugin tools: per plugin, one always-on SDK server (`mcp__<plugin>__*`) built
+  // from tools with no serverKey, plus one SDK server per on-demand handle declared via
+  // `sdk.registerMcpServer(key, ...)` (`mcp__<plugin>_<key>__*`) built from tools whose
+  // serverKey matches. On-demand servers are registered with McpServerManager so
+  // `attach_integration(<plugin>:<key>)` can attach them mid-session; they're also
+  // included in the baseline at session start when the integration is already in
+  // `session.attachedIntegrations` (resume case — the SDK's restored state expects the
+  // server to match `options.mcpServers`).
   const pluginMcpServers: Record<string, McpSdkServerConfigWithInstance> = {};
   const pluginToolFullNames: string[] = [];
   const pluginResults = getLoadedPlugins().results;
+  const attachedSnapshot = ctx.session.attachedIntegrations ?? [];
   for (const plugin of pluginResults) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const pluginTools: SdkMcpToolDefinition<any>[] = [];
+    const byServerKey = new Map<string | undefined, SdkMcpToolDefinition<AnyZodRawShape>[]>();
+    const fullNamesByServerKey = new Map<string | undefined, string[]>();
     for (const registered of plugin.tools) {
       if (!meetsMinimumRole(ctx.role, registered.minRole)) continue;
-      if (
-        registered.integration &&
-        !(ctx.session.attachedIntegrations ?? []).includes(registered.integration)
-      ) {
-        continue;
-      }
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const collected: SdkMcpToolDefinition<any>[] = [];
+      const serverKey = registered.serverKey;
+      const serverMcpName = serverKey === undefined ? plugin.name : `${plugin.name}_${serverKey}`;
+      const collected: SdkMcpToolDefinition<AnyZodRawShape>[] = [];
       registered.pushTo(collected);
+      let toolBucket = byServerKey.get(serverKey);
+      if (!toolBucket) {
+        toolBucket = [];
+        byServerKey.set(serverKey, toolBucket);
+      }
+      let nameBucket = fullNamesByServerKey.get(serverKey);
+      if (!nameBucket) {
+        nameBucket = [];
+        fullNamesByServerKey.set(serverKey, nameBucket);
+      }
       for (const toolDef of collected) {
-        const fullName = `mcp__${plugin.name}__${toolDef.name}`;
-        pluginToolFullNames.push(fullName);
-        pluginTools.push(wrapToolForRecording(toolDef, fullName, recorder));
+        const fullName = `mcp__${serverMcpName}__${toolDef.name}`;
+        nameBucket.push(fullName);
+        toolBucket.push(wrapToolForRecording(toolDef, fullName, recorder));
       }
     }
-    if (pluginTools.length === 0) continue;
-    pluginMcpServers[plugin.name] = createSdkMcpServer({
-      name: plugin.name,
-      version: "1.0.0",
-      tools: pluginTools,
-    });
+
+    const defaultTools = byServerKey.get(undefined) ?? [];
+    if (defaultTools.length > 0) {
+      pluginMcpServers[plugin.name] = createSdkMcpServer({
+        name: plugin.name,
+        version: "1.0.0",
+        tools: defaultTools,
+      });
+      pluginToolFullNames.push(...(fullNamesByServerKey.get(undefined) ?? []));
+    }
+
+    for (const spec of plugin.mcpServers) {
+      const toolBucket = byServerKey.get(spec.key) ?? [];
+      if (toolBucket.length === 0) continue;
+      const serverMcpName = `${plugin.name}_${spec.key}`;
+      const server = createSdkMcpServer({
+        name: serverMcpName,
+        version: "1.0.0",
+        tools: toolBucket,
+      });
+      ctx.mcpManager?.registerIntegrationServer(spec.fullName, server);
+      if (spec.autoload || attachedSnapshot.includes(spec.fullName)) {
+        pluginMcpServers[serverMcpName] = server;
+        pluginToolFullNames.push(...(fullNamesByServerKey.get(spec.key) ?? []));
+      }
+    }
   }
 
   // --- Presentation tool ---

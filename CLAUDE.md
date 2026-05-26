@@ -38,6 +38,13 @@ npx tsc              # Type-check without emitting (use to verify changes)
 - Explicit TypeScript types; avoid `any`
 - **User-facing strings emitted by TypeScript code MUST go through `t()`** from `src/i18n/t.js`. Add the key to `src/i18n/strings/en.ts` (source of truth) and `src/i18n/strings/fr.ts` (parity test enforces). Internal logs, dev-facing console messages, and tool descriptions Claude reads stay English.
 
+## Test Conventions
+
+- **Runner:** vitest. Import `describe`, `it`, `expect`, `vi.fn`, `vi.spyOn`, `vi.useFakeTimers` from `vitest`.
+- **No real timers.** Never use `setTimeout` / `setInterval` in tests — use `vi.useFakeTimers()` + `vi.advanceTimersByTime()`. Lint-enforced.
+- **No real subprocesses or git.** Never import `child_process` / `simple-git` from a test. Mock at the boundary (`src/repositories.ts`, etc.) with `vi.mock` or constructor-injected stubs. Lint-enforced for direct imports; the structural rule (mock the boundary) is on you.
+- **Integration escape hatch:** tests that intentionally hit real I/O use the `*.integration.test.ts` suffix and are exempt from the bans above.
+
 ## Architecture
 
 ### Three Trigger Modes
@@ -80,7 +87,7 @@ Worker tools (in worktree context):
 
 - `git_push`, `ensure_pr`, `merge_pr`, `close_pr`, `resolve_review_thread`, `report_status`
 
-**Plugin tools** are registered by plugins via `sdk.registerTool(...)`. By default they're admin-gated only; passing `{ integration: "<name>" }` in the options additionally hides the tool until Claude attaches that integration via `attach_integration(name)`. Plugins can self-declare catalog entries (integrations that aren't backed by an external MCP server) via `sdk.registerIntegration(name, { description, alwaysLoad? })` — see the live example in `src/plugins/trivia/index.ts` (the `trivia:management` integration gates seven config-mutation tools).
+**Plugin tools** are registered via the plugin SDK. Tools added with `sdk.registerTool(...)` (or equivalently `sdk.mcpServer.registerTool(...)`) live on the plugin's always-on default server at `mcp__<plugin>__<tool>`. For on-demand tool groups (e.g., admin-only management surfaces), plugins call `sdk.registerMcpServer(name, { autoload: false, description })` and bind tools to the returned handle — those tools live at `mcp__<plugin>_<name>__<tool>` and only become available after Claude calls `attach_integration("<plugin>:<name>")`. See `src/plugins/trivia/index.ts` for the live example: the `trivia:management` on-demand server hosts seven config-mutation tools and its admin instruction.
 
 ### Role System (4 tiers)
 

@@ -12,6 +12,7 @@ import {
 import { processMessage } from "./slack/handlers/core.js";
 import { findSessionByMessage } from "./sessions.js";
 import { logger } from "./logger.js";
+import { getConfig } from "./config.js";
 import { registerArgEnricher, type ToolArgs } from "./streaming/toolMappingLoader.js";
 import { resolveChannelLabel, slackLink } from "./slack/logContext.js";
 import { openDmChannel } from "./slack/channelResolver.js";
@@ -110,10 +111,26 @@ async function tick(): Promise<void> {
   if (jobs.length === 0) return;
 
   const now = new Date();
+  // User-job filter: when user-facing scheduling is disabled, the scheduler still ticks
+  // (plugin crons keep firing) but persisted user-created jobs are skipped at match time.
+  // See {@link shouldSkipUserJob}.
+  let userSchedulesEnabled = true;
+  try {
+    userSchedulesEnabled = getConfig().cron?.userSchedules === true;
+  } catch {
+    // Config not loaded yet — leave default true so we don't drop jobs during a window
+    // where the scheduler somehow ticked before config.load(). In practice unreachable.
+  }
 
   for (const job of jobs) {
     if (runningJobs.has(job.id)) {
       logger.debug(`Cron job ${job.id} still running, skipping`);
+      continue;
+    }
+
+    if (shouldSkipUserJob(job, userSchedulesEnabled)) {
+      // User-created job and the user-tools gate is off. Silently skip without recording
+      // a run; the job is preserved so re-enabling the gate restores its cadence.
       continue;
     }
 
@@ -128,6 +145,17 @@ async function tick(): Promise<void> {
       });
     }
   }
+}
+
+/**
+ * Decide whether the tick loop should skip a job because the user-facing scheduling
+ * gate is off. User-created jobs (`createdBy` is a non-null user ID) are skipped;
+ * plugin-managed jobs (`createdBy === null`) always proceed. When the gate is on,
+ * every job proceeds regardless of `createdBy`.
+ */
+export function shouldSkipUserJob(job: CronJob, userSchedulesEnabled: boolean): boolean {
+  if (userSchedulesEnabled) return false;
+  return job.createdBy !== null;
 }
 
 // ============================================================================

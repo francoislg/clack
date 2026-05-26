@@ -86,8 +86,8 @@ export interface QueryToolContext {
   config: Config;
   /** Whether the changes workflow is enabled for this trigger */
   changesWorkflowEnabled: boolean;
-  /** Whether scheduled messages feature is enabled */
-  allowScheduledMessages: boolean;
+  /** Whether the user-facing scheduling MCP tools are exposed (sourced from `config.cron.userSchedules`). */
+  cronUserSchedules: boolean;
   /** Slack WebClient for API calls (absent in test/verify contexts) */
   slackClient?: App["client"];
   /** Delivery callback — when provided, submit_response delivers to Slack directly */

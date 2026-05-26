@@ -28,6 +28,8 @@ import { getLoadedPlugins, getLoadedPluginIntegrations } from "../plugins/state.
 export interface ClackPluginSummary {
   name: string;
   toolCount: number;
+  /** Load-time errors recorded via `sdk.error` or thrown during init. Empty when healthy. */
+  errors: string[];
 }
 import type { RolesConfig } from "../roles.js";
 import type { UserPreferences } from "../userPreferences.js";
@@ -88,6 +90,7 @@ export const defaultHomeTabDeps: HomeTabDeps = {
     getLoadedPlugins().results.map((r) => ({
       name: r.name,
       toolCount: r.tools.length,
+      errors: r.errors,
     })),
   getRules,
   getJobs,
@@ -511,6 +514,7 @@ export function buildStatusSection(
   const config = deps.getConfig();
   const mcpServers = deps.getConfiguredMcpServerNames();
   const showAccessTags = deps.canRequestChanges(role); // dev+
+  const userIsAdmin = deps.canManageRoles(role);
 
   const blocks: KnownBlock[] = [
     {
@@ -618,19 +622,43 @@ export function buildStatusSection(
     });
   }
 
-  // Clack Plugins (loaded via plugins config)
+  // Clack Plugins (loaded via plugins config). Rendered as a header + one row per plugin
+  // so a failing plugin's error banner can sit directly beneath its row. The banner is
+  // admin-only — non-admins see the plugin row but not the failure details.
   const clackPlugins = deps.getLoadedClackPlugins();
   if (clackPlugins.length > 0) {
-    const pluginList = clackPlugins
-      .map((p) => t("home.status.clack_plugin_entry", { name: p.name, count: p.toolCount }))
-      .join("\n");
     blocks.push({
       type: "section",
       text: {
         type: "mrkdwn",
-        text: t("home.status.clack_plugins_block", { list: pluginList }),
+        text: t("home.status.clack_plugins_header"),
       },
     });
+    for (const p of clackPlugins) {
+      const hasErrors = p.errors.length > 0;
+      const statusIcon = hasErrors ? ":x: " : "";
+      blocks.push({
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text:
+            statusIcon + t("home.status.clack_plugin_entry", { name: p.name, count: p.toolCount }),
+        },
+      });
+      if (hasErrors && userIsAdmin) {
+        blocks.push({
+          type: "context",
+          elements: [
+            {
+              type: "mrkdwn",
+              text: t("home.status.clack_plugin_error", {
+                reasons: p.errors.map((e) => `:warning: ${e}`).join("\n"),
+              }),
+            },
+          ],
+        });
+      }
+    }
   }
 
   // Trigger methods
@@ -1591,7 +1619,10 @@ async function buildScheduledMessagesSection(
   const allJobs = isAdmin ? await deps.getJobs() : await deps.getJobsByUser(userId);
   // Partition: user-created jobs go in the first section with full controls; plugin-managed
   // jobs go in a separate admin-only section with read-only details + Enable/Disable only.
-  const userJobs = allJobs.filter((j) => !j.pluginManaged);
+  // The user-created subsection is also hidden when `config.cron.userSchedules` is false —
+  // those jobs are skipped at tick time, so showing them here would mislead admins.
+  const userSchedulesEnabled = deps.getConfig().cron?.userSchedules === true;
+  const userJobs = userSchedulesEnabled ? allJobs.filter((j) => !j.pluginManaged) : [];
   const pluginJobs = isAdmin ? allJobs.filter((j) => j.pluginManaged) : [];
 
   const blocks: (KnownBlock | Block)[] = [];

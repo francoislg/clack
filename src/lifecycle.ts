@@ -144,7 +144,10 @@ function startSchedulers(deps: LifecycleDeps = defaultLifecycleDeps): void {
 
   deps.startCompletionMonitor();
 
-  if (config.allowScheduledMessages) {
+  // Cron tick loop runs whenever `cron.enabled` isn't explicitly false (default-true).
+  // Plugin-managed jobs always tick under this flag; user-created jobs are additionally
+  // filtered at tick time by `cron.userSchedules` (see `cronScheduler.tick`).
+  if (config.cron?.enabled !== false) {
     const client = deps.getSlackClient();
     if (client) {
       deps.startCronScheduler(client);

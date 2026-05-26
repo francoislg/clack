@@ -17,10 +17,13 @@ import { logger as coreLogger } from "../logger.js";
 import { getSlackClient as defaultGetSlackClient } from "../slack/app.js";
 import { unfurlOptions } from "../slack/unfurlOptions.js";
 import type { PluginActionHandler, PluginViewHandler } from "../slack/pluginActionRegistry.js";
+export type { PluginActionHandler, PluginViewHandler };
 import { logger } from "../logger.js";
 import { findByPluginOwner, createJob, updateJob, deleteJob, type SkipDate } from "../cronJobs.js";
 import { clackQuery as defaultClackQuery } from "../claude/query.js";
 import { detectRuntime } from "../claude/utilities.js";
+import { getConfig } from "../config.js";
+import type { Lang } from "../i18n/languages.js";
 
 // ============================================================================
 // Types
@@ -29,21 +32,63 @@ import { detectRuntime } from "../claude/utilities.js";
 /** Tool mapping entry — same format as tool_mapping JSON config entries. */
 export type ToolMapping = string | ToolEntryObject;
 
-/** Optional registration knobs for `registerTool`. */
-export interface RegisterToolOptions {
-  /**
-   * Hide the tool unless `session.attachedIntegrations` contains this name. The name MUST
-   * match a catalog entry — either a `data/config.json` `mcpServers` entry or a plugin's
-   * `sdk.registerIntegration(name, ...)` declaration — so `attach_integration(name)` validates.
-   */
-  integration?: string;
+/**
+ * Translation table a plugin registers with the SDK. `en` is authoritative; other
+ * supported languages MAY be partial — absent keys fall back to the EN value at
+ * lookup time. Adding a new supported language to Clack's core widens this shape.
+ */
+export interface PluginDictionary {
+  en: Record<string, string>;
+  fr?: Record<string, string>;
 }
 
-/** Plugin-declared catalog-only integration. Merged into the effective MCP registry at boot. */
-export interface PluginIntegration {
-  name: string;
+/** Variable map for `sdk.t(key, vars)` — `{name}` placeholders are stringified. */
+export type PluginVars = Record<string, string | number>;
+
+/**
+ * Handle returned by `sdk.registerMcpServer` (and exposed for the always-on default at
+ * `sdk.mcpServer`). Binds tools and topic instructions to the named server so the
+ * three-way coupling (server + tools + topic instructions) is structural rather than
+ * string-keyed.
+ */
+export interface RegisteredMcpServer {
+  /**
+   * Full public name of the server: the plugin name for the default (`trivia`), or
+   * `<pluginName>:<key>` for on-demand servers (`trivia:management`). Stable across
+   * the SDK instance's lifetime.
+   */
+  readonly fullName: string;
+  /**
+   * Bind a tool to this server. Same signature as `sdk.registerTool` minus the integration
+   * option (membership is decided by which server's handle you call this on).
+   */
+  registerTool<T extends AnyZodRawShape>(
+    minRole: UserRole,
+    tool: SdkMcpToolDefinition<T>,
+    mapping: ToolMapping,
+  ): void;
+  /**
+   * Add a topic instruction whose topic name is this server's full public name. For the
+   * default server (`sdk.mcpServer`), the topic name equals the plugin name; for an on-demand
+   * server, it equals `<pluginName>:<key>`.
+   */
+  addTopicInstruction(role: RoleDir, filename: string, content: string): void;
+}
+
+/**
+ * What `sdk.registerMcpServer` records on the plugin's load result. Consumed by the
+ * effective-MCP-registry merge at boot and by `buildClackTools` when assembling the
+ * per-server SDK config.
+ */
+export interface PluginMcpServerSpec {
+  /** Suffix passed to `registerMcpServer("management", ...)` — `"management"`. */
+  key: string;
+  /** Full public name, `<pluginName>:<key>` — `"trivia:management"`. */
+  fullName: string;
+  /** When `true`, the server is part of the session-start baseline. Default `false`. */
+  autoload: boolean;
+  /** Description shown in the AVAILABLE INTEGRATIONS catalog. */
   description: string;
-  alwaysLoad: boolean;
 }
 
 /**
@@ -127,6 +172,16 @@ export interface PluginLogger {
   error(...args: unknown[]): void;
 }
 
+/**
+ * Static-at-load-time facts about the host runtime that a plugin can use to decide
+ * whether it can run. The initial set carries only `crons` (mirrors `config.cron.enabled`);
+ * future capabilities live alongside as flat boolean fields.
+ */
+export interface ClackSdkCapabilities {
+  /** True when the cron scheduler tick loop is enabled (`config.cron.enabled !== false`). */
+  crons: boolean;
+}
+
 export interface ClackSdk {
   /**
    * Plugin-scoped logger. Prefixes every line with `[<pluginName>]` for filterability.
@@ -134,6 +189,20 @@ export interface ClackSdk {
    * direct imports from outside the SDK are not allowed in plugin code.
    */
   logger: PluginLogger;
+  /**
+   * Static-at-load-time capability flags. Plugins read these to decide whether they can
+   * run. When a required capability is false, the plugin SHOULD call {@link error} with
+   * a human-readable reason and `return` from its init.
+   */
+  capabilities: ClackSdkCapabilities;
+  /**
+   * Record a load-time problem on the plugin's `PluginLoadResult.errors`. Non-fatal:
+   * the call returns and the plugin decides whether to also `return` (e.g. when the
+   * problem makes the plugin non-functional) or continue (for partial degradation).
+   * MAY be called multiple times to record independent problems. Errors accumulate in
+   * call order and surface on the Home Tab's `Status > Plugins` section.
+   */
+  error(reason: string): void;
   addInstruction(role: RoleDir, filename: string, content: string): void;
   /**
    * Register topic-scoped instruction content. The file is stored as a virtual default at
@@ -147,7 +216,9 @@ export interface ClackSdk {
   addTopicInstruction(role: RoleDir, topic: string, filename: string, content: string): void;
   /**
    * Register an MCP tool with a minimum role requirement and a Slack task card mapping.
-   * Pass `{ integration }` in `options` to gate the tool behind `attach_integration(name)`.
+   * Shorthand for `sdk.mcpServer.registerTool(...)` — the tool is bound to the plugin's
+   * always-on default server (`mcp__<plugin>__*`). For on-demand tools, capture a handle
+   * from `sdk.registerMcpServer(...)` and call `handle.registerTool(...)` instead.
    * @param mapping — Display label for Slack task cards. Either a template string with `{argName}` interpolation,
    *   or an object with `label`, optional `group`, and optional `itemDetail`.
    */
@@ -155,17 +226,29 @@ export interface ClackSdk {
     minRole: UserRole,
     tool: SdkMcpToolDefinition<T>,
     mapping: ToolMapping,
-    options?: RegisterToolOptions,
   ): void;
   /**
-   * Declare a catalog-only virtual integration owned by this plugin. The name is what Claude
-   * passes to `attach_integration(name)`; the description appears in the AVAILABLE INTEGRATIONS
-   * catalog. By convention `name` is `<pluginName>:<key>` (e.g. `trivia:management`), mirroring
-   * the `<game>:<event>` shape used by cron specKeys. No MCP server is started — plugin-declared
-   * integrations are purely catalog entries that gate plugin-registered topic instructions and
-   * topic-gated tools.
+   * Always-on default MCP server for this plugin. Tools registered via the SDK shorthand
+   * `sdk.registerTool(...)` are equivalent to `sdk.mcpServer.registerTool(...)`. The full
+   * name is the plugin name (`trivia`), and tools land at `mcp__<plugin>__<tool>`.
    */
-  registerIntegration(name: string, options: { description: string; alwaysLoad?: boolean }): void;
+  readonly mcpServer: RegisteredMcpServer;
+  /**
+   * Declare an on-demand named MCP server scoped to this plugin. Tools bound to the
+   * returned handle become available only after `attach_integration("<plugin>:<name>")`
+   * (or when the session resumes with the integration already attached).
+   *
+   * `name` SHALL NOT contain `:` (the SDK auto-prefixes with the plugin name to produce
+   * the full public name `<plugin>:<name>`). `name` SHALL be non-empty and SHALL NOT
+   * collide with a previously-registered on-demand server.
+   *
+   * `autoload` defaults to `false` (on-demand). Set to `true` to make the server part
+   * of the session-start baseline alongside `mcp__<plugin>__*`.
+   */
+  registerMcpServer(
+    name: string,
+    options: { autoload?: boolean; description: string },
+  ): RegisteredMcpServer;
   readFile(path: string): Promise<string | null>;
   writeFile(path: string, content: string): Promise<void>;
   /**
@@ -255,6 +338,24 @@ export interface ClackSdk {
    * jobs / re-registering tools. `reason` is logged for traceability.
    */
   requestSoftRestart(reason: string): void;
+  /**
+   * Register this plugin's translation table. `en` is required and authoritative.
+   * Calling twice replaces the prior registration (last-write-wins; useful for
+   * hot-reload). The dictionary is scoped implicitly to this plugin — plugin A
+   * cannot read plugin B's strings.
+   */
+  registerDictionary(dictionaries: PluginDictionary): void;
+  /**
+   * Look up `key` in this plugin's registered dictionary using the workspace's
+   * configured language (`config.json` `language`, defaulting to `"en"`). When
+   * `vars` is supplied, every `{name}` placeholder in the resolved template is
+   * replaced with `String(vars.name)`.
+   *
+   * Throws when `registerDictionary` has not been called or when `key` is missing
+   * from the EN table. Missing in a non-EN table falls back to EN with a one-time
+   * warn through `sdk.logger`.
+   */
+  t(key: string, vars?: PluginVars): string;
 }
 
 export type ClackPlugin = (sdk: ClackSdk) => Promise<void>;
@@ -273,7 +374,12 @@ export interface RegisteredInstruction {
 export interface RegisteredTool {
   name: string;
   minRole: UserRole;
-  integration?: string;
+  /**
+   * Which SDK server hosts this tool. `undefined` = the plugin's always-on default server
+   * (`mcp__<plugin>__*`). Otherwise the suffix of an on-demand server registered via
+   * `sdk.registerMcpServer(serverKey, ...)` — tool ends up at `mcp__<plugin>_<serverKey>__*`.
+   */
+  serverKey?: string;
   pushTo: (target: SdkMcpToolDefinition<AnyZodRawShape>[]) => void;
 }
 
@@ -296,12 +402,25 @@ export interface PluginLoadResult {
   name: string;
   instructions: RegisteredInstruction[];
   tools: RegisteredTool[];
-  /** Plugin-declared catalog integrations, merged into the effective MCP registry at boot. */
-  integrations: PluginIntegration[];
+  /**
+   * On-demand SDK servers declared via `sdk.registerMcpServer(...)`. Each entry becomes
+   * an entry in the effective MCP registry and (via `buildClackTools`) a separate SDK
+   * server that `attach_integration` can load on demand. The plugin's always-on default
+   * server (`mcp__<plugin>__*`) is implicit and NOT listed here — it's assembled from
+   * tools with `serverKey === undefined`.
+   */
+  mcpServers: PluginMcpServerSpec[];
   /** Tool name → mapping entry for Slack task cards. */
   toolMappings: Map<string, ToolMapping>;
   /** Dedicated MCP server hosting this plugin's tools, namespaced under the plugin's name. */
   mcpServer: McpSdkServerConfigWithInstance;
+  /**
+   * Load-time errors recorded by `sdk.error(reason)` calls during plugin init, in call
+   * order. When init throws an unhandled exception, the loader synthesizes a result with
+   * `errors: [<thrown message>]` and otherwise-empty registrations. An empty array means
+   * the plugin loaded cleanly.
+   */
+  errors: string[];
   /**
    * Filesystem watchers registered via `sdk.watchFile`. Closed by the plugin reload
    * pipeline (in `lifecycle.ts`) before the plugin's init is re-run, to prevent
@@ -355,6 +474,12 @@ export interface ClackSdkDeps {
    * Production callers MUST pass the real `requestSoftRestart` from `lifecycle.ts`.
    */
   requestSoftRestart?: (reason: string) => void;
+  /**
+   * Capability flags exposed to the plugin via `sdk.capabilities`. Optional in tests
+   * that don't exercise capability gating; defaults to `{ crons: true }` (the same
+   * default behavior as the boot-time scheduler gate).
+   */
+  capabilities?: ClackSdkCapabilities;
 }
 
 export const defaultClackSdkDeps: ClackSdkDeps = {
@@ -421,13 +546,43 @@ export function createClackSdk(
 } {
   const instructions: RegisteredInstruction[] = [];
   const tools: RegisteredTool[] = [];
-  const integrations: PluginIntegration[] = [];
+  const mcpServers: PluginMcpServerSpec[] = [];
   const toolMappings = new Map<string, ToolMapping>();
   const watchers: FSWatcher[] = [];
   const actionHandlers: RegisteredActionEntry[] = [];
   const viewHandlers: RegisteredViewEntry[] = [];
+  const errors: string[] = [];
+  const capabilities: ClackSdkCapabilities = deps.capabilities ?? { crons: true };
   const pluginDataDir = join(dataDir, pluginName);
   const pluginPrefix = `plugin:${pluginName}:`;
+
+  function createMcpServerHandle(
+    serverKey: string | undefined,
+    fullName: string,
+  ): RegisteredMcpServer {
+    return {
+      fullName,
+      registerTool<T extends AnyZodRawShape>(
+        minRole: UserRole,
+        toolDef: SdkMcpToolDefinition<T>,
+        mapping: ToolMapping,
+      ): void {
+        tools.push({
+          name: toolDef.name,
+          minRole,
+          serverKey,
+          pushTo: (target) => target.push(toolDef as SdkMcpToolDefinition<AnyZodRawShape>),
+        });
+        toolMappings.set(toolDef.name, mapping);
+      },
+      addTopicInstruction(role: RoleDir, filename: string, content: string): void {
+        const key = `topics/${fullName}/${pluginName}__${filename}.md`;
+        instructions.push({ role, filename: key, content });
+      },
+    };
+  }
+
+  const defaultMcpServer: RegisteredMcpServer = createMcpServerHandle(undefined, pluginName);
 
   function buildFullKey(key: string | RegExp): string | RegExp {
     if (typeof key === "string") {
@@ -455,8 +610,59 @@ export function createClackSdk(
     error: (...args) => coreLogger.error(pluginLogPrefix, ...args),
   };
 
+  let dictionary: PluginDictionary | null = null;
+  const fallbackWarned = new Set<string>();
+
+  function activeLanguage(): Lang {
+    try {
+      return getConfig().language ?? "en";
+    } catch {
+      return "en";
+    }
+  }
+
+  function interpolate(template: string, vars: PluginVars): string {
+    let out = template;
+    for (const [name, value] of Object.entries(vars)) {
+      out = out.replaceAll(`{${name}}`, String(value));
+    }
+    return out;
+  }
+
   const sdk: ClackSdk = {
     logger: pluginLogger,
+    capabilities,
+    mcpServer: defaultMcpServer,
+    registerMcpServer(
+      name: string,
+      options: { autoload?: boolean; description: string },
+    ): RegisteredMcpServer {
+      if (typeof name !== "string" || name.length === 0) {
+        throw new Error(`registerMcpServer requires a non-empty name (plugin: ${pluginName})`);
+      }
+      if (name.includes(":")) {
+        throw new Error(
+          `registerMcpServer name must not contain ':' (got "${name}" in plugin "${pluginName}"). The SDK auto-prefixes the plugin name to produce "<plugin>:<name>".`,
+        );
+      }
+      const fullName = `${pluginName}:${name}`;
+      if (mcpServers.some((s) => s.key === name)) {
+        throw new Error(
+          `registerMcpServer("${name}") called twice in plugin "${pluginName}" — names must be unique within a plugin.`,
+        );
+      }
+      mcpServers.push({
+        key: name,
+        fullName,
+        autoload: options.autoload ?? false,
+        description: options.description,
+      });
+      return createMcpServerHandle(name, fullName);
+    },
+    error(reason: string): void {
+      errors.push(reason);
+      coreLogger.warn(pluginLogPrefix, "sdk.error:", reason);
+    },
     addInstruction(role: RoleDir, filename: string, content: string): void {
       const prefixedFilename = `${pluginName}__${filename}.md`;
       instructions.push({ role, filename: prefixedFilename, content });
@@ -471,28 +677,8 @@ export function createClackSdk(
       minRole: UserRole,
       toolDef: SdkMcpToolDefinition<T>,
       mapping: ToolMapping,
-      options?: RegisterToolOptions,
     ): void {
-      tools.push({
-        name: toolDef.name,
-        minRole,
-        integration: options?.integration,
-        // Capture the tool in a closure that pushes it to the target array.
-        // This avoids storing it with an incompatible generic type.
-        pushTo: (target) => target.push(toolDef as SdkMcpToolDefinition<AnyZodRawShape>),
-      });
-      toolMappings.set(toolDef.name, mapping);
-    },
-
-    registerIntegration(
-      name: string,
-      options: { description: string; alwaysLoad?: boolean },
-    ): void {
-      integrations.push({
-        name,
-        description: options.description,
-        alwaysLoad: options.alwaysLoad ?? false,
-      });
+      defaultMcpServer.registerTool(minRole, toolDef, mapping);
     },
 
     async readFile(path: string): Promise<string | null> {
@@ -794,6 +980,48 @@ export function createClackSdk(
       }
       fn(`[plugin:${pluginName}] ${reason}`);
     },
+
+    registerDictionary(dictionaries: PluginDictionary): void {
+      if (
+        dictionaries === null ||
+        typeof dictionaries !== "object" ||
+        typeof dictionaries.en !== "object" ||
+        dictionaries.en === null
+      ) {
+        throw new Error(
+          `registerDictionary requires an object with an \`en\` table (plugin: ${pluginName})`,
+        );
+      }
+      dictionary = dictionaries;
+      fallbackWarned.clear();
+    },
+
+    t(key: string, vars?: PluginVars): string {
+      if (dictionary === null) {
+        throw new Error(
+          `Plugin "${pluginName}" called sdk.t("${key}") before sdk.registerDictionary(...) — register your dictionary at plugin init.`,
+        );
+      }
+      if (!(key in dictionary.en)) {
+        throw new Error(`Plugin "${pluginName}": missing translation key "${key}" in \`en\` table`);
+      }
+      const lang = activeLanguage();
+      let template = dictionary.en[key];
+      if (lang !== "en") {
+        const table = dictionary[lang];
+        const value = table?.[key];
+        if (value !== undefined && value !== "") {
+          template = value;
+        } else if (!fallbackWarned.has(key)) {
+          fallbackWarned.add(key);
+          pluginLogger.warn(
+            `i18n: missing translation for key "${key}" in language "${lang}" — falling back to "en"`,
+          );
+        }
+      }
+      if (!vars) return template;
+      return interpolate(template, vars);
+    },
   };
 
   return {
@@ -814,12 +1042,13 @@ export function createClackSdk(
         name: pluginName,
         instructions,
         tools,
-        integrations,
+        mcpServers,
         toolMappings,
         mcpServer,
         watchers,
         actionHandlers,
         viewHandlers,
+        errors,
       };
     },
   };

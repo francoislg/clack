@@ -236,6 +236,24 @@ export const DEFAULT_MAX_ADDITIONAL_MESSAGES = 5;
 const MAX_ADDITIONAL_MESSAGES_MIN = 1;
 const MAX_ADDITIONAL_MESSAGES_MAX = 10;
 
+/**
+ * Cron scheduler + user-facing scheduling-tool configuration.
+ *
+ * - `enabled` (default `true`) gates the cron tick loop. When `false`, no job —
+ *   user-created or plugin-managed — fires. Plugins that depend on the scheduler
+ *   (e.g. trivia) inspect `sdk.capabilities.crons` and refuse to load.
+ * - `userSchedules` (default `false`) gates the user-facing scheduling MCP tools
+ *   (`create_scheduled_message`, reminders, etc.) and the Home Tab's user-schedules
+ *   subsection. Independent of `enabled` — turning user schedules off does not stop
+ *   plugin crons.
+ * - `maxRunHistory` is the per-job runs[] cap, formerly `scheduledMessagesMaxRunHistory`.
+ */
+export interface CronConfig {
+  enabled?: boolean;
+  userSchedules?: boolean;
+  maxRunHistory?: number;
+}
+
 export interface Config {
   slack: SlackConfig;
   slackApp?: SlackAppConfig;
@@ -254,12 +272,12 @@ export interface Config {
   sessions: SessionsConfig;
   claudeCode: ClaudeCodeConfig;
   changesWorkflow?: ChangesWorkflowConfig;
-  allowScheduledMessages?: boolean;
   /**
-   * Maximum number of execution records retained per scheduled job in `runs[]`.
-   * Older entries are dropped from the front when a new run is recorded. Default 50.
+   * Cron scheduler + user-facing scheduling tools. Replaces the legacy top-level
+   * `allowScheduledMessages` and `scheduledMessagesMaxRunHistory` fields (boot
+   * migration rewrites them on first start). See {@link CronConfig}.
    */
-  scheduledMessagesMaxRunHistory?: number;
+  cron?: CronConfig;
   /** Auto-respond to thread replies in existing sessions (default: true) */
   threadAutoRespond?: boolean;
   /** Disengage thread auto-respond if the triggering message is older than this many minutes (default: 60) */
@@ -428,11 +446,11 @@ interface TaskCardsRaw {
   maxDetailsPerGroup?: unknown;
 }
 
-function parseMaxRunHistory(val: unknown): number | undefined {
+function parseMaxRunHistory(val: unknown, keyName: string): number | undefined {
   if (val === undefined) return undefined;
   if (typeof val !== "number" || !Number.isInteger(val) || val < 1) {
     logger.warn(
-      `Config 'scheduledMessagesMaxRunHistory' must be a positive integer (got ${JSON.stringify(val)}); falling back to default ${DEFAULT_SCHEDULED_MESSAGES_MAX_RUN_HISTORY}`,
+      `Config '${keyName}' must be a positive integer (got ${JSON.stringify(val)}); falling back to default ${DEFAULT_SCHEDULED_MESSAGES_MAX_RUN_HISTORY}`,
     );
     return undefined;
   }
@@ -840,6 +858,48 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
   const sessionsRaw = section(c, "sessions");
   const claudeCodeRaw = section(c, "claudeCode");
   const cwRaw = section(c, "changesWorkflow");
+  const cronRaw = section(c, "cron");
+
+  // Cron config: namespaced under `config.cron`. Legacy top-level
+  // `allowScheduledMessages` / `scheduledMessagesMaxRunHistory` are still accepted
+  // as a transitional fallback (the boot migration rewrites them on first start);
+  // when present without a corresponding `cron.*` value, the legacy value is used
+  // and a deprecation warning is logged once per startup.
+  const legacyAllow = bool(c, "allowScheduledMessages");
+  const legacyMaxRun = parseMaxRunHistory(
+    c.scheduledMessagesMaxRunHistory,
+    "scheduledMessagesMaxRunHistory",
+  );
+  if (legacyAllow !== undefined || c.scheduledMessagesMaxRunHistory !== undefined) {
+    logger.warn(
+      "Config: top-level 'allowScheduledMessages' / 'scheduledMessagesMaxRunHistory' are deprecated; use 'cron.userSchedules' / 'cron.maxRunHistory' instead. The boot migration will rewrite these automatically.",
+    );
+  }
+  const cronEnabled = cronRaw ? bool(cronRaw, "enabled") : undefined;
+  let cronUserSchedules = cronRaw ? bool(cronRaw, "userSchedules") : undefined;
+  if (cronUserSchedules === undefined && legacyAllow !== undefined) {
+    cronUserSchedules = legacyAllow;
+  }
+  let cronMaxRunHistory = cronRaw
+    ? parseMaxRunHistory(cronRaw.maxRunHistory, "cron.maxRunHistory")
+    : undefined;
+  if (cronMaxRunHistory === undefined && legacyMaxRun !== undefined) {
+    cronMaxRunHistory = legacyMaxRun;
+  }
+  // Coerce the invalid combo: scheduler off but user tools on. The persisted file
+  // is left alone — this is a runtime-only safety net so user-facing tools don't
+  // register while the tick loop refuses to run them.
+  if (cronEnabled === false && cronUserSchedules === true) {
+    logger.warn(
+      "Config: 'cron.enabled' is false but 'cron.userSchedules' is true — forcing userSchedules to false (the scheduler tick loop is disabled, so user-facing scheduling tools cannot work).",
+    );
+    cronUserSchedules = false;
+  }
+  const cronConfig: CronConfig = {
+    ...(cronEnabled !== undefined ? { enabled: cronEnabled } : {}),
+    ...(cronUserSchedules !== undefined ? { userSchedules: cronUserSchedules } : {}),
+    ...(cronMaxRunHistory !== undefined ? { maxRunHistory: cronMaxRunHistory } : {}),
+  };
   // Trivia configuration relocated to data/plugins/trivia/config.json (see
   // src/plugins/trivia/core/configBridge.ts). The trivia plugin owns its own
   // parsing, types, and file I/O — the bot-core loader no longer touches the
@@ -942,8 +1002,7 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
           maxActiveChangesPerUser: num(cwRaw, "maxActiveChangesPerUser"),
         }
       : undefined,
-    allowScheduledMessages: bool(c, "allowScheduledMessages") ?? false,
-    scheduledMessagesMaxRunHistory: parseMaxRunHistory(c.scheduledMessagesMaxRunHistory),
+    cron: cronConfig,
     threadAutoRespond: bool(c, "threadAutoRespond") ?? undefined,
     threadAutoRespondMaxAgeMinutes: num(c, "threadAutoRespondMaxAgeMinutes") ?? undefined,
     plugins: strArray(c, "plugins"),
@@ -1006,12 +1065,12 @@ export function getTaskCardMaxDetails(): number {
 
 /**
  * Resolved cap on per-job `runs[]` history retained by {@link updateJobRunStatus},
- * sourced from `config.scheduledMessagesMaxRunHistory` with a built-in fallback
- * when config is missing or unloaded.
+ * sourced from `config.cron.maxRunHistory` with a built-in fallback when config is
+ * missing or unloaded.
  */
-export function getScheduledMessagesMaxRunHistory(): number {
+export function getCronMaxRunHistory(): number {
   if (!cachedConfig) return DEFAULT_SCHEDULED_MESSAGES_MAX_RUN_HISTORY;
-  return cachedConfig.scheduledMessagesMaxRunHistory ?? DEFAULT_SCHEDULED_MESSAGES_MAX_RUN_HISTORY;
+  return cachedConfig.cron?.maxRunHistory ?? DEFAULT_SCHEDULED_MESSAGES_MAX_RUN_HISTORY;
 }
 
 export function getDataDir(): string {

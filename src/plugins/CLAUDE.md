@@ -35,24 +35,34 @@ If two plugins independently need the "same" type, that's a sign you have two di
 
 Parsers, validators, and constants follow the same rule. The trivia plugin's `parseTriviaGames` lives under `src/plugins/trivia/core/`, NOT in `src/config.ts`.
 
-## Topics vs Integrations — two related-but-distinct concepts
+## Topics vs MCP Servers — two related-but-distinct concepts
 
 The bot uses two concepts joined by a shared name convention. When you author a plugin, knowing which is which prevents confused-mental-model bugs.
 
-- A **topic** is a keying axis for instruction files. Files live at `topics/<name>/*.md` (on-disk or as plugin virtual defaults). Loaded when the topic is active for the session — pre-attached via `CronJobSpec.attachedTopics` or runtime-attached via `attach_integration`. Plugin SDK touch points: `sdk.addTopicInstruction(role, topic, filename, content)`, `CronJobSpec.attachedTopics`.
+- A **topic** is a keying axis for instruction files. Files live at `topics/<name>/*.md` (on-disk or as plugin virtual defaults). Loaded when the topic is active for the session — pre-attached via `CronJobSpec.attachedTopics` or runtime-attached via `attach_integration`. Plugin SDK touch points: `sdk.addTopicInstruction(role, topic, filename, content)`, `CronJobSpec.attachedTopics`. Handles returned by `sdk.registerMcpServer(...)` expose a convenience method `handle.addTopicInstruction(role, filename, content)` that auto-keys the topic to the server's full name.
 
-- An **integration** is a catalog entry that Claude can `attach_integration("name")` to. Attaching it (1) reveals tools — either an MCP server's tools (if the integration is backed by `data/mcp.json`/`data/config.json`) or plugin tools registered with `sdk.registerTool(..., { integration: "name" })` — and (2) activates the topic of the same name (so its instructions load too). Plugin SDK touch points: `sdk.registerIntegration(name, { description, alwaysLoad? })`, `sdk.registerTool(..., { integration })`.
+- An **MCP server** is the container for plugin tools. Every plugin has an implicit always-on default server (`sdk.mcpServer`, full name = plugin name, tools at `mcp__<plugin>__<tool>`); tools registered via the SDK shorthand `sdk.registerTool(...)` land there. Plugins can additionally declare **on-demand servers** via `sdk.registerMcpServer(name, { autoload, description })` — the returned handle is the binding point for tools and (paired) topic instructions on that server. On-demand servers (`autoload: false`) become a catalog entry that Claude can `attach_integration("<plugin>:<name>")`; attaching calls `setMcpServers` and the server's tools become available on the next turn. Tools live at `mcp__<plugin>_<name>__<tool>`.
 
-By convention an integration's name equals a topic's name (the convention is what bridges them — attaching loads instructions because the string matches). But the two are distinct concerns:
+By convention an on-demand server's full name (`<pluginName>:<key>`) doubles as the topic name for its instructions — `handle.addTopicInstruction(...)` makes this automatic. But the two are distinct concerns:
 
 - Instructions are **topic-things**.
-- Tool gating and catalog discoverability are **integration-things**.
+- Tool grouping and catalog discoverability are **server-things**.
 
-A plugin that ships an admin-only toolkit (like trivia's management tools) typically does all four:
-1. `sdk.registerIntegration("trivia:management", { description, alwaysLoad: false })` — declares the catalog entry.
-2. `sdk.addTopicInstruction("admin", "trivia:management", ...)` — ships the admin instruction that loads when the topic activates.
-3. `sdk.registerTool(..., { integration: "trivia:management" })` — gates the tool by integration attachment.
-4. By convention uses `<pluginName>:<key>` for the name (matches the existing `<game>:<event>` shape in cron specKeys; structurally avoids cross-plugin collisions).
+A plugin that ships an admin-only toolkit (like trivia's management tools) does it through a handle:
+
+```ts
+const management = sdk.registerMcpServer("management", {
+  autoload: false,
+  description: "Manage trivia games, seasons, categories",
+});
+management.addTopicInstruction("admin", "manage", MANAGEMENT_INSTRUCTION);
+management.registerTool("admin", createUpsertSeasonTool(data), "Upserting season — {game}/{slug}");
+// ... more management.registerTool(...) calls bind to the same on-demand server
+```
+
+The `name` you pass to `registerMcpServer` is the SUFFIX — the SDK auto-prefixes with the plugin name to produce the full public name. `name` MUST NOT contain `:` (the SDK enforces this). The full name `<pluginName>:<name>` is globally unique across all plugins, so no cross-plugin collisions are possible. The MCP-namespace tool names become `mcp__<plugin>_<name>__<tool>` (`:` → `_` because MCP names can't contain colons).
+
+Tools registered via the SDK shorthand `sdk.registerTool(...)` are equivalent to `sdk.mcpServer.registerTool(...)` — the explicit form is rarely needed.
 
 ## Why these rules exist
 

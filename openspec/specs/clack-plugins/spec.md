@@ -107,9 +107,108 @@ A Clack plugin SHALL be a function that receives a `ClackSdk` instance and uses 
 - **THEN** the plugin MAY call `sdk.registerTool(minRole, toolDefinition)` one or more times
 - **AND** each call declares a tool with a minimum role requirement
 
+### Requirement: ClackSdk Exposes Implicit Default MCP Server
+
+The `ClackSdk` interface SHALL expose a `mcpServer: RegisteredMcpServer` property — an implicit always-on MCP server per plugin, named after the plugin (`mcp__<pluginName>__*`). Tools registered via the SDK shorthand `sdk.registerTool(...)` (no handle) SHALL be bound to this default server, preserving the call shape used by simple plugins (giphy, tenor-gif, skill-pack plugins) that have no on-demand surface.
+
+#### Scenario: Default server exists on every plugin's SDK instance
+
+- **WHEN** the system creates a `ClackSdk` instance for a plugin during loading
+- **THEN** the instance exposes a `mcpServer` property of type `RegisteredMcpServer`
+- **AND** the property is non-null and stable across calls within the same SDK instance
+
+#### Scenario: Shorthand registerTool routes through the default server
+
+- **WHEN** a plugin calls `sdk.registerTool("admin", toolDef, "Some label")`
+- **THEN** the tool is bound to `sdk.mcpServer` (the default always-on server)
+- **AND** the tool appears at `mcp__<pluginName>__<toolName>` in the assembled catalog
+- **AND** the behavior is identical to calling `sdk.mcpServer.registerTool("admin", toolDef, "Some label")` directly
+
+### Requirement: ClackSdk Exposes `registerMcpServer` Returning a Handle
+
+The `ClackSdk` interface SHALL include a `registerMcpServer(name: string, options: { autoload?: boolean; description: string }): RegisteredMcpServer` method that declares an on-demand named MCP server scoped to the plugin and returns a handle for binding tools and topic instructions to it. The SDK SHALL automatically prefix `name` with the plugin name (`<pluginName>:<name>`) when surfacing the server publicly; `name` itself SHALL NOT contain a colon (the SDK rejects names containing `:` to prevent double-prefixing).
+
+The returned `RegisteredMcpServer` handle SHALL expose two methods:
+
+- `registerTool(minRole, toolDef, mappingOrOptions?)` — same signature as `sdk.registerTool` minus any integration option. Binds the tool to this server.
+- `addTopicInstruction(role, filename, content)` — adds a topic instruction whose topic name is the server's full public name (`<pluginName>:<name>`).
+
+#### Scenario: Plugin declares an on-demand server and receives a handle
+
+- **WHEN** a plugin calls `sdk.registerMcpServer("management", { autoload: false, description: "Manage trivia games" })`
+- **THEN** the call returns a `RegisteredMcpServer` handle
+- **AND** the SDK records the server with full public name `<pluginName>:management` (e.g., `trivia:management`)
+- **AND** the SDK records the description and `autoload: false` for use in the effective MCP registry
+
+#### Scenario: Handle's registerTool binds the tool to that server
+
+- **WHEN** a plugin captures a handle `const m = sdk.registerMcpServer("management", { autoload: false, description: "..." })`
+- **AND** calls `m.registerTool("admin", upsertSeasonTool, "Upserting season — {game}")`
+- **THEN** the tool is bound to the `trivia:management` server (not to the default `trivia` server)
+- **AND** the tool appears at `mcp__trivia_management__upsert_season` in the assembled catalog (only after attach, per "Plugin MCP Server Membership Gating")
+
+#### Scenario: Handle's addTopicInstruction auto-keys the topic to the server name
+
+- **WHEN** a plugin calls `m.addTopicInstruction("admin", "manage.md", "...content...")` on a handle returned by `registerMcpServer("management", ...)`
+- **THEN** the instruction is added under topic name `<pluginName>:management` (e.g., `trivia:management`)
+- **AND** the result is identical to calling `sdk.addTopicInstruction("admin", "<pluginName>:management", "manage.md", "...content...")`
+
+#### Scenario: registerMcpServer rejects names containing colons
+
+- **WHEN** a plugin calls `sdk.registerMcpServer("trivia:management", { ... })`
+- **THEN** the call rejects with an error indicating the name must not contain `:`
+- **AND** no server is registered
+
+#### Scenario: registerMcpServer rejects collision with the plugin's default server
+
+- **WHEN** a plugin calls `sdk.registerMcpServer("", ...)` (or any name that would resolve to the bare plugin name)
+- **THEN** the call rejects with an error explaining the implicit default server already exists at `sdk.mcpServer`
+
+#### Scenario: autoload defaults to false
+
+- **WHEN** a plugin calls `sdk.registerMcpServer("management", { description: "..." })` (autoload omitted)
+- **THEN** the SDK treats the server as on-demand (`autoload: false`)
+- **AND** the server is NOT part of the session-start baseline unless `attachedIntegrations` already contains its full public name (resume case)
+
+### Requirement: Plugin MCP Server Membership Gating
+
+The system SHALL filter plugin-registered MCP servers at tool-server assembly time based on `autoload` and `session.attachedIntegrations`. The plugin's implicit default server (`sdk.mcpServer`) is always assembled. On-demand servers registered via `sdk.registerMcpServer(name, { autoload: false, ... })` SHALL be assembled into the SDK's baseline only when `session.attachedIntegrations` contains the server's full public name (`<pluginName>:<name>`). On-demand servers SHALL otherwise be registered with `McpServerManager` so that `attach_integration` can attach them mid-session via the existing `setMcpServers` path.
+
+The per-tool role gate SHALL still apply: a tool registered on a server is included in the assembled catalog only when the user's role meets or exceeds the tool's `minRole`, independently of whether the server is in the baseline.
+
+#### Scenario: On-demand server's tools are absent from the baseline when not attached
+
+- **GIVEN** a plugin registers `const m = sdk.registerMcpServer("management", { autoload: false, description: "..." })` and binds tool `foo` via `m.registerTool(...)`
+- **AND** an admin session has `attachedIntegrations: []`
+- **WHEN** the tool server assembles the catalog
+- **THEN** `mcp__<pluginName>_management__foo` is NOT in the returned tool names
+- **AND** the on-demand server's SDK config IS registered with `McpServerManager` for later mid-session attach
+
+#### Scenario: On-demand server's tools are present in the baseline when attached at session start (resume)
+
+- **GIVEN** the same plugin registration
+- **AND** an admin session has `attachedIntegrations: ["<pluginName>:management"]` (e.g., from a prior turn's `attach_integration` call)
+- **WHEN** the tool server assembles the catalog
+- **THEN** `mcp__<pluginName>_management__foo` IS in the returned tool names
+- **AND** the on-demand server's SDK config IS in the assembled `mcpServers` map (so the SDK's restored session state matches `options.mcpServers`)
+
+#### Scenario: Default server is always assembled
+
+- **GIVEN** a plugin registers tool `bar` via `sdk.registerTool(...)` (shorthand into the default server)
+- **AND** an admin session has `attachedIntegrations: []`
+- **WHEN** the tool server assembles the catalog
+- **THEN** `mcp__<pluginName>__bar` IS in the returned tool names
+
+#### Scenario: Role gate still applies independently of server membership
+
+- **GIVEN** a plugin registers an admin-only tool `foo` on an on-demand server `<pluginName>:management`
+- **AND** a `dev`-role session has `attachedIntegrations: ["<pluginName>:management"]`
+- **WHEN** the tool server assembles the catalog
+- **THEN** the tool is absent (the role gate fails even though the server is attached)
+
 ### Requirement: ClackSdk Interface
 
-The system SHALL provide a `ClackSdk` interface with methods for instruction registration, tool registration, and scoped file I/O.
+The system SHALL provide a `ClackSdk` interface with methods for instruction registration, tool registration, scoped file I/O, and on-demand MCP server declaration.
 
 #### Scenario: addInstruction method
 - **WHEN** a plugin calls `sdk.addInstruction("user", "instructions", content)`
@@ -117,17 +216,12 @@ The system SHALL provide a `ClackSdk` interface with methods for instruction reg
 - **AND** the filename is automatically prefixed with the plugin name and double underscore (e.g., `trivia__instructions.md`)
 - **AND** the plugin does not need to know about the prefix convention
 
-#### Scenario: registerTool method (always-available)
+#### Scenario: registerTool method (shorthand into the default server)
 - **WHEN** a plugin calls `sdk.registerTool("dev", toolDefinition, mapping)` (no options object)
 - **THEN** the SDK records the tool with its minimum role requirement
+- **AND** the tool is bound to `sdk.mcpServer` (the implicit always-on default server)
 - **AND** the tool is only included in queries where the user's role meets or exceeds the minimum
 - **AND** the tool is always present in the catalog regardless of `session.attachedIntegrations`
-
-#### Scenario: registerTool method with topic gating
-- **WHEN** a plugin calls `sdk.registerTool("admin", toolDefinition, mapping, { integration: "trivia:management" })`
-- **THEN** the SDK records the tool with its minimum role requirement AND its topic
-- **AND** the tool is included in the catalog only when both gates pass: (a) the user's role meets or exceeds `minRole`, AND (b) the topic name is present in `session.attachedIntegrations`
-- **AND** the tool mapping is registered the same way as for the no-options form
 
 #### Scenario: readFile method scoped to plugin data directory
 - **WHEN** a plugin calls `sdk.readFile("scores.json")`
@@ -310,70 +404,60 @@ Every plugin SDK helper that posts a Slack message (currently `dmOwner`, and any
 - **THEN** it SHALL accept the same optional `suppressUnfurls: boolean` parameter
 - **AND** route the value through the shared suppress-unfurls helper defined in `link-unfurl-control`
 
-### Requirement: Plugin Tool Integration Gating
+### Requirement: Plugin SDK Localization
 
-The system SHALL filter plugin-registered tools by integration membership at tool-catalog assembly time. A tool registered with `{ integration }` in its options SHALL be included in the assembled catalog only when the session's `attachedIntegrations` list contains the integration name. A tool registered without `{ integration }` SHALL be included whenever the role gate passes, regardless of attachment state.
+The `ClackSdk` SHALL expose two methods that let plugin code render user-facing text in the workspace's configured language without violating the plugin import boundary:
 
-The integration filter SHALL be applied alongside the existing role filter in the same per-tool loop in the tool server assembly path. Both filters MUST pass for a tool to be included.
+- `registerDictionary(dictionaries: { en: Record<string, string>; fr?: Record<string, string> }): void` — register the plugin's translation table. The `en` key is REQUIRED and is the authoritative source-of-truth for the plugin's key space. Other supported languages (initially `fr`) MAY be partial; absent keys fall back to the `en` value at lookup time. Calling `registerDictionary` twice on the same plugin's SDK SHALL replace the prior registration (last-write-wins, useful for hot-reload).
+- `t(key: string, vars?: Record<string, string | number>): string` — look up `key` in THIS plugin's registered dictionary against the active workspace language (read from `getConfig().language`, defaulting to `"en"` when unset or unloadable). When `vars` is supplied, every occurrence of `{name}` in the resolved template SHALL be replaced with the stringified value of `vars.name`.
 
-#### Scenario: Integration-gated tool hidden without attach
-- **GIVEN** a plugin registers a tool via `sdk.registerTool("admin", toolDef, mapping, { integration: "foo" })`
-- **AND** an admin session has `attachedIntegrations: []`
-- **WHEN** the tool server assembles the catalog
-- **THEN** the tool is absent from the catalog
+Both methods SHALL be scoped to the calling plugin by the SDK factory's captured `pluginName` — plugin A cannot read or overwrite plugin B's dictionary. The SDK SHALL NOT expose a way to pass the plugin name explicitly.
 
-#### Scenario: Integration-gated tool visible after attach
-- **GIVEN** a plugin registers a tool via `sdk.registerTool("admin", toolDef, mapping, { integration: "foo" })`
-- **AND** an admin session has `attachedIntegrations: ["foo"]`
-- **WHEN** the tool server assembles the catalog
-- **THEN** the tool is present in the catalog
+#### Scenario: Plugin reads its own dictionary
 
-#### Scenario: Multiple integrations with mixed attachment
-- **GIVEN** a plugin registers `tool_a` via `registerTool("admin", ..., { integration: "foo" })`, `tool_b` via `registerTool("admin", ..., { integration: "bar" })`, and `tool_c` via `registerTool("admin", ...)` (no options)
-- **AND** an admin session has `attachedIntegrations: ["foo"]`
-- **WHEN** the tool server assembles the catalog
-- **THEN** `tool_a` is present, `tool_b` is absent, and `tool_c` is present
+- **GIVEN** a plugin's SDK has registered `{ en: { hello: "Hello" }, fr: { hello: "Bonjour" } }` via `sdk.registerDictionary(...)`
+- **AND** `getConfig().language` returns `"fr"`
+- **WHEN** the plugin calls `sdk.t("hello")`
+- **THEN** the call returns `"Bonjour"`
 
-#### Scenario: Role gate still applies when integration is attached
-- **GIVEN** a plugin registers a tool via `sdk.registerTool("admin", toolDef, mapping, { integration: "foo" })`
-- **AND** a `dev`-role session has `attachedIntegrations: ["foo"]`
-- **WHEN** the tool server assembles the catalog
-- **THEN** the tool is absent (role gate fails even though integration gate passes)
+#### Scenario: Fallback to EN when language key missing
 
-#### Scenario: Session without attachedIntegrations array treated as empty
-- **GIVEN** a session whose persisted record has no `attachedIntegrations` field
-- **AND** plugins have registered integration-gated tools
-- **WHEN** the tool server assembles the catalog
-- **THEN** no integration-gated tools are included
-- **AND** non-integration-gated tools are included normally
+- **GIVEN** a plugin's SDK has registered `{ en: { hello: "Hello", goodbye: "Goodbye" }, fr: { hello: "Bonjour" } }`
+- **AND** `getConfig().language` returns `"fr"`
+- **WHEN** the plugin calls `sdk.t("goodbye")`
+- **THEN** the call returns `"Goodbye"` (the EN value)
+- **AND** a one-time warning is logged identifying the plugin and the missing key
 
-### Requirement: Plugin-Declared Integration Catalog Entries
+#### Scenario: Default to EN when language is unset
 
-The system SHALL allow plugins to declare catalog-only virtual integrations via `sdk.registerIntegration(name, { description, alwaysLoad? })`. The contract mirrors `sdk.reconcileCronJobs(ownerKey, specs)` — the plugin types the full integration name as a string; the SDK does not auto-prefix or validate the shape of `name`. By convention plugins SHOULD use `<pluginName>:<key>` (e.g., `trivia:management`) to self-document ownership and avoid cross-plugin collisions.
+- **GIVEN** a plugin's SDK has registered `{ en: { hello: "Hello" }, fr: { hello: "Bonjour" } }`
+- **AND** `getConfig()` throws OR returns no `language` field
+- **WHEN** the plugin calls `sdk.t("hello")`
+- **THEN** the call returns `"Hello"` (the EN value)
 
-Plugin-contributed integrations SHALL be merged into the effective MCP registry at boot, so `attach_integration(name)` validates and the entry appears in the system-prompt integration catalog. Plugin-declared integrations are catalog-only — they have no MCP server config, so `loadMcpServer(name)` returns `undefined` and `attach_integration` takes the instructions-only branch.
+#### Scenario: Variable interpolation
 
-#### Scenario: Plugin registers an integration
-- **WHEN** a plugin calls `sdk.registerIntegration("trivia:management", { description: "Manage trivia games. Admin only.", alwaysLoad: false })`
-- **THEN** the SDK records the contribution on the plugin's `PluginLoadResult`
-- **AND** at boot, the effective MCP registry contains an entry for `trivia:management` with the supplied description and `alwaysLoad: false`
+- **GIVEN** a plugin's SDK has registered `{ en: { greet: "Hi {name}, you have {n} new messages" } }`
+- **WHEN** the plugin calls `sdk.t("greet", { name: "Alice", n: 3 })`
+- **THEN** the call returns `"Hi Alice, you have 3 new messages"`
 
-#### Scenario: Plugin-declared integration is attachable
-- **GIVEN** the trivia plugin has called `sdk.registerIntegration("trivia:management", ...)`
-- **AND** there is no `trivia:management` entry in `data/config.json` `mcpServers`
-- **WHEN** Claude calls `attach_integration({ name: "trivia:management" })`
-- **THEN** the call validates (no "Unknown integration" error)
-- **AND** the attach takes the instructions-only branch (no MCP server is started)
-- **AND** the session's `attachedIntegrations` list contains `"trivia:management"`
+#### Scenario: Missing key throws
 
-#### Scenario: Plugin-declared integration appears in the system-prompt catalog
-- **GIVEN** the trivia plugin has called `sdk.registerIntegration("trivia:management", { description: "X", alwaysLoad: false })`
-- **WHEN** the system prompt is assembled for a new session
-- **THEN** the AVAILABLE INTEGRATIONS catalog includes a line `- trivia:management — X`
+- **GIVEN** a plugin's SDK has registered `{ en: { hello: "Hello" } }`
+- **WHEN** the plugin calls `sdk.t("nonexistent")`
+- **THEN** the call throws an `Error` whose message names the plugin and the missing key
 
-#### Scenario: Last-write-wins on duplicate registration
-- **GIVEN** plugin A calls `sdk.registerIntegration("shared:foo", { description: "from A" })`
-- **AND** plugin B calls `sdk.registerIntegration("shared:foo", { description: "from B" })`
-- **WHEN** the effective registry is resolved
-- **THEN** one of the two descriptions is used (resolver behavior, not SDK-enforced)
-- **AND** a warning is logged identifying the duplicate and both plugins
+#### Scenario: Per-plugin dictionary isolation
+
+- **GIVEN** plugin `trivia` has registered `{ en: { answered: "Answered" } }`
+- **AND** plugin `weather` has registered `{ en: { answered: "Replied" } }` on its own SDK
+- **WHEN** `trivia`'s `sdk.t("answered")` is called
+- **THEN** it returns `"Answered"` regardless of what `weather` registered
+- **AND** `weather`'s `sdk.t("answered")` returns `"Replied"`
+
+#### Scenario: t() before registerDictionary
+
+- **GIVEN** a plugin's SDK has NOT called `registerDictionary` yet
+- **WHEN** the plugin calls `sdk.t("any-key")`
+- **THEN** the call throws an `Error` whose message tells the plugin to call `registerDictionary` first
+

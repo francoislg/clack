@@ -39,6 +39,13 @@ export class McpServerManager {
   private attached: Record<string, McpServerConfig> = {};
   private setMcpServersFn?: SetMcpServersFn;
   private mcpServerStatusFn?: McpServerStatusFn;
+  /**
+   * Per-session map of integration name → SDK server config for plugin-self-declared
+   * integrations (those with gated plugin tools but no `data/mcp.json` entry).
+   * Populated by `buildQueryTools` at session start, consumed by `attach_integration`
+   * when `loadMcpServer` returns null so the same `attach()` path can be used.
+   */
+  private integrationServers: Record<string, McpServerConfig> = {};
 
   constructor(
     /**
@@ -142,6 +149,14 @@ export class McpServerManager {
 
   attachedNames(): string[] {
     return Object.keys(this.attached);
+  }
+
+  registerIntegrationServer(name: string, config: McpServerConfig): void {
+    this.integrationServers[name] = config;
+  }
+
+  getIntegrationServer(name: string): McpServerConfig | undefined {
+    return this.integrationServers[name];
   }
 
   /**

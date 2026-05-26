@@ -21,6 +21,7 @@ import { migration as m19 } from "./019-trivia-games-migration.js";
 import { migration as m20 } from "./020-system-actor-on-plugin-crons.js";
 import { migration as m21 } from "./021-trivia-answers-format-rename.js";
 import { migration as m22 } from "./022-trivia-config-to-plugin.js";
+import { migration as m23 } from "./023-cron-config-namespace.js";
 
 // Register migrations here in version order.
 export const migrations: Migration[] = [
@@ -46,4 +47,5 @@ export const migrations: Migration[] = [
   m20,
   m21,
   m22,
+  m23,
 ];

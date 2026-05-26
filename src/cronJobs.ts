@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { logger } from "./logger.js";
 import { fileExists } from "./fs.js";
-import { getScheduledMessagesMaxRunHistory } from "./config.js";
+import { getCronMaxRunHistory } from "./config.js";
 
 // ============================================================================
 // Types
@@ -459,7 +459,7 @@ export async function updateJobRunStatus(
     ...(replayOf ? { replayOf } : {}),
   });
 
-  const maxHistory = getScheduledMessagesMaxRunHistory();
+  const maxHistory = getCronMaxRunHistory();
   if (job.runs.length > maxHistory) {
     job.runs.splice(0, job.runs.length - maxHistory);
   }
