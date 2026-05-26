@@ -25,6 +25,37 @@ describe("list_games — per-game entries", () => {
     assert.equal(main.revealCron, "0 17 * * 1-5");
   });
 
+  it("surfaces per-game format / categories / theme when set", async () => {
+    const games: readonly TriviaGame[] = [
+      {
+        name: "themed",
+        channel: "C200000000",
+        questionCron: "0 9 * * 1-5",
+        revealCron: "0 17 * * 1-5",
+        timezone: "UTC",
+        enabled: true,
+        format: { questions: [{ label: "Daily" }] },
+        categories: ["History", "Science"],
+        theme: "Channel Lore Trivia",
+      },
+    ];
+    const tool = createListGamesTool(() => games, emptyTriviaConfig);
+    const parsed = parseToolResult(await tool.handler({ includeDisabled: undefined }, SESSION));
+    const entry = parsed.games[0];
+    assert.deepEqual(entry.format, { questions: [{ label: "Daily" }] });
+    assert.deepEqual(entry.categories, ["History", "Science"]);
+    assert.equal(entry.theme, "Channel Lore Trivia");
+  });
+
+  it("omits per-game format / categories / theme when not set", async () => {
+    const tool = createListGamesTool(fixtureGetGames, emptyTriviaConfig);
+    const parsed = parseToolResult(await tool.handler({ includeDisabled: undefined }, SESSION));
+    const entry = parsed.games[0];
+    assert.equal("format" in entry, false);
+    assert.equal("categories" in entry, false);
+    assert.equal("theme" in entry, false);
+  });
+
   it("excludes disabled games by default, surfaces them with includeDisabled: true", async () => {
     const games: readonly TriviaGame[] = [
       ...FIXTURE_GAMES,

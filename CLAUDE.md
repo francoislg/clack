@@ -139,12 +139,20 @@ Question generation is factored into four orthogonal axes, each weighted-random 
 
 - **`answersFormat: "boolean" | "choice"`** — the answer shape (renamed from the legacy `type` field as of migration 021). Cascade: `slot.answersFormat → season.answersFormat → config.trivia.answersFormat → { boolean: 1, choice: 0 }`.
 - **`questionType: "fact" | "topical"`** — `fact` is static knowledge; `topical` REQUIRES Claude to use the `WebSearch` tool to find a recent newsworthy event and capture a `sourceUrl` (mandatory on topical records) plus optional `eventDate`. Cascade: same shape. Default `{ fact: 1, topical: 0 }` — zero topical until an admin opts in.
-- **`category`** — drawn uniformly at random from the active pool (slot → season → global `categories.json`). Flat string list; no per-category weights.
+- **`category`** — drawn uniformly at random from the active pool (`slot → season → game → global categories.json`). Flat string list; no per-category weights. A game can carry its own `categories: string[]` (used when no season is active) — see `TriviaGame.categories`.
 - **`contexts` (optional lens)** — when configured, `get_ideas` returns a freshly-rolled `contextPriority: string[]` (weighted-random ordering of the configured `Array<{ name; weight? }>`). Claude tries lenses in order and descends only when the current lens yields no usable question. Empty-string entries mean "no specific lean." Cascade: `slot.contexts → season.contexts → config.trivia.contexts`. Absent at every tier → no `contextPriority` returned and Claude generates without a lens (today's behavior).
 
 The four axes compose multiplicatively into four generation paths (`fact-boolean`, `fact-choice`, `topical-boolean`, `topical-choice`), each implemented as its own branch in `SEND_QUESTIONS_INSTRUCTIONS`. Topical paths share the polarity/distractor/difficulty gates with their fact-path siblings but add a WebSearch research step at the front.
 
 Stored question records (`data/plugins/trivia/games/*/questions.json`) carry `answersFormat`, `questionType`, and optionally `context`, `sourceUrl`, `eventDate`. Reveal behavior is determined by `answersFormat` only — topical and fact questions of the same shape render identically.
+
+**Structural per-game overrides.** Beyond the four axes, three structural fields on `TriviaGame` cascade with the same season-wins-over-game ordering:
+
+- `format` (`SeasonFormat`) — per-game slot composition. Cascade: `season.format → game.format → single-question fallback`. When the active season has no `format` but the game does, the game's slots drive the per-fire question count.
+- `categories` (`string[]`) — per-game category pool. Cascade: `slot.categories → season.categories → game.categories → categories.json`.
+- `theme` (`string`) — per-game narrative label surfaced in openers/finales. Cascade: `season.theme → game.theme → (no theme)`.
+
+All three are admin-edited in `config.json` (no MCP tool surfaces mutation today); `list_games` surfaces them in its per-entry response when set.
 
 ### Data Directory Layout
 

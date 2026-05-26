@@ -166,7 +166,9 @@ Each season can carry an optional \`format\` field — an ordered list of questi
 - \`questionType\` — overrides the season's \`questionType\` for this slot (fact vs topical weights).
 - \`contexts\` — overrides the season's \`contexts\` for this slot (e.g. one slot uses regional lenses; another uses audience lenses).
 
-The resolution cascade for each slot is: \`slot.* ?? season.* ?? config default\`. Empty slot \`{}\` is permitted and means "use season defaults for everything".
+The resolution cascade for each slot is: \`slot.* ?? season.* ?? game.* ?? config default\`. Empty slot \`{}\` is permitted and means "use season defaults for everything".
+
+A game can ALSO carry its own \`format\` field, which is used as a fallback for question-cron fires when no active season supplies a \`format\`. The format cascade is \`season.format → game.format → (single-question fallback)\` — the season wins when both are set, matching the per-axis cascade ordering. To set a per-game format, edit \`config.trivia.games[<name>].format\` directly in \`config.json\` (no MCP tool surfaces this — the only management tool for per-game state is \`upsert_game\` which does not yet accept \`format\`). Same logic applies to per-game \`categories\` (narrows the channel-default category pool when no season is active) and per-game \`theme\` (used in openers/finales when the active season has no \`theme\`).
 
 When an admin asks to **set up a format** (e.g. "3 general-knowledge true-false followed by 2 historical choice"):
 
@@ -174,7 +176,7 @@ When an admin asks to **set up a format** (e.g. "3 general-knowledge true-false 
 
 Soft guidance: aim for ≤ 10 slots per format. The system has no hard cap, but larger formats stress Claude's per-fire generation budget.
 
-When an admin asks **what slots a season has**, look at the season entry returned by \`list_seasons\` and read \`format.questions[]\`.
+When an admin asks **what slots a season has**, look at the season entry returned by \`list_seasons\` and read \`format.questions[]\`. When asking about a game-tier format / categories / theme, look at the \`list_games\` entry's \`format\` / \`categories\` / \`theme\` fields (surfaced only when literally set on the game).
 
 ## Admin: auto-rollover is now "repeat" semantics
 

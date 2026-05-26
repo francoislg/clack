@@ -1,5 +1,6 @@
 import type { KnownBlock } from "@slack/types";
 import type {
+  SeasonFormat,
   TriviaAnswersFormatWeights,
   TriviaQuestionTypeWeights,
   TriviaFreeformAnswerShape,
@@ -165,48 +166,6 @@ export interface CheatReport {
 export interface TriviaSeasonsConfig {
   enabled: boolean;
   prompt: string;
-}
-
-/**
- * One ordered slot in a season's question format. Optional per-slot overrides:
- *
- * - `label` — creative hint fed to Claude at posting time (e.g. "Lightning Round").
- *   Not a literal string to copy into question text.
- * - `categories` — narrows the slot's category pool. Falls back to the season's
- *   `categories` when absent.
- * - `answersFormat` — slot-specific answer-format weights. Falls back to season → config → default.
- * - `questionType` — slot-specific fact/topical weights. Falls back to season → config → default.
- * - `freeformAnswerShape` — slot-specific freeform answer-shape weights. Falls back to season → config → default. Freeform-branch only.
- * - `contexts` — slot-specific lens list. Falls back to season → config (or absent).
- */
-export interface SeasonFormatSlot {
-  label?: string;
-  categories?: string[];
-  answersFormat?: TriviaAnswersFormatWeights;
-  questionType?: TriviaQuestionTypeWeights;
-  freeformAnswerShape?: TriviaFreeformAnswerShapeWeights;
-  contexts?: TriviaContextEntry[];
-  /**
-   * Slot-specific per-game-type difficulty overrides. Fields cascade independently —
-   * a slot can override just `freeform.hard` without losing the season's `easy`/`medium`.
-   * Falls back to season → config → `DEFAULT_DIFFICULTY_RANGES[format]`.
-   */
-  difficulty?: TriviaDifficultyConfig;
-  /**
-   * Slot-specific bucket-roll ratio. Whole-object replace per cascade tier — the slot
-   * either provides a full `{ easy, medium, hard }` weight map for the format, or
-   * cascades through (season → game → workspace → `DEFAULT_DIFFICULTY_RATIO[format]`).
-   */
-  difficultyRatio?: TriviaDifficultyRatioConfig;
-}
-
-/**
- * Optional per-season question composition. When present, each question-cron fire
- * posts `questions.length` questions (one per slot, in array order). When absent,
- * the season posts a single question per fire (pre-format behavior).
- */
-export interface SeasonFormat {
-  questions: SeasonFormatSlot[];
 }
 
 export interface SeasonEntry {

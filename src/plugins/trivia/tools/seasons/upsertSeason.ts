@@ -11,11 +11,12 @@ import {
   validateContexts,
   validateDifficulty,
   validateDifficultyRatio,
-  validateFormat,
 } from "../../domain/seasonFormat.js";
-import type { TriviaDataLayer, SeasonsState, SeasonEntry, SeasonFormat } from "../../core/types.js";
+import { validateFormat } from "../../core/configParsers/format.js";
+import type { TriviaDataLayer, SeasonsState, SeasonEntry } from "../../core/types.js";
 import { triviaDifficultyRatioZod } from "../../core/configParsers/axes.js";
 import type {
+  SeasonFormat,
   TriviaAnswersFormatWeights,
   TriviaQuestionTypeWeights,
   TriviaFreeformAnswerShapeWeights,
