@@ -31,7 +31,7 @@ export interface ParseIssue {
 }
 
 export const ANSWERS_FORMAT_KEYS = ["boolean", "choice", "freeform"] as const;
-const QUESTION_TYPE_KEYS = ["fact", "topical"] as const;
+export const QUESTION_TYPE_KEYS = ["fact", "topical"] as const;
 export const FREEFORM_ANSWER_SHAPE_KEYS = [
   "name",
   "place",
@@ -41,8 +41,8 @@ export const FREEFORM_ANSWER_SHAPE_KEYS = [
   "countable",
   "other",
 ] as const;
-const DIFFICULTY_BUCKET_KEYS = ["easy", "medium", "hard"] as const;
-const DIFFICULTY_FORMAT_KEYS = ["boolean", "choice", "freeform"] as const;
+export const DIFFICULTY_BUCKET_KEYS = ["easy", "medium", "hard"] as const;
+export const DIFFICULTY_FORMAT_KEYS = ["boolean", "choice", "freeform"] as const;
 const DIFFICULTY_RATIO_FORMAT_KEYS = ["boolean", "choice", "freeform"] as const;
 
 export function validateAnswersFormatMap(
@@ -439,6 +439,72 @@ export function parseTriviaAxisBag(
   return { axes, issues };
 }
 
+// ---------------------------------------------------------------------------
+// Shared zod schemas for tool input (axis bag).
+//
+// These shape-check JSON-from-Claude into the same key sets the validators
+// above accept. They DELIBERATELY don't enforce semantic rules (e.g. "at least
+// one positive weight") — every management tool feeds the result through the
+// validators / `parseTriviaAxisBag`, which own those checks. Keeping the zod
+// schemas thin means the two layers can never drift on the semantic rules:
+// there's exactly one place each rule is enforced.
+//
+// Key sets are pinned with `satisfies` against the same `*_KEYS` constants the
+// validators use, so adding/removing a key in one place fails the compile
+// until the other place is updated.
+// ---------------------------------------------------------------------------
+
+const integerWeight = z.number().int().nonnegative().optional();
+
+type WeightShape<K extends string> = Record<K, typeof integerWeight>;
+
+/** Shared zod schema for the `answersFormat` axis. */
+export const answersFormatZod = z.object({
+  boolean: integerWeight,
+  choice: integerWeight,
+  freeform: integerWeight,
+} satisfies WeightShape<(typeof ANSWERS_FORMAT_KEYS)[number]>);
+
+/** Shared zod schema for the `questionType` axis. */
+export const questionTypeZod = z.object({
+  fact: integerWeight,
+  topical: integerWeight,
+} satisfies WeightShape<(typeof QUESTION_TYPE_KEYS)[number]>);
+
+/** Shared zod schema for the `freeformAnswerShape` axis. */
+export const freeformAnswerShapeZod = z.object({
+  name: integerWeight,
+  place: integerWeight,
+  phrase: integerWeight,
+  title: integerWeight,
+  date: integerWeight,
+  countable: integerWeight,
+  other: integerWeight,
+} satisfies WeightShape<(typeof FREEFORM_ANSWER_SHAPE_KEYS)[number]>);
+
+/** Shared zod schema for the `contexts` axis (lens list). */
+export const contextsZod = z.array(
+  z.object({ name: z.string(), weight: z.number().positive().optional() }),
+);
+
+const difficultyRangeTuple = z.tuple([
+  z.number().int().min(1).max(10),
+  z.number().int().min(1).max(10),
+]);
+
+const difficultyRangesZod = z.object({
+  easy: difficultyRangeTuple.optional(),
+  medium: difficultyRangeTuple.optional(),
+  hard: difficultyRangeTuple.optional(),
+});
+
+/** Shared zod schema for the per-format `difficulty` axis (1–10 range tuples). */
+export const difficultyZod = z.object({
+  boolean: difficultyRangesZod.optional(),
+  choice: difficultyRangesZod.optional(),
+  freeform: difficultyRangesZod.optional(),
+});
+
 /**
  * Shared zod schema for the bucket-weights inner shape. Tolerates missing keys
  * (they normalize to 0) and rejects all-zero maps via the refine check.
@@ -463,3 +529,19 @@ export const triviaDifficultyRatioZod = z.object({
   choice: bucketWeightsZod.optional(),
   freeform: bucketWeightsZod.optional(),
 });
+
+/**
+ * The 6 zod schemas as a single map — handy for tools that splat them into
+ * the input schema with `...axisFieldsZod` rather than naming each axis.
+ * Each is `.nullable().optional()`-ready (callers can chain `.nullable().optional()`
+ * + `.describe(...)` to apply the standard "omit-to-keep / null-to-clear"
+ * semantics that every management tool uses).
+ */
+export const axisFieldsZod = {
+  answersFormat: answersFormatZod,
+  questionType: questionTypeZod,
+  freeformAnswerShape: freeformAnswerShapeZod,
+  contexts: contextsZod,
+  difficulty: difficultyZod,
+  difficultyRatio: triviaDifficultyRatioZod,
+} as const;

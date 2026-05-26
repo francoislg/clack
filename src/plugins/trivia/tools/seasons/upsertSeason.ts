@@ -12,9 +12,23 @@ import {
   validateDifficulty,
   validateDifficultyRatio,
 } from "../../domain/seasonFormat.js";
-import { validateFormat } from "../../core/configParsers/format.js";
+import {
+  normalizeCategories,
+  normalizeTheme,
+  seasonFormatZod,
+  triviaCategoriesZod,
+  triviaThemeZod,
+  validateFormat,
+} from "../../core/configParsers/format.js";
 import type { TriviaDataLayer, SeasonsState, SeasonEntry } from "../../core/types.js";
-import { triviaDifficultyRatioZod } from "../../core/configParsers/axes.js";
+import {
+  answersFormatZod,
+  contextsZod,
+  difficultyZod,
+  freeformAnswerShapeZod,
+  questionTypeZod,
+  triviaDifficultyRatioZod,
+} from "../../core/configParsers/axes.js";
 import type {
   SeasonFormat,
   TriviaAnswersFormatWeights,
@@ -27,98 +41,18 @@ import type {
 
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-function normalizeTheme(raw: string): { ok: true; value: string } | { ok: false; error: string } {
-  const trimmed = raw.trim();
-  if (trimmed.length === 0) {
-    return { ok: false, error: "theme must be non-empty (pass null to clear)." };
-  }
-  return { ok: true, value: trimmed };
-}
-
-function dedupePreservingOrder(values: string[]): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const c of values) {
-    if (!seen.has(c)) {
-      seen.add(c);
-      out.push(c);
-    }
+/**
+ * Strip undefined entries from a zod-typed optional-keys map so the underlying
+ * validator (which iterates Object.entries and rejects undefined) sees a clean
+ * sparse JSON object. JSON literals never carry undefined; this just bridges
+ * the zod-typed shape into the validator's expected input shape.
+ */
+function compactNumberMap(raw: Record<string, number | undefined>): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (typeof v === "number") out[k] = v;
   }
   return out;
-}
-
-const contextEntryShape = z.object({
-  name: z.string(),
-  weight: z.number().positive().optional(),
-});
-
-const freeformAnswerShapeZod = z.object({
-  name: z.number().int().nonnegative().optional(),
-  place: z.number().int().nonnegative().optional(),
-  phrase: z.number().int().nonnegative().optional(),
-  title: z.number().int().nonnegative().optional(),
-  date: z.number().int().nonnegative().optional(),
-  number: z.number().int().nonnegative().optional(),
-  other: z.number().int().nonnegative().optional(),
-});
-
-const difficultyRangeTuple = z.tuple([
-  z.number().int().min(1).max(10),
-  z.number().int().min(1).max(10),
-]);
-
-const difficultyRangesInputZod = z.object({
-  easy: difficultyRangeTuple.optional(),
-  medium: difficultyRangeTuple.optional(),
-  hard: difficultyRangeTuple.optional(),
-});
-
-const triviaDifficultyZod = z.object({
-  boolean: difficultyRangesInputZod.optional(),
-  choice: difficultyRangesInputZod.optional(),
-  freeform: difficultyRangesInputZod.optional(),
-});
-
-const slotShape = z.object({
-  label: z.string().optional(),
-  categories: z.array(z.string()).optional(),
-  answersFormat: z
-    .object({
-      boolean: z.number().int().nonnegative().optional(),
-      choice: z.number().int().nonnegative().optional(),
-      freeform: z.number().int().nonnegative().optional(),
-    })
-    .optional(),
-  questionType: z
-    .object({
-      fact: z.number().int().nonnegative().optional(),
-      topical: z.number().int().nonnegative().optional(),
-    })
-    .optional(),
-  freeformAnswerShape: freeformAnswerShapeZod.optional(),
-  contexts: z.array(contextEntryShape).optional(),
-  difficulty: triviaDifficultyZod.optional(),
-  difficultyRatio: triviaDifficultyRatioZod.optional(),
-});
-
-function buildFreeformAnswerShapeSparse(input: {
-  name?: number;
-  place?: number;
-  phrase?: number;
-  title?: number;
-  date?: number;
-  number?: number;
-  other?: number;
-}): Record<string, number> {
-  const sparse: Record<string, number> = {};
-  if (input.name !== undefined) sparse.name = input.name;
-  if (input.place !== undefined) sparse.place = input.place;
-  if (input.phrase !== undefined) sparse.phrase = input.phrase;
-  if (input.title !== undefined) sparse.title = input.title;
-  if (input.date !== undefined) sparse.date = input.date;
-  if (input.number !== undefined) sparse.number = input.number;
-  if (input.other !== undefined) sparse.other = input.other;
-  return sparse;
 }
 
 export function createUpsertSeasonTool(
@@ -148,35 +82,24 @@ export function createUpsertSeasonTool(
         .number()
         .optional()
         .describe("Unix-ms when the season was actually closed. Set this to mark a season ended."),
-      categories: z
-        .array(z.string())
+      categories: triviaCategoriesZod
         .optional()
         .describe(
           "Season's category pool. Provided AND non-empty → the season uses EXACTLY this list. Omitted OR empty → copies from the global categories.json. Used only on CREATE.",
         ),
-      theme: z
-        .string()
+      theme: triviaThemeZod
         .nullable()
         .optional()
         .describe(
           'Optional short human-readable narrative label (e.g. "Halloween Spooktacular") surfaced at the top of the season\'s first question post. On UPDATE: passing `null` clears the field; omitting preserves the existing value. Empty / whitespace-only strings are rejected.',
         ),
-      answersFormat: z
-        .object({
-          boolean: z.number().int().nonnegative().optional(),
-          choice: z.number().int().nonnegative().optional(),
-          freeform: z.number().int().nonnegative().optional(),
-        })
+      answersFormat: answersFormatZod
         .nullable()
         .optional()
         .describe(
           "Optional per-season answer-format weights (boolean/choice/freeform). On UPDATE: passing `null` clears the field. Mid-season mutation permitted.",
         ),
-      questionType: z
-        .object({
-          fact: z.number().int().nonnegative().optional(),
-          topical: z.number().int().nonnegative().optional(),
-        })
+      questionType: questionTypeZod
         .nullable()
         .optional()
         .describe(
@@ -186,16 +109,15 @@ export function createUpsertSeasonTool(
         .nullable()
         .optional()
         .describe(
-          "Optional per-season freeform answer-shape weights (name/place/phrase/title/date/number/other). Affects freeform questions only — boolean/choice ignore. `other` is a wildcard slot where Claude picks an unconventional shape. On UPDATE: passing `null` clears the field. Mid-season mutation permitted.",
+          "Optional per-season freeform answer-shape weights (name/place/phrase/title/date/countable/other). Affects freeform questions only — boolean/choice ignore. `other` is a wildcard slot where Claude picks an unconventional shape. On UPDATE: passing `null` clears the field. Mid-season mutation permitted.",
         ),
-      contexts: z
-        .array(contextEntryShape)
+      contexts: contextsZod
         .nullable()
         .optional()
         .describe(
           "Optional per-season lens list (e.g. Quebec, International, academic). On UPDATE: passing `null` clears the field. Mid-season mutation permitted.",
         ),
-      difficulty: triviaDifficultyZod
+      difficulty: difficultyZod
         .nullable()
         .optional()
         .describe(
@@ -207,14 +129,7 @@ export function createUpsertSeasonTool(
         .describe(
           "Optional per-season per-game-type bucket-roll ratio. Object keyed by `boolean` / `choice` / `freeform`; each value is `{ easy?, medium?, hard? }` non-negative integer weights with at least one strictly positive. Whole-object replace per cascade tier (slot → season → game → workspace → built-in default). On UPDATE: passing `null` clears the field. Mid-season mutation permitted.",
         ),
-      format: z
-        .object({
-          questions: z
-            .array(slotShape)
-            .describe(
-              "Ordered list of question slots posted per question-cron fire (one item per slot).",
-            ),
-        })
+      format: seasonFormatZod
         .nullable()
         .optional()
         .describe(
@@ -254,11 +169,14 @@ export function createUpsertSeasonTool(
           );
         }
 
-        const providedCategories = (args.categories ?? []).filter((c) => c.length > 0);
-        const categories =
-          providedCategories.length > 0
-            ? dedupePreservingOrder(providedCategories)
-            : [...(await data.loadCategories())];
+        let categories: string[];
+        if (args.categories !== undefined && args.categories.length > 0) {
+          const r = normalizeCategories(args.categories);
+          if (!r.ok) return errorResult(r.error);
+          categories = r.value;
+        } else {
+          categories = [...(await data.loadCategories())];
+        }
         if (categories.length === 0) {
           return errorResult(
             "Cannot create a season with zero categories. Add at least one entry to categories.json or pass a non-empty `categories` array.",
@@ -267,29 +185,21 @@ export function createUpsertSeasonTool(
 
         let answersFormatWeights: TriviaAnswersFormatWeights | undefined;
         if (args.answersFormat !== undefined && args.answersFormat !== null) {
-          const sparse: Record<string, number> = {};
-          if (args.answersFormat.boolean !== undefined) sparse.boolean = args.answersFormat.boolean;
-          if (args.answersFormat.choice !== undefined) sparse.choice = args.answersFormat.choice;
-          const validated = validateAnswersFormat(sparse);
+          const validated = validateAnswersFormat(compactNumberMap(args.answersFormat));
           if (!validated.ok) return errorResult(validated.error);
           answersFormatWeights = validated.value;
         }
 
         let questionTypeWeights: TriviaQuestionTypeWeights | undefined;
         if (args.questionType !== undefined && args.questionType !== null) {
-          const sparse: Record<string, number> = {};
-          if (args.questionType.fact !== undefined) sparse.fact = args.questionType.fact;
-          if (args.questionType.topical !== undefined) sparse.topical = args.questionType.topical;
-          const validated = validateQuestionType(sparse);
+          const validated = validateQuestionType(compactNumberMap(args.questionType));
           if (!validated.ok) return errorResult(validated.error);
           questionTypeWeights = validated.value;
         }
 
         let freeformAnswerShapeWeights: TriviaFreeformAnswerShapeWeights | undefined;
         if (args.freeformAnswerShape !== undefined && args.freeformAnswerShape !== null) {
-          const validated = validateFreeformAnswerShape(
-            buildFreeformAnswerShapeSparse(args.freeformAnswerShape),
-          );
+          const validated = validateFreeformAnswerShape(compactNumberMap(args.freeformAnswerShape));
           if (!validated.ok) return errorResult(validated.error);
           freeformAnswerShapeWeights = validated.value;
         }
@@ -394,10 +304,7 @@ export function createUpsertSeasonTool(
       if (args.answersFormat === null) {
         updatedAnswersFormat = undefined;
       } else if (args.answersFormat !== undefined) {
-        const sparse: Record<string, number> = {};
-        if (args.answersFormat.boolean !== undefined) sparse.boolean = args.answersFormat.boolean;
-        if (args.answersFormat.choice !== undefined) sparse.choice = args.answersFormat.choice;
-        const validated = validateAnswersFormat(sparse);
+        const validated = validateAnswersFormat(compactNumberMap(args.answersFormat));
         if (!validated.ok) return errorResult(validated.error);
         updatedAnswersFormat = validated.value;
       }
@@ -406,10 +313,7 @@ export function createUpsertSeasonTool(
       if (args.questionType === null) {
         updatedQuestionType = undefined;
       } else if (args.questionType !== undefined) {
-        const sparse: Record<string, number> = {};
-        if (args.questionType.fact !== undefined) sparse.fact = args.questionType.fact;
-        if (args.questionType.topical !== undefined) sparse.topical = args.questionType.topical;
-        const validated = validateQuestionType(sparse);
+        const validated = validateQuestionType(compactNumberMap(args.questionType));
         if (!validated.ok) return errorResult(validated.error);
         updatedQuestionType = validated.value;
       }
@@ -419,9 +323,7 @@ export function createUpsertSeasonTool(
       if (args.freeformAnswerShape === null) {
         updatedFreeformAnswerShape = undefined;
       } else if (args.freeformAnswerShape !== undefined) {
-        const validated = validateFreeformAnswerShape(
-          buildFreeformAnswerShapeSparse(args.freeformAnswerShape),
-        );
+        const validated = validateFreeformAnswerShape(compactNumberMap(args.freeformAnswerShape));
         if (!validated.ok) return errorResult(validated.error);
         updatedFreeformAnswerShape = validated.value;
       }

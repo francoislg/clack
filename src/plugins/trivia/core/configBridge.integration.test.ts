@@ -76,6 +76,7 @@ function makeSdkOverRealDir(pluginDataDir: string): ClackSdk {
       stopReason: "end_turn",
       usage: { inputTokens: 0, outputTokens: 0 },
     }),
+    requestSoftRestart: () => {},
   };
 }
 
@@ -178,6 +179,9 @@ describe("trivia config relocation — end-to-end smoke", () => {
           contexts: undefined,
           difficulty: undefined,
           difficultyRatio: undefined,
+          format: undefined,
+          categories: undefined,
+          theme: undefined,
         },
         SESSION,
       ),
