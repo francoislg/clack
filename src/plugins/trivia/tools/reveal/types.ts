@@ -103,6 +103,19 @@ export interface ProcessRevealResult {
   roundSummary?: RoundSummary;
   seasonStatus?: SeasonStatusOut;
   errors?: Array<{ questionId: string; error: string }>;
+  /**
+   * Resolved value of the replace-cascade `instructions` axis at reveal time.
+   * Present iff some tier (slot / season / game / workspace) sets a non-empty
+   * value. See the `trivia-prompt-instructions` capability.
+   */
+  instructions?: string;
+  /**
+   * Resolved value of the cumulative-cascade `additionalInstructions` axis at
+   * reveal time. Present iff at least one tier carries a non-empty value;
+   * segments are tier-labeled (`[Workspace]` / `[Game]` / `[Season]` /
+   * `[Slot N]`) and joined with `\n\n`.
+   */
+  additionalInstructions?: string;
 }
 
 /** Shape produced by `fetchMessageReactions`; mirrors Slack's `reactions[*]` after normalization. */

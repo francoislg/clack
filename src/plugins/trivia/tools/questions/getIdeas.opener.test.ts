@@ -201,6 +201,8 @@ describe("get_ideas — integration with upsert_season theme", () => {
           format: undefined,
           liveAnswersVisible: undefined,
           revealResponses: undefined,
+          instructions: undefined,
+          additionalInstructions: undefined,
         },
         SESSION,
       ),

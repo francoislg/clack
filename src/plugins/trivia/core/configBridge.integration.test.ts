@@ -193,6 +193,8 @@ describe("trivia config relocation — end-to-end smoke", () => {
           theme: undefined,
           liveAnswersVisible: undefined,
           revealResponses: undefined,
+          instructions: undefined,
+          additionalInstructions: undefined,
         },
         SESSION,
       ),
@@ -220,6 +222,8 @@ describe("trivia config relocation — end-to-end smoke", () => {
         seasons: { enabled: true, prompt: "Monthly" },
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
       SESSION,
     );

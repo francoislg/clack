@@ -100,6 +100,8 @@ function args(overrides: Partial<UpsertGameArgs> & Pick<UpsertGameArgs, "name">)
     theme: undefined,
     liveAnswersVisible: undefined,
     revealResponses: undefined,
+    instructions: undefined,
+    additionalInstructions: undefined,
     ...overrides,
   };
 }
@@ -461,5 +463,79 @@ describe("upsert_game — update branch", () => {
     const game = loadTriviaConfig()?.games?.[0];
     assert.equal(game?.freeformAnswerShape?.name, 1);
     assert.equal(game?.freeformAnswerShape?.countable, 2);
+  });
+});
+
+describe("upsert_game — instructions and additionalInstructions", () => {
+  beforeEach(() => {
+    _resetTriviaConfigBridge();
+  });
+
+  it("create persists both fields and surfaces hasInstructions / hasAdditionalInstructions", async () => {
+    primeBridge({ games: [] });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
+    const result = parseToolResult(
+      await tool.handler(
+        args({
+          name: "main",
+          channel: "C123",
+          questionCron: "0 9 * * 1-5",
+          revealCron: "0 17 * * 1-5",
+          timezone: "America/Montreal",
+          instructions: "  Be dry.  ",
+          additionalInstructions: "Avoid politics.",
+        }),
+        SESSION,
+      ),
+    );
+    assert.equal(result.action, "created");
+    assert.equal(result.hasInstructions, true);
+    assert.equal(result.hasAdditionalInstructions, true);
+    const game = loadTriviaConfig()?.games?.[0];
+    assert.equal(game?.instructions, "Be dry.");
+    assert.equal(game?.additionalInstructions, "Avoid politics.");
+  });
+
+  it("update with null clears the named field but preserves the other", async () => {
+    primeBridge({
+      games: [{ ...baseGame, instructions: "Be dry.", additionalInstructions: "Avoid politics." }],
+    });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
+    await tool.handler(args({ name: "main", instructions: null }), SESSION);
+    const game = loadTriviaConfig()?.games?.[0];
+    assert.equal(game?.instructions, undefined);
+    assert.equal(game?.additionalInstructions, "Avoid politics.");
+  });
+
+  it("update with omitted fields preserves both existing values", async () => {
+    primeBridge({
+      games: [{ ...baseGame, instructions: "Be dry.", additionalInstructions: "Avoid politics." }],
+    });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
+    await tool.handler(args({ name: "main", enabled: false }), SESSION);
+    const game = loadTriviaConfig()?.games?.[0];
+    assert.equal(game?.instructions, "Be dry.");
+    assert.equal(game?.additionalInstructions, "Avoid politics.");
+    assert.equal(game?.enabled, false);
+  });
+
+  it("rejects empty / whitespace-only strings", async () => {
+    primeBridge({ games: [{ ...baseGame }] });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
+    const result = parseToolResult(
+      await tool.handler(args({ name: "main", instructions: "   " }), SESSION),
+    );
+    assert.match(result.error ?? "", /instructions.*non-empty/);
+  });
+
+  it("hasInstructions / hasAdditionalInstructions reflect mid-cascade state", async () => {
+    primeBridge({ games: [{ ...baseGame, instructions: "Be dry." }] });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
+    const result = parseToolResult(
+      await tool.handler(args({ name: "main", additionalInstructions: "Stack me." }), SESSION),
+    );
+    assert.equal(result.action, "updated");
+    assert.equal(result.hasInstructions, true);
+    assert.equal(result.hasAdditionalInstructions, true);
   });
 });

@@ -42,6 +42,8 @@ describe("upsert_season — format argument", () => {
         },
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
       SESSION,
     );
@@ -83,6 +85,8 @@ describe("upsert_season — format argument", () => {
         format: undefined,
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
       SESSION,
     );
@@ -116,6 +120,8 @@ describe("upsert_season — format argument", () => {
         format: { questions: [{ label: "old" }] },
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
       SESSION,
     );
@@ -137,6 +143,8 @@ describe("upsert_season — format argument", () => {
         format: { questions: [{ label: "new-1" }, { label: "new-2" }] },
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
       SESSION,
     );
@@ -171,6 +179,8 @@ describe("upsert_season — format argument", () => {
         format: { questions: [{ label: "to-remove" }] },
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
       SESSION,
     );
@@ -192,6 +202,8 @@ describe("upsert_season — format argument", () => {
         format: null,
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
       SESSION,
     );
@@ -225,6 +237,8 @@ describe("upsert_season — format argument", () => {
         format: { questions: [{ label: "keep-me" }] },
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
       SESSION,
     );
@@ -246,6 +260,8 @@ describe("upsert_season — format argument", () => {
         format: undefined,
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
       SESSION,
     );
@@ -279,6 +295,8 @@ describe("upsert_season — format argument", () => {
         format: { questions: [] },
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
       SESSION,
     );
@@ -311,6 +329,8 @@ describe("upsert_season — format argument", () => {
         format: { questions: [{ questionType: { fact: 0, topical: 0 } }] },
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
       SESSION,
     );
@@ -353,6 +373,8 @@ describe("upsert_season — format argument", () => {
         format: { questions: [{ label: "added-mid-season" }] },
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
       SESSION,
     );

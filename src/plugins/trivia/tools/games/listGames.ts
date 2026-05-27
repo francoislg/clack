@@ -40,6 +40,8 @@ interface ListGamesEntry {
   format?: SeasonFormat;
   categories?: string[];
   theme?: string;
+  instructions?: string;
+  additionalInstructions?: string;
   liveAnswersVisible?: boolean;
   revealResponses?: "no" | "just-correctness" | "yes";
 }
@@ -54,6 +56,8 @@ interface WorkspaceDefaults {
   choices?: TriviaChoicesConfig;
   seasons?: TriviaSeasonsConfig;
   offDays?: OffDay[];
+  instructions?: string;
+  additionalInstructions?: string;
 }
 
 const DESCRIPTION = `List the trivia games configured in this deployment (data/plugins/trivia/config.json's \`games[]\`), plus the workspace tier of the cascading axis configuration (\`workspaceDefaults\`) AND each entry's per-game \`axisOverrides\`, so admins can audit configuration without reading the file by hand.
@@ -105,6 +109,10 @@ export function createListGamesTool(
           ...(g.format !== undefined ? { format: g.format } : {}),
           ...(g.categories !== undefined ? { categories: g.categories } : {}),
           ...(g.theme !== undefined ? { theme: g.theme } : {}),
+          ...(g.instructions !== undefined ? { instructions: g.instructions } : {}),
+          ...(g.additionalInstructions !== undefined
+            ? { additionalInstructions: g.additionalInstructions }
+            : {}),
           ...(g.liveAnswersVisible !== undefined
             ? { liveAnswersVisible: g.liveAnswersVisible }
             : {}),
@@ -129,6 +137,10 @@ export function createListGamesTool(
         ...(triviaCfg?.choices !== undefined ? { choices: triviaCfg.choices } : {}),
         ...(triviaCfg?.seasons !== undefined ? { seasons: triviaCfg.seasons } : {}),
         ...(triviaCfg?.offDays !== undefined ? { offDays: triviaCfg.offDays } : {}),
+        ...(triviaCfg?.instructions !== undefined ? { instructions: triviaCfg.instructions } : {}),
+        ...(triviaCfg?.additionalInstructions !== undefined
+          ? { additionalInstructions: triviaCfg.additionalInstructions }
+          : {}),
       };
 
       return textResult({ games: entries, workspaceDefaults, total: entries.length });

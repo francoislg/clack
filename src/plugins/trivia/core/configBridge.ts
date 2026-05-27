@@ -151,6 +151,41 @@ function parseTriviaConfigObject(raw: JsonObject, logger: PluginLogger): TriviaC
     }
   }
 
+  if (raw.instructions !== undefined && raw.instructions !== null) {
+    if (typeof raw.instructions !== "string") {
+      allIssues.push({
+        field: "trivia.instructions",
+        error: `must be a string (got ${typeof raw.instructions})`,
+      });
+    } else {
+      const trimmed = raw.instructions.trim();
+      if (trimmed.length === 0) {
+        allIssues.push({ field: "trivia.instructions", error: "must be non-empty after trim" });
+      } else {
+        out.instructions = trimmed;
+      }
+    }
+  }
+
+  if (raw.additionalInstructions !== undefined && raw.additionalInstructions !== null) {
+    if (typeof raw.additionalInstructions !== "string") {
+      allIssues.push({
+        field: "trivia.additionalInstructions",
+        error: `must be a string (got ${typeof raw.additionalInstructions})`,
+      });
+    } else {
+      const trimmed = raw.additionalInstructions.trim();
+      if (trimmed.length === 0) {
+        allIssues.push({
+          field: "trivia.additionalInstructions",
+          error: "must be non-empty after trim",
+        });
+      } else {
+        out.additionalInstructions = trimmed;
+      }
+    }
+  }
+
   // seasons block: { enabled, prompt }. The enabled-but-no-prompt case
   // self-disables rather than rejecting (matches the prior loader behavior).
   if (raw.seasons !== undefined && raw.seasons !== null) {

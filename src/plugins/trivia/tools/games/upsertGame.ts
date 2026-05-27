@@ -20,10 +20,14 @@ import {
   type ParseIssue,
 } from "../../core/configParsers/axes.js";
 import {
+  normalizeAdditionalInstructions,
   normalizeCategories,
+  normalizeInstructions,
   normalizeTheme,
   seasonFormatZod,
+  triviaAdditionalInstructionsZod,
   triviaCategoriesZod,
+  triviaInstructionsZod,
   triviaThemeZod,
   validateFormat,
 } from "../../core/configParsers/format.js";
@@ -93,6 +97,18 @@ const structuralFieldsSchema = {
     .optional()
     .describe(
       'Per-game override for the reveal-time participation disclosure axis. `"yes"` (default) renders full named voter buckets including freeform answer text. `"just-correctness"` renders named buckets but hides typed freeform text. `"no"` renders only the answer plus reactions plus the leaderboard. Cascade: `slot → season → game → workspace → "yes"`. On UPDATE: explicit null clears the field.',
+    ),
+  instructions: triviaInstructionsZod
+    .nullable()
+    .optional()
+    .describe(
+      'Per-game tier of the replace-cascade `instructions` axis (e.g. "Be dry."). Cascade: `slot → season → game → workspace → null`. When set, the highest-precedence non-empty tier wins. Surfaced verbatim to Claude via the `get_ideas` and `process_reveal_answers` payloads. On UPDATE: explicit null clears the field.',
+    ),
+  additionalInstructions: triviaAdditionalInstructionsZod
+    .nullable()
+    .optional()
+    .describe(
+      'Per-game tier of the cumulative-cascade `additionalInstructions` axis (e.g. "Be concise."). Every non-empty tier stacks — workspace + game + season + slot all apply, concatenated tier-labeled. Surfaced verbatim to Claude via the `get_ideas` and `process_reveal_answers` payloads. On UPDATE: explicit null clears this tier (other tiers keep theirs).',
     ),
 };
 
@@ -228,6 +244,18 @@ export function createUpsertGameTool(getGamesFn: GetGamesFn = defaultGetGames) {
         if (!r.ok) issues.push({ field: "theme", error: r.error });
         else parsedTheme = r.value;
       }
+      let parsedInstructions: string | undefined;
+      if (args.instructions !== undefined && args.instructions !== null) {
+        const r = normalizeInstructions(args.instructions);
+        if (!r.ok) issues.push({ field: "instructions", error: r.error });
+        else parsedInstructions = r.value;
+      }
+      let parsedAdditionalInstructions: string | undefined;
+      if (args.additionalInstructions !== undefined && args.additionalInstructions !== null) {
+        const r = normalizeAdditionalInstructions(args.additionalInstructions);
+        if (!r.ok) issues.push({ field: "additionalInstructions", error: r.error });
+        else parsedAdditionalInstructions = r.value;
+      }
 
       if (issues.length > 0) {
         return errorResult(issues.map((i) => `${i.field}: ${i.error}`).join("; "));
@@ -269,6 +297,10 @@ export function createUpsertGameTool(getGamesFn: GetGamesFn = defaultGetGames) {
         ...(existing?.format !== undefined ? { format: existing.format } : {}),
         ...(existing?.categories !== undefined ? { categories: existing.categories } : {}),
         ...(existing?.theme !== undefined ? { theme: existing.theme } : {}),
+        ...(existing?.instructions !== undefined ? { instructions: existing.instructions } : {}),
+        ...(existing?.additionalInstructions !== undefined
+          ? { additionalInstructions: existing.additionalInstructions }
+          : {}),
         ...(existing?.liveAnswersVisible !== undefined
           ? { liveAnswersVisible: existing.liveAnswersVisible }
           : {}),
@@ -282,6 +314,11 @@ export function createUpsertGameTool(getGamesFn: GetGamesFn = defaultGetGames) {
       else if (parsedCategories !== undefined) mergedStructural.categories = parsedCategories;
       if (args.theme === null) delete mergedStructural.theme;
       else if (parsedTheme !== undefined) mergedStructural.theme = parsedTheme;
+      if (args.instructions === null) delete mergedStructural.instructions;
+      else if (parsedInstructions !== undefined) mergedStructural.instructions = parsedInstructions;
+      if (args.additionalInstructions === null) delete mergedStructural.additionalInstructions;
+      else if (parsedAdditionalInstructions !== undefined)
+        mergedStructural.additionalInstructions = parsedAdditionalInstructions;
       if (args.liveAnswersVisible === null) delete mergedStructural.liveAnswersVisible;
       else if (args.liveAnswersVisible !== undefined)
         mergedStructural.liveAnswersVisible = args.liveAnswersVisible;
@@ -319,6 +356,8 @@ export function createUpsertGameTool(getGamesFn: GetGamesFn = defaultGetGames) {
         hasFormat: mergedStructural.format !== undefined,
         hasCategories: mergedStructural.categories !== undefined,
         hasTheme: mergedStructural.theme !== undefined,
+        hasInstructions: mergedStructural.instructions !== undefined,
+        hasAdditionalInstructions: mergedStructural.additionalInstructions !== undefined,
         hasLiveAnswersVisible: mergedStructural.liveAnswersVisible !== undefined,
         hasRevealResponses: mergedStructural.revealResponses !== undefined,
         slotCount: mergedStructural.format?.questions.length ?? 0,

@@ -97,6 +97,8 @@ describe("Trivia question-format end-to-end flow", () => {
           },
           liveAnswersVisible: undefined,
           revealResponses: undefined,
+          instructions: undefined,
+          additionalInstructions: undefined,
         },
         SESSION,
       ),

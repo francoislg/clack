@@ -41,7 +41,13 @@ const CONTEXT_PRIORITY_PREAMBLE = `CONTEXTS (LENSES) — when get_ideas returns 
    - Only descend to \`contextPriority[1]\`, \`[2]\`, etc. when the current lens GENUINELY yields no usable question (e.g. for topical: no recent newsworthy event in that lens; for fact: nothing interesting at the intersection of category × lens). A reflexive descent defeats the purpose of weights.
    - When you write the question with a non-empty lens, pass \`context: "<the lens you used>"\` to \`save_question\` so the lens is recorded.
    - If you exhaust every entry in \`contextPriority\` without producing a usable question, re-call \`get_ideas\` to re-roll all the suggestions (fresh categories AND fresh contextPriority).
-   - When the get_ideas response does NOT include \`contextPriority\`, ignore lens handling entirely and pass no \`context\` arg to \`save_question\`.`;
+   - When the get_ideas response does NOT include \`contextPriority\`, ignore lens handling entirely and pass no \`context\` arg to \`save_question\`.
+
+ADMIN GUIDANCE — when get_ideas returns \`instructions\` and/or \`additionalInstructions\`:
+   - \`instructions\` (string) is a single admin-authored rule resolved from the replace-cascade \`slot → season → game → workspace\`. Honor it verbatim throughout the run — apply it to phrasing, content choice, tone, and any other aspect of the question you generate.
+   - \`additionalInstructions\` (string) is a concatenation of admin rules from every active tier, each segment labeled (\`[Workspace]\` / \`[Game]\` / \`[Season]\` / \`[Slot N]\`) and separated by blank lines. EVERY labeled rule applies simultaneously — do NOT pick one; all must hold. Treat lower-tier (slot, season) rules as more situational than higher-tier (workspace, game) ones, but never as overrides — they stack on top.
+   - When either field is ABSENT from the payload, ignore it entirely. Do NOT fabricate guidance, do NOT enumerate categories as a substitute, do NOT mention the absence to viewers.
+   - These rules are NOT visible to viewers in the final post — they shape what you write, not what you say. Don't echo them back ("As per the admin's instruction…"). Just apply them silently.`;
 
 /**
  * Shared step sequence for generating a new FACT-typed boolean trivia question.
@@ -86,9 +92,10 @@ const QUESTION_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
    If the answer is "no" — stop, return to step 2, and rewrite the statement with the correct polarity. Do NOT try to patch it with a small edit; rewrite. Only proceed to step 4 once the polarities match.
 
 4. CHECK FOR DUPLICATES:
-   - Call find_previous_questions to search for similar statements.
-   - If a match is found, go back to step 2 and try a different statement.
-   - Keep iterating until you have a truly unique statement.
+   - Call \`find_previous_questions({ keywords: [3-5 distinctive terms from your statement], match: "any" })\`. Pick names, numbers, or rare nouns — words a duplicate of this fact would also have to contain in some framing. OMIT the \`games\` argument so the scan spans every game (a duplicate fact in a sibling game still counts).
+   - For each returned row, inspect \`matchedKeywords\` and the row's \`statement\` to decide whether it covers the SAME underlying fact in any framing or polarity (a TRUE statement about a fact is still a duplicate of a FALSE statement about the same fact).
+   - If the result set is uninformatively wide (many rows matching only on a common word), re-call with sharper keywords.
+   - If any candidate is a duplicate, go back to step 2 and write a different statement. Keep iterating until you have a truly unique statement.
 
 5. VALIDATE through research that the statement's actual truth matches suggestedAnswer (true → actually true; false → actually false). If validation reveals a mismatch (e.g. a "false" statement turned out to be accidentally true, or vice versa), return to step 2 and rewrite — do not patch.
 
@@ -159,8 +166,9 @@ const CHOICE_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
    If ANY condition fails, REWRITE ONLY THE FAILING DISTRACTOR(S), never the correct answer. Repeat the gate. Retry budget: 3 distractor-rewrite passes per question. If the gate still fails after 3 passes, ABANDON this question and re-roll from get_ideas with a fresh suggestedCorrectIndex.
 
 4. CHECK FOR DUPLICATES:
-   - Call find_previous_questions with a distinctive keyword from the statement (a name, a number, or a rare noun).
-   - If a match is found, go back to step 2 and write a different question.
+   - Call \`find_previous_questions({ keywords: [3-5 distinctive terms from the statement], match: "any" })\`. Pick names, numbers, or rare nouns. OMIT the \`games\` argument so the scan spans every game.
+   - Inspect each returned row's \`matchedKeywords\` and \`statement\`. A duplicate counts no matter the framing or polarity. If the result is noisy (many rows hitting only a common word), re-call with sharper keywords.
+   - If any candidate is a duplicate, go back to step 2 and write a different question.
 
 5. DIFFICULTY GATE (REQUIRED — STRICT MEMBERSHIP):
    Self-rate the question as a whole on the 1–10 scale. The ACCEPT RANGE is \`suggestedDifficultyRange\` \`[min, max]\` from get_ideas. The bucket's range IS the accept bound — there is no separate threshold.
@@ -224,8 +232,8 @@ const TOPICAL_BOOLEAN_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
    If "no", rewrite the statement from step 3.
 
 5. CHECK FOR DUPLICATES:
-   - Call find_previous_questions with a distinctive keyword from the statement.
-   - If the same event was already asked about (even with different polarity or angle), pick a different event from your WebSearch results (or re-search).
+   - Call \`find_previous_questions({ keywords: [3-5 distinctive terms from the event/statement], match: "any" })\`. OMIT the \`games\` argument so the scan spans every game.
+   - Inspect each returned row's \`matchedKeywords\` and \`statement\`. If the same event was already asked about — even with different polarity or angle — pick a different event from your WebSearch results (or re-search).
 
 6. DIFFICULTY GATE (REQUIRED — STRICT MEMBERSHIP): same rules as the fact-boolean path. Rating INSIDE \`suggestedDifficultyRange\` → proceed; ±1 off → reframe ONCE (then re-run polarity self-check on the reframed statement before re-rating); ≥2 off OR reframe still outside → REJECT and re-call get_ideas.
 
@@ -347,8 +355,9 @@ const FREEFORM_FACT_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
    - REQUIRED when step 2 stated a date/number tolerance (always required for \`date\` shape — see LEEWAY above): restate the EXACT tolerance here in absolute terms anchored on \`expectedAnswer\` — e.g. "Accept any year in [1939, 1949] (±5 of 1944)." The judge follows this strictly, so be precise.
 
 6. DUPLICATE CHECK:
-   - Call \`find_previous_questions\` with a distinctive keyword from the statement.
-   - If a match is found, go back to step 2.
+   - Call \`find_previous_questions({ keywords: [3-5 distinctive terms from the statement], match: "any" })\`. OMIT the \`games\` argument so the scan spans every game.
+   - Inspect each returned row's \`matchedKeywords\` and \`statement\`. A duplicate counts no matter the framing.
+   - If any candidate is a duplicate, go back to step 2.
 
 7. DIFFICULTY GATE (REQUIRED — STRICT MEMBERSHIP):
    Self-rate 1–10. The ACCEPT RANGE is \`suggestedDifficultyRange\` \`[min, max]\` from get_ideas (freeform bands sit lower than boolean/choice — a freeform "Hard" might be [7, 8], not [9, 10]). The bucket's range IS the accept bound.
@@ -457,7 +466,7 @@ All three topical paths REQUIRE the \`WebSearch\` tool to find a recent newswort
 
 The freeform paths produce an answer the user TYPES (into a Slack modal). Claude writes the canonical \`expectedAnswer\` and optional \`acceptableAnswers\` / \`gradingNotes\` at save time. A small fast model judges submissions at reveal — the judge automatically rejects multi-guess "shotgun" answers (e.g. "Paris or London") as incorrect, so the canonical answer must be a single concrete value.
 
-Duplicate detection (find_previous_questions) stays GAME-SCOPED, not slot-scoped — a question that appeared in slot 0 yesterday is still a duplicate if it shows up in slot 2 today. Always call \`find_previous_questions\` with just \`game\` + text; do NOT filter by slot.
+Duplicate detection is intentionally CROSS-GAME and is not slot-scoped — a question that appeared in slot 0 yesterday is still a duplicate if it shows up in slot 2 today, and a duplicate fact in a sibling game still counts. Always call \`find_previous_questions\` with \`keywords: [...]\` + \`match: "any"\`, OMITTING the \`games\` argument; do NOT filter by slot.
 
 === FACT-BOOLEAN PATH (per question / per slot) ===
 
@@ -624,6 +633,8 @@ Deliver today's trivia reveal. There are exactly TWO steps — the deterministic
    - \`roundSummary\` (OPTIONAL): \`{ totalQuestions, perPlayer: Array<{ userId, displayName, correct, answered, roundMvp? }> }\` — present ONLY when every entry in \`reveals\` was stamped \`revealResponses === "yes"\`. When ANY entry is \`"just-correctness"\` or \`"no"\`, \`roundSummary\` is OMITTED (the tool cannot produce per-player aggregates without per-user vote info). The multi-question layout MUST handle the missing case by skipping the Round Summary section. Already sorted (correct desc, displayName asc); already excludes cheaters; you MUST NOT recompute it from \`reveals[].voters\` yourself.
    - \`seasonStatus\` (only present when \`trivia.seasons.enabled\` is true): \`{ currentSlug, isLastFireOfSeason, seasonClosed, newSeasonStarted?, mvp? }\`. When \`isLastFireOfSeason\` is true the tool has ALREADY stamped \`endedAt\` and (when needed) created a continuation season — do NOT call \`upsert_season\`.
    - \`errors\` (optional): per-questionId structured errors from a reprocess batch. Surface a brief mention if present; otherwise omit.
+   - \`instructions\` (optional string): single admin-authored rule resolved from the replace-cascade \`slot → season → game → workspace\`. Honor it verbatim throughout the reveal — apply it to verdict tone, voter-bucket commentary, the closer line, and the leaderboard introduction. Absent → ignore.
+   - \`additionalInstructions\` (optional string): concatenation of admin rules from every active tier, each segment labeled (\`[Workspace]\` / \`[Game]\` / \`[Season]\` / \`[Slot N]\`) separated by blank lines. EVERY labeled rule applies simultaneously throughout the reveal. Lower-tier rules are more situational than higher-tier ones but never replace them. Absent → ignore. These rules are NOT visible to viewers — don't echo them back, just apply them silently.
 
    If \`reveals\` is empty (no pending question), acknowledge with humor — "No verdict to deliver today — the question bank is quiet!" — and STILL render the cumulative leaderboard table.
 

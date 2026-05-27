@@ -10,6 +10,7 @@ import { resolveDifficultyRanges, resolveDifficultyRatio } from "../../domain/di
 import { resolveEffectiveFormat } from "../../domain/format.js";
 import { resolveActiveCategories } from "../../domain/categories.js";
 import { resolveTheme } from "../../domain/theme.js";
+import { resolveAdditionalInstructions, resolveInstructions } from "../../domain/instructions.js";
 import { weightedPick } from "../../domain/weightedPick.js";
 import {
   defaultGetGames,
@@ -41,6 +42,8 @@ Always returns:
 - \`suggestedDifficultyRange\`: \`[min, max]\` — the inclusive 1–10 STRICT accept range for the picked bucket on this game type (resolved through slot → season → config → built-in default; freeform is softer than boolean/choice by default). The self-rating in the DIFFICULTY GATE step MUST land inside this range; ratings ±1 off trigger a one-shot reframe; ≥2 off trigger an immediate re-roll.
 - \`firstFireOfSeason\` (boolean): \`true\` iff seasons are enabled, a current season exists, AND zero saved questions in this game carry \`season === currentSlug\`. Honor this in the question-posting prompt by prepending a ceremonial opener (\`header\` + \`section\` blocks) ABOVE the question content on the first fire of every new season.
 - \`theme\` (optional string): resolved from the cascade \`season.theme → game.theme\`. Mirrored verbatim when set. Mention it in the opener section ONLY when present; never fabricate one or enumerate categories as a substitute.
+- \`instructions\` (optional string): resolved from the REPLACE cascade \`slot → season → game → workspace\` of the free-form \`instructions\` axis. Highest-precedence non-empty tier wins. Honor this string verbatim as guidance throughout the question-writing run. Absent → ignore (no fabrication).
+- \`additionalInstructions\` (optional string): resolved from the CUMULATIVE cascade of the \`additionalInstructions\` axis — every non-empty tier is concatenated in \`workspace → game → season → slot\` order, each segment tier-labeled (\`[Workspace]\` / \`[Game]\` / \`[Season]\` / \`[Slot N]\`). Honor every labeled rule verbatim throughout the run. Absent → ignore.
 - \`contextPriority\` (optional): freshly-rolled weighted-random ordering of every configured lens. Present only when \`trivia.contexts\` is configured at any cascade tier. Claude tries \`contextPriority[0]\` first; descends the list only when the current lens yields no usable question.
 
 When suggestedAnswersFormat is \`"boolean"\`, also returns:
@@ -133,6 +136,16 @@ export function createGetIdeasTool(
 
       const firstFireOfSeason = currentSeasonEntry !== null && questions.length === 0;
       const theme = resolveTheme(currentSeasonEntry, gameEntry) ?? undefined;
+      const instructions =
+        resolveInstructions(currentSeasonEntry, slotIndexForResolution, gameEntry, config) ??
+        undefined;
+      const additionalInstructions =
+        resolveAdditionalInstructions(
+          currentSeasonEntry,
+          slotIndexForResolution,
+          gameEntry,
+          config,
+        ) ?? undefined;
 
       const exclusionWindow = Math.min(10, Math.floor(slotCategories.length / 3));
       const recentCategories = new Set(
@@ -228,6 +241,8 @@ export function createGetIdeasTool(
         suggestedDifficultyRange,
         firstFireOfSeason,
         ...(theme !== undefined ? { theme } : {}),
+        ...(instructions !== undefined ? { instructions } : {}),
+        ...(additionalInstructions !== undefined ? { additionalInstructions } : {}),
         ...(contextPriority !== null ? { contextPriority } : {}),
       };
 

@@ -6,10 +6,16 @@ import { textResult, errorResult } from "../../../../tools/helpers.js";
 import { loadJobs } from "../../../../cronJobs.js";
 import { triviaLogger as logger } from "../../core/pluginLogger.js";
 import type { TriviaCronJobView } from "../../domain/seasonStatus.js";
-import { defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
+import {
+  defaultGetGames,
+  defaultGetTriviaConfig,
+  type GetGamesFn,
+  type GetTriviaConfigFn,
+} from "../../core/configBridge.js";
 import { requireWritableGame } from "../../core/gamesRegistry.js";
 import { computeLeaderboard } from "../../domain/computeLeaderboard.js";
 import { findCurrentSeason } from "../../core/seasonTimeline.js";
+import { resolveAdditionalInstructions, resolveInstructions } from "../../domain/instructions.js";
 import { findTriviaRevealJob, nextFireAfter } from "../../domain/seasonStatus.js";
 import {
   fetchMessageReactions as fetchReactionsViaSlackClient,
@@ -51,6 +57,8 @@ ${PER_FORMAT_ANSWER_SHAPES}
 - \`leaderboard\`: same shape as retrieve_scores' return.
 - \`roundSummary\` (OPTIONAL): per-player aggregate across the round. Present ONLY when every reveal entry has \`revealResponses === "yes"\` — when ANY entry is \`"just-correctness"\` or \`"no"\`, the field is omitted (the tool cannot produce aggregates without per-user vote info).
 - \`seasonStatus\` (only when seasons enabled): \`{ currentSlug, isLastFireOfSeason, seasonClosed, newSeasonStarted?, mvp? }\`. When \`isLastFireOfSeason\` is true, the tool ALREADY stamped \`endedAt\` on the closing season and (when no continuation was queued) created a new starter season before returning — the renderer SHALL NOT call \`upsert_season\`.
+- \`instructions\` (optional string): resolved value of the REPLACE cascade \`slot → season → game → workspace\` of the free-form \`instructions\` axis. Present iff some tier sets a non-empty value. Honor verbatim as guidance during reveal rendering (verdict tone, voter-bucket commentary, closer line, leaderboard intro). Absent → ignore.
+- \`additionalInstructions\` (optional string): resolved value of the CUMULATIVE \`additionalInstructions\` axis — every non-empty tier concatenated in \`workspace → game → season → slot\` order, each segment tier-labeled (\`[Workspace]\` / \`[Game]\` / \`[Season]\` / \`[Slot N]\`). Honor every labeled rule verbatim. Absent → ignore.
 
 The renderer's job is two-step: (a) call this tool, (b) render the returned payload using submit_response with the Game Show Presenter voice — branching the per-question bucket sections on \`voters.revealResponses\`.`;
 
@@ -97,6 +105,7 @@ export function createProcessRevealAnswersTool(
   getGamesFn: GetGamesFn = defaultGetGames,
   jobsLoader: () => Promise<TriviaCronJobView[]> = loadJobs,
   slackDeps: RevealSlackDeps = defaultRevealSlackDeps(sdk),
+  getTriviaConfigFn: GetTriviaConfigFn = defaultGetTriviaConfig,
 ) {
   return tool(
     "process_reveal_answers",
@@ -216,6 +225,29 @@ export function createProcessRevealAnswersTool(
       // anything other than "yes". Mixed-mode batches are rare in practice;
       // selective masking would be a confusing compromise.
       const allYes = reveals.length > 0 && reveals.every((r) => r.voters.revealResponses === "yes");
+
+      // Resolve the two free-form guidance axes for this reveal. Strategy for
+      // multi-question batches: use the first target's slot index (when set).
+      // Resolving per-question would multiply payload size for a feature whose
+      // value at reveal time is whole-batch tone guidance, not per-slot tuning.
+      const triviaConfig = getTriviaConfigFn();
+      const gameEntry = getGamesFn().find((g) => g.name === args.game) ?? null;
+      const currentSeasonForResolution = findCurrentSeason(await scoped.loadSeasonsState(), now);
+      const firstSlotIndex =
+        targets.length > 0 && targets[0].slot !== undefined ? targets[0].slot.index : null;
+      const resolvedInstructions = resolveInstructions(
+        currentSeasonForResolution,
+        firstSlotIndex,
+        gameEntry,
+        triviaConfig,
+      );
+      const resolvedAdditionalInstructions = resolveAdditionalInstructions(
+        currentSeasonForResolution,
+        firstSlotIndex,
+        gameEntry,
+        triviaConfig,
+      );
+
       const result: ProcessRevealResult = {
         game: args.game,
         reveals,
@@ -223,6 +255,10 @@ export function createProcessRevealAnswersTool(
         ...(allYes ? { roundSummary: computeRoundSummary(reveals) } : {}),
         ...(seasonStatus ? { seasonStatus } : {}),
         ...(perIdErrors.length > 0 ? { errors: perIdErrors } : {}),
+        ...(resolvedInstructions !== null ? { instructions: resolvedInstructions } : {}),
+        ...(resolvedAdditionalInstructions !== null
+          ? { additionalInstructions: resolvedAdditionalInstructions }
+          : {}),
       };
       return textResult(result);
     },

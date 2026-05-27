@@ -26,6 +26,8 @@ function baseArgs(slug: string, future: number) {
     format: undefined,
     liveAnswersVisible: undefined,
     revealResponses: undefined,
+    instructions: undefined,
+    additionalInstructions: undefined,
   };
 }
 

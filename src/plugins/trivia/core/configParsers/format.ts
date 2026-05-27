@@ -51,6 +51,31 @@ export function normalizeTheme(raw: string): Result<string> {
 }
 
 /**
+ * Validate the per-tier `instructions` field (replace-cascade axis defined in
+ * the `trivia-prompt-instructions` capability). Trims, rejects empty / whitespace-only.
+ */
+export function normalizeInstructions(raw: string): Result<string> {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    return { ok: false, error: "instructions must be non-empty (pass null to clear)." };
+  }
+  return { ok: true, value: trimmed };
+}
+
+/**
+ * Validate the per-tier `additionalInstructions` field (cumulative-cascade axis
+ * defined in the `trivia-prompt-instructions` capability). Trims, rejects empty /
+ * whitespace-only.
+ */
+export function normalizeAdditionalInstructions(raw: string): Result<string> {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    return { ok: false, error: "additionalInstructions must be non-empty (pass null to clear)." };
+  }
+  return { ok: true, value: trimmed };
+}
+
+/**
  * Validate the per-tier `categories` field (carried by `SeasonEntry` and
  * `TriviaGame`). Trims, drops empty strings, dedupes preserving order, rejects
  * empty result. The caller forwards the deduped list to storage. Used by
@@ -77,6 +102,8 @@ interface RawSlot {
   liveAnswersVisible?: boolean | null;
   /** Permissive at the parse boundary — narrowed by `isRevealResponsesMode` at runtime. */
   revealResponses?: string | null;
+  instructions?: string | null;
+  additionalInstructions?: string | null;
 }
 
 interface RawFormat {
@@ -183,6 +210,32 @@ export function validateFormat(
         };
       }
     }
+    if (slot.instructions !== undefined && slot.instructions !== null) {
+      if (typeof slot.instructions !== "string") {
+        return { ok: false, error: `'${slotLabel}.instructions' must be a string` };
+      }
+      const trimmed = slot.instructions.trim();
+      if (trimmed.length === 0) {
+        return {
+          ok: false,
+          error: `'${slotLabel}.instructions' must be non-empty after trim`,
+        };
+      }
+      out.instructions = trimmed;
+    }
+    if (slot.additionalInstructions !== undefined && slot.additionalInstructions !== null) {
+      if (typeof slot.additionalInstructions !== "string") {
+        return { ok: false, error: `'${slotLabel}.additionalInstructions' must be a string` };
+      }
+      const trimmed = slot.additionalInstructions.trim();
+      if (trimmed.length === 0) {
+        return {
+          ok: false,
+          error: `'${slotLabel}.additionalInstructions' must be non-empty after trim`,
+        };
+      }
+      out.additionalInstructions = trimmed;
+    }
     normalized.push(out);
   }
   return { ok: true, value: { questions: normalized } };
@@ -210,6 +263,8 @@ const seasonFormatSlotZod = z.object({
   revealResponses: z
     .enum(REVEAL_RESPONSES_VALUES as readonly [RevealResponsesMode, ...RevealResponsesMode[]])
     .optional(),
+  instructions: z.string().optional(),
+  additionalInstructions: z.string().optional(),
 });
 
 /**
@@ -226,3 +281,9 @@ export const triviaCategoriesZod = z.array(z.string());
 
 /** Shared zod schema for the per-tier `theme` field. */
 export const triviaThemeZod = z.string();
+
+/** Shared zod schema for the per-tier `instructions` field (replace cascade). */
+export const triviaInstructionsZod = z.string();
+
+/** Shared zod schema for the per-tier `additionalInstructions` field (cumulative cascade). */
+export const triviaAdditionalInstructionsZod = z.string();

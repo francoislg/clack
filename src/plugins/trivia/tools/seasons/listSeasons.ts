@@ -27,6 +27,8 @@ interface ListSeasonsSlotEntry {
   difficultyRatio?: TriviaDifficultyRatioConfig;
   liveAnswersVisible?: boolean;
   revealResponses?: "no" | "just-correctness" | "yes";
+  instructions?: string;
+  additionalInstructions?: string;
 }
 
 function statusOf(entry: SeasonEntry, now: number): Status {
@@ -52,6 +54,10 @@ function mapSlot(slot: SeasonFormatSlot): ListSeasonsSlotEntry {
       ? { liveAnswersVisible: slot.liveAnswersVisible }
       : {}),
     ...(slot.revealResponses !== undefined ? { revealResponses: slot.revealResponses } : {}),
+    ...(slot.instructions !== undefined ? { instructions: slot.instructions } : {}),
+    ...(slot.additionalInstructions !== undefined
+      ? { additionalInstructions: slot.additionalInstructions }
+      : {}),
   };
 }
 
@@ -110,6 +116,10 @@ export function createListSeasonsTool(
         ...(entry.difficultyRatio !== undefined ? { difficultyRatio: entry.difficultyRatio } : {}),
         ...(entry.format !== undefined
           ? { format: { questions: entry.format.questions.map(mapSlot) } }
+          : {}),
+        ...(entry.instructions !== undefined ? { instructions: entry.instructions } : {}),
+        ...(entry.additionalInstructions !== undefined
+          ? { additionalInstructions: entry.additionalInstructions }
           : {}),
       }));
       return textResult({ game: args.game, seasons, total: seasons.length });

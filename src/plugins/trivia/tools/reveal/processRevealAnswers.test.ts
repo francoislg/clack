@@ -402,4 +402,64 @@ describe("process_reveal_answers — orchestrator", () => {
     assert.equal(res.leaderboard[0].userId, "U1");
     assert.equal(res.leaderboard[0].totalCorrect, 1);
   });
+
+  describe("instructions and additionalInstructions on the result", () => {
+    it("omits both when no tier sets them", async () => {
+      const data = createInMemoryDataLayer();
+      const tool = createProcessRevealAnswersTool(
+        data,
+        fakeSdk(),
+        fixtureGetGames,
+        async () => [],
+        fakeSlackDeps(),
+        () => ({}),
+      );
+      const res = parseToolResult(
+        await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+      );
+      assert.equal(res.instructions, undefined);
+      assert.equal(res.additionalInstructions, undefined);
+    });
+
+    it("surfaces workspace-tier instructions when set", async () => {
+      const data = createInMemoryDataLayer();
+      const tool = createProcessRevealAnswersTool(
+        data,
+        fakeSdk(),
+        fixtureGetGames,
+        async () => [],
+        fakeSlackDeps(),
+        () => ({ instructions: "Be funny." }),
+      );
+      const res = parseToolResult(
+        await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+      );
+      assert.equal(res.instructions, "Be funny.");
+    });
+
+    it("concatenates additionalInstructions across workspace + game (game has it)", async () => {
+      const data = createInMemoryDataLayer();
+      const tool = createProcessRevealAnswersTool(
+        data,
+        fakeSdk(),
+        () => [
+          {
+            name: FIXTURE_GAME_NAME,
+            channel: "C1",
+            questionCron: "0 9 * * *",
+            revealCron: "0 17 * * *",
+            timezone: "UTC",
+            additionalInstructions: "Be concise.",
+          },
+        ],
+        async () => [],
+        fakeSlackDeps(),
+        () => ({ additionalInstructions: "Avoid politics." }),
+      );
+      const res = parseToolResult(
+        await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+      );
+      assert.equal(res.additionalInstructions, "[Workspace] Avoid politics.\n\n[Game] Be concise.");
+    });
+  });
 });
