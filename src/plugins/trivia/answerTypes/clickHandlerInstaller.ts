@@ -16,6 +16,7 @@ import type { ClackSdk } from "../../sdk.js";
 import { triviaLogger as logger } from "../core/pluginLogger.js";
 import type { SubmittedAnswer, TriviaDataLayer } from "../core/types.js";
 import { editRosterIntoCard } from "../freeform/roster.js";
+import { t } from "../i18n/t.js";
 import type { ClickableAnswerHandler, InteractionRegistrationDeps } from "./types.js";
 
 /**
@@ -131,7 +132,7 @@ export function installClickableVoteHandler(
         try {
           await respond({
             response_type: "ephemeral",
-            text: "Answers are closed for this round.",
+            text: t("error.answers_closed_round"),
           });
         } catch (err) {
           logger.warn(`[trivia:vote] ephemeral respond failed: ${err}`);

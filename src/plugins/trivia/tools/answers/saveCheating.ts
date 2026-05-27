@@ -5,6 +5,7 @@ import type { ClackSdk } from "../../../sdk.js";
 import { defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
 import { requireWritableGame } from "../../core/gamesRegistry.js";
 import type { TriviaDataLayer, CheatReport } from "../../core/types.js";
+import { t } from "../../i18n/t.js";
 
 const DESCRIPTION = `Record a confirmed trivia cheating attempt against a user within a specific game.
 
@@ -91,7 +92,7 @@ function formatOwnerNotification(report: {
   evidence?: string;
 }): string {
   const lines = [
-    `🚨 Trivia cheat report`,
+    t("cheat.report_title"),
     `Cheater: <@${report.cheaterUserId}> (total attempts: ${report.totalAttempts})`,
     `Question: \`${report.questionId}\``,
     `Reason: ${report.reason}`,

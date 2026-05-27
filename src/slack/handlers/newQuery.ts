@@ -7,6 +7,7 @@ import { resolveChannelLabel, resolveUserLabel, slackLink } from "../logContext.
 import { extractMessageText } from "../messageBuilder.js";
 import { extractAttachments, type ExtractedAttachments } from "../fileExtractor.js";
 import { processMessage } from "./core.js";
+import { t } from "../../i18n/t.js";
 
 export interface NewQueryDeps {
   getConfig: typeof getConfig;
@@ -168,10 +169,8 @@ export function registerNewQueryHandler(app: App, deps: NewQueryDeps = defaultNe
         channel,
         user: userId,
         thread_ts: resolved?.threadTs || ts,
-        text: "Sorry, I couldn't read the message. Make sure I'm invited to this channel.",
-        blocks: getErrorBlocks(
-          "Sorry, I couldn't read the message. Make sure I'm invited to this channel.",
-        ),
+        text: t("errors.message_read_failed"),
+        blocks: getErrorBlocks(t("errors.message_read_failed")),
       });
       return;
     }

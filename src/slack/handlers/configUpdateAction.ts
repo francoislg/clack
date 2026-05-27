@@ -8,6 +8,7 @@ import { decodeActionValue } from "../blocks.js";
 import { activeSessions, type SessionInfo } from "../activeSessions.js";
 import { writeInstructionFile } from "../../configurationFiles.js";
 import { errorMessage } from "../../errors.js";
+import { t } from "../../i18n/t.js";
 import type { UserRole } from "../../roles.js";
 
 export interface ConfigUpdateActionDeps {
@@ -47,7 +48,7 @@ export function registerConfigUpdateActionHandler(
       await client.chat.postEphemeral({
         channel: body.channel?.id ?? "",
         user: userId,
-        text: "You don't have permission to update configuration. Requires admin role or higher.",
+        text: t("errors.config_update_permission_denied"),
       });
       return;
     }
@@ -72,7 +73,7 @@ export function registerConfigUpdateActionHandler(
         channel: sessionInfo.channelId,
         user: userId,
         thread_ts: sessionInfo.threadTs,
-        text: "Sorry, this config update request has expired. Please try again.",
+        text: t("errors.config_update_request_expired"),
       });
       return;
     }

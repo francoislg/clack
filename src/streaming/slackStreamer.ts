@@ -112,7 +112,7 @@ export class SlackStreamer {
     this.threadTs = opts.threadTs;
     this.userId = opts.userId;
     this.teamId = opts.teamId;
-    this.thinkingTitle = opts.thinkingTitle ?? "Analyzing…";
+    this.thinkingTitle = opts.thinkingTitle ?? t("streamer.analyzing");
     this.logger = opts.logger ?? defaultLogger;
   }
 

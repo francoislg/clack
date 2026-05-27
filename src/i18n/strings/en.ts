@@ -352,6 +352,53 @@ export const en = {
   "dm.synthesis.update_original": "Update original post",
   "dm.synthesis.post_new": "Post new reply",
   "dm.synthesis.cancel": "Cancel",
+
+  // ─── DM action notices & confirmations ─────────────────────────────
+  "dm.session_expired": "Sorry, this session has expired. Please try again.",
+  "dm.stale_button":
+    ":warning: This button is from an older response and can no longer be posted. Ask Clack again to get a fresh copy.",
+  "dm.answer_shared": ":white_check_mark: Answer shared.",
+  "dm.post_failed": ":warning: Failed to post. The bot may not have access to that channel.",
+  "dm.answer_posted":
+    ":white_check_mark: Answer posted to the channel. You can continue refining here if needed.",
+  "dm.edit_expired": "Sorry, this session has expired or has no answer to edit.",
+  "dm.edit_modal_title": "Edit before sharing",
+  "dm.edit_modal_submit": "Share",
+  "dm.edit_modal_answer_label": "Answer",
+  "dm.edited_posted": ":white_check_mark: Edited answer posted to the original thread.",
+  "dm.discarded": "Got it, discarded.",
+  "dm.original_updated": ":white_check_mark: Original post updated.",
+  "dm.new_reply_posted": ":white_check_mark: New reply posted to the original thread.",
+
+  // ─── Change-action & config-update notices ─────────────────────────
+  "errors.change_action_permission_denied":
+    "You don't have permission to perform change actions. Requires dev role or higher.",
+  "errors.change_action_expired": "Sorry, this action has expired. Please try again.",
+  "errors.no_active_change_thread": "No active change found in this thread.",
+  "errors.config_update_permission_denied":
+    "You don't have permission to update configuration. Requires admin role or higher.",
+  "errors.config_update_request_expired":
+    "Sorry, this config update request has expired. Please try again.",
+  "errors.message_read_failed":
+    "Sorry, I couldn't read the message. Make sure I'm invited to this channel.",
+
+  // ─── Error report (DM) ─────────────────────────────────────────────
+  "errors.report_header": "⚠️ Error Report",
+  "errors.report_body": "An error occurred while processing your request.",
+  "errors.report_fallback": "Error Report - An error occurred while processing your request.",
+  "errors.report_session_id_label": "Session ID:",
+  "errors.report_error_label": "Error:",
+  "errors.report_analysis_label": "Analysis:",
+
+  // ─── Post-response follow-up nudge ─────────────────────────────────
+  "response.ready_followup": "Response ready! Need anything else?",
+
+  // ─── Streaming task-card titles ────────────────────────────────────
+  "streamer.analyzing": "Analyzing…",
+  "streamer.working_on": "Working on {branch}",
+
+  // ─── Scheduled reminder attribution ────────────────────────────────
+  "reminder.attribution_prefix": "🔔 Reminder from {user}:",
 } as const;
 
 export type StringKey = keyof typeof en;

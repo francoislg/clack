@@ -1,5 +1,6 @@
 import type { App } from "@slack/bolt";
 import { logger } from "../logger.js";
+import { t } from "../i18n/t.js";
 import type { ThreadMessage } from "../sessions.js";
 import type { ConversationMessage } from "../claude/index.js";
 import { resolveUsers, transformUserMentions } from "./userCache.js";
@@ -181,7 +182,7 @@ export async function sendErrorReport(
       type: "header" as const,
       text: {
         type: "plain_text" as const,
-        text: "⚠️ Error Report",
+        text: t("errors.report_header"),
         emoji: true,
       },
     },
@@ -189,7 +190,7 @@ export async function sendErrorReport(
       type: "section" as const,
       text: {
         type: "mrkdwn" as const,
-        text: `An error occurred while processing your request.`,
+        text: t("errors.report_body"),
       },
     },
     {
@@ -197,11 +198,11 @@ export async function sendErrorReport(
       fields: [
         {
           type: "mrkdwn" as const,
-          text: `*Session ID:*\n\`${sessionId}\``,
+          text: `*${t("errors.report_session_id_label")}*\n\`${sessionId}\``,
         },
         {
           type: "mrkdwn" as const,
-          text: `*Error:*\n${errorMessage}`,
+          text: `*${t("errors.report_error_label")}*\n${errorMessage}`,
         },
       ],
     },
@@ -212,7 +213,7 @@ export async function sendErrorReport(
       type: "section" as const,
       text: {
         type: "mrkdwn" as const,
-        text: `*Analysis:*\n${analysis}`,
+        text: `*${t("errors.report_analysis_label")}*\n${analysis}`,
       },
     },
   ];
@@ -223,7 +224,7 @@ export async function sendErrorReport(
   try {
     const msg = await client.chat.postMessage({
       channel: channelId,
-      text: "Error Report - An error occurred while processing your request.",
+      text: t("errors.report_fallback"),
       blocks,
       ...unfurlOptions(postOptions.suppressUnfurls),
     });

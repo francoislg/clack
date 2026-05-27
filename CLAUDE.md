@@ -36,7 +36,8 @@ npx tsc              # Type-check without emitting (use to verify changes)
 - Functional style preferred; minimal class usage
 - `async/await` throughout; no raw Promise chains
 - Explicit TypeScript types; avoid `any`
-- **User-facing strings emitted by TypeScript code MUST go through `t()`** from `src/i18n/t.js`. Add the key to `src/i18n/strings/en.ts` (source of truth) and `src/i18n/strings/fr.ts` (parity test enforces). Internal logs, dev-facing console messages, and tool descriptions Claude reads stay English.
+- **Strings on the DIRECT-to-Slack path MUST go through `t()`** (core, from `src/i18n/t.js`) or **`sdk.t()`** (plugins). A string is on the direct path when it reaches a Slack user _without_ passing back through Claude's `submit_response` — message text, Block Kit element, button/modal label, status indicator, thinking-card title, ephemeral notice, or DM. Add the key to `src/i18n/strings/en.ts` (source of truth) and `src/i18n/strings/fr.ts`; the parity test enforces key/placeholder parity AND that no FR value is left identical to EN (allowlist for legitimate identicals). Plugins register their own dictionary via `sdk.registerDictionary({ en, fr })` and resolve with `sdk.t()`.
+- **Strings on the VIA-Claude path STAY English.** Tool results returned to Claude (`textResult`/`errorResult` envelopes), Claude-facing prompt instructions, and tool descriptions are consumed by Claude, which re-renders user-facing output in the configured language via the LANGUAGE directive. Routing these through `t()` is redundant and degrades Claude's reasoning — leave them English. Internal logs and dev-facing console messages also stay English.
 
 ## Test Conventions
 
@@ -118,6 +119,7 @@ Two worktree models behind a config flag (`changesWorkflow.reusableFolders.enabl
 - **Reusable pool**: a bounded pool of long-lived `data/worktrees/<repo>/worker-N/` folders. Each worker runs the heavy setup once at creation; subsequent requests on different branches reuse the worker via `git checkout -B <branch> origin/<default>` and run only the idempotent `worktree_install_instructions.md` step (e.g. `pnpm install --frozen-lockfile`). Workers persist their state in `data/state/workers.json` + `<worker>/.clack-worker-state.json` sidecars.
 
 Reusable pool config block (under `changesWorkflow.reusableFolders`):
+
 - `enabled` — turn the pool on
 - `minimumProvisioned` — workers warmed at boot per repo (sequential per-repo to avoid port-allocation races; start with 1)
 - `maxConcurrent` — hard cap on pool size per repo
