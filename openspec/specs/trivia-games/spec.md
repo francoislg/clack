@@ -83,7 +83,7 @@ When `enabled` is `false` on a game entry:
 
 1. `buildGameSpecs` SHALL skip the entry — no cron jobs are reconciled for it.
 2. Per-game write tools (`save_question`, `submit_answers`, `save_cheating`, `upsert_season`, `delete_season`) invoked with that game's `name` SHALL return a structured "game is disabled" error.
-3. Per-game read tools (`find_previous_questions`, `get_question_history`, `retrieve_scores`, `list_seasons`, `check_season_status`, `get_ideas`) invoked with that game's `name` SHALL succeed (frozen-archive semantics).
+3. Per-game read tools (`get_question_history`, `retrieve_scores`, `list_seasons`, `check_season_status`, `get_ideas`) invoked with that game's `name` SHALL succeed (frozen-archive semantics). `find_previous_questions` is cross-game by default; when its `games` argument names a disabled entry, it also SHALL succeed.
 4. `list_games` SHALL exclude the entry from its default response; pass `includeDisabled: true` to surface it.
 
 #### Scenario: Disabled game omitted from cron reconcile
@@ -103,7 +103,7 @@ When `enabled` is `false` on a game entry:
 
 - **GIVEN** `config.trivia.games[]` contains `{ name: "retired", enabled: false, ... }`
 - **AND** `data/plugins/trivia/games/retired/questions.json` contains historical entries
-- **WHEN** `find_previous_questions` is invoked with `game: "retired", text: "..."`
+- **WHEN** `find_previous_questions` is invoked with `games: ["retired"], keywords: ["..."]`
 - **THEN** the tool succeeds and returns matching entries
 
 ### Requirement: Per-game data directory layout
@@ -118,7 +118,7 @@ For every entry in `config.trivia.games[]`, the Trivia plugin SHALL store that g
 - **WHEN** `save_question` is called with `game: "sandbox"` and a valid payload
 - **THEN** the question is appended to `data/plugins/trivia/games/sandbox/questions.json`
 - **AND** the question does NOT appear in `data/plugins/trivia/games/main/questions.json`
-- **AND** `find_previous_questions` called with `game: "main"` does NOT return the sandbox question
+- **AND** `find_previous_questions` called with `games: ["main"]` does NOT return the sandbox question
 
 #### Scenario: Categories and users are shared across games
 
@@ -138,19 +138,26 @@ For every entry in `config.trivia.games[]`, the Trivia plugin SHALL store that g
 
 ### Requirement: Universal `game` argument on per-game tools
 
-Every Trivia plugin MCP tool that reads or writes per-game data SHALL accept a required `game: string` argument. Each such tool SHALL, on every invocation, resolve the name against `config.trivia.games[]` and:
+Every Trivia plugin MCP tool that reads or writes per-game data — EXCEPT `find_previous_questions`, which is cross-game by default and accepts an optional `games: string[]` per its own capability — SHALL accept a required `game: string` argument. Each such tool SHALL, on every invocation, resolve the name against `config.trivia.games[]` and:
 
 1. Return a structured "unknown game" error if no entry has that `name`.
 2. Return a structured "game is disabled" error if the matching entry has `enabled: false` AND the tool is a write tool (per the "Enabled flag" requirement above).
 3. Otherwise, route all per-game I/O through `data/plugins/trivia/games/<name>/`.
 
-The per-game tools SHALL be: `get_ideas`, `save_question`, `find_previous_questions`, `get_question_history`, `submit_answers`, `retrieve_scores`, `save_cheating`. When `trivia.seasons.enabled` is `true`, additionally: `check_season_status`, `upsert_season`, `delete_season`, `list_seasons`.
+The single-`game`-arg per-game tools SHALL be: `get_ideas`, `save_question`, `get_question_history`, `submit_answers`, `retrieve_scores`, `save_cheating`. When `trivia.seasons.enabled` is `true`, additionally: `check_season_status`, `upsert_season`, `delete_season`, `list_seasons`. `find_previous_questions` resolves each entry of its optional `games: string[]` array the same way (unknown-name rejection + disabled-allowed read semantics).
 
 #### Scenario: Unknown game rejected
 
 - **GIVEN** `config.trivia.games[]` contains only `{ name: "main", ... }`
-- **WHEN** `find_previous_questions` is called with `game: "ghost"` and any other valid args
+- **WHEN** `save_question` is called with `game: "ghost"` and otherwise-valid args
 - **THEN** the tool returns a structured "unknown game" error
+- **AND** no I/O occurs against any `games/*/` directory
+
+#### Scenario: Unknown name in find_previous_questions games array rejected
+
+- **GIVEN** `config.trivia.games[]` contains only `{ name: "main", ... }`
+- **WHEN** `find_previous_questions` is called with `games: ["ghost"]`
+- **THEN** the tool returns a structured "unknown game" error citing `"ghost"`
 - **AND** no I/O occurs against any `games/*/` directory
 
 #### Scenario: Missing game argument rejected by Zod
