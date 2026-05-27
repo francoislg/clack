@@ -170,10 +170,11 @@ describe("choice-questions end-to-end flow", () => {
     const findResult = parseToolResult(
       await findPrev.handler(
         {
-          game: FIXTURE_GAME_NAME,
-          category: undefined,
-          text: "planet",
-          season: undefined,
+          games: [FIXTURE_GAME_NAME],
+          categories: undefined,
+          seasons: undefined,
+          keywords: ["planet"],
+          match: undefined,
           recentBatchFromNow: undefined,
           limit: undefined,
         },

@@ -33,6 +33,39 @@ export const FIXTURE_GAMES: readonly TriviaGame[] = [
 export const fixtureGetGames = () => FIXTURE_GAMES;
 
 /**
+ * Multi-game fixture for cross-game tests: `main`, `sandbox` (both enabled), and
+ * `retired` (disabled — still readable per the frozen-archive semantics).
+ */
+export const MULTI_FIXTURE_GAMES: readonly TriviaGame[] = [
+  {
+    name: "main",
+    channel: "C100000000",
+    questionCron: "0 9 * * 1-5",
+    revealCron: "0 17 * * 1-5",
+    timezone: "UTC",
+    enabled: true,
+  },
+  {
+    name: "sandbox",
+    channel: "C200000000",
+    questionCron: "0 9 * * 1-5",
+    revealCron: "0 17 * * 1-5",
+    timezone: "UTC",
+    enabled: true,
+  },
+  {
+    name: "retired",
+    channel: "C300000000",
+    questionCron: "0 9 * * 1-5",
+    revealCron: "0 17 * * 1-5",
+    timezone: "UTC",
+    enabled: false,
+  },
+];
+
+export const multiFixtureGetGames = () => MULTI_FIXTURE_GAMES;
+
+/**
  * Per-game in-memory storage cell. The factory below maintains one cell per game
  * name and lazily creates new ones on `forGame(name)` — mirrors how the real SDK
  * data layer treats unregistered games as "empty until first write."

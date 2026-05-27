@@ -5,20 +5,20 @@ import { getAnswerTypeHandler } from "../../answerTypes/registry.js";
 import type { JsonValue } from "../../core/configTypes.js";
 import { findCurrentSeason } from "../../core/seasonTimeline.js";
 import { defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
-import { requireGame } from "../../core/gamesRegistry.js";
+import { UnknownGameError } from "../../core/gamesRegistry.js";
 import type { TriviaDataLayer, TriviaQuestion } from "../../core/types.js";
 
-// Sentinel for "filter to a slug that can't match any record"; used when season:"current" is
-// requested during a timeline gap (current season doesn't exist, so the result must be empty).
-const NO_MATCH_SENTINEL = "__no_match_sentinel__";
+const CURRENT_SEASON_TOKEN = "current";
 
-// The response intentionally omits the answer-key fields — per-format extras
-// are sourced from `handler.buildSearchResult(q)` so this tool never reads
-// format-specific fields directly. Adding a 4th format means writing one new
-// `buildSearchResult` on its handler; this projection doesn't move.
-function toSearchResult(q: TriviaQuestion): Record<string, JsonValue> {
+type QuestionWithGame = TriviaQuestion & { __game: string };
+
+function toSearchResult(
+  q: QuestionWithGame,
+  matchedKeywords: string[] | null,
+): Record<string, JsonValue> {
   const result: Record<string, JsonValue> = {
     id: q.id,
+    game: q.__game,
     category: q.category,
     statement: q.statement,
     emojis: q.emojis,
@@ -36,6 +36,7 @@ function toSearchResult(q: TriviaQuestion): Record<string, JsonValue> {
   if (q.context !== undefined) result.context = q.context;
   if (q.sourceUrl !== undefined) result.sourceUrl = q.sourceUrl;
   if (q.eventDate !== undefined) result.eventDate = q.eventDate;
+  if (matchedKeywords !== null) result.matchedKeywords = matchedKeywords;
   const handler = getAnswerTypeHandler(q.answersFormat);
   return { ...result, ...handler.buildSearchResult(q) };
 }
@@ -46,26 +47,45 @@ export function createFindPreviousQuestionsTool(
 ) {
   return tool(
     "find_previous_questions",
-    "Search past trivia questions by category and/or statement text to check what has been asked before. Defaults to searching across all seasons. Pass `recentBatchFromNow: N` to fetch the Nth most recently posted batch as of now (1 = latest, 2 = the one before that, etc.).",
+    [
+      "Search past trivia questions across one or more games by combining array-shaped criteria with a top-level `match` combinator.",
+      "",
+      'Each non-empty array criterion (`games`, `categories`, `seasons`, `keywords`) is OR-internal — a row matches the criterion if ANY entry hits. `match` (default `"all"`) combines criteria across the top level: `"all"` requires every supplied criterion to be true; `"any"` requires at least one. Omitted or empty arrays are ignored.',
+      "",
+      "When `games` is omitted, the scan spans every registered game; per-row responses carry `game` so you can see provenance. When `keywords` is supplied, per-row responses include `matchedKeywords` (the subset of input keywords that hit each row's statement).",
+      "",
+      'For duplicate detection during question generation, prefer `match: "any"` with 3-5 distinctive keywords (names, numbers, rare nouns) and omit `games`. For admin lookups (e.g. "last batch\'s difficulty"), pass `games: ["<name>"]` with `recentBatchFromNow: N` (requires exactly one game).',
+    ].join("\n"),
     {
-      game: z
-        .string()
+      games: z
+        .array(z.string())
+        .optional()
         .describe(
-          "Game name (must be present in config.trivia.games[]). Search is scoped to this game's questions only.",
+          "Optional array of game names (each must appear in config.trivia.games[]). When omitted or empty, the scan spans every registered game. Within the array, semantics are OR — a row matches if its source game is any of the listed names.",
         ),
-      category: z
-        .string()
-        .optional()
-        .describe("Filter by category (exact match, case-insensitive)"),
-      text: z
-        .string()
-        .optional()
-        .describe("Search in statement text (case-insensitive substring match)"),
-      season: z
-        .string()
+      categories: z
+        .array(z.string())
         .optional()
         .describe(
-          'Season filter: "all" (default — scans every season, the right choice for duplicate detection), "current" (scopes to the active season), or any historical season slug.',
+          "Optional array of category names (case-insensitive exact match per entry). OR-internal.",
+        ),
+      seasons: z
+        .array(z.string())
+        .optional()
+        .describe(
+          'Optional array of season slugs. The literal "current" resolves per-game via the game\'s current season. OR-internal. Silently ignored when trivia.seasons.enabled is false.',
+        ),
+      keywords: z
+        .array(z.string())
+        .optional()
+        .describe(
+          "Optional array of keywords. Each entry is matched as a lowercased substring against the row's statement. OR-internal. When non-empty, returned rows carry `matchedKeywords` showing which input keywords hit.",
+        ),
+      match: z
+        .enum(["any", "all"])
+        .optional()
+        .describe(
+          'Combinator across top-level criteria. "all" (default) requires every supplied criterion to be true for a row; "any" requires at least one. Does NOT alter the OR semantics within any single array.',
         ),
       recentBatchFromNow: z
         .number()
@@ -73,47 +93,128 @@ export function createFindPreviousQuestionsTool(
         .positive()
         .optional()
         .describe(
-          "Select the Nth most recently posted batch AS OF THE CURRENT MOMENT. 1 = the latest batch, 2 = the one before that, and so on. Ranks batches by their max(postedAt) anchored to NOW — this is NOT a season-relative position and NOT an absolute index. Other filters (category, text, season) are applied to the question pool BEFORE grouping; the selected batch is then returned in full (capped by limit). Legacy questions with no batchId are excluded from this view.",
+          "Select the Nth most recently posted batch AS OF THE CURRENT MOMENT. 1 = latest, 2 = the one before, etc. REQUIRES `games.length === 1` (batch IDs are unique only within a game). Other filters apply to the question pool BEFORE grouping; the selected batch is returned in full (capped by limit). Legacy questions with no batchId are excluded.",
         ),
       limit: z
         .number()
         .int()
         .positive()
         .optional()
-        .describe("Maximum number of questions to return (default 20, most recent first)"),
+        .describe("Maximum number of questions to return (default 20, most recent first)."),
     },
     async (args) => {
-      try {
-        requireGame(getGamesFn(), args.game);
-      } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+      const games = getGamesFn();
+      const limit = args.limit ?? 20;
+      const match = args.match ?? "all";
+
+      const requestedGames = args.games ?? [];
+      const gamesProvided = requestedGames.length > 0;
+
+      let inScopeGames: string[];
+      if (gamesProvided) {
+        try {
+          for (const name of requestedGames) {
+            if (games.find((g) => g.name === name) === undefined) {
+              throw new UnknownGameError(name);
+            }
+          }
+        } catch (err) {
+          return errorResult(err instanceof Error ? err.message : String(err));
+        }
+        inScopeGames = [...requestedGames];
+      } else {
+        inScopeGames = games.map((g) => g.name);
       }
 
-      const scoped = data.forGame(args.game);
-      const limit = args.limit ?? 20;
-      const questions = await scoped.loadQuestions();
+      if (args.recentBatchFromNow !== undefined && requestedGames.length !== 1) {
+        return errorResult(
+          'recentBatchFromNow requires exactly one game; pass `games: ["<name>"]`.',
+        );
+      }
 
-      const seasonsState = await scoped.loadSeasonsState();
-      const seasonsEnabled = seasonsState !== null;
-      const currentSeason = findCurrentSeason(seasonsState, Date.now());
-      const seasonArg = args.season ?? "all";
-      const seasonFilter: string | null =
-        !seasonsEnabled || seasonArg === "all"
-          ? null
-          : seasonArg === "current"
-            ? (currentSeason?.slug ?? NO_MATCH_SENTINEL)
-            : seasonArg;
+      const categoriesProvided = (args.categories?.length ?? 0) > 0;
+      const seasonsProvided = (args.seasons?.length ?? 0) > 0;
+      const keywordsProvided = (args.keywords?.length ?? 0) > 0;
 
-      const filtered = questions.filter((q) => {
-        if (args.category && q.category.toLowerCase() !== args.category.toLowerCase()) return false;
-        if (args.text && !q.statement.toLowerCase().includes(args.text.toLowerCase())) return false;
-        if (seasonFilter !== null && q.season !== seasonFilter) return false;
-        return true;
+      const categoriesLower = categoriesProvided
+        ? (args.categories ?? []).map((c) => c.toLowerCase())
+        : [];
+      const keywordsLower = keywordsProvided
+        ? (args.keywords ?? []).map((k) => k.toLowerCase())
+        : [];
+
+      const perGameSeasonSlugs = new Map<string, Set<string>>();
+      let seasonsEffective = false;
+
+      if (seasonsProvided) {
+        for (const gameName of inScopeGames) {
+          const scoped = data.forGame(gameName);
+          const seasonsState = await scoped.loadSeasonsState();
+          if (seasonsState === null) continue;
+          seasonsEffective = true;
+          const resolvedSlugs = new Set<string>();
+          for (const entry of args.seasons ?? []) {
+            if (entry === CURRENT_SEASON_TOKEN) {
+              const current = findCurrentSeason(seasonsState, Date.now());
+              if (current !== null) resolvedSlugs.add(current.slug);
+            } else {
+              resolvedSlugs.add(entry);
+            }
+          }
+          perGameSeasonSlugs.set(gameName, resolvedSlugs);
+        }
+      }
+
+      const useSeasonsCriterion = seasonsProvided && seasonsEffective;
+
+      const allQuestions: QuestionWithGame[] = [];
+      for (const gameName of inScopeGames) {
+        const scoped = data.forGame(gameName);
+        const rows = await scoped.loadQuestions();
+        for (const q of rows) {
+          allQuestions.push(Object.assign({}, q, { __game: gameName }));
+        }
+      }
+
+      const filtered = allQuestions.filter((q) => {
+        const criteria: boolean[] = [];
+
+        if (gamesProvided) {
+          criteria.push(requestedGames.includes(q.__game));
+        }
+
+        if (categoriesProvided) {
+          criteria.push(categoriesLower.includes(q.category.toLowerCase()));
+        }
+
+        if (useSeasonsCriterion) {
+          const allowed = perGameSeasonSlugs.get(q.__game);
+          criteria.push(allowed !== undefined && q.season !== undefined && allowed.has(q.season));
+        }
+
+        if (keywordsProvided) {
+          const statementLower = q.statement.toLowerCase();
+          criteria.push(keywordsLower.some((kw) => statementLower.includes(kw)));
+        }
+
+        if (criteria.length === 0) return true;
+        return match === "all" ? criteria.every(Boolean) : criteria.some(Boolean);
       });
+
+      function computeMatchedKeywords(q: QuestionWithGame): string[] | null {
+        if (!keywordsProvided) return null;
+        const statementLower = q.statement.toLowerCase();
+        const keywords = args.keywords ?? [];
+        const hits: string[] = [];
+        for (let i = 0; i < keywords.length; i++) {
+          if (statementLower.includes(keywordsLower[i])) hits.push(keywords[i]);
+        }
+        return hits;
+      }
 
       if (args.recentBatchFromNow !== undefined) {
         const batched = filtered.filter((q) => q.postedAt !== undefined && q.batchId !== undefined);
-        const groups = new Map<string, TriviaQuestion[]>();
+        const groups = new Map<string, QuestionWithGame[]>();
         for (const q of batched) {
           const key = q.batchId as string;
           const bucket = groups.get(key);
@@ -139,7 +240,7 @@ export function createFindPreviousQuestionsTool(
         const batchQuestions = [...selected.items]
           .sort((a, b) => (a.postedAt as number) - (b.postedAt as number))
           .slice(0, limit)
-          .map(toSearchResult);
+          .map((q) => toSearchResult(q, computeMatchedKeywords(q)));
 
         return textResult({
           questions: batchQuestions,
@@ -151,7 +252,7 @@ export function createFindPreviousQuestionsTool(
       const sorted = filtered
         .sort((a, b) => b.createdAt - a.createdAt)
         .slice(0, limit)
-        .map(toSearchResult);
+        .map((q) => toSearchResult(q, computeMatchedKeywords(q)));
 
       return textResult({ questions: sorted, count: sorted.length, total: filtered.length });
     },

@@ -171,9 +171,20 @@ describe("SEND_QUESTIONS_INSTRUCTIONS — format-aware multi-slot loop", () => {
     assert.match(SEND_QUESTIONS_INSTRUCTIONS, /items MUST be in slot-index order/);
   });
 
-  it("documents that duplicate detection stays game-scoped, not slot-scoped", () => {
-    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /GAME-SCOPED, not slot-scoped/);
+  it("documents that duplicate detection is cross-game and not slot-scoped", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /CROSS-GAME/);
+    assert.doesNotMatch(SEND_QUESTIONS_INSTRUCTIONS, /GAME-SCOPED/);
     assert.match(SEND_QUESTIONS_INSTRUCTIONS, /do NOT filter by slot/i);
+  });
+
+  it("uses keywords plus match for dedup and omits the games argument", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /find_previous_questions\(\{ keywords: \[/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /match: "any"/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /OMIT the `games` argument/);
+    assert.doesNotMatch(
+      SEND_QUESTIONS_INSTRUCTIONS,
+      /Call find_previous_questions with a distinctive keyword/,
+    );
   });
 
   it("instructs the slot-0 header to be a date-stamped round opener distinct from the show banner", () => {

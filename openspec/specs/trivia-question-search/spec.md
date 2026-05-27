@@ -8,21 +8,32 @@ Question creation and discovery for trivia questions, including validation, sear
 
 ### Requirement: Find previous questions tool
 
-The system SHALL provide a `find_previous_questions` MCP tool (member role) that searches past trivia questions by category and/or statement text within a specified game.
+The system SHALL provide a `find_previous_questions` MCP tool (member role) that searches past trivia questions by combining one or more array-shaped criteria with a top-level boolean combinator.
 
-The tool SHALL accept a required `game: string` argument. The name SHALL be validated against `config.trivia.games[]` per the `trivia-games` capability:
-- Unknown name → structured "unknown game" error.
-- `enabled: false` entry → success (read tools succeed against disabled games — frozen-archive semantics).
+#### Top-level criteria
 
-All search I/O SHALL be scoped to `data/plugins/trivia/games/<name>/questions.json`. Cross-game search is not supported.
+The tool SHALL accept the following array-shaped filter criteria. Within any single array, semantics are always OR — a row matches the criterion if ANY entry hits. An omitted array, or an empty array, SHALL be treated as "criterion not supplied" and SHALL NOT participate in the cross-criterion combinator.
 
-The tool SHALL accept an optional `season` parameter (string, optional):
+- `games?: string[]` — each entry SHALL be validated against `config.trivia.games[]` per the `trivia-games` capability. Unknown entry → structured "unknown game" error citing the offending name. Disabled entries are permitted (read tool — frozen-archive semantics). When `games` is omitted or empty, the tool SHALL read `questions.json` from every game registered in `config.trivia.games[]`, skipping any whose file is absent on disk.
+- `categories?: string[]` — case-insensitive exact match against the row's `category`. Row matches if its `category` equals any entry (case-insensitive).
+- `seasons?: string[]` — each entry is either a season slug or the literal `"current"`. Row matches if its `season` equals any resolved entry. `"current"` SHALL be resolved per-game via `findCurrentSeason` against that game's `seasons.json`; if a game's `findCurrentSeason` returns `null`, `"current"` contributes no match for rows in that game. When `trivia.seasons.enabled` is `false`, the `seasons` argument SHALL be silently ignored and SHALL NOT participate in the combinator.
+- `keywords?: string[]` — each entry is lowercased; the row matches if its lowercased `statement` includes any entry as a substring.
 
-- When `season` is omitted, the default SHALL be `"all"` — the tool searches across every entry in the game's `questions.json` regardless of any `season` tag. This default ensures duplicate detection naturally spans the game's seasons.
-- When `season` is `"current"`, the tool SHALL filter the game's `questions.json` to entries whose `season` matches the game's currently-active season's slug (resolved via `findCurrentSeason` against `data/plugins/trivia/games/<name>/seasons.json`). If `findCurrentSeason` returns `null` (gap), `"current"` resolves to no matches.
-- When `season` is any other string, the tool SHALL filter to entries whose `season` exactly matches the provided value.
+#### Top-level combinator
 
-When `trivia.seasons.enabled` is `false`, the `season` parameter SHALL be silently ignored and the tool SHALL search across the entire game's `questions.json`.
+The tool SHALL accept an optional `match: "any" | "all"` argument, defaulting to `"all"`. The combinator governs how supplied criteria combine across the top level — it does NOT alter the within-array OR semantics of any single criterion.
+
+- `match: "all"` — a row matches the filter iff every supplied criterion is true for the row.
+- `match: "any"` — a row matches the filter iff at least one supplied criterion is true for the row.
+
+When NO criteria are supplied (every array criterion is omitted or empty), the tool SHALL return every question in scope (matching `recentBatchFromNow` and `limit` behavior as defined below). The combinator value is irrelevant in this case.
+
+#### Per-row response
+
+Each returned question SHALL carry, in addition to the safety-preserved fields enumerated in the `Find previous questions response excludes the answer key` requirement, the following:
+
+- `game: string` — the game the row came from. Present on every row regardless of whether the call was cross-game or single-game.
+- `matchedKeywords?: string[]` — present iff the call supplied a non-empty `keywords` array. Each entry SHALL be a member of the input `keywords` whose lowercased form is a substring of the row's lowercased `statement`. Order SHALL preserve the input `keywords` order. The field SHALL be absent when `keywords` was omitted or empty.
 
 The tool SHALL accept an optional `recentBatchFromNow: number` parameter (positive integer, 1-indexed) that selects a single batch of posted questions, ranked by recency anchored to the current moment. `1` SHALL mean the batch with the most recent `postedAt` as of now; `2` SHALL mean the batch before that; and so on. The argument name and the tool's description SHALL both make the "as of now" framing explicit so that callers do not interpret it as an absolute index or a season-relative position.
 
@@ -37,67 +48,109 @@ When `recentBatchFromNow` is provided, the tool SHALL:
 
 When `recentBatchFromNow <= 0` or is not a positive integer, the tool SHALL return a validation error (enforced by the Zod schema).
 
-#### Scenario: Search by category within a game
+#### Scenario: Cross-game scan when `games` is omitted
 
-- **WHEN** `find_previous_questions` is called with `game: "main", category: "Marine Biology"`
-- **THEN** the tool returns all questions in `games/main/questions.json` whose `category` matches "Marine Biology"
+- **GIVEN** `config.trivia.games[]` contains `"main"` and `"sandbox"`, each with a `questions.json` containing a question whose `statement` includes "shrimp"
+- **WHEN** `find_previous_questions` is called with `keywords: ["shrimp"]` and no `games` argument
+- **THEN** the result contains both the main and sandbox questions
+- **AND** each returned row carries a `game` field naming its origin
 
-#### Scenario: Search by text within a game
+#### Scenario: Single-game scoping via `games: ["main"]`
 
-- **WHEN** `find_previous_questions` is called with `game: "main", text: "shrimp"`
-- **THEN** the tool returns all questions in `games/main/questions.json` whose `statement` contains "shrimp" (case-insensitive)
+- **WHEN** `find_previous_questions` is called with `games: ["main"], keywords: ["shrimp"]`
+- **THEN** only `main` questions are scanned
+- **AND** every returned row carries `game: "main"`
 
-#### Scenario: Search by both category and text
+#### Scenario: Multi-game scoping via `games: ["main", "sandbox"]`
 
-- **WHEN** `find_previous_questions` is called with `game: "main", category: "Marine Biology", text: "hearts"`
-- **THEN** the tool returns questions in `games/main/questions.json` matching both criteria (AND)
+- **WHEN** `find_previous_questions` is called with `games: ["main", "sandbox"], keywords: ["shrimp"]`
+- **THEN** rows from `main` and `sandbox` are eligible; rows from other registered games are excluded
+- **AND** each returned row's `game` field names `main` or `sandbox`
 
-#### Scenario: No matches found
+#### Scenario: Unknown game in `games` rejected
 
-- **WHEN** `find_previous_questions` is called with criteria that match no questions in the named game
-- **THEN** the tool returns an empty result set
+- **WHEN** `find_previous_questions` is called with `games: ["main", "ghost"]` and `"ghost"` is not in `config.trivia.games[]`
+- **THEN** the tool returns a structured "unknown game" error citing `"ghost"`
+- **AND** no scan is performed
 
-#### Scenario: Game scoping prevents cross-game matches
-
-- **GIVEN** a question with text "Mount Everest is..." exists in `games/main/questions.json`
-- **AND** no such question exists in `games/sandbox/questions.json`
-- **WHEN** `find_previous_questions` is called with `game: "sandbox", text: "Everest"`
-- **THEN** the result is empty
-
-#### Scenario: Unknown game rejected
-
-- **WHEN** `find_previous_questions` is called with `game: "ghost"` (not in `config.trivia.games[]`)
-- **THEN** the tool returns a structured "unknown game" error
-
-#### Scenario: Disabled game allows search (frozen archive)
+#### Scenario: Disabled game allows cross-game search (frozen archive)
 
 - **GIVEN** `config.trivia.games[]` contains `{ name: "retired", enabled: false, ... }`
-- **WHEN** `find_previous_questions` is called with `game: "retired", text: "..."`
-- **THEN** the tool succeeds and returns matching historical entries
+- **WHEN** `find_previous_questions` is called with no `games` argument
+- **THEN** the scan includes `retired`'s `questions.json` and may return matching rows
+- **AND** each returned row from `retired` carries `game: "retired"`
 
-#### Scenario: Default season is "all" — duplicate detection spans seasons within the game
+#### Scenario: Keywords OR-internal — any keyword hits
 
-- **GIVEN** `trivia.seasons.enabled` is `true` with seasons `"spring-2026"` (history) and `"summer-2026"` (current) in `games/main/seasons.json`
-- **AND** a question tagged `season: "spring-2026"` exists in `games/main/questions.json`
-- **WHEN** `find_previous_questions` is called with `game: "main", text: "..."` and no `season` argument
-- **THEN** the spring-2026 question is included in the result set
+- **WHEN** `find_previous_questions` is called with `keywords: ["mozart", "beethoven"]`
+- **THEN** rows whose `statement` contains either "mozart" OR "beethoven" (case-insensitive) are returned
+- **AND** rows containing both are returned once, not twice
 
-#### Scenario: Explicit season filter scopes the search
+#### Scenario: matchedKeywords reflects which keywords hit each row
 
-- **WHEN** `find_previous_questions` is called with `game: "main", text: "...", season: "summer-2026"`
-- **THEN** only entries tagged `"summer-2026"` are eligible for matching
+- **GIVEN** a question with `statement: "Mozart composed The Magic Flute in 1791."`
+- **WHEN** `find_previous_questions` is called with `keywords: ["mozart", "beethoven", "1791"]`
+- **THEN** the returned row carries `matchedKeywords: ["mozart", "1791"]` (preserving input order; "beethoven" omitted)
 
-#### Scenario: Seasons disabled — season parameter ignored
+#### Scenario: matchedKeywords absent when keywords not supplied
+
+- **WHEN** `find_previous_questions` is called with `categories: ["Music"]` and no `keywords`
+- **THEN** no returned row carries a `matchedKeywords` field
+
+#### Scenario: Default match is "all" — every supplied criterion must hit
+
+- **WHEN** `find_previous_questions` is called with `keywords: ["mozart"], categories: ["Music"]` and `match` is omitted
+- **THEN** only rows whose `statement` contains "mozart" AND whose `category` equals "Music" (case-insensitive) are returned
+
+#### Scenario: match: "any" — at least one supplied criterion must hit
+
+- **WHEN** `find_previous_questions` is called with `keywords: ["mozart"], categories: ["Music"], match: "any"`
+- **THEN** the returned set is the union of (rows mentioning "mozart") and (rows in "Music")
+- **AND** rows matching both are returned once, not twice
+
+#### Scenario: match: "all" with only one criterion supplied
+
+- **WHEN** `find_previous_questions` is called with `keywords: ["mozart"], match: "all"` (no other criteria)
+- **THEN** the result is identical to calling with `keywords: ["mozart"], match: "any"`
+- **AND** the result contains rows whose `statement` contains "mozart"
+
+#### Scenario: No criteria supplied returns everything in scope
+
+- **WHEN** `find_previous_questions` is called with no `games`, `categories`, `seasons`, or `keywords`
+- **THEN** the scan visits every game's `questions.json`
+- **AND** every row in every game is returned, sorted by `createdAt` descending, capped at `limit`
+
+#### Scenario: Empty arrays equal omitted arrays
+
+- **WHEN** `find_previous_questions` is called with `games: [], categories: [], seasons: [], keywords: ["mozart"]`
+- **THEN** the result is identical to calling with `keywords: ["mozart"]` and no other criteria
+- **AND** the empty arrays do NOT cause "no match" — they are ignored
+
+#### Scenario: Seasons "current" resolves per-game
+
+- **GIVEN** `trivia.seasons.enabled` is `true`
+- **AND** game `"main"` has `findCurrentSeason → { slug: "summer-2026", ... }`
+- **AND** game `"sandbox"` has `findCurrentSeason → { slug: "demo-2026", ... }`
+- **WHEN** `find_previous_questions` is called with `seasons: ["current"]` and no `games`
+- **THEN** rows from `main` match iff their `season` equals "summer-2026"
+- **AND** rows from `sandbox` match iff their `season` equals "demo-2026"
+
+#### Scenario: Seasons "current" during a gap contributes no match for that game
+
+- **GIVEN** `trivia.seasons.enabled` is `true` and `findCurrentSeason` returns `null` for game `"main"`
+- **WHEN** `find_previous_questions` is called with `games: ["main"], seasons: ["current"]`
+- **THEN** the result is empty
+
+#### Scenario: Multiple season slugs OR-internal
+
+- **WHEN** `find_previous_questions` is called with `seasons: ["spring-2026", "summer-2026"]`
+- **THEN** rows tagged with either season are returned
+
+#### Scenario: Seasons disabled — seasons argument ignored
 
 - **GIVEN** `trivia.seasons.enabled` is `false`
-- **WHEN** `find_previous_questions` is called with `game: "main", season: "anything"`
-- **THEN** the search proceeds across the entire `games/main/questions.json` without any season filter
-
-#### Scenario: "current" during a gap returns empty
-
-- **GIVEN** `findCurrentSeason(games/main/seasons.json, now)` returns `null`
-- **WHEN** `find_previous_questions` is called with `game: "main", season: "current"`
-- **THEN** the result is empty
+- **WHEN** `find_previous_questions` is called with `seasons: ["anything"], keywords: ["mozart"]`
+- **THEN** the seasons argument is ignored and only the keywords criterion governs matching
 
 #### Scenario: recentBatchFromNow=1 returns the most recent batch in full
 
@@ -275,26 +328,32 @@ Category validation reads from the game's currently-active season's `categories`
 
 ### Requirement: Find previous questions response excludes the answer key
 
-The `find_previous_questions` MCP tool SHALL NOT include the question's answer-key fields (`isTrue` for boolean questions, `correctIndex` for choice questions) in any element of its returned `questions` array, regardless of caller role. The tool SHALL return only search-safe metadata: `id`, `answersFormat`, `questionType`, `category`, `statement`, `emojis`, `createdAt`, and (when present on the stored record) `postedAt`, `messageLink`, `context`, `sourceUrl`, and `eventDate`. For choice questions, the tool SHALL include the `choices` array (the choice strings themselves are not the answer key — the answer key is the `correctIndex`).
+The `find_previous_questions` MCP tool SHALL NOT include the question's answer-key fields (`isTrue` for boolean questions, `correctIndex` for choice questions, `expectedAnswer` / `acceptableAnswers` / `gradingNotes` for freeform questions) in any element of its returned `questions` array, regardless of caller role. The tool SHALL return only search-safe metadata: `id`, `game`, `answersFormat`, `questionType`, `category`, `statement`, `emojis`, `createdAt`, and (when present on the stored record) `postedAt`, `messageLink`, `context`, `sourceUrl`, `eventDate`, `season`, and (when `keywords` was supplied) `matchedKeywords`. For choice questions, the tool SHALL include the `choices` array (the choice strings themselves are not the answer key — the answer key is the `correctIndex`).
 
-This requirement closes a pre-existing exposure where any session at the `member` tier could prompt Clack into surfacing the canonical answer key for past questions through the search tool. The tool's gating remains `member`; the response shape is what changes. This requirement is unaffected by the `game` argument — the answer-key exclusion applies to every game's results.
+This requirement closes a pre-existing exposure where any session at the `member` tier could prompt Clack into surfacing the canonical answer key for past questions through the search tool. The tool's gating remains `member`; the response shape is what changes. This requirement is unaffected by which games are in scope — the answer-key exclusion applies to every row, in every game.
 
 #### Scenario: Boolean response payload omits isTrue
 
-- **WHEN** `find_previous_questions` is invoked with any combination of valid arguments (including `game`) and matches at least one stored boolean question
-- **THEN** every boolean element of the returned `questions` array contains `id`, `answersFormat`, `questionType`, `category`, `statement`, `emojis`, `createdAt`, and (when present on the stored record) `postedAt`, `messageLink`, `context`, `sourceUrl`, `eventDate`
+- **WHEN** `find_previous_questions` is invoked with any combination of valid arguments and matches at least one stored boolean question
+- **THEN** every boolean element of the returned `questions` array contains `id`, `game`, `answersFormat`, `questionType`, `category`, `statement`, `emojis`, `createdAt`, and (when present on the stored record) `postedAt`, `messageLink`, `context`, `sourceUrl`, `eventDate`, `season`
 - **AND** no element contains an `isTrue` field
 
 #### Scenario: Choice response payload omits correctIndex but includes choices
 
 - **WHEN** `find_previous_questions` is invoked and matches at least one stored choice question
-- **THEN** every choice element of the returned `questions` array contains `id`, `answersFormat: "choice"`, `questionType`, `category`, `statement`, `emojis`, `choices`, `createdAt`, and (when present on the stored record) `postedAt`, `messageLink`, `context`, `sourceUrl`, `eventDate`
+- **THEN** every choice element of the returned `questions` array contains `id`, `game`, `answersFormat: "choice"`, `questionType`, `category`, `statement`, `emojis`, `choices`, `createdAt`, and (when present on the stored record) `postedAt`, `messageLink`, `context`, `sourceUrl`, `eventDate`, `season`
 - **AND** no element contains a `correctIndex` field
 - **AND** no element contains an `isTrue` field
 
+#### Scenario: Freeform response payload omits answer-key fields
+
+- **WHEN** `find_previous_questions` is invoked and matches at least one stored freeform question
+- **THEN** every freeform element of the returned `questions` array contains `id`, `game`, `answersFormat: "freeform"`, `questionType`, `category`, `statement`, `emojis`, `createdAt`, and (when present on the stored record) `postedAt`, `messageLink`, `context`, `sourceUrl`, `eventDate`, `season`
+- **AND** no element contains an `expectedAnswer`, `acceptableAnswers`, or `gradingNotes` field
+
 #### Scenario: Empty result is unaffected
 
-- **WHEN** `find_previous_questions` is invoked with criteria that match no questions in the named game
+- **WHEN** `find_previous_questions` is invoked with criteria that match no questions
 - **THEN** the tool returns an empty `questions` array
 - **AND** no answer-key data is returned in any other field of the response
 
