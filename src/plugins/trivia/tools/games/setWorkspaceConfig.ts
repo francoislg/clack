@@ -15,6 +15,12 @@ import {
   type ParseIssue,
 } from "../../core/configParsers/axes.js";
 import { parseOffDays } from "../../core/configParsers/games.js";
+import {
+  normalizeAdditionalInstructions,
+  normalizeInstructions,
+  triviaAdditionalInstructionsZod,
+  triviaInstructionsZod,
+} from "../../core/configParsers/format.js";
 
 export function createSetWorkspaceConfigTool() {
   return tool(
@@ -76,6 +82,18 @@ export function createSetWorkspaceConfigTool() {
         .optional()
         .describe(
           'Workspace default for the reveal-time participation disclosure axis. "yes" (default) renders full named voter buckets; "just-correctness" hides freeform answer text; "no" hides per-user buckets entirely. null clears.',
+        ),
+      instructions: triviaInstructionsZod
+        .nullable()
+        .optional()
+        .describe(
+          'Workspace tier of the replace-cascade `instructions` axis (e.g. "Be funny and concise."). When set, lower tiers may override it; cascade resolves to the highest-precedence non-empty value walking slot → season → game → workspace. Surfaced verbatim to Claude via the `get_ideas` and `process_reveal_answers` payloads — not injected into any other prompt. null clears.',
+        ),
+      additionalInstructions: triviaAdditionalInstructionsZod
+        .nullable()
+        .optional()
+        .describe(
+          'Workspace tier of the cumulative-cascade `additionalInstructions` axis (e.g. "Avoid politics."). Every non-empty tier stacks — workspace + game + season + slot all apply, concatenated tier-labeled. Surfaced verbatim to Claude via the `get_ideas` and `process_reveal_answers` payloads. null clears this tier.',
         ),
     },
     async (args) => {
@@ -224,6 +242,32 @@ export function createSetWorkspaceConfigTool() {
       } else if (args.revealResponses !== undefined) {
         next.revealResponses = args.revealResponses;
         updatedFields.push("revealResponses");
+      }
+
+      // instructions: validate + apply.
+      if (args.instructions === null) {
+        delete next.instructions;
+        updatedFields.push("instructions (cleared)");
+      } else if (args.instructions !== undefined) {
+        const r = normalizeInstructions(args.instructions);
+        if (!r.ok) issues.push({ field: "instructions", error: r.error });
+        else {
+          next.instructions = r.value;
+          updatedFields.push("instructions");
+        }
+      }
+
+      // additionalInstructions: validate + apply.
+      if (args.additionalInstructions === null) {
+        delete next.additionalInstructions;
+        updatedFields.push("additionalInstructions (cleared)");
+      } else if (args.additionalInstructions !== undefined) {
+        const r = normalizeAdditionalInstructions(args.additionalInstructions);
+        if (!r.ok) issues.push({ field: "additionalInstructions", error: r.error });
+        else {
+          next.additionalInstructions = r.value;
+          updatedFields.push("additionalInstructions");
+        }
       }
 
       if (issues.length > 0) {

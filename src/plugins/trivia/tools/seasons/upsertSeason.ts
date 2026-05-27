@@ -13,10 +13,14 @@ import {
   validateDifficultyRatio,
 } from "../../domain/seasonFormat.js";
 import {
+  normalizeAdditionalInstructions,
   normalizeCategories,
+  normalizeInstructions,
   normalizeTheme,
   seasonFormatZod,
+  triviaAdditionalInstructionsZod,
   triviaCategoriesZod,
+  triviaInstructionsZod,
   triviaThemeZod,
   validateFormat,
 } from "../../core/configParsers/format.js";
@@ -151,6 +155,18 @@ export function createUpsertSeasonTool(
         .describe(
           'Optional per-season override for the reveal-time participation disclosure axis. `"yes"` (default) renders full named voter buckets including freeform answer text. `"just-correctness"` renders named buckets but hides typed freeform text. `"no"` renders only the answer plus reactions plus the leaderboard. On UPDATE: passing `null` clears the field. Mid-season mutation permitted.',
         ),
+      instructions: triviaInstructionsZod
+        .nullable()
+        .optional()
+        .describe(
+          'Per-season tier of the replace-cascade `instructions` axis (e.g. "Halloween-themed."). Cascade: `slot → season → game → workspace → null`. Highest-precedence non-empty tier wins. Surfaced verbatim to Claude via the `get_ideas` and `process_reveal_answers` payloads. On UPDATE: passing `null` clears the field. Mid-season mutation permitted.',
+        ),
+      additionalInstructions: triviaAdditionalInstructionsZod
+        .nullable()
+        .optional()
+        .describe(
+          'Per-season tier of the cumulative-cascade `additionalInstructions` axis (e.g. "Favor spooky angles."). Every non-empty tier stacks — workspace + game + season + slot all apply. Surfaced verbatim to Claude via the `get_ideas` and `process_reveal_answers` payloads. On UPDATE: passing `null` clears this tier (other tiers keep theirs). Mid-season mutation permitted.',
+        ),
     },
     async (args) => {
       try {
@@ -255,6 +271,20 @@ export function createUpsertSeasonTool(
           theme = normalized.value;
         }
 
+        let instructions: string | undefined;
+        if (args.instructions !== undefined && args.instructions !== null) {
+          const normalized = normalizeInstructions(args.instructions);
+          if (!normalized.ok) return errorResult(normalized.error);
+          instructions = normalized.value;
+        }
+
+        let additionalInstructions: string | undefined;
+        if (args.additionalInstructions !== undefined && args.additionalInstructions !== null) {
+          const normalized = normalizeAdditionalInstructions(args.additionalInstructions);
+          if (!normalized.ok) return errorResult(normalized.error);
+          additionalInstructions = normalized.value;
+        }
+
         const liveAnswersVisible: boolean | undefined =
           args.liveAnswersVisible === undefined || args.liveAnswersVisible === null
             ? undefined
@@ -283,6 +313,8 @@ export function createUpsertSeasonTool(
           ...(format !== undefined ? { format } : {}),
           ...(liveAnswersVisible !== undefined ? { liveAnswersVisible } : {}),
           ...(revealResponses !== undefined ? { revealResponses } : {}),
+          ...(instructions !== undefined ? { instructions } : {}),
+          ...(additionalInstructions !== undefined ? { additionalInstructions } : {}),
         };
 
         try {
@@ -313,6 +345,8 @@ export function createUpsertSeasonTool(
           slotCount: entry.format?.questions.length ?? 0,
           hasLiveAnswersVisible: entry.liveAnswersVisible !== undefined,
           hasRevealResponses: entry.revealResponses !== undefined,
+          hasInstructions: entry.instructions !== undefined,
+          hasAdditionalInstructions: entry.additionalInstructions !== undefined,
         });
       }
 
@@ -418,6 +452,24 @@ export function createUpsertSeasonTool(
         updatedRevealResponses = args.revealResponses;
       }
 
+      let updatedInstructions: string | undefined = existing.instructions;
+      if (args.instructions === null) {
+        updatedInstructions = undefined;
+      } else if (args.instructions !== undefined) {
+        const normalized = normalizeInstructions(args.instructions);
+        if (!normalized.ok) return errorResult(normalized.error);
+        updatedInstructions = normalized.value;
+      }
+
+      let updatedAdditionalInstructions: string | undefined = existing.additionalInstructions;
+      if (args.additionalInstructions === null) {
+        updatedAdditionalInstructions = undefined;
+      } else if (args.additionalInstructions !== undefined) {
+        const normalized = normalizeAdditionalInstructions(args.additionalInstructions);
+        if (!normalized.ok) return errorResult(normalized.error);
+        updatedAdditionalInstructions = normalized.value;
+      }
+
       const updated: SeasonEntry = {
         slug: existing.slug,
         startedAt: args.startedAt ?? existing.startedAt,
@@ -445,6 +497,10 @@ export function createUpsertSeasonTool(
           : {}),
         ...(updatedRevealResponses !== undefined
           ? { revealResponses: updatedRevealResponses }
+          : {}),
+        ...(updatedInstructions !== undefined ? { instructions: updatedInstructions } : {}),
+        ...(updatedAdditionalInstructions !== undefined
+          ? { additionalInstructions: updatedAdditionalInstructions }
           : {}),
       };
 
@@ -489,6 +545,8 @@ export function createUpsertSeasonTool(
         slotCount: updated.format?.questions.length ?? 0,
         hasLiveAnswersVisible: updated.liveAnswersVisible !== undefined,
         hasRevealResponses: updated.revealResponses !== undefined,
+        hasInstructions: updated.instructions !== undefined,
+        hasAdditionalInstructions: updated.additionalInstructions !== undefined,
       });
     },
   );

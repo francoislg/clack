@@ -246,6 +246,16 @@ export interface SeasonEntry {
    *   `slot → season → game → workspace → "yes"`.
    */
   revealResponses?: RevealResponsesMode;
+  /**
+   * Per-season tier of the replace-cascade `instructions` axis — see the
+   * `trivia-prompt-instructions` capability. Mid-season mutation is permitted.
+   */
+  instructions?: string;
+  /**
+   * Per-season tier of the cumulative-cascade `additionalInstructions` axis —
+   * see the `trivia-prompt-instructions` capability. Mid-season mutation is permitted.
+   */
+  additionalInstructions?: string;
 }
 
 export interface SeasonsState {

@@ -68,6 +68,8 @@ const emptyArgs = {
   seasons: undefined,
   liveAnswersVisible: undefined,
   revealResponses: undefined,
+  instructions: undefined,
+  additionalInstructions: undefined,
 };
 
 describe("set_workspace_config", () => {
@@ -203,5 +205,57 @@ describe("set_workspace_config", () => {
     );
     assert.equal(result.action, "updated");
     assert.equal(loadTriviaConfig()?.offDays?.length, 2);
+  });
+
+  describe("instructions and additionalInstructions", () => {
+    it("sets both workspace-tier fields", async () => {
+      primeBridge({});
+      const tool = createSetWorkspaceConfigTool();
+      await tool.handler(
+        {
+          ...emptyArgs,
+          instructions: "Be funny.",
+          additionalInstructions: "Avoid politics.",
+        },
+        SESSION,
+      );
+      const cfg = loadTriviaConfig();
+      assert.equal(cfg?.instructions, "Be funny.");
+      assert.equal(cfg?.additionalInstructions, "Avoid politics.");
+    });
+
+    it("null clears the named field, preserves the other", async () => {
+      primeBridge({ instructions: "Be funny.", additionalInstructions: "Avoid politics." });
+      const tool = createSetWorkspaceConfigTool();
+      await tool.handler({ ...emptyArgs, instructions: null }, SESSION);
+      const cfg = loadTriviaConfig();
+      assert.equal(cfg?.instructions, undefined);
+      assert.equal(cfg?.additionalInstructions, "Avoid politics.");
+    });
+
+    it("omit-to-keep — only the passed field changes", async () => {
+      primeBridge({ instructions: "Be funny." });
+      const tool = createSetWorkspaceConfigTool();
+      await tool.handler({ ...emptyArgs, additionalInstructions: "Avoid politics." }, SESSION);
+      const cfg = loadTriviaConfig();
+      assert.equal(cfg?.instructions, "Be funny.");
+      assert.equal(cfg?.additionalInstructions, "Avoid politics.");
+    });
+
+    it("rejects empty / whitespace-only strings", async () => {
+      primeBridge({});
+      const tool = createSetWorkspaceConfigTool();
+      const result = parseToolResult(
+        await tool.handler({ ...emptyArgs, instructions: "   " }, SESSION),
+      );
+      assert.match(result.error, /instructions.*non-empty/);
+    });
+
+    it("trims input on the way in", async () => {
+      primeBridge({});
+      const tool = createSetWorkspaceConfigTool();
+      await tool.handler({ ...emptyArgs, instructions: "  Be dry.  " }, SESSION);
+      assert.equal(loadTriviaConfig()?.instructions, "Be dry.");
+    });
   });
 });

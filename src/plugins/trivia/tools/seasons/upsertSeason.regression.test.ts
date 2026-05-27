@@ -54,6 +54,8 @@ describe("upsert_season — schema unification regressions", () => {
         format: undefined,
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
       SESSION,
     );
@@ -90,6 +92,8 @@ describe("upsert_season — schema unification regressions", () => {
         format: undefined,
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
       SESSION,
     );
@@ -124,6 +128,8 @@ describe("upsert_season — schema unification regressions", () => {
         format: undefined,
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
       SESSION,
     );
@@ -146,6 +152,8 @@ describe("upsert_season — schema unification regressions", () => {
         format: undefined,
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
       SESSION,
     );

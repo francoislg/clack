@@ -98,6 +98,65 @@ describe("parseTriviaGames — per-game format / categories / theme", () => {
     });
   });
 
+  describe("instructions", () => {
+    it("accepts a trimmed non-empty string", () => {
+      const { games, issues } = parseTriviaGames([{ ...validBase, instructions: "  Be dry.  " }]);
+      assert.equal(issues.length, 0);
+      assert.equal(games?.[0].instructions, "Be dry.");
+    });
+
+    it("drops the field when whitespace-only and surfaces an issue", () => {
+      const { games, issues } = parseTriviaGames([{ ...validBase, instructions: "   " }]);
+      assert.equal(games?.length, 1);
+      assert.equal(games?.[0].instructions, undefined);
+      assert.equal(issues[0].field, "trivia.games[0].instructions");
+      assert.match(issues[0].error, /non-empty after trim/);
+    });
+
+    it("drops the field when not a string and retains the rest of the entry", () => {
+      const { games, issues } = parseTriviaGames([
+        { ...validBase, theme: "Halloween", instructions: 42 },
+      ]);
+      assert.equal(games?.length, 1);
+      assert.equal(games?.[0].instructions, undefined);
+      assert.equal(games?.[0].theme, "Halloween");
+      assert.equal(issues[0].field, "trivia.games[0].instructions");
+    });
+  });
+
+  describe("additionalInstructions", () => {
+    it("accepts a trimmed non-empty string", () => {
+      const { games, issues } = parseTriviaGames([
+        { ...validBase, additionalInstructions: "  Avoid politics.  " },
+      ]);
+      assert.equal(issues.length, 0);
+      assert.equal(games?.[0].additionalInstructions, "Avoid politics.");
+    });
+
+    it("drops the field when whitespace-only and surfaces an issue", () => {
+      const { games, issues } = parseTriviaGames([{ ...validBase, additionalInstructions: "" }]);
+      assert.equal(games?.[0].additionalInstructions, undefined);
+      assert.equal(issues[0].field, "trivia.games[0].additionalInstructions");
+    });
+
+    it("drops the field when not a string and retains the rest of the entry", () => {
+      const { games, issues } = parseTriviaGames([
+        { ...validBase, theme: "Halloween", additionalInstructions: ["nope"] },
+      ]);
+      assert.equal(games?.length, 1);
+      assert.equal(games?.[0].additionalInstructions, undefined);
+      assert.equal(games?.[0].theme, "Halloween");
+      assert.equal(issues[0].field, "trivia.games[0].additionalInstructions");
+    });
+
+    it("both new fields are independent — setting only one leaves the other absent", () => {
+      const { games, issues } = parseTriviaGames([{ ...validBase, instructions: "Be dry." }]);
+      assert.equal(issues.length, 0);
+      assert.equal(games?.[0].instructions, "Be dry.");
+      assert.equal(games?.[0].additionalInstructions, undefined);
+    });
+  });
+
   it("invalid optional fields do not drop the whole entry", () => {
     const { games, issues } = parseTriviaGames([
       {

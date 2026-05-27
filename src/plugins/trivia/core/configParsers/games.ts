@@ -173,6 +173,36 @@ export function parseTriviaGame(
     }
   }
 
+  let instructions: string | undefined;
+  if (e.instructions !== undefined && e.instructions !== null) {
+    const field = `${fieldPrefix}.instructions`;
+    if (typeof e.instructions !== "string") {
+      issues.push({ field, error: "must be a string" });
+    } else {
+      const trimmed = e.instructions.trim();
+      if (trimmed.length === 0) {
+        issues.push({ field, error: "must be non-empty after trim" });
+      } else {
+        instructions = trimmed;
+      }
+    }
+  }
+
+  let additionalInstructions: string | undefined;
+  if (e.additionalInstructions !== undefined && e.additionalInstructions !== null) {
+    const field = `${fieldPrefix}.additionalInstructions`;
+    if (typeof e.additionalInstructions !== "string") {
+      issues.push({ field, error: "must be a string" });
+    } else {
+      const trimmed = e.additionalInstructions.trim();
+      if (trimmed.length === 0) {
+        issues.push({ field, error: "must be non-empty after trim" });
+      } else {
+        additionalInstructions = trimmed;
+      }
+    }
+  }
+
   let liveAnswersVisible: boolean | undefined;
   if (e.liveAnswersVisible !== undefined && e.liveAnswersVisible !== null) {
     if (typeof e.liveAnswersVisible !== "boolean") {
@@ -210,6 +240,8 @@ export function parseTriviaGame(
       ...(format ? { format } : {}),
       ...(categories ? { categories } : {}),
       ...(theme ? { theme } : {}),
+      ...(instructions ? { instructions } : {}),
+      ...(additionalInstructions ? { additionalInstructions } : {}),
       ...(liveAnswersVisible !== undefined ? { liveAnswersVisible } : {}),
       ...(revealResponses !== undefined ? { revealResponses } : {}),
     },

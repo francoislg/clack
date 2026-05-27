@@ -184,6 +184,22 @@ export interface TriviaGame {
    */
   theme?: string;
   /**
+   * Optional per-game free-form guidance string with REPLACE cascade semantics.
+   * Cascade: `slot.instructions → season.instructions → game.instructions →
+   * workspace.instructions → null`. Surfaced to Claude via the `get_ideas`
+   * and `process_reveal_answers` MCP tool response payloads — see the
+   * `trivia-prompt-instructions` capability.
+   */
+  instructions?: string;
+  /**
+   * Optional per-game free-form guidance string with CUMULATIVE cascade
+   * semantics. Every non-empty tier is concatenated in
+   * `workspace → game → season → slot` order, each segment tier-labeled.
+   * Surfaced to Claude via the `get_ideas` and `process_reveal_answers`
+   * MCP tool response payloads — see the `trivia-prompt-instructions` capability.
+   */
+  additionalInstructions?: string;
+  /**
    * Per-game tier of the live-roster-footer visibility axis. Cascade:
    *   `slot → season → game → workspace → true`.
    * When `true` (the cascaded default), the live "📝 Answered" footer reveals
@@ -214,6 +230,16 @@ export interface SeasonFormatSlot {
   contexts?: TriviaContextEntry[];
   difficulty?: TriviaDifficultyConfig;
   difficultyRatio?: TriviaDifficultyRatioConfig;
+  /**
+   * Highest-precedence tier of the replace-cascade `instructions` axis —
+   * see the `trivia-prompt-instructions` capability.
+   */
+  instructions?: string;
+  /**
+   * Highest-precedence tier of the cumulative-cascade `additionalInstructions`
+   * axis — see the `trivia-prompt-instructions` capability.
+   */
+  additionalInstructions?: string;
   /** Highest-precedence tier of the live-roster-footer visibility axis. */
   liveAnswersVisible?: boolean;
   /** Highest-precedence tier of the reveal-time disclosure axis. */
@@ -272,6 +298,16 @@ export interface TriviaConfig {
   liveAnswersVisible?: boolean;
   /** Workspace default for the reveal-time disclosure axis. */
   revealResponses?: RevealResponsesMode;
+  /**
+   * Workspace tier of the replace-cascade `instructions` axis — see the
+   * `trivia-prompt-instructions` capability.
+   */
+  instructions?: string;
+  /**
+   * Workspace tier of the cumulative-cascade `additionalInstructions` axis —
+   * see the `trivia-prompt-instructions` capability.
+   */
+  additionalInstructions?: string;
 }
 
 /** Defaults applied when `choices` is absent or only partially specified. */

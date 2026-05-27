@@ -37,6 +37,8 @@ describe("upsert_season — answersFormat argument", () => {
         format: undefined,
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
       SESSION,
     );
@@ -70,6 +72,8 @@ describe("upsert_season — answersFormat argument", () => {
         format: undefined,
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
       SESSION,
     );
@@ -102,6 +106,8 @@ describe("upsert_season — answersFormat argument", () => {
         format: undefined,
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
       SESSION,
     );
@@ -123,6 +129,8 @@ describe("upsert_season — answersFormat argument", () => {
         format: undefined,
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
       SESSION,
     );
@@ -156,6 +164,8 @@ describe("upsert_season — answersFormat argument", () => {
         format: undefined,
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
       SESSION,
     );
@@ -177,6 +187,8 @@ describe("upsert_season — answersFormat argument", () => {
         format: undefined,
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
       SESSION,
     );
@@ -209,6 +221,8 @@ describe("upsert_season — answersFormat argument", () => {
         format: undefined,
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
       SESSION,
     );
@@ -231,6 +245,8 @@ describe("upsert_season — answersFormat argument", () => {
         format: undefined,
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
       SESSION,
     );
@@ -263,6 +279,8 @@ describe("upsert_season — answersFormat argument", () => {
         format: undefined,
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
       SESSION,
     );
@@ -311,6 +329,8 @@ describe("upsert_season — answersFormat argument", () => {
         format: undefined,
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
       SESSION,
     );

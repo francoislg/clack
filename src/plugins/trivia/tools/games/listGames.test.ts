@@ -197,3 +197,50 @@ describe("list_games — per-game axisOverrides", () => {
     assert.match(tool.description, /trivia:management/);
   });
 });
+
+describe("list_games — instructions and additionalInstructions surfaces", () => {
+  it("present-iff-set on per-game entries", async () => {
+    const games: readonly TriviaGame[] = [
+      {
+        name: "with-both",
+        channel: "C200000000",
+        questionCron: "0 9 * * 1-5",
+        revealCron: "0 17 * * 1-5",
+        timezone: "UTC",
+        enabled: true,
+        instructions: "Be dry.",
+        additionalInstructions: "Avoid politics.",
+      },
+      {
+        name: "with-neither",
+        channel: "C300000000",
+        questionCron: "0 9 * * 1-5",
+        revealCron: "0 17 * * 1-5",
+        timezone: "UTC",
+        enabled: true,
+      },
+    ];
+    const tool = createListGamesTool(() => games, emptyTriviaConfig);
+    const parsed = parseToolResult(await tool.handler({ includeDisabled: undefined }, SESSION));
+    const withBoth = parsed.games.find((g: { name: string }) => g.name === "with-both");
+    const withNeither = parsed.games.find((g: { name: string }) => g.name === "with-neither");
+    assert.equal(withBoth.instructions, "Be dry.");
+    assert.equal(withBoth.additionalInstructions, "Avoid politics.");
+    assert.equal(withNeither.instructions, undefined);
+    assert.equal(withNeither.additionalInstructions, undefined);
+  });
+
+  it("surfaces workspace-tier values on workspaceDefaults", async () => {
+    const cfg: TriviaConfig = {
+      instructions: "Workspace baseline.",
+      additionalInstructions: "Workspace stack.",
+    };
+    const tool = createListGamesTool(
+      () => FIXTURE_GAMES,
+      () => cfg,
+    );
+    const parsed = parseToolResult(await tool.handler({ includeDisabled: undefined }, SESSION));
+    assert.equal(parsed.workspaceDefaults.instructions, "Workspace baseline.");
+    assert.equal(parsed.workspaceDefaults.additionalInstructions, "Workspace stack.");
+  });
+});

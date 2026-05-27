@@ -191,6 +191,8 @@ describe("upsert_season tool", () => {
         format: undefined,
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
       SESSION,
     );
@@ -224,6 +226,8 @@ describe("upsert_season tool", () => {
         format: undefined,
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
       SESSION,
     );
@@ -253,6 +257,8 @@ describe("upsert_season tool", () => {
         format: undefined,
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
       SESSION,
     );
@@ -282,6 +288,8 @@ describe("upsert_season tool", () => {
         format: undefined,
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
       SESSION,
     );
@@ -313,6 +321,8 @@ describe("upsert_season tool", () => {
         format: undefined,
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
       SESSION,
     );
@@ -341,6 +351,8 @@ describe("upsert_season tool", () => {
         format: undefined,
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
       SESSION,
     );
@@ -369,6 +381,8 @@ describe("upsert_season tool", () => {
         format: undefined,
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
       SESSION,
     );
@@ -400,6 +414,8 @@ describe("upsert_season tool", () => {
         format: undefined,
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
       SESSION,
     );
@@ -433,6 +449,8 @@ describe("upsert_season tool", () => {
         format: undefined,
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
       SESSION,
     );
@@ -462,6 +480,8 @@ describe("upsert_season tool", () => {
         format: undefined,
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
       SESSION,
     );
@@ -498,6 +518,8 @@ describe("upsert_season tool", () => {
         format: undefined,
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
       SESSION,
     );
@@ -531,6 +553,8 @@ describe("upsert_season tool", () => {
         format: undefined,
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
       SESSION,
     );
@@ -559,6 +583,8 @@ describe("upsert_season tool", () => {
           format: undefined,
           liveAnswersVisible: undefined,
           revealResponses: undefined,
+          instructions: undefined,
+          additionalInstructions: undefined,
         },
         SESSION,
       );
@@ -588,6 +614,8 @@ describe("upsert_season tool", () => {
         format: undefined,
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
       SESSION,
     );
@@ -620,6 +648,8 @@ describe("upsert_season tool", () => {
         format: undefined,
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
       SESSION,
     );
@@ -641,6 +671,8 @@ describe("upsert_season tool", () => {
         format: undefined,
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
       SESSION,
     );
@@ -919,6 +951,69 @@ describe("list_seasons — axis-config surfacing", () => {
     );
     assert.equal(bySlug.get("themed")?.theme, "Halloween Spooktacular");
     assert.equal("theme" in (bySlug.get("plain") ?? {}), false);
+  });
+
+  it("surfaces instructions and additionalInstructions at the season tier (present-iff-set)", async () => {
+    const now = Date.now();
+    await seedTimeline(data, [
+      {
+        slug: "with-instructions",
+        startedAt: now - 10 * DAY,
+        expectedEndAt: now + 20 * DAY,
+        categories: ["Science"],
+        instructions: "Halloween-themed.",
+        additionalInstructions: "Favor spooky angles.",
+      },
+      {
+        slug: "with-neither",
+        startedAt: now + 30 * DAY,
+        expectedEndAt: now + 60 * DAY,
+        categories: ["Science"],
+      },
+    ]);
+    const tool = createListSeasonsTool(data, fixtureGetGames);
+    const parsed = parseToolResult(await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION));
+    interface ListedSeason {
+      slug: string;
+      instructions?: string;
+      additionalInstructions?: string;
+    }
+    const bySlug = new Map<string, ListedSeason>(
+      parsed.seasons.map((s: ListedSeason) => [s.slug, s]),
+    );
+    assert.equal(bySlug.get("with-instructions")?.instructions, "Halloween-themed.");
+    assert.equal(bySlug.get("with-instructions")?.additionalInstructions, "Favor spooky angles.");
+    assert.equal("instructions" in (bySlug.get("with-neither") ?? {}), false);
+    assert.equal("additionalInstructions" in (bySlug.get("with-neither") ?? {}), false);
+  });
+
+  it("surfaces slot-level instructions and additionalInstructions on format.questions[i]", async () => {
+    const now = Date.now();
+    await seedTimeline(data, [
+      {
+        slug: "slotted",
+        startedAt: now - 10 * DAY,
+        expectedEndAt: now + 20 * DAY,
+        categories: ["Science"],
+        format: {
+          questions: [
+            { label: "Q1" },
+            {
+              label: "Q2",
+              instructions: "Make it easy.",
+              additionalInstructions: "Stack on top.",
+            },
+          ],
+        },
+      },
+    ]);
+    const tool = createListSeasonsTool(data, fixtureGetGames);
+    const parsed = parseToolResult(await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION));
+    const slots = parsed.seasons[0].format.questions;
+    assert.equal("instructions" in slots[0], false);
+    assert.equal("additionalInstructions" in slots[0], false);
+    assert.equal(slots[1].instructions, "Make it easy.");
+    assert.equal(slots[1].additionalInstructions, "Stack on top.");
   });
 
   it("surfaces format with per-slot overrides — slot 0 untouched, slot 1 sets only one axis", async () => {
@@ -1209,15 +1304,16 @@ describe("find_previous_questions with timeline-based current", () => {
     });
   });
 
-  it('default "all" returns both seasons\' matches', async () => {
+  it('omitting "seasons" returns both seasons\' matches', async () => {
     await seedSingleActive(data, { slug: "summer-2026" });
     const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
     const result = await tool.handler(
       {
-        game: FIXTURE_GAME_NAME,
-        category: undefined,
-        text: "octopus",
-        season: undefined,
+        games: [FIXTURE_GAME_NAME],
+        categories: undefined,
+        seasons: undefined,
+        keywords: ["octopus"],
+        match: undefined,
         recentBatchFromNow: undefined,
         limit: undefined,
       },
@@ -1233,10 +1329,11 @@ describe("find_previous_questions with timeline-based current", () => {
     const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
     const result = await tool.handler(
       {
-        game: FIXTURE_GAME_NAME,
-        category: "Marine",
-        text: undefined,
-        season: "current",
+        games: [FIXTURE_GAME_NAME],
+        categories: ["Marine"],
+        seasons: ["current"],
+        keywords: undefined,
+        match: undefined,
         recentBatchFromNow: undefined,
         limit: undefined,
       },
@@ -1259,15 +1356,18 @@ describe("find_previous_questions with timeline-based current", () => {
         format: undefined,
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
     ]);
     const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
     const result = await tool.handler(
       {
-        game: FIXTURE_GAME_NAME,
-        category: undefined,
-        text: undefined,
-        season: "current",
+        games: [FIXTURE_GAME_NAME],
+        categories: undefined,
+        seasons: ["current"],
+        keywords: undefined,
+        match: undefined,
         recentBatchFromNow: undefined,
         limit: undefined,
       },
@@ -1333,6 +1433,8 @@ describe("add_categories with target dispatch", () => {
         format: undefined,
         liveAnswersVisible: undefined,
         revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
       },
     ]);
     const tool = createAddCategoriesTool(data, fixtureGetGames);
