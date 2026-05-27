@@ -110,7 +110,10 @@ describe("save_question — slot binding", () => {
         SESSION,
       ),
     );
-    assert.match(parsed.error, /not in slot/);
+    const payload = JSON.parse(parsed.error);
+    assert.equal(payload.code, "CATEGORY_NOT_IN_POOL");
+    assert.equal(payload.source, "slot");
+    assert.deepEqual(payload.categories, ["History"]);
   });
 
   it("saves and snapshots the slot label from format (not from caller)", async () => {

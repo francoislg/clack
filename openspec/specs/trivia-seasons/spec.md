@@ -182,19 +182,13 @@ When `seasons.enabled` is `true`, the Trivia plugin SHALL maintain a `seasons.js
     "startedAt": number,                     // unix-ms when the season's active window begins
     "expectedEndAt": number,                 // unix-ms when the season's active window is expected to close
     "endedAt": number?,                      // unix-ms when the season was actually closed; absent for not-yet-ended seasons
-    "theme": string?,                        // OPTIONAL short human-readable narrative label (e.g. "Halloween Spooktacular").
-                                             // Trimmed string; omitted/absent when no theme is configured. Surfaced by get_ideas
-                                             // and the question-posting opener; never inferred from other fields.
-    "categories": string[],                  // the season's category pool (non-empty)
-    "answersFormat": Record<"boolean" | "choice", number>?
-                                             // OPTIONAL per-season answers-format weights; renamed from "questionTypes" pre-change.
-                                             // When absent, get_ideas falls back to config.trivia.answersFormat.
-    "questionType": Record<"fact" | "topical", number>?
-                                             // NEW — OPTIONAL per-season question-type weights (fact vs topical).
-                                             // When absent, get_ideas falls back to config.trivia.questionType.
-    "contexts": Array<{ name: string; weight?: number }>?
-                                             // NEW — OPTIONAL per-season lens weights for the contexts axis.
-                                             // When absent, get_ideas falls back to config.trivia.contexts (which may itself be absent).
+    "theme": string?,                        // OPTIONAL short human-readable narrative label.
+    "categories": string[]?,                 // OPTIONAL season-tier category pool. When absent, the pool resolves
+                                             // via the cascade slot.categories → game.categories → categories.json.
+                                             // When present, MUST be non-empty (deduped) — empty arrays are not allowed on disk.
+    "answersFormat": Record<"boolean" | "choice", number>?,
+    "questionType": Record<"fact" | "topical", number>?,
+    "contexts": Array<{ name: string; weight?: number }>?,
     "format": {
       "questions": Array<{
         "label"?: string,
@@ -203,7 +197,7 @@ When `seasons.enabled` is `true`, the Trivia plugin SHALL maintain a `seasons.js
         "questionType"?: Record<"fact" | "topical", number>,
         "contexts"?: Array<{ name: string; weight?: number }>
       }>
-    }?                                       // OPTIONAL per-season question composition; when absent, behavior is single-question-per-fire
+    }?
   }>
 }
 ```
@@ -212,15 +206,15 @@ Invariants (enforced by `upsert_season` at write time, **per game**):
 
 1. Slug uniqueness _within this game's `seasons` array_. Two different games MAY use the same slug for their own seasons; the namespaces are independent.
 2. Each entry satisfies `startedAt < (endedAt ?? expectedEndAt)`.
-3. Each entry's `categories` array is non-empty.
+3. Each entry's `categories` array, **when present**, SHALL be non-empty. The field MAY be absent — an absent field signals cascade-inheritance (slot → game → global). An empty array on disk is NOT a valid representation of "inherit"; readers SHALL treat the field as absent if and only if the JSON key is missing.
 4. No two entries' active windows `[startedAt, endedAt ?? expectedEndAt)` overlap _within the same game_.
 5. When present, each entry's `answersFormat` map SHALL contain only the keys `"boolean"` and `"choice"`, each mapped to a non-negative integer (zero is allowed and means "never roll this format"), AND at least one key SHALL be mapped to a strictly positive value.
 6. When present, each entry's `questionType` map SHALL contain only the keys `"fact"` and `"topical"`, each mapped to a non-negative integer, AND at least one key SHALL be mapped to a strictly positive value.
 7. When present, each entry's `contexts` array SHALL be non-empty; every entry's `name` MUST be a string (empty string allowed); when present, `weight` MUST be a positive number; the array's `name` values MUST be unique.
-8. When present, each entry's `format` SHALL satisfy the invariants in the "Per-season question format" requirement (non-empty `questions`, valid slot fields including any of the new `answersFormat` / `questionType` / `contexts` slot overrides).
+8. When present, each entry's `format` SHALL satisfy the invariants in the "Per-season question format" requirement.
 9. When present, each entry's `theme` SHALL be a non-empty trimmed string. An empty-after-trim value SHALL be rejected by `upsert_season` (callers should pass `null` to clear instead).
 
-Per-game `seasons.json` files SHALL be created lazily — when any tool resolves `game = "X"` and finds no `games/X/seasons.json` while `trivia.seasons.enabled` is `true`, the plugin SHALL seed a starter season into that file before continuing. The starter entry's `slug` is `season-YYYY-MM` (current UTC month), `startedAt` is `Date.now()`, `expectedEndAt` is end-of-current-UTC-month, and `categories` is a copy of the global `categories.json`. The starter entry SHALL NOT carry a `format`, `answersFormat`, `questionType`, `contexts`, or `theme` field.
+Per-game `seasons.json` files SHALL be created lazily — when any tool resolves `game = "X"` and finds no `games/X/seasons.json` while `trivia.seasons.enabled` is `true`, the plugin SHALL seed a starter season into that file before continuing. The starter entry's `slug` is `season-YYYY-MM` (current UTC month), `startedAt` is `Date.now()`, and `expectedEndAt` is end-of-current-UTC-month. The starter entry SHALL NOT carry a `categories`, `format`, `answersFormat`, `questionType`, `contexts`, or `theme` field — it inherits its category pool from the cascade (game's per-game `categories`, or the global `categories.json`).
 
 The "current season" of a game at any moment is a _derived_ concept: the unique entry in that game's `seasons.json` where `startedAt <= now < (endedAt ?? expectedEndAt)`, or `null` if `now` falls in a gap between entries.
 
@@ -233,8 +227,9 @@ The "current season" of a game at any moment is a _derived_ concept: the unique 
 - **WHEN** any per-game tool (e.g. `get_ideas`) is called with `game: "staging"`
 - **THEN** `data/plugins/trivia/games/staging/seasons.json` is created before the tool returns
 - **AND** the file contains a `seasons` array with exactly one entry
-- **AND** the entry's `slug` is non-empty, `startedAt < expectedEndAt`, and `categories` is a copy of the global `categories.json`
-- **AND** the entry has no `answersFormat`, `questionType`, `contexts`, `theme`, or `format` field
+- **AND** the entry's `slug` is non-empty and `startedAt < expectedEndAt`
+- **AND** the entry has no `categories`, `answersFormat`, `questionType`, `contexts`, `theme`, or `format` field
+- **AND** `get_ideas` continues to draw category ideas from the resolved cascade (game pool when set, else global `categories.json`)
 
 #### Scenario: No bootstrap when seasons feature is disabled
 
@@ -248,6 +243,90 @@ The "current season" of a game at any moment is a _derived_ concept: the unique 
 - **WHEN** `upsert_season` is called with `game: "main", slug: "june-2026", startedAt: T2, expectedEndAt: T4` where `T1 < T2 < T3 < T4`
 - **THEN** the tool returns a structured overlap error
 - **AND** `games/main/seasons.json` is unchanged
+
+#### Scenario: Same slug allowed across different games
+
+- **GIVEN** `games/main/seasons.json` contains `{ slug: "season-2026-05", ... }`
+- **WHEN** `upsert_season` is called with `game: "sandbox", slug: "season-2026-05", ...`
+- **THEN** the call succeeds; `games/sandbox/seasons.json` gains an entry with the same slug
+- **AND** the two are independent records on independent timelines
+
+#### Scenario: Back-to-back seasons are permitted within a game
+
+- **GIVEN** `games/main/seasons.json` contains `{ slug: "may-2026", expectedEndAt: T }`
+- **WHEN** `upsert_season` is called with `game: "main", slug: "june-2026", startedAt: T, expectedEndAt: T+30days`
+- **THEN** the tool succeeds and the file gains the new entry
+
+#### Scenario: Gap between seasons leaves current null within the game
+
+- **GIVEN** `games/main/seasons.json` contains May with `expectedEndAt: May-31` and June with `startedAt: June-2`
+- **WHEN** `now` is `June-1` (in the gap)
+- **THEN** `findCurrentSeason(games/main/seasons.json, now)` returns `null`
+- **AND** new question/answer/cheat writes to `games/main/*` during this window have no `season` field
+
+#### Scenario: Upsert with existing slug is an UPDATE within a game
+
+- **GIVEN** `games/main/seasons.json` contains an entry with `slug: "summer-2026"`
+- **WHEN** `upsert_season` is called with `game: "main", slug: "summer-2026"` and `startedAt`/`expectedEndAt` provided AS IF creating
+- **THEN** the call is treated as an UPDATE of the existing entry, not as a duplicate-slug error
+- **AND** the existing entry's other fields are updated per the call
+
+#### Scenario: Invalid answersFormat map is rejected
+
+- **WHEN** an entry would be written with `answersFormat: { "boolean": 0, "choice": 0 }` (all-zero weights)
+- **THEN** the write is rejected with an "answersFormat must have at least one positive weight" error
+
+#### Scenario: answersFormat with unknown keys is rejected
+
+- **WHEN** an entry would be written with `answersFormat: { "boolean": 1, "trivia": 1 }` (unknown key)
+- **THEN** the write is rejected with an "answersFormat keys must be 'boolean' or 'choice'" error
+
+#### Scenario: Invalid questionType map is rejected
+
+- **WHEN** an entry would be written with `questionType: { "fact": 0, "topical": 0 }` (all-zero weights)
+- **THEN** the write is rejected with a "questionType must have at least one positive weight" error
+
+#### Scenario: questionType with unknown keys is rejected
+
+- **WHEN** an entry would be written with `questionType: { "fact": 1, "news": 1 }` (unknown key)
+- **THEN** the write is rejected with a "questionType keys must be 'fact' or 'topical'" error
+
+#### Scenario: Empty contexts array is rejected
+
+- **WHEN** an entry would be written with `contexts: []`
+- **THEN** the write is rejected with a "contexts must be non-empty when present" error
+
+#### Scenario: Duplicate context names are rejected
+
+- **WHEN** an entry would be written with `contexts: [{ name: "Quebec" }, { name: "Quebec" }]`
+- **THEN** the write is rejected with a "duplicate context name" error
+
+#### Scenario: Invalid format on write rejected
+
+- **WHEN** an entry would be written with `format: { questions: [] }`
+- **THEN** the write is rejected with a "format.questions must be non-empty" error
+
+#### Scenario: Empty-string theme is rejected
+
+- **WHEN** an entry would be written with `theme: ""` or `theme: "   "` (whitespace-only)
+- **THEN** the write is rejected with a "theme must be non-empty" error
+- **AND** the season entry retains its prior `theme` value (or remains theme-less on CREATE)
+
+#### Scenario: Cascading season-without-categories resolves to game pool
+
+- **GIVEN** an entry in `games/main/seasons.json` has no `categories` field
+- **AND** the game's stored config has `categories: ["History", "Geography"]`
+- **WHEN** any reader resolves the active category pool for `main` during this season
+- **THEN** the resolved pool is `["History", "Geography"]`
+- **AND** the global `categories.json` is NOT consulted
+
+#### Scenario: Cascading season-without-categories resolves to global when game has none
+
+- **GIVEN** an entry in `games/main/seasons.json` has no `categories` field
+- **AND** the game's stored config has no `categories` field
+- **AND** the global `categories.json` is `["A", "B", "C"]`
+- **WHEN** any reader resolves the active category pool for `main` during this season
+- **THEN** the resolved pool is `["A", "B", "C"]`
 
 #### Scenario: Same slug allowed across different games
 

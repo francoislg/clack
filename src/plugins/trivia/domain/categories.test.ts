@@ -1,6 +1,6 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
-import { resolveActiveCategories } from "./categories.js";
+import { resolveActiveCategories, resolveActiveCategoriesWithSource } from "./categories.js";
 import type { SeasonEntry } from "../core/types.js";
 import type { SeasonFormat, TriviaGame } from "../core/configTypes.js";
 
@@ -59,5 +59,66 @@ describe("resolveActiveCategories", () => {
   it("falls through to globalCategories when no tier supplies", () => {
     const out = resolveActiveCategories(null, null, null, baseGame, globalCats);
     assert.deepEqual(out, ["Global"]);
+  });
+
+  it("cascades through inheriting season to game when season has no categories", () => {
+    const inheritingSeason: SeasonEntry = { slug: "s2", startedAt: 0, expectedEndAt: 1 };
+    const out = resolveActiveCategories(
+      null,
+      null,
+      inheritingSeason,
+      { ...baseGame, categories: ["GameOnly"] },
+      globalCats,
+    );
+    assert.deepEqual(out, ["GameOnly"]);
+  });
+
+  it("cascades through inheriting season AND game to global", () => {
+    const inheritingSeason: SeasonEntry = { slug: "s2", startedAt: 0, expectedEndAt: 1 };
+    const out = resolveActiveCategories(null, null, inheritingSeason, baseGame, globalCats);
+    assert.deepEqual(out, ["Global"]);
+  });
+});
+
+describe("resolveActiveCategoriesWithSource", () => {
+  it("returns source: 'slot' when slot wins", () => {
+    const format: SeasonFormat = { questions: [{ categories: ["Slot"] }] };
+    const out = resolveActiveCategoriesWithSource(format, 0, baseSeason, baseGame, globalCats);
+    assert.deepEqual(out, { pool: ["Slot"], source: "slot" });
+  });
+
+  it("returns source: 'season' when slot has no categories override", () => {
+    const format: SeasonFormat = { questions: [{}] };
+    const out = resolveActiveCategoriesWithSource(format, 0, baseSeason, baseGame, globalCats);
+    assert.deepEqual(out, { pool: ["Season"], source: "season" });
+  });
+
+  it("returns source: 'game' when season has no categories", () => {
+    const inheritingSeason: SeasonEntry = { slug: "s2", startedAt: 0, expectedEndAt: 1 };
+    const out = resolveActiveCategoriesWithSource(
+      null,
+      null,
+      inheritingSeason,
+      { ...baseGame, categories: ["GameOnly"] },
+      globalCats,
+    );
+    assert.deepEqual(out, { pool: ["GameOnly"], source: "game" });
+  });
+
+  it("returns source: 'global' when no tier supplies", () => {
+    const out = resolveActiveCategoriesWithSource(null, null, null, baseGame, globalCats);
+    assert.deepEqual(out, { pool: ["Global"], source: "global" });
+  });
+
+  it("returns source: 'global' when inheriting all the way through", () => {
+    const inheritingSeason: SeasonEntry = { slug: "s2", startedAt: 0, expectedEndAt: 1 };
+    const out = resolveActiveCategoriesWithSource(
+      null,
+      null,
+      inheritingSeason,
+      baseGame,
+      globalCats,
+    );
+    assert.deepEqual(out, { pool: ["Global"], source: "global" });
   });
 });

@@ -67,7 +67,7 @@ export function createUpsertSeasonTool(
 ) {
   return tool(
     "upsert_season",
-    "Create a new trivia season or update an existing one (identified by slug) within a specific game. Slug is immutable — to rename, delete + upsert. Validates no overlap within this game's timeline. On CREATE: requires startedAt + expectedEndAt. If `categories` is provided (and non-empty), the new season's pool is EXACTLY that list — use this for themed seasons. If `categories` is omitted or empty, the new season's pool is copied from the global categories.json. On UPDATE: applies omit-to-keep semantics; cannot mutate startedAt of an already-started season ONCE it has questions stamped to it (a started-but-empty season is still freely editable); `categories` is ignored on UPDATE — use add_categories/remove_categories with target slug to refine. `theme`, `answersFormat`, `questionType`, `freeformAnswerShape`, and `contexts` all accept `null` on UPDATE to clear the field. `theme` is a short human-readable narrative label (e.g. \"Halloween Spooktacular\") surfaced at the top of the season's first question post. Use endedAt to mark a season as closed.",
+    "Create a new trivia season or update an existing one (identified by slug) within a specific game. Slug is immutable — to rename, delete + upsert. Validates no overlap within this game's timeline. On CREATE: requires startedAt + expectedEndAt. If `categories` is provided (and non-empty), the new season's pool is EXACTLY that list — use this for themed seasons. If `categories` is omitted (or `[]`), the new season is written WITHOUT a `categories` field — the pool resolves via the cascade slot → season → game → globalCategories. `categories: null` is rejected on CREATE (use omit instead). On UPDATE: applies omit-to-keep semantics; cannot mutate startedAt of an already-started season ONCE it has questions stamped to it. `categories` accepts `null` on UPDATE to CLEAR the field (drops the season back into cascade-inheritance). A non-empty `categories` array replaces the field; `[]` is rejected (pass `null` to clear). `theme`, `answersFormat`, `questionType`, `freeformAnswerShape`, `contexts`, `difficulty`, `difficultyRatio`, and `format` also accept `null` on UPDATE to clear. Use endedAt to mark a season as closed.",
     {
       game: z
         .string()
@@ -89,9 +89,10 @@ export function createUpsertSeasonTool(
         .optional()
         .describe("Unix-ms when the season was actually closed. Set this to mark a season ended."),
       categories: triviaCategoriesZod
+        .nullable()
         .optional()
         .describe(
-          "Season's category pool. Provided AND non-empty → the season uses EXACTLY this list. Omitted OR empty → copies from the global categories.json. Used only on CREATE.",
+          "Season's category pool. CREATE: non-empty array → exactly that list; omitted OR `[]` → field is omitted (cascade-inheriting); `null` → rejected (use omit). UPDATE: `null` → clears the field (cascade-inheriting); non-empty array → replaces; `[]` → rejected (pass `null` to clear); omitting preserves the existing value.",
         ),
       theme: triviaThemeZod
         .nullable()
@@ -201,18 +202,16 @@ export function createUpsertSeasonTool(
           );
         }
 
-        let categories: string[];
+        if (args.categories === null) {
+          return errorResult(
+            "Pass `categories` omitted (or `[]`) on CREATE to inherit from the cascade; `null` is reserved for UPDATE.",
+          );
+        }
+        let categories: string[] | undefined;
         if (args.categories !== undefined && args.categories.length > 0) {
           const r = normalizeCategories(args.categories);
           if (!r.ok) return errorResult(r.error);
           categories = r.value;
-        } else {
-          categories = [...(await data.loadCategories())];
-        }
-        if (categories.length === 0) {
-          return errorResult(
-            "Cannot create a season with zero categories. Add at least one entry to categories.json or pass a non-empty `categories` array.",
-          );
         }
 
         let answersFormatWeights: TriviaAnswersFormatWeights | undefined;
@@ -301,7 +300,7 @@ export function createUpsertSeasonTool(
           expectedEndAt: args.expectedEndAt,
           ...(args.endedAt !== undefined ? { endedAt: args.endedAt } : {}),
           ...(theme !== undefined ? { theme } : {}),
-          categories,
+          ...(categories !== undefined ? { categories } : {}),
           ...(answersFormatWeights !== undefined ? { answersFormat: answersFormatWeights } : {}),
           ...(questionTypeWeights !== undefined ? { questionType: questionTypeWeights } : {}),
           ...(freeformAnswerShapeWeights !== undefined
@@ -333,7 +332,9 @@ export function createUpsertSeasonTool(
           startedAt: entry.startedAt,
           expectedEndAt: entry.expectedEndAt,
           endedAt: entry.endedAt ?? null,
-          categoriesCount: entry.categories.length,
+          hasCategories: entry.categories !== undefined,
+          inheritsCategories: entry.categories === undefined,
+          categoriesCount: entry.categories?.length ?? 0,
           hasTheme: entry.theme !== undefined,
           hasAnswersFormat: entry.answersFormat !== undefined,
           hasQuestionType: entry.questionType !== undefined,
@@ -362,6 +363,20 @@ export function createUpsertSeasonTool(
             );
           }
         }
+      }
+
+      let updatedCategories: string[] | undefined = existing.categories;
+      if (args.categories === null) {
+        updatedCategories = undefined;
+      } else if (args.categories !== undefined) {
+        if (args.categories.length === 0) {
+          return errorResult(
+            "Empty `categories` array on update — pass null to clear (drops the season back into cascade-inheritance) or pass a non-empty list to replace.",
+          );
+        }
+        const normalized = normalizeCategories(args.categories);
+        if (!normalized.ok) return errorResult(normalized.error);
+        updatedCategories = normalized.value;
       }
 
       let updatedAnswersFormat: TriviaAnswersFormatWeights | undefined = existing.answersFormat;
@@ -480,7 +495,7 @@ export function createUpsertSeasonTool(
             ? { endedAt: existing.endedAt }
             : {}),
         ...(updatedTheme !== undefined ? { theme: updatedTheme } : {}),
-        categories: existing.categories,
+        ...(updatedCategories !== undefined ? { categories: updatedCategories } : {}),
         ...(updatedAnswersFormat !== undefined ? { answersFormat: updatedAnswersFormat } : {}),
         ...(updatedQuestionType !== undefined ? { questionType: updatedQuestionType } : {}),
         ...(updatedFreeformAnswerShape !== undefined
@@ -511,12 +526,6 @@ export function createUpsertSeasonTool(
         );
       }
 
-      if (updated.categories.length === 0) {
-        return errorResult(
-          `Season "${args.slug}" would have zero categories after update — rejected.`,
-        );
-      }
-
       try {
         validateNoOverlap(state, updated, args.slug);
       } catch (err) {
@@ -533,7 +542,9 @@ export function createUpsertSeasonTool(
         startedAt: updated.startedAt,
         expectedEndAt: updated.expectedEndAt,
         endedAt: updated.endedAt ?? null,
-        categoriesCount: updated.categories.length,
+        hasCategories: updated.categories !== undefined,
+        inheritsCategories: updated.categories === undefined,
+        categoriesCount: updated.categories?.length ?? 0,
         hasTheme: updated.theme !== undefined,
         hasAnswersFormat: updated.answersFormat !== undefined,
         hasQuestionType: updated.questionType !== undefined,

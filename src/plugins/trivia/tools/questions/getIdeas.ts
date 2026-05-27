@@ -8,7 +8,10 @@ import { resolveQuestionType } from "../../domain/factTopical.js";
 import { resolveContexts, rollContextPriority } from "../../domain/contexts.js";
 import { resolveDifficultyRanges, resolveDifficultyRatio } from "../../domain/difficulty.js";
 import { resolveEffectiveFormat } from "../../domain/format.js";
-import { resolveActiveCategories } from "../../domain/categories.js";
+import {
+  resolveActiveCategories,
+  resolveActiveCategoriesWithSource,
+} from "../../domain/categories.js";
 import { resolveTheme } from "../../domain/theme.js";
 import { resolveAdditionalInstructions, resolveInstructions } from "../../domain/instructions.js";
 import { weightedPick } from "../../domain/weightedPick.js";
@@ -120,7 +123,7 @@ export function createGetIdeasTool(
 
       const globalCategories = await data.loadCategories();
       const slotIndexForResolution = effectiveFormat !== null ? slotArg : null;
-      const slotCategories = resolveActiveCategories(
+      const { pool: slotCategories, source: categoriesSource } = resolveActiveCategoriesWithSource(
         effectiveFormat,
         slotIndexForResolution,
         currentSeasonEntry,
@@ -234,6 +237,7 @@ export function createGetIdeasTool(
           ideas,
           total: slotCategories.length,
           excluded: recentCategories.size,
+          source: categoriesSource,
         },
         suggestedAnswersFormat: pickedAnswersFormat,
         suggestedQuestionType: pickedQuestionType,

@@ -103,16 +103,20 @@ When an admin asks **which trivia games exist** or **what's running where**: cal
 const SEASONS_ADMIN_ADDENDUM = `
 ## Admin: managing seasons on the timeline
 
-Seasons are enabled for this deployment. Seasons live on a single timeline (\`seasons.json\`) where each entry has a slug, startedAt, expectedEndAt, optional endedAt, and categories pool. "Current" is whichever entry's window contains \`now\`. No two seasons may overlap, but multiple future seasons can be queued simultaneously, refined as the date approaches, and even renamed (delete + re-create) while they're still in the future.
+Seasons are enabled for this deployment. Seasons live on a single timeline (\`seasons.json\`) where each entry has a slug, startedAt, expectedEndAt, optional endedAt, and an OPTIONAL categories pool. "Current" is whichever entry's window contains \`now\`. No two seasons may overlap, but multiple future seasons can be queued simultaneously, refined as the date approaches, and even renamed (delete + re-create) while they're still in the future.
+
+**Category cascade.** A season's \`categories\` field is OPTIONAL. When present, that list IS the season's pool. When absent, the pool resolves via the cascade \`slot → season → game → categories.json (global)\` — the season inherits from the game's pool if the game has one, else from the global baseline. This is the new default for non-themed seasons: omit \`categories\` and let inheritance flow.
 
 When an admin asks to **prepare a future season** (e.g. "set up next month's season as marine-biology"):
 
 1. Derive a slug from \`trivia.seasons.prompt\` plus the date / admin intent.
 2. Derive \`startedAt\` and \`expectedEndAt\` matching the prompt's cadence.
-3. If the season has a clear theme, generate a list of ~20 themed categories for the theme and pass them as \`categories\`. The new season's pool will be EXACTLY that list (themed seasons are purely themed, not "baseline + a few themed"). If there is no clear theme, OMIT \`categories\` — the new season copies the \`categories.json\` baseline pool.
+3. If the season has a clear theme, generate a list of ~20 themed categories for the theme and pass them as \`categories\`. The new season's pool will be EXACTLY that list (themed seasons are purely themed, not "baseline + a few themed"). If there is no clear theme, **OMIT** \`categories\` — the new season's pool will be inherited from the game / global cascade. Do NOT pass \`categories: null\` on CREATE (that's reserved for UPDATE).
 4. Call \`upsert_season(slug, { startedAt, expectedEndAt, categories? })\`. The overlap invariant ensures it slots cleanly into the timeline.
 
-To **add categories to a season after it's been created** (themed or not), call \`add_categories(["..."], target: "<slug>")\`. To remove some, use \`remove_categories\` with the same target.
+To **clear a season's themed pool** (drop it back into cascade-inheritance), call \`upsert_season(slug, { categories: null })\`. The next-firing question will draw from the game / global pool.
+
+To **add categories to a season after it's been created**, call \`add_categories(["..."], target: "<slug>")\`. If the season has no \`categories\` field (it's inheriting), \`add_categories\` will error with \`SEASON_INHERITS_CATEGORIES\` and tell you to call \`upsert_season(slug, { categories: [...] })\` first to break inheritance. To remove some, use \`remove_categories\` with the same target — and note that removing the LAST category from a season DROPS the \`categories\` field entirely (the season inherits again), rather than erroring.
 
 To **inspect the timeline** (see what seasons exist, their dates, and full category lists), call \`list_seasons\`. Each entry includes a \`status\` flag ("past" | "current" | "future"). Use this when an admin asks "what's queued for next month?" or "what categories does the marine season have?".
 
@@ -181,7 +185,7 @@ When an admin asks **what slots a season has**, look at the season entry returne
 
 ## Admin: auto-rollover is now "repeat" semantics
 
-When a season's last reveal fires AND no future season is queued, the trivia plugin creates a continuation season automatically. As of this change, the continuation INHERITS \`categories\`, \`answersFormat\`, \`questionType\`, \`contexts\`, AND \`format\` from the closing season (deep-copied; the old behavior of resetting \`categories\` to the global baseline is gone). The continuation slug is \`season-YYYY-MM\` for the next UTC month; \`expectedEndAt\` is end-of-that-month (this part is unchanged).
+When a season's last reveal fires AND no future season is queued, the trivia plugin creates a continuation season automatically. The continuation deep-copies \`categories\` (when present), \`answersFormat\`, \`questionType\`, \`contexts\`, AND \`format\` from the closing season. If the closing season had no \`categories\` field (it was inheriting), the continuation has no field either — both inherit from the cascade. The continuation slug is \`season-YYYY-MM\` for the next UTC month; \`expectedEndAt\` is end-of-that-month (this part is unchanged).
 
 To **break the inheritance chain** — i.e. you want next month's season to look different from this one's — stage a future season explicitly via \`upsert_season(newSlug, { startedAt: <future>, expectedEndAt: ..., categories: [...], format?: {...} })\` BEFORE the current season's last fire. Staged future seasons are honored as-is; the inheritance rule only kicks in when there's nothing queued.
 `;

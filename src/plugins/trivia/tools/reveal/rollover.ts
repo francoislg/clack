@@ -96,7 +96,9 @@ export function applySeasonRollover(
       slug,
       startedAt: now,
       expectedEndAt,
-      categories: [...closingSnapshot.categories],
+      ...(closingSnapshot.categories !== undefined
+        ? { categories: [...closingSnapshot.categories] }
+        : {}),
       ...(closingSnapshot.answersFormat !== undefined
         ? { answersFormat: { ...closingSnapshot.answersFormat } }
         : {}),
