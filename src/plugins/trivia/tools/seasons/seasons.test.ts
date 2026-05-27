@@ -202,8 +202,12 @@ describe("upsert_season tool", () => {
 
     const state = await data.forGame(FIXTURE_GAME_NAME).loadSeasonsState();
     assert.equal(state?.seasons.length, 1);
-    assert.equal(state?.seasons[0].slug, "test-season");
-    assert.deepEqual(state?.seasons[0].categories, ["Science", "History", "Geography"]);
+    assert.equal(state?.seasons[0]?.slug, "test-season");
+    // No categories arg → field omitted (cascade-inheriting).
+    assert.equal(state?.seasons[0]?.categories, undefined);
+    assert.equal(parsed.hasCategories, false);
+    assert.equal(parsed.inheritsCategories, true);
+    assert.equal(parsed.categoriesCount, 0);
   });
 
   it("create: provided categories REPLACE baseline (not augment), deduped", async () => {
@@ -234,10 +238,10 @@ describe("upsert_season tool", () => {
     parseToolResult(result);
     const state = await data.forGame(FIXTURE_GAME_NAME).loadSeasonsState();
     // Baseline ["Science", "History", "Geography"] is NOT included — only the provided list.
-    assert.deepEqual(state?.seasons[0].categories, ["Cephalopods", "Tides"]);
+    assert.deepEqual(state?.seasons[0]?.categories, ["Cephalopods", "Tides"]);
   });
 
-  it("create: omitting categories falls back to baseline (categories.json)", async () => {
+  it("create: omitting categories writes no field (cascade-inheriting)", async () => {
     const tool = createUpsertSeasonTool(data, fixtureGetGames);
     const result = await tool.handler(
       {
@@ -262,13 +266,15 @@ describe("upsert_season tool", () => {
       },
       SESSION,
     );
-    parseToolResult(result);
+    const parsed = parseToolResult(result);
     const state = await data.forGame(FIXTURE_GAME_NAME).loadSeasonsState();
     const created = state?.seasons.find((s) => s.slug === "default-pool");
-    assert.deepEqual(created?.categories, ["Science", "History", "Geography"]);
+    assert.equal(created?.categories, undefined);
+    assert.equal(parsed.hasCategories, false);
+    assert.equal(parsed.inheritsCategories, true);
   });
 
-  it("create: empty categories array also falls back to baseline", async () => {
+  it("create: empty categories array also writes no field (cascade-inheriting)", async () => {
     const tool = createUpsertSeasonTool(data, fixtureGetGames);
     const result = await tool.handler(
       {
@@ -296,13 +302,13 @@ describe("upsert_season tool", () => {
     parseToolResult(result);
     const state = await data.forGame(FIXTURE_GAME_NAME).loadSeasonsState();
     const created = state?.seasons.find((s) => s.slug === "empty-cat-arg");
-    assert.deepEqual(created?.categories, ["Science", "History", "Geography"]);
+    assert.equal(created?.categories, undefined);
   });
 
-  it("create: rejects empty resulting pool", async () => {
+  it("create: with no categories arg and empty global baseline still succeeds (cascade-inheriting)", async () => {
     const freshData = createInMemoryDataLayer();
-    // No categories.json, no themeExtras.
-    const tool = createUpsertSeasonTool(freshData);
+    // No categories.json — the new entry inherits via cascade (resolves at read time).
+    const tool = createUpsertSeasonTool(freshData, fixtureGetGames);
     const result = await tool.handler(
       {
         game: FIXTURE_GAME_NAME,
@@ -327,7 +333,144 @@ describe("upsert_season tool", () => {
       SESSION,
     );
     const parsed = parseToolResult(result);
-    assert.ok(parsed.error || parsed.isError);
+    assert.equal(parsed.action, "created");
+    assert.equal(parsed.hasCategories, false);
+    assert.equal(parsed.inheritsCategories, true);
+    const state = await freshData.forGame(FIXTURE_GAME_NAME).loadSeasonsState();
+    assert.equal(state?.seasons[0]?.categories, undefined);
+  });
+
+  it("update: passing categories=null clears the field (cascade-inheriting)", async () => {
+    await seedSingleActive(data, { categories: ["History", "Geography"] });
+    const tool = createUpsertSeasonTool(data, fixtureGetGames);
+    const stateBefore = await data.forGame(FIXTURE_GAME_NAME).loadSeasonsState();
+    const slug = stateBefore?.seasons[0]?.slug ?? "";
+    const result = await tool.handler(
+      {
+        game: FIXTURE_GAME_NAME,
+        slug,
+        startedAt: undefined,
+        expectedEndAt: undefined,
+        endedAt: undefined,
+        categories: null,
+        answersFormat: undefined,
+        questionType: undefined,
+        freeformAnswerShape: undefined,
+        contexts: undefined,
+        difficulty: undefined,
+        difficultyRatio: undefined,
+        theme: undefined,
+        format: undefined,
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
+      },
+      SESSION,
+    );
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.action, "updated");
+    assert.equal(parsed.hasCategories, false);
+    assert.equal(parsed.inheritsCategories, true);
+    const state = await data.forGame(FIXTURE_GAME_NAME).loadSeasonsState();
+    assert.equal(state?.seasons[0]?.categories, undefined);
+  });
+
+  it("update: omitting categories preserves existing pool", async () => {
+    await seedSingleActive(data, { categories: ["History"] });
+    const tool = createUpsertSeasonTool(data, fixtureGetGames);
+    const stateBefore = await data.forGame(FIXTURE_GAME_NAME).loadSeasonsState();
+    const slug = stateBefore?.seasons[0]?.slug ?? "";
+    const newEnd = Date.now() + 90 * DAY;
+    const result = await tool.handler(
+      {
+        game: FIXTURE_GAME_NAME,
+        slug,
+        startedAt: undefined,
+        expectedEndAt: newEnd,
+        endedAt: undefined,
+        categories: undefined,
+        answersFormat: undefined,
+        questionType: undefined,
+        freeformAnswerShape: undefined,
+        contexts: undefined,
+        difficulty: undefined,
+        difficultyRatio: undefined,
+        theme: undefined,
+        format: undefined,
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
+      },
+      SESSION,
+    );
+    parseToolResult(result);
+    const state = await data.forGame(FIXTURE_GAME_NAME).loadSeasonsState();
+    assert.deepEqual(state?.seasons[0]?.categories, ["History"]);
+  });
+
+  it("update: passing empty categories array is rejected", async () => {
+    await seedSingleActive(data, { categories: ["History"] });
+    const tool = createUpsertSeasonTool(data, fixtureGetGames);
+    const stateBefore = await data.forGame(FIXTURE_GAME_NAME).loadSeasonsState();
+    const slug = stateBefore?.seasons[0]?.slug ?? "";
+    const result = await tool.handler(
+      {
+        game: FIXTURE_GAME_NAME,
+        slug,
+        startedAt: undefined,
+        expectedEndAt: undefined,
+        endedAt: undefined,
+        categories: [],
+        answersFormat: undefined,
+        questionType: undefined,
+        freeformAnswerShape: undefined,
+        contexts: undefined,
+        difficulty: undefined,
+        difficultyRatio: undefined,
+        theme: undefined,
+        format: undefined,
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
+      },
+      SESSION,
+    );
+    const parsed = parseToolResult(result);
+    assert.ok(parsed.error || parsed.isError, "expected empty array on update to be rejected");
+    const state = await data.forGame(FIXTURE_GAME_NAME).loadSeasonsState();
+    assert.deepEqual(state?.seasons[0]?.categories, ["History"]);
+  });
+
+  it("create: categories=null is rejected", async () => {
+    const tool = createUpsertSeasonTool(data, fixtureGetGames);
+    const result = await tool.handler(
+      {
+        game: FIXTURE_GAME_NAME,
+        slug: "null-cat",
+        startedAt: Date.now() + 10 * DAY,
+        expectedEndAt: Date.now() + 40 * DAY,
+        endedAt: undefined,
+        categories: null,
+        answersFormat: undefined,
+        questionType: undefined,
+        freeformAnswerShape: undefined,
+        contexts: undefined,
+        difficulty: undefined,
+        difficultyRatio: undefined,
+        theme: undefined,
+        format: undefined,
+        liveAnswersVisible: undefined,
+        revealResponses: undefined,
+        instructions: undefined,
+        additionalInstructions: undefined,
+      },
+      SESSION,
+    );
+    const parsed = parseToolResult(result);
+    assert.ok(parsed.error || parsed.isError, "expected categories=null on CREATE to be rejected");
   });
 
   it("create: rejects overlap with existing season", async () => {
@@ -1400,7 +1543,7 @@ describe("add_categories with target dispatch", () => {
     const baseline = await data.loadCategories();
     const state = await data.forGame(FIXTURE_GAME_NAME).loadSeasonsState();
     assert.ok(baseline.includes("Quantum Physics"));
-    assert.ok(state?.seasons[0].categories.includes("Quantum Physics"));
+    assert.ok(state?.seasons[0]?.categories?.includes("Quantum Physics"));
   });
 
   it("target 'current' affects only the active season", async () => {
@@ -1412,7 +1555,7 @@ describe("add_categories with target dispatch", () => {
     const baseline = await data.loadCategories();
     const state = await data.forGame(FIXTURE_GAME_NAME).loadSeasonsState();
     assert.ok(!baseline.includes("Cephalopods"));
-    assert.ok(state?.seasons[0].categories.includes("Cephalopods"));
+    assert.ok(state?.seasons[0]?.categories?.includes("Cephalopods"));
   });
 
   it("target slug affects that specific season's categories", async () => {
@@ -1444,10 +1587,10 @@ describe("add_categories with target dispatch", () => {
     );
     const state = await data.forGame(FIXTURE_GAME_NAME).loadSeasonsState();
     const future = state?.seasons.find((s) => s.slug === "future");
-    assert.ok(future?.categories.includes("Whales"));
+    assert.ok(future?.categories?.includes("Whales"));
     // Active season is unaffected.
     const active = state?.seasons.find((s) => s.slug === "active");
-    assert.ok(!active?.categories.includes("Whales"));
+    assert.ok(!active?.categories?.includes("Whales"));
   });
 
   it("target unknown-slug returns an error indication", async () => {
@@ -1481,6 +1624,56 @@ describe("add_categories with target dispatch", () => {
     assert.ok(parsed.warning);
     assert.equal(parsed.totals.current, null);
   });
+
+  it("rejects add to a slug-targeted season that inherits (no categories field)", async () => {
+    const now = Date.now();
+    await seedTimeline(data, [
+      {
+        slug: "active",
+        startedAt: now - 10 * DAY,
+        expectedEndAt: now + 20 * DAY,
+        categories: ["Science"],
+      },
+      {
+        slug: "inheriting-future",
+        startedAt: now + 30 * DAY,
+        expectedEndAt: now + 60 * DAY,
+        // No categories field — the season inherits from the cascade.
+      },
+    ]);
+    const tool = createAddCategoriesTool(data, fixtureGetGames);
+    const result = await tool.handler(
+      { game: FIXTURE_GAME_NAME, categories: ["Whales"], target: "inheriting-future" },
+      SESSION,
+    );
+    const parsed = parseToolResult(result);
+    assert.ok(parsed.error || parsed.isError, "expected error on inheriting season");
+    const payload = JSON.parse(parsed.error);
+    assert.equal(payload.code, "SEASON_INHERITS_CATEGORIES");
+    assert.equal(payload.slug, "inheriting-future");
+    assert.equal(payload.source, "global");
+  });
+
+  it("rejects add target=current when current season inherits", async () => {
+    const now = Date.now();
+    await seedTimeline(data, [
+      {
+        slug: "inheriting-active",
+        startedAt: now - 10 * DAY,
+        expectedEndAt: now + 20 * DAY,
+        // No categories — inheriting.
+      },
+    ]);
+    const tool = createAddCategoriesTool(data, fixtureGetGames);
+    const result = await tool.handler(
+      { game: FIXTURE_GAME_NAME, categories: ["Whales"], target: "current" },
+      SESSION,
+    );
+    const parsed = parseToolResult(result);
+    assert.ok(parsed.error || parsed.isError, "expected error on inheriting current season");
+    const payload = JSON.parse(parsed.error);
+    assert.equal(payload.code, "SEASON_INHERITS_CATEGORIES");
+  });
 });
 
 describe("remove_categories with target dispatch + non-empty guards", () => {
@@ -1501,10 +1694,10 @@ describe("remove_categories with target dispatch + non-empty guards", () => {
     const baseline = await data.loadCategories();
     const state = await data.forGame(FIXTURE_GAME_NAME).loadSeasonsState();
     assert.ok(!baseline.includes("Science"));
-    assert.ok(!state?.seasons[0].categories.includes("Science"));
+    assert.ok(!state?.seasons[0]?.categories?.includes("Science"));
   });
 
-  it("rejects emptying the currently-active season's pool", async () => {
+  it("emptying the current season's pool drops the categories field (cascade-inheriting)", async () => {
     await seedSingleActive(data, { categories: ["Only Topic"] });
     const tool = createRemoveCategoriesTool(data, fixtureGetGames);
     const result = await tool.handler(
@@ -1512,10 +1705,14 @@ describe("remove_categories with target dispatch + non-empty guards", () => {
       SESSION,
     );
     const parsed = parseToolResult(result);
-    assert.ok(parsed.error || parsed.isError);
+    assert.ok(!parsed.error && !parsed.isError, "expected success, got error");
+    assert.deepEqual(parsed.cleared, { current: true });
+    assert.equal(parsed.totals.current, 0);
+    const state = await data.forGame(FIXTURE_GAME_NAME).loadSeasonsState();
+    assert.equal(state?.seasons[0]?.categories, undefined, "categories key should be dropped");
   });
 
-  it("rejects emptying a specifically-targeted season's pool", async () => {
+  it("emptying a specifically-targeted season's pool drops the categories field", async () => {
     const now = Date.now();
     await seedTimeline(data, [
       {
@@ -1537,19 +1734,24 @@ describe("remove_categories with target dispatch + non-empty guards", () => {
       SESSION,
     );
     const parsed = parseToolResult(result);
-    assert.ok(parsed.error || parsed.isError);
+    assert.ok(!parsed.error && !parsed.isError, "expected success, got error");
+    assert.deepEqual(parsed.cleared, { future: true });
+    assert.equal(parsed.total, 0);
+    const state = await data.forGame(FIXTURE_GAME_NAME).loadSeasonsState();
+    const future = state?.seasons.find((s) => s.slug === "future");
+    assert.equal(future?.categories, undefined, "categories key should be dropped");
   });
 
-  it("target 'default' can drain categories.json (not the active read pool)", async () => {
+  it("rejects emptying the global categories.json (cascade floor)", async () => {
     const tool = createRemoveCategoriesTool(data, fixtureGetGames);
-    await tool.handler(
+    const result = await tool.handler(
       { game: FIXTURE_GAME_NAME, categories: ["Science", "History"], target: "default" },
       SESSION,
     );
+    const parsed = parseToolResult(result);
+    assert.ok(parsed.error || parsed.isError, "global pool should be protected");
     const baseline = await data.loadCategories();
-    const state = await data.forGame(FIXTURE_GAME_NAME).loadSeasonsState();
-    assert.deepEqual(baseline, []);
-    assert.deepEqual(state?.seasons[0].categories, ["Science", "History"]);
+    assert.deepEqual(baseline, ["Science", "History"], "baseline unchanged");
   });
 });
 

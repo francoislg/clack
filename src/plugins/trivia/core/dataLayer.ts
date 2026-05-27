@@ -129,9 +129,11 @@ export function createSdkDataLayer(sdk: ClackSdk): TriviaDataLayer {
 
     /**
      * Lazy season-bootstrap: when seasons is enabled and this game's seasons.json
-     * is missing, seed a starter season (slug `season-YYYY-MM`, categories copied
-     * from the global pool) before returning. Subsequent calls find the file and
-     * skip the seed.
+     * is missing, seed a starter season (slug `season-YYYY-MM`) before returning.
+     * Subsequent calls find the file and skip the seed. The starter entry has no
+     * `categories` field — it inherits from the cascade (game's `categories` if
+     * set, else the global `categories.json`). See `resolveActiveCategories` in
+     * `../domain/categories.ts`.
      */
     async function loadSeasonsState(): Promise<SeasonsState | null> {
       const raw = await sdk.readFile(sPath);
@@ -141,14 +143,12 @@ export function createSdkDataLayer(sdk: ClackSdk): TriviaDataLayer {
       }
       if (!isSeasonsEnabled()) return null;
       const now = new Date();
-      const baseline = await loadCategories();
       const seeded: SeasonsState = {
         seasons: [
           {
             slug: initialSeasonSlug(now),
             startedAt: now.getTime(),
             expectedEndAt: endOfCurrentMonthUtc(now),
-            categories: [...baseline],
           },
         ],
       };

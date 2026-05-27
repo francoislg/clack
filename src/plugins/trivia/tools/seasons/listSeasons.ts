@@ -3,6 +3,7 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { textResult, errorResult } from "../../../../tools/helpers.js";
 import { defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
 import { requireGame } from "../../core/gamesRegistry.js";
+import { resolveActiveCategoriesWithSource } from "../../domain/categories.js";
 import type { TriviaDataLayer, SeasonEntry } from "../../core/types.js";
 import type {
   SeasonFormatSlot,
@@ -12,6 +13,7 @@ import type {
   TriviaContextEntry,
   TriviaDifficultyConfig,
   TriviaDifficultyRatioConfig,
+  TriviaGame,
 } from "../../core/configTypes.js";
 
 type Status = "past" | "current" | "future";
@@ -61,11 +63,11 @@ function mapSlot(slot: SeasonFormatSlot): ListSeasonsSlotEntry {
   };
 }
 
-const DESCRIPTION = `List every season on a specific game's trivia timeline with full details — slug, dates, categories, status flag ("past" | "current" | "future"), and the season's explicitly-set axis configuration (theme, answersFormat, questionType, freeformAnswerShape, contexts, difficulty, difficultyRatio, format).
+const DESCRIPTION = `List every season on a specific game's trivia timeline with full details — slug, dates, status flag ("past" | "current" | "future"), and the season's explicitly-set axis configuration (theme, answersFormat, questionType, freeformAnswerShape, contexts, difficulty, difficultyRatio, format).
 
-Each axis field is present on a season entry IF AND ONLY IF the season explicitly set it. Absence means that season falls through to the next tier of the cascade.
+Each axis field (including \`categories\`) is present on a season entry IF AND ONLY IF the season explicitly set it. Absence means that season falls through to the next tier of the cascade. Every entry additionally carries \`resolvedCategoriesCount\` and \`resolvedCategoriesSource\` ("season" | "game" | "global") so you can audit inheritance without re-deriving the cascade.
 
-The cascade tier order is: \`slot → season → game → workspace → built-in default\`. To audit the game tier (including a game's optional \`format\`, \`categories\`, and \`theme\` overrides) AND the workspace tier, call \`list_games\` — its per-entry fields surface the game tier and its \`workspaceDefaults\` block surfaces the workspace tier. Together the two tools cover every configurable tier.
+The cascade tier order for axes is: \`slot → season → game → workspace → built-in default\`. The category cascade is: \`slot → season → game → categories.json\`. To audit the game tier (including a game's optional \`format\`, \`categories\`, and \`theme\` overrides) AND the workspace tier, call \`list_games\` — its per-entry fields surface the game tier and its \`workspaceDefaults\` block surfaces the workspace tier. Together the two tools cover every configurable tier.
 
 Use this to inspect what's queued, see a future season's category pool before it goes live, or audit past seasons. Returns the timeline in stored order.`;
 
@@ -84,8 +86,9 @@ export function createListSeasonsTool(
         ),
     },
     async (args) => {
+      let gameEntry: TriviaGame;
       try {
-        requireGame(getGamesFn(), args.game);
+        gameEntry = requireGame(getGamesFn(), args.game);
       } catch (err) {
         return errorResult(err instanceof Error ? err.message : String(err));
       }
@@ -97,31 +100,48 @@ export function createListSeasonsTool(
           `Seasons are not initialized for game "${args.game}" (seasons.json missing). Cannot list.`,
         );
       }
+      const globalCategories = await data.loadCategories();
       const now = Date.now();
-      const seasons = state.seasons.map((entry) => ({
-        slug: entry.slug,
-        startedAt: entry.startedAt,
-        expectedEndAt: entry.expectedEndAt,
-        endedAt: entry.endedAt ?? null,
-        categories: entry.categories,
-        status: statusOf(entry, now),
-        ...(entry.theme !== undefined ? { theme: entry.theme } : {}),
-        ...(entry.answersFormat !== undefined ? { answersFormat: entry.answersFormat } : {}),
-        ...(entry.questionType !== undefined ? { questionType: entry.questionType } : {}),
-        ...(entry.freeformAnswerShape !== undefined
-          ? { freeformAnswerShape: entry.freeformAnswerShape }
-          : {}),
-        ...(entry.contexts !== undefined ? { contexts: entry.contexts } : {}),
-        ...(entry.difficulty !== undefined ? { difficulty: entry.difficulty } : {}),
-        ...(entry.difficultyRatio !== undefined ? { difficultyRatio: entry.difficultyRatio } : {}),
-        ...(entry.format !== undefined
-          ? { format: { questions: entry.format.questions.map(mapSlot) } }
-          : {}),
-        ...(entry.instructions !== undefined ? { instructions: entry.instructions } : {}),
-        ...(entry.additionalInstructions !== undefined
-          ? { additionalInstructions: entry.additionalInstructions }
-          : {}),
-      }));
+      const seasons = state.seasons.map((entry) => {
+        // Resolve at the season level (no slot context) — list_seasons reports
+        // each entry's effective tier for its own categories field, not for a
+        // hypothetical slot drill-in. Source is restricted to season/game/global.
+        const resolved = resolveActiveCategoriesWithSource(
+          null,
+          null,
+          entry,
+          gameEntry,
+          globalCategories,
+        );
+        return {
+          slug: entry.slug,
+          startedAt: entry.startedAt,
+          expectedEndAt: entry.expectedEndAt,
+          endedAt: entry.endedAt ?? null,
+          ...(entry.categories !== undefined ? { categories: entry.categories } : {}),
+          resolvedCategoriesCount: resolved.pool.length,
+          resolvedCategoriesSource: resolved.source,
+          status: statusOf(entry, now),
+          ...(entry.theme !== undefined ? { theme: entry.theme } : {}),
+          ...(entry.answersFormat !== undefined ? { answersFormat: entry.answersFormat } : {}),
+          ...(entry.questionType !== undefined ? { questionType: entry.questionType } : {}),
+          ...(entry.freeformAnswerShape !== undefined
+            ? { freeformAnswerShape: entry.freeformAnswerShape }
+            : {}),
+          ...(entry.contexts !== undefined ? { contexts: entry.contexts } : {}),
+          ...(entry.difficulty !== undefined ? { difficulty: entry.difficulty } : {}),
+          ...(entry.difficultyRatio !== undefined
+            ? { difficultyRatio: entry.difficultyRatio }
+            : {}),
+          ...(entry.format !== undefined
+            ? { format: { questions: entry.format.questions.map(mapSlot) } }
+            : {}),
+          ...(entry.instructions !== undefined ? { instructions: entry.instructions } : {}),
+          ...(entry.additionalInstructions !== undefined
+            ? { additionalInstructions: entry.additionalInstructions }
+            : {}),
+        };
+      });
       return textResult({ game: args.game, seasons, total: seasons.length });
     },
   );

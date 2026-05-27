@@ -5,6 +5,25 @@ import { findCurrentSeason, findSeasonBySlug } from "../../core/seasonTimeline.j
 import { defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
 import { requireGame } from "../../core/gamesRegistry.js";
 import type { TriviaDataLayer, SeasonsState } from "../../core/types.js";
+import type { TriviaGame } from "../../core/configTypes.js";
+
+/**
+ * Build the structured "season inherits its categories" error payload. The
+ * `add_categories` tool refuses to mutate an inheriting season because doing
+ * so would silently materialize the field — admins must break inheritance
+ * explicitly via `upsert_season(slug, { categories: [...] })` first.
+ */
+function inheritsError(slug: string, game: TriviaGame): string {
+  const source: "game" | "global" =
+    game.categories !== undefined && game.categories.length > 0 ? "game" : "global";
+  const payload = {
+    code: "SEASON_INHERITS_CATEGORIES" as const,
+    slug,
+    source,
+    message: `Season "${slug}" inherits its categories from the ${source} cascade tier. Call upsert_season(slug: "${slug}", { categories: [...] }) to break inheritance before adding individual entries.`,
+  };
+  return JSON.stringify(payload);
+}
 
 function appendUnique(
   list: string[],
@@ -54,8 +73,9 @@ export function createAddCategoriesTool(
         ),
     },
     async (args) => {
+      let game: TriviaGame;
       try {
-        requireGame(getGamesFn(), args.game);
+        game = requireGame(getGamesFn(), args.game);
       } catch (err) {
         return errorResult(err instanceof Error ? err.message : String(err));
       }
@@ -81,6 +101,9 @@ export function createAddCategoriesTool(
             error: `No season with slug "${target}" on this game's timeline.`,
           });
         }
+        if (entry.categories === undefined) {
+          return errorResult(inheritsError(target, game));
+        }
         const next = [...entry.categories];
         const { added, alreadyExists } = appendUnique(next, args.categories);
         if (added.length > 0) {
@@ -99,7 +122,7 @@ export function createAddCategoriesTool(
       } = {
         added: {},
         alreadyExists: {},
-        totals: { default: 0, current: currentSeason?.categories.length ?? null },
+        totals: { default: 0, current: currentSeason?.categories?.length ?? null },
       };
 
       if (target === "default" || target === "both") {
@@ -117,6 +140,8 @@ export function createAddCategoriesTool(
         if (currentSeason === null) {
           result.warning =
             "No current season in this game (gap or seasons disabled) — current-targeted add was a no-op.";
+        } else if (currentSeason.categories === undefined) {
+          return errorResult(inheritsError(currentSeason.slug, game));
         } else {
           const next = [...currentSeason.categories];
           const { added, alreadyExists } = appendUnique(next, args.categories);

@@ -1,100 +1,4 @@
-# Trivia Categories
-
-## Purpose
-
-Management of the trivia question category pool, including seeding, administration, and discovery tools.
-
-## Requirements
-
-### Requirement: Category pool seeding
-
-The system SHALL seed `categories.json` with 50 hardcoded categories on first plugin load when the file is missing or empty.
-
-#### Scenario: First load with no categories file
-
-- **WHEN** the trivia plugin loads and `categories.json` does not exist
-- **THEN** the system creates `categories.json` with 50 unique categories
-
-#### Scenario: First load with empty categories file
-
-- **WHEN** the trivia plugin loads and `categories.json` exists but is an empty array
-- **THEN** the system populates it with 50 unique categories
-
-#### Scenario: Subsequent load with existing categories
-
-- **WHEN** the trivia plugin loads and `categories.json` contains categories
-- **THEN** the system does not modify the file
-
-### Requirement: Add categories tool
-
-The system SHALL provide an `add_categories` MCP tool (dev+ role) that appends categories with deduplication.
-
-The tool SHALL accept an optional `target` argument (string) controlling where the additions land:
-
-- `"current"`: appends to the currently-active season's `categories` array (resolved via `findCurrentSeason(state, now)`). When `now` falls in a timeline gap, this resolves to a warned no-op — Claude is informed there is no current season to mutate.
-- `"default"`: appends to `categories.json` only (the persistent baseline that future seasons seed from).
-- `"both"` (default): appends to BOTH the currently-active season AND `categories.json`.
-- **Any other string**: interpreted as a season slug. Appends to that season's `categories` array. If the slug does not match any entry on the timeline, the tool returns a not-found error.
-
-When `trivia.seasons.enabled` is `false`, the `target` argument SHALL be silently ignored and the tool SHALL operate on `categories.json` alone (legacy behavior).
-
-Deduplication SHALL be applied independently per target.
-
-#### Scenario: Add new categories (default target)
-
-- **WHEN** `add_categories` is called with `["Quantum Physics", "Origami"]`, seasons are enabled, and neither category exists in either pool
-- **THEN** both categories are appended to `categories.json`
-- **AND** both categories are appended to `seasons.json#currentCategories`
-
-#### Scenario: Add to current season only
-
-- **WHEN** `add_categories` is called with `["Cephalopods"]` and `target: "current"`, seasons are enabled
-- **THEN** "Cephalopods" is appended to `seasons.json#currentCategories`
-- **AND** `categories.json` is unchanged
-
-#### Scenario: Add to default baseline only
-
-- **WHEN** `add_categories` is called with `["Future Topic"]` and `target: "default"`, seasons are enabled
-- **THEN** "Future Topic" is appended to `categories.json`
-- **AND** `seasons.json#currentCategories` is unchanged (the current season does NOT gain the new category)
-
-#### Scenario: Add duplicate category
-
-- **WHEN** `add_categories` is called with `["Science"]` (default target) and "Science" already exists in both pools
-- **THEN** the duplicate is skipped for both
-- **AND** the result indicates each was already present
-
-#### Scenario: Seasons disabled — target argument ignored
-
-- **GIVEN** `trivia.seasons.enabled` is `false`
-- **WHEN** `add_categories` is called with `["Foo"]` and any `target` value
-- **THEN** "Foo" is appended to `categories.json`
-- **AND** no other side effects occur
-
-#### Scenario: Add to a queued future season by slug
-
-- **GIVEN** the timeline contains a future season "june-2026" with `categories: ["Marine Biology", "Coral Reefs"]`
-- **WHEN** `add_categories(["Whales"], target: "june-2026")` is called
-- **THEN** "Whales" is appended to "june-2026"'s `categories`
-- **AND** no other season's `categories` and `categories.json` are unchanged
-
-#### Scenario: Target slug not found returns an error
-
-- **WHEN** `add_categories(["Foo"], target: "nonexistent-slug")` is called
-- **THEN** the tool returns a not-found error
-- **AND** no file is mutated
-
-#### Scenario: target "current" during a gap is a warned no-op
-
-- **GIVEN** `now` falls in a gap (no season's window contains it)
-- **WHEN** `add_categories(["Foo"], target: "current")` is called
-- **THEN** the tool returns a structured response indicating no current season to mutate
-- **AND** no file is mutated
-
-#### Scenario: Insufficient role
-
-- **WHEN** a member-role user calls `add_categories`
-- **THEN** the tool is not available (gated by SDK role system)
+## MODIFIED Requirements
 
 ### Requirement: Remove categories tool
 
@@ -229,7 +133,7 @@ Categories themselves remain flat (`string[]`) — there is no per-category weig
 
 `suggestedAnswer` SHALL be sampled uniformly at random (50/50). `suggestedDifficulty` SHALL be sampled by weighted-random pick from the resolved `difficultyRatio` axis. `suggestedAnswersFormat` SHALL be sampled from the active `answersFormat` weights. `suggestedQuestionType` SHALL be sampled from the active `questionType` weights independently of `suggestedAnswersFormat`. `contextPriority`, when returned, SHALL be a weighted-random ordering of every configured context.
 
-The 1–10 bucket-to-range mapping (e.g. `easy: [4, 6]`, `medium: [7, 8]`, `hard: [9, 10]` for boolean/choice; freeform shifted -2 per bucket) SHALL be returned as `suggestedDifficultyRange` per the active per-format `difficulty` cascade. The rolled bucket's `[min, max]` IS the strict accept bound at the DIFFICULTY GATE — there is no separate reject-below threshold. The `get_ideas` response SHALL NOT carry a `minimumDifficultyThreshold` field.
+The 1–10 bucket-to-range mapping SHALL be returned as `suggestedDifficultyRange` per the active per-format `difficulty` cascade.
 
 #### Scenario: Result shape with sufficient pool
 
@@ -364,26 +268,61 @@ The 1–10 bucket-to-range mapping (e.g. `easy: [4, 6]`, `medium: [7, 8]`, `hard
 
 - **GIVEN** the current season has no `theme` field
 - **WHEN** `get_ideas(game: "main")` is called
-- **THEN** the response object has no `theme` key at all (NOT `theme: null`, NOT `theme: ""`))
+- **THEN** the response object has no `theme` key at all (NOT `theme: null`, NOT `theme: ""`)
 
 ### Requirement: save_question validates category
 
-The `save_question` tool SHALL reject questions whose category is not in the active source pool. When `trivia.seasons.enabled` is `true` AND `findCurrentSeason(state, now)` returns a season, the active source pool is that season's `categories`. Otherwise (seasons disabled or in a gap), the active source pool is `categories.json`.
+The `save_question` tool SHALL reject questions whose category is not in the active source pool. The active source pool is resolved via the cascade `slot.categories → season.categories → game.categories → categories.json` — the same resolver used by `get_ideas` (`resolveActiveCategories` in `src/plugins/trivia/domain/categories.ts`).
 
-#### Scenario: Valid category (seasons enabled)
+When the call carries no `slot` (no active format), the cascade is rooted at the season level. When the call carries a `slot.index`, the cascade is rooted at that slot. When `trivia.seasons.enabled` is `false` OR `findCurrentSeason(state, now)` returns `null` (gap), the active source pool is `categories.json`.
 
-- **GIVEN** seasons are enabled and `seasons.json#currentCategories` contains "Marine Biology"
+The error returned on a rejected category SHALL conform to the schema:
+
+```
+{
+  code: "CATEGORY_NOT_IN_POOL",
+  source: "slot" | "season" | "game" | "global",
+  categories: string[]
+}
+```
+
+`source` is the cascade tier the resolver returned. `categories` is the full resolved pool from that tier. The identical schema applies to the `save_question slot binding` path defined in the `trivia-seasons` capability — there is one error shape for category-not-in-pool failures across both code paths.
+
+#### Scenario: Valid category (season-tier pool)
+
+- **GIVEN** seasons are enabled and the active season's `categories` contains "Marine Biology"
 - **WHEN** `save_question` is called with `category: "Marine Biology"`
 - **THEN** the question is saved
 
 #### Scenario: Category in baseline but not current season is rejected
 
-- **GIVEN** seasons are enabled, `categories.json` contains "Sports", and `seasons.json#currentCategories` does NOT contain "Sports"
+- **GIVEN** seasons are enabled, the active season has `categories: ["History"]`, and `categories.json` contains "Sports"
 - **WHEN** `save_question` is called with `category: "Sports"`
-- **THEN** the tool returns an error suggesting the use of `add_categories` (with `target: "current"` if the admin wants it just for this season)
+- **THEN** the tool returns a structured `CATEGORY_NOT_IN_POOL` error
+- **AND** the error payload identifies `source: "season"` and lists `["History"]`
+
+#### Scenario: Valid category inherited from game
+
+- **GIVEN** seasons are enabled, the active season has no `categories` field, and the game has `categories: ["Music", "Sports"]`
+- **WHEN** `save_question` is called with `category: "Music"`
+- **THEN** the question is saved
+
+#### Scenario: Invalid category when season inherits from game
+
+- **GIVEN** seasons are enabled, the active season has no `categories` field, and the game has `categories: ["Music", "Sports"]`
+- **WHEN** `save_question` is called with `category: "History"`
+- **THEN** the tool returns a structured `CATEGORY_NOT_IN_POOL` error
+- **AND** the error payload identifies `source: "game"` and lists `["Music", "Sports"]`
+
+#### Scenario: Valid category inherited from global
+
+- **GIVEN** seasons are enabled, neither the season nor the game has a `categories` field, and `categories.json` contains "History"
+- **WHEN** `save_question` is called with `category: "History"`
+- **THEN** the question is saved
 
 #### Scenario: Invalid category (seasons disabled)
 
 - **GIVEN** seasons are disabled
 - **WHEN** `save_question` is called with `category: "Unknown Topic"` and it does not exist in `categories.json`
-- **THEN** the tool returns an error suggesting the use of `add_categories`
+- **THEN** the tool returns a structured `CATEGORY_NOT_IN_POOL` error
+- **AND** the error payload identifies `source: "global"`

@@ -185,7 +185,9 @@ describe("Trivia question-format end-to-end flow", () => {
         SESSION,
       ),
     );
-    assert.match(wrongCat.error, /not in slot/);
+    const wrongCatPayload = JSON.parse(wrongCat.error);
+    assert.equal(wrongCatPayload.code, "CATEGORY_NOT_IN_POOL");
+    assert.equal(wrongCatPayload.source, "slot");
 
     // 5b. Correct category for slot 1
     const save1 = parseToolResult(

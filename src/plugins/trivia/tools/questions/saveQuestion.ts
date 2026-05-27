@@ -18,7 +18,7 @@ import { resolveAnswersFormat } from "../../domain/questionTypes.js";
 import { resolveQuestionType } from "../../domain/factTopical.js";
 import { resolveContexts } from "../../domain/contexts.js";
 import { resolveEffectiveFormat } from "../../domain/format.js";
-import { resolveActiveCategories } from "../../domain/categories.js";
+import { resolveActiveCategoriesWithSource } from "../../domain/categories.js";
 import {
   defaultGetGames,
   defaultGetTriviaConfig,
@@ -185,7 +185,7 @@ export function createSaveQuestionTool(
       const slotIndexForResolution =
         effectiveFormat !== null && args.slot !== undefined ? args.slot.index : null;
 
-      const slotCategories = resolveActiveCategories(
+      const { pool: slotCategories, source: categoriesSource } = resolveActiveCategoriesWithSource(
         effectiveFormat,
         slotIndexForResolution,
         currentSeasonEntry,
@@ -196,13 +196,13 @@ export function createSaveQuestionTool(
       const matchingCategory = slotCategories.find((c) => c.toLowerCase() === categoryLower);
 
       if (!matchingCategory) {
-        const hint =
-          effectiveFormat !== null && args.slot !== undefined
-            ? `Category "${args.category}" is not in slot ${args.slot.index}'s resolved pool (${slotCategories.length} categories). The slot${effectiveFormat.questions[args.slot.index].categories !== undefined ? " narrows the pool" : " inherits the season/game/global pool"}.`
-            : currentSeasonEntry !== null
-              ? `Category "${args.category}" is not in this season's pool. Use add_categories to add it (target: "current" for this season only, or "both" to also persist it in the default baseline).`
-              : `Category "${args.category}" not found in the pool. Use add_categories to add it first.`;
-        return errorResult(hint);
+        const errorPayload = {
+          code: "CATEGORY_NOT_IN_POOL" as const,
+          source: categoriesSource,
+          categories: slotCategories,
+          message: `Category "${args.category}" is not in the resolved pool (source: "${categoriesSource}", ${slotCategories.length} categories). Use add_categories to add it; if the source is "season" or "slot" and you want a broader pool, consider clearing inheritance via upsert_season.`,
+        };
+        return errorResult(JSON.stringify(errorPayload));
       }
 
       if (effectiveFormat !== null && args.slot !== undefined) {
