@@ -5,6 +5,7 @@ import { getSession, updateThreadContext } from "../../sessions.js";
 import { activeSessions } from "../activeSessions.js";
 import { fetchThreadContext } from "../messagesApi.js";
 import { executeAndDeliver, getHandlerClaudeOptions } from "./handlerResponse.js";
+import { t } from "../../i18n/t.js";
 
 export interface RetryDeps {
   getSession: typeof getSession;
@@ -37,7 +38,7 @@ export function registerRetryHandler(app: App, deps: RetryDeps = defaultRetryDep
     if (!session || !sessionInfo) {
       logger.error("Could not restore session for retry");
       await respond({
-        text: "Sorry, the session has expired. Please start a new query.",
+        text: t("errors.session_expired"),
         replace_original: true,
       });
       return;

@@ -437,7 +437,7 @@ export const freeformAnswerHandler: AnswerTypeHandler = {
       if (text.length === 0) {
         await ack({
           response_action: "errors",
-          errors: { "freeform-answer-input": "Type an answer before submitting." },
+          errors: { "freeform-answer-input": t("error.empty_answer") },
         });
         return;
       }
@@ -448,7 +448,7 @@ export const freeformAnswerHandler: AnswerTypeHandler = {
       if (!question) {
         await ack({
           response_action: "errors",
-          errors: { "freeform-answer-input": "This question no longer exists." },
+          errors: { "freeform-answer-input": t("error.question_gone") },
         });
         return;
       }
@@ -456,7 +456,7 @@ export const freeformAnswerHandler: AnswerTypeHandler = {
       if (question.processedAt !== undefined) {
         await ack({
           response_action: "errors",
-          errors: { "freeform-answer-input": "Answers are now closed for this question." },
+          errors: { "freeform-answer-input": t("error.answers_closed_question") },
         });
         return;
       }

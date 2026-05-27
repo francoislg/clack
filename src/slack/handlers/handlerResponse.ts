@@ -12,6 +12,7 @@ import { errorMessage as toErrorMessage } from "../../errors.js";
 import type { AskClaudeOptions, ClaudeResponse } from "../../claude/index.js";
 import type { DeliverFn, ToolCallRecord } from "../../tools/types.js";
 import { getErrorBlocksWithRetry, asSlackBlocks, type SlackBlocks } from "../blocks.js";
+import { t } from "../../i18n/t.js";
 import {
   updateSession,
   addError,
@@ -458,7 +459,7 @@ async function sendResponseNotification(ctx: DeliveryContext): Promise<void> {
     await ctx.client.chat.postMessage({
       channel: ctx.targetChannel,
       thread_ts: ctx.targetThread,
-      text: "Response ready! Need anything else?",
+      text: t("response.ready_followup"),
     });
   }
 }

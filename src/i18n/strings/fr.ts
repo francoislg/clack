@@ -89,7 +89,7 @@ export const fr: Partial<Record<StringKey, string>> = {
   "home.status.skill_eager_section": "_Eager (toujours chargés) :_\n{list}",
   "home.status.skill_lazy_section": "_Lazy (à la demande via load_skill) :_\n{list}",
   "home.status.skill_plugin_entry": "• *{name}*{suffix}",
-  "home.status.skill_count_suffix": " ({count} skills)",
+  "home.status.skill_count_suffix": " ({count} compétences)",
   "home.status.clack_plugins_block": ":package: *Plugins :*\n{list}",
   "home.status.clack_plugins_header": ":package: *Plugins :*",
   "home.status.clack_plugin_entry": "• *{name}* ({count} outils)",
@@ -109,7 +109,7 @@ export const fr: Partial<Record<StringKey, string>> = {
   "home.workers.branch_line": "• Branche : `{branch}`",
   "home.workers.repo_line": "• Dépôt : {repo}",
   "home.workers.by_line": "• Par : {by}",
-  "home.workers.auto_respond_label": "Auto-Respond",
+  "home.workers.auto_respond_label": "Réponse automatique",
   "home.workers.thread_line": "• Fil : <{url}|Voir le fil>",
   "home.workers.pr_line": "\n• PR : <{url}|Voir la PR>",
   "home.workers.counts":
@@ -164,7 +164,7 @@ export const fr: Partial<Record<StringKey, string>> = {
   "home.user_remove.label": "Utilisateur",
 
   // ─── Auto-respond ──────────────────────────────────────────────────
-  "home.auto_respond.header": "Auto-Respond",
+  "home.auto_respond.header": "Réponse automatique",
   "home.auto_respond.empty": "_Aucune règle auto-respond configurée._",
   "home.auto_respond.paused_suffix": " _(en pause)_",
   "home.auto_respond.pre_analysis_suffix": " · Pré-analyse",
@@ -363,4 +363,52 @@ export const fr: Partial<Record<StringKey, string>> = {
   "dm.synthesis.update_original": "Mettre à jour la publication d'origine",
   "dm.synthesis.post_new": "Publier une nouvelle réponse",
   "dm.synthesis.cancel": "Annuler",
+
+  // ─── DM action notices & confirmations ─────────────────────────────
+  "dm.session_expired": "Désolé, cette session a expiré. Veuillez réessayer.",
+  "dm.stale_button":
+    ":warning: Ce bouton provient d'une réponse plus ancienne et ne peut plus être publié. Redemandez à Clack pour obtenir une nouvelle copie.",
+  "dm.answer_shared": ":white_check_mark: Réponse partagée.",
+  "dm.post_failed": ":warning: Échec de la publication. Le bot n'a peut-être pas accès à ce canal.",
+  "dm.answer_posted":
+    ":white_check_mark: Réponse publiée dans le canal. Vous pouvez continuer à l'affiner ici au besoin.",
+  "dm.edit_expired": "Désolé, cette session a expiré ou n'a aucune réponse à modifier.",
+  "dm.edit_modal_title": "Modifier avant de partager",
+  "dm.edit_modal_submit": "Partager",
+  "dm.edit_modal_answer_label": "Réponse",
+  "dm.edited_posted": ":white_check_mark: Réponse modifiée publiée dans le fil d'origine.",
+  "dm.discarded": "Compris, abandonné.",
+  "dm.original_updated": ":white_check_mark: Publication d'origine mise à jour.",
+  "dm.new_reply_posted": ":white_check_mark: Nouvelle réponse publiée dans le fil d'origine.",
+
+  // ─── Change-action & config-update notices ─────────────────────────
+  "errors.change_action_permission_denied":
+    "Vous n'avez pas la permission d'effectuer des actions de modification. Rôle dev ou supérieur requis.",
+  "errors.change_action_expired": "Désolé, cette action a expiré. Veuillez réessayer.",
+  "errors.no_active_change_thread": "Aucune modification active dans ce fil.",
+  "errors.config_update_permission_denied":
+    "Vous n'avez pas la permission de modifier la configuration. Rôle admin ou supérieur requis.",
+  "errors.config_update_request_expired":
+    "Désolé, cette demande de mise à jour de configuration a expiré. Veuillez réessayer.",
+  "errors.message_read_failed":
+    "Désolé, je n'ai pas pu lire le message. Assurez-vous que je suis invité dans ce canal.",
+
+  // ─── Error report (DM) ─────────────────────────────────────────────
+  "errors.report_header": "⚠️ Rapport d'erreur",
+  "errors.report_body": "Une erreur est survenue lors du traitement de votre demande.",
+  "errors.report_fallback":
+    "Rapport d'erreur - Une erreur est survenue lors du traitement de votre demande.",
+  "errors.report_session_id_label": "ID de session :",
+  "errors.report_error_label": "Erreur :",
+  "errors.report_analysis_label": "Analyse :",
+
+  // ─── Post-response follow-up nudge ─────────────────────────────────
+  "response.ready_followup": "Réponse prête ! Besoin d'autre chose ?",
+
+  // ─── Streaming task-card titles ────────────────────────────────────
+  "streamer.analyzing": "Analyse en cours…",
+  "streamer.working_on": "Travail sur {branch}",
+
+  // ─── Scheduled reminder attribution ────────────────────────────────
+  "reminder.attribution_prefix": "🔔 Rappel de {user} :",
 };

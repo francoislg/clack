@@ -1,5 +1,6 @@
 import type { App, BlockAction } from "@slack/bolt";
 import { errorMessage } from "../../errors.js";
+import { t } from "../../i18n/t.js";
 import { logger } from "../../logger.js";
 import {
   findSessionByThread,
@@ -105,7 +106,7 @@ export async function triggerFollowUp(
     channel: streamChannel,
     threadTs: streamThreadTs,
     userId,
-    ...(branch && { thinkingTitle: `Working on ${branch}` }),
+    ...(branch && { thinkingTitle: t("streamer.working_on", { branch }) }),
   });
   await streamer.start();
 
@@ -160,7 +161,7 @@ function registerFollowUpActionHandler(
         await client.chat.postEphemeral({
           channel: body.channel?.id ?? "",
           user: userId,
-          text: "You don't have permission to perform change actions. Requires dev role or higher.",
+          text: t("errors.change_action_permission_denied"),
         });
         return;
       }
@@ -185,7 +186,7 @@ function registerFollowUpActionHandler(
           channel: sessionInfo.channelId,
           user: userId,
           thread_ts: sessionInfo.threadTs,
-          text: "Sorry, this action has expired. Please try again.",
+          text: t("errors.change_action_expired"),
         });
         return;
       }
@@ -197,7 +198,7 @@ function registerFollowUpActionHandler(
           channel: sessionInfo.channelId,
           user: userId,
           thread_ts: sessionInfo.threadTs,
-          text: "No active change found in this thread.",
+          text: t("errors.no_active_change_thread"),
         });
         return;
       }

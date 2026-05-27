@@ -124,7 +124,7 @@ export async function triggerChangeWorkflow(
     channel: streamChannel,
     threadTs: streamThreadTs,
     userId,
-    thinkingTitle: `Working on ${intent.branch}`,
+    thinkingTitle: t("streamer.working_on", { branch: intent.branch }),
   });
   await streamer.start();
 

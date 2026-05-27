@@ -5,6 +5,7 @@ import { textResult, errorResult } from "../helpers.js";
 import { resolveChannelId } from "../../slack/channelResolver.js";
 import { errorMessage } from "../../errors.js";
 import { logger } from "../../logger.js";
+import { t } from "../../i18n/t.js";
 
 export function createScheduleReminderTool(ctx: QueryToolContext) {
   return tool(
@@ -55,7 +56,7 @@ export function createScheduleReminderTool(ctx: QueryToolContext) {
       const postAtUnix = Math.floor(postAtDate.getTime() / 1000);
 
       // Build attributed message
-      const attributedText = `🔔 Reminder from <@${ctx.userId}>:\n${args.message}`;
+      const attributedText = `${t("reminder.attribution_prefix", { user: `<@${ctx.userId}>` })}\n${args.message}`;
 
       try {
         const result = await ctx.slackClient.chat.scheduleMessage({

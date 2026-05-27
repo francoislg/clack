@@ -40,6 +40,15 @@ export const en = {
   "modal.verdict_awaiting": ":hourglass_flowing_sand: Your answer: *{answer}* — awaiting reveal",
   "modal.verdict_correct": ":white_check_mark: Your answer: *{answer}* — correct!",
   "modal.verdict_incorrect": ":x: Your answer: *{answer}* — incorrect",
+
+  // Freeform answer validation errors (modal field + ephemeral).
+  "error.empty_answer": "Type an answer before submitting.",
+  "error.question_gone": "This question no longer exists.",
+  "error.answers_closed_question": "Answers are now closed for this question.",
+  "error.answers_closed_round": "Answers are closed for this round.",
+
+  // Owner cheat-report DM.
+  "cheat.report_title": "🚨 Trivia cheat report",
 };
 
 export const fr: Partial<Record<keyof typeof en, string>> = {
@@ -69,4 +78,11 @@ export const fr: Partial<Record<keyof typeof en, string>> = {
     ":hourglass_flowing_sand: Votre réponse : *{answer}* — en attente de la révélation",
   "modal.verdict_correct": ":white_check_mark: Votre réponse : *{answer}* — correct !",
   "modal.verdict_incorrect": ":x: Votre réponse : *{answer}* — incorrect",
+
+  "error.empty_answer": "Entrez une réponse avant d'envoyer.",
+  "error.question_gone": "Cette question n'existe plus.",
+  "error.answers_closed_question": "Les réponses sont maintenant closes pour cette question.",
+  "error.answers_closed_round": "Les réponses sont closes pour cette manche.",
+
+  "cheat.report_title": "🚨 Rapport de triche au trivia",
 };

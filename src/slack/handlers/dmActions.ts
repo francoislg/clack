@@ -1,5 +1,6 @@
 import type { App, BlockAction, ViewSubmitAction } from "@slack/bolt";
 import { logger } from "../../logger.js";
+import { t } from "../../i18n/t.js";
 import {
   getSession,
   updateSession,
@@ -88,7 +89,7 @@ async function resolveActionSession(
         .postEphemeral({
           channel: channelId,
           user: userId,
-          text: "Sorry, this session has expired. Please try again.",
+          text: t("dm.session_expired"),
         })
         .catch(() => {});
     }
@@ -293,11 +294,7 @@ async function handlePostTo(
     logger.warn(
       `post_to: legacy snapshot shape for ${sessionId} (snapshotId: ${decoded.snapshotId ?? "none"}) — telling user it expired`,
     );
-    await confirmInDm(
-      client,
-      session,
-      ":warning: This button is from an older response and can no longer be posted. Ask Clack again to get a fresh copy.",
-    );
+    await confirmInDm(client, session, t("dm.stale_button"));
     return;
   }
 
@@ -330,7 +327,7 @@ async function handlePostTo(
       await persistChannelPost(sessionId, sessionInfo, result.ts, deps);
     }
 
-    await confirmInDm(client, session, ":white_check_mark: Answer shared.");
+    await confirmInDm(client, session, t("dm.answer_shared"));
   } catch (error) {
     logger.error("post_to failed:", error);
     const channel = session.dmChannel || session.channelId;
@@ -340,7 +337,7 @@ async function handlePostTo(
         .postMessage({
           channel,
           thread_ts: threadTs,
-          text: ":warning: Failed to post. The bot may not have access to that channel.",
+          text: t("dm.post_failed"),
         })
         .catch(() => {});
     }
@@ -386,11 +383,7 @@ async function handleAcceptSynthesis(
     await persistChannelPost(sessionId, sessionInfo, postResult.ts, deps);
   }
 
-  await confirmInDm(
-    client,
-    session,
-    ":white_check_mark: Answer posted to the channel. You can continue refining here if needed.",
-  );
+  await confirmInDm(client, session, t("dm.answer_posted"));
 
   logger.debug(`DM-first: accepted synthesis for session ${sessionId}`);
 }
@@ -412,7 +405,7 @@ async function handleEditSynthesis(
         .postEphemeral({
           channel: body.channel.id,
           user: body.user.id,
-          text: "Sorry, this session has expired or has no answer to edit.",
+          text: t("dm.edit_expired"),
         })
         .catch(() => {});
     }
@@ -425,9 +418,9 @@ async function handleEditSynthesis(
       type: "modal",
       callback_id: "dm_edit_synthesis_modal",
       private_metadata: sessionId,
-      title: { type: "plain_text", text: "Edit before sharing" },
-      submit: { type: "plain_text", text: "Share" },
-      close: { type: "plain_text", text: "Cancel" },
+      title: { type: "plain_text", text: t("dm.edit_modal_title") },
+      submit: { type: "plain_text", text: t("dm.edit_modal_submit") },
+      close: { type: "plain_text", text: t("common.cancel") },
       blocks: [
         {
           type: "input",
@@ -438,7 +431,7 @@ async function handleEditSynthesis(
             multiline: true,
             initial_value: answer,
           },
-          label: { type: "plain_text", text: "Answer" },
+          label: { type: "plain_text", text: t("dm.edit_modal_answer_label") },
         },
       ],
     },
@@ -493,7 +486,7 @@ async function handleEditSynthesisSubmit(
     await client.chat.postMessage({
       channel: session.dmChannel,
       thread_ts: session.dmThreadTs,
-      text: ":white_check_mark: Edited answer posted to the original thread.",
+      text: t("dm.edited_posted"),
     });
   }
 
@@ -513,7 +506,7 @@ async function handleReject(
     await client.chat.postMessage({
       channel: session.dmChannel,
       thread_ts: session.dmThreadTs,
-      text: "Got it, discarded.",
+      text: t("dm.discarded"),
     });
   }
 
@@ -553,7 +546,7 @@ async function handleUpdatePost(
     text: answer,
   });
 
-  await confirmInDm(client, session, ":white_check_mark: Original post updated.");
+  await confirmInDm(client, session, t("dm.original_updated"));
 
   logger.debug(`DM-first: updated channel post for session ${sessionId}`);
 }
@@ -596,7 +589,7 @@ async function handlePostNew(
     await persistChannelPost(sessionId, sessionInfo, postResult.ts, deps);
   }
 
-  await confirmInDm(client, session, ":white_check_mark: New reply posted to the original thread.");
+  await confirmInDm(client, session, t("dm.new_reply_posted"));
 
   logger.debug(`DM-first: posted new reply for session ${sessionId}`);
 }
