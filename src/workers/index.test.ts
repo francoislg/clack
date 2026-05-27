@@ -20,7 +20,7 @@ function makeConfig(reusable?: { enabled: boolean }): Config {
       sendErrorsAsDM: false,
     },
     reactions: { trigger: "robot_face" },
-    directMessages: { enabled: false },
+    directMessages: { enabled: false, dmType: "assistant" },
     mentions: { enabled: false },
     repositories: [],
     git: { pullIntervalMinutes: 60, shallowClone: true, cloneDepth: 1 },

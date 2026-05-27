@@ -9,6 +9,7 @@
 
 import { writeFileSync, readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { Manifest } from "@slack/web-api/dist/types/request/manifest.js";
 
 // Extract BotScope and ManifestEvent types from Manifest (they're not exported directly)
@@ -33,8 +34,11 @@ interface SlackConfig {
   fetchAndStoreUsername?: boolean;
 }
 
+type DmType = "assistant" | "classic";
+
 interface DirectMessagesConfig {
   enabled?: boolean;
+  dmType?: DmType;
 }
 
 interface MentionsConfig {
@@ -114,6 +118,7 @@ function validateSlackAppConfig(config: SlackAppConfig): void {
 
 interface ConfigFeatures {
   directMessages: boolean;
+  dmType: DmType;
   mentions: boolean;
   autoRespond: boolean;
   fetchUsernames: boolean;
@@ -123,6 +128,7 @@ interface ConfigFeatures {
 function getEnabledFeatures(config: PartialConfig): ConfigFeatures {
   return {
     directMessages: config.directMessages?.enabled ?? false,
+    dmType: config.directMessages?.dmType ?? "assistant",
     mentions: config.mentions?.enabled ?? false,
     autoRespond: config.autoRespond?.enabled ?? false,
     fetchUsernames: config.slack?.fetchAndStoreUsername ?? false,
@@ -134,7 +140,10 @@ function buildScopes(features: ConfigFeatures): BotScope[] {
   const scopes: BotScope[] = [...CORE_SCOPES];
 
   if (features.directMessages) {
-    scopes.push("im:history", "im:read", "mpim:history", "mpim:read", "assistant:write");
+    scopes.push("im:history", "im:read", "mpim:history", "mpim:read");
+    if (features.dmType === "assistant") {
+      scopes.push("assistant:write");
+    }
   }
 
   if (features.mentions) {
@@ -154,7 +163,10 @@ function buildEvents(features: ConfigFeatures): ManifestEvent[] {
   const events: ManifestEvent[] = [...CORE_EVENTS];
 
   if (features.directMessages) {
-    events.push("message.im", "assistant_thread_started", "assistant_thread_context_changed");
+    events.push("message.im");
+    if (features.dmType === "assistant") {
+      events.push("assistant_thread_started", "assistant_thread_context_changed");
+    }
   }
 
   if (features.mentions) {
@@ -168,7 +180,7 @@ function buildEvents(features: ConfigFeatures): ManifestEvent[] {
   return events.sort((a, b) => a.localeCompare(b));
 }
 
-function generateManifest(config: PartialConfig): Manifest {
+export function generateManifest(config: PartialConfig): Manifest {
   const slackApp = config.slackApp ?? {};
   const name = slackApp.name ?? DEFAULTS.name;
   const description = slackApp.description ?? DEFAULTS.description;
@@ -200,12 +212,13 @@ function generateManifest(config: PartialConfig): Manifest {
         display_name: name,
         always_online: true,
       },
-      ...(features.directMessages && {
-        assistant_view: {
-          assistant_description: description,
-          suggested_prompts: [],
-        },
-      }),
+      ...(features.directMessages &&
+        features.dmType === "assistant" && {
+          assistant_view: {
+            assistant_description: description,
+            suggested_prompts: [],
+          },
+        }),
     },
     oauth_config: {
       scopes: {
@@ -244,13 +257,23 @@ function main(): void {
   console.log(`  Name: ${manifest.display_information.name}`);
   console.log(`  Description: ${manifest.display_information.description}`);
   console.log(`  Features enabled:`);
-  console.log(`    - Direct messages: ${features.directMessages}`);
+  console.log(
+    `    - Direct messages: ${features.directMessages}${features.directMessages ? ` (dmType: ${features.dmType})` : ""}`,
+  );
   console.log(`    - Mentions: ${features.mentions}`);
   console.log(`    - Auto-respond: ${features.autoRespond}`);
   console.log(`    - Fetch usernames: ${features.fetchUsernames}`);
   console.log(`    - Scheduled messages: ${features.scheduledMessages}`);
   console.log(`  Scopes: ${manifest.oauth_config?.scopes?.bot?.join(", ")}`);
   console.log(`  Events: ${manifest.settings?.event_subscriptions?.bot_events?.join(", ")}`);
+
+  if (features.directMessages) {
+    console.log(
+      `\nNote: switching directMessages.dmType between "assistant" and "classic" requires re-uploading this manifest (the bot events subscribed differ between modes).`,
+    );
+  }
 }
 
-main();
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main();
+}

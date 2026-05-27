@@ -94,7 +94,7 @@ function makeConfig(): Config {
       sendErrorsAsDM: false,
     },
     reactions: { trigger: "robot_face" },
-    directMessages: { enabled: false },
+    directMessages: { enabled: false, dmType: "assistant" },
     mentions: { enabled: false },
     repositories: [
       { name: "repo", url: "https://github.com/x/y.git", description: "x", branch: "main" },

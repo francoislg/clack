@@ -13,6 +13,7 @@ import {
 import { triviaPlugin } from "./trivia/index.js";
 import { tenorGifPlugin } from "./tenor-gif/index.js";
 import { giphyPlugin } from "./giphy/index.js";
+import { casualTalkPlugin } from "./casual-talk/index.js";
 import { setLoadedPlugins } from "./state.js";
 import {
   registerAction as registerPluginAction,
@@ -27,6 +28,7 @@ const BUILTIN_PLUGINS: { [key: string]: ClackPlugin } = {
   trivia: triviaPlugin,
   "tenor-gif": tenorGifPlugin,
   giphy: giphyPlugin,
+  "casual-talk": casualTalkPlugin,
 };
 
 // ============================================================================

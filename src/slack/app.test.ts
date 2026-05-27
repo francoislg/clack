@@ -38,11 +38,20 @@ const MockAppConstructor = vi.fn(function (_config: AppConstructorConfig) {
   return mockAppInstance;
 });
 
-const mockGetConfig = vi.fn(() => ({
+type MockedConfig = {
+  slack: { botToken: string; appToken: string; signingSecret: string };
+  directMessages: { enabled: boolean; dmType: "assistant" | "classic" };
+};
+
+const mockGetConfig = vi.fn<() => MockedConfig>(() => ({
   slack: {
     botToken: "xoxb-test-bot-token",
     appToken: "xapp-test-app-token",
     signingSecret: "test-signing-secret",
+  },
+  directMessages: {
+    enabled: true,
+    dmType: "assistant",
   },
 }));
 
@@ -59,6 +68,7 @@ const mockRegisterNewQueryHandler = vi.fn(() => {});
 const mockRegisterRetryHandler = vi.fn(() => {});
 const mockRegisterResendHandler = vi.fn(() => {});
 const mockRegisterAssistant = vi.fn(() => {});
+const mockRegisterClassicDmHandlers = vi.fn(() => {});
 const mockRegisterMentionHandler = vi.fn(() => {});
 const mockRegisterChoiceHandler = vi.fn(() => {});
 const mockRegisterFollowupHandler = vi.fn(() => {});
@@ -82,6 +92,7 @@ function makeDeps(): AppDeps {
     registerResendHandler: mockRegisterResendHandler,
     registerHomeTabHandler: mockRegisterHomeTabHandler,
     registerAssistant: mockRegisterAssistant,
+    registerClassicDmHandlers: mockRegisterClassicDmHandlers,
     registerMentionHandler: mockRegisterMentionHandler,
     registerChoiceHandler: mockRegisterChoiceHandler,
     registerFollowupHandler: mockRegisterFollowupHandler,
@@ -107,6 +118,7 @@ function resetAllMocks() {
   mockRegisterRetryHandler.mockClear();
   mockRegisterResendHandler.mockClear();
   mockRegisterAssistant.mockClear();
+  mockRegisterClassicDmHandlers.mockClear();
   mockRegisterMentionHandler.mockClear();
   mockRegisterChoiceHandler.mockClear();
   mockRegisterFollowupHandler.mockClear();
@@ -171,11 +183,31 @@ describe("createSlackApp", () => {
     assert.equal(mockRegisterDmActionHandlers.mock.calls.length, 1);
   });
 
-  it("always registers assistant handler", () => {
+  it("registers assistant handler when dmType is assistant", () => {
     const deps = makeDeps();
     createSlackApp(deps);
 
     assert.equal(mockRegisterAssistant.mock.calls.length, 1);
+    assert.equal(mockRegisterClassicDmHandlers.mock.calls.length, 0);
+  });
+
+  it("registers classic DM handler when dmType is classic", () => {
+    mockGetConfig.mockReturnValueOnce({
+      slack: {
+        botToken: "xoxb-test-bot-token",
+        appToken: "xapp-test-app-token",
+        signingSecret: "test-signing-secret",
+      },
+      directMessages: {
+        enabled: true,
+        dmType: "classic",
+      },
+    });
+    const deps = makeDeps();
+    createSlackApp(deps);
+
+    assert.equal(mockRegisterClassicDmHandlers.mock.calls.length, 1);
+    assert.equal(mockRegisterAssistant.mock.calls.length, 0);
   });
 
   it("always registers mention handler", () => {
@@ -236,6 +268,7 @@ describe("startSlackApp", () => {
   it("logs when app starts", async () => {
     const deps = makeDeps();
     createSlackApp(deps);
+    mockLogger.info.mockClear(); // ignore the boot-time "DM mode: ..." line
     await startSlackApp(deps);
 
     assert.equal(mockLogger.info.mock.calls.length, 1);

@@ -12,6 +12,7 @@ import { registerRetryHandler } from "./handlers/retry.js";
 import { registerResendHandler } from "./handlers/resend.js";
 import { registerHomeTabHandler } from "./handlers/homeTab.js";
 import { registerAssistant } from "./handlers/assistant.js";
+import { registerClassicDmHandlers } from "./handlers/classicDm.js";
 import { registerMentionHandler } from "./handlers/mention.js";
 import { registerChoiceHandler } from "./handlers/choice.js";
 import { registerFollowupHandler } from "./handlers/followup.js";
@@ -34,6 +35,7 @@ export interface AppDeps {
   registerResendHandler: typeof registerResendHandler;
   registerHomeTabHandler: typeof registerHomeTabHandler;
   registerAssistant: typeof registerAssistant;
+  registerClassicDmHandlers: typeof registerClassicDmHandlers;
   registerMentionHandler: typeof registerMentionHandler;
   registerChoiceHandler: typeof registerChoiceHandler;
   registerFollowupHandler: typeof registerFollowupHandler;
@@ -57,6 +59,7 @@ export const defaultAppDeps: AppDeps = {
   registerResendHandler,
   registerHomeTabHandler,
   registerAssistant,
+  registerClassicDmHandlers,
   registerMentionHandler,
   registerChoiceHandler,
   registerFollowupHandler,
@@ -104,9 +107,21 @@ export function createSlackApp(deps: AppDeps = defaultAppDeps): App {
   // DM reaction handlers (always enabled — DM delivery is a per-user preference)
   deps.registerDmActionHandlers(app);
 
-  // Always register all handlers — enablement is checked at invocation time
-  // so that soft restarts can toggle features without reconnecting the socket.
-  deps.registerAssistant(app);
+  // DM handler registration branches on dmType at boot. The two registrations
+  // are mutually exclusive — both listening to message.im would double-process
+  // every DM. Switching dmType requires a restart AND a manifest re-upload
+  // (the subscribed bot events differ between the two modes).
+  const dmType = config.directMessages.dmType;
+  if (dmType === "classic") {
+    deps.registerClassicDmHandlers(app);
+    deps.logger.info("DM mode: classic (message.im listener)");
+  } else {
+    deps.registerAssistant(app);
+    deps.logger.info("DM mode: assistant (Slack Agents & Assistants API)");
+  }
+
+  // Always register the remaining handlers — enablement is checked at
+  // invocation time so soft restarts can toggle features without reconnecting.
   deps.registerMentionHandler(app);
   deps.registerMessageChangedHandler(app);
   deps.registerAutoRespondHandler(app);
