@@ -845,6 +845,43 @@ describe("buildPrompt", () => {
     });
   });
 
+  describe("channelless scheduled delivery context", () => {
+    it("renders the channelless variant when channelId is a channelless sentinel", () => {
+      const session = makeSession({
+        triggerType: "scheduled",
+        channelId: "channelless:job-cl-1",
+      });
+      const prompt = buildPrompt(session);
+
+      assert.ok(prompt.includes("Mode: Scheduled message — channelless"));
+      assert.ok(prompt.includes("`submit_response` is a run terminator only"));
+      assert.ok(prompt.includes("post_to`"));
+    });
+
+    it("renders the original channel-bound variant when channelId is a real Slack channel", () => {
+      const session = makeSession({ triggerType: "scheduled", channelId: "C123" });
+      const prompt = buildPrompt(session);
+
+      assert.ok(
+        prompt.includes("Mode: Scheduled message (this is an automated cron-triggered execution)"),
+      );
+      assert.ok(!prompt.includes("Mode: Scheduled message — channelless"));
+    });
+
+    it("omits the channel preamble for channelless sessions", () => {
+      const session = makeSession({
+        triggerType: "scheduled",
+        channelId: "channelless:job-cl-1",
+      });
+      const prompt = buildPrompt(session);
+
+      assert.ok(
+        !prompt.includes("channelless:job-cl-1"),
+        "the synthetic sentinel must not leak into Claude's prompt",
+      );
+    });
+  });
+
   describe("user skills catalog", () => {
     it("renders USER SKILLS subsection when userSkills are passed", () => {
       const session = makeSession();

@@ -40,7 +40,16 @@ export interface CronRun {
 export interface CronJob {
   id: string;
   cronExpression: string;
-  channel: string;
+  /**
+   * Slack channel ID this job posts to. Optional: a channelless dynamic job decides
+   * its delivery destination at fire time by calling `post_to` from within the Claude
+   * session — used by plugin-managed jobs that evaluate multiple candidate channels
+   * per fire. When absent, the `submit_response` schema is forced into the
+   * `"skipped"` shape regardless of the persisted `submitResponseMode` (see the
+   * `submit-response-mode` capability), and the only legitimate delivery path is a
+   * `post_to` action call from Claude.
+   */
+  channel?: string;
   /** What Claude does each tick */
   prompt: string;
   /**
@@ -249,7 +258,11 @@ export async function findByPluginOwner(ownerKey: string): Promise<CronJob[]> {
 
 export interface CreateCronJobParams {
   cronExpression: string;
-  channel: string;
+  /**
+   * Optional. When omitted, the resulting job is channelless — delivery is decided
+   * at fire time by Claude via `post_to`. See `CronJob.channel` for the contract.
+   */
+  channel?: string;
   prompt: string;
   /**
    * Short human-readable label for the schedule (1-80 chars). Surfaced in the Home Tab
@@ -298,7 +311,7 @@ export async function createJob(params: CreateCronJobParams): Promise<CronJob> {
   const job: CronJob = {
     id: randomUUID().slice(0, 12),
     cronExpression: params.cronExpression,
-    channel: params.channel,
+    ...(params.channel !== undefined ? { channel: params.channel } : {}),
     prompt: params.prompt,
     ...(params.name && params.name.trim().length > 0 ? { name: params.name.trim() } : {}),
     createdBy: params.createdBy,
@@ -322,7 +335,9 @@ export async function createJob(params: CreateCronJobParams): Promise<CronJob> {
   };
   jobs.push(job);
   await saveState({ jobs });
-  logger.info(`Cron job ${job.id} created for channel ${params.channel}`);
+  logger.info(
+    `Cron job ${job.id} created${params.channel ? ` for channel ${params.channel}` : " (channelless)"}`,
+  );
   return job;
 }
 
@@ -339,7 +354,13 @@ export async function toggleJob(jobId: string): Promise<CronJob | null> {
 
 export interface UpdateCronJobParams {
   cronExpression?: string;
-  channel?: string;
+  /**
+   * When `undefined`, the persisted `channel` is unchanged. When `null`, the field is
+   * cleared (the job becomes channelless). Otherwise, the new value replaces the
+   * persisted one. Plugin reconcile uses `null` when a previously channel-bound spec
+   * is re-reconciled without a `channel`.
+   */
+  channel?: string | null;
   prompt?: string;
   /**
    * When `undefined`, the persisted `name` is unchanged. When empty (after trim), the
@@ -377,7 +398,9 @@ export async function updateJob(
   if (!job) return null;
 
   if (params.cronExpression !== undefined) job.cronExpression = params.cronExpression;
-  if (params.channel !== undefined) job.channel = params.channel;
+  if (params.channel !== undefined) {
+    job.channel = params.channel === null ? undefined : params.channel;
+  }
   if (params.prompt !== undefined) job.prompt = params.prompt;
   if (params.name !== undefined) {
     const trimmed = params.name.trim();

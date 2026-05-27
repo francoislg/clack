@@ -15,14 +15,20 @@ A `CronJobSpec` is the minimal set of fields a plugin author authoritatively con
 interface CronJobSpec {
   specKey: string;          // unique within ownerKey
   cronExpression: string;
-  channel: string;          // Slack channel ID (pre-resolved by the plugin)
+  channel?: string;         // Slack channel ID (pre-resolved by the plugin) — OPTIONAL
+                            //   omit for channelless jobs that decide delivery at fire time via post_to
   prompt: string;           // already-interpolated, full text
   timezone: string;         // IANA tz
   name?: string;            // optional 1-80 char human-readable label for displays
   requiredTools?: string[];
   skipConditions?: string;
+  submitResponseMode?: "always" | "optional" | "skipped";
+  skipDates?: SkipDate[];
+  attachedTopics?: string[];
 }
 ```
+
+When `spec.channel` is present, it SHALL be validated by the `isChannelId` check (`C…` / `G…` / `D…`); an invalid value SHALL cause the spec to be skipped with a logged warning, exactly as today. When `spec.channel` is absent, the `isChannelId` check SHALL be bypassed and the spec SHALL be accepted as a channelless job — the absence is intentional and is the explicit contract for plugins that decide delivery at fire time.
 
 When `spec.name` is present, it SHALL be passed through to `createJob` (for new entries) and applied to the persisted `name` field (for in-place updates), mirroring the resolution rules used for other spec fields. When `spec.name` is absent, the persisted `name` field SHALL be left unchanged on in-place updates and absent on new entries.
 

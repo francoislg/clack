@@ -104,6 +104,7 @@ import { createEnsurePRTool } from "./worker/ensurePR.js";
 import { createMergePRTool } from "./worker/mergePR.js";
 import { createClosePRTool } from "./worker/closePR.js";
 import { createReportStatusTool } from "./worker/reportStatus.js";
+import { isChannellessChannelId } from "../channelless.js";
 
 // ============================================================================
 // Staged Intent Store
@@ -545,7 +546,13 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
       // (replies go in the existing thread). Not used by additional_messages, which are
       // always top-level channel posts.
       ...(ctx.session.threadTs && { sessionThreadTs: ctx.session.threadTs }),
-      ...(ctx.submitResponseMode ? { submitResponseMode: ctx.submitResponseMode } : {}),
+      // Channelless dispatch (synthetic `channelless:<jobId>` channel id) MUST select the
+      // "skipped"-shape submit_response schema regardless of the persisted submitResponseMode
+      // — there's no destination for text delivery; only `post_to` can deliver. This is the
+      // mechanism backing the `submit-response-mode` capability's channelless rule.
+      submitResponseMode: isChannellessChannelId(ctx.session.channelId)
+        ? "skipped"
+        : ctx.submitResponseMode,
       requiredTools: ctx.requiredTools,
       ...(ctx.hasPendingInput && { hasPendingInput: ctx.hasPendingInput }),
       ...(ctx.consumePendingPushedTexts && {

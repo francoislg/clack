@@ -1651,11 +1651,12 @@ async function buildScheduledMessagesSection(
           : "";
       const namePrefix = job.name ? `*${escapeMrkdwn(job.name)}* — ` : "";
 
+      const channelRef = job.channel ? `<#${job.channel}> · ` : "";
       blocks.push({
         type: "section",
         text: {
           type: "mrkdwn",
-          text: `${namePrefix}<#${job.channel}> · ${schedule}${typeLabel}${creator}${statusLabel}`,
+          text: `${namePrefix}${channelRef}${schedule}${typeLabel}${creator}${statusLabel}`,
         },
         accessory: {
           type: "button",
@@ -1696,11 +1697,12 @@ async function buildScheduledMessagesSection(
         : "";
       const namePrefix = job.name ? `*${escapeMrkdwn(job.name)}* — ` : "";
 
+      const channelRef = job.channel ? `<#${job.channel}> · ` : "";
       blocks.push({
         type: "section",
         text: {
           type: "mrkdwn",
-          text: `${namePrefix}<#${job.channel}> · ${schedule}${ownerLabel}${statusLabel}`,
+          text: `${namePrefix}${channelRef}${schedule}${ownerLabel}${statusLabel}`,
         },
         accessory: {
           type: "button",
@@ -1733,21 +1735,23 @@ function buildPluginCronJobModal(job: CronJob): View {
       },
     },
     { type: "divider" },
-    {
+  ];
+  if (job.channel) {
+    blocks.push({
       type: "section",
       text: {
         type: "mrkdwn",
         text: `*${t("home.scheduled.channel_label")}*: <#${job.channel}>`,
       },
+    });
+  }
+  blocks.push({
+    type: "section",
+    text: {
+      type: "mrkdwn",
+      text: `*${t("home.scheduled.cron_label")}*: \`${escapeMrkdwn(job.cronExpression)}\` — ${schedule}`,
     },
-    {
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: `*${t("home.scheduled.cron_label")}*: \`${escapeMrkdwn(job.cronExpression)}\` — ${schedule}`,
-      },
-    },
-  ];
+  });
 
   if (job.prompt) {
     blocks.push({

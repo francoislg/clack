@@ -15,6 +15,7 @@ import { fetchThreadContext } from "../messagesApi.js";
 import { transformUserMentions, getUserInfo } from "../userCache.js";
 import { getChannelInfo } from "../channelCache.js";
 import { openDmChannel } from "../channelResolver.js";
+import { isChannellessChannelId } from "../../channelless.js";
 import { resolveChannelLabel, resolveUserLabel, slackLink } from "../logContext.js";
 import { getClaudeOptions } from "./changeWorkflowHelper.js";
 import { getReactionDelivery } from "../../userPreferences.js";
@@ -97,6 +98,13 @@ export const defaultCoreDeps: CoreDeps = {
 export interface ProcessMessageParams {
   client: App["client"];
   userId: string;
+  /**
+   * Slack channel ID. For channelless plugin-managed cron jobs, the dispatch layer
+   * synthesizes a `channelless:<jobId>` sentinel via `makeChannellessChannelId(jobId)`
+   * — detect it with `isChannellessChannelId(channelId)`. Slack-API call sites MUST
+   * guard against the sentinel; sessions still store it for lookup symmetry but no
+   * real channel exists.
+   */
   channelId: string;
   messageTs: string;
   messageText: string;
@@ -297,9 +305,13 @@ async function setupSession(ctx: ProcessingContext, deps: CoreDeps): Promise<Ses
 
   let session = threadTs ? await deps.findSessionByThread(channelId, threadTs) : null;
 
-  // Resolve user and channel info for session attribution
+  // Resolve user and channel info for session attribution. For channelless cron
+  // dispatch (synthetic `channelless:<jobId>` sentinel), skip the Slack lookup —
+  // the channel doesn't exist as a real Slack resource. See `src/channelless.ts`.
   const userInfo = await deps.getUserInfo(client, userId);
-  const channelInfo = await deps.getChannelInfo(client, channelId);
+  const channelInfo = isChannellessChannelId(channelId)
+    ? null
+    : await deps.getChannelInfo(client, channelId);
 
   if (!session) {
     const trigger = buildTriggerFromParams({

@@ -137,7 +137,7 @@ function defaultConfig(): Config {
       sendErrorsAsDM: false,
     },
     reactions: { trigger: "robot_face" },
-    directMessages: { enabled: false },
+    directMessages: { enabled: false, dmType: "assistant" },
     mentions: { enabled: false },
     repositories: [
       { name: "my-repo", url: "https://github.com/test/my-repo", description: "Test repo" },
@@ -887,7 +887,7 @@ describe("buildStatusSection", () => {
     const deps = makeDeps();
     mockGetConfig.mockImplementation(() => ({
       ...defaultConfig(),
-      directMessages: { enabled: true },
+      directMessages: { enabled: true, dmType: "assistant" },
     }));
     const blocks = buildStatusSection("member", deps);
     const texts = getSectionTexts(blocks);
@@ -1193,7 +1193,7 @@ describe("buildHelpSection", () => {
     const deps = makeDeps();
     mockGetConfig.mockImplementation(() => ({
       ...defaultConfig(),
-      directMessages: { enabled: true },
+      directMessages: { enabled: true, dmType: "assistant" },
     }));
     const blocks = buildHelpSection(deps);
     const texts = getSectionTexts(blocks);
@@ -1217,7 +1217,7 @@ describe("buildHelpSection", () => {
     const deps = makeDeps();
     mockGetConfig.mockImplementation(() => ({
       ...defaultConfig(),
-      directMessages: { enabled: false },
+      directMessages: { enabled: false, dmType: "assistant" },
     }));
     const blocks = buildHelpSection(deps);
     const texts = getSectionTexts(blocks);
@@ -1669,5 +1669,97 @@ describe("buildHomeView — schedule name prefix", () => {
     const match = text.match(/^\*(.+?)\* — /);
     assert.ok(match, `expected bold-wrapped name prefix, got: ${text}`);
     assert.equal(match[1], "Sneaky link  italic strike");
+  });
+});
+
+describe("buildHomeView — channelless plugin schedules", () => {
+  function channellessPluginJob(overrides: Partial<CronJob> = {}): CronJob {
+    return {
+      id: "plugin-cl-1",
+      cronExpression: "*/15 9-16 * * 1-5",
+      // no channel — channelless plugin-managed job
+      prompt: "Casual chatter",
+      createdBy: null,
+      systemActor: "plugin:casual-talk",
+      plugin: "casual-talk",
+      pluginManaged: true,
+      specKey: "chatter",
+      createdAt: new Date().toISOString(),
+      enabled: true,
+      timezone: "UTC",
+      ...overrides,
+    };
+  }
+
+  function findPluginScheduleRow(view: View): string | undefined {
+    const blocks = view.blocks as KnownBlock[];
+    // Find rows under the "Plugin Scheduled Messages" header — text mentions the plugin
+    for (const b of blocks) {
+      if (
+        b.type === "section" &&
+        b.text?.type === "mrkdwn" &&
+        b.text.text.includes("casual-talk")
+      ) {
+        return b.text.text;
+      }
+    }
+    return undefined;
+  }
+
+  it("omits any <#…> channel reference for channelless plugin rows", async () => {
+    setDefaultMocks("admin");
+    mockGetJobs.mockImplementation(async () => [channellessPluginJob()]);
+
+    const deps = makeDeps();
+    const view = await buildHomeView({ userId: "U001" }, deps);
+    const text = findPluginScheduleRow(view);
+    assert.ok(text, "expected to find the channelless plugin row");
+    assert.ok(!text.includes("<#"), `row must not contain any <#…> channel mention — got: ${text}`);
+    assert.ok(
+      !text.includes("undefined"),
+      `row must not render the literal word 'undefined' — got: ${text}`,
+    );
+  });
+
+  it("preserves the bold name prefix on channelless rows", async () => {
+    setDefaultMocks("admin");
+    mockGetJobs.mockImplementation(async () => [channellessPluginJob({ name: "Random Chatter" })]);
+
+    const deps = makeDeps();
+    const view = await buildHomeView({ userId: "U001" }, deps);
+    const text = findPluginScheduleRow(view);
+    assert.ok(text);
+    assert.ok(text.startsWith("*Random Chatter* — "), `expected name prefix, got: ${text}`);
+  });
+
+  it("renders the row cleanly when skipDates / skipConditions are absent (no crash)", async () => {
+    setDefaultMocks("admin");
+    mockGetJobs.mockImplementation(async () => [
+      channellessPluginJob({ skipDates: undefined, skipConditions: undefined }),
+    ]);
+
+    const deps = makeDeps();
+    const view = await buildHomeView({ userId: "U001" }, deps);
+    const text = findPluginScheduleRow(view);
+    assert.ok(text, "row should render without throwing");
+  });
+
+  it("uses the same row accessory as channel-bound plugin rows (no channelless-specific UX divergence)", async () => {
+    setDefaultMocks("admin");
+    mockGetJobs.mockImplementation(async () => [channellessPluginJob()]);
+
+    const deps = makeDeps();
+    const view = await buildHomeView({ userId: "U001" }, deps);
+    const blocks = view.blocks as KnownBlock[];
+    const row = blocks.find(
+      (b) =>
+        b.type === "section" && b.text?.type === "mrkdwn" && b.text.text.includes("casual-talk"),
+    );
+    assert.ok(row, "channelless plugin row must be present");
+    // Whatever the accessory is for plugin rows (per existing implementation),
+    // a channelless row uses the same one — this change only affects channel rendering.
+    if (row.type === "section") {
+      assert.ok(row.accessory, "plugin row must have an accessory");
+    }
   });
 });

@@ -50,7 +50,10 @@ export function createGetScheduledMessageRunsTool(ctx: QueryToolContext) {
         runs.map(async (run) => ({
           executedAt: run.executedAt,
           status: run.status,
-          ...(run.responseTs
+          // Channelless jobs (no `job.channel`) can't render a Slack deep-link from the
+          // job alone — the responseTs is from a `post_to` call whose channel isn't
+          // recorded on the run today. Skip the link in that case.
+          ...(run.responseTs && job.channel
             ? { link: (await slackLink(ctx.slackClient!, job.channel, run.responseTs)).trim() }
             : {}),
         })),

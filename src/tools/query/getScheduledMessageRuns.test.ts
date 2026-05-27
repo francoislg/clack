@@ -127,4 +127,35 @@ describe("get_scheduled_message_runs tool — skipped outcome", () => {
     assert.equal(parsed.submitResponseMode, undefined);
     assert.equal(parsed.note, undefined);
   });
+
+  it("omits link for runs on channelless jobs (no job.channel to anchor the deep-link)", async () => {
+    const job = await createJob({
+      cronExpression: "*/15 9-16 * * 1-5",
+      // no channel — channelless
+      prompt: "Casual chatter",
+      createdBy: null,
+      systemActor: "plugin:casual-talk",
+      plugin: "casual-talk",
+      pluginManaged: true,
+      specKey: "chatter",
+      timezone: "UTC",
+    });
+    // A successful run records responseTs from a post_to action call, but the channel
+    // isn't currently captured on the run record — so the deep-link is omitted.
+    await updateJobRunStatus(job.id, "success", "9999.0001");
+
+    const tool = createGetScheduledMessageRunsTool(
+      buildCtx({ slackClient: stubSlackClient(), role: "admin" }),
+    );
+    const result = await tool.handler({ id: job.id }, { sessionId: "test" });
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.count, 1);
+    assert.equal(parsed.runs[0].status, "success");
+    assert.equal(
+      parsed.runs[0].link,
+      undefined,
+      "channelless runs must not render a deep-link from job.channel (which is undefined)",
+    );
+  });
 });
