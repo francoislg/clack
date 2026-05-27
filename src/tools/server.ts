@@ -91,6 +91,7 @@ import { createReadErrorReportTool } from "./admin/readErrorReport.js";
 // Scheduled message query tools
 import { createListRemindersTool } from "./query/listReminders.js";
 import { createListScheduledMessagesTool } from "./query/listScheduledMessages.js";
+import { createGetScheduledMessageTool } from "./query/getScheduledMessage.js";
 import { createGetScheduledMessageRunsTool } from "./query/getScheduledMessageRuns.js";
 import { createFindRecentInteractionsTool } from "./query/findRecentInteractions.js";
 import { createFindSessionTranscriptTool } from "./query/findSessionTranscript.js";
@@ -437,6 +438,7 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
     tools.push(createCancelReminderTool(ctx));
     tools.push(createCreateScheduledMessageTool(ctx));
     tools.push(createListScheduledMessagesTool(ctx));
+    tools.push(createGetScheduledMessageTool(ctx));
     tools.push(createGetScheduledMessageRunsTool(ctx));
     tools.push(createCancelScheduledMessageTool(ctx));
     tools.push(createUpdateScheduledMessageTool(ctx));

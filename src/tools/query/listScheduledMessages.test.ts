@@ -111,6 +111,47 @@ describe("list_scheduled_messages tool — skipConditions and skipped status", (
     assert.equal(pr.submitResponseMode, null);
   });
 
+  it("returns prompts under 200 chars verbatim with promptTruncated: false", async () => {
+    await createJob({
+      cronExpression: "0 9 * * *",
+      channel: "C456",
+      prompt: "short prompt",
+      createdBy: "U123",
+      timezone: "UTC",
+    });
+
+    const tool = createListScheduledMessagesTool(buildCtx());
+    const result = await tool.handler(
+      { channel: undefined, all: undefined, plugin: undefined },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.scheduled_messages[0].prompt, "short prompt");
+    assert.equal(parsed.scheduled_messages[0].promptTruncated, false);
+  });
+
+  it("truncates prompts longer than 200 chars and flags promptTruncated: true", async () => {
+    const longPrompt = "x".repeat(500);
+    await createJob({
+      cronExpression: "0 9 * * *",
+      channel: "C456",
+      prompt: longPrompt,
+      createdBy: "U123",
+      timezone: "UTC",
+    });
+
+    const tool = createListScheduledMessagesTool(buildCtx());
+    const result = await tool.handler(
+      { channel: undefined, all: undefined, plugin: undefined },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.scheduled_messages[0].prompt, "x".repeat(200) + "…");
+    assert.equal(parsed.scheduled_messages[0].promptTruncated, true);
+  });
+
   it("filters by plugin owner when args.plugin is set", async () => {
     await createJob({
       cronExpression: "0 9 * * *",
