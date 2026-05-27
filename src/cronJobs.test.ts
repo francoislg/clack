@@ -18,7 +18,13 @@ import {
   findByPluginOwner,
   getJobByIdFromCache,
 } from "./cronJobs.js";
-import { writeFile } from "node:fs/promises";
+import { writeFile, readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import type { CronJob } from "./cronJobs.js";
+
+interface PersistedCronJobsFile {
+  jobs: Array<Partial<CronJob>>;
+}
 
 const originalCwd = process.cwd;
 
@@ -998,6 +1004,126 @@ describe("cronJobs", () => {
         timezone: "UTC",
       });
       assert.equal(getJobByIdFromCache("does-not-exist"), null);
+    });
+  });
+
+  describe("channelless jobs", () => {
+    it("creates a job without a channel", async () => {
+      const job = await createJob({
+        cronExpression: "*/15 9-16 * * 1-5",
+        prompt: "channelless prompt",
+        createdBy: null,
+        systemActor: "plugin:casual-talk",
+        pluginManaged: true,
+        specKey: "chatter",
+        plugin: "casual-talk",
+        timezone: "UTC",
+      });
+
+      assert.equal(job.channel, undefined);
+      assert.equal(job.prompt, "channelless prompt");
+      assert.equal(job.pluginManaged, true);
+    });
+
+    it("omits channel from serialized JSON when absent", async () => {
+      await createJob({
+        cronExpression: "*/15 9-16 * * 1-5",
+        prompt: "channelless prompt",
+        createdBy: null,
+        systemActor: "plugin:casual-talk",
+        pluginManaged: true,
+        specKey: "chatter",
+        plugin: "casual-talk",
+        timezone: "UTC",
+      });
+
+      const filePath = resolve(tempDir, "data", "state", "cron-jobs.json");
+      const raw = await readFile(filePath, "utf-8");
+      const parsed: PersistedCronJobsFile = JSON.parse(raw);
+      assert.equal("channel" in parsed.jobs[0], false);
+    });
+
+    it("round-trips a channelless job through cache reload", async () => {
+      const created = await createJob({
+        cronExpression: "*/15 9-16 * * 1-5",
+        prompt: "p",
+        createdBy: null,
+        systemActor: "plugin:casual-talk",
+        pluginManaged: true,
+        specKey: "chatter",
+        plugin: "casual-talk",
+        timezone: "UTC",
+      });
+      clearCronJobsCache();
+      const reloaded = await getJob(created.id);
+      assert.ok(reloaded);
+      assert.equal(reloaded.channel, undefined);
+    });
+
+    it("preserves channel on channel-bound jobs (regression)", async () => {
+      const job = await createJob({
+        name: "Bound",
+        cronExpression: "0 9 * * *",
+        channel: "C123",
+        prompt: "p",
+        createdBy: "U1",
+        timezone: "UTC",
+      });
+      assert.equal(job.channel, "C123");
+
+      const filePath = resolve(tempDir, "data", "state", "cron-jobs.json");
+      const raw = await readFile(filePath, "utf-8");
+      const parsed: PersistedCronJobsFile = JSON.parse(raw);
+      assert.equal(parsed.jobs[0].channel, "C123");
+    });
+
+    it("updateJob with channel: null clears a previously-bound channel", async () => {
+      const created = await createJob({
+        cronExpression: "0 9 * * *",
+        channel: "C123",
+        prompt: "p",
+        createdBy: null,
+        systemActor: "plugin:casual-talk",
+        pluginManaged: true,
+        specKey: "chatter",
+        plugin: "casual-talk",
+        timezone: "UTC",
+      });
+      assert.equal(created.channel, "C123");
+
+      const updated = await updateJob(created.id, { channel: null });
+      assert.ok(updated);
+      assert.equal(updated.channel, undefined);
+    });
+
+    it("updateJob with undefined channel leaves it unchanged", async () => {
+      const created = await createJob({
+        cronExpression: "0 9 * * *",
+        channel: "C123",
+        prompt: "p",
+        createdBy: "U1",
+        timezone: "UTC",
+      });
+      const updated = await updateJob(created.id, { prompt: "new prompt" });
+      assert.ok(updated);
+      assert.equal(updated.channel, "C123");
+      assert.equal(updated.prompt, "new prompt");
+    });
+
+    it("getJobByIdFromCache returns channelless jobs", async () => {
+      const created = await createJob({
+        cronExpression: "*/15 * * * *",
+        prompt: "p",
+        createdBy: null,
+        systemActor: "plugin:casual-talk",
+        pluginManaged: true,
+        specKey: "chatter",
+        plugin: "casual-talk",
+        timezone: "UTC",
+      });
+      const fromCache = getJobByIdFromCache(created.id);
+      assert.ok(fromCache);
+      assert.equal(fromCache.channel, undefined);
     });
   });
 });

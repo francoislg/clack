@@ -478,7 +478,7 @@ describe("ClackSdk", () => {
     interface StoredJob {
       id: string;
       cronExpression: string;
-      channel: string;
+      channel?: string;
       prompt: string;
       timezone: string;
       name?: string;
@@ -577,7 +577,9 @@ describe("ClackSdk", () => {
           const job = jobs.find((j) => j.id === jobId);
           if (!job) return null;
           if (updates.cronExpression !== undefined) job.cronExpression = updates.cronExpression;
-          if (updates.channel !== undefined) job.channel = updates.channel;
+          if (updates.channel !== undefined) {
+            job.channel = updates.channel === null ? undefined : updates.channel;
+          }
           if (updates.prompt !== undefined) job.prompt = updates.prompt;
           if (updates.timezone !== undefined) job.timezone = updates.timezone;
           if (updates.requiredTools !== undefined) {
@@ -999,6 +1001,50 @@ describe("ClackSdk", () => {
         await sdk.reconcileCronJobs("trivia", [{ ...validSpec, name: "   " }]);
 
         assert.equal(store.jobs.length, 0);
+      });
+    });
+
+    describe("channelless specs", () => {
+      const channellessSpec = {
+        specKey: "chatter",
+        cronExpression: "*/15 9-16 * * 1-5",
+        prompt: "Casual chatter",
+        timezone: "UTC",
+      };
+
+      it("accepts a spec with no channel field", async () => {
+        const store = makeFakeStore();
+        const { sdk } = makeSdk("casual-talk", store.deps);
+
+        await sdk.reconcileCronJobs("casual-talk", [channellessSpec]);
+
+        assert.equal(store.jobs.length, 1);
+        assert.equal(store.jobs[0].channel, undefined);
+        assert.equal(store.jobs[0].pluginManaged, true);
+        assert.equal(store.jobs[0].systemActor, "plugin:casual-talk");
+      });
+
+      it("rejects a spec with an invalid channel string (regression for shape check)", async () => {
+        const store = makeFakeStore();
+        const { sdk } = makeSdk("casual-talk", store.deps);
+
+        await sdk.reconcileCronJobs("casual-talk", [
+          { ...channellessSpec, channel: "not-a-channel-id" },
+        ]);
+
+        assert.equal(store.jobs.length, 0, "invalid channel rejected");
+      });
+
+      it("clears the persisted channel when a previously-bound spec is re-reconciled without one", async () => {
+        const store = makeFakeStore();
+        const { sdk } = makeSdk("casual-talk", store.deps);
+
+        await sdk.reconcileCronJobs("casual-talk", [{ ...channellessSpec, channel: "C123ABC" }]);
+        assert.equal(store.jobs[0].channel, "C123ABC");
+
+        await sdk.reconcileCronJobs("casual-talk", [channellessSpec]);
+
+        assert.equal(store.jobs[0].channel, undefined, "channel cleared on re-reconcile");
       });
     });
   });

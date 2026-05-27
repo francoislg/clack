@@ -192,6 +192,63 @@ describe("runScheduledMessageNow tool", () => {
     assert.equal(calls.runJobNow.length, 0);
   });
 
+  it("runs a channelless job (plain run-now, no replace)", async () => {
+    const job = await createJob({
+      cronExpression: "*/15 9-16 * * 1-5",
+      // no channel — channelless
+      prompt: "Casual chatter",
+      createdBy: null,
+      systemActor: "plugin:casual-talk",
+      plugin: "casual-talk",
+      pluginManaged: true,
+      specKey: "chatter",
+      timezone: "UTC",
+    });
+
+    const { deps, calls } = makeDeps({ responseTs: "9999.0001" });
+    // Admin role — system-owned jobs require admin or creator (creator is null here).
+    const tool = createRunScheduledMessageNowTool(buildCtx({ role: "admin" }), deps);
+    const result = await call(tool, { id: job.id, asOf: undefined, replaceResponseTs: undefined });
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.ok, true);
+    assert.equal(parsed.id, job.id);
+    assert.equal(parsed.skipped, false);
+    assert.equal(parsed.responseTs, "9999.0001");
+    assert.equal(calls.runJobNow.length, 1, "runJobNow invoked for channelless job");
+    assert.equal(calls.runJobNow[0].jobId, job.id);
+    assert.equal(calls.chatDelete.length, 0, "no delete for plain run-now");
+  });
+
+  it("rejects replaceResponseTs on a channelless job (prior post's channel is not knowable)", async () => {
+    const job = await createJob({
+      cronExpression: "*/15 9-16 * * 1-5",
+      // no channel — channelless
+      prompt: "Casual chatter",
+      createdBy: null,
+      systemActor: "plugin:casual-talk",
+      plugin: "casual-talk",
+      pluginManaged: true,
+      specKey: "chatter",
+      timezone: "UTC",
+    });
+    await updateJobRunStatus(job.id, "success", "9999.0001");
+
+    // Admin role — system-owned jobs require admin or creator (creator is null here).
+    const { deps, calls } = makeDeps();
+    const tool = createRunScheduledMessageNowTool(buildCtx({ role: "admin" }), deps);
+    const result = await call(tool, {
+      id: job.id,
+      asOf: undefined,
+      replaceResponseTs: "9999.0001",
+    });
+
+    assert.equal(result.isError, true);
+    assert.match(textAt(result, 0), /channelless/);
+    assert.equal(calls.chatDelete.length, 0, "no delete attempted for channelless");
+    assert.equal(calls.runJobNow.length, 0, "no run fired");
+  });
+
   it("reports replaceError but still fires when delete fails", async () => {
     const job = await createJob({
       cronExpression: "0 9 * * *",

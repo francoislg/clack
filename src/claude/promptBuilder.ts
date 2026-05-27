@@ -3,6 +3,7 @@ import type { McpServerRegistry, SkillPluginRegistry } from "../config.js";
 import { LANGUAGE_METADATA, type Lang } from "../i18n/languages.js";
 import { loadInstructions } from "../instructions.js";
 import type { UserRole } from "../roles.js";
+import { isChannellessChannelId } from "../channelless.js";
 import type { SessionContext } from "../sessions.js";
 import { triggerText, userContinuations } from "../sessions/selectors.js";
 import type { SlackImageFile, SlackFile } from "../slack/slackFileBase.js";
@@ -161,7 +162,10 @@ function buildDeliveryContext(session: SessionContext): string | null {
 
   const lines: string[] = ["DELIVERY CONTEXT:"];
 
-  if (session.triggerType !== "directMessages") {
+  // Skip the channel preamble for DMs (no channel context to mention) and for channelless
+  // scheduled runs (the synthetic sentinel isn't a real channel — exposing it would just
+  // confuse Claude).
+  if (session.triggerType !== "directMessages" && !isChannellessChannelId(session.channelId)) {
     if (session.channelName) {
       lines.push(`- Channel: #${session.channelName} (ID: ${session.channelId})`);
     } else {
@@ -222,18 +226,34 @@ function buildDeliveryContext(session: SessionContext): string | null {
       "- Choose actions appropriate to your response. If your answer investigates or summarizes content from a channel or thread, include `post_to` so the user can share the findings back.",
     );
   } else if (session.triggerType === "scheduled") {
-    // Scheduled: cron-triggered, response posted as top-level channel message
-    lines.push("- Mode: Scheduled message (this is an automated cron-triggered execution)");
-    lines.push(
-      "- Your response is posted as a top-level message in the target channel via submit_response.",
-    );
-    lines.push(
-      "- Do NOT include `post_to` for the target channel — submit_response already posts there top-level.",
-    );
-    lines.push("- Do NOT include `accept` or `reject` actions — they have no meaning here.");
-    lines.push(
-      "- You MAY include `post_to` ONLY if you need to post to a DIFFERENT channel or thread than the target.",
-    );
+    // Scheduled: cron-triggered. Branch on whether the underlying cron job had a bound
+    // channel (real Slack ID) or is channelless (delivery decided at fire time via post_to).
+    if (isChannellessChannelId(session.channelId)) {
+      lines.push(
+        "- Mode: Scheduled message — channelless (this run has NO bound delivery channel)",
+      );
+      lines.push(
+        "- `submit_response` is a run terminator only — its schema accepts ONLY `skip_response: true`. You cannot deliver text via submit_response.",
+      );
+      lines.push(
+        "- Delivery is exclusively through `post_to` actions with an explicit `channel` argument. Use `post_to` to post to whichever channel makes sense based on the prompt's instructions, then end with `submit_response({ skip_response: true })`.",
+      );
+      lines.push(
+        "- If no channel is a good fit, end with `submit_response({ skip_response: true })` without any `post_to` — that is a legitimate decision-not-to-post outcome, not an error.",
+      );
+    } else {
+      lines.push("- Mode: Scheduled message (this is an automated cron-triggered execution)");
+      lines.push(
+        "- Your response is posted as a top-level message in the target channel via submit_response.",
+      );
+      lines.push(
+        "- Do NOT include `post_to` for the target channel — submit_response already posts there top-level.",
+      );
+      lines.push("- Do NOT include `accept` or `reject` actions — they have no meaning here.");
+      lines.push(
+        "- You MAY include `post_to` ONLY if you need to post to a DIFFERENT channel or thread than the target.",
+      );
+    }
   } else if (session.triggerType === "autoRespond" || session.triggerType === "threadReply") {
     // Auto-respond / thread reply: automatically triggered response
     if (session.triggerType === "autoRespond") {

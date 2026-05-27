@@ -124,7 +124,14 @@ export interface AskClaudeResult {
 export interface CronJobSpec {
   specKey: string;
   cronExpression: string;
-  channel: string;
+  /**
+   * Slack channel ID. Optional: omit to declare a channelless job whose delivery
+   * destination is decided at fire time by Claude (via `post_to` actions). When the
+   * cron job fires with no `channel`, the `submit_response` schema is mechanically
+   * forced into the `"skipped"` shape — text delivery is unrepresentable; only
+   * `post_to` can deliver. Requires the `channelless-cron-jobs` capability.
+   */
+  channel?: string;
   prompt: string;
   timezone: string;
   /**
@@ -507,8 +514,13 @@ function validateCronJobSpec(spec: CronJobSpec): string | null {
   if (typeof spec.specKey !== "string" || spec.specKey.length === 0) {
     return "specKey must be a non-empty string";
   }
-  if (typeof spec.channel !== "string" || !isChannelId(spec.channel)) {
-    return `channel "${spec.channel}" is not a valid Slack channel ID (expected C…/G…/D…)`;
+  // Channelless specs are accepted: plugins MAY omit `channel` to declare a job whose
+  // delivery destination is decided at fire time by Claude via `post_to`. When supplied,
+  // the shape check still applies.
+  if (spec.channel !== undefined) {
+    if (typeof spec.channel !== "string" || !isChannelId(spec.channel)) {
+      return `channel "${spec.channel}" is not a valid Slack channel ID (expected C…/G…/D…)`;
+    }
   }
   if (typeof spec.cronExpression !== "string" || spec.cronExpression.length === 0) {
     return "cronExpression must be a non-empty string";
@@ -776,7 +788,9 @@ export function createClackSdk(
         if (match) {
           await update(match.id, {
             cronExpression: spec.cronExpression,
-            channel: spec.channel,
+            // updateJob treats `null` as "clear" — a spec that drops `channel` (or never had one)
+            // clears the persisted field, switching the job to the channelless path on next fire.
+            channel: spec.channel ?? null,
             prompt: spec.prompt,
             timezone: spec.timezone,
             requiredTools: spec.requiredTools ?? [],
@@ -800,7 +814,8 @@ export function createClackSdk(
         } else {
           await create({
             cronExpression: spec.cronExpression,
-            channel: spec.channel,
+            // Channelless specs simply omit the `channel` key — `createJob` accepts undefined.
+            ...(spec.channel !== undefined ? { channel: spec.channel } : {}),
             prompt: spec.prompt,
             createdBy: null,
             systemActor: `plugin:${ownerKey}`,

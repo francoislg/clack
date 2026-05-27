@@ -48,7 +48,8 @@ The system SHALL persist scheduled messages as cron jobs in `data/state/cron-job
 #### Scenario: Cron job structure
 
 - **WHEN** a cron job is created
-- **THEN** it SHALL contain: `id` (UUID), `cronExpression` (cron string), `channel` (Slack channel ID), `createdBy` (Slack user ID OR `null` for jobs that have no human creator), `createdAt` (ISO timestamp), `enabled` (boolean), `timezone` (IANA timezone string)
+- **THEN** it SHALL contain: `id` (UUID), `cronExpression` (cron string), `createdBy` (Slack user ID OR `null` for jobs that have no human creator), `createdAt` (ISO timestamp), `enabled` (boolean), `timezone` (IANA timezone string)
+- **AND** optionally `channel` (Slack channel ID) — absent for channelless jobs whose delivery destination is decided at fire time by Claude via `post_to` actions
 - **AND** either `prompt` (string, for dynamic Claude-powered execution) or `staticMessage` (string, for direct posting), or both
 - **AND** optionally `oneShot` (boolean), `repositories` (string array), `lastRunAt` (ISO timestamp), `lastRunStatus` ("success", "error", or "skipped")
 - **AND** optionally `requiredTools` (string array of fully-qualified MCP tool names that must be called during a dynamic run before `submit_response` will deliver)
@@ -58,6 +59,7 @@ The system SHALL persist scheduled messages as cron jobs in `data/state/cron-job
 - **AND** optionally `skipConditions` (string; when set, the scheduled run evaluates these free-form conditions and may decline delivery via `submit_response` with `skip_response: true`)
 - **AND** optionally `systemActor` (string; identifies the non-user origin of a system-owned job — present when and only when `createdBy` is `null`. The value SHALL be a colon-delimited source identifier, with `"plugin:<ownerKey>"` reserved for jobs emitted by `sdk.reconcileCronJobs`)
 - **AND** optionally `submitResponseMode` (one of `"always" | "optional" | "skipped"`; when set, overrides the auto-derived `allowSkip` rule and selects the `submit_response` schema variant — see the `submit-response-mode` capability)
+- **AND** a static job (carrying `staticMessage` but no `prompt`) SHALL have a `channel` value — static jobs cannot be channelless because there is no Claude session to pick a destination
 
 #### Scenario: createdBy is null only for system-owned jobs
 
@@ -76,6 +78,7 @@ The system SHALL persist scheduled messages as cron jobs in `data/state/cron-job
 - **AND** jobs without a `skipConditions` field load normally (field is optional and defaults to absent)
 - **AND** jobs without `pluginManaged` / `specKey` fields load normally (both optional, defaults absent for user-created jobs)
 - **AND** jobs without a `submitResponseMode` field load normally (field is optional and defaults to absent; auto-derivation rules apply unchanged)
+- **AND** jobs without a `channel` field load normally (channelless dynamic jobs)
 - **AND** jobs with `createdBy: null` and a `systemActor` field load normally without throwing
 - **AND** legacy jobs persisted with `createdBy: "<pluginName>"` and `pluginManaged: true` (pre-migration shape) are rewritten by the boot migration introduced in the `add-system-role-tier` change to `createdBy: null` + `systemActor: "plugin:<pluginName>"`
 
@@ -84,6 +87,7 @@ The system SHALL persist scheduled messages as cron jobs in `data/state/cron-job
 - **WHEN** a cron job is created, updated, or deleted
 - **THEN** the system SHALL write the full state to `data/state/cron-jobs.json`
 - **AND** update the in-memory cache atomically
+- **AND** include `channel` in the serialized form when present (omitted when the job is channelless)
 - **AND** include `requiredTools` in the serialized form when present
 - **AND** include `skipConditions` in the serialized form when present (omitted when unset or empty string)
 - **AND** include `submitResponseMode` in the serialized form when present (omitted when unset)
@@ -91,6 +95,20 @@ The system SHALL persist scheduled messages as cron jobs in `data/state/cron-job
 - **AND** include `specKey` in the serialized form when `pluginManaged` is `true`
 - **AND** include `systemActor` in the serialized form when `createdBy` is `null` (omitted for user-created jobs)
 - **AND** serialize `createdBy: null` explicitly (NOT as an absent field) so the system-owned shape round-trips through JSON
+
+#### Scenario: Channelless dynamic job round-trips
+
+- **GIVEN** a `CronJob` with `prompt` set, `channel` absent, and `pluginManaged: true`
+- **WHEN** the job is serialized and reloaded from `data/state/cron-jobs.json`
+- **THEN** the reloaded record has `channel === undefined`
+- **AND** all other fields are preserved
+
+#### Scenario: Static job without channel is rejected
+
+- **GIVEN** a request to create a `CronJob` with `staticMessage` set, `prompt` absent, and `channel` absent
+- **WHEN** `createCronJob` is invoked
+- **THEN** the call is rejected with an error explaining static jobs require a channel
+- **AND** no row is persisted
 
 ### Requirement: Cron Job CRUD Operations
 
@@ -169,8 +187,9 @@ The system SHALL provide a `run_scheduled_message_now` tool that fires an existi
 
 - **GIVEN** a dynamic cron job `J` owned by user `U`
 - **WHEN** `U` invokes `run_scheduled_message_now` with `{ id: J.id }` and no other arguments
-- **THEN** the system SHALL invoke the same dynamic-execution path used by the scheduler (`executeDynamicJob`) with the job's prompt, creator, channel, and `triggerType: "scheduled"`
-- **AND** the resulting response SHALL be posted to the job's `channel`
+- **THEN** the system SHALL invoke the same dynamic-execution path used by the scheduler (`executeDynamicJob`) with the job's prompt, creator, channel (when set), and `triggerType: "scheduled"`
+- **AND** when the job has a channel, the resulting response SHALL be posted to the job's `channel`
+- **AND** when the job is channelless, no automatic top-level posting occurs — delivery is exclusively via Claude's `post_to` actions
 - **AND** a new entry SHALL be appended to `job.runs[]` with `executedAt = current time`, `status` reflecting the outcome (`"success"` / `"error"` / `"skipped"`), and `responseTs` set when delivery succeeded
 - **AND** the new entry SHALL NOT have a `replayOf` field (no asOf was supplied)
 - **AND** `job.lastRunAt` / `job.lastRunStatus` SHALL be updated as for any other fire
@@ -193,13 +212,21 @@ The system SHALL provide a `run_scheduled_message_now` tool that fires an existi
 
 #### Scenario: Replace a prior post
 
-- **GIVEN** a dynamic cron job `J` with at least one `runs[]` entry whose `responseTs = T1`
+- **GIVEN** a dynamic cron job `J` with a `channel` set and at least one `runs[]` entry whose `responseTs = T1`
 - **WHEN** an authorized user invokes `run_scheduled_message_now` with `{ id: J.id, replaceResponseTs: T1 }`
 - **THEN** the system SHALL verify that `T1` appears in `J.runs[].responseTs` for some prior run (implicit Clack-ownership check)
 - **AND** the system SHALL call `chat.delete` on `(J.channel, T1)` BEFORE firing the new run
 - **AND** the new run SHALL fire as for plain run-now (or replay, if `asOf` was also supplied)
 - **AND** the tool's result SHALL include `replacedPriorPost: true` when the delete succeeded, or `replacedPriorPost: false` with a `replaceError` field when the delete failed (e.g., `message_not_found`)
 - **AND** a failed delete SHALL NOT abort the fire — the new run proceeds regardless
+
+#### Scenario: Replace on channelless job is rejected
+
+- **GIVEN** a channelless dynamic cron job `J` (no `channel` set)
+- **WHEN** an authorized user invokes `run_scheduled_message_now` with `{ id: J.id, replaceResponseTs: T1 }`
+- **THEN** the tool SHALL return an error explaining that `replaceResponseTs` is not supported for channelless jobs because the prior post's channel is not statically known on the job record
+- **AND** no delete SHALL be attempted
+- **AND** no run SHALL be fired
 
 #### Scenario: Replace with unowned responseTs is rejected
 
@@ -258,11 +285,12 @@ The system SHALL execute cron jobs through the standard `processMessage` pipelin
 #### Scenario: Dynamic job execution
 
 - **WHEN** a job with a `prompt` field fires
-- **THEN** the system SHALL invoke `processMessage` with `triggerType: "scheduled"`, the resolved actor's `userId` (or a synthetic placeholder when the actor is system — never a plugin-name string), the target `channelId`, and the `prompt` as `messageText`
+- **THEN** the system SHALL invoke `processMessage` with `triggerType: "scheduled"`, the resolved actor's `userId` (or a synthetic placeholder when the actor is system — never a plugin-name string), the target `channelId` (when set on the job — omitted for channelless jobs), and the `prompt` as `messageText`
 - **AND** pass `silentThinking: true` to suppress streaming UX
 - **AND** compute effective `requiredTools` as the union of (a) the job's explicit `requiredTools`, (b) the declared scheduled-run defaults of the plugin named in the job's `plugin` field (if any and the plugin is loaded). Pass the union as `ProcessMessageParams.requiredTools`
 - **AND** propagate the job's `skipConditions` (when set) into the session so the prompt builder injects the pre-check instructions and the tool server exposes `skip_response` on `submit_response`
-- **AND** the response SHALL be posted as a top-level message in the target channel (no `thread_ts`)
+- **AND** when the job has a channel, the response SHALL be posted as a top-level message in the target channel (no `thread_ts`)
+- **AND** when the job is channelless, no automatic top-level posting occurs — delivery is exclusively via Claude's `post_to` action calls (or no delivery at all on `skip_response: true`)
 
 #### Scenario: Dynamic job execution with asOf (replay)
 
@@ -273,6 +301,7 @@ The system SHALL execute cron jobs through the standard `processMessage` pipelin
 - **AND** the system SHALL NOT alter `messageTs`, `executedAt`, or the `CURRENT DATE` line of the system prompt — only the additional system prompt carries the override
 - **AND** `requiredTools` SHALL still apply (the operator's tool obligations are not suspended for replays)
 - **AND** `skipConditions` SHALL still evaluate against present-time external state (not asOf state) — this limitation is documented in `data/default_configuration/user/scheduling.md`
+- **AND** channelless replays follow the channelless execution path (delivery via `post_to` or none)
 
 #### Scenario: Static job execution
 
@@ -322,6 +351,23 @@ The system SHALL execute cron jobs through the standard `processMessage` pipelin
 - **AND** the job's `lastRunStatus` SHALL be set to `"skipped"` (replacing any prior `"success"` or `"error"` value)
 - **AND** the latest entry appended to the job's `runs` history SHALL have `status: "skipped"` with no `responseTs`
 - **AND** subsequent reads of the job (Home Tab rendering, `list_scheduled_messages`) SHALL reflect `"skipped"` as the most recent status — a prior `"error"` warning indicator SHALL NOT persist once a skipped run has occurred
+
+#### Scenario: Channelless dynamic run with post_to delivers
+
+- **GIVEN** a channelless dynamic job (no `channel` set)
+- **WHEN** the job fires and Claude calls `post_to({ channel: "C123", text: "..." })` followed by `submit_response({ skip_response: true })`
+- **THEN** the `post_to` action posts the message to `C123` as a top-level message
+- **AND** the job's `lastRunStatus` SHALL be `"success"`
+- **AND** the latest `runs[]` entry SHALL include `responseTs` set to the `post_to` message's timestamp
+
+#### Scenario: Channelless dynamic run without post_to is a legitimate skip
+
+- **GIVEN** a channelless dynamic job (no `channel` set)
+- **WHEN** the job fires and Claude calls `submit_response({ skip_response: true })` without any prior `post_to`
+- **THEN** no message is posted anywhere
+- **AND** the job's `lastRunStatus` SHALL be `"skipped"`
+- **AND** the latest `runs[]` entry SHALL have `status: "skipped"` with no `responseTs`
+- **AND** no DM-to-creator-or-owner error notification SHALL be triggered (skip is not a failure)
 
 #### Scenario: Message attribution
 

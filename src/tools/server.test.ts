@@ -305,6 +305,84 @@ describe("buildClackTools — query mode", () => {
       warnFn.mockRestore();
     }
   });
+
+  describe("submit_response schema channelless override", () => {
+    interface SubmitResponseShape {
+      [key: string]: z.ZodTypeAny;
+    }
+    interface RegisteredToolEntry {
+      inputSchema: { shape?: SubmitResponseShape };
+    }
+    interface RegisteredToolsByName {
+      [name: string]: RegisteredToolEntry;
+    }
+    function readRegisteredTools(value: object): RegisteredToolsByName | null {
+      if (!("_registeredTools" in value)) return null;
+      const tools = Reflect.get(value, "_registeredTools");
+      if (typeof tools !== "object" || tools === null) return null;
+      return tools as RegisteredToolsByName;
+    }
+
+    function buildChannellessSession(): SessionContext {
+      return {
+        sessionId: "sess-cl",
+        channelId: "channelless:job-cl-1",
+        messageTs: "1",
+        threadTs: "1",
+        userId: "U1",
+        trigger: { type: "scheduled", prompt: "q" },
+        messages: [],
+        threadContext: [],
+        errors: [],
+        lastActivity: Date.now(),
+        createdAt: Date.now(),
+        triggerType: "scheduled",
+      };
+    }
+
+    it("forces submit_response to the 'skipped' shape for channelless sessions even when persisted mode is 'optional'", () => {
+      const result = buildClackTools(
+        makeQueryCtx({
+          session: buildChannellessSession(),
+          submitResponseMode: "optional",
+        }),
+      );
+
+      const registered = readRegisteredTools(result.mcpServers.clack.instance);
+      assert.ok(registered, "expected _registeredTools to be populated");
+      const submitResponse = registered["submit_response"];
+      assert.ok(submitResponse, "submit_response must be registered");
+
+      const keys = Object.keys(submitResponse.inputSchema.shape ?? {});
+      assert.deepEqual(
+        keys,
+        ["skip_response"],
+        `channelless schema must accept ONLY skip_response — got [${keys.join(", ")}]`,
+      );
+    });
+
+    it("preserves the persisted submitResponseMode shape for channel-bound sessions (regression)", () => {
+      const result = buildClackTools(
+        makeQueryCtx({
+          session: {
+            ...buildChannellessSession(),
+            sessionId: "sess-bound",
+            channelId: "C123",
+          },
+          submitResponseMode: "optional",
+        }),
+      );
+
+      const registered = readRegisteredTools(result.mcpServers.clack.instance);
+      assert.ok(registered);
+      const submitResponse = registered["submit_response"];
+      const keys = Object.keys(submitResponse.inputSchema.shape ?? {});
+      assert.ok(
+        keys.length > 1 && keys.includes("skip_response"),
+        `channel-bound 'optional' mode keeps the full schema with skip_response — got [${keys.join(", ")}]`,
+      );
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------

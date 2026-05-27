@@ -22,6 +22,7 @@ import { isSlackAccessError } from "./slackErrors.js";
 import { humanReadableSchedule } from "./cronFormatter.js";
 import { resolveJobActor, actorDmTarget, actorDisplay, type Actor } from "./actor.js";
 import { loadRoles } from "./roles.js";
+import { makeChannellessChannelId } from "./channelless.js";
 
 // ============================================================================
 // Injectable deps (for tests; production uses module-level imports)
@@ -162,6 +163,11 @@ export function shouldSkipUserJob(job: CronJob, userSchedulesEnabled: boolean): 
 // Cron Matching
 // ============================================================================
 
+// Future hook: a `jitterMinutes?: number` field on `CronJob` could perturb the matching
+// window by ±N minutes per cycle so scheduled fires feel less mechanical (see the
+// `channelless-cron-jobs` design.md, "Forward hook for `jitterMinutes`"). Non-goal v1.
+// The cron expression itself stays canonical for inspection / Home Tab description —
+// jitter would apply on top of the prev/next compute below.
 export function matchesCron(
   expression: string,
   now: Date,
@@ -257,10 +263,14 @@ export async function executeJob(
   asOf?: Date,
 ): Promise<void> {
   runningJobs.add(job.id);
-  const channelLabel = await resolveChannelLabel(client, job.channel);
-  logger.info(
-    `Cron job ${job.id} executing in ${channelLabel}${await slackLink(client, job.channel)}`,
-  );
+  if (job.channel !== undefined) {
+    const channelLabel = await resolveChannelLabel(client, job.channel);
+    logger.info(
+      `Cron job ${job.id} executing in ${channelLabel}${await slackLink(client, job.channel)}`,
+    );
+  } else {
+    logger.info(`Cron job ${job.id} executing (channelless — destination decided by Claude)`);
+  }
   const replayOf = asOf?.toISOString();
 
   try {
@@ -321,10 +331,14 @@ export async function runJobNow(
   client: App["client"],
   asOf?: Date,
 ): Promise<JobOutcome> {
-  const channelLabel = await resolveChannelLabel(client, job.channel);
-  logger.info(
-    `Cron job ${job.id} executing manually in ${channelLabel}${await slackLink(client, job.channel)}`,
-  );
+  if (job.channel !== undefined) {
+    const channelLabel = await resolveChannelLabel(client, job.channel);
+    logger.info(
+      `Cron job ${job.id} executing manually in ${channelLabel}${await slackLink(client, job.channel)}`,
+    );
+  } else {
+    logger.info(`Cron job ${job.id} executing manually (channelless)`);
+  }
   const replayOf = asOf?.toISOString();
   const outcome = await executeDynamicJob(job, client, defaultDeps, asOf);
   if (outcome.skipped) {
@@ -352,10 +366,16 @@ export async function executeDynamicJob(
   // as a stable identifier for session lookups and trigger metadata.
   const effectiveUserId = actor.kind === "user" ? actor.userId : actor.source;
 
+  // Channelless cron jobs (no `job.channel`) synthesize a `channelless:<jobId>` sentinel
+  // for the dispatch boundary. The session stores the sentinel, the delivery-context
+  // builder detects it and emits the "post_to only" mode, and the submit_response
+  // schema selector forces the "skipped" shape. Slack API call sites guard against
+  // the sentinel via `isChannellessChannelId`.
+  const dispatchChannelId = job.channel ?? makeChannellessChannelId(job.id);
   const response = await deps.processMessage({
     client,
     userId: effectiveUserId,
-    channelId: job.channel,
+    channelId: dispatchChannelId,
     messageTs,
     messageText: job.prompt,
     triggerType: "scheduled",
@@ -374,8 +394,10 @@ export async function executeDynamicJob(
     return { skipped: true };
   }
 
-  // Read back the session to capture the Slack message timestamp
-  const session = await findSessionByMessage(job.channel, messageTs, effectiveUserId);
+  // Read back the session to capture the Slack message timestamp. For channelless
+  // jobs the lookup key is the synthesized sentinel — the session was stored under
+  // the same value, so this still finds the right record.
+  const session = await findSessionByMessage(dispatchChannelId, messageTs, effectiveUserId);
   return { skipped: false, responseTs: session?.responseTs };
 }
 
@@ -475,8 +497,15 @@ function buildOwnerErrorText(
   schedule: string,
   errorMessage: string,
 ): string {
-  const isDmTarget = job.channel.startsWith("D");
-  const target = isDmTarget ? `the DM channel \`${job.channel}\`` : `<#${job.channel}>`;
+  const isDmTarget = job.channel !== undefined && job.channel.startsWith("D");
+  let target: string;
+  if (job.channel === undefined) {
+    target = "(channelless — destination decided at fire time)";
+  } else if (isDmTarget) {
+    target = `the DM channel \`${job.channel}\``;
+  } else {
+    target = `<#${job.channel}>`;
+  }
   const source = actor.kind === "system" ? actor.source : "unknown";
   const specLabel = job.specKey ? ` (\`${job.specKey}\`)` : "";
 
@@ -488,8 +517,18 @@ function buildOwnerErrorText(
 }
 
 function buildCreatorErrorText(job: CronJob, schedule: string, errorMessage: string): string {
-  const isDmTarget = job.channel.startsWith("D");
-  const target = isDmTarget ? `the DM channel \`${job.channel}\`` : `<#${job.channel}>`;
+  // User-created jobs always have a channel — channelless jobs are plugin-managed
+  // and use the owner-error path. Match the owner-error fallback wording in the
+  // unreachable case so the two paths stay consistent if invariants ever shift.
+  const isDmTarget = job.channel !== undefined && job.channel.startsWith("D");
+  let target: string;
+  if (job.channel === undefined) {
+    target = "(channelless — destination decided at fire time)";
+  } else if (isDmTarget) {
+    target = `the DM channel \`${job.channel}\``;
+  } else {
+    target = `<#${job.channel}>`;
+  }
 
   if (isSlackAccessError(errorMessage)) {
     if (isDmTarget) {

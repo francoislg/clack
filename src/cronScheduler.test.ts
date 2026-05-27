@@ -706,4 +706,119 @@ describe("cronScheduler", () => {
       assert.equal(shouldSkipUserJob(pluginJob(), true), false);
     });
   });
+
+  describe("executeJob (channelless dispatch)", () => {
+    function fakeClient(): WebClient {
+      const client = new WebClient();
+      vi.spyOn(client.auth, "test").mockImplementation(async () => ({
+        ok: true,
+        url: "https://t.slack.com/",
+      }));
+      vi.spyOn(client.conversations, "info").mockImplementation(async () => ({
+        ok: true,
+        channel: { id: "C456", name: "ops", is_im: false },
+      }));
+      return client;
+    }
+
+    function channellessJob(overrides: Partial<CronJob> = {}): CronJob {
+      return {
+        id: "job-cl-1",
+        cronExpression: "*/15 9-16 * * 1-5",
+        prompt: "Casual chatter",
+        createdBy: null,
+        systemActor: "plugin:casual-talk",
+        plugin: "casual-talk",
+        pluginManaged: true,
+        specKey: "chatter",
+        createdAt: new Date().toISOString(),
+        enabled: true,
+        timezone: "UTC",
+        ...overrides,
+      };
+    }
+
+    function makeDeps(responseOverride: Partial<ClaudeResponse> = {}): {
+      deps: CronSchedulerDeps;
+      calls: {
+        processMessage: Parameters<CronSchedulerDeps["processMessage"]>[0][];
+        updateJobRunStatus: Parameters<CronSchedulerDeps["updateJobRunStatus"]>[];
+        notifyCreatorOfError: Parameters<CronSchedulerDeps["notifyCreatorOfError"]>[];
+      };
+    } {
+      const processMessageCalls: Parameters<CronSchedulerDeps["processMessage"]>[0][] = [];
+      const updateJobRunStatusCalls: Parameters<CronSchedulerDeps["updateJobRunStatus"]>[] = [];
+      const notifyCalls: Parameters<CronSchedulerDeps["notifyCreatorOfError"]>[] = [];
+      const calls = {
+        processMessage: processMessageCalls,
+        updateJobRunStatus: updateJobRunStatusCalls,
+        notifyCreatorOfError: notifyCalls,
+      };
+      const deps: CronSchedulerDeps = {
+        processMessage: async (params) => {
+          calls.processMessage.push(params);
+          return { success: true, answer: "", ...responseOverride };
+        },
+        markJobStarted: async () => {},
+        updateJobRunStatus: async (...args) => {
+          calls.updateJobRunStatus.push(args);
+        },
+        deleteJob: async () => true,
+        notifyCreatorOfError: async (...args) => {
+          calls.notifyCreatorOfError.push(args);
+        },
+      };
+      return { deps, calls };
+    }
+
+    it("synthesizes channelless:<jobId> sentinel for channelless dispatch", async () => {
+      const { deps, calls } = makeDeps({ skipped: false });
+      const client = fakeClient();
+
+      await executeJob(channellessJob(), client, deps);
+
+      assert.equal(calls.processMessage.length, 1);
+      assert.equal(calls.processMessage[0].channelId, "channelless:job-cl-1");
+    });
+
+    it("passes the real channel through unchanged for channel-bound jobs (regression)", async () => {
+      const { deps, calls } = makeDeps({ skipped: false });
+      const client = fakeClient();
+
+      await executeJob(channellessJob({ channel: "C789" }), client, deps);
+
+      assert.equal(calls.processMessage[0].channelId, "C789");
+    });
+
+    it("records 'skipped' status and does NOT notify on channelless skipped run", async () => {
+      // skip-without-post is a legitimate outcome for channelless — Claude decided no
+      // candidate channel was a good fit. It must NOT trigger an error notification.
+      const { deps, calls } = makeDeps({ skipped: true });
+      const client = fakeClient();
+
+      await executeJob(channellessJob({ skipConditions: "Skip on weekends" }), client, deps);
+
+      assert.equal(calls.updateJobRunStatus.length, 1);
+      assert.equal(calls.updateJobRunStatus[0][1], "skipped");
+      assert.equal(calls.updateJobRunStatus[0][2], undefined, "skipped runs have no responseTs");
+      assert.equal(
+        calls.notifyCreatorOfError.length,
+        0,
+        "skip is a legitimate outcome — no error DM",
+      );
+    });
+
+    it("records 'success' status on a non-skipped channelless run", async () => {
+      const { deps, calls } = makeDeps({ skipped: false });
+      const client = fakeClient();
+
+      await executeJob(channellessJob(), client, deps);
+
+      assert.equal(calls.updateJobRunStatus.length, 1);
+      assert.equal(calls.updateJobRunStatus[0][1], "success");
+      // responseTs comes from findSessionByMessage(dispatchChannelId, ...) — undefined
+      // in this test harness since no real session exists. The contract is that responseTs
+      // is plumbed through from session.responseTs when present.
+    });
+  });
 });

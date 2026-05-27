@@ -76,7 +76,8 @@ async function formatRuns(job: CronJob, ctx: QueryToolContext) {
     recent.map(async (run) => ({
       executedAt: run.executedAt,
       status: run.status,
-      ...(run.responseTs
+      // Channelless jobs (no `job.channel`) can't render a deep-link from job alone.
+      ...(run.responseTs && job.channel
         ? { link: (await slackLink(ctx.slackClient!, job.channel, run.responseTs)).trim() }
         : {}),
     })),

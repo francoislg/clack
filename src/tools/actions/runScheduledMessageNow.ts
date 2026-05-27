@@ -99,6 +99,12 @@ export function createRunScheduledMessageNowTool(
       let replacedPriorPost = false;
       let replaceError: string | undefined;
       if (args.replaceResponseTs) {
+        if (job.channel === undefined) {
+          return errorResult(
+            "replaceResponseTs is not supported for channelless cron jobs — the prior post's channel " +
+              "is not statically known on the job record (it was decided at the prior fire by post_to).",
+          );
+        }
         const owned = (job.runs ?? []).some((r) => r.responseTs === args.replaceResponseTs);
         if (!owned) {
           return errorResult(

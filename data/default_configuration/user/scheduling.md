@@ -47,3 +47,9 @@ When you use `asOf`, you take on responsibility for translating relative date la
 `skipConditions` evaluate against present-time state, not `asOf` state. A replay may post when the original run would have skipped (or vice versa) because the external conditions have moved on. This is intentional — skip conditions like "skip if no PRs in last 24h" check current PRs, not PRs from 5 days ago. Mention this honestly if the user asks why a replay didn't skip.
 
 `requiredTools` still apply on replay. If the original failed because a required tool errored, the replay will hit the same gate. Investigate the underlying failure rather than retrying repeatedly.
+
+### Channelless Plugin-Managed Cron Jobs
+
+Plugins MAY declare cron jobs without a `channel` — these "channelless" jobs decide their delivery destination at fire time. The `submit_response` schema is mechanically restricted to `{ skip_response: true }` for these runs; the only legitimate delivery path is a `post_to` action call with an explicit `channel`. A channelless run that ends with `skip_response: true` and no prior `post_to` is recorded as `"skipped"` — that's a legitimate "decided not to post" outcome, not a failure.
+
+User-created scheduled messages always have a channel — channelless jobs are plugin-managed only. They appear in the Home Tab's "Plugin Scheduled Messages" section without a channel mention. `run_scheduled_message_now` works on channelless jobs for plain retry; the `replaceResponseTs` argument is rejected because the prior post's channel isn't statically known on the job record.
