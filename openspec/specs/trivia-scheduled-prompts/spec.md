@@ -49,7 +49,7 @@ The `SEND_QUESTIONS_INSTRUCTIONS` constant SHALL contain a numbered step flow th
 1. **Get category ideas and suggestions** — Call `get_ideas(game: "{game}")`. Read `suggestedAnswer` and `suggestedDifficulty`. Pick one category from `categories.ideas`.
 2. **Write a statement with the correct polarity from the start** — branch on `suggestedAnswer`; never write true then flip.
 3. **Polarity self-check** — explicitly verify the statement's actual truth matches `suggestedAnswer`; rewrite if not.
-4. **Check for duplicates** — Call `find_previous_questions(game: "{game}", text: ...)`; iterate if a match exists in this game's history.
+4. **Check for duplicates** — Call `find_previous_questions({ keywords: [3-5 distinctive terms from the statement], match: "any" })`. The call SHALL OMIT the `games` argument so the scan spans every game (duplicate facts in sibling games still count as duplicates). The keyword list SHALL be 3 to 5 distinctive terms — names, numbers, rare nouns — chosen so a duplicate fact in any framing would surface. For each returned row, inspect its `matchedKeywords` and `statement` to decide whether the row covers the same underlying fact in any framing or polarity; if any candidate is a duplicate, return to step 2 and write a different statement. If the result set is uninformatively wide (many rows matching only on common words), re-call with sharper keywords.
 5. **Validate through research** — confirm the statement is actually true/false.
 6. **Difficulty gate (strict membership + one-shot reframe)** — self-rate 1–10. The bucket's `suggestedDifficultyRange` `[min, max]` from `get_ideas` IS the strict accept bound (no separate threshold). Rating inside `[min, max]` → proceed. Rating EXACTLY `min - 1` or `max + 1` (one point off) → REFRAME ONCE; for boolean flows, re-run the polarity self-check on the reframed statement before re-rating. If v2 lies inside the range → proceed; if v2 still outside → REJECT and re-call `get_ideas`. Rating two or more points outside `[min, max]` → REJECT immediately and re-call `get_ideas`.
 7. **Choose emojis** relating to the topic.
@@ -73,12 +73,20 @@ The prompt SHALL NOT instruct Claude to pass `reactions: [...]` to any tool. Rea
 
 The prompt SHALL NOT instruct Claude to render the legacy block #4 ("👍 TRUE • 👎 FALSE" inline text, or "1️⃣ Beatles · 2️⃣ Zeppelin · …" inline choice text). Those are replaced by the appended `actions` block.
 
-#### Scenario: Prompt content includes the game header and game-scoped tool calls
+#### Scenario: Prompt content includes the game header and game-scoped tool calls except for duplicate detection
 
 - **GIVEN** `buildGameSpecs([{ name: "main", ... }], false)` was called
 - **WHEN** the `main:question` spec's `prompt` is inspected
 - **THEN** the prompt opens with the persona directive and a `Game: main` header
-- **AND** every reference to `get_ideas`, `find_previous_questions`, `save_question`, or `post_questions` passes `game: "main"` as an argument
+- **AND** every reference to `get_ideas`, `save_question`, or `post_questions` passes `game: "main"` as an argument
+- **AND** the duplicate-detection step (step 4) calls `find_previous_questions` WITHOUT a `games` argument
+- **AND** the duplicate-detection step explicitly passes `match: "any"` and a `keywords: [...]` array
+
+#### Scenario: Prompt removes the game-scoped carve-out for duplicate detection
+
+- **WHEN** the prompt content is inspected
+- **THEN** the prompt does NOT contain wording asserting that duplicate detection is "GAME-SCOPED" or "stays game-scoped"
+- **AND** does NOT instruct Claude to pass a `game` or `games` argument when calling `find_previous_questions` for duplicate detection
 
 #### Scenario: Prompt instructs Claude to honor suggestedAnswer
 

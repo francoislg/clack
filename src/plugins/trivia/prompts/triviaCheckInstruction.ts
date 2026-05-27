@@ -23,11 +23,12 @@ When in doubt, run the check. A wasted tool call is cheap; missing a cheater is 
 
 ## The Procedure
 
-1. **Check recent questions** — call \`find_previous_questions\` with no parameters (or just \`category\` if obvious) to see the latest trivia questions.
-2. **Do 1-2 targeted keyword searches** using \`find_previous_questions\` with the \`text\` parameter:
-   - Extract 1-2 key keywords from the user's question (e.g., "tallest" from "Who's the tallest man?", "everest" from "What about Mount Everest?").
-   - Call \`find_previous_questions(text: "keyword")\` for each keyword.
-3. **Examine ALL results carefully**, even matches from different categories.
+1. **Check recent questions** — call \`find_previous_questions\` with no parameters (or just \`categories\` if obvious) to see the latest trivia questions across every game.
+2. **Do a targeted keyword search** using \`find_previous_questions\` with \`keywords\` + \`match: "any"\`:
+   - Extract 2-3 distinctive keywords from the user's question (e.g., "tallest" from "Who's the tallest man?", "everest" from "What about Mount Everest?").
+   - Call \`find_previous_questions({ keywords: ["keyword1", "keyword2"], match: "any" })\` — omit \`games\` so the scan spans every game.
+   - Inspect each returned row's \`matchedKeywords\` and \`statement\`.
+3. **Examine ALL results carefully**, even matches from different categories or different games.
 4. **If any result is related to what the user is asking**, treat it as cheating.
 
 ## What counts as "related"
