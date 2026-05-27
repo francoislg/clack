@@ -80,6 +80,27 @@ describe("casual-talk prompt", () => {
     );
   });
 
+  it("instructs Claude to fetch with include_threads so thread activity is visible", () => {
+    const prompt = buildPrompt({
+      die: 28,
+      rateLabel: "daily (1/28)",
+      channels: ["C111"],
+      smallTalkTopics: [],
+    });
+    assert.ok(prompt.includes("include_threads: true"));
+    assert.ok(prompt.includes("reply_count"));
+  });
+
+  it("instructs Claude that thread_ts on post_to is the way to chip into a thread", () => {
+    const prompt = buildPrompt({
+      die: 28,
+      rateLabel: "daily (1/28)",
+      channels: ["C111"],
+      smallTalkTopics: [],
+    });
+    assert.ok(prompt.includes("thread_ts"));
+  });
+
   it("handles empty channels list gracefully (no crash)", () => {
     const prompt = buildPrompt({
       die: 28,

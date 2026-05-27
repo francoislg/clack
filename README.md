@@ -28,6 +28,33 @@ Send a question directly to Clack or @mention it in a channel. Responses are pos
 - **Home Tab** — Manage roles, view repositories, edit instructions, and monitor active workers
 - **Docker support** — Multi-stage build with interactive setup script
 
+## Built-in Plugins
+
+Clack ships with a small set of built-in plugins. Enable each via `config.plugins[]`.
+
+### casual-talk
+
+Drops casual chatter into configured channels on a probabilistic schedule. On every cron tick within work hours, the plugin rolls a virtual die — only on `1` does Claude actually post. The bot evaluates all configured candidate channels at fire time and posts to whichever feels most natural to join (or skips cleanly if none fit).
+
+**Config** (`data/plugins/casual-talk/config.json`):
+
+```json
+{
+  "enabled": true,
+  "channels": [
+    "C0123456789",
+    { "id": "C9876543210", "promptSuggestion": "memes only — keep it visual" }
+  ],
+  "workHours": { "start": 9, "end": 17, "tz": "America/Montreal", "days": [1, 2, 3, 4, 5] },
+  "expectedRate": "daily",
+  "smallTalkTopics": ["food", "weekend plans", "pop culture"]
+}
+```
+
+**Important:** `expectedRate` is **total across all configured channels**, not per-channel. With `expectedRate: "daily"` and 5 channels, you'd see ~1 post/day total — about 1 post per channel every 5 days. Use `daily`/`weekly` rates carefully when you have many channels.
+
+Manage the config from Slack by attaching the `casual-talk:management` integration (admin-only) — tools include `add_channel`, `remove_channel`, `set_expected_rate`, `set_work_hours`, `enable`, `disable`, and more.
+
 ## Setup
 
 ### Prerequisites
@@ -121,7 +148,7 @@ ANTHROPIC_API_KEY=sk-ant-api-your-key-here
 2. Edit `data/config.json` — see `data/config.example.json` for the full schema. The key sections:
 
    - **`reactions`** — Trigger emoji, thinking indicator, optional work-mode emoji
-   - **`directMessages`** / **`mentions`** — Enable/disable DM and @mention triggers
+   - **`directMessages`** / **`mentions`** — Enable/disable DM and @mention triggers. DMs additionally support `dmType: "assistant"` (default, Slack Agents & Assistants API) or `"classic"` (low-level `message.im` event, no `assistant:write` scope). Switching `dmType` requires regenerating + re-uploading the manifest.
    - **`repositories`** — Repos to index, with access control (`read`/`write` role thresholds) and merge strategy
    - **`changesWorkflow`** — Enable the Changes Workflow with timeout, concurrency, and monitoring settings
    - **`claudeCode.model`** — Claude model to use (default: `sonnet`)

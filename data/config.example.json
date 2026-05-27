@@ -19,6 +19,7 @@
   },
   "directMessages": {
     "enabled": false,
+    "dmType": "assistant",
     "thinking": {
       "type": "message"
     },

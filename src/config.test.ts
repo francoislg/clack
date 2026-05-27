@@ -52,7 +52,7 @@ function makeConfig(repos: RepositoryConfig[]): Config {
       sendErrorsAsDM: false,
     },
     reactions: { trigger: "robot_face" },
-    directMessages: { enabled: false },
+    directMessages: { enabled: false, dmType: "assistant" },
     mentions: { enabled: false },
     repositories: repos,
     git: { pullIntervalMinutes: 60, shallowClone: true, cloneDepth: 1 },

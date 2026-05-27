@@ -54,7 +54,7 @@ describe("isChangesEnabledForTrigger", () => {
     const config = makeConfig({
       changesWorkflow: { enabled: true },
       reactions: { trigger: "eyes", changesWorkflow: { enabled: true } },
-      directMessages: { enabled: true },
+      directMessages: { enabled: true, dmType: "assistant" },
       mentions: { enabled: true },
     });
     assert.equal(isChangesEnabledForTrigger("reactions", config), true);

@@ -113,6 +113,12 @@ export const CONFIG_SCHEMA: SchemaFor<Config> = {
       description: "Direct-message trigger configuration.",
       fields: {
         enabled: { type: "boolean", description: "Enable DM trigger.", default: false },
+        dmType: {
+          type: "string",
+          description:
+            'Slack DM transport: "assistant" (default — uses the Agents & Assistants API) or "classic" (uses the low-level message.im event). Changing this requires a restart AND a manifest re-upload.',
+          required: false,
+        },
         thinking: thinkingBlock("DM-triggered"),
         changesWorkflow: triggerCwBlock("DMs"),
       },

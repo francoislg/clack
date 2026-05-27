@@ -119,8 +119,21 @@ export interface ReactionsConfig {
   changesWorkflow?: ReactionsChangesWorkflowConfig;
 }
 
+/**
+ * Which Slack DM transport to use. `"assistant"` (default) registers a Bolt
+ * `Assistant` instance against the Agents & Assistants API. `"classic"` instead
+ * registers a low-level `app.event("message")` listener filtered on
+ * `channel_type === "im"`. The two are mutually exclusive at registration —
+ * switching requires a restart AND a manifest re-upload because the subscribed
+ * bot events differ.
+ */
+export type DmType = "assistant" | "classic";
+
+export const VALID_DM_TYPES: readonly DmType[] = ["assistant", "classic"] as const;
+
 export interface DirectMessagesConfig {
   enabled: boolean;
+  dmType: DmType;
   thinking?: ThinkingFeedbackConfig;
   changesWorkflow?: TriggerChangesWorkflowConfig;
 }
@@ -333,6 +346,7 @@ const DEFAULTS: Partial<Config> = {
   },
   directMessages: {
     enabled: false,
+    dmType: "assistant",
     thinking: {
       type: "message",
     },
@@ -509,6 +523,12 @@ function parseStopReaction(raw: ReactionsRaw | undefined): string | null | undef
 
 function parseQueuedFollowupReaction(raw: ReactionsRaw | undefined): string | null | undefined {
   return parseEmojiReaction(raw, "queuedFollowup", "reactions.queuedFollowup");
+}
+
+function parseDmType(value: string | undefined): DmType | undefined {
+  if (value === undefined) return undefined;
+  if (value === "assistant" || value === "classic") return value;
+  return undefined;
 }
 
 // JSON value tree for validator inputs — a real type rather than `unknown`.
@@ -830,6 +850,17 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
     );
   }
 
+  // Validate directMessages.dmType if provided
+  const dmRawForValidation = section(c, "directMessages");
+  if (dmRawForValidation && dmRawForValidation.dmType !== undefined) {
+    const dt = dmRawForValidation.dmType;
+    if (typeof dt !== "string" || !VALID_DM_TYPES.includes(dt as DmType)) {
+      throw new Error(
+        `Config 'directMessages.dmType' must be one of: ${VALID_DM_TYPES.join(", ")} (got ${JSON.stringify(dt)})`,
+      );
+    }
+  }
+
   // Validate slackApp if provided
   const slackAppRaw = section(c, "slackApp");
   if (slackAppRaw) {
@@ -956,6 +987,7 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
     },
     directMessages: {
       enabled: (dmRaw && bool(dmRaw, "enabled")) ?? DEFAULTS.directMessages!.enabled,
+      dmType: parseDmType(dmRaw && str(dmRaw, "dmType")) ?? DEFAULTS.directMessages!.dmType,
       thinking: parseThinking(
         dmRaw && section(dmRaw, "thinking"),
         DEFAULTS.directMessages!.thinking,

@@ -61,7 +61,7 @@ function makeConfig(userSkillsEnabled = false): Config {
       sendErrorsAsDM: false,
     },
     reactions: { trigger: "x" },
-    directMessages: { enabled: false },
+    directMessages: { enabled: false, dmType: "assistant" },
     mentions: { enabled: false },
     repositories: [],
     git: { pullIntervalMinutes: 1, shallowClone: true, cloneDepth: 1 },

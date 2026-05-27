@@ -51,7 +51,7 @@ npx tsc              # Type-check without emitting (use to verify changes)
 ### Three Trigger Modes
 
 - **Reactions** — User reacts with configured emoji. Response is ephemeral (only the reactor sees it) or delivered via DM (DM-first mode). User accepts to share publicly.
-- **Direct Messages** — User messages the bot directly. Responses posted visibly in thread. Thread replies continue the conversation.
+- **Direct Messages** — User messages the bot directly. Responses posted visibly in thread. Thread replies continue the conversation. Sub-mode via `config.directMessages.dmType`: `"assistant"` (default — Slack Agents & Assistants API side-panel UX with channel-context awareness) or `"classic"` (low-level `message.im` event, plain Messages-tab UX, no `assistant:write` scope or `assistant_view` feature). **Switching `dmType` requires a full restart AND re-uploading the regenerated manifest — the subscribed bot events differ between the two modes.**
 - **@Mentions** — User @mentions the bot in a channel. Responses posted visibly in thread.
 
 Each mode is independently configured with its own thinking indicator and Changes Workflow toggle.
