@@ -14,6 +14,12 @@ export function createListScheduledMessagesTool(ctx: QueryToolContext) {
     {
       channel: z.string().optional().describe("Filter by channel name or ID"),
       all: z.boolean().optional().describe("List all scheduled messages (admin/owner only)"),
+      plugin: z
+        .string()
+        .optional()
+        .describe(
+          "Filter to scheduled messages owned by this plugin (matches the job's `plugin` field, plugin-managed jobs only).",
+        ),
     },
     async (args) => {
       const isAdmin = canManageRoles(ctx.role);
@@ -23,6 +29,11 @@ export function createListScheduledMessagesTool(ctx: QueryToolContext) {
       if (args.channel) {
         const channelFilter = args.channel.replace(/^#/, "");
         jobs = jobs.filter((j) => j.channel === channelFilter || j.channel === args.channel);
+      }
+
+      // Filter by plugin owner if specified
+      if (args.plugin) {
+        jobs = jobs.filter((j) => j.plugin === args.plugin && j.pluginManaged === true);
       }
 
       if (jobs.length === 0) {
