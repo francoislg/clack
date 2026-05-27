@@ -1,6 +1,39 @@
 import type { App } from "@slack/bolt";
-import type { ConversationsHistoryResponse, AuthTestResponse } from "@slack/web-api";
+import type {
+  ConversationsHistoryResponse,
+  AuthTestResponse,
+  UsersInfoResponse,
+} from "@slack/web-api";
 import type { SlackReactionLike } from "./types.js";
+
+/**
+ * Slack platform error codes that mean "this user can't be resolved by this
+ * bot" — expected outcomes (deactivated users, external Slack Connect users,
+ * cross-workspace IDs), not operational failures. The SDK throws for these
+ * rather than returning `{ ok: false }`, so we catch and normalize to `null` —
+ * otherwise a single deactivated player produces a warn log on every reveal.
+ */
+const EXPECTED_USER_LOOKUP_ERRORS = new Set([
+  "user_not_found",
+  "user_not_visible",
+  "bot_not_found",
+]);
+
+/**
+ * Exported for direct testing. Detects Slack's "this user can't be resolved"
+ * platform errors structurally — `error.data.error` is a string in the
+ * EXPECTED_USER_LOOKUP_ERRORS set. Tolerates non-Error throws, errors without
+ * `.data`, and non-string error codes (all return false).
+ */
+export function isExpectedUserLookupError(error: unknown): boolean {
+  if (error === null || typeof error !== "object") return false;
+  if (!("data" in error)) return false;
+  const data = error.data;
+  if (data === null || typeof data !== "object") return false;
+  if (!("error" in data)) return false;
+  const code = data.error;
+  return typeof code === "string" && EXPECTED_USER_LOOKUP_ERRORS.has(code);
+}
 
 // Slack SDK shapes derived from the typed response.
 type HistoryMessage = NonNullable<ConversationsHistoryResponse["messages"]>[number];
@@ -93,4 +126,28 @@ export function normalizeReactions(raw: SlackReaction[]): SlackReactionLike[] {
 export async function fetchBotUserId(client: App["client"]): Promise<string> {
   const auth: AuthTestResponse = await client.auth.test();
   return typeof auth.user_id === "string" ? auth.user_id : "";
+}
+
+/**
+ * Resolve a user's current Slack display name via `users.info`. Prefers
+ * `profile.display_name` (the "what other people call me" field), falls back to
+ * `profile.real_name`, then `name`. Returns `null` when the user can't be
+ * resolved (deactivated, deleted, external) so the caller can leave the stored
+ * value untouched.
+ */
+export async function fetchUserDisplayName(
+  client: App["client"],
+  userId: string,
+): Promise<string | null> {
+  let resp: UsersInfoResponse;
+  try {
+    resp = await client.users.info({ user: userId });
+  } catch (err) {
+    if (isExpectedUserLookupError(err)) return null;
+    throw err;
+  }
+  if (!resp.ok || !resp.user) return null;
+  const profile = resp.user.profile;
+  const candidate = profile?.display_name || profile?.real_name || resp.user.name;
+  return typeof candidate === "string" && candidate.length > 0 ? candidate : null;
 }
