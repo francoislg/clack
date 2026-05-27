@@ -30,7 +30,9 @@ export interface ToolGroupInfo {
   maxDetails: number;
 }
 
-const MCP_PREFIX_RE = /^mcp__([^_]+)__(.+)$/;
+// Lazy first capture so on-demand server names (e.g. `trivia_management`, where `:` from the
+// `<plugin>:<key>` full name is substituted to `_` on the wire) still resolve correctly.
+const MCP_PREFIX_RE = /^mcp__(.+?)__(.+)$/;
 
 /** Parse a tool name into server name and raw tool name. */
 function parseToolName(toolName: string): { serverName: string; rawToolName: string } {

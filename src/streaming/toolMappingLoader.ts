@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from "fs";
 import { resolve, basename } from "path";
 import { getDefaultConfigurationDir, getConfigurationDir, getConfig } from "../config.js";
 import { getLoadedPlugins } from "../plugins/state.js";
+import type { ToolMapping } from "../plugins/sdk.js";
 import { logger } from "../logger.js";
 
 // ---------------------------------------------------------------------------
@@ -406,33 +407,50 @@ export function loadToolMappings(): Map<string, ResolvedToolMapping> {
     }
   }
 
-  // Plugin tool mappings: one ResolvedToolMapping per plugin, keyed by the plugin's server name.
-  // Plugin tools are served by each plugin's dedicated MCP server (`mcp__<plugin>__<tool>`),
-  // so their mappings live under the plugin name (not merged into `clack`).
-  // A file-based config at `data/configuration/tool_mapping/<plugin>.json` takes precedence over
-  // programmatic mappings per the existing two-tier rules — programmatic entries fill in only for
-  // tools not covered by the effective (user-override) file.
+  // Plugin tool mappings: one ResolvedToolMapping per wire MCP server. The default server's
+  // tools (`mcp__<plugin>__<tool>`) are keyed under `<plugin>`; on-demand server tools
+  // (`mcp__<plugin>_<serverKey>__<tool>`) are keyed under `<plugin>_<serverKey>` so the
+  // `parseToolName` lookup in `toolLabels.ts` finds them. A file-based config at
+  // `data/configuration/tool_mapping/<wireServerName>.json` takes precedence over programmatic
+  // mappings per the existing two-tier rules.
   for (const plugin of getLoadedPlugins().results) {
     if (plugin.toolMappings.size === 0) continue;
-    const programmaticConfig = resolveConfig(
-      { tools: Object.fromEntries(plugin.toolMappings) },
-      plugin.name,
-    );
-    const existing = mappings.get(plugin.name);
-    if (!existing) {
-      mappings.set(plugin.name, programmaticConfig);
-      continue;
+
+    const serverKeyByToolName = new Map<string, string | undefined>();
+    for (const tool of plugin.tools) {
+      serverKeyByToolName.set(tool.name, tool.serverKey);
     }
-    // File-based config exists — it takes precedence. Fill in programmatic entries only for
-    // tool names the file-based config does not cover.
-    for (const [toolName, label] of programmaticConfig.labels) {
-      if (!existing.labels.has(toolName)) existing.labels.set(toolName, label);
+
+    const toolsByWireServerName = new Map<string, Record<string, ToolMapping>>();
+    for (const [toolName, mapping] of plugin.toolMappings) {
+      const serverKey = serverKeyByToolName.get(toolName);
+      const wireServerName = serverKey === undefined ? plugin.name : `${plugin.name}_${serverKey}`;
+      let bucket = toolsByWireServerName.get(wireServerName);
+      if (!bucket) {
+        bucket = {};
+        toolsByWireServerName.set(wireServerName, bucket);
+      }
+      bucket[toolName] = mapping;
     }
-    for (const [toolName, group] of programmaticConfig.toolGroups) {
-      if (!existing.toolGroups.has(toolName)) existing.toolGroups.set(toolName, group);
-    }
-    for (const toolName of programmaticConfig.hidden) {
-      existing.hidden.add(toolName);
+
+    for (const [wireServerName, tools] of toolsByWireServerName) {
+      const programmaticConfig = resolveConfig({ tools }, wireServerName);
+      const existing = mappings.get(wireServerName);
+      if (!existing) {
+        mappings.set(wireServerName, programmaticConfig);
+        continue;
+      }
+      // File-based config exists — it takes precedence. Fill in programmatic entries only for
+      // tool names the file-based config does not cover.
+      for (const [toolName, label] of programmaticConfig.labels) {
+        if (!existing.labels.has(toolName)) existing.labels.set(toolName, label);
+      }
+      for (const [toolName, group] of programmaticConfig.toolGroups) {
+        if (!existing.toolGroups.has(toolName)) existing.toolGroups.set(toolName, group);
+      }
+      for (const toolName of programmaticConfig.hidden) {
+        existing.hidden.add(toolName);
+      }
     }
   }
 
