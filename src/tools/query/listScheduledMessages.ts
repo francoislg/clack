@@ -7,10 +7,23 @@ import { canManageRoles } from "../../permissions.js";
 import { humanReadableSchedule } from "../../cronFormatter.js";
 import { slackLink } from "../../slack/logContext.js";
 
+/**
+ * Max characters of a job's `prompt` returned in the list response. Plugin-managed prompts
+ * (e.g. casual-talk, trivia) routinely exceed 50KB, so emitting full prompts here can blow the
+ * per-tool result size cap when many jobs match. Callers that need the full prompt use
+ * `get_scheduled_message(id)`.
+ */
+const PROMPT_PREVIEW_CHARS = 200;
+
 export function createListScheduledMessagesTool(ctx: QueryToolContext) {
   return tool(
     "list_scheduled_messages",
-    "List scheduled messages. By default lists your own. Admins can use all=true to see all scheduled messages.",
+    "List scheduled messages. By default lists your own; admins can pass `all=true` to see every job. " +
+      "Narrow further with `channel` (id or name; channelless plugin-managed jobs are excluded by this filter) " +
+      "or `plugin` (e.g. `plugin: 'casual-talk'`) — pass these whenever the list might be large " +
+      "instead of fetching everything and grepping. " +
+      "Each row's `prompt` is truncated to ~200 chars and flagged with `prompt_truncated: true`; " +
+      "call `get_scheduled_message(id)` for the full prompt and details.",
     {
       channel: z.string().optional().describe("Filter by channel name or ID"),
       all: z.boolean().optional().describe("List all scheduled messages (admin/owner only)"),
@@ -18,7 +31,8 @@ export function createListScheduledMessagesTool(ctx: QueryToolContext) {
         .string()
         .optional()
         .describe(
-          "Filter to scheduled messages owned by this plugin (matches the job's `plugin` field, plugin-managed jobs only).",
+          "Filter to scheduled messages owned by this plugin (matches the job's `plugin` field, plugin-managed jobs only). " +
+            "Use this to find a plugin's channelless cron job — channel-based filtering misses those.",
         ),
     },
     async (args) => {
@@ -46,27 +60,31 @@ export function createListScheduledMessagesTool(ctx: QueryToolContext) {
       }
 
       const formatted = await Promise.all(
-        jobs.map(async (j) => ({
-          id: j.id,
-          channel: j.channel,
-          schedule: humanReadableSchedule(j.cronExpression, j.timezone),
-          cronExpression: j.cronExpression,
-          prompt: j.prompt,
-          enabled: j.enabled,
-          oneShot: j.oneShot ?? false,
-          createdBy: j.createdBy,
-          systemActor: j.systemActor ?? null,
-          lastRunAt: j.lastRunAt ?? null,
-          lastRunStatus: j.lastRunStatus ?? null,
-          requiredTools: j.requiredTools ?? null,
-          plugin: j.plugin ?? null,
-          skipConditions: j.skipConditions ?? null,
-          // When set to "skipped", `lastRunStatus: "skipped"` is the expected terminator behavior —
-          // the deliverable is a domain tool (e.g. post_questions for trivia), not submit_response.
-          submitResponseMode: j.submitResponseMode ?? null,
-          totalRuns: (j.runs ?? []).length,
-          recentRuns: await formatRuns(j, ctx),
-        })),
+        jobs.map(async (j) => {
+          const truncated = j.prompt.length > PROMPT_PREVIEW_CHARS;
+          return {
+            id: j.id,
+            channel: j.channel,
+            schedule: humanReadableSchedule(j.cronExpression, j.timezone),
+            cronExpression: j.cronExpression,
+            prompt: truncated ? j.prompt.slice(0, PROMPT_PREVIEW_CHARS) + "…" : j.prompt,
+            promptTruncated: truncated,
+            enabled: j.enabled,
+            oneShot: j.oneShot ?? false,
+            createdBy: j.createdBy,
+            systemActor: j.systemActor ?? null,
+            lastRunAt: j.lastRunAt ?? null,
+            lastRunStatus: j.lastRunStatus ?? null,
+            requiredTools: j.requiredTools ?? null,
+            plugin: j.plugin ?? null,
+            skipConditions: j.skipConditions ?? null,
+            // When set to "skipped", `lastRunStatus: "skipped"` is the expected terminator behavior —
+            // the deliverable is a domain tool (e.g. post_questions for trivia), not submit_response.
+            submitResponseMode: j.submitResponseMode ?? null,
+            totalRuns: (j.runs ?? []).length,
+            recentRuns: await formatRuns(j, ctx),
+          };
+        }),
       );
 
       return textResult({

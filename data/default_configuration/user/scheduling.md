@@ -32,6 +32,12 @@ Cron jobs may also carry a structured `skipDates` field — an array of `{ date,
 
 For the trivia plugin specifically, `skipDates` is configured at the plugin level via `config.trivia.offDays` (shared by every game) rather than per-job. Other scheduled jobs do not currently expose a user-facing way to set `skipDates` — that surface may grow over time.
 
+### Finding an Existing Scheduled Message
+
+`list_scheduled_messages` paginates large fields — each row's `prompt` is truncated to ~200 chars and flagged with `promptTruncated: true`. Use `get_scheduled_message(id)` to fetch the full prompt and details for one specific job.
+
+When the user references a plugin-owned cron job (e.g. "the trivia schedule", "the casual-talk plugin's schedule"), pass `plugin: '<plugin-name>'` to narrow directly to that plugin's jobs. Channel filters miss channelless plugin-managed jobs — the `plugin` filter is the right tool.
+
 ### Running a Scheduled Message on Demand
 
 Use `run_scheduled_message_now` when the user wants to re-fire an existing scheduled message — typically to retry a failed run, replay a past run with a different context, or replace a prior post that came out wrong. Only the job's creator or an admin can call it; other users get an error.
