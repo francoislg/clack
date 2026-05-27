@@ -9,11 +9,19 @@ import { logger } from "../logger.js";
 // Types
 // ---------------------------------------------------------------------------
 
+/**
+ * A user-facing label value that may be either a plain string (single language,
+ * treated as English) or a language map like `{ "en": "...", "fr": "..." }`.
+ * Resolved to the workspace's configured language at load time via
+ * {@link resolveLocalized}, falling back to `en` then to any present value.
+ */
+export type LocalizedString = string | Record<string, string>;
+
 /** Raw JSON structure of a tool mapping config file. */
 export interface ToolEntryObject {
-  label: string;
+  label: LocalizedString;
   group?: string;
-  itemDetail?: string;
+  itemDetail?: LocalizedString;
   /** Suppress this tool's invocations from the Slack streaming task-card UI. */
   hidden?: boolean;
 }
@@ -38,19 +46,19 @@ export interface ConditionalHiddenRule {
 
 /** Per-group entry when callers need to override task-card rendering. */
 export interface GroupEntryObject {
-  title: string;
+  title: LocalizedString;
   /** Cap on detail lines rendered for this group's task card. Overrides the global default. */
   maxDetails?: number;
 }
 
 export interface ToolMappingConfig {
   tools?: Record<string, string | ToolEntryObject>;
-  default?: string;
+  default?: LocalizedString;
   hidden?: string[];
   /** Pattern-based conditional hiding: hide tool calls when an arg matches a regex. */
   conditionalHidden?: ConditionalHiddenRule[];
   /** Shorthand: all tools share one group with this title. */
-  group?: string;
+  group?: LocalizedString;
   /** Cap on detail lines for the file-level group (paired with `group`). */
   maxDetails?: number;
   /** Explicit group key → display title (string form) or full entry (object form with `maxDetails`). */
@@ -240,6 +248,35 @@ export function interpolateLabel(
 // Config resolution
 // ---------------------------------------------------------------------------
 
+/** Active workspace language, defaulting to "en" when config isn't loaded (e.g. in tests). */
+function activeLang(): string {
+  try {
+    return getConfig().language ?? "en";
+  } catch {
+    return "en";
+  }
+}
+
+/**
+ * Resolve a {@link LocalizedString} to a concrete string for the active language.
+ * Plain strings pass through unchanged. Language maps pick the active language,
+ * then fall back to `en`, then to any present value (so a partially-translated
+ * map never renders empty).
+ */
+export function resolveLocalized(value: LocalizedString, lang?: string): string;
+export function resolveLocalized(
+  value: LocalizedString | undefined,
+  lang?: string,
+): string | undefined;
+export function resolveLocalized(
+  value: LocalizedString | undefined,
+  lang: string = activeLang(),
+): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === "string") return value;
+  return value[lang] ?? value.en ?? Object.values(value)[0];
+}
+
 /**
  * Parse a raw ToolMappingConfig into a ResolvedToolMapping.
  * @param config The parsed JSON config
@@ -259,7 +296,7 @@ export function resolveConfig(config: ToolMappingConfig, filename: string): Reso
       if (typeof entry === "string") {
         groupTitles.set(key, entry);
       } else {
-        groupTitles.set(key, entry.title);
+        groupTitles.set(key, resolveLocalized(entry.title));
         const max = entry.maxDetails;
         if (typeof max === "number" && Number.isFinite(max) && Number.isInteger(max) && max >= 0) {
           groupMaxDetails.set(key, max);
@@ -275,8 +312,9 @@ export function resolveConfig(config: ToolMappingConfig, filename: string): Reso
   // File-level group shorthand (and its optional sibling maxDetails).
   let fileGroup: { key: string; title: string } | undefined;
   if (config.group) {
-    fileGroup = { key: filename, title: config.group };
-    groupTitles.set(filename, config.group);
+    const groupTitle = resolveLocalized(config.group);
+    fileGroup = { key: filename, title: groupTitle };
+    groupTitles.set(filename, groupTitle);
     const max = config.maxDetails;
     if (typeof max === "number" && Number.isFinite(max) && Number.isInteger(max) && max >= 0) {
       groupMaxDetails.set(filename, max);
@@ -293,9 +331,12 @@ export function resolveConfig(config: ToolMappingConfig, filename: string): Reso
       if (typeof entry === "string") {
         labels.set(toolName, entry);
       } else {
-        labels.set(toolName, entry.label);
+        labels.set(toolName, resolveLocalized(entry.label));
         if (entry.group) {
-          toolGroups.set(toolName, { groupKey: entry.group, itemDetail: entry.itemDetail });
+          toolGroups.set(toolName, {
+            groupKey: entry.group,
+            itemDetail: resolveLocalized(entry.itemDetail),
+          });
         }
         if (entry.hidden) {
           hidden.add(toolName);
@@ -340,7 +381,7 @@ export function resolveConfig(config: ToolMappingConfig, filename: string): Reso
     argConfigs,
     hidden,
     conditionalHidden,
-    defaultLabel: config.default,
+    defaultLabel: resolveLocalized(config.default),
     fileGroup,
   };
 }

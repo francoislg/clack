@@ -1,22 +1,51 @@
 {
-  "default": "Checking GCP observability",
-  "group": "Checking GCP observability",
+  "default": { "en": "Checking GCP observability", "fr": "Consultation de l'observabilité GCP" },
+  "group": { "en": "Checking GCP observability", "fr": "Consultation de l'observabilité GCP" },
   "argOptions": {
     "filter": { "truncate": 50 }
   },
   "tools": {
-    "list_log_entries": "Reading logs {filter|(recent)}",
-    "list_log_names": "Listing log names",
-    "list_buckets": "Listing log buckets",
-    "list_views": "Listing log views",
-    "list_sinks": "Listing log sinks",
-    "list_log_scopes": "Listing log scopes",
-    "list_metric_descriptors": "Listing metric descriptors",
-    "list_time_series": "Reading metric {filter|time series}",
-    "list_alert_policies": "Listing alert policies",
-    "list_alerts": "Listing alerts",
-    "list_traces": "Reading traces {filter|(recent)}",
-    "get_trace": "Reading trace {traceId|…}",
-    "list_group_stats": "Listing error groups"
+    "list_log_entries": {
+      "label": {
+        "en": "Reading logs {filter|(recent)}",
+        "fr": "Lecture des journaux {filter|(récents)}"
+      }
+    },
+    "list_log_names": {
+      "label": { "en": "Listing log names", "fr": "Liste des noms de journaux" }
+    },
+    "list_buckets": {
+      "label": { "en": "Listing log buckets", "fr": "Liste des buckets de journaux" }
+    },
+    "list_views": { "label": { "en": "Listing log views", "fr": "Liste des vues de journaux" } },
+    "list_sinks": { "label": { "en": "Listing log sinks", "fr": "Liste des sinks de journaux" } },
+    "list_log_scopes": {
+      "label": { "en": "Listing log scopes", "fr": "Liste des portées de journaux" }
+    },
+    "list_metric_descriptors": {
+      "label": { "en": "Listing metric descriptors", "fr": "Liste des descripteurs de métriques" }
+    },
+    "list_time_series": {
+      "label": {
+        "en": "Reading metric {filter|time series}",
+        "fr": "Lecture de la métrique {filter|série temporelle}"
+      }
+    },
+    "list_alert_policies": {
+      "label": { "en": "Listing alert policies", "fr": "Liste des politiques d'alerte" }
+    },
+    "list_alerts": { "label": { "en": "Listing alerts", "fr": "Liste des alertes" } },
+    "list_traces": {
+      "label": {
+        "en": "Reading traces {filter|(recent)}",
+        "fr": "Lecture des traces {filter|(récentes)}"
+      }
+    },
+    "get_trace": {
+      "label": { "en": "Reading trace {traceId|…}", "fr": "Lecture de la trace {traceId|…}" }
+    },
+    "list_group_stats": {
+      "label": { "en": "Listing error groups", "fr": "Liste des groupes d'erreurs" }
+    }
   }
 }

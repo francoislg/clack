@@ -8,6 +8,7 @@ import {
   type ToolArgs,
 } from "./toolMappingLoader.js";
 import { getTaskCardMaxDetails } from "../config.js";
+import { t } from "../i18n/t.js";
 
 /**
  * Group info for collapsing consecutive tool calls of the same type
@@ -135,10 +136,10 @@ export function getToolLabel(toolName: string, toolArgs: Record<string, unknown>
   if (serverName !== "_builtins") {
     const base = mappingKey;
     const capitalized = base.charAt(0).toUpperCase() + base.slice(1);
-    return withSuffix(`Checking ${capitalized}`, labelSuffix);
+    return withSuffix(t("streamer.tool_label_checking", { name: capitalized }), labelSuffix);
   }
 
-  return `Running ${toolName}`;
+  return t("streamer.tool_label_running", { tool: toolName });
 }
 
 /**

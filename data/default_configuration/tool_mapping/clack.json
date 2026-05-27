@@ -6,248 +6,405 @@
   },
   "tools": {
     "find_recent_interactions": {
-      "label": "Recalling recent messages {keywords}",
+      "label": {
+        "en": "Recalling recent messages {keywords}",
+        "fr": "Rappel des messages récents {keywords}"
+      },
       "group": "messages",
-      "itemDetail": "Recent {keywords}"
+      "itemDetail": { "en": "Recent {keywords}", "fr": "Récents {keywords}" }
     },
-    "find_session_transcript": "Reading transcript for session {sessionId}",
-    "stop_tracking": "Stopping tracking for thread",
-    "cancel_worker_run": "Cancelling worker run",
-    "get_session_trace": "Reading session trace",
+    "find_session_transcript": {
+      "label": {
+        "en": "Reading transcript for session {sessionId}",
+        "fr": "Lecture de la transcription de la session {sessionId}"
+      }
+    },
+    "stop_tracking": {
+      "label": { "en": "Stopping tracking for thread", "fr": "Arrêt du suivi du fil" }
+    },
+    "cancel_worker_run": {
+      "label": { "en": "Cancelling worker run", "fr": "Annulation de l'exécution du worker" }
+    },
+    "get_session_trace": {
+      "label": { "en": "Reading session trace", "fr": "Lecture de la trace de session" }
+    },
     "admin_list_error_reports": {
-      "label": "Admin - Listing error reports",
+      "label": {
+        "en": "Admin - Listing error reports",
+        "fr": "Admin - Liste des rapports d'erreur"
+      },
       "group": "admin",
-      "itemDetail": "List error reports"
+      "itemDetail": { "en": "List error reports", "fr": "Lister les rapports d'erreur" }
     },
     "admin_read_error_report": {
-      "label": "Admin - Reading error report {filename}",
+      "label": {
+        "en": "Admin - Reading error report {filename}",
+        "fr": "Admin - Lecture du rapport d'erreur {filename}"
+      },
       "group": "admin",
-      "itemDetail": "Read error report {filename}"
+      "itemDetail": {
+        "en": "Read error report {filename}",
+        "fr": "Lire le rapport d'erreur {filename}"
+      }
     },
     "admin_delete_message": {
-      "label": "Admin - Deleting message",
+      "label": { "en": "Admin - Deleting message", "fr": "Admin - Suppression du message" },
       "group": "admin",
-      "itemDetail": "Delete message"
+      "itemDetail": { "en": "Delete message", "fr": "Supprimer le message" }
     },
-    "random_roll": "Rolling {count|1} dice ({min}-{max})",
-    "list_repositories": "Listing repositories",
-    "git_log": "Reading git history {repo}",
-    "deepen_history": "Loading more history",
-    "find_sessions": "Finding sessions {repo}",
-    "find_changes": "Finding changes {repo}",
-    "find_pull_requests": "Finding pull requests {repo} {branch}",
+    "random_roll": {
+      "label": {
+        "en": "Rolling {count|1} dice ({min}-{max})",
+        "fr": "Lancer de {count|1} dé(s) ({min}-{max})"
+      }
+    },
+    "list_repositories": {
+      "label": { "en": "Listing repositories", "fr": "Liste des dépôts" }
+    },
+    "git_log": {
+      "label": { "en": "Reading git history {repo}", "fr": "Lecture de l'historique git {repo}" }
+    },
+    "deepen_history": {
+      "label": { "en": "Loading more history", "fr": "Chargement de plus d'historique" }
+    },
+    "find_sessions": {
+      "label": { "en": "Finding sessions {repo}", "fr": "Recherche de sessions {repo}" }
+    },
+    "find_changes": {
+      "label": { "en": "Finding changes {repo}", "fr": "Recherche de modifications {repo}" }
+    },
+    "find_pull_requests": {
+      "label": {
+        "en": "Finding pull requests {repo} {branch}",
+        "fr": "Recherche de pull requests {repo} {branch}"
+      }
+    },
     "find_user": {
-      "label": "Looking up user {query}",
+      "label": { "en": "Looking up user {query}", "fr": "Recherche de l'utilisateur {query}" },
       "group": "lookups",
-      "itemDetail": "user {query}"
+      "itemDetail": { "en": "user {query}", "fr": "utilisateur {query}" }
     },
     "find_emoji": {
-      "label": "Looking up emoji \"{query}\"",
+      "label": { "en": "Looking up emoji \"{query}\"", "fr": "Recherche de l'emoji \"{query}\"" },
       "group": "lookups",
       "itemDetail": "emoji \"{query}\""
     },
     "find_channel": {
-      "label": "Finding channel \"{query}\"",
+      "label": { "en": "Finding channel \"{query}\"", "fr": "Recherche du canal \"{query}\"" },
       "group": "lookups",
-      "itemDetail": "channel \"{query}\""
+      "itemDetail": { "en": "channel \"{query}\"", "fr": "canal \"{query}\"" }
     },
     "list_config_files": {
-      "label": "Listing config files",
+      "label": { "en": "Listing config files", "fr": "Liste des fichiers de config" },
       "group": "configuration",
-      "itemDetail": "List files"
+      "itemDetail": { "en": "List files", "fr": "Lister les fichiers" }
     },
     "read_config_file": {
-      "label": "Reading config {role}/{file}",
+      "label": { "en": "Reading config {role}/{file}", "fr": "Lecture de la config {role}/{file}" },
       "group": "configuration",
       "itemDetail": "{role}/{file}"
     },
     "fetch_channel_messages": {
-      "label": "Reading messages in <#{channel_id}>",
+      "label": {
+        "en": "Reading messages in <#{channel_id}>",
+        "fr": "Lecture des messages dans <#{channel_id}>"
+      },
       "group": "messages",
       "itemDetail": "<#{channel_id}>"
     },
     "fetch_slack_message": {
-      "label": "Reading <{url}|Slack message>",
+      "label": { "en": "Reading <{url}|Slack message>", "fr": "Lecture du <{url}|message Slack>" },
       "group": "messages",
-      "itemDetail": "<{url}|Slack message>"
+      "itemDetail": { "en": "<{url}|Slack message>", "fr": "<{url}|message Slack>" }
     },
     "view_slack_image": {
-      "label": "Viewing image {file_id}",
+      "label": { "en": "Viewing image {file_id}", "fr": "Affichage de l'image {file_id}" },
       "group": "files",
-      "itemDetail": "View image {file_id}"
+      "itemDetail": { "en": "View image {file_id}", "fr": "Voir l'image {file_id}" }
     },
     "view_slack_file": {
-      "label": "Viewing file {file_id}",
+      "label": { "en": "Viewing file {file_id}", "fr": "Affichage du fichier {file_id}" },
       "group": "files",
-      "itemDetail": "View file {file_id}"
+      "itemDetail": { "en": "View file {file_id}", "fr": "Voir le fichier {file_id}" }
     },
     "upload_file": {
-      "label": "Uploading {filename}",
+      "label": { "en": "Uploading {filename}", "fr": "Téléversement de {filename}" },
       "group": "files",
-      "itemDetail": "Upload {filename}"
+      "itemDetail": { "en": "Upload {filename}", "fr": "Téléverser {filename}" }
     },
     "add_reaction": {
-      "label": "Adding :{emoji}: reaction",
+      "label": { "en": "Adding :{emoji}: reaction", "fr": "Ajout de la réaction :{emoji}:" },
       "group": "reactions",
-      "itemDetail": "Add :{emoji}:"
+      "itemDetail": { "en": "Add :{emoji}:", "fr": "Ajouter :{emoji}:" }
     },
     "remove_reaction": {
-      "label": "Removing :{emoji}: reaction",
+      "label": {
+        "en": "Removing :{emoji}: reaction",
+        "fr": "Suppression de la réaction :{emoji}:"
+      },
       "group": "reactions",
-      "itemDetail": "Remove :{emoji}:"
+      "itemDetail": { "en": "Remove :{emoji}:", "fr": "Retirer :{emoji}:" }
     },
-    "resolve_review_thread": "Resolving review thread",
+    "resolve_review_thread": {
+      "label": { "en": "Resolving review thread", "fr": "Résolution du fil de revue" }
+    },
     "attach_integration": {
-      "label": "Attaching {name} integration",
+      "label": {
+        "en": "Attaching {name} integration",
+        "fr": "Attachement de l'intégration {name}"
+      },
       "group": "integrations",
       "itemDetail": "{name}"
     },
-    "list_skill_pack_skills": "Listing skills in {pack}",
-    "load_skill": "Loading skill {skill} from {pack}",
+    "list_skill_pack_skills": {
+      "label": { "en": "Listing skills in {pack}", "fr": "Liste des compétences de {pack}" }
+    },
+    "load_skill": {
+      "label": {
+        "en": "Loading skill {skill} from {pack}",
+        "fr": "Chargement de la compétence {skill} depuis {pack}"
+      }
+    },
     "list_user_skills": {
-      "label": "Listing user skills {owner|}",
+      "label": {
+        "en": "Listing user skills {owner|}",
+        "fr": "Liste des compétences utilisateur {owner|}"
+      },
       "group": "user_skills",
-      "itemDetail": "List user skills {owner|all}"
+      "itemDetail": {
+        "en": "List user skills {owner|all}",
+        "fr": "Lister les compétences utilisateur {owner|all}"
+      }
     },
     "propose_skill_create": {
-      "label": "Proposing new skill {name}",
+      "label": {
+        "en": "Proposing new skill {name}",
+        "fr": "Proposition d'une nouvelle compétence {name}"
+      },
       "group": "user_skills",
-      "itemDetail": "Create {name}"
+      "itemDetail": { "en": "Create {name}", "fr": "Créer {name}" }
     },
     "propose_skill_update": {
-      "label": "Proposing update to skill {name}",
+      "label": {
+        "en": "Proposing update to skill {name}",
+        "fr": "Proposition de mise à jour de la compétence {name}"
+      },
       "group": "user_skills",
-      "itemDetail": "Update {name}"
+      "itemDetail": { "en": "Update {name}", "fr": "Mettre à jour {name}" }
     },
     "propose_skill_disable": {
-      "label": "Proposing to disable skill {name}",
+      "label": {
+        "en": "Proposing to disable skill {name}",
+        "fr": "Proposition de désactivation de la compétence {name}"
+      },
       "group": "user_skills",
-      "itemDetail": "Disable {name}"
+      "itemDetail": { "en": "Disable {name}", "fr": "Désactiver {name}" }
     },
     "propose_skill_restore": {
-      "label": "Proposing to restore skill {name}",
+      "label": {
+        "en": "Proposing to restore skill {name}",
+        "fr": "Proposition de restauration de la compétence {name}"
+      },
       "group": "user_skills",
-      "itemDetail": "Restore {name}"
+      "itemDetail": { "en": "Restore {name}", "fr": "Restaurer {name}" }
     },
-    "propose_change": "Proposing change {repo}",
-    "request_update": "Requesting update",
-    "propose_config_update": "Proposing config update {role}/{file}",
-    "git_push": "Verifying & pushing to remote",
-    "ensure_pr": "Creating pull request {title}",
-    "merge_pr": "Merging pull request",
-    "close_pr": "Closing pull request",
+    "propose_change": {
+      "label": { "en": "Proposing change {repo}", "fr": "Proposition de modification {repo}" }
+    },
+    "request_update": {
+      "label": { "en": "Requesting update", "fr": "Demande de mise à jour" }
+    },
+    "propose_config_update": {
+      "label": {
+        "en": "Proposing config update {role}/{file}",
+        "fr": "Proposition de mise à jour de config {role}/{file}"
+      }
+    },
+    "git_push": {
+      "label": {
+        "en": "Verifying & pushing to remote",
+        "fr": "Vérification et envoi vers le dépôt distant"
+      }
+    },
+    "ensure_pr": {
+      "label": {
+        "en": "Creating pull request {title}",
+        "fr": "Création de la pull request {title}"
+      }
+    },
+    "merge_pr": {
+      "label": { "en": "Merging pull request", "fr": "Fusion de la pull request" }
+    },
+    "close_pr": {
+      "label": { "en": "Closing pull request", "fr": "Fermeture de la pull request" }
+    },
     "schedule_reminder": {
-      "label": "Scheduling reminder to <#{channel}>",
+      "label": {
+        "en": "Scheduling reminder to <#{channel}>",
+        "fr": "Planification d'un rappel vers <#{channel}>"
+      },
       "group": "reminders",
-      "itemDetail": "Schedule to <#{channel}>"
+      "itemDetail": { "en": "Schedule to <#{channel}>", "fr": "Planifier vers <#{channel}>" }
     },
     "list_reminders": {
-      "label": "Listing reminders",
+      "label": { "en": "Listing reminders", "fr": "Liste des rappels" },
       "group": "reminders",
-      "itemDetail": "List all"
+      "itemDetail": { "en": "List all", "fr": "Tout lister" }
     },
     "cancel_reminder": {
-      "label": "Cancelling reminder",
+      "label": { "en": "Cancelling reminder", "fr": "Annulation du rappel" },
       "group": "reminders",
-      "itemDetail": "Cancel"
+      "itemDetail": { "en": "Cancel", "fr": "Annuler" }
     },
     "create_scheduled_message": {
-      "label": "Scheduling '{name}' to <#{channel}>",
+      "label": {
+        "en": "Scheduling '{name}' to <#{channel}>",
+        "fr": "Planification de « {name} » vers <#{channel}>"
+      },
       "group": "scheduled_messages",
-      "itemDetail": "Schedule '{name}' to <#{channel}>"
+      "itemDetail": {
+        "en": "Schedule '{name}' to <#{channel}>",
+        "fr": "Planifier « {name} » vers <#{channel}>"
+      }
     },
     "list_scheduled_messages": {
-      "label": "Listing scheduled messages",
+      "label": { "en": "Listing scheduled messages", "fr": "Liste des messages planifiés" },
       "group": "scheduled_messages",
-      "itemDetail": "List all"
+      "itemDetail": { "en": "List all", "fr": "Tout lister" }
     },
     "get_scheduled_message_runs": {
-      "label": "Fetching runs for schedule {name|id}",
+      "label": {
+        "en": "Fetching runs for schedule {name|id}",
+        "fr": "Récupération des exécutions pour {name|id}"
+      },
       "group": "scheduled_messages",
-      "itemDetail": "Fetch runs for {name|id}"
+      "itemDetail": {
+        "en": "Fetch runs for {name|id}",
+        "fr": "Récupérer les exécutions pour {name|id}"
+      }
     },
     "cancel_scheduled_message": {
-      "label": "Cancelling scheduled message {name|id}",
+      "label": {
+        "en": "Cancelling scheduled message {name|id}",
+        "fr": "Annulation du message planifié {name|id}"
+      },
       "group": "scheduled_messages",
-      "itemDetail": "Cancel {name|id}"
+      "itemDetail": { "en": "Cancel {name|id}", "fr": "Annuler {name|id}" }
     },
     "update_scheduled_message": {
-      "label": "Updating scheduled message {name|id}",
+      "label": {
+        "en": "Updating scheduled message {name|id}",
+        "fr": "Mise à jour du message planifié {name|id}"
+      },
       "group": "scheduled_messages",
-      "itemDetail": "Update {name|id}"
+      "itemDetail": { "en": "Update {name|id}", "fr": "Mettre à jour {name|id}" }
     },
     "run_scheduled_message_now": {
-      "label": "Re-running scheduled message {name|id}",
+      "label": {
+        "en": "Re-running scheduled message {name|id}",
+        "fr": "Réexécution du message planifié {name|id}"
+      },
       "group": "scheduled_messages",
-      "itemDetail": "Re-run {name|id}"
+      "itemDetail": { "en": "Re-run {name|id}", "fr": "Réexécuter {name|id}" }
     },
     "add_auto_respond_rule": {
-      "label": "Adding auto-respond rule",
+      "label": {
+        "en": "Adding auto-respond rule",
+        "fr": "Ajout d'une règle de réponse automatique"
+      },
       "group": "auto_respond",
-      "itemDetail": "Add rule"
+      "itemDetail": { "en": "Add rule", "fr": "Ajouter une règle" }
     },
     "update_auto_respond_rule": {
-      "label": "Updating auto-respond rule {id}",
+      "label": {
+        "en": "Updating auto-respond rule {id}",
+        "fr": "Mise à jour de la règle de réponse automatique {id}"
+      },
       "group": "auto_respond",
-      "itemDetail": "Update {id}"
+      "itemDetail": { "en": "Update {id}", "fr": "Mettre à jour {id}" }
     },
     "delete_auto_respond_rule": {
-      "label": "Deleting auto-respond rule {id}",
+      "label": {
+        "en": "Deleting auto-respond rule {id}",
+        "fr": "Suppression de la règle de réponse automatique {id}"
+      },
       "group": "auto_respond",
-      "itemDetail": "Delete {id}"
+      "itemDetail": { "en": "Delete {id}", "fr": "Supprimer {id}" }
     },
     "toggle_auto_respond_rule": {
-      "label": "Toggling auto-respond rule {id}",
+      "label": {
+        "en": "Toggling auto-respond rule {id}",
+        "fr": "Bascule de la règle de réponse automatique {id}"
+      },
       "group": "auto_respond",
-      "itemDetail": "Toggle {id}"
+      "itemDetail": { "en": "Toggle {id}", "fr": "Basculer {id}" }
     },
     "list_auto_respond_rules": {
-      "label": "Listing auto-respond rules",
+      "label": {
+        "en": "Listing auto-respond rules",
+        "fr": "Liste des règles de réponse automatique"
+      },
       "group": "auto_respond",
-      "itemDetail": "List all"
+      "itemDetail": { "en": "List all", "fr": "Tout lister" }
     },
     "admin_read_file": {
-      "label": "Admin - Reading {path}",
+      "label": { "en": "Admin - Reading {path}", "fr": "Admin - Lecture de {path}" },
       "group": "admin",
-      "itemDetail": "Read {path}"
+      "itemDetail": { "en": "Read {path}", "fr": "Lire {path}" }
     },
     "admin_write_file": {
-      "label": "Admin - Writing {path}",
+      "label": { "en": "Admin - Writing {path}", "fr": "Admin - Écriture de {path}" },
       "group": "admin",
-      "itemDetail": "Write {path}"
+      "itemDetail": { "en": "Write {path}", "fr": "Écrire {path}" }
     },
     "admin_restart_app": {
-      "label": "Admin - Restarting app",
+      "label": { "en": "Admin - Restarting app", "fr": "Admin - Redémarrage de l'app" },
       "group": "admin",
-      "itemDetail": "Restart app"
+      "itemDetail": { "en": "Restart app", "fr": "Redémarrer l'app" }
     },
     "admin_set_env": {
-      "label": "Admin - Setting env {key}",
+      "label": { "en": "Admin - Setting env {key}", "fr": "Admin - Définition de l'env {key}" },
       "group": "admin",
-      "itemDetail": "Set env {key}"
+      "itemDetail": { "en": "Set env {key}", "fr": "Définir l'env {key}" }
     },
     "admin_list_env": {
-      "label": "Admin - Listing env keys",
+      "label": { "en": "Admin - Listing env keys", "fr": "Admin - Liste des clés d'env" },
       "group": "admin",
-      "itemDetail": "List env keys"
+      "itemDetail": { "en": "List env keys", "fr": "Lister les clés d'env" }
     },
     "admin_set_role": {
-      "label": "Admin - Setting {user} to {role}",
+      "label": {
+        "en": "Admin - Setting {user} to {role}",
+        "fr": "Admin - Définition de {user} à {role}"
+      },
       "group": "admin",
-      "itemDetail": "Set {user} to {role}"
+      "itemDetail": { "en": "Set {user} to {role}", "fr": "Définir {user} à {role}" }
     }
   },
   "groups": {
-    "integrations": "Attaching integrations",
-    "messages": "Reading messages",
-    "files": "Working with files",
-    "reactions": "Updating reactions",
-    "lookups": "Looking up in Slack",
-    "reminders": "Managing reminders",
-    "scheduled_messages": "Managing scheduled messages",
-    "auto_respond": "Managing auto-respond rules",
-    "configuration": "Reading Clack configuration",
-    "admin": "Admin actions",
-    "user_skills": "Managing user skills"
+    "integrations": {
+      "title": { "en": "Attaching integrations", "fr": "Attachement des intégrations" }
+    },
+    "messages": { "title": { "en": "Reading messages", "fr": "Lecture des messages" } },
+    "files": { "title": { "en": "Working with files", "fr": "Gestion des fichiers" } },
+    "reactions": { "title": { "en": "Updating reactions", "fr": "Mise à jour des réactions" } },
+    "lookups": { "title": { "en": "Looking up in Slack", "fr": "Recherche dans Slack" } },
+    "reminders": { "title": { "en": "Managing reminders", "fr": "Gestion des rappels" } },
+    "scheduled_messages": {
+      "title": { "en": "Managing scheduled messages", "fr": "Gestion des messages planifiés" }
+    },
+    "auto_respond": {
+      "title": {
+        "en": "Managing auto-respond rules",
+        "fr": "Gestion des règles de réponse automatique"
+      }
+    },
+    "configuration": {
+      "title": { "en": "Reading Clack configuration", "fr": "Lecture de la configuration Clack" }
+    },
+    "admin": { "title": { "en": "Admin actions", "fr": "Actions admin" } },
+    "user_skills": {
+      "title": { "en": "Managing user skills", "fr": "Gestion des compétences utilisateur" }
+    }
   }
 }

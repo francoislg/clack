@@ -12,6 +12,7 @@ import {
   shortenPath,
   resolveConfig,
   applyArgConfigs,
+  resolveLocalized,
   substituteEnvVars,
   loadToolMappings,
   resetToolMappingCache,
@@ -668,14 +669,26 @@ describe("shipped default tool mapping configs", () => {
           }
         }
 
-        // default must be a string if present
+        // A LocalizedString is either a plain string or a `{ lang: string }` map.
+        const assertLocalized = (val: unknown, ctx: string) => {
+          if (typeof val === "string") return;
+          assert.ok(
+            typeof val === "object" && val !== null && !Array.isArray(val),
+            `${ctx} must be a string or language map`,
+          );
+          for (const [lang, str] of Object.entries(val as Record<string, unknown>)) {
+            assert.equal(typeof str, "string", `${ctx}.${lang} must be a string`);
+          }
+        };
+
+        // default must be a LocalizedString if present
         if (config.default !== undefined) {
-          assert.equal(typeof config.default, "string");
+          assertLocalized(config.default, "default");
         }
 
-        // group must be a string if present
+        // group must be a LocalizedString if present
         if (config.group !== undefined) {
-          assert.equal(typeof config.group, "string");
+          assertLocalized(config.group, "group");
         }
 
         // groups values may be a title string OR { title, maxDetails? } object
@@ -687,7 +700,7 @@ describe("shipped default tool mapping configs", () => {
               // legacy string form
             } else {
               assert.equal(typeof val, "object", `groups["${key}"] must be string or object`);
-              assert.equal(typeof val.title, "string", `groups["${key}"].title must be a string`);
+              assertLocalized(val.title, `groups["${key}"].title`);
               if (val.maxDetails !== undefined) {
                 assert.equal(
                   typeof val.maxDetails,
@@ -703,7 +716,7 @@ describe("shipped default tool mapping configs", () => {
       it("every tool entry interpolates to a non-empty string with empty args", () => {
         if (!config.tools) return;
         for (const [toolName, entry] of Object.entries(config.tools)) {
-          const template = typeof entry === "string" ? entry : entry.label;
+          const template = resolveLocalized(typeof entry === "string" ? entry : entry.label);
           const result = interpolateLabel(template, {});
           assert.ok(
             result.length > 0,
@@ -715,7 +728,7 @@ describe("shipped default tool mapping configs", () => {
       it("every tool entry interpolates to a non-empty string with generic args", () => {
         if (!config.tools) return;
         for (const [toolName, entry] of Object.entries(config.tools)) {
-          const template = typeof entry === "string" ? entry : entry.label;
+          const template = resolveLocalized(typeof entry === "string" ? entry : entry.label);
           const result = interpolateLabel(template, GENERIC_ARGS);
           assert.ok(
             result.length > 0,
@@ -740,7 +753,7 @@ describe("shipped default tool mapping configs", () => {
 
       it("default label interpolates to a non-empty string if present", () => {
         if (!config.default) return;
-        const result = interpolateLabel(config.default, {});
+        const result = interpolateLabel(resolveLocalized(config.default), {});
         assert.ok(
           result.length > 0,
           `Default label produced empty string (template: "${config.default}")`,
@@ -748,6 +761,63 @@ describe("shipped default tool mapping configs", () => {
       });
     });
   }
+});
+
+// ---------------------------------------------------------------------------
+// resolveLocalized — language-aware label resolution
+// ---------------------------------------------------------------------------
+
+describe("resolveLocalized", () => {
+  it("passes plain strings through unchanged", () => {
+    assert.equal(resolveLocalized("Reading file {path}", "fr"), "Reading file {path}");
+  });
+
+  it("picks the requested language from a language map", () => {
+    const value = { en: "Reading file", fr: "Lecture du fichier" };
+    assert.equal(resolveLocalized(value, "fr"), "Lecture du fichier");
+    assert.equal(resolveLocalized(value, "en"), "Reading file");
+  });
+
+  it("falls back to en when the requested language is absent", () => {
+    assert.equal(resolveLocalized({ en: "Save", fr: "Enregistrer" }, "de"), "Save");
+  });
+
+  it("falls back to any present value when en is also absent", () => {
+    assert.equal(resolveLocalized({ fr: "Enregistrer" }, "de"), "Enregistrer");
+  });
+
+  it("returns undefined for undefined input", () => {
+    assert.equal(resolveLocalized(undefined, "fr"), undefined);
+  });
+
+  it("preserves {placeholders} for downstream interpolation", () => {
+    const resolved = resolveLocalized({ en: "Reading {repo}", fr: "Lecture de {repo}" }, "fr");
+    assert.equal(interpolateLabel(resolved, { repo: "clack" }), "Lecture de clack");
+  });
+});
+
+describe("resolveConfig with language maps", () => {
+  it("resolves label, itemDetail, group title, and default for the active language", () => {
+    const config: ToolMappingConfig = {
+      tools: {
+        do_thing: {
+          label: { en: "Doing thing {x}", fr: "Action sur {x}" },
+          group: "g1",
+          itemDetail: { en: "thing {x}", fr: "chose {x}" },
+        },
+        plain: "Plain {y}",
+      },
+      groups: { g1: { title: { en: "Group One", fr: "Groupe Un" } } },
+      default: { en: "Running {tool}", fr: "Exécution de {tool}" },
+    };
+    // Default language in tests is "en" (getConfig() unavailable → falls back to en).
+    const resolved = resolveConfig(config, "test");
+    assert.equal(resolved.labels.get("do_thing"), "Doing thing {x}");
+    assert.equal(resolved.labels.get("plain"), "Plain {y}");
+    assert.equal(resolved.toolGroups.get("do_thing")?.itemDetail, "thing {x}");
+    assert.equal(resolved.groupTitles.get("g1"), "Group One");
+    assert.equal(resolved.defaultLabel, "Running {tool}");
+  });
 });
 
 // ---------------------------------------------------------------------------

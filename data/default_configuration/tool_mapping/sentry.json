@@ -1,33 +1,97 @@
 {
-  "default": "Checking Sentry",
-  "group": "Checking Sentry",
+  "default": { "en": "Checking Sentry", "fr": "Consultation de Sentry" },
+  "group": { "en": "Checking Sentry", "fr": "Consultation de Sentry" },
   "argOptions": {
     "issueId": { "from": "issueUrl", "pattern": "/issues/(\\d+)" }
   },
   "tools": {
-    "search_issues": "Searching Sentry issues",
-    "search_events": "Searching Sentry events",
-    "search_issue_events": "Searching issue events",
-    "get_issue_details": "Reading Sentry issue <{issueUrl}|{issueId}>",
-    "list_issues": "Listing Sentry issues",
-    "list_events": "Listing Sentry events",
-    "list_issue_events": "Listing events for issue <{issueUrl}|{issueId}>",
-    "update_issue": "Updating Sentry issue <{issueUrl}|{issueId}>",
-    "analyze_issue_with_seer": "Analyzing issue <{issueUrl}|{issueId}> with Seer",
-    "get_trace_details": "Reading trace {traceId}",
-    "get_event_attachment": "Reading event attachment",
-    "get_issue_tag_values": "Reading tags for issue <{issueUrl}|{issueId}>",
-    "find_organizations": "Finding Sentry organizations",
-    "find_projects": "Finding Sentry projects",
-    "find_releases": "Finding Sentry releases",
-    "find_teams": "Finding Sentry teams",
-    "find_dsns": "Finding DSNs",
-    "create_project": "Creating Sentry project {name}",
-    "create_team": "Creating Sentry team {name}",
-    "create_dsn": "Creating DSN {name}",
-    "update_project": "Updating Sentry project {projectSlug}",
-    "search_docs": "Searching Sentry docs for \"{query}\"",
-    "get_doc": "Reading Sentry docs",
-    "whoami": "Checking Sentry identity"
+    "search_issues": {
+      "label": { "en": "Searching Sentry issues", "fr": "Recherche d'incidents Sentry" }
+    },
+    "search_events": {
+      "label": { "en": "Searching Sentry events", "fr": "Recherche d'événements Sentry" }
+    },
+    "search_issue_events": {
+      "label": { "en": "Searching issue events", "fr": "Recherche d'événements d'incident" }
+    },
+    "get_issue_details": {
+      "label": {
+        "en": "Reading Sentry issue <{issueUrl}|{issueId}>",
+        "fr": "Lecture de l'incident Sentry <{issueUrl}|{issueId}>"
+      }
+    },
+    "list_issues": {
+      "label": { "en": "Listing Sentry issues", "fr": "Liste des incidents Sentry" }
+    },
+    "list_events": {
+      "label": { "en": "Listing Sentry events", "fr": "Liste des événements Sentry" }
+    },
+    "list_issue_events": {
+      "label": {
+        "en": "Listing events for issue <{issueUrl}|{issueId}>",
+        "fr": "Liste des événements de l'incident <{issueUrl}|{issueId}>"
+      }
+    },
+    "update_issue": {
+      "label": {
+        "en": "Updating Sentry issue <{issueUrl}|{issueId}>",
+        "fr": "Mise à jour de l'incident Sentry <{issueUrl}|{issueId}>"
+      }
+    },
+    "analyze_issue_with_seer": {
+      "label": {
+        "en": "Analyzing issue <{issueUrl}|{issueId}> with Seer",
+        "fr": "Analyse de l'incident <{issueUrl}|{issueId}> avec Seer"
+      }
+    },
+    "get_trace_details": {
+      "label": { "en": "Reading trace {traceId}", "fr": "Lecture de la trace {traceId}" }
+    },
+    "get_event_attachment": {
+      "label": {
+        "en": "Reading event attachment",
+        "fr": "Lecture de la pièce jointe de l'événement"
+      }
+    },
+    "get_issue_tag_values": {
+      "label": {
+        "en": "Reading tags for issue <{issueUrl}|{issueId}>",
+        "fr": "Lecture des étiquettes de l'incident <{issueUrl}|{issueId}>"
+      }
+    },
+    "find_organizations": {
+      "label": { "en": "Finding Sentry organizations", "fr": "Recherche d'organisations Sentry" }
+    },
+    "find_projects": {
+      "label": { "en": "Finding Sentry projects", "fr": "Recherche de projets Sentry" }
+    },
+    "find_releases": {
+      "label": { "en": "Finding Sentry releases", "fr": "Recherche de versions Sentry" }
+    },
+    "find_teams": { "label": { "en": "Finding Sentry teams", "fr": "Recherche d'équipes Sentry" } },
+    "find_dsns": { "label": { "en": "Finding DSNs", "fr": "Recherche de DSN" } },
+    "create_project": {
+      "label": { "en": "Creating Sentry project {name}", "fr": "Création du projet Sentry {name}" }
+    },
+    "create_team": {
+      "label": { "en": "Creating Sentry team {name}", "fr": "Création de l'équipe Sentry {name}" }
+    },
+    "create_dsn": { "label": { "en": "Creating DSN {name}", "fr": "Création du DSN {name}" } },
+    "update_project": {
+      "label": {
+        "en": "Updating Sentry project {projectSlug}",
+        "fr": "Mise à jour du projet Sentry {projectSlug}"
+      }
+    },
+    "search_docs": {
+      "label": {
+        "en": "Searching Sentry docs for \"{query}\"",
+        "fr": "Recherche dans la doc Sentry de « {query} »"
+      }
+    },
+    "get_doc": { "label": { "en": "Reading Sentry docs", "fr": "Lecture de la doc Sentry" } },
+    "whoami": {
+      "label": { "en": "Checking Sentry identity", "fr": "Vérification de l'identité Sentry" }
+    }
   }
 }

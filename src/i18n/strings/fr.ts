@@ -408,6 +408,8 @@ export const fr: Partial<Record<StringKey, string>> = {
   // ─── Streaming task-card titles ────────────────────────────────────
   "streamer.analyzing": "Analyse en cours…",
   "streamer.working_on": "Travail sur {branch}",
+  "streamer.tool_label_checking": "Vérification de {name}",
+  "streamer.tool_label_running": "Exécution de {tool}",
 
   // ─── Scheduled reminder attribution ────────────────────────────────
   "reminder.attribution_prefix": "🔔 Rappel de {user} :",

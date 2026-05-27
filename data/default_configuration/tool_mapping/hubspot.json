@@ -1,38 +1,123 @@
 {
-  "default": "Checking HubSpot",
-  "group": "Checking HubSpot",
+  "default": { "en": "Checking HubSpot", "fr": "Consultation de HubSpot" },
+  "group": { "en": "Checking HubSpot", "fr": "Consultation de HubSpot" },
   "argOptions": {
     "query": { "truncate": 40 },
     "label": { "truncate": 40 },
     "description": { "truncate": 60 }
   },
   "tools": {
-    "hubspot-get-user-details": "Checking HubSpot identity",
-    "hubspot-get-link": "Generating HubSpot link for portal {portalId}",
+    "hubspot-get-user-details": {
+      "label": { "en": "Checking HubSpot identity", "fr": "Vérification de l'identité HubSpot" }
+    },
+    "hubspot-get-link": {
+      "label": {
+        "en": "Generating HubSpot link for portal {portalId}",
+        "fr": "Génération d'un lien HubSpot pour le portail {portalId}"
+      }
+    },
 
-    "hubspot-list-objects": "Listing {objectType} records",
-    "hubspot-search-objects": "Searching {objectType} for \"{query|…}\"",
-    "hubspot-batch-read-objects": "Reading {objectType} records",
-    "hubspot-batch-create-objects": "Creating {objectType} records",
-    "hubspot-batch-update-objects": "Updating {objectType} records",
+    "hubspot-list-objects": {
+      "label": {
+        "en": "Listing {objectType} records",
+        "fr": "Liste des enregistrements {objectType}"
+      }
+    },
+    "hubspot-search-objects": {
+      "label": {
+        "en": "Searching {objectType} for \"{query|…}\"",
+        "fr": "Recherche de {objectType} pour « {query|…} »"
+      }
+    },
+    "hubspot-batch-read-objects": {
+      "label": {
+        "en": "Reading {objectType} records",
+        "fr": "Lecture des enregistrements {objectType}"
+      }
+    },
+    "hubspot-batch-create-objects": {
+      "label": {
+        "en": "Creating {objectType} records",
+        "fr": "Création d'enregistrements {objectType}"
+      }
+    },
+    "hubspot-batch-update-objects": {
+      "label": {
+        "en": "Updating {objectType} records",
+        "fr": "Mise à jour d'enregistrements {objectType}"
+      }
+    },
 
-    "hubspot-list-properties": "Listing properties on {objectType}",
-    "hubspot-get-property": "Reading property {propertyName} on {objectType}",
-    "hubspot-create-property": "Creating property {name} on {objectType}",
-    "hubspot-update-property": "Updating property {propertyName} on {objectType}",
+    "hubspot-list-properties": {
+      "label": {
+        "en": "Listing properties on {objectType}",
+        "fr": "Liste des propriétés de {objectType}"
+      }
+    },
+    "hubspot-get-property": {
+      "label": {
+        "en": "Reading property {propertyName} on {objectType}",
+        "fr": "Lecture de la propriété {propertyName} de {objectType}"
+      }
+    },
+    "hubspot-create-property": {
+      "label": {
+        "en": "Creating property {name} on {objectType}",
+        "fr": "Création de la propriété {name} sur {objectType}"
+      }
+    },
+    "hubspot-update-property": {
+      "label": {
+        "en": "Updating property {propertyName} on {objectType}",
+        "fr": "Mise à jour de la propriété {propertyName} sur {objectType}"
+      }
+    },
 
-    "hubspot-list-associations": "Listing {toObjectType} associations for {objectType} {objectId}",
-    "hubspot-get-association-definitions": "Reading {fromObjectType}→{toObjectType} association definitions",
-    "hubspot-batch-create-associations": "Creating {fromObjectType}→{toObjectType} associations",
+    "hubspot-list-associations": {
+      "label": {
+        "en": "Listing {toObjectType} associations for {objectType} {objectId}",
+        "fr": "Liste des associations {toObjectType} pour {objectType} {objectId}"
+      }
+    },
+    "hubspot-get-association-definitions": {
+      "label": {
+        "en": "Reading {fromObjectType}→{toObjectType} association definitions",
+        "fr": "Lecture des définitions d'association {fromObjectType}→{toObjectType}"
+      }
+    },
+    "hubspot-batch-create-associations": {
+      "label": {
+        "en": "Creating {fromObjectType}→{toObjectType} associations",
+        "fr": "Création d'associations {fromObjectType}→{toObjectType}"
+      }
+    },
 
-    "hubspot-get-engagement": "Reading engagement {engagementId}",
-    "hubspot-create-engagement": "Creating {type} engagement",
-    "hubspot-update-engagement": "Updating engagement {engagementId}",
+    "hubspot-get-engagement": {
+      "label": {
+        "en": "Reading engagement {engagementId}",
+        "fr": "Lecture de l'engagement {engagementId}"
+      }
+    },
+    "hubspot-create-engagement": {
+      "label": { "en": "Creating {type} engagement", "fr": "Création d'un engagement {type}" }
+    },
+    "hubspot-update-engagement": {
+      "label": {
+        "en": "Updating engagement {engagementId}",
+        "fr": "Mise à jour de l'engagement {engagementId}"
+      }
+    },
 
-    "hubspot-get-schemas": "Listing custom schemas",
+    "hubspot-get-schemas": {
+      "label": { "en": "Listing custom schemas", "fr": "Liste des schémas personnalisés" }
+    },
 
-    "hubspot-list-workflows": "Listing workflows",
-    "hubspot-get-workflow": "Reading workflow {flowId}"
+    "hubspot-list-workflows": {
+      "label": { "en": "Listing workflows", "fr": "Liste des workflows" }
+    },
+    "hubspot-get-workflow": {
+      "label": { "en": "Reading workflow {flowId}", "fr": "Lecture du workflow {flowId}" }
+    }
   },
   "hidden": ["hubspot-generate-feedback-link"]
 }
