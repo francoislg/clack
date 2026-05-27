@@ -49,6 +49,25 @@ export const en = {
 
   // Owner cheat-report DM.
   "cheat.report_title": "🚨 Trivia cheat report",
+
+  // Slack task-card tool labels ({game}/{category}/{name}/{slug} interpolated by the streamer).
+  "label.add_categories": "Adding trivia categories — {game}",
+  "label.remove_categories": "Removing trivia categories — {game}",
+  "label.get_ideas": "Getting trivia category ideas — {game}",
+  "label.save_question": "Saving trivia question — {game}/{category}",
+  "label.post_questions": "Posting trivia question — {game}",
+  "label.find_previous": "Searching past trivia questions — {game}",
+  "label.question_history": "Loading trivia question history — {game}",
+  "label.process_reveal": "Processing trivia reveal — {game}",
+  "label.retrieve_scores": "Retrieving trivia scores — {game}",
+  "label.list_games": "Listing trivia games",
+  "label.upsert_game": "Upserting trivia game — {name}",
+  "label.delete_game": "Deleting trivia game — {name}",
+  "label.set_workspace_config": "Updating workspace-tier trivia config",
+  "label.check_season": "Checking trivia season status — {game}",
+  "label.upsert_season": "Upserting trivia season — {game}/{slug}",
+  "label.delete_season": "Deleting trivia season — {game}/{slug}",
+  "label.list_seasons": "Listing trivia seasons — {game}",
 };
 
 export const fr: Partial<Record<keyof typeof en, string>> = {
@@ -85,4 +104,22 @@ export const fr: Partial<Record<keyof typeof en, string>> = {
   "error.answers_closed_round": "Les réponses sont closes pour cette manche.",
 
   "cheat.report_title": "🚨 Rapport de triche au trivia",
+
+  "label.add_categories": "Ajout de catégories trivia — {game}",
+  "label.remove_categories": "Suppression de catégories trivia — {game}",
+  "label.get_ideas": "Recherche d'idées de catégories trivia — {game}",
+  "label.save_question": "Enregistrement de la question trivia — {game}/{category}",
+  "label.post_questions": "Publication de la question trivia — {game}",
+  "label.find_previous": "Recherche de questions trivia passées — {game}",
+  "label.question_history": "Chargement de l'historique des questions trivia — {game}",
+  "label.process_reveal": "Traitement de la révélation trivia — {game}",
+  "label.retrieve_scores": "Récupération des scores trivia — {game}",
+  "label.list_games": "Liste des jeux trivia",
+  "label.upsert_game": "Mise à jour du jeu trivia — {name}",
+  "label.delete_game": "Suppression du jeu trivia — {name}",
+  "label.set_workspace_config": "Mise à jour de la config trivia (espace de travail)",
+  "label.check_season": "Vérification du statut de la saison trivia — {game}",
+  "label.upsert_season": "Mise à jour de la saison trivia — {game}/{slug}",
+  "label.delete_season": "Suppression de la saison trivia — {game}/{slug}",
+  "label.list_seasons": "Liste des saisons trivia — {game}",
 };

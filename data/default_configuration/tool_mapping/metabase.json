@@ -1,16 +1,40 @@
 {
-  "default": "Checking Metabase",
-  "group": "Checking Metabase",
+  "default": { "en": "Checking Metabase", "fr": "Consultation de Metabase" },
+  "group": { "en": "Checking Metabase", "fr": "Consultation de Metabase" },
   "argOptions": {
     "query": { "truncate": 30 }
   },
   "tools": {
-    "list": "Listing Metabase {model|items}",
-    "retrieve": "Reading Metabase {model|details}",
-    "search": "Searching Metabase for \"{query|…}\"",
-    "execute": "Running <${METABASE_URL}/question/{card_id}|question {card_id|query}>",
-    "export": "Exporting <${METABASE_URL}/question/{card_id}|question {card_id}> as {format|results}",
-    "clear_cache": "Clearing Metabase cache"
+    "list": {
+      "label": { "en": "Listing Metabase {model|items}", "fr": "Liste Metabase {model|items}" }
+    },
+    "retrieve": {
+      "label": {
+        "en": "Reading Metabase {model|details}",
+        "fr": "Lecture Metabase {model|details}"
+      }
+    },
+    "search": {
+      "label": {
+        "en": "Searching Metabase for \"{query|…}\"",
+        "fr": "Recherche dans Metabase de « {query|…} »"
+      }
+    },
+    "execute": {
+      "label": {
+        "en": "Running <${METABASE_URL}/question/{card_id}|question {card_id|query}>",
+        "fr": "Exécution de <${METABASE_URL}/question/{card_id}|la question {card_id|query}>"
+      }
+    },
+    "export": {
+      "label": {
+        "en": "Exporting <${METABASE_URL}/question/{card_id}|question {card_id}> as {format|results}",
+        "fr": "Export de <${METABASE_URL}/question/{card_id}|la question {card_id}> en {format|results}"
+      }
+    },
+    "clear_cache": {
+      "label": { "en": "Clearing Metabase cache", "fr": "Vidage du cache Metabase" }
+    }
   },
   "hidden": ["clear_cache"]
 }

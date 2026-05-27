@@ -96,49 +96,33 @@ export const triviaPlugin: ClackPlugin = async (sdk: ClackSdk) => {
   sdk.addTopicInstruction("user", "trivia", "reveal-tone", REVEAL_TONE_CONTENT);
   sdk.addTopicInstruction("user", "trivia", "finale-tone", FINALE_TONE_CONTENT);
 
-  management.registerTool(
-    "admin",
-    createAddCategoriesTool(data),
-    "Adding trivia categories — {game}",
-  );
+  management.registerTool("admin", createAddCategoriesTool(data), sdk.t("label.add_categories"));
   management.registerTool(
     "admin",
     createRemoveCategoriesTool(data),
-    "Removing trivia categories — {game}",
+    sdk.t("label.remove_categories"),
   );
-  sdk.registerTool("admin", createGetIdeasTool(data), "Getting trivia category ideas — {game}");
-  sdk.registerTool(
-    "admin",
-    createSaveQuestionTool(data),
-    "Saving trivia question — {game}/{category}",
-  );
-  sdk.registerTool("admin", createPostQuestionsTool(data, sdk), "Posting trivia question — {game}");
-  sdk.registerTool(
-    "member",
-    createFindPreviousQuestionsTool(data),
-    "Searching past trivia questions — {game}",
-  );
-  sdk.registerTool(
-    "admin",
-    createGetQuestionHistoryTool(data),
-    "Loading trivia question history — {game}",
-  );
+  sdk.registerTool("admin", createGetIdeasTool(data), sdk.t("label.get_ideas"));
+  sdk.registerTool("admin", createSaveQuestionTool(data), sdk.t("label.save_question"));
+  sdk.registerTool("admin", createPostQuestionsTool(data, sdk), sdk.t("label.post_questions"));
+  sdk.registerTool("member", createFindPreviousQuestionsTool(data), sdk.t("label.find_previous"));
+  sdk.registerTool("admin", createGetQuestionHistoryTool(data), sdk.t("label.question_history"));
   sdk.registerTool(
     "admin",
     createProcessRevealAnswersTool(data, sdk),
-    "Processing trivia reveal — {game}",
+    sdk.t("label.process_reveal"),
   );
-  sdk.registerTool("member", createRetrieveScoresTool(data), "Retrieving trivia scores — {game}");
-  sdk.registerTool("member", createListGamesTool(), "Listing trivia games");
+  sdk.registerTool("member", createRetrieveScoresTool(data), sdk.t("label.retrieve_scores"));
+  sdk.registerTool("member", createListGamesTool(), sdk.t("label.list_games"));
 
   // trivia:management server — gated game/season lifecycle tools (categories tools above
   // are on the same handle).
-  management.registerTool("admin", createUpsertGameTool(), "Upserting trivia game — {name}");
-  management.registerTool("admin", createDeleteGameTool(), "Deleting trivia game — {name}");
+  management.registerTool("admin", createUpsertGameTool(), sdk.t("label.upsert_game"));
+  management.registerTool("admin", createDeleteGameTool(), sdk.t("label.delete_game"));
   management.registerTool(
     "admin",
     createSetWorkspaceConfigTool(),
-    "Updating workspace-tier trivia config",
+    sdk.t("label.set_workspace_config"),
   );
 
   // Hidden from Slack task cards — the recorded user must not see this fire.
@@ -148,22 +132,10 @@ export const triviaPlugin: ClackPlugin = async (sdk: ClackSdk) => {
   });
 
   if (seasonsEnabled) {
-    sdk.registerTool(
-      "admin",
-      createCheckSeasonStatusTool(data),
-      "Checking trivia season status — {game}",
-    );
-    management.registerTool(
-      "admin",
-      createUpsertSeasonTool(data),
-      "Upserting trivia season — {game}/{slug}",
-    );
-    management.registerTool(
-      "admin",
-      createDeleteSeasonTool(data),
-      "Deleting trivia season — {game}/{slug}",
-    );
-    sdk.registerTool("admin", createListSeasonsTool(data), "Listing trivia seasons — {game}");
+    sdk.registerTool("admin", createCheckSeasonStatusTool(data), sdk.t("label.check_season"));
+    management.registerTool("admin", createUpsertSeasonTool(data), sdk.t("label.upsert_season"));
+    management.registerTool("admin", createDeleteSeasonTool(data), sdk.t("label.delete_season"));
+    sdk.registerTool("admin", createListSeasonsTool(data), sdk.t("label.list_seasons"));
     sdk.logger.info(
       "seasons enabled — registered check_season_status, upsert_season, delete_season, list_seasons",
     );

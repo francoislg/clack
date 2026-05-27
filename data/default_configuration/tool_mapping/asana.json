@@ -1,57 +1,230 @@
 {
-  "default": "Checking Asana",
-  "group": "Checking Asana",
+  "default": { "en": "Checking Asana", "fr": "Consultation d'Asana" },
+  "group": { "en": "Checking Asana", "fr": "Consultation d'Asana" },
   "argOptions": {
     "text": { "truncate": 40 },
     "name_pattern": { "truncate": 40 },
     "name": { "truncate": 40 }
   },
   "tools": {
-    "asana_list_workspaces": "Listing Asana workspaces",
+    "asana_list_workspaces": {
+      "label": { "en": "Listing Asana workspaces", "fr": "Liste des espaces de travail Asana" }
+    },
 
-    "asana_search_projects": "Searching projects for \"{name_pattern|…}\"",
-    "asana_search_tasks": "Searching tasks for \"{text|…}\"",
+    "asana_search_projects": {
+      "label": {
+        "en": "Searching projects for \"{name_pattern|…}\"",
+        "fr": "Recherche de projets pour « {name_pattern|…} »"
+      }
+    },
+    "asana_search_tasks": {
+      "label": {
+        "en": "Searching tasks for \"{text|…}\"",
+        "fr": "Recherche de tâches pour « {text|…} »"
+      }
+    },
 
-    "asana_get_project": "Reading <https://app.asana.com/0/{project_id}|project {project_id}>",
-    "asana_get_project_sections": "Reading sections in <https://app.asana.com/0/{project_id}|project {project_id}>",
-    "asana_get_project_status": "Reading project status {project_status_gid}",
-    "asana_get_project_statuses": "Reading statuses for <https://app.asana.com/0/{project_gid}|project {project_gid}>",
-    "asana_get_project_task_counts": "Counting tasks in <https://app.asana.com/0/{project_id}|project {project_id}>",
-    "asana_create_project": "Creating project {name}",
-    "asana_update_project": "Updating project {project_id}",
-    "asana_create_project_status": "Posting status on <https://app.asana.com/0/{project_gid}|project {project_gid}>",
-    "asana_delete_project_status": "Deleting project status {project_status_gid}",
+    "asana_get_project": {
+      "label": {
+        "en": "Reading <https://app.asana.com/0/{project_id}|project {project_id}>",
+        "fr": "Lecture du <https://app.asana.com/0/{project_id}|projet {project_id}>"
+      }
+    },
+    "asana_get_project_sections": {
+      "label": {
+        "en": "Reading sections in <https://app.asana.com/0/{project_id}|project {project_id}>",
+        "fr": "Lecture des sections du <https://app.asana.com/0/{project_id}|projet {project_id}>"
+      }
+    },
+    "asana_get_project_status": {
+      "label": {
+        "en": "Reading project status {project_status_gid}",
+        "fr": "Lecture du statut de projet {project_status_gid}"
+      }
+    },
+    "asana_get_project_statuses": {
+      "label": {
+        "en": "Reading statuses for <https://app.asana.com/0/{project_gid}|project {project_gid}>",
+        "fr": "Lecture des statuts du <https://app.asana.com/0/{project_gid}|projet {project_gid}>"
+      }
+    },
+    "asana_get_project_task_counts": {
+      "label": {
+        "en": "Counting tasks in <https://app.asana.com/0/{project_id}|project {project_id}>",
+        "fr": "Comptage des tâches du <https://app.asana.com/0/{project_id}|projet {project_id}>"
+      }
+    },
+    "asana_create_project": {
+      "label": { "en": "Creating project {name}", "fr": "Création du projet {name}" }
+    },
+    "asana_update_project": {
+      "label": { "en": "Updating project {project_id}", "fr": "Mise à jour du projet {project_id}" }
+    },
+    "asana_create_project_status": {
+      "label": {
+        "en": "Posting status on <https://app.asana.com/0/{project_gid}|project {project_gid}>",
+        "fr": "Publication d'un statut sur le <https://app.asana.com/0/{project_gid}|projet {project_gid}>"
+      }
+    },
+    "asana_delete_project_status": {
+      "label": {
+        "en": "Deleting project status {project_status_gid}",
+        "fr": "Suppression du statut de projet {project_status_gid}"
+      }
+    },
 
-    "asana_get_task": "Reading <https://app.asana.com/0/0/{task_id}|task {task_id}>",
-    "asana_get_multiple_tasks_by_gid": "Reading tasks",
-    "asana_get_tasks_for_project": "Reading tasks in <https://app.asana.com/0/{project_id}|project {project_id}>",
-    "asana_get_tasks_for_tag": "Reading tasks for tag {tag_gid}",
-    "asana_get_my_tasks": "Reading my tasks",
-    "asana_get_subtasks": "Reading subtasks of <https://app.asana.com/0/0/{task_gid}|task {task_gid}>",
-    "asana_get_task_stories": "Reading comments on <https://app.asana.com/0/0/{task_id}|task {task_id}>",
-    "asana_create_task": "Creating task {name}",
-    "asana_create_subtask": "Creating subtask {name} on task {parent_task_id}",
-    "asana_update_task": "Updating <https://app.asana.com/0/0/{task_id}|task {task_id}>",
-    "asana_delete_task": "Deleting task {task_id}",
-    "asana_set_parent_for_task": "Setting parent for task {task_id}",
-    "asana_create_task_story": "Commenting on <https://app.asana.com/0/0/{task_id}|task {task_id}>",
-    "asana_add_project_to_task": "Adding task {task_id} to project {project_id}",
-    "asana_remove_project_from_task": "Removing task {task_id} from project {project_id}",
-    "asana_add_task_to_section": "Moving task {task_id} to section {section_id}",
-    "asana_add_task_dependencies": "Setting dependencies for task {task_id}",
-    "asana_add_task_dependents": "Setting dependents for task {task_id}",
+    "asana_get_task": {
+      "label": {
+        "en": "Reading <https://app.asana.com/0/0/{task_id}|task {task_id}>",
+        "fr": "Lecture de la <https://app.asana.com/0/0/{task_id}|tâche {task_id}>"
+      }
+    },
+    "asana_get_multiple_tasks_by_gid": {
+      "label": { "en": "Reading tasks", "fr": "Lecture des tâches" }
+    },
+    "asana_get_tasks_for_project": {
+      "label": {
+        "en": "Reading tasks in <https://app.asana.com/0/{project_id}|project {project_id}>",
+        "fr": "Lecture des tâches du <https://app.asana.com/0/{project_id}|projet {project_id}>"
+      }
+    },
+    "asana_get_tasks_for_tag": {
+      "label": {
+        "en": "Reading tasks for tag {tag_gid}",
+        "fr": "Lecture des tâches de l'étiquette {tag_gid}"
+      }
+    },
+    "asana_get_my_tasks": { "label": { "en": "Reading my tasks", "fr": "Lecture de mes tâches" } },
+    "asana_get_subtasks": {
+      "label": {
+        "en": "Reading subtasks of <https://app.asana.com/0/0/{task_gid}|task {task_gid}>",
+        "fr": "Lecture des sous-tâches de la <https://app.asana.com/0/0/{task_gid}|tâche {task_gid}>"
+      }
+    },
+    "asana_get_task_stories": {
+      "label": {
+        "en": "Reading comments on <https://app.asana.com/0/0/{task_id}|task {task_id}>",
+        "fr": "Lecture des commentaires de la <https://app.asana.com/0/0/{task_id}|tâche {task_id}>"
+      }
+    },
+    "asana_create_task": {
+      "label": { "en": "Creating task {name}", "fr": "Création de la tâche {name}" }
+    },
+    "asana_create_subtask": {
+      "label": {
+        "en": "Creating subtask {name} on task {parent_task_id}",
+        "fr": "Création de la sous-tâche {name} sur la tâche {parent_task_id}"
+      }
+    },
+    "asana_update_task": {
+      "label": {
+        "en": "Updating <https://app.asana.com/0/0/{task_id}|task {task_id}>",
+        "fr": "Mise à jour de la <https://app.asana.com/0/0/{task_id}|tâche {task_id}>"
+      }
+    },
+    "asana_delete_task": {
+      "label": { "en": "Deleting task {task_id}", "fr": "Suppression de la tâche {task_id}" }
+    },
+    "asana_set_parent_for_task": {
+      "label": {
+        "en": "Setting parent for task {task_id}",
+        "fr": "Définition du parent de la tâche {task_id}"
+      }
+    },
+    "asana_create_task_story": {
+      "label": {
+        "en": "Commenting on <https://app.asana.com/0/0/{task_id}|task {task_id}>",
+        "fr": "Commentaire sur la <https://app.asana.com/0/0/{task_id}|tâche {task_id}>"
+      }
+    },
+    "asana_add_project_to_task": {
+      "label": {
+        "en": "Adding task {task_id} to project {project_id}",
+        "fr": "Ajout de la tâche {task_id} au projet {project_id}"
+      }
+    },
+    "asana_remove_project_from_task": {
+      "label": {
+        "en": "Removing task {task_id} from project {project_id}",
+        "fr": "Retrait de la tâche {task_id} du projet {project_id}"
+      }
+    },
+    "asana_add_task_to_section": {
+      "label": {
+        "en": "Moving task {task_id} to section {section_id}",
+        "fr": "Déplacement de la tâche {task_id} vers la section {section_id}"
+      }
+    },
+    "asana_add_task_dependencies": {
+      "label": {
+        "en": "Setting dependencies for task {task_id}",
+        "fr": "Définition des dépendances de la tâche {task_id}"
+      }
+    },
+    "asana_add_task_dependents": {
+      "label": {
+        "en": "Setting dependents for task {task_id}",
+        "fr": "Définition des tâches dépendantes de {task_id}"
+      }
+    },
 
-    "asana_create_section": "Creating section {name} in project {project_id}",
-    "asana_update_section": "Renaming section {section_id}",
-    "asana_delete_section": "Deleting section {section_id}",
+    "asana_create_section": {
+      "label": {
+        "en": "Creating section {name} in project {project_id}",
+        "fr": "Création de la section {name} dans le projet {project_id}"
+      }
+    },
+    "asana_update_section": {
+      "label": {
+        "en": "Renaming section {section_id}",
+        "fr": "Renommage de la section {section_id}"
+      }
+    },
+    "asana_delete_section": {
+      "label": {
+        "en": "Deleting section {section_id}",
+        "fr": "Suppression de la section {section_id}"
+      }
+    },
 
-    "asana_get_tag": "Reading tag {tag_gid}",
-    "asana_get_tags_for_task": "Reading tags on task {task_gid}",
-    "asana_get_tags_for_workspace": "Listing tags in workspace {workspace_gid}",
-    "asana_create_tag_for_workspace": "Creating tag {name} in workspace {workspace_gid}",
-    "asana_update_tag": "Updating tag {tag_gid}",
-    "asana_delete_tag": "Deleting tag {tag_gid}",
-    "asana_add_tag_to_task": "Adding tag {tag_gid} to task {task_gid}",
-    "asana_remove_tag_from_task": "Removing tag {tag_gid} from task {task_gid}"
+    "asana_get_tag": {
+      "label": { "en": "Reading tag {tag_gid}", "fr": "Lecture de l'étiquette {tag_gid}" }
+    },
+    "asana_get_tags_for_task": {
+      "label": {
+        "en": "Reading tags on task {task_gid}",
+        "fr": "Lecture des étiquettes de la tâche {task_gid}"
+      }
+    },
+    "asana_get_tags_for_workspace": {
+      "label": {
+        "en": "Listing tags in workspace {workspace_gid}",
+        "fr": "Liste des étiquettes de l'espace {workspace_gid}"
+      }
+    },
+    "asana_create_tag_for_workspace": {
+      "label": {
+        "en": "Creating tag {name} in workspace {workspace_gid}",
+        "fr": "Création de l'étiquette {name} dans l'espace {workspace_gid}"
+      }
+    },
+    "asana_update_tag": {
+      "label": { "en": "Updating tag {tag_gid}", "fr": "Mise à jour de l'étiquette {tag_gid}" }
+    },
+    "asana_delete_tag": {
+      "label": { "en": "Deleting tag {tag_gid}", "fr": "Suppression de l'étiquette {tag_gid}" }
+    },
+    "asana_add_tag_to_task": {
+      "label": {
+        "en": "Adding tag {tag_gid} to task {task_gid}",
+        "fr": "Ajout de l'étiquette {tag_gid} à la tâche {task_gid}"
+      }
+    },
+    "asana_remove_tag_from_task": {
+      "label": {
+        "en": "Removing tag {tag_gid} from task {task_gid}",
+        "fr": "Retrait de l'étiquette {tag_gid} de la tâche {task_gid}"
+      }
+    }
   }
 }

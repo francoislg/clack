@@ -1,104 +1,318 @@
 {
-  "default": "Checking GitHub",
-  "group": "Checking GitHub",
+  "default": { "en": "Checking GitHub", "fr": "Consultation de GitHub" },
+  "group": { "en": "Checking GitHub", "fr": "Consultation de GitHub" },
   "argOptions": {
     "sha": { "truncate": 7 }
   },
   "tools": {
-    "pull_request_read": "Reading <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}> {method}",
-    "pull_request_review_write": "Reviewing <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}> {method}",
-    "add_comment_to_pending_review": "Adding review comment on <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}>",
-    "add_reply_to_pull_request_comment": "Replying on <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}>",
-    "create_pull_request": "Creating pull request",
-    "merge_pull_request": "Merging <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}>",
-    "update_pull_request": "Updating <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}>",
-    "update_pull_request_branch": "Updating branch for <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}>",
-    "list_pull_requests": "Listing pull requests",
-    "search_pull_requests": "Searching PRs for \"{query}\"",
-    "request_copilot_review": "Requesting Copilot review for <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}>",
+    "pull_request_read": {
+      "label": {
+        "en": "Reading <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}> {method}",
+        "fr": "Lecture de la <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}> {method}"
+      }
+    },
+    "pull_request_review_write": {
+      "label": {
+        "en": "Reviewing <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}> {method}",
+        "fr": "Revue de la <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}> {method}"
+      }
+    },
+    "add_comment_to_pending_review": {
+      "label": {
+        "en": "Adding review comment on <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}>",
+        "fr": "Ajout d'un commentaire de revue sur la <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}>"
+      }
+    },
+    "add_reply_to_pull_request_comment": {
+      "label": {
+        "en": "Replying on <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}>",
+        "fr": "Réponse sur la <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}>"
+      }
+    },
+    "create_pull_request": {
+      "label": { "en": "Creating pull request", "fr": "Création d'une pull request" }
+    },
+    "merge_pull_request": {
+      "label": {
+        "en": "Merging <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}>",
+        "fr": "Fusion de la <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}>"
+      }
+    },
+    "update_pull_request": {
+      "label": {
+        "en": "Updating <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}>",
+        "fr": "Mise à jour de la <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}>"
+      }
+    },
+    "update_pull_request_branch": {
+      "label": {
+        "en": "Updating branch for <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}>",
+        "fr": "Mise à jour de la branche de la <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}>"
+      }
+    },
+    "list_pull_requests": {
+      "label": { "en": "Listing pull requests", "fr": "Liste des pull requests" }
+    },
+    "search_pull_requests": {
+      "label": { "en": "Searching PRs for \"{query}\"", "fr": "Recherche de PR pour « {query} »" }
+    },
+    "request_copilot_review": {
+      "label": {
+        "en": "Requesting Copilot review for <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}>",
+        "fr": "Demande de revue Copilot pour la <https://github.com/{owner}/{repo}/pull/{pullNumber}|PR #{pullNumber}>"
+      }
+    },
 
-    "issue_read": "Reading <https://github.com/{owner}/{repo}/issues/{issue_number}|issue #{issue_number}> {method}",
-    "issue_write": "Updating <https://github.com/{owner}/{repo}/issues/{issue_number}|issue #{issue_number}> {method}",
-    "add_issue_comment": "Commenting on <https://github.com/{owner}/{repo}/issues/{issue_number}|issue #{issue_number}>",
-    "list_issues": "Listing issues",
-    "list_issue_types": "Listing issue types",
-    "search_issues": "Searching issues for \"{query}\"",
-    "assign_copilot_to_issue": "Assigning Copilot to <https://github.com/{owner}/{repo}/issues/{issue_number}|issue #{issue_number}>",
-    "sub_issue_write": "Updating sub-issue for <https://github.com/{owner}/{repo}/issues/{issue_number}|issue #{issue_number}>",
+    "issue_read": {
+      "label": {
+        "en": "Reading <https://github.com/{owner}/{repo}/issues/{issue_number}|issue #{issue_number}> {method}",
+        "fr": "Lecture de l'<https://github.com/{owner}/{repo}/issues/{issue_number}|issue #{issue_number}> {method}"
+      }
+    },
+    "issue_write": {
+      "label": {
+        "en": "Updating <https://github.com/{owner}/{repo}/issues/{issue_number}|issue #{issue_number}> {method}",
+        "fr": "Mise à jour de l'<https://github.com/{owner}/{repo}/issues/{issue_number}|issue #{issue_number}> {method}"
+      }
+    },
+    "add_issue_comment": {
+      "label": {
+        "en": "Commenting on <https://github.com/{owner}/{repo}/issues/{issue_number}|issue #{issue_number}>",
+        "fr": "Commentaire sur l'<https://github.com/{owner}/{repo}/issues/{issue_number}|issue #{issue_number}>"
+      }
+    },
+    "list_issues": { "label": { "en": "Listing issues", "fr": "Liste des issues" } },
+    "list_issue_types": {
+      "label": { "en": "Listing issue types", "fr": "Liste des types d'issue" }
+    },
+    "search_issues": {
+      "label": {
+        "en": "Searching issues for \"{query}\"",
+        "fr": "Recherche d'issues pour « {query} »"
+      }
+    },
+    "assign_copilot_to_issue": {
+      "label": {
+        "en": "Assigning Copilot to <https://github.com/{owner}/{repo}/issues/{issue_number}|issue #{issue_number}>",
+        "fr": "Affectation de Copilot à l'<https://github.com/{owner}/{repo}/issues/{issue_number}|issue #{issue_number}>"
+      }
+    },
+    "sub_issue_write": {
+      "label": {
+        "en": "Updating sub-issue for <https://github.com/{owner}/{repo}/issues/{issue_number}|issue #{issue_number}>",
+        "fr": "Mise à jour de la sous-issue de l'<https://github.com/{owner}/{repo}/issues/{issue_number}|issue #{issue_number}>"
+      }
+    },
 
-    "get_file_contents": "Reading {path|file} from GitHub",
-    "create_or_update_file": "Writing {path|file}",
-    "delete_file": "Deleting {path|file}",
-    "push_files": "Pushing files to {branch}",
-    "get_repository_tree": "Reading repository tree",
-    "search_code": "Searching GitHub for \"{query}\"",
+    "get_file_contents": {
+      "label": {
+        "en": "Reading {path|file} from GitHub",
+        "fr": "Lecture de {path|fichier} depuis GitHub"
+      }
+    },
+    "create_or_update_file": {
+      "label": { "en": "Writing {path|file}", "fr": "Écriture de {path|fichier}" }
+    },
+    "delete_file": {
+      "label": { "en": "Deleting {path|file}", "fr": "Suppression de {path|fichier}" }
+    },
+    "push_files": {
+      "label": { "en": "Pushing files to {branch}", "fr": "Envoi de fichiers vers {branch}" }
+    },
+    "get_repository_tree": {
+      "label": { "en": "Reading repository tree", "fr": "Lecture de l'arborescence du dépôt" }
+    },
+    "search_code": {
+      "label": {
+        "en": "Searching GitHub for \"{query}\"",
+        "fr": "Recherche dans GitHub de « {query} »"
+      }
+    },
 
-    "get_commit": "Reading commit {sha}",
-    "list_commits": "Listing commits",
-    "list_branches": "Listing branches",
-    "create_branch": "Creating branch {branch}",
-    "list_tags": "Listing tags",
-    "get_tag": "Reading tag {tag}",
+    "get_commit": { "label": { "en": "Reading commit {sha}", "fr": "Lecture du commit {sha}" } },
+    "list_commits": { "label": { "en": "Listing commits", "fr": "Liste des commits" } },
+    "list_branches": { "label": { "en": "Listing branches", "fr": "Liste des branches" } },
+    "create_branch": {
+      "label": { "en": "Creating branch {branch}", "fr": "Création de la branche {branch}" }
+    },
+    "list_tags": { "label": { "en": "Listing tags", "fr": "Liste des tags" } },
+    "get_tag": { "label": { "en": "Reading tag {tag}", "fr": "Lecture du tag {tag}" } },
 
-    "list_releases": "Listing releases",
-    "get_latest_release": "Reading latest release",
-    "get_release_by_tag": "Reading release {tag}",
+    "list_releases": { "label": { "en": "Listing releases", "fr": "Liste des versions" } },
+    "get_latest_release": {
+      "label": { "en": "Reading latest release", "fr": "Lecture de la dernière version" }
+    },
+    "get_release_by_tag": {
+      "label": { "en": "Reading release {tag}", "fr": "Lecture de la version {tag}" }
+    },
 
-    "label_write": "Managing label {name}",
-    "get_label": "Reading label {name}",
-    "list_label": "Listing labels",
+    "label_write": {
+      "label": { "en": "Managing label {name}", "fr": "Gestion de l'étiquette {name}" }
+    },
+    "get_label": {
+      "label": { "en": "Reading label {name}", "fr": "Lecture de l'étiquette {name}" }
+    },
+    "list_label": { "label": { "en": "Listing labels", "fr": "Liste des étiquettes" } },
 
-    "actions_get": "Reading GitHub Action {method}",
-    "actions_list": "Listing GitHub Actions {method}",
-    "actions_run_trigger": "Triggering GitHub Action {method}",
-    "get_job_logs": "Reading job logs",
+    "actions_get": {
+      "label": {
+        "en": "Reading GitHub Action {method}",
+        "fr": "Lecture de la GitHub Action {method}"
+      }
+    },
+    "actions_list": {
+      "label": {
+        "en": "Listing GitHub Actions {method}",
+        "fr": "Liste des GitHub Actions {method}"
+      }
+    },
+    "actions_run_trigger": {
+      "label": {
+        "en": "Triggering GitHub Action {method}",
+        "fr": "Déclenchement de la GitHub Action {method}"
+      }
+    },
+    "get_job_logs": { "label": { "en": "Reading job logs", "fr": "Lecture des journaux du job" } },
 
-    "get_discussion": "Reading discussion #{discussionNumber}",
-    "get_discussion_comments": "Reading comments on discussion #{discussionNumber}",
-    "list_discussions": "Listing discussions",
-    "list_discussion_categories": "Listing discussion categories",
+    "get_discussion": {
+      "label": {
+        "en": "Reading discussion #{discussionNumber}",
+        "fr": "Lecture de la discussion #{discussionNumber}"
+      }
+    },
+    "get_discussion_comments": {
+      "label": {
+        "en": "Reading comments on discussion #{discussionNumber}",
+        "fr": "Lecture des commentaires de la discussion #{discussionNumber}"
+      }
+    },
+    "list_discussions": { "label": { "en": "Listing discussions", "fr": "Liste des discussions" } },
+    "list_discussion_categories": {
+      "label": { "en": "Listing discussion categories", "fr": "Liste des catégories de discussion" }
+    },
 
-    "projects_get": "Reading project {method}",
-    "projects_list": "Listing projects {method}",
-    "projects_write": "Updating project {method}",
+    "projects_get": {
+      "label": { "en": "Reading project {method}", "fr": "Lecture du projet {method}" }
+    },
+    "projects_list": {
+      "label": { "en": "Listing projects {method}", "fr": "Liste des projets {method}" }
+    },
+    "projects_write": {
+      "label": { "en": "Updating project {method}", "fr": "Mise à jour du projet {method}" }
+    },
 
-    "search_repositories": "Searching repos for \"{query}\"",
-    "search_users": "Searching users for \"{query}\"",
-    "search_orgs": "Searching orgs for \"{query}\"",
-    "create_repository": "Creating repository {name}",
-    "fork_repository": "Forking {owner}/{repo}",
+    "search_repositories": {
+      "label": {
+        "en": "Searching repos for \"{query}\"",
+        "fr": "Recherche de dépôts pour « {query} »"
+      }
+    },
+    "search_users": {
+      "label": {
+        "en": "Searching users for \"{query}\"",
+        "fr": "Recherche d'utilisateurs pour « {query} »"
+      }
+    },
+    "search_orgs": {
+      "label": {
+        "en": "Searching orgs for \"{query}\"",
+        "fr": "Recherche d'organisations pour « {query} »"
+      }
+    },
+    "create_repository": {
+      "label": { "en": "Creating repository {name}", "fr": "Création du dépôt {name}" }
+    },
+    "fork_repository": {
+      "label": { "en": "Forking {owner}/{repo}", "fr": "Fork de {owner}/{repo}" }
+    },
 
-    "get_me": "Checking GitHub identity",
-    "get_teams": "Listing teams",
-    "get_team_members": "Listing members of {team_slug}",
+    "get_me": {
+      "label": { "en": "Checking GitHub identity", "fr": "Vérification de l'identité GitHub" }
+    },
+    "get_teams": { "label": { "en": "Listing teams", "fr": "Liste des équipes" } },
+    "get_team_members": {
+      "label": { "en": "Listing members of {team_slug}", "fr": "Liste des membres de {team_slug}" }
+    },
 
-    "list_notifications": "Listing notifications",
-    "get_notification_details": "Reading notification",
-    "dismiss_notification": "Dismissing notification",
-    "mark_all_notifications_read": "Marking notifications read",
+    "list_notifications": {
+      "label": { "en": "Listing notifications", "fr": "Liste des notifications" }
+    },
+    "get_notification_details": {
+      "label": { "en": "Reading notification", "fr": "Lecture de la notification" }
+    },
+    "dismiss_notification": {
+      "label": { "en": "Dismissing notification", "fr": "Rejet de la notification" }
+    },
+    "mark_all_notifications_read": {
+      "label": { "en": "Marking notifications read", "fr": "Marquage des notifications comme lues" }
+    },
 
-    "list_code_scanning_alerts": "Listing code scanning alerts",
-    "get_code_scanning_alert": "Reading code scanning alert #{alertNumber}",
-    "list_secret_scanning_alerts": "Listing secret scanning alerts",
-    "get_secret_scanning_alert": "Reading secret scanning alert #{alertNumber}",
-    "list_dependabot_alerts": "Listing Dependabot alerts",
-    "get_dependabot_alert": "Reading Dependabot alert #{alertNumber}",
-    "get_global_security_advisory": "Reading security advisory {ghsaId}",
-    "list_global_security_advisories": "Listing security advisories",
-    "list_repository_security_advisories": "Listing repo security advisories",
-    "list_org_repository_security_advisories": "Listing org security advisories",
+    "list_code_scanning_alerts": {
+      "label": { "en": "Listing code scanning alerts", "fr": "Liste des alertes d'analyse de code" }
+    },
+    "get_code_scanning_alert": {
+      "label": {
+        "en": "Reading code scanning alert #{alertNumber}",
+        "fr": "Lecture de l'alerte d'analyse de code #{alertNumber}"
+      }
+    },
+    "list_secret_scanning_alerts": {
+      "label": {
+        "en": "Listing secret scanning alerts",
+        "fr": "Liste des alertes d'analyse de secrets"
+      }
+    },
+    "get_secret_scanning_alert": {
+      "label": {
+        "en": "Reading secret scanning alert #{alertNumber}",
+        "fr": "Lecture de l'alerte d'analyse de secrets #{alertNumber}"
+      }
+    },
+    "list_dependabot_alerts": {
+      "label": { "en": "Listing Dependabot alerts", "fr": "Liste des alertes Dependabot" }
+    },
+    "get_dependabot_alert": {
+      "label": {
+        "en": "Reading Dependabot alert #{alertNumber}",
+        "fr": "Lecture de l'alerte Dependabot #{alertNumber}"
+      }
+    },
+    "get_global_security_advisory": {
+      "label": {
+        "en": "Reading security advisory {ghsaId}",
+        "fr": "Lecture de l'avis de sécurité {ghsaId}"
+      }
+    },
+    "list_global_security_advisories": {
+      "label": { "en": "Listing security advisories", "fr": "Liste des avis de sécurité" }
+    },
+    "list_repository_security_advisories": {
+      "label": {
+        "en": "Listing repo security advisories",
+        "fr": "Liste des avis de sécurité du dépôt"
+      }
+    },
+    "list_org_repository_security_advisories": {
+      "label": {
+        "en": "Listing org security advisories",
+        "fr": "Liste des avis de sécurité de l'organisation"
+      }
+    },
 
-    "create_gist": "Creating gist",
-    "get_gist": "Reading gist",
-    "update_gist": "Updating gist",
-    "list_gists": "Listing gists",
+    "create_gist": { "label": { "en": "Creating gist", "fr": "Création d'un gist" } },
+    "get_gist": { "label": { "en": "Reading gist", "fr": "Lecture du gist" } },
+    "update_gist": { "label": { "en": "Updating gist", "fr": "Mise à jour du gist" } },
+    "list_gists": { "label": { "en": "Listing gists", "fr": "Liste des gists" } },
 
-    "star_repository": "Starring {owner}/{repo}",
-    "unstar_repository": "Unstarring {owner}/{repo}",
-    "list_starred_repositories": "Listing starred repos"
+    "star_repository": {
+      "label": { "en": "Starring {owner}/{repo}", "fr": "Ajout d'une étoile à {owner}/{repo}" }
+    },
+    "unstar_repository": {
+      "label": { "en": "Unstarring {owner}/{repo}", "fr": "Retrait de l'étoile de {owner}/{repo}" }
+    },
+    "list_starred_repositories": {
+      "label": { "en": "Listing starred repos", "fr": "Liste des dépôts favoris" }
+    }
   },
-  "hidden": [
-    "manage_notification_subscription",
-    "manage_repository_notification_subscription"
-  ]
+  "hidden": ["manage_notification_subscription", "manage_repository_notification_subscription"]
 }

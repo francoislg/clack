@@ -1,6 +1,6 @@
 {
-  "default": "Checking MongoDB",
-  "group": "Checking MongoDB",
+  "default": { "en": "Checking MongoDB", "fr": "Consultation de MongoDB" },
+  "group": { "en": "Checking MongoDB", "fr": "Consultation de MongoDB" },
   "argOptions": {
     "query": { "truncate": 40 },
     "newName": { "truncate": 40 },
@@ -12,60 +12,254 @@
     "name": { "truncate": 40 }
   },
   "tools": {
-    "connect": "Connecting to MongoDB",
-    "switch-connection": "Switching MongoDB connection",
-    "list-databases": "Listing MongoDB databases",
-    "list-collections": "Listing collections in {database}",
-    "collection-indexes": "Reading indexes on {database}.{collection}",
-    "collection-schema": "Reading schema of {database}.{collection}",
-    "collection-storage-size": "Reading storage size of {database}.{collection}",
-    "db-stats": "Reading stats for {database}",
-    "mongodb-logs": "Reading MongoDB logs",
-    "explain": "Explaining query on {database}.{collection}",
+    "connect": { "label": { "en": "Connecting to MongoDB", "fr": "Connexion à MongoDB" } },
+    "switch-connection": {
+      "label": { "en": "Switching MongoDB connection", "fr": "Changement de connexion MongoDB" }
+    },
+    "list-databases": {
+      "label": { "en": "Listing MongoDB databases", "fr": "Liste des bases MongoDB" }
+    },
+    "list-collections": {
+      "label": {
+        "en": "Listing collections in {database}",
+        "fr": "Liste des collections de {database}"
+      }
+    },
+    "collection-indexes": {
+      "label": {
+        "en": "Reading indexes on {database}.{collection}",
+        "fr": "Lecture des index de {database}.{collection}"
+      }
+    },
+    "collection-schema": {
+      "label": {
+        "en": "Reading schema of {database}.{collection}",
+        "fr": "Lecture du schéma de {database}.{collection}"
+      }
+    },
+    "collection-storage-size": {
+      "label": {
+        "en": "Reading storage size of {database}.{collection}",
+        "fr": "Lecture de la taille de stockage de {database}.{collection}"
+      }
+    },
+    "db-stats": {
+      "label": { "en": "Reading stats for {database}", "fr": "Lecture des stats de {database}" }
+    },
+    "mongodb-logs": {
+      "label": { "en": "Reading MongoDB logs", "fr": "Lecture des journaux MongoDB" }
+    },
+    "explain": {
+      "label": {
+        "en": "Explaining query on {database}.{collection}",
+        "fr": "Explication de la requête sur {database}.{collection}"
+      }
+    },
 
-    "find": "Querying {database}.{collection}",
-    "count": "Counting documents in {database}.{collection}",
-    "aggregate": "Aggregating {database}.{collection}",
-    "aggregate-db": "Aggregating database {database}",
-    "export": "Exporting from {database}.{collection}",
+    "find": {
+      "label": {
+        "en": "Querying {database}.{collection}",
+        "fr": "Requête sur {database}.{collection}"
+      }
+    },
+    "count": {
+      "label": {
+        "en": "Counting documents in {database}.{collection}",
+        "fr": "Comptage des documents de {database}.{collection}"
+      }
+    },
+    "aggregate": {
+      "label": {
+        "en": "Aggregating {database}.{collection}",
+        "fr": "Agrégation de {database}.{collection}"
+      }
+    },
+    "aggregate-db": {
+      "label": { "en": "Aggregating database {database}", "fr": "Agrégation de la base {database}" }
+    },
+    "export": {
+      "label": {
+        "en": "Exporting from {database}.{collection}",
+        "fr": "Export depuis {database}.{collection}"
+      }
+    },
 
-    "insert-many": "Inserting into {database}.{collection}",
-    "update-many": "Updating {database}.{collection}",
-    "delete-many": "Deleting from {database}.{collection}",
+    "insert-many": {
+      "label": {
+        "en": "Inserting into {database}.{collection}",
+        "fr": "Insertion dans {database}.{collection}"
+      }
+    },
+    "update-many": {
+      "label": {
+        "en": "Updating {database}.{collection}",
+        "fr": "Mise à jour de {database}.{collection}"
+      }
+    },
+    "delete-many": {
+      "label": {
+        "en": "Deleting from {database}.{collection}",
+        "fr": "Suppression dans {database}.{collection}"
+      }
+    },
 
-    "create-collection": "Creating collection {database}.{collection}",
-    "drop-collection": "Dropping collection {database}.{collection}",
-    "rename-collection": "Renaming {database}.{collection} to {newName}",
-    "drop-database": "Dropping database {database}",
+    "create-collection": {
+      "label": {
+        "en": "Creating collection {database}.{collection}",
+        "fr": "Création de la collection {database}.{collection}"
+      }
+    },
+    "drop-collection": {
+      "label": {
+        "en": "Dropping collection {database}.{collection}",
+        "fr": "Suppression de la collection {database}.{collection}"
+      }
+    },
+    "rename-collection": {
+      "label": {
+        "en": "Renaming {database}.{collection} to {newName}",
+        "fr": "Renommage de {database}.{collection} en {newName}"
+      }
+    },
+    "drop-database": {
+      "label": { "en": "Dropping database {database}", "fr": "Suppression de la base {database}" }
+    },
 
-    "create-index": "Creating index on {database}.{collection}",
-    "drop-index": "Dropping index {indexName} on {database}.{collection}",
+    "create-index": {
+      "label": {
+        "en": "Creating index on {database}.{collection}",
+        "fr": "Création d'un index sur {database}.{collection}"
+      }
+    },
+    "drop-index": {
+      "label": {
+        "en": "Dropping index {indexName} on {database}.{collection}",
+        "fr": "Suppression de l'index {indexName} sur {database}.{collection}"
+      }
+    },
 
-    "atlas-connect-cluster": "Connecting to Atlas cluster <https://cloud.mongodb.com/v2/{projectId}#/clusters/detail/{clusterName}|{clusterName}>",
-    "atlas-inspect-cluster": "Reading Atlas cluster <https://cloud.mongodb.com/v2/{projectId}#/clusters/detail/{clusterName}|{clusterName}>",
-    "atlas-get-performance-advisor": "Reading performance advisor for <https://cloud.mongodb.com/v2/{projectId}#/clusters/detail/{clusterName}|{clusterName}>",
-    "atlas-list-clusters": "Listing Atlas clusters",
-    "atlas-inspect-access-list": "Reading Atlas access list",
-    "atlas-create-access-list": "Adding Atlas access list entry",
-    "atlas-create-db-user": "Creating Atlas DB user {username}",
-    "atlas-list-db-users": "Listing Atlas DB users",
-    "atlas-create-free-cluster": "Creating free Atlas cluster {name}",
-    "atlas-create-project": "Creating Atlas project {projectName|…}",
-    "atlas-list-projects": "Listing Atlas projects",
-    "atlas-list-orgs": "Listing Atlas organizations",
-    "atlas-list-alerts": "Listing Atlas alerts",
+    "atlas-connect-cluster": {
+      "label": {
+        "en": "Connecting to Atlas cluster <https://cloud.mongodb.com/v2/{projectId}#/clusters/detail/{clusterName}|{clusterName}>",
+        "fr": "Connexion au cluster Atlas <https://cloud.mongodb.com/v2/{projectId}#/clusters/detail/{clusterName}|{clusterName}>"
+      }
+    },
+    "atlas-inspect-cluster": {
+      "label": {
+        "en": "Reading Atlas cluster <https://cloud.mongodb.com/v2/{projectId}#/clusters/detail/{clusterName}|{clusterName}>",
+        "fr": "Lecture du cluster Atlas <https://cloud.mongodb.com/v2/{projectId}#/clusters/detail/{clusterName}|{clusterName}>"
+      }
+    },
+    "atlas-get-performance-advisor": {
+      "label": {
+        "en": "Reading performance advisor for <https://cloud.mongodb.com/v2/{projectId}#/clusters/detail/{clusterName}|{clusterName}>",
+        "fr": "Lecture du conseiller de performance pour <https://cloud.mongodb.com/v2/{projectId}#/clusters/detail/{clusterName}|{clusterName}>"
+      }
+    },
+    "atlas-list-clusters": {
+      "label": { "en": "Listing Atlas clusters", "fr": "Liste des clusters Atlas" }
+    },
+    "atlas-inspect-access-list": {
+      "label": { "en": "Reading Atlas access list", "fr": "Lecture de la liste d'accès Atlas" }
+    },
+    "atlas-create-access-list": {
+      "label": {
+        "en": "Adding Atlas access list entry",
+        "fr": "Ajout d'une entrée à la liste d'accès Atlas"
+      }
+    },
+    "atlas-create-db-user": {
+      "label": {
+        "en": "Creating Atlas DB user {username}",
+        "fr": "Création de l'utilisateur BD Atlas {username}"
+      }
+    },
+    "atlas-list-db-users": {
+      "label": { "en": "Listing Atlas DB users", "fr": "Liste des utilisateurs BD Atlas" }
+    },
+    "atlas-create-free-cluster": {
+      "label": {
+        "en": "Creating free Atlas cluster {name}",
+        "fr": "Création du cluster Atlas gratuit {name}"
+      }
+    },
+    "atlas-create-project": {
+      "label": {
+        "en": "Creating Atlas project {projectName|…}",
+        "fr": "Création du projet Atlas {projectName|…}"
+      }
+    },
+    "atlas-list-projects": {
+      "label": { "en": "Listing Atlas projects", "fr": "Liste des projets Atlas" }
+    },
+    "atlas-list-orgs": {
+      "label": { "en": "Listing Atlas organizations", "fr": "Liste des organisations Atlas" }
+    },
+    "atlas-list-alerts": {
+      "label": { "en": "Listing Atlas alerts", "fr": "Liste des alertes Atlas" }
+    },
 
-    "atlas-streams-build": "Creating Atlas Stream {resource}",
-    "atlas-streams-discover": "Discovering Atlas Streams ({action})",
-    "atlas-streams-manage": "Managing Atlas Stream ({action})",
-    "atlas-streams-teardown": "Deleting Atlas Stream {resource}",
+    "atlas-streams-build": {
+      "label": {
+        "en": "Creating Atlas Stream {resource}",
+        "fr": "Création du Stream Atlas {resource}"
+      }
+    },
+    "atlas-streams-discover": {
+      "label": {
+        "en": "Discovering Atlas Streams ({action})",
+        "fr": "Découverte des Streams Atlas ({action})"
+      }
+    },
+    "atlas-streams-manage": {
+      "label": {
+        "en": "Managing Atlas Stream ({action})",
+        "fr": "Gestion du Stream Atlas ({action})"
+      }
+    },
+    "atlas-streams-teardown": {
+      "label": {
+        "en": "Deleting Atlas Stream {resource}",
+        "fr": "Suppression du Stream Atlas {resource}"
+      }
+    },
 
-    "atlas-local-connect-deployment": "Connecting to Atlas Local {deploymentName}",
-    "atlas-local-create-deployment": "Creating Atlas Local {deploymentName|deployment}",
-    "atlas-local-delete-deployment": "Deleting Atlas Local {deploymentName}",
-    "atlas-local-list-deployments": "Listing Atlas Local deployments",
+    "atlas-local-connect-deployment": {
+      "label": {
+        "en": "Connecting to Atlas Local {deploymentName}",
+        "fr": "Connexion à Atlas Local {deploymentName}"
+      }
+    },
+    "atlas-local-create-deployment": {
+      "label": {
+        "en": "Creating Atlas Local {deploymentName|deployment}",
+        "fr": "Création d'Atlas Local {deploymentName|déploiement}"
+      }
+    },
+    "atlas-local-delete-deployment": {
+      "label": {
+        "en": "Deleting Atlas Local {deploymentName}",
+        "fr": "Suppression d'Atlas Local {deploymentName}"
+      }
+    },
+    "atlas-local-list-deployments": {
+      "label": {
+        "en": "Listing Atlas Local deployments",
+        "fr": "Liste des déploiements Atlas Local"
+      }
+    },
 
-    "list-knowledge-sources": "Listing MongoDB knowledge sources",
-    "search-knowledge": "Searching MongoDB docs for \"{query|…}\""
+    "list-knowledge-sources": {
+      "label": {
+        "en": "Listing MongoDB knowledge sources",
+        "fr": "Liste des sources de connaissances MongoDB"
+      }
+    },
+    "search-knowledge": {
+      "label": {
+        "en": "Searching MongoDB docs for \"{query|…}\"",
+        "fr": "Recherche dans la doc MongoDB de « {query|…} »"
+      }
+    }
   }
 }

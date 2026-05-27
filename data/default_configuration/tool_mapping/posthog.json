@@ -1,6 +1,6 @@
 {
-  "default": "Checking PostHog",
-  "group": "Checking PostHog",
+  "default": { "en": "Checking PostHog", "fr": "Consultation de PostHog" },
+  "group": { "en": "Checking PostHog", "fr": "Consultation de PostHog" },
   "argOptions": {
     "query": { "truncate": 40 },
     "query.source.query": { "truncate": 80 },
@@ -10,201 +10,667 @@
     "eventName": { "truncate": 40 }
   },
   "tools": {
-    "feature-flag-get-all": "Listing feature flags",
-    "feature-flag-get-definition": "Reading feature flag {id}",
-    "create-feature-flag": "Creating feature flag {key|name|…}",
-    "update-feature-flag": "Updating feature flag {id}",
-    "delete-feature-flag": "Deleting feature flag {id}",
-    "feature-flags-activity-retrieve": "Reading feature flag activity {id}",
-    "feature-flags-status-retrieve": "Reading feature flag status {id}",
-    "feature-flags-dependent-flags-retrieve": "Reading dependent flags for {id}",
-    "feature-flags-evaluation-reasons-retrieve": "Evaluating flags for {distinct_id}",
+    "feature-flag-get-all": {
+      "label": { "en": "Listing feature flags", "fr": "Liste des feature flags" }
+    },
+    "feature-flag-get-definition": {
+      "label": { "en": "Reading feature flag {id}", "fr": "Lecture du feature flag {id}" }
+    },
+    "create-feature-flag": {
+      "label": {
+        "en": "Creating feature flag {key|name|…}",
+        "fr": "Création du feature flag {key|name|…}"
+      }
+    },
+    "update-feature-flag": {
+      "label": { "en": "Updating feature flag {id}", "fr": "Mise à jour du feature flag {id}" }
+    },
+    "delete-feature-flag": {
+      "label": { "en": "Deleting feature flag {id}", "fr": "Suppression du feature flag {id}" }
+    },
+    "feature-flags-activity-retrieve": {
+      "label": {
+        "en": "Reading feature flag activity {id}",
+        "fr": "Lecture de l'activité du feature flag {id}"
+      }
+    },
+    "feature-flags-status-retrieve": {
+      "label": {
+        "en": "Reading feature flag status {id}",
+        "fr": "Lecture du statut du feature flag {id}"
+      }
+    },
+    "feature-flags-dependent-flags-retrieve": {
+      "label": {
+        "en": "Reading dependent flags for {id}",
+        "fr": "Lecture des flags dépendants de {id}"
+      }
+    },
+    "feature-flags-evaluation-reasons-retrieve": {
+      "label": {
+        "en": "Evaluating flags for {distinct_id}",
+        "fr": "Évaluation des flags pour {distinct_id}"
+      }
+    },
 
-    "organizations-list": "Listing PostHog organizations",
-    "organization-get": "Reading organization {id|…}",
-    "switch-organization": "Switching organization to {orgId}",
-    "org-members-list": "Listing organization members",
+    "organizations-list": {
+      "label": { "en": "Listing PostHog organizations", "fr": "Liste des organisations PostHog" }
+    },
+    "organization-get": {
+      "label": { "en": "Reading organization {id|…}", "fr": "Lecture de l'organisation {id|…}" }
+    },
+    "switch-organization": {
+      "label": {
+        "en": "Switching organization to {orgId}",
+        "fr": "Changement d'organisation vers {orgId}"
+      }
+    },
+    "org-members-list": {
+      "label": { "en": "Listing organization members", "fr": "Liste des membres de l'organisation" }
+    },
 
-    "projects-get": "Listing PostHog projects",
-    "project-get": "Reading project {id}",
-    "switch-project": "Switching project to {projectId}",
+    "projects-get": {
+      "label": { "en": "Listing PostHog projects", "fr": "Liste des projets PostHog" }
+    },
+    "project-get": { "label": { "en": "Reading project {id}", "fr": "Lecture du projet {id}" } },
+    "switch-project": {
+      "label": {
+        "en": "Switching project to {projectId}",
+        "fr": "Changement de projet vers {projectId}"
+      }
+    },
 
-    "event-definitions-list": "Listing event definitions",
-    "event-definition-update": "Updating event definition {eventName}",
-    "properties-list": "Listing properties for {eventName|…}",
+    "event-definitions-list": {
+      "label": { "en": "Listing event definitions", "fr": "Liste des définitions d'événements" }
+    },
+    "event-definition-update": {
+      "label": {
+        "en": "Updating event definition {eventName}",
+        "fr": "Mise à jour de la définition d'événement {eventName}"
+      }
+    },
+    "properties-list": {
+      "label": {
+        "en": "Listing properties for {eventName|…}",
+        "fr": "Liste des propriétés de {eventName|…}"
+      }
+    },
 
-    "docs-search": "Searching PostHog docs for \"{query|…}\"",
-    "entity-search": "Searching PostHog for \"{query|…}\"",
+    "docs-search": {
+      "label": {
+        "en": "Searching PostHog docs for \"{query|…}\"",
+        "fr": "Recherche dans la doc PostHog de « {query|…} »"
+      }
+    },
+    "entity-search": {
+      "label": {
+        "en": "Searching PostHog for \"{query|…}\"",
+        "fr": "Recherche dans PostHog de « {query|…} »"
+      }
+    },
 
-    "error-tracking-issues-list": "Listing error tracking issues",
-    "error-tracking-issues-retrieve": "Reading error issue {id}",
-    "error-tracking-assignment-rules-list": "Listing error assignment rules",
-    "error-tracking-grouping-rules-list": "Listing error grouping rules",
-    "error-tracking-suppression-rules-list": "Listing error suppression rules",
-    "query-error-tracking-issues": "Querying error tracking issues",
+    "error-tracking-issues-list": {
+      "label": {
+        "en": "Listing error tracking issues",
+        "fr": "Liste des incidents de suivi d'erreurs"
+      }
+    },
+    "error-tracking-issues-retrieve": {
+      "label": { "en": "Reading error issue {id}", "fr": "Lecture de l'incident d'erreur {id}" }
+    },
+    "error-tracking-assignment-rules-list": {
+      "label": {
+        "en": "Listing error assignment rules",
+        "fr": "Liste des règles d'affectation d'erreurs"
+      }
+    },
+    "error-tracking-grouping-rules-list": {
+      "label": {
+        "en": "Listing error grouping rules",
+        "fr": "Liste des règles de regroupement d'erreurs"
+      }
+    },
+    "error-tracking-suppression-rules-list": {
+      "label": {
+        "en": "Listing error suppression rules",
+        "fr": "Liste des règles de suppression d'erreurs"
+      }
+    },
+    "query-error-tracking-issues": {
+      "label": {
+        "en": "Querying error tracking issues",
+        "fr": "Requête sur les incidents de suivi d'erreurs"
+      }
+    },
 
-    "experiment-list": "Listing experiments",
-    "experiment-get": "Reading experiment {id}",
-    "experiment-results-get": "Reading results for experiment {experimentId}",
-    "experiment-create": "Creating experiment {name|…}",
-    "experiment-update": "Updating experiment {id}",
-    "experiment-delete": "Deleting experiment {id}",
-    "experiment-launch": "Launching experiment {id}",
-    "experiment-end": "Ending experiment {id}",
-    "experiment-archive": "Archiving experiment {id}",
-    "experiment-pause": "Pausing experiment {id}",
-    "experiment-resume": "Resuming experiment {id}",
-    "experiment-reset": "Resetting experiment {id}",
-    "experiment-duplicate": "Duplicating experiment {id}",
-    "experiment-ship-variant": "Shipping variant {variant_key} of experiment {id}",
-    "experiment-timeseries-results": "Reading timeseries results for experiment {id}",
-    "experiment-stats": "Reading experiment stats",
+    "experiment-list": { "label": { "en": "Listing experiments", "fr": "Liste des expériences" } },
+    "experiment-get": {
+      "label": { "en": "Reading experiment {id}", "fr": "Lecture de l'expérience {id}" }
+    },
+    "experiment-results-get": {
+      "label": {
+        "en": "Reading results for experiment {experimentId}",
+        "fr": "Lecture des résultats de l'expérience {experimentId}"
+      }
+    },
+    "experiment-create": {
+      "label": { "en": "Creating experiment {name|…}", "fr": "Création de l'expérience {name|…}" }
+    },
+    "experiment-update": {
+      "label": { "en": "Updating experiment {id}", "fr": "Mise à jour de l'expérience {id}" }
+    },
+    "experiment-delete": {
+      "label": { "en": "Deleting experiment {id}", "fr": "Suppression de l'expérience {id}" }
+    },
+    "experiment-launch": {
+      "label": { "en": "Launching experiment {id}", "fr": "Lancement de l'expérience {id}" }
+    },
+    "experiment-end": {
+      "label": { "en": "Ending experiment {id}", "fr": "Fin de l'expérience {id}" }
+    },
+    "experiment-archive": {
+      "label": { "en": "Archiving experiment {id}", "fr": "Archivage de l'expérience {id}" }
+    },
+    "experiment-pause": {
+      "label": { "en": "Pausing experiment {id}", "fr": "Mise en pause de l'expérience {id}" }
+    },
+    "experiment-resume": {
+      "label": { "en": "Resuming experiment {id}", "fr": "Reprise de l'expérience {id}" }
+    },
+    "experiment-reset": {
+      "label": { "en": "Resetting experiment {id}", "fr": "Réinitialisation de l'expérience {id}" }
+    },
+    "experiment-duplicate": {
+      "label": { "en": "Duplicating experiment {id}", "fr": "Duplication de l'expérience {id}" }
+    },
+    "experiment-ship-variant": {
+      "label": {
+        "en": "Shipping variant {variant_key} of experiment {id}",
+        "fr": "Déploiement de la variante {variant_key} de l'expérience {id}"
+      }
+    },
+    "experiment-timeseries-results": {
+      "label": {
+        "en": "Reading timeseries results for experiment {id}",
+        "fr": "Lecture des résultats de série temporelle de l'expérience {id}"
+      }
+    },
+    "experiment-stats": {
+      "label": { "en": "Reading experiment stats", "fr": "Lecture des stats d'expérience" }
+    },
 
-    "insights-list": "Listing insights",
-    "insight-get": "Reading insight {id}",
-    "insight-create": "Creating insight {name|…}",
-    "insight-update": "Updating insight {id}",
-    "insight-delete": "Deleting insight {id}",
-    "insight-query": "Running insight {insightId}",
+    "insights-list": { "label": { "en": "Listing insights", "fr": "Liste des insights" } },
+    "insight-get": { "label": { "en": "Reading insight {id}", "fr": "Lecture de l'insight {id}" } },
+    "insight-create": {
+      "label": { "en": "Creating insight {name|…}", "fr": "Création de l'insight {name|…}" }
+    },
+    "insight-update": {
+      "label": { "en": "Updating insight {id}", "fr": "Mise à jour de l'insight {id}" }
+    },
+    "insight-delete": {
+      "label": { "en": "Deleting insight {id}", "fr": "Suppression de l'insight {id}" }
+    },
+    "insight-query": {
+      "label": { "en": "Running insight {insightId}", "fr": "Exécution de l'insight {insightId}" }
+    },
 
-    "query-run": "Running PostHog query: `{query.source.query|query.query|…}`",
-    "query-logs": "Querying PostHog logs",
-    "logs-attributes-list": "Listing log attributes",
-    "logs-attribute-values-list": "Listing values for log attribute {key}",
-    "logs-sparkline-query": "Running log sparkline query",
+    "query-run": {
+      "label": {
+        "en": "Running PostHog query: `{query.source.query|query.query|…}`",
+        "fr": "Exécution de la requête PostHog : `{query.source.query|query.query|…}`"
+      }
+    },
+    "query-logs": {
+      "label": { "en": "Querying PostHog logs", "fr": "Requête sur les journaux PostHog" }
+    },
+    "logs-attributes-list": {
+      "label": { "en": "Listing log attributes", "fr": "Liste des attributs de journaux" }
+    },
+    "logs-attribute-values-list": {
+      "label": {
+        "en": "Listing values for log attribute {key}",
+        "fr": "Liste des valeurs de l'attribut de journal {key}"
+      }
+    },
+    "logs-sparkline-query": {
+      "label": {
+        "en": "Running log sparkline query",
+        "fr": "Exécution de la requête sparkline de journaux"
+      }
+    },
 
-    "dashboards-get-all": "Listing dashboards",
-    "dashboard-get": "Reading dashboard {id}",
-    "dashboard-create": "Creating dashboard {name|…}",
-    "dashboard-update": "Updating dashboard {id}",
-    "dashboard-delete": "Deleting dashboard {id}",
-    "dashboard-insights-run": "Running insights on dashboard {id}",
-    "dashboard-reorder-tiles": "Reordering tiles on dashboard {id}",
+    "dashboards-get-all": {
+      "label": { "en": "Listing dashboards", "fr": "Liste des tableaux de bord" }
+    },
+    "dashboard-get": {
+      "label": { "en": "Reading dashboard {id}", "fr": "Lecture du tableau de bord {id}" }
+    },
+    "dashboard-create": {
+      "label": { "en": "Creating dashboard {name|…}", "fr": "Création du tableau de bord {name|…}" }
+    },
+    "dashboard-update": {
+      "label": { "en": "Updating dashboard {id}", "fr": "Mise à jour du tableau de bord {id}" }
+    },
+    "dashboard-delete": {
+      "label": { "en": "Deleting dashboard {id}", "fr": "Suppression du tableau de bord {id}" }
+    },
+    "dashboard-insights-run": {
+      "label": {
+        "en": "Running insights on dashboard {id}",
+        "fr": "Exécution des insights du tableau de bord {id}"
+      }
+    },
+    "dashboard-reorder-tiles": {
+      "label": {
+        "en": "Reordering tiles on dashboard {id}",
+        "fr": "Réorganisation des tuiles du tableau de bord {id}"
+      }
+    },
 
-    "get-llm-total-costs-for-project": "Reading LLM costs for project {projectId}",
+    "get-llm-total-costs-for-project": {
+      "label": {
+        "en": "Reading LLM costs for project {projectId}",
+        "fr": "Lecture des coûts LLM du projet {projectId}"
+      }
+    },
 
-    "surveys-get-all": "Listing surveys",
-    "survey-get": "Reading survey {id}",
-    "survey-create": "Creating survey {name|…}",
-    "survey-update": "Updating survey {id}",
-    "survey-delete": "Deleting survey {id}",
-    "surveys-global-stats": "Reading global survey stats",
-    "survey-stats": "Reading survey stats {id}",
+    "surveys-get-all": { "label": { "en": "Listing surveys", "fr": "Liste des sondages" } },
+    "survey-get": { "label": { "en": "Reading survey {id}", "fr": "Lecture du sondage {id}" } },
+    "survey-create": {
+      "label": { "en": "Creating survey {name|…}", "fr": "Création du sondage {name|…}" }
+    },
+    "survey-update": {
+      "label": { "en": "Updating survey {id}", "fr": "Mise à jour du sondage {id}" }
+    },
+    "survey-delete": {
+      "label": { "en": "Deleting survey {id}", "fr": "Suppression du sondage {id}" }
+    },
+    "surveys-global-stats": {
+      "label": {
+        "en": "Reading global survey stats",
+        "fr": "Lecture des stats globales de sondages"
+      }
+    },
+    "survey-stats": {
+      "label": { "en": "Reading survey stats {id}", "fr": "Lecture des stats du sondage {id}" }
+    },
 
-    "actions-get-all": "Listing actions",
-    "action-get": "Reading action {id}",
+    "actions-get-all": { "label": { "en": "Listing actions", "fr": "Liste des actions" } },
+    "action-get": { "label": { "en": "Reading action {id}", "fr": "Lecture de l'action {id}" } },
 
-    "alerts-list": "Listing alerts",
-    "alert-get": "Reading alert {id}",
-    "alert-simulate": "Simulating alert",
+    "alerts-list": { "label": { "en": "Listing alerts", "fr": "Liste des alertes" } },
+    "alert-get": { "label": { "en": "Reading alert {id}", "fr": "Lecture de l'alerte {id}" } },
+    "alert-simulate": { "label": { "en": "Simulating alert", "fr": "Simulation de l'alerte" } },
 
-    "annotations-list": "Listing annotations",
-    "annotation-retrieve": "Reading annotation {id}",
+    "annotations-list": { "label": { "en": "Listing annotations", "fr": "Liste des annotations" } },
+    "annotation-retrieve": {
+      "label": { "en": "Reading annotation {id}", "fr": "Lecture de l'annotation {id}" }
+    },
 
-    "cohorts-list": "Listing cohorts",
-    "cohorts-retrieve": "Reading cohort {id}",
+    "cohorts-list": { "label": { "en": "Listing cohorts", "fr": "Liste des cohortes" } },
+    "cohorts-retrieve": {
+      "label": { "en": "Reading cohort {id}", "fr": "Lecture de la cohorte {id}" }
+    },
 
-    "persons-list": "Listing persons",
-    "persons-retrieve": "Reading person {id}",
-    "persons-cohorts-retrieve": "Reading cohorts for person {person_id}",
-    "persons-values-retrieve": "Reading values for property {key}",
+    "persons-list": { "label": { "en": "Listing persons", "fr": "Liste des personnes" } },
+    "persons-retrieve": {
+      "label": { "en": "Reading person {id}", "fr": "Lecture de la personne {id}" }
+    },
+    "persons-cohorts-retrieve": {
+      "label": {
+        "en": "Reading cohorts for person {person_id}",
+        "fr": "Lecture des cohortes de la personne {person_id}"
+      }
+    },
+    "persons-values-retrieve": {
+      "label": {
+        "en": "Reading values for property {key}",
+        "fr": "Lecture des valeurs de la propriété {key}"
+      }
+    },
 
-    "session-recording-get": "Reading session recording {id}",
-    "session-recording-playlists-list": "Listing session recording playlists",
-    "session-recording-playlist-get": "Reading session recording playlist {short_id}",
+    "session-recording-get": {
+      "label": {
+        "en": "Reading session recording {id}",
+        "fr": "Lecture de l'enregistrement de session {id}"
+      }
+    },
+    "session-recording-playlists-list": {
+      "label": {
+        "en": "Listing session recording playlists",
+        "fr": "Liste des playlists d'enregistrements de session"
+      }
+    },
+    "session-recording-playlist-get": {
+      "label": {
+        "en": "Reading session recording playlist {short_id}",
+        "fr": "Lecture de la playlist d'enregistrements de session {short_id}"
+      }
+    },
 
-    "notebooks-list": "Listing notebooks",
-    "notebooks-retrieve": "Reading notebook {short_id}",
+    "notebooks-list": { "label": { "en": "Listing notebooks", "fr": "Liste des notebooks" } },
+    "notebooks-retrieve": {
+      "label": { "en": "Reading notebook {short_id}", "fr": "Lecture du notebook {short_id}" }
+    },
 
-    "subscriptions-list": "Listing subscriptions",
-    "subscriptions-retrieve": "Reading subscription {id}",
-    "subscriptions-deliveries-list": "Listing deliveries for subscription {subscription_id}",
-    "subscriptions-deliveries-retrieve": "Reading subscription delivery {id}",
+    "subscriptions-list": {
+      "label": { "en": "Listing subscriptions", "fr": "Liste des abonnements" }
+    },
+    "subscriptions-retrieve": {
+      "label": { "en": "Reading subscription {id}", "fr": "Lecture de l'abonnement {id}" }
+    },
+    "subscriptions-deliveries-list": {
+      "label": {
+        "en": "Listing deliveries for subscription {subscription_id}",
+        "fr": "Liste des envois de l'abonnement {subscription_id}"
+      }
+    },
+    "subscriptions-deliveries-retrieve": {
+      "label": {
+        "en": "Reading subscription delivery {id}",
+        "fr": "Lecture de l'envoi d'abonnement {id}"
+      }
+    },
 
-    "endpoints-get-all": "Listing endpoints",
-    "endpoint-get": "Reading endpoint {name}",
-    "endpoint-run": "Running endpoint {name}",
-    "endpoint-versions": "Listing versions for endpoint {name}",
-    "endpoint-materialization-status": "Reading materialization status for endpoint {name}",
-    "endpoint-openapi-spec": "Reading OpenAPI spec for endpoint {name}",
+    "endpoints-get-all": { "label": { "en": "Listing endpoints", "fr": "Liste des endpoints" } },
+    "endpoint-get": {
+      "label": { "en": "Reading endpoint {name}", "fr": "Lecture de l'endpoint {name}" }
+    },
+    "endpoint-run": {
+      "label": { "en": "Running endpoint {name}", "fr": "Exécution de l'endpoint {name}" }
+    },
+    "endpoint-versions": {
+      "label": {
+        "en": "Listing versions for endpoint {name}",
+        "fr": "Liste des versions de l'endpoint {name}"
+      }
+    },
+    "endpoint-materialization-status": {
+      "label": {
+        "en": "Reading materialization status for endpoint {name}",
+        "fr": "Lecture du statut de matérialisation de l'endpoint {name}"
+      }
+    },
+    "endpoint-openapi-spec": {
+      "label": {
+        "en": "Reading OpenAPI spec for endpoint {name}",
+        "fr": "Lecture de la spec OpenAPI de l'endpoint {name}"
+      }
+    },
 
-    "view-list": "Listing views",
-    "view-get": "Reading view {id}",
-    "view-run-history": "Reading run history for view {id}",
+    "view-list": { "label": { "en": "Listing views", "fr": "Liste des vues" } },
+    "view-get": { "label": { "en": "Reading view {id}", "fr": "Lecture de la vue {id}" } },
+    "view-run-history": {
+      "label": {
+        "en": "Reading run history for view {id}",
+        "fr": "Lecture de l'historique d'exécution de la vue {id}"
+      }
+    },
 
-    "external-data-sources-list": "Listing external data sources",
-    "external-data-sources-retrieve": "Reading external data source {id}",
-    "external-data-sources-jobs": "Reading jobs for external data source {id}",
-    "external-data-sources-webhook-info-retrieve": "Reading webhook info for external data source {id}",
-    "external-data-sources-wizard": "Running external data source wizard",
-    "external-data-schemas-list": "Listing external data schemas",
-    "external-data-schemas-retrieve": "Reading external data schema {id}",
-    "data-warehouse-data-health-issues-retrieve": "Reading data warehouse health issues",
+    "external-data-sources-list": {
+      "label": {
+        "en": "Listing external data sources",
+        "fr": "Liste des sources de données externes"
+      }
+    },
+    "external-data-sources-retrieve": {
+      "label": {
+        "en": "Reading external data source {id}",
+        "fr": "Lecture de la source de données externe {id}"
+      }
+    },
+    "external-data-sources-jobs": {
+      "label": {
+        "en": "Reading jobs for external data source {id}",
+        "fr": "Lecture des jobs de la source de données externe {id}"
+      }
+    },
+    "external-data-sources-webhook-info-retrieve": {
+      "label": {
+        "en": "Reading webhook info for external data source {id}",
+        "fr": "Lecture des infos webhook de la source de données externe {id}"
+      }
+    },
+    "external-data-sources-wizard": {
+      "label": {
+        "en": "Running external data source wizard",
+        "fr": "Exécution de l'assistant de source de données externe"
+      }
+    },
+    "external-data-schemas-list": {
+      "label": {
+        "en": "Listing external data schemas",
+        "fr": "Liste des schémas de données externes"
+      }
+    },
+    "external-data-schemas-retrieve": {
+      "label": {
+        "en": "Reading external data schema {id}",
+        "fr": "Lecture du schéma de données externe {id}"
+      }
+    },
+    "data-warehouse-data-health-issues-retrieve": {
+      "label": {
+        "en": "Reading data warehouse health issues",
+        "fr": "Lecture des problèmes de santé de l'entrepôt de données"
+      }
+    },
 
-    "early-access-feature-list": "Listing early access features",
-    "early-access-feature-retrieve": "Reading early access feature {id}",
+    "early-access-feature-list": {
+      "label": {
+        "en": "Listing early access features",
+        "fr": "Liste des fonctionnalités en accès anticipé"
+      }
+    },
+    "early-access-feature-retrieve": {
+      "label": {
+        "en": "Reading early access feature {id}",
+        "fr": "Lecture de la fonctionnalité en accès anticipé {id}"
+      }
+    },
 
-    "scheduled-changes-list": "Listing scheduled changes",
-    "scheduled-changes-get": "Reading scheduled change {id}",
-    "scheduled-changes-create": "Creating scheduled change",
-    "scheduled-changes-update": "Updating scheduled change {id}",
-    "scheduled-changes-delete": "Deleting scheduled change {id}",
+    "scheduled-changes-list": {
+      "label": { "en": "Listing scheduled changes", "fr": "Liste des changements planifiés" }
+    },
+    "scheduled-changes-get": {
+      "label": {
+        "en": "Reading scheduled change {id}",
+        "fr": "Lecture du changement planifié {id}"
+      }
+    },
+    "scheduled-changes-create": {
+      "label": { "en": "Creating scheduled change", "fr": "Création d'un changement planifié" }
+    },
+    "scheduled-changes-update": {
+      "label": {
+        "en": "Updating scheduled change {id}",
+        "fr": "Mise à jour du changement planifié {id}"
+      }
+    },
+    "scheduled-changes-delete": {
+      "label": {
+        "en": "Deleting scheduled change {id}",
+        "fr": "Suppression du changement planifié {id}"
+      }
+    },
 
-    "integrations-list": "Listing integrations",
-    "integration-get": "Reading integration {id}",
+    "integrations-list": {
+      "label": { "en": "Listing integrations", "fr": "Liste des intégrations" }
+    },
+    "integration-get": {
+      "label": { "en": "Reading integration {id}", "fr": "Lecture de l'intégration {id}" }
+    },
 
-    "cdp-function-templates-list": "Listing CDP function templates",
-    "cdp-function-templates-retrieve": "Reading CDP function template {template_id}",
-    "cdp-functions-list": "Listing CDP functions",
-    "cdp-functions-retrieve": "Reading CDP function {id}",
-    "cdp-functions-logs-retrieve": "Reading logs for CDP function {id}",
-    "cdp-functions-metrics-retrieve": "Reading metrics for CDP function {id}",
+    "cdp-function-templates-list": {
+      "label": {
+        "en": "Listing CDP function templates",
+        "fr": "Liste des modèles de fonctions CDP"
+      }
+    },
+    "cdp-function-templates-retrieve": {
+      "label": {
+        "en": "Reading CDP function template {template_id}",
+        "fr": "Lecture du modèle de fonction CDP {template_id}"
+      }
+    },
+    "cdp-functions-list": {
+      "label": { "en": "Listing CDP functions", "fr": "Liste des fonctions CDP" }
+    },
+    "cdp-functions-retrieve": {
+      "label": { "en": "Reading CDP function {id}", "fr": "Lecture de la fonction CDP {id}" }
+    },
+    "cdp-functions-logs-retrieve": {
+      "label": {
+        "en": "Reading logs for CDP function {id}",
+        "fr": "Lecture des journaux de la fonction CDP {id}"
+      }
+    },
+    "cdp-functions-metrics-retrieve": {
+      "label": {
+        "en": "Reading metrics for CDP function {id}",
+        "fr": "Lecture des métriques de la fonction CDP {id}"
+      }
+    },
 
-    "llm-analytics-clustering-jobs-list": "Listing LLM analytics clustering jobs",
-    "llm-analytics-clustering-jobs-retrieve": "Reading LLM analytics clustering job {id}",
+    "llm-analytics-clustering-jobs-list": {
+      "label": {
+        "en": "Listing LLM analytics clustering jobs",
+        "fr": "Liste des jobs de clustering d'analytique LLM"
+      }
+    },
+    "llm-analytics-clustering-jobs-retrieve": {
+      "label": {
+        "en": "Reading LLM analytics clustering job {id}",
+        "fr": "Lecture du job de clustering d'analytique LLM {id}"
+      }
+    },
 
-    "conversations-tickets-list": "Listing support tickets",
-    "conversations-tickets-retrieve": "Reading support ticket {id}",
+    "conversations-tickets-list": {
+      "label": { "en": "Listing support tickets", "fr": "Liste des tickets de support" }
+    },
+    "conversations-tickets-retrieve": {
+      "label": { "en": "Reading support ticket {id}", "fr": "Lecture du ticket de support {id}" }
+    },
 
-    "change-requests-list": "Listing change requests",
-    "change-request-get": "Reading change request {id}",
-    "approval-policies-list": "Listing approval policies",
-    "approval-policy-get": "Reading approval policy {id}",
+    "change-requests-list": {
+      "label": { "en": "Listing change requests", "fr": "Liste des demandes de changement" }
+    },
+    "change-request-get": {
+      "label": {
+        "en": "Reading change request {id}",
+        "fr": "Lecture de la demande de changement {id}"
+      }
+    },
+    "approval-policies-list": {
+      "label": { "en": "Listing approval policies", "fr": "Liste des politiques d'approbation" }
+    },
+    "approval-policy-get": {
+      "label": {
+        "en": "Reading approval policy {id}",
+        "fr": "Lecture de la politique d'approbation {id}"
+      }
+    },
 
-    "comments-list": "Listing comments",
-    "comment-get": "Reading comment {id}",
-    "comment-thread": "Reading comment thread {id}",
-    "comment-count": "Counting comments",
+    "comments-list": { "label": { "en": "Listing comments", "fr": "Liste des commentaires" } },
+    "comment-get": {
+      "label": { "en": "Reading comment {id}", "fr": "Lecture du commentaire {id}" }
+    },
+    "comment-thread": {
+      "label": { "en": "Reading comment thread {id}", "fr": "Lecture du fil de commentaires {id}" }
+    },
+    "comment-count": { "label": { "en": "Counting comments", "fr": "Comptage des commentaires" } },
 
-    "activity-log-list": "Reading activity log",
-    "advanced-activity-logs-list": "Reading advanced activity logs",
-    "advanced-activity-logs-filters": "Reading advanced activity log filters",
+    "activity-log-list": {
+      "label": { "en": "Reading activity log", "fr": "Lecture du journal d'activité" }
+    },
+    "advanced-activity-logs-list": {
+      "label": {
+        "en": "Reading advanced activity logs",
+        "fr": "Lecture des journaux d'activité avancés"
+      }
+    },
+    "advanced-activity-logs-filters": {
+      "label": {
+        "en": "Reading advanced activity log filters",
+        "fr": "Lecture des filtres de journaux d'activité avancés"
+      }
+    },
 
-    "roles-list": "Listing roles",
-    "role-get": "Reading role {id}",
-    "role-members-list": "Listing members of role {role_id}",
-    "user-get": "Reading user {uuid}",
+    "roles-list": { "label": { "en": "Listing roles", "fr": "Liste des rôles" } },
+    "role-get": { "label": { "en": "Reading role {id}", "fr": "Lecture du rôle {id}" } },
+    "role-members-list": {
+      "label": {
+        "en": "Listing members of role {role_id}",
+        "fr": "Liste des membres du rôle {role_id}"
+      }
+    },
+    "user-get": {
+      "label": { "en": "Reading user {uuid}", "fr": "Lecture de l'utilisateur {uuid}" }
+    },
 
-    "evaluation-reports-list": "Listing evaluation reports",
-    "evaluation-report-get": "Reading evaluation report {id}",
-    "evaluation-report-runs-list": "Listing runs for evaluation report {id}",
+    "evaluation-reports-list": {
+      "label": { "en": "Listing evaluation reports", "fr": "Liste des rapports d'évaluation" }
+    },
+    "evaluation-report-get": {
+      "label": {
+        "en": "Reading evaluation report {id}",
+        "fr": "Lecture du rapport d'évaluation {id}"
+      }
+    },
+    "evaluation-report-runs-list": {
+      "label": {
+        "en": "Listing runs for evaluation report {id}",
+        "fr": "Liste des exécutions du rapport d'évaluation {id}"
+      }
+    },
 
-    "workflows-list": "Listing workflows",
-    "workflows-get": "Reading workflow {id}",
-    "hog-flows-logs-retrieve": "Reading logs for hog flow {id}",
-    "hog-flows-metrics-retrieve": "Reading metrics for hog flow {id}",
+    "workflows-list": { "label": { "en": "Listing workflows", "fr": "Liste des workflows" } },
+    "workflows-get": {
+      "label": { "en": "Reading workflow {id}", "fr": "Lecture du workflow {id}" }
+    },
+    "hog-flows-logs-retrieve": {
+      "label": {
+        "en": "Reading logs for hog flow {id}",
+        "fr": "Lecture des journaux du hog flow {id}"
+      }
+    },
+    "hog-flows-metrics-retrieve": {
+      "label": {
+        "en": "Reading metrics for hog flow {id}",
+        "fr": "Lecture des métriques du hog flow {id}"
+      }
+    },
 
-    "prompt-list": "Listing prompts",
-    "prompt-get": "Reading prompt {prompt_name}",
+    "prompt-list": { "label": { "en": "Listing prompts", "fr": "Liste des prompts" } },
+    "prompt-get": {
+      "label": { "en": "Reading prompt {prompt_name}", "fr": "Lecture du prompt {prompt_name}" }
+    },
 
-    "skill-list": "Listing skills",
-    "skill-get": "Reading skill {skill_name}",
-    "skill-file-get": "Reading skill file {file_path}",
+    "skill-list": { "label": { "en": "Listing skills", "fr": "Liste des compétences" } },
+    "skill-get": {
+      "label": { "en": "Reading skill {skill_name}", "fr": "Lecture de la compétence {skill_name}" }
+    },
+    "skill-file-get": {
+      "label": {
+        "en": "Reading skill file {file_path}",
+        "fr": "Lecture du fichier de compétence {file_path}"
+      }
+    },
 
-    "proxy-list": "Listing proxies",
-    "proxy-get": "Reading proxy {id}",
+    "proxy-list": { "label": { "en": "Listing proxies", "fr": "Liste des proxys" } },
+    "proxy-get": { "label": { "en": "Reading proxy {id}", "fr": "Lecture du proxy {id}" } },
 
-    "feature-flags-user-blast-radius-create": "Calculating feature flag blast radius",
-    "feature-flags-copy-flags-create": "Copying feature flag {feature_flag_key}"
+    "feature-flags-user-blast-radius-create": {
+      "label": {
+        "en": "Calculating feature flag blast radius",
+        "fr": "Calcul du rayon d'impact du feature flag"
+      }
+    },
+    "feature-flags-copy-flags-create": {
+      "label": {
+        "en": "Copying feature flag {feature_flag_key}",
+        "fr": "Copie du feature flag {feature_flag_key}"
+      }
+    }
   }
 }

@@ -1,6 +1,6 @@
 {
-  "default": "Checking Monday",
-  "group": "Checking Monday",
+  "default": { "en": "Checking Monday", "fr": "Consultation de Monday" },
+  "group": { "en": "Checking Monday", "fr": "Consultation de Monday" },
   "argOptions": {
     "searchTerm": { "truncate": 30 },
     "markdown": { "truncate": 60 },
@@ -11,67 +11,202 @@
     "text": { "truncate": 60 }
   },
   "tools": {
-    "create_board": "Creating board {boardName}",
-    "get_board_info": "Reading board {boardId}",
-    "get_board_schema": "Reading board schema {boardId}",
-    "get_board_items_page": "Reading items from board {boardId}",
-    "get_board_activity": "Reading activity for board {boardId}",
-    "board_insights": "Analyzing board {boardId}",
+    "create_board": {
+      "label": { "en": "Creating board {boardName}", "fr": "Création du tableau {boardName}" }
+    },
+    "get_board_info": {
+      "label": { "en": "Reading board {boardId}", "fr": "Lecture du tableau {boardId}" }
+    },
+    "get_board_schema": {
+      "label": {
+        "en": "Reading board schema {boardId}",
+        "fr": "Lecture du schéma du tableau {boardId}"
+      }
+    },
+    "get_board_items_page": {
+      "label": {
+        "en": "Reading items from board {boardId}",
+        "fr": "Lecture des éléments du tableau {boardId}"
+      }
+    },
+    "get_board_activity": {
+      "label": {
+        "en": "Reading activity for board {boardId}",
+        "fr": "Lecture de l'activité du tableau {boardId}"
+      }
+    },
+    "board_insights": {
+      "label": { "en": "Analyzing board {boardId}", "fr": "Analyse du tableau {boardId}" }
+    },
 
-    "create_item": "Creating item {name}",
-    "delete_item": "Deleting item {itemId}",
-    "change_item_column_values": "Updating item {itemId}",
-    "move_item_to_group": "Moving item {itemId}",
+    "create_item": {
+      "label": { "en": "Creating item {name}", "fr": "Création de l'élément {name}" }
+    },
+    "delete_item": {
+      "label": { "en": "Deleting item {itemId}", "fr": "Suppression de l'élément {itemId}" }
+    },
+    "change_item_column_values": {
+      "label": { "en": "Updating item {itemId}", "fr": "Mise à jour de l'élément {itemId}" }
+    },
+    "move_item_to_group": {
+      "label": { "en": "Moving item {itemId}", "fr": "Déplacement de l'élément {itemId}" }
+    },
 
-    "create_column": "Creating column {columnTitle}",
-    "delete_column": "Deleting column {columnId}",
+    "create_column": {
+      "label": {
+        "en": "Creating column {columnTitle}",
+        "fr": "Création de la colonne {columnTitle}"
+      }
+    },
+    "delete_column": {
+      "label": { "en": "Deleting column {columnId}", "fr": "Suppression de la colonne {columnId}" }
+    },
 
-    "create_group": "Creating group {groupName}",
+    "create_group": {
+      "label": { "en": "Creating group {groupName}", "fr": "Création du groupe {groupName}" }
+    },
 
-    "create_update": "Posting update on item {itemId}",
-    "create_update_in_monday": "Posting update on item {itemId}",
-    "get_updates": "Reading updates for {objectType} {objectId}",
+    "create_update": {
+      "label": {
+        "en": "Posting update on item {itemId}",
+        "fr": "Publication d'une mise à jour sur l'élément {itemId}"
+      }
+    },
+    "create_update_in_monday": {
+      "label": {
+        "en": "Posting update on item {itemId}",
+        "fr": "Publication d'une mise à jour sur l'élément {itemId}"
+      }
+    },
+    "get_updates": {
+      "label": {
+        "en": "Reading updates for {objectType} {objectId}",
+        "fr": "Lecture des mises à jour de {objectType} {objectId}"
+      }
+    },
 
-    "create_doc": "Creating doc {doc_name}",
-    "read_docs": "Reading docs",
-    "update_doc": "Updating doc {doc_id}",
-    "add_content_to_doc": "Adding content to doc {doc_id}",
+    "create_doc": {
+      "label": { "en": "Creating doc {doc_name}", "fr": "Création du document {doc_name}" }
+    },
+    "read_docs": { "label": { "en": "Reading docs", "fr": "Lecture des documents" } },
+    "update_doc": {
+      "label": { "en": "Updating doc {doc_id}", "fr": "Mise à jour du document {doc_id}" }
+    },
+    "add_content_to_doc": {
+      "label": {
+        "en": "Adding content to doc {doc_id}",
+        "fr": "Ajout de contenu au document {doc_id}"
+      }
+    },
 
-    "search": "Searching Monday {searchType} \"{searchTerm|…}\"",
+    "search": {
+      "label": {
+        "en": "Searching Monday {searchType} \"{searchTerm|…}\"",
+        "fr": "Recherche Monday {searchType} « {searchTerm|…} »"
+      }
+    },
 
-    "list_users_and_teams": "Listing users and teams",
+    "list_users_and_teams": {
+      "label": { "en": "Listing users and teams", "fr": "Liste des utilisateurs et équipes" }
+    },
 
-    "create_workspace": "Creating workspace {name}",
-    "update_workspace": "Updating workspace {attributeName|…}",
-    "list_workspaces": "Listing workspaces",
-    "workspace_info": "Reading workspace {workspace_id}",
+    "create_workspace": {
+      "label": { "en": "Creating workspace {name}", "fr": "Création de l'espace de travail {name}" }
+    },
+    "update_workspace": {
+      "label": {
+        "en": "Updating workspace {attributeName|…}",
+        "fr": "Mise à jour de l'espace de travail {attributeName|…}"
+      }
+    },
+    "list_workspaces": {
+      "label": { "en": "Listing workspaces", "fr": "Liste des espaces de travail" }
+    },
+    "workspace_info": {
+      "label": {
+        "en": "Reading workspace {workspace_id}",
+        "fr": "Lecture de l'espace de travail {workspace_id}"
+      }
+    },
 
-    "create_folder": "Creating folder {name}",
-    "update_folder": "Updating folder {folderId}",
+    "create_folder": {
+      "label": { "en": "Creating folder {name}", "fr": "Création du dossier {name}" }
+    },
+    "update_folder": {
+      "label": { "en": "Updating folder {folderId}", "fr": "Mise à jour du dossier {folderId}" }
+    },
 
-    "create_form": "Creating form",
-    "get_form": "Reading form {formToken}",
-    "update_form": "Updating form {formToken}",
-    "form_questions_editor": "Editing form question {questionId|…}",
+    "create_form": { "label": { "en": "Creating form", "fr": "Création d'un formulaire" } },
+    "get_form": {
+      "label": { "en": "Reading form {formToken}", "fr": "Lecture du formulaire {formToken}" }
+    },
+    "update_form": {
+      "label": { "en": "Updating form {formToken}", "fr": "Mise à jour du formulaire {formToken}" }
+    },
+    "form_questions_editor": {
+      "label": {
+        "en": "Editing form question {questionId|…}",
+        "fr": "Édition de la question de formulaire {questionId|…}"
+      }
+    },
 
-    "create_dashboard": "Creating dashboard {name}",
+    "create_dashboard": {
+      "label": { "en": "Creating dashboard {name}", "fr": "Création du tableau de bord {name}" }
+    },
 
-    "create_view": "Creating view {name|…}",
-    "create_widget": "Creating widget {widget_name}",
+    "create_view": {
+      "label": { "en": "Creating view {name|…}", "fr": "Création de la vue {name|…}" }
+    },
+    "create_widget": {
+      "label": { "en": "Creating widget {widget_name}", "fr": "Création du widget {widget_name}" }
+    },
 
-    "create_notification": "Sending notification to user {user_id}",
+    "create_notification": {
+      "label": {
+        "en": "Sending notification to user {user_id}",
+        "fr": "Envoi d'une notification à l'utilisateur {user_id}"
+      }
+    },
 
-    "get_monday_dev_sprints_boards": "Listing sprint boards",
-    "get_sprints_metadata": "Reading sprints metadata",
-    "get_sprint_summary": "Reading sprint summary {sprintId}",
+    "get_monday_dev_sprints_boards": {
+      "label": { "en": "Listing sprint boards", "fr": "Liste des tableaux de sprint" }
+    },
+    "get_sprints_metadata": {
+      "label": { "en": "Reading sprints metadata", "fr": "Lecture des métadonnées de sprints" }
+    },
+    "get_sprint_summary": {
+      "label": {
+        "en": "Reading sprint summary {sprintId}",
+        "fr": "Lecture du résumé du sprint {sprintId}"
+      }
+    },
 
-    "get_notetaker_meetings": "Reading meetings",
+    "get_notetaker_meetings": {
+      "label": { "en": "Reading meetings", "fr": "Lecture des réunions" }
+    },
 
-    "create_custom_activity": "Creating custom activity {name}",
-    "create_timeline_item": "Creating timeline item {title}",
+    "create_custom_activity": {
+      "label": {
+        "en": "Creating custom activity {name}",
+        "fr": "Création de l'activité personnalisée {name}"
+      }
+    },
+    "create_timeline_item": {
+      "label": {
+        "en": "Creating timeline item {title}",
+        "fr": "Création de l'élément de chronologie {title}"
+      }
+    },
 
-    "move_object": "Moving {objectType} {id}",
-    "update_assets_on_item": "Updating assets on item {itemId}"
+    "move_object": {
+      "label": { "en": "Moving {objectType} {id}", "fr": "Déplacement de {objectType} {id}" }
+    },
+    "update_assets_on_item": {
+      "label": {
+        "en": "Updating assets on item {itemId}",
+        "fr": "Mise à jour des fichiers de l'élément {itemId}"
+      }
+    }
   },
   "hidden": [
     "get_full_board_data",

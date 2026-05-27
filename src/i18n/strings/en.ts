@@ -396,6 +396,8 @@ export const en = {
   // ─── Streaming task-card titles ────────────────────────────────────
   "streamer.analyzing": "Analyzing…",
   "streamer.working_on": "Working on {branch}",
+  "streamer.tool_label_checking": "Checking {name}",
+  "streamer.tool_label_running": "Running {tool}",
 
   // ─── Scheduled reminder attribution ────────────────────────────────
   "reminder.attribution_prefix": "🔔 Reminder from {user}:",
