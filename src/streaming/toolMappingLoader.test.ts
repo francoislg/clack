@@ -919,6 +919,34 @@ describe("loadToolMappings plugin integration", () => {
       if (existsSync(pluginFileConfig)) rmSync(pluginFileConfig);
     }
   });
+
+  it("on-demand server tools are keyed under `<plugin>_<serverKey>`", () => {
+    const toolMappings = new Map<string, string>([
+      ["save_question", "Saving question"],
+      ["upsert_game", "Upserting game — {name}"],
+      ["delete_game", "Deleting game — {name}"],
+    ]);
+    const result = stubPluginLoadResult("trivia", toolMappings);
+    result.tools = [
+      { name: "save_question", minRole: "admin", serverKey: undefined, pushTo: () => {} },
+      { name: "upsert_game", minRole: "admin", serverKey: "management", pushTo: () => {} },
+      { name: "delete_game", minRole: "admin", serverKey: "management", pushTo: () => {} },
+    ];
+    setLoadedPlugins({ results: [result] });
+
+    resetToolMappingCache();
+    const mappings = loadToolMappings();
+
+    const defaultMapping = mappings.get("trivia");
+    assert.ok(defaultMapping, "default server mapping should live under plugin name");
+    assert.equal(defaultMapping.labels.get("save_question"), "Saving question");
+    assert.equal(defaultMapping.labels.get("upsert_game"), undefined);
+
+    const managementMapping = mappings.get("trivia_management");
+    assert.ok(managementMapping, "on-demand server mapping should live under `<plugin>_<key>`");
+    assert.equal(managementMapping.labels.get("upsert_game"), "Upserting game — {name}");
+    assert.equal(managementMapping.labels.get("delete_game"), "Deleting game — {name}");
+  });
 });
 
 // ---------------------------------------------------------------------------

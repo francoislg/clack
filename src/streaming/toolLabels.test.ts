@@ -293,6 +293,15 @@ describe("getToolLabel", () => {
     it("falls back to Running <name> for non-MCP tools", () => {
       assert.equal(getToolLabel("custom_tool", {}), "Running custom_tool");
     });
+
+    it("extracts server name when it contains underscores (on-demand plugin server)", () => {
+      // On-demand servers are wired as `mcp__<plugin>_<key>__<tool>`; the parser must
+      // not stop at the first `_` inside the server portion.
+      assert.equal(
+        getToolLabel("mcp__trivia_management__upsert_game", {}),
+        "Checking Trivia_management",
+      );
+    });
   });
 
   describe("path shortening", () => {
