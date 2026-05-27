@@ -195,7 +195,14 @@ export interface SeasonEntry {
    * Never inferred from other fields; admins set it explicitly via `upsert_season`.
    */
   theme?: string;
-  categories: string[];
+  /**
+   * Optional season-tier category pool. Absent → cascade falls through to
+   * `game.categories → globalCategories` (see `resolveActiveCategories` in
+   * `../domain/categories.ts`). When present, MUST be non-empty (deduped) —
+   * empty arrays on disk are not allowed; readers SHALL treat the field as
+   * absent if and only if the JSON key is missing.
+   */
+  categories?: string[];
   /**
    * Optional per-season answer-format weights. Absent → `get_ideas` falls back to
    * `config.trivia.answersFormat`. Mid-season mutation is permitted (unlike `startedAt`).
@@ -307,6 +314,17 @@ export interface TriviaDataLayer {
   /** Global — shared across all games (incl. cumulative `cheatAttempts`). */
   loadUsers(): Promise<Map<string, TriviaUser>>;
   saveUser(u: TriviaUser): Promise<void>;
+  /**
+   * Atomic batch write for multiple user updates. Reads users.json once,
+   * merges the supplied entries (last-write-wins on duplicate userIds), and
+   * writes once. Callers that need to persist N independent user updates MUST
+   * use this instead of looping `saveUser` — `saveUser` is a read-modify-write
+   * over the whole file and concurrent calls race (later writes overwrite
+   * earlier ones with stale baselines).
+   *
+   * No-op when `users` is empty.
+   */
+  saveUsers(users: readonly TriviaUser[]): Promise<void>;
   /** Per-game data accessor — every read/write is scoped to `games/<name>/`. */
   forGame(name: string): ScopedTriviaDataLayer;
 }

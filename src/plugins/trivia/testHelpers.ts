@@ -174,6 +174,9 @@ export function createInMemoryDataLayer(): TriviaDataLayer {
     async saveUser(u) {
       users.set(u.userId, u);
     },
+    async saveUsers(updates) {
+      for (const u of updates) users.set(u.userId, u);
+    },
     forGame,
   };
 }

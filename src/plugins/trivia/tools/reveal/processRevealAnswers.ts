@@ -20,8 +20,10 @@ import { findTriviaRevealJob, nextFireAfter } from "../../domain/seasonStatus.js
 import {
   fetchMessageReactions as fetchReactionsViaSlackClient,
   fetchBotUserId as fetchBotUserIdViaSlackClient,
+  fetchUserDisplayName as fetchUserDisplayNameViaSlackClient,
 } from "./slack.js";
 import { pickSeasonMvp, applySeasonRollover } from "./rollover.js";
+import { refreshUserDisplayNames } from "./refreshDisplayNames.js";
 import { computeRoundSummary } from "./roundSummary.js";
 import type { ClackSdk } from "../../../sdk.js";
 import type { TriviaDataLayer, TriviaQuestion, SubmittedAnswer } from "../../core/types.js";
@@ -75,6 +77,13 @@ export interface RevealSlackDeps {
   isAvailable(): string | null;
   fetchBotUserId(): Promise<string>;
   fetchMessageReactions(channel: string, ts: string): Promise<SlackReactionLike[]>;
+  /**
+   * Resolve a user's current Slack display name. Returns `null` for unresolvable
+   * IDs (deactivated, deleted, external) so the caller leaves the stored value
+   * untouched. Used to refresh `users.json` entries at reveal time so leaderboard
+   * labels track Slack display-name edits.
+   */
+  fetchUserDisplayName(userId: string): Promise<string | null>;
 }
 
 const SLACK_UNAVAILABLE_ERROR =
@@ -95,6 +104,11 @@ export function defaultRevealSlackDeps(sdk: Pick<ClackSdk, "getSlackClient">): R
       const client = sdk.getSlackClient();
       if (!client) throw new Error("Slack client became unavailable mid-run");
       return fetchReactionsViaSlackClient(client, channel, ts);
+    },
+    async fetchUserDisplayName(userId) {
+      const client = sdk.getSlackClient();
+      if (!client) return null;
+      return fetchUserDisplayNameViaSlackClient(client, userId);
     },
   };
 }
@@ -160,6 +174,22 @@ export function createProcessRevealAnswersTool(
 
       // ── Process each target ─────────────────────────────────────────────
       const users = await data.loadUsers();
+
+      // Refresh display names against live Slack profiles BEFORE the per-handler
+      // loop so both the voter lists rendered inside `processReveal` and the
+      // leaderboard built below see the same fresh labels. `users.json` is
+      // global and only ever written on first click — Slack profile edits would
+      // otherwise never propagate. Scope the refresh to users who have at least
+      // one answer in this game (i.e. anyone who could appear on this game's
+      // leaderboard or voter lists). Errors are swallowed per-user.
+      const answersForRefresh = await scoped.loadAnswers();
+      await refreshUserDisplayNames({
+        userIds: new Set(answersForRefresh.map((a) => a.userId)),
+        users,
+        data,
+        fetchDisplayName: (userId) => slackDeps.fetchUserDisplayName(userId),
+        logger,
+      });
 
       // Split freeform targets out: they go through the inline Haiku judge
       // (no Slack reactions to read). Boolean/choice questions stay on the

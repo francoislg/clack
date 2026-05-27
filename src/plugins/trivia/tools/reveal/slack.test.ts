@@ -5,6 +5,7 @@ import {
   parseChannelFromPermalink,
   normalizeReactions,
   stripSkinTone,
+  isExpectedUserLookupError,
 } from "./slack.js";
 
 describe("parseTsFromPermalink", () => {
@@ -125,5 +126,52 @@ describe("stripSkinTone", () => {
   it("strips chained skin-tones on multi-person emoji", () => {
     assert.equal(stripSkinTone("kiss::skin-tone-2::skin-tone-4"), "kiss");
     assert.equal(stripSkinTone("couple_with_heart::skin-tone-3::skin-tone-5"), "couple_with_heart");
+  });
+});
+
+function slackPlatformError(code: string): Error {
+  const err = new Error(`Slack API error: ${code}`);
+  Object.defineProperty(err, "data", { value: { error: code }, enumerable: true });
+  return err;
+}
+
+describe("isExpectedUserLookupError", () => {
+  it("returns true for user_not_found", () => {
+    assert.equal(isExpectedUserLookupError(slackPlatformError("user_not_found")), true);
+  });
+
+  it("returns true for user_not_visible", () => {
+    assert.equal(isExpectedUserLookupError(slackPlatformError("user_not_visible")), true);
+  });
+
+  it("returns true for bot_not_found", () => {
+    assert.equal(isExpectedUserLookupError(slackPlatformError("bot_not_found")), true);
+  });
+
+  it("returns false for unrecognized Slack error codes (e.g. ratelimited)", () => {
+    assert.equal(isExpectedUserLookupError(slackPlatformError("ratelimited")), false);
+  });
+
+  it("returns false for plain Errors with no `.data` envelope", () => {
+    assert.equal(isExpectedUserLookupError(new Error("network down")), false);
+  });
+
+  it("returns false when `data.error` is missing", () => {
+    const err = new Error("malformed");
+    Object.defineProperty(err, "data", { value: {}, enumerable: true });
+    assert.equal(isExpectedUserLookupError(err), false);
+  });
+
+  it("returns false when `data.error` is not a string", () => {
+    const err = new Error("weird");
+    Object.defineProperty(err, "data", { value: { error: 42 }, enumerable: true });
+    assert.equal(isExpectedUserLookupError(err), false);
+  });
+
+  it("returns false for null / undefined / primitive throws", () => {
+    assert.equal(isExpectedUserLookupError(null), false);
+    assert.equal(isExpectedUserLookupError(undefined), false);
+    assert.equal(isExpectedUserLookupError("user_not_found"), false);
+    assert.equal(isExpectedUserLookupError(42), false);
   });
 });

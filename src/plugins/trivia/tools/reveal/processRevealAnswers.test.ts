@@ -31,11 +31,13 @@ function fakeSlackDeps(): {
   isAvailable(): string | null;
   fetchBotUserId(): Promise<string>;
   fetchMessageReactions(channel: string, ts: string): Promise<[]>;
+  fetchUserDisplayName(userId: string): Promise<string | null>;
 } {
   return {
     isAvailable: () => null,
     fetchBotUserId: async () => "UBOT",
     fetchMessageReactions: async () => [],
+    fetchUserDisplayName: async () => null,
   };
 }
 
@@ -460,6 +462,46 @@ describe("process_reveal_answers — orchestrator", () => {
         await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
       );
       assert.equal(res.additionalInstructions, "[Workspace] Avoid politics.\n\n[Game] Be concise.");
+    });
+  });
+
+  describe("display-name refresh", () => {
+    it("propagates a refreshed Slack display name into the leaderboard", async () => {
+      const data = createInMemoryDataLayer();
+      const scoped = data.forGame(FIXTURE_GAME_NAME);
+      await scoped.saveQuestion(
+        makeQuestion({ id: "q1", batchId: "B", postedAt: 1_000, revealResponses: "yes" }),
+      );
+      await data.saveUser({ userId: "U1", displayName: "OldName", joinedAt: 0 });
+      await scoped.saveAnswer({
+        userId: "U1",
+        questionId: "q1",
+        answer: true,
+        correct: true,
+        timestamp: 500,
+      });
+
+      const tool = createProcessRevealAnswersTool(
+        data,
+        fakeSdk(),
+        fixtureGetGames,
+        async () => [],
+        {
+          isAvailable: () => null,
+          fetchBotUserId: async () => "UBOT",
+          fetchMessageReactions: async () => [],
+          fetchUserDisplayName: async (userId) => (userId === "U1" ? "NewName" : null),
+        },
+      );
+
+      const res = parseToolResult(
+        await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+      );
+      const entry = res.leaderboard.find((e: { userId: string }) => e.userId === "U1");
+      assert.ok(entry !== undefined, "U1 should appear on the leaderboard");
+      assert.equal(entry.displayName, "NewName", "leaderboard reflects refreshed Slack name");
+      const stored = (await data.loadUsers()).get("U1");
+      assert.equal(stored?.displayName, "NewName", "users.json is updated with the new name");
     });
   });
 });

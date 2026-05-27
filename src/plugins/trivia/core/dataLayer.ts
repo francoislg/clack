@@ -54,6 +54,14 @@ export function createSdkDataLayer(sdk: ClackSdk): TriviaDataLayer {
     await sdk.writeFile("users.json", JSON.stringify(record, null, 2));
   }
 
+  async function saveUsers(updates: readonly TriviaUser[]): Promise<void> {
+    if (updates.length === 0) return;
+    const users = await loadUsers();
+    for (const u of updates) users.set(u.userId, u);
+    const record = Object.fromEntries(users);
+    await sdk.writeFile("users.json", JSON.stringify(record, null, 2));
+  }
+
   // ── Per-game scoped accessor ────────────────────────────────────────────────
   function forGame(name: string): ScopedTriviaDataLayer {
     const qPath = `games/${name}/questions.json`;
@@ -200,6 +208,7 @@ export function createSdkDataLayer(sdk: ClackSdk): TriviaDataLayer {
     saveCategories,
     loadUsers,
     saveUser,
+    saveUsers,
     forGame,
   };
 }
