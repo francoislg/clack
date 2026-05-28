@@ -935,6 +935,7 @@ describe("createSubmitResponseTool", () => {
     it("persists nested intents from post_to.actions too", async () => {
       const intent: StagedIntent = {
         type: "config_update",
+        operation: "write",
         file: "user/identity.md",
         content: "x",
       };

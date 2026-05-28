@@ -222,11 +222,18 @@ export interface StagedChangeIntent {
   };
 }
 
-export interface StagedConfigUpdateIntent {
-  type: "config_update";
-  file: string;
-  content: string;
-}
+export type StagedConfigUpdateIntent =
+  | {
+      type: "config_update";
+      operation: "write";
+      file: string;
+      content: string;
+    }
+  | {
+      type: "config_update";
+      operation: "delete";
+      file: string;
+    };
 
 export interface StagedUpdateIntent {
   type: "update";
@@ -423,6 +430,7 @@ export interface ConfigUpdateAction {
   type: "config_update";
   ref: string;
   label?: string;
+  auto?: boolean;
 }
 
 export interface UpdateAction {

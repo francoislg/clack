@@ -241,6 +241,8 @@ export const en = {
   "blocks.action_label_post_to": "Post to thread",
   "blocks.action_label_change": "Start Change",
   "blocks.action_label_config_update": "Apply Update",
+  "blocks.action_label_config_revert": "Remove Override",
+  "blocks.action_label_config_delete": "Delete File",
   "blocks.action_label_update": "Update",
 
   // ─── Error blocks ──────────────────────────────────────────────────
@@ -284,6 +286,10 @@ export const en = {
     "Hi! Please include a question when mentioning me, or tag me in a thread and I'll read the conversation.",
   "errors.config_updated": "Configuration file `{file}` has been updated.",
   "errors.config_update_failed": "Failed to update `{file}`: {error}",
+  "errors.config_override_removed":
+    "Custom override on `{file}` has been removed; the file now uses the shipped default.",
+  "errors.config_file_deleted": "`{file}` has been deleted.",
+  "errors.config_delete_failed": "Failed to delete `{file}`: {error}",
   "errors.auto_execute_failed": "Auto-execute failed: {error}",
   "errors.auto_post_no_content": "Could not auto-post: response content was not found.",
   "errors.auto_post_failed": "Failed to post: {error}",

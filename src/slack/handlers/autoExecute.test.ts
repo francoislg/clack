@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
 import type { ClaudeResponse } from "../../claude/index.js";
 import type {
-  Action,
   StagedIntent,
   StagedChangeIntent,
   StagedConfigUpdateIntent,
@@ -37,6 +36,10 @@ interface PostMessageMock {
 }
 
 const mockWriteInstructionFile = vi.fn<(filename: string, content: string) => void>();
+const mockDeleteInstructionFile = vi.fn<(filepath: string) => void>();
+const mockReadInstructionFile = vi.fn<
+  (filepath: string) => { default_content: string | null; custom_content: string | null }
+>(() => ({ default_content: null, custom_content: null }));
 const mockTriggerChangeWorkflow = vi.fn<
   (intent: StagedChangeIntent, slack: SlackDeliveryContext) => Promise<void>
 >(async () => {});
@@ -123,6 +126,8 @@ function makeDeps(): AutoExecuteDeps {
     postAnswerToChannel: mockPostAnswerToChannel,
     resolveOrigin: mockResolveOrigin,
     writeInstructionFile: mockWriteInstructionFile,
+    deleteInstructionFile: mockDeleteInstructionFile,
+    readInstructionFile: mockReadInstructionFile,
     findSessionByThread: mockFindSessionByThread,
     getSession: mockGetSession,
     updateSession: mockUpdateSession,
@@ -160,6 +165,9 @@ function makeResponseWithActions(
 
 beforeEach(() => {
   mockWriteInstructionFile.mockClear();
+  mockDeleteInstructionFile.mockClear();
+  mockReadInstructionFile.mockClear();
+  mockReadInstructionFile.mockReturnValue({ default_content: null, custom_content: null });
   mockTriggerChangeWorkflow.mockClear();
   mockTriggerFollowUp.mockClear();
   mockFindSessionByThread.mockClear();
@@ -384,6 +392,7 @@ describe("handleAutoExecuteActions — config_update", () => {
   it("writes the instruction file and posts a success message", async () => {
     const configIntent: StagedConfigUpdateIntent = {
       type: "config_update",
+      operation: "write",
       file: "instructions.md",
       content: "new content",
     };
@@ -393,13 +402,7 @@ describe("handleAutoExecuteActions — config_update", () => {
       response: makeResponseWithActions(
         {
           blocks: [],
-          actions: [
-            {
-              type: "config_update",
-              ref: "c1",
-              auto: true,
-            } as unknown as Action,
-          ],
+          actions: [{ type: "config_update", ref: "c1", auto: true }],
         },
         { c1: configIntent },
       ),
@@ -431,6 +434,7 @@ describe("handleAutoExecuteActions — config_update", () => {
 
     const configIntent: StagedConfigUpdateIntent = {
       type: "config_update",
+      operation: "write",
       file: "broken.md",
       content: "data",
     };
@@ -440,13 +444,7 @@ describe("handleAutoExecuteActions — config_update", () => {
       response: makeResponseWithActions(
         {
           blocks: [],
-          actions: [
-            {
-              type: "config_update",
-              ref: "c1",
-              auto: true,
-            } as unknown as Action,
-          ],
+          actions: [{ type: "config_update", ref: "c1", auto: true }],
         },
         { c1: configIntent },
       ),
@@ -460,6 +458,103 @@ describe("handleAutoExecuteActions — config_update", () => {
     assert.ok(msgArgs.text.includes("Failed to update"));
     assert.ok(msgArgs.text.includes("broken.md"));
     assert.ok(msgArgs.text.includes("write failed"));
+  });
+
+  // --- Delete operation ---
+
+  it("calls deleteInstructionFile and posts revert-to-default when default exists", async () => {
+    mockReadInstructionFile.mockReturnValue({
+      default_content: "shipped default",
+      custom_content: "custom override",
+    });
+
+    const configIntent: StagedConfigUpdateIntent = {
+      type: "config_update",
+      operation: "delete",
+      file: "user/identity.md",
+    };
+    const params = makeBaseParams({
+      response: makeResponseWithActions(
+        {
+          blocks: [],
+          actions: [{ type: "config_update", ref: "c1", auto: true }],
+        },
+        { c1: configIntent },
+      ),
+    });
+
+    await handleAutoExecuteActions(params, makeDeps());
+
+    assert.equal(mockDeleteInstructionFile.mock.calls.length, 1);
+    assert.equal(mockDeleteInstructionFile.mock.calls[0]![0], "user/identity.md");
+    assert.equal(mockWriteInstructionFile.mock.calls.length, 0);
+
+    assert.equal(mockPostMessageFn.mock.calls.length, 1);
+    const msgArgs = mockPostMessageFn.mock.calls[0]![0] as PostMessageArgs;
+    assert.match(msgArgs.text, /removed/i);
+    assert.match(msgArgs.text, /default/i);
+  });
+
+  it("posts file-deleted confirmation when no default exists", async () => {
+    mockReadInstructionFile.mockReturnValue({
+      default_content: null,
+      custom_content: "custom-only",
+    });
+
+    const configIntent: StagedConfigUpdateIntent = {
+      type: "config_update",
+      operation: "delete",
+      file: "user/company-context.md",
+    };
+    const params = makeBaseParams({
+      response: makeResponseWithActions(
+        {
+          blocks: [],
+          actions: [{ type: "config_update", ref: "c1", auto: true }],
+        },
+        { c1: configIntent },
+      ),
+    });
+
+    await handleAutoExecuteActions(params, makeDeps());
+
+    assert.equal(mockPostMessageFn.mock.calls.length, 1);
+    const msgArgs = mockPostMessageFn.mock.calls[0]![0] as PostMessageArgs;
+    assert.match(msgArgs.text, /deleted/i);
+    assert.doesNotMatch(msgArgs.text, /default/i);
+  });
+
+  it("posts an error message when deleteInstructionFile throws", async () => {
+    mockReadInstructionFile.mockReturnValue({
+      default_content: null,
+      custom_content: "still here at stage time",
+    });
+    mockDeleteInstructionFile.mockImplementation(() => {
+      throw new Error("File not found: user/gone.md");
+    });
+
+    const configIntent: StagedConfigUpdateIntent = {
+      type: "config_update",
+      operation: "delete",
+      file: "user/gone.md",
+    };
+    const params = makeBaseParams({
+      response: makeResponseWithActions(
+        {
+          blocks: [],
+          actions: [{ type: "config_update", ref: "c1", auto: true }],
+        },
+        { c1: configIntent },
+      ),
+    });
+
+    await handleAutoExecuteActions(params, makeDeps());
+
+    assert.equal(mockPostMessageFn.mock.calls.length, 1);
+    const msgArgs = mockPostMessageFn.mock.calls[0]![0] as PostMessageArgs;
+    assert.match(msgArgs.text, /failed to delete/i);
+    assert.match(msgArgs.text, /user\/gone\.md/);
+    assert.match(msgArgs.text, /file not found/i);
   });
 });
 
@@ -807,6 +902,7 @@ describe("handleAutoExecuteActions — multiple actions", () => {
     };
     const configIntent: StagedConfigUpdateIntent = {
       type: "config_update",
+      operation: "write",
       file: "settings.md",
       content: "new settings",
     };
@@ -816,11 +912,7 @@ describe("handleAutoExecuteActions — multiple actions", () => {
           blocks: [],
           actions: [
             { type: "change", ref: "r1", auto: true },
-            {
-              type: "config_update",
-              ref: "c1",
-              auto: true,
-            } as unknown as Action,
+            { type: "config_update", ref: "c1", auto: true },
           ],
         },
         { r1: changeIntent, c1: configIntent },

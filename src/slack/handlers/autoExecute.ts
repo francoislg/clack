@@ -20,7 +20,11 @@ import {
 import { triggerChangeWorkflow } from "./changeAction.js";
 import { triggerFollowUp } from "./changeThreadActions.js";
 import { postAnswerToChannel, resolveOrigin } from "./dmActions.js";
-import { writeInstructionFile } from "../../configurationFiles.js";
+import {
+  writeInstructionFile,
+  deleteInstructionFile,
+  readInstructionFile,
+} from "../../configurationFiles.js";
 import {
   findSessionByThread,
   getSession,
@@ -56,6 +60,11 @@ export interface AutoExecuteDeps {
     sessionInfo: SessionInfo,
   ) => { originChannel: string | undefined; originThreadTs: string | undefined };
   writeInstructionFile: (filename: string, content: string) => void;
+  deleteInstructionFile: (filepath: string) => void;
+  readInstructionFile: (filepath: string) => {
+    default_content: string | null;
+    custom_content: string | null;
+  };
   findSessionByThread: (channelId: string, threadTs: string) => Promise<SessionContext | null>;
   getSession: (sessionId: string) => Promise<SessionContext | null>;
   updateSession: (
@@ -79,6 +88,8 @@ export const defaultAutoExecuteDeps: AutoExecuteDeps = {
   postAnswerToChannel,
   resolveOrigin,
   writeInstructionFile,
+  deleteInstructionFile,
+  readInstructionFile,
   findSessionByThread,
   getSession,
   updateSession: updateSession as never,
@@ -163,6 +174,35 @@ export async function handleAutoExecuteActions(
     try {
       switch (intent.type) {
         case "config_update": {
+          if (intent.operation === "delete") {
+            logger.info(`Auto-executing config delete: ${intent.file}`);
+            const { default_content } = deps.readInstructionFile(intent.file);
+            try {
+              deps.deleteInstructionFile(intent.file);
+              await client.chat.postMessage({
+                channel: channelId,
+                thread_ts: threadTs,
+                text:
+                  default_content !== null
+                    ? t("errors.config_override_removed", { file: intent.file })
+                    : t("errors.config_file_deleted", { file: intent.file }),
+              });
+            } catch (err) {
+              logger.error("Auto-execute config delete error:", err);
+              await client.chat
+                .postMessage({
+                  channel: channelId,
+                  thread_ts: threadTs,
+                  text: t("errors.config_delete_failed", {
+                    file: intent.file,
+                    error: errorMessage(err),
+                  }),
+                })
+                .catch(() => {});
+            }
+            break;
+          }
+
           logger.info(`Auto-executing config update: ${intent.file}`);
           try {
             deps.writeInstructionFile(intent.file, intent.content);

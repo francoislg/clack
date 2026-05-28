@@ -540,6 +540,7 @@ describe("appendStagedIntents", () => {
     };
     const second: StagedIntent = {
       type: "config_update",
+      operation: "write",
       file: "user/identity.md",
       content: "b",
     };
