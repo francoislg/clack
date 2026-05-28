@@ -51,6 +51,7 @@ const BASE_ARGS = {
   freeformAnswerShape: undefined,
   suggestedDifficulty: undefined,
   difficulty: undefined,
+  hint: undefined,
   emojis: ["💧"],
 };
 

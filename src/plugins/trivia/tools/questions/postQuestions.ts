@@ -20,6 +20,7 @@ import { resolveRevealResponses } from "../../core/revealResponsesResolver.js";
 import { findSeasonBySlug } from "../../core/seasonTimeline.js";
 import { getAllAnswerTypeHandlers, getAnswerTypeHandler } from "../../answerTypes/registry.js";
 import type { TriviaDataLayer, TriviaQuestion } from "../../core/types.js";
+import { applyHintRendering } from "./renderHint.js";
 
 const PER_FORMAT_AFFORDANCES = getAllAnswerTypeHandlers()
   .map((h) => `  - ${h.actionAffordanceDescription}`)
@@ -144,7 +145,7 @@ export interface PostQuestionsSlackDeps {
 
 /** Build the production `PostQuestionsSlackDeps` by lazily resolving the Slack client from the SDK. */
 export function defaultPostQuestionsSlackDeps(
-  sdk: Pick<ClackSdk, "getSlackClient" | "actionId">,
+  sdk: Pick<ClackSdk, "getSlackClient" | "actionId" | "t">,
 ): PostQuestionsSlackDeps {
   return {
     isAvailable() {
@@ -160,7 +161,7 @@ export function defaultPostQuestionsSlackDeps(
 
 export function createPostQuestionsTool(
   data: TriviaDataLayer,
-  sdk: Pick<ClackSdk, "getSlackClient" | "actionId">,
+  sdk: Pick<ClackSdk, "getSlackClient" | "actionId" | "t">,
   getGamesFn: GetGamesFn = defaultGetGames,
   slackDeps: PostQuestionsSlackDeps = defaultPostQuestionsSlackDeps(sdk),
   getTriviaConfigFn: GetTriviaConfigFn = defaultGetTriviaConfig,
@@ -297,10 +298,11 @@ export function createPostQuestionsTool(
           const baseBlocks = item.blocks as SlackBlocks;
           const handler = getAnswerTypeHandler(question.answersFormat);
           const blocksWithButtons = handler.appendActionsBlock(baseBlocks, sdk.actionId, question);
+          const blocksWithHint = applyHintRendering(blocksWithButtons, question, sdk);
 
           const { ts, permalink } = await slackDeps.postBlocks({
             channel: game.channel,
-            blocks: blocksWithButtons,
+            blocks: blocksWithHint,
             ...(args.suppress_unfurls !== undefined && {
               suppressUnfurls: args.suppress_unfurls,
             }),
@@ -345,7 +347,7 @@ export function createPostQuestionsTool(
             postedAt: tsToPostedAt(ts),
             messageLink: permalink,
             batchId,
-            postedBlocks: blocksWithButtons as KnownBlock[],
+            postedBlocks: blocksWithHint as KnownBlock[],
             liveAnswersVisible,
             revealResponses,
           });

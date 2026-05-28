@@ -28,7 +28,7 @@ interface ListSeasonsSlotEntry {
   difficulty?: TriviaDifficultyConfig;
   difficultyRatio?: TriviaDifficultyRatioConfig;
   liveAnswersVisible?: boolean;
-  revealResponses?: "no" | "just-correctness" | "yes";
+  revealResponses?: "no" | "just-winners" | "just-correctness" | "yes";
   instructions?: string;
   additionalInstructions?: string;
 }

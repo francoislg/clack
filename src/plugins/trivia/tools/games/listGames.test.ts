@@ -355,3 +355,43 @@ describe("list_games — cron job UUID surfacing", () => {
     assert.equal(entry.revealJobId, "job-r-uuid");
   });
 });
+
+describe("list_games — hint surfacing", () => {
+  it("surfaces workspace `hint` when set", async () => {
+    const triviaConfig = (): TriviaConfig => ({
+      hint: { mode: "button", minDifficulty: "medium" },
+    });
+    const tool = createListGamesTool(fixtureGetGames, triviaConfig);
+    const parsed = parseToolResult(await tool.handler({ includeDisabled: undefined }, SESSION));
+    assert.deepEqual(parsed.workspaceDefaults.hint, { mode: "button", minDifficulty: "medium" });
+  });
+
+  it("omits workspace `hint` when not set", async () => {
+    const tool = createListGamesTool(fixtureGetGames, emptyTriviaConfig);
+    const parsed = parseToolResult(await tool.handler({ includeDisabled: undefined }, SESSION));
+    assert.equal(parsed.workspaceDefaults.hint, undefined);
+  });
+
+  it("surfaces per-game `hint` when set", async () => {
+    const games: readonly TriviaGame[] = [
+      {
+        name: "with-hint",
+        channel: "C200000000",
+        questionCron: "0 9 * * 1-5",
+        revealCron: "0 17 * * 1-5",
+        timezone: "UTC",
+        enabled: true,
+        hint: { mode: "inline" },
+      },
+    ];
+    const tool = createListGamesTool(() => games, emptyTriviaConfig);
+    const parsed = parseToolResult(await tool.handler({ includeDisabled: undefined }, SESSION));
+    assert.deepEqual(parsed.games[0].hint, { mode: "inline" });
+  });
+
+  it("omits per-game `hint` when not set", async () => {
+    const tool = createListGamesTool(fixtureGetGames, emptyTriviaConfig);
+    const parsed = parseToolResult(await tool.handler({ includeDisabled: undefined }, SESSION));
+    assert.equal(parsed.games[0].hint, undefined);
+  });
+});

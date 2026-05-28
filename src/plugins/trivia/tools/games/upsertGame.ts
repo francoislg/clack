@@ -8,8 +8,16 @@ import {
   defaultGetGames,
   type GetGamesFn,
 } from "../../core/configBridge.js";
-import type { JsonObject, JsonValue, TriviaConfig, TriviaGame } from "../../core/configTypes.js";
+import type {
+  JsonObject,
+  JsonValue,
+  RevealResponsesMode,
+  TriviaConfig,
+  TriviaGame,
+  TriviaHintConfig,
+} from "../../core/configTypes.js";
 import {
+  REVEAL_RESPONSES_VALUES,
   answersFormatZod,
   contextsZod,
   difficultyZod,
@@ -17,6 +25,8 @@ import {
   parseTriviaAxisBag,
   questionTypeZod,
   triviaDifficultyRatioZod,
+  triviaHintZod,
+  validateHintConfig,
   type ParseIssue,
 } from "../../core/configParsers/axes.js";
 import {
@@ -92,11 +102,11 @@ const structuralFieldsSchema = {
       'Per-game override for the live-roster-footer visibility axis. When `true` (the cascaded default), the live "📝 Answered" footer reveals each answerer\'s pick alongside their name. When `false`, the footer shows only names. Cascade: `slot → season → game → workspace → true`. On UPDATE: explicit null clears the field.',
     ),
   revealResponses: z
-    .enum(["no", "just-correctness", "yes"])
+    .enum(REVEAL_RESPONSES_VALUES as readonly [RevealResponsesMode, ...RevealResponsesMode[]])
     .nullable()
     .optional()
     .describe(
-      'Per-game override for the reveal-time participation disclosure axis. `"yes"` (default) renders full named voter buckets including freeform answer text. `"just-correctness"` renders named buckets but hides typed freeform text. `"no"` renders only the answer plus reactions plus the leaderboard. Cascade: `slot → season → game → workspace → "yes"`. On UPDATE: explicit null clears the field.',
+      'Per-game override for the reveal-time participation disclosure axis. `"yes"` (default) renders full named voter buckets including freeform answer text. `"just-correctness"` renders named buckets but hides typed freeform text. `"just-winners"` names ONLY the correct voters and reduces the missers to anonymous counts (winners-only flair). `"no"` renders only the answer plus reactions plus the leaderboard. Cascade: `slot → season → game → workspace → "yes"`. On UPDATE: explicit null clears the field.',
     ),
   instructions: triviaInstructionsZod
     .nullable()
@@ -109,6 +119,12 @@ const structuralFieldsSchema = {
     .optional()
     .describe(
       'Per-game tier of the cumulative-cascade `additionalInstructions` axis (e.g. "Be concise."). Every non-empty tier stacks — workspace + game + season + slot all apply, concatenated tier-labeled. Surfaced verbatim to Claude via the `get_ideas` and `process_reveal_answers` payloads. On UPDATE: explicit null clears this tier (other tiers keep theirs).',
+    ),
+  hint: triviaHintZod
+    .nullable()
+    .optional()
+    .describe(
+      'Per-game tier of the hint axis. Object shape `{ mode: "none" | "button" | "inline", minDifficulty?: "easy" | "medium" | "hard" }`. Cascade: `slot → season → game → workspace → { mode: "none" }`. Whole-object replace per tier. `button` is per-player opt-in safety net; `inline` is a room-wide difficulty floor adjustment — pick deliberately. On UPDATE: explicit null clears the field.',
     ),
 };
 
@@ -283,6 +299,12 @@ export function createUpsertGameTool(getGamesFn: GetGamesFn = defaultGetGames) {
         if (!r.ok) issues.push({ field: "additionalInstructions", error: r.error });
         else parsedAdditionalInstructions = r.value;
       }
+      let parsedHint: TriviaHintConfig | undefined;
+      if (args.hint !== undefined && args.hint !== null) {
+        const r = validateHintConfig(args.hint, "hint");
+        if (!r.ok) issues.push({ field: "hint", error: r.error });
+        else parsedHint = r.value;
+      }
 
       if (issues.length > 0) {
         return errorResult(issues.map((i) => `${i.field}: ${i.error}`).join("; "));
@@ -334,6 +356,7 @@ export function createUpsertGameTool(getGamesFn: GetGamesFn = defaultGetGames) {
         ...(existing?.revealResponses !== undefined
           ? { revealResponses: existing.revealResponses }
           : {}),
+        ...(existing?.hint !== undefined ? { hint: existing.hint } : {}),
       };
       if (args.format === null) delete mergedStructural.format;
       else if (parsedFormat !== undefined) mergedStructural.format = parsedFormat;
@@ -352,6 +375,8 @@ export function createUpsertGameTool(getGamesFn: GetGamesFn = defaultGetGames) {
       if (args.revealResponses === null) delete mergedStructural.revealResponses;
       else if (args.revealResponses !== undefined)
         mergedStructural.revealResponses = args.revealResponses;
+      if (args.hint === null) delete mergedStructural.hint;
+      else if (parsedHint !== undefined) mergedStructural.hint = parsedHint;
 
       const enabled = args.enabled ?? existing?.enabled ?? true;
 
@@ -388,6 +413,7 @@ export function createUpsertGameTool(getGamesFn: GetGamesFn = defaultGetGames) {
         hasAdditionalInstructions: mergedStructural.additionalInstructions !== undefined,
         hasLiveAnswersVisible: mergedStructural.liveAnswersVisible !== undefined,
         hasRevealResponses: mergedStructural.revealResponses !== undefined,
+        hasHint: mergedStructural.hint !== undefined,
         slotCount: mergedStructural.format?.questions.length ?? 0,
       });
     },

@@ -64,6 +64,15 @@ const COMMON_SAVE_FIELDS = {
     .describe(
       "REQUIRED when the active season has a `format`; MUST BE OMITTED when the active season has no format. `index` selects which slot this question fills; `label` is informational (the stored record snapshots the label from format.questions[index].label, not from this argument).",
     ),
+  hint: z
+    .object({
+      mode: z.enum(["button", "inline"]),
+      text: z.string(),
+    })
+    .optional()
+    .describe(
+      'OPTIONAL: the hint produced by the HINT DRAFTING GATE. Include IFF `get_ideas` returned `suggestedHintMode !== "none"` AND the gate produced a usable hint. `mode` MUST equal the `suggestedHintMode` value. `text` is the trimmed hint string, ≤140 chars after trim. Mode "none" is unrepresentable on this field — omit `hint` entirely when no hint should attach. Omitting is acceptable even when get_ideas suggested a non-"none" mode (the gate may judge no useful nudge exists).',
+    ),
 } as const;
 
 /**

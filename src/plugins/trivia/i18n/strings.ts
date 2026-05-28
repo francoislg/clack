@@ -22,6 +22,12 @@ export const en = {
   // Freeform "open modal" button.
   "button.answer": "Answer",
 
+  // Hint button + inline label + ephemeral fallback (see `trivia-question-hints`).
+  "button.hint": "💡 Get Hint!",
+  "hint.inline_prefix": "💡 _Hint:_ {text}",
+  "hint.ephemeral_prefix": "💡 *Hint:* {text}",
+  "hint.missing": "No hint available for this question.",
+
   // Freeform modal — shared.
   "modal.question_header": "Question ({category})",
 
@@ -78,6 +84,11 @@ export const fr: Partial<Record<keyof typeof en, string>> = {
   "button.false": "👎 FAUX",
 
   "button.answer": "Répondre",
+
+  "button.hint": "💡 Indice !",
+  "hint.inline_prefix": "💡 _Indice :_ {text}",
+  "hint.ephemeral_prefix": "💡 *Indice :* {text}",
+  "hint.missing": "Aucun indice disponible pour cette question.",
 
   "modal.question_header": "Question ({category})",
 

@@ -154,7 +154,7 @@ export function createUpsertSeasonTool(
         .nullable()
         .optional()
         .describe(
-          'Optional per-season override for the reveal-time participation disclosure axis. `"yes"` (default) renders full named voter buckets including freeform answer text. `"just-correctness"` renders named buckets but hides typed freeform text. `"no"` renders only the answer plus reactions plus the leaderboard. On UPDATE: passing `null` clears the field. Mid-season mutation permitted.',
+          'Optional per-season override for the reveal-time participation disclosure axis. `"yes"` (default) renders full named voter buckets including freeform answer text. `"just-correctness"` renders named buckets but hides typed freeform text. `"just-winners"` names ONLY the correct voters and reduces the missers to anonymous counts (winners-only flair). `"no"` renders only the answer plus reactions plus the leaderboard. On UPDATE: passing `null` clears the field. Mid-season mutation permitted.',
         ),
       instructions: triviaInstructionsZod
         .nullable()

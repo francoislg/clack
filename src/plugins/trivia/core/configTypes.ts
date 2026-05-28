@@ -20,10 +20,14 @@ export interface TriviaSeasonsConfig {
  *   carry their `answerText`.
  * - `"just-correctness"` → named voter buckets, but freeform Voters DO NOT
  *   carry `answerText` (typed text stays anonymous).
+ * - `"just-winners"` → names the `correct` voters only; incorrect and no-answer
+ *   voters are reduced to anonymous counts (`incorrectCount` / `noAnswerCount`)
+ *   so "N missed" / "everyone got fooled" flair survives without naming anyone.
+ *   Freeform correct voters keep their `answerText`; missers are never quoted.
  * - `"no"` → reveal payload omits voter buckets entirely; only `reactions`
  *   commentary plus the leaderboard render.
  */
-export type RevealResponsesMode = "no" | "just-correctness" | "yes";
+export type RevealResponsesMode = "no" | "just-winners" | "just-correctness" | "yes";
 
 /**
  * Weighted-random map of answer format → weight. Weights are non-negative integers;
@@ -129,6 +133,34 @@ export type TriviaDifficultyRatioConfig = Partial<
 >;
 
 /**
+ * Hint mode. `"none"` (the default) means no hint is generated and no hint UI
+ * is rendered. `"button"` appends a "💡 Get Hint!" button to the question's
+ * answer-button row; clicking posts an ephemeral message to the clicker.
+ * `"inline"` prepends a `💡 _Hint:_ <text>` context block above the answer
+ * buttons so every player sees it immediately. NOTE: `"button"` and `"inline"`
+ * carry different game-design semantics — `"button"` is a per-player opt-in
+ * safety net; `"inline"` is a room-wide difficulty floor adjustment.
+ */
+export type HintMode = "none" | "button" | "inline";
+
+/**
+ * Hint axis configuration. Cascades through slot → season → game → workspace →
+ * `{ mode: "none" }` with **whole-object replace per tier** (matches the
+ * `difficultyRatio` semantics). `minDifficulty`, when set, suppresses hint
+ * generation for questions whose rolled difficulty bucket falls below the
+ * threshold in the ordering `easy < medium < hard`. When unset, hints are
+ * generated for every question whose effective mode is non-`"none"`.
+ */
+export interface TriviaHintConfig {
+  mode: HintMode;
+  /** When set, only generate a hint when the rolled difficulty bucket is at or above this value. */
+  minDifficulty?: "easy" | "medium" | "hard";
+}
+
+/** Built-in fallback when no `hint` is set at any cascade tier. */
+export const DEFAULT_HINT_CONFIG: TriviaHintConfig = { mode: "none" };
+
+/**
  * One trivia game declared in plugin config. The trivia plugin reconciles its cron jobs
  * from this list on every load: each entry produces two plugin-managed cron jobs
  * (`<name>:question` and `<name>:reveal`).
@@ -225,6 +257,12 @@ export interface TriviaGame {
    * reveal message — see `RevealResponsesMode` for semantics.
    */
   revealResponses?: RevealResponsesMode;
+  /**
+   * Per-game tier of the hint axis. Cascade:
+   *   `slot → season → game → workspace → { mode: "none" }`.
+   * Whole-object replace per tier. See `TriviaHintConfig`.
+   */
+  hint?: TriviaHintConfig;
 }
 
 /**
@@ -255,6 +293,8 @@ export interface SeasonFormatSlot {
   liveAnswersVisible?: boolean;
   /** Highest-precedence tier of the reveal-time disclosure axis. */
   revealResponses?: RevealResponsesMode;
+  /** Highest-precedence tier of the hint axis. Whole-object replace per tier. */
+  hint?: TriviaHintConfig;
 }
 
 /**
@@ -309,6 +349,12 @@ export interface TriviaConfig {
   liveAnswersVisible?: boolean;
   /** Workspace default for the reveal-time disclosure axis. */
   revealResponses?: RevealResponsesMode;
+  /**
+   * Workspace tier of the hint axis. Cascade:
+   *   `slot → season → game → workspace → { mode: "none" }`.
+   * Whole-object replace per tier. See `TriviaHintConfig`.
+   */
+  hint?: TriviaHintConfig;
   /**
    * Workspace tier of the replace-cascade `instructions` axis — see the
    * `trivia-prompt-instructions` capability.

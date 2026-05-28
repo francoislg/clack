@@ -24,8 +24,10 @@ export interface ReactorEntry {
 /**
  * Discriminated union on the question's stamped `revealResponses`. The shape
  * varies because the renderer's per-mode rendering branches need physically
- * different fields — there's no participation data to leak when `"no"`, and
- * `"just-correctness"` keeps the named buckets but strips freeform answerText.
+ * different fields — there's no participation data to leak when `"no"`,
+ * `"just-correctness"` keeps the named buckets but strips freeform answerText,
+ * and `"just-winners"` keeps the named `correct` bucket but reduces the
+ * incorrect/no-answer voters to anonymous counts.
  */
 export type VoterBuckets =
   | {
@@ -43,6 +45,20 @@ export type VoterBuckets =
       correct: Voter[];
       incorrect: Voter[];
       noAnswer: Voter[];
+      reactions: ReactorEntry[];
+    }
+  | {
+      revealResponses: "just-winners";
+      /**
+       * Named winners. Freeform Voters here KEEP their `answerText` (the
+       * winning answer is celebratory and about to be revealed); missers are
+       * never named, so their typed text never appears.
+       */
+      correct: Voter[];
+      /** Count of scored-wrong voters (bot + cheaters excluded). NO names. */
+      incorrectCount: number;
+      /** Count of reacted-but-did-not-answer voters (bot + cheaters excluded). NO names. */
+      noAnswerCount: number;
       reactions: ReactorEntry[];
     }
   | {

@@ -286,6 +286,15 @@ function assembleChoiceVoters(
     else incorrect.push(voter);
   }
   const noAnswer = buildNoAnswerBucket(reactorIndex, answeredUserIds, deps.users);
+  if (mode === "just-winners") {
+    return {
+      revealResponses: "just-winners",
+      correct,
+      incorrectCount: incorrect.length,
+      noAnswerCount: noAnswer.length,
+      reactions,
+    };
+  }
   if (mode === "yes") {
     return { revealResponses: "yes", correct, incorrect, noAnswer, reactions };
   }

@@ -27,6 +27,7 @@ function baseArgs(slug: string, startedAt: number) {
     revealResponses: undefined,
     instructions: undefined,
     additionalInstructions: undefined,
+    hint: undefined,
   };
 }
 
