@@ -325,6 +325,7 @@ describe("registerChangeActionHandler — intent resolution", () => {
   it("posts ephemeral when intent type is not change", async () => {
     mockGetStagedIntent.mockImplementation(async () => ({
       type: "config_update",
+      operation: "write",
       file: "f.md",
       content: "c",
     }));

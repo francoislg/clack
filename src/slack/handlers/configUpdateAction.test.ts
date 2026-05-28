@@ -29,6 +29,10 @@ const mockRestoreSessionInfo = vi.fn<(sessionId: string) => Promise<SessionInfo 
   }),
 );
 const mockWriteInstructionFile = vi.fn<(filename: string, content: string) => void>();
+const mockDeleteInstructionFile = vi.fn<(filepath: string) => void>();
+const mockReadInstructionFile = vi.fn<
+  (filepath: string) => { default_content: string | null; custom_content: string | null }
+>(() => ({ default_content: null, custom_content: null }));
 
 function makeDeps(): ConfigUpdateActionDeps {
   return {
@@ -38,6 +42,8 @@ function makeDeps(): ConfigUpdateActionDeps {
     restoreSession: mockRestoreSessionInfo,
     getStagedIntent: mockGetStagedIntent,
     writeInstructionFile: mockWriteInstructionFile,
+    deleteInstructionFile: mockDeleteInstructionFile,
+    readInstructionFile: mockReadInstructionFile,
     errorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
   };
 }
@@ -107,6 +113,8 @@ beforeEach(() => {
   mockDecodeActionValue.mockClear();
   mockRestoreSessionInfo.mockClear();
   mockWriteInstructionFile.mockClear();
+  mockDeleteInstructionFile.mockClear();
+  mockReadInstructionFile.mockClear();
 
   // Reset to defaults
   mockGetRole.mockImplementation(async () => "admin");
@@ -117,6 +125,8 @@ beforeEach(() => {
     userId: "U001",
   }));
   mockWriteInstructionFile.mockImplementation(() => {});
+  mockDeleteInstructionFile.mockImplementation(() => {});
+  mockReadInstructionFile.mockReturnValue({ default_content: null, custom_content: null });
 });
 
 // ============================================================================
@@ -175,6 +185,7 @@ describe("registerConfigUpdateActionHandler — permissions", () => {
 
     const configIntent: StagedConfigUpdateIntent = {
       type: "config_update",
+      operation: "write",
       file: "instructions.md",
       content: "new content",
     };
@@ -199,6 +210,7 @@ describe("registerConfigUpdateActionHandler — permissions", () => {
 
     const configIntent: StagedConfigUpdateIntent = {
       type: "config_update",
+      operation: "write",
       file: "instructions.md",
       content: "new content",
     };
@@ -299,6 +311,7 @@ describe("registerConfigUpdateActionHandler — success", () => {
     const handler = captureHandler();
     const configIntent: StagedConfigUpdateIntent = {
       type: "config_update",
+      operation: "write",
       file: "instructions.md",
       content: "new content",
     };
@@ -336,6 +349,7 @@ describe("registerConfigUpdateActionHandler — success", () => {
     const handler = captureHandler();
     const configIntent: StagedConfigUpdateIntent = {
       type: "config_update",
+      operation: "write",
       file: "dev/topics/metabase/rules.md",
       content: "metabase rules",
     };
@@ -364,6 +378,7 @@ describe("registerConfigUpdateActionHandler — write failure", () => {
     const handler = captureHandler();
     const configIntent: StagedConfigUpdateIntent = {
       type: "config_update",
+      operation: "write",
       file: "broken.md",
       content: "data",
     };

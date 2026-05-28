@@ -12,7 +12,9 @@ import type {
 } from "../types.js";
 import { DEFAULT_MAX_ADDITIONAL_MESSAGES } from "../../config.js";
 import { appendStagedIntents as _appendStagedIntents } from "../../sessions.js";
+import { readInstructionFile as _readInstructionFile } from "../../configurationFiles.js";
 import { textResult } from "../helpers.js";
+import { t } from "../../i18n/t.js";
 import { DISMISSAL_PHRASES_INLINE } from "../../claude/dismissalPhrases.js";
 import {
   getStructuredResponseBlocks as _getStructuredResponseBlocks,
@@ -483,6 +485,12 @@ export interface SubmitResponseDeps {
    * impl writes through `sessions.appendStagedIntents` (merge semantics).
    */
   appendStagedIntents?: (sessionId: string, intents: Record<string, StagedIntent>) => Promise<void>;
+  /**
+   * Reads an instruction file's default + custom content. Used to pick an
+   * operation-aware label for `config_update` actions that stage a delete intent
+   * (revert-to-default if a shipped default exists, otherwise delete-file).
+   */
+  readInstructionFile?: typeof _readInstructionFile;
 }
 
 /**
@@ -611,6 +619,34 @@ function validateRefActions(flat: FlatAction[], intentStore: IntentStore): strin
     }
   }
   return errors;
+}
+
+/**
+ * For each `config_update` action that has no explicit label, set the label based
+ * on the staged intent's operation:
+ *  - operation: "write" — leave label unset (blocks.ts defaults to "Apply Update")
+ *  - operation: "delete" — read the file's default; if a shipped default exists,
+ *    set label to "Remove Override"; otherwise set it to "Delete File".
+ *
+ * Mutates `action.label` in place. Runs after validation so we know every ref resolves.
+ */
+function stampConfigUpdateLabels(
+  flat: FlatAction[],
+  intentStore: IntentStore,
+  readInstructionFile: typeof _readInstructionFile,
+): void {
+  for (const { action } of flat) {
+    if (action.type !== "config_update") continue;
+    if (action.label) continue;
+    const intent = intentStore.resolve(action.ref);
+    if (!intent || intent.type !== "config_update") continue;
+    if (intent.operation !== "delete") continue;
+    const { default_content } = readInstructionFile(intent.file);
+    action.label =
+      default_content !== null
+        ? t("blocks.action_label_config_revert")
+        : t("blocks.action_label_config_delete");
+  }
 }
 
 function validatePostToActions(flat: FlatAction[], topLevelDeliveryChannel?: string): string[] {
@@ -1051,6 +1087,7 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
     validateActionButtonLabels = _validateActionButtonLabels,
     getResponseActionBlocks = _getResponseActionBlocks,
     appendStagedIntents = _appendStagedIntents,
+    readInstructionFile = _readInstructionFile,
   } = deps;
 
   const isSkippedMode = submitResponseMode === "skipped";
@@ -1209,6 +1246,11 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
           errors.length === 1 ? { error: errors[0] } : { error: "invalid_batch", details: errors },
         );
       }
+
+      // Pick operation-aware labels for `config_update` actions backed by a delete intent.
+      // Runs after validation (every ref is known to resolve) and before any rendering or
+      // persistence (so snapshots and rendered blocks see the final label).
+      stampConfigUpdateLabels(flatActions, intentStore, readInstructionFile);
 
       const message = "message" in args ? args.message : undefined;
       const payload: SubmitResponsePayload = {

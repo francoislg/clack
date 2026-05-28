@@ -248,6 +248,8 @@ export const fr: Partial<Record<StringKey, string>> = {
   "blocks.action_label_post_to": "Publier dans le fil",
   "blocks.action_label_change": "Démarrer le changement",
   "blocks.action_label_config_update": "Appliquer la modification",
+  "blocks.action_label_config_revert": "Retirer la personnalisation",
+  "blocks.action_label_config_delete": "Supprimer le fichier",
   "blocks.action_label_update": "Mettre à jour",
 
   // ─── Error blocks ──────────────────────────────────────────────────
@@ -292,6 +294,10 @@ export const fr: Partial<Record<StringKey, string>> = {
     "Bonjour ! Veuillez inclure une question en me mentionnant, ou mentionnez-moi dans un fil pour que je lise la conversation.",
   "errors.config_updated": "Le fichier de configuration `{file}` a été mis à jour.",
   "errors.config_update_failed": "Échec de mise à jour de `{file}` : {error}",
+  "errors.config_override_removed":
+    "La personnalisation de `{file}` a été retirée ; le fichier utilise maintenant la valeur par défaut.",
+  "errors.config_file_deleted": "`{file}` a été supprimé.",
+  "errors.config_delete_failed": "Échec de suppression de `{file}` : {error}",
   "errors.auto_execute_failed": "Échec de l'exécution automatique : {error}",
   "errors.auto_post_no_content":
     "Publication automatique impossible : contenu de la réponse introuvable.",
