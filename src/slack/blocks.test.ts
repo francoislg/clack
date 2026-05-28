@@ -1,4 +1,4 @@
-import { describe, it } from "vitest";
+import { describe, it, afterEach } from "vitest";
 import assert from "node:assert/strict";
 import {
   decodeActionValue,
@@ -8,10 +8,12 @@ import {
   getErrorBlocks,
   getErrorBlocksWithRetry,
   validateActionButtonLabels,
+  SLACK_BUTTON_LABEL_MAX,
 } from "./blocks.js";
 import type { Action, SubmitResponsePayload } from "../tools/types.js";
 import type { Block } from "./blockSchema.js";
 import type { ActionsBlock, Button, SectionBlock, DividerBlock } from "@slack/types";
+import { _setLanguageOverrideForTesting } from "../i18n/t.js";
 
 // ============================================================================
 // decodeActionValue
@@ -210,13 +212,99 @@ describe("validateActionButtonLabels", () => {
     assert.deepEqual(validateActionButtonLabels(blocks), []);
   });
 
-  it("flags labels over the 75-char limit", () => {
-    const longLabel = "a".repeat(76);
+  it(`accepts a label at exactly the ${SLACK_BUTTON_LABEL_MAX}-char limit`, () => {
+    const label = "a".repeat(SLACK_BUTTON_LABEL_MAX);
+    const actions: Action[] = [{ type: "followup", label, prompt: "p" }];
+    const blocks = getResponseActionBlocks(actions, "s1");
+    assert.deepEqual(validateActionButtonLabels(blocks), []);
+  });
+
+  it(`flags labels over the ${SLACK_BUTTON_LABEL_MAX}-char limit`, () => {
+    const overLength = SLACK_BUTTON_LABEL_MAX + 1;
+    const longLabel = "a".repeat(overLength);
     const actions: Action[] = [{ type: "followup", label: longLabel, prompt: "p" }];
     const blocks = getResponseActionBlocks(actions, "s1");
     const errors = validateActionButtonLabels(blocks);
     assert.equal(errors.length, 1);
-    assert.equal(errors[0].currentLength, 76);
-    assert.equal(errors[0].limit, 75);
+    assert.equal(errors[0].currentLength, overLength);
+    assert.equal(errors[0].limit, SLACK_BUTTON_LABEL_MAX);
   });
+
+  it("flags a label that used to be valid under the old 75-char Slack API limit", () => {
+    // Regression guard: under the previous 75-char limit a 50-char label was fine. The
+    // tightened 40-char visibility limit rejects it.
+    const label = "a".repeat(50);
+    const actions: Action[] = [{ type: "followup", label, prompt: "p" }];
+    const blocks = getResponseActionBlocks(actions, "s1");
+    const errors = validateActionButtonLabels(blocks);
+    assert.equal(errors.length, 1);
+    assert.equal(errors[0].limit, SLACK_BUTTON_LABEL_MAX);
+  });
+});
+
+// ============================================================================
+// defaultActionLabel length regression — covers both EN and FR dictionaries so
+// future i18n drift cannot push a default label past the visibility cap.
+// ============================================================================
+
+const ACTION_TYPES_WITH_DEFAULT_LABELS: Action["type"][] = [
+  "followup",
+  "choice",
+  "post_to",
+  "change",
+  "config_update",
+  "update",
+  "skill_create",
+  "skill_update",
+  "skill_disable",
+  "skill_restore",
+];
+
+// Builder for a minimal `Action` per type that elides the explicit label so the renderer
+// falls through to `defaultActionLabel`. `actionToButton` treats an empty-string label as
+// absent (it does `action.label || defaultActionLabel(...)`), which lets us provide a
+// type-checked empty label for variants whose Action type requires the field.
+function actionWithDefaultLabel(type: Action["type"]): Action {
+  switch (type) {
+    case "followup":
+      return { type, label: "", prompt: "p" };
+    case "choice":
+      return { type, label: "", value: "v" };
+    case "post_to":
+      return { type, blocks: [{ type: "divider" }] };
+    case "change":
+    case "config_update":
+    case "update":
+    case "skill_create":
+    case "skill_update":
+    case "skill_disable":
+    case "skill_restore":
+      return { type, ref: "ref-1" };
+  }
+}
+
+function buttonLabelFor(action: Action): string {
+  const blocks = getResponseActionBlocks([action], "s1");
+  const element = blocks[0]?.elements[0];
+  assert.ok(element && element.type === "button", `no button rendered for ${action.type}`);
+  return element.text.text;
+}
+
+describe("defaultActionLabel length (regression)", () => {
+  afterEach(() => {
+    _setLanguageOverrideForTesting(null);
+  });
+
+  for (const lang of ["en", "fr"] as const) {
+    for (const type of ACTION_TYPES_WITH_DEFAULT_LABELS) {
+      it(`${lang}: default label for "${type}" fits within ${SLACK_BUTTON_LABEL_MAX} chars`, () => {
+        _setLanguageOverrideForTesting(lang);
+        const label = buttonLabelFor(actionWithDefaultLabel(type));
+        assert.ok(
+          label.length <= SLACK_BUTTON_LABEL_MAX,
+          `default ${lang} label "${label}" (${label.length} chars) exceeds ${SLACK_BUTTON_LABEL_MAX}-char cap`,
+        );
+      });
+    }
+  }
 });
