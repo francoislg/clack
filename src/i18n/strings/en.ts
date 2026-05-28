@@ -197,6 +197,7 @@ export const en = {
     "Read-only — these are reconciled from plugin config. Edit `data/config.json` to change schedule/prompt; pause/resume from here.",
   "home.scheduled.paused_suffix": " _(paused)_",
   "home.scheduled.skipped_suffix": " _(last run skipped)_",
+  "home.scheduled.ran_without_responses_suffix": " _(ran without responses)_",
   "home.scheduled.one_time_suffix": " · _one-time_",
   "home.scheduled.plugin_suffix": " · _plugin: {plugin}_",
   "home.scheduled.pause": "Pause",

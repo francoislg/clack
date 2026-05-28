@@ -202,6 +202,7 @@ export const fr: Partial<Record<StringKey, string>> = {
     "Lecture seule — réconciliés depuis la config plugin. Modifiez `data/config.json` pour changer la programmation/le prompt ; pause/reprise depuis ici.",
   "home.scheduled.paused_suffix": " _(en pause)_",
   "home.scheduled.skipped_suffix": " _(dernière exécution ignorée)_",
+  "home.scheduled.ran_without_responses_suffix": " _(exécuté sans réponses)_",
   "home.scheduled.one_time_suffix": " · _ponctuel_",
   "home.scheduled.plugin_suffix": " · _plugin : {plugin}_",
   "home.scheduled.pause": "Pause",

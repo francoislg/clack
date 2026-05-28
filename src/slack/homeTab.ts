@@ -1641,7 +1641,9 @@ async function buildScheduledMessagesSection(
         : job.lastRunStatus === "error"
           ? " :warning:"
           : job.lastRunStatus === "skipped"
-            ? t("home.scheduled.skipped_suffix")
+            ? job.submitResponseMode === "skipped"
+              ? t("home.scheduled.ran_without_responses_suffix")
+              : t("home.scheduled.skipped_suffix")
             : "";
       const typeLabel = job.oneShot ? t("home.scheduled.one_time_suffix") : "";
       // userJobs filters out pluginManaged rows, so createdBy is always a real userId here.
@@ -1690,7 +1692,9 @@ async function buildScheduledMessagesSection(
         : job.lastRunStatus === "error"
           ? " :warning:"
           : job.lastRunStatus === "skipped"
-            ? t("home.scheduled.skipped_suffix")
+            ? job.submitResponseMode === "skipped"
+              ? t("home.scheduled.ran_without_responses_suffix")
+              : t("home.scheduled.skipped_suffix")
             : "";
       const ownerLabel = job.plugin
         ? t("home.scheduled.plugin_suffix", { plugin: job.plugin })
