@@ -50,6 +50,38 @@ ADMIN GUIDANCE — when get_ideas returns \`instructions\` and/or \`additionalIn
    - These rules are NOT visible to viewers in the final post — they shape what you write, not what you say. Don't echo them back ("As per the admin's instruction…"). Just apply them silently.`;
 
 /**
+ * Three shared gates referenced by every generation path. Printed ONCE at the top of
+ * `PER_SLOT_GENERATION_PATHS`; each path's step says "apply the X GATE" instead of
+ * restating the body. Done to shrink the rendered prompt without losing nuance.
+ */
+const DUPLICATE_CHECK_GATE = `DUPLICATE CHECK GATE (shared across all paths — invoke whenever a path step says "apply the DUPLICATE CHECK GATE"):
+   - Call \`find_previous_questions({ keywords: [3-5 distinctive terms from your statement], match: "any" })\`. Pick names, numbers, or rare nouns — words a duplicate of this fact would also have to contain in some framing. OMIT the \`games\` argument so the scan spans every game (a duplicate fact in a sibling game still counts).
+   - For each returned row, inspect \`matchedKeywords\` and the row's \`statement\` to decide whether it covers the SAME underlying fact in any framing or polarity (a TRUE statement and a FALSE statement about the same fact are still duplicates).
+   - If the result set is uninformatively wide (many rows hitting only a common word), re-call with sharper keywords.
+   - If any candidate is a duplicate, go back to the statement-writing step and write a different question. Iterate until unique.`;
+
+const DIFFICULTY_GATE = `DIFFICULTY GATE (REQUIRED — STRICT MEMBERSHIP — shared across all paths — invoke whenever a path step says "apply the DIFFICULTY GATE"):
+   Self-rate the question on the 1-10 scale. The ACCEPT RANGE is \`suggestedDifficultyRange\` \`[min, max]\` from get_ideas — the bucket's range IS the strict accept bound, there is no separate threshold. Freeform's bands are softer than boolean/choice's; the range from get_ideas already reflects this.
+
+   - Rating INSIDE \`[min, max]\` (inclusive) → proceed.
+   - Rating EXACTLY \`min - 1\` or \`max + 1\` (one point off, above or below) → REFRAME ONCE: rewrite the question to dial difficulty toward the range. Concrete levers:
+     - Too easy (rating below): swap a famous name/place for a less-iconic one; demand a mechanism or consequence rather than the headline fact; pick a more obscure detail of the same topic.
+     - Too hard (rating above): pick a more iconic example of the same category; lean on a famous date/place/person; state the consequence rather than the cause.
+     Re-rate v2 on the same 1–10 scale INDEPENDENTLY of the prior rating (don't anchor on "I made it easier so it must now be inside the range" — judge v2 fresh). Inside \`[min, max]\` → proceed; still outside the range (anywhere, not just ≥2 off) → REJECT and re-call get_ideas. Do NOT reframe a second time.
+   - Rating ≥2 points outside \`[min, max]\` (either direction) → REJECT immediately and re-call get_ideas for a fresh roll. Do NOT reframe — the topic is wrong, not the framing. Reframing a question rated 3 to fit a Hard bucket [8,10] produces forced, awkward questions.
+
+   Per-path reframe overrides (apply during REFRAME ONCE):
+   - BOOLEAN paths: IMMEDIATELY re-run the POLARITY SELF-CHECK on the reframed statement BEFORE re-rating. Reframing-by-detail-swap can silently flip a TRUE statement to FALSE — the polarity gate is what catches this. If polarity fails on the reframe, REJECT and re-call get_ideas (you've burned your retry; don't try a second reframe).
+   - CHOICE paths: the correct answer's POSITION stays LOCKED at \`suggestedCorrectIndex\` during reframe — rewrite only the question text or the distractors, never move the correct answer.
+   - FREEFORM paths: the canonical \`expectedAnswer\` may need updating if the reframe changes what the question is asking about.`;
+
+const STATEMENT_CHOICES_NON_OVERLAP_GATE = `STATEMENT–CHOICES NON-OVERLAP GATE (HARD CONSTRAINT — DO NOT SKIP — shared by all choice paths — invoke whenever a choice path step says "apply the STATEMENT–CHOICES NON-OVERLAP GATE"). The question statement MUST NOT name or substring any of the choices, correct or distractor. If a person, place, work, year, or value appears in the statement AND is also listed as an option, the statement is leaking — players who notice the overlap can read the answer off the question. Run this check explicitly after writing the choices: scan the statement for each choice string (and the entity each choice refers to, not just the literal text) and confirm zero overlap.
+     - DON'T: "Which driver won the 2026 Indy 500, edging out David Malukas by 0.0233s?" with choices including "David Malukas" — the runner-up appears in BOTH the statement and the options.
+     - DO: "Which driver won the 2026 Indy 500 in the closest finish in the race's history?" — runner-up details belong in the reveal patter, not in the question prompt.
+     - When a contextual detail (a co-star, an opponent, a fellow honoree, an event location) would be a natural distractor, you MUST CHOOSE: either keep it in the statement and drop it from the choices, OR keep it as a distractor and rewrite the statement to omit it. Never both. The cheaper fix is almost always to trim the statement.
+     - After any distractor-rewrite pass (from the plausibility gate), RE-RUN this check on the new distractor set before proceeding.`;
+
+/**
  * Shared step sequence for generating a new FACT-typed boolean trivia question.
  * Used by the scheduled question-posting prompt; kept as a single source so
  * future flows (e.g. an on-demand user-triggered generation) can compose from it.
@@ -91,33 +123,11 @@ const QUESTION_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
 
    If the answer is "no" — stop, return to step 2, and rewrite the statement with the correct polarity. Do NOT try to patch it with a small edit; rewrite. Only proceed to step 4 once the polarities match.
 
-4. CHECK FOR DUPLICATES:
-   - Call \`find_previous_questions({ keywords: [3-5 distinctive terms from your statement], match: "any" })\`. Pick names, numbers, or rare nouns — words a duplicate of this fact would also have to contain in some framing. OMIT the \`games\` argument so the scan spans every game (a duplicate fact in a sibling game still counts).
-   - For each returned row, inspect \`matchedKeywords\` and the row's \`statement\` to decide whether it covers the SAME underlying fact in any framing or polarity (a TRUE statement about a fact is still a duplicate of a FALSE statement about the same fact).
-   - If the result set is uninformatively wide (many rows matching only on a common word), re-call with sharper keywords.
-   - If any candidate is a duplicate, go back to step 2 and write a different statement. Keep iterating until you have a truly unique statement.
+4. CHECK FOR DUPLICATES: apply the DUPLICATE CHECK GATE (shared definition above). If any candidate is a duplicate, go back to step 2 and write a different statement.
 
 5. VALIDATE through research that the statement's actual truth matches suggestedAnswer (true → actually true; false → actually false). If validation reveals a mismatch (e.g. a "false" statement turned out to be accidentally true, or vice versa), return to step 2 and rewrite — do not patch.
 
-6. DIFFICULTY RATING (REQUIRED GATE — STRICT MEMBERSHIP):
-   Self-rate the question on the 1-10 scale. The ACCEPT RANGE is \`suggestedDifficultyRange\` \`[min, max]\` (the range get_ideas returned for THIS game type's bucket). The bucket's range IS the accept bound — there is no separate threshold.
-
-   Apply EXACTLY these three rules:
-
-   a) If your rating is INSIDE \`[min, max]\` (inclusive) → proceed to step 7.
-
-   b) If your rating is EXACTLY \`min - 1\` or \`max + 1\` (one point off the range, above or below) → REFRAME ONCE:
-      - Rewrite the question to dial difficulty toward the range. Concrete levers:
-        - Too easy (rating below): swap a famous name/place for a less-iconic one; demand a mechanism or consequence rather than the headline fact; pick a more obscure detail of the same topic.
-        - Too hard (rating above): pick a more iconic example of the same category; lean on a famous date/place/person; state the consequence rather than the cause.
-      - IMMEDIATELY re-run the POLARITY SELF-CHECK (step 3) on the reframed statement before re-rating. Reframing-by-detail-swap can silently flip a TRUE statement to FALSE — the polarity gate is what catches this. If polarity fails on the reframe, REJECT and re-call get_ideas (don't try a second reframe; you've burned your retry).
-      - If polarity passes, re-rate the new version on the same 1–10 scale INDEPENDENTLY of the prior rating (don't anchor on "I made it easier so it must now be inside the range" — judge v2 fresh).
-      - If the new rating is INSIDE \`[min, max]\` → proceed to step 7.
-      - If the new rating is STILL OUTSIDE the range (anywhere outside, not just ≥2 off) → REJECT and re-call get_ideas for a fresh roll. Do NOT reframe a second time.
-
-   c) If your rating is TWO OR MORE points outside \`[min, max]\` (either direction) → REJECT immediately and re-call get_ideas for a fresh roll. Do NOT reframe — the topic is wrong, not the framing. Reframing a question rated 3 to fit a Hard bucket [8,10] produces forced, awkward questions.
-
-   ONLY PROCEED TO STEP 7 when the rating (v1 or v2 after one reframe) lies inside \`[min, max]\`.
+6. DIFFICULTY RATING: apply the DIFFICULTY GATE (shared definition above) — BOOLEAN reframe rule applies (re-run the POLARITY SELF-CHECK from step 3 on any reframed statement before re-rating).
 
 7. Choose fun emojis that relate to the topic.
 
@@ -156,6 +166,8 @@ const CHOICE_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
      - If the topic naturally suggests a date question ("when did X happen?"), reframe to WHAT happened, WHO did it, WHERE it happened, or WHY it mattered.
      - This rule overrides "use what you researched" — if your research only surfaces date-anchored facts about this category, re-call \`get_ideas\` for a different category rather than writing a year question.
 
+   After writing the choices, apply the STATEMENT–CHOICES NON-OVERLAP GATE (shared definition above).
+
 3. DISTRACTOR PLAUSIBILITY GATE (REQUIRED — DO NOT SKIP):
    Rate each option (correct + every distractor) 1–10 on "how plausible does this sound as the correct answer to someone who doesn't know the topic" (NOT "how true is it"). Apply ALL FOUR conditions:
    - (a) correct answer plausibility ≥ 5 — it must be defensible (a correct answer that scores 3/10 plausibility is one no one would even consider).
@@ -165,17 +177,9 @@ const CHOICE_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
 
    If ANY condition fails, REWRITE ONLY THE FAILING DISTRACTOR(S), never the correct answer. Repeat the gate. Retry budget: 3 distractor-rewrite passes per question. If the gate still fails after 3 passes, ABANDON this question and re-roll from get_ideas with a fresh suggestedCorrectIndex.
 
-4. CHECK FOR DUPLICATES:
-   - Call \`find_previous_questions({ keywords: [3-5 distinctive terms from the statement], match: "any" })\`. Pick names, numbers, or rare nouns. OMIT the \`games\` argument so the scan spans every game.
-   - Inspect each returned row's \`matchedKeywords\` and \`statement\`. A duplicate counts no matter the framing or polarity. If the result is noisy (many rows hitting only a common word), re-call with sharper keywords.
-   - If any candidate is a duplicate, go back to step 2 and write a different question.
+4. CHECK FOR DUPLICATES: apply the DUPLICATE CHECK GATE (shared definition above). If any candidate is a duplicate, go back to step 2 and write a different question.
 
-5. DIFFICULTY GATE (REQUIRED — STRICT MEMBERSHIP):
-   Self-rate the question as a whole on the 1–10 scale. The ACCEPT RANGE is \`suggestedDifficultyRange\` \`[min, max]\` from get_ideas. The bucket's range IS the accept bound — there is no separate threshold.
-
-   - Rating INSIDE \`[min, max]\` → proceed.
-   - Rating EXACTLY \`min - 1\` or \`max + 1\` → REFRAME ONCE: rewrite the question to dial difficulty toward the range (swap iconic↔obscure example, demand mechanism vs. headline fact, etc.). The correct answer's POSITION is still LOCKED at \`suggestedCorrectIndex\` — only rewrite the question text or the distractors, never move the correct answer. Re-rate v2 independently. If v2 lands inside \`[min, max]\` → proceed. If still outside → REJECT and re-call get_ideas (don't reframe twice).
-   - Rating TWO OR MORE points outside \`[min, max]\` (either direction) → REJECT immediately and re-call get_ideas. Don't reframe — the topic is wrong, not the framing.
+5. DIFFICULTY GATE: apply the DIFFICULTY GATE (shared definition above) — CHOICE reframe rule applies (correct answer's POSITION stays LOCKED at \`suggestedCorrectIndex\` during reframe; rewrite only the question text or distractors).
 
 6. Choose 1-4 fun emojis that relate to the topic.
 
@@ -195,23 +199,15 @@ const CHOICE_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
    - Store the returned questionId AND its slot.index for the post step.`;
 
 /**
- * Topical-boolean flow: prefixes a WebSearch research step in front of the
- * fact-boolean gates. The polarity / duplicate-check / difficulty / save gates
- * are otherwise identical, but `save_question` carries `questionType: "topical"`
- * + the captured `sourceUrl` (and optional `eventDate`).
+ * Topical-boolean flow: deltas from FACT-BOOLEAN PATH. The polarity self-check,
+ * duplicate check, difficulty gate, and save sequence are inherited; only the
+ * WebSearch research step and a few save fields differ.
  */
-const TOPICAL_BOOLEAN_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
-   - Call get_ideas. For the TOPICAL BOOLEAN PATH, it returns:
-     - categories.ideas: 5 random categories.
-     - suggestedAnswersFormat: "boolean"
-     - suggestedQuestionType: "topical"
-     - suggestedAnswer (boolean): the truth value the final statement MUST have.
-     - suggestedDifficulty ("Easy" | "Medium" | "Hard"): the bucket to aim at.
-     - suggestedDifficultyRange ([min, max]): the strict 1–10 accept range for the rolled bucket on THIS game type — used at step 6.
-     - contextPriority (optional, only when contexts are configured): see CONTEXTS guidance above.
-   - Pick one category from categories.ideas.
+const TOPICAL_BOOLEAN_FLOW_STEPS = `Follow the FACT-BOOLEAN PATH (above) with the following deltas. All gates (polarity self-check, DUPLICATE CHECK GATE, DIFFICULTY GATE) apply IDENTICALLY — only the get_ideas payload signals topical, a WebSearch research step is prepended, and the save call carries topical-specific fields.
 
-2. RESEARCH A RECENT EVENT VIA WebSearch (REQUIRED — DO NOT SKIP):
+1. GET CATEGORY IDEAS AND SUGGESTIONS: same as FACT-BOOLEAN step 1. The payload additionally carries \`suggestedQuestionType: "topical"\` (and \`suggestedAnswersFormat: "boolean"\`), signaling this path.
+
+2. RESEARCH A RECENT EVENT VIA WebSearch (NEW STEP — REQUIRED — DO NOT SKIP):
    - Compose a WebSearch query that combines the chosen category, the chosen lens from contextPriority[0] (if applicable), and a recency hint (e.g. "this week", "yesterday", "last few days", a recent year).
    - Aim for events from the last day or two. Go back further (up to a week) only if nothing notable surfaced from the most recent days.
    - Pick ONE specific newsworthy event from the results to anchor the question on. Capture:
@@ -219,89 +215,48 @@ const TOPICAL_BOOLEAN_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
      - eventDate (optional but encouraged): the ISO 8601 date (YYYY-MM-DD) the event occurred, when easy to determine.
    - If the current lens (contextPriority[0]) yielded no usable event, descend per the CONTEXTS guidance. If every lens fails, re-call get_ideas.
 
-3. WRITE A STATEMENT WITH THE CORRECT POLARITY FROM THE START:
-   Branch on suggestedAnswer — do NOT write a true statement and try to flip it later.
-   - If suggestedAnswer is TRUE: state a verified true fact drawn from the event.
-   - If suggestedAnswer is FALSE: write a plausible-sounding FALSE statement about the event — swap a date, a name, a place, or a number to something subtly incorrect; or assert a tempting misconception about the event that is contradicted by the actual reporting.
-   Aim inside \`suggestedDifficultyRange\` (the inclusive 1–10 band get_ideas returned for THIS game type's bucket).
+3. WRITE A STATEMENT WITH THE CORRECT POLARITY FROM THE START: same approach as FACT-BOOLEAN step 2 (Branch on suggestedAnswer; do NOT write a true statement and try to flip it later), but anchored on the event captured in step 2. For FALSE statements, the event-specific levers are: swap a date, a name, a place, or a number to something subtly incorrect; or assert a tempting misconception about the event that the actual reporting contradicts.
 
-4. POLARITY SELF-CHECK (REQUIRED GATE):
-   - "suggestedAnswer was: <true | false>"
-   - "My statement asserts something that is actually: <true | false>"
-   - "Do these match? <yes | no>"
-   If "no", rewrite the statement from step 3.
+4. POLARITY SELF-CHECK: same as FACT-BOOLEAN step 3.
 
-5. CHECK FOR DUPLICATES:
-   - Call \`find_previous_questions({ keywords: [3-5 distinctive terms from the event/statement], match: "any" })\`. OMIT the \`games\` argument so the scan spans every game.
-   - Inspect each returned row's \`matchedKeywords\` and \`statement\`. If the same event was already asked about — even with different polarity or angle — pick a different event from your WebSearch results (or re-search).
+5. CHECK FOR DUPLICATES: apply the DUPLICATE CHECK GATE (shared definition above), using keywords drawn from the event/statement. If the same event was already asked about — even with different polarity or angle — pick a different event from your WebSearch results (or re-search).
 
-6. DIFFICULTY GATE (REQUIRED — STRICT MEMBERSHIP): same rules as the fact-boolean path. Rating INSIDE \`suggestedDifficultyRange\` → proceed; ±1 off → reframe ONCE (then re-run polarity self-check on the reframed statement before re-rating); ≥2 off OR reframe still outside → REJECT and re-call get_ideas.
+6. DIFFICULTY GATE: apply the DIFFICULTY GATE (shared definition above) — BOOLEAN reframe rule applies (re-run polarity self-check on any reframed statement before re-rating).
 
 7. Choose 1-4 fun emojis related to the event/topic.
 
-8. SAVE TO DATABASE:
-   - Call save_question with:
-     - answersFormat: "boolean"
-     - questionType: "topical"
-     - category (from get_ideas)
-     - statement (your trivia statement)
-     - isTrue (boolean)
-     - sourceUrl (REQUIRED — the https:// URL you captured in step 2)
-     - eventDate (when known — YYYY-MM-DD)
-     - emojis
-     - suggestedDifficulty
-     - difficulty (your self-rating)
-     - context (the lens you used, when non-empty)
-     - slot: \`{ index: i }\` — REQUIRED when the active season has a format. MUST be OMITTED when format is null.
-   - Store the returned questionId AND its slot.index for the post step.`;
+8. SAVE TO DATABASE: same as FACT-BOOLEAN step 8, with these field differences:
+   - \`questionType: "topical"\` (instead of \`"fact"\`)
+   - \`sourceUrl\` (REQUIRED — the https:// URL captured in step 2)
+   - \`eventDate\` (optional — YYYY-MM-DD when known)
+   All other save fields (\`answersFormat: "boolean"\`, category, statement, isTrue, emojis, suggestedDifficulty, difficulty, context, slot) are identical to the fact-boolean save.`;
 
 /**
- * Topical-choice flow: prefixes a WebSearch research step in front of the
- * fact-choice distractor / difficulty gates.
+ * Topical-choice flow: deltas from FACT-CHOICE PATH. The distractor plausibility
+ * gate, statement-choices non-overlap gate, duplicate check, and difficulty gate
+ * are inherited; only the WebSearch research step and a few save fields differ.
  */
-const TOPICAL_CHOICE_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
-   - Call get_ideas. For the TOPICAL CHOICE PATH, it returns:
-     - categories.ideas: 5 random categories.
-     - suggestedAnswersFormat: "choice"
-     - suggestedQuestionType: "topical"
-     - suggestedChoiceCount (integer): the number of options the question MUST have.
-     - suggestedCorrectIndex (integer in [0, suggestedChoiceCount)): the index where the correct answer MUST be placed.
-     - suggestedDifficulty ("Easy" | "Medium" | "Hard"): the bucket to aim at.
-     - suggestedDifficultyRange ([min, max]): the strict 1–10 accept range for the rolled bucket on THIS game type — used at step 6.
-     - contextPriority (optional, only when contexts are configured): see CONTEXTS guidance above.
-   - Pick one category from categories.ideas.
+const TOPICAL_CHOICE_FLOW_STEPS = `Follow the FACT-CHOICE PATH (above) with the following deltas. All gates (DISTRACTOR PLAUSIBILITY GATE, STATEMENT–CHOICES NON-OVERLAP GATE, DUPLICATE CHECK GATE, DIFFICULTY GATE) apply IDENTICALLY — only the get_ideas payload signals topical, a WebSearch research step is prepended, and the save call carries topical-specific fields.
 
-2. RESEARCH A RECENT EVENT VIA WebSearch (REQUIRED — DO NOT SKIP):
-   - Same WebSearch + lens-descent rules as the topical boolean path. Capture sourceUrl and (when known) eventDate from the chosen event.
+1. GET CATEGORY IDEAS AND SUGGESTIONS: same as FACT-CHOICE step 1. The payload additionally carries \`suggestedQuestionType: "topical"\` (and \`suggestedAnswersFormat: "choice"\`), signaling this path.
 
-3. WRITE THE CORRECT ANSWER FIRST (REQUIRED — NEVER SHIFT THE CORRECT POSITION):
-   - Anchor the correct option on a verified fact drawn from the event. This option occupies suggestedCorrectIndex.
-   - Write (suggestedChoiceCount − 1) plausible distractors — confident-sounding wrong options drawn from the same news domain (e.g. other people in the story, other recent similar events, related-but-wrong dates/places/numbers).
+2. RESEARCH A RECENT EVENT VIA WebSearch (NEW STEP — REQUIRED — DO NOT SKIP): same WebSearch + lens-descent rules as the TOPICAL-BOOLEAN PATH step 2 (compose query from category + lens + recency hint; aim for the last day or two, fall back up to a week; pick one event; capture \`sourceUrl\` (https://) and optional \`eventDate\` (YYYY-MM-DD); descend lenses or re-call get_ideas on failure).
 
-4. DISTRACTOR PLAUSIBILITY GATE (REQUIRED): same four-condition rule as the fact-choice path. Rewrite only failing distractors, never the correct answer. 3-pass retry budget; otherwise re-roll from get_ideas.
+3. WRITE THE CORRECT ANSWER FIRST: same as FACT-CHOICE step 2 — the correct option anchored on a verified fact drawn from the event, occupying \`suggestedCorrectIndex\` (POSITION LOCKED — MUST NOT be moved later). Then write (suggestedChoiceCount − 1) plausible distractors drawn from the same news domain (e.g. other people in the story, other recent similar events, related-but-wrong dates/places/numbers). Apply the STATEMENT–CHOICES NON-OVERLAP GATE (shared definition above) — and note that WebSearch payloads love surfacing the runner-up / co-star / opponent right next to the winner, which is exactly the wrong thing to keep in the statement when you also list it as an option.
 
-5. CHECK FOR DUPLICATES: same as topical boolean path.
+4. DISTRACTOR PLAUSIBILITY GATE: same as FACT-CHOICE step 3.
 
-6. DIFFICULTY GATE (REQUIRED — STRICT MEMBERSHIP): same rules as the fact-choice path. Rating INSIDE \`suggestedDifficultyRange\` → proceed; ±1 off → reframe ONCE (correct-answer position stays locked at \`suggestedCorrectIndex\` during reframe — only the question text or distractors change); ≥2 off OR reframe still outside → REJECT and re-call get_ideas.
+5. CHECK FOR DUPLICATES: apply the DUPLICATE CHECK GATE (shared definition above), using keywords drawn from the event/statement. If the same event was already asked about, pick a different event from your WebSearch results (or re-search).
+
+6. DIFFICULTY GATE: apply the DIFFICULTY GATE (shared definition above) — CHOICE reframe rule applies.
 
 7. Choose 1-4 fun emojis.
 
-8. SAVE TO DATABASE:
-   - Call save_question with:
-     - answersFormat: "choice"
-     - questionType: "topical"
-     - category
-     - statement (single-sentence question prompt)
-     - choices (array; correct answer at suggestedCorrectIndex)
-     - correctIndex (MUST equal suggestedCorrectIndex)
-     - sourceUrl (REQUIRED)
-     - eventDate (when known)
-     - emojis
-     - suggestedDifficulty
-     - difficulty
-     - context (the lens you used, when non-empty)
-     - slot: \`{ index: i }\` — REQUIRED when the active season has a format.
-   - Store the returned questionId for the post step.`;
+8. SAVE TO DATABASE: same as FACT-CHOICE step 7, with these field differences:
+   - \`questionType: "topical"\` (instead of \`"fact"\`)
+   - \`sourceUrl\` (REQUIRED — the https:// URL captured in step 2)
+   - \`eventDate\` (optional — YYYY-MM-DD when known)
+   All other save fields (\`answersFormat: "choice"\`, category, statement, choices, correctIndex, emojis, suggestedDifficulty, difficulty, context, slot) are identical to the fact-choice save.`;
 
 /**
  * Fact-freeform flow: Claude writes a statement plus a canonical expectedAnswer.
@@ -354,17 +309,9 @@ const FREEFORM_FACT_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
    - Notes refine the judge; they do NOT override the expected answer. Omit when not needed.
    - REQUIRED when step 2 stated a date/number tolerance (always required for \`date\` shape — see LEEWAY above): restate the EXACT tolerance here in absolute terms anchored on \`expectedAnswer\` — e.g. "Accept any year in [1939, 1949] (±5 of 1944)." The judge follows this strictly, so be precise.
 
-6. DUPLICATE CHECK:
-   - Call \`find_previous_questions({ keywords: [3-5 distinctive terms from the statement], match: "any" })\`. OMIT the \`games\` argument so the scan spans every game.
-   - Inspect each returned row's \`matchedKeywords\` and \`statement\`. A duplicate counts no matter the framing.
-   - If any candidate is a duplicate, go back to step 2.
+6. DUPLICATE CHECK: apply the DUPLICATE CHECK GATE (shared definition above). If any candidate is a duplicate, go back to step 2.
 
-7. DIFFICULTY GATE (REQUIRED — STRICT MEMBERSHIP):
-   Self-rate 1–10. The ACCEPT RANGE is \`suggestedDifficultyRange\` \`[min, max]\` from get_ideas (freeform bands sit lower than boolean/choice — a freeform "Hard" might be [7, 8], not [9, 10]). The bucket's range IS the accept bound.
-
-   - Rating INSIDE \`[min, max]\` → proceed.
-   - Rating EXACTLY \`min - 1\` or \`max + 1\` → REFRAME ONCE (rewrite the question to dial difficulty toward the range; the canonical \`expectedAnswer\` may also need updating if you change the question). Re-rate v2 independently. INSIDE → proceed; still outside → REJECT and re-call get_ideas.
-   - Rating ≥2 off (either direction) → REJECT immediately and re-call get_ideas.
+7. DIFFICULTY GATE: apply the DIFFICULTY GATE (shared definition above) — FREEFORM reframe rule applies (canonical \`expectedAnswer\` may need updating if the reframe changes what the question is asking about).
 
 8. Choose 1-4 fun emojis.
 
@@ -436,26 +383,46 @@ const FREEFORM_TOPICAL_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
      - slot: \`{ index: i }\` — REQUIRED when the active season has a format.
    - Store the returned questionId for the post step.`;
 
-export const SEND_QUESTIONS_INSTRUCTIONS = `${PERSONA_TOPIC_REFERENCE}
+/**
+ * Staged-pool check + per-slot fill loop dispatch. Shared between PREP and POST.
+ * Both prompts open with this section: read what's already staged, learn the format,
+ * determine which slot indices still need a question. The downstream behavior diverges
+ * (PREP saves and exits; POST renders and posts) but the entry sequence is identical.
+ */
+const STAGED_POOL_CHECK_AND_DISPATCH = `STAGED POOL CHECK (REQUIRED FIRST STEP):
+   1. Call \`find_previous_questions({ games: ["{game}"], seasons: ["current"], posted: false, match: "all" })\`.
+      The response lists every question already pre-staged for this game in the current season —
+      these are questions that were generated and saved but have not yet been posted to Slack
+      (\`postedAt\` is undefined).
+   2. Call \`get_ideas({ game: "{game}" })\` (no slot arg). Inspect the response's \`format\` field — it dispatches the OUTER flow:
 
-${GAME_CONTEXT_DIRECTIVE}
+- \`format: null\` → SINGLE-QUESTION FLOW. The active season has no format. ONE question per fire.
+- \`format: { slotCount: N, slots: [...] }\` → MULTI-SLOT FLOW. The active season has a format with N slots.
 
-Create today's trivia question(s). Begin with ONE call to \`get_ideas({ game: "{game}" })\` (no slot arg). Inspect the response's \`format\` field — it dispatches the OUTER flow:
+PER-SLOT FILL LOOP (REQUIRED — applies to BOTH flows; for \`format: null\` treat as one slot at index 0):
 
-- \`format: null\` → SINGLE-QUESTION FLOW. The active season has no format. Run the question-generation flow ONCE using this first \`get_ideas\` payload's \`suggestedAnswersFormat\` / \`suggestedQuestionType\` / \`suggestedAnswer\` / etc. Then format the question card and call \`post_questions\` with ONE item.
+   For each slot index \`i\` in \`[0..slotCount-1]\` (slotCount = 1 when \`format: null\`):
+   - Check the staged-pool response from step 1 for a question with \`slot.index === i\` (or with no \`slot\` field when \`format: null\`):
+     - If multiple staged questions match this slot, the OLDEST by \`createdAt\` is the one to use later.
+     - When a staged question covers this slot, do NOT regenerate — that slot is already FILLED.
+   - When no staged question covers this slot, the slot is MISSING. Generate one now:
+     1. For \`i === 0\` in MULTI-SLOT FLOW: reuse the OPENING \`get_ideas\` payload from step 2 above.
+        For \`i >= 1\` in MULTI-SLOT FLOW: make a FRESH \`get_ideas({ game: "{game}", slot: i })\` call. Do NOT reuse slot 0's rolls — each slot must roll its own. (Pre-rolling all suggestions up front is forbidden.)
+        For SINGLE-QUESTION FLOW: reuse the step-2 payload.
+     2. In MULTI-SLOT FLOW, read \`format.slots[i].label\` as a creative HINT for this slot's flavor (e.g. "Lightning Round", "Historical Choice") — set your tone for this slot, but do NOT copy the label literally into the question text.
+     3. Run the per-slot generation flow below (6-way branch on \`suggestedAnswersFormat\` × \`suggestedQuestionType\`) for THIS slot.
+     4. When saving, pass \`slot: { index: i }\` to \`save_question\` when \`format\` is non-null. Store the returned \`questionId\` paired with \`i\`.
+     5. SAVE BEFORE ADVANCING. The \`save_question\` call for slot \`i\` MUST complete before you call \`get_ideas\` (or do any other work) for slot \`i+1\`. Do NOT batch saves at the end of the loop, and do NOT carry multiple un-saved drafts forward — finish slot \`i\` (gen + save) as a unit, then start slot \`i+1\` fresh.
+   - When a slot was already FILLED from the staged pool, no \`get_ideas\` call is needed for that slot — the staged record carries its own resolved values from when it was generated.
 
-- \`format: { slotCount: N, slots: [...] }\` → MULTI-SLOT FLOW. The active season has a format with N slots. For \`i\` from 0 to N-1:
-  1. Use the get_ideas payload that corresponds to slot \`i\`:
-     - For \`i === 0\`: use the OPENING get_ideas payload (it rolled for slot 0 by default).
-     - For \`i >= 1\`: make a FRESH \`get_ideas({ game: "{game}", slot: i })\` call. Do NOT reuse slot 0's rolls — each slot must roll its own. (Pre-rolling all suggestions up front is forbidden.)
-  2. Read \`format.slots[i].label\` as a creative HINT for this slot's flavor (e.g. "Lightning Round", "Historical Choice") — set your tone for this slot, but do NOT copy the label literally into the question text.
-  3. Run the question-generation flow below (6-way branch on \`suggestedAnswersFormat\` × \`suggestedQuestionType\`) for THIS slot.
-  4. When saving, pass \`slot: { index: i }\` to \`save_question\`. Store the returned \`questionId\` paired with \`i\` for the post step.
-  Repeat until all N slots have been generated and saved. Then build the question cards (one set of blocks per slot, in slot order) and call \`post_questions\` ONCE with an N-item \`items\` array.
+Repeat until every slot index in \`[0..slotCount-1]\` is covered (either FILLED from the pool or freshly saved).`;
 
-${CONTEXT_PRIORITY_PREAMBLE}
-
-In both flows, per-question/per-slot generation DISPATCHES on a 2-axis matrix: \`suggestedAnswersFormat\` × \`suggestedQuestionType\` — producing six paths:
+/**
+ * The six per-slot generation paths (FACT × BOOLEAN/CHOICE/FREEFORM and TOPICAL × same).
+ * Shared verbatim between PREP and POST — both prompts include this content as the
+ * substantive generation guidance for any slot that needs to be freshly written.
+ */
+const PER_SLOT_GENERATION_PATHS = `Per-question/per-slot generation DISPATCHES on a 2-axis matrix: \`suggestedAnswersFormat\` × \`suggestedQuestionType\` — producing six paths:
 
 | | \`suggestedAnswersFormat: "boolean"\` | \`suggestedAnswersFormat: "choice"\` | \`suggestedAnswersFormat: "freeform"\` |
 |---|---|---|---|
@@ -467,6 +434,14 @@ All three topical paths REQUIRE the \`WebSearch\` tool to find a recent newswort
 The freeform paths produce an answer the user TYPES (into a Slack modal). Claude writes the canonical \`expectedAnswer\` and optional \`acceptableAnswers\` / \`gradingNotes\` at save time. A small fast model judges submissions at reveal — the judge automatically rejects multi-guess "shotgun" answers (e.g. "Paris or London") as incorrect, so the canonical answer must be a single concrete value.
 
 Duplicate detection is intentionally CROSS-GAME and is not slot-scoped — a question that appeared in slot 0 yesterday is still a duplicate if it shows up in slot 2 today, and a duplicate fact in a sibling game still counts. Always call \`find_previous_questions\` with \`keywords: [...]\` + \`match: "any"\`, OMITTING the \`games\` argument; do NOT filter by slot.
+
+=== SHARED GATES (referenced by every path below — read once, apply wherever a path step says "apply the X GATE") ===
+
+${DUPLICATE_CHECK_GATE}
+
+${DIFFICULTY_GATE}
+
+${STATEMENT_CHOICES_NON_OVERLAP_GATE}
 
 === FACT-BOOLEAN PATH (per question / per slot) ===
 
@@ -490,9 +465,15 @@ ${FREEFORM_FACT_FLOW_STEPS}
 
 === TOPICAL-FREEFORM PATH (per question / per slot) ===
 
-${FREEFORM_TOPICAL_FLOW_STEPS}
+${FREEFORM_TOPICAL_FLOW_STEPS}`;
 
-=== FORMAT & POST (BOTH FLOWS, BOTH PATHS) ===
+/**
+ * The presentation half of the post-cron prompt — opener gating, card layout, post + retry,
+ * end-of-run. POST_QUESTIONS_INSTRUCTIONS pulls this in after the staged-pool check and the
+ * per-slot generation paths; PREP_QUESTIONS_INSTRUCTIONS does NOT include any of it (prep
+ * never posts).
+ */
+const FORMAT_AND_POST_SECTION = `=== FORMAT & POST (BOTH FLOWS, BOTH PATHS) ===
 
 NEW-SEASON OPENER (applies to BOTH outer flows, BEFORE building the per-question card blocks):
 
@@ -574,7 +555,7 @@ General emoji rule (re-emphasized): the opener's header MUST use Unicode emoji (
      - **boolean** → two buttons labeled \`👍 TRUE\` and \`👎 FALSE\` (TRUE first, FALSE second — order matches the boolean's \`isTrue\` mapping).
      - **choice** → \`choices.length\` buttons labeled \`1️⃣ <choice0>\`, \`2️⃣ <choice1>\`, … in the stored \`choices\` array order. The button's index IS the vote — keep the array order stable.
      - **freeform** → one \`Answer\` button that opens a Slack modal for the user to type their guess.
-   - **Choice-question button-cap warning.** Slack's \`button.text\` field caps at roughly 75 characters; long choice strings will truncate inside the button. If a choice exceeds ~75 chars OR is hard to read without context, keep the full prose in the card \`body\` (e.g. "Which of these is the largest ocean?") and let the button label render the numbered shortcut alone (1️⃣ Pacific, 2️⃣ Atlantic, …). The button label is the option text — disambiguation belongs in the body, not in the button.
+   - **Choice-label length cap.** \`save_question\` rejects any choice longer than 40 characters (after trim). Keep each choice label short and self-contained — if the option needs more prose to be intelligible, put the disambiguating context in the card \`body\` (e.g. "Which of these is the largest ocean?") and let the button label render just the option (1️⃣ Pacific, 2️⃣ Atlantic, …). The button label is the option text — disambiguation belongs in the body, not in the button.
    - You do NOT add a button block, an "answer options" section, or any inline "TRUE • FALSE" / "1️⃣ … • 2️⃣ …" text — the buttons ARE the affordance. Adding them yourself duplicates what the tool appends.
 
 10. POST THE QUESTION(S):
@@ -593,6 +574,91 @@ General emoji rule (re-emphasized): the opener's header MUST use Unicode emoji (
     Call \`submit_response({ skip_response: true })\` to terminate the run cleanly. No user-facing reply is needed — the trivia question itself is the deliverable.
 
 The goal is to make people pause and think — aim for questions that are interesting and non-obvious, but not impossibly obscure. The exact target is \`suggestedDifficultyRange\` returned by get_ideas (the bucket's per-game-type band).`;
+
+/**
+ * Legacy combined-gen-and-post prompt. Driven by the question cron of any game that does
+ * NOT have a `prepCron` configured. Behavior is unchanged from before the prep/post split:
+ * Claude generates ONE batch of questions and posts them in a single cron fire. Games with
+ * `prepCron` set use the new `POST_QUESTIONS_INSTRUCTIONS` (which adds a staged-pool check
+ * + inline-gen fallback) for their question cron, and `PREP_QUESTIONS_INSTRUCTIONS` for the
+ * prep cron.
+ */
+export const SEND_QUESTIONS_INSTRUCTIONS = `${PERSONA_TOPIC_REFERENCE}
+
+${GAME_CONTEXT_DIRECTIVE}
+
+Create today's trivia question(s). Begin with ONE call to \`get_ideas({ game: "{game}" })\` (no slot arg). Inspect the response's \`format\` field — it dispatches the OUTER flow:
+
+- \`format: null\` → SINGLE-QUESTION FLOW. The active season has no format. Run the question-generation flow ONCE using this first \`get_ideas\` payload's \`suggestedAnswersFormat\` / \`suggestedQuestionType\` / \`suggestedAnswer\` / etc. Then format the question card and call \`post_questions\` with ONE item.
+
+- \`format: { slotCount: N, slots: [...] }\` → MULTI-SLOT FLOW. The active season has a format with N slots. For \`i\` from 0 to N-1:
+  1. Use the get_ideas payload that corresponds to slot \`i\`:
+     - For \`i === 0\`: use the OPENING get_ideas payload (it rolled for slot 0 by default).
+     - For \`i >= 1\`: make a FRESH \`get_ideas({ game: "{game}", slot: i })\` call. Do NOT reuse slot 0's rolls — each slot must roll its own. (Pre-rolling all suggestions up front is forbidden.)
+  2. Read \`format.slots[i].label\` as a creative HINT for this slot's flavor (e.g. "Lightning Round", "Historical Choice") — set your tone for this slot, but do NOT copy the label literally into the question text.
+  3. Run the question-generation flow below (6-way branch on \`suggestedAnswersFormat\` × \`suggestedQuestionType\`) for THIS slot.
+  4. When saving, pass \`slot: { index: i }\` to \`save_question\`. Store the returned \`questionId\` paired with \`i\` for the post step.
+  Repeat until all N slots have been generated and saved. Then build the question cards (one set of blocks per slot, in slot order) and call \`post_questions\` ONCE with an N-item \`items\` array.
+
+${CONTEXT_PRIORITY_PREAMBLE}
+
+${PER_SLOT_GENERATION_PATHS}
+
+${FORMAT_AND_POST_SECTION}`;
+
+/**
+ * PREP-cron prompt — gen-only, never posts. Drives the `<game>:prep` cron spec when the
+ * game has `prepCron` configured. Claude reads the staged pool first, learns the format,
+ * and only generates questions for slot indices that are MISSING. Terminates with
+ * `submit_response({ skip_response: true })` after the last save — there is no rendering
+ * step, no `post_questions` call, no Slack delivery. The cron spec is channelless AND
+ * `post_questions` is excluded from its `requiredTools` list, so accidental posting is
+ * structurally impossible.
+ */
+export const PREP_QUESTIONS_INSTRUCTIONS = `${PERSONA_TOPIC_REFERENCE}
+
+${GAME_CONTEXT_DIRECTIVE}
+
+Pre-stage today's trivia question(s) into the staging pool for game \`{game}\`. You will NOT post any Slack message — your only deliverable is calling \`save_question\` for each MISSING slot. The downstream question cron picks the oldest staged question per slot and posts them at fire time. If every slot is already FILLED when this run begins, the correct behavior is to NO-OP (call \`save_question\` zero times) and exit cleanly.
+
+EACH \`save_question\` CALL IS A CHECKPOINT. Treat the per-slot save as a commit, not a deferred bookkeeping step: once slot \`i\` is persisted, its draft no longer needs to occupy your working context, and if this run dies mid-loop the saved slots survive — the next prep fire (or the post-cron's inline-gen fallback) will fill only the slots that are still missing. Saving slot-by-slot is materially cheaper than holding all drafts in context and saving at the end.
+
+${STAGED_POOL_CHECK_AND_DISPATCH}
+
+${CONTEXT_PRIORITY_PREAMBLE}
+
+${PER_SLOT_GENERATION_PATHS}
+
+=== END OF PREP RUN ===
+
+FINAL VALIDATION (REQUIRED):
+   After saving every MISSING slot identified above, re-call \`find_previous_questions({ games: ["{game}"], seasons: ["current"], posted: false, match: "all" })\` and confirm that every slot index in \`[0..slotCount-1]\` is now covered (either by the records that were already staged, or by the records you just saved). If any slot is still missing — for example because a \`save_question\` call failed mid-loop — log the gap mentally (you will not DM admins from this run) and continue to termination so the next prep fire or the question cron's inline-gen fallback can recover.
+
+END THE RUN:
+   Call \`submit_response({ skip_response: true })\` to terminate. Do NOT call \`post_questions\` — it is not in your tool allowlist for this run, and the cron is channelless, so attempting to post would fail at the SDK boundary. The trivia question records you saved (with \`postedAt\` undefined) are the deliverable.`;
+
+/**
+ * POST-cron prompt — runs at the question cron for games with `prepCron` configured.
+ * Reads the staged pool, inline-generates anything that's missing, then renders and posts.
+ * Equivalent to the legacy `SEND_QUESTIONS_INSTRUCTIONS` when the staged pool is empty
+ * (everything gets inline-generated); equivalent to a pure picker when the staged pool is
+ * complete (no generation needed, just rendering). Games WITHOUT `prepCron` continue to
+ * use `SEND_QUESTIONS_INSTRUCTIONS` directly to avoid the wasted `find_previous_questions`
+ * call on a pool that will always be empty.
+ */
+export const POST_QUESTIONS_INSTRUCTIONS = `${PERSONA_TOPIC_REFERENCE}
+
+${GAME_CONTEXT_DIRECTIVE}
+
+Deliver today's trivia question(s) for game \`{game}\`. Some or all of today's questions may already be PRE-STAGED in the pool (generated by an earlier prep cron); for any slot that's missing, inline-generate it here. Then assemble the message and post.
+
+${STAGED_POOL_CHECK_AND_DISPATCH}
+
+${CONTEXT_PRIORITY_PREAMBLE}
+
+${PER_SLOT_GENERATION_PATHS}
+
+${FORMAT_AND_POST_SECTION}`;
 
 /**
  * Reveal-side prompt. A renderer brief, NOT an orchestration walkthrough.

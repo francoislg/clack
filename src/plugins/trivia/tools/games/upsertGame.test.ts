@@ -88,6 +88,7 @@ function args(overrides: Partial<UpsertGameArgs> & Pick<UpsertGameArgs, "name">)
     channel: undefined,
     questionCron: undefined,
     revealCron: undefined,
+    prepCron: undefined,
     timezone: undefined,
     enabled: undefined,
     answersFormat: undefined,
@@ -538,5 +539,99 @@ describe("upsert_game — instructions and additionalInstructions", () => {
     assert.equal(result.action, "updated");
     assert.equal(result.hasInstructions, true);
     assert.equal(result.hasAdditionalInstructions, true);
+  });
+});
+
+describe("upsert_game — prepCron", () => {
+  beforeEach(() => {
+    _resetTriviaConfigBridge();
+  });
+
+  it("creates a game with prepCron", async () => {
+    primeBridge({ games: [] });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
+    const result = parseToolResult(
+      await tool.handler(
+        args({
+          name: "main",
+          channel: "C123",
+          questionCron: "0 9 * * 1-5",
+          revealCron: "0 17 * * 1-5",
+          prepCron: "30 8 * * 1-5",
+          timezone: "America/Montreal",
+        }),
+        SESSION,
+      ),
+    );
+    assert.equal(result.action, "created");
+    const game = loadTriviaConfig()?.games?.[0];
+    assert.equal(game?.prepCron, "30 8 * * 1-5");
+  });
+
+  it("adds prepCron to an existing game (update branch)", async () => {
+    primeBridge({ games: [{ ...baseGame }] });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
+    await tool.handler(args({ name: "main", prepCron: "30 8 * * 1-5" }), SESSION);
+    const game = loadTriviaConfig()?.games?.[0];
+    assert.equal(game?.prepCron, "30 8 * * 1-5");
+    // Other fields preserved
+    assert.equal(game?.questionCron, "0 9 * * 1-5");
+    assert.equal(game?.revealCron, "0 17 * * 1-5");
+  });
+
+  it("omitting prepCron on update keeps the existing value", async () => {
+    primeBridge({ games: [{ ...baseGame, prepCron: "30 8 * * 1-5" }] });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
+    await tool.handler(args({ name: "main", enabled: false }), SESSION);
+    const game = loadTriviaConfig()?.games?.[0];
+    assert.equal(game?.prepCron, "30 8 * * 1-5");
+    assert.equal(game?.enabled, false);
+  });
+
+  it("passing prepCron: null clears it (opt out of pre-staging)", async () => {
+    primeBridge({ games: [{ ...baseGame, prepCron: "30 8 * * 1-5" }] });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
+    await tool.handler(args({ name: "main", prepCron: null }), SESSION);
+    const game = loadTriviaConfig()?.games?.[0];
+    assert.equal(game?.prepCron, undefined);
+  });
+
+  it("rejects invalid prepCron expression", async () => {
+    primeBridge({ games: [] });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
+    const result = parseToolResult(
+      await tool.handler(
+        args({
+          name: "main",
+          channel: "C123",
+          questionCron: "0 9 * * 1-5",
+          revealCron: "0 17 * * 1-5",
+          prepCron: "not a cron",
+          timezone: "America/Montreal",
+        }),
+        SESSION,
+      ),
+    );
+    assert.match(result.error ?? "", /Invalid prepCron/);
+  });
+
+  it("a game can be created without prepCron (it's optional)", async () => {
+    primeBridge({ games: [] });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
+    const result = parseToolResult(
+      await tool.handler(
+        args({
+          name: "main",
+          channel: "C123",
+          questionCron: "0 9 * * 1-5",
+          revealCron: "0 17 * * 1-5",
+          timezone: "America/Montreal",
+        }),
+        SESSION,
+      ),
+    );
+    assert.equal(result.action, "created");
+    const game = loadTriviaConfig()?.games?.[0];
+    assert.equal(game?.prepCron, undefined);
   });
 });

@@ -95,7 +95,9 @@ When an admin asks to **re-enable a disabled game**: same path, \`enabled: true\
 
 When an admin asks to **remove a game entirely**: \`delete_game(name)\`. The data directory stays under \`data/plugins/trivia/games/<name>/\` until you delete it manually (no MCP tool deletes per-game data).
 
-When an admin asks **which trivia games exist** or **what's running where**: call \`list_games\` (always available to members+; no integration needed). Pass \`includeDisabled: true\` to also surface paused games. The response includes \`name\`, \`channel\`, \`timezone\`, \`enabled\`, \`questionCron\`, \`revealCron\`, and \`axisOverrides\` per game, plus \`workspaceDefaults\` for the workspace tier.
+When an admin asks **which trivia games exist** or **what's running where**: call \`list_games\` (always available to members+; no integration needed). Pass \`includeDisabled: true\` to also surface paused games. The response includes \`name\`, \`channel\`, \`timezone\`, \`enabled\`, \`questionCron\`, \`revealCron\`, optional \`prepCron\`, and \`axisOverrides\` per game, plus \`workspaceDefaults\` for the workspace tier.
+
+**Optional pre-staging schedule (\`prepCron\`).** A game may opt in to PRE-STAGING by setting a third cron expression that fires before \`questionCron\`. When set, the plugin emits a channelless \`<name>:prep\` cron that generates and saves questions WITHOUT posting; the question cron then picks the oldest staged question per slot, falling back to inline-gen for any missing slot. When absent, the question cron generates AND posts in a single run (the legacy behavior — observable behavior unchanged for any existing game without \`prepCron\`). See the trivia management instruction for the derivation conventions Claude should use when proposing a \`prepCron\` value.
 
 **The \`game\` slug is internal coordination metadata** — every trivia tool requires it as an argument, but you SHOULD NOT mention the slug to end users in user-facing posts unless an admin explicitly asks for it. In scheduled runs, the slug is baked into the prompt; in reactive (DM / mention / reaction) sessions, resolve it from the session's channel by matching against the channel field returned by \`list_games\`. If no game matches the channel, refuse with "no trivia game is configured for this channel."
 `;
@@ -268,7 +270,7 @@ Slot lives inside a season's \`format.questions[i]\`. Season is a SeasonEntry. G
 
 ### Lifecycle — games
 
-- \`upsert_game(name, …)\` — Create OR update a game (detected by whether \`name\` already exists). **Create** requires \`channel\`, \`questionCron\`, \`revealCron\`, \`timezone\`; \`enabled\` defaults to true. **Update** is omit-to-keep on scheduling fields; axis fields are omit-to-keep with explicit \`null\` to clear. Name is immutable.
+- \`upsert_game(name, …)\` — Create OR update a game (detected by whether \`name\` already exists). **Create** requires \`channel\`, \`questionCron\`, \`revealCron\`, \`timezone\`; \`enabled\` defaults to true. **Update** is omit-to-keep on scheduling fields; axis fields are omit-to-keep with explicit \`null\` to clear. Name is immutable. **Optional pre-staging** via the \`prepCron\` field — see the dedicated section below.
 - \`delete_game(name)\` — Remove a game from the registry. Cron jobs disappear on next plugin reload. The per-game data directory (\`data/plugins/trivia/games/<name>/\`) is preserved on disk for archival.
 
 ### Lifecycle — seasons
@@ -285,6 +287,39 @@ Slot lives inside a season's \`format.questions[i]\`. Season is a SeasonEntry. G
 
 - \`set_workspace_config({ … })\` — Update any subset of workspace-tier fields. Omit to keep, \`null\` to clear. Fields: the 5 cascading axes (same shapes as \`upsert_game\`), \`choices: { min, max }\` (workspace-only — choice-question option-count bounds), \`offDays: [{ date, label }]\` (workspace-only — shared off-days; full-list replacement), \`seasons: { enabled, prompt }\` (workspace-only — seasons feature flag + author prompt).
 
+## Admin: optional pre-staging schedule (\`prepCron\`)
+
+Each game can OPT IN to **pre-staging** by setting a third cron expression, \`prepCron\`, alongside \`questionCron\` and \`revealCron\`. When set, the plugin emits a third channelless cron spec (\`<name>:prep\`) whose only deliverable is calling \`save_question\` for each missing slot — it cannot post a Slack message (the cron is channelless AND its tool allowlist excludes \`post_questions\`, so accidental posting is structurally impossible). The question cron then becomes a presentation-mostly run: read the staged pool, fall back to inline-gen for any missing slot, build the flair blocks, post. When \`prepCron\` is ABSENT, the question cron behaves exactly as it did before this feature shipped — generate AND post in a single run. Existing games without \`prepCron\` need no migration; the legacy path is preserved verbatim.
+
+### Why an admin might enable it
+
+- **Smoothing post latency.** Generation can take 30+ seconds for multi-slot formats with self-review reframes; pre-staging absorbs that latency invisibly so the post arrives crisp at the configured time.
+- **Surviving transient generation failures.** A flaky generation run before \`questionCron\` fires has a full window to retry on the next prep fire (or rely on the question-cron inline-gen fallback) — failures do not silence the channel.
+- **Headroom for richer generation.** Future expansions (one Claude per slot, richer per-question research) are easier to absorb when generation isn't on the critical path.
+
+### Proposing a \`prepCron\` value
+
+The bot does NOT derive \`prepCron\` automatically — that responsibility is INTENTIONALLY yours (Claude). Reason: cron arithmetic across day/week/month boundaries, DST transitions, and multi-fire-per-day patterns has no single mechanical "right" answer; conversational reasoning handles the edge cases far more robustly than encoded logic. **Do NOT add this derivation to bot code.** When an admin sets up or edits a game and you suggest a \`prepCron\`, follow this recipe:
+
+1. **Default convention: 30 minutes before \`questionCron\`.** Long enough to cover worst-case generation latency for a 3-slot batch with self-review reframes; short enough to keep topical questions fresh. State the default explicitly and confirm with the admin before applying.
+2. **Common cases:**
+   - \`questionCron = "0 9 * * *"\` (9 AM daily) → \`prepCron = "30 8 * * *"\` (8:30 AM daily). Clean shift.
+   - \`questionCron = "0 9 * * 1-5"\` (9 AM weekdays) → \`prepCron = "30 8 * * 1-5"\`. Same day-pattern, clean shift.
+   - \`questionCron = "30 9 * * *"\` (9:30 AM daily) → \`prepCron = "0 9 * * *"\` (9 AM daily). Borrow from minutes only.
+3. **Midnight-crossing edge case:** when shifting back 30 min would cross into the previous calendar day, the day-pattern may exclude it. Example: \`questionCron = "0 0 * * *"\` (midnight daily) shifted back 30 min produces \`prepCron = "30 23 * * *"\` which fires on the PREVIOUS calendar day. Surface this to the admin explicitly:
+   - **Option A — accept the previous-day fire.** Valid if the admin is OK with prep running the night before. State this clearly: "Heads-up: prep would fire at 11:30 PM the previous day. Generated questions sit overnight before posting — fine for fact questions, risky for topical."
+   - **Option B — propose a non-midnight \`questionCron\`.** "Want to bump questionCron to 8 AM instead? Then prep at 7:30 AM same day works cleanly."
+   - **Option C — narrow the prep window.** "Use a shorter offset, like 5 min before midnight (\`prepCron = "55 23 * * *"\` on the previous day) — same day-crossing trade-off, but a smaller window of staleness."
+4. **Weekly / multi-fire-per-day patterns** are more nuanced — reason about whether the shift preserves the original day-of-week pattern. When in doubt, ask the admin for the exact desired prep time directly rather than guessing.
+
+### Failure semantics
+
+Pre-staging is an OPTIMIZATION, not a hard requirement. When prep fails (Claude crash, network blip, partial \`save_question\` failure), the next question cron simply inline-generates any missing slot. The system is self-healing: a missed prep run inflates the question-cron's latency but never silences the channel. Surface this to admins so they understand the trade-off — they're not signing up for a fragile new dependency, they're getting an optimization layer with a guaranteed fallback.
+
+### Removing \`prepCron\`
+
+To opt a game back OUT of pre-staging, call \`upsert_game(name: "<game>", prepCron: null)\`. The plugin drops the prep spec on next reconcile and the question cron switches back to the legacy gen-and-post prompt.
+
 ## When to use which — examples
 
 - "Add a trivia game in #engineering at 9am" → \`upsert_game\`.
@@ -296,6 +331,8 @@ Slot lives inside a season's \`format.questions[i]\`. Season is a SeasonEntry. G
 - "End the current engineering season now" → \`upsert_season(game: "engineering", slug: "<current>", endedAt: <now>)\`.
 - "Add Quebec history as a category" → \`add_categories(["Quebec history"])\` (defaults to current season + global baseline). Scope to "current season only" with \`target: "current"\`, to baseline only with \`"default"\`, or to a specific season slug.
 - "Add Christmas as an off-day" → \`set_workspace_config(offDays: [...existing, { date: "12-25", label: "Christmas" }])\` (full replacement; \`list_games\` surfaces \`workspaceDefaults.offDays\` so you can read first).
+- "Pre-generate engineering's questions 30 min before posting" → \`upsert_game(name: "engineering", prepCron: "30 8 * * 1-5")\` if questionCron is \`"0 9 * * 1-5"\`. Confirm the proposed prepCron with the admin before applying. See the dedicated pre-staging section above for derivation conventions.
+- "Stop pre-staging engineering" → \`upsert_game(name: "engineering", prepCron: null)\`.
 
 ## Cascade-tier cheatsheet for axis questions
 

@@ -175,6 +175,7 @@ describe("choice-questions end-to-end flow", () => {
           seasons: undefined,
           keywords: ["planet"],
           match: undefined,
+          posted: undefined,
           recentBatchFromNow: undefined,
           limit: undefined,
         },

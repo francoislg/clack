@@ -177,6 +177,10 @@ All runtime data lives in `data/` (mostly gitignored):
 - `default_configuration/` — shipped instruction defaults
 - `configuration/` — user instruction overrides (gitignored)
 
+### Trivia plugin: optional pre-staging (`prepCron`)
+
+Each `TriviaGame` may set an OPTIONAL third cron expression, `prepCron`, alongside `questionCron` and `revealCron`. When set, `buildGameSpecs` emits a third channelless cron spec (`<name>:prep`) whose `requiredTools` excludes `post_questions` — two structural defenses against prep accidentally posting. The prep run drives `PREP_QUESTIONS_INSTRUCTIONS` (gen-only fill loop over the staged pool); the question cron switches to `POST_QUESTIONS_INSTRUCTIONS` (staged-pool check + inline-gen fallback + post). When `prepCron` is ABSENT, the question cron runs the legacy `SEND_QUESTIONS_INSTRUCTIONS` — observable behavior is unchanged from before this feature. The bot does NOT derive `prepCron` from `questionCron`; Claude proposes a value conversationally inside `upsert_game` (typically 30 min before questionCron, surfacing midnight-crossing edge cases). All three prompts share `PER_SLOT_GENERATION_PATHS` and `FORMAT_AND_POST_SECTION` building blocks so changes to per-slot generation logic propagate uniformly.
+
 ### Migrations
 
 Numbered migrations in `src/migrations/`. Two priorities: `blocking` (run before startup) and `enhancement` (run in background, Claude-powered). Version tracked in `data/state/migration-version.json`. Use `/create-migration` to scaffold new migrations.

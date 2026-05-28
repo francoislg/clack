@@ -181,6 +181,7 @@ describe("trivia config relocation — end-to-end smoke", () => {
           channel: "C200000000",
           questionCron: "0 10 * * *",
           revealCron: "0 18 * * *",
+          prepCron: undefined,
           timezone: "America/Montreal",
           enabled: undefined,
           answersFormat: { boolean: 0, choice: 1 },

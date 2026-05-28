@@ -1,6 +1,11 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
-import { SEND_QUESTIONS_INSTRUCTIONS, PROCESS_REVEAL_INSTRUCTIONS } from "./scheduledPrompts.js";
+import {
+  SEND_QUESTIONS_INSTRUCTIONS,
+  PROCESS_REVEAL_INSTRUCTIONS,
+  PREP_QUESTIONS_INSTRUCTIONS,
+  POST_QUESTIONS_INSTRUCTIONS,
+} from "./scheduledPrompts.js";
 
 describe("SEND_QUESTIONS_INSTRUCTIONS (boolean path)", () => {
   it("is a non-empty prompt", () => {
@@ -67,10 +72,9 @@ describe("SEND_QUESTIONS_INSTRUCTIONS (boolean path)", () => {
     assert.doesNotMatch(SEND_QUESTIONS_INSTRUCTIONS, /FREEFORM-PATH ANSWER OPTIONS/);
   });
 
-  it("warns about the ~75-char Slack button-text cap for choice questions", () => {
-    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /75/);
-    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /button\.text/);
-    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /truncate/);
+  it("documents the 40-char hard cap for choice question labels", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /40 characters/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /save_question` rejects/);
   });
 
   it("documents post_questions stamping liveAnswersVisible and revealResponses alongside postedAt", () => {
@@ -546,5 +550,120 @@ describe("SEND_QUESTIONS_INSTRUCTIONS — new-season opener branch", () => {
       SEND_QUESTIONS_INSTRUCTIONS,
       /prepended ONCE|opener.*ONCE|does NOT repeat per slot/i,
     );
+  });
+});
+
+describe("PREP_QUESTIONS_INSTRUCTIONS", () => {
+  it("is a non-empty prompt", () => {
+    assert.equal(typeof PREP_QUESTIONS_INSTRUCTIONS, "string");
+    assert.ok(PREP_QUESTIONS_INSTRUCTIONS.length > 100);
+  });
+
+  it("references the gen-only tools but NOT post_questions", () => {
+    assert.match(PREP_QUESTIONS_INSTRUCTIONS, /get_ideas/);
+    assert.match(PREP_QUESTIONS_INSTRUCTIONS, /find_previous_questions/);
+    assert.match(PREP_QUESTIONS_INSTRUCTIONS, /save_question/);
+    assert.doesNotMatch(
+      PREP_QUESTIONS_INSTRUCTIONS,
+      /\bpost_questions\(/,
+      "PREP must NOT invoke post_questions",
+    );
+  });
+
+  it("explicitly forbids posting and explains the channelless restriction", () => {
+    assert.match(PREP_QUESTIONS_INSTRUCTIONS, /will NOT post any Slack message/i);
+    assert.match(PREP_QUESTIONS_INSTRUCTIONS, /not in your tool allowlist|channelless/i);
+  });
+
+  it("includes the staged-pool check as the required first step", () => {
+    assert.match(PREP_QUESTIONS_INSTRUCTIONS, /STAGED POOL CHECK/);
+    assert.match(PREP_QUESTIONS_INSTRUCTIONS, /posted:\s*false/);
+    assert.match(PREP_QUESTIONS_INSTRUCTIONS, /seasons:\s*\["current"\]/);
+  });
+
+  it("instructs no-op when every slot is already filled", () => {
+    assert.match(PREP_QUESTIONS_INSTRUCTIONS, /every slot is already FILLED/i);
+    assert.match(PREP_QUESTIONS_INSTRUCTIONS, /save_question zero times|NO-OP/i);
+  });
+
+  it("includes a final validation step after saving", () => {
+    assert.match(PREP_QUESTIONS_INSTRUCTIONS, /FINAL VALIDATION/);
+    assert.match(PREP_QUESTIONS_INSTRUCTIONS, /re-call .*find_previous_questions/);
+  });
+
+  it("terminates with submit_response skip", () => {
+    assert.match(PREP_QUESTIONS_INSTRUCTIONS, /submit_response\(\{\s*skip_response:\s*true/);
+  });
+
+  it("includes the per-slot generation paths verbatim (shared with POST)", () => {
+    assert.match(PREP_QUESTIONS_INSTRUCTIONS, /FACT-BOOLEAN PATH/);
+    assert.match(PREP_QUESTIONS_INSTRUCTIONS, /FACT-CHOICE PATH/);
+    assert.match(PREP_QUESTIONS_INSTRUCTIONS, /TOPICAL-BOOLEAN PATH/);
+    assert.match(PREP_QUESTIONS_INSTRUCTIONS, /TOPICAL-CHOICE PATH/);
+    assert.match(PREP_QUESTIONS_INSTRUCTIONS, /FACT-FREEFORM PATH/);
+    assert.match(PREP_QUESTIONS_INSTRUCTIONS, /TOPICAL-FREEFORM PATH/);
+  });
+
+  it("does NOT contain the FORMAT & POST presentation section", () => {
+    assert.doesNotMatch(PREP_QUESTIONS_INSTRUCTIONS, /=== FORMAT & POST/);
+    assert.doesNotMatch(PREP_QUESTIONS_INSTRUCTIONS, /BUILD THE QUESTION CARD BLOCKS/);
+    assert.doesNotMatch(PREP_QUESTIONS_INSTRUCTIONS, /NEW-SEASON OPENER/);
+  });
+});
+
+describe("POST_QUESTIONS_INSTRUCTIONS", () => {
+  it("is a non-empty prompt", () => {
+    assert.equal(typeof POST_QUESTIONS_INSTRUCTIONS, "string");
+    assert.ok(POST_QUESTIONS_INSTRUCTIONS.length > 100);
+  });
+
+  it("includes the staged-pool check as the required first step", () => {
+    assert.match(POST_QUESTIONS_INSTRUCTIONS, /STAGED POOL CHECK/);
+    assert.match(POST_QUESTIONS_INSTRUCTIONS, /posted:\s*false/);
+    assert.match(POST_QUESTIONS_INSTRUCTIONS, /seasons:\s*\["current"\]/);
+  });
+
+  it("retains the full FORMAT & POST presentation section", () => {
+    assert.match(POST_QUESTIONS_INSTRUCTIONS, /=== FORMAT & POST/);
+    assert.match(POST_QUESTIONS_INSTRUCTIONS, /BUILD THE QUESTION CARD BLOCKS/);
+    assert.match(POST_QUESTIONS_INSTRUCTIONS, /NEW-SEASON OPENER/);
+    assert.match(POST_QUESTIONS_INSTRUCTIONS, /post_questions/);
+  });
+
+  it("includes the per-slot generation paths verbatim (shared with PREP)", () => {
+    assert.match(POST_QUESTIONS_INSTRUCTIONS, /FACT-BOOLEAN PATH/);
+    assert.match(POST_QUESTIONS_INSTRUCTIONS, /FACT-CHOICE PATH/);
+    assert.match(POST_QUESTIONS_INSTRUCTIONS, /TOPICAL-BOOLEAN PATH/);
+    assert.match(POST_QUESTIONS_INSTRUCTIONS, /TOPICAL-CHOICE PATH/);
+  });
+
+  it("describes the FILLED vs MISSING per-slot dispatch", () => {
+    assert.match(POST_QUESTIONS_INSTRUCTIONS, /FILLED/);
+    assert.match(POST_QUESTIONS_INSTRUCTIONS, /MISSING/);
+    assert.match(POST_QUESTIONS_INSTRUCTIONS, /do NOT regenerate/i);
+  });
+});
+
+describe("PREP and POST share PER_SLOT_GENERATION_PATHS content", () => {
+  it("both include the same matrix dispatch description", () => {
+    const sample = "DISPATCHES on a 2-axis matrix";
+    assert.ok(PREP_QUESTIONS_INSTRUCTIONS.includes(sample));
+    assert.ok(POST_QUESTIONS_INSTRUCTIONS.includes(sample));
+  });
+
+  it("both include the same FACT-BOOLEAN path heading", () => {
+    const sample = "=== FACT-BOOLEAN PATH";
+    assert.ok(PREP_QUESTIONS_INSTRUCTIONS.includes(sample));
+    assert.ok(POST_QUESTIONS_INSTRUCTIONS.includes(sample));
+  });
+});
+
+describe("{game} substitution works on PREP and POST", () => {
+  it("PREP contains placeholder for game name", () => {
+    assert.match(PREP_QUESTIONS_INSTRUCTIONS, /\{game\}/);
+  });
+
+  it("POST contains placeholder for game name", () => {
+    assert.match(POST_QUESTIONS_INSTRUCTIONS, /\{game\}/);
   });
 });

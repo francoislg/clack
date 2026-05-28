@@ -42,9 +42,9 @@ describe("SEND_QUESTIONS_INSTRUCTIONS — choice path", () => {
     assert.match(SEND_QUESTIONS_INSTRUCTIONS, /stored `choices` array order/);
   });
 
-  it("warns about the Slack button-text ~75-char cap on choice labels", () => {
-    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /75/);
-    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /button\.text/);
+  it("documents the 40-char hard cap on choice labels", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /40 characters/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /save_question` rejects/);
     assert.match(SEND_QUESTIONS_INSTRUCTIONS, /button label/);
   });
 

@@ -79,7 +79,7 @@ ADDITIONAL FIELDS (all shapes):
 - \`eventDate\` (OPTIONAL, only when \`questionType: "topical"\`): ISO 8601 calendar date (YYYY-MM-DD).
 - \`context\` (OPTIONAL): the lens name used (from \`contextPriority\`). Empty string omits the field on the record. Non-empty values must appear in the active \`contexts\` list.
 
-Validation rejects: out-of-range correctIndex; duplicate or whitespace/case-equivalent choices; choices outside the configured \`trivia.choices.{min, max}\` bounds; choice strings outside 1–100 chars after trim; cross-format field collisions (e.g. \`isTrue\` with \`answersFormat: "choice"\`, \`expectedAnswer\` with \`"boolean"\`, \`choices\` with \`"freeform"\`); freeform without \`expectedAnswer\` or with \`expectedAnswer\` over 200 chars; topical without sourceUrl; sourceUrl on fact; non-HTTPS sourceUrl; eventDate without topical; malformed eventDate; context not in the active contexts list.`;
+Validation rejects: out-of-range correctIndex; duplicate or whitespace/case-equivalent choices; choices outside the configured \`trivia.choices.{min, max}\` bounds; choice strings outside 1–40 chars after trim; cross-format field collisions (e.g. \`isTrue\` with \`answersFormat: "choice"\`, \`expectedAnswer\` with \`"boolean"\`, \`choices\` with \`"freeform"\`); freeform without \`expectedAnswer\` or with \`expectedAnswer\` over 200 chars; topical without sourceUrl; sourceUrl on fact; non-HTTPS sourceUrl; eventDate without topical; malformed eventDate; context not in the active contexts list.`;
 
 export function createSaveQuestionTool(
   data: TriviaDataLayer,

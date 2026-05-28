@@ -142,6 +142,17 @@ export interface TriviaGame {
   questionCron: string;
   /** Cron expression for when the answer is revealed. */
   revealCron: string;
+  /**
+   * Optional cron expression for the pre-staging run. When set, the plugin emits a
+   * third channelless cron spec (`<name>:prep`) whose `requiredTools` excludes
+   * `post_questions` — two structural defenses against the prep run delivering a
+   * Slack message. Generation in the prep run writes saved questions with `postedAt`
+   * undefined; the question cron's prompt later picks them up (oldest per slot) or
+   * inline-generates anything missing. Cron arithmetic (e.g., "30 min before
+   * questionCron") is intentionally done by Claude at `upsert_game` time, NOT by
+   * the bot — see the trivia management admin instruction for derivation guidance.
+   */
+  prepCron?: string;
   /** IANA timezone the cron expressions are interpreted in. */
   timezone: string;
   /** When `false`, the plugin skips this entry during cron reconcile AND per-game write tools refuse. Defaults to `true`. */

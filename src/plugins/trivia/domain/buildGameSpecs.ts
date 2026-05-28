@@ -4,6 +4,8 @@ import type { TriviaGame, OffDay } from "../core/configTypes.js";
 import { triviaLogger as logger } from "../core/pluginLogger.js";
 import {
   SEND_QUESTIONS_INSTRUCTIONS,
+  PREP_QUESTIONS_INSTRUCTIONS,
+  POST_QUESTIONS_INSTRUCTIONS,
   PROCESS_REVEAL_INSTRUCTIONS,
 } from "../prompts/scheduledPrompts.js";
 
@@ -18,6 +20,19 @@ const QUESTION_REQUIRED_TOOLS = [
 ];
 
 /**
+ * Prep-cron required-tools list. Notably EXCLUDES `post_questions` — the prep run must not
+ * post a Slack message. Defense in depth: the cron spec is also channelless (no `channel`
+ * field), which makes the SDK restrict `submit_response` to `{ skip_response: true }`.
+ * Either restriction alone would suffice; both are present because the cost is zero and
+ * the failure mode (accidental post from prep run) would be highly visible.
+ */
+const PREP_REQUIRED_TOOLS = [
+  "mcp__trivia__get_ideas",
+  "mcp__trivia__find_previous_questions",
+  "mcp__trivia__save_question",
+];
+
+/**
  * Single-tool reveal required-tools list. `process_reveal_answers` absorbs every deterministic
  * step the previous orchestration enumerated; seasons-specific behavior is driven by the
  * payload's `seasonStatus` field, not by adding more required tools.
@@ -25,13 +40,22 @@ const QUESTION_REQUIRED_TOOLS = [
 const REVEAL_REQUIRED_TOOLS = ["mcp__trivia__process_reveal_answers"];
 
 /**
- * Build the cron-job specs for a list of trivia games. Each game produces exactly two specs:
- * `<name>:question` and `<name>:reveal`. The reveal spec's `requiredTools` is the same
- * single-tool list regardless of `seasonsEnabled` — seasons handling lives inside
- * `process_reveal_answers`.
+ * Build the cron-job specs for a list of trivia games. Each game produces two or three specs:
  *
- * Side effect: emits a logger warning when a game's `revealCron` would fire on the same day
- * but earlier than `questionCron` for any matching day-of-week.
+ * - When `game.prepCron` is ABSENT: two specs — `<name>:question` and `<name>:reveal`. The
+ *   question cron uses the legacy `SEND_QUESTIONS_INSTRUCTIONS` prompt (gen + post in one
+ *   run, observable behavior unchanged from before the prep/post split).
+ * - When `game.prepCron` is SET: three specs — `<name>:prep`, `<name>:question`, `<name>:reveal`.
+ *   The prep cron is channelless and gen-only (its `requiredTools` excludes `post_questions`);
+ *   the question cron uses `POST_QUESTIONS_INSTRUCTIONS` which checks the staged pool first
+ *   and falls back to inline-gen for any missing slot.
+ *
+ * The reveal spec's `requiredTools` is the same single-tool list regardless of `seasonsEnabled`
+ * — seasons handling lives inside `process_reveal_answers`.
+ *
+ * Side effects: emits a logger warning when a game's `revealCron` would fire on the same day
+ * but earlier than `questionCron`, AND a separate warning when `prepCron` would fire AFTER
+ * `questionCron` on the next matching date.
  */
 /**
  * Substitute every `{game}` placeholder in a prompt template with the named game.
@@ -51,13 +75,40 @@ export function buildGameSpecs(games: TriviaGame[], offDays?: OffDay[]): CronJob
     if (game.enabled === false) continue;
 
     warnIfRevealBeforeQuestion(game);
+    if (game.prepCron !== undefined) warnIfPrepAfterQuestion(game);
+
+    // Prep spec — only emitted when the game opts in via `prepCron`. Channelless (no
+    // `channel` field) so the SDK locks `submit_response` to `{ skip_response: true }`,
+    // AND `requiredTools` excludes `post_questions` so the tool is structurally
+    // unavailable to Claude during the prep run. Either restriction would suffice;
+    // both are present as defense in depth.
+    if (game.prepCron !== undefined) {
+      specs.push({
+        specKey: `${game.name}:prep`,
+        name: `Trivia: ${game.name} — prep`,
+        cronExpression: game.prepCron,
+        // Intentionally NO `channel` field — channelless cron.
+        prompt: substituteGame(PREP_QUESTIONS_INSTRUCTIONS, game.name),
+        timezone: game.timezone,
+        requiredTools: PREP_REQUIRED_TOOLS,
+        submitResponseMode: "skipped",
+        attachedTopics: ["trivia"],
+        ...(skipDates ? { skipDates } : {}),
+      });
+    }
 
     specs.push({
       specKey: `${game.name}:question`,
       name: `Trivia: ${game.name} — question`,
       cronExpression: game.questionCron,
       channel: game.channel,
-      prompt: substituteGame(SEND_QUESTIONS_INSTRUCTIONS, game.name),
+      // Route to the new POST prompt when prep is configured; otherwise the legacy SEND
+      // prompt. Games opting out of prep pay no overhead — no staged-pool query language,
+      // no wasted `find_previous_questions` call at fire time.
+      prompt: substituteGame(
+        game.prepCron !== undefined ? POST_QUESTIONS_INSTRUCTIONS : SEND_QUESTIONS_INSTRUCTIONS,
+        game.name,
+      ),
       timezone: game.timezone,
       requiredTools: QUESTION_REQUIRED_TOOLS,
       // The question's actual deliverable is the `post_questions` tool — which posts the
@@ -105,5 +156,30 @@ function warnIfRevealBeforeQuestion(game: TriviaGame): void {
   } catch {
     // Cron parsing already validated at config-load time; if it fails here we silently skip the
     // warning — the bad spec will fail validation in reconcileCronJobs anyway.
+  }
+}
+
+/**
+ * Mirror of `warnIfRevealBeforeQuestion` for the prep/question relationship: the prep cron's
+ * next fire MUST be earlier than the question cron's next fire — otherwise prep is generating
+ * for a fire that's already passed. Only checks the immediate next fire for each cron in the
+ * game's timezone; deeper analysis (every weekday over a month) would catch more but typical
+ * misconfigurations show up on the first comparison.
+ *
+ * Called only when `game.prepCron` is set. The bad spec set is still emitted (the caller has
+ * already pushed before this returns) — the warning is advisory, not blocking.
+ */
+function warnIfPrepAfterQuestion(game: TriviaGame): void {
+  if (game.prepCron === undefined) return;
+  try {
+    const p = CronExpressionParser.parse(game.prepCron, { tz: game.timezone }).next().toDate();
+    const q = CronExpressionParser.parse(game.questionCron, { tz: game.timezone }).next().toDate();
+    if (p > q) {
+      logger.warn(
+        `[plugin:trivia] game "${game.name}": prepCron ("${game.prepCron}") fires AFTER questionCron ("${game.questionCron}") on the next matching date in ${game.timezone}. Pre-staging will not happen in time for the next question fire. Schedules will still be created, but this is almost certainly a misconfiguration.`,
+      );
+    }
+  } catch {
+    // Parser already validated at config-load time; silent skip on parse failure here.
   }
 }
