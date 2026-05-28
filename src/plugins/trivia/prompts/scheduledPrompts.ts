@@ -81,6 +81,18 @@ const STATEMENT_CHOICES_NON_OVERLAP_GATE = `STATEMENT–CHOICES NON-OVERLAP GATE
      - When a contextual detail (a co-star, an opponent, a fellow honoree, an event location) would be a natural distractor, you MUST CHOOSE: either keep it in the statement and drop it from the choices, OR keep it as a distractor and rewrite the statement to omit it. Never both. The cheaper fix is almost always to trim the statement.
      - After any distractor-rewrite pass (from the plausibility gate), RE-RUN this check on the new distractor set before proceeding.`;
 
+const HINT_DRAFTING_GATE = `HINT DRAFTING GATE (shared across all paths — invoke whenever a path's SAVE step says "apply the HINT DRAFTING GATE"):
+   - If \`suggestedHintMode === "none"\`: OMIT the \`hint\` field on \`save_question\`. Skip the rest of this gate.
+   - If \`suggestedHintMode === "button"\` or \`"inline"\`: draft a hint, self-review, then pass it.
+     1. DRAFT: write one concise hint, ≤140 characters, that nudges toward the answer without stating it.
+     2. SELF-REVIEW: ask yourself "does the draft state the answer outright, or paraphrase it in a way a player could reverse-engineer?" Use the examples below as anchors.
+        - ❌ "It's a primary color you get from mixing yellow and red." → BAD (states the answer outright)
+        - ❌ "Think of a color that sits between yellow and red on the color wheel." → BAD (paraphrases — a player can reverse-engineer it)
+        - ✅ "It's a warm color often associated with passion." → GOOD (semantic neighborhood; doesn't reveal)
+     3. REWRITE IF BAD: if the draft fails self-review, rewrite as a softer semantic-neighborhood nudge and re-review. Retry budget: 2 rewrites.
+     4. OMIT IF NO USEFUL NUDGE EXISTS: if after the rewrites you still can't produce a hint that nudges without revealing, OMIT the \`hint\` field on \`save_question\` — better no hint than a hint that gives the answer away. This is an acceptable outcome, not a failure.
+     5. PASS TO save_question: when the hint passes self-review, include \`hint: { mode: suggestedHintMode, text: "<final text>" }\` in the save call. The \`mode\` MUST equal the \`suggestedHintMode\` returned by \`get_ideas\`.`;
+
 /**
  * Shared step sequence for generating a new FACT-typed boolean trivia question.
  * Used by the scheduled question-posting prompt; kept as a single source so
@@ -131,7 +143,9 @@ const QUESTION_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
 
 7. Choose fun emojis that relate to the topic.
 
-8. SAVE TO DATABASE:
+8. HINT (optional): apply the HINT DRAFTING GATE (shared definition above). When \`suggestedHintMode\` is non-\`"none"\`, the gate produces an optional \`hint\` field to include in the save_question call below.
+
+9. SAVE TO DATABASE:
    - Call save_question with:
      - answersFormat: "boolean"
      - questionType: "fact"
@@ -142,6 +156,7 @@ const QUESTION_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
      - suggestedDifficulty (the bucket from get_ideas in step 1)
      - difficulty (your 1–10 self-rating from step 6)
      - context (only when a non-empty contextPriority entry was used; omit otherwise)
+     - hint (only when the HINT DRAFTING GATE produced one; omit otherwise — see the gate for shape)
      - slot: \`{ index: i }\` — REQUIRED when the active season has a format (the get_ideas response will carry \`format: { slotCount, slots: [...] }\` then). MUST be OMITTED when format is null.
    - Store the returned questionId AND its slot.index for the post step.`;
 
@@ -183,7 +198,9 @@ const CHOICE_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
 
 6. Choose 1-4 fun emojis that relate to the topic.
 
-7. SAVE TO DATABASE:
+7. HINT (optional): apply the HINT DRAFTING GATE (shared definition above). When \`suggestedHintMode\` is non-\`"none"\`, the gate produces an optional \`hint\` field to include in the save_question call below.
+
+8. SAVE TO DATABASE:
    - Call save_question with:
      - answersFormat: "choice"
      - questionType: "fact"
@@ -195,6 +212,7 @@ const CHOICE_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
      - suggestedDifficulty (the bucket from get_ideas in step 1)
      - difficulty (your 1–10 self-rating from step 5)
      - context (only when a non-empty contextPriority entry was used; omit otherwise)
+     - hint (only when the HINT DRAFTING GATE produced one; omit otherwise — see the gate for shape)
      - slot: \`{ index: i }\` — REQUIRED when the active season has a format. MUST be OMITTED when format is null.
    - Store the returned questionId AND its slot.index for the post step.`;
 
@@ -286,7 +304,9 @@ const FREEFORM_FACT_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
 
 8. Choose 1-4 fun emojis.
 
-9. SAVE TO DATABASE:
+9. HINT (optional): apply the HINT DRAFTING GATE (shared definition above). When \`suggestedHintMode\` is non-\`"none"\`, the gate produces an optional \`hint\` field to include in the save_question call below.
+
+10. SAVE TO DATABASE:
    - Call save_question with:
      - answersFormat: "freeform"
      - questionType: "fact"
@@ -300,6 +320,7 @@ const FREEFORM_FACT_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
      - suggestedDifficulty
      - difficulty (your 1–10 self-rating)
      - context (only when a non-empty contextPriority entry was used; omit otherwise)
+     - hint (only when the HINT DRAFTING GATE produced one; omit otherwise — see the gate for shape)
      - slot: \`{ index: i }\` — REQUIRED when the active season has a format. MUST be OMITTED when format is null.
    - Store the returned questionId AND its slot.index for the post step.`;
 
@@ -362,6 +383,8 @@ ${DUPLICATE_CHECK_GATE}
 ${DIFFICULTY_GATE}
 
 ${STATEMENT_CHOICES_NON_OVERLAP_GATE}
+
+${HINT_DRAFTING_GATE}
 
 === BOOLEAN PATH BODY (per question / per slot) ===
 
@@ -602,13 +625,14 @@ Deliver today's trivia reveal. There are exactly TWO steps — the deterministic
      - \`questionId\`, \`statement\`, \`category\`, \`emojis\`, \`messageLink\`.
      - \`wasReprocessed\` (boolean) — true if this was a corrective re-run (rare; affects tone slightly — acknowledge subtly without dwelling).
      - \`answer\`: \`{ type: "boolean", isTrue }\` for boolean questions; \`{ type: "choice", choices, correctIndex }\` for choice; \`{ type: "freeform", expectedAnswer, acceptableAnswers?, gradingNotes? }\` for freeform (the user typed their answer into a modal).
-     - \`voters\`: a DISCRIMINATED UNION keyed on \`voters.revealResponses\` (the per-question reveal-mode stamped at post-time by \`post_questions\`). One of three variants:
+     - \`voters\`: a DISCRIMINATED UNION keyed on \`voters.revealResponses\` (the per-question reveal-mode stamped at post-time by \`post_questions\`). One of four variants:
        - \`{ revealResponses: "yes", correct: Voter[], incorrect: Voter[], noAnswer: Voter[], reactions: Array<{ userId, displayName, emojis: string[] }> }\` — full per-bucket detail; for FREEFORM entries, every \`Voter\` in \`correct\` and \`incorrect\` carries an additional \`answerText\` field (the user's typed answer) which you MUST QUOTE in the reveal.
        - \`{ revealResponses: "just-correctness", correct: Voter[], incorrect: Voter[], noAnswer: Voter[], reactions: Array<{ userId, displayName, emojis: string[] }> }\` — same bucket structure as \`"yes"\`, BUT freeform \`Voter\`s have NO \`answerText\` field (admin chose to hide the typed strings). You MUST NOT invent or speculate about what they typed.
+       - \`{ revealResponses: "just-winners", correct: Voter[], incorrectCount: number, noAnswerCount: number, reactions: Array<{ userId, displayName, emojis: string[] }> }\` — names the \`correct\` voters ONLY (freeform winners carry \`answerText\`, which you MUST QUOTE). There are NO \`incorrect\`/\`noAnswer\` named arrays — only anonymous counts. You MUST NOT name, invent, or imply who got it wrong; use the counts for flair only ("the other 3 missed it", "everyone got fooled!").
        - \`{ revealResponses: "no", reactions: Array<{ userId, displayName, emojis: string[] }> }\` — NO per-user vote info at all; only the reaction-commentary list. You MUST NOT speculate about who voted what — render the answer + reactions + closer + leaderboard only.
-     - \`reactions\` (present in all three variants) is COMMENTARY, not votes. Each entry lists every emoji a user reacted with so you can riff on it ("<@U_ALICE> piped in with 🤔🔥"). Caught cheaters are STRUCTURALLY ABSENT from every list — they never appear in correct/incorrect/noAnswer/reactions.
+     - \`reactions\` (present in all four variants) is COMMENTARY, not votes. Each entry lists every emoji a user reacted with so you can riff on it ("<@U_ALICE> piped in with 🤔🔥"). Caught cheaters are STRUCTURALLY ABSENT from every list — they never appear in correct/incorrect/noAnswer/reactions.
    - \`leaderboard\`: array of \`{ userId, displayName, totalCorrect, totalAnswered, accuracy, currentSeasonCorrect?, currentSeasonAnswered? }\` already sorted in render order.
-   - \`roundSummary\` (OPTIONAL): \`{ totalQuestions, perPlayer: Array<{ userId, displayName, correct, answered, roundMvp? }> }\` — present ONLY when every entry in \`reveals\` was stamped \`revealResponses === "yes"\`. When ANY entry is \`"just-correctness"\` or \`"no"\`, \`roundSummary\` is OMITTED (the tool cannot produce per-player aggregates without per-user vote info). The multi-question layout MUST handle the missing case by skipping the Round Summary section. Already sorted (correct desc, displayName asc); already excludes cheaters; you MUST NOT recompute it from \`reveals[].voters\` yourself.
+   - \`roundSummary\` (OPTIONAL): \`{ totalQuestions, perPlayer: Array<{ userId, displayName, correct, answered, roundMvp? }> }\` — present ONLY when every entry in \`reveals\` was stamped \`revealResponses === "yes"\`. When ANY entry is \`"just-correctness"\`, \`"just-winners"\`, or \`"no"\`, \`roundSummary\` is OMITTED (the tool cannot produce per-player aggregates without per-user vote info). The multi-question layout MUST handle the missing case by skipping the Round Summary section. Already sorted (correct desc, displayName asc); already excludes cheaters; you MUST NOT recompute it from \`reveals[].voters\` yourself.
    - \`seasonStatus\` (only present when \`trivia.seasons.enabled\` is true): \`{ currentSlug, isLastFireOfSeason, seasonClosed, newSeasonStarted?, mvp? }\`. When \`isLastFireOfSeason\` is true the tool has ALREADY stamped \`endedAt\` and (when needed) created a continuation season — do NOT call \`upsert_season\`.
    - \`errors\` (optional): per-questionId structured errors from a reprocess batch. Surface a brief mention if present; otherwise omit.
    - \`instructions\` (optional string): single admin-authored rule resolved from the replace-cascade \`slot → season → game → workspace\`. Honor it verbatim throughout the reveal — apply it to verdict tone, voter-bucket commentary, the closer line, and the leaderboard introduction. Absent → ignore.
@@ -638,6 +662,7 @@ Deliver today's trivia reveal. There are exactly TWO steps — the deterministic
        - NO-ANSWER voters (anyone in \`voters.noAnswer\`) — a playful nudge ("<@U_CAROL> kept their cards close — no vote logged.").
        - REACTIONS commentary (when \`voters.reactions\` is non-empty) — ONE section listing each reactor by display name with the emoji set they used ("<@U_DAVE> piped in with 🤔🔥, <@U_EVE> dropped a 👀"). Reactions are NOT votes — frame them as color/commentary on the round.
      - **\`"just-correctness"\` mode** — same four-section structure as \`"yes"\`, BUT freeform \`Voter\`s in \`correct\`/\`incorrect\` do NOT carry \`answerText\`. Name them only — DO NOT invent or speculate about what they typed. The admin chose to suppress the typed strings; respect that.
+     - **\`"just-winners"\` mode** — render at most three sections, in order: (1) a CORRECT section naming \`voters.correct\` and celebrating them (quote freeform \`answerText\` when present); SKIP it when \`correct\` is empty. (2) an anonymous MISS line derived from \`voters.incorrectCount\` + \`voters.noAnswerCount\` — e.g. "(3 others fell for it)" or, when \`correct\` is empty and \`incorrectCount > 0\`, an "everyone got fooled / nobody nailed it this time" closer; SKIP entirely when both counts are 0. You MUST NOT name, invent, or imply WHO missed — the payload carries no misser names, only counts. (3) the REACTIONS commentary section when \`voters.reactions\` is non-empty (same framing as \`"yes"\`).
      - **\`"no"\` mode** — render NO per-bucket sections at all. After the divider, jump straight to (optional) reactions commentary if \`voters.reactions\` is non-empty, then the closer + leaderboard. You MUST NOT speculate about who voted what — the payload carries no per-user vote info for this question.
    - When \`seasonStatus.isLastFireOfSeason\` is true: insert ONE additional \`section\` block above the closer that names the closing season's slug (from \`seasonStatus.currentSlug\`) and calls out the MVP (from \`seasonStatus.mvp\`). Apply the SEASON-FINALE TONE from the \`trivia\` topic of your system instructions for the wrap-up wording. Do NOT preview the new season's slug — leave that for a future fire to announce.
    - \`context\` block — short closer ("That's a wrap! Here's the running scoreboard:") leading into the leaderboard. Do NOT predict timing — the next reveal is on a separate schedule you have no visibility into.
@@ -649,10 +674,11 @@ Deliver today's trivia reveal. There are exactly TWO steps — the deterministic
    - One \`header\` block — \`text: { type: "plain_text", text: "..." }\`. Introduce the multi-question reveal (e.g. "🎯 ROUND RECAP — N QUESTIONS!", "🏆 THE VERDICTS ARE IN!", etc.). Vary the wording. plain_text only.
    - One \`section\` block PER question (in the same order as \`reveals\`). Keep each one BRIEF — ≤ 2 short sentences. Open with the verdict label (e.g. "Q1: ✅ TRUE!" or "Q3: 🎯 The answer was 'Tokyo'!" or for freeform "Q2: ✏️ The answer: *Paris*"). The voter teaser depends on the entry's \`voters.revealResponses\`:
      - **\`"yes"\` or \`"just-correctness"\`** — follow the verdict label with a single-line voter teaser ("Alice and Bob nailed it; Carol fell for the trap"). For FREEFORM \`"yes"\` entries the teaser MAY quote one or two notable typed answers; for \`"just-correctness"\` entries name-only — do NOT invent text content.
+     - **\`"just-winners"\`** — follow the verdict label naming \`voters.correct\` only ("Alice and Bob nailed it"), optionally tagging an anonymous miss count from \`incorrectCount\`/\`noAnswerCount\` ("…the other 3 missed it"); when \`correct\` is empty use an "everyone missed it" line. NEVER name or imply who got it wrong.
      - **\`"no"\`** — the brief verdict line stands on its own. Do NOT name voters or describe who got it right — the payload carries no per-user info for this question. ("Q3: 🎯 The answer was 'Tokyo'." — full stop.)
      - Do NOT enumerate every voter individually in any mode — that's what the Round Summary is for when it's present.
    - One \`divider\` block — separates the verdicts from the summary.
-   - **Round Summary section — GATED on \`roundSummary\` presence.** When \`roundSummary\` is present (every entry is \`"yes"\` mode), render ONE \`section\` block titled "🏆 Round Summary" (or similar): list each player from \`roundSummary.perPlayer\` IN ORDER as \`<@USERID>: <correct>/<totalQuestions>\` (or any in-persona phrasing). Prefix every entry whose \`roundMvp: true\` is set with \`🏆\` (e.g. "🏆 <@U123>: 3/3"). DO NOT recompute the counts — read them straight from \`roundSummary.perPlayer\`. DO NOT add players who aren't in \`perPlayer\` (the tool already filters out anyone who didn't answer this round). When \`roundSummary\` is ABSENT (any entry in this round is \`"just-correctness"\` or \`"no"\`), SKIP this Round Summary block entirely — the per-question verdicts and the cumulative leaderboard table below carry the closer on their own.
+   - **Round Summary section — GATED on \`roundSummary\` presence.** When \`roundSummary\` is present (every entry is \`"yes"\` mode), render ONE \`section\` block titled "🏆 Round Summary" (or similar): list each player from \`roundSummary.perPlayer\` IN ORDER as \`<@USERID>: <correct>/<totalQuestions>\` (or any in-persona phrasing). Prefix every entry whose \`roundMvp: true\` is set with \`🏆\` (e.g. "🏆 <@U123>: 3/3"). DO NOT recompute the counts — read them straight from \`roundSummary.perPlayer\`. DO NOT add players who aren't in \`perPlayer\` (the tool already filters out anyone who didn't answer this round). When \`roundSummary\` is ABSENT (any entry in this round is \`"just-correctness"\`, \`"just-winners"\`, or \`"no"\`), SKIP this Round Summary block entirely — the per-question verdicts and the cumulative leaderboard table below carry the closer on their own.
    - When \`seasonStatus.isLastFireOfSeason\` is true: insert ONE additional \`section\` block above the closer that names the closing season's slug and calls out the season MVP (from \`seasonStatus.mvp\`). Apply the SEASON-FINALE TONE from the \`trivia\` topic for the wrap-up wording. Same rule as the single-question branch.
    - One \`context\` block — short closer leading into the cumulative leaderboard. Same timing-prediction prohibition as the single-question branch.
 
@@ -679,7 +705,7 @@ Deliver today's trivia reveal. There are exactly TWO steps — the deterministic
 
    When \`reveals.length > 1\` AND \`roundSummary\` is present in the payload, PREPEND a \`This Round\` row to the leaderboard table immediately ABOVE the \`Current Season\` / \`All Time\` rows. Source the per-player counts from \`roundSummary.perPlayer\` (the same array the Round Summary section reads): for each player column, look up the entry by \`userId\` and render \`String(correct)\`. Players who appear on the leaderboard (i.e., have a column) but are ABSENT from \`roundSummary.perPlayer\` (didn't answer this round) — render the literal Unicode em-dash \`"—"\`. The empty string \`""\` is FORBIDDEN here: Slack rejects empty raw_text cells with \`invalid_blocks\`. Apply medal prefixes (\`"🥇 "\`, \`"🥈 "\`, \`"🥉 "\`, \`"🎀 "\`) ONLY to cells where \`correct > 0\`, ranked top-4 by \`roundSummary.perPlayer\` array order (already pre-sorted by the reveal tool). Cells with \`correct === 0\` and em-dash cells receive NO medal — under no circumstances does an em-dash or a zero get a 🎀 to fill a top-4 slot.
 
-   The \`This Round\` row is OMITTED in three cases (use the legacy shapes below): (a) \`reveals.length === 1\` — single-question reveal; (b) \`reveals.length === 0\` — empty-reveals acknowledgement; (c) \`reveals.length > 1\` AND \`roundSummary\` is ABSENT (the latter happens whenever any reveal entry's \`revealResponses\` is \`"just-correctness"\` or \`"no"\` — the same gate that drops the Round Summary section block above). The Round Summary section block and the \`This Round\` row share that gate; they ship together or skip together.
+   The \`This Round\` row is OMITTED in three cases (use the legacy shapes below): (a) \`reveals.length === 1\` — single-question reveal; (b) \`reveals.length === 0\` — empty-reveals acknowledgement; (c) \`reveals.length > 1\` AND \`roundSummary\` is ABSENT (the latter happens whenever any reveal entry's \`revealResponses\` is \`"just-correctness"\`, \`"just-winners"\`, or \`"no"\` — the same gate that drops the Round Summary section block above). The Round Summary section block and the \`This Round\` row share that gate; they ship together or skip together.
 
    FOUR RENDERING SHAPES (gated on \`seasonStatus.hasPriorSeasons\` × whether \`This Round\` is rendered):
 

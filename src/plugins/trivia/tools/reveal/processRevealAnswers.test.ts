@@ -258,6 +258,104 @@ describe("process_reveal_answers — orchestrator", () => {
     assert.ok("reactions" in voters);
   });
 
+  it("emits voters.revealResponses === 'just-winners' naming winners and counting missers anonymously", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(
+      makeQuestion({ id: "q1", batchId: "B", postedAt: 1_000, revealResponses: "just-winners" }),
+    );
+    await data.saveUser({ userId: "U1", displayName: "Alice", joinedAt: 0 });
+    await data.saveUser({ userId: "U2", displayName: "Bob", joinedAt: 0 });
+    await data.saveUser({ userId: "U3", displayName: "Carol", joinedAt: 0 });
+    await scoped.saveAnswer({
+      userId: "U1",
+      questionId: "q1",
+      answer: true,
+      correct: true,
+      timestamp: 500,
+    });
+    await scoped.saveAnswer({
+      userId: "U2",
+      questionId: "q1",
+      answer: false,
+      correct: false,
+      timestamp: 600,
+    });
+    await scoped.saveAnswer({
+      userId: "U3",
+      questionId: "q1",
+      answer: false,
+      correct: false,
+      timestamp: 700,
+    });
+
+    const tool = createProcessRevealAnswersTool(
+      data,
+      fakeSdk(),
+      fixtureGetGames,
+      async () => [],
+      fakeSlackDeps(),
+    );
+
+    const res = parseToolResult(
+      await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+    );
+    const voters = res.reveals[0].voters;
+    assert.equal(voters.revealResponses, "just-winners");
+    if (voters.revealResponses === "just-winners") {
+      assert.deepEqual(
+        voters.correct.map((v: { userId: string }) => v.userId),
+        ["U1"],
+        "only the correct voter is named",
+      );
+      assert.equal(voters.incorrectCount, 2, "two missers counted anonymously");
+      assert.equal(voters.noAnswerCount, 0);
+    }
+    // The named incorrect/noAnswer arrays must be physically absent.
+    assert.equal("incorrect" in voters, false);
+    assert.equal("noAnswer" in voters, false);
+  });
+
+  it("just-winners with everyone wrong yields empty correct + positive incorrectCount", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(
+      makeQuestion({ id: "q1", batchId: "B", postedAt: 1_000, revealResponses: "just-winners" }),
+    );
+    await scoped.saveAnswer({
+      userId: "U1",
+      questionId: "q1",
+      answer: false,
+      correct: false,
+      timestamp: 500,
+    });
+    await scoped.saveAnswer({
+      userId: "U2",
+      questionId: "q1",
+      answer: false,
+      correct: false,
+      timestamp: 600,
+    });
+
+    const tool = createProcessRevealAnswersTool(
+      data,
+      fakeSdk(),
+      fixtureGetGames,
+      async () => [],
+      fakeSlackDeps(),
+    );
+
+    const res = parseToolResult(
+      await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+    );
+    const voters = res.reveals[0].voters;
+    assert.equal(voters.revealResponses, "just-winners");
+    if (voters.revealResponses === "just-winners") {
+      assert.deepEqual(voters.correct, [], "nobody got it right");
+      assert.equal(voters.incorrectCount, 2);
+    }
+  });
+
   it("excludes flagged cheaters from voter buckets", async () => {
     const data = createInMemoryDataLayer();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
@@ -503,5 +601,78 @@ describe("process_reveal_answers — orchestrator", () => {
       const stored = (await data.loadUsers()).get("U1");
       assert.equal(stored?.displayName, "NewName", "users.json is updated with the new name");
     });
+  });
+});
+
+describe("process_reveal_answers — hint non-leak regression", () => {
+  it("does NOT surface hint.text, hint.mode, or hint.clickedBy in the reveal payload", async () => {
+    const data = createInMemoryDataLayer();
+    await data.saveCategories(["Science"]);
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+
+    await scoped.saveQuestion(
+      makeQuestion({
+        id: "q-with-hint",
+        batchId: "B",
+        hint: {
+          mode: "button",
+          text: "Think about a primary color.",
+          clickedBy: ["U-hinter-1", "U-hinter-2"],
+        },
+      }),
+    );
+
+    const tool = createProcessRevealAnswersTool(
+      data,
+      fakeSdk(),
+      fixtureGetGames,
+      async () => [],
+      fakeSlackDeps(),
+    );
+    const res = parseToolResult(
+      await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+    );
+
+    const serialized = JSON.stringify(res);
+    assert.equal(serialized.includes("Think about a primary color"), false);
+    assert.equal(serialized.includes("U-hinter-1"), false);
+    assert.equal(serialized.includes("U-hinter-2"), false);
+    assert.equal(serialized.includes("clickedBy"), false);
+    if ("roundSummary" in res && typeof res.roundSummary === "object") {
+      const roundSerialized = JSON.stringify(res.roundSummary);
+      assert.equal(roundSerialized.includes("Think about a primary color"), false);
+      assert.equal(roundSerialized.includes("clickedBy"), false);
+    }
+  });
+
+  it("clickedBy on the persisted record survives the reveal pass intact (audit trail)", async () => {
+    const data = createInMemoryDataLayer();
+    await data.saveCategories(["Science"]);
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    const originalClickedBy = ["U-hinter-1", "U-hinter-2"];
+
+    await scoped.saveQuestion(
+      makeQuestion({
+        id: "q-with-hint",
+        batchId: "B",
+        hint: {
+          mode: "button",
+          text: "Think about a primary color.",
+          clickedBy: originalClickedBy,
+        },
+      }),
+    );
+
+    const tool = createProcessRevealAnswersTool(
+      data,
+      fakeSdk(),
+      fixtureGetGames,
+      async () => [],
+      fakeSlackDeps(),
+    );
+    await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION);
+
+    const post = (await scoped.loadQuestions()).find((q) => q.id === "q-with-hint");
+    assert.deepEqual(post?.hint?.clickedBy, originalClickedBy);
   });
 });

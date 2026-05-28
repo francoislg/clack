@@ -98,6 +98,32 @@ describe("parseTriviaGames — per-game format / categories / theme", () => {
     });
   });
 
+  describe("revealResponses", () => {
+    it("accepts the just-winners mode and stores it on the game", () => {
+      const { games, issues } = parseTriviaGames([
+        { ...validBase, revealResponses: "just-winners" },
+      ]);
+      assert.equal(issues.length, 0);
+      assert.equal(games?.[0].revealResponses, "just-winners");
+    });
+
+    it("still accepts the legacy just-correctness / no / yes values", () => {
+      for (const mode of ["no", "just-correctness", "yes"] as const) {
+        const { games, issues } = parseTriviaGames([{ ...validBase, revealResponses: mode }]);
+        assert.equal(issues.length, 0);
+        assert.equal(games?.[0].revealResponses, mode);
+      }
+    });
+
+    it("drops the field with an issue when the value is unknown", () => {
+      const { games, issues } = parseTriviaGames([{ ...validBase, revealResponses: "winners" }]);
+      assert.equal(games?.length, 1);
+      assert.equal(games?.[0].revealResponses, undefined);
+      assert.equal(issues[0].field, "trivia.games[0].revealResponses");
+      assert.match(issues[0].error, /just-winners/);
+    });
+  });
+
   describe("instructions", () => {
     it("accepts a trimmed non-empty string", () => {
       const { games, issues } = parseTriviaGames([{ ...validBase, instructions: "  Be dry.  " }]);

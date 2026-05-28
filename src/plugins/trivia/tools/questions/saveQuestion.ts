@@ -116,6 +116,21 @@ export function createSaveQuestionTool(
       if (args.emojis.length < 1 || args.emojis.length > 4) {
         return errorResult("Must provide 1-4 emojis");
       }
+      let normalizedHint: { mode: "button" | "inline"; text: string } | undefined;
+      if (args.hint !== undefined) {
+        const trimmed = args.hint.text.trim();
+        if (trimmed.length === 0) {
+          return errorResult(
+            "Hint text must be non-empty after trim — omit the hint field instead.",
+          );
+        }
+        if (trimmed.length > 140) {
+          return errorResult(
+            `Hint text must be ≤140 characters after trim (got ${trimmed.length}).`,
+          );
+        }
+        normalizedHint = { mode: args.hint.mode, text: trimmed };
+      }
 
       const answersFormat = args.answersFormat;
       const questionType = args.questionType;
@@ -280,6 +295,7 @@ export function createSaveQuestionTool(
           : {}),
         ...(args.difficulty !== undefined ? { difficulty: args.difficulty } : {}),
         ...(storedContext !== null ? { context: storedContext } : {}),
+        ...(normalizedHint !== undefined ? { hint: normalizedHint } : {}),
         ...questionTypeOutcome.recordExtras,
       };
 

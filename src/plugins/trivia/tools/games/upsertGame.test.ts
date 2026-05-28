@@ -104,6 +104,7 @@ function args(overrides: Partial<UpsertGameArgs> & Pick<UpsertGameArgs, "name">)
     revealResponses: undefined,
     instructions: undefined,
     additionalInstructions: undefined,
+    hint: undefined,
     ...overrides,
   };
 }

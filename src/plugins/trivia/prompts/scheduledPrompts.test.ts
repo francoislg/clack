@@ -395,7 +395,10 @@ describe("PROCESS_REVEAL_INSTRUCTIONS — renderer brief", () => {
   it("describes roundSummary as OPTIONAL, omitted when any entry is non-'yes'", () => {
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /roundSummary[^.]*OPTIONAL/);
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /OMITTED/);
-    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /`?"just-correctness"`?\s+or\s+`?"no"`?/);
+    assert.match(
+      PROCESS_REVEAL_INSTRUCTIONS,
+      /`?"just-correctness"`?,\s+`?"just-winners"`?,\s+or\s+`?"no"`?/,
+    );
   });
 
   it("describes both legacy and This-Round table shapes keyed on seasonStatus presence", () => {
@@ -665,5 +668,49 @@ describe("{game} substitution works on PREP and POST", () => {
 
   it("POST contains placeholder for game name", () => {
     assert.match(POST_QUESTIONS_INSTRUCTIONS, /\{game\}/);
+  });
+});
+
+describe("SEND_QUESTIONS_INSTRUCTIONS — HINT DRAFTING GATE", () => {
+  it("defines the gate with the required structural pieces", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /HINT DRAFTING GATE/);
+    // mode branches
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /suggestedHintMode === "none"/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /"button"/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /"inline"/);
+    // 140-char cap
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /140 characters/);
+    // self-review step
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /SELF-REVIEW/);
+    // omit-when-no-useful-nudge — explicit "acceptable outcome, not a failure"
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /acceptable outcome, not a failure/);
+  });
+
+  it("includes at least two bad-example and one good-example contrast", () => {
+    const matchAll = (re: RegExp): number => {
+      const matches = SEND_QUESTIONS_INSTRUCTIONS.match(re);
+      return matches ? matches.length : 0;
+    };
+    assert.ok(matchAll(/❌/g) >= 2, "expected at least 2 bad-example bullets");
+    assert.ok(matchAll(/✅/g) >= 1, "expected at least 1 good-example bullet");
+  });
+
+  it("is referenced from every per-path SAVE step", () => {
+    // Each of the three paths references the gate by name.
+    const refs = SEND_QUESTIONS_INSTRUCTIONS.match(/apply the HINT DRAFTING GATE/g);
+    assert.ok(
+      refs !== null && refs.length >= 3,
+      "expected ≥3 references (boolean/choice/freeform)",
+    );
+  });
+
+  it("each per-path SAVE call lists `hint` as an optional field", () => {
+    const hintFieldMentions = SEND_QUESTIONS_INSTRUCTIONS.match(
+      /hint \(only when the HINT DRAFTING GATE produced one/g,
+    );
+    assert.ok(
+      hintFieldMentions !== null && hintFieldMentions.length >= 3,
+      "expected ≥3 mentions of `hint` as an optional save_question field",
+    );
   });
 });

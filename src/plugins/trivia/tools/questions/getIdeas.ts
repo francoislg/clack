@@ -8,6 +8,7 @@ import { resolveQuestionType } from "../../domain/factTopical.js";
 import { resolveContexts, rollContextPriority } from "../../domain/contexts.js";
 import { resolveDifficultyRanges, resolveDifficultyRatio } from "../../domain/difficulty.js";
 import { resolveEffectiveFormat } from "../../domain/format.js";
+import { effectiveHintMode, resolveHintConfig } from "../../domain/hint.js";
 import {
   resolveActiveCategories,
   resolveActiveCategoriesWithSource,
@@ -48,6 +49,8 @@ Always returns:
 - \`instructions\` (optional string): resolved from the REPLACE cascade \`slot → season → game → workspace\` of the free-form \`instructions\` axis. Highest-precedence non-empty tier wins. Honor this string verbatim as guidance throughout the question-writing run. Absent → ignore (no fabrication).
 - \`additionalInstructions\` (optional string): resolved from the CUMULATIVE cascade of the \`additionalInstructions\` axis — every non-empty tier is concatenated in \`workspace → game → season → slot\` order, each segment tier-labeled (\`[Workspace]\` / \`[Game]\` / \`[Season]\` / \`[Slot N]\`). Honor every labeled rule verbatim throughout the run. Absent → ignore.
 - \`contextPriority\` (optional): freshly-rolled weighted-random ordering of every configured lens. Present only when \`trivia.contexts\` is configured at any cascade tier. Claude tries \`contextPriority[0]\` first; descends the list only when the current lens yields no usable question.
+- \`suggestedHintMode\`: \`"none" | "button" | "inline"\` — resolved from the cascade \`slot.hint → season.hint → game.hint → workspace.hint → { mode: "none" }\` (whole-object replace per tier). When the resolved \`hint.minDifficulty\` is set and the rolled \`suggestedDifficulty\` bucket falls below it, the effective mode is forced to \`"none"\`. When \`"button"\` or \`"inline"\`, write a hint and pass it to \`save_question\` (see \`hintGuidance\`); when \`"none"\`, do NOT include the \`hint\` field on \`save_question\`.
+- \`hintGuidance\` (optional string): present only when \`suggestedHintMode !== "none"\`. Carries the hint-drafting + self-review instructions Claude must honor when writing the hint.
 
 When suggestedAnswersFormat is \`"boolean"\`, also returns:
 - \`suggestedAnswer\` (boolean): the truth value the statement MUST have
@@ -230,6 +233,18 @@ export function createGetIdeasTool(
       );
       const suggestedDifficultyRange = difficultyRanges[pickedBucket];
 
+      const resolvedHint = resolveHintConfig(
+        slotIndexForResolution,
+        currentSeasonEntry,
+        gameEntry,
+        config,
+      );
+      const suggestedHintMode = effectiveHintMode(resolvedHint, pickedBucket);
+      const hintGuidance =
+        suggestedHintMode !== "none"
+          ? "Write ONE concise hint (≤140 chars) that nudges toward the answer WITHOUT stating or paraphrasing it. After drafting, self-review: if the draft reveals the answer outright or restates it in different words, rewrite as a softer semantic-neighborhood nudge. Pass the final text to save_question as `hint: { mode: suggestedHintMode, text }`. If no useful nudge exists for this question, OMIT the hint field on save_question rather than ship a weak one."
+          : undefined;
+
       const base = {
         format: formatMeta,
         slot: slotArg,
@@ -243,11 +258,13 @@ export function createGetIdeasTool(
         suggestedQuestionType: pickedQuestionType,
         suggestedDifficulty,
         suggestedDifficultyRange,
+        suggestedHintMode,
         firstFireOfSeason,
         ...(theme !== undefined ? { theme } : {}),
         ...(instructions !== undefined ? { instructions } : {}),
         ...(additionalInstructions !== undefined ? { additionalInstructions } : {}),
         ...(contextPriority !== null ? { contextPriority } : {}),
+        ...(hintGuidance !== undefined ? { hintGuidance } : {}),
       };
 
       // Per-format suggestion rolling lives in the handler. Boolean returns

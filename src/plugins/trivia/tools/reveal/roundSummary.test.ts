@@ -142,6 +142,32 @@ describe("computeRoundSummary", () => {
     assert.deepEqual(out.perPlayer, []);
   });
 
+  it("ignores reveals with revealResponses === 'just-winners' (no incorrect/noAnswer arrays)", () => {
+    const reveals: ProcessRevealEntry[] = [
+      {
+        questionId: "q1",
+        statement: "S",
+        category: "X",
+        emojis: ["❓"],
+        messageLink: "https://example.com",
+        wasReprocessed: false,
+        answer: { type: "boolean", isTrue: true },
+        voters: {
+          revealResponses: "just-winners",
+          correct: [voter("alice", "Alice")],
+          incorrectCount: 3,
+          noAnswerCount: 1,
+          reactions: [],
+        },
+      },
+    ];
+    // The variant carries no `incorrect`/`noAnswer` named arrays — the loop must
+    // skip it without throwing and contribute nothing to the per-player tallies.
+    const out = computeRoundSummary(reveals);
+    assert.equal(out.totalQuestions, 1);
+    assert.deepEqual(out.perPlayer, []);
+  });
+
   it("sorts by correct desc, then displayName asc (case-insensitive)", () => {
     const reveals = [
       reveal("q1", [voter("alice", "alice"), voter("bob", "Bob"), voter("carol", "Carol")]),

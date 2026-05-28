@@ -12,8 +12,14 @@ import type {
   OffDay,
   RevealResponsesMode,
   TriviaGame,
+  TriviaHintConfig,
 } from "../configTypes.js";
-import { isRevealResponsesMode, parseTriviaAxisBag, type ParseIssue } from "./axes.js";
+import {
+  isRevealResponsesMode,
+  parseTriviaAxisBag,
+  validateHintConfig,
+  type ParseIssue,
+} from "./axes.js";
 import { validateFormat } from "./format.js";
 
 /** Game-name format: filesystem-safe kebab-case, 1–32 chars. */
@@ -248,9 +254,16 @@ export function parseTriviaGame(
     } else {
       issues.push({
         field: `${fieldPrefix}.revealResponses`,
-        error: `must be one of "no", "just-correctness", "yes" (got ${JSON.stringify(e.revealResponses)})`,
+        error: `must be one of "no", "just-winners", "just-correctness", "yes" (got ${JSON.stringify(e.revealResponses)})`,
       });
     }
+  }
+
+  let hint: TriviaHintConfig | undefined;
+  if (e.hint !== undefined && e.hint !== null) {
+    const r = validateHintConfig(e.hint, `${fieldPrefix}.hint`);
+    if (r.ok) hint = r.value;
+    else issues.push({ field: `${fieldPrefix}.hint`, error: r.error });
   }
 
   seenNames.add(name);
@@ -271,6 +284,7 @@ export function parseTriviaGame(
       ...(additionalInstructions ? { additionalInstructions } : {}),
       ...(liveAnswersVisible !== undefined ? { liveAnswersVisible } : {}),
       ...(revealResponses !== undefined ? { revealResponses } : {}),
+      ...(hint !== undefined ? { hint } : {}),
     },
     issues,
   };

@@ -17,10 +17,11 @@ type ZodBlock = z.infer<typeof BlockSchema>;
 const SESSION = { sessionId: "test" };
 const FIXTURE_CHANNEL = "C100000000";
 
-function fakeSdk(): Pick<ClackSdk, "getSlackClient" | "actionId"> {
+function fakeSdk(): Pick<ClackSdk, "getSlackClient" | "actionId" | "t"> {
   return {
     getSlackClient: () => null,
     actionId: (key: string) => `plugin:trivia:${key}`,
+    t: (key: string) => key,
   };
 }
 

@@ -44,6 +44,7 @@ describe("upsert_season — format argument", () => {
         revealResponses: undefined,
         instructions: undefined,
         additionalInstructions: undefined,
+        hint: undefined,
       },
       SESSION,
     );
@@ -87,6 +88,7 @@ describe("upsert_season — format argument", () => {
         revealResponses: undefined,
         instructions: undefined,
         additionalInstructions: undefined,
+        hint: undefined,
       },
       SESSION,
     );
@@ -122,6 +124,7 @@ describe("upsert_season — format argument", () => {
         revealResponses: undefined,
         instructions: undefined,
         additionalInstructions: undefined,
+        hint: undefined,
       },
       SESSION,
     );
@@ -145,6 +148,7 @@ describe("upsert_season — format argument", () => {
         revealResponses: undefined,
         instructions: undefined,
         additionalInstructions: undefined,
+        hint: undefined,
       },
       SESSION,
     );
@@ -181,6 +185,7 @@ describe("upsert_season — format argument", () => {
         revealResponses: undefined,
         instructions: undefined,
         additionalInstructions: undefined,
+        hint: undefined,
       },
       SESSION,
     );
@@ -204,6 +209,7 @@ describe("upsert_season — format argument", () => {
         revealResponses: undefined,
         instructions: undefined,
         additionalInstructions: undefined,
+        hint: undefined,
       },
       SESSION,
     );
@@ -239,6 +245,7 @@ describe("upsert_season — format argument", () => {
         revealResponses: undefined,
         instructions: undefined,
         additionalInstructions: undefined,
+        hint: undefined,
       },
       SESSION,
     );
@@ -262,6 +269,7 @@ describe("upsert_season — format argument", () => {
         revealResponses: undefined,
         instructions: undefined,
         additionalInstructions: undefined,
+        hint: undefined,
       },
       SESSION,
     );
@@ -297,6 +305,7 @@ describe("upsert_season — format argument", () => {
         revealResponses: undefined,
         instructions: undefined,
         additionalInstructions: undefined,
+        hint: undefined,
       },
       SESSION,
     );
@@ -331,6 +340,7 @@ describe("upsert_season — format argument", () => {
         revealResponses: undefined,
         instructions: undefined,
         additionalInstructions: undefined,
+        hint: undefined,
       },
       SESSION,
     );
@@ -375,6 +385,7 @@ describe("upsert_season — format argument", () => {
         revealResponses: undefined,
         instructions: undefined,
         additionalInstructions: undefined,
+        hint: undefined,
       },
       SESSION,
     );

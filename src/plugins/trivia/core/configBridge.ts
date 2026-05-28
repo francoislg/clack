@@ -14,6 +14,7 @@ import type { JsonObject, TriviaConfig, TriviaGame } from "./configTypes.js";
 import {
   isRevealResponsesMode,
   parseTriviaAxisBag,
+  validateHintConfig,
   validateTriviaChoicesConfig,
   type ParseIssue,
 } from "./configParsers/axes.js";
@@ -149,6 +150,12 @@ function parseTriviaConfigObject(raw: JsonObject, logger: PluginLogger): TriviaC
         error: `must be one of "no", "just-correctness", "yes" (got ${JSON.stringify(raw.revealResponses)})`,
       });
     }
+  }
+
+  if (raw.hint !== undefined && raw.hint !== null) {
+    const r = validateHintConfig(raw.hint, "trivia.hint");
+    if (r.ok) out.hint = r.value;
+    else allIssues.push({ field: "trivia.hint", error: r.error });
   }
 
   if (raw.instructions !== undefined && raw.instructions !== null) {

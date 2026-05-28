@@ -10,6 +10,7 @@ import type {
   DifficultyBucketWeights,
   DifficultyRange,
   DifficultyRangesInput,
+  HintMode,
   JsonObject,
   RevealResponsesMode,
   TriviaAnswersFormatWeights,
@@ -18,6 +19,7 @@ import type {
   TriviaDifficultyConfig,
   TriviaDifficultyRatioConfig,
   TriviaFreeformAnswerShapeWeights,
+  TriviaHintConfig,
   TriviaQuestionTypeWeights,
 } from "../configTypes.js";
 import { DEFAULT_TRIVIA_CHOICES } from "../configTypes.js";
@@ -45,9 +47,11 @@ export const FREEFORM_ANSWER_SHAPE_KEYS = [
 export const DIFFICULTY_BUCKET_KEYS = ["easy", "medium", "hard"] as const;
 export const DIFFICULTY_FORMAT_KEYS = ["boolean", "choice", "freeform"] as const;
 const DIFFICULTY_RATIO_FORMAT_KEYS = ["boolean", "choice", "freeform"] as const;
+export const HINT_MODE_KEYS = ["none", "button", "inline"] as const;
+const HINT_ALLOWED_FIELDS = new Set(["mode", "minDifficulty"]);
 
 /** The literal string set for `revealResponses` — shared across tiers. */
-export const REVEAL_RESPONSES_VALUES = ["no", "just-correctness", "yes"] as const;
+export const REVEAL_RESPONSES_VALUES = ["no", "just-winners", "just-correctness", "yes"] as const;
 
 /**
  * Type guard for `revealResponses`. Lenient — callers decide how to react
@@ -333,6 +337,40 @@ export function validateTriviaDifficultyRatioMap(
   return { ok: true, value: out };
 }
 
+export function validateHintConfig(raw: unknown, fieldLabel: string): Result<TriviaHintConfig> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { ok: false, error: `'${fieldLabel}' must be an object` };
+  }
+  const entries = raw as JsonObject;
+  for (const key of Object.keys(entries)) {
+    if (!HINT_ALLOWED_FIELDS.has(key)) {
+      return {
+        ok: false,
+        error: `'${fieldLabel}' contains unknown key '${key}' (allowed: mode, minDifficulty)`,
+      };
+    }
+  }
+  const mode = entries.mode;
+  if (typeof mode !== "string" || !(HINT_MODE_KEYS as readonly string[]).includes(mode)) {
+    return {
+      ok: false,
+      error: `'${fieldLabel}.mode' must be one of ${HINT_MODE_KEYS.join(", ")} (got ${JSON.stringify(mode)})`,
+    };
+  }
+  const out: TriviaHintConfig = { mode: mode as HintMode };
+  if (entries.minDifficulty !== undefined && entries.minDifficulty !== null) {
+    const min = entries.minDifficulty;
+    if (typeof min !== "string" || !(DIFFICULTY_BUCKET_KEYS as readonly string[]).includes(min)) {
+      return {
+        ok: false,
+        error: `'${fieldLabel}.minDifficulty' must be one of ${DIFFICULTY_BUCKET_KEYS.join(", ")} (got ${JSON.stringify(min)})`,
+      };
+    }
+    out.minDifficulty = min as (typeof DIFFICULTY_BUCKET_KEYS)[number];
+  }
+  return { ok: true, value: out };
+}
+
 export function validateTriviaDifficultyMap(
   raw: unknown,
   fieldLabel: string,
@@ -540,6 +578,17 @@ export const triviaDifficultyRatioZod = z.object({
   boolean: bucketWeightsZod.optional(),
   choice: bucketWeightsZod.optional(),
   freeform: bucketWeightsZod.optional(),
+});
+
+/**
+ * Shared zod schema for the `hint` axis. Thin shape-check — semantic validation
+ * (allowed `mode` / `minDifficulty` values, unknown-key rejection) lives in
+ * `validateHintConfig`. Every management tool that accepts the axis funnels
+ * through that validator so the two layers can't drift.
+ */
+export const triviaHintZod = z.object({
+  mode: z.enum(HINT_MODE_KEYS as readonly [HintMode, ...HintMode[]]),
+  minDifficulty: z.enum(DIFFICULTY_BUCKET_KEYS as readonly ["easy", "medium", "hard"]).optional(),
 });
 
 /**

@@ -193,6 +193,7 @@ describe("upsert_season tool", () => {
         revealResponses: undefined,
         instructions: undefined,
         additionalInstructions: undefined,
+        hint: undefined,
       },
       SESSION,
     );
@@ -232,6 +233,7 @@ describe("upsert_season tool", () => {
         revealResponses: undefined,
         instructions: undefined,
         additionalInstructions: undefined,
+        hint: undefined,
       },
       SESSION,
     );
@@ -263,6 +265,7 @@ describe("upsert_season tool", () => {
         revealResponses: undefined,
         instructions: undefined,
         additionalInstructions: undefined,
+        hint: undefined,
       },
       SESSION,
     );
@@ -296,6 +299,7 @@ describe("upsert_season tool", () => {
         revealResponses: undefined,
         instructions: undefined,
         additionalInstructions: undefined,
+        hint: undefined,
       },
       SESSION,
     );
@@ -329,6 +333,7 @@ describe("upsert_season tool", () => {
         revealResponses: undefined,
         instructions: undefined,
         additionalInstructions: undefined,
+        hint: undefined,
       },
       SESSION,
     );
@@ -365,6 +370,7 @@ describe("upsert_season tool", () => {
         revealResponses: undefined,
         instructions: undefined,
         additionalInstructions: undefined,
+        hint: undefined,
       },
       SESSION,
     );
@@ -402,6 +408,7 @@ describe("upsert_season tool", () => {
         revealResponses: undefined,
         instructions: undefined,
         additionalInstructions: undefined,
+        hint: undefined,
       },
       SESSION,
     );
@@ -435,6 +442,7 @@ describe("upsert_season tool", () => {
         revealResponses: undefined,
         instructions: undefined,
         additionalInstructions: undefined,
+        hint: undefined,
       },
       SESSION,
     );
@@ -466,6 +474,7 @@ describe("upsert_season tool", () => {
         revealResponses: undefined,
         instructions: undefined,
         additionalInstructions: undefined,
+        hint: undefined,
       },
       SESSION,
     );
@@ -496,6 +505,7 @@ describe("upsert_season tool", () => {
         revealResponses: undefined,
         instructions: undefined,
         additionalInstructions: undefined,
+        hint: undefined,
       },
       SESSION,
     );
@@ -526,6 +536,7 @@ describe("upsert_season tool", () => {
         revealResponses: undefined,
         instructions: undefined,
         additionalInstructions: undefined,
+        hint: undefined,
       },
       SESSION,
     );
@@ -559,6 +570,7 @@ describe("upsert_season tool", () => {
         revealResponses: undefined,
         instructions: undefined,
         additionalInstructions: undefined,
+        hint: undefined,
       },
       SESSION,
     );
@@ -594,6 +606,7 @@ describe("upsert_season tool", () => {
         revealResponses: undefined,
         instructions: undefined,
         additionalInstructions: undefined,
+        hint: undefined,
       },
       SESSION,
     );
@@ -625,6 +638,7 @@ describe("upsert_season tool", () => {
         revealResponses: undefined,
         instructions: undefined,
         additionalInstructions: undefined,
+        hint: undefined,
       },
       SESSION,
     );
@@ -663,6 +677,7 @@ describe("upsert_season tool", () => {
         revealResponses: undefined,
         instructions: undefined,
         additionalInstructions: undefined,
+        hint: undefined,
       },
       SESSION,
     );
@@ -698,6 +713,7 @@ describe("upsert_season tool", () => {
         revealResponses: undefined,
         instructions: undefined,
         additionalInstructions: undefined,
+        hint: undefined,
       },
       SESSION,
     );
@@ -728,6 +744,7 @@ describe("upsert_season tool", () => {
           revealResponses: undefined,
           instructions: undefined,
           additionalInstructions: undefined,
+          hint: undefined,
         },
         SESSION,
       );
@@ -759,6 +776,7 @@ describe("upsert_season tool", () => {
         revealResponses: undefined,
         instructions: undefined,
         additionalInstructions: undefined,
+        hint: undefined,
       },
       SESSION,
     );
@@ -793,6 +811,7 @@ describe("upsert_season tool", () => {
         revealResponses: undefined,
         instructions: undefined,
         additionalInstructions: undefined,
+        hint: undefined,
       },
       SESSION,
     );
@@ -816,6 +835,7 @@ describe("upsert_season tool", () => {
         revealResponses: undefined,
         instructions: undefined,
         additionalInstructions: undefined,
+        hint: undefined,
       },
       SESSION,
     );
@@ -1503,6 +1523,7 @@ describe("find_previous_questions with timeline-based current", () => {
         revealResponses: undefined,
         instructions: undefined,
         additionalInstructions: undefined,
+        hint: undefined,
       },
     ]);
     const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
@@ -1581,6 +1602,7 @@ describe("add_categories with target dispatch", () => {
         revealResponses: undefined,
         instructions: undefined,
         additionalInstructions: undefined,
+        hint: undefined,
       },
     ]);
     const tool = createAddCategoriesTool(data, fixtureGetGames);
@@ -1841,6 +1863,7 @@ describe("save_question validates against active pool", () => {
         suggestedDifficulty: undefined,
         difficulty: undefined,
         slot: undefined,
+        hint: undefined,
         emojis: ["🌊"],
       },
       SESSION,
@@ -1872,6 +1895,7 @@ describe("save_question validates against active pool", () => {
         suggestedDifficulty: undefined,
         difficulty: undefined,
         slot: undefined,
+        hint: undefined,
         emojis: ["🌊"],
       },
       SESSION,

@@ -8,6 +8,7 @@ import type {
   TriviaContextEntry,
   TriviaDifficultyConfig,
   TriviaDifficultyRatioConfig,
+  TriviaHintConfig,
   RevealResponsesMode,
 } from "./configTypes.js";
 
@@ -128,6 +129,20 @@ export interface TriviaQuestion {
    * / pre-feature rows; absence SHALL be read as `"yes"`.
    */
   revealResponses?: RevealResponsesMode;
+  /**
+   * Optional hint attached to the question. Written by `save_question` when
+   * Claude generates one (driven by `get_ideas` payload's `suggestedHintMode`),
+   * read by `post_questions` to render the hint button / inline block. `mode`
+   * `"none"` is unrepresentable on the record (= absent field). `clickedBy` is
+   * populated by the hint-button action handler (button mode only) and is
+   * absent until the first click. Strictly internal — NEVER surfaced at
+   * reveal time, NEVER affects scoring.
+   */
+  hint?: {
+    mode: "button" | "inline";
+    text: string;
+    clickedBy?: string[];
+  };
 }
 
 // `cheatAttempts` is cumulative across seasons — season rollover does not reset it.
@@ -263,6 +278,12 @@ export interface SeasonEntry {
    * see the `trivia-prompt-instructions` capability. Mid-season mutation is permitted.
    */
   additionalInstructions?: string;
+  /**
+   * Per-season tier of the hint axis. Cascade:
+   *   `slot → season → game → workspace → { mode: "none" }`.
+   * Whole-object replace per tier. Mid-season mutation is permitted.
+   */
+  hint?: TriviaHintConfig;
 }
 
 export interface SeasonsState {

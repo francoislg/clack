@@ -2,8 +2,15 @@ import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { textResult, errorResult } from "../../../../tools/helpers.js";
 import { loadTriviaConfig, saveTriviaConfig } from "../../core/configBridge.js";
-import type { JsonObject, JsonValue, OffDay, TriviaConfig } from "../../core/configTypes.js";
+import type {
+  JsonObject,
+  JsonValue,
+  OffDay,
+  RevealResponsesMode,
+  TriviaConfig,
+} from "../../core/configTypes.js";
 import {
+  REVEAL_RESPONSES_VALUES,
   answersFormatZod,
   contextsZod,
   difficultyZod,
@@ -11,6 +18,8 @@ import {
   parseTriviaAxisBag,
   questionTypeZod,
   triviaDifficultyRatioZod,
+  triviaHintZod,
+  validateHintConfig,
   validateTriviaChoicesConfig,
   type ParseIssue,
 } from "../../core/configParsers/axes.js";
@@ -77,11 +86,11 @@ export function createSetWorkspaceConfigTool() {
           "Workspace default for the live-roster-footer visibility axis. true (default) reveals each answerer's pick in the live footer; false shows names only. null clears.",
         ),
       revealResponses: z
-        .enum(["no", "just-correctness", "yes"])
+        .enum(REVEAL_RESPONSES_VALUES as readonly [RevealResponsesMode, ...RevealResponsesMode[]])
         .nullable()
         .optional()
         .describe(
-          'Workspace default for the reveal-time participation disclosure axis. "yes" (default) renders full named voter buckets; "just-correctness" hides freeform answer text; "no" hides per-user buckets entirely. null clears.',
+          'Workspace default for the reveal-time participation disclosure axis. "yes" (default) renders full named voter buckets; "just-correctness" hides freeform answer text; "just-winners" names only the correct voters and reduces missers to anonymous counts; "no" hides per-user buckets entirely. null clears.',
         ),
       instructions: triviaInstructionsZod
         .nullable()
@@ -94,6 +103,12 @@ export function createSetWorkspaceConfigTool() {
         .optional()
         .describe(
           'Workspace tier of the cumulative-cascade `additionalInstructions` axis (e.g. "Avoid politics."). Every non-empty tier stacks — workspace + game + season + slot all apply, concatenated tier-labeled. Surfaced verbatim to Claude via the `get_ideas` and `process_reveal_answers` payloads. null clears this tier.',
+        ),
+      hint: triviaHintZod
+        .nullable()
+        .optional()
+        .describe(
+          'Workspace tier of the hint axis. Object shape `{ mode: "none" | "button" | "inline", minDifficulty?: "easy" | "medium" | "hard" }`. Cascade: `slot → season → game → workspace → { mode: "none" }`. Whole-object replace per tier. `button` is per-player opt-in safety net; `inline` is a room-wide difficulty floor adjustment — pick deliberately. null clears.',
         ),
     },
     async (args) => {
@@ -267,6 +282,19 @@ export function createSetWorkspaceConfigTool() {
         else {
           next.additionalInstructions = r.value;
           updatedFields.push("additionalInstructions");
+        }
+      }
+
+      // hint: validate + apply.
+      if (args.hint === null) {
+        delete next.hint;
+        updatedFields.push("hint (cleared)");
+      } else if (args.hint !== undefined) {
+        const r = validateHintConfig(args.hint, "hint");
+        if (!r.ok) issues.push({ field: "hint", error: r.error });
+        else {
+          next.hint = r.value;
+          updatedFields.push("hint");
         }
       }
 

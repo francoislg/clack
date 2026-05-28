@@ -7,9 +7,10 @@ import type { ProcessRevealEntry, RoundSummary, RoundSummaryEntry } from "./type
  * - `answered` counts reveals where the player appears in either `correct`
  *   or `incorrect` (named-bucket presence). The `noAnswer` and `reactions`
  *   buckets track reactor-only participation and don't count as "answered."
- * - Reveal entries whose `voters.revealResponses === "no"` carry no named
- *   buckets — they contribute zero to every player's tallies (which is the
- *   point of the restricted mode; we don't have per-player data to tally).
+ * - Reveal entries whose `voters.revealResponses` is `"no"` or `"just-winners"`
+ *   carry no `incorrect` named bucket — they contribute zero to every player's
+ *   tallies (which is the point of the restricted modes; we don't have the
+ *   per-player data to tally). These batches never surface the summary anyway.
  * - Players with `answered === 0` are omitted from the result.
  * - Sorted by `correct` descending, then `displayName` ascending
  *   (case-insensitive, locale-sensitive comparison).
@@ -27,7 +28,7 @@ export function computeRoundSummary(reveals: ProcessRevealEntry[]): RoundSummary
   for (const reveal of reveals) {
     seenInThisReveal.clear();
     const buckets = reveal.voters;
-    if (buckets.revealResponses === "no") continue;
+    if (buckets.revealResponses === "no" || buckets.revealResponses === "just-winners") continue;
     const { correct, incorrect } = buckets;
 
     const noteAnswered = (userId: string, displayName: string): void => {

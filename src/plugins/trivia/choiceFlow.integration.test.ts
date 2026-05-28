@@ -14,10 +14,11 @@ import type { TriviaConfig } from "./core/configTypes.js";
 import type { TriviaDataLayer } from "./core/types.js";
 import type { ClackSdk } from "../sdk.js";
 
-function fakeSdk(): Pick<ClackSdk, "getSlackClient" | "actionId"> {
+function fakeSdk(): Pick<ClackSdk, "getSlackClient" | "actionId" | "t"> {
   return {
     getSlackClient: () => null,
     actionId: (key: string) => `plugin:trivia:${key}`,
+    t: (key: string) => key,
   };
 }
 
@@ -89,6 +90,7 @@ describe("choice-questions end-to-end flow", () => {
           suggestedDifficulty: undefined,
           difficulty: undefined,
           slot: undefined,
+          hint: undefined,
           emojis: ["🪐"],
         },
         SESSION,
@@ -246,6 +248,7 @@ describe("choice-questions end-to-end flow", () => {
           suggestedDifficulty: undefined,
           difficulty: undefined,
           slot: undefined,
+          hint: undefined,
           emojis: ["🌍"],
         },
         SESSION,
@@ -274,6 +277,7 @@ describe("choice-questions end-to-end flow", () => {
           suggestedDifficulty: undefined,
           difficulty: undefined,
           slot: undefined,
+          hint: undefined,
           emojis: ["🪐"],
         },
         SESSION,

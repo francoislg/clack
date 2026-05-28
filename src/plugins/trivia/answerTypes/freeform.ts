@@ -507,8 +507,9 @@ export const freeformAnswerHandler: AnswerTypeHandler = {
 
 /**
  * Assemble the discriminated `VoterBuckets` variant for a freeform reveal.
- * Strips `answerText` when `revealResponses === "just-correctness"`; drops
- * the named buckets entirely when `"no"`. Reactions stay empty — the
+ * Strips `answerText` when `revealResponses === "just-correctness"`; reduces
+ * the missers to a count (winners keep `answerText`) when `"just-winners"`;
+ * drops the named buckets entirely when `"no"`. Reactions stay empty — the
  * freeform path doesn't fetch reactions today (could be added later).
  */
 function buildFreeformVoters(
@@ -519,6 +520,15 @@ function buildFreeformVoters(
   const mode = question.revealResponses ?? "yes";
   if (mode === "no") {
     return { revealResponses: "no", reactions: [] };
+  }
+  if (mode === "just-winners") {
+    return {
+      revealResponses: "just-winners",
+      correct: correctVoters,
+      incorrectCount: incorrectVoters.length,
+      noAnswerCount: 0,
+      reactions: [],
+    };
   }
   if (mode === "just-correctness") {
     return {

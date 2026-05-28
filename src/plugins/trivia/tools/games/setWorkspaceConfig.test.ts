@@ -71,6 +71,7 @@ const emptyArgs = {
   revealResponses: undefined,
   instructions: undefined,
   additionalInstructions: undefined,
+  hint: undefined,
 };
 
 describe("set_workspace_config", () => {

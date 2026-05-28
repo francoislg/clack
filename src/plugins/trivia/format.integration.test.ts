@@ -14,10 +14,11 @@ import type { TriviaDataLayer } from "./core/types.js";
 import type { ClackSdk } from "../sdk.js";
 import { applySeasonRollover } from "./tools/reveal/rollover.js";
 
-function fakeSdk(): Pick<ClackSdk, "getSlackClient" | "actionId"> {
+function fakeSdk(): Pick<ClackSdk, "getSlackClient" | "actionId" | "t"> {
   return {
     getSlackClient: () => null,
     actionId: (key: string) => `plugin:trivia:${key}`,
+    t: (key: string) => key,
   };
 }
 
@@ -99,6 +100,7 @@ describe("Trivia question-format end-to-end flow", () => {
           revealResponses: undefined,
           instructions: undefined,
           additionalInstructions: undefined,
+          hint: undefined,
         },
         SESSION,
       ),
@@ -141,6 +143,7 @@ describe("Trivia question-format end-to-end flow", () => {
           suggestedDifficulty: undefined,
           difficulty: undefined,
           slot: { index: 0, label: undefined },
+          hint: undefined,
           emojis: ["💧"],
         },
         SESSION,
@@ -180,6 +183,7 @@ describe("Trivia question-format end-to-end flow", () => {
           suggestedDifficulty: undefined,
           difficulty: undefined,
           slot: { index: 1, label: undefined },
+          hint: undefined,
           emojis: ["⚽"],
         },
         SESSION,
@@ -211,6 +215,7 @@ describe("Trivia question-format end-to-end flow", () => {
           suggestedDifficulty: undefined,
           difficulty: undefined,
           slot: { index: 1, label: undefined },
+          hint: undefined,
           emojis: ["🗿"],
         },
         SESSION,

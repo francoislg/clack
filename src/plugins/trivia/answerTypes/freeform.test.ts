@@ -221,6 +221,39 @@ describe("freeformAnswerHandler", () => {
         assert.equal(result.entry.voters.correct[0].answerText, undefined);
       }
     });
+
+    it("keeps the winner's answerText but reduces missers to a count in 'just-winners' mode", async () => {
+      const deps = makeDeps(
+        '{"verdicts":[{"key":"1.1","correct":true},{"key":"1.2","correct":false}]}',
+      );
+      const question = makeQuestion({ revealResponses: "just-winners" });
+      await deps.scoped.saveQuestion(question);
+      await deps.scoped.saveAnswer({
+        userId: "U1",
+        questionId: question.id,
+        answerText: "Paris",
+        timestamp: 100,
+      });
+      await deps.scoped.saveAnswer({
+        userId: "U2",
+        questionId: question.id,
+        answerText: "London",
+        timestamp: 200,
+      });
+      const result = await freeformAnswerHandler.processReveal(question, deps);
+      assert.equal(result.ok, true);
+      if (result.ok && result.entry.voters.revealResponses === "just-winners") {
+        // Winner is named AND keeps their (correct) typed answer.
+        assert.equal(result.entry.voters.correct.length, 1);
+        assert.equal(result.entry.voters.correct[0].userId, "U1");
+        assert.equal(result.entry.voters.correct[0].answerText, "Paris");
+        // Misser is reduced to an anonymous count — their text never appears.
+        assert.equal(result.entry.voters.incorrectCount, 1);
+        assert.equal(result.entry.voters.noAnswerCount, 0);
+      }
+      // The misser's typed string must not leak anywhere in the payload.
+      assert.equal(JSON.stringify(result).includes("London"), false);
+    });
   });
 
   describe("getSavedQuestion", () => {

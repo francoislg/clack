@@ -206,7 +206,7 @@ export function validateFormat(
       } else {
         return {
           ok: false,
-          error: `'${slotLabel}.revealResponses' must be one of "no", "just-correctness", "yes"`,
+          error: `'${slotLabel}.revealResponses' must be one of "no", "just-winners", "just-correctness", "yes"`,
         };
       }
     }
