@@ -651,8 +651,8 @@ describe("PREP and POST share PER_SLOT_GENERATION_PATHS content", () => {
     assert.ok(POST_QUESTIONS_INSTRUCTIONS.includes(sample));
   });
 
-  it("both include the same FACT-BOOLEAN path heading", () => {
-    const sample = "=== FACT-BOOLEAN PATH";
+  it("both include the same BOOLEAN path body heading", () => {
+    const sample = "=== BOOLEAN PATH BODY";
     assert.ok(PREP_QUESTIONS_INSTRUCTIONS.includes(sample));
     assert.ok(POST_QUESTIONS_INSTRUCTIONS.includes(sample));
   });

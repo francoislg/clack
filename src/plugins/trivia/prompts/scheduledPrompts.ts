@@ -199,64 +199,35 @@ const CHOICE_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
    - Store the returned questionId AND its slot.index for the post step.`;
 
 /**
- * Topical-boolean flow: deltas from FACT-BOOLEAN PATH. The polarity self-check,
- * duplicate check, difficulty gate, and save sequence are inherited; only the
- * WebSearch research step and a few save fields differ.
+ * Topical modifier: collapses TOPICAL-BOOLEAN / TOPICAL-CHOICE / TOPICAL-FREEFORM
+ * into a single block applied on top of the corresponding fact path. The WebSearch
+ * step, per-shape topical levers (as nested bullets), event-keyword duplicate hint,
+ * and the 2 extra save fields are all here. All gates (POLARITY SELF-CHECK on
+ * boolean, DISTRACTOR PLAUSIBILITY on choice, DIFFICULTY GATE, STATEMENT-CHOICES
+ * NON-OVERLAP on choice, DUPLICATE CHECK) apply identically to the fact paths.
  */
-const TOPICAL_BOOLEAN_FLOW_STEPS = `Follow the FACT-BOOLEAN PATH (above) with the following deltas. All gates (polarity self-check, DUPLICATE CHECK GATE, DIFFICULTY GATE) apply IDENTICALLY — only the get_ideas payload signals topical, a WebSearch research step is prepended, and the save call carries topical-specific fields.
+const TOPICAL_MODIFIER = `When the rolled \`suggestedQuestionType\` is \`"topical"\`, apply this modifier ON TOP OF the answer-shape path body (FACT-BOOLEAN PATH, FACT-CHOICE PATH, or FACT-FREEFORM PATH). The modifier prepends a research step, narrows the per-shape generation levers to event-anchored variants, adds an event-keyword hint to the duplicate check, and adds three fields to the save call. ALL OTHER GATES (POLARITY SELF-CHECK on boolean, DISTRACTOR PLAUSIBILITY GATE on choice, DIFFICULTY GATE, STATEMENT-CHOICES NON-OVERLAP GATE on choice, DUPLICATE CHECK GATE) apply identically to the fact path.
 
-1. GET CATEGORY IDEAS AND SUGGESTIONS: same as FACT-BOOLEAN step 1. The payload additionally carries \`suggestedQuestionType: "topical"\` (and \`suggestedAnswersFormat: "boolean"\`), signaling this path.
-
-2. RESEARCH A RECENT EVENT VIA WebSearch (NEW STEP — REQUIRED — DO NOT SKIP):
+1. RESEARCH A RECENT EVENT VIA WebSearch (NEW STEP — REQUIRED — DO NOT SKIP, runs before the fact path's step 2):
    - Compose a WebSearch query that combines the chosen category, the chosen lens from contextPriority[0] (if applicable), and a recency hint (e.g. "this week", "yesterday", "last few days", a recent year).
    - Aim for events from the last day or two. Go back further (up to a week) only if nothing notable surfaced from the most recent days.
    - Pick ONE specific newsworthy event from the results to anchor the question on. Capture:
-     - sourceUrl: the most authoritative URL that supports the claim (must begin with https://).
-     - eventDate (optional but encouraged): the ISO 8601 date (YYYY-MM-DD) the event occurred, when easy to determine.
+     - \`sourceUrl\`: the most authoritative URL that supports the claim (must begin with https://).
+     - \`eventDate\` (optional but encouraged): the ISO 8601 date (YYYY-MM-DD) the event occurred, when easy to determine.
    - If the current lens (contextPriority[0]) yielded no usable event, descend per the CONTEXTS guidance. If every lens fails, re-call get_ideas.
 
-3. WRITE A STATEMENT WITH THE CORRECT POLARITY FROM THE START: same approach as FACT-BOOLEAN step 2 (Branch on suggestedAnswer; do NOT write a true statement and try to flip it later), but anchored on the event captured in step 2. For FALSE statements, the event-specific levers are: swap a date, a name, a place, or a number to something subtly incorrect; or assert a tempting misconception about the event that the actual reporting contradicts.
+2. ANCHOR THE QUESTION/ANSWER ON THE EVENT. The statement (boolean), correct option (choice), or canonical \`expectedAnswer\` (freeform) is derived from the event you captured. Per-shape topical levers (apply alongside the fact path's statement-writing step):
+   - **BOOLEAN paths**: for FALSE statements, event-aware levers — swap a date, a name, a place, or a number to something subtly incorrect; or assert a tempting misconception about the event that the actual reporting contradicts.
+   - **CHOICE paths**: distractors drawn from the same news domain work well (other people in the story, other recent similar events, related-but-wrong dates/places/numbers). WebSearch payloads love surfacing the runner-up / co-star / opponent adjacent to the winner — that detail is exactly the wrong thing to keep in the statement when you also list it as an option, so apply the STATEMENT-CHOICES NON-OVERLAP GATE accordingly.
+   - **FREEFORM paths**: no shape-specific change beyond anchoring the answer on the event.
 
-4. POLARITY SELF-CHECK: same as FACT-BOOLEAN step 3.
+3. DUPLICATE CHECK uses event-derived keywords. Apply the DUPLICATE CHECK GATE as usual, but pick keywords from the event itself (names, places, dates from the news story). If the same event was already asked about — even with different polarity, framing, or angle — pick a different event from your WebSearch results (or re-search).
 
-5. CHECK FOR DUPLICATES: apply the DUPLICATE CHECK GATE (shared definition above), using keywords drawn from the event/statement. If the same event was already asked about — even with different polarity or angle — pick a different event from your WebSearch results (or re-search).
-
-6. DIFFICULTY GATE: apply the DIFFICULTY GATE (shared definition above) — BOOLEAN reframe rule applies (re-run polarity self-check on any reframed statement before re-rating).
-
-7. Choose 1-4 fun emojis related to the event/topic.
-
-8. SAVE TO DATABASE: same as FACT-BOOLEAN step 8, with these field differences:
-   - \`questionType: "topical"\` (instead of \`"fact"\`)
-   - \`sourceUrl\` (REQUIRED — the https:// URL captured in step 2)
-   - \`eventDate\` (optional — YYYY-MM-DD when known)
-   All other save fields (\`answersFormat: "boolean"\`, category, statement, isTrue, emojis, suggestedDifficulty, difficulty, context, slot) are identical to the fact-boolean save.`;
-
-/**
- * Topical-choice flow: deltas from FACT-CHOICE PATH. The distractor plausibility
- * gate, statement-choices non-overlap gate, duplicate check, and difficulty gate
- * are inherited; only the WebSearch research step and a few save fields differ.
- */
-const TOPICAL_CHOICE_FLOW_STEPS = `Follow the FACT-CHOICE PATH (above) with the following deltas. All gates (DISTRACTOR PLAUSIBILITY GATE, STATEMENT–CHOICES NON-OVERLAP GATE, DUPLICATE CHECK GATE, DIFFICULTY GATE) apply IDENTICALLY — only the get_ideas payload signals topical, a WebSearch research step is prepended, and the save call carries topical-specific fields.
-
-1. GET CATEGORY IDEAS AND SUGGESTIONS: same as FACT-CHOICE step 1. The payload additionally carries \`suggestedQuestionType: "topical"\` (and \`suggestedAnswersFormat: "choice"\`), signaling this path.
-
-2. RESEARCH A RECENT EVENT VIA WebSearch (NEW STEP — REQUIRED — DO NOT SKIP): same WebSearch + lens-descent rules as the TOPICAL-BOOLEAN PATH step 2 (compose query from category + lens + recency hint; aim for the last day or two, fall back up to a week; pick one event; capture \`sourceUrl\` (https://) and optional \`eventDate\` (YYYY-MM-DD); descend lenses or re-call get_ideas on failure).
-
-3. WRITE THE CORRECT ANSWER FIRST: same as FACT-CHOICE step 2 — the correct option anchored on a verified fact drawn from the event, occupying \`suggestedCorrectIndex\` (POSITION LOCKED — MUST NOT be moved later). Then write (suggestedChoiceCount − 1) plausible distractors drawn from the same news domain (e.g. other people in the story, other recent similar events, related-but-wrong dates/places/numbers). Apply the STATEMENT–CHOICES NON-OVERLAP GATE (shared definition above) — and note that WebSearch payloads love surfacing the runner-up / co-star / opponent right next to the winner, which is exactly the wrong thing to keep in the statement when you also list it as an option.
-
-4. DISTRACTOR PLAUSIBILITY GATE: same as FACT-CHOICE step 3.
-
-5. CHECK FOR DUPLICATES: apply the DUPLICATE CHECK GATE (shared definition above), using keywords drawn from the event/statement. If the same event was already asked about, pick a different event from your WebSearch results (or re-search).
-
-6. DIFFICULTY GATE: apply the DIFFICULTY GATE (shared definition above) — CHOICE reframe rule applies.
-
-7. Choose 1-4 fun emojis.
-
-8. SAVE TO DATABASE: same as FACT-CHOICE step 7, with these field differences:
-   - \`questionType: "topical"\` (instead of \`"fact"\`)
-   - \`sourceUrl\` (REQUIRED — the https:// URL captured in step 2)
-   - \`eventDate\` (optional — YYYY-MM-DD when known)
-   All other save fields (\`answersFormat: "choice"\`, category, statement, choices, correctIndex, emojis, suggestedDifficulty, difficulty, context, slot) are identical to the fact-choice save.`;
+4. SAVE DELTAS (added to the fact path's save_question call):
+   - questionType: "topical" (instead of "fact")
+   - sourceUrl (REQUIRED — the https:// URL captured in step 1)
+   - eventDate (optional — YYYY-MM-DD when known)
+   All other save fields (\`answersFormat\`, category, statement, isTrue/choices/correctIndex/expectedAnswer + acceptableAnswers + gradingNotes + freeformAnswerShape, emojis, suggestedDifficulty, difficulty, context, slot) are identical to the corresponding fact-path save.`;
 
 /**
  * Fact-freeform flow: Claude writes a statement plus a canonical expectedAnswer.
@@ -333,57 +304,6 @@ const FREEFORM_FACT_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
    - Store the returned questionId AND its slot.index for the post step.`;
 
 /**
- * Topical-freeform flow: prefixes a WebSearch research step in front of the
- * fact-freeform completion. \`save_question\` carries \`questionType: "topical"\`
- * + the captured \`sourceUrl\` (and optional \`eventDate\`).
- */
-const FREEFORM_TOPICAL_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
-   - Call get_ideas. For the TOPICAL FREEFORM PATH, it returns:
-     - categories.ideas: 5 random categories.
-     - suggestedAnswersFormat: "freeform"
-     - suggestedQuestionType: "topical"
-     - suggestedFreeformAnswerShape: one of "name" | "place" | "phrase" | "title" | "date" | "countable" | "other" — see fact-freeform path for per-shape descriptions. Non-negotiable.
-     - suggestedDifficulty ("Easy" | "Medium" | "Hard"): the bucket to aim at.
-     - suggestedDifficultyRange ([min, max]): the strict 1–10 accept range for the rolled bucket on THIS game type (freeform's bands are softer than boolean/choice's) — used at step 7.
-     - contextPriority (optional, only when contexts are configured): see CONTEXTS guidance above.
-   - Pick one category from categories.ideas.
-
-2. RESEARCH A RECENT EVENT VIA WebSearch (REQUIRED — DO NOT SKIP):
-   - Same WebSearch + lens-descent rules as the topical boolean / topical choice paths. Capture \`sourceUrl\` and (when known) \`eventDate\` from the chosen event.
-
-3. WRITE THE QUESTION:
-   - Anchor a single-sentence prompt on a verified fact drawn from the event. The answer must match suggestedFreeformAnswerShape (see fact-freeform step 2). LEEWAY applies only to "date" / "countable" shapes; skip for "name" / "place" / "phrase".
-
-4. WRITE THE EXPECTED ANSWER (REQUIRED): shortest canonical form, max 200 chars.
-
-5. OPTIONAL: ENUMERATE ACCEPTABLE VARIANTS / GRADING NOTES: as in the fact-freeform path.
-
-6. DUPLICATE CHECK: same as fact-freeform.
-
-7. DIFFICULTY GATE: same as fact-freeform.
-
-8. Choose 1-4 fun emojis.
-
-9. SAVE TO DATABASE:
-   - Call save_question with:
-     - answersFormat: "freeform"
-     - questionType: "topical"
-     - category
-     - statement
-     - expectedAnswer (REQUIRED)
-     - acceptableAnswers (optional)
-     - gradingNotes (optional)
-     - freeformAnswerShape (REQUIRED — pass through the value from get_ideas' suggestedFreeformAnswerShape, verbatim)
-     - sourceUrl (REQUIRED — captured in step 2)
-     - eventDate (when known)
-     - emojis
-     - suggestedDifficulty
-     - difficulty
-     - context (the lens you used, when non-empty)
-     - slot: \`{ index: i }\` — REQUIRED when the active season has a format.
-   - Store the returned questionId for the post step.`;
-
-/**
  * Staged-pool check + per-slot fill loop dispatch. Shared between PREP and POST.
  * Both prompts open with this section: read what's already staged, learn the format,
  * determine which slot indices still need a question. The downstream behavior diverges
@@ -422,20 +342,20 @@ Repeat until every slot index in \`[0..slotCount-1]\` is covered (either FILLED 
  * Shared verbatim between PREP and POST — both prompts include this content as the
  * substantive generation guidance for any slot that needs to be freshly written.
  */
-const PER_SLOT_GENERATION_PATHS = `Per-question/per-slot generation DISPATCHES on a 2-axis matrix: \`suggestedAnswersFormat\` × \`suggestedQuestionType\` — producing six paths:
+const PER_SLOT_GENERATION_PATHS = `Per-question/per-slot generation DISPATCHES on a 2-axis matrix: \`suggestedAnswersFormat\` × \`suggestedQuestionType\`. The answer-shape axis (boolean / choice / freeform) selects ONE OF THREE PATH BODIES below. The question-type axis (fact / topical) is a MODIFIER: \`"fact"\` runs the path body unchanged; \`"topical"\` applies the TOPICAL MODIFIER (which prepends a WebSearch step and adds save fields) on top of the same path body.
 
 | | \`suggestedAnswersFormat: "boolean"\` | \`suggestedAnswersFormat: "choice"\` | \`suggestedAnswersFormat: "freeform"\` |
 |---|---|---|---|
-| \`suggestedQuestionType: "fact"\` | FACT-BOOLEAN PATH | FACT-CHOICE PATH | FACT-FREEFORM PATH |
-| \`suggestedQuestionType: "topical"\` | TOPICAL-BOOLEAN PATH (requires WebSearch + sourceUrl) | TOPICAL-CHOICE PATH (requires WebSearch + sourceUrl) | TOPICAL-FREEFORM PATH (requires WebSearch + sourceUrl) |
+| \`suggestedQuestionType: "fact"\` | FACT-BOOLEAN PATH = BOOLEAN path body | FACT-CHOICE PATH = CHOICE path body | FACT-FREEFORM PATH = FREEFORM path body |
+| \`suggestedQuestionType: "topical"\` | TOPICAL-BOOLEAN PATH = BOOLEAN path body + TOPICAL MODIFIER | TOPICAL-CHOICE PATH = CHOICE path body + TOPICAL MODIFIER | TOPICAL-FREEFORM PATH = FREEFORM path body + TOPICAL MODIFIER |
 
-All three topical paths REQUIRE the \`WebSearch\` tool to find a recent newsworthy event, and pass the resulting source URL to \`save_question\`. The fact paths never call WebSearch.
+All three topical combinations REQUIRE the \`WebSearch\` tool (via the TOPICAL MODIFIER) to find a recent newsworthy event, and pass the resulting source URL to \`save_question\`. The fact combinations never call WebSearch.
 
 The freeform paths produce an answer the user TYPES (into a Slack modal). Claude writes the canonical \`expectedAnswer\` and optional \`acceptableAnswers\` / \`gradingNotes\` at save time. A small fast model judges submissions at reveal — the judge automatically rejects multi-guess "shotgun" answers (e.g. "Paris or London") as incorrect, so the canonical answer must be a single concrete value.
 
 Duplicate detection is intentionally CROSS-GAME and is not slot-scoped — a question that appeared in slot 0 yesterday is still a duplicate if it shows up in slot 2 today, and a duplicate fact in a sibling game still counts. Always call \`find_previous_questions\` with \`keywords: [...]\` + \`match: "any"\`, OMITTING the \`games\` argument; do NOT filter by slot.
 
-=== SHARED GATES (referenced by every path below — read once, apply wherever a path step says "apply the X GATE") ===
+=== SHARED GATES (referenced by every path body below — read once, apply wherever a path step says "apply the X GATE") ===
 
 ${DUPLICATE_CHECK_GATE}
 
@@ -443,29 +363,21 @@ ${DIFFICULTY_GATE}
 
 ${STATEMENT_CHOICES_NON_OVERLAP_GATE}
 
-=== FACT-BOOLEAN PATH (per question / per slot) ===
+=== BOOLEAN PATH BODY (per question / per slot) ===
 
 ${QUESTION_FLOW_STEPS}
 
-=== FACT-CHOICE PATH (per question / per slot) ===
+=== CHOICE PATH BODY (per question / per slot) ===
 
 ${CHOICE_FLOW_STEPS}
 
-=== TOPICAL-BOOLEAN PATH (per question / per slot) ===
-
-${TOPICAL_BOOLEAN_FLOW_STEPS}
-
-=== TOPICAL-CHOICE PATH (per question / per slot) ===
-
-${TOPICAL_CHOICE_FLOW_STEPS}
-
-=== FACT-FREEFORM PATH (per question / per slot) ===
+=== FREEFORM PATH BODY (per question / per slot) ===
 
 ${FREEFORM_FACT_FLOW_STEPS}
 
-=== TOPICAL-FREEFORM PATH (per question / per slot) ===
+=== TOPICAL MODIFIER (applied on top of any path body when suggestedQuestionType === "topical") ===
 
-${FREEFORM_TOPICAL_FLOW_STEPS}`;
+${TOPICAL_MODIFIER}`;
 
 /**
  * The presentation half of the post-cron prompt — opener gating, card layout, post + retry,
@@ -882,16 +794,9 @@ Deliver today's trivia reveal. There are exactly TWO steps — the deterministic
 
    If the leaderboard is empty (nobody has participated yet), OMIT the \`table\` parameter entirely. Otherwise the table MUST be present — a reveal closer that mentions the scoreboard without a populated table is a visible bug.
 
-   General rule for emoji in table cells: always use the Unicode character (🐙, 🏆, 🎲), never the Slack shortcode (\`:octopus:\`, \`:trophy:\`, \`:game_die:\`). Shortcodes work in section/header/context blocks but render as literal text inside table cells.
+Slack mechanics: mention users with \`<@USERID>\`; \`*bold*\` does NOT render inside \`plain_text\` headers (emojis do); use mrkdwn sparingly elsewhere — emoji and energy do most of the work.
 
-Style guidance:
-- Use emojis liberally for visual impact.
-- Mention users with \`<@USERID>\` format.
-- Use Slack mrkdwn (\`*bold*\`, \`_italic_\`) sparingly — emoji and energy do most of the work.
-- Header text is \`plain_text\`, so emojis render but \`*asterisks*\` do not.
-- NEVER predict timing — no "see you tomorrow", "next reveal in 24 hours", or similar. The next fire is on a separate schedule you have no visibility into.
-
-Keep the tone fun, educational, and maintain that charismatic Game Show Presenter energy throughout.`;
+NEVER predict timing — no "see you tomorrow", "next reveal in 24 hours", or similar. The next fire is on a separate schedule you have no visibility into.`;
 
 /**
  * Legacy manual-setup template. Used by admins setting up trivia via Claude chat
