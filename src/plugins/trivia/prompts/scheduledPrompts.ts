@@ -693,21 +693,37 @@ Deliver today's trivia reveal. There are exactly TWO steps — the deterministic
 
    This branch trades per-question voter detail for an aggregate scoreboard. Readability over completeness — the cumulative leaderboard table below still ships.
 
-   === TABLE PARAMETER (both single-question and multi-question layouts) ===
+   === TABLE PARAMETER (single-question, multi-question, AND empty-reveals layouts) ===
 
    PLUS, alongside \`blocks\`, set the top-level \`table\` parameter rendering the leaderboard. CRITICAL: \`table\` is a SIBLING of \`blocks\` on the \`submit_response\` call, NOT a member of the \`blocks\` array — Block Kit rejects \`{ "type": "table" }\` inside \`blocks\`, and the message will ship with no scoreboard if you put it there. The shape is \`submit_response({ blocks: [...], table: { type: "table", rows: [...], column_settings: [...] }, actions: [...] })\`.
 
-   TWO RENDERING SHAPES:
+   "THIS ROUND" ROW — gated on \`reveals.length > 1\` AND \`roundSummary\` presence:
 
-   - WHEN \`seasonStatus\` IS PRESENT AND \`seasonStatus.hasPriorSeasons\` IS \`true\` (seasons enabled, a current season is active, AND at least one answer belongs to a different season) — 3-ROW DUAL-TOTALS TABLE:
-     - Row 1: top-left label cell containing a single space \`" "\` (Slack rejects empty raw_text cells with \`invalid_blocks\`), then one cell per player with their \`displayName\` (NO medal prefix on this row).
-     - Row 2: left cell \`"Current Season"\`, then one cell per player with \`String(currentSeasonCorrect)\`. Apply medal prefixes \`"🥇 "\`, \`"🥈 "\`, \`"🥉 "\`, \`"🎀 "\` (Unicode characters, NOT \`:first_place_medal:\`/\`:ribbon:\` shortcodes — shortcodes render as literal text inside table cells) to the cells holding the top-4 \`currentSeasonCorrect\` values among present players (🎀 = 4th place).
-     - Row 3: left cell \`"All Time"\`, then one cell per player with \`String(totalCorrect)\`. Apply medal prefixes to the top-4 \`totalCorrect\` values among present players — INDEPENDENT of the current-season ranking.
-     - Player columns: only include leaderboard entries where \`currentSeasonCorrect > 0\` OR \`currentSeasonAnswered > 0\`. Omit anyone with zero current-season participation.
-     - Fewer than 4 present players → assign medals only for whichever positions exist.
+   When \`reveals.length > 1\` AND \`roundSummary\` is present in the payload, PREPEND a \`This Round\` row to the leaderboard table immediately ABOVE the \`Current Season\` / \`All Time\` rows. Source the per-player counts from \`roundSummary.perPlayer\` (the same array the Round Summary section reads): for each player column, look up the entry by \`userId\` and render \`String(correct)\`. Players who appear on the leaderboard (i.e., have a column) but are ABSENT from \`roundSummary.perPlayer\` (didn't answer this round) — render the literal Unicode em-dash \`"—"\`. The empty string \`""\` is FORBIDDEN here: Slack rejects empty raw_text cells with \`invalid_blocks\`. Apply medal prefixes (\`"🥇 "\`, \`"🥈 "\`, \`"🥉 "\`, \`"🎀 "\`) ONLY to cells where \`correct > 0\`, ranked top-4 by \`roundSummary.perPlayer\` array order (already pre-sorted by the reveal tool). Cells with \`correct === 0\` and em-dash cells receive NO medal — under no circumstances does an em-dash or a zero get a 🎀 to fill a top-4 slot.
+
+   The \`This Round\` row is OMITTED in three cases (use the legacy shapes below): (a) \`reveals.length === 1\` — single-question reveal; (b) \`reveals.length === 0\` — empty-reveals acknowledgement; (c) \`reveals.length > 1\` AND \`roundSummary\` is ABSENT (the latter happens whenever any reveal entry's \`revealResponses\` is \`"just-correctness"\` or \`"no"\` — the same gate that drops the Round Summary section block above). The Round Summary section block and the \`This Round\` row share that gate; they ship together or skip together.
+
+   FOUR RENDERING SHAPES (gated on \`seasonStatus.hasPriorSeasons\` × whether \`This Round\` is rendered):
+
+   - WHEN \`seasonStatus\` IS PRESENT AND \`seasonStatus.hasPriorSeasons\` IS \`true\` (seasons enabled, a current season is active, AND at least one answer belongs to a different season):
+
+     - **Legacy 3-ROW DUAL-TOTALS TABLE** — applies to single-question reveals, empty-reveals acknowledgements, AND multi-question reveals where \`roundSummary\` is absent:
+       - Row 1: top-left label cell containing a single space \`" "\` (Slack rejects empty raw_text cells with \`invalid_blocks\`), then one cell per player with their \`displayName\` (NO medal prefix on this row).
+       - Row 2: left cell \`"Current Season"\`, then one cell per player with \`String(currentSeasonCorrect)\`. Apply medal prefixes \`"🥇 "\`, \`"🥈 "\`, \`"🥉 "\`, \`"🎀 "\` (Unicode characters, NOT \`:first_place_medal:\`/\`:ribbon:\` shortcodes — shortcodes render as literal text inside table cells) to the cells holding the top-4 \`currentSeasonCorrect\` values among present players (🎀 = 4th place).
+       - Row 3: left cell \`"All Time"\`, then one cell per player with \`String(totalCorrect)\`. Apply medal prefixes to the top-4 \`totalCorrect\` values among present players — INDEPENDENT of the current-season ranking.
+
+     - **4-ROW DUAL-TOTALS TABLE** — applies to multi-question reveals where \`roundSummary\` IS present:
+       - Row 1: same as legacy 3-row Row 1 (label cell \`" "\` + per-player \`displayName\` cells, no medals).
+       - Row 2 (NEW — \`This Round\`): left cell \`"This Round"\`, then per-player cells per the "This Round" row policy above. Medal prefixes apply only to cells where \`correct > 0\`, top-4 by \`roundSummary.perPlayer\` order; em-dash for players absent from \`perPlayer\`.
+       - Row 3: same as legacy 3-row Row 2 (\`"Current Season"\` + per-player \`currentSeasonCorrect\` with independent top-4 medals).
+       - Row 4: same as legacy 3-row Row 3 (\`"All Time"\` + per-player \`totalCorrect\` with independent top-4 medals).
+
+     Shared rules across both shape variants under this gate:
+     - Player columns: only include leaderboard entries where \`currentSeasonCorrect > 0\` OR \`currentSeasonAnswered > 0\`. Omit anyone with zero current-season participation. The \`This Round\` row inherits this same column set (no column may exist in one row and be missing in another — Slack tables require uniform row widths).
+     - Fewer than 4 present players → assign medals only for whichever positions exist, on each row INDEPENDENTLY.
      - \`column_settings\`: one \`{ "align": "center" }\` entry per column (label column + each player column).
 
-     Example shape (2 present players, seasonStatus present):
+     Example shape — legacy 3-row, 2 present players (single-question OR multi-question without \`roundSummary\`):
      \`\`\`
      {
        "blocks": [ /* header, explanation, divider, voter sections, closer context — see above */ ],
@@ -726,13 +742,42 @@ Deliver today's trivia reveal. There are exactly TWO steps — the deterministic
      }
      \`\`\`
 
-   - WHEN \`seasonStatus\` IS ABSENT (seasons disabled or in a gap), OR WHEN \`seasonStatus.hasPriorSeasons\` IS \`false\` (only one season has ever had activity, so "All Time" would duplicate "Current Season") — 2-ROW TABLE:
-     - Row 1: one cell per player with their \`displayName\` (NO medal prefix on this row).
-     - Row 2: one cell per player with \`String(totalCorrect)\`. Apply medal prefixes \`"🥇 "\`, \`"🥈 "\`, \`"🥉 "\`, \`"🎀 "\` (Unicode characters, NOT \`:first_place_medal:\`/\`:ribbon:\` shortcodes — shortcodes render as literal text inside table cells) to the cells holding the top-4 \`totalCorrect\` values (🎀 = 4th place).
-     - Fewer than 4 players → assign medals only for whichever positions exist.
-     - \`column_settings\`: one \`{ "align": "center" }\` entry per column.
+     Example shape — 4-row, 3 present players (multi-question with \`roundSummary\` present; Carol is on the leaderboard but did not answer this round, so her \`This Round\` cell is the em-dash):
+     \`\`\`
+     {
+       "blocks": [ /* header, per-question verdicts, divider, Round Summary section, closer context — see above */ ],
+       "table": {
+         "type": "table",
+         "rows": [
+           [" ",              "Alice",    "Bob",     "Carol"],
+           ["This Round",     "🥇 2",     "🥈 1",    "—"    ],
+           ["Current Season", "🥇 5",     "🥈 3",    "🥉 1" ],
+           ["All Time",       "🥈 9",     "🥇 12",   "🥉 4" ]
+         ],
+         "column_settings": [
+           { "align": "center" }, { "align": "center" }, { "align": "center" }, { "align": "center" }
+         ]
+       },
+       "actions": []
+     }
+     \`\`\`
 
-     Example shape (4 players, no seasonStatus):
+   - WHEN \`seasonStatus\` IS ABSENT (seasons disabled or in a gap), OR WHEN \`seasonStatus.hasPriorSeasons\` IS \`false\` (only one season has ever had activity, so "All Time" would duplicate "Current Season"):
+
+     - **Legacy 2-ROW TABLE** (NO label column) — applies to single-question reveals, empty-reveals acknowledgements, AND multi-question reveals where \`roundSummary\` is absent:
+       - Row 1: one cell per player with their \`displayName\` (NO medal prefix on this row, NO leading label cell).
+       - Row 2: one cell per player with \`String(totalCorrect)\`. Apply medal prefixes \`"🥇 "\`, \`"🥈 "\`, \`"🥉 "\`, \`"🎀 "\` (Unicode characters, NOT \`:first_place_medal:\`/\`:ribbon:\` shortcodes — shortcodes render as literal text inside table cells) to the cells holding the top-4 \`totalCorrect\` values (🎀 = 4th place).
+
+     - **3-ROW LABELED TABLE** (NEW label column) — applies to multi-question reveals where \`roundSummary\` IS present. This shape gains a left-side label column that the legacy 2-row shape lacks; the column is necessary because the \`This Round\` and \`All Time\` rows now need named labels.
+       - Row 1: top-left label cell containing a single space \`" "\` (Slack rejects empty raw_text cells with \`invalid_blocks\`), then one cell per player with their \`displayName\` (NO medal prefix on this row).
+       - Row 2 (NEW — \`This Round\`): left cell \`"This Round"\`, then per-player cells per the "This Round" row policy above. Medal prefixes apply only to cells where \`correct > 0\`, top-4 by \`roundSummary.perPlayer\` order; em-dash for players absent from \`perPlayer\`.
+       - Row 3: left cell \`"All Time"\`, then one cell per player with \`String(totalCorrect)\` and top-4 medals on the \`totalCorrect\` values.
+
+     Shared rules across both shape variants under this gate:
+     - Fewer than 4 players → assign medals only for whichever positions exist, on each row INDEPENDENTLY.
+     - \`column_settings\`: one \`{ "align": "center" }\` entry per column (and when the labeled variant ships, the label column counts as one of those entries).
+
+     Example shape — legacy 2-row, 4 players (single-question OR multi-question without \`roundSummary\`):
      \`\`\`
      {
        "blocks": [ /* header, explanation, divider, voter sections, closer context */ ],
@@ -741,6 +786,25 @@ Deliver today's trivia reveal. There are exactly TWO steps — the deterministic
          "rows": [
            ["Alice",    "Bob",   "Carol", "Dave"],
            ["🥇 11",    "🥈 8",  "🥉 6",  "🎀 3"]
+         ],
+         "column_settings": [
+           { "align": "center" }, { "align": "center" }, { "align": "center" }, { "align": "center" }
+         ]
+       },
+       "actions": []
+     }
+     \`\`\`
+
+     Example shape — 3-row labeled, 3 players (multi-question with \`roundSummary\` present; Carol did not answer this round → em-dash):
+     \`\`\`
+     {
+       "blocks": [ /* header, per-question verdicts, divider, Round Summary section, closer context */ ],
+       "table": {
+         "type": "table",
+         "rows": [
+           [" ",          "Alice",    "Bob",     "Carol"],
+           ["This Round", "🥇 2",     "🥈 1",    "—"    ],
+           ["All Time",   "🥇 11",    "🥈 8",    "🥉 6" ]
          ],
          "column_settings": [
            { "align": "center" }, { "align": "center" }, { "align": "center" }, { "align": "center" }

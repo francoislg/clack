@@ -394,15 +394,80 @@ describe("PROCESS_REVEAL_INSTRUCTIONS — renderer brief", () => {
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /`?"just-correctness"`?\s+or\s+`?"no"`?/);
   });
 
-  it("describes both 2-row and 3-row leaderboard table shapes keyed on seasonStatus presence", () => {
+  it("describes both legacy and This-Round table shapes keyed on seasonStatus presence", () => {
+    // Legacy shapes (single-question reveal, empty-reveals, multi-question with roundSummary absent).
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /3-ROW DUAL-TOTALS TABLE/);
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /2-ROW TABLE/);
+    // New shapes gated on `reveals.length > 1` AND `roundSummary` presence.
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /4-ROW DUAL-TOTALS TABLE/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /3-ROW LABELED TABLE/);
+    // seasonStatus gates remain.
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /`seasonStatus` IS PRESENT/);
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /`seasonStatus` IS ABSENT/);
   });
 
-  it("uses 2-row layout when seasonStatus.hasPriorSeasons is false (single-season case)", () => {
+  it("uses the labeled-shape variants when seasonStatus.hasPriorSeasons is false (single-season case)", () => {
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /hasPriorSeasons` IS `false`/);
+  });
+
+  it("describes the This Round leaderboard row sourced from roundSummary.perPlayer", () => {
+    // The literal row label must appear.
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /"This Round"/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /This Round/);
+    // Data source must be named.
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /roundSummary\.perPlayer/);
+    // Lookup-by-userId is the join key — Claude must not match by displayName.
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /look up the entry by `userId`/);
+  });
+
+  it("gates the This Round row on reveals.length > 1 AND roundSummary presence", () => {
+    // Renders only when both conditions hold.
+    assert.match(
+      PROCESS_REVEAL_INSTRUCTIONS,
+      /`reveals\.length > 1`\s+AND\s+`roundSummary`\s+is present/,
+    );
+    // Explicit omit cases.
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /The\s+`This Round`\s+row is OMITTED/);
+    // Shares the same gate as the Round Summary section block.
+    assert.match(
+      PROCESS_REVEAL_INSTRUCTIONS,
+      /same gate that drops the Round Summary section block/,
+    );
+  });
+
+  it("instructs em-dash for absent players in the This Round row (never empty string)", () => {
+    // Em-dash is the prescribed fallback.
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /"—"/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /em-dash/);
+    // Empty string is explicitly forbidden, with the invalid_blocks justification preserved.
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /empty string `""` is FORBIDDEN/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /invalid_blocks/);
+  });
+
+  it("restricts This Round medals to cells where correct > 0 (no medals on em-dash or zero cells)", () => {
+    // The medal-scope rule for the This Round row.
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /ONLY to cells where\s+`correct > 0`/);
+    // Explicit prohibition on awarding medals to em-dash / zero cells just to fill a top-4 slot.
+    assert.match(
+      PROCESS_REVEAL_INSTRUCTIONS,
+      /under no circumstances does an em-dash or a zero get a 🎀/,
+    );
+  });
+
+  it("does NOT describe a This Round row in the single-question branch", () => {
+    const singleQuestionStart = PROCESS_REVEAL_INSTRUCTIONS.indexOf("=== SINGLE-QUESTION LAYOUT");
+    const multiQuestionStart = PROCESS_REVEAL_INSTRUCTIONS.indexOf("=== MULTI-QUESTION LAYOUT");
+    assert.ok(
+      singleQuestionStart >= 0 && multiQuestionStart > singleQuestionStart,
+      "expected the prompt to mark the SINGLE-QUESTION and MULTI-QUESTION layout sections in that order",
+    );
+    const singleQuestionSection = PROCESS_REVEAL_INSTRUCTIONS.slice(
+      singleQuestionStart,
+      multiQuestionStart,
+    );
+    assert.doesNotMatch(singleQuestionSection, /This Round/);
+    assert.doesNotMatch(singleQuestionSection, /4-ROW DUAL-TOTALS TABLE/);
+    assert.doesNotMatch(singleQuestionSection, /3-ROW LABELED TABLE/);
   });
 
   it("forbids predicting reveal timing", () => {
