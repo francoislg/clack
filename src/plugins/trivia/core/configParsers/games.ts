@@ -97,6 +97,32 @@ export function parseTriviaGame(
     return { game: null, issues };
   }
 
+  // prepCron is LENIENT: a malformed value drops the field with a logged issue
+  // but the game still loads with no prep cron emitted. This contrasts with
+  // questionCron / revealCron above which reject the whole entry on failure.
+  // Absence is silently accepted (no issue logged) — prep is opt-in per game.
+  let prepCron: string | undefined;
+  if (e.prepCron !== undefined && e.prepCron !== null) {
+    if (typeof e.prepCron !== "string") {
+      issues.push({
+        field: `${fieldPrefix}.prepCron`,
+        error: `must be a string (got ${typeof e.prepCron})`,
+      });
+    } else if (e.prepCron.length === 0) {
+      issues.push({ field: `${fieldPrefix}.prepCron`, error: "must be a non-empty string" });
+    } else {
+      try {
+        CronExpressionParser.parse(e.prepCron, { tz: timezone });
+        prepCron = e.prepCron;
+      } catch (err) {
+        issues.push({
+          field: `${fieldPrefix}.prepCron`,
+          error: `"${e.prepCron}" is invalid (${err instanceof Error ? err.message : String(err)})`,
+        });
+      }
+    }
+  }
+
   let enabled = true;
   if ("enabled" in e && e.enabled !== undefined) {
     if (typeof e.enabled !== "boolean") {
@@ -236,6 +262,7 @@ export function parseTriviaGame(
       revealCron,
       timezone,
       enabled,
+      ...(prepCron !== undefined ? { prepCron } : {}),
       ...axes,
       ...(format ? { format } : {}),
       ...(categories ? { categories } : {}),

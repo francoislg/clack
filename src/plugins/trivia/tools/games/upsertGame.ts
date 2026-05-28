@@ -115,7 +115,7 @@ const structuralFieldsSchema = {
 export function createUpsertGameTool(getGamesFn: GetGamesFn = defaultGetGames) {
   return tool(
     "upsert_game",
-    "Create OR update a trivia game in data/plugins/trivia/config.json. CREATE branch: triggered when the named game doesn't exist yet — requires channel, questionCron, revealCron, timezone; enabled defaults to true. UPDATE branch: triggered when the game exists — every scheduling field is omit-to-keep (only update what you pass), every axis field AND every structural field (`format`, `categories`, `theme`) uses null-to-clear / omit-to-keep semantics. Game name is immutable — to rename, delete + upsert. Axis fields participate in the cascade slot → season → game → workspace → built-in default. Structural fields participate in the cascade season → game → (fallback). For workspace-tier changes use set_workspace_config. Mutates the plugin config file directly — no confirm/approval flow.",
+    "Create OR update a trivia game in data/plugins/trivia/config.json. CREATE branch: triggered when the named game doesn't exist yet — requires channel, questionCron, revealCron, timezone; enabled defaults to true. UPDATE branch: triggered when the game exists — every scheduling field is omit-to-keep (only update what you pass), every axis field AND every structural field (`format`, `categories`, `theme`) uses null-to-clear / omit-to-keep semantics. `prepCron` is an OPTIONAL scheduling field that opts the game into pre-staging — when set, the plugin emits a third channelless cron spec for `<name>:prep` and the question cron switches to the staged-pool-aware POST prompt; when absent, the legacy gen-and-post behavior is preserved. Game name is immutable — to rename, delete + upsert. Axis fields participate in the cascade slot → season → game → workspace → built-in default. Structural fields participate in the cascade season → game → (fallback). For workspace-tier changes use set_workspace_config. Mutates the plugin config file directly — no confirm/approval flow.",
     {
       name: z
         .string()
@@ -138,6 +138,13 @@ export function createUpsertGameTool(getGamesFn: GetGamesFn = defaultGetGames) {
         .string()
         .optional()
         .describe("Cron expression for daily reveal. REQUIRED on create; omit on update to keep."),
+      prepCron: z
+        .string()
+        .nullable()
+        .optional()
+        .describe(
+          "Optional cron expression for the pre-staging run, evaluated in the game's timezone. When set, the plugin emits a third channelless cron spec (`<name>:prep`) that gen-saves questions ahead of the question cron WITHOUT posting. The question cron then picks the oldest staged question per slot, falling back to inline-gen for missing slots. The bot does NOT derive this value automatically; YOU propose it conversationally (typically 30 minutes before questionCron) and the admin confirms or overrides. Watch for midnight crossings — shifting `0 0 * * *` back 30 min produces `30 23 * * *` which fires on the PREVIOUS calendar day; surface this trade-off when proposing. UPDATE semantics: omit to keep current value; pass `null` to clear and disable pre-staging.",
+        ),
       timezone: z
         .string()
         .optional()
@@ -201,6 +208,26 @@ export function createUpsertGameTool(getGamesFn: GetGamesFn = defaultGetGames) {
         return errorResult(
           `Invalid revealCron "${revealCron}": ${err instanceof Error ? err.message : String(err)}`,
         );
+      }
+
+      // Resolve prepCron with null-to-clear / omit-to-keep semantics:
+      // - undefined (omitted)  → keep existing.prepCron
+      // - null                 → clear (remove the field)
+      // - string               → validate + set
+      let prepCron: string | undefined;
+      if (args.prepCron === null) {
+        prepCron = undefined;
+      } else if (args.prepCron === undefined) {
+        prepCron = existing?.prepCron;
+      } else {
+        try {
+          CronExpressionParser.parse(args.prepCron, { tz: timezone });
+        } catch (err) {
+          return errorResult(
+            `Invalid prepCron "${args.prepCron}": ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+        prepCron = args.prepCron;
       }
 
       // Validate axis fields via the shared parser. Issues become hard errors here
@@ -335,6 +362,7 @@ export function createUpsertGameTool(getGamesFn: GetGamesFn = defaultGetGames) {
         revealCron,
         timezone,
         enabled,
+        ...(prepCron !== undefined ? { prepCron } : {}),
         ...mergedAxes,
         ...mergedStructural,
       };

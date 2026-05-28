@@ -48,13 +48,16 @@ export function createFindPreviousQuestionsTool(
   return tool(
     "find_previous_questions",
     [
-      "Search past trivia questions across one or more games by combining array-shaped criteria with a top-level `match` combinator.",
+      "Search past or staged trivia questions across one or more games by combining array-shaped criteria with a top-level `match` combinator.",
       "",
-      'Each non-empty array criterion (`games`, `categories`, `seasons`, `keywords`) is OR-internal — a row matches the criterion if ANY entry hits. `match` (default `"all"`) combines criteria across the top level: `"all"` requires every supplied criterion to be true; `"any"` requires at least one. Omitted or empty arrays are ignored.',
+      'Each non-empty array criterion (`games`, `categories`, `seasons`, `keywords`) is OR-internal — a row matches the criterion if ANY entry hits. The scalar `posted` criterion, when supplied, filters on the question\'s posted state. `match` (default `"all"`) combines criteria across the top level: `"all"` requires every supplied criterion to be true; `"any"` requires at least one. Omitted or empty arrays are ignored.',
       "",
       "When `games` is omitted, the scan spans every registered game; per-row responses carry `game` so you can see provenance. When `keywords` is supplied, per-row responses include `matchedKeywords` (the subset of input keywords that hit each row's statement).",
       "",
-      'For duplicate detection during question generation, prefer `match: "any"` with 3-5 distinctive keywords (names, numbers, rare nouns) and omit `games`. For admin lookups (e.g. "last batch\'s difficulty"), pass `games: ["<name>"]` with `recentBatchFromNow: N` (requires exactly one game).',
+      "Three primary use cases:",
+      '- DUPLICATE DETECTION during question generation: prefer `match: "any"` with 3-5 distinctive keywords (names, numbers, rare nouns) and omit `games`.',
+      '- RECENT BATCH LOOKUP for admin audits (e.g. "last batch\'s difficulty"): pass `games: ["<name>"]` with `recentBatchFromNow: N` (requires exactly one game; requires posted questions).',
+      '- STAGED POOL QUERY: pass `posted: false` to scan questions that have been generated and saved but not yet posted to Slack. Typical use: PREP runs check which slots still need filling; POST runs pick the oldest staged question per slot. Pair with `seasons: ["current"]` to scope to the active season. `posted: false` may NOT be combined with `recentBatchFromNow`.',
     ].join("\n"),
     {
       games: z
@@ -80,6 +83,12 @@ export function createFindPreviousQuestionsTool(
         .optional()
         .describe(
           "Optional array of keywords. Each entry is matched as a lowercased substring against the row's statement. OR-internal. When non-empty, returned rows carry `matchedKeywords` showing which input keywords hit.",
+        ),
+      posted: z
+        .boolean()
+        .optional()
+        .describe(
+          'Optional boolean criterion on the question\'s posted state. `true` = only rows with `postedAt !== undefined` (already posted to Slack). `false` = only rows with `postedAt === undefined` (staged questions — generated but not yet posted). When omitted, the criterion is not supplied and does NOT participate in the combinator. Typical staged-pool query: `{ games: ["<game>"], seasons: ["current"], posted: false, match: "all" }`. NOTE: `posted: false` may NOT be combined with `recentBatchFromNow` — the latter requires posted questions internally so the combination would always return empty (the tool rejects it with a clear error).',
         ),
       match: z
         .enum(["any", "all"])
@@ -129,6 +138,12 @@ export function createFindPreviousQuestionsTool(
       if (args.recentBatchFromNow !== undefined && requestedGames.length !== 1) {
         return errorResult(
           'recentBatchFromNow requires exactly one game; pass `games: ["<name>"]`.',
+        );
+      }
+
+      if (args.recentBatchFromNow !== undefined && args.posted === false) {
+        return errorResult(
+          "`recentBatchFromNow` requires posted questions (postedAt and batchId must be set), but `posted: false` filters those out — the combination would always return empty. Drop `posted: false` or omit `recentBatchFromNow`.",
         );
       }
 
@@ -195,6 +210,11 @@ export function createFindPreviousQuestionsTool(
         if (keywordsProvided) {
           const statementLower = q.statement.toLowerCase();
           criteria.push(keywordsLower.some((kw) => statementLower.includes(kw)));
+        }
+
+        if (args.posted !== undefined) {
+          const isPosted = q.postedAt !== undefined;
+          criteria.push(args.posted ? isPosted : !isPosted);
         }
 
         if (criteria.length === 0) return true;

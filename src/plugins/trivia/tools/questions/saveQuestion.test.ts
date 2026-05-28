@@ -405,10 +405,10 @@ describe("save_question — choice shape", () => {
       SESSION,
     );
     const parsed = parseToolResult(result);
-    assert.match(parsed.error, /1-100 characters after trim/);
+    assert.match(parsed.error, /1-40 characters after trim/);
   });
 
-  it("rejects choices longer than 100 chars", async () => {
+  it("rejects choices longer than 40 chars", async () => {
     const tool = createSaveQuestionTool(data, () => null, fixtureGetGames);
     const result = await tool.handler(
       {
@@ -425,7 +425,7 @@ describe("save_question — choice shape", () => {
         acceptableAnswers: undefined,
         gradingNotes: undefined,
         freeformAnswerShape: undefined,
-        choices: ["A".repeat(101), "B", "C", "D"],
+        choices: ["A".repeat(41), "B", "C", "D"],
         correctIndex: 0,
         suggestedDifficulty: undefined,
         difficulty: undefined,
@@ -435,7 +435,7 @@ describe("save_question — choice shape", () => {
       SESSION,
     );
     const parsed = parseToolResult(result);
-    assert.match(parsed.error, /1-100 characters after trim/);
+    assert.match(parsed.error, /1-40 characters after trim/);
   });
 
   it("rejects choice question missing choices", async () => {
