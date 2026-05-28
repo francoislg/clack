@@ -33,6 +33,7 @@ function makeFakeSdk(): ClackSdk {
       throw new Error("watchFile not used in set_workspace_config tests");
     },
     reconcileCronJobs: async () => {},
+    findOwnedCronJobs: async () => [],
     dmOwner: async () => ({ ok: true as const }),
     getSlackClient: () => null,
     registerAction: () => {},

@@ -113,7 +113,11 @@ export const triviaPlugin: ClackPlugin = async (sdk: ClackSdk) => {
     sdk.t("label.process_reveal"),
   );
   sdk.registerTool("member", createRetrieveScoresTool(data), sdk.t("label.retrieve_scores"));
-  sdk.registerTool("member", createListGamesTool(), sdk.t("label.list_games"));
+  sdk.registerTool(
+    "member",
+    createListGamesTool(undefined, undefined, () => sdk.findOwnedCronJobs()),
+    sdk.t("label.list_games"),
+  );
 
   // trivia:management server — gated game/season lifecycle tools (categories tools above
   // are on the same handle).

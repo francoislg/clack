@@ -274,6 +274,14 @@ export interface ClackSdk {
    */
   reconcileCronJobs(ownerKey: string, specs: CronJobSpec[]): Promise<void>;
   /**
+   * List the cron jobs owned by this plugin — entries where `plugin === <this plugin's name>`
+   * and `pluginManaged === true`. Returns a narrow `{id, specKey}` projection sufficient for
+   * surfacing job UUIDs in plugin tools (e.g. trivia's `list_games` exposing `prepJobId` so
+   * admins can call `run_scheduled_message_now({id})` without a separate `list_scheduled_messages`
+   * lookup). The SDK enforces the boundary — plugins MUST NOT import `src/cronJobs.ts` directly.
+   */
+  findOwnedCronJobs(): Promise<Array<{ id: string; specKey: string }>>;
+  /**
    * Send a DM to the deployment owner (the user with the `owner` role).
    *
    * Resolved server-side: the owner ID is read from roles, the DM channel is opened
@@ -845,6 +853,18 @@ export function createClackSdk(
           await remove(job.id);
         }
       }
+    },
+
+    async findOwnedCronJobs(): Promise<Array<{ id: string; specKey: string }>> {
+      const find = deps.findByPluginOwner ?? findByPluginOwner;
+      const jobs = await find(pluginName);
+      const out: Array<{ id: string; specKey: string }> = [];
+      for (const j of jobs) {
+        if (typeof j.specKey === "string" && j.specKey.length > 0) {
+          out.push({ id: j.id, specKey: j.specKey });
+        }
+      }
+      return out;
     },
 
     getSlackClient(): App["client"] | null {

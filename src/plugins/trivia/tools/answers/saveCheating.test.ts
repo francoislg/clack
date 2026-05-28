@@ -36,6 +36,7 @@ function makeFakeSdk(opts: FakeSdkOptions = {}): {
       throw new Error("watchFile not used in saveCheating tests");
     },
     reconcileCronJobs: async () => {},
+    findOwnedCronJobs: async () => [],
     dmOwner: async (text: string) => {
       dmOwnerCalls.push(text);
       return result;
