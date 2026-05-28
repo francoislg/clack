@@ -189,10 +189,10 @@ export const choiceAnswerHandler: ClickableAnswerHandler = {
     }
     for (let i = 0; i < args.choices.length; i++) {
       const trimmed = args.choices[i].trim();
-      if (trimmed.length < 1 || trimmed.length > 100) {
+      if (trimmed.length < 1 || trimmed.length > 40) {
         return {
           ok: false,
-          error: `Choice at index ${i} must be 1-100 characters after trim (got ${trimmed.length}).`,
+          error: `Choice at index ${i} must be 1-40 characters after trim (got ${trimmed.length}).`,
         };
       }
     }
