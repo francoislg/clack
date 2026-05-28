@@ -319,13 +319,20 @@ export function getErrorBlocksWithRetry(sessionId: string): SlackBlocks {
 // Button-label validation (kept here since action-button rendering lives here)
 // ============================================================================
 
-const SLACK_BUTTON_LABEL_LIMIT = 75;
+/**
+ * Maximum length for any action-button label rendered to Slack. Slack's API
+ * accepts up to 75, but its UI visually truncates around 40 chars depending
+ * on row width — past 40, users can no longer read the full label. The cap
+ * is enforced both at Zod schema parse time (for Claude-authored labels via
+ * `submit_response`) and here at render time (for any path that bypasses the
+ * schema, e.g. defaults injected by `defaultActionLabel`).
+ */
+export const SLACK_BUTTON_LABEL_MAX = 40;
 
-/** Re-exported for callers that only need the button-label validator. */
 export type ButtonLabelValidationError = BlockValidationError;
 
 /**
- * Validate action-button labels against Slack's 75-char limit. Returns an
+ * Validate action-button labels against `SLACK_BUTTON_LABEL_MAX`. Returns an
  * empty array if valid. Call after `getResponseActionBlocks` builds the
  * action blocks, since label length is determined at that point.
  */
@@ -337,12 +344,12 @@ export function validateActionButtonLabels(
     block.elements.forEach((el, ei) => {
       if (el.type !== "button") return;
       const label = el.text.text;
-      if (label.length > SLACK_BUTTON_LABEL_LIMIT) {
+      if (label.length > SLACK_BUTTON_LABEL_MAX) {
         errors.push({
           field: `actions[${bi}].button[${ei}]`,
-          message: `Button label "${label}" (${label.length} chars) exceeds the ${SLACK_BUTTON_LABEL_LIMIT}-char limit.`,
+          message: `Button label "${label}" (${label.length} chars) exceeds the ${SLACK_BUTTON_LABEL_MAX}-char Slack visibility limit (longer labels truncate in the UI).`,
           currentLength: label.length,
-          limit: SLACK_BUTTON_LABEL_LIMIT,
+          limit: SLACK_BUTTON_LABEL_MAX,
         });
       }
     });

@@ -18,6 +18,7 @@ import {
   getStructuredResponseBlocks as _getStructuredResponseBlocks,
   getResponseActionBlocks as _getResponseActionBlocks,
   validateActionButtonLabels as _validateActionButtonLabels,
+  SLACK_BUTTON_LABEL_MAX,
 } from "../../slack/blocks.js";
 import {
   BlockSchema,
@@ -42,16 +43,26 @@ import { extractDisplayText } from "../../slack/blockText.js";
 const POST_TO_ADDITIONAL_MESSAGES_MAX = 10;
 const THREAD_REPLIES_MAX = 20;
 
+// Shared schema for every action's `label` field. Slack visually truncates button text past
+// ~40 chars, so we hard-reject longer labels at parse time — Claude sees the Zod error inside
+// the tool-call loop and can retry with a shorter label in the same turn.
+export const buttonLabelSchema = z
+  .string()
+  .max(SLACK_BUTTON_LABEL_MAX)
+  .describe(
+    `Button label. MAX ${SLACK_BUTTON_LABEL_MAX} characters — Slack truncates longer labels in the UI, hiding the meaningful part from users.`,
+  );
+
 // Action schemas for submit_response
 const followupActionSchema = z.object({
   type: z.literal("followup"),
-  label: z.string().describe("Button label"),
+  label: buttonLabelSchema,
   prompt: z.string().describe("The prompt to inject when this button is clicked"),
 });
 
 const choiceActionSchema = z.object({
   type: z.literal("choice"),
-  label: z.string().describe("Button label"),
+  label: buttonLabelSchema,
   value: z.string().describe("The value to inject as the user's choice"),
   description: z.string().optional().describe("Optional description shown as subtitle"),
   workMode: z
@@ -95,7 +106,11 @@ const messageContentFields = {
 
 const postToActionSchema = z.object({
   type: z.literal("post_to"),
-  label: z.string().optional().describe("Custom button label (default: 'Post to thread')"),
+  label: buttonLabelSchema
+    .optional()
+    .describe(
+      `Custom button label (default: 'Post to thread'). MAX ${SLACK_BUTTON_LABEL_MAX} characters.`,
+    ),
   auto: z
     .boolean()
     .optional()
@@ -161,7 +176,11 @@ const postToActionSchema = z.object({
 const changeActionSchema = z.object({
   type: z.literal("change"),
   ref: z.string().describe("Ref ID from propose_change"),
-  label: z.string().optional().describe("Custom button label (default: 'Start Change')"),
+  label: buttonLabelSchema
+    .optional()
+    .describe(
+      `Custom button label (default: 'Start Change'). MAX ${SLACK_BUTTON_LABEL_MAX} characters.`,
+    ),
   auto: z
     .boolean()
     .optional()
@@ -171,7 +190,11 @@ const changeActionSchema = z.object({
 const configUpdateActionSchema = z.object({
   type: z.literal("config_update"),
   ref: z.string().describe("Ref ID from propose_config_update"),
-  label: z.string().optional().describe("Custom button label (default: 'Apply Update')"),
+  label: buttonLabelSchema
+    .optional()
+    .describe(
+      `Custom button label (default: 'Apply Update'). MAX ${SLACK_BUTTON_LABEL_MAX} characters.`,
+    ),
   auto: z
     .boolean()
     .optional()
@@ -181,7 +204,9 @@ const configUpdateActionSchema = z.object({
 const updateActionSchema = z.object({
   type: z.literal("update"),
   ref: z.string().describe("Ref ID from request_update"),
-  label: z.string().optional().describe("Custom button label (default: 'Update')"),
+  label: buttonLabelSchema
+    .optional()
+    .describe(`Custom button label (default: 'Update'). MAX ${SLACK_BUTTON_LABEL_MAX} characters.`),
   auto: z
     .boolean()
     .optional()
@@ -191,7 +216,11 @@ const updateActionSchema = z.object({
 const skillCreateActionSchema = z.object({
   type: z.literal("skill_create"),
   ref: z.string().describe("Ref ID from propose_skill_create"),
-  label: z.string().optional().describe("Custom button label (default: 'Create skill')"),
+  label: buttonLabelSchema
+    .optional()
+    .describe(
+      `Custom button label (default: 'Create skill'). MAX ${SLACK_BUTTON_LABEL_MAX} characters.`,
+    ),
   auto: z
     .boolean()
     .optional()
@@ -203,21 +232,33 @@ const skillCreateActionSchema = z.object({
 const skillUpdateActionSchema = z.object({
   type: z.literal("skill_update"),
   ref: z.string().describe("Ref ID from propose_skill_update"),
-  label: z.string().optional().describe("Custom button label (default: 'Edit skill')"),
+  label: buttonLabelSchema
+    .optional()
+    .describe(
+      `Custom button label (default: 'Edit skill'). MAX ${SLACK_BUTTON_LABEL_MAX} characters.`,
+    ),
   auto: z.boolean().optional().describe("If true, apply the update immediately."),
 });
 
 const skillDisableActionSchema = z.object({
   type: z.literal("skill_disable"),
   ref: z.string().describe("Ref ID from propose_skill_disable"),
-  label: z.string().optional().describe("Custom button label (default: 'Disable')"),
+  label: buttonLabelSchema
+    .optional()
+    .describe(
+      `Custom button label (default: 'Disable'). MAX ${SLACK_BUTTON_LABEL_MAX} characters.`,
+    ),
   auto: z.boolean().optional().describe("If true, disable immediately."),
 });
 
 const skillRestoreActionSchema = z.object({
   type: z.literal("skill_restore"),
   ref: z.string().describe("Ref ID from propose_skill_restore"),
-  label: z.string().optional().describe("Custom button label (default: 'Restore')"),
+  label: buttonLabelSchema
+    .optional()
+    .describe(
+      `Custom button label (default: 'Restore'). MAX ${SLACK_BUTTON_LABEL_MAX} characters.`,
+    ),
   auto: z.boolean().optional().describe("If true, restore immediately."),
 });
 
@@ -256,7 +297,7 @@ function readActionType(input: ActionInput | undefined): ActionInput | undefined
 // Custom error for unknown action types — same rationale as BlockSchema:
 // produce an actionable message at the Zod boundary so the model gets a
 // clear "Action type X is not supported" instead of generic "Invalid input".
-const actionSchema = z.discriminatedUnion(
+export const actionSchema = z.discriminatedUnion(
   "type",
   [
     followupActionSchema,
