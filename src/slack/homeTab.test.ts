@@ -1462,6 +1462,26 @@ describe("buildHomeView — Scheduled Messages skipConditions", () => {
     assert.ok(jobLine, "should render a 'last run skipped' indicator");
   });
 
+  it("renders 'ran without responses' for skipped status when submitResponseMode is 'skipped'", async () => {
+    setDefaultMocks("member");
+    mockGetJobsByUser.mockImplementation(async () => [
+      baseJob({ lastRunStatus: "skipped", submitResponseMode: "skipped" }),
+    ]);
+
+    const deps = makeDeps();
+    const view = await buildHomeView({ userId: "U001" }, deps);
+    const blocks = view.blocks as KnownBlock[];
+    const sections = blocks.filter((b) => b.type === "section");
+    const jobLine = sections.find(
+      (s) => s.text?.type === "mrkdwn" && s.text.text.includes("ran without responses"),
+    );
+    assert.ok(jobLine, "should render 'ran without responses' indicator");
+    const skippedLine = sections.find(
+      (s) => s.text?.type === "mrkdwn" && s.text.text.includes("last run skipped"),
+    );
+    assert.ok(!skippedLine, "should NOT render 'last run skipped' for submitResponseMode=skipped");
+  });
+
   it("hides the user-created scheduled messages subsection when cron.userSchedules is false", async () => {
     setDefaultMocks("admin");
     mockGetConfig.mockImplementation(() => ({
