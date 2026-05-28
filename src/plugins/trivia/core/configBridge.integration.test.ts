@@ -72,6 +72,7 @@ function makeSdkOverRealDir(pluginDataDir: string): ClackSdk {
       return fsWatch(full);
     },
     reconcileCronJobs: async () => {},
+    findOwnedCronJobs: async () => [],
     dmOwner: async () => ({ ok: true as const }),
     getSlackClient: () => null,
     registerAction: () => {},

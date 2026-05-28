@@ -2,7 +2,7 @@ import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
 import { textResult } from "../helpers.js";
-import { getJobs, getJobsByUser, type CronJob } from "../../cronJobs.js";
+import { getJobs, type CronJob } from "../../cronJobs.js";
 import { canManageRoles } from "../../permissions.js";
 import { humanReadableSchedule } from "../../cronFormatter.js";
 import { slackLink } from "../../slack/logContext.js";
@@ -18,15 +18,26 @@ const PROMPT_PREVIEW_CHARS = 200;
 export function createListScheduledMessagesTool(ctx: QueryToolContext) {
   return tool(
     "list_scheduled_messages",
-    "List scheduled messages. By default lists your own; admins can pass `all=true` to see every job. " +
-      "Narrow further with `channel` (id or name; channelless plugin-managed jobs are excluded by this filter) " +
-      "or `plugin` (e.g. `plugin: 'casual-talk'`) — pass these whenever the list might be large " +
-      "instead of fetching everything and grepping. " +
+    "List scheduled messages. " +
+      "Default scope: jobs you created PLUS all plugin-managed jobs (e.g. trivia, casual-talk). " +
+      "Plugin-managed jobs are surfaced by default because they have no user owner — they're not " +
+      "anyone's private content; only admins can act on them (per `run_scheduled_message_now`'s " +
+      "ownership gate), but anyone can see they exist. " +
+      "Admins can pass `includeOtherUsers: true` to also include jobs created by other users. " +
+      "Filters `channel` and `plugin` always narrow within the chosen scope — pass them whenever " +
+      "the list might be large instead of fetching everything and grepping. " +
       "Each row's `prompt` is truncated to ~200 chars and flagged with `prompt_truncated: true`; " +
       "call `get_scheduled_message(id)` for the full prompt and details.",
     {
       channel: z.string().optional().describe("Filter by channel name or ID"),
-      all: z.boolean().optional().describe("List all scheduled messages (admin/owner only)"),
+      includeOtherUsers: z
+        .boolean()
+        .optional()
+        .describe(
+          "Admin/owner only: when true, the result set additionally includes jobs created by " +
+            "users other than the caller. Plugin-managed jobs are already in the default scope. " +
+            "Silently falls through to the default scope for non-admins.",
+        ),
       plugin: z
         .string()
         .optional()
@@ -37,7 +48,17 @@ export function createListScheduledMessagesTool(ctx: QueryToolContext) {
     },
     async (args) => {
       const isAdmin = canManageRoles(ctx.role);
-      let jobs = args.all && isAdmin ? await getJobs() : await getJobsByUser(ctx.userId);
+      // Scope: default = caller's own + plugin-managed (no owner). Admin opt-in
+      // `includeOtherUsers: true` adds jobs owned by other users. Non-admin passing
+      // `includeOtherUsers: true` silently falls through to the default scope.
+      const allJobs = await getJobs();
+      let jobs =
+        args.includeOtherUsers && isAdmin
+          ? allJobs
+          : allJobs.filter(
+              (j) =>
+                j.createdBy === ctx.userId || (j.pluginManaged === true && j.createdBy === null),
+            );
 
       // Filter by channel if specified
       if (args.channel) {

@@ -56,6 +56,34 @@ describe("list_games — per-game entries", () => {
     assert.equal("theme" in entry, false);
   });
 
+  it("surfaces prepCron and nextPrepFire when set", async () => {
+    const games: readonly TriviaGame[] = [
+      {
+        name: "prep-enabled",
+        channel: "C200000000",
+        questionCron: "0 9 * * 1-5",
+        revealCron: "0 17 * * 1-5",
+        prepCron: "30 8 * * 1-5",
+        timezone: "UTC",
+        enabled: true,
+      },
+    ];
+    const tool = createListGamesTool(() => games, emptyTriviaConfig);
+    const parsed = parseToolResult(await tool.handler({ includeDisabled: undefined }, SESSION));
+    const entry = parsed.games[0];
+    assert.equal(entry.prepCron, "30 8 * * 1-5");
+    assert.equal(typeof entry.nextPrepFire, "number");
+    assert.ok(entry.nextPrepFire > Date.now() - 86_400_000); // at most a day in the past (safety)
+  });
+
+  it("omits prepCron and nextPrepFire when not set (existing games unaffected)", async () => {
+    const tool = createListGamesTool(fixtureGetGames, emptyTriviaConfig);
+    const parsed = parseToolResult(await tool.handler({ includeDisabled: undefined }, SESSION));
+    const entry = parsed.games[0];
+    assert.equal("prepCron" in entry, false);
+    assert.equal("nextPrepFire" in entry, false);
+  });
+
   it("excludes disabled games by default, surfaces them with includeDisabled: true", async () => {
     const games: readonly TriviaGame[] = [
       ...FIXTURE_GAMES,
@@ -242,5 +270,88 @@ describe("list_games — instructions and additionalInstructions surfaces", () =
     const parsed = parseToolResult(await tool.handler({ includeDisabled: undefined }, SESSION));
     assert.equal(parsed.workspaceDefaults.instructions, "Workspace baseline.");
     assert.equal(parsed.workspaceDefaults.additionalInstructions, "Workspace stack.");
+  });
+});
+
+describe("list_games — cron job UUID surfacing", () => {
+  const twoSlotGame: TriviaGame = {
+    name: "daily",
+    channel: "C100000000",
+    questionCron: "0 9 * * 1-5",
+    revealCron: "0 17 * * 1-5",
+    timezone: "UTC",
+    enabled: true,
+  };
+  const threeSlotGame: TriviaGame = {
+    name: "daily",
+    channel: "C100000000",
+    questionCron: "0 9 * * 1-5",
+    revealCron: "0 17 * * 1-5",
+    prepCron: "45 8 * * 1-5",
+    timezone: "UTC",
+    enabled: true,
+  };
+
+  it("surfaces questionJobId and revealJobId when reconcile registered them", async () => {
+    const tool = createListGamesTool(
+      () => [twoSlotGame],
+      emptyTriviaConfig,
+      async () => [
+        { id: "job-q-uuid", specKey: "daily:question" },
+        { id: "job-r-uuid", specKey: "daily:reveal" },
+      ],
+    );
+    const parsed = parseToolResult(await tool.handler({ includeDisabled: undefined }, SESSION));
+    const entry = parsed.games[0];
+    assert.equal(entry.questionJobId, "job-q-uuid");
+    assert.equal(entry.revealJobId, "job-r-uuid");
+    assert.equal("prepJobId" in entry, false);
+  });
+
+  it("surfaces prepJobId when prepCron is set and the prep job is registered", async () => {
+    const tool = createListGamesTool(
+      () => [threeSlotGame],
+      emptyTriviaConfig,
+      async () => [
+        { id: "job-q-uuid", specKey: "daily:question" },
+        { id: "job-r-uuid", specKey: "daily:reveal" },
+        { id: "job-p-uuid", specKey: "daily:prep" },
+      ],
+    );
+    const parsed = parseToolResult(await tool.handler({ includeDisabled: undefined }, SESSION));
+    const entry = parsed.games[0];
+    assert.equal(entry.questionJobId, "job-q-uuid");
+    assert.equal(entry.revealJobId, "job-r-uuid");
+    assert.equal(entry.prepJobId, "job-p-uuid");
+  });
+
+  it("omits all job IDs when reconcile has not yet registered jobs", async () => {
+    const tool = createListGamesTool(
+      () => [twoSlotGame],
+      emptyTriviaConfig,
+      async () => [],
+    );
+    const parsed = parseToolResult(await tool.handler({ includeDisabled: undefined }, SESSION));
+    const entry = parsed.games[0];
+    assert.equal("questionJobId" in entry, false);
+    assert.equal("revealJobId" in entry, false);
+    assert.equal("prepJobId" in entry, false);
+  });
+
+  it("disabled-but-registered games surface IDs when includeDisabled: true", async () => {
+    const retired: TriviaGame = { ...twoSlotGame, name: "retired", enabled: false };
+    const tool = createListGamesTool(
+      () => [retired],
+      emptyTriviaConfig,
+      async () => [
+        { id: "job-q-uuid", specKey: "retired:question" },
+        { id: "job-r-uuid", specKey: "retired:reveal" },
+      ],
+    );
+    const parsed = parseToolResult(await tool.handler({ includeDisabled: true }, SESSION));
+    const entry = parsed.games[0];
+    assert.equal(entry.name, "retired");
+    assert.equal(entry.questionJobId, "job-q-uuid");
+    assert.equal(entry.revealJobId, "job-r-uuid");
   });
 });

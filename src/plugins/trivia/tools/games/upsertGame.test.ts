@@ -39,6 +39,7 @@ function makeFakeSdk(state: FakeSdkState): ClackSdk {
       throw new Error("watchFile not used in upsert_game tests");
     },
     reconcileCronJobs: async () => {},
+    findOwnedCronJobs: async () => [],
     dmOwner: async () => ({ ok: true as const }),
     getSlackClient: () => null,
     registerAction: () => {},

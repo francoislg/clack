@@ -51,7 +51,7 @@ describe("list_scheduled_messages tool — skipConditions and skipped status", (
 
     const tool = createListScheduledMessagesTool(buildCtx());
     const result = await tool.handler(
-      { channel: undefined, all: undefined, plugin: undefined },
+      { channel: undefined, includeOtherUsers: undefined, plugin: undefined },
       { sessionId: "test" },
     );
 
@@ -71,7 +71,7 @@ describe("list_scheduled_messages tool — skipConditions and skipped status", (
 
     const tool = createListScheduledMessagesTool(buildCtx());
     const result = await tool.handler(
-      { channel: undefined, all: undefined, plugin: undefined },
+      { channel: undefined, includeOtherUsers: undefined, plugin: undefined },
       { sessionId: "test" },
     );
 
@@ -98,7 +98,7 @@ describe("list_scheduled_messages tool — skipConditions and skipped status", (
 
     const tool = createListScheduledMessagesTool(buildCtx());
     const result = await tool.handler(
-      { channel: undefined, all: undefined, plugin: undefined },
+      { channel: undefined, includeOtherUsers: undefined, plugin: undefined },
       { sessionId: "test" },
     );
 
@@ -122,7 +122,7 @@ describe("list_scheduled_messages tool — skipConditions and skipped status", (
 
     const tool = createListScheduledMessagesTool(buildCtx());
     const result = await tool.handler(
-      { channel: undefined, all: undefined, plugin: undefined },
+      { channel: undefined, includeOtherUsers: undefined, plugin: undefined },
       { sessionId: "test" },
     );
 
@@ -143,7 +143,7 @@ describe("list_scheduled_messages tool — skipConditions and skipped status", (
 
     const tool = createListScheduledMessagesTool(buildCtx());
     const result = await tool.handler(
-      { channel: undefined, all: undefined, plugin: undefined },
+      { channel: undefined, includeOtherUsers: undefined, plugin: undefined },
       { sessionId: "test" },
     );
 
@@ -185,7 +185,7 @@ describe("list_scheduled_messages tool — skipConditions and skipped status", (
 
     const tool = createListScheduledMessagesTool(buildCtx({ role: "admin" }));
     const result = await tool.handler(
-      { channel: undefined, all: true, plugin: "trivia" },
+      { channel: undefined, includeOtherUsers: true, plugin: "trivia" },
       { sessionId: "test" },
     );
 
@@ -206,12 +206,136 @@ describe("list_scheduled_messages tool — skipConditions and skipped status", (
 
     const tool = createListScheduledMessagesTool(buildCtx());
     const result = await tool.handler(
-      { channel: undefined, all: undefined, plugin: "trivia" },
+      { channel: undefined, includeOtherUsers: undefined, plugin: "trivia" },
       { sessionId: "test" },
     );
 
     const parsed = parseToolResult(result);
     assert.equal(parsed.count, 0);
+  });
+
+  it("default scope returns caller's jobs and plugin-managed jobs, excludes other users'", async () => {
+    await createJob({
+      cronExpression: "0 9 * * *",
+      channel: "C456",
+      prompt: "Caller's job",
+      createdBy: "U123",
+      timezone: "UTC",
+    });
+    await createJob({
+      cronExpression: "0 10 * * *",
+      channel: "C456",
+      prompt: "Other user's job",
+      createdBy: "U999",
+      timezone: "UTC",
+    });
+    await createJob({
+      cronExpression: "0 11 * * *",
+      channel: "C456",
+      prompt: "Trivia plugin job",
+      createdBy: null,
+      systemActor: "plugin:trivia",
+      timezone: "UTC",
+      plugin: "trivia",
+      pluginManaged: true,
+      specKey: "daily:question",
+    });
+
+    const tool = createListScheduledMessagesTool(buildCtx());
+    const result = await tool.handler(
+      { channel: undefined, includeOtherUsers: undefined, plugin: undefined },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseToolResult(result);
+    const prompts = parsed.scheduled_messages.map((m: { prompt: string }) => m.prompt).sort();
+    assert.deepEqual(prompts, ["Caller's job", "Trivia plugin job"]);
+  });
+
+  it("plugin filter from a non-admin surfaces plugin-managed jobs (default scope)", async () => {
+    await createJob({
+      cronExpression: "0 11 * * *",
+      channel: "C456",
+      prompt: "Trivia plugin job",
+      createdBy: null,
+      systemActor: "plugin:trivia",
+      timezone: "UTC",
+      plugin: "trivia",
+      pluginManaged: true,
+      specKey: "daily:question",
+    });
+    await createJob({
+      cronExpression: "0 12 * * *",
+      channel: "C456",
+      prompt: "Caller's own",
+      createdBy: "U123",
+      timezone: "UTC",
+    });
+
+    const tool = createListScheduledMessagesTool(buildCtx({ role: "member" }));
+    const result = await tool.handler(
+      { channel: undefined, includeOtherUsers: undefined, plugin: "trivia" },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.count, 1);
+    assert.equal(parsed.scheduled_messages[0].plugin, "trivia");
+    assert.equal(parsed.scheduled_messages[0].prompt, "Trivia plugin job");
+  });
+
+  it("admin with includeOtherUsers: true sees other users' jobs", async () => {
+    await createJob({
+      cronExpression: "0 9 * * *",
+      channel: "C456",
+      prompt: "Caller's job",
+      createdBy: "U123",
+      timezone: "UTC",
+    });
+    await createJob({
+      cronExpression: "0 10 * * *",
+      channel: "C456",
+      prompt: "Other user's job",
+      createdBy: "U999",
+      timezone: "UTC",
+    });
+
+    const tool = createListScheduledMessagesTool(buildCtx({ role: "admin" }));
+    const result = await tool.handler(
+      { channel: undefined, includeOtherUsers: true, plugin: undefined },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseToolResult(result);
+    const prompts = parsed.scheduled_messages.map((m: { prompt: string }) => m.prompt).sort();
+    assert.deepEqual(prompts, ["Caller's job", "Other user's job"]);
+  });
+
+  it("non-admin passing includeOtherUsers: true falls back to default scope (silent)", async () => {
+    await createJob({
+      cronExpression: "0 9 * * *",
+      channel: "C456",
+      prompt: "Caller's job",
+      createdBy: "U123",
+      timezone: "UTC",
+    });
+    await createJob({
+      cronExpression: "0 10 * * *",
+      channel: "C456",
+      prompt: "Other user's job",
+      createdBy: "U999",
+      timezone: "UTC",
+    });
+
+    const tool = createListScheduledMessagesTool(buildCtx({ role: "member" }));
+    const result = await tool.handler(
+      { channel: undefined, includeOtherUsers: true, plugin: undefined },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.count, 1);
+    assert.equal(parsed.scheduled_messages[0].prompt, "Caller's job");
   });
 
   it("surfaces lastRunStatus 'skipped' distinctly from 'success' and 'error'", async () => {
@@ -226,7 +350,7 @@ describe("list_scheduled_messages tool — skipConditions and skipped status", (
 
     const tool = createListScheduledMessagesTool(buildCtx());
     const result = await tool.handler(
-      { channel: undefined, all: undefined, plugin: undefined },
+      { channel: undefined, includeOtherUsers: undefined, plugin: undefined },
       { sessionId: "test" },
     );
 
