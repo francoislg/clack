@@ -33,6 +33,8 @@ import {
   freeformAnswerShapeZod,
   questionTypeZod,
   triviaDifficultyRatioZod,
+  triviaHintZod,
+  validateHintConfig,
 } from "../../core/configParsers/axes.js";
 import type {
   RevealResponsesMode,
@@ -43,6 +45,7 @@ import type {
   TriviaContextEntry,
   TriviaDifficultyConfig,
   TriviaDifficultyRatioConfig,
+  TriviaHintConfig,
 } from "../../core/configTypes.js";
 
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -168,6 +171,12 @@ export function createUpsertSeasonTool(
         .describe(
           'Per-season tier of the cumulative-cascade `additionalInstructions` axis (e.g. "Favor spooky angles."). Every non-empty tier stacks — workspace + game + season + slot all apply. Surfaced verbatim to Claude via the `get_ideas` and `process_reveal_answers` payloads. On UPDATE: passing `null` clears this tier (other tiers keep theirs). Mid-season mutation permitted.',
         ),
+      hint: triviaHintZod
+        .nullable()
+        .optional()
+        .describe(
+          'Per-season tier of the hint axis. Object shape `{ mode: "none" | "button" | "inline", minDifficulty?: "easy" | "medium" | "hard" }`. Cascade: `slot → season → game → workspace → { mode: "none" }`. Whole-object replace per tier. `button` is per-player opt-in safety net; `inline` is a room-wide difficulty floor adjustment — pick deliberately. On UPDATE: passing `null` clears the field. Mid-season mutation permitted.',
+        ),
     },
     async (args) => {
       try {
@@ -284,6 +293,13 @@ export function createUpsertSeasonTool(
           additionalInstructions = normalized.value;
         }
 
+        let hint: TriviaHintConfig | undefined;
+        if (args.hint !== undefined && args.hint !== null) {
+          const validated = validateHintConfig(args.hint, "hint");
+          if (!validated.ok) return errorResult(validated.error);
+          hint = validated.value;
+        }
+
         const liveAnswersVisible: boolean | undefined =
           args.liveAnswersVisible === undefined || args.liveAnswersVisible === null
             ? undefined
@@ -314,6 +330,7 @@ export function createUpsertSeasonTool(
           ...(revealResponses !== undefined ? { revealResponses } : {}),
           ...(instructions !== undefined ? { instructions } : {}),
           ...(additionalInstructions !== undefined ? { additionalInstructions } : {}),
+          ...(hint !== undefined ? { hint } : {}),
         };
 
         try {
@@ -348,6 +365,7 @@ export function createUpsertSeasonTool(
           hasRevealResponses: entry.revealResponses !== undefined,
           hasInstructions: entry.instructions !== undefined,
           hasAdditionalInstructions: entry.additionalInstructions !== undefined,
+          hasHint: entry.hint !== undefined,
         });
       }
 
@@ -485,6 +503,15 @@ export function createUpsertSeasonTool(
         updatedAdditionalInstructions = normalized.value;
       }
 
+      let updatedHint: TriviaHintConfig | undefined = existing.hint;
+      if (args.hint === null) {
+        updatedHint = undefined;
+      } else if (args.hint !== undefined) {
+        const validated = validateHintConfig(args.hint, "hint");
+        if (!validated.ok) return errorResult(validated.error);
+        updatedHint = validated.value;
+      }
+
       const updated: SeasonEntry = {
         slug: existing.slug,
         startedAt: args.startedAt ?? existing.startedAt,
@@ -517,6 +544,7 @@ export function createUpsertSeasonTool(
         ...(updatedAdditionalInstructions !== undefined
           ? { additionalInstructions: updatedAdditionalInstructions }
           : {}),
+        ...(updatedHint !== undefined ? { hint: updatedHint } : {}),
       };
 
       const effectiveEnd = updated.endedAt ?? updated.expectedEndAt;
@@ -558,6 +586,7 @@ export function createUpsertSeasonTool(
         hasRevealResponses: updated.revealResponses !== undefined,
         hasInstructions: updated.instructions !== undefined,
         hasAdditionalInstructions: updated.additionalInstructions !== undefined,
+        hasHint: updated.hint !== undefined,
       });
     },
   );
