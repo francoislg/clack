@@ -22,6 +22,17 @@ export const en = {
   // Freeform "open modal" button.
   "button.answer": "Answer",
 
+  // Post-reveal "See your answer" button appended to every question card at reveal.
+  "button.see_your_answer": "🔎 See your answer",
+
+  // Static reveal results footer (replaces the live roster footer at reveal).
+  "reveal.answer_was": "*Answer:* {answer}",
+  "reveal.correct_label": "✅ *Correct:* {names}",
+  "reveal.incorrect_label": "❌ *Incorrect:* {names}",
+  "reveal.no_answer_label": "🤷 *Didn't answer:* {names}",
+  "reveal.n_incorrect": "❌ {count} got it wrong",
+  "reveal.n_no_answer": "🤷 {count} didn't answer",
+
   // Hint button + inline label + ephemeral fallback (see `trivia-question-hints`).
   "button.hint": "💡 Get Hint!",
   "hint.inline_prefix": "💡 _Hint:_ {text}",
@@ -41,6 +52,7 @@ export const en = {
 
   // Freeform modal — locked (post-reveal) view.
   "modal.title_locked": "Trivia — answered",
+  "modal.title_see_answer": "Trivia — your answer",
   "modal.close": "Close",
   "modal.verdict_no_submission": ":no_entry_sign: You did not submit an answer for this question.",
   "modal.verdict_awaiting": ":hourglass_flowing_sand: Your answer: *{answer}* — awaiting reveal",
@@ -85,6 +97,15 @@ export const fr: Partial<Record<keyof typeof en, string>> = {
 
   "button.answer": "Répondre",
 
+  "button.see_your_answer": "🔎 Voir votre réponse",
+
+  "reveal.answer_was": "*Réponse :* {answer}",
+  "reveal.correct_label": "✅ *Correct :* {names}",
+  "reveal.incorrect_label": "❌ *Incorrect :* {names}",
+  "reveal.no_answer_label": "🤷 *Sans réponse :* {names}",
+  "reveal.n_incorrect": "❌ {count} se sont trompés",
+  "reveal.n_no_answer": "🤷 {count} n'ont pas répondu",
+
   "button.hint": "💡 Indice !",
   "hint.inline_prefix": "💡 _Indice :_ {text}",
   "hint.ephemeral_prefix": "💡 *Indice :* {text}",
@@ -101,6 +122,7 @@ export const fr: Partial<Record<keyof typeof en, string>> = {
     "Vous pouvez rouvrir cette fenêtre et modifier votre réponse jusqu'à la révélation.",
 
   "modal.title_locked": "Trivia — répondu",
+  "modal.title_see_answer": "Trivia — votre réponse",
   "modal.close": "Fermer",
   "modal.verdict_no_submission":
     ":no_entry_sign: Vous n'avez pas envoyé de réponse pour cette question.",

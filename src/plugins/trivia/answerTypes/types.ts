@@ -235,6 +235,24 @@ export interface AnswerTypeHandler {
   buildRevealAnswer(question: TriviaQuestion): RevealAnswerDescriptor;
 
   /**
+   * Human-readable form of the CORRECT answer for the static reveal footer's
+   * "Answer was: …" line. Boolean → localized TRUE/FALSE; choice → the correct
+   * option text; freeform → `expectedAnswer`. Keeps the shared footer renderer
+   * free of format-string branching.
+   */
+  formatCorrectAnswer(question: TriviaQuestion): string;
+
+  /**
+   * Human-readable form of ONE user's submitted answer for the private "See
+   * your answer" modal. Boolean → localized TRUE/FALSE from `row.answer`;
+   * choice → the chosen option text from `row.answerIndex` (falls back to a
+   * neutral placeholder when out of range); freeform → `row.answerText`.
+   * Callers pass a row that belongs to this question; an unparseable/empty row
+   * yields an empty string (the modal then renders the "did not answer" line).
+   */
+  formatSubmittedAnswer(question: TriviaQuestion, row: SubmittedAnswer): string;
+
+  /**
    * Full reveal-time processing for one question. Each handler owns the end-
    * to-end logic for its format: validation invariants, reaction fetching (if
    * applicable), judge calls (freeform), persistence (flipping pending rows,

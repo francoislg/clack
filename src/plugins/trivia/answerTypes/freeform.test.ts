@@ -471,4 +471,35 @@ describe("freeformAnswerHandler", () => {
       assert.equal(result.gradingNotes, undefined);
     });
   });
+
+  describe("answer projections", () => {
+    it("formatCorrectAnswer renders the expected answer", () => {
+      assert.equal(freeformAnswerHandler.formatCorrectAnswer(makeQuestion()), "Paris");
+    });
+
+    it("formatSubmittedAnswer renders the typed text", () => {
+      const q = makeQuestion();
+      assert.equal(
+        freeformAnswerHandler.formatSubmittedAnswer(q, {
+          userId: "U1",
+          questionId: q.id,
+          answerText: "Lyon",
+          timestamp: 1,
+        }),
+        "Lyon",
+      );
+    });
+
+    it("formatSubmittedAnswer returns empty when no text was typed", () => {
+      const q = makeQuestion();
+      assert.equal(
+        freeformAnswerHandler.formatSubmittedAnswer(q, {
+          userId: "U1",
+          questionId: q.id,
+          timestamp: 1,
+        }),
+        "",
+      );
+    });
+  });
 });
