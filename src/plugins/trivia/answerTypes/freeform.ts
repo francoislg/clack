@@ -158,6 +158,10 @@ export const freeformAnswerHandler: AnswerTypeHandler = {
     return answer;
   },
 
+  formatCorrectAnswer(question: TriviaQuestion): string {
+    return question.expectedAnswer ?? "";
+  },
+
   async processReveal(
     question: TriviaQuestion,
     deps: ProcessRevealDeps,
@@ -297,6 +301,10 @@ export const freeformAnswerHandler: AnswerTypeHandler = {
         freeformAnswerShape: args.freeformAnswerShape,
       },
     };
+  },
+
+  formatSubmittedAnswer(_question: TriviaQuestion, row: SubmittedAnswer): string {
+    return row.answerText ?? "";
   },
 
   rollGenerationSuggestions(deps: SuggestionRollDeps): Record<string, JsonValue> {

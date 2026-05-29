@@ -104,6 +104,11 @@ export const booleanAnswerHandler: ClickableAnswerHandler = {
     };
   },
 
+  formatSubmittedAnswer(_question: TriviaQuestion, row: SubmittedAnswer): string {
+    if (typeof row.answer !== "boolean") return "";
+    return row.answer ? t("button.true") : t("button.false");
+  },
+
   rosterGroupKey(answer: SubmittedAnswer): string | null {
     if (typeof answer.answer !== "boolean") return null;
     return answer.answer ? "true" : "false";
@@ -115,6 +120,10 @@ export const booleanAnswerHandler: ClickableAnswerHandler = {
 
   buildRevealAnswer(question: TriviaQuestion) {
     return { type: "boolean" as const, isTrue: question.isTrue ?? false };
+  },
+
+  formatCorrectAnswer(question: TriviaQuestion): string {
+    return (question.isTrue ?? false) ? t("button.true") : t("button.false");
   },
 
   async processReveal(

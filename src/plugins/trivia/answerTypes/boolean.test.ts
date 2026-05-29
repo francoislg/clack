@@ -367,4 +367,51 @@ describe("booleanAnswerHandler", () => {
       assert.equal(result.responses[0].correct, undefined);
     });
   });
+
+  describe("answer projections", () => {
+    it("formatCorrectAnswer renders TRUE/FALSE from isTrue", () => {
+      assert.equal(
+        booleanAnswerHandler.formatCorrectAnswer(makeQuestion({ isTrue: true })),
+        "👍 TRUE",
+      );
+      assert.equal(
+        booleanAnswerHandler.formatCorrectAnswer(makeQuestion({ isTrue: false })),
+        "👎 FALSE",
+      );
+    });
+
+    it("formatSubmittedAnswer renders the user's pick", () => {
+      const q = makeQuestion();
+      assert.equal(
+        booleanAnswerHandler.formatSubmittedAnswer(q, {
+          userId: "U1",
+          questionId: q.id,
+          answer: true,
+          timestamp: 1,
+        }),
+        "👍 TRUE",
+      );
+      assert.equal(
+        booleanAnswerHandler.formatSubmittedAnswer(q, {
+          userId: "U1",
+          questionId: q.id,
+          answer: false,
+          timestamp: 1,
+        }),
+        "👎 FALSE",
+      );
+    });
+
+    it("formatSubmittedAnswer returns empty when the row has no boolean answer", () => {
+      const q = makeQuestion();
+      assert.equal(
+        booleanAnswerHandler.formatSubmittedAnswer(q, {
+          userId: "U1",
+          questionId: q.id,
+          timestamp: 1,
+        }),
+        "",
+      );
+    });
+  });
 });

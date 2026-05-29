@@ -380,4 +380,48 @@ describe("choiceAnswerHandler", () => {
       assert.equal(result.responses[1].answerIndex, 0);
     });
   });
+
+  describe("answer projections", () => {
+    it("formatCorrectAnswer renders the correct option text", () => {
+      assert.equal(choiceAnswerHandler.formatCorrectAnswer(makeQuestion()), "Cream");
+    });
+
+    it("formatCorrectAnswer returns empty when correctIndex is out of range", () => {
+      assert.equal(choiceAnswerHandler.formatCorrectAnswer(makeQuestion({ correctIndex: 9 })), "");
+    });
+
+    it("formatSubmittedAnswer renders the chosen option text", () => {
+      const q = makeQuestion();
+      assert.equal(
+        choiceAnswerHandler.formatSubmittedAnswer(q, {
+          userId: "U1",
+          questionId: q.id,
+          answerIndex: 0,
+          timestamp: 1,
+        }),
+        "The Beatles",
+      );
+    });
+
+    it("formatSubmittedAnswer returns empty for an out-of-range or missing index", () => {
+      const q = makeQuestion();
+      assert.equal(
+        choiceAnswerHandler.formatSubmittedAnswer(q, {
+          userId: "U1",
+          questionId: q.id,
+          answerIndex: 99,
+          timestamp: 1,
+        }),
+        "",
+      );
+      assert.equal(
+        choiceAnswerHandler.formatSubmittedAnswer(q, {
+          userId: "U1",
+          questionId: q.id,
+          timestamp: 1,
+        }),
+        "",
+      );
+    });
+  });
 });

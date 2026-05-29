@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
+import type { KnownBlock } from "@slack/types";
 import { textResult, errorResult } from "../../../../tools/helpers.js";
 // TODO(plugin-isolation): loadJobs reaches into bot-core cron-job state.
 // Move to an SDK accessor (e.g. sdk.listOwnerCronJobs) in a follow-up.
@@ -28,6 +29,7 @@ import { computeRoundSummary } from "./roundSummary.js";
 import type { ClackSdk } from "../../../sdk.js";
 import type { TriviaDataLayer, TriviaQuestion, SubmittedAnswer } from "../../core/types.js";
 import { getAllAnswerTypeHandlers, getAnswerTypeHandler } from "../../answerTypes/registry.js";
+import { editRevealIntoCard } from "../../revealCards/editCard.js";
 import type {
   ProcessRevealEntry,
   ProcessRevealResult,
@@ -85,6 +87,12 @@ export interface RevealSlackDeps {
    * labels track Slack display-name edits.
    */
   fetchUserDisplayName(userId: string): Promise<string | null>;
+  /**
+   * Replace a posted message's blocks (`chat.update`). Used to repaint each
+   * revealed question's original card into its final static state. Throws are
+   * caught by `editRevealIntoCard` and treated as non-fatal.
+   */
+  updateMessage(channel: string, ts: string, blocks: KnownBlock[]): Promise<void>;
 }
 
 const SLACK_UNAVAILABLE_ERROR =
@@ -111,12 +119,17 @@ export function defaultRevealSlackDeps(sdk: Pick<ClackSdk, "getSlackClient">): R
       if (!client) return null;
       return fetchUserDisplayNameViaSlackClient(client, userId);
     },
+    async updateMessage(channel, ts, blocks) {
+      const client = sdk.getSlackClient();
+      if (!client) throw new Error("Slack client became unavailable mid-run");
+      await client.chat.update({ channel, ts, blocks });
+    },
   };
 }
 
 export function createProcessRevealAnswersTool(
   data: TriviaDataLayer,
-  sdk: Pick<ClackSdk, "getSlackClient" | "askClaude">,
+  sdk: Pick<ClackSdk, "getSlackClient" | "askClaude" | "actionId">,
   getGamesFn: GetGamesFn = defaultGetGames,
   jobsLoader: () => Promise<TriviaCronJobView[]> = loadJobs,
   slackDeps: RevealSlackDeps = defaultRevealSlackDeps(sdk),
@@ -214,6 +227,15 @@ export function createProcessRevealAnswersTool(
         const outcome = await handler.processReveal(question, revealDeps);
         if (outcome.ok) {
           entriesById.set(question.id, outcome.entry);
+          // Repaint the original question card into its final static state. This
+          // is a non-fatal side effect: editRevealIntoCard swallows its own
+          // failures, so a failed edit never affects the payload below.
+          await editRevealIntoCard({
+            updateMessage: (channel, ts, blocks) => slackDeps.updateMessage(channel, ts, blocks),
+            question,
+            entry: outcome.entry,
+            actionId: sdk.actionId,
+          });
         } else {
           perIdErrors.push({ questionId: question.id, error: outcome.error });
         }

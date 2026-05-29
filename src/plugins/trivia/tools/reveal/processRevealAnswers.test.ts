@@ -1,6 +1,6 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
-import { createProcessRevealAnswersTool } from "./processRevealAnswers.js";
+import { createProcessRevealAnswersTool, type RevealSlackDeps } from "./processRevealAnswers.js";
 import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
 import type { ClackSdk } from "../../../sdk.js";
@@ -16,7 +16,7 @@ import type { TriviaQuestion } from "../../core/types.js";
 
 const SESSION = { sessionId: "test" };
 
-function fakeSdk(): Pick<ClackSdk, "getSlackClient" | "askClaude"> {
+function fakeSdk(): Pick<ClackSdk, "getSlackClient" | "askClaude" | "actionId"> {
   return {
     getSlackClient: () => null,
     askClaude: async () => ({
@@ -24,20 +24,17 @@ function fakeSdk(): Pick<ClackSdk, "getSlackClient" | "askClaude"> {
       stopReason: "end_turn",
       usage: { inputTokens: 0, outputTokens: 0 },
     }),
+    actionId: (key: string) => `plugin:trivia:${key}`,
   };
 }
 
-function fakeSlackDeps(): {
-  isAvailable(): string | null;
-  fetchBotUserId(): Promise<string>;
-  fetchMessageReactions(channel: string, ts: string): Promise<[]>;
-  fetchUserDisplayName(userId: string): Promise<string | null>;
-} {
+function fakeSlackDeps(): RevealSlackDeps {
   return {
     isAvailable: () => null,
     fetchBotUserId: async () => "UBOT",
     fetchMessageReactions: async () => [],
     fetchUserDisplayName: async () => null,
+    updateMessage: async () => {},
   };
 }
 
@@ -589,6 +586,7 @@ describe("process_reveal_answers — orchestrator", () => {
           fetchBotUserId: async () => "UBOT",
           fetchMessageReactions: async () => [],
           fetchUserDisplayName: async (userId) => (userId === "U1" ? "NewName" : null),
+          updateMessage: async () => {},
         },
       );
 
@@ -674,5 +672,179 @@ describe("process_reveal_answers — hint non-leak regression", () => {
 
     const post = (await scoped.loadQuestions()).find((q) => q.id === "q-with-hint");
     assert.deepEqual(post?.hint?.clickedBy, originalClickedBy);
+  });
+});
+
+interface UpdateCall {
+  channel: string;
+  ts: string;
+  blockIds: string[];
+}
+
+/** Slack deps that capture `updateMessage` calls (and can be made to throw). */
+function capturingSlackDeps(opts: { throwOnUpdate?: boolean } = {}): {
+  deps: RevealSlackDeps;
+  updates: UpdateCall[];
+} {
+  const updates: UpdateCall[] = [];
+  const deps: RevealSlackDeps = {
+    isAvailable: () => null,
+    fetchBotUserId: async () => "UBOT",
+    fetchMessageReactions: async () => [],
+    fetchUserDisplayName: async () => null,
+    updateMessage: async (channel, ts, blocks) => {
+      if (opts.throwOnUpdate) throw new Error("rate limited");
+      updates.push({ channel, ts, blockIds: blocks.map((b) => b.block_id ?? "") });
+    },
+  };
+  return { deps, updates };
+}
+
+function postedBooleanBlocks(questionId: string) {
+  return [
+    {
+      type: "section" as const,
+      block_id: `card:${questionId}`,
+      text: { type: "mrkdwn" as const, text: "S" },
+    },
+    {
+      type: "actions" as const,
+      block_id: `vote-actions:${questionId}`,
+      elements: [
+        {
+          type: "button" as const,
+          action_id: `plugin:trivia:vote:${questionId}:true`,
+          text: { type: "plain_text" as const, text: "👍 TRUE" },
+        },
+      ],
+    },
+  ];
+}
+
+describe("process_reveal_answers — static reveal card edit", () => {
+  it("edits each revealed question's card once", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(
+      makeQuestion({ id: "q1", batchId: "B", postedBlocks: postedBooleanBlocks("q1") }),
+    );
+    await scoped.saveAnswer({
+      userId: "U1",
+      questionId: "q1",
+      answer: true,
+      correct: true,
+      timestamp: 1,
+    });
+
+    const { deps, updates } = capturingSlackDeps();
+    const tool = createProcessRevealAnswersTool(
+      data,
+      fakeSdk(),
+      fixtureGetGames,
+      async () => [],
+      deps,
+    );
+    await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION);
+
+    assert.equal(updates.length, 1);
+    assert.equal(updates[0].channel, "C100000000");
+    assert.ok(!updates[0].blockIds.includes("vote-actions:q1"));
+    assert.ok(updates[0].blockIds.includes("reveal-results:q1"));
+    assert.ok(updates[0].blockIds.includes("reveal-see-answer-actions:q1"));
+  });
+
+  it("does not edit a question whose processing errored", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    // Choice question with an invalid correctIndex → processReveal returns an error.
+    await scoped.saveQuestion(
+      makeQuestion({
+        id: "q1",
+        answersFormat: "choice",
+        isTrue: undefined,
+        choices: ["A", "B"],
+        correctIndex: -1,
+        postedBlocks: postedBooleanBlocks("q1"),
+      }),
+    );
+
+    const { deps, updates } = capturingSlackDeps();
+    const tool = createProcessRevealAnswersTool(
+      data,
+      fakeSdk(),
+      fixtureGetGames,
+      async () => [],
+      deps,
+    );
+    const res = parseToolResult(
+      await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+    );
+
+    assert.equal(updates.length, 0);
+    assert.ok(res.errors?.some((e: { questionId: string }) => e.questionId === "q1"));
+  });
+
+  it("returns the payload even when the card edit fails", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(
+      makeQuestion({ id: "q1", batchId: "B", postedBlocks: postedBooleanBlocks("q1") }),
+    );
+    await scoped.saveAnswer({
+      userId: "U1",
+      questionId: "q1",
+      answer: true,
+      correct: true,
+      timestamp: 1,
+    });
+
+    const { deps } = capturingSlackDeps({ throwOnUpdate: true });
+    const tool = createProcessRevealAnswersTool(
+      data,
+      fakeSdk(),
+      fixtureGetGames,
+      async () => [],
+      deps,
+    );
+    const res = parseToolResult(
+      await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+    );
+
+    assert.equal(res.reveals.length, 1);
+    assert.ok(Array.isArray(res.leaderboard));
+  });
+
+  it("repaints the card on reprocess", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(
+      makeQuestion({
+        id: "q1",
+        batchId: "B",
+        postedAt: 1000,
+        processedAt: 5000,
+        postedBlocks: postedBooleanBlocks("q1"),
+      }),
+    );
+    await scoped.saveAnswer({
+      userId: "U1",
+      questionId: "q1",
+      answer: true,
+      correct: true,
+      timestamp: 1,
+    });
+
+    const { deps, updates } = capturingSlackDeps();
+    const tool = createProcessRevealAnswersTool(
+      data,
+      fakeSdk(),
+      fixtureGetGames,
+      async () => [],
+      deps,
+    );
+    await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: ["q1"] }, SESSION);
+
+    assert.equal(updates.length, 1);
+    assert.ok(updates[0].blockIds.includes("reveal-results:q1"));
   });
 });

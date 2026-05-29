@@ -131,6 +131,18 @@ export const choiceAnswerHandler: ClickableAnswerHandler = {
     };
   },
 
+  formatCorrectAnswer(question: TriviaQuestion): string {
+    const choices = question.choices ?? [];
+    const idx = question.correctIndex ?? -1;
+    return choices[idx] ?? "";
+  },
+
+  formatSubmittedAnswer(question: TriviaQuestion, row: SubmittedAnswer): string {
+    const choices = question.choices ?? [];
+    if (typeof row.answerIndex !== "number") return "";
+    return choices[row.answerIndex] ?? "";
+  },
+
   async processReveal(
     question: TriviaQuestion,
     deps: ProcessRevealDeps,
