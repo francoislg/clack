@@ -1,6 +1,6 @@
 ---
 name: changelog
-description: Generate a Slack-formatted changelog from git commits in a given time range. Groups related commits into feature cards, separates user-facing features from internal changes, and filters out trivial noise. Use when the user asks for a changelog, release notes, "what shipped", a "What's New" post, or a summary of recent changes for sharing in Slack.
+description: Generate a Slack-formatted changelog from git commits in a given time range. Groups related commits into cards, separates brand-new features from improvements to existing features and from internal changes, and filters out trivial noise. Use when the user asks for a changelog, release notes, "what shipped", a "What's New" post, or a summary of recent changes for sharing in Slack.
 ---
 
 # Generate a Clack changelog
@@ -48,9 +48,12 @@ If the list is short enough, also pull the bodies with `--pretty=fuller` or `git
 
 For each commit, classify into one of:
 
-- **Feature** — user-visible new capability or meaningful improvement (`feat:`, often plus follow-up `fix:`/`refactor:` for the same area)
+- **Feature** — a brand-new user-visible capability that didn't exist before (`feat:` introducing a new tool, plugin, mode, or surface). The test: before this change, a user simply could not do this thing at all.
+- **Improvement** — a meaningful enhancement to a capability that *already* existed (`feat:`/`fix:`/`refactor:` that extends, tunes, polishes, or makes more reliable something users already had). The test: the thing existed before; this makes it better, faster, more flexible, or more reliable.
 - **Internal** — refactor, perf, infra, migrations, tooling, type cleanup that matters but isn't user-visible
 - **Minor (drop)** — typo fixes, comment-only edits, dependency bumps with no behavior change, formatting, single-line tweaks, CI config noise, OpenSpec proposal/archive docs that don't correspond to shipped behavior
+
+Deciding **Feature vs Improvement**: look at whether the card introduces a new noun (a tool, plugin, mode, screen) or modifies an existing one. "Member-authored skills" is a Feature; "richer reveal leaderboards" or "more reliable live updates" are Improvements. When a single card mixes both, classify by its headline — the biggest, most prominent thing it ships — and fold the rest into the description.
 
 When in doubt about whether something is "minor", err on the side of dropping it. The changelog is a highlight reel, not a full log.
 
@@ -95,7 +98,11 @@ Here's a roundup of everything that shipped in the latest update — new feature
 
 :tada: New Features
 
-<feature cards…>
+<feature cards — brand-new capabilities…>
+
+:arrow_up: Improvements
+
+<improvement cards — enhancements to existing capabilities…>
 
 :gear: Internal changes
 
@@ -105,14 +112,16 @@ Here's a roundup of everything that shipped in the latest update — new feature
 Section emoji choices:
 - `:sparkles:` for the header
 - `:tada:` (or `:rocket:`) for **New Features**
+- `:arrow_up:` (or `:chart_with_upwards_trend:`) for **Improvements**
 - `:gear:` (or `:wrench:`) for **Internal changes**
 
-If a section has zero cards, omit the section header entirely rather than leaving it empty.
+Section order is always Features → Improvements → Internal changes. If a section has zero cards, omit the section header entirely rather than leaving it empty.
 
 ### 7. Sanity checks before output
 
 - Every card has a title, emoji, and description.
 - No card describes something trivial (typo, dep bump, lint fix).
+- Each card sits under the right section: **Features** only for genuinely new capabilities, **Improvements** for enhancements to things that already existed. If a "Feature" card describes tuning/polish/reliability of an existing thing, move it to Improvements.
 - Related commits are merged — no two cards describe the same shipped change.
 - The intro line shows the resolved date range, not the literal phrase the user typed.
 - Emoji are Slack shortcodes (`:name:`), not Unicode glyphs — these are body text, not table cells, so shortcodes render correctly.
