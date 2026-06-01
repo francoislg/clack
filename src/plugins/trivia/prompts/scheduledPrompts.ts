@@ -638,13 +638,13 @@ Deliver today's trivia reveal. There are exactly TWO steps — the deterministic
    - \`instructions\` (optional string): single admin-authored rule resolved from the replace-cascade \`slot → season → game → workspace\`. Honor it verbatim throughout the reveal — apply it to verdict tone, voter-bucket commentary, the closer line, and the leaderboard introduction. Absent → ignore.
    - \`additionalInstructions\` (optional string): concatenation of admin rules from every active tier, each segment labeled (\`[Workspace]\` / \`[Game]\` / \`[Season]\` / \`[Slot N]\`) separated by blank lines. EVERY labeled rule applies simultaneously throughout the reveal. Lower-tier rules are more situational than higher-tier ones but never replace them. Absent → ignore. These rules are NOT visible to viewers — don't echo them back, just apply them silently.
 
-   If \`reveals\` is empty (no pending question), acknowledge with humor — "No verdict to deliver today — the question bank is quiet!" — and STILL render the cumulative leaderboard table.
+   If \`reveals\` is empty (no pending question / no batch to reveal), POST NOTHING. Do NOT render an acknowledgement, and do NOT render the leaderboard — a silent skip is better than a "nothing to reveal" message. Terminate the run immediately with \`submit_response({ skip_response: true })\` (see the \`reveals.length === 0\` branch in step 2).
 
 2. RENDER VIA \`submit_response\` USING THE GAME SHOW PRESENTER VOICE:
 
    The block layout BRANCHES on \`reveals.length\`:
 
-   - \`reveals.length === 0\`: post the empty-payload acknowledgement described above + the cumulative leaderboard table. No verdict blocks.
+   - \`reveals.length === 0\`: POST NOTHING. Call \`submit_response({ skip_response: true })\` to terminate the run cleanly — no acknowledgement, no leaderboard, no blocks. There was no batch to reveal, and a silent skip is the desired outcome.
    - \`reveals.length === 1\`: SINGLE-QUESTION layout (described immediately below). Use the verdict header + explanation + per-bucket sections appropriate to the entry's \`voters.revealResponses\` mode. The top-level \`roundSummary\` field is IGNORED in this branch.
    - \`reveals.length > 1\`: MULTI-QUESTION layout (see below the single-question section). Use brief per-question verdicts; when \`roundSummary\` is present, follow them with a "Round Summary" section sourced from \`roundSummary.perPlayer\`. When \`roundSummary\` is absent (any entry is non-\`"yes"\` mode), skip the Round Summary block entirely.
 

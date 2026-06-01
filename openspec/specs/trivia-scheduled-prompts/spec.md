@@ -336,7 +336,7 @@ The `buildGameSpecs` function SHALL emit `requiredTools` for each cron spec:
 
 The `PROCESS_REVEAL_INSTRUCTIONS` constant SHALL explicitly branch on `reveals.length`:
 
-- `reveals.length === 0`: render an empty-payload acknowledgement plus the cumulative leaderboard table.
+- `reveals.length === 0`: POST NOTHING — terminate the run with `submit_response({ skip_response: true })`. No acknowledgement and no leaderboard render when there is no batch to reveal; a silent skip is preferred over a "nothing to reveal" message.
 - `reveals.length === 1`: SINGLE-QUESTION layout — full per-voter-bucket sections (`correct`, `incorrect`, `noAnswer`) plus reactions commentary plus the leaderboard. The `roundSummary` field is IGNORED.
 - `reveals.length > 1`: MULTI-QUESTION layout — brief per-question verdicts plus a "Round Summary" section sourced from `roundSummary.perPlayer`. Trades verbose voter-bucket sections for an aggregate scoreboard. The cumulative leaderboard table SHALL ALSO carry a `This Round` row above `Current Season` / `All Time` whenever `roundSummary` is present in the payload (see "Reveal table renders This Round row in multi-question batches").
 
@@ -347,10 +347,11 @@ The `PROCESS_REVEAL_INSTRUCTIONS` constant SHALL explicitly branch on `reveals.l
 - **AND** does NOT reference `fenceSitters` or `wildcards`
 - **AND** describes the per-mode rendering branches for `"yes"`, `"just-correctness"`, and `"no"`
 
-#### Scenario: Empty-reveals branch unchanged
+#### Scenario: Empty-reveals branch posts nothing
 
 - **WHEN** the prompt's empty-reveals branch is inspected
-- **THEN** the behavior is unchanged from prior to this proposal — render the acknowledgement plus the cumulative leaderboard
+- **THEN** it instructs Claude to POST NOTHING — terminate with `submit_response({ skip_response: true })`
+- **AND** it does NOT instruct rendering an acknowledgement or the cumulative leaderboard
 
 #### Scenario: Single-question layout omits This Round row
 
@@ -400,7 +401,7 @@ When the `This Round` row is rendered, the `PROCESS_REVEAL_INSTRUCTIONS` constan
 - When `seasonStatus` is PRESENT and `seasonStatus.hasPriorSeasons` is `true` → 4-ROW DUAL-TOTALS TABLE: `(" "/names-header), ("This Round"/round-correct), ("Current Season"/season-correct), ("All Time"/all-time-correct)`.
 - When `seasonStatus` is ABSENT or `seasonStatus.hasPriorSeasons` is `false` → 3-ROW LABELED TABLE: `(" "/names-header), ("This Round"/round-correct), ("All Time"/all-time-correct)`. The label column is NEW for this shape (the existing 2-row table has no label column).
 
-When the `This Round` row is NOT rendered (single-question reveal, empty-reveal acknowledgement, or multi-question reveal with `roundSummary` absent), the existing `3-row dual-totals` / `2-row no-label` shapes SHALL ship unchanged.
+When the `This Round` row is NOT rendered (single-question reveal, empty reveal — where nothing is posted at all, or multi-question reveal with `roundSummary` absent), the existing `3-row dual-totals` / `2-row no-label` shapes SHALL ship unchanged.
 
 `column_settings` SHALL still carry one `{ "align": "center" }` entry per column (label column + each player column).
 
