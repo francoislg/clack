@@ -15,6 +15,7 @@ import {
 } from "../../core/configBridge.js";
 import { requireWritableGame } from "../../core/gamesRegistry.js";
 import { computeLeaderboard } from "../../domain/computeLeaderboard.js";
+import { resolveAllTimeRow, shouldShowAllTimeRow } from "../../domain/allTimeRow.js";
 import { findCurrentSeason } from "../../core/seasonTimeline.js";
 import { resolveAdditionalInstructions, resolveInstructions } from "../../domain/instructions.js";
 import { findTriviaRevealJob, nextFireAfter } from "../../domain/seasonStatus.js";
@@ -325,6 +326,14 @@ export function createProcessRevealAnswersTool(
         leaderboard,
         ...(allYes ? { roundSummary: computeRoundSummary(reveals) } : {}),
         ...(seasonStatus ? { seasonStatus } : {}),
+        ...(seasonStatus
+          ? {
+              showAllTimeRow: shouldShowAllTimeRow(
+                resolveAllTimeRow(gameEntry, triviaConfig),
+                seasonStatus.isLastFireOfSeason,
+              ),
+            }
+          : {}),
         ...(perIdErrors.length > 0 ? { errors: perIdErrors } : {}),
         ...(resolvedInstructions !== null ? { instructions: resolvedInstructions } : {}),
         ...(resolvedAdditionalInstructions !== null

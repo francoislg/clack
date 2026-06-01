@@ -24,6 +24,7 @@ import {
   freeformAnswerShapeZod,
   parseTriviaAxisBag,
   questionTypeZod,
+  triviaAllTimeRowZod,
   triviaDifficultyRatioZod,
   triviaHintZod,
   validateHintConfig,
@@ -125,6 +126,12 @@ const structuralFieldsSchema = {
     .optional()
     .describe(
       'Per-game tier of the hint axis. Object shape `{ mode: "none" | "button" | "inline", minDifficulty?: "easy" | "medium" | "hard" }`. Cascade: `slot → season → game → workspace → { mode: "none" }`. Whole-object replace per tier. `button` is per-player opt-in safety net; `inline` is a room-wide difficulty floor adjustment — pick deliberately. On UPDATE: explicit null clears the field.',
+    ),
+  allTimeRow: triviaAllTimeRowZod
+    .nullable()
+    .optional()
+    .describe(
+      'Per-game tier of the "All Time" leaderboard-row visibility axis. One of `"always"` | `"never"` | `"end-of-season-only"`. Controls the All-Time surface at reveal time — the normal-reveal `All Time` row AND the season-finale All-Time table (also requires prior seasons to exist). `"end-of-season-only"` (the workspace default) shows All Time only on the season\'s last fire. Cascade: `game → workspace → "end-of-season-only"`. On UPDATE: explicit null clears the field.',
     ),
 };
 
@@ -357,6 +364,7 @@ export function createUpsertGameTool(getGamesFn: GetGamesFn = defaultGetGames) {
           ? { revealResponses: existing.revealResponses }
           : {}),
         ...(existing?.hint !== undefined ? { hint: existing.hint } : {}),
+        ...(existing?.allTimeRow !== undefined ? { allTimeRow: existing.allTimeRow } : {}),
       };
       if (args.format === null) delete mergedStructural.format;
       else if (parsedFormat !== undefined) mergedStructural.format = parsedFormat;
@@ -377,6 +385,8 @@ export function createUpsertGameTool(getGamesFn: GetGamesFn = defaultGetGames) {
         mergedStructural.revealResponses = args.revealResponses;
       if (args.hint === null) delete mergedStructural.hint;
       else if (parsedHint !== undefined) mergedStructural.hint = parsedHint;
+      if (args.allTimeRow === null) delete mergedStructural.allTimeRow;
+      else if (args.allTimeRow !== undefined) mergedStructural.allTimeRow = args.allTimeRow;
 
       const enabled = args.enabled ?? existing?.enabled ?? true;
 
@@ -414,6 +424,7 @@ export function createUpsertGameTool(getGamesFn: GetGamesFn = defaultGetGames) {
         hasLiveAnswersVisible: mergedStructural.liveAnswersVisible !== undefined,
         hasRevealResponses: mergedStructural.revealResponses !== undefined,
         hasHint: mergedStructural.hint !== undefined,
+        hasAllTimeRow: mergedStructural.allTimeRow !== undefined,
         slotCount: mergedStructural.format?.questions.length ?? 0,
       });
     },

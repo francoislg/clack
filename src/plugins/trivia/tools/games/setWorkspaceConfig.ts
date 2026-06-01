@@ -17,6 +17,7 @@ import {
   freeformAnswerShapeZod,
   parseTriviaAxisBag,
   questionTypeZod,
+  triviaAllTimeRowZod,
   triviaDifficultyRatioZod,
   triviaHintZod,
   validateHintConfig,
@@ -109,6 +110,12 @@ export function createSetWorkspaceConfigTool() {
         .optional()
         .describe(
           'Workspace tier of the hint axis. Object shape `{ mode: "none" | "button" | "inline", minDifficulty?: "easy" | "medium" | "hard" }`. Cascade: `slot → season → game → workspace → { mode: "none" }`. Whole-object replace per tier. `button` is per-player opt-in safety net; `inline` is a room-wide difficulty floor adjustment — pick deliberately. null clears.',
+        ),
+      allTimeRow: triviaAllTimeRowZod
+        .nullable()
+        .optional()
+        .describe(
+          'Workspace tier of the "All Time" leaderboard-row visibility axis. One of `"always"` | `"never"` | `"end-of-season-only"`. Controls the All-Time surface at reveal time — the normal-reveal `All Time` row AND the season-finale All-Time table (also requires prior seasons to exist). `"end-of-season-only"` (the built-in default) shows All Time only on the season\'s last fire; `"always"` shows it on every reveal; `"never"` hides it everywhere. Cascade: `game → workspace → "end-of-season-only"`. null clears.',
         ),
     },
     async (args) => {
@@ -257,6 +264,15 @@ export function createSetWorkspaceConfigTool() {
       } else if (args.revealResponses !== undefined) {
         next.revealResponses = args.revealResponses;
         updatedFields.push("revealResponses");
+      }
+
+      // allTimeRow: apply or clear.
+      if (args.allTimeRow === null) {
+        delete next.allTimeRow;
+        updatedFields.push("allTimeRow (cleared)");
+      } else if (args.allTimeRow !== undefined) {
+        next.allTimeRow = args.allTimeRow;
+        updatedFields.push("allTimeRow");
       }
 
       // instructions: validate + apply.

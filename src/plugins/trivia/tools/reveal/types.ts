@@ -125,6 +125,17 @@ export interface ProcessRevealResult {
    */
   roundSummary?: RoundSummary;
   seasonStatus?: SeasonStatusOut;
+  /**
+   * Resolved decision for the All-Time leaderboard surface: the normal-reveal
+   * `All Time` row and the season-finale All-Time table. Computed from the
+   * `allTimeRow` axis (cascade `game → workspace → "end-of-season-only"`) and
+   * `seasonStatus.isLastFireOfSeason`. Present only when `seasonStatus` is
+   * present (seasons enabled with a current season). When absent, the renderer
+   * treats it as `true` for backward compatibility. The All-Time surface ALSO
+   * requires `seasonStatus.hasPriorSeasons` — that gate is applied by the
+   * renderer, not folded into this flag.
+   */
+  showAllTimeRow?: boolean;
   errors?: Array<{ questionId: string; error: string }>;
   /**
    * Resolved value of the replace-cascade `instructions` axis at reveal time.

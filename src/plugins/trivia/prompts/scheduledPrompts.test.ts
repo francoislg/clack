@@ -298,8 +298,8 @@ describe("PROCESS_REVEAL_INSTRUCTIONS — multi-question branch", () => {
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /≤ 2 short sentences/);
   });
 
-  it("explicitly ignores roundSummary in the single-question branch", () => {
-    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /`roundSummary` field is IGNORED in this branch/);
+  it("single-question branch still drives the This Round row from roundSummary", () => {
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /still drives the `This Round` leaderboard row/);
   });
 });
 
@@ -401,80 +401,92 @@ describe("PROCESS_REVEAL_INSTRUCTIONS — renderer brief", () => {
     );
   });
 
-  it("describes both legacy and This-Round table shapes keyed on seasonStatus presence", () => {
-    // Legacy shapes (single-question reveal, empty-reveals, multi-question with roundSummary absent).
-    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /3-ROW DUAL-TOTALS TABLE/);
-    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /2-ROW TABLE/);
-    // New shapes gated on `reveals.length > 1` AND `roundSummary` presence.
-    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /4-ROW DUAL-TOTALS TABLE/);
-    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /3-ROW LABELED TABLE/);
-    // seasonStatus gates remain.
-    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /`seasonStatus` IS PRESENT/);
-    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /`seasonStatus` IS ABSENT/);
+  it("describes the additive leaderboard rows (This Round / Current Season / All Time)", () => {
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /LEADERBOARD TABLE/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /THE ROWS are ADDITIVE/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /"Current Season"/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /"All Time"/);
+    // The legacy fixed-shape catalog is gone.
+    assert.doesNotMatch(PROCESS_REVEAL_INSTRUCTIONS, /4-ROW DUAL-TOTALS TABLE/);
+    assert.doesNotMatch(PROCESS_REVEAL_INSTRUCTIONS, /3-ROW LABELED TABLE/);
   });
 
-  it("uses the labeled-shape variants when seasonStatus.hasPriorSeasons is false (single-season case)", () => {
-    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /hasPriorSeasons` IS `false`/);
+  it("relabels the single-season anchor row to Current Season (no All Time)", () => {
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /single season/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /REPLACES the old unlabeled two-row/);
+    // The anchor Current Season row is always present when seasons are on.
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /the anchor row/);
   });
 
   it("describes the This Round leaderboard row sourced from roundSummary.perPlayer", () => {
-    // The literal row label must appear.
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /"This Round"/);
-    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /This Round/);
-    // Data source must be named.
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /roundSummary\.perPlayer/);
     // Lookup-by-userId is the join key — Claude must not match by displayName.
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /look up the entry by `userId`/);
   });
 
-  it("gates the This Round row on reveals.length > 1 AND roundSummary presence", () => {
-    // Renders only when both conditions hold.
-    assert.match(
+  it("gates the This Round row on roundSummary presence, not reveals.length", () => {
+    // Rendered whenever roundSummary is present, for any reveal count.
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /whenever `roundSummary` is present/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /ANY reveal count/);
+    // Shares the Round Summary gate when absent.
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /the same gate that drops the Round Summary block/);
+    // No longer gated on reveals.length > 1.
+    assert.doesNotMatch(
       PROCESS_REVEAL_INSTRUCTIONS,
-      /`reveals\.length > 1`\s+AND\s+`roundSummary`\s+is present/,
+      /`reveals\.length > 1`\s+AND\s+`roundSummary`/,
     );
-    // Explicit omit cases.
-    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /The\s+`This Round`\s+row is OMITTED/);
-    // Shares the same gate as the Round Summary section block.
-    assert.match(
-      PROCESS_REVEAL_INSTRUCTIONS,
-      /same gate that drops the Round Summary section block/,
-    );
+  });
+
+  it("decides the column order once and forbids per-row sorting", () => {
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /DECIDE THE COLUMN ORDER ONCE/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /NEVER sort an individual row's cells/);
+    // The leftmost-column-is-round-leader consequence is stated.
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /leftmost column is the ROUND leader/);
   });
 
   it("instructs em-dash for absent players in the This Round row (never empty string)", () => {
-    // Em-dash is the prescribed fallback.
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /"—"/);
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /em-dash/);
-    // Empty string is explicitly forbidden, with the invalid_blocks justification preserved.
-    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /empty string `""` is FORBIDDEN/);
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /invalid_blocks/);
   });
 
-  it("restricts This Round medals to cells where correct > 0 (no medals on em-dash or zero cells)", () => {
-    // The medal-scope rule for the This Round row.
-    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /ONLY to cells where\s+`correct > 0`/);
-    // Explicit prohibition on awarding medals to em-dash / zero cells just to fill a top-4 slot.
-    assert.match(
-      PROCESS_REVEAL_INSTRUCTIONS,
-      /under no circumstances does an em-dash or a zero get a 🎀/,
-    );
+  it("uses one dense-rank medal rule where ties share a medal and 0/em-dash never medal", () => {
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /DENSE-RANK MEDAL RULE/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /Rank by DISTINCT value/);
+    // Ties share.
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /TIES SHARE/);
+    // Zero / em-dash never medal.
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /receive NO medal — never/);
   });
 
-  it("does NOT describe a This Round row in the single-question branch", () => {
-    const singleQuestionStart = PROCESS_REVEAL_INSTRUCTIONS.indexOf("=== SINGLE-QUESTION LAYOUT");
-    const multiQuestionStart = PROCESS_REVEAL_INSTRUCTIONS.indexOf("=== MULTI-QUESTION LAYOUT");
-    assert.ok(
-      singleQuestionStart >= 0 && multiQuestionStart > singleQuestionStart,
-      "expected the prompt to mark the SINGLE-QUESTION and MULTI-QUESTION layout sections in that order",
+  it("gates the All Time row on hasPriorSeasons AND showAllTimeRow", () => {
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /showAllTimeRow/);
+    assert.match(
+      PROCESS_REVEAL_INSTRUCTIONS,
+      /`seasonStatus\.hasPriorSeasons === true` AND `showAllTimeRow/,
     );
-    const singleQuestionSection = PROCESS_REVEAL_INSTRUCTIONS.slice(
-      singleQuestionStart,
-      multiQuestionStart,
-    );
-    assert.doesNotMatch(singleQuestionSection, /This Round/);
-    assert.doesNotMatch(singleQuestionSection, /4-ROW DUAL-TOTALS TABLE/);
-    assert.doesNotMatch(singleQuestionSection, /3-ROW LABELED TABLE/);
+    // Backward-compat: absent → treat as true.
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /when the field is ABSENT, treat it as `true`/);
+  });
+
+  it("describes the season finale layout (podium, participation tail, gated all-time table)", () => {
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /SEASON FINALE LAYOUT/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /SEASON WINNERS PODIUM/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /First place/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /PARTICIPATION TAIL/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /🎀/);
+    // The all-time finale table is gated and may be omitted.
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /ALL-TIME TABLE/);
+    // Finale must not preview the next season or call upsert_season.
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /do NOT call `upsert_season`/);
+  });
+
+  it("renders expanded answer detail when nobody got it right", () => {
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /NOBODY GOT IT/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /EXPANDED explanation of the correct answer/);
+    // Replaces the INCORRECT names section in named-bucket modes.
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /REPLACES the INCORRECT names section/);
   });
 
   it("forbids predicting reveal timing", () => {
@@ -482,7 +494,7 @@ describe("PROCESS_REVEAL_INSTRUCTIONS — renderer brief", () => {
   });
 
   it("instructs Unicode medal characters (not :first_place_medal: shortcodes) in table cells", () => {
-    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /Unicode characters, NOT/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /Unicode glyphs, NOT/);
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /🥇/);
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /🥈/);
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /🥉/);

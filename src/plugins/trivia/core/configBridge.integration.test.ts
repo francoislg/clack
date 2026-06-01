@@ -198,6 +198,7 @@ describe("trivia config relocation — end-to-end smoke", () => {
           instructions: undefined,
           additionalInstructions: undefined,
           hint: undefined,
+          allTimeRow: undefined,
         },
         SESSION,
       ),
@@ -228,6 +229,7 @@ describe("trivia config relocation — end-to-end smoke", () => {
         instructions: undefined,
         additionalInstructions: undefined,
         hint: undefined,
+        allTimeRow: undefined,
       },
       SESSION,
     );

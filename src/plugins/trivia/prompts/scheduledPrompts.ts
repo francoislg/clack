@@ -751,7 +751,7 @@ Deliver today's trivia reveal. There are exactly TWO steps — the deterministic
    The block layout BRANCHES on \`reveals.length\`:
 
    - \`reveals.length === 0\`: POST NOTHING. Call \`submit_response({ skip_response: true })\` to terminate the run cleanly — no acknowledgement, no leaderboard, no blocks. There was no batch to reveal, and a silent skip is the desired outcome.
-   - \`reveals.length === 1\`: SINGLE-QUESTION layout (described immediately below). Use the verdict header + explanation + per-bucket sections appropriate to the entry's \`voters.revealResponses\` mode. The top-level \`roundSummary\` field is IGNORED in this branch.
+   - \`reveals.length === 1\`: SINGLE-QUESTION layout (described immediately below). Use the verdict header + explanation + per-bucket sections appropriate to the entry's \`voters.revealResponses\` mode. The top-level \`roundSummary\` field, when present, still drives the \`This Round\` leaderboard row (see LEADERBOARD TABLE) — single-question reveals produce \`roundSummary\` when the entry is \`"yes"\` mode.
    - \`reveals.length > 1\`: MULTI-QUESTION layout (see below the single-question section). Use brief per-question verdicts; when \`roundSummary\` is present, follow them with a "Round Summary" section sourced from \`roundSummary.perPlayer\`. When \`roundSummary\` is absent (any entry is non-\`"yes"\` mode), skip the Round Summary block entirely.
 
    === SINGLE-QUESTION LAYOUT (when reveals.length === 1) ===
@@ -770,7 +770,8 @@ Deliver today's trivia reveal. There are exactly TWO steps — the deterministic
      - **\`"just-correctness"\` mode** — same four-section structure as \`"yes"\`, BUT freeform \`Voter\`s in \`correct\`/\`incorrect\` do NOT carry \`answerText\`. Name them only — DO NOT invent or speculate about what they typed. The admin chose to suppress the typed strings; respect that.
      - **\`"just-winners"\` mode** — render at most three sections, in order: (1) a CORRECT section naming \`voters.correct\` and celebrating them (quote freeform \`answerText\` when present); SKIP it when \`correct\` is empty. (2) an anonymous MISS line derived from \`voters.incorrectCount\` + \`voters.noAnswerCount\` — e.g. "(3 others fell for it)" or, when \`correct\` is empty and \`incorrectCount > 0\`, an "everyone got fooled / nobody nailed it this time" closer; SKIP entirely when both counts are 0. You MUST NOT name, invent, or imply WHO missed — the payload carries no misser names, only counts. (3) the REACTIONS commentary section when \`voters.reactions\` is non-empty (same framing as \`"yes"\`).
      - **\`"no"\` mode** — render NO per-bucket sections at all. After the divider, jump straight to (optional) reactions commentary if \`voters.reactions\` is non-empty, then the closer + leaderboard. You MUST NOT speculate about who voted what — the payload carries no per-user vote info for this question.
-   - When \`seasonStatus.isLastFireOfSeason\` is true: insert ONE additional \`section\` block above the closer that names the closing season's slug (from \`seasonStatus.currentSlug\`) and calls out the MVP (from \`seasonStatus.mvp\`). Apply the SEASON-FINALE TONE from the \`trivia\` topic of your system instructions for the wrap-up wording. Do NOT preview the new season's slug — leave that for a future fire to announce.
+   - **NOBODY GOT IT — expanded answer detail.** When the \`correct\` bucket is EMPTY (no one answered correctly), do NOT lead with a list of who missed. Instead teach the room the answer: render a "Nobody cracked this one — here's the full story:" line followed by an EXPANDED explanation of the correct answer (more depth than the WHY \`section\` above — the teaching moment stands in for the celebration). In \`"yes"\`/\`"just-correctness"\` modes this REPLACES the INCORRECT names section entirely (don't enumerate missers when nobody won). In \`"just-winners"\` mode, pair the expanded detail with the existing anonymous "everyone got fooled / nobody nailed it" line — name no misser (the payload carries none). This applies whether everyone tried and missed or nobody answered at all (both leave \`correct\` empty).
+   - When \`seasonStatus.isLastFireOfSeason\` is true: do NOT render the normal \`context\` closer or the leaderboard \`table\` — instead follow the SEASON FINALE LAYOUT below (winners podium → participation tail → gated all-time table → finale closer). The verdict header, explanation, divider, and per-bucket sections above STILL render; only the closer + table are replaced.
    - \`context\` block — short closer ("That's a wrap! Here's the running scoreboard:") leading into the leaderboard. Do NOT predict timing — the next reveal is on a separate schedule you have no visibility into.
 
    === MULTI-QUESTION LAYOUT (when reveals.length > 1) ===
@@ -783,9 +784,10 @@ Deliver today's trivia reveal. There are exactly TWO steps — the deterministic
      - **\`"just-winners"\`** — follow the verdict label naming \`voters.correct\` only ("Alice and Bob nailed it"), optionally tagging an anonymous miss count from \`incorrectCount\`/\`noAnswerCount\` ("…the other 3 missed it"); when \`correct\` is empty use an "everyone missed it" line. NEVER name or imply who got it wrong.
      - **\`"no"\`** — the brief verdict line stands on its own. Do NOT name voters or describe who got it right — the payload carries no per-user info for this question. ("Q3: 🎯 The answer was 'Tokyo'." — full stop.)
      - Do NOT enumerate every voter individually in any mode — that's what the Round Summary is for when it's present.
+     - When a question's \`correct\` bucket is EMPTY (nobody got it), the verdict line SHOULD say so ("Q2: 🎲 FALSE! Nobody saw it coming —") and lean its ≤2 sentences into explaining the answer rather than naming missers.
    - One \`divider\` block — separates the verdicts from the summary.
    - **Round Summary section — GATED on \`roundSummary\` presence.** When \`roundSummary\` is present (every entry is \`"yes"\` mode), render ONE \`section\` block titled "🏆 Round Summary" (or similar): list each player from \`roundSummary.perPlayer\` IN ORDER as \`<@USERID>: <correct>/<totalQuestions>\` (or any in-persona phrasing). Prefix every entry whose \`roundMvp: true\` is set with \`🏆\` (e.g. "🏆 <@U123>: 3/3"). DO NOT recompute the counts — read them straight from \`roundSummary.perPlayer\`. DO NOT add players who aren't in \`perPlayer\` (the tool already filters out anyone who didn't answer this round). When \`roundSummary\` is ABSENT (any entry in this round is \`"just-correctness"\`, \`"just-winners"\`, or \`"no"\`), SKIP this Round Summary block entirely — the per-question verdicts and the cumulative leaderboard table below carry the closer on their own.
-   - When \`seasonStatus.isLastFireOfSeason\` is true: insert ONE additional \`section\` block above the closer that names the closing season's slug and calls out the season MVP (from \`seasonStatus.mvp\`). Apply the SEASON-FINALE TONE from the \`trivia\` topic for the wrap-up wording. Same rule as the single-question branch.
+   - When \`seasonStatus.isLastFireOfSeason\` is true: do NOT render the normal \`context\` closer or the leaderboard \`table\` — instead follow the SEASON FINALE LAYOUT below. The per-question verdicts and Round Summary above STILL render; only the closer + table are replaced.
    - One \`context\` block — short closer leading into the cumulative leaderboard. Same timing-prediction prohibition as the single-question branch.
 
    Example shape for a 3-question multi-reveal:
@@ -803,126 +805,83 @@ Deliver today's trivia reveal. There are exactly TWO steps — the deterministic
 
    This branch trades per-question voter detail for an aggregate scoreboard. Readability over completeness — the cumulative leaderboard table below still ships.
 
-   === TABLE PARAMETER (single-question, multi-question, AND empty-reveals layouts) ===
+   === SEASON FINALE LAYOUT (when \`seasonStatus.isLastFireOfSeason === true\`) ===
 
-   PLUS, alongside \`blocks\`, set the top-level \`table\` parameter rendering the leaderboard. CRITICAL: \`table\` is a SIBLING of \`blocks\` on the \`submit_response\` call, NOT a member of the \`blocks\` array — Block Kit rejects \`{ "type": "table" }\` inside \`blocks\`, and the message will ship with no scoreboard if you put it there. The shape is \`submit_response({ blocks: [...], table: { type: "table", rows: [...], column_settings: [...] }, actions: [...] })\`.
+   On the season's LAST fire, REPLACE the normal closer + leaderboard table with this dedicated finale. The verdict blocks above (header, explanation, per-question verdicts, Round Summary) render exactly as on any reveal; only the closer + \`table\` are swapped for the sequence below. "pts" everywhere means \`currentSeasonCorrect\` (no separate scoring concept).
 
-   "THIS ROUND" ROW — gated on \`reveals.length > 1\` AND \`roundSummary\` presence:
+   1. TRANSITION \`section\` — introduce the winners in the SEASON-FINALE TONE from the \`trivia\` topic (e.g. "🏆 *And now — your season champions!*").
+   2. SEASON WINNERS PODIUM — ONE \`section\` (mrkdwn) listing the FINAL current-season standings as a ranked vertical list. Rank by DISTINCT \`currentSeasonCorrect\` value: the top distinct value is \`🥇 First place\`, the 2nd \`🥈 Second place\`, the 3rd \`🥉 Third place\`. Players TIED on a value SHARE that place and medal (e.g. "🥇 *First place:* <@U_A> & <@U_B> — 18 pts"). Name each with \`<@USERID>\` and their pts. OMIT players with zero current-season participation.
+   3. PARTICIPATION TAIL — ONE \`section\` line listing every remaining participant (everyone below the top-3 distinct values) with pts, comma-separated, e.g. "*Participation:* 🎀 <@U_D> (8 pts), <@U_E> (5 pts)". The player(s) at the 4th distinct value carry the \`🎀\` ribbon; the rest are plain. Omit zero-participation players. If nobody falls below the podium, skip this line.
+   4. ALL-TIME TABLE — set the \`table\` parameter as a standalone all-time scoreboard ONLY when \`seasonStatus.hasPriorSeasons === true\` AND \`showAllTimeRow !== false\`. Introduce it with a one-line \`section\` ("And the all-time leaderboard:"). The table is a names-header row + an \`All Time\` row of \`String(totalCorrect)\`, columns ordered by \`totalCorrect\` descending, medaled by the DENSE-RANK MEDAL RULE below. When the gate fails — a single season (\`hasPriorSeasons\` false, where All Time would just duplicate the podium) OR \`showAllTimeRow\` is false (e.g. \`allTimeRow: "never"\`) — OMIT the \`table\` entirely.
+   5. \`context\` CLOSER — e.g. "Thanks for playing — see you next season! 🎉". Do NOT preview the next season's slug even when \`seasonStatus.newSeasonStarted\` is present, and do NOT predict timing. The in-tool rollover already stamped the closing season's \`endedAt\` (and may have started a continuation) before returning — do NOT call \`upsert_season\` as a follow-up.
 
-   When \`reveals.length > 1\` AND \`roundSummary\` is present in the payload, PREPEND a \`This Round\` row to the leaderboard table immediately ABOVE the \`Current Season\` / \`All Time\` rows. Source the per-player counts from \`roundSummary.perPlayer\` (the same array the Round Summary section reads): for each player column, look up the entry by \`userId\` and render \`String(correct)\`. Players who appear on the leaderboard (i.e., have a column) but are ABSENT from \`roundSummary.perPlayer\` (didn't answer this round) — render the literal Unicode em-dash \`"—"\`. The empty string \`""\` is FORBIDDEN here: Slack rejects empty raw_text cells with \`invalid_blocks\`. Apply medal prefixes (\`"🥇 "\`, \`"🥈 "\`, \`"🥉 "\`, \`"🎀 "\`) ONLY to cells where \`correct > 0\`, ranked top-4 by \`roundSummary.perPlayer\` array order (already pre-sorted by the reveal tool). Cells with \`correct === 0\` and em-dash cells receive NO medal — under no circumstances does an em-dash or a zero get a 🎀 to fill a top-4 slot.
+   === LEADERBOARD TABLE (NORMAL reveals — the SEASON FINALE LAYOUT above replaces this on the last fire) ===
 
-   The \`This Round\` row is OMITTED in three cases (use the legacy shapes below): (a) \`reveals.length === 1\` — single-question reveal; (b) \`reveals.length === 0\` — empty-reveals acknowledgement; (c) \`reveals.length > 1\` AND \`roundSummary\` is ABSENT (the latter happens whenever any reveal entry's \`revealResponses\` is \`"just-correctness"\`, \`"just-winners"\`, or \`"no"\` — the same gate that drops the Round Summary section block above). The Round Summary section block and the \`This Round\` row share that gate; they ship together or skip together.
+   On every reveal EXCEPT the finale, set the top-level \`table\` parameter alongside \`blocks\`. CRITICAL: \`table\` is a SIBLING of \`blocks\` on the \`submit_response\` call, NOT a member of the \`blocks\` array — Block Kit rejects \`{ "type": "table" }\` inside \`blocks\`. Shape: \`submit_response({ blocks: [...], table: { type: "table", rows: [...], column_settings: [...] }, actions: [...] })\`.
 
-   FOUR RENDERING SHAPES (gated on \`seasonStatus.hasPriorSeasons\` × whether \`This Round\` is rendered):
+   STEP 1 — DECIDE THE COLUMN ORDER ONCE. A player owns exactly ONE column across EVERY row (Slack tables require uniform column widths). Decide the ordered player list a SINGLE time, then every row (names header, \`This Round\`, \`Current Season\`, \`All Time\`) fills its cells in that SAME order. NEVER sort an individual row's cells independently — that desyncs the columns.
+   - When \`roundSummary\` is present: order columns by \`roundSummary.perPlayer\` order (already sorted by \`correct\` descending) — for each player, look up the entry by \`userId\` — then append any remaining columned players (on the leaderboard but ABSENT from \`perPlayer\`, i.e. didn't answer this round) ordered by \`currentSeasonCorrect\` descending. Those em-dash players sort LAST.
+   - When \`roundSummary\` is absent: order columns by \`currentSeasonCorrect\` descending (or \`totalCorrect\` descending when seasons are off).
+   - CONSEQUENCE: the leftmost column is the ROUND leader, who need NOT be the season or all-time leader. That's intended.
 
-   - WHEN \`seasonStatus\` IS PRESENT AND \`seasonStatus.hasPriorSeasons\` IS \`true\` (seasons enabled, a current season is active, AND at least one answer belongs to a different season):
+   STEP 2 — WHICH PLAYERS GET A COLUMN.
+   - Seasons ON (\`seasonStatus\` present): include only leaderboard entries with current-season participation (\`currentSeasonCorrect > 0\` OR \`currentSeasonAnswered > 0\`). Anyone in \`roundSummary.perPlayer\` necessarily qualifies (their this-round answer is stamped with the current season), so the \`This Round\` source set is always a subset of the columns.
+   - Seasons OFF (\`seasonStatus\` absent): include every leaderboard entry.
 
-     - **Legacy 3-ROW DUAL-TOTALS TABLE** — applies to single-question reveals, empty-reveals acknowledgements, AND multi-question reveals where \`roundSummary\` is absent:
-       - Row 1: top-left label cell containing a single space \`" "\` (Slack rejects empty raw_text cells with \`invalid_blocks\`), then one cell per player with their \`displayName\` (NO medal prefix on this row).
-       - Row 2: left cell \`"Current Season"\`, then one cell per player with \`String(currentSeasonCorrect)\`. Apply medal prefixes \`"🥇 "\`, \`"🥈 "\`, \`"🥉 "\`, \`"🎀 "\` (Unicode characters, NOT \`:first_place_medal:\`/\`:ribbon:\` shortcodes — shortcodes render as literal text inside table cells) to the cells holding the top-4 \`currentSeasonCorrect\` values among present players (🎀 = 4th place).
-       - Row 3: left cell \`"All Time"\`, then one cell per player with \`String(totalCorrect)\`. Apply medal prefixes to the top-4 \`totalCorrect\` values among present players — INDEPENDENT of the current-season ranking.
+   STEP 3 — THE ROWS are ADDITIVE (each present or absent independently; all share the STEP-1 column order):
+   - NAMES HEADER (always): top-left label cell of a single space \`" "\` (Slack rejects empty \`""\` cells with \`invalid_blocks\`), then one \`displayName\` cell per column, NO medals. EXCEPTION — the seasons-off no-\`This Round\` case (below) uses a compact 2-row shape with NO label column, so its names row has no leading label cell.
+   - \`This Round\` (TOP data row, whenever \`roundSummary\` is present — ANY reveal count, single- or multi-question): label \`"This Round"\`; each cell is \`String(correct)\` from \`roundSummary.perPlayer\` (looked up by \`userId\`), or the literal em-dash \`"—"\` for a columned player absent from \`perPlayer\`. OMITTED when \`roundSummary\` is absent (any entry is \`"just-correctness"\`/\`"just-winners"\`/\`"no"\` — the same gate that drops the Round Summary block).
+   - \`Current Season\` (seasons ON, ALWAYS — the anchor row): label \`"Current Season"\`; each cell \`String(currentSeasonCorrect)\`.
+   - \`All Time\` (seasons ON, ONLY when \`seasonStatus.hasPriorSeasons === true\` AND \`showAllTimeRow !== false\`): label \`"All Time"\`; each cell \`String(totalCorrect)\`. \`showAllTimeRow\` is the tool's resolved \`allTimeRow\` decision — when the field is ABSENT, treat it as \`true\`. OMIT this row when \`hasPriorSeasons\` is false (one season makes "All Time" redundant with "Current Season") or when \`showAllTimeRow\` is false (e.g. the default \`"end-of-season-only"\` on a non-finale day).
+   - SEASONS-OFF totals (\`seasonStatus\` ABSENT — no Current Season / All Time split): render ONE totals row of \`String(totalCorrect)\`. When a \`This Round\` row is present, label both rows (\`"This Round"\` / \`"All Time"\`) WITH a leading label column; when \`This Round\` is absent, use the compact 2-row shape (names + scores, NO label column).
 
-     - **4-ROW DUAL-TOTALS TABLE** — applies to multi-question reveals where \`roundSummary\` IS present:
-       - Row 1: same as legacy 3-row Row 1 (label cell \`" "\` + per-player \`displayName\` cells, no medals).
-       - Row 2 (NEW — \`This Round\`): left cell \`"This Round"\`, then per-player cells per the "This Round" row policy above. Medal prefixes apply only to cells where \`correct > 0\`, top-4 by \`roundSummary.perPlayer\` order; em-dash for players absent from \`perPlayer\`.
-       - Row 3: same as legacy 3-row Row 2 (\`"Current Season"\` + per-player \`currentSeasonCorrect\` with independent top-4 medals).
-       - Row 4: same as legacy 3-row Row 3 (\`"All Time"\` + per-player \`totalCorrect\` with independent top-4 medals).
+   DENSE-RANK MEDAL RULE — applied to EACH medaled row INDEPENDENTLY (\`This Round\`, \`Current Season\`, \`All Time\`, the seasons-off totals row, AND the finale podium/all-time table). Rank by DISTINCT value, descending: the 1st distinct value gets \`"🥇 "\`, the 2nd \`"🥈 "\`, the 3rd \`"🥉 "\`, the 4th \`"🎀 "\`. EVERY cell holding a value gets that value's medal — TIES SHARE (two players at the top value BOTH get \`"🥇 "\`). Cells with value \`0\`, em-dash cells, and absent players receive NO medal — never, not even to fill an otherwise-empty top-4 slot. Fewer than 4 distinct values → medal only the distinct values that exist. Use the Unicode glyphs, NOT \`:first_place_medal:\`/\`:ribbon:\` shortcodes (shortcodes render as literal text inside table cells).
 
-     Shared rules across both shape variants under this gate:
-     - Player columns: only include leaderboard entries where \`currentSeasonCorrect > 0\` OR \`currentSeasonAnswered > 0\`. Omit anyone with zero current-season participation. The \`This Round\` row inherits this same column set (no column may exist in one row and be missing in another — Slack tables require uniform row widths).
-     - Fewer than 4 present players → assign medals only for whichever positions exist, on each row INDEPENDENTLY.
-     - \`column_settings\`: one \`{ "align": "center" }\` entry per column (label column + each player column).
+   \`column_settings\`: one \`{ "align": "center" }\` per column (the label column, when present, counts as one).
 
-     Example shape — legacy 3-row, 2 present players (single-question OR multi-question without \`roundSummary\`):
-     \`\`\`
-     {
-       "blocks": [ /* header, explanation, divider, voter sections, closer context — see above */ ],
-       "table": {
-         "type": "table",
-         "rows": [
-           [" ",              "Alice",    "Bob"],
-           ["Current Season", "🥇 5",     "🥈 3"],
-           ["All Time",       "🥈 9",     "🥇 12"]
-         ],
-         "column_settings": [
-           { "align": "center" }, { "align": "center" }, { "align": "center" }
-         ]
-       },
-       "actions": []
-     }
-     \`\`\`
+   Example — seasons ON, prior seasons, \`showAllTimeRow\` true. Alice & Bob TIE at the top of This Round (both 🥇); Dave got 0 this round (no medal); Bob is the all-time leader yet sits in column 2 because his round was weaker than Alice's lead:
+   \`\`\`
+   {
+     "blocks": [ /* header, verdicts, divider, voter/round-summary sections, closer context */ ],
+     "table": {
+       "type": "table",
+       "rows": [
+         [" ",              "Alice",   "Bob",     "Carol",  "Dave"],
+         ["This Round",     "🥇 3",    "🥇 3",    "🥈 1",   "0"   ],
+         ["Current Season", "🥉 5",    "🥇 12",   "🎀 3",   "🥈 8"],
+         ["All Time",       "🥈 9",    "🥇 30",   "🎀 4",   "🥉 6"]
+       ],
+       "column_settings": [
+         { "align": "center" }, { "align": "center" }, { "align": "center" }, { "align": "center" }, { "align": "center" }
+       ]
+     },
+     "actions": []
+   }
+   \`\`\`
 
-     Example shape — 4-row, 3 present players (multi-question with \`roundSummary\` present; Carol is on the leaderboard but did not answer this round, so her \`This Round\` cell is the em-dash):
-     \`\`\`
-     {
-       "blocks": [ /* header, per-question verdicts, divider, Round Summary section, closer context — see above */ ],
-       "table": {
-         "type": "table",
-         "rows": [
-           [" ",              "Alice",    "Bob",     "Carol"],
-           ["This Round",     "🥇 2",     "🥈 1",    "—"    ],
-           ["Current Season", "🥇 5",     "🥈 3",    "🥉 1" ],
-           ["All Time",       "🥈 9",     "🥇 12",   "🥉 4" ]
-         ],
-         "column_settings": [
-           { "align": "center" }, { "align": "center" }, { "align": "center" }, { "align": "center" }
-         ]
-       },
-       "actions": []
-     }
-     \`\`\`
+   Example — single season (\`hasPriorSeasons\` false): no \`All Time\` row; the anchor row is the labeled \`Current Season\` (this REPLACES the old unlabeled two-row single-season shape):
+   \`\`\`
+   { "table": { "type": "table", "rows": [
+       [" ",              "Alice",  "Bob"],
+       ["This Round",     "🥇 2",   "🥈 1"],
+       ["Current Season", "🥇 5",   "🥈 3"]
+     ], "column_settings": [ { "align": "center" }, { "align": "center" }, { "align": "center" } ] } }
+   \`\`\`
 
-   - WHEN \`seasonStatus\` IS ABSENT (seasons disabled or in a gap), OR WHEN \`seasonStatus.hasPriorSeasons\` IS \`false\` (only one season has ever had activity, so "All Time" would duplicate "Current Season"):
-
-     - **Legacy 2-ROW TABLE** (NO label column) — applies to single-question reveals, empty-reveals acknowledgements, AND multi-question reveals where \`roundSummary\` is absent:
-       - Row 1: one cell per player with their \`displayName\` (NO medal prefix on this row, NO leading label cell).
-       - Row 2: one cell per player with \`String(totalCorrect)\`. Apply medal prefixes \`"🥇 "\`, \`"🥈 "\`, \`"🥉 "\`, \`"🎀 "\` (Unicode characters, NOT \`:first_place_medal:\`/\`:ribbon:\` shortcodes — shortcodes render as literal text inside table cells) to the cells holding the top-4 \`totalCorrect\` values (🎀 = 4th place).
-
-     - **3-ROW LABELED TABLE** (NEW label column) — applies to multi-question reveals where \`roundSummary\` IS present. This shape gains a left-side label column that the legacy 2-row shape lacks; the column is necessary because the \`This Round\` and \`All Time\` rows now need named labels.
-       - Row 1: top-left label cell containing a single space \`" "\` (Slack rejects empty raw_text cells with \`invalid_blocks\`), then one cell per player with their \`displayName\` (NO medal prefix on this row).
-       - Row 2 (NEW — \`This Round\`): left cell \`"This Round"\`, then per-player cells per the "This Round" row policy above. Medal prefixes apply only to cells where \`correct > 0\`, top-4 by \`roundSummary.perPlayer\` order; em-dash for players absent from \`perPlayer\`.
-       - Row 3: left cell \`"All Time"\`, then one cell per player with \`String(totalCorrect)\` and top-4 medals on the \`totalCorrect\` values.
-
-     Shared rules across both shape variants under this gate:
-     - Fewer than 4 players → assign medals only for whichever positions exist, on each row INDEPENDENTLY.
-     - \`column_settings\`: one \`{ "align": "center" }\` entry per column (and when the labeled variant ships, the label column counts as one of those entries).
-
-     Example shape — legacy 2-row, 4 players (single-question OR multi-question without \`roundSummary\`):
-     \`\`\`
-     {
-       "blocks": [ /* header, explanation, divider, voter sections, closer context */ ],
-       "table": {
-         "type": "table",
-         "rows": [
-           ["Alice",    "Bob",   "Carol", "Dave"],
-           ["🥇 11",    "🥈 8",  "🥉 6",  "🎀 3"]
-         ],
-         "column_settings": [
-           { "align": "center" }, { "align": "center" }, { "align": "center" }, { "align": "center" }
-         ]
-       },
-       "actions": []
-     }
-     \`\`\`
-
-     Example shape — 3-row labeled, 3 players (multi-question with \`roundSummary\` present; Carol did not answer this round → em-dash):
-     \`\`\`
-     {
-       "blocks": [ /* header, per-question verdicts, divider, Round Summary section, closer context */ ],
-       "table": {
-         "type": "table",
-         "rows": [
-           [" ",          "Alice",    "Bob",     "Carol"],
-           ["This Round", "🥇 2",     "🥈 1",    "—"    ],
-           ["All Time",   "🥇 11",    "🥈 8",    "🥉 6" ]
-         ],
-         "column_settings": [
-           { "align": "center" }, { "align": "center" }, { "align": "center" }, { "align": "center" }
-         ]
-       },
-       "actions": []
-     }
-     \`\`\`
+   Example — seasons OFF. With a \`This Round\` row → labeled rows; without → compact 2-row (no label column):
+   \`\`\`
+   { "table": { "type": "table", "rows": [
+       [" ",          "Alice",  "Bob"],
+       ["This Round", "🥇 2",   "🥈 1"],
+       ["All Time",   "🥇 11",  "🥈 8"]
+     ], "column_settings": [ { "align": "center" }, { "align": "center" }, { "align": "center" } ] } }
+   \`\`\`
+   \`\`\`
+   { "table": { "type": "table", "rows": [
+       ["Alice",  "Bob",   "Carol", "Dave"],
+       ["🥇 11",  "🥈 8",  "🥉 6",  "🎀 3"]
+     ], "column_settings": [ { "align": "center" }, { "align": "center" }, { "align": "center" }, { "align": "center" } ] } }
+   \`\`\`
 
    If the leaderboard is empty (nobody has participated yet), OMIT the \`table\` parameter entirely. Otherwise the table MUST be present — a reveal closer that mentions the scoreboard without a populated table is a visible bug.
 

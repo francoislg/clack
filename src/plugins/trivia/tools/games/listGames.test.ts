@@ -56,6 +56,35 @@ describe("list_games — per-game entries", () => {
     assert.equal("theme" in entry, false);
   });
 
+  it("surfaces per-game allTimeRow when set, omits it when absent", async () => {
+    const games: readonly TriviaGame[] = [
+      {
+        name: "always-on",
+        channel: "C300000000",
+        questionCron: "0 9 * * 1-5",
+        revealCron: "0 17 * * 1-5",
+        timezone: "UTC",
+        enabled: true,
+        allTimeRow: "always",
+      },
+    ];
+    const withValue = parseToolResult(
+      await createListGamesTool(() => games, emptyTriviaConfig).handler(
+        { includeDisabled: undefined },
+        SESSION,
+      ),
+    );
+    assert.equal(withValue.games[0].allTimeRow, "always");
+
+    const without = parseToolResult(
+      await createListGamesTool(fixtureGetGames, emptyTriviaConfig).handler(
+        { includeDisabled: undefined },
+        SESSION,
+      ),
+    );
+    assert.equal("allTimeRow" in without.games[0], false);
+  });
+
   it("surfaces prepCron and nextPrepFire when set", async () => {
     const games: readonly TriviaGame[] = [
       {
@@ -152,6 +181,24 @@ describe("list_games — workspaceDefaults block", () => {
     const parsed = parseToolResult(await tool.handler({ includeDisabled: undefined }, SESSION));
     assert.deepEqual(parsed.workspaceDefaults.choices, cfg.choices);
     assert.deepEqual(parsed.workspaceDefaults.offDays, cfg.offDays);
+  });
+
+  it("surfaces workspaceDefaults.allTimeRow only when set", async () => {
+    const withValue = parseToolResult(
+      await createListGamesTool(fixtureGetGames, () => ({ allTimeRow: "always" })).handler(
+        { includeDisabled: undefined },
+        SESSION,
+      ),
+    );
+    assert.equal(withValue.workspaceDefaults.allTimeRow, "always");
+
+    const without = parseToolResult(
+      await createListGamesTool(fixtureGetGames, emptyTriviaConfig).handler(
+        { includeDisabled: undefined },
+        SESSION,
+      ),
+    );
+    assert.equal("allTimeRow" in without.workspaceDefaults, false);
   });
 
   it("workspaceDefaults is always present even on an empty games list", async () => {
