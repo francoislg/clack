@@ -128,6 +128,14 @@ export interface AskClaudeOptions {
    * `attachedTopics` field is set. See the `plugin-topic-instructions` capability.
    */
   preAttachedTopics?: string[];
+  /**
+   * Fired exactly once the moment the run has attempted to claim its active-runs slot —
+   * whether the claim succeeded or the slot was already occupied. Used by `processMessage`'s
+   * per-thread lock (`withThreadLock`) to release as soon as the slot is settled, so the lock
+   * is held only across setup, not for the run's full duration. Always invoked before the run
+   * begins streaming (and on the early-abort path when the slot is occupied).
+   */
+  onRegistered?: () => void;
 }
 
 function summarizeContentBlocks(content: unknown[]): string {
@@ -486,10 +494,20 @@ export async function askClaude(
   if (registerActiveRun({ channelId: session.channelId, threadTs: session.threadTs }, run)) {
     registeredHandle = run;
   } else {
+    // A registration collision means another run already owns this thread. Proceeding would
+    // run a second SDK query that resumes the SAME `sdkSessionId` concurrently — corrupting
+    // it — and would leave a run the stop pipeline can't reach (no registry entry). So abort
+    // the duplicate instead of running it untracked. Release the per-thread lock first so the
+    // owning run's waiter can proceed, then stop this run; `futureResponse` resolves cancelled
+    // and the caller tears down its streamer via the cancellation path.
     logger.warn(
-      `askClaude: active-runs slot already occupied for ${session.channelId}:${session.threadTs} (session ${session.sessionId}); proceeding without registration`,
+      `askClaude: active-runs slot already occupied for ${session.channelId}:${session.threadTs} (session ${session.sessionId}); aborting duplicate run`,
     );
+    options?.onRegistered?.();
+    await run.stop("duplicate run for thread");
+    return run;
   }
+  options?.onRegistered?.();
 
   // Bridge: until all callers migrate to `handle.stop(...)`, an external AbortController
   // passed via options aborts the run by triggering `run.stop`. Removed in the Slack

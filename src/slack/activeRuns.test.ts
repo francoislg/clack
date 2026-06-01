@@ -7,8 +7,23 @@ import {
   getForChannelMessage,
   unregister,
   size,
+  withThreadLock,
   _resetForTesting,
 } from "./activeRuns.js";
+
+/** A manually-resolvable promise, for ordering assertions without real timers. */
+function deferred<T = void>(): { promise: Promise<T>; resolve: (v: T) => void } {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
+/** Flush several microtask turns so chained `.then`s settle. */
+async function flush(turns = 8): Promise<void> {
+  for (let i = 0; i < turns; i++) await Promise.resolve();
+}
 
 function fakeHandle(label: string): ClaudeRunHandle {
   return {
@@ -103,5 +118,110 @@ describe("activeRuns", () => {
     // A lookup for a brand-new thread in the same DM channel must NOT find the
     // handle from another thread.
     assert.equal(getForChannelMessage("D1", "T_NEW", "U1"), undefined);
+  });
+});
+
+describe("withThreadLock", () => {
+  beforeEach(() => {
+    _resetForTesting();
+  });
+
+  it("does not start a second section on the same key until the first releases", async () => {
+    const order: string[] = [];
+    let release1!: () => void;
+    const body1Gate = deferred();
+    const firstRunning = deferred();
+
+    const p1 = withThreadLock("C1", "T1", async (release) => {
+      order.push("1-start");
+      release1 = release; // capture; release manually below (do NOT auto-release yet)
+      firstRunning.resolve();
+      await body1Gate.promise; // keep the first section's body alive past release
+      order.push("1-end");
+      return "1";
+    });
+
+    await firstRunning.promise;
+
+    let secondStarted = false;
+    const p2 = withThreadLock("C1", "T1", async () => {
+      secondStarted = true;
+      order.push("2-start");
+      return "2";
+    });
+
+    // First has not released its slot yet → second must NOT have started.
+    await flush();
+    assert.equal(secondStarted, false);
+
+    // Releasing opens the gate even though the first body is still running.
+    release1();
+    await flush();
+    assert.equal(secondStarted, true);
+
+    body1Gate.resolve();
+    assert.deepEqual(await Promise.all([p1, p2]), ["1", "2"]);
+    assert.deepEqual(order, ["1-start", "2-start", "1-end"]);
+  });
+
+  it("runs sections on different keys concurrently", async () => {
+    const t1Running = deferred();
+    const hold = deferred();
+    let t2Started = false;
+
+    const p1 = withThreadLock("C1", "T1", async () => {
+      t1Running.resolve();
+      await hold.promise; // never release until the end
+      return "1";
+    });
+    await t1Running.promise;
+
+    const p2 = withThreadLock("C1", "T2", async () => {
+      t2Started = true;
+      return "2";
+    });
+
+    await flush();
+    // Different key → not blocked by T1 still holding its lock.
+    assert.equal(t2Started, true);
+    assert.equal(await p2, "2");
+
+    hold.resolve();
+    assert.equal(await p1, "1");
+  });
+
+  it("propagates the section's return value at completion", async () => {
+    assert.equal(
+      await withThreadLock("C1", "T1", async (release) => {
+        release();
+        return 42;
+      }),
+      42,
+    );
+  });
+
+  it("a throwing section opens the gate (no deadlock) and the next section still runs", async () => {
+    const p1 = withThreadLock("C1", "T1", async () => {
+      throw new Error("boom");
+    });
+    await assert.rejects(p1, /boom/);
+
+    // The chain must have advanced — a subsequent section on the same key runs to completion.
+    const result = await withThreadLock("C1", "T1", async (release) => {
+      release();
+      return "after-throw";
+    });
+    assert.equal(result, "after-throw");
+  });
+
+  it("a section that never calls release still releases on completion (safety net)", async () => {
+    let secondRan = false;
+    // First section never calls `release` explicitly; the `finally` must open the gate.
+    await withThreadLock("C1", "T1", async () => "1");
+    await withThreadLock("C1", "T1", async () => {
+      secondRan = true;
+      return "2";
+    });
+    assert.equal(secondRan, true);
   });
 });

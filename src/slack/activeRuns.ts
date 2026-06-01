@@ -84,9 +84,69 @@ export function unregister(handle: ClaudeRunHandle): void {
   logger.debug(`active-runs: unregistered ${key}`);
 }
 
+/**
+ * Per-thread critical-section serializer. The active-runs `register`/`getByThread` pair is
+ * a synchronous set-if-absent, but the Slack handler's "consult registry → spawn fresh run"
+ * decision is NOT synchronous: it consults near the top of `processMessage` and only claims
+ * the slot much later (after session setup, delivery setup, and `streamer.start()` — several
+ * awaited round-trips), inside `askClaude`. Two messages on the same thread arriving in that
+ * gap would both observe an empty slot and each spawn a run + streamer. This lock closes the
+ * gap: it serializes the consult-and-claim per `(channelId, threadTs)` so a later invocation
+ * cannot enter until the earlier one has registered its run (or queued onto an existing one).
+ *
+ * The lock is released via the `release` callback the section passes to the run — typically
+ * `askClaude`'s `onRegistered` hook, fired the instant the slot is claimed. It is therefore
+ * held only across setup (~the registration window), NOT for the run's full duration; mid-run
+ * follow-ups still take the fast `sendUpdate` path. As a safety net the gate also opens when
+ * the section's promise settles, so an early throw before registration can never deadlock the
+ * chain. The promise returned to the caller still resolves at section completion.
+ */
+const threadLocks = new Map<string, Promise<void>>();
+
+export function withThreadLock<T>(
+  channelId: string,
+  threadTs: string,
+  fn: (release: () => void) => Promise<T>,
+): Promise<T> {
+  const key = makeThreadKey(channelId, threadTs);
+  const prev = threadLocks.get(key) ?? Promise.resolve();
+
+  let openGate!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    openGate = resolve;
+  });
+
+  // The next section for this key waits on THIS section's gate, which opens at registration
+  // time (via `release`), not at run completion. `gate` only ever resolves, so the lock chain
+  // never rejects — a failing `fn` rejects only the caller's promise below, not the tail.
+  const tail = prev.then(() => gate);
+  threadLocks.set(key, tail);
+  tail.finally(() => {
+    // Drop the entry once our gate has opened, unless a later section has already queued
+    // behind us (in which case it owns the tail). `gate` never rejects, so no lost rejection.
+    if (threadLocks.get(key) === tail) threadLocks.delete(key);
+  });
+
+  return prev.then(async () => {
+    let released = false;
+    const release = (): void => {
+      if (!released) {
+        released = true;
+        openGate();
+      }
+    };
+    try {
+      return await fn(release);
+    } finally {
+      release();
+    }
+  });
+}
+
 /** Test-only: clear all entries. Not exported from index. */
 export function _resetForTesting(): void {
   registry.clear();
+  threadLocks.clear();
 }
 
 /** Returns the number of active runs. */
