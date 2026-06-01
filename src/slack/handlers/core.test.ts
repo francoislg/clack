@@ -4,6 +4,12 @@ import type { App } from "@slack/bolt";
 import type { SessionContext } from "../../sessions.js";
 import type { ProcessMessageParams, CoreDeps } from "./core.js";
 import { processMessage } from "./core.js";
+import {
+  withThreadLock,
+  register as registerActiveRun,
+  _resetForTesting as resetActiveRuns,
+} from "../activeRuns.js";
+import type { ClaudeRunHandle } from "../../claude/runHandle.js";
 import type { SessionInfo } from "../activeSessions.js";
 import type { TriggerType } from "../../changes/types.js";
 import type { AskClaudeOptions } from "../../claude/index.js";
@@ -119,6 +125,7 @@ function makeDeps(): CoreDeps {
     storeDmCoordinates: mockStoreDmCoordinates,
     executeAndDeliver: mockExecuteAndDeliver,
     appendUserMessage: mockAppendUserMessage,
+    withThreadLock,
   };
 }
 
@@ -251,3 +258,161 @@ describe("processMessage — executeAndDeliver delegation", () => {
 // In-flight tracking moved out of `processMessage`: `askClaude` self-registers via
 // `activeRuns.register` and self-deregisters through the handle's `onTerminal` hook.
 // Coverage for that lives in askClaude / activeRuns tests.
+
+function deferred<T = void>(): { promise: Promise<T>; resolve: (v: T) => void } {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
+function fakeRunHandle(sendUpdate: (text: string) => Promise<void>): ClaudeRunHandle {
+  return {
+    sendUpdate,
+    stop: async () => {},
+    futureResponse: Promise.resolve({ success: true, answer: "" }),
+    status: "running",
+    hasPendingInput: () => false,
+    consumePendingPushedTexts: () => [],
+  };
+}
+
+describe("processMessage — concurrent same-thread dedup", () => {
+  const THREAD = "1700000000.000111";
+
+  beforeEach(() => {
+    resetAllMocks();
+    resetActiveRuns();
+  });
+
+  it("routes to an already-registered run via sendUpdate instead of spawning", async () => {
+    const sendUpdate = vi.fn<(text: string) => Promise<void>>(async () => {});
+    registerActiveRun({ channelId: "C001", threadTs: THREAD }, fakeRunHandle(sendUpdate));
+
+    const deps = makeDeps();
+    const result = await processMessage(
+      makeParams({
+        triggerType: "directMessages",
+        threadTs: THREAD,
+        messageTs: "1700000000.000112",
+        messageText: "follow-up",
+      }),
+      deps,
+    );
+
+    assert.equal(result.skipped, true);
+    assert.equal(sendUpdate.mock.calls.length, 1);
+    assert.equal(sendUpdate.mock.calls[0]![0], "follow-up");
+    // Must NOT spawn a parallel run/streamer.
+    assert.equal(mockExecuteAndDeliver.mock.calls.length, 0);
+  });
+
+  it("serializes two concurrent triggers: exactly one spawn, the other sendUpdate", async () => {
+    const sendUpdate = vi.fn<(text: string) => Promise<void>>(async () => {});
+    const runGate = deferred();
+
+    // Model askClaude: claim the slot + release the per-thread lock at registration, then
+    // keep the run "alive" until we let it finish.
+    mockExecuteAndDeliver.mockImplementation(async (params) => {
+      registerActiveRun(
+        { channelId: params.sessionInfo.channelId, threadTs: params.sessionInfo.threadTs },
+        fakeRunHandle(sendUpdate),
+      );
+      params.claudeOptions.onRegistered?.();
+      await runGate.promise;
+      return { success: true, answer: "done" };
+    });
+
+    const deps = makeDeps();
+    const p1 = processMessage(
+      makeParams({
+        triggerType: "directMessages",
+        threadTs: THREAD,
+        messageTs: "a",
+        messageText: "first",
+      }),
+      deps,
+    );
+    const p2 = processMessage(
+      makeParams({
+        triggerType: "directMessages",
+        threadTs: THREAD,
+        messageTs: "b",
+        messageText: "second",
+      }),
+      deps,
+    );
+
+    // p2 can only resolve once p1 released the lock at registration; it then finds the
+    // registered run and routes via sendUpdate. It must not wait for the run to finish.
+    const r2 = await p2;
+    assert.equal(r2.skipped, true);
+    assert.equal(mockExecuteAndDeliver.mock.calls.length, 1);
+    assert.equal(sendUpdate.mock.calls.length, 1);
+    assert.equal(sendUpdate.mock.calls[0]![0], "second");
+
+    runGate.resolve();
+    await p1;
+  });
+
+  it("a second trigger during the first's slow setup does not spawn a parallel run", async () => {
+    const setupGate = deferred();
+    let firstSetupStarted = false;
+    // Make the first invocation's session setup slow so the second arrives mid-gap.
+    mockCreateSession.mockImplementation(async () => {
+      firstSetupStarted = true;
+      await setupGate.promise;
+      return makeSession();
+    });
+
+    const sendUpdate = vi.fn<(text: string) => Promise<void>>(async () => {});
+    const runGate = deferred();
+    mockExecuteAndDeliver.mockImplementation(async (params) => {
+      registerActiveRun(
+        { channelId: params.sessionInfo.channelId, threadTs: params.sessionInfo.threadTs },
+        fakeRunHandle(sendUpdate),
+      );
+      params.claudeOptions.onRegistered?.();
+      await runGate.promise;
+      return { success: true, answer: "done" };
+    });
+
+    const deps = makeDeps();
+    const p1 = processMessage(
+      makeParams({
+        triggerType: "directMessages",
+        threadTs: THREAD,
+        messageTs: "a",
+        messageText: "first",
+      }),
+      deps,
+    );
+    // Let p1 enter the lock and reach the slow setup.
+    while (!firstSetupStarted) await Promise.resolve();
+
+    const p2 = processMessage(
+      makeParams({
+        triggerType: "directMessages",
+        threadTs: THREAD,
+        messageTs: "b",
+        messageText: "second",
+      }),
+      deps,
+    );
+
+    // p2 is blocked behind p1's lock — it cannot spawn while p1 is still in setup.
+    await Promise.resolve();
+    assert.equal(mockExecuteAndDeliver.mock.calls.length, 0);
+
+    // Release p1's setup → it spawns, registers, releases the lock; p2 then routes to sendUpdate.
+    setupGate.resolve();
+    const r2 = await p2;
+    assert.equal(r2.skipped, true);
+    assert.equal(mockExecuteAndDeliver.mock.calls.length, 1);
+    assert.equal(sendUpdate.mock.calls.length, 1);
+
+    runGate.resolve();
+    await p1;
+  });
+});

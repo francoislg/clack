@@ -19,7 +19,10 @@ import { isChannellessChannelId } from "../../channelless.js";
 import { resolveChannelLabel, resolveUserLabel, slackLink } from "../logContext.js";
 import { getClaudeOptions } from "./changeWorkflowHelper.js";
 import { getReactionDelivery } from "../../userPreferences.js";
-import { getForChannelMessage as getActiveRunForChannelMessage } from "../activeRuns.js";
+import {
+  getForChannelMessage as getActiveRunForChannelMessage,
+  withThreadLock,
+} from "../activeRuns.js";
 import { addDeliveryReactions } from "../messageReactions.js";
 import { storeDmCoordinates } from "../dmResponse.js";
 import { executeAndDeliver } from "./handlerResponse.js";
@@ -71,6 +74,7 @@ export interface CoreDeps {
   storeDmCoordinates: typeof storeDmCoordinates;
   executeAndDeliver: typeof executeAndDeliver;
   appendUserMessage: typeof appendUserMessage;
+  withThreadLock: typeof withThreadLock;
 }
 
 export const defaultCoreDeps: CoreDeps = {
@@ -93,6 +97,7 @@ export const defaultCoreDeps: CoreDeps = {
   storeDmCoordinates,
   executeAndDeliver,
   appendUserMessage,
+  withThreadLock,
 };
 
 export interface ProcessMessageParams {
@@ -473,157 +478,170 @@ export async function processMessage(
 
   const effectiveThreadTs = threadTs || messageTs;
 
-  // Active-runs queueing per the original spec: if a Claude run is already in flight for
-  // this conversation, push the new message into it via `handle.sendUpdate(text)`. The
-  // handle's first-result-wins semantics deliver the queued text to the model only if it
-  // arrives before the live run produces its first `result`. On rejection (run settled
-  // between the lookup and the push), fall through to the normal fresh-spawn path.
-  // Skip empty/whitespace text — pushing "" into the live SDK stream is not useful.
-  const existingRun = getActiveRunForChannelMessage(channelId, effectiveThreadTs, userId);
-  if (existingRun && messageText.trim().length > 0) {
-    try {
-      await existingRun.sendUpdate(messageText);
-      logger.debug(
-        `processMessage: appended follow-up to active run for ${channelId}:${effectiveThreadTs}`,
-      );
-      // Persist the follow-up into the session's `messages[]` so debug-session and
-      // find_session_transcript see it. Without this, the SDK JSONL records the new user
-      // turn but the Clack session log stays out of sync — the assistant's combined
-      // response would appear to come from nowhere. Best-effort: a session miss just means
-      // we couldn't attribute the follow-up (rare; the run wouldn't be in the registry
-      // without an owning session).
-      const followupSession = await deps.findSessionByThread(channelId, effectiveThreadTs);
-      if (followupSession) {
-        await deps.appendUserMessage(followupSession.sessionId, {
-          role: "user",
-          source: "reply",
-          text: messageText,
-          ts: Date.now(),
-        });
-      } else {
-        logger.warn(
-          `processMessage: in-flight run for ${channelId}:${effectiveThreadTs} has no session — follow-up text not persisted to messages[]`,
+  // Serialize the consult-then-{sendUpdate|spawn} decision per thread. Without this, the
+  // synchronous registry consult below and the slot claim inside `askClaude` (which happens
+  // only after session + delivery setup) are separated by a multi-await gap, so two messages
+  // on one thread could both observe an empty slot and each spawn a run + streamer. The lock
+  // is released (`release`) the instant the spawned run claims its slot — via `onRegistered`,
+  // wired into claudeOptions below — so it is held only across setup, not the run's duration;
+  // mid-run follow-ups still take the fast `sendUpdate` path.
+  return deps.withThreadLock(channelId, effectiveThreadTs, async (release) => {
+    // Active-runs queueing per the original spec: if a Claude run is already in flight for
+    // this conversation, push the new message into it via `handle.sendUpdate(text)`. The
+    // handle's first-result-wins semantics deliver the queued text to the model only if it
+    // arrives before the live run produces its first `result`. On rejection (run settled
+    // between the lookup and the push), fall through to the normal fresh-spawn path.
+    // Skip empty/whitespace text — pushing "" into the live SDK stream is not useful.
+    const existingRun = getActiveRunForChannelMessage(channelId, effectiveThreadTs, userId);
+    if (existingRun && messageText.trim().length > 0) {
+      try {
+        await existingRun.sendUpdate(messageText);
+        logger.debug(
+          `processMessage: appended follow-up to active run for ${channelId}:${effectiveThreadTs}`,
         );
-      }
-      // Visible ack so the user sees their follow-up was accepted into the running
-      // conversation. Configurable via `reactions.queuedFollowup` (null/empty disables).
-      const ackEmoji = resolveQueuedFollowupReaction(config);
-      if (ackEmoji) {
-        addDeliveryReactions(client, channelId, messageTs, [ackEmoji]).catch((err) =>
-          logger.warn(`addDeliveryReactions threw: ${err}`),
+        // Persist the follow-up into the session's `messages[]` so debug-session and
+        // find_session_transcript see it. Without this, the SDK JSONL records the new user
+        // turn but the Clack session log stays out of sync — the assistant's combined
+        // response would appear to come from nowhere. Best-effort: a session miss just means
+        // we couldn't attribute the follow-up (rare; the run wouldn't be in the registry
+        // without an owning session).
+        const followupSession = await deps.findSessionByThread(channelId, effectiveThreadTs);
+        if (followupSession) {
+          await deps.appendUserMessage(followupSession.sessionId, {
+            role: "user",
+            source: "reply",
+            text: messageText,
+            ts: Date.now(),
+          });
+        } else {
+          logger.warn(
+            `processMessage: in-flight run for ${channelId}:${effectiveThreadTs} has no session — follow-up text not persisted to messages[]`,
+          );
+        }
+        // Visible ack so the user sees their follow-up was accepted into the running
+        // conversation. Configurable via `reactions.queuedFollowup` (null/empty disables).
+        const ackEmoji = resolveQueuedFollowupReaction(config);
+        if (ackEmoji) {
+          addDeliveryReactions(client, channelId, messageTs, [ackEmoji]).catch((err) =>
+            logger.warn(`addDeliveryReactions threw: ${err}`),
+          );
+        }
+        // Queued onto the existing run — nothing to register, so release the lock now.
+        release();
+        return { success: true, skipped: true, answer: "" };
+      } catch (err) {
+        logger.debug(
+          `processMessage: existing run rejected sendUpdate (${err instanceof Error ? err.message : String(err)}); spawning a fresh run`,
         );
+        // fall through
       }
-      return { success: true, skipped: true, answer: "" };
-    } catch (err) {
-      logger.debug(
-        `processMessage: existing run rejected sendUpdate (${err instanceof Error ? err.message : String(err)}); spawning a fresh run`,
-      );
-      // fall through
     }
-  }
 
-  const ctx: ProcessingContext = {
-    client,
-    config,
-    userId,
-    channelId,
-    messageTs,
-    messageText,
-    threadTs,
-    effectiveThreadTs,
-    triggerType,
-    workMode,
-    additionalSystemPrompt: params.additionalSystemPrompt,
-    requiredTools: params.requiredTools,
-    skipConditions: params.skipConditions,
-    submitResponseMode: params.submitResponseMode,
-    asOf: params.asOf,
-    imageFiles: params.imageFiles,
-    preAnalysis: params.preAnalysis,
-    jobId: params.jobId,
-    reactionEmoji: params.reactionEmoji,
-    autoRespondRuleName: params.autoRespondRuleName,
-    roleOverride: params.roleOverride,
-    preAttachedTopics: params.preAttachedTopics,
-  };
-
-  const userLabel = await deps.resolveUserLabel(client, userId);
-  const channelLabel = await deps.resolveChannelLabel(client, channelId);
-  logger.debug(
-    `Processing message from ${userLabel} in ${channelLabel} (trigger: ${triggerType}${isDm ? ", dm" : ""})${await deps.slackLink(client, channelId, effectiveThreadTs)}`,
-  );
-
-  // 1. Set up or retrieve session
-  let session = await setupSession(ctx, deps);
-
-  // 2. DM setup for reaction triggers (before executeAndDeliver sees sessionInfo)
-  let dmCoords: DmCoordinates | null = null;
-  if (isDm) {
-    dmCoords = await setupDmDelivery(ctx, session, deps);
-    if (!dmCoords) {
-      isDm = false;
-    }
-  }
-
-  // 3. Store assistant channel context on session before Claude runs
-  if (params.assistantChannelId) {
-    session = await storeAssistantContext(session, params.assistantChannelId, deps);
-  }
-
-  // 4. Update sessionInfo with DM coordinates (if set)
-  const sessionInfo = {
-    channelId,
-    threadTs: effectiveThreadTs,
-    userId,
-    triggerType,
-    ...(dmCoords?.dmChannel && { dmChannel: dmCoords.dmChannel }),
-    ...(dmCoords?.dmThreadTs && { dmThreadTs: dmCoords.dmThreadTs }),
-  };
-  deps.setSessionInfo(session.sessionId, sessionInfo);
-
-  // 5. Collect available images + files from triggering message + thread context
-  const imageMap = new Map<string, SlackImageFile>();
-  if (params.imageFiles) {
-    for (const img of params.imageFiles) imageMap.set(img.id, img);
-  }
-  const fileMap = new Map<string, SlackFile>();
-  if (params.files) {
-    for (const f of params.files) fileMap.set(f.id, f);
-  }
-  for (const msg of session.threadContext) {
-    if (msg.imageFiles) {
-      for (const img of msg.imageFiles) imageMap.set(img.id, img);
-    }
-    if (msg.files) {
-      for (const f of msg.files) fileMap.set(f.id, f);
-    }
-  }
-  const availableImages = imageMap;
-  const availableFiles = fileMap;
-
-  // 6. Build Claude options and execute. The active-runs registry replaces the previous
-  // in-flight tracking wrapper — `askClaude` registers itself under (channelId, threadTs)
-  // when the run is constructed and deregisters via the handle's `onTerminal` hook.
-  const claudeOptions = await deps.getClaudeOptions(userId, triggerType, ctx.roleOverride);
-  const abortController = new AbortController();
-
-  return deps.executeAndDeliver({
-    client,
-    session,
-    sessionInfo,
-    claudeOptions: {
-      ...claudeOptions,
+    const ctx: ProcessingContext = {
+      client,
+      config,
+      userId,
+      channelId,
+      messageTs,
+      messageText,
+      threadTs,
+      effectiveThreadTs,
+      triggerType,
       workMode,
-      availableImages,
-      availableFiles,
-      requiredTools: ctx.requiredTools,
-      skipConditions: ctx.skipConditions,
-      submitResponseMode: ctx.submitResponseMode,
-      asOf: ctx.asOf,
-      preAttachedTopics: ctx.preAttachedTopics,
-    },
-    abortController,
-    silentThinking,
-    preAnalysis: ctx.preAnalysis,
+      additionalSystemPrompt: params.additionalSystemPrompt,
+      requiredTools: params.requiredTools,
+      skipConditions: params.skipConditions,
+      submitResponseMode: params.submitResponseMode,
+      asOf: params.asOf,
+      imageFiles: params.imageFiles,
+      preAnalysis: params.preAnalysis,
+      jobId: params.jobId,
+      reactionEmoji: params.reactionEmoji,
+      autoRespondRuleName: params.autoRespondRuleName,
+      roleOverride: params.roleOverride,
+      preAttachedTopics: params.preAttachedTopics,
+    };
+
+    const userLabel = await deps.resolveUserLabel(client, userId);
+    const channelLabel = await deps.resolveChannelLabel(client, channelId);
+    logger.debug(
+      `Processing message from ${userLabel} in ${channelLabel} (trigger: ${triggerType}${isDm ? ", dm" : ""})${await deps.slackLink(client, channelId, effectiveThreadTs)}`,
+    );
+
+    // 1. Set up or retrieve session
+    let session = await setupSession(ctx, deps);
+
+    // 2. DM setup for reaction triggers (before executeAndDeliver sees sessionInfo)
+    let dmCoords: DmCoordinates | null = null;
+    if (isDm) {
+      dmCoords = await setupDmDelivery(ctx, session, deps);
+      if (!dmCoords) {
+        isDm = false;
+      }
+    }
+
+    // 3. Store assistant channel context on session before Claude runs
+    if (params.assistantChannelId) {
+      session = await storeAssistantContext(session, params.assistantChannelId, deps);
+    }
+
+    // 4. Update sessionInfo with DM coordinates (if set)
+    const sessionInfo = {
+      channelId,
+      threadTs: effectiveThreadTs,
+      userId,
+      triggerType,
+      ...(dmCoords?.dmChannel && { dmChannel: dmCoords.dmChannel }),
+      ...(dmCoords?.dmThreadTs && { dmThreadTs: dmCoords.dmThreadTs }),
+    };
+    deps.setSessionInfo(session.sessionId, sessionInfo);
+
+    // 5. Collect available images + files from triggering message + thread context
+    const imageMap = new Map<string, SlackImageFile>();
+    if (params.imageFiles) {
+      for (const img of params.imageFiles) imageMap.set(img.id, img);
+    }
+    const fileMap = new Map<string, SlackFile>();
+    if (params.files) {
+      for (const f of params.files) fileMap.set(f.id, f);
+    }
+    for (const msg of session.threadContext) {
+      if (msg.imageFiles) {
+        for (const img of msg.imageFiles) imageMap.set(img.id, img);
+      }
+      if (msg.files) {
+        for (const f of msg.files) fileMap.set(f.id, f);
+      }
+    }
+    const availableImages = imageMap;
+    const availableFiles = fileMap;
+
+    // 6. Build Claude options and execute. The active-runs registry replaces the previous
+    // in-flight tracking wrapper — `askClaude` registers itself under (channelId, threadTs)
+    // when the run is constructed and deregisters via the handle's `onTerminal` hook.
+    const claudeOptions = await deps.getClaudeOptions(userId, triggerType, ctx.roleOverride);
+    const abortController = new AbortController();
+
+    return deps.executeAndDeliver({
+      client,
+      session,
+      sessionInfo,
+      claudeOptions: {
+        ...claudeOptions,
+        workMode,
+        availableImages,
+        availableFiles,
+        requiredTools: ctx.requiredTools,
+        skipConditions: ctx.skipConditions,
+        submitResponseMode: ctx.submitResponseMode,
+        asOf: ctx.asOf,
+        preAttachedTopics: ctx.preAttachedTopics,
+        // Releases the per-thread lock the instant this run claims its active-runs slot.
+        onRegistered: release,
+      },
+      abortController,
+      silentThinking,
+      preAnalysis: ctx.preAnalysis,
+    });
   });
 }
