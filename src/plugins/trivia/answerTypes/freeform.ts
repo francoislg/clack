@@ -12,12 +12,7 @@ import { triviaLogger as logger } from "../core/pluginLogger.js";
 import { t } from "../i18n/t.js";
 import { resolveFreeformAnswerShape } from "../domain/freeformAnswerShape.js";
 import { weightedPick } from "../domain/weightedPick.js";
-import {
-  buildJudgePrompt,
-  parseJudgeResponse,
-  DEFAULT_JUDGE_MODEL,
-  type JudgeVerdict,
-} from "../freeform/judge.js";
+import { judgeSubmissions, type JudgeSubmission } from "../freeform/judge.js";
 import {
   buildFreeformModal,
   readAnswerTextFromSubmission,
@@ -181,63 +176,49 @@ export const freeformAnswerHandler: AnswerTypeHandler = {
     const pendingRows = allAnswers.filter(
       (a) => a.questionId === question.id && a.correct === undefined,
     );
-    const submissions = pendingRows.map((row, i) => ({
-      key: `1.${i + 1}`,
+    const submissions: JudgeSubmission[] = pendingRows.map((row) => ({
       userId: row.userId,
       answerText: row.answerText ?? "",
     }));
 
-    let verdicts: JudgeVerdict[] = [];
-    let judgeFailed = false;
-    if (submissions.length > 0) {
-      const prompt = buildJudgePrompt([{ question, submissions }]);
-      try {
-        const response = await deps.askClaude({
-          model: DEFAULT_JUDGE_MODEL,
-          system: prompt.system,
-          messages: prompt.messages,
-          max_tokens: 1500,
-        });
-        verdicts = parseJudgeResponse(response.text);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        logger.warn(`[trivia:freeform] judge call/parse failed: ${msg}`);
-        judgeFailed = true;
-      }
-    }
-    const verdictByKey = new Map<string, JudgeVerdict>();
-    for (const v of verdicts) verdictByKey.set(v.key, v);
+    // Judge each answer on its own call (no batch keys to mismatch) with a
+    // re-ask budget, so the old "judge-missing-verdict" silent-wrong path is
+    // gone. A row whose retries are all exhausted comes back null — we leave it
+    // pending (never scored wrong) and report the failure instead.
+    const judged =
+      submissions.length > 0
+        ? await judgeSubmissions(deps.askClaude, question, submissions, { logger })
+        : [];
 
     const correctVoters: Array<{ userId: string; displayName: string; answerText: string }> = [];
     const incorrectVoters: Array<{ userId: string; displayName: string; answerText: string }> = [];
+    let unjudgedCount = 0;
 
-    for (const sub of submissions) {
-      let verdict = verdictByKey.get(sub.key);
-      if (verdict === undefined) {
-        verdict = {
-          key: sub.key,
-          correct: false,
-          reason: judgeFailed ? "judge-error" : "judge-missing-verdict",
-        };
+    for (const { submission, verdict } of judged) {
+      if (verdict === null) {
+        // Leave the row pending — a re-reveal re-picks it (correct === undefined).
+        unjudgedCount++;
+        continue;
       }
-      await deps.scoped.updateAnswer(sub.userId, question.id, {
+      await deps.scoped.updateAnswer(submission.userId, question.id, {
         correct: verdict.correct,
         ...(verdict.reason !== undefined ? { judgeReason: verdict.reason } : {}),
       });
-      const displayName = deps.users.get(sub.userId)?.displayName ?? sub.userId;
+      const displayName = deps.users.get(submission.userId)?.displayName ?? submission.userId;
       const target = verdict.correct ? correctVoters : incorrectVoters;
-      target.push({ userId: sub.userId, displayName, answerText: sub.answerText });
+      target.push({ userId: submission.userId, displayName, answerText: submission.answerText });
+    }
+
+    if (unjudgedCount > 0) {
+      // Don't stamp processedAt: the still-pending rows can be recovered by
+      // re-running the reveal, which re-judges only the unscored submissions.
+      return {
+        ok: false,
+        error: `freeform judge could not score ${unjudgedCount} submission(s) after retries — left pending for re-reveal`,
+      };
     }
 
     await deps.scoped.updateQuestion(question.id, { processedAt: deps.now });
-
-    if (judgeFailed && submissions.length > 0) {
-      return {
-        ok: false,
-        error:
-          "freeform judge call failed — submissions committed as incorrect (reason: judge-error)",
-      };
-    }
 
     const voters = buildFreeformVoters(question, correctVoters, incorrectVoters);
     return makeRevealOutcome(

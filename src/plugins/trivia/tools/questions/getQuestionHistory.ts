@@ -26,7 +26,7 @@ The \`correct\` field on a response is OPTIONAL. Absence means the row is a pend
 submission waiting on reveal-time judging — those rows are not yet scored and should not be counted
 toward correctness statistics. Boolean and choice answers always carry a synchronous \`correct\` boolean.
 For freeform rows, \`judgeReason\` (when present) is the short label the reveal-time judge emitted
-("multiple-guess", "too-broad", "typo-too-far", "out-of-tolerance", "judge-error").`;
+("multiple-guess", "too-broad", "typo-too-far", "out-of-tolerance", "materially-different").`;
 
 export function createGetQuestionHistoryTool(
   data: TriviaDataLayer,

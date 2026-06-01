@@ -1,6 +1,13 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
-import { buildJudgePrompt, parseJudgeResponse, type JudgeQuestionGroup } from "./judge.js";
+import {
+  buildSingleJudgePrompt,
+  judgeAnswer,
+  judgeSubmissions,
+  parseSingleVerdict,
+  type JudgeSubmission,
+} from "./judge.js";
+import type { ClackSdk } from "../../sdk.js";
 import type { TriviaQuestion } from "../core/types.js";
 
 function makeQuestion(overrides: Partial<TriviaQuestion>): TriviaQuestion {
@@ -11,161 +18,161 @@ function makeQuestion(overrides: Partial<TriviaQuestion>): TriviaQuestion {
     answersFormat: "freeform",
     questionType: "fact",
     expectedAnswer: "Paris",
+    freeformAnswerShape: "place",
     emojis: ["🌍"],
     createdAt: 0,
     ...overrides,
   };
 }
 
-describe("buildJudgePrompt", () => {
-  it("includes statement, expected answer, and each submission with its key", () => {
-    const groups: JudgeQuestionGroup[] = [
-      {
-        question: makeQuestion({}),
-        submissions: [
-          { key: "1.1", userId: "U1", answerText: "paris" },
-          { key: "1.2", userId: "U2", answerText: "Paris or London" },
-        ],
-      },
-    ];
-    const prompt = buildJudgePrompt(groups);
+/** A scripted `askClaude` that returns each text in sequence, then throws. */
+function scriptedAskClaude(texts: string[]): ClackSdk["askClaude"] {
+  let i = 0;
+  return async () => {
+    const text = i < texts.length ? texts[i++] : "boom-out-of-script";
+    return { text, stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 } };
+  };
+}
+
+describe("buildSingleJudgePrompt", () => {
+  it("includes statement, expected answer, and the single typed answer", () => {
+    const prompt = buildSingleJudgePrompt(makeQuestion({}), "paris");
     const body = prompt.messages[0].content;
-    assert.ok(body.includes("What is the capital of France?"));
+    assert.ok(body.includes("Question: What is the capital of France?"));
     assert.ok(body.includes("Expected answer: Paris"));
-    assert.ok(body.includes('[1.1] U1: "paris"'));
-    assert.ok(body.includes('[1.2] U2: "Paris or London"'));
+    assert.ok(body.includes('Player\'s typed answer: "paris"'));
   });
 
   it("includes acceptable variants and grading notes when present", () => {
-    const groups: JudgeQuestionGroup[] = [
-      {
-        question: makeQuestion({
-          acceptableAnswers: ["Paris, France"],
-          gradingNotes: "Accept any major French city.",
-        }),
-        submissions: [{ key: "1.1", userId: "U1", answerText: "Paris" }],
-      },
-    ];
-    const body = buildJudgePrompt(groups).messages[0].content;
+    const body = buildSingleJudgePrompt(
+      makeQuestion({
+        acceptableAnswers: ["Paris, France"],
+        gradingNotes: "Accept any major French city.",
+      }),
+      "Paris",
+    ).messages[0].content;
     assert.ok(body.includes("Acceptable variants: Paris, France"));
     assert.ok(body.includes("Notes: Accept any major French city."));
   });
 
-  it("skips questions with no submissions from the body", () => {
-    const groups: JudgeQuestionGroup[] = [
-      { question: makeQuestion({ id: "q-with-no-subs" }), submissions: [] },
-      {
-        question: makeQuestion({ id: "q-with-subs" }),
-        submissions: [{ key: "2.1", userId: "U1", answerText: "Paris" }],
-      },
-    ];
-    const body = buildJudgePrompt(groups).messages[0].content;
-    assert.ok(body.includes("[2.1]"));
-    // The skipped question still has its body absent.
-    assert.ok(!body.includes("q-with-no-subs"));
+  it("selects the DATE rule block (inclusive tolerance, format-agnostic) for date questions", () => {
+    const { system } = buildSingleJudgePrompt(
+      makeQuestion({ freeformAnswerShape: "date", expectedAnswer: "2000" }),
+      "1995",
+    );
+    assert.ok(/DATE \/ TIME PERIOD/i.test(system), "date question must use the date rule block");
+    assert.ok(
+      /INCLUSIVE OF BOTH ENDPOINTS/i.test(system),
+      "date rules must state the tolerance window is inclusive",
+    );
+    assert.ok(/out-of-tolerance/i.test(system));
+    assert.ok(/bare year/i.test(system), "date rules must accept bare years regardless of format");
   });
 
-  it("system prompt establishes the multi-guess rule", () => {
-    const { system } = buildJudgePrompt([
-      {
-        question: makeQuestion({}),
-        submissions: [{ key: "1.1", userId: "U1", answerText: "ok" }],
-      },
-    ]);
+  it("selects the named-entity rule block (typos + translations) for name/place/title", () => {
+    for (const shape of ["name", "place", "title"] as const) {
+      const { system } = buildSingleJudgePrompt(makeQuestion({ freeformAnswerShape: shape }), "x");
+      assert.ok(/SPECIFIC ENTITY/i.test(system), `${shape} must use the named-entity block`);
+      assert.ok(/typo-too-far/i.test(system));
+      assert.ok(/translation/i.test(system));
+    }
+  });
+
+  it("every prompt forbids multi-guess answers and demands strict JSON output", () => {
+    const { system } = buildSingleJudgePrompt(makeQuestion({}), "x");
     assert.ok(/multiple-guess/i.test(system));
-    assert.ok(/qualifier/i.test(system));
+    assert.ok(/STRICT JSON/i.test(system));
+    assert.ok(/"correct"/.test(system));
+  });
+});
+
+describe("parseSingleVerdict", () => {
+  it("parses a well-formed correct verdict", () => {
+    const v = parseSingleVerdict(JSON.stringify({ correct: true }));
+    assert.equal(v.correct, true);
+    assert.equal(v.reason, undefined);
   });
 
-  it("system prompt accepts bare years for decade questions (format mismatch is not a rejection reason)", () => {
-    const { system } = buildJudgePrompt([
-      {
-        question: makeQuestion({}),
-        submissions: [{ key: "1.1", userId: "U1", answerText: "ok" }],
-      },
-    ]);
-    assert.ok(/DATE FORMS/i.test(system), "judge prompt must call out DATE FORMS leniency");
-    assert.ok(
-      /format mismatch is NEVER a rejection reason/i.test(system),
-      "judge prompt must say format mismatch alone is not a rejection reason",
-    );
-    assert.ok(
-      /bare year/i.test(system),
-      "judge prompt must explicitly mention bare year as an accepted form for decade questions",
-    );
+  it("parses an incorrect verdict with a reason", () => {
+    const v = parseSingleVerdict(JSON.stringify({ correct: false, reason: "out-of-tolerance" }));
+    assert.equal(v.correct, false);
+    assert.equal(v.reason, "out-of-tolerance");
   });
 
-  it("system prompt accepts every spanned decade for multi-decade events", () => {
-    const { system } = buildJudgePrompt([
-      {
-        question: makeQuestion({}),
-        submissions: [{ key: "1.1", userId: "U1", answerText: "ok" }],
-      },
-    ]);
-    assert.ok(/DATE SPANS/i.test(system), "judge prompt must call out DATE SPANS leniency");
-    assert.ok(
-      /every decade that the range touches/i.test(system),
-      "judge prompt must say every spanned decade is acceptable",
-    );
+  it("tolerates a markdown code fence around the JSON", () => {
+    const v = parseSingleVerdict("```json\n" + JSON.stringify({ correct: true }) + "\n```");
+    assert.equal(v.correct, true);
   });
 
-  it("system prompt accepts cross-language translations of the expected answer", () => {
-    const { system } = buildJudgePrompt([
-      {
-        question: makeQuestion({}),
-        submissions: [{ key: "1.1", userId: "U1", answerText: "ok" }],
-      },
+  it("throws on malformed JSON", () => {
+    assert.throws(() => parseSingleVerdict("not json"));
+  });
+
+  it("throws when 'correct' is missing or non-boolean", () => {
+    assert.throws(() => parseSingleVerdict(JSON.stringify({ reason: "x" })));
+    assert.throws(() => parseSingleVerdict(JSON.stringify({ correct: "yes" })));
+  });
+});
+
+describe("judgeAnswer", () => {
+  it("returns the verdict on the first clean response", async () => {
+    const ask = scriptedAskClaude([JSON.stringify({ correct: true })]);
+    const v = await judgeAnswer(ask, makeQuestion({}), "Paris");
+    assert.equal(v.correct, true);
+  });
+
+  it("re-asks when the model returns something other than a yes/no, then succeeds", async () => {
+    const ask = scriptedAskClaude([
+      "I think this is probably right?",
+      "```\noops still prose\n```",
+      JSON.stringify({ correct: false, reason: "materially-different" }),
     ]);
-    assert.ok(/LANGUAGE/.test(system), "judge prompt must call out a LANGUAGE rule");
-    assert.ok(/translation/i.test(system), "judge prompt must mention translations are acceptable");
-    assert.ok(
-      /named entit/i.test(system),
-      "judge prompt must call out named entities as a covered translation case",
-    );
-    assert.ok(
-      /unambiguous/i.test(system),
-      "judge prompt must require the translation to be unambiguous",
-    );
-    assert.ok(
-      /multiple-guess|too-broad|out-of-tolerance/i.test(system),
-      "judge prompt must say cross-language acceptance does not relax other rules",
+    const v = await judgeAnswer(ask, makeQuestion({}), "London", { maxAttempts: 4 });
+    assert.equal(v.correct, false);
+    assert.equal(v.reason, "materially-different");
+  });
+
+  it("throws after exhausting the re-ask budget (never silently scores)", async () => {
+    const ask = scriptedAskClaude(["nope", "still nope", "nope again"]);
+    await assert.rejects(
+      () => judgeAnswer(ask, makeQuestion({}), "London", { maxAttempts: 3 }),
+      /no usable verdict after 3 attempts/,
     );
   });
 });
 
-describe("parseJudgeResponse", () => {
-  it("parses a well-formed JSON response", () => {
-    const text = JSON.stringify({
-      verdicts: [
-        { key: "1.1", correct: true },
-        { key: "1.2", correct: false, reason: "multiple-guess" },
-      ],
-    });
-    const verdicts = parseJudgeResponse(text);
-    assert.equal(verdicts.length, 2);
-    assert.equal(verdicts[0].key, "1.1");
-    assert.equal(verdicts[0].correct, true);
-    assert.equal(verdicts[1].correct, false);
-    assert.equal(verdicts[1].reason, "multiple-guess");
+describe("judgeSubmissions", () => {
+  const subs: JudgeSubmission[] = [
+    { userId: "U1", answerText: "Paris" },
+    { userId: "U2", answerText: "London" },
+  ];
+
+  it("judges each submission independently against its own typed answer", async () => {
+    // Branch on the typed answer embedded in the prompt — proves per-answer calls.
+    const ask: ClackSdk["askClaude"] = async (opts) => {
+      const correct = opts.messages[0].content.includes('"Paris"');
+      return {
+        text: JSON.stringify(correct ? { correct: true } : { correct: false, reason: "x" }),
+        stopReason: "end_turn",
+        usage: { inputTokens: 0, outputTokens: 0 },
+      };
+    };
+    const judged = await judgeSubmissions(ask, makeQuestion({}), subs);
+    const byUser = new Map(judged.map((j) => [j.submission.userId, j.verdict]));
+    assert.equal(byUser.get("U1")?.correct, true);
+    assert.equal(byUser.get("U2")?.correct, false);
   });
 
-  it("tolerates a markdown code fence around the JSON", () => {
-    const fenced =
-      "```json\n" + JSON.stringify({ verdicts: [{ key: "x", correct: true }] }) + "\n```";
-    const verdicts = parseJudgeResponse(fenced);
-    assert.equal(verdicts.length, 1);
-    assert.equal(verdicts[0].correct, true);
-  });
-
-  it("throws on malformed JSON", () => {
-    assert.throws(() => parseJudgeResponse("not json"));
-  });
-
-  it("throws when verdicts is missing", () => {
-    assert.throws(() => parseJudgeResponse(JSON.stringify({ other: 1 })), /'verdicts'/);
-  });
-
-  it("throws when a verdict entry is missing key or correct", () => {
-    assert.throws(() => parseJudgeResponse(JSON.stringify({ verdicts: [{ correct: true }] })));
-    assert.throws(() => parseJudgeResponse(JSON.stringify({ verdicts: [{ key: "x" }] })));
+  it("returns verdict: null for a submission whose retries all fail, without blocking the rest", async () => {
+    const ask: ClackSdk["askClaude"] = async (opts) => {
+      const text = opts.messages[0].content.includes('"Paris"')
+        ? JSON.stringify({ correct: true })
+        : "never valid";
+      return { text, stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 } };
+    };
+    const judged = await judgeSubmissions(ask, makeQuestion({}), subs, { maxAttempts: 2 });
+    const byUser = new Map(judged.map((j) => [j.submission.userId, j.verdict]));
+    assert.equal(byUser.get("U1")?.correct, true);
+    assert.equal(byUser.get("U2"), null);
   });
 });
