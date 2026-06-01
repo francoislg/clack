@@ -3,16 +3,17 @@ import assert from "node:assert/strict";
 import type { Config } from "../../config.js";
 import type { SessionContext } from "../../sessions.js";
 import { resolveAutoRespondContext, type AutoRespondDeps } from "./autoRespond.js";
-import type { runPreAnalysis } from "../../claude/preAnalysis.js";
+import type { runPreAnalysis, runActiveRunPreAnalysis } from "../../claude/preAnalysis.js";
+import type { ClaudeRunHandle } from "../../claude/runHandle.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeClient() {
+function makeClient(replyMessages: Array<{ user?: string; text?: string; ts?: string }> = []) {
   return {
     conversations: {
-      replies: vi.fn(async () => ({ messages: [] })),
+      replies: vi.fn(async () => ({ messages: replyMessages })),
       info: vi.fn(async () => ({ channel: { name: "test" } })),
     },
     users: {
@@ -261,5 +262,113 @@ describe("resolveAutoRespondContext — auto-respond tracking", () => {
     assert.equal(result, null);
     assert.equal(preAnalysis.mock.calls.length, 1, "pre-analysis should have run once");
     assert.equal(findSession.mock.calls.length, 2, "session should be re-read after pre-analysis");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// secondsSinceLastBotMessage derivation + forwarding to both gates
+// ---------------------------------------------------------------------------
+
+/** Client (from makeClient) whose thread-replies fetch returns the supplied messages. */
+function clientWithReplies(messages: Array<{ user?: string; text?: string; ts?: string }>) {
+  return makeClient(messages);
+}
+
+/** Minimal live run handle — only `status` is read by the handler. */
+function runningHandle(): ClaudeRunHandle {
+  return {
+    sendUpdate: async () => {},
+    stop: async () => {},
+    futureResponse: Promise.resolve({ success: true, answer: "" }),
+    status: "running",
+    hasPendingInput: () => false,
+    consumePendingPushedTexts: () => [],
+  };
+}
+
+describe("resolveAutoRespondContext — elapsed-time signal", () => {
+  it("derives the gap from the last bot message and forwards it to the thread gate", async () => {
+    const nowSec = Date.now() / 1000;
+    const preAnalysis = vi.fn<typeof runPreAnalysis>(async () => "respond" as const);
+    const deps = makeDeps({
+      findSession: async () => session({ autoResponseActive: true }),
+      preAnalysis,
+    });
+
+    await resolveAutoRespondContext(
+      "C001",
+      nowSec.toFixed(6),
+      "U_USER",
+      undefined,
+      "you there?",
+      (nowSec - 300).toFixed(6),
+      makeConfig(),
+      clientWithReplies([
+        { user: "U_OTHER", text: "earlier note", ts: (nowSec - 90).toFixed(6) },
+        { user: "U_BOT", text: "here is the answer", ts: (nowSec - 30).toFixed(6) },
+      ]),
+      "U_BOT",
+      "B_BOT",
+      deps,
+    );
+
+    const gap = preAnalysis.mock.calls[0]?.[8];
+    assert.equal(typeof gap, "number");
+    assert.ok(Math.abs((gap as number) - 30) < 2, `expected ~30s, got ${gap}`);
+  });
+
+  it("forwards undefined when the thread has no prior bot message", async () => {
+    const nowSec = Date.now() / 1000;
+    const preAnalysis = vi.fn<typeof runPreAnalysis>(async () => "respond" as const);
+    const deps = makeDeps({
+      findSession: async () => session({ autoResponseActive: true }),
+      preAnalysis,
+    });
+
+    await resolveAutoRespondContext(
+      "C001",
+      nowSec.toFixed(6),
+      "U_USER",
+      undefined,
+      "you there?",
+      (nowSec - 300).toFixed(6),
+      makeConfig(),
+      clientWithReplies([{ user: "U_OTHER", text: "earlier note", ts: (nowSec - 90).toFixed(6) }]),
+      "U_BOT",
+      "B_BOT",
+      deps,
+    );
+
+    assert.equal(preAnalysis.mock.calls[0]?.[8], undefined);
+  });
+
+  it("forwards the gap to the active-run gate when a run is live", async () => {
+    const nowSec = Date.now() / 1000;
+    const activeRunPreAnalysis = vi.fn<typeof runActiveRunPreAnalysis>(
+      async () => "append" as const,
+    );
+    const deps = makeDeps({
+      findSession: async () => session({ autoResponseActive: true }),
+      activeRunPreAnalysis,
+      getActiveRun: () => runningHandle(),
+    });
+
+    await resolveAutoRespondContext(
+      "C001",
+      nowSec.toFixed(6),
+      "U_USER",
+      undefined,
+      "Clack, also retry",
+      (nowSec - 300).toFixed(6),
+      makeConfig(),
+      clientWithReplies([{ user: "U_BOT", text: "working on it", ts: (nowSec - 15).toFixed(6) }]),
+      "U_BOT",
+      "B_BOT",
+      deps,
+    );
+
+    const gap = activeRunPreAnalysis.mock.calls[0]?.[8];
+    assert.equal(typeof gap, "number");
+    assert.ok(Math.abs((gap as number) - 15) < 2, `expected ~15s, got ${gap}`);
   });
 });

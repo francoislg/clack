@@ -290,6 +290,15 @@ export async function resolveAutoRespondContext(
       ? `${THREAD_PRE_ANALYSIS_CONTEXT} Note: message history could not be retrieved.`
       : THREAD_PRE_ANALYSIS_CONTEXT;
 
+    // Elapsed time since the bot's most recent in-thread message. A short gap is a strong
+    // signal the incoming reply is aimed at the bot; the gate weighs it as a decaying lean.
+    // Undefined when the thread carries no prior bot message (nothing to measure against).
+    const lastBotTs = [...enrichment.history].reverse().find((m) => m.isBot)?.ts;
+    const parsedBotTs = lastBotTs != null ? parseFloat(lastBotTs) : Number.NaN;
+    const secondsSinceLastBotMessage = Number.isFinite(parsedBotTs)
+      ? Math.max(0, parseFloat(messageTs) - parsedBotTs)
+      : undefined;
+
     // If a Claude run is already in flight for this thread, switch to the active-run
     // pre-analysis variant: a different prompt that biases toward "append" (the user is
     // actively engaged) and only returns "append" or "skip" — there's no "stop" because
@@ -305,6 +314,7 @@ export async function resolveAutoRespondContext(
         enrichment.history,
         channelInfo?.name,
         threadLink,
+        secondsSinceLastBotMessage,
       );
       logger.info(
         `Thread auto-respond (active run): ${channelLabel}, verdict=${activeVerdict}${threadLink}`,
@@ -326,6 +336,7 @@ export async function resolveAutoRespondContext(
       enrichment.history,
       channelInfo?.name,
       threadLink,
+      secondsSinceLastBotMessage,
     );
     logger.debug(`Thread pre-analysis: ${channelLabel}, verdict=${verdict}${threadLink}`);
     if (verdict === "stop") {

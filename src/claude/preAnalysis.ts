@@ -27,15 +27,19 @@ export interface PreAnalysisMessage {
   ts?: string;
 }
 
+/** Format an elapsed duration in seconds as a compact human-readable string (e.g. "5s", "2h"). */
+export function formatElapsedSeconds(ageSeconds: number): string {
+  if (ageSeconds < 90) return `${Math.round(ageSeconds)}s`;
+  const ageMinutes = ageSeconds / 60;
+  if (ageMinutes < 90) return `${Math.round(ageMinutes)}m`;
+  const ageHours = ageMinutes / 60;
+  if (ageHours < 48) return `${Math.round(ageHours)}h`;
+  return `${Math.round(ageHours / 24)}d`;
+}
+
 /** Format a Slack timestamp as a human-readable relative age (e.g. "5m ago", "2h ago"). */
 export function formatRelativeAge(ts: string, now = Date.now()): string {
-  const ageSeconds = now / 1000 - parseFloat(ts);
-  if (ageSeconds < 90) return `${Math.round(ageSeconds)}s ago`;
-  const ageMinutes = ageSeconds / 60;
-  if (ageMinutes < 90) return `${Math.round(ageMinutes)}m ago`;
-  const ageHours = ageMinutes / 60;
-  if (ageHours < 48) return `${Math.round(ageHours)}h ago`;
-  return `${Math.round(ageHours / 24)}d ago`;
+  return `${formatElapsedSeconds(now / 1000 - parseFloat(ts))} ago`;
 }
 
 export type PreAnalysisResult = "respond" | "skip" | "stop";
@@ -56,6 +60,7 @@ export async function runPreAnalysis(
   recentMessages?: PreAnalysisMessage[],
   channelName?: string,
   slackLink?: string,
+  secondsSinceLastBotMessage?: number,
   deps: PreAnalysisDeps = defaultPreAnalysisDeps,
 ): Promise<PreAnalysisResult> {
   const contextSection = sharedContext
@@ -67,23 +72,32 @@ export async function runPreAnalysis(
       ? `\n\nRECENT CHANNEL HISTORY (oldest first):\n${recentMessages.map((m) => `[${m.ts ? formatRelativeAge(m.ts) + " " : ""}${m.author}]: ${m.text}`).join("\n")}`
       : "";
 
+  const timingLine =
+    secondsSinceLastBotMessage != null
+      ? `\n\nTIMING: this message arrived ${formatElapsedSeconds(secondsSinceLastBotMessage)} after ${botName}'s last message in this thread.`
+      : "";
+
   const systemPrompt = `You are a classifier. You output exactly one word, nothing else.
 
 A Slack bot named "${botName}" monitors this channel. Your job: decide if ${botName} should SKIP this message, RESPOND to it, or STOP tracking the thread entirely.
 
-First, assess the THREAD TONE from the recent history and any channel context:
+HIGHEST-PRIORITY SIGNAL — DIRECT ADDRESS (evaluate this before anything else):
+A message is DIRECTED AT ${botName} when it names ${botName} in plain text ("${botName}, ...", "come on ${botName}", "hey ${botName}") OR is an imperative or question that only makes sense aimed at ${botName} ("can you retry?", "try it with a worker", "why is it null?"). A directed message is NEVER "skip" — the user is talking to the bot. Pick the verdict by intent: a request, question, or course-correction → "respond"; an explicit sign-off or stop instruction ("${botName}, stop", "ok ${botName}, we're done") → "stop". This takes priority over the thread-tone assessment below. (An explicit <@mention> is handled elsewhere and never reaches you, so a by-name reference is the signal the user wants ${botName} specifically — as opposed to chatter that merely contains the name, like "I'll ask ${botName} later", which is NOT direct address.)
+
+If the message is NOT directed at ${botName}, assess the THREAD TONE from the recent history and any channel context:
 - CASUAL/PLAYFUL tone — banter, emojis, informal chatter, lightweight back-and-forth. Thank-yous here invite a warm acknowledgement back.
 - SERIOUS/TECHNICAL tone — alerts, incidents, formal questions, investigation threads, production issues, code review, focused task work. Thank-yous here are just closing punctuation; the bot should stay out of the way.
 
 Then classify the message:
-- "respond" — the message is directed at ${botName}, is a genuine follow-up question that needs a response, OR is a conversational acknowledgement/thank-you ("ok ty", "thanks!", "👍", "appreciate it") **in a CASUAL/PLAYFUL thread** where a warm reply is natural. In serious threads, thank-yous do NOT warrant a respond.
-- "skip" — this message is noise, is between other users, is a thank-you in a SERIOUS thread (stay silent and stay engaged — the thread may still need ${botName} later), or anything else where responding would intrude without clear value.
-- "stop" — the conversation has shifted to an unrelated topic with no acknowledgement of ${botName}, OR in a SERIOUS thread the work is clearly wrapped up ("fixed", "shipped", "closing this out", final sign-offs after the real work is done). Also use "stop" for stale, long-dormant threads.
+- "respond" — directed at ${botName} (see above), a genuine follow-up question that needs a response, OR a conversational acknowledgement/thank-you ("ok ty", "thanks!", "👍", "appreciate it") **in a CASUAL/PLAYFUL thread** where a warm reply is natural. In serious threads, thank-yous do NOT warrant a respond.
+- "skip" — noise, a message between other users, a thank-you in a SERIOUS thread, or anything else where responding would intrude without clear value. The thread stays engaged — ${botName} may still be needed later. This is the default whenever nothing above clearly applies.
+- "stop" — choose this only when the user explicitly signs off ("thanks, all set", "we're done here", "closing this out") or the conversation has clearly moved to a different topic with no involvement from ${botName} across several messages. A serious or technical tone is not by itself a reason to stop, and a thread simply going quiet is not a reason to stop — quiet threads often resume.
 
-Tie-breakers:
-- Respond vs skip → prefer skip (don't intrude).
-- Respond vs stop → prefer respond only if the tone is casual; otherwise prefer stop in serious threads and skip in ambiguous ones.
-- Skip vs stop → prefer skip when the thread's work may still be live; prefer stop when it's clearly wrapped.
+TIMING: when you are told how long ago ${botName} last spoke in this thread, weigh it as a decaying signal. A message arriving shortly after ${botName}'s last message is very likely a direct reply to it — lean strongly toward "respond". The longer the gap, the weaker that lean — but elapsed time alone is never a reason to "skip" or "stop"; a reply that lands days later can still be meant for ${botName}.
+
+Tie-breakers (apply only after the direct-address check):
+- Respond vs skip → prefer skip; don't intrude on chatter that isn't aimed at the bot.
+- Skip vs stop → prefer skip; keep the thread engaged unless the user has clearly signed off or moved on.
 
 ${contextSection}
 
@@ -93,7 +107,7 @@ OUTPUT FORMAT: The single word "skip", "respond", or "stop". Nothing else.`;
     let lastAssistantText = "";
 
     for await (const message of deps.clackQuery({
-      prompt: `${conversationContext}\n\nMESSAGE TO CLASSIFY:${channelName ? `\nChannel: #${channelName}` : ""}\nFrom: ${messageAuthor}\n\n"""${messageText}"""`,
+      prompt: `${conversationContext}${timingLine}\n\nMESSAGE TO CLASSIFY:${channelName ? `\nChannel: #${channelName}` : ""}\nFrom: ${messageAuthor}\n\n"""${messageText}"""`,
       options: {
         cwd: process.cwd(),
         executable: detectRuntime(),
@@ -161,6 +175,7 @@ export async function runActiveRunPreAnalysis(
   recentMessages?: PreAnalysisMessage[],
   channelName?: string,
   slackLink?: string,
+  secondsSinceLastBotMessage?: number,
   deps: PreAnalysisDeps = defaultPreAnalysisDeps,
 ): Promise<ActiveRunPreAnalysisResult> {
   const contextSection = sharedContext
@@ -172,14 +187,23 @@ export async function runActiveRunPreAnalysis(
       ? `\n\nRECENT CHANNEL HISTORY (oldest first):\n${recentMessages.map((m) => `[${m.ts ? formatRelativeAge(m.ts) + " " : ""}${m.author}]: ${m.text}`).join("\n")}`
       : "";
 
+  const timingLine =
+    secondsSinceLastBotMessage != null
+      ? `\n\nTIMING: this message arrived ${formatElapsedSeconds(secondsSinceLastBotMessage)} after ${botName}'s last message in this thread.`
+      : "";
+
   const systemPrompt = `You are a classifier. You output exactly one word, nothing else.
 
 A Slack bot named "${botName}" is currently producing a response in this thread. Your job: decide whether a new incoming message should be APPENDED onto ${botName}'s running turn (so the model sees it and folds it into its current answer), or SKIPPED (the message is unrelated chatter that ${botName} should ignore).
+
+DIRECT ADDRESS: if the message names ${botName} in plain text ("${botName}, ...", "come on ${botName}") or is an imperative or question that only makes sense aimed at ${botName}, it is directed at the bot — always "append", never "skip". (A bare mention of the name in passing, like "I'll ask ${botName} later", is NOT direct address.)
 
 Bias toward APPEND — the user is actively engaged with the bot in this thread, and the cost of skipping a relevant message is high. Only SKIP when the message is clearly unrelated cross-talk, an emoji-only acknowledgement that adds no information, or a side conversation between other users that doesn't address ${botName}.
 
 - "append" — the message is from the user engaging with ${botName}: a clarification, a follow-up question, additional context, a course-correction, even a "wait, also do X". Default to this.
 - "skip" — the message is unrelated cross-talk, an empty acknowledgement, or clearly directed at someone else.
+
+TIMING: when you are told how long ago ${botName} last spoke in this thread, treat a short gap as a strong signal the message is a direct reply — lean to "append". A longer gap weakens that lean but is never on its own a reason to "skip".
 
 ${contextSection}
 
@@ -189,7 +213,7 @@ OUTPUT FORMAT: The single word "append" or "skip". Nothing else.`;
     let lastAssistantText = "";
 
     for await (const message of deps.clackQuery({
-      prompt: `${conversationContext}\n\nMESSAGE TO CLASSIFY:${channelName ? `\nChannel: #${channelName}` : ""}\nFrom: ${messageAuthor}\n\n"""${messageText}"""`,
+      prompt: `${conversationContext}${timingLine}\n\nMESSAGE TO CLASSIFY:${channelName ? `\nChannel: #${channelName}` : ""}\nFrom: ${messageAuthor}\n\n"""${messageText}"""`,
       options: {
         cwd: process.cwd(),
         executable: detectRuntime(),
