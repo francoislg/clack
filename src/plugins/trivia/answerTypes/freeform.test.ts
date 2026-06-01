@@ -160,22 +160,32 @@ describe("freeformAnswerHandler", () => {
   });
 
   describe("processReveal", () => {
+    // The judge now runs ONE call per submission. `judge` maps a typed answer to
+    // the raw judge text; the default treats "Paris" as correct, anything else
+    // incorrect. Pass a string to force the same text for every submission.
     function makeDeps(
-      judgeText: string = "",
+      judge: string | ((answerText: string) => string) = (a) =>
+        JSON.stringify(a.toLowerCase() === "paris" ? { correct: true } : { correct: false }),
       overrides: Partial<ProcessRevealDeps> = {},
     ): ProcessRevealDeps {
       const data = createInMemoryDataLayer();
+      const judgeFn = typeof judge === "string" ? () => judge : judge;
       return {
         scoped: data.forGame(FIXTURE_GAME_NAME),
         data,
         users: new Map(),
         botUserId: "",
         fetchMessageReactions: async () => [],
-        askClaude: async () => ({
-          text: judgeText,
-          stopReason: "end_turn",
-          usage: { inputTokens: 0, outputTokens: 0 },
-        }),
+        askClaude: async (opts) => {
+          // The per-answer prompt embeds the typed text as JSON; recover it.
+          const match = opts.messages[0].content.match(/Player's typed answer: (".*")\n/);
+          const answerText = match ? (JSON.parse(match[1]) as string) : "";
+          return {
+            text: judgeFn(answerText),
+            stopReason: "end_turn",
+            usage: { inputTokens: 0, outputTokens: 0 },
+          };
+        },
         now: 5000,
         isReprocessMode: false,
         ...overrides,
@@ -204,7 +214,7 @@ describe("freeformAnswerHandler", () => {
     });
 
     it("strips freeform answerText in 'just-correctness' mode", async () => {
-      const deps = makeDeps('{"verdicts":[{"key":"1.1","correct":true}]}');
+      const deps = makeDeps('{"correct":true}');
       const question = makeQuestion({ revealResponses: "just-correctness" });
       await deps.scoped.saveQuestion(question);
       await deps.scoped.saveAnswer({
@@ -223,9 +233,8 @@ describe("freeformAnswerHandler", () => {
     });
 
     it("keeps the winner's answerText but reduces missers to a count in 'just-winners' mode", async () => {
-      const deps = makeDeps(
-        '{"verdicts":[{"key":"1.1","correct":true},{"key":"1.2","correct":false}]}',
-      );
+      // Default judge: "Paris" correct, "London" incorrect — one call per answer.
+      const deps = makeDeps();
       const question = makeQuestion({ revealResponses: "just-winners" });
       await deps.scoped.saveQuestion(question);
       await deps.scoped.saveAnswer({
@@ -253,6 +262,51 @@ describe("freeformAnswerHandler", () => {
       }
       // The misser's typed string must not leak anywhere in the payload.
       assert.equal(JSON.stringify(result).includes("London"), false);
+    });
+
+    it("accepts a year on the inclusive edge of a date tolerance window", async () => {
+      // The real-world miss: expected 2000, window [1995, 2005], player typed 1995.
+      // The judge (here, a faithful stub) returns correct for the boundary value.
+      const deps = makeDeps((a) => JSON.stringify({ correct: a.trim() === "1995" }));
+      const question = makeQuestion({
+        statement: "In what year was this star born? (within 5 years)",
+        freeformAnswerShape: "date",
+        expectedAnswer: "2000",
+        gradingNotes: "Accept any year in [1995, 2005] (±5 of 2000).",
+      });
+      await deps.scoped.saveQuestion(question);
+      await deps.scoped.saveAnswer({
+        userId: "U1",
+        questionId: question.id,
+        answerText: "1995",
+        timestamp: 100,
+      });
+      const result = await freeformAnswerHandler.processReveal(question, deps);
+      assert.equal(result.ok, true);
+      const stored = (await deps.scoped.loadAnswers()).find((a) => a.userId === "U1");
+      assert.equal(stored?.correct, true);
+    });
+
+    it("leaves a row pending (never scores it wrong) when the judge never returns a valid verdict", async () => {
+      const deps = makeDeps("not valid json at all");
+      const question = makeQuestion();
+      await deps.scoped.saveQuestion(question);
+      await deps.scoped.saveAnswer({
+        userId: "U1",
+        questionId: question.id,
+        answerText: "Paris",
+        timestamp: 100,
+      });
+      const result = await freeformAnswerHandler.processReveal(question, deps);
+      // Surfaced as an error rather than silently committed.
+      assert.equal(result.ok, false);
+      if (!result.ok) assert.match(result.error, /could not score 1 submission/);
+      // The row stays pending so a re-reveal can recover it — NOT marked wrong.
+      const stored = (await deps.scoped.loadAnswers()).find((a) => a.userId === "U1");
+      assert.equal(stored?.correct, undefined);
+      // processedAt is NOT stamped, so the question is eligible for re-reveal.
+      const q = (await deps.scoped.loadQuestions()).find((x) => x.id === question.id);
+      assert.equal(q?.processedAt, undefined);
     });
   });
 

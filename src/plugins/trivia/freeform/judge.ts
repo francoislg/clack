@@ -1,18 +1,31 @@
+import type { ClackSdk } from "../../sdk.js";
+import type { TriviaFreeformAnswerShape } from "../core/configTypes.js";
 import type { TriviaQuestion } from "../core/types.js";
 
 /** One pending free-form submission to be judged. */
 export interface JudgeSubmission {
-  /** Per-batch stable key the judge echoes back so we can map verdicts to rows. */
-  key: string;
   userId: string;
   /** The user's typed text (already trimmed at submit time). */
   answerText: string;
 }
 
-/** Per-question grouping fed to the judge. */
-export interface JudgeQuestionGroup {
-  question: TriviaQuestion;
-  submissions: JudgeSubmission[];
+/**
+ * The judge's decision for ONE submission. Unlike the old batch protocol there
+ * is no `key` — each submission is judged by its own call, so the verdict maps
+ * to the submission positionally. A verdict is ALWAYS a clean boolean; the
+ * "missing verdict" failure mode is gone (see `judgeAnswer`).
+ */
+export interface JudgeVerdict {
+  correct: boolean;
+  /** Optional short label the model can use, e.g. "multiple-guess" / "out-of-tolerance". */
+  reason?: string;
+}
+
+/** One submission paired with its verdict, or `null` when the judge could not produce one. */
+export interface JudgedSubmission {
+  submission: JudgeSubmission;
+  /** `null` only when every retry attempt failed — the row is left pending, never scored wrong. */
+  verdict: JudgeVerdict | null;
 }
 
 export interface JudgePrompt {
@@ -20,110 +33,197 @@ export interface JudgePrompt {
   messages: Array<{ role: "user" | "assistant"; content: string }>;
 }
 
-export interface JudgeVerdict {
-  key: string;
-  correct: boolean;
-  /** Optional short label the model can use, e.g. "multiple-guess" / "ok" / "near miss". */
-  reason?: string;
-}
-
-const SYSTEM_PROMPT = `You are a strict but fair trivia judge.
-
-Your job is to read each player's typed answer and decide whether it matches the expected answer for the question.
-
-Rules:
-- Case- and punctuation-insensitive matching of the canonical answer is fine.
-- Common synonyms, alternative spellings, and reasonable variants are acceptable IF they are a SINGLE answer.
-- Single answers WITH qualifiers or parentheticals are valid (e.g. "Tokyo, Japan", "Paris (France)", "rock and roll").
-- ACCEPT minor typos when the intent is unambiguous — small transpositions, one missing/extra letter, or a clear misspelling that still reads as the expected answer (e.g. "Pariss", "Pris", "Tokio" for "Tokyo"). Use judgment proportional to the word length: ~1 character off for short answers (≤5 chars), up to ~2 characters off for longer answers.
-- REJECT (correct: false, reason: "typo-too-far") when the typo is so large that the answer becomes ambiguous, could plausibly be a different word, or requires guessing the player's intent (e.g. "Pars" → could be Paris or Mars; "Lordon" → too far from "London").
-- REJECT (correct: false, reason: "multiple-guess") any answer that hedges between two or more distinct guesses — e.g. "Paris or London", "either A or B", "A | B | C" — EVEN IF one of the guesses matches the expected answer. The player must commit to a single answer.
-- REJECT (correct: false, reason: "too-broad") any answer expressed as a range, set, or category so wide that it trivially contains the expected answer without committing to it — e.g. "between 1900 and 2500" for a year question, "somewhere in Europe" for a city, "a mammal" for a specific species. A reasonable approximation is fine (e.g. "around 1945" for 1944 may be accepted per \`gradingNotes\`); a sweeping range that any guess would fall into is not.
-- LEEWAY: when the question's text OR \`gradingNotes\` states an explicit numeric tolerance (e.g. "within 5 years", "±10 km", "to the nearest decade"), follow it STRICTLY. ACCEPT any single committed value inside the stated tolerance window around \`expectedAnswer\`; REJECT (correct: false, reason: "out-of-tolerance") anything outside it, even if "close." When NO tolerance is stated, do NOT invent one — require a match (modulo typos / synonyms / acceptable variants).
-- DATE FORMS — format mismatch is NEVER a rejection reason on its own. When the expected answer is a decade ("1900s", "the 1990s"), the question/notes specify decade-level tolerance, or the question simply asks "what decade", ACCEPT any year that falls inside that decade in ANY reasonable typed form: bare year ("1900", "1905"), decade form ("1900s", "the 1900s"), or explicit range ("1900-1909"). The same principle applies to centuries and other date granularities — committing to ANY value inside the accepted window is correct, regardless of whether the player matched the question's stated granularity.
-- DATE SPANS — when the question describes an event that spans more than one decade (e.g. a tenure, a war, a movement) and \`gradingNotes\` or the statement mention a concrete year range, treat EVERY decade that the range touches as a valid answer, even if only one appears in \`expectedAnswer\` / \`acceptableAnswers\`. Example: a tenure from 1898 to 1907 → accept "1890s", "1900s", "1898", "1907", any year in [1898, 1907]. Authors sometimes forget to enumerate every spanned decade; the judge should not punish players for the author's omission when the range is unambiguous from the question.
-- LANGUAGE — ACCEPT any answer that is an UNAMBIGUOUS translation of \`expectedAnswer\` or any \`acceptableAnswers\` entry into another natural language, regardless of the language of the question. This covers translations of named entities (e.g. "Empire romain" ↔ "Roman Empire", "Tokyo" ↔ "東京" ↔ "Tokio", "Allemagne" ↔ "Germany"), common nouns (e.g. "photosynthèse" ↔ "photosynthesis"), and direct translations of free-form descriptions. The translation must be a recognized, non-controversial rendering — if it could plausibly refer to a materially different concept, REJECT it under the existing typo / ambiguous-match rules. This rule DOES NOT relax any other rule: a cross-language answer that hedges between multiple guesses still falls under \`multiple-guess\`; a cross-language answer that is too broad still falls under \`too-broad\`; a cross-language answer outside a stated tolerance window still falls under \`out-of-tolerance\`.
-- REJECT (correct: false) when the typed answer is materially different from the expected answer.
-- ACCEPT (correct: true) when the typed answer is the same answer expressed differently.
-- When \`acceptableAnswers\` are provided, treat them as ADDITIONAL valid forms.
-- \`gradingNotes\` (when provided) refine your judgment for that question. They do not override the expected answer — they only clarify accepted forms.
-
-Output STRICT JSON only. No prose, no markdown fences. The output MUST be an object of this exact shape:
-{
-  "verdicts": [
-    { "key": "<echoed key>", "correct": true|false, "reason": "<optional short label>" }
-  ]
-}
-Include one verdict per submission. The verdict's \`key\` MUST match the submission's \`key\` exactly.`;
-
 /**
- * Build the judge prompt covering every freeform question in the batch with its
- * pending submissions. Submissions with deterministic numeric keys so the model
- * can echo them back and we can map verdicts to rows unambiguously.
- *
- * Empty-submission questions are skipped — they contribute nothing to the body.
+ * Default Haiku model id used by `process_reveal_answers` for the freeform judge.
+ * Centralized here so tests can reference the same constant.
  */
-export function buildJudgePrompt(groups: JudgeQuestionGroup[]): JudgePrompt {
-  const usable = groups.filter((g) => g.submissions.length > 0);
-  const lines: string[] = ["Judge the following trivia submissions.\n"];
+export const DEFAULT_JUDGE_MODEL = "claude-haiku-4-5-20251001";
 
-  usable.forEach((group, qIdx) => {
-    const q = group.question;
-    lines.push(`---`);
-    lines.push(`Question ${qIdx + 1}: ${q.statement}`);
-    lines.push(`Expected answer: ${q.expectedAnswer ?? "(missing)"}`);
-    if (q.acceptableAnswers && q.acceptableAnswers.length > 0) {
-      lines.push(`Acceptable variants: ${q.acceptableAnswers.join(" | ")}`);
-    }
-    if (q.gradingNotes && q.gradingNotes.length > 0) {
-      lines.push(`Notes: ${q.gradingNotes}`);
-    }
-    lines.push(`Submissions:`);
-    for (const sub of group.submissions) {
-      lines.push(`  [${sub.key}] ${sub.userId}: ${JSON.stringify(sub.answerText)}`);
-    }
-    lines.push("");
-  });
+/** Re-ask budget: how many times to call the judge for ONE answer before giving up. */
+export const JUDGE_MAX_ATTEMPTS = 4;
 
+/** Cap on concurrent judge calls when judging a question's submissions. */
+export const JUDGE_CONCURRENCY = 6;
+
+const SHARED_RULES = `You are a strict but fair trivia judge. You are given ONE trivia question, its expected answer, and ONE player's typed answer. Decide whether that single answer is correct.
+
+Universal rules (apply to every question):
+- Matching is case- and punctuation-insensitive.
+- A single answer carrying a qualifier or parenthetical is fine (e.g. "Tokyo, Japan", "Paris (France)", "rock and roll").
+- REJECT (reason: "multiple-guess") any answer that hedges between two or more distinct guesses — "Paris or London", "either A or B", "A | B | C" — EVEN IF one of them is correct. The player must commit to ONE answer.
+- ACCEPT (correct: true) when the typed answer is the expected answer expressed differently; REJECT (correct: false) when it is materially different.
+- When "Acceptable variants" are listed, treat each as an additional fully-correct answer.
+- "Notes" (when present) refine your judgment — honor any explicit tolerance or accepted-form guidance there STRICTLY. They never override the expected answer; they only clarify accepted forms.`;
+
+const NAMED_ENTITY_RULES = `This answer names a SPECIFIC ENTITY (a person, character, brand, organization, species, place, or creative work).
+- Accept common synonyms, alternative spellings, and reasonable variants.
+- LANGUAGE: accept any UNAMBIGUOUS translation of the expected answer (or an acceptable variant) into another language — named entities ("Roman Empire" ↔ "Empire romain", "Tokyo" ↔ "東京" ↔ "Tokio") and common nouns alike. If the rendering could plausibly mean a materially different thing, REJECT it.
+- ACCEPT minor typos when the intent is unambiguous — ~1 character off for short answers (≤5 chars), up to ~2 for longer ones (e.g. "Pariss", "Tokio" for "Tokyo"). REJECT (reason: "typo-too-far") when the typo is large enough that the answer becomes ambiguous or could be a different entity ("Pars" → Paris or Mars?).
+- REJECT (reason: "too-broad") an answer so wide it just names a category ("somewhere in Europe" for a city, "a mammal" for a species).`;
+
+const PHRASE_RULES = `This answer is a PHRASE (a quote, idiom, motto, slogan, or line of dialogue).
+- Accept any rendition that preserves the wording of the expected phrase: a longer or shorter span of the same quote, minor word-order or punctuation differences, and unambiguous translations.
+- Follow any partial-credit or accepted-span guidance in "Notes".
+- REJECT only when the wording is materially different, or when the answer hedges between phrases (reason: "multiple-guess").`;
+
+const DATE_RULES = `This answer is a DATE / TIME PERIOD. The player is NEVER required to match the format — only the value.
+- TOLERANCE: when the question text or "Notes" state a window (e.g. "within 5 years", "[1995, 2005]", "to the nearest decade"), ACCEPT any single committed value INSIDE that window, INCLUSIVE OF BOTH ENDPOINTS (1995 is inside "[1995, 2005]"). REJECT (reason: "out-of-tolerance") any value outside it, even if close.
+- FORMAT-AGNOSTIC: a bare year ("1998"), a decade form ("1990s"), or an explicit range ("1995-1999") are all acceptable as long as the value falls inside the accepted window.
+- DATE SPANS: when the event spans more than one decade, EVERY decade the span touches is acceptable.
+- REJECT (reason: "too-broad") a sweeping range that any guess would fall into ("between 1900 and 2500").`;
+
+const COUNTABLE_RULES = `This answer is a small COUNT or NUMBER.
+- Accept the value whether typed as digits or spelled out ("3" ↔ "three").
+- If "Notes" state a numeric tolerance, accept any value inside it (inclusive); otherwise require the exact value.
+- REJECT (reason: "too-broad") a sweeping range that any guess would fall into ("between 3 and 600").`;
+
+const OTHER_RULES = `This answer is a short, unambiguous value (e.g. a formula, a score, a measurement, a color, a currency amount, an acronym).
+- Accept equivalent forms of the same value (unit-equivalent measurements, "$5" ↔ "5 dollars", upper/lower case).
+- REJECT when the value is materially different from the expected answer.`;
+
+const SHAPE_RULES: Record<TriviaFreeformAnswerShape, string> = {
+  name: NAMED_ENTITY_RULES,
+  place: NAMED_ENTITY_RULES,
+  title: NAMED_ENTITY_RULES,
+  phrase: PHRASE_RULES,
+  date: DATE_RULES,
+  countable: COUNTABLE_RULES,
+  other: OTHER_RULES,
+};
+
+const OUTPUT_RULES = `Output STRICT JSON only — no prose, no explanation, no markdown fences. EXACTLY this shape:
+{"correct": true, "reason": "<short label>"}
+- "correct" MUST be a boolean (true or false).
+- Include a short "reason" label ONLY when correct is false (e.g. "multiple-guess", "too-broad", "typo-too-far", "out-of-tolerance", "materially-different"). Omit "reason" when correct is true.`;
+
+/** Build the per-answer judge prompt, tailored to the question's freeform shape. */
+export function buildSingleJudgePrompt(question: TriviaQuestion, answerText: string): JudgePrompt {
+  const shapeRules = question.freeformAnswerShape
+    ? SHAPE_RULES[question.freeformAnswerShape]
+    : NAMED_ENTITY_RULES;
+  const system = [SHARED_RULES, "", shapeRules, "", OUTPUT_RULES].join("\n");
+
+  const lines: string[] = [
+    `Question: ${question.statement}`,
+    `Expected answer: ${question.expectedAnswer ?? "(missing)"}`,
+  ];
+  if (question.acceptableAnswers && question.acceptableAnswers.length > 0) {
+    lines.push(`Acceptable variants: ${question.acceptableAnswers.join(" | ")}`);
+  }
+  if (question.gradingNotes && question.gradingNotes.length > 0) {
+    lines.push(`Notes: ${question.gradingNotes}`);
+  }
+  lines.push(`Player's typed answer: ${JSON.stringify(answerText)}`);
+  lines.push("");
   lines.push("Return ONLY the JSON object described in the system prompt.");
 
-  return {
-    system: SYSTEM_PROMPT,
-    messages: [{ role: "user", content: lines.join("\n") }],
-  };
+  return { system, messages: [{ role: "user", content: lines.join("\n") }] };
 }
 
 /**
- * Parse the judge's JSON response. Throws on malformed output. The caller is
- * responsible for catching and retrying / falling back to `correct: false,
- * reason: "judge-error"` if parsing fails.
+ * Parse a single-verdict JSON response. Throws when the response is not a clean
+ * `{ correct: boolean }` object — the caller re-asks the judge on a throw.
  */
-export function parseJudgeResponse(text: string): JudgeVerdict[] {
-  // The model is instructed to emit pure JSON; strip a stray code fence
-  // defensively to be tolerant of "```json\n…\n```" framing.
+export function parseSingleVerdict(text: string): JudgeVerdict {
   const trimmed = stripCodeFence(text.trim());
   const parsed: unknown = JSON.parse(trimmed);
-  if (parsed === null || typeof parsed !== "object" || !("verdicts" in parsed)) {
-    throw new Error("Judge response missing 'verdicts' field");
+  if (parsed === null || typeof parsed !== "object") {
+    throw new Error("Judge response is not an object");
   }
-  const verdicts = (parsed as { verdicts: unknown }).verdicts;
-  if (!Array.isArray(verdicts)) {
-    throw new Error("Judge response 'verdicts' is not an array");
+  const obj = parsed as { correct?: unknown; reason?: unknown };
+  if (typeof obj.correct !== "boolean") {
+    throw new Error("Judge response missing boolean 'correct'");
   }
-  const out: JudgeVerdict[] = [];
-  for (const v of verdicts) {
-    if (v === null || typeof v !== "object") {
-      throw new Error("Judge verdict entry is not an object");
+  const verdict: JudgeVerdict = { correct: obj.correct };
+  if (typeof obj.reason === "string" && obj.reason.length > 0) verdict.reason = obj.reason;
+  return verdict;
+}
+
+/**
+ * Judge ONE answer, re-asking the model when it returns anything other than a
+ * clean yes/no. Resolves to a guaranteed `JudgeVerdict`. Throws ONLY after
+ * `maxAttempts` consecutive call-or-parse failures — the caller then leaves the
+ * row pending rather than scoring it wrong, so a verdict is never silently lost.
+ */
+export async function judgeAnswer(
+  askClaude: ClackSdk["askClaude"],
+  question: TriviaQuestion,
+  answerText: string,
+  opts: { maxAttempts?: number; logger?: { warn: (msg: string) => void } } = {},
+): Promise<JudgeVerdict> {
+  const maxAttempts = opts.maxAttempts ?? JUDGE_MAX_ATTEMPTS;
+  const prompt = buildSingleJudgePrompt(question, answerText);
+  let lastError = "unknown";
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const response = await askClaude({
+        model: DEFAULT_JUDGE_MODEL,
+        system: prompt.system,
+        messages: prompt.messages,
+      });
+      return parseSingleVerdict(response.text);
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : String(err);
+      opts.logger?.warn(
+        `[trivia:freeform] judge attempt ${attempt}/${maxAttempts} failed: ${lastError}`,
+      );
     }
-    const obj = v as { key?: unknown; correct?: unknown; reason?: unknown };
-    if (typeof obj.key !== "string" || typeof obj.correct !== "boolean") {
-      throw new Error("Judge verdict entry missing 'key' / 'correct'");
-    }
-    const entry: JudgeVerdict = { key: obj.key, correct: obj.correct };
-    if (typeof obj.reason === "string") entry.reason = obj.reason;
-    out.push(entry);
   }
-  return out;
+  throw new Error(`judge produced no usable verdict after ${maxAttempts} attempts: ${lastError}`);
+}
+
+/**
+ * Judge every submission for one question, each via its own `judgeAnswer` call,
+ * with bounded concurrency. A submission whose retries are all exhausted comes
+ * back with `verdict: null` (the caller leaves it pending) — one stuck row never
+ * blocks the rest.
+ */
+export async function judgeSubmissions(
+  askClaude: ClackSdk["askClaude"],
+  question: TriviaQuestion,
+  submissions: JudgeSubmission[],
+  opts: {
+    maxAttempts?: number;
+    concurrency?: number;
+    logger?: { warn: (msg: string) => void };
+  } = {},
+): Promise<JudgedSubmission[]> {
+  const concurrency = opts.concurrency ?? JUDGE_CONCURRENCY;
+  return mapWithConcurrency(submissions, concurrency, async (submission) => {
+    try {
+      const verdict = await judgeAnswer(askClaude, question, submission.answerText, {
+        maxAttempts: opts.maxAttempts,
+        logger: opts.logger,
+      });
+      return { submission, verdict };
+    } catch (err) {
+      opts.logger?.warn(
+        `[trivia:freeform] judge gave up on submission from ${submission.userId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return { submission, verdict: null };
+    }
+  });
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = Array.from({ length: items.length });
+  let next = 0;
+  async function worker(): Promise<void> {
+    for (;;) {
+      const index = next++;
+      if (index >= items.length) return;
+      results[index] = await fn(items[index], index);
+    }
+  }
+  const workerCount = Math.max(1, Math.min(limit, items.length));
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
 }
 
 function stripCodeFence(s: string): string {
@@ -137,9 +237,3 @@ function stripCodeFence(s: string): string {
   }
   return s;
 }
-
-/**
- * Default Haiku model id used by `process_reveal_answers` for the freeform judge.
- * Centralized here so tests can reference the same constant.
- */
-export const DEFAULT_JUDGE_MODEL = "claude-haiku-4-5-20251001";

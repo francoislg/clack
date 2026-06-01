@@ -213,8 +213,8 @@ export interface SubmittedAnswer {
   /**
    * Optional short label explaining the verdict for freeform submissions —
    * echoed from the reveal-time judge (e.g. "multiple-guess", "too-broad",
-   * "typo-too-far", "out-of-tolerance", "judge-error"). Absent on boolean/choice
-   * rows and on freeform rows where the judge returned no reason.
+   * "typo-too-far", "out-of-tolerance", "materially-different"). Absent on
+   * boolean/choice rows and on freeform rows where the judge returned no reason.
    */
   judgeReason?: string;
   timestamp: number;
