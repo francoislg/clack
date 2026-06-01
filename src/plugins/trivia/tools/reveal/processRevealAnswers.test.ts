@@ -5,6 +5,7 @@ import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../
 import { parseToolResult } from "../../../../tools/testHelpers.js";
 import type { ClackSdk } from "../../../sdk.js";
 import type { TriviaQuestion } from "../../core/types.js";
+import type { TriviaCronJobView } from "../../domain/seasonStatus.js";
 
 /**
  * Orchestrator-level tests for `process_reveal_answers`. Per-handler reveal behavior
@@ -54,6 +55,86 @@ function makeQuestion(overrides: Partial<TriviaQuestion>): TriviaQuestion {
     ...overrides,
   };
 }
+
+const DAY = 86_400_000;
+
+async function seedCurrentSeason(
+  data: ReturnType<typeof createInMemoryDataLayer>,
+  expectedEndAt: number,
+): Promise<void> {
+  await data.forGame(FIXTURE_GAME_NAME).saveSeasonsState({
+    seasons: [{ slug: "s1", startedAt: Date.now() - DAY, expectedEndAt }],
+  });
+}
+
+describe("process_reveal_answers — showAllTimeRow", () => {
+  function toolWith(
+    data: ReturnType<typeof createInMemoryDataLayer>,
+    allTimeRow: "always" | "never" | "end-of-season-only",
+    jobs: TriviaCronJobView[] = [],
+  ) {
+    return createProcessRevealAnswersTool(
+      data,
+      fakeSdk(),
+      fixtureGetGames,
+      async () => jobs,
+      fakeSlackDeps(),
+      () => ({ allTimeRow }),
+    );
+  }
+
+  async function run(tool: ReturnType<typeof createProcessRevealAnswersTool>) {
+    return parseToolResult(
+      await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+    );
+  }
+
+  it("is absent when seasons are disabled (no current season)", async () => {
+    const data = createInMemoryDataLayer();
+    const res = await run(toolWith(data, "always"));
+    assert.equal("seasonStatus" in res, false);
+    assert.equal("showAllTimeRow" in res, false);
+  });
+
+  it("always → true regardless of last fire", async () => {
+    const data = createInMemoryDataLayer();
+    await seedCurrentSeason(data, Date.now() + DAY);
+    const res = await run(toolWith(data, "always"));
+    assert.equal(res.showAllTimeRow, true);
+  });
+
+  it("never → false regardless of last fire", async () => {
+    const data = createInMemoryDataLayer();
+    await seedCurrentSeason(data, Date.now() + DAY);
+    const res = await run(toolWith(data, "never"));
+    assert.equal(res.showAllTimeRow, false);
+  });
+
+  it("end-of-season-only → false on a non-last fire (no reveal job)", async () => {
+    const data = createInMemoryDataLayer();
+    await seedCurrentSeason(data, Date.now() + DAY);
+    const res = await run(toolWith(data, "end-of-season-only"));
+    assert.equal(res.showAllTimeRow, false);
+  });
+
+  it("end-of-season-only → true on the season's last fire", async () => {
+    const data = createInMemoryDataLayer();
+    // Season ends shortly; the reveal cron next fires far in the future (yearly),
+    // so its next fire lands AFTER expectedEndAt → this is the last fire.
+    await seedCurrentSeason(data, Date.now() + 60_000);
+    const lastFireJob = {
+      plugin: "trivia",
+      enabled: true,
+      specKey: `${FIXTURE_GAME_NAME}:reveal`,
+      prompt: "Call process_responses_instructions and follow them.",
+      cronExpression: "0 0 1 1 *",
+      timezone: "UTC",
+    };
+    const res = await run(toolWith(data, "end-of-season-only", [lastFireJob]));
+    assert.equal(res.seasonStatus.isLastFireOfSeason, true);
+    assert.equal(res.showAllTimeRow, true);
+  });
+});
 
 describe("process_reveal_answers — orchestrator", () => {
   it("returns reveals: [] when no question is pending", async () => {

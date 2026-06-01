@@ -14,6 +14,7 @@ import type { JsonObject, TriviaConfig, TriviaGame } from "./configTypes.js";
 import {
   isRevealResponsesMode,
   parseTriviaAxisBag,
+  validateAllTimeRowMode,
   validateHintConfig,
   validateTriviaChoicesConfig,
   type ParseIssue,
@@ -156,6 +157,12 @@ function parseTriviaConfigObject(raw: JsonObject, logger: PluginLogger): TriviaC
     const r = validateHintConfig(raw.hint, "trivia.hint");
     if (r.ok) out.hint = r.value;
     else allIssues.push({ field: "trivia.hint", error: r.error });
+  }
+
+  if (raw.allTimeRow !== undefined && raw.allTimeRow !== null) {
+    const r = validateAllTimeRowMode(raw.allTimeRow, "trivia.allTimeRow");
+    if (r.ok) out.allTimeRow = r.value;
+    else allIssues.push({ field: "trivia.allTimeRow", error: r.error });
   }
 
   if (raw.instructions !== undefined && raw.instructions !== null) {

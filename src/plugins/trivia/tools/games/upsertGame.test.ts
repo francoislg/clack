@@ -105,6 +105,7 @@ function args(overrides: Partial<UpsertGameArgs> & Pick<UpsertGameArgs, "name">)
     instructions: undefined,
     additionalInstructions: undefined,
     hint: undefined,
+    allTimeRow: undefined,
     ...overrides,
   };
 }

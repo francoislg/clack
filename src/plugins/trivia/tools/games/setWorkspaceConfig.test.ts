@@ -72,6 +72,7 @@ const emptyArgs = {
   instructions: undefined,
   additionalInstructions: undefined,
   hint: undefined,
+  allTimeRow: undefined,
 };
 
 describe("set_workspace_config", () => {

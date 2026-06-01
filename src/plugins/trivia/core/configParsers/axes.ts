@@ -13,6 +13,7 @@ import type {
   HintMode,
   JsonObject,
   RevealResponsesMode,
+  TriviaAllTimeRowMode,
   TriviaAnswersFormatWeights,
   TriviaChoicesConfig,
   TriviaContextEntry,
@@ -23,7 +24,7 @@ import type {
   TriviaQuestionTypeWeights,
   PromptMediumWeights,
 } from "../configTypes.js";
-import { DEFAULT_TRIVIA_CHOICES } from "../configTypes.js";
+import { ALL_TIME_ROW_KEYS, DEFAULT_TRIVIA_CHOICES } from "../configTypes.js";
 
 /** Tagged result so callers can decide how to react (throw / warn-and-drop / skip). */
 export type Result<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -409,6 +410,19 @@ export function validateHintConfig(raw: unknown, fieldLabel: string): Result<Tri
   return { ok: true, value: out };
 }
 
+export function validateAllTimeRowMode(
+  raw: unknown,
+  fieldLabel: string,
+): Result<TriviaAllTimeRowMode> {
+  if (typeof raw !== "string" || !(ALL_TIME_ROW_KEYS as readonly string[]).includes(raw)) {
+    return {
+      ok: false,
+      error: `'${fieldLabel}' must be one of ${ALL_TIME_ROW_KEYS.join(", ")} (got ${JSON.stringify(raw)})`,
+    };
+  }
+  return { ok: true, value: raw as TriviaAllTimeRowMode };
+}
+
 export function validateTriviaDifficultyMap(
   raw: unknown,
   fieldLabel: string,
@@ -638,6 +652,15 @@ export const triviaHintZod = z.object({
   mode: z.enum(HINT_MODE_KEYS as readonly [HintMode, ...HintMode[]]),
   minDifficulty: z.enum(DIFFICULTY_BUCKET_KEYS as readonly ["easy", "medium", "hard"]).optional(),
 });
+
+/**
+ * Shared zod schema for the `allTimeRow` axis. Thin enum-check; semantic
+ * validation (the same three keys, unknown-value rejection) lives in
+ * `validateAllTimeRowMode`, which every config-file parse funnels through.
+ */
+export const triviaAllTimeRowZod = z.enum(
+  ALL_TIME_ROW_KEYS as readonly [TriviaAllTimeRowMode, ...TriviaAllTimeRowMode[]],
+);
 
 /**
  * The 6 zod schemas as a single map — handy for tools that splat them into

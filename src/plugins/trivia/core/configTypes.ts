@@ -170,6 +170,24 @@ export interface TriviaHintConfig {
 export const DEFAULT_HINT_CONFIG: TriviaHintConfig = { mode: "none" };
 
 /**
+ * "All Time" leaderboard-row visibility axis. Cascades `game → workspace →
+ * "end-of-season-only"` (no season/slot tier). Governs the All-Time surface at
+ * reveal time — the normal-reveal `All Time` row AND the season-finale All-Time
+ * table (the surface additionally requires `hasPriorSeasons`):
+ *   - `"always"` — render it on every reveal.
+ *   - `"never"` — never render it.
+ *   - `"end-of-season-only"` — render it only on the season's last fire
+ *     (`SeasonStatusOut.isLastFireOfSeason`). The default.
+ */
+export type TriviaAllTimeRowMode = "always" | "never" | "end-of-season-only";
+
+/** The three accepted `allTimeRow` values, for zod/validator reuse. */
+export const ALL_TIME_ROW_KEYS = ["always", "never", "end-of-season-only"] as const;
+
+/** Built-in fallback when no `allTimeRow` is set at any cascade tier. */
+export const DEFAULT_ALL_TIME_ROW: TriviaAllTimeRowMode = "end-of-season-only";
+
+/**
  * One trivia game declared in plugin config. The trivia plugin reconciles its cron jobs
  * from this list on every load: each entry produces two plugin-managed cron jobs
  * (`<name>:question` and `<name>:reveal`).
@@ -274,6 +292,11 @@ export interface TriviaGame {
    * Whole-object replace per tier. See `TriviaHintConfig`.
    */
   hint?: TriviaHintConfig;
+  /**
+   * Per-game tier of the "All Time" leaderboard-row visibility axis. Cascade:
+   *   `game → workspace → "end-of-season-only"`. See `TriviaAllTimeRowMode`.
+   */
+  allTimeRow?: TriviaAllTimeRowMode;
 }
 
 /**
@@ -370,6 +393,11 @@ export interface TriviaConfig {
    * Whole-object replace per tier. See `TriviaHintConfig`.
    */
   hint?: TriviaHintConfig;
+  /**
+   * Workspace tier of the "All Time" leaderboard-row visibility axis. Cascade:
+   *   `game → workspace → "end-of-season-only"`. See `TriviaAllTimeRowMode`.
+   */
+  allTimeRow?: TriviaAllTimeRowMode;
   /**
    * Workspace tier of the replace-cascade `instructions` axis — see the
    * `trivia-prompt-instructions` capability.

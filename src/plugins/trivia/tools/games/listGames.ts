@@ -18,6 +18,7 @@ import type {
   TriviaDifficultyRatioConfig,
   TriviaChoicesConfig,
   TriviaHintConfig,
+  TriviaAllTimeRowMode,
   TriviaSeasonsConfig,
   OffDay,
 } from "../../core/configTypes.js";
@@ -52,6 +53,7 @@ interface ListGamesEntry {
   liveAnswersVisible?: boolean;
   revealResponses?: "no" | "just-winners" | "just-correctness" | "yes";
   hint?: TriviaHintConfig;
+  allTimeRow?: TriviaAllTimeRowMode;
 }
 
 export type FindOwnedCronJobsFn = () => Promise<Array<{ id: string; specKey: string }>>;
@@ -70,6 +72,7 @@ interface WorkspaceDefaults {
   instructions?: string;
   additionalInstructions?: string;
   hint?: TriviaHintConfig;
+  allTimeRow?: TriviaAllTimeRowMode;
 }
 
 const DESCRIPTION = `List the trivia games configured in this deployment (data/plugins/trivia/config.json's \`games[]\`), plus the workspace tier of the cascading axis configuration (\`workspaceDefaults\`) AND each entry's per-game \`axisOverrides\`, so admins can audit configuration without reading the file by hand.
@@ -167,6 +170,7 @@ export function createListGamesTool(
             : {}),
           ...(g.revealResponses !== undefined ? { revealResponses: g.revealResponses } : {}),
           ...(g.hint !== undefined ? { hint: g.hint } : {}),
+          ...(g.allTimeRow !== undefined ? { allTimeRow: g.allTimeRow } : {}),
         };
       });
 
@@ -192,6 +196,7 @@ export function createListGamesTool(
           ? { additionalInstructions: triviaCfg.additionalInstructions }
           : {}),
         ...(triviaCfg?.hint !== undefined ? { hint: triviaCfg.hint } : {}),
+        ...(triviaCfg?.allTimeRow !== undefined ? { allTimeRow: triviaCfg.allTimeRow } : {}),
       };
 
       return textResult({ games: entries, workspaceDefaults, total: entries.length });

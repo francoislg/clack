@@ -11,12 +11,14 @@ import type {
   JsonValue,
   OffDay,
   RevealResponsesMode,
+  TriviaAllTimeRowMode,
   TriviaGame,
   TriviaHintConfig,
 } from "../configTypes.js";
 import {
   isRevealResponsesMode,
   parseTriviaAxisBag,
+  validateAllTimeRowMode,
   validateHintConfig,
   type ParseIssue,
 } from "./axes.js";
@@ -266,6 +268,13 @@ export function parseTriviaGame(
     else issues.push({ field: `${fieldPrefix}.hint`, error: r.error });
   }
 
+  let allTimeRow: TriviaAllTimeRowMode | undefined;
+  if (e.allTimeRow !== undefined && e.allTimeRow !== null) {
+    const r = validateAllTimeRowMode(e.allTimeRow, `${fieldPrefix}.allTimeRow`);
+    if (r.ok) allTimeRow = r.value;
+    else issues.push({ field: `${fieldPrefix}.allTimeRow`, error: r.error });
+  }
+
   seenNames.add(name);
   return {
     game: {
@@ -285,6 +294,7 @@ export function parseTriviaGame(
       ...(liveAnswersVisible !== undefined ? { liveAnswersVisible } : {}),
       ...(revealResponses !== undefined ? { revealResponses } : {}),
       ...(hint !== undefined ? { hint } : {}),
+      ...(allTimeRow !== undefined ? { allTimeRow } : {}),
     },
     issues,
   };
