@@ -48,6 +48,7 @@ describe("buildGameSpecs", () => {
     const expected = [
       "mcp__trivia__get_ideas",
       "mcp__trivia__find_previous_questions",
+      "mcp__trivia__find_previous_subjects",
       "mcp__trivia__save_question",
       "mcp__trivia__post_questions",
     ];
@@ -173,6 +174,7 @@ describe("buildGameSpecs", () => {
       const expected = [
         "mcp__trivia__get_ideas",
         "mcp__trivia__find_previous_questions",
+        "mcp__trivia__find_previous_subjects",
         "mcp__trivia__save_question",
       ];
       assert.deepEqual(prep.requiredTools, expected);

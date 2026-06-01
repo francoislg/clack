@@ -848,3 +848,89 @@ describe("process_reveal_answers — static reveal card edit", () => {
     assert.ok(updates[0].blockIds.includes("reveal-results:q1"));
   });
 });
+
+describe("process_reveal_answers — image-medium attribution", () => {
+  const MEDIA = {
+    kind: "image" as const,
+    url: "https://upload.wikimedia.org/secret-path/thumb.jpg",
+    altText: "a landmark",
+    subjectId: "wikidata:Q243",
+    title: "Eiffel Tower",
+    license: "CC-BY-SA 4.0",
+    attribution: "Jane Doe",
+  };
+
+  it("surfaces media { title, attribution, license } on the reveal entry", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(
+      makeQuestion({
+        id: "img",
+        batchId: "B",
+        postedAt: 1_000,
+        promptMedium: "image",
+        media: MEDIA,
+      }),
+    );
+    const tool = createProcessRevealAnswersTool(
+      data,
+      fakeSdk(),
+      fixtureGetGames,
+      async () => [],
+      fakeSlackDeps(),
+    );
+    const res = parseToolResult(
+      await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+    );
+    assert.deepEqual(res.reveals[0].media, {
+      title: "Eiffel Tower",
+      attribution: "Jane Doe",
+      license: "CC-BY-SA 4.0",
+    });
+  });
+
+  it("omits media on text-medium questions", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(makeQuestion({ id: "txt", batchId: "B", postedAt: 1_000 }));
+    const tool = createProcessRevealAnswersTool(
+      data,
+      fakeSdk(),
+      fixtureGetGames,
+      async () => [],
+      fakeSlackDeps(),
+    );
+    const res = parseToolResult(
+      await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+    );
+    assert.equal(res.reveals[0].media, undefined);
+  });
+
+  it("never leaks the upstream url or subjectId into the payload", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(
+      makeQuestion({
+        id: "img",
+        batchId: "B",
+        postedAt: 1_000,
+        promptMedium: "image",
+        media: MEDIA,
+      }),
+    );
+    const tool = createProcessRevealAnswersTool(
+      data,
+      fakeSdk(),
+      fixtureGetGames,
+      async () => [],
+      fakeSlackDeps(),
+    );
+    const raw = JSON.stringify(
+      parseToolResult(
+        await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+      ),
+    );
+    assert.ok(!raw.includes("upload.wikimedia.org"), "upstream url must not appear");
+    assert.ok(!raw.includes("wikidata:Q243"), "subjectId must not appear");
+  });
+});

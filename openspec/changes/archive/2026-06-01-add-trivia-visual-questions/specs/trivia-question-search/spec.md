@@ -12,7 +12,7 @@ The tool SHALL enforce these constraints at the boundary:
 1. **Media required-when-image**: when `promptMedium === "image"`, `media` MUST be present and MUST contain non-empty `url`, `altText`, `subjectId`, and `title` strings, with `kind === "image"`. The tool SHALL reject calls missing or partial.
 2. **Media forbidden-when-text**: when `promptMedium === "text"` (or absent), `media` MUST NOT be set. The tool SHALL reject calls that pass `media` without `promptMedium: "image"`.
 3. **URL hygiene**: `media.url` MUST be an HTTPS URL. The tool SHALL reject http:// and non-URL strings.
-4. **altText content**: `media.altText` MUST be a non-empty string ≤ 2000 characters. It MUST NOT contain Block Kit markup (`*bold*`, `<@USERID>` mentions, channel pings) — text only, newlines permitted. The tool SHALL strip any Block Kit markup it finds before storing (defense-in-depth; the prompt should not be producing such content for altText).
+4. **altText content**: `media.altText` MUST be a non-empty string ≤ 2000 characters at storage time. The tool SHALL reject calls with `altText` exceeding 2000 characters (this matches Slack Block Kit's `alt_text` limit; rejecting at save time means `post_questions` can pass the value through without re-truncation). It MUST NOT contain Block Kit markup (`*bold*`, `<@USERID>` mentions, channel pings) — text only, newlines permitted. The tool SHALL strip any Block Kit markup it finds before storing (defense-in-depth; the prompt should not be producing such content for altText).
 
 The tool SHALL NOT impose any cross-axis constraint between `promptMedium` and `answersFormat`. All six combinations (`{text, image} × {boolean, choice, freeform}`) are valid and SHALL save successfully when the per-axis field validation passes. The freeform `expectedAnswer` field SHALL be permitted alongside `media` when `answersFormat: "freeform"` and `promptMedium: "image"` are both set.
 
@@ -52,7 +52,7 @@ When validation passes, the stored record SHALL carry `promptMedium` (always, in
 
 ### Requirement: find_previous_subjects exact-match dedup tool
 
-The system SHALL expose a `find_previous_subjects({ game, subjectId, season? })` MCP tool that returns saved questions whose `media.subjectId` equals the argument. The tool SHALL accept `season: "all" | "current" | "<slug>"` with the same semantics as `find_previous_questions` (`"all"` is the default).
+The system SHALL expose a `find_previous_subjects({ game, subjectId, season? })` MCP tool that returns saved questions whose `media.subjectId` equals the argument. The `game` (required, non-empty string) scopes the search to that game's question history. The `subjectId` (required, non-empty string) is the exact source-namespaced ID to match. The tool SHALL accept `season: "all" | "current" | "<slug>"` with the same semantics as `find_previous_questions` (`"all"` is the default).
 
 The response shape SHALL be:
 

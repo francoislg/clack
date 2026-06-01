@@ -50,7 +50,7 @@ DEFAULT BEHAVIOR (\`reprocessQuestionIds\` absent or empty): processes EVERY que
 REPROCESS MODE (\`reprocessQuestionIds\` non-empty — DESTRUCTIVE for boolean/choice; rejected for freeform): for boolean/choice questions, hard-deletes the prior \`SubmittedAnswer\` rows for that question, then re-derives scoring from the CURRENT stored button-click answers + cheats list (which may now include cheaters flagged after the original reveal). For freeform questions the modal submissions are immutable, so the per-handler reveal pipeline rejects reprocess. Stamps \`processedAt\` (overwriting prior values). Does NOT pick up unrelated pending questions in this mode.
 
 PAYLOAD SHAPE (renderer contract):
-- \`reveals: Array<{ questionId, statement, category, emojis, messageLink, wasReprocessed, answer, voters }>\`
+- \`reveals: Array<{ questionId, statement, category, emojis, messageLink, wasReprocessed, answer, voters, media? }>\` — \`media\` is present ONLY on image-medium questions and carries \`{ title, attribution?, license? }\` for the reveal attribution line (no url/subjectId).
   - \`answer\` (dispatched on \`type\`):
 ${PER_FORMAT_ANSWER_SHAPES}
   - \`voters\` is a DISCRIMINATED UNION keyed on the question's stamped \`revealResponses\` mode (one of four variants):
@@ -226,14 +226,32 @@ export function createProcessRevealAnswersTool(
         const handler = getAnswerTypeHandler(question.answersFormat);
         const outcome = await handler.processReveal(question, revealDeps);
         if (outcome.ok) {
-          entriesById.set(question.id, outcome.entry);
+          // Image-medium questions carry attribution for the reveal's "📷 Image: …"
+          // line. Stamp it centrally (DRY across answer-type handlers); expose only
+          // title/attribution/license — never url/subjectId (not needed; leak surface).
+          const entry: ProcessRevealEntry =
+            question.media !== undefined
+              ? {
+                  ...outcome.entry,
+                  media: {
+                    title: question.media.title,
+                    ...(question.media.attribution !== undefined
+                      ? { attribution: question.media.attribution }
+                      : {}),
+                    ...(question.media.license !== undefined
+                      ? { license: question.media.license }
+                      : {}),
+                  },
+                }
+              : outcome.entry;
+          entriesById.set(question.id, entry);
           // Repaint the original question card into its final static state. This
           // is a non-fatal side effect: editRevealIntoCard swallows its own
           // failures, so a failed edit never affects the payload below.
           await editRevealIntoCard({
             updateMessage: (channel, ts, blocks) => slackDeps.updateMessage(channel, ts, blocks),
             question,
-            entry: outcome.entry,
+            entry,
             actionId: sdk.actionId,
           });
         } else {

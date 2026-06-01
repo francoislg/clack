@@ -50,6 +50,15 @@ export interface TriviaAnswersFormatWeights {
 export type TriviaQuestionTypeWeights = Record<"fact" | "topical", number>;
 
 /**
+ * Weighted-random map for the orthogonal prompt-delivery medium axis. `text` questions
+ * are delivered as text (today's behavior); `image` questions are delivered with an image
+ * prompt sourced from an external `*_image_search__*` MCP tool. Defaults to
+ * `{ text: 1, image: 0 }` (pre-visual behavior). Cascades slot → season → game →
+ * workspace → default like the other weighted axes.
+ */
+export type PromptMediumWeights = Record<"text" | "image", number>;
+
+/**
  * The shape Claude should aim for when writing a freeform-answer question. Rolled
  * by `get_ideas` on the freeform branch only — boolean/choice questions ignore it.
  */
@@ -198,6 +207,8 @@ export interface TriviaGame {
    */
   answersFormat?: TriviaAnswersFormatWeights;
   questionType?: TriviaQuestionTypeWeights;
+  /** Per-game tier of the prompt-medium axis. Cascade slot → season → game → workspace → default. */
+  promptMedium?: PromptMediumWeights;
   freeformAnswerShape?: TriviaFreeformAnswerShapeWeights;
   contexts?: TriviaContextEntry[];
   difficulty?: TriviaDifficultyConfig;
@@ -275,6 +286,8 @@ export interface SeasonFormatSlot {
   categories?: string[];
   answersFormat?: TriviaAnswersFormatWeights;
   questionType?: TriviaQuestionTypeWeights;
+  /** Highest-precedence tier of the prompt-medium axis. */
+  promptMedium?: PromptMediumWeights;
   freeformAnswerShape?: TriviaFreeformAnswerShapeWeights;
   contexts?: TriviaContextEntry[];
   difficulty?: TriviaDifficultyConfig;
@@ -327,6 +340,8 @@ export interface TriviaConfig {
   answersFormat?: TriviaAnswersFormatWeights;
   /** Workspace default; overridable per-season / per-game / per-slot. */
   questionType?: TriviaQuestionTypeWeights;
+  /** Workspace default for the prompt-medium axis; overridable per-season / per-game / per-slot. */
+  promptMedium?: PromptMediumWeights;
   /** Workspace default; freeform-branch only. */
   freeformAnswerShape?: TriviaFreeformAnswerShapeWeights;
   /** Optional lens axis. */
@@ -372,6 +387,9 @@ export const DEFAULT_TRIVIA_CHOICES: TriviaChoicesConfig = { min: 4, max: 4 };
 
 /** Built-in fallback when no `questionType` weights are set at any cascade tier. */
 export const DEFAULT_QUESTION_TYPE_WEIGHTS: TriviaQuestionTypeWeights = { fact: 1, topical: 0 };
+
+/** Built-in fallback when no `promptMedium` weights are set at any cascade tier. */
+export const DEFAULT_PROMPT_MEDIUM_WEIGHTS: PromptMediumWeights = { text: 1, image: 0 };
 
 /** Built-in fallback when no `freeformAnswerShape` weights are set at any cascade tier. */
 export const DEFAULT_FREEFORM_ANSWER_SHAPE_WEIGHTS: TriviaFreeformAnswerShapeWeights = {

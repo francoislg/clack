@@ -144,6 +144,75 @@ describe("find_previous_questions response shape (single game)", () => {
     ]);
   });
 
+  it("surfaces promptMedium and media on image-medium questions (the posting run needs them)", async () => {
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion({
+      id: "img1",
+      category: "Geography",
+      statement: "Which landmark is shown?",
+      answersFormat: "freeform",
+      expectedAnswer: "Eiffel Tower",
+      promptMedium: "image",
+      media: {
+        kind: "image",
+        url: "https://upload.wikimedia.org/x/thumb.jpg",
+        altText: "a landmark",
+        subjectId: "wikidata:Q243",
+        title: "Eiffel Tower",
+        license: "CC-BY-SA 4.0",
+        attribution: "via Wikimedia Commons",
+      },
+      emojis: ["🗼"],
+      createdAt: 10,
+    });
+
+    const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
+    const result = await tool.handler(
+      {
+        games: [FIXTURE_GAME_NAME],
+        categories: ["Geography"],
+        seasons: undefined,
+        keywords: undefined,
+        match: undefined,
+        posted: undefined,
+        recentBatchFromNow: undefined,
+        limit: undefined,
+      },
+      SESSION,
+    );
+    const q = parseToolResult(result).questions[0];
+    assert.equal(q.promptMedium, "image");
+    assert.deepEqual(q.media, {
+      kind: "image",
+      url: "https://upload.wikimedia.org/x/thumb.jpg",
+      altText: "a landmark",
+      subjectId: "wikidata:Q243",
+      title: "Eiffel Tower",
+      license: "CC-BY-SA 4.0",
+      attribution: "via Wikimedia Commons",
+    });
+  });
+
+  it("omits promptMedium and media on text-medium questions", async () => {
+    const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
+    const result = await tool.handler(
+      {
+        games: [FIXTURE_GAME_NAME],
+        categories: ["History"],
+        seasons: undefined,
+        keywords: undefined,
+        match: undefined,
+        posted: undefined,
+        recentBatchFromNow: undefined,
+        limit: undefined,
+      },
+      SESSION,
+    );
+    const q = parseToolResult(result).questions[0];
+    assert.equal("promptMedium" in q, false);
+    assert.equal("media" in q, false);
+  });
+
   it("omits postedAt, messageLink, and matchedKeywords when not applicable", async () => {
     const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
     const result = await tool.handler(

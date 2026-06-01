@@ -367,7 +367,72 @@ Repeat until every slot index in \`[0..slotCount-1]\` is covered (either FILLED 
  * Shared verbatim between PREP and POST — both prompts include this content as the
  * substantive generation guidance for any slot that needs to be freshly written.
  */
-const PER_SLOT_GENERATION_PATHS = `Per-question/per-slot generation DISPATCHES on a 2-axis matrix: \`suggestedAnswersFormat\` × \`suggestedQuestionType\`. The answer-shape axis (boolean / choice / freeform) selects ONE OF THREE PATH BODIES below. The question-type axis (fact / topical) is a MODIFIER: \`"fact"\` runs the path body unchanged; \`"topical"\` applies the TOPICAL MODIFIER (which prepends a WebSearch step and adds save fields) on top of the same path body.
+/**
+ * Image-medium gates + the shared subject-discovery subflow. The six visual paths
+ * (image × {boolean, choice, freeform} × {fact, topical}) share VISUAL_RESEARCH_SUBFLOW
+ * for the discovery half and diverge on statement-writing per answersFormat. Topical
+ * variants layer the existing TOPICAL_MODIFIER on top (the WebSearch step grounds the
+ * SUBJECT in a recent event before the subflow searches for its image).
+ */
+const IMAGE_INSPECTION_GATE = `IMAGE INSPECTION GATE (shared across all visual paths — invoke wherever the VISUAL RESEARCH SUBFLOW says "apply the IMAGE INSPECTION GATE"). The image-search tool returns the picture INLINE — actually LOOK at it before writing anything. Evaluate four things:
+   1. SUBJECT MATCH: does the image actually depict the subject the metadata claims? (Upstream "main images" are sometimes a diagram, coat of arms, map, or tangential photo rather than a canonical depiction.)
+   2. SUBJECT CLARITY: is the subject clearly visible — no heavy obstruction, no competing subjects, adequate resolution and angle for a player to recognize it?
+   3. ANSWER LEAKAGE: does the image contain text, captions, watermarks, labels, or other in-image content that reveals the answer (a flag with the country name baked in, a jersey with the team name, a museum placard)?
+   4. DISTINGUISHING FEATURES: note what is visually evident — this informs distractor choice (choice) or the confusable identity-swap (boolean).
+   If check (1), (2), or (3) FAILS → re-roll per the subflow's retry budget. The failure is silent (no tool error), same as a duplicate hit.`;
+
+const IMAGE_IS_QUESTION_GATE = `IMAGE-IS-QUESTION GATE (shared across all visual paths — invoke wherever a visual path step says "apply the IMAGE-IS-QUESTION GATE"). Thought experiment: "If I removed the image and showed ONLY the statement, could a player still answer?" If YES → the image is decorative → REJECT and rewrite so the image is REQUIRED to answer.
+   - VALID (image required): "Who is this?" / "This is the flag of Ecuador. T/F" / "This bird species is native to Europe. T/F" (with a Cardinal photo).
+   - INVALID (image decorative): "Birds have hollow bones. T/F" (true regardless of which bird is shown) / "The capital of France is Paris. T/F" (with an Eiffel Tower photo) / "How many planets are in our solar system?" (with a Saturn photo).
+   Run this BEFORE the polarity / plausibility / difficulty gates — a question that fails here is wrong-shaped and shouldn't be difficulty-rated.`;
+
+const VISUAL_RESEARCH_SUBFLOW = `VISUAL RESEARCH SUBFLOW (subject discovery — shared by all 6 visual paths; the statement-writing half diverges per answersFormat below):
+   a. Pick one category from \`categories.ideas\` (the SAME pool as text medium — there is no separate visual pool).
+   b. Brainstorm 3–5 candidate subjects in that category. (For \`topical\` variants, the TOPICAL MODIFIER's WebSearch step runs FIRST and grounds these candidates in a recent event.)
+   c. PICK AN IMAGE-SEARCH TOOL: scan your available tools for any whose NAME contains \`image_search\` (e.g. \`mcp__commons_image_search__find_subject\`, \`mcp__brave_image_search__find_image\`, \`mcp__tmdb_image_search__find_movie\`). Choose the one whose description best fits the rolled category (Commons for flags / people / landmarks / paintings; a movies-or-TV source for film; generic web search as the long-tail fallback). **If NO \`*_image_search__*\` tool is available, ABORT the visual path IMMEDIATELY — do NOT consume the retry budget — and fall back to the TEXT-medium path for the same \`answersFormat × questionType\` (treat this run as a text roll). This is the graceful "no image provider installed" path; no error surfaces.**
+   d. Call the chosen tool with \`query: <candidate subject>\`. It returns a multimodal result: an inline image block PLUS a text metadata block carrying \`{ source, subjectId, title, imageUrl, license?, attribution? }\`. (On a structured error — notFound / rateLimit / network / keyMissing / etc. — treat it as a failed candidate and re-roll per the retry budget.)
+   e. Apply the IMAGE INSPECTION GATE (shared definition above) on the returned image.
+   f. Parse \`subjectId\` from the metadata block and call \`find_previous_subjects({ game: "{game}", subjectId })\`. If it returns ANY match, this subject was already asked about — re-roll.
+   g. RETRY BUDGET (covers inspection-gate failures, image-is-question-gate failures, tool errors, and dedup hits): up to 3 candidate re-rolls within the same category (a different \`query\`, OR a different available \`*_image_search__*\` tool), THEN up to 2 category re-rolls (a different entry in \`categories.ideas\`). If all attempts are exhausted, ABORT the visual path and fall back to the TEXT-medium path for the same \`answersFormat × questionType\`.
+   The subject's \`title\`, \`imageUrl\`, \`subjectId\`, \`license\`, \`attribution\`, plus a \`altText\` you compose become the \`media\` object passed to save_question.`;
+
+const VISUAL_CHOICE_FLOW_STEPS = `1. Run the VISUAL RESEARCH SUBFLOW (shared definition above) to discover + inspect a subject. get_ideas also returned \`suggestedChoiceCount\` and \`suggestedCorrectIndex\` — honor both exactly.
+2. WRITE AN IDENTIFICATION PROMPT that REQUIRES the image ("Who is this?", "What animal is this?", "Which landmark is shown?"). Place the subject's \`title\` (from the metadata block) at \`suggestedCorrectIndex\`; write (suggestedChoiceCount − 1) same-category-sibling distractors (other plausible identities of the same kind). Apply the STATEMENT–CHOICES NON-OVERLAP GATE (shared definition above).
+3. DISTRACTOR PLAUSIBILITY GATE (shared definition above — same four conditions; rewrite ONLY distractors, never the correct title at suggestedCorrectIndex).
+4. Apply the IMAGE-IS-QUESTION GATE (shared definition above).
+5. DIFFICULTY GATE (shared definition above) — CHOICE reframe rule (correct POSITION locked at suggestedCorrectIndex). (Dedup is handled by \`find_previous_subjects\` inside the subflow — do NOT also run the text DUPLICATE CHECK GATE here; the templated "Which … is shown?" prompt would false-positive against every prior visual question.)
+6. Choose 1–4 emojis. Compose \`media.altText\` — an accessibility description of the image that does NOT reveal the answer (describe generically, e.g. "a national flag" not "the flag of Ecuador").
+7. HINT (optional): apply the HINT DRAFTING GATE (shared definition above).
+8. SAVE: call save_question with \`promptMedium: "image"\`, \`answersFormat: "choice"\`, \`questionType: "fact"\`, category, statement, choices, correctIndex (= suggestedCorrectIndex), \`media: { kind: "image", url: <imageUrl>, altText, subjectId, title, license?, attribution? }\`, emojis, suggestedDifficulty, difficulty, context?, hint?, slot?. Store the returned questionId AND slot.index for the post step.`;
+
+const VISUAL_BOOLEAN_FLOW_STEPS = `1. Run the VISUAL RESEARCH SUBFLOW (shared definition above). get_ideas also returned \`suggestedAnswer\` — the truth value the claim MUST have.
+2. WRITE A CLAIM-BASED STATEMENT about the image's subject. Branch on suggestedAnswer:
+   - TRUE: assert the correct identity ("This is the flag of Ecuador.") OR a true image-grounded property ("This bird species is native to North America." + a Cardinal photo).
+   - FALSE: swap to a CONFUSABLE subject ("This is the flag of Colombia." shown an Ecuador flag) OR assert an image-grounded property that is WRONG for the shown subject ("This bird species is native to Europe." + a Cardinal photo). Use the distinguishing features noted during inspection to pick the most confusable swap.
+   The claim MUST require identifying the subject FROM THE IMAGE — generic category facts ("Birds have feathers") are decoration, not visual questions.
+3. POLARITY SELF-CHECK (REQUIRED — same as the boolean path body): state suggestedAnswer, what your claim actually asserts, and whether they match. If not, rewrite.
+4. DUAL DEDUP CHECK (REQUIRED for image+boolean only): the subflow already ran \`find_previous_subjects\`. ADDITIONALLY apply the DUPLICATE CHECK GATE (shared definition above) against the CLAIM TEXT — an image+boolean claim ("This is the flag of Ecuador") can recur with a different image, so the claim must also be unique. Re-roll if EITHER check hits. (Image+choice and image+freeform do NOT use this dual-check — only image+boolean.)
+5. Apply the IMAGE-IS-QUESTION GATE (shared definition above).
+6. DIFFICULTY GATE (shared definition above) — BOOLEAN reframe rule (re-run the POLARITY SELF-CHECK on any reframe).
+7. Choose 1–4 emojis. Compose \`media.altText\` (generic; never reveal the answer).
+8. HINT (optional): apply the HINT DRAFTING GATE (shared definition above).
+9. SAVE: call save_question with \`promptMedium: "image"\`, \`answersFormat: "boolean"\`, \`questionType: "fact"\`, category, statement, isTrue (= suggestedAnswer), \`media: { kind: "image", url: <imageUrl>, altText, subjectId, title, license?, attribution? }\`, emojis, suggestedDifficulty, difficulty, context?, hint?, slot?. Store the returned questionId AND slot.index.`;
+
+const VISUAL_FREEFORM_FLOW_STEPS = `1. Run the VISUAL RESEARCH SUBFLOW (shared definition above). get_ideas also returned \`suggestedFreeformAnswerShape\` — pass it through to save unchanged.
+2. WRITE A TYPED-IDENTIFICATION PROMPT that REQUIRES the image ("Who is this?", "What animal is this?", "Which landmark is shown?"). Set \`expectedAnswer\` to the subject's \`title\` from the metadata block (canonical, trimmed form — no articles/qualifiers). Optionally populate \`acceptableAnswers\` with observed variants ("Eiffel Tower" / "La Tour Eiffel" / "Sagarmatha") and \`gradingNotes\` when a category-level acceptance pattern helps the reveal-time judge. No polarity gate, no plausibility gate (no distractors, no polarity to flip).
+3. Apply the IMAGE-IS-QUESTION GATE (shared definition above). (Dedup is handled by \`find_previous_subjects\` inside the subflow — do NOT run the text DUPLICATE CHECK GATE; the templated prompt would false-positive.)
+4. DIFFICULTY GATE (shared definition above) — FREEFORM reframe rule.
+5. Choose 1–4 emojis. Compose \`media.altText\` (generic; never reveal the answer).
+6. HINT (optional): apply the HINT DRAFTING GATE (shared definition above).
+7. SAVE: call save_question with \`promptMedium: "image"\`, \`answersFormat: "freeform"\`, \`questionType: "fact"\`, category, statement, expectedAnswer, acceptableAnswers?, gradingNotes?, freeformAnswerShape (= suggestedFreeformAnswerShape), \`media: { kind: "image", url: <imageUrl>, altText, subjectId, title, license?, attribution? }\`, emojis, suggestedDifficulty, difficulty, context?, hint?, slot?. Store the returned questionId AND slot.index.`;
+
+const PER_SLOT_GENERATION_PATHS = `Per-question/per-slot generation DISPATCHES on a 3-axis matrix: \`suggestedPromptMedium\` × \`suggestedAnswersFormat\` × \`suggestedQuestionType\`.
+
+PROMPT-MEDIUM DISPATCH (FIRST — read \`suggestedPromptMedium\`):
+- \`"text"\` (default): use the TEXT-MEDIUM path bodies below (boolean / choice / freeform), selected by \`suggestedAnswersFormat\` and modified by \`suggestedQuestionType\` exactly as before.
+- \`"image"\`: use the IMAGE-MEDIUM (VISUAL) path bodies below. ALL six visual paths first run the VISUAL RESEARCH SUBFLOW (which short-circuits to text when no \`*_image_search__*\` tool is installed), then diverge on \`suggestedAnswersFormat\`. \`suggestedQuestionType: "topical"\` layers the TOPICAL MODIFIER on top (its WebSearch step grounds the SUBJECT in a recent event before the subflow searches for its image).
+
+Within either medium, the answer-shape axis (boolean / choice / freeform) selects ONE OF THREE PATH BODIES. The question-type axis (fact / topical) is a MODIFIER: \`"fact"\` runs the path body unchanged; \`"topical"\` applies the TOPICAL MODIFIER (which prepends a WebSearch step and adds save fields) on top of the same path body.
 
 | | \`suggestedAnswersFormat: "boolean"\` | \`suggestedAnswersFormat: "choice"\` | \`suggestedAnswersFormat: "freeform"\` |
 |---|---|---|---|
@@ -404,7 +469,31 @@ ${FREEFORM_FACT_FLOW_STEPS}
 
 === TOPICAL MODIFIER (applied on top of any path body when suggestedQuestionType === "topical") ===
 
-${TOPICAL_MODIFIER}`;
+${TOPICAL_MODIFIER}
+
+=== IMAGE-MEDIUM (VISUAL) PATHS (used when suggestedPromptMedium === "image") ===
+
+The six visual paths share these gates + the subject-discovery subflow, then diverge on answersFormat. The VISUAL RESEARCH SUBFLOW short-circuits to the text path when no \`*_image_search__*\` tool is installed, so these paths are safe to attempt unconditionally.
+
+${IMAGE_INSPECTION_GATE}
+
+${IMAGE_IS_QUESTION_GATE}
+
+${VISUAL_RESEARCH_SUBFLOW}
+
+--- VISUAL CHOICE PATH BODY (image + choice) ---
+
+${VISUAL_CHOICE_FLOW_STEPS}
+
+--- VISUAL BOOLEAN PATH BODY (image + boolean) ---
+
+${VISUAL_BOOLEAN_FLOW_STEPS}
+
+--- VISUAL FREEFORM PATH BODY (image + freeform) ---
+
+${VISUAL_FREEFORM_FLOW_STEPS}
+
+For the THREE topical visual combinations (image + topical + {choice, boolean, freeform}), apply the TOPICAL MODIFIER above ON TOP OF the matching visual path body: its WebSearch step grounds the SUBJECT in a recent event (which person / landmark / work is in the news), then the VISUAL RESEARCH SUBFLOW searches for that subject's image. Save with the modifier's extra fields (\`questionType: "topical"\`, \`sourceUrl\`, \`eventDate?\`) alongside the visual save fields (\`promptMedium: "image"\`, \`media\`).`;
 
 /**
  * The presentation half of the post-cron prompt — opener gating, card layout, post + retry,
@@ -464,7 +553,7 @@ General emoji rule (re-emphasized): the opener's header MUST use Unicode emoji (
       - \`title\`: \`{ type: "mrkdwn", text: "<emoji> <Category>" }\` — JUST the category from step 1, with a topic-fitting emoji prefix. Same shape for BOTH fact and topical questions. No "TRIVIA TIME" here, no flavor text, no "(Current News)" suffix.
       - \`subtitle\`: TOPICAL questions ONLY (questionType: "topical") — \`{ type: "mrkdwn", text: "<Current News label>" }\`, a short "Current News" label rendered in the session's output language per the LANGUAGE directive (English \`Current News\`, French \`Actualités\`). This is what tells viewers the question is anchored to a recent event. OMIT entirely on FACT questions.
       - \`body\`: \`{ type: "mrkdwn", text: "<statement>" }\` — JUST the statement. For choice questions, the choices themselves render as buttons (see ANSWER BUTTONS below); the card body holds the question text only. Do NOT include any inline TRUE/FALSE vote line, numbered choice list, or freeform Answer-button nudge inside the card body — buttons replace all of those.
-      - Do NOT set \`hero_image\` or \`icon\`.
+      - Do NOT set \`hero_image\` or \`icon\`. **IMAGE-MEDIUM questions (promptMedium: "image"):** keep the card \`title\` + \`body\` only, then add a SEPARATE \`image\` block right AFTER the card (and before the closer context) — \`{ "type": "image", "image_url": "<media.url>", "alt_text": "<media.altText>" }\` built from the record's \`media\`. A natural touch: prefix the card \`title\` emoji with 📷 to cue that this is a visual question.
    4. \`context\` block — a short closer line nudging people to vote ("Cast your vote below — the stakes are HIGH! 🎲", "Who will be crowned champion? 🏆", etc.). One mrkdwn element. The tool's appended \`actions\` block lands BETWEEN the card (#3) and this closer (#4), so the buttons sit right above your closer.
 
    NEVER predict when the answer will be revealed. Do NOT write phrases like "answer tomorrow", "results in 24 hours", "tune in later today", "we'll reveal soon", "stay tuned for tonight's reveal", or any other timing claim. The reveal is on a separate schedule that this run has no visibility into — guessing is wrong more often than it's right. Keep the closer focused on voting ("Cast your vote!", "Place your bets!", "Lock in your answer!") not on the reveal cadence.
@@ -629,6 +718,7 @@ Deliver today's trivia reveal. There are exactly TWO steps — the deterministic
      - \`questionId\`, \`statement\`, \`category\`, \`emojis\`, \`messageLink\`.
      - \`wasReprocessed\` (boolean) — true if this was a corrective re-run (rare; affects tone slightly — acknowledge subtly without dwelling).
      - \`answer\`: \`{ type: "boolean", isTrue }\` for boolean questions; \`{ type: "choice", choices, correctIndex }\` for choice; \`{ type: "freeform", expectedAnswer, acceptableAnswers?, gradingNotes? }\` for freeform (the user typed their answer into a modal).
+     - \`media\` (OPTIONAL — present ONLY on image-medium questions): \`{ title, attribution?, license? }\`. When present, append ONE \`context\` block to that question's reveal: \`{ type: "context", elements: [{ type: "mrkdwn", text: "📷 Image: <attribution> · <license>" }] }\`. Use the 📷 Unicode char (NEVER \`:camera:\`). Omit \` · <license>\` when \`license\` is absent; omit the whole block when BOTH \`attribution\` and \`license\` are absent. The block goes immediately AFTER that question's verdict/answer section (in multi-question reveals, before the next question's divider); the cumulative leaderboard table stays last. This honors source license terms (CC-BY-SA requires attribution).
      - \`voters\`: a DISCRIMINATED UNION keyed on \`voters.revealResponses\` (the per-question reveal-mode stamped at post-time by \`post_questions\`). One of four variants:
        - \`{ revealResponses: "yes", correct: Voter[], incorrect: Voter[], noAnswer: Voter[], reactions: Array<{ userId, displayName, emojis: string[] }> }\` — full per-bucket detail; for FREEFORM entries, every \`Voter\` in \`correct\` and \`incorrect\` carries an additional \`answerText\` field (the user's typed answer) which you MUST QUOTE in the reveal.
        - \`{ revealResponses: "just-correctness", correct: Voter[], incorrect: Voter[], noAnswer: Voter[], reactions: Array<{ userId, displayName, emojis: string[] }> }\` — same bucket structure as \`"yes"\`, BUT freeform \`Voter\`s have NO \`answerText\` field (admin chose to hide the typed strings). You MUST NOT invent or speculate about what they typed.
@@ -871,8 +961,12 @@ Create via create_scheduled_message with:
     "mcp__trivia__send_questions_instructions",
     "mcp__trivia__get_ideas",
     "mcp__trivia__find_previous_questions",
+    "mcp__trivia__find_previous_subjects",
     "mcp__trivia__save_question"
   ]
+  NOTE: do NOT add any \`*_image_search__*\` tool to this list. Image-search tools come from
+  separately-installed external plugins; the visual-research subflow discovers whatever is
+  available at runtime. Hard-coding one here would couple the schedule to that plugin being installed.
 - prompt: "Call send_questions_instructions and follow the returned instructions exactly."
 
 ## Schedule B — Process responses

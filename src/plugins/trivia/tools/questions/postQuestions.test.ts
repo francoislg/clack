@@ -370,3 +370,79 @@ describe("post_questions tool", () => {
     assert.equal(q1?.batchId, q2?.batchId);
   });
 });
+
+/** Card blocks (header → section → card) plus an image block Claude built below the card. */
+const CARD_BLOCKS_WITH_IMAGE: ZodBlock[] = [
+  { type: "header", text: { type: "plain_text", text: "Trivia" } },
+  { type: "section", text: { type: "mrkdwn", text: "warm-up" } },
+  {
+    type: "card",
+    title: { type: "mrkdwn", text: "📷 Landmarks" },
+    body: { type: "mrkdwn", text: "Q?" },
+  },
+  {
+    type: "image",
+    image_url: "https://upload.wikimedia.org/x/thumb.jpg",
+    alt_text: "A landmark photo",
+  },
+];
+
+function postItem(questionId: string, blocks: ZodBlock[] = SAMPLE_BLOCKS) {
+  return {
+    game: FIXTURE_GAME_NAME,
+    items: [{ questionId, blocks }],
+    appendToPreviousBatch: undefined,
+    suppress_unfurls: undefined,
+  };
+}
+
+/** Find an image block in a posted block array, or undefined. */
+function findImageBlock(
+  blocks: SlackBlocks,
+): { image_url?: string; alt_text?: string } | undefined {
+  const hit = blocks.find((b) => (b as { type?: string }).type === "image");
+  if (hit === undefined) return undefined;
+  return hit as { image_url?: string; alt_text?: string };
+}
+
+describe("post_questions is medium-agnostic for images", () => {
+  it("posts a Claude-supplied image block unchanged, exactly once, adding no second image", async () => {
+    const data = createInMemoryDataLayer();
+    await seedQuestion(data, { id: "IMG1", promptMedium: "image" });
+    const { deps, calls } = fakeSlackDeps();
+    const tool = createPostQuestionsTool(data, fakeSdk(), fixtureGetGames, deps);
+
+    const parsed = parseToolResult(
+      await tool.handler(postItem("IMG1", CARD_BLOCKS_WITH_IMAGE), SESSION),
+    );
+    assert.equal(parsed.results[0].ok, true);
+
+    // Exactly one Slack post.
+    assert.equal(calls.postBlocksCalls.length, 1);
+    const posted = calls.postBlocksCalls[0].blocks;
+    // Exactly one image block — Claude's, untouched. The tool added none.
+    const imageBlocks = posted.filter((b) => (b as { type?: string }).type === "image");
+    assert.equal(imageBlocks.length, 1);
+    const img = findImageBlock(posted);
+    assert.equal(img?.image_url, "https://upload.wikimedia.org/x/thumb.jpg");
+    assert.equal(img?.alt_text, "A landmark photo");
+    // It sits where Claude placed it — right after the card.
+    const cardIdx = posted.findIndex((b) => (b as { type?: string }).type === "card");
+    const imgIdx = posted.findIndex((b) => (b as { type?: string }).type === "image");
+    assert.equal(imgIdx, cardIdx + 1);
+  });
+
+  it("injects no image block when the supplied blocks contain none", async () => {
+    const data = createInMemoryDataLayer();
+    // An image-medium question whose blocks (erroneously) omit the image block:
+    // the tool does NOT compensate — it posts exactly what it was given.
+    await seedQuestion(data, { id: "IMG2", promptMedium: "image" });
+    const { deps, calls } = fakeSlackDeps();
+    const tool = createPostQuestionsTool(data, fakeSdk(), fixtureGetGames, deps);
+
+    const parsed = parseToolResult(await tool.handler(postItem("IMG2", SAMPLE_BLOCKS), SESSION));
+    assert.equal(parsed.results[0].ok, true);
+    assert.equal(calls.postBlocksCalls.length, 1);
+    assert.equal(findImageBlock(calls.postBlocksCalls[0].blocks), undefined);
+  });
+});

@@ -256,6 +256,103 @@ The combination of `posted: true` (or omitted) with `recentBatchFromNow` SHALL r
 - **THEN** the tool returns a structured error citing both arguments and explaining the conflict
 - **AND** no question scan is performed
 
+### Requirement: save_question validates promptMedium and media
+
+The `save_question` tool SHALL accept two new optional input fields:
+
+- `promptMedium: "text" | "image"` — when absent, the stored record is stamped with `"text"` (the new default).
+- `media: { kind: "image", url, altText, subjectId, title, license?, attribution? }` — required when `promptMedium === "image"`, forbidden when `promptMedium === "text"`.
+
+The tool SHALL enforce these constraints at the boundary:
+
+1. **Media required-when-image**: when `promptMedium === "image"`, `media` MUST be present and MUST contain non-empty `url`, `altText`, `subjectId`, and `title` strings, with `kind === "image"`. The tool SHALL reject calls missing or partial.
+2. **Media forbidden-when-text**: when `promptMedium === "text"` (or absent), `media` MUST NOT be set. The tool SHALL reject calls that pass `media` without `promptMedium: "image"`.
+3. **URL hygiene**: `media.url` MUST be an HTTPS URL. The tool SHALL reject http:// and non-URL strings.
+4. **altText content**: `media.altText` MUST be a non-empty string ≤ 2000 characters at storage time. The tool SHALL reject calls with `altText` exceeding 2000 characters (this matches Slack Block Kit's `alt_text` limit; rejecting at save time means `post_questions` can pass the value through without re-truncation). It MUST NOT contain Block Kit markup (`*bold*`, `<@USERID>` mentions, channel pings) — text only, newlines permitted. The tool SHALL strip any Block Kit markup it finds before storing (defense-in-depth; the prompt should not be producing such content for altText).
+
+The tool SHALL NOT impose any cross-axis constraint between `promptMedium` and `answersFormat`. All six combinations (`{text, image} × {boolean, choice, freeform}`) are valid and SHALL save successfully when the per-axis field validation passes. The freeform `expectedAnswer` field SHALL be permitted alongside `media` when `answersFormat: "freeform"` and `promptMedium: "image"` are both set.
+
+When validation passes, the stored record SHALL carry `promptMedium` (always, including when `"text"` for new writes) and `media` (when `promptMedium === "image"`).
+
+#### Scenario: Image + choice + media saves successfully
+
+- **WHEN** `save_question` is called with `promptMedium: "image"`, `answersFormat: "choice"`, valid `media`, and the other required choice fields
+- **THEN** the question is saved with `promptMedium`, `media`, and the choice answer key
+
+#### Scenario: Image + boolean + media saves successfully
+
+- **WHEN** `save_question` is called with `promptMedium: "image"`, `answersFormat: "boolean"`, `isTrue: true`, and a valid `media` object
+- **THEN** the question is saved with `promptMedium`, `media`, and `isTrue`
+
+#### Scenario: Image + freeform + media saves successfully
+
+- **WHEN** `save_question` is called with `promptMedium: "image"`, `answersFormat: "freeform"`, `expectedAnswer: "Capybara"`, optional `acceptableAnswers: ["Hydrochoerus hydrochaeris"]`, and a valid `media` object
+- **THEN** the question is saved with `promptMedium`, `media`, `expectedAnswer`, and `acceptableAnswers`
+
+#### Scenario: Image without media is rejected
+
+- **WHEN** `save_question` is called with `promptMedium: "image"` and no `media` argument
+- **THEN** the tool returns an error explaining that media is required for image medium
+
+#### Scenario: Text with media is rejected
+
+- **WHEN** `save_question` is called with `promptMedium: "text"` (or absent) AND a `media` argument
+- **THEN** the tool returns an error explaining that media is only allowed on image medium
+
+#### Scenario: Non-HTTPS media URL is rejected
+
+- **WHEN** `save_question` is called with `media.url: "http://example.com/image.jpg"` (or anything not starting with `https://`)
+- **THEN** the tool returns an error requiring HTTPS
+
+### Requirement: find_previous_subjects exact-match dedup tool
+
+The system SHALL expose a `find_previous_subjects({ game, subjectId, season? })` MCP tool that returns saved questions whose `media.subjectId` equals the argument. The `game` (required, non-empty string) scopes the search to that game's question history. The `subjectId` (required, non-empty string) is the exact source-namespaced ID to match. The tool SHALL accept `season: "all" | "current" | "<slug>"` with the same semantics as `find_previous_questions` (`"all"` is the default).
+
+The response shape SHALL be:
+
+```
+{ matches: Array<{ id, statement, createdAt, postedAt?, processedAt?, media: { title, subjectId } }>, count }
+```
+
+The response SHALL NOT include any answer-key fields (`correctIndex`, `isTrue`). The response SHALL NOT include `media.url`. The tool SHALL be available to the same role tier as `find_previous_questions`.
+
+**Subject-ID matching is exact-string, with no normalization across formats.** The two `subjectId` schemes (`wikidata:Q<n>` preferred, `wikipedia:<slug>` fallback) are treated as distinct keys: a record stored with `wikidata:Q243` does NOT match a query for `wikipedia:Eiffel_Tower` even when they refer to the same real-world subject. Cross-format unification is intentionally NOT performed — Wikipedia page renames make slug-to-QID mapping non-stable over time, and an attempted normalization layer would silently drop dedup signal when the mapping drifts. Callers SHOULD pass the QID form whenever the source data has it; the `wikipedia:` fallback exists only for pages without a QID.
+
+#### Scenario: Exact subjectId hit
+
+- **GIVEN** a saved question with `media.subjectId: "wikidata:Q243"`
+- **WHEN** `find_previous_subjects({ game, subjectId: "wikidata:Q243" })` is called
+- **THEN** that question appears in `matches`
+
+#### Scenario: No matches returns empty list
+
+- **WHEN** the subjectId is not present on any saved question
+- **THEN** the response is `{ matches: [], count: 0 }`
+
+#### Scenario: Legacy questions without media are excluded
+
+- **GIVEN** a game has questions saved before this change (no `media` field)
+- **WHEN** `find_previous_subjects` runs
+- **THEN** legacy records do not appear in `matches` regardless of the subjectId argument
+
+#### Scenario: Malformed media field is treated as no media
+
+- **GIVEN** a saved question whose `media` field is `null`, `{}`, or otherwise missing required keys (no `subjectId`)
+- **WHEN** `find_previous_subjects` runs
+- **THEN** the malformed record is silently excluded from `matches` (same treatment as legacy no-media records); the tool does NOT error on malformed data
+
+#### Scenario: Cross-format subjectId does NOT match
+
+- **GIVEN** a saved question with `media.subjectId: "wikidata:Q243"` (the Eiffel Tower's Wikidata QID)
+- **WHEN** `find_previous_subjects({ game, subjectId: "wikipedia:Eiffel_Tower" })` is called
+- **THEN** the query does NOT match (the two formats are distinct keys by design); the saved question does NOT appear in `matches`
+
+#### Scenario: Season filter scopes the search
+
+- **GIVEN** the same subjectId appears in questions from two different seasons
+- **WHEN** `find_previous_subjects({ ..., season: "current" })` is called
+- **THEN** only matches from the current season are returned
+
 ### Requirement: save_question replaces generate_question
 
 The system SHALL provide a `save_question` MCP tool (member role) that saves a new trivia question to a specified game.
@@ -379,6 +476,28 @@ Category validation reads from the game's currently-active season's `categories`
 - **GIVEN** `trivia.seasons.enabled` is `false`
 - **WHEN** `save_question` is called with `game: "main"` and valid arguments
 - **THEN** the new entry in `games/main/questions.json` contains no `season` field
+
+### Requirement: find_previous_questions surfaces promptMedium and media
+
+`find_previous_questions` SHALL include `promptMedium` and `media` on each returned row whenever the underlying record carries them, so that a posting run reading the staged pool (`posted: false`) has everything it needs to rebuild an image-medium question's `image` block. Specifically:
+
+- `promptMedium?: "text" | "image"` — present iff the record has a `promptMedium`. Absent on legacy and text-medium rows.
+- `media?: { kind: "image"; url: string; altText: string; subjectId: string; title: string; license?: string; attribution?: string }` — present iff the record has `media` (i.e. image-medium questions). Optional `license`/`attribution` are included only when set.
+
+Without these fields, a prep→post split could not render staged image questions: the post run would not see that a staged question is image-medium, nor have the `media.url` to build the block.
+
+`get_question_history` SHALL likewise include `promptMedium` and `media` (same shape, same presence rules) for consistency when inspecting a single question.
+
+#### Scenario: Image-medium staged question exposes promptMedium and media
+
+- **GIVEN** a staged (`posted: false`) question with `promptMedium: "image"` and a populated `media`
+- **WHEN** `find_previous_questions` returns it
+- **THEN** the row carries `promptMedium: "image"` and a `media` object with `kind`, `url`, `altText`, `subjectId`, and `title` (plus `license`/`attribution` when set)
+
+#### Scenario: Text-medium question omits promptMedium and media
+
+- **WHEN** `find_previous_questions` returns a text-medium (or legacy) question
+- **THEN** the row carries neither `promptMedium` nor `media`
 
 ### Requirement: Find previous questions response excludes the answer key
 

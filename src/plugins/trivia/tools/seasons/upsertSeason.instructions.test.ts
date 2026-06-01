@@ -18,6 +18,7 @@ function baseArgs(slug: string, startedAt: number) {
     theme: undefined,
     answersFormat: undefined,
     questionType: undefined,
+    promptMedium: undefined,
     freeformAnswerShape: undefined,
     contexts: undefined,
     difficulty: undefined,

@@ -21,6 +21,7 @@ import type {
   TriviaFreeformAnswerShapeWeights,
   TriviaHintConfig,
   TriviaQuestionTypeWeights,
+  PromptMediumWeights,
 } from "../configTypes.js";
 import { DEFAULT_TRIVIA_CHOICES } from "../configTypes.js";
 
@@ -35,6 +36,7 @@ export interface ParseIssue {
 
 export const ANSWERS_FORMAT_KEYS = ["boolean", "choice", "freeform"] as const;
 export const QUESTION_TYPE_KEYS = ["fact", "topical"] as const;
+export const PROMPT_MEDIUM_KEYS = ["text", "image"] as const;
 export const FREEFORM_ANSWER_SHAPE_KEYS = [
   "name",
   "place",
@@ -134,6 +136,42 @@ export function validateQuestionTypeMap(
     return { ok: false, error: `'${fieldLabel}' must have at least one strictly positive weight` };
   }
   return { ok: true, value: { fact: out.fact ?? 0, topical: out.topical ?? 0 } };
+}
+
+export function validatePromptMediumMap(
+  raw: unknown,
+  fieldLabel: string,
+): Result<PromptMediumWeights> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { ok: false, error: `'${fieldLabel}' must be an object` };
+  }
+  const out: Partial<PromptMediumWeights> = {};
+  let positiveCount = 0;
+  for (const [key, value] of Object.entries(raw)) {
+    if (!(PROMPT_MEDIUM_KEYS as readonly string[]).includes(key)) {
+      return {
+        ok: false,
+        error: `'${fieldLabel}' contains unknown key '${key}' (allowed: ${PROMPT_MEDIUM_KEYS.join(", ")})`,
+      };
+    }
+    if (
+      typeof value !== "number" ||
+      !Number.isFinite(value) ||
+      !Number.isInteger(value) ||
+      value < 0
+    ) {
+      return {
+        ok: false,
+        error: `'${fieldLabel}.${key}' must be a non-negative integer (got ${JSON.stringify(value)})`,
+      };
+    }
+    out[key as (typeof PROMPT_MEDIUM_KEYS)[number]] = value;
+    if (value > 0) positiveCount++;
+  }
+  if (positiveCount === 0) {
+    return { ok: false, error: `'${fieldLabel}' must have at least one strictly positive weight` };
+  }
+  return { ok: true, value: { text: out.text ?? 0, image: out.image ?? 0 } };
 }
 
 export function validateFreeformAnswerShapeMap(
@@ -432,6 +470,7 @@ export function validateTriviaChoicesConfig(
 export interface TriviaAxisBag {
   answersFormat?: TriviaAnswersFormatWeights;
   questionType?: TriviaQuestionTypeWeights;
+  promptMedium?: PromptMediumWeights;
   freeformAnswerShape?: TriviaFreeformAnswerShapeWeights;
   contexts?: TriviaContextEntry[];
   difficulty?: TriviaDifficultyConfig;
@@ -472,6 +511,9 @@ export function parseTriviaAxisBag(
   });
   apply("questionType", raw.questionType, validateQuestionTypeMap, (v) => {
     axes.questionType = v;
+  });
+  apply("promptMedium", raw.promptMedium, validatePromptMediumMap, (v) => {
+    axes.promptMedium = v;
   });
   apply("freeformAnswerShape", raw.freeformAnswerShape, validateFreeformAnswerShapeMap, (v) => {
     axes.freeformAnswerShape = v;
@@ -520,6 +562,12 @@ export const questionTypeZod = z.object({
   fact: integerWeight,
   topical: integerWeight,
 } satisfies WeightShape<(typeof QUESTION_TYPE_KEYS)[number]>);
+
+/** Shared zod schema for the `promptMedium` axis. */
+export const promptMediumZod = z.object({
+  text: integerWeight,
+  image: integerWeight,
+} satisfies WeightShape<(typeof PROMPT_MEDIUM_KEYS)[number]>);
 
 /** Shared zod schema for the `freeformAnswerShape` axis. */
 export const freeformAnswerShapeZod = z.object({
@@ -601,6 +649,7 @@ export const triviaHintZod = z.object({
 export const axisFieldsZod = {
   answersFormat: answersFormatZod,
   questionType: questionTypeZod,
+  promptMedium: promptMediumZod,
   freeformAnswerShape: freeformAnswerShapeZod,
   contexts: contextsZod,
   difficulty: difficultyZod,

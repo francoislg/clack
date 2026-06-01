@@ -6,6 +6,7 @@ import { defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
 import { requireGame } from "../../core/gamesRegistry.js";
 import type { JsonValue } from "../../core/configTypes.js";
 import type { TriviaDataLayer } from "../../core/types.js";
+import { mediaToJson } from "../../domain/mediaJson.js";
 
 const PER_FORMAT_SHAPES = getAllAnswerTypeHandlers()
   .map((h) => `- ${h.historyResultShapeDescription}`)
@@ -89,6 +90,8 @@ export function createGetQuestionHistoryTool(
         questionType,
         cheaterUserIds: cheaterOrder,
       };
+      if (question.promptMedium !== undefined) extras.promptMedium = question.promptMedium;
+      if (question.media !== undefined) extras.media = mediaToJson(question.media);
       if (question.context !== undefined) extras.context = question.context;
       if (question.sourceUrl !== undefined) extras.sourceUrl = question.sourceUrl;
       if (question.eventDate !== undefined) extras.eventDate = question.eventDate;
