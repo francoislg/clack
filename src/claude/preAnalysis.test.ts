@@ -1,6 +1,12 @@
 import { describe, it, beforeEach, vi } from "vitest";
 import assert from "node:assert/strict";
-import { runPreAnalysis, type PreAnalysisDeps, defaultPreAnalysisDeps } from "./preAnalysis.js";
+import {
+  runPreAnalysis,
+  runActiveRunPreAnalysis,
+  formatElapsedSeconds,
+  type PreAnalysisDeps,
+  defaultPreAnalysisDeps,
+} from "./preAnalysis.js";
 import type { clackQuery } from "./query.js";
 
 // ---------------------------------------------------------------------------
@@ -61,6 +67,7 @@ describe("runPreAnalysis", () => {
       undefined,
       undefined,
       undefined,
+      undefined,
       makeDeps(),
     );
     assert.equal(result, "respond");
@@ -76,6 +83,7 @@ describe("runPreAnalysis", () => {
       "Alice",
       "Clack",
       "Skip noise",
+      undefined,
       undefined,
       undefined,
       undefined,
@@ -99,6 +107,7 @@ describe("runPreAnalysis", () => {
       undefined,
       undefined,
       undefined,
+      undefined,
       makeDeps(),
     );
     assert.equal(result, "stop");
@@ -114,6 +123,7 @@ describe("runPreAnalysis", () => {
       "Alice",
       "Clack",
       "Only respond to errors",
+      undefined,
       undefined,
       undefined,
       undefined,
@@ -143,6 +153,7 @@ describe("runPreAnalysis", () => {
       undefined,
       undefined,
       undefined,
+      undefined,
       makeDeps(),
     );
     assert.equal(result, "skip");
@@ -158,6 +169,7 @@ describe("runPreAnalysis", () => {
       "Alice",
       "Clack",
       "context",
+      undefined,
       undefined,
       undefined,
       undefined,
@@ -185,6 +197,7 @@ describe("runPreAnalysis", () => {
       undefined,
       undefined,
       undefined,
+      undefined,
       makeDeps(),
     );
     assert.equal(result, "skip");
@@ -200,6 +213,7 @@ describe("runPreAnalysis", () => {
       "Alice",
       "Clack",
       "context",
+      undefined,
       undefined,
       undefined,
       undefined,
@@ -229,6 +243,7 @@ describe("runPreAnalysis", () => {
       undefined,
       undefined,
       undefined,
+      undefined,
       makeDeps(),
     );
     assert.equal(result, "respond");
@@ -254,6 +269,7 @@ describe("runPreAnalysis", () => {
       undefined,
       undefined,
       undefined,
+      undefined,
       makeDeps(),
     );
     assert.equal(result, "skip");
@@ -275,6 +291,7 @@ describe("runPreAnalysis", () => {
       undefined,
       undefined,
       undefined,
+      undefined,
       makeDeps(),
     );
 
@@ -283,7 +300,7 @@ describe("runPreAnalysis", () => {
     assert.ok(systemPrompt.includes("Only respond to product questions"));
     assert.ok(systemPrompt.includes("Clack"));
     assert.ok(systemPrompt.includes("prefer skip"));
-    assert.ok(systemPrompt.includes("prefer respond"));
+    assert.ok(systemPrompt.includes("DIRECT ADDRESS"));
     assert.ok(systemPrompt.includes("thank-you"));
     assert.ok(systemPrompt.includes("stop"));
     assert.equal(capturedOptions!.model, "sonnet");
@@ -306,6 +323,7 @@ describe("runPreAnalysis", () => {
       "Alice",
       "Clack",
       "Skip noise",
+      undefined,
       undefined,
       undefined,
       undefined,
@@ -347,6 +365,7 @@ describe("runPreAnalysis", () => {
       ],
       undefined,
       undefined,
+      undefined,
       makeDeps(),
     );
 
@@ -374,6 +393,7 @@ describe("runPreAnalysis", () => {
       undefined,
       "security-compliance",
       undefined,
+      undefined,
       makeDeps(),
     );
 
@@ -396,9 +416,287 @@ describe("runPreAnalysis", () => {
       undefined,
       undefined,
       undefined,
+      undefined,
       makeDeps(),
     );
 
     assert.ok(!capturedPrompt.includes("Channel:"));
+  });
+
+  // -------------------------------------------------------------------------
+  // Direct-address override + temporal-proximity guidance (system prompt)
+  // -------------------------------------------------------------------------
+  it("injects the direct-address override into the system prompt", async () => {
+    let capturedOptions: QueryCallArg["options"];
+    mockQuery.mockImplementation((...args: unknown[]) => {
+      capturedOptions = (args[0] as QueryCallArg).options;
+      return asyncIterableOf([{ type: "result", subtype: "success", result: "respond" }]);
+    });
+
+    await runPreAnalysis(
+      "come on Clack, use a worker",
+      "Alice",
+      "Clack",
+      "context",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      makeDeps(),
+    );
+
+    const systemPrompt = capturedOptions!.systemPrompt!;
+    // Directed messages are never skipped; verdict follows intent (respond vs stop).
+    assert.ok(systemPrompt.includes("DIRECT ADDRESS"));
+    assert.ok(systemPrompt.includes('NEVER "skip"'));
+    assert.ok(systemPrompt.includes("DIRECTED AT Clack"));
+    assert.ok(systemPrompt.includes('"Clack, stop"'));
+    // Takes priority over tone.
+    assert.ok(systemPrompt.toLowerCase().includes("takes priority over the thread-tone"));
+  });
+
+  it("frames stop as explicit sign-off / topic change, not serious tone or quietness", async () => {
+    let capturedOptions: QueryCallArg["options"];
+    mockQuery.mockImplementation((...args: unknown[]) => {
+      capturedOptions = (args[0] as QueryCallArg).options;
+      return asyncIterableOf([{ type: "result", subtype: "success", result: "skip" }]);
+    });
+
+    await runPreAnalysis(
+      "message",
+      "Alice",
+      "Clack",
+      "context",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      makeDeps(),
+    );
+
+    const systemPrompt = capturedOptions!.systemPrompt!;
+    assert.ok(systemPrompt.includes("explicitly signs off"));
+    assert.ok(systemPrompt.includes("is not by itself a reason to stop"));
+    assert.ok(systemPrompt.includes("quiet threads often resume"));
+  });
+
+  it("injects the timing line when secondsSinceLastBotMessage is provided", async () => {
+    let capturedPrompt = "";
+    mockQuery.mockImplementation((...args: unknown[]) => {
+      capturedPrompt = (args[0] as QueryCallArg).prompt;
+      return asyncIterableOf([{ type: "result", subtype: "success", result: "respond" }]);
+    });
+
+    await runPreAnalysis(
+      "you there?",
+      "Alice",
+      "Clack",
+      "context",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      25,
+      makeDeps(),
+    );
+
+    assert.ok(
+      capturedPrompt.includes("TIMING: this message arrived 25s after Clack's last message"),
+    );
+  });
+
+  it("omits the timing line when secondsSinceLastBotMessage is undefined", async () => {
+    let capturedPrompt = "";
+    mockQuery.mockImplementation((...args: unknown[]) => {
+      capturedPrompt = (args[0] as QueryCallArg).prompt;
+      return asyncIterableOf([{ type: "result", subtype: "success", result: "respond" }]);
+    });
+
+    await runPreAnalysis(
+      "you there?",
+      "Alice",
+      "Clack",
+      "context",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      makeDeps(),
+    );
+
+    assert.ok(!capturedPrompt.includes("TIMING:"));
+  });
+
+  it("instructs that elapsed time alone is never grounds to skip or stop", async () => {
+    let capturedOptions: QueryCallArg["options"];
+    mockQuery.mockImplementation((...args: unknown[]) => {
+      capturedOptions = (args[0] as QueryCallArg).options;
+      return asyncIterableOf([{ type: "result", subtype: "success", result: "respond" }]);
+    });
+
+    await runPreAnalysis(
+      "message",
+      "Alice",
+      "Clack",
+      "context",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      makeDeps(),
+    );
+
+    const systemPrompt = capturedOptions!.systemPrompt!;
+    assert.ok(systemPrompt.includes('elapsed time alone is never a reason to "skip" or "stop"'));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runActiveRunPreAnalysis — append/skip gate (mirrors direct-address + timing)
+// ---------------------------------------------------------------------------
+describe("runActiveRunPreAnalysis", () => {
+  beforeEach(() => {
+    mockQuery = vi.fn<typeof clackQuery>();
+  });
+
+  it("returns 'skip' when Claude responds with 'skip'", async () => {
+    mockQuery.mockImplementation(() =>
+      asyncIterableOf([{ type: "result", subtype: "success", result: "skip" }]),
+    );
+
+    const result = await runActiveRunPreAnalysis(
+      "lol nice",
+      "Bob",
+      "Clack",
+      "context",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      makeDeps(),
+    );
+    assert.equal(result, "skip");
+  });
+
+  it("defaults to 'append' for anything not containing 'skip'", async () => {
+    mockQuery.mockImplementation(() =>
+      asyncIterableOf([{ type: "result", subtype: "success", result: "append" }]),
+    );
+
+    const result = await runActiveRunPreAnalysis(
+      "wait, also check the worker logs",
+      "Bob",
+      "Clack",
+      "context",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      makeDeps(),
+    );
+    assert.equal(result, "append");
+  });
+
+  it("defaults to 'append' on error (fail-open)", async () => {
+    mockQuery.mockImplementation(() => {
+      throw new Error("SDK failure");
+    });
+
+    const result = await runActiveRunPreAnalysis(
+      "message",
+      "Bob",
+      "Clack",
+      "context",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      makeDeps(),
+    );
+    assert.equal(result, "append");
+  });
+
+  it("mirrors the direct-address guidance (directed → append, never skip)", async () => {
+    let capturedOptions: QueryCallArg["options"];
+    mockQuery.mockImplementation((...args: unknown[]) => {
+      capturedOptions = (args[0] as QueryCallArg).options;
+      return asyncIterableOf([{ type: "result", subtype: "success", result: "append" }]);
+    });
+
+    await runActiveRunPreAnalysis(
+      "Clack, also retry",
+      "Bob",
+      "Clack",
+      "context",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      makeDeps(),
+    );
+
+    const systemPrompt = capturedOptions!.systemPrompt!;
+    assert.ok(systemPrompt.includes("DIRECT ADDRESS"));
+    assert.ok(systemPrompt.includes('always "append", never "skip"'));
+  });
+
+  it("injects the timing line when provided and omits it otherwise", async () => {
+    let capturedPrompt = "";
+    mockQuery.mockImplementation((...args: unknown[]) => {
+      capturedPrompt = (args[0] as QueryCallArg).prompt;
+      return asyncIterableOf([{ type: "result", subtype: "success", result: "append" }]);
+    });
+
+    await runActiveRunPreAnalysis(
+      "still there?",
+      "Bob",
+      "Clack",
+      "context",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      90,
+      makeDeps(),
+    );
+    assert.ok(
+      capturedPrompt.includes("TIMING: this message arrived 2m after Clack's last message"),
+    );
+
+    capturedPrompt = "";
+    await runActiveRunPreAnalysis(
+      "still there?",
+      "Bob",
+      "Clack",
+      "context",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      makeDeps(),
+    );
+    assert.ok(!capturedPrompt.includes("TIMING:"));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// formatElapsedSeconds — compact duration buckets
+// ---------------------------------------------------------------------------
+describe("formatElapsedSeconds", () => {
+  it("formats seconds, minutes, hours, and days", () => {
+    assert.equal(formatElapsedSeconds(5), "5s");
+    assert.equal(formatElapsedSeconds(89), "89s");
+    assert.equal(formatElapsedSeconds(120), "2m");
+    assert.equal(formatElapsedSeconds(3600 * 3), "3h");
+    assert.equal(formatElapsedSeconds(86400 * 2), "2d");
   });
 });
