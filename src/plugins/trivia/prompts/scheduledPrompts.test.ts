@@ -489,9 +489,15 @@ describe("PROCESS_REVEAL_INSTRUCTIONS — renderer brief", () => {
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /🎀/);
   });
 
-  it("handles the empty-reveals case (acknowledge with humor; still render leaderboard)", () => {
-    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /No verdict to deliver today/);
-    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /STILL render the cumulative leaderboard/);
+  it("handles the empty-reveals case by posting nothing (skip_response, no leaderboard)", () => {
+    assert.match(
+      PROCESS_REVEAL_INSTRUCTIONS,
+      /POST NOTHING\. Do NOT render an acknowledgement, and do NOT render the leaderboard/,
+    );
+    assert.match(
+      PROCESS_REVEAL_INSTRUCTIONS,
+      /reveals\.length === 0[\s\S]*?POST NOTHING\. Call `submit_response\(\{ skip_response: true \}\)/,
+    );
   });
 });
 
