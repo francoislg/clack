@@ -185,11 +185,11 @@ Soft guidance: aim for ≤ 10 slots per format. The system has no hard cap, but 
 
 When an admin asks **what slots a season has**, look at the season entry returned by \`list_seasons\` and read \`format.questions[]\`. When asking about a game-tier format / categories / theme, look at the \`list_games\` entry's \`format\` / \`categories\` / \`theme\` fields (surfaced only when literally set on the game).
 
-## Admin: auto-rollover is now "repeat" semantics
+## Admin: auto-rollover inherits structure, resets the themed pool
 
-When a season's last reveal fires AND no future season is queued, the trivia plugin creates a continuation season automatically. The continuation deep-copies \`categories\` (when present), \`answersFormat\`, \`questionType\`, \`contexts\`, AND \`format\` from the closing season. If the closing season had no \`categories\` field (it was inheriting), the continuation has no field either — both inherit from the cascade. The continuation slug is \`season-YYYY-MM\` for the next UTC month; \`expectedEndAt\` is end-of-that-month (this part is unchanged).
+When a season's last reveal fires AND no future season is queued, the trivia plugin creates a continuation season automatically. The continuation deep-copies the **structural** fields — \`answersFormat\`, \`questionType\`, \`contexts\`, AND \`format\` — from the closing season (absent fields stay absent). It does **NOT** carry forward the closing season's **season-level** \`categories\`: a themed pool is a one-month deviation, so the continuation omits \`categories\` entirely and resolves its pool via the cascade (\`game.categories → global categories.json\`). Slot-level \`format.questions[i].categories\` IS preserved (it rides along with the copied \`format\` as structural slot composition, not a theme). The continuation slug is \`season-YYYY-MM\` for the next UTC month; \`expectedEndAt\` is end-of-that-month.
 
-To **break the inheritance chain** — i.e. you want next month's season to look different from this one's — stage a future season explicitly via \`upsert_season(newSlug, { startedAt: <future>, expectedEndAt: ..., categories: [...], format?: {...} })\` BEFORE the current season's last fire. Staged future seasons are honored as-is; the inheritance rule only kicks in when there's nothing queued.
+To **carry a theme forward** — i.e. you want next month's season to keep this month's themed categories (or otherwise look different from the inherited default) — stage a future season explicitly via \`upsert_season(newSlug, { startedAt: <future>, expectedEndAt: ..., categories: [...], format?: {...} })\` BEFORE the current season's last fire. Staged future seasons are honored as-is; the auto-continuation only kicks in when there's nothing queued.
 `;
 
 export function getTriviaCheckInstruction(seasonsEnabled: boolean): string {

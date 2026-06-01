@@ -1,4 +1,4 @@
-import { logger } from "../../../../logger.js";
+import { triviaLogger as logger } from "../../core/pluginLogger.js";
 import { findNextSeason, validateNoOverlap } from "../../core/seasonTimeline.js";
 import type { LeaderboardEntry } from "../../domain/computeLeaderboard.js";
 import type { SeasonsState, SeasonEntry } from "../../core/types.js";
@@ -66,10 +66,17 @@ export interface RolloverOutcome {
  *   1. Stamp `endedAt` on the closing season (idempotent — skips when already set).
  *   2. If no future season is queued (no entry with `startedAt > now`), append a
  *      continuation season with a `season-YYYY-MM` slug for next month. The
- *      continuation season inherits `categories`, `questionTypes`, and `format`
- *      from the closing season (deep copies of each field; absent fields stay
- *      absent). This is the "repeat" semantic — admins stage a future season
- *      explicitly when they want to break the inheritance chain.
+ *      continuation season inherits `answersFormat`, `questionType`, `contexts`,
+ *      and `format` from the closing season (deep copies of each field; absent
+ *      fields stay absent). It does NOT inherit the closing season's
+ *      season-level `categories` — that field is omitted so the pool resolves
+ *      via the cascade (`game.categories → global categories.json`). A themed
+ *      season is a temporary, one-month deviation; absent an explicitly staged
+ *      future season, the continuation reverts to the baseline rather than
+ *      silently re-baking the theme forward. Slot-level
+ *      `format.questions[i].categories` IS preserved (it travels with the
+ *      deep-copied `format` as structural slot composition, not a theme).
+ *      Admins stage a future season explicitly to carry a theme forward.
  *
  * Returns the outcome flags so the caller can populate `seasonStatus` AND decide
  * whether to persist the mutated state.
@@ -96,9 +103,10 @@ export function applySeasonRollover(
       slug,
       startedAt: now,
       expectedEndAt,
-      ...(closingSnapshot.categories !== undefined
-        ? { categories: [...closingSnapshot.categories] }
-        : {}),
+      // Season-level `categories` is intentionally NOT carried forward: a themed
+      // season is a one-month deviation, so the continuation omits the field and
+      // lets the pool resolve via the cascade (game.categories → global). Slot-
+      // level `format.questions[i].categories` is still preserved below.
       ...(closingSnapshot.answersFormat !== undefined
         ? { answersFormat: { ...closingSnapshot.answersFormat } }
         : {}),

@@ -270,7 +270,7 @@ describe("Trivia question-format end-to-end flow", () => {
     assert.equal(byCategory.get("History")?.season, "active");
   });
 
-  it("auto-rollover continuation inherits categories, answersFormat, and format from closing season", async () => {
+  it("auto-rollover continuation resets season-level categories to cascade but inherits answersFormat and format", async () => {
     const now = Date.UTC(2026, 4, 31, 12, 0, 0, 0); // May 31, 2026 — last day of month
     const state = {
       seasons: [
@@ -295,11 +295,14 @@ describe("Trivia question-format end-to-end flow", () => {
     assert.equal(state.seasons.length, 2);
     const continuation = state.seasons[1];
     assert.equal(continuation.slug, "season-2026-06");
-    // categories inherited — NOT global baseline
-    assert.deepEqual(continuation.categories, ["Marine Biology", "Cephalopods", "Tides"]);
-    // answersFormat inherited
+    // Season-level categories are NOT carried forward — the themed pool is a
+    // one-month deviation, so the continuation omits the field and resolves via
+    // the cascade (game -> global) instead of re-baking the theme.
+    assert.equal(continuation.categories, undefined);
+    // answersFormat inherited (structural)
     assert.deepEqual(continuation.answersFormat, { boolean: 0, choice: 1, freeform: 0 });
-    // format inherited (deep-copied)
+    // format inherited (deep-copied), INCLUDING slot-level categories which are
+    // structural slot composition, not a theme.
     assert.equal(continuation.format?.questions.length, 2);
     assert.equal(continuation.format?.questions[0].label, "GK");
     assert.deepEqual(continuation.format?.questions[1].categories, ["Marine Biology"]);

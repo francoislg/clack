@@ -113,16 +113,19 @@ describe("applySeasonRollover", () => {
     assert.equal(state.seasons[0].endedAt, now - 1000);
   });
 
-  it("appends a continuation season inheriting categories from the closing season", () => {
+  it("appends a continuation season that does NOT inherit season-level categories (resets to cascade)", () => {
     const now = Date.UTC(2026, 4, 31, 12, 0, 0, 0);
     const state = makeActiveState(now, "season-2026-05");
-    // Closing season has its own themed categories — NOT the global baseline
+    // Closing season has its own themed categories — a one-month deviation
     state.seasons[0].categories = ["Marine Biology", "Cephalopods", "Tides"];
     const out = applySeasonRollover(state, "season-2026-05", now);
     assert.ok(out.newSeasonStarted);
     assert.equal(out.newSeasonStarted?.slug, "season-2026-06");
     assert.equal(state.seasons.length, 2);
-    assert.deepEqual(state.seasons[1].categories, ["Marine Biology", "Cephalopods", "Tides"]);
+    // The themed pool is dropped: continuation omits `categories` so it resolves
+    // via the cascade (game → global) rather than re-baking the theme forward.
+    assert.equal(state.seasons[1].categories, undefined);
+    assert.ok(!Object.prototype.hasOwnProperty.call(state.seasons[1], "categories"));
     assert.equal(state.seasons[1].startedAt, now);
   });
 
@@ -159,6 +162,24 @@ describe("applySeasonRollover", () => {
     assert.equal(state.seasons[0].format?.questions[0].label, "GK");
   });
 
+  it("drops season-level categories but PRESERVES slot-level categories inside format", () => {
+    const now = Date.UTC(2026, 4, 31, 12, 0, 0, 0);
+    const state = makeActiveState(now, "season-2026-05");
+    // Closing season has BOTH a themed season-level pool AND a format whose slot
+    // carries its own categories.
+    state.seasons[0].categories = ["Marine Biology", "Cephalopods"];
+    state.seasons[0].format = {
+      questions: [{ label: "GK" }, { label: "Science", categories: ["Science"] }],
+    };
+    applySeasonRollover(state, "season-2026-05", now);
+    const continuation = state.seasons[1];
+    // Season-level themed pool is dropped (resolves via cascade)...
+    assert.equal(continuation.categories, undefined);
+    assert.ok(!Object.prototype.hasOwnProperty.call(continuation, "categories"));
+    // ...but the slot-level pool is structural and survives with the format.
+    assert.deepEqual(continuation.format?.questions[1].categories, ["Science"]);
+  });
+
   it("continuation: absent fields stay absent (no answersFormat, no format on closing → none on continuation)", () => {
     const now = Date.UTC(2026, 4, 31, 12, 0, 0, 0);
     const state = makeActiveState(now, "season-2026-05");
@@ -166,8 +187,9 @@ describe("applySeasonRollover", () => {
     applySeasonRollover(state, "season-2026-05", now);
     assert.equal(state.seasons[1].answersFormat, undefined);
     assert.equal(state.seasons[1].format, undefined);
-    // categories ARE still inherited
-    assert.deepEqual(state.seasons[1].categories, ["Science"]);
+    // Season-level categories are NOT carried forward either — the continuation
+    // resolves its pool via the cascade.
+    assert.equal(state.seasons[1].categories, undefined);
   });
 
   it("does NOT append a continuation when a future season is already queued", () => {
@@ -229,7 +251,8 @@ describe("applySeasonRollover", () => {
     assert.equal(continuation.slug, "season-2026-11");
     assert.equal(continuation.theme, undefined);
     assert.ok(!Object.prototype.hasOwnProperty.call(continuation, "theme"));
-    // categories still inherited (sanity)
-    assert.deepEqual(continuation.categories, ["Horror Movies", "Folklore"]);
+    // categories are dropped alongside theme — both are thematic, not structural
+    assert.equal(continuation.categories, undefined);
+    assert.ok(!Object.prototype.hasOwnProperty.call(continuation, "categories"));
   });
 });
