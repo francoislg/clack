@@ -15,6 +15,7 @@ import {
   freeformAnswerShapeZod,
   isRevealResponsesMode,
   questionTypeZod,
+  promptMediumZod,
   triviaDifficultyRatioZod,
   triviaHintZod,
   validateAnswersFormatMap,
@@ -22,6 +23,7 @@ import {
   validateFreeformAnswerShapeMap,
   validateHintConfig,
   validateQuestionTypeMap,
+  validatePromptMediumMap,
   validateTriviaDifficultyMap,
   validateTriviaDifficultyRatioMap,
   type Result,
@@ -97,6 +99,7 @@ interface RawSlot {
   categories?: string[];
   answersFormat?: Record<string, number> | null;
   questionType?: Record<string, number> | null;
+  promptMedium?: Record<string, number> | null;
   freeformAnswerShape?: Record<string, number> | null;
   contexts?: unknown[] | null;
   difficulty?: unknown | null;
@@ -167,6 +170,11 @@ export function validateFormat(
       const validated = validateQuestionTypeMap(slot.questionType, `${slotLabel}.questionType`);
       if (!validated.ok) return validated;
       out.questionType = validated.value;
+    }
+    if (slot.promptMedium !== undefined && slot.promptMedium !== null) {
+      const validated = validatePromptMediumMap(slot.promptMedium, `${slotLabel}.promptMedium`);
+      if (!validated.ok) return validated;
+      out.promptMedium = validated.value;
     }
     if (slot.freeformAnswerShape !== undefined && slot.freeformAnswerShape !== null) {
       const validated = validateFreeformAnswerShapeMap(
@@ -263,6 +271,7 @@ const seasonFormatSlotZod = z.object({
   categories: z.array(z.string()).optional(),
   answersFormat: answersFormatZod.optional(),
   questionType: questionTypeZod.optional(),
+  promptMedium: promptMediumZod.optional(),
   freeformAnswerShape: freeformAnswerShapeZod.optional(),
   contexts: contextsZod.optional(),
   difficulty: difficultyZod.optional(),

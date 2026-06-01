@@ -655,7 +655,7 @@ describe("POST_QUESTIONS_INSTRUCTIONS", () => {
 
 describe("PREP and POST share PER_SLOT_GENERATION_PATHS content", () => {
   it("both include the same matrix dispatch description", () => {
-    const sample = "DISPATCHES on a 2-axis matrix";
+    const sample = "DISPATCHES on a 3-axis matrix";
     assert.ok(PREP_QUESTIONS_INSTRUCTIONS.includes(sample));
     assert.ok(POST_QUESTIONS_INSTRUCTIONS.includes(sample));
   });

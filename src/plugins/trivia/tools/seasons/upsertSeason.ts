@@ -7,6 +7,7 @@ import { requireWritableGame } from "../../core/gamesRegistry.js";
 import {
   validateAnswersFormat,
   validateQuestionType,
+  validatePromptMedium,
   validateFreeformAnswerShape,
   validateContexts,
   validateDifficulty,
@@ -32,6 +33,7 @@ import {
   difficultyZod,
   freeformAnswerShapeZod,
   questionTypeZod,
+  promptMediumZod,
   triviaDifficultyRatioZod,
   triviaHintZod,
   validateHintConfig,
@@ -41,6 +43,7 @@ import type {
   SeasonFormat,
   TriviaAnswersFormatWeights,
   TriviaQuestionTypeWeights,
+  PromptMediumWeights,
   TriviaFreeformAnswerShapeWeights,
   TriviaContextEntry,
   TriviaDifficultyConfig,
@@ -114,6 +117,12 @@ export function createUpsertSeasonTool(
         .optional()
         .describe(
           "Optional per-season fact-vs-topical weights. On UPDATE: passing `null` clears the field. Mid-season mutation permitted.",
+        ),
+      promptMedium: promptMediumZod
+        .nullable()
+        .optional()
+        .describe(
+          "Optional per-season prompt-medium weights (text/image). `image` requires an installed `*_image_search__*` plugin at run time. On UPDATE: passing `null` clears the field. Mid-season mutation permitted.",
         ),
       freeformAnswerShape: freeformAnswerShapeZod
         .nullable()
@@ -237,6 +246,13 @@ export function createUpsertSeasonTool(
           questionTypeWeights = validated.value;
         }
 
+        let promptMediumWeights: PromptMediumWeights | undefined;
+        if (args.promptMedium !== undefined && args.promptMedium !== null) {
+          const validated = validatePromptMedium(compactNumberMap(args.promptMedium));
+          if (!validated.ok) return errorResult(validated.error);
+          promptMediumWeights = validated.value;
+        }
+
         let freeformAnswerShapeWeights: TriviaFreeformAnswerShapeWeights | undefined;
         if (args.freeformAnswerShape !== undefined && args.freeformAnswerShape !== null) {
           const validated = validateFreeformAnswerShape(compactNumberMap(args.freeformAnswerShape));
@@ -319,6 +335,7 @@ export function createUpsertSeasonTool(
           ...(categories !== undefined ? { categories } : {}),
           ...(answersFormatWeights !== undefined ? { answersFormat: answersFormatWeights } : {}),
           ...(questionTypeWeights !== undefined ? { questionType: questionTypeWeights } : {}),
+          ...(promptMediumWeights !== undefined ? { promptMedium: promptMediumWeights } : {}),
           ...(freeformAnswerShapeWeights !== undefined
             ? { freeformAnswerShape: freeformAnswerShapeWeights }
             : {}),
@@ -413,6 +430,15 @@ export function createUpsertSeasonTool(
         const validated = validateQuestionType(compactNumberMap(args.questionType));
         if (!validated.ok) return errorResult(validated.error);
         updatedQuestionType = validated.value;
+      }
+
+      let updatedPromptMedium: PromptMediumWeights | undefined = existing.promptMedium;
+      if (args.promptMedium === null) {
+        updatedPromptMedium = undefined;
+      } else if (args.promptMedium !== undefined) {
+        const validated = validatePromptMedium(compactNumberMap(args.promptMedium));
+        if (!validated.ok) return errorResult(validated.error);
+        updatedPromptMedium = validated.value;
       }
 
       let updatedFreeformAnswerShape: TriviaFreeformAnswerShapeWeights | undefined =
@@ -525,6 +551,7 @@ export function createUpsertSeasonTool(
         ...(updatedCategories !== undefined ? { categories: updatedCategories } : {}),
         ...(updatedAnswersFormat !== undefined ? { answersFormat: updatedAnswersFormat } : {}),
         ...(updatedQuestionType !== undefined ? { questionType: updatedQuestionType } : {}),
+        ...(updatedPromptMedium !== undefined ? { promptMedium: updatedPromptMedium } : {}),
         ...(updatedFreeformAnswerShape !== undefined
           ? { freeformAnswerShape: updatedFreeformAnswerShape }
           : {}),

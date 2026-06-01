@@ -75,6 +75,13 @@ export interface ProcessRevealEntry {
   wasReprocessed: boolean;
   answer: RevealAnswerDescriptor;
   voters: VoterBuckets;
+  /**
+   * Attribution for image-medium questions, present iff the question carried `media`.
+   * Data-shaped (renderer composes the "📷 Image: …" context line). Deliberately
+   * carries ONLY `title`/`attribution`/`license` — never `url` or `subjectId`, which
+   * aren't needed for rendering and would widen the leak surface.
+   */
+  media?: { title: string; attribution?: string; license?: string };
 }
 
 export interface SeasonStatusOut {

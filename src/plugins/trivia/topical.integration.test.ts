@@ -67,6 +67,8 @@ describe("topical-question end-to-end flow", () => {
         {
           game: FIXTURE_GAME_NAME,
           answersFormat: "boolean",
+          promptMedium: undefined,
+          media: undefined,
           questionType: "topical",
           category: "Music",
           statement: "Drake released a surprise album on Tuesday.",
@@ -105,6 +107,8 @@ describe("topical-question end-to-end flow", () => {
         {
           game: FIXTURE_GAME_NAME,
           answersFormat: "boolean",
+          promptMedium: undefined,
+          media: undefined,
           questionType: "topical",
           category: "Music",
           statement: "A recent newsworthy thing happened.",
@@ -138,6 +142,8 @@ describe("topical-question end-to-end flow", () => {
         {
           game: FIXTURE_GAME_NAME,
           answersFormat: "boolean",
+          promptMedium: undefined,
+          media: undefined,
           questionType: "fact",
           category: "Music",
           statement: "The Beatles came from Liverpool.",
@@ -173,6 +179,8 @@ describe("topical-question end-to-end flow", () => {
         {
           game: FIXTURE_GAME_NAME,
           answersFormat: "boolean",
+          promptMedium: undefined,
+          media: undefined,
           questionType: "fact",
           category: "Music",
           statement: "A perfectly normal fact about music.",

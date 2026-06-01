@@ -3,6 +3,7 @@ import type {
   SeasonFormat,
   TriviaAnswersFormatWeights,
   TriviaQuestionTypeWeights,
+  PromptMediumWeights,
   TriviaFreeformAnswerShape,
   TriviaFreeformAnswerShapeWeights,
   TriviaContextEntry,
@@ -31,6 +32,34 @@ export type TriviaAnswersFormat = "boolean" | "choice" | "freeform";
  */
 export type TriviaQuestionType = "fact" | "topical";
 
+/**
+ * Prompt-delivery medium, orthogonal to `answersFormat` and `questionType`.
+ * - `"text"` → the prompt is delivered as text (today's behavior).
+ * - `"image"` → the prompt is an image; the record carries a `media` object whose
+ *   `url` is rendered in the message's `image` block. Sourced from an external
+ *   `*_image_search__*` MCP tool (see the trivia-visual-questions capability).
+ *
+ * Absence reads as `"text"` everywhere — legacy and text-medium rows omit the field.
+ */
+export type TriviaPromptMedium = "text" | "image";
+
+/**
+ * Image payload attached to an image-medium question. Present iff
+ * `promptMedium === "image"`; forbidden otherwise. `url` is the upstream public
+ * HTTPS source used as the `image_url` of the message's Block Kit `image` block;
+ * `subjectId` is the source-namespaced dedup key (e.g. `wikidata:Q243`,
+ * `commons:File:...`, `brave:<hash>`).
+ */
+export interface QuestionMedia {
+  kind: "image";
+  url: string;
+  altText: string;
+  subjectId: string;
+  title: string;
+  license?: string;
+  attribution?: string;
+}
+
 export interface TriviaQuestion {
   id: string;
   category: string;
@@ -39,6 +68,13 @@ export interface TriviaQuestion {
   answersFormat?: TriviaAnswersFormat;
   /** Fact-vs-topical discriminator. Absence reads as `"fact"` for pre-migration legacy rows only. */
   questionType?: TriviaQuestionType;
+  /**
+   * Prompt-delivery medium. Absence reads as `"text"` (legacy and text-medium rows
+   * omit it). When `"image"`, `media` MUST be present.
+   */
+  promptMedium?: TriviaPromptMedium;
+  /** Image payload for image-medium questions. Present iff `promptMedium === "image"`. */
+  media?: QuestionMedia;
   /** Truth value for boolean questions. Absent on choice and freeform questions. */
   isTrue?: boolean;
   /** Option list for choice questions (2–4 entries). Absent on boolean and freeform questions. */
@@ -228,6 +264,12 @@ export interface SeasonEntry {
    * Mid-season mutation is permitted.
    */
   questionType?: TriviaQuestionTypeWeights;
+  /**
+   * Optional per-season prompt-medium weights. Absent → cascade falls through to
+   * `game.promptMedium → config.trivia.promptMedium → DEFAULT_PROMPT_MEDIUM_WEIGHTS`.
+   * Mid-season mutation is permitted.
+   */
+  promptMedium?: PromptMediumWeights;
   /**
    * Optional per-season freeform answer-shape weights. Absent → falls back to `config.trivia.freeformAnswerShape`.
    * Freeform-branch only; ignored by boolean/choice. Mid-season mutation is permitted.

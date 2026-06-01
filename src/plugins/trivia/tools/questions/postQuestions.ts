@@ -298,11 +298,11 @@ export function createPostQuestionsTool(
           const baseBlocks = item.blocks as SlackBlocks;
           const handler = getAnswerTypeHandler(question.answersFormat);
           const blocksWithButtons = handler.appendActionsBlock(baseBlocks, sdk.actionId, question);
-          const blocksWithHint = applyHintRendering(blocksWithButtons, question, sdk);
+          const blocksToPost = applyHintRendering(blocksWithButtons, question, sdk);
 
           const { ts, permalink } = await slackDeps.postBlocks({
             channel: game.channel,
-            blocks: blocksWithHint,
+            blocks: blocksToPost,
             ...(args.suppress_unfurls !== undefined && {
               suppressUnfurls: args.suppress_unfurls,
             }),
@@ -347,7 +347,7 @@ export function createPostQuestionsTool(
             postedAt: tsToPostedAt(ts),
             messageLink: permalink,
             batchId,
-            postedBlocks: blocksWithHint as KnownBlock[],
+            postedBlocks: blocksToPost as KnownBlock[],
             liveAnswersVisible,
             revealResponses,
           });

@@ -37,6 +37,8 @@ const BASE_ARGS = {
   game: FIXTURE_GAME_NAME,
   answersFormat: "boolean" as const,
   questionType: "fact" as const,
+  promptMedium: undefined,
+  media: undefined,
   category: "Science",
   statement: "Water boils at 100 C at sea level.",
   isTrue: true,

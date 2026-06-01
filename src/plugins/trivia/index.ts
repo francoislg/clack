@@ -12,6 +12,7 @@ import { createGetIdeasTool } from "./tools/questions/getIdeas.js";
 import { createSaveQuestionTool } from "./tools/questions/saveQuestion.js";
 import { createPostQuestionsTool } from "./tools/questions/postQuestions.js";
 import { createFindPreviousQuestionsTool } from "./tools/questions/findPreviousQuestions.js";
+import { createFindPreviousSubjectsTool } from "./tools/visual/findPreviousSubjects.js";
 import { createGetQuestionHistoryTool } from "./tools/questions/getQuestionHistory.js";
 import { createRetrieveScoresTool } from "./tools/answers/retrieveScores.js";
 import { createSaveCheatingTool } from "./tools/answers/saveCheating.js";
@@ -108,6 +109,11 @@ export const triviaPlugin: ClackPlugin = async (sdk: ClackSdk) => {
   sdk.registerTool("admin", createSaveQuestionTool(data), sdk.t("label.save_question"));
   sdk.registerTool("admin", createPostQuestionsTool(data, sdk), sdk.t("label.post_questions"));
   sdk.registerTool("member", createFindPreviousQuestionsTool(data), sdk.t("label.find_previous"));
+  sdk.registerTool(
+    "member",
+    createFindPreviousSubjectsTool(data),
+    sdk.t("label.find_previous_subjects"),
+  );
   sdk.registerTool("admin", createGetQuestionHistoryTool(data), sdk.t("label.question_history"));
   sdk.registerTool(
     "admin",

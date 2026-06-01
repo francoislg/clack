@@ -7,6 +7,7 @@ import { findCurrentSeason } from "../../core/seasonTimeline.js";
 import { defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
 import { UnknownGameError } from "../../core/gamesRegistry.js";
 import type { TriviaDataLayer, TriviaQuestion } from "../../core/types.js";
+import { mediaToJson } from "../../domain/mediaJson.js";
 
 const CURRENT_SEASON_TOKEN = "current";
 
@@ -26,6 +27,8 @@ function toSearchResult(
   };
   if (q.answersFormat !== undefined) result.answersFormat = q.answersFormat;
   if (q.questionType !== undefined) result.questionType = q.questionType;
+  if (q.promptMedium !== undefined) result.promptMedium = q.promptMedium;
+  if (q.media !== undefined) result.media = mediaToJson(q.media);
   if (q.postedAt !== undefined) result.postedAt = q.postedAt;
   if (q.messageLink !== undefined) result.messageLink = q.messageLink;
   if (q.processedAt !== undefined) result.processedAt = q.processedAt;

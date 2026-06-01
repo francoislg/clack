@@ -194,6 +194,7 @@ describe("get_ideas — integration with upsert_season theme", () => {
           theme: "Halloween Spooktacular",
           answersFormat: undefined,
           questionType: undefined,
+          promptMedium: undefined,
           freeformAnswerShape: undefined,
           contexts: undefined,
           difficulty: undefined,

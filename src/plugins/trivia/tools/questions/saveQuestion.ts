@@ -73,6 +73,10 @@ FREEFORM (\`answersFormat: "freeform"\`):
 - Optional: \`acceptableAnswers\` (string[] of pre-enumerated valid variants the reveal-time judge should also accept), \`gradingNotes\` (one short sentence refining acceptance — e.g. "Accept any major Canadian city").
 - The stored record carries \`answersFormat: "freeform"\`, \`expectedAnswer\`, and \`freeformAnswerShape\`; no \`isTrue\`/\`choices\`/\`correctIndex\`. The user types their answer into a Slack modal; a small fast model judges submissions at reveal time, rejecting multi-guess "shotgun" answers (e.g. "Paris or London") as incorrect even when one guess matches.
 
+PROMPT MEDIUM (all shapes):
+- \`promptMedium\` (OPTIONAL): \`"text"\` (default) or \`"image"\`. Pass the value rolled by \`get_ideas\`. Composes freely with every \`answersFormat\` — no cross-axis restriction.
+- \`media\` (REQUIRED when \`promptMedium: "image"\`, FORBIDDEN otherwise): \`{ kind: "image", url, altText, subjectId, title, license?, attribution? }\`. \`url\` MUST be HTTPS (the image-search tool's \`imageUrl\`); \`altText\` ≤ 2000 chars.
+
 ADDITIONAL FIELDS (all shapes):
 - \`questionType\` (REQUIRED): \`"fact"\` or \`"topical"\`. Must match the value rolled by \`get_ideas\`.
 - \`sourceUrl\` (REQUIRED when \`questionType: "topical"\`, FORBIDDEN when \`questionType: "fact"\`): HTTPS citation URL.
@@ -94,6 +98,36 @@ export function createSaveQuestionTool(
         .string()
         .describe(
           "Game name (must be present in config.trivia.games[]). Determines which game's per-game data file receives the new question.",
+        ),
+      promptMedium: z
+        .enum(["text", "image"])
+        .optional()
+        .describe(
+          'Prompt-delivery medium rolled by get_ideas. "text" (or omitted) = a normal text-prompted question. "image" = an image-prompted question; you MUST also pass `media`. Composes freely with every answersFormat (boolean/choice/freeform).',
+        ),
+      media: z
+        .object({
+          kind: z.literal("image"),
+          url: z
+            .string()
+            .describe("Upstream HTTPS image URL (the image-search tool's `imageUrl`)."),
+          altText: z
+            .string()
+            .describe(
+              "Accessibility text describing the image (≤2000 chars, no Block Kit markup).",
+            ),
+          subjectId: z
+            .string()
+            .describe(
+              "Source-namespaced dedup key from the image-search tool (e.g. `wikidata:Q243`).",
+            ),
+          title: z.string().describe("Canonical subject title from the image-search tool."),
+          license: z.string().optional(),
+          attribution: z.string().optional(),
+        })
+        .optional()
+        .describe(
+          'Image payload — REQUIRED when promptMedium is "image", FORBIDDEN otherwise. Sourced from the `*_image_search__*` tool\'s metadata block.',
         ),
       // Every other field is sourced from the shared handler schema so the
       // tool's args type and the handler's `SaveQuestionArgs` can't drift.
@@ -130,6 +164,39 @@ export function createSaveQuestionTool(
           );
         }
         normalizedHint = { mode: args.hint.mode, text: trimmed };
+      }
+
+      // promptMedium axis: validate media presence/shape against the rolled medium.
+      // No cross-axis constraint with answersFormat — every combo is permitted.
+      const promptMedium = args.promptMedium ?? "text";
+      if (promptMedium === "image") {
+        if (args.media === undefined) {
+          return errorResult('promptMedium "image" requires a `media` object.');
+        }
+        const m = args.media;
+        const missing = (["url", "altText", "subjectId", "title"] as const).filter(
+          (k) => m[k].trim().length === 0,
+        );
+        if (missing.length > 0) {
+          return errorResult(`media.${missing[0]} must be a non-empty string.`);
+        }
+        if (!/^https:\/\//i.test(m.url)) {
+          return errorResult("media.url must be an HTTPS URL.");
+        }
+        if (m.altText.length > 2000) {
+          return errorResult(
+            `media.altText must be ≤2000 characters (Slack alt_text limit; got ${m.altText.length}).`,
+          );
+        }
+        // Defense-in-depth: strip Slack control sequences (mentions / channel /
+        // special pings) from altText so the posted image block can't ping anyone.
+        const cleanedAltText = m.altText.replace(/<[@#!][^>]*>/g, "").trim();
+        if (cleanedAltText.length === 0) {
+          return errorResult("media.altText must be non-empty after stripping Block Kit markup.");
+        }
+        args.media = { ...m, altText: cleanedAltText };
+      } else if (args.media !== undefined) {
+        return errorResult('`media` is only permitted when promptMedium is "image".');
       }
 
       const answersFormat = args.answersFormat;
@@ -307,9 +374,17 @@ export function createSaveQuestionTool(
         return errorResult(outcome.error);
       }
 
-      await scoped.saveQuestion(outcome.question);
+      // Stamp the prompt-medium axis onto the record. promptMedium is always set
+      // (even "text", so new rows always carry it); media only on image medium.
+      const finalQuestion = {
+        ...outcome.question,
+        promptMedium,
+        ...(promptMedium === "image" && args.media !== undefined ? { media: args.media } : {}),
+      };
 
-      return textResult({ saved: true, question: outcome.question });
+      await scoped.saveQuestion(finalQuestion);
+
+      return textResult({ saved: true, question: finalQuestion });
     },
   );
 }

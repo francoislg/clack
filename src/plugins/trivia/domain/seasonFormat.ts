@@ -1,6 +1,7 @@
 import {
   validateAnswersFormatMap,
   validateQuestionTypeMap,
+  validatePromptMediumMap,
   validateFreeformAnswerShapeMap,
   validateContextsList,
   validateTriviaDifficultyMap,
@@ -10,6 +11,7 @@ import type {
   SeasonFormatSlot,
   TriviaAnswersFormatWeights,
   TriviaQuestionTypeWeights,
+  PromptMediumWeights,
   TriviaFreeformAnswerShapeWeights,
   TriviaContextEntry,
   TriviaDifficultyConfig,
@@ -34,6 +36,12 @@ export function validateQuestionType(
   raw: Record<string, number>,
 ): ValidateResult<TriviaQuestionTypeWeights> {
   return validateQuestionTypeMap(raw, "questionType");
+}
+
+export function validatePromptMedium(
+  raw: Record<string, number>,
+): ValidateResult<PromptMediumWeights> {
+  return validatePromptMediumMap(raw, "promptMedium");
 }
 
 export function validateFreeformAnswerShape(
