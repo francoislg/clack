@@ -386,6 +386,12 @@ const IMAGE_IS_QUESTION_GATE = `IMAGE-IS-QUESTION GATE (shared across all visual
    - INVALID (image decorative): "Birds have hollow bones. T/F" (true regardless of which bird is shown) / "The capital of France is Paris. T/F" (with an Eiffel Tower photo) / "How many planets are in our solar system?" (with a Saturn photo).
    Run this BEFORE the polarity / plausibility / difficulty gates — a question that fails here is wrong-shaped and shouldn't be difficulty-rated.`;
 
+const VISUAL_VERIFIABILITY_GATE = `VISUAL VERIFIABILITY GATE (shared across all visual paths — invoke wherever a visual path step says "apply the VISUAL VERIFIABILITY GATE"). A visual question's answer MUST be an OBJECTIVE, CANONICAL FACT about the IDENTIFIED subject — something every knowledgeable player would agree on and could look up. It MUST NOT be a perceptual judgment read off the pixels: counting visible features, estimating quantities, naming "how many colors / shades / spots / stars / people / windows", judging size/brightness/mood, or anything whose answer changes with crop, lighting, resolution, or where you draw the line. The image's ONLY job is to let the player IDENTIFY the subject; the answer then comes from KNOWLEDGE about that subject, not from measuring the picture.
+   Decisive test: "Must the player KNOW the answer (or know it from recognizing the subject), or could they DERIVE it by reading / counting / measuring what's in the picture?" If it can be derived from the picture → REJECT and rewrite (or, on the freeform \`countable\` shape, re-anchor the count to a fact you can only KNOW — see below). The answer must NOT be visible in, or countable from, the image itself.
+   - VALID (must be known from recognizing the subject — not readable off the picture): "Who painted this?" / "What country's flag is this?" / "What breed of dog is this?" / "How many moons does this planet have?" (shown Jupiter — you must recognize Jupiter and KNOW the count; the moons aren't all in frame) / "How many official languages does this country have?" (shown a flag — recognize the country, recall the count).
+   - INVALID (answer is visible / countable / measurable in the picture, or purely subjective): "How many distinct colors does this whale's body display?" / "How many stars are in this picture?" / "How many people are in this crowd?" / "How many strings does this instrument have?" (just count them) / "How big is this building?" / "What mood does this painting convey?" / "How many spots does this leopard have?" — each is answered (or fudged) by eyeballing the image rather than by knowing anything about the subject.
+   Run this immediately AFTER the IMAGE-IS-QUESTION GATE and BEFORE the difficulty gate.`;
+
 const VISUAL_RESEARCH_SUBFLOW = `VISUAL RESEARCH SUBFLOW (subject discovery — shared by all 6 visual paths; the statement-writing half diverges per answersFormat below):
    a. Pick one category from \`categories.ideas\` (the SAME pool as text medium — there is no separate visual pool).
    b. Brainstorm 3–5 candidate subjects in that category. (For \`topical\` variants, the TOPICAL MODIFIER's WebSearch step runs FIRST and grounds these candidates in a recent event.)
@@ -399,7 +405,7 @@ const VISUAL_RESEARCH_SUBFLOW = `VISUAL RESEARCH SUBFLOW (subject discovery — 
 const VISUAL_CHOICE_FLOW_STEPS = `1. Run the VISUAL RESEARCH SUBFLOW (shared definition above) to discover + inspect a subject. get_ideas also returned \`suggestedChoiceCount\` and \`suggestedCorrectIndex\` — honor both exactly.
 2. WRITE AN IDENTIFICATION PROMPT that REQUIRES the image ("Who is this?", "What animal is this?", "Which landmark is shown?"). Place the subject's \`title\` (from the metadata block) at \`suggestedCorrectIndex\`; write (suggestedChoiceCount − 1) same-category-sibling distractors (other plausible identities of the same kind). Apply the STATEMENT–CHOICES NON-OVERLAP GATE (shared definition above).
 3. DISTRACTOR PLAUSIBILITY GATE (shared definition above — same four conditions; rewrite ONLY distractors, never the correct title at suggestedCorrectIndex).
-4. Apply the IMAGE-IS-QUESTION GATE (shared definition above).
+4. Apply the IMAGE-IS-QUESTION GATE (shared definition above), then the VISUAL VERIFIABILITY GATE (shared definition above).
 5. DIFFICULTY GATE (shared definition above) — CHOICE reframe rule (correct POSITION locked at suggestedCorrectIndex). (Dedup is handled by \`find_previous_subjects\` inside the subflow — do NOT also run the text DUPLICATE CHECK GATE here; the templated "Which … is shown?" prompt would false-positive against every prior visual question.)
 6. Choose 1–4 emojis. Compose \`media.altText\` — an accessibility description of the image that does NOT reveal the answer (describe generically, e.g. "a national flag" not "the flag of Ecuador").
 7. HINT (optional): apply the HINT DRAFTING GATE (shared definition above).
@@ -412,7 +418,7 @@ const VISUAL_BOOLEAN_FLOW_STEPS = `1. Run the VISUAL RESEARCH SUBFLOW (shared de
    The claim MUST require identifying the subject FROM THE IMAGE — generic category facts ("Birds have feathers") are decoration, not visual questions.
 3. POLARITY SELF-CHECK (REQUIRED — same as the boolean path body): state suggestedAnswer, what your claim actually asserts, and whether they match. If not, rewrite.
 4. DUAL DEDUP CHECK (REQUIRED for image+boolean only): the subflow already ran \`find_previous_subjects\`. ADDITIONALLY apply the DUPLICATE CHECK GATE (shared definition above) against the CLAIM TEXT — an image+boolean claim ("This is the flag of Ecuador") can recur with a different image, so the claim must also be unique. Re-roll if EITHER check hits. (Image+choice and image+freeform do NOT use this dual-check — only image+boolean.)
-5. Apply the IMAGE-IS-QUESTION GATE (shared definition above).
+5. Apply the IMAGE-IS-QUESTION GATE (shared definition above), then the VISUAL VERIFIABILITY GATE (shared definition above).
 6. DIFFICULTY GATE (shared definition above) — BOOLEAN reframe rule (re-run the POLARITY SELF-CHECK on any reframe).
 7. Choose 1–4 emojis. Compose \`media.altText\` (generic; never reveal the answer).
 8. HINT (optional): apply the HINT DRAFTING GATE (shared definition above).
@@ -420,7 +426,8 @@ const VISUAL_BOOLEAN_FLOW_STEPS = `1. Run the VISUAL RESEARCH SUBFLOW (shared de
 
 const VISUAL_FREEFORM_FLOW_STEPS = `1. Run the VISUAL RESEARCH SUBFLOW (shared definition above). get_ideas also returned \`suggestedFreeformAnswerShape\` — pass it through to save unchanged.
 2. WRITE A TYPED-IDENTIFICATION PROMPT that REQUIRES the image ("Who is this?", "What animal is this?", "Which landmark is shown?"). Set \`expectedAnswer\` to the subject's \`title\` from the metadata block (canonical, trimmed form — no articles/qualifiers). Optionally populate \`acceptableAnswers\` with observed variants ("Eiffel Tower" / "La Tour Eiffel" / "Sagarmatha") and \`gradingNotes\` when a category-level acceptance pattern helps the reveal-time judge. No polarity gate, no plausibility gate (no distractors, no polarity to flip).
-3. Apply the IMAGE-IS-QUESTION GATE (shared definition above). (Dedup is handled by \`find_previous_subjects\` inside the subflow — do NOT run the text DUPLICATE CHECK GATE; the templated prompt would false-positive.)
+   COUNTABLE-SHAPE WARNING: when \`suggestedFreeformAnswerShape\` is \`"countable"\`, do NOT ask the player to COUNT things visible in the image ("how many colors / spots / people / windows / strings" — those are read straight off the picture and fail the VISUAL VERIFIABILITY GATE). Instead, FIRST identify the subject, then ask a count the player must KNOW and that is NOT visible in the frame ("How many moons does this planet have?" shown Jupiter; "How many official languages does this country have?" shown a flag). If the identified subject has no such known, off-frame count, ABANDON the countable framing and write a plain identification prompt ("What animal is this?") instead — the shape is a nudge, not a mandate.
+3. Apply the IMAGE-IS-QUESTION GATE (shared definition above), then the VISUAL VERIFIABILITY GATE (shared definition above). (Dedup is handled by \`find_previous_subjects\` inside the subflow — do NOT run the text DUPLICATE CHECK GATE; the templated prompt would false-positive.)
 4. DIFFICULTY GATE (shared definition above) — FREEFORM reframe rule.
 5. Choose 1–4 emojis. Compose \`media.altText\` (generic; never reveal the answer).
 6. HINT (optional): apply the HINT DRAFTING GATE (shared definition above).
@@ -478,6 +485,8 @@ The six visual paths share these gates + the subject-discovery subflow, then div
 ${IMAGE_INSPECTION_GATE}
 
 ${IMAGE_IS_QUESTION_GATE}
+
+${VISUAL_VERIFIABILITY_GATE}
 
 ${VISUAL_RESEARCH_SUBFLOW}
 

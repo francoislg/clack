@@ -44,6 +44,36 @@ describe("SEND_QUESTIONS_INSTRUCTIONS — visual (image-medium) paths", () => {
     assert.match(SEND_QUESTIONS_INSTRUCTIONS, /If I removed the image/);
   });
 
+  it("includes the visual verifiability gate banning perceptual/pixel-counting questions", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /VISUAL VERIFIABILITY GATE/);
+    assert.match(
+      SEND_QUESTIONS_INSTRUCTIONS,
+      /OBJECTIVE, CANONICAL FACT about the IDENTIFIED subject/,
+    );
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /perceptual judgment read off the pixels/);
+    // the exact failure class the user reported
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /how many distinct colors does this whale/i);
+    // all three visual path bodies invoke it
+    const occurrences = SEND_QUESTIONS_INSTRUCTIONS.match(/VISUAL VERIFIABILITY GATE/g) ?? [];
+    assert.ok(
+      occurrences.length >= 4,
+      `expected gate referenced in def + 3 path bodies, got ${occurrences.length}`,
+    );
+  });
+
+  it("re-anchors the freeform countable shape to known, off-frame facts, not pixel counts", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /COUNTABLE-SHAPE WARNING/);
+    assert.match(
+      SEND_QUESTIONS_INSTRUCTIONS,
+      /a count the player must KNOW and that is NOT visible in the frame/,
+    );
+    // strings are countable-in-frame → must appear on the INVALID side, not VALID
+    assert.match(
+      SEND_QUESTIONS_INSTRUCTIONS,
+      /"How many strings does this instrument have\?" \(just count them\)/,
+    );
+  });
+
   it("specifies the retry budget (3 candidates, 2 categories) then text fallback", () => {
     assert.match(SEND_QUESTIONS_INSTRUCTIONS, /up to 3 candidate re-rolls/);
     assert.match(SEND_QUESTIONS_INSTRUCTIONS, /up to 2 category re-rolls/);
