@@ -294,7 +294,9 @@ describe("freeformAnswerHandler", () => {
       await deps.scoped.saveAnswer({
         userId: "U1",
         questionId: question.id,
-        answerText: "Paris",
+        // Not the expected answer, so it reaches the (broken) judge rather than
+        // being accepted by the exact-match pre-check.
+        answerText: "Lyon",
         timestamp: 100,
       });
       const result = await freeformAnswerHandler.processReveal(question, deps);

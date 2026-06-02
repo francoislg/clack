@@ -1,6 +1,7 @@
 import type { ClackSdk } from "../../sdk.js";
 import type { TriviaFreeformAnswerShape } from "../core/configTypes.js";
 import type { TriviaQuestion } from "../core/types.js";
+import { isExactMatch } from "./normalize.js";
 
 /** One pending free-form submission to be judged. */
 export interface JudgeSubmission {
@@ -151,6 +152,13 @@ export async function judgeAnswer(
   answerText: string,
   opts: { maxAttempts?: number; logger?: { warn: (msg: string) => void } } = {},
 ): Promise<JudgeVerdict> {
+  // Deterministic exact-match short-circuit: an answer that normalizes equal to
+  // the expected answer (or any acceptable variant) is unambiguously correct, so
+  // accept it without a model call or the retry loop. Only ever ACCEPTS — a
+  // non-match falls through to the model judge unchanged.
+  if (isExactMatch(question, answerText)) {
+    return { correct: true, reason: "exact-match" };
+  }
   const maxAttempts = opts.maxAttempts ?? JUDGE_MAX_ATTEMPTS;
   const prompt = buildSingleJudgePrompt(question, answerText);
   let lastError = "unknown";
