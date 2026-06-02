@@ -67,7 +67,7 @@ export function createAttachIntegrationTool(
 ) {
   return tool(
     "attach_integration",
-    "Attach an external integration (MCP server + topic instructions) mid-session. Call this when the user's question matches one of the entries in the AVAILABLE INTEGRATIONS catalog. The integration's tools and instructions become available on your next turn.",
+    "Attach an external integration (MCP server + topic instructions) mid-session. Call this when the user's question matches one of the entries in the AVAILABLE INTEGRATIONS catalog. The integration's tools and instructions become available immediately — surface the new tools with ToolSearch and keep working in the SAME turn; do not end your turn waiting.",
     {
       name: z.string().describe("The integration name from the AVAILABLE INTEGRATIONS catalog."),
     },
@@ -195,12 +195,13 @@ export function createAttachIntegrationTool(
         logger.warn(`Failed to persist attach state for '${args.name}': ${message}`);
       }
 
-      // The unified resolver above either returned a server config (whose tools will land
-      // on the next turn via setMcpServers) or undefined (instructions-only — no MCP server
-      // and no plugin-registered handle exist for this name).
+      // The unified resolver above either returned a server config (whose tools are
+      // registered in-session via setMcpServers and usable in THIS turn — they land in
+      // the searchable pool, so ToolSearch surfaces them) or undefined (instructions-only
+      // — no MCP server and no plugin-registered handle exist for this name).
       const hasTopicInstructions = instructions.trim().length > 0;
       const kindNote = serverConfig
-        ? `New tools may now be available on the next turn.`
+        ? `Its tools are now registered. Call ToolSearch to surface them and use them to continue your work in THIS turn — do not end your turn waiting for a "next turn". If a tool call fails because the server is still connecting, just retry it.`
         : hasTopicInstructions
           ? `Instructions loaded. This integration has no callable tools — proceed using the integration's instructions.`
           : `This integration has no MCP server and no topic instructions — nothing arrives.`;

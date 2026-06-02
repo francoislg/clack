@@ -148,7 +148,8 @@ describe("attach_integration tool", () => {
     const text = toolResultText(result);
 
     assert.ok(text.includes("Attached integration: metabase"));
-    assert.ok(text.includes("New tools may now be available"));
+    assert.ok(text.includes("Its tools are now registered"));
+    assert.ok(text.includes("ToolSearch"));
     assert.ok(text.includes("Topic instructions for metabase"));
     assert.equal(setMcpServers.mock.calls.length, 1);
     assert.deepEqual(manager.attachedNames(), ["metabase"]);
@@ -349,7 +350,8 @@ describe("attach_integration tool", () => {
     const text = toolResultText(result);
 
     assert.ok(text.includes("Attached integration: myplugin:topic"));
-    assert.ok(text.includes("New tools may now be available"));
+    assert.ok(text.includes("Its tools are now registered"));
+    assert.ok(text.includes("ToolSearch"));
     assert.equal(setMcpServers.mock.calls.length, 1);
     assert.deepEqual(manager.attachedNames(), ["myplugin:topic"]);
     const updates = depMocks.updateSession.mock.calls[0]![1];
