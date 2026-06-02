@@ -51,6 +51,7 @@ export const en = {
   "hint.inline_prefix": "💡 _Hint:_ {text}",
   "hint.ephemeral_prefix": "💡 *Hint:* {text}",
   "hint.missing": "No hint available for this question.",
+  "hint.modal_title": "💡 Hint",
 
   // Freeform modal — shared.
   "modal.question_header": "Question ({category})",
@@ -132,6 +133,7 @@ export const fr: Partial<Record<keyof typeof en, string>> = {
   "hint.inline_prefix": "💡 _Indice :_ {text}",
   "hint.ephemeral_prefix": "💡 *Indice :* {text}",
   "hint.missing": "Aucun indice disponible pour cette question.",
+  "hint.modal_title": "💡 Indice",
 
   "modal.question_header": "Question ({category})",
 

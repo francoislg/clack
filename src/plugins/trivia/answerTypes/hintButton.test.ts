@@ -1,6 +1,6 @@
 import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
-import type { ChatPostEphemeralResponse } from "@slack/web-api";
+import type { ModalView, ViewsOpenResponse } from "@slack/web-api";
 import { extractQuestionIdFromActionId, installHintButtonHandler } from "./hintButton.js";
 import { createInMemoryDataLayer, FIXTURE_GAME_NAME } from "../testHelpers.js";
 import type { PluginActionHandler } from "../../sdk.js";
@@ -11,37 +11,35 @@ interface CapturedRegistration {
   handler: PluginActionHandler;
 }
 
-interface EphemeralCall {
-  channel: string;
-  user: string;
-  text: string;
-  thread_ts?: string;
+interface ViewsOpenCall {
+  trigger_id: string;
+  view: ModalView;
 }
 
 interface FakeSdk {
   registrations: CapturedRegistration[];
-  ephemerals: EphemeralCall[];
+  opened: ViewsOpenCall[];
   registerAction(pattern: string | RegExp, handler: PluginActionHandler): void;
   getSlackClient(): {
-    chat: { postEphemeral: (call: EphemeralCall) => Promise<ChatPostEphemeralResponse> };
+    views: { open: (call: ViewsOpenCall) => Promise<ViewsOpenResponse> };
   };
   t(key: string, vars?: Record<string, string>): string;
 }
 
 function fakeSdk(): FakeSdk {
   const registrations: CapturedRegistration[] = [];
-  const ephemerals: EphemeralCall[] = [];
+  const opened: ViewsOpenCall[] = [];
   return {
     registrations,
-    ephemerals,
+    opened,
     registerAction(pattern, handler) {
       registrations.push({ pattern, handler });
     },
     getSlackClient() {
       return {
-        chat: {
-          postEphemeral: async (call: EphemeralCall): Promise<ChatPostEphemeralResponse> => {
-            ephemerals.push(call);
+        views: {
+          open: async (call: ViewsOpenCall): Promise<ViewsOpenResponse> => {
+            opened.push(call);
             return { ok: true };
           },
         },
@@ -60,6 +58,7 @@ interface MinimalActionArgs {
     user: { id: string };
     channel: { id: string };
     message: { ts: string };
+    trigger_id?: string;
   };
   action: { action_id: string };
 }
@@ -68,9 +67,10 @@ type MinimalActionHandler = (args: MinimalActionArgs) => Promise<void> | void;
 
 async function invokeAction(
   reg: CapturedRegistration,
-  opts: { questionId: string; userId: string },
+  opts: { questionId: string; userId: string; triggerId?: string | null },
 ): Promise<{ ackCalled: boolean }> {
   let ackCalled = false;
+  const triggerId = opts.triggerId === undefined ? "trig.123" : opts.triggerId;
   const args: MinimalActionArgs = {
     ack: async () => {
       ackCalled = true;
@@ -79,12 +79,20 @@ async function invokeAction(
       user: { id: opts.userId },
       channel: { id: "C100000000" },
       message: { ts: "1700000000.000001" },
+      ...(triggerId !== null ? { trigger_id: triggerId } : {}),
     },
     action: { action_id: `plugin:trivia:hint:${opts.questionId}` },
   };
   const narrowed = reg.handler as MinimalActionHandler;
   await narrowed(args);
   return { ackCalled };
+}
+
+function modalText(view: ModalView): string {
+  return view.blocks
+    .filter((b): b is Extract<typeof b, { type: "section" }> => b.type === "section")
+    .map((b) => ("text" in b && b.text !== undefined ? b.text.text : ""))
+    .join("\n");
 }
 
 function makeQuestion(overrides: Partial<TriviaQuestion>): TriviaQuestion {
@@ -137,27 +145,26 @@ describe("installHintButtonHandler — button-mode hint", () => {
     assert.equal(result.ackCalled, true);
   });
 
-  it("first click posts ephemeral and adds user to clickedBy", async () => {
+  it("first click opens a modal and adds user to clickedBy", async () => {
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(makeQuestion({ hint: { mode: "button", text: "A primary color." } }));
     await invokeAction(sdk.registrations[0], { questionId: "QH1", userId: "U1" });
-    assert.equal(sdk.ephemerals.length, 1);
-    const ephemeral = sdk.ephemerals[0];
-    assert.equal(ephemeral.user, "U1");
-    assert.equal(ephemeral.channel, "C100000000");
-    assert.equal(ephemeral.thread_ts, "1700000000.000001");
-    assert.match(ephemeral.text, /A primary color/);
+    assert.equal(sdk.opened.length, 1);
+    const call = sdk.opened[0];
+    assert.equal(call.trigger_id, "trig.123");
+    assert.equal(call.view.type, "modal");
+    assert.match(modalText(call.view), /A primary color/);
     const updated = (await scoped.loadQuestions()).find((q) => q.id === "QH1");
     assert.deepEqual(updated?.hint?.clickedBy, ["U1"]);
   });
 
-  it("repeat click from same user posts fresh ephemeral, clickedBy unchanged", async () => {
+  it("repeat click from same user opens fresh modal, clickedBy unchanged", async () => {
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(
       makeQuestion({ hint: { mode: "button", text: "A primary color.", clickedBy: ["U1"] } }),
     );
     await invokeAction(sdk.registrations[0], { questionId: "QH1", userId: "U1" });
-    assert.equal(sdk.ephemerals.length, 1);
+    assert.equal(sdk.opened.length, 1);
     const updated = (await scoped.loadQuestions()).find((q) => q.id === "QH1");
     assert.deepEqual(updated?.hint?.clickedBy, ["U1"]);
   });
@@ -172,22 +179,36 @@ describe("installHintButtonHandler — button-mode hint", () => {
     assert.deepEqual(updated?.hint?.clickedBy?.sort(), ["U1", "U2"]);
   });
 
-  it("missing-hint fallback posts no-hint ephemeral and skips clickedBy update", async () => {
+  it("missing-hint fallback opens a no-hint modal and skips clickedBy update", async () => {
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(makeQuestion({}));
     await invokeAction(sdk.registrations[0], { questionId: "QH1", userId: "U1" });
-    assert.equal(sdk.ephemerals.length, 1);
-    assert.equal(sdk.ephemerals[0].text, "hint.missing");
+    assert.equal(sdk.opened.length, 1);
+    assert.match(modalText(sdk.opened[0].view), /hint\.missing/);
     const updated = (await scoped.loadQuestions()).find((q) => q.id === "QH1");
     assert.equal(updated?.hint, undefined);
   });
 
-  it("question text precedes hint label in ephemeral body", async () => {
+  it("question text precedes hint label in the modal body", async () => {
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(makeQuestion({ hint: { mode: "button", text: "A primary color." } }));
     await invokeAction(sdk.registrations[0], { questionId: "QH1", userId: "U1" });
-    const lines = sdk.ephemerals[0].text.split("\n");
+    const lines = modalText(sdk.opened[0].view).split("\n");
     assert.match(lines[0], /Water boils/);
-    assert.match(lines[1], /A primary color/);
+    assert.match(lines[lines.length - 1], /A primary color/);
+  });
+
+  it("missing trigger_id — warns and returns without opening a modal", async () => {
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(makeQuestion({ hint: { mode: "button", text: "A primary color." } }));
+    const result = await invokeAction(sdk.registrations[0], {
+      questionId: "QH1",
+      userId: "U1",
+      triggerId: null,
+    });
+    assert.equal(result.ackCalled, true);
+    assert.equal(sdk.opened.length, 0);
+    const updated = (await scoped.loadQuestions()).find((q) => q.id === "QH1");
+    assert.deepEqual(updated?.hint?.clickedBy, undefined);
   });
 });
