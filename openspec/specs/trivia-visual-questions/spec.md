@@ -107,7 +107,7 @@ When an image roll lands on a category for which no usable visual subject can be
 
 Image sources are external Clack plugins that expose MCP tools. The trivia plugin does NOT contain any image-source code, registry, or router. Each image-search plugin is delivered as its own OpenSpec change (`add-commons-image-search-plugin`, `add-brave-image-search-plugin`, etc.). This requirement documents the contract those plugins MUST follow so the trivia prompt can use them uniformly.
 
-**Tool naming.** Any MCP tool whose name contains the substring `image_search` SHALL be treated as an image-source provider by the trivia visual-research subflow. Examples: `mcp__commons_image_search__find_subject`, `mcp__brave_image_search__find_image`, `mcp__tmdb_image_search__find_movie`.
+**Tool discovery — by description, not by name.** The trivia visual-research subflow SHALL discover image sources by reading each available tool's **description**, NOT by matching a substring in the tool's name. A tool is an image source when its description identifies it as one for trivia: it accepts a subject `query` and returns an image inline plus the metadata block defined below. Tool names are NOT load-bearing for discovery. Plugin authors SHOULD give image tools a recognizable name (e.g. ending in `-image-search`) as a human-readability aid, but the binding signals are the description and the return/error contract. (Built-in plugins register under hyphenated server names, so their tools resolve to e.g. `mcp__commons-image-search__find_subject` and `mcp__brave-image-search__find_image` — the Agent SDK uses the MCP server name verbatim, with no hyphen→underscore conversion.)
 
 **Argument contract.** Each image-search tool SHALL accept at minimum:
 
@@ -171,7 +171,7 @@ The trivia plugin neither knows the list of available image-search plugins nor r
 
 #### Scenario: Image-search plugin returns a data-mode multimodal result
 
-- **GIVEN** a Commons image-search plugin is installed and exposes `mcp__commons_image_search__find_subject(query)`
+- **GIVEN** a Commons image-search plugin is installed and exposes a `find_subject(query)` tool described as a trivia image source (resolved name `mcp__commons-image-search__find_subject`)
 - **WHEN** Claude calls the tool with `query: "Eiffel Tower"`
 - **THEN** the tool downloads the upstream thumbnail and returns a multimodal result with an image content block `{ type: "image", data: "<base64>", mimeType: "image/jpeg" }` (bytes ≤ 5 MB) AND a text content block `{ source: "commons", subjectId: "wikidata:Q243", title: "Eiffel Tower", imageUrl: "https://upload.wikimedia.org/.../thumbnail.jpg", license: "CC-BY-SA 4.0", attribution: "...", format: "data" }`
 
@@ -190,8 +190,8 @@ The trivia plugin neither knows the list of available image-search plugins nor r
 #### Scenario: No image-search tool available — visual path short-circuits to text
 
 - **GIVEN** trivia rolls `suggestedPromptMedium: "image"`
-- **AND** Claude's tool list contains no tool with `image_search` in its name (no image-search plugin installed)
-- **WHEN** the visual research subflow reaches step 3 (tool selection)
+- **AND** Claude surveys its available tools and none is described as a trivia image source (no image-search plugin installed)
+- **WHEN** the visual research subflow reaches its tool-selection step
 - **THEN** the subflow aborts the visual path without consuming the retry budget and falls back to the text-medium prompt path for the same `answersFormat × questionType`; no errors surface to end users
 
 ### Requirement: Claude inspects the image before writing the question
@@ -203,7 +203,7 @@ The visual research subflow in the question-posting prompt SHALL include an **im
 3. **Answer leakage.** Does the image contain text, captions, watermarks, labels, or any other in-image content that reveals the answer?
 4. **Distinguishing features.** What is visually evident in the image that can inform distractor choice (for choice template) or identity-swap selection (for boolean claim template)?
 
-If checks (1), (2), or (3) fail, Claude SHALL re-roll the research subflow — either by calling the same image-search tool with a different `query`, by switching to a different available `*_image_search__*` tool, or by moving to a different category from `categories.ideas`. The failure is silent (no tool error) — same pattern as the duplicate-detection step.
+If checks (1), (2), or (3) fail, Claude SHALL re-roll the research subflow — either by calling the same image-search tool with a different `query`, by switching to a different available image-search tool, or by moving to a different category from `categories.ideas`. The failure is silent (no tool error) — same pattern as the duplicate-detection step.
 
 **Retry budget**: up to 3 candidate re-rolls within the same category, then up to 2 category re-rolls (moving to a different entry in `categories.ideas`). When all attempts are exhausted, the visual path SHALL abort and re-roll the entire `get_ideas` call once. The re-roll MAY yield `suggestedPromptMedium: "text"`, which is the expected graceful-degradation outcome (a text question instead of failing the cron fire entirely).
 

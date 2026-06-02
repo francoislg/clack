@@ -22,14 +22,31 @@ what your installed plugins cover well. An image roll on a poorly-covered catego
 text question (graceful — no error). With `image` weight at 0 (the default) **or** no image-search
 plugin installed, behavior is identical to text-only trivia.
 
-## Tool naming
+## Tool discovery — by description, not by name
 
-Any MCP tool whose **name contains the substring `image_search`** is treated as an image-source
-provider by trivia's visual-research subflow. Examples:
+Trivia's visual-research subflow discovers image sources by reading each available tool's
+**description**, NOT by matching a substring in the tool's name. A tool is treated as an image
+source when its description identifies it as one: it accepts a subject `query` and returns an
+image inline plus the metadata block defined below. **Tool names are not load-bearing.**
 
-- `mcp__commons_image_search__find_subject` — Wikipedia / Wikimedia Commons
-- `mcp__brave_image_search__find_image` — Brave Search Images (generic web)
-- `mcp__tmdb_image_search__find_movie` — TMDB (hypothetical future plugin)
+> **Why not a name convention?** An earlier draft of this contract required the substring
+> `image_search` in the tool name. That broke silently: the SDK uses the plugin's MCP server name
+> **verbatim** (no hyphen→underscore conversion), so the built-in plugins' tools actually resolve to
+> `mcp__commons-image-search__find_subject` / `mcp__brave-image-search__find_image` — which do not
+> contain `image_search`. Discovery now keys off the description (which Claude reads anyway to pick a
+> category-appropriate tool), so a naming slip can't disable a source.
+
+Write a description that makes the tool's purpose and coverage unambiguous — that text IS the
+contract Claude matches against. State that it takes a subject query, returns an inline image plus
+metadata, and what subjects it covers well (see the shipped plugins' descriptions for the pattern).
+Examples of well-covered sources:
+
+- Wikipedia / Wikimedia Commons (`mcp__commons-image-search__find_subject`) — flags, people, landmarks, paintings
+- Brave Search Images (`mcp__brave-image-search__find_image`) — generic web, long-tail subjects
+- TMDB (a hypothetical future `mcp__tmdb-image-search__find_movie`) — film / TV
+
+A recognizable name is **recommended** for human readability (the shipped plugins use the
+`*-image-search` server name), but it is not required and is never matched.
 
 Register the tool on the plugin's **always-on default server** (`sdk.registerTool(...)`) so it is
 available to trivia's scheduled-run prompt without an `attach_integration` step.

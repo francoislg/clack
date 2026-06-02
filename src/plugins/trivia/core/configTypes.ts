@@ -52,7 +52,7 @@ export type TriviaQuestionTypeWeights = Record<"fact" | "topical", number>;
 /**
  * Weighted-random map for the orthogonal prompt-delivery medium axis. `text` questions
  * are delivered as text (today's behavior); `image` questions are delivered with an image
- * prompt sourced from an external `*_image_search__*` MCP tool. Defaults to
+ * prompt sourced from an external image-search MCP tool. Defaults to
  * `{ text: 1, image: 0 }` (pre-visual behavior). Cascades slot → season → game →
  * workspace → default like the other weighted axes.
  */

@@ -127,7 +127,7 @@ export function createSaveQuestionTool(
         })
         .optional()
         .describe(
-          'Image payload — REQUIRED when promptMedium is "image", FORBIDDEN otherwise. Sourced from the `*_image_search__*` tool\'s metadata block.',
+          'Image payload — REQUIRED when promptMedium is "image", FORBIDDEN otherwise. Sourced from the image-search tool\'s metadata block.',
         ),
       // Every other field is sourced from the shared handler schema so the
       // tool's args type and the handler's `SaveQuestionArgs` can't drift.

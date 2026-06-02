@@ -12,10 +12,10 @@ import {
 // `WebSearch` is intentionally NOT in this list — it is a built-in Claude tool, globally
 // enabled at session start in `src/claude/index.ts` (see `tools` array). Topical questions
 // (`questionType: "topical"`) rely on it; the prompt instructs Claude to call it directly.
-// NOTE: image-search tools (`mcp__*_image_search__*`) are intentionally NOT listed here.
-// They come from independently-installed external plugins; the visual-research subflow
-// discovers whatever is available at runtime via Claude's tool list. Adding them here
-// would couple trivia's schedule to a specific image-search plugin being installed.
+// NOTE: image-search tools are intentionally NOT listed here. They come from
+// independently-installed external plugins; the visual-research subflow discovers
+// whatever is available at runtime by tool description (not by a name convention).
+// Adding them here would couple trivia's schedule to a specific image-search plugin being installed.
 const QUESTION_REQUIRED_TOOLS = [
   "mcp__trivia__get_ideas",
   "mcp__trivia__find_previous_questions",

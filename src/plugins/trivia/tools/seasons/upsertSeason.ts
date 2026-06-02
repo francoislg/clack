@@ -122,7 +122,7 @@ export function createUpsertSeasonTool(
         .nullable()
         .optional()
         .describe(
-          "Optional per-season prompt-medium weights (text/image). `image` requires an installed `*_image_search__*` plugin at run time. On UPDATE: passing `null` clears the field. Mid-season mutation permitted.",
+          "Optional per-season prompt-medium weights (text/image). `image` requires an installed image-search plugin at run time. On UPDATE: passing `null` clears the field. Mid-season mutation permitted.",
         ),
       freeformAnswerShape: freeformAnswerShapeZod
         .nullable()

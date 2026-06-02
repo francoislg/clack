@@ -1,3 +1,5 @@
+> **Note — discovery convention superseded.** This proposal's references to the `*_image_search__*` tool-name convention are superseded by `fix-visual-trivia-tool-discovery`: trivia now discovers image sources by tool **description**, not by a name substring. Tool names are no longer matched (and resolve with hyphens, e.g. `mcp__brave-image-search__find_image`). Reconcile the wording here when this change is next worked on.
+
 ## Why
 
 `add-trivia-visual-questions` defines an external MCP tool contract for image search, and `add-commons-image-search-plugin` covers canonical Wikipedia/Commons subjects (flags, people, landmarks, paintings, history, animals). What's left is the **long tail**: movie scene stills, TV stills, video game characters, anime character art outside Jikan's coverage, comic characters, regional figures missing from English Wikipedia, contemporary pop culture, and arbitrary generic subjects ("smiling capybara in a hot spring"). For these, no specialized free API exists — what *does* exist is generic web image search.
