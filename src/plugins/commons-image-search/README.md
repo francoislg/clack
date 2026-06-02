@@ -1,6 +1,6 @@
 # commons-image-search
 
-A keyless image-search plugin for visual trivia, backed by **Wikipedia REST** (`/page/summary`) and the **Wikimedia Commons API** (`imageinfo`). It exposes one MCP tool — `mcp__commons_image_search__find_subject(query)` — that the trivia visual-questions subflow discovers at runtime by the `*_image_search__*` naming convention.
+A keyless image-search plugin for visual trivia, backed by **Wikipedia REST** (`/page/summary`) and the **Wikimedia Commons API** (`imageinfo`). It exposes one MCP tool — `mcp__commons-image-search__find_subject(query)` — that the trivia visual-questions subflow discovers at runtime by the tool's **description** (it self-identifies as an image source that returns an inline image plus metadata; tool names are not matched).
 
 ## What it handles well
 

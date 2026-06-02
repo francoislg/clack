@@ -395,11 +395,11 @@ const VISUAL_VERIFIABILITY_GATE = `VISUAL VERIFIABILITY GATE (shared across all 
 const VISUAL_RESEARCH_SUBFLOW = `VISUAL RESEARCH SUBFLOW (subject discovery — shared by all 6 visual paths; the statement-writing half diverges per answersFormat below):
    a. Pick one category from \`categories.ideas\` (the SAME pool as text medium — there is no separate visual pool).
    b. Brainstorm 3–5 candidate subjects in that category. (For \`topical\` variants, the TOPICAL MODIFIER's WebSearch step runs FIRST and grounds these candidates in a recent event.)
-   c. PICK AN IMAGE-SEARCH TOOL: scan your available tools for any whose NAME contains \`image_search\` (e.g. \`mcp__commons_image_search__find_subject\`, \`mcp__brave_image_search__find_image\`, \`mcp__tmdb_image_search__find_movie\`). Choose the one whose description best fits the rolled category (Commons for flags / people / landmarks / paintings; a movies-or-TV source for film; generic web search as the long-tail fallback). **If NO \`*_image_search__*\` tool is available, ABORT the visual path IMMEDIATELY — do NOT consume the retry budget — and fall back to the TEXT-medium path for the same \`answersFormat × questionType\` (treat this run as a text roll). This is the graceful "no image provider installed" path; no error surfaces.**
+   c. PICK AN IMAGE-SEARCH TOOL: survey your available tools and identify any whose DESCRIPTION marks it as a trivia image source — it takes a subject \`query\` and returns an image inline plus a \`{ source, subjectId, title, imageUrl, … }\` metadata block. Judge by the description, NOT by the tool's name (names are not load-bearing — e.g. \`mcp__commons-image-search__find_subject\`, \`mcp__brave-image-search__find_image\`). Choose the one whose description best fits the rolled category (e.g. a Wikimedia/Commons source for flags / people / landmarks / paintings; a movies-or-TV source for film; a generic web-image search as the long-tail fallback). **If NONE of your available tools is such an image source, ABORT the visual path IMMEDIATELY — do NOT consume the retry budget — and fall back to the TEXT-medium path for the same \`answersFormat × questionType\` (treat this run as a text roll). This is the graceful "no image provider installed" path; no error surfaces.**
    d. Call the chosen tool with \`query: <candidate subject>\`. It returns a multimodal result: an inline image block PLUS a text metadata block carrying \`{ source, subjectId, title, imageUrl, license?, attribution? }\`. (On a structured error — notFound / rateLimit / network / keyMissing / etc. — treat it as a failed candidate and re-roll per the retry budget.)
    e. Apply the IMAGE INSPECTION GATE (shared definition above) on the returned image.
    f. Parse \`subjectId\` from the metadata block and call \`find_previous_subjects({ game: "{game}", subjectId })\`. If it returns ANY match, this subject was already asked about — re-roll.
-   g. RETRY BUDGET (covers inspection-gate failures, image-is-question-gate failures, tool errors, and dedup hits): up to 3 candidate re-rolls within the same category (a different \`query\`, OR a different available \`*_image_search__*\` tool), THEN up to 2 category re-rolls (a different entry in \`categories.ideas\`). If all attempts are exhausted, ABORT the visual path and fall back to the TEXT-medium path for the same \`answersFormat × questionType\`.
+   g. RETRY BUDGET (covers inspection-gate failures, image-is-question-gate failures, tool errors, and dedup hits): up to 3 candidate re-rolls within the same category (a different \`query\`, OR a different available image-search tool), THEN up to 2 category re-rolls (a different entry in \`categories.ideas\`). If all attempts are exhausted, ABORT the visual path and fall back to the TEXT-medium path for the same \`answersFormat × questionType\`.
    The subject's \`title\`, \`imageUrl\`, \`subjectId\`, \`license\`, \`attribution\`, plus a \`altText\` you compose become the \`media\` object passed to save_question.`;
 
 const VISUAL_CHOICE_FLOW_STEPS = `1. Run the VISUAL RESEARCH SUBFLOW (shared definition above) to discover + inspect a subject. get_ideas also returned \`suggestedChoiceCount\` and \`suggestedCorrectIndex\` — honor both exactly.
@@ -437,7 +437,7 @@ const PER_SLOT_GENERATION_PATHS = `Per-question/per-slot generation DISPATCHES o
 
 PROMPT-MEDIUM DISPATCH (FIRST — read \`suggestedPromptMedium\`):
 - \`"text"\` (default): use the TEXT-MEDIUM path bodies below (boolean / choice / freeform), selected by \`suggestedAnswersFormat\` and modified by \`suggestedQuestionType\` exactly as before.
-- \`"image"\`: use the IMAGE-MEDIUM (VISUAL) path bodies below. ALL six visual paths first run the VISUAL RESEARCH SUBFLOW (which short-circuits to text when no \`*_image_search__*\` tool is installed), then diverge on \`suggestedAnswersFormat\`. \`suggestedQuestionType: "topical"\` layers the TOPICAL MODIFIER on top (its WebSearch step grounds the SUBJECT in a recent event before the subflow searches for its image).
+- \`"image"\`: use the IMAGE-MEDIUM (VISUAL) path bodies below. ALL six visual paths first run the VISUAL RESEARCH SUBFLOW (which short-circuits to text when no image-search tool is available), then diverge on \`suggestedAnswersFormat\`. \`suggestedQuestionType: "topical"\` layers the TOPICAL MODIFIER on top (its WebSearch step grounds the SUBJECT in a recent event before the subflow searches for its image).
 
 Within either medium, the answer-shape axis (boolean / choice / freeform) selects ONE OF THREE PATH BODIES. The question-type axis (fact / topical) is a MODIFIER: \`"fact"\` runs the path body unchanged; \`"topical"\` applies the TOPICAL MODIFIER (which prepends a WebSearch step and adds save fields) on top of the same path body.
 
@@ -480,7 +480,7 @@ ${TOPICAL_MODIFIER}
 
 === IMAGE-MEDIUM (VISUAL) PATHS (used when suggestedPromptMedium === "image") ===
 
-The six visual paths share these gates + the subject-discovery subflow, then diverge on answersFormat. The VISUAL RESEARCH SUBFLOW short-circuits to the text path when no \`*_image_search__*\` tool is installed, so these paths are safe to attempt unconditionally.
+The six visual paths share these gates + the subject-discovery subflow, then diverge on answersFormat. The VISUAL RESEARCH SUBFLOW short-circuits to the text path when no image-search tool is available, so these paths are safe to attempt unconditionally.
 
 ${IMAGE_INSPECTION_GATE}
 
@@ -932,9 +932,9 @@ Create via create_scheduled_message with:
     "mcp__trivia__find_previous_subjects",
     "mcp__trivia__save_question"
   ]
-  NOTE: do NOT add any \`*_image_search__*\` tool to this list. Image-search tools come from
+  NOTE: do NOT add any image-search tool to this list. Image-search tools come from
   separately-installed external plugins; the visual-research subflow discovers whatever is
-  available at runtime. Hard-coding one here would couple the schedule to that plugin being installed.
+  available at runtime (by tool description). Hard-coding one here would couple the schedule to that plugin being installed.
 - prompt: "Call send_questions_instructions and follow the returned instructions exactly."
 
 ## Schedule B — Process responses

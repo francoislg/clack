@@ -1,6 +1,6 @@
 # brave-image-search
 
-A generic web-image-search plugin for visual trivia, backed by the **Brave Search Images API**. It exposes one MCP tool — `mcp__brave_image_search__find_image(query)` — discovered by trivia's visual-questions subflow via the `*_image_search__*` naming convention. It is the **last-resort fallback** for the long tail that the Commons plugin can't cover.
+A generic web-image-search plugin for visual trivia, backed by the **Brave Search Images API**. It exposes one MCP tool — `mcp__brave-image-search__find_image(query)` — discovered by trivia's visual-questions subflow via the tool's **description** (it self-identifies as an image source returning an inline image plus metadata; tool names are not matched). It is the **last-resort fallback** for the long tail that the Commons plugin can't cover.
 
 ## What it's for
 

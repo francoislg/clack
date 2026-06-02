@@ -25,14 +25,22 @@ describe("SEND_QUESTIONS_INSTRUCTIONS — visual (image-medium) paths", () => {
     assert.match(SEND_QUESTIONS_INSTRUCTIONS, /grounds the SUBJECT in a recent event/);
   });
 
-  it("encodes the VISUAL RESEARCH SUBFLOW with runtime tool discovery", () => {
+  it("encodes the VISUAL RESEARCH SUBFLOW with description-based tool discovery", () => {
     assert.match(SEND_QUESTIONS_INSTRUCTIONS, /VISUAL RESEARCH SUBFLOW/);
-    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /image_search/);
+    // Discovery is by tool DESCRIPTION, not by a name-substring convention.
+    assert.match(
+      SEND_QUESTIONS_INSTRUCTIONS,
+      /whose DESCRIPTION marks it as a trivia image source/,
+    );
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /Judge by the description, NOT by the tool/);
     assert.match(SEND_QUESTIONS_INSTRUCTIONS, /find_previous_subjects/);
   });
 
-  it("short-circuits to text when no image-search tool is installed", () => {
-    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /no .*image_search.* tool is available/i);
+  it("short-circuits to text when no image-search tool is available", () => {
+    assert.match(
+      SEND_QUESTIONS_INSTRUCTIONS,
+      /NONE of your available tools is such an image source/i,
+    );
     assert.match(SEND_QUESTIONS_INSTRUCTIONS, /fall back to the TEXT-medium path/);
     assert.match(SEND_QUESTIONS_INSTRUCTIONS, /do NOT consume the retry budget/i);
   });

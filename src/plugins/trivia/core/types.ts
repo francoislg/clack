@@ -37,7 +37,7 @@ export type TriviaQuestionType = "fact" | "topical";
  * - `"text"` → the prompt is delivered as text (today's behavior).
  * - `"image"` → the prompt is an image; the record carries a `media` object whose
  *   `url` is rendered in the message's `image` block. Sourced from an external
- *   `*_image_search__*` MCP tool (see the trivia-visual-questions capability).
+ *   image-search MCP tool (see the trivia-visual-questions capability).
  *
  * Absence reads as `"text"` everywhere — legacy and text-medium rows omit the field.
  */

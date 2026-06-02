@@ -1,3 +1,5 @@
+> **Note — discovery convention superseded.** This proposal's references to the `*_image_search__*` tool-name convention are superseded by `fix-visual-trivia-tool-discovery`: trivia now discovers image sources by tool **description**, not by a name substring. Tool names are no longer matched (and resolve with hyphens, e.g. `mcp__commons-image-search__find_subject`). Reconcile the wording here when this change is next worked on.
+
 ## Why
 
 The `add-trivia-visual-questions` change defines an external MCP tool contract for image search but ships no image-source code. Visual trivia rounds remain non-functional until at least one image-search plugin is installed. Wikimedia Commons (paired with Wikipedia REST) is the natural first plugin: keyless, free, broad coverage of canonical subjects (flags, people, landmarks, paintings, history, currency, animals), generous rate limits, and well-defined license/attribution metadata. Once this plugin is installed, every visual trivia category in the seed pool that maps to Commons-canonical subjects becomes immediately playable.
